@@ -53,8 +53,9 @@ Get the package for your system from the
 </table>
 
 1. Unpack the package into a folder of its own.
-2. Start `recharged` (`recharged.exe` on Windows).
-3. In the launcher, choose your disc image and press **Play**.
+2. Start `recharged` (`recharged.exe` on Windows, `Recharged.app` on macOS).
+3. In the launcher, add the folder with your game image (or choose the image)
+   and press **Play**.
 
 The **[install guide](docs/INSTALL.md)** covers the first-start prompts of
 Windows and macOS. Steam Deck owners should follow the
@@ -75,7 +76,8 @@ updates Recharged in place when you agree.
   while the game keeps its original speed.
 - **Optional tweaks**, all off by default: skip the intro, fast menus, no Mega
   Strikes, unlock everything, CPU vs CPU, fast terrain, Thunder Island walls,
-  mirror matches and blue Peach. Three bugs of the original game are fixed.
+  mirror matches, blue Peach and no HUD. Three bugs of the original game are
+  fixed.
 - **A launcher** that checks your disc, keeps every setting in one place and
   updates itself in place.
 
@@ -87,8 +89,8 @@ See the **[feature list](docs/FEATURES.md)** and the
 Recharged needs your own, legally obtained copy of the game as an `.iso` or
 `.rvz` disc image, which it reads directly from where you keep it. No game
 files are included, and this project cannot help you obtain them. The launcher
-checks the image and tells you if it is not the supported version; renaming a
-file does not change its version.
+lists the images in your game folders, checks each one and tells you which
+versions it runs; renaming a file does not change its version.
 
 ## Questions
 

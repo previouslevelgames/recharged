@@ -2,6 +2,7 @@
 # Paths are relative to this INI file. Absolute paths also work.
 # ISO and RVZ are read directly; no extraction or conversion is needed.
 [game]
+# The image Play starts (the launcher's pinned image).
 disc = game/R4QE01.rvz
 
 # Game text: auto, or a language of the disc: english, french or spanish
@@ -12,6 +13,13 @@ language = auto
 # Folder for the game's Wii saves. Empty: data/nand next to the program.
 # A different folder starts without saves.
 save_folder = ""
+
+# The launcher's image library: folders with your game images (up to 16). The
+# launcher lists the Mario Strikers Charged images in them; Use this image sets
+# disc above. folderN_subfolders = true also lists the images in subfolders.
+#[library]
+#folder1 = "game"
+#folder1_subfolders = true
 
 [display]
 width = 1280
@@ -174,6 +182,9 @@ shake_nunchuk = Q
 # knocked players are electrocuted instead of falling off. Online unchanged.
 # blue_peach: Peach's team wears her unused blue kit on the field (Peach,
 # sidekicks, goalie); menus, Mega Strike hand, banners and crowd stay pink.
+# no_hud: matches start without the scoreboard, player markers and captions
+# (H shows or hides them in a match); the Mega Strike meter and its defence
+# stay.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
@@ -183,6 +194,7 @@ fast_terrain = false
 mirror_match = false
 thunder_island_walls = false
 blue_peach = false
+no_hud = false
 
 [advanced]
 # Backend graphics debug layers (slower; turn on for bug reports). WebGPU
@@ -195,6 +207,9 @@ log_level = info
 verbose_console = false
 # Record frame times to a new CSV and summary in the logs folder each session.
 frame_logging = false
+# Windows and macOS: show the log in a separate window (Terminal on macOS)
+# while the program runs. Closing it does not stop the game.
+log_window = false
 
 [launcher]
 # Launcher interface size: auto, or a percentage from 75 to 200.

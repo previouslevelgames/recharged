@@ -273,18 +273,42 @@ checksum = "{self.checksum}"
         with self.assertRaisesRegex(PACKAGER.PackageError, "not only the launcher"):
             self.package()
 
-    def test_macos_uses_configured_target_and_preserves_module_name(self):
+    def use_macos_build(self):
         self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
                    b'set(CMAKE_SYSTEM_NAME "Darwin")\nset(CMAKE_SYSTEM_PROCESSOR "arm64")\n')
         for stem in PACKAGER.MODULES:
             (self.build / (stem + ".so")).rename(self.build / (stem + ".dylib"))
+        for item in PACKAGER.MACOS_APP_FILES:
+            self.write(self.build, "Recharged.app/" + item, b"synthetic bundle " + item.encode(),
+                       0o755 if item.endswith("/recharged") else 0o644)
+
+    def test_macos_uses_configured_target_and_preserves_module_name(self):
+        self.use_macos_build()
         path = self.package()
         self.assertTrue(path.name.endswith("-macos-arm64.tar.gz"))
         with tarfile.open(path) as archive:
             member = next(item for item in archive if item.name.endswith("/SOURCE-MANIFEST.json"))
             manifest = json.load(archive.extractfile(member))
+            root = member.name.rsplit("/", 1)[0]
+            script = archive.extractfile(root + "/recharged").read()
         self.assertEqual((manifest["platform"], manifest["architecture"]), ("macos", "arm64"))
         self.assertEqual(manifest["modules"], [stem + ".dylib" for stem in PACKAGER.MODULES])
+        # The app as built, and a start script instead of the plain program.
+        for item in PACKAGER.MACOS_APP_FILES:
+            self.assertIn("Recharged.app/" + item, manifest["files"])
+        self.assertEqual(manifest["files"]["Recharged.app/Contents/MacOS/recharged"]["mode"], "0o755")
+        self.assertEqual(manifest["files"]["recharged"]["mode"], "0o755")
+        self.assertEqual(script, PACKAGER.MACOS_START_SCRIPT)
+
+    def test_macos_requires_the_app_as_built(self):
+        self.use_macos_build()
+        (self.build / "Recharged.app/Contents/_CodeSignature/CodeResources").unlink()
+        with self.assertRaisesRegex(PACKAGER.PackageError, "CodeResources"):
+            self.package()
+        self.write(self.build, "Recharged.app/Contents/_CodeSignature/CodeResources", b"signature")
+        self.write(self.build, "Recharged.app/Contents/Resources/stale.txt", b"left over")
+        with self.assertRaisesRegex(PACKAGER.PackageError, "unexpected files: Contents/Resources/stale.txt"):
+            self.package()
 
     def test_steamdeck_package_records_requirements_within_steamos(self):
         path = self.package(steamdeck=True)

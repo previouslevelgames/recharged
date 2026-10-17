@@ -675,6 +675,9 @@ fs::path InstalledLauncher(const fs::path& base)
 {
 #ifdef _WIN32
     const char* const names[] = {"recharged.exe", "mscharged.exe"};
+#elif defined(__APPLE__)
+    // The app's program; packages before Recharged.app had only the plain one.
+    const char* const names[] = {"Recharged.app/Contents/MacOS/recharged", "recharged", "mscharged"};
 #else
     const char* const names[] = {"recharged", "mscharged"};
 #endif

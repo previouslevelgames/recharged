@@ -18,6 +18,8 @@ KeyBinding ParseKeyBinding(std::string_view text);
 std::string FormatKeyBinding(const KeyBinding& binding);
 KeyBindings ParseKeyBindings(const std::array<std::string, KeyActionCount>& texts);
 KeyBindings DefaultKeyBindings();
-// The host screenshot key, which no action may take.
+// The host screenshot key and the key that shows or hides the match HUD
+// (No HUD, issue #58), which no action may take.
 inline constexpr SDL_Scancode kScreenshotKey = SDL_SCANCODE_P;
+inline constexpr SDL_Scancode kHudKey = SDL_SCANCODE_H;
 } // namespace mscharged::platform

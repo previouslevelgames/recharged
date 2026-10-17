@@ -2,8 +2,8 @@
 
 Everything the launcher sets is saved in `recharged.ini` beside the program;
 [`recharged.ini.example`](../recharged.ini.example) explains every key. This
-page covers the settings that need more than a label: graphics, audio, Wii
-Remotes, saves, updates and command-line options. For installing, see the
+page covers the settings that need more than a label: game images, graphics,
+audio, Wii Remotes, saves, updates and command-line options. For installing, see the
 [install guide](INSTALL.md); for the full list of features and controls, the
 [feature list](FEATURES.md).
 
@@ -16,12 +16,41 @@ Everything stays in the program folder:
 | `recharged.ini` | Your settings (older versions: `mscharged.ini`, copied at the first start) |
 | `data/nand/` | The game's Wii saves (or the folder set under *Game → Save data*) |
 | `data/pipeline_cache.db` | Compiled shaders for your graphics card |
+| `data/launcher/` | What the launcher found in your game images, and their banners |
 | `logs/recharged.log` | The log of the last run |
 | `screenshots/` | Screenshots taken with **P**, in the folder the game was started from |
 
 Updates replace only the program's own files; these stay. If the program
 folder is not writable, the log goes to your user's application data folder
 instead.
+
+## Game images
+
+**Image library.** *Game → Image library* lists the Mario Strikers Charged
+images (`.iso`, `.rvz`) in your game folders: title, region, revision, game ID,
+format, size and file name. **Add folder...** (or dropping a folder onto the
+launcher) adds a folder, *Subfolders* also lists the images up to four levels
+below it, and drives or memory cards that are not connected show *Not
+available* until they are. Images of other games are left out. Images are
+checked in the background and remembered; an unchanged file is not opened
+again, and **Refresh** looks through the folders once more.
+
+**Pinned image.** Play always starts the pinned image (`[game] disc`). Only you
+change it: **Use this image** in the library, **Browse for an image...**, or
+dropping an image onto the launcher. Images of versions this build cannot run
+yet are listed with the reason but cannot be pinned. If the pinned image moves
+or its drive is not connected, Play explains which release is missing and
+offers **Locate...**, a copy of the same release from the library, or another
+image; it never switches by itself.
+
+**Banners.** The small horizontal pictures are the banners the game puts into
+its Wii save, one per region. The launcher reads each one from your own image
+and keeps a copy in `data/launcher/banners/`; Recharged ships no game artwork
+and downloads nothing.
+
+The library is stored as `[library] folder1` to `folder16` with
+`folderN_subfolders` in `recharged.ini`; relative folders count from the
+settings file, like the disc.
 
 ## Graphics
 
@@ -213,6 +242,16 @@ graphics adapter, warnings and errors. Attach it to an
 [issue](https://github.com/previouslevelgames/recharged/issues) when reporting a
 problem; it can contain your user name in paths. **Advanced → Log detail** and
 **Verbose console** add more detail.
+
+On Windows and macOS no console or Terminal window opens with the game.
+**Advanced → Diagnostics & analytics → Log window** (`[advanced] log_window`,
+off by default) shows the log as it is written, in a separate window (Terminal
+on macOS). Closing that window or selecting text in it does not stop or slow
+the game; it closes when the game ends (on Windows it stays open after an
+error until you press a key). Started from cmd or PowerShell, `recharged.exe`
+also prints to that console, whose prompt returns at once
+(`start /wait recharged.exe` waits for the game). On macOS the `recharged`
+file beside the app runs it in Terminal with the output there.
 
 **Advanced → Diagnostics & analytics → Performance stats**
 (`[advanced] frame_logging`) records frame times: each session writes a

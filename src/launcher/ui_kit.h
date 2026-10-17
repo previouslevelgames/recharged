@@ -47,7 +47,7 @@ struct Fonts
     ImFont* title = nullptr;    // 30 dp
     ImFont* button = nullptr;   // 22 dp
     ImFont* overline = nullptr; // 21 dp
-    ImFont* hero = nullptr;     // 54 dp
+    ImFont* hero = nullptr;     // 62 dp
 };
 // Rasterizes Roboto at the exact framebuffer pixel size for `font_raster`
 // pixels per dp; io.FontGlobalScale maps the glyphs back to window units.
@@ -61,7 +61,7 @@ void ApplyTheme(float ui);
 enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
-    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear
+    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear, Close, Search, Pin
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -132,6 +132,10 @@ bool KeyCapButton(const char* id, const char* key, bool waiting);
 // Keycap with a drawn arrow: 0 up, 1 down, 2 left, 3 right (no font glyphs needed).
 void KeyCapArrow(int direction);
 void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
+// A small flag of a disc region (the disc ID's fourth letter: E USA, P Europe,
+// J Japan, K Korea; grey for others), `height` tall and 1.5 times as wide.
+// Always shown with the region's name: the flag alone tells nothing to some.
+void DrawRegionFlag(ImDrawList* draw, ImVec2 position, float height, char region);
 
 void BeginCard(const char* id, const char* title, const char* subtitle = nullptr, Icon icon = Icon::None,
                float width = 0.0f);

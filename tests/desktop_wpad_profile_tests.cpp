@@ -167,6 +167,7 @@ void CustomKeysCycle() {
     settings.keys[mscharged::KeyActionA] = mscharged::platform::ParseKeyBinding("F1");
     settings.keys[mscharged::KeyActionB] = mscharged::platform::ParseKeyBinding("Return | P");
     Check(settings.keys[mscharged::KeyActionB][1] == SDL_SCANCODE_UNKNOWN, "The screenshot key was bound to an action");
+    Check(mscharged::platform::ParseKeyBinding("H")[0] == SDL_SCANCODE_UNKNOWN, "The HUD key was bound to an action");
     mscharged::platform::InitializeDesktopWpad(window, settings);
     WPADInit();
     Event(SDL_EVENT_WINDOW_FOCUS_GAINED);

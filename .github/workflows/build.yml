@@ -436,7 +436,7 @@ jobs:
 
           ---
 
-          **New here?** Download the package for your system below, unpack it into a folder of its own and start \`recharged\`. You need your own Mario Strikers Charged disc image (USA R4QE01 revision 1, or Europe R4QP01 revision 1 or 2; ISO or RVZ); no game files are included. Guides: [install]($url/INSTALL.md), [Steam Deck]($url/STEAM_DECK.md), [troubleshooting]($url/TROUBLESHOOTING.md).
+          **New here?** Download the package for your system below, unpack it into a folder of its own and start \`recharged\` (\`Recharged.app\` on macOS). You need your own Mario Strikers Charged disc image (USA R4QE01 revision 1, or Europe R4QP01 revision 1 or 2; ISO or RVZ); no game files are included. Guides: [install]($url/INSTALL.md), [Steam Deck]($url/STEAM_DECK.md), [troubleshooting]($url/TROUBLESHOOTING.md).
           EOF
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
             --title "Recharged $VERSION" --notes-file notes.md \

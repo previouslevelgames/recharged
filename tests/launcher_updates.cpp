@@ -473,11 +473,22 @@ void TestInstall(const fs::path& fixtures, const fs::path& work)
 #endif
         const fs::path base = Fresh(work, "restart");
         fs::create_directories(base);
+#ifdef __APPLE__
+        // Recharged.app's program first; older packages had only the plain one.
+        const fs::path app = base / "Recharged.app/Contents/MacOS/recharged";
+        Check(InstalledLauncher(base) == app, "Restart defaults to Recharged.app");
+#else
         Check(InstalledLauncher(base) == base / recharged, "Restart defaults to recharged");
+#endif
         std::ofstream(base / mscharged) << "old launcher\n";
         Check(InstalledLauncher(base) == base / mscharged, "Restart as mscharged in an older release");
         std::ofstream(base / recharged) << "new launcher\n";
         Check(InstalledLauncher(base) == base / recharged, "Restart prefers recharged");
+#ifdef __APPLE__
+        fs::create_directories(app.parent_path());
+        std::ofstream(app) << "app launcher\n";
+        Check(InstalledLauncher(base) == app, "Restart prefers Recharged.app");
+#endif
     }
 
     // Folders that were not installed from a package are not updated in place.

@@ -25,8 +25,8 @@ else()
 endif()
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WiimoteScan.cmake")
-# The run's log file and crash report (logs/recharged.log).
-add_library(charged_session_log STATIC src/platform/session_log.cpp)
+# The run's log file and crash report (logs/recharged.log), and its log window.
+add_library(charged_session_log STATIC src/platform/session_log.cpp src/platform/log_window.cpp)
 target_include_directories(charged_session_log PUBLIC src)
 target_compile_features(charged_session_log PRIVATE cxx_std_20)
 target_link_libraries(charged_session_log PUBLIC SDL3::SDL3)
@@ -41,14 +41,47 @@ if(NOT WIN32)
     add_test(NAME session_log COMMAND session_log_tests)
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Updates.cmake")
-add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launcher/release_notes_view.cpp
-    src/launcher/disc_search.cpp)
+# Finding and checking disc images: the first-start search and the image library (#65).
+add_library(charged_image_library STATIC src/launcher/disc_search.cpp src/launcher/image_library.cpp
+    src/launcher/release_banner.cpp)
+target_include_directories(charged_image_library PUBLIC src)
+target_compile_features(charged_image_library PUBLIC cxx_std_17)
+target_link_libraries(charged_image_library PUBLIC charged_host charged_json)
+add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launcher/release_notes_view.cpp)
 # The program players start: recharged (recharged.exe). The target keeps its old name.
-set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged)
+# On Windows it is a Windows (GUI) program, so no console opens with it (#61).
+set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
-    charged_wiimote_scan charged_session_log charged_updates)
+    charged_wiimote_scan charged_session_log charged_updates charged_image_library)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
 mscharged_stage_pipeline_catalog(mscharged)
+if(APPLE)
+    target_sources(mscharged PRIVATE src/platform/macos_app.cpp)
+    target_link_libraries(mscharged PRIVATE "-framework CoreFoundation")
+    # Recharged.app beside the program, so Finder starts it without Terminal
+    # (#61). It holds only a copy of the program, Info.plist and the icon;
+    # SDL_FILESYSTEM_BASE_DIR_TYPE=parent keeps everything else beside it.
+    if(CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(MSCHARGED_APP_MINIMUM_SYSTEM
+            "\n    <key>LSMinimumSystemVersion</key>\n    <string>${CMAKE_OSX_DEPLOYMENT_TARGET}</string>")
+    endif()
+    configure_file(cmake/Info.plist.in generated/mscharged/Info.plist @ONLY)
+    find_program(MSCHARGED_CODESIGN codesign REQUIRED)
+    set(app_bundle "$<TARGET_FILE_DIR:mscharged>/Recharged.app")
+    add_custom_command(TARGET mscharged POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E rm -rf "${app_bundle}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${app_bundle}/Contents/MacOS" "${app_bundle}/Contents/Resources"
+        COMMAND "${CMAKE_COMMAND}" -E copy "$<TARGET_FILE:mscharged>" "${app_bundle}/Contents/MacOS/recharged"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_BINARY_DIR}/generated/mscharged/Info.plist"
+                "${app_bundle}/Contents/Info.plist"
+        COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.icns"
+                "${app_bundle}/Contents/Resources/recharged.icns"
+        # Signed (ad hoc) as a whole, so the signature also covers Info.plist.
+        COMMAND "${MSCHARGED_CODESIGN}" --force --sign - "${app_bundle}"
+        VERBATIM)
+    set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.icns" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info.plist.in")
+endif()
 if(WIN32)
     enable_language(RC)
     configure_file(cmake/app_icon.rc.in generated/mscharged/app_icon.rc @ONLY)
@@ -93,9 +126,14 @@ if(BUILD_TESTING)
     add_executable(launcher_player_lineup_tests tests/launcher_player_lineup.cpp)
     target_include_directories(launcher_player_lineup_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     add_test(NAME launcher_player_lineup COMMAND launcher_player_lineup_tests)
-    add_executable(launcher_disc_search_tests tests/launcher_disc_search.cpp src/launcher/disc_search.cpp)
-    target_include_directories(launcher_disc_search_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    target_compile_features(launcher_disc_search_tests PRIVATE cxx_std_17)
-    target_link_libraries(launcher_disc_search_tests PRIVATE charged_host)
+    add_executable(launcher_disc_search_tests tests/launcher_disc_search.cpp)
+    target_link_libraries(launcher_disc_search_tests PRIVATE charged_image_library)
     add_test(NAME launcher_disc_search COMMAND launcher_disc_search_tests)
+    # The library's scan, cache and order, and banners and probes of synthetic discs.
+    add_executable(launcher_image_library_tests tests/launcher_image_library.cpp)
+    target_link_libraries(launcher_image_library_tests PRIVATE charged_image_library)
+    add_test(NAME launcher_image_library
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_launcher_image_library.py"
+                "$<TARGET_FILE:launcher_image_library_tests>")
+    set_tests_properties(launcher_image_library PROPERTIES TIMEOUT 120)
 endif()

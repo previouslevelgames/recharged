@@ -11,4 +11,7 @@ void ShutdownScreenshotHotkey();
 // Diagnostic rendering-layer keys (F9 listed layers, F10 cycle one layer),
 // provided by the game module; null leaves the keys unused.
 void SetDebugLayerKeys(void (*toggle)(), void (*cycle)());
+// H shows or hides the match HUD (No HUD, issue #58) through the game module;
+// null leaves the key unused.
+void SetHudKey(void (*toggle)());
 }

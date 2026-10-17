@@ -26,6 +26,7 @@ enum class GameTweak : unsigned
     MirrorMatch = 6,
     ThunderIslandWalls = 7,
     BluePeach = 8,
+    NoHud = 9,
 };
 
 struct GameTweakInfo
@@ -36,7 +37,7 @@ struct GameTweakInfo
     const char* description; // launcher description
 };
 
-inline constexpr std::array<GameTweakInfo, 9> kGameTweaks{{
+inline constexpr std::array<GameTweakInfo, 10> kGameTweaks{{
     {GameTweak::SkipIntro, "skip_intro", "Skip intro",
      "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
@@ -65,6 +66,10 @@ inline constexpr std::array<GameTweakInfo, 9> kGameTweaks{{
     {GameTweak::BluePeach, "blue_peach", "Blue Peach",
      "Peach's team wears her unused blue and yellow kit on the field: Peach, her sidekicks and her goalie. The game "
      "has no blue menu pictures, Mega Strike hand, banners or crowd for it, so those stay pink."},
+    {GameTweak::NoHud, "no_hud", "No HUD",
+     "Matches start without the scoreboard, player markers and captions (replay label, goal banner, super ability "
+     "card), for clean recordings. Press H in a match to show or hide them. The Mega Strike meter and its defence "
+     "targets stay."},
 }};
 
 inline constexpr unsigned GameTweakBit(GameTweak tweak) { return 1u << unsigned(tweak); }

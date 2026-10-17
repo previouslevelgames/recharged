@@ -46,6 +46,17 @@ WINDOWS_SYSTEM_DLLS = frozenset((
     "rpcrt4.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll", "ucrtbase.dll",
     "user32.dll", "userenv.dll", "version.dll", "winhttp.dll", "winmm.dll", "wintrust.dll", "ws2_32.dll",
 ))
+# macOS: Recharged.app as the build makes it (program, Info.plist, icon and
+# its ad-hoc signature); Finder starts it without Terminal (#61).
+MACOS_APP = "Recharged.app"
+MACOS_APP_FILES = ("Contents/Info.plist", "Contents/MacOS/recharged", "Contents/Resources/recharged.icns",
+                   "Contents/_CodeSignature/CodeResources")
+# Beside the app: starts its program from a terminal, with the output there.
+# Launchers from before the app restart this program after an update.
+MACOS_START_SCRIPT = b"""#!/bin/sh
+# Starts Recharged.app's program from a terminal, with its output there.
+exec "$(dirname "$0")/Recharged.app/Contents/MacOS/recharged" "$@"
+"""
 PUBLIC_FILES = ("README.md", "LICENSE", "recharged.ini.example", "docs/INSTALL.md", "docs/STEAM_DECK.md",
                 "docs/FEATURES.md", "docs/SETTINGS.md", "docs/TROUBLESHOOTING.md", "docs/ARCHITECTURE.md",
                 "docs/BUILDING.md", "LICENSES/README.md", "LICENSES/Apache-2.0.txt",
@@ -285,8 +296,18 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
         raise PackageError("Missing or invalid embedded build version.")
     version = match[1]
     windows = system == "windows"
+    macos = system == "macos"
     executable_name = "recharged.exe" if windows else "recharged"
-    executable = regular_file(build, executable_name)
+    if macos:
+        app = build / MACOS_APP
+        executable = regular_file(app, "Contents/MacOS/recharged")
+        for item in MACOS_APP_FILES:
+            regular_file(app, item)
+        found = {path.relative_to(app).as_posix() for path in app.rglob("*") if not path.is_dir()}
+        if extra := sorted(found - set(MACOS_APP_FILES)):
+            raise PackageError(f"{MACOS_APP} holds unexpected files: {', '.join(extra)}")
+    else:
+        executable = regular_file(build, executable_name)
     if not windows and not executable.stat().st_mode & 0o111:
         raise PackageError("recharged is not executable; refusing an unusable package.")
     runtime_root = None
@@ -350,7 +371,12 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
                 raise PackageError(f"File differs from its recorded source: {path}")
             put(destination or relative, data, stat.S_IMODE(path.stat().st_mode))
 
-        copy(build, executable_name)
+        if macos:
+            for item in MACOS_APP_FILES:
+                copy(build, Path(MACOS_APP) / item)
+            put(executable_name, MACOS_START_SCRIPT, 0o755)
+        else:
+            copy(build, executable_name)
         for module in modules:
             copy(build, module)
         if windows:
@@ -439,16 +465,18 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
 
         run_command = "recharged.exe" if windows else "./recharged"
         runtime_note = ", the runtime DLLs" if windows else ""
+        start = MACOS_APP if macos else executable_name
+        beside = MACOS_APP if macos else "the executable"
         readme = f"""# Recharged build package
 
 Build: {version} ({system}, {arch}).
 
-Extract the entire directory, then start {executable_name} (the launcher), or
+Extract the entire directory, then start {start} (the launcher), or
 run the game directly from a terminal:
 
     {run_command} --disc /path/to/R4QE01.rvz --window
 
-Keep the loadable modules{runtime_note} and assets beside the executable. Game data is not
+Keep the loadable modules{runtime_note} and assets beside {beside}. Game data is not
 included; players supply their own disc image (Mario Strikers Charged, USA
 R4QE01 revision 1 or Europe R4QP01 revision 1 or 2, as ISO or RVZ). docs/INSTALL.md covers the first start,
 docs/SETTINGS.md the settings and docs/TROUBLESHOOTING.md common problems.
@@ -472,6 +500,15 @@ FreeType uses the FreeType License; Zstandard uses its BSD option. Source links
 and any component-specific obligations remain in the accompanying notices.
 Launcher artwork provenance and its unspecified redistribution license are
 recorded in assets/launcher/README.md and LICENSES/README.md.
+"""
+        if macos:
+            readme += """
+## macOS
+
+Recharged.app holds only the program; it finds its modules, assets, settings
+and saves in the folder around it, so keep the folder together. The recharged
+script beside it starts the same program from Terminal, with its output there.
+This package is not signed: docs/INSTALL.md explains the first start.
 """
         if steamdeck:
             readme += """

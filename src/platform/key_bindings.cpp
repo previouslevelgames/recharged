@@ -14,7 +14,7 @@ KeyBinding ParseKeyBinding(std::string_view text) {
         while (!name.empty() && name.back() == ' ') name.remove_suffix(1);
         if (name.empty()) continue;
         const SDL_Scancode code = SDL_GetScancodeFromName(std::string(name).c_str());
-        if (code != SDL_SCANCODE_UNKNOWN && code != kScreenshotKey) binding[used++] = code;
+        if (code != SDL_SCANCODE_UNKNOWN && code != kScreenshotKey && code != kHudKey) binding[used++] = code;
     }
     return binding;
 }

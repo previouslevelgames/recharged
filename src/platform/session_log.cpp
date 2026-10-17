@@ -350,8 +350,8 @@ void WriteDump(EXCEPTION_POINTERS* info)
     CloseHandle(file);
 }
 
-// Double-clicked games get a console of their own that closes with them;
-// one started from a terminal shares it, and the terminal keeps the text.
+// A double-clicked game has no console (recharged.exe is a Windows program);
+// one started from a terminal shares the terminal's, which keeps the text.
 bool OwnConsole()
 {
     DWORD processes[2];

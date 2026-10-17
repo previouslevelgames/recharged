@@ -57,6 +57,7 @@ Values Encode(const Settings& s)
             {"advanced.log_level", s.log_level},
             {"advanced.verbose_console", s.verbose_console ? "true" : "false"},
             {"advanced.frame_logging", s.frame_logging ? "true" : "false"},
+            {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
             {"launcher.update_channel", s.update_channel}};
@@ -78,7 +79,29 @@ Values Encode(const Settings& s)
     }
     for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
         values.emplace("controls.gamepad" + std::to_string(slot + 1) + "_profile", s.pad_profile_names[slot]);
+    for (std::size_t n = 0; n < s.library_folders.size(); ++n)
+    {
+        const auto key = "library.folder" + std::to_string(n + 1);
+        values.emplace(key, s.library_folders[n].path);
+        values.emplace(key + "_subfolders", s.library_folders[n].subfolders ? "true" : "false");
+    }
     return values;
+}
+
+// "library.folder12" -> 12, "library.folder12_subfolders" -> 12 with `subfolders` set; 0 for other keys.
+std::size_t LibraryFolderKey(const std::string& key, bool& subfolders)
+{
+    const std::string prefix = "library.folder", suffix = "_subfolders";
+    if (key.compare(0, prefix.size(), prefix) != 0) return 0;
+    auto digits = key.substr(prefix.size());
+    subfolders = digits.size() > suffix.size() && digits.compare(digits.size() - suffix.size(), suffix.size(), suffix) == 0;
+    if (subfolders) digits.resize(digits.size() - suffix.size());
+    std::size_t number = 0;
+    const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), number);
+    if (digits.empty() || digits[0] == '0' || parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size()
+        || number < 1 || number > kMaxLibraryFolders)
+        return 0;
+    return number;
 }
 
 Settings Decode(const Values& values)
@@ -202,6 +225,29 @@ Settings Decode(const Values& values)
         profiles.push_back(std::move(profile));
     }
     s.pad_profiles = std::move(profiles);
+    // [library]: folder1 to folder16, each with an optional _subfolders; gaps close up.
+    std::map<std::size_t, Settings::LibraryFolder> folders;
+    for (auto it = values.lower_bound("library."); it != values.end() && it->first.rfind("library.", 0) == 0; ++it)
+    {
+        bool subfolders_key = false;
+        const auto number = LibraryFolderKey(it->first, subfolders_key);
+        if (number == 0)
+            throw std::runtime_error("Invalid configuration: library folders are folder1 to folder"
+                + std::to_string(kMaxLibraryFolders) + " (with folderN_subfolders), not " + it->first);
+        auto& folder = folders[number];
+        if (!subfolders_key) folder.path = it->second;
+    }
+    for (auto& [number, folder] : folders)
+    {
+        const auto key = "library.folder" + std::to_string(number);
+        if (!values.count(key))
+            throw std::runtime_error("Invalid configuration: " + key + "_subfolders without " + key);
+        if (folder.path.empty() || folder.path.find_first_of("\r\n") != std::string::npos
+            || folder.path.find('\0') != std::string::npos)
+            throw std::runtime_error("Invalid configuration: " + key + " must be a folder path on one line");
+        boolean((key + "_subfolders").c_str(), folder.subfolders);
+        s.library_folders.push_back(folder);
+    }
     // A gamepad whose profile no longer exists plays with the built-in Default.
     for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
     {
@@ -234,6 +280,7 @@ Settings Decode(const Values& values)
     choice("advanced.log_level", s.log_level, {"error", "warning", "info", "debug"});
     boolean("advanced.verbose_console", s.verbose_console);
     boolean("advanced.frame_logging", s.frame_logging);
+    boolean("advanced.log_window", s.log_window);
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
     boolean("launcher.check_updates", s.check_updates);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
@@ -251,6 +298,7 @@ Settings Decode(const Values& values)
 // settings no longer contain are removed (a deleted gamepad profile).
 bool OwnedSection(const std::string& section)
 {
+    if (section == "library") return true;
     const std::string prefix = "gamepad_profile";
     return section.size() > prefix.size() && section.compare(0, prefix.size(), prefix) == 0
         && std::all_of(section.begin() + std::ptrdiff_t(prefix.size()), section.end(),
@@ -258,7 +306,11 @@ bool OwnedSection(const std::string& section)
 }
 
 // Paths are written in quotes.
-bool QuotedKey(const std::string& key) { return key == "game.disc" || key == "game.save_folder"; }
+bool QuotedKey(const std::string& key)
+{
+    bool subfolders = false;
+    return key == "game.disc" || key == "game.save_folder" || (LibraryFolderKey(key, subfolders) && !subfolders);
+}
 
 Values Parse(const std::string& contents, std::string* updated = nullptr, Values replacements = {})
 {
@@ -486,6 +538,12 @@ std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::fil
 {
     if (settings.save_folder.empty()) return DefaultSaveFolder(executable_directory);
     const auto path = PathFromUtf8(settings.save_folder);
+    return path.is_absolute() ? path : config.parent_path() / path;
+}
+
+std::filesystem::path ResolveLibraryFolder(const std::string& folder, const std::filesystem::path& config)
+{
+    const auto path = PathFromUtf8(folder);
     return path.is_absolute() ? path : config.parent_path() / path;
 }
 

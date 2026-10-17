@@ -15,9 +15,28 @@
 
 namespace mscharged
 {
+// [library] folder1 to folder16: folders of the launcher's image library.
+inline constexpr std::size_t kMaxLibraryFolders = 16;
+
 struct Settings
 {
+    // game.disc: the image the game starts with (the launcher's pinned image).
+    // A relative path counts from the settings file.
     std::string disc;
+    // [library] folderN and folderN_subfolders: the folders the launcher lists
+    // Mario Strikers Charged images from, and whether it also looks in their
+    // subfolders. Relative paths count from the settings file, like the disc.
+    struct LibraryFolder
+    {
+        std::string path;
+        bool subfolders = true;
+        bool operator==(const LibraryFolder& other) const
+        {
+            return path == other.path && subfolders == other.subfolders;
+        }
+        bool operator!=(const LibraryFolder& other) const { return !(*this == other); }
+    };
+    std::vector<LibraryFolder> library_folders;
     // game.save_folder: where the game keeps its Wii storage (saves). Empty
     // uses the default folder next to the executable; a relative path
     // counts from the settings file, like the disc.
@@ -121,6 +140,8 @@ struct Settings
     std::string log_level = "info";   // advanced.log_level: error | warning | info | debug
     bool verbose_console = false;     // advanced.verbose_console: development traces and game debug output
     bool frame_logging = false;       // advanced.frame_logging: CSV timings and summary in logs/ beside the executable
+    // advanced.log_window (Windows and macOS): a separate window that follows the log while the program runs.
+    bool log_window = false;
     std::string ui_scale = "auto";    // launcher.ui_scale: auto or a percentage (75 to 200)
     // launcher.check_updates: look for a newer build each time the launcher starts.
     bool check_updates = true;
@@ -168,4 +189,6 @@ std::filesystem::path DefaultSaveFolder(const std::filesystem::path& executable_
 std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::filesystem::path& config,
                                         const std::filesystem::path& executable_directory);
 std::filesystem::path LoadDiscPath(const std::filesystem::path& config);
+// A library folder's path: relative ones count from the settings file.
+std::filesystem::path ResolveLibraryFolder(const std::string& folder, const std::filesystem::path& config);
 }

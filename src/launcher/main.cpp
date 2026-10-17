@@ -10,7 +10,9 @@
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
 #include "launcher/disc_search.h"
+#include "launcher/image_library.h"
 #include "launcher/player_lineup.h"
+#include "launcher/release_banner.h"
 #include "launcher/release_notes.h"
 #include "launcher/ui_kit.h"
 #include "launcher/ui_metrics.h"
@@ -24,6 +26,10 @@
 #include "platform/game_release.h"
 #include "platform/pc_languages.h"
 #include "platform/console_verbosity.h"
+#include "platform/log_window.h"
+#ifdef __APPLE__
+#include "platform/macos_app.h"
+#endif
 #include "platform/app_icon.h"
 #include "platform/path.h"
 #include "platform/save_import.h"
@@ -223,15 +229,78 @@ void SDLCALL DiscChosen(void* data, const char* const* files, int)
     result.active = false;
 }
 
+// A check of one image: the pinned one, or one chosen with Browse, a drop or
+// Locate, before it is pinned.
 struct DiscCheck
 {
     std::optional<DiscInfo> info;
     std::string error;
     std::string selection;
+    std::string missing; // why the file cannot be found (MissingImageReason); empty when it exists
+    bool folder_missing = false; // its folder (or drive) is gone too
+    std::uintmax_t size = 0;
+    std::int64_t modified = 0;
+    std::vector<std::uint8_t> banner; // the release's banner (RGBA), when it was not known yet
+    bool banner_read = false;         // a banner read was tried
 };
 
+DiscCheck RunDiscCheck(const fs::path& path, std::string selection, const std::set<std::string>& banners_known)
+{
+    DiscCheck result;
+    result.selection = std::move(selection);
+    result.missing = MissingImageReason(path);
+    if (!result.missing.empty())
+    {
+        std::error_code error;
+        result.folder_missing = !fs::is_directory(path.parent_path(), error);
+        result.error = result.missing;
+        return result;
+    }
+    std::error_code error;
+    result.size = fs::file_size(path, error);
+    const auto time = fs::last_write_time(path, error);
+    if (!error) result.modified = std::int64_t(time.time_since_epoch().count());
+    try { result.info = InspectDisc(path); }
+    catch (const std::exception& e)
+    {
+        result.error = e.what();
+        return result;
+    }
+    if (!banners_known.count(result.info->game_id))
+    {
+        result.banner_read = true;
+        try { result.banner = ReadReleaseBanner(path, result.info->game_id); }
+        catch (const std::exception&) {}
+    }
+    return result;
+}
+
+// "USA, revision 1": the region and revision, always both (the launcher's
+// own labels leave out a revision where a region has only one).
+std::string RegionRevision(const DiscInfo& info)
+{
+    return std::string(DiscRegionName(info.game_id)) + ", revision " + std::to_string(unsigned(info.revision));
+}
+
+// The release's title, or the disc header's for a release Recharged does not know.
+std::string ReleaseTitle(const DiscInfo& info)
+{
+    LibraryImage image;
+    image.probe.kind = DiscProbe::Kind::Charged;
+    image.probe.info = info;
+    return ImageTitle(image);
+}
+
+char RegionLetter(const std::string& game_id) { return game_id.size() == 6 ? game_id[3] : '?'; }
+
+// A disc ID usable as a file name.
+bool SafeGameId(const std::string& id)
+{
+    return id.size() == 6 && std::all_of(id.begin(), id.end(), [](char c) { return std::isalnum(static_cast<unsigned char>(c)); });
+}
+
 enum class NoticeKind { Info, Success, Warning, Error };
-enum class FolderPurpose { SaveFolder, DolphinSave };
+enum class FolderPurpose { SaveFolder, DolphinSave, LibraryFolder };
 
 // The save a release keeps: its title and the identity the runtime gives its
 // storage (InitializeNativeFilesystemForDisc in original_game.cpp).
@@ -240,13 +309,6 @@ mscharged::platform::SaveTitle SaveTitleOf(const GameRelease& release)
     return {release.title_id, 0x1001, release.title_group};
 }
 constexpr const char* kSaveFile = "Strikers2";
-
-// "Europe, revision 2" for a known release, else the region of the disc ID.
-std::string ReleaseOrRegion(const DiscInfo& info)
-{
-    const auto* release = FindRelease(info);
-    return release ? ReleaseLabel(*release) : std::string(DiscRegionName(info.game_id));
-}
 
 std::string FileUrl(const fs::path& path)
 {
@@ -295,6 +357,10 @@ public:
         if (window_ui_ready_) ImGui_ImplSDL3_Shutdown();
         if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
         for (auto* pad : pads_) SDL_CloseGamepad(pad);
+        // A running library scan stops at its next image; its future waits for it.
+        if (library_progress_) library_progress_->cancel = true;
+        for (auto& [id, texture] : banners_)
+            if (texture) SDL_DestroyTexture(texture);
         if (header_) SDL_DestroyTexture(header_);
         if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
         if (renderer_) SDL_DestroyRenderer(renderer_);
@@ -312,6 +378,9 @@ public:
         if (options_.config.empty()) options_.config = DefaultConfig(base_);
         file_.path = fs::absolute(options_.config);
         Reload();
+        // The image library's cache and the banners read from the player's images.
+        library_data_ = DataFolder(base_) / "launcher";
+        image_cache_ = LoadImageCache(library_data_ / "library.json");
         page_ = options_.page;
         capture_ = options_.smoke_test || !options_.screenshot.empty();
         StartUpdates();
@@ -402,6 +471,7 @@ public:
             if (pad_capture_action_ >= 0 || pad_capture_release_) io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
             else io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
             PollResults();
+            SyncLibrary();
             // Moving between displays or changing the interface size rebuilds
             // fonts and style before the frame starts.
             const auto metrics = CurrentMetrics();
@@ -428,7 +498,9 @@ public:
             RenderHero();
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
             const bool update_settled = update_preview_ || (!UpdateBusy() && !(update_capture_install_ && update_.offer));
-            if (!options_.screenshot.empty() && frame >= 12 && ((!pending_ && !searching_ && update_settled) || frame > 600))
+            if (!options_.screenshot.empty() && frame >= 12
+                && ((!pending_ && !searching_ && !library_scanning_ && !candidate_pending_ && update_settled)
+                    || frame > 600))
             {
                 SDL_SetRenderScale(renderer_, 1.0f, 1.0f);
                 auto pixels = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
@@ -521,10 +593,18 @@ private:
             file_ = LoadConfig(file_.path, true);
             draft_ = file_.settings;
             mscharged::platform::SetVerboseConsole(file_.settings.verbose_console);
+            mscharged::platform::SetLogWindow(file_.settings.log_window);
             dirty_ = false;
             config_ok_ = true;
-            check_ = {};
-            Notice(file_.exists ? "Settings loaded." : "Welcome! Choose your game disc to get started.", NoticeKind::Info);
+            // The pinned image's check stays while the image is the same (a
+            // reverted library choice brings the old one back: check it).
+            if (check_.selection != DiscSelection())
+            {
+                check_ = {};
+                if (renderer_ && !pending_) CheckDisc();
+            }
+            Notice(file_.exists ? "Settings loaded." : "Welcome! Add your game folder or choose your game image to get started.",
+                   NoticeKind::Info);
         }
         catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); config_ok_ = false; }
     }
@@ -535,6 +615,7 @@ private:
         {
             SaveConfig(file_, draft_);
             mscharged::platform::SetVerboseConsole(draft_.verbose_console);
+            mscharged::platform::SetLogWindow(draft_.log_window);
             dirty_ = false;
             Notice("Settings saved.", NoticeKind::Success);
             return true;
@@ -1257,24 +1338,91 @@ private:
         }
     }
 
-    void SelectDisc(const std::string& path)
+    // A path as the settings keep it: relative inside the settings folder (it
+    // moves along with it), absolute elsewhere; links stay as they are.
+    std::string SettingsPath(const fs::path& path) const
     {
-        if (options_.launch.disc)
-        {
-            Notice("The disc from the command line is used for this run.", NoticeKind::Info);
-            return;
-        }
-        // Relative inside the settings folder (it moves along with it),
-        // absolute elsewhere; links stay as they are.
         std::error_code error;
-        const auto absolute = fs::absolute(PathFromUtf8(path), error).lexically_normal();
+        const auto absolute = fs::absolute(path, error).lexically_normal();
         const auto folder = fs::absolute(file_.path, error).parent_path().lexically_normal();
         const auto relative = absolute.lexically_relative(folder);
         const bool inside = !error && !relative.empty() && *relative.begin() != "..";
-        draft_.disc = PathUtf8(inside ? relative : absolute);
+        return PathUtf8(inside ? relative : absolute);
+    }
+
+    // A file chosen with Browse or Locate, or dropped onto the window: an image
+    // is checked and pinned only when this build plays it; a dropped folder
+    // joins the library.
+    void SelectDisc(const std::string& path)
+    {
+        std::error_code error;
+        if (fs::is_directory(PathFromUtf8(path), error))
+        {
+            AddLibraryFolder(PathFromUtf8(path));
+            return;
+        }
+        if (options_.launch.disc)
+        {
+            Notice("The image from the command line (--disc) is used for this run.", NoticeKind::Info);
+            return;
+        }
+        candidate_pending_ = true;
+        candidate_ = std::async(std::launch::async, [path, known = KnownBanners()] {
+            return RunDiscCheck(PathFromUtf8(path), path, known);
+        });
+    }
+
+    void CandidateChecked(DiscCheck result)
+    {
+        const auto path = PathFromUtf8(result.selection);
+        const std::string name = PathUtf8(path.filename());
+        KeepCheck(path, result);
+        if (result.info && SupportedRelease(*result.info))
+        {
+            Pin(path, *result.info, result.size);
+            Notice("Pinned " + name + " (" + RegionRevision(*result.info) + ").", NoticeKind::Success);
+        }
+        else if (result.info)
+        {
+            // Recognised, but this build cannot run it: the pinned image stays.
+            region_prompt_info_ = *result.info;
+            region_prompt_ = true;
+            Notice(name + " was not pinned. " + UnplayableReason(*result.info), NoticeKind::Warning);
+        }
+        else Notice(name + " cannot be used: " + result.error, NoticeKind::Error);
+    }
+
+    // Makes this playable image the one Play starts. Only an explicit choice
+    // pins an image: scans, sorting and searches never do.
+    void Pin(const fs::path& path, const DiscInfo& info, std::uintmax_t size = 0)
+    {
+        if (options_.launch.disc)
+        {
+            Notice("The image from the command line (--disc) is used for this run.", NoticeKind::Info);
+            return;
+        }
+        draft_.disc = SettingsPath(path);
         dirty_ = true;
         check_ = {};
-        if (!pending_) CheckDisc();
+        check_.info = info;
+        check_.size = size;
+        check_.selection = DiscSelection();
+    }
+
+    // Remembers what a check found (the cache keeps a pinned image's release
+    // for when it goes missing) and the banner it read.
+    void KeepCheck(const fs::path& path, DiscCheck& result)
+    {
+        if (result.info)
+        {
+            DiscProbe probe;
+            probe.kind = DiscProbe::Kind::Charged;
+            probe.info = *result.info;
+            image_cache_.Put(path, result.size, result.modified, probe);
+            SaveImageCache(image_cache_, library_data_ / "library.json");
+            if (!result.banner.empty()) StoreBanner(result.info->game_id, result.banner);
+            else if (result.banner_read) banner_failures_.insert(result.info->game_id);
+        }
     }
 
     void CheckDisc()
@@ -1293,26 +1441,26 @@ private:
             const auto selection = PathUtf8(path);
             pending_ = true;
             check_ = {};
-            future_ = std::async(std::launch::async, [path, selection] {
-                DiscCheck result;
-                result.selection = selection;
-                try { result.info = InspectDisc(path); }
-                catch (const std::exception& e) { result.error = e.what(); }
-                return result;
+            future_ = std::async(std::launch::async, [path, selection, known = KnownBanners()] {
+                return RunDiscCheck(path, selection, known);
             });
         }
         catch (const std::exception& e) { pending_ = false; check_.error = e.what(); }
     }
 
-    // No disc chosen, or the chosen one is gone: look for one in the game
+    // Nothing pinned yet (a first start): look for the game in the game
     // folder and the usual places, in the background (each image is opened
-    // to check it).
+    // to check it). With library folders, their scan pins instead. A pinned
+    // image that has gone is never replaced without asking.
     void StartDiscSearch()
     {
-        if (!config_ok_ || options_.launch.disc || options_.smoke_test) return;
+        if (!config_ok_ || options_.launch.disc || options_.smoke_test || !draft_.disc.empty()) return;
+        if (!draft_.library_folders.empty())
+        {
+            library_autopin_ = true;
+            return;
+        }
         std::error_code error;
-        const auto chosen = EffectiveLaunch().disc_path;
-        if (!chosen.empty() && fs::exists(chosen, error)) return;
         const auto user_folder = [](SDL_Folder which) {
             const char* path = SDL_GetUserFolder(which);
             return path ? PathFromUtf8(path) : fs::path();
@@ -1341,28 +1489,263 @@ private:
     {
         // A disc the player chose meanwhile stays.
         if (draft_.disc != search_from_ || options_.launch.disc) return;
+        const bool clean = !dirty_;
+        // The folders the game was found in start the image library.
+        std::size_t added = 0;
+        for (const auto& folder : FoldersOfImages(result.charged))
+            if (AddLibraryFolder(folder.path, folder.subfolders, false)) ++added;
+        const std::string library = added ? " Its folder is now in your image library." : "";
         if (result.disc.empty())
         {
             if (!result.other.empty())
             {
                 const DiscInfo other{"", result.other_id, "", result.other_revision, 0};
                 Notice("Found Mario Strikers Charged at " + PathUtf8(result.other) + ". " + UnplayableReason(other)
-                           + " This build runs " + PlayableReleasesText() + ".",
+                           + " This build runs " + PlayableReleasesText() + "." + library,
                        NoticeKind::Warning);
             }
+            if (clean && added) Save();
             return;
         }
-        const bool replaced = !draft_.disc.empty(), clean = !dirty_;
-        SelectDisc(PathUtf8(result.disc));
-        std::string text = (replaced ? "Your disc image is gone; found " : "Found your game disc: ")
-            + PathUtf8(result.disc.filename()) + (replaced ? " instead." : ".");
-        if (result.supported > 1) text += " There are more copies; choose another on the Game page.";
+        draft_.disc = SettingsPath(result.disc);
+        dirty_ = true;
+        check_ = {};
+        if (!pending_) CheckDisc();
+        std::string text = "Found your game: " + PathUtf8(result.disc.filename()) + "." + library;
+        if (result.supported > 1) text += " It has more; pin another on the Game page.";
         // Nothing else changed yet: keep it, so Play starts without asking first.
         if (clean) Save();
         Notice(text, NoticeKind::Success);
     }
 
-    void Browse()
+    // ------------------------------------------------------- image library
+    std::vector<LibraryFolder> LibraryFolders(const std::vector<Settings::LibraryFolder>& settings) const
+    {
+        std::vector<LibraryFolder> folders;
+        for (const auto& folder : settings)
+            folders.push_back({ResolveLibraryFolder(folder.path, file_.path), folder.subfolders});
+        return folders;
+    }
+
+    bool AddLibraryFolder(const fs::path& folder, bool subfolders = true, bool notify = true)
+    {
+        const auto key = ImageCache::Key(folder);
+        for (const auto& existing : LibraryFolders(draft_.library_folders))
+            if (ImageCache::Key(existing.path) == key)
+            {
+                if (notify) Notice(PathUtf8(folder) + " is already in your image library.", NoticeKind::Info);
+                return false;
+            }
+        if (draft_.library_folders.size() >= kMaxLibraryFolders)
+        {
+            if (notify)
+                Notice("The image library holds up to " + std::to_string(kMaxLibraryFolders)
+                           + " folders. Remove one first.",
+                       NoticeKind::Warning);
+            return false;
+        }
+        draft_.library_folders.push_back({SettingsPath(folder), subfolders});
+        dirty_ = true;
+        if (notify) Notice("Added " + PathUtf8(folder) + " to your image library.", NoticeKind::Info);
+        return true;
+    }
+
+    // Starts a scan of the library folders. A scan already running is told to
+    // stop, and the new one follows it.
+    void StartLibraryScan(bool recheck)
+    {
+        library_recheck_ = library_recheck_ || recheck;
+        library_settings_ = draft_.library_folders;
+        if (library_scanning_)
+        {
+            library_rescan_ = true;
+            library_progress_->cancel = true;
+            return;
+        }
+        library_rescan_ = false;
+        const auto folders = LibraryFolders(library_settings_);
+        if (folders.empty())
+        {
+            library_ = {};
+            library_available_ = {};
+            library_folders_ = {};
+            library_other_games_ = 0;
+            library_limited_ = false;
+            return;
+        }
+        std::vector<fs::path> keep;
+        if (!DiscSelection().empty()) keep.push_back(PathFromUtf8(DiscSelection()));
+        library_progress_ = std::make_shared<ScanProgress>();
+        library_scanning_ = true;
+        library_scan_folders_ = folders;
+        const bool recheck_now = library_recheck_;
+        library_recheck_ = false;
+        library_scan_ = std::async(std::launch::async, [folders, cache = image_cache_, recheck_now,
+                                                        known = KnownBanners(), keep, progress = library_progress_] {
+            try
+            {
+                return ScanLibrary(folders, cache, recheck_now, known, keep, *progress, ProbeDisc, ReadReleaseBanner);
+            }
+            catch (const std::exception&)
+            {
+                LibraryScan failed;
+                failed.cancelled = true;
+                return failed;
+            }
+        });
+    }
+
+    void LibraryScanDone(LibraryScan scan)
+    {
+        library_scanning_ = false;
+        if (!scan.cancelled)
+        {
+            // Keep what the pinned image's own check found meanwhile.
+            const auto pinned_path = PathFromUtf8(DiscSelection());
+            std::optional<ImageCache::Entry> pinned;
+            if (!pinned_path.empty())
+                if (const auto* entry = image_cache_.Last(pinned_path)) pinned = *entry;
+            image_cache_ = std::move(scan.cache);
+            if (pinned && !image_cache_.Last(pinned_path))
+                image_cache_.Put(pinned_path, pinned->size, pinned->modified, pinned->probe);
+            SaveImageCache(image_cache_, library_data_ / "library.json");
+            library_ = std::move(scan.images);
+            library_available_ = std::move(scan.available);
+            library_folders_ = library_scan_folders_;
+            library_other_games_ = scan.other_games;
+            library_limited_ = scan.limited;
+            for (auto& [id, rgba] : scan.banners) StoreBanner(id, rgba);
+            banner_failures_.insert(scan.banner_failures.begin(), scan.banner_failures.end());
+            if (library_autopin_ && !library_rescan_) AutoPin();
+        }
+        if (library_rescan_) StartLibraryScan(false);
+    }
+
+    // Nothing pinned (settings with library folders but no disc): the first
+    // playable image of the library, in release order.
+    void AutoPin()
+    {
+        library_autopin_ = false;
+        if (!draft_.disc.empty() || options_.launch.disc) return;
+        for (const auto* image : ArrangeImages(library_, LibrarySort::Release, false, ""))
+            if (StateOf(*image) == ImageState::Playable)
+            {
+                const bool clean = !dirty_;
+                Pin(image->path, image->probe.info, image->size);
+                if (clean) Save();
+                Notice("Pinned " + PathUtf8(image->path.filename()) + " (" + RegionRevision(image->probe.info)
+                           + ") from your image library.",
+                       NoticeKind::Success);
+                return;
+            }
+    }
+
+    // Once a frame: scan when the library folders change or a folder that was
+    // not available comes back, and notice when a missing pinned image comes
+    // back (a drive plugged in again).
+    void SyncLibrary()
+    {
+        if (!config_ok_) return;
+        if (draft_.library_folders != library_settings_) StartLibraryScan(false);
+        if (!library_scanning_ && SDL_GetTicks() - folders_probe_ > 3000)
+        {
+            folders_probe_ = SDL_GetTicks();
+            for (std::size_t n = 0; n < library_available_.size() && n < library_folders_.size(); ++n)
+            {
+                std::error_code error;
+                if (!library_available_[n] && fs::is_directory(library_folders_[n].path, error))
+                {
+                    StartLibraryScan(false);
+                    break;
+                }
+            }
+        }
+        if (!pending_ && !check_.missing.empty() && check_.selection == DiscSelection()
+            && SDL_GetTicks() - missing_probe_ > 2000)
+        {
+            missing_probe_ = SDL_GetTicks();
+            std::error_code error;
+            if (fs::exists(PathFromUtf8(check_.selection), error)) CheckDisc();
+        }
+    }
+
+    // ------------------------------------------------------------ banners
+    fs::path BannerFile(const std::string& id) const { return library_data_ / "banners" / (id + ".png"); }
+
+    // Disc IDs whose banner is cached, or could not be read in this session.
+    std::set<std::string> KnownBanners() const
+    {
+        std::set<std::string> ids = banner_failures_;
+        for (const auto& [id, texture] : banners_)
+            if (texture) ids.insert(id);
+        std::error_code error;
+        for (fs::directory_iterator it(library_data_ / "banners", error), end; !error && it != end; it.increment(error))
+            if (it->path().extension() == ".png") ids.insert(PathUtf8(it->path().stem()));
+        return ids;
+    }
+
+    void SetBannerTexture(const std::string& id, SDL_Surface* surface)
+    {
+        auto& slot = banners_[id];
+        if (slot) SDL_DestroyTexture(slot);
+        slot = SDL_CreateTextureFromSurface(renderer_, surface);
+        if (slot) SDL_SetTextureScaleMode(slot, SDL_SCALEMODE_LINEAR);
+    }
+
+    // Caches a banner read from a player's image (data/launcher/banners).
+    void StoreBanner(const std::string& id, std::vector<std::uint8_t>& rgba)
+    {
+        if (!SafeGameId(id) || rgba.size() != std::size_t(kBannerWidth) * kBannerHeight * 4) return;
+        banner_missing_.erase(id);
+        auto* surface = SDL_CreateSurfaceFrom(kBannerWidth, kBannerHeight, SDL_PIXELFORMAT_RGBA32, rgba.data(),
+                                              kBannerWidth * 4);
+        if (!surface) return;
+        std::error_code error;
+        fs::create_directories(BannerFile(id).parent_path(), error);
+        SDL_SavePNG(surface, PathUtf8(BannerFile(id)).c_str());
+        if (renderer_) SetBannerTexture(id, surface);
+        SDL_DestroySurface(surface);
+    }
+
+    // A release's banner: from the cache folder the first time it is drawn;
+    // null while there is none.
+    SDL_Texture* Banner(const std::string& id)
+    {
+        if (!SafeGameId(id)) return nullptr;
+        if (const auto it = banners_.find(id); it != banners_.end() && it->second) return it->second;
+        if (banner_missing_.count(id)) return nullptr;
+        if (auto* surface = SDL_LoadPNG(PathUtf8(BannerFile(id)).c_str()))
+        {
+            if (surface->w == kBannerWidth && surface->h == kBannerHeight) SetBannerTexture(id, surface);
+            SDL_DestroySurface(surface);
+        }
+        const auto it = banners_.find(id);
+        if (it == banners_.end() || !it->second)
+        {
+            banner_missing_.insert(id); // until a scan or check reads it
+            return nullptr;
+        }
+        return it->second;
+    }
+
+    // The banner of a release in [min, max] (3:1), or a placeholder with a disc.
+    void DrawBanner(ImDrawList* draw, ImVec2 min, ImVec2 max, const std::string& id, float alpha = 1.0f)
+    {
+        const float rounding = (max.y - min.y) * 0.14f;
+        if (auto* texture = Banner(id))
+        {
+            draw->AddImageRounded(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(texture)), min, max,
+                                  {0, 0}, {1, 1}, Col({1, 1, 1, 1}, alpha), rounding);
+            return;
+        }
+        FillGradient(draw, min, max, Col(Mix(color::field, color::accent, 0.12f), alpha), Col(color::field, alpha),
+                     rounding, true);
+        draw->AddRect(min, max, Col(color::border, alpha), rounding, 0, Dp(1));
+        DrawIcon(draw, Icon::Disc, {(min.x + max.x) * 0.5f, (min.y + max.y) * 0.5f}, (max.y - min.y) * 0.46f,
+                 Col(color::dim, alpha));
+    }
+
+    void Browse(const fs::path& start = {})
     {
         // "All files" too: a system that does not know the .rvz type (macOS) may
         // grey such files out under the first filter. The check reads the content.
@@ -1372,8 +1755,9 @@ private:
             std::lock_guard<std::mutex> lock(dialog_->mutex);
             dialog_->active = true;
         }
+        const std::string location = start.empty() ? std::string() : PathUtf8(start);
         SDL_ShowOpenFileDialog(DiscChosen, new std::shared_ptr<DialogResult>(dialog_), window_, filters,
-                               int(std::size(filters)), nullptr, false);
+                               int(std::size(filters)), location.empty() ? nullptr : location.c_str(), false);
     }
 
     void PollResults()
@@ -1425,12 +1809,24 @@ private:
             pending_ = false;
             if (result.selection == DiscSelection())
             {
+                KeepCheck(PathFromUtf8(result.selection), result);
                 check_ = std::move(result);
-                region_prompt_ = check_.info && !SupportedRelease(*check_.info);
+                if (check_.info && !SupportedRelease(*check_.info))
+                {
+                    region_prompt_info_ = *check_.info;
+                    region_prompt_ = true;
+                }
             }
             // The disc changed during the check: check the new one.
             else CheckDisc();
         }
+        if (candidate_pending_ && candidate_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            candidate_pending_ = false;
+            CandidateChecked(candidate_.get());
+        }
+        if (library_scanning_ && library_scan_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+            LibraryScanDone(library_scan_.get());
         if (searching_ && search_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
             searching_ = false;
@@ -1507,11 +1903,12 @@ private:
         if (update_.state == UpdateService::State::Installing || update_.state == UpdateService::State::Installed)
             return "Finishing the update...";
         if (!config_ok_) return "Fix the settings file problem shown below first.";
-        if (searching_) return "Looking for your game disc...";
-        if (pending_) return "Checking your disc...";
-        if (DiscSelection().empty()) return "Choose your Mario Strikers Charged disc image (ISO or RVZ).";
+        if (searching_) return "Looking for your game image...";
+        if (pending_) return "Checking your game image...";
+        if (DiscSelection().empty()) return "Pin your Mario Strikers Charged image (ISO or RVZ) on the Game page.";
+        if (!PinnedMissing().empty()) return "Your pinned image is missing. " + PinnedMissing();
         if (!check_.info || check_.selection != DiscSelection())
-            return check_.error.empty() ? "Check your disc on the Game page." : check_.error;
+            return check_.error.empty() ? "Check your image on the Game page." : check_.error;
         if (!SupportedRelease(*check_.info)) return UnplayableReason(*check_.info);
         const auto settings = EffectiveLaunch().settings;
         try { ResolveGraphicsBackend(settings.backend); }
@@ -1715,9 +2112,8 @@ private:
         const float pad = Dp(44);
         float y = origin.y + std::max(Dp(34), hero * 0.20f);
         DrawTracked(draw, fonts.caption, {origin.x + pad, y}, Col(color::accent, 0.95f), "NATIVE PC PORT", Dp(2.6f));
-        y += FontSize(fonts.caption) + Dp(10);
-        DrawTracked(draw, fonts.overline, {origin.x + pad, y}, IM_COL32_WHITE, "MARIO STRIKERS CHARGED", Dp(3.0f));
-        y += FontSize(fonts.overline) - Dp(4);
+        y += FontSize(fonts.caption) + Dp(6);
+        // The title: "RECHARGED" with a soft glow and a vertical lime-to-green gradient.
         for (int i = 4; i >= 1; --i)
             DrawLabel(draw, fonts.hero, {origin.x + pad, y + Dp(float(i))}, Col(color::accent, 0.07f * float(i)), "RECHARGED");
         const int start = draw->VtxBuffer.Size;
@@ -1725,9 +2121,24 @@ private:
         ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, {origin.x, y},
                                                      {origin.x, y + FontSize(fonts.hero)}, Col(color::accent_hi),
                                                      Col(color::accent));
-        y += FontSize(fonts.hero) + Dp(2);
-        DrawLabel(draw, fonts.label, {origin.x + pad, y}, Col(color::text, 0.82f),
-                  "The original game, rebuilt to run natively on your PC.");
+        y += FontSize(fonts.hero) + Dp(4);
+        FillGradient(draw, {origin.x + pad + Dp(2), y}, {origin.x + pad + Dp(66), y + Dp(3)}, Col(color::accent_hi),
+                     Col(color::accent, 0.0f), Dp(1.5f), true);
+        y += Dp(13);
+        // The subtitle: the game in white, the rest softer; two lines in a narrow window.
+        const char* game = "Mario Strikers Charged";
+        const char* rest = ", rebuilt to run natively on your PC.";
+        const float game_width = TextSize(fonts.heading, game).x;
+        const bool one_line = game_width + TextSize(fonts.heading, rest).x <= size.x * 0.75f - pad;
+        DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y}, IM_COL32_WHITE, game, 1.2f);
+        if (one_line)
+            DrawLabelShadowed(draw, fonts.heading, {origin.x + pad + game_width, y}, Col(color::text, 0.86f), rest, 1.2f);
+        else
+        {
+            DrawLabelShadowed(draw, fonts.heading, {origin.x + pad + game_width, y}, Col(color::text, 0.86f), ",", 1.2f);
+            DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y + FontSize(fonts.heading) + Dp(2)},
+                              Col(color::text, 0.86f), rest + 2, 1.2f);
+        }
         DrawUpdateBar(origin, size.x, pad);
 
         // Play button and status, overlapping the bottom of the artwork.
@@ -1755,7 +2166,9 @@ private:
             const float gap = Dp(16);
             const float width = (size.x - pad * 2 - gap * 2) / 3.0f;
             ImGui::SetCursorScreenPos({origin.x + pad, cards_y});
-            SummaryCard("##disc_card", "Game disc", Icon::Disc, width, PageGame, DiscSummary());
+            const auto pinned = PinnedInfo();
+            SummaryCard("##disc_card", "Game image", Icon::Disc, width, PageGame, DiscSummary(),
+                        pinned && PinnedMissing().empty() ? pinned->game_id : std::string());
             ImGui::SameLine(0, gap);
             SummaryCard("##display_card", "Display", Icon::Display, width, PageDisplay, DisplaySummary());
             ImGui::SameLine(0, gap);
@@ -1799,24 +2212,37 @@ private:
         Icon icon = Icon::Check;
         std::string headline = "Ready to play";
         std::string detail;
+        const bool missing = !PinnedMissing().empty() && !pending_ && !searching_;
         if (pending_ || searching_)
         {
             tint = color::info;
             icon = Icon::None;
-            headline = searching_ ? "Looking for your game disc" : "Checking your disc";
+            headline = searching_ ? "Looking for your game image" : "Checking your game image";
             detail = searching_ ? "In the game folder and the usual places..." : "Reading the game partition...";
             Spinner({pos.x + Dp(11), pos.y + Dp(12)}, Dp(8), Col(tint));
+        }
+        else if (missing)
+        {
+            // Never another image instead: the player decides.
+            tint = color::warning;
+            icon = Icon::Warning;
+            const auto info = PinnedInfo();
+            headline = "Your pinned image is missing";
+            const std::string name = PathUtf8(PathFromUtf8(DiscSelection()).filename());
+            detail = (info ? RegionRevision(*info) + "  \xC2\xB7  " : std::string())
+                + (check_.folder_missing ? "The drive or folder with " + name + " is not available."
+                                         : name + " is no longer in its folder.");
         }
         else if (!blocker.empty())
         {
             tint = DiscSelection().empty() ? color::info : color::warning;
             icon = DiscSelection().empty() ? Icon::Disc : Icon::Warning;
-            headline = DiscSelection().empty() ? "Choose your game disc" : "Not ready yet";
+            headline = DiscSelection().empty() ? "Pin your game image" : "Not ready yet";
             detail = blocker;
         }
         else if (check_.info)
-            detail = "Mario Strikers Charged  -  " + ReleaseOrRegion(*check_.info) + "  -  "
-                + check_.info->game_id + " rev " + std::to_string(unsigned(check_.info->revision));
+            detail = ReleaseTitle(*check_.info) + "  \xC2\xB7  " + RegionRevision(*check_.info) + "  \xC2\xB7  "
+                + check_.info->game_id;
         // A player's controller that is not connected: say what the game does
         // instead (the disc line moves out of the way; the disc card has it).
         std::string controllers;
@@ -1847,27 +2273,108 @@ private:
             y += fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, controllers.c_str()).y + Dp(2);
         }
         if (!detail.empty())
+        {
             draw->AddText(fonts.caption, FontSize(fonts.caption), {pos.x + Dp(30), y}, Col(color::muted),
                           detail.c_str(), nullptr, wrap);
+            y += fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, detail.c_str()).y;
+        }
+        if (missing)
+        {
+            ImGui::SetCursorScreenPos({pos.x + Dp(22), y + Dp(4)});
+            MissingImageActions("play_missing", true, limit);
+        }
+    }
+
+    // What to do about a pinned image that has gone: locate it, pin a copy of
+    // the same release from the library, or choose another image. The buttons
+    // wrap within `right` (a screen x).
+    void MissingImageActions(const char* id, bool play_page, float right)
+    {
+        ImGui::PushID(id);
+        const float height = Dp(32), gap = Dp(6);
+        const float left = ImGui::GetCursorScreenPos().x;
+        bool first = true;
+        const auto place = [&](const char* label, Icon icon) {
+            const float width = GhostWidth(label, icon);
+            if (!first)
+            {
+                ImGui::SameLine(0, gap);
+                if (ImGui::GetCursorScreenPos().x + width > right)
+                    ImGui::SetCursorScreenPos({left, ImGui::GetItemRectMax().y + Dp(2)});
+            }
+            first = false;
+            return ImVec2{width, height};
+        };
+        const char* locate = play_page ? "Locate..." : "Locate image...";
+        if (GhostButton("locate", locate, place(locate, Icon::Folder), !DialogActive(), Icon::Folder)) Locate();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Choose the image file where it is now.");
+        const auto info = PinnedInfo();
+        const auto copies = info ? SameRelease(library_, info->game_id, info->revision, PathFromUtf8(DiscSelection()))
+                                 : std::vector<const LibraryImage*>{};
+        if (!copies.empty())
+        {
+            const auto* copy = copies.front();
+            const char* label = play_page ? "Pin the copy" : "Pin the copy in your library";
+            if (GhostButton("copy", label, place(label, Icon::Pin), true, Icon::Pin))
+            {
+                Pin(copy->path, copy->probe.info, copy->size);
+                Notice("Pinned " + PathUtf8(copy->path) + ", the same release (" + RegionRevision(copy->probe.info)
+                           + ").",
+                       NoticeKind::Success);
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Your library has the same release (%s):\n%s", RegionRevision(copy->probe.info).c_str(),
+                                  PathUtf8(copy->path).c_str());
+        }
+        if (play_page)
+        {
+            const char* label = "Choose another";
+            if (GhostButton("another", label, place(label, Icon::Disc), true, Icon::Disc)) page_ = PageGame;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pin another image in your library on the Game page.");
+        }
+        ImGui::PopID();
+    }
+
+    bool DialogActive() const
+    {
+        std::lock_guard<std::mutex> lock(dialog_->mutex);
+        return dialog_->active;
+    }
+
+    // Browse for the pinned image where it is now, starting in its old folder
+    // (or the nearest folder above it that is still there).
+    void Locate()
+    {
+        fs::path start = PathFromUtf8(DiscSelection()).parent_path();
+        std::error_code error;
+        while (!start.empty() && !fs::is_directory(start, error) && start != start.parent_path())
+            start = start.parent_path();
+        Browse(start);
     }
 
     struct Summary { std::string value; std::string detail; ImVec4 tint; };
 
+    // The pinned image: its region and revision first.
     Summary DiscSummary() const
     {
-        if (searching_) return {"Looking...", "Searching for your disc image", color::info};
-        if (pending_) return {"Checking...", "Reading the disc header", color::info};
-        if (DiscSelection().empty()) return {"No disc selected", "Choose an ISO or RVZ image", color::warning};
+        if (searching_) return {"Looking...", "Searching for your game image", color::info};
+        if (pending_) return {"Checking...", "Reading the image's header", color::info};
+        if (DiscSelection().empty()) return {"No image pinned", "Pin one on the Game page", color::warning};
+        const std::string name = PathUtf8(PathFromUtf8(DiscSelection()).filename());
+        if (!PinnedMissing().empty())
+        {
+            const auto info = PinnedInfo();
+            return {info ? RegionRevision(*info) + " - missing" : "Image missing", name + " cannot be found",
+                    color::warning};
+        }
         if (check_.info && check_.selection == DiscSelection())
         {
             const auto& info = *check_.info;
-            return {info.game_id + "  -  " + ReleaseOrRegion(info),
-                    "Revision " + std::to_string(unsigned(info.revision)) + "  -  " + info.format + "  -  "
-                        + std::to_string(info.file_count) + " files",
+            return {RegionRevision(info), info.game_id + "  \xC2\xB7  " + info.format + "  \xC2\xB7  " + name,
                     SupportedRelease(info) ? color::accent : color::warning};
         }
-        if (!check_.error.empty()) return {"Disc problem", check_.error, color::danger};
-        return {PathUtf8(PathFromUtf8(DiscSelection()).filename()), "Not checked yet", color::muted};
+        if (!check_.error.empty()) return {"Image problem", check_.error, color::danger};
+        return {name, "Not checked yet", color::muted};
     }
 
     Summary DisplaySummary() const
@@ -1892,7 +2399,8 @@ private:
         return {language + " text", audio, color::info};
     }
 
-    void SummaryCard(const char* id, const char* title, Icon icon, float width, int page, const Summary& summary)
+    void SummaryCard(const char* id, const char* title, Icon icon, float width, int page, const Summary& summary,
+                     const std::string& banner = {})
     {
         const auto& fonts = CurrentFonts();
         ImGui::PushStyleColor(ImGuiCol_ChildBg, Mix(color::card, color::window, 0.15f));
@@ -1908,6 +2416,9 @@ private:
         DrawLabel(draw, fonts.caption, {pos.x + Dp(40), pos.y + Dp(6)}, Col(color::muted), title);
         const float inner = ImGui::GetContentRegionAvail().x;
         DrawChevron(draw, {pos.x + inner - Dp(4), pos.y + Dp(14)}, Dp(14), Col(color::dim));
+        if (!banner.empty() && Banner(banner) && inner > Dp(200))
+            DrawBanner(draw, {pos.x + inner - Dp(24 + 78), pos.y + Dp(2)}, {pos.x + inner - Dp(24), pos.y + Dp(28)},
+                       banner);
         ImGui::SetCursorScreenPos({pos.x, pos.y + Dp(42)});
         ImGui::PushFont(fonts.label);
         ImGui::PushStyleColor(ImGuiCol_Text, color::text);
@@ -2007,7 +2518,8 @@ private:
         if (text.x > limit && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", notice_.c_str());
     }
 
-    // Shown once after a check finds a readable but unsupported disc.
+    // Shown once after a check finds a readable but unsupported image: the
+    // pinned one, or one chosen to be pinned (which then is not).
     void DrawRegionPrompt()
     {
         if (region_prompt_)
@@ -2024,7 +2536,7 @@ private:
         {
             TextColored(fonts.heading, color::text, "This version cannot be played yet");
             ImGui::Dummy({0, Dp(4)});
-            if (check_.info) TextWrappedColored(fonts.body, color::muted, UnplayableReason(*check_.info).c_str());
+            TextWrappedColored(fonts.body, color::muted, UnplayableReason(region_prompt_info_).c_str());
             ImGui::Dummy({0, Dp(4)});
             const std::string runs = "This build runs " + PlayableReleasesText()
                 + ". The other versions follow as Recharged supports them.";
@@ -2106,7 +2618,8 @@ private:
     // -------------------------------------------------------------- pages
     void GamePage()
     {
-        PageHeader("Game", "Your Mario Strikers Charged disc image. ISO and RVZ files are read directly; nothing is extracted.");
+        PageHeader("Game", "The Mario Strikers Charged image Play starts, and the library of your game folders. "
+                           "ISO and RVZ images are read directly; nothing is extracted.");
         if (options_.launch.disc || options_.launch.size || options_.launch.fullscreen || options_.launch.aspect
             || options_.launch.frame_rate)
         {
@@ -2114,31 +2627,8 @@ private:
             ImGui::Dummy({0, Dp(2)});
         }
 
-        BeginCard("##disc", "Disc image", "Drop an image onto this window, or browse for it.", Icon::Disc);
-        bool browsing;
-        { std::lock_guard<std::mutex> lock(dialog_->mutex); browsing = dialog_->active; }
-        const float buttons = Dp(118) + Dp(10) + Dp(118);
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - buttons - Dp(10));
-        if (options_.launch.disc)
-        {
-            auto selected = DiscSelection();
-            ImGui::BeginDisabled();
-            ImGui::InputText("##disc_path", &selected);
-            ImGui::EndDisabled();
-        }
-        else if (ImGui::InputTextWithHint("##disc_path", "Path to your .iso or .rvz image", &draft_.disc))
-        { dirty_ = true; check_ = {}; }
-        ImGui::SameLine(0, Dp(10));
-        if (SecondaryButton("browse", "Browse...", {Dp(118), ImGui::GetFrameHeight()},
-                            !browsing && config_ok_ && !options_.launch.disc, Icon::Folder))
-            Browse();
-        ImGui::SameLine(0, Dp(10));
-        if (SecondaryButton("check", pending_ ? "Checking" : "Check", {Dp(118), ImGui::GetFrameHeight()},
-                            !pending_ && config_ok_ && !DiscSelection().empty(), Icon::Refresh))
-            CheckDisc();
-        ImGui::Dummy({0, Dp(4)});
-        DiscStatusPanel();
-        EndCard();
+        PinnedImageCard();
+        LibraryCard();
 
         BeginCard("##language", "Game language", "Menus and on-screen text follow the Wii system language.", Icon::Info);
         if (BeginRows("##language_rows"))
@@ -2218,8 +2708,27 @@ private:
     // The checked disc's release, or the USA one before a disc is known.
     const GameRelease& Release() const
     {
-        const auto* release = check_.info ? FindRelease(*check_.info) : nullptr;
+        const auto info = PinnedInfo();
+        const auto* release = info ? FindRelease(*info) : nullptr;
         return release ? *release : DefaultRelease();
+    }
+
+    // What the pinned image is: its check, or what it was when it was last
+    // seen (an image that has gone missing).
+    std::optional<DiscInfo> PinnedInfo() const
+    {
+        const auto selection = DiscSelection();
+        if (selection.empty()) return std::nullopt;
+        if (check_.selection == selection && check_.info) return check_.info;
+        const auto* entry = image_cache_.Last(PathFromUtf8(selection));
+        if (entry && entry->probe.kind == DiscProbe::Kind::Charged) return entry->probe.info;
+        return std::nullopt;
+    }
+
+    // The pinned image cannot be found (empty while it exists or is unchecked).
+    std::string PinnedMissing() const
+    {
+        return check_.selection == DiscSelection() && !DiscSelection().empty() ? check_.missing : std::string();
     }
 
     // The Wii storage of the release's title in the save folder (the USA
@@ -2246,6 +2755,11 @@ private:
         {
             draft_.save_folder = chosen;
             dirty_ = true;
+            return;
+        }
+        if (folder_purpose_ == FolderPurpose::LibraryFolder)
+        {
+            AddLibraryFolder(PathFromUtf8(chosen));
             return;
         }
         const auto save = mscharged::platform::ResolveDolphinSave(PathFromUtf8(chosen), Release().title_id,
@@ -2310,64 +2824,416 @@ private:
         ImGui::PopStyleVar();
     }
 
-    void DiscStatusPanel()
+    // A path on one line: when too long, its start gives way ("...lib/Wii").
+    static void DrawPath(ImDrawList* draw, ImFont* font, ImVec2 pos, float width, const ImVec4& tint,
+                         const std::string& text)
+    {
+        const float size = FontSize(font);
+        if (font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str()).x <= width)
+        {
+            draw->AddText(font, size, pos, Col(tint), text.c_str());
+            return;
+        }
+        const float dots = font->CalcTextSizeA(size, FLT_MAX, 0.0f, "...").x;
+        std::size_t start = 0;
+        while (start < text.size()
+               && font->CalcTextSizeA(size, FLT_MAX, 0.0f, text.c_str() + start).x + dots > width)
+        {
+            ++start;
+            while (start < text.size() && (static_cast<unsigned char>(text[start]) & 0xC0) == 0x80) ++start;
+        }
+        draw->AddText(font, size, pos, Col(tint), ("..." + text.substr(start)).c_str());
+    }
+
+    // One line of text, cut with an ellipsis to `width`.
+    static void DrawClipped(ImDrawList* draw, ImFont* font, ImVec2 pos, float width, const ImVec4& tint,
+                            const std::string& text)
+    {
+        ImGui::PushFont(font);
+        ImGui::PushStyleColor(ImGuiCol_Text, tint);
+        const ImVec2 max{pos.x + width, pos.y + FontSize(font)};
+        ImGui::RenderTextEllipsis(draw, pos, max, max.x, max.x, text.c_str(), nullptr, nullptr);
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+    }
+
+    // The image Play starts: its banner and release, what its check found,
+    // and what to do.
+    void PinnedImageCard()
     {
         const auto& fonts = CurrentFonts();
+        BeginCard("##pinned", "Pinned image",
+                  "Play always starts this image. Pin another one in your library below, browse for one, or drop one "
+                  "onto this window.",
+                  Icon::Pin);
         auto* draw = ImGui::GetWindowDrawList();
         const ImVec2 pos = ImGui::GetCursorScreenPos();
         const float width = ImGui::GetContentRegionAvail().x;
-        const float height = Dp(86);
-        draw->AddRectFilled(pos, {pos.x + width, pos.y + height}, Col(Mix(color::field, color::card, 0.5f)), Dp(12));
-        const ImVec2 icon_center{pos.x + Dp(40), pos.y + height * 0.5f};
-        const float text_x = pos.x + Dp(76);
-        auto line = [&](ImFont* font, float y, const ImVec4& tint, const std::string& text) {
-            draw->AddText(font, FontSize(font), {text_x, pos.y + y}, Col(tint), text.c_str(), nullptr,
-                          width - (text_x - pos.x) - Dp(16));
+        const ImVec2 banner = width < Dp(560) ? Dp(144, 48) : Dp(192, 64);
+        const float text_x = pos.x + banner.x + Dp(18);
+        const float wrap = std::max(Dp(120), pos.x + width - text_x);
+        const std::string selection = DiscSelection();
+        const auto info = PinnedInfo();
+        const bool missing = !PinnedMissing().empty();
+        const bool current = !selection.empty() && check_.selection == selection;
+        DrawBanner(draw, pos, {pos.x + banner.x, pos.y + banner.y}, info ? info->game_id : "", missing ? 0.35f : 1.0f);
+        float y = pos.y;
+        const auto line = [&](ImFont* font, const ImVec4& tint, const std::string& text, float indent = 0.0f) {
+            draw->AddText(font, FontSize(font), {text_x + indent, y}, Col(tint), text.c_str(), nullptr, wrap - indent);
+            y += font->CalcTextSizeA(FontSize(font), FLT_MAX, wrap - indent, text.c_str()).y + Dp(3);
         };
-        if (searching_)
+        if (selection.empty())
         {
-            Spinner(icon_center, Dp(14), Col(color::info));
-            line(fonts.label, Dp(20), color::text, "Looking for your disc");
-            line(fonts.caption, Dp(46), color::muted,
-                 "In the game folder, Games, Emulation/roms/wii, Downloads and removable drives...");
-        }
-        else if (pending_)
-        {
-            Spinner(icon_center, Dp(14), Col(color::info));
-            line(fonts.label, Dp(20), color::text, "Checking the disc");
-            line(fonts.caption, Dp(46), color::muted, "Reading the disc header and the game file table...");
-        }
-        else if (check_.info && check_.selection == DiscSelection())
-        {
-            const auto& info = *check_.info;
-            const bool supported = SupportedRelease(info);
-            draw->AddCircleFilled(icon_center, Dp(22), Col(supported ? color::accent : color::warning, 0.15f));
-            DrawIcon(draw, supported ? Icon::Check : Icon::Warning, icon_center, Dp(22),
-                     Col(supported ? color::accent : color::warning));
-            const auto* release = FindRelease(info);
-            line(fonts.label, Dp(14), color::text, std::string(release ? release->title : "Mario Strikers Charged")
-                + "  -  " + ReleaseOrRegion(info));
-            line(fonts.caption, Dp(40), color::muted, info.game_id + "  -  Revision " + std::to_string(unsigned(info.revision))
-                + "  -  " + info.format + "  -  " + std::to_string(info.file_count) + " files");
-            const std::string note = release ? ReleaseNote(*release) : std::string();
-            line(fonts.caption, Dp(60), supported ? color::accent : color::warning,
-                 supported ? "Supported release. " + (note.empty() ? std::string() : note + " ") + "Ready to play."
-                           : UnplayableReason(info, release));
-        }
-        else if (!check_.error.empty())
-        {
-            draw->AddCircleFilled(icon_center, Dp(22), Col(color::danger, 0.15f));
-            DrawIcon(draw, Icon::Error, icon_center, Dp(22), Col(color::danger));
-            line(fonts.label, Dp(20), color::text, "The disc could not be read");
-            line(fonts.caption, Dp(46), color::muted, check_.error);
+            line(fonts.label, color::text, searching_ ? "Looking for your game..." : "No image pinned yet");
+            line(fonts.caption, color::muted,
+                 "Add the folder with your Mario Strikers Charged images below and pin one, or browse for an ISO or "
+                 "RVZ image.");
         }
         else
         {
-            DrawIcon(draw, Icon::Disc, icon_center, Dp(26), Col(color::dim));
-            line(fonts.label, Dp(20), color::text, DiscSelection().empty() ? "No disc selected" : "Not checked yet");
-            line(fonts.caption, Dp(46), color::muted, "Choose your image and check that its game partition opens.");
+            const std::string name = PathUtf8(PathFromUtf8(selection).filename());
+            line(fonts.label, color::text, info ? ReleaseTitle(*info) : name);
+            if (info)
+            {
+                DrawRegionFlag(draw, {text_x, y + Dp(2)}, Dp(12), RegionLetter(info->game_id));
+                std::string meta = RegionRevision(*info) + "  \xC2\xB7  " + info->game_id;
+                if (!info->format.empty()) meta += "  \xC2\xB7  " + info->format;
+                if (current && check_.size) meta += "  \xC2\xB7  " + FileSizeText(check_.size);
+                line(fonts.caption, color::text, meta, Dp(24));
+            }
+            line(fonts.caption, color::dim, selection);
+            if (options_.launch.disc) line(fonts.caption, color::info, "From the command line: used for this run only.");
+            if (pending_)
+            {
+                Spinner({text_x + Dp(6), y + Dp(8)}, Dp(5), Col(color::info));
+                line(fonts.caption, color::info, "Checking the image...", Dp(18));
+            }
+            else if (missing)
+                line(fonts.caption, color::warning,
+                     check_.folder_missing
+                         ? "Missing: its folder is not there. If it is on a drive or memory card, connect it."
+                         : "Missing: it is no longer in its folder. It may have been moved, renamed or deleted.");
+            else if (current && check_.info)
+            {
+                const auto* release = FindRelease(*check_.info);
+                const bool supported = release && release->playable;
+                const std::string note = release ? ReleaseNote(*release) : std::string();
+                line(fonts.caption, supported ? color::accent : color::warning,
+                     supported ? "Ready to play." + (note.empty() ? std::string() : " " + note)
+                               : UnplayableReason(*check_.info, release));
+            }
+            else if (current && !check_.error.empty())
+                line(fonts.caption, color::danger, "Cannot be read: " + check_.error);
         }
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::Dummy({width, std::max(banner.y, y - pos.y)});
+        ImGui::Dummy({0, Dp(4)});
+
+        const float height = Dp(38);
+        const bool can_choose = config_ok_ && !options_.launch.disc && !DialogActive() && !candidate_pending_;
+        if (missing && !options_.launch.disc)
+            MissingImageActions("game_missing", false, ImGui::GetCursorScreenPos().x + width);
+        else
+        {
+            if (SecondaryButton("browse", "Browse for an image...", {Dp(200), height}, can_choose, Icon::Folder))
+                Browse();
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("open_pinned", "Open folder", {Dp(140), height},
+                                current && check_.missing.empty() && check_.info.has_value(), Icon::Folder))
+                OpenPath(PathFromUtf8(selection).parent_path());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open the folder that holds the pinned image.");
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("check", pending_ ? "Checking" : "Check again", {Dp(140), height},
+                                !pending_ && config_ok_ && !selection.empty(), Icon::Refresh))
+                CheckDisc();
+        }
+        if (candidate_pending_)
+        {
+            ImGui::SameLine(0, Dp(14));
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            Spinner({at.x + Dp(7), at.y + height * 0.5f}, Dp(6), Col(color::info));
+            ImGui::SetCursorScreenPos({at.x + Dp(20), at.y + (height - FontSize(fonts.caption)) * 0.5f});
+            TextColored(fonts.caption, color::muted, "Checking the chosen image...");
+        }
+        EndCard();
+    }
+
+    bool InLibrary(const fs::path& path) const
+    {
+        const auto key = ImageCache::Key(path);
+        return std::any_of(library_.begin(), library_.end(),
+                           [&](const LibraryImage& image) { return ImageCache::Key(image.path) == key; });
+    }
+
+    // The library's folders and the images found in them.
+    void LibraryCard()
+    {
+        const auto& fonts = CurrentFonts();
+        BeginCard("##library", "Image library",
+                  "Your game folders. Recharged lists the Mario Strikers Charged images in them, checks them in the "
+                  "background and remembers them; other games are left out.",
+                  Icon::Folder);
+        bool browsing;
+        { std::lock_guard<std::mutex> lock(folder_dialog_->mutex); browsing = folder_dialog_->active; }
+        // The list shows the scan of exactly these folders.
+        const bool scanned = !library_scanning_ && library_settings_ == draft_.library_folders;
+        int remove = -1;
+        for (std::size_t n = 0; n < draft_.library_folders.size(); ++n) LibraryFolderRow(n, scanned, remove);
+        if (remove >= 0)
+        {
+            draft_.library_folders.erase(draft_.library_folders.begin() + remove);
+            dirty_ = true;
+        }
+
+        const float height = Dp(38);
+        if (SecondaryButton("add_folder", "Add folder...", {Dp(160), height},
+                            !browsing && config_ok_ && draft_.library_folders.size() < kMaxLibraryFolders,
+                            Icon::Folder))
+            BrowseFolder(FolderPurpose::LibraryFolder);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Choose a folder with your images, or drop one onto this window.");
+        ImGui::SameLine(0, Dp(10));
+        if (SecondaryButton("refresh_library", "Refresh", {Dp(130), height},
+                            config_ok_ && !draft_.library_folders.empty(), Icon::Refresh))
+            StartLibraryScan(true);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Look through the folders again. Unchanged images are not opened again;\n"
+                              "images that could not be read are.");
+        if (library_scanning_)
+        {
+            ImGui::SameLine(0, Dp(14));
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            Spinner({at.x + Dp(7), at.y + height * 0.5f}, Dp(6), Col(color::info));
+            const auto& progress = *library_progress_;
+            const std::string text = progress.listing ? "Looking through your folders..."
+                : "Checking images: " + std::to_string(progress.checked.load()) + " of "
+                    + std::to_string(progress.found.load());
+            ImGui::SetCursorScreenPos({at.x + Dp(20), at.y + (height - FontSize(fonts.caption)) * 0.5f});
+            TextColored(fonts.caption, color::muted, text.c_str());
+        }
+        // The pinned image is outside the library: offer its folder.
+        const fs::path pinned = PathFromUtf8(DiscSelection());
+        if (!pinned.empty() && !options_.launch.disc && PinnedMissing().empty() && check_.info && scanned
+            && !InLibrary(pinned) && draft_.library_folders.size() < kMaxLibraryFolders)
+        {
+            ImGui::Dummy({0, Dp(2)});
+            if (GhostButton("add_pinned_folder", "Add the pinned image's folder", {Dp(260), Dp(32)}, config_ok_,
+                            Icon::Pin))
+                AddLibraryFolder(pinned.parent_path(), false);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", PathUtf8(pinned.parent_path()).c_str());
+        }
+        LibraryImages();
+        EndCard();
+    }
+
+    void LibraryFolderRow(std::size_t n, bool scanned, int& remove)
+    {
+        const auto& fonts = CurrentFonts();
+        auto& folder = draft_.library_folders[n];
+        ImGui::PushID(int(n));
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(54);
+        draw->AddRectFilled(pos, {pos.x + width, pos.y + height}, Col(Mix(color::field, color::card, 0.5f)), Dp(10));
+        DrawIcon(draw, Icon::Folder, {pos.x + Dp(24), pos.y + height * 0.5f}, Dp(18), Col(color::muted));
+        const fs::path path = ResolveLibraryFolder(folder.path, file_.path);
+        const char* subfolders = "Subfolders";
+        const float label = TextSize(fonts.caption, subfolders).x;
+        const float controls = label + Dp(8 + 48 + 12 + 36 + 8);
+        const float text_x = pos.x + Dp(46), text_w = std::max(Dp(80), width - Dp(46) - controls - Dp(12));
+        DrawPath(draw, fonts.body, {text_x, pos.y + Dp(9)}, text_w, color::text, PathUtf8(path));
+        std::string status;
+        ImVec4 tint = color::muted;
+        const bool unavailable = scanned && n < library_available_.size() && !library_available_[n];
+        if (!scanned) status = "Checking...";
+        else if (unavailable)
+        {
+            status = "Not available: is its drive connected?";
+            tint = color::warning;
+        }
+        else
+        {
+            const auto count = std::count_if(library_.begin(), library_.end(),
+                                             [&](const LibraryImage& image) { return image.folder == n; });
+            status = count == 0 ? "No Mario Strikers Charged images" : count == 1 ? "1 image"
+                                                                                   : std::to_string(count) + " images";
+        }
+        DrawClipped(draw, fonts.caption, {text_x, pos.y + Dp(31)}, text_w, tint, status);
+        if (ImGui::IsMouseHoveringRect({text_x, pos.y}, {text_x + text_w, pos.y + height}) && ImGui::IsWindowHovered())
+            ImGui::SetTooltip("%s%s", PathUtf8(path).c_str(),
+                              unavailable ? "\nThe folder is not there. If it is on a drive or memory card, connect it;\n"
+                                            "its images come back on their own."
+                                          : "");
+        const float right = pos.x + width - Dp(8);
+        DrawLabel(draw, fonts.caption, {right - controls + Dp(8), pos.y + (height - FontSize(fonts.caption)) * 0.5f},
+                  Col(color::muted), subfolders);
+        ImGui::SetCursorScreenPos({right - Dp(36 + 12 + 48), pos.y + (height - Dp(28)) * 0.5f});
+        if (Toggle("subfolders", &folder.subfolders)) dirty_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Also list the images in its subfolders (%d levels down).", kLibraryDepth);
+        ImGui::SetCursorScreenPos({right - Dp(36), pos.y + (height - Dp(36)) * 0.5f});
+        if (GhostButton("remove", "", Dp(36, 36), config_ok_, Icon::Close)) remove = int(n);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove from the library. The folder and its files stay.");
+        ImGui::SetCursorScreenPos(pos);
         ImGui::Dummy({width, height});
+        ImGui::Dummy({0, Dp(2)});
+        ImGui::PopID();
+    }
+
+    void LibraryImages()
+    {
+        const auto& fonts = CurrentFonts();
+        ImGui::Dummy({0, Dp(6)});
+        if (draft_.library_folders.empty())
+        {
+            Callout("Add the folder that holds your Mario Strikers Charged images (ISO or RVZ). Recharged lists every "
+                    "copy in it with its region and revision; you pin the one Play starts.",
+                    color::info, Icon::Info);
+            return;
+        }
+        // Search and order.
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float sort_width = Dp(200);
+        ImGui::SetNextItemWidth(width - sort_width - Dp(10));
+        ImGui::InputTextWithHint("##library_search", "Search: name, region, revision or ID", &library_search_);
+        ImGui::SameLine(0, Dp(10));
+        ImGui::SetNextItemWidth(sort_width);
+        static constexpr const char* sorts[] = {"Release", "File name", "Size", "Location"};
+        const std::string preview = std::string("Order: ") + sorts[int(library_sort_)]
+            + (library_descending_ ? " (reversed)" : "");
+        if (ImGui::BeginCombo("##library_sort", preview.c_str()))
+        {
+            for (int n = 0; n < int(std::size(sorts)); ++n)
+                if (ImGui::Selectable(sorts[n], int(library_sort_) == n)) library_sort_ = LibrarySort(n);
+            ImGui::Separator();
+            if (ImGui::Selectable("Reversed", library_descending_)) library_descending_ = !library_descending_;
+            ImGui::EndCombo();
+        }
+        ImGui::Dummy({0, Dp(4)});
+        const auto images = ArrangeImages(library_, library_sort_, library_descending_, library_search_);
+        if (library_.empty())
+        {
+            TextWrappedColored(fonts.body, color::muted,
+                               library_scanning_ ? "Looking for images..."
+                                                 : "No Mario Strikers Charged images in these folders yet.");
+        }
+        else if (images.empty())
+            TextWrappedColored(fonts.body, color::muted, ("No image matches \"" + library_search_ + "\".").c_str());
+        for (const auto* image : images) LibraryImageRow(*image);
+        std::string footer;
+        if (library_other_games_ > 0)
+            footer = std::to_string(library_other_games_)
+                + (library_other_games_ == 1 ? " other game is" : " other games are") + " not listed.";
+        if (library_limited_)
+            footer += std::string(footer.empty() ? "" : " ")
+                + "Only the first 2000 image files were looked at; choose folders closer to your images.";
+        if (!footer.empty())
+        {
+            ImGui::Dummy({0, Dp(2)});
+            TextWrappedColored(fonts.caption, color::dim, footer.c_str());
+        }
+    }
+
+    void LibraryImageRow(const LibraryImage& image)
+    {
+        const auto& fonts = CurrentFonts();
+        const std::string path = PathUtf8(image.path);
+        ImGui::PushID(path.c_str());
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        // Narrow windows give the text more room.
+        const bool narrow = width < Dp(640);
+        const ImVec2 banner = narrow ? Dp(78, 26) : Dp(108, 36);
+        const ImageState state = StateOf(image);
+        const bool charged = image.probe.kind == DiscProbe::Kind::Charged;
+        const auto& info = image.probe.info;
+        const auto selection = DiscSelection();
+        const bool pinned = !selection.empty() && ImageCache::Key(image.path) == ImageCache::Key(PathFromUtf8(selection));
+        const float action_width = Dp(narrow ? 150 : 168), actions = action_width + Dp(8 + 36);
+        const float text_x = pos.x + Dp(10) + banner.x + Dp(14);
+        const float text_w = std::max(Dp(100), pos.x + width - actions - Dp(16) - text_x);
+        std::string meta = charged ? RegionRevision(info) + "  \xC2\xB7  " + info.game_id + "  \xC2\xB7  " + info.format
+                                         + "  \xC2\xB7  " + FileSizeText(image.size)
+                                   : FileSizeText(image.size);
+        std::string note;
+        if (state == ImageState::Unsupported) note = UnplayableReason(info);
+        else if (state == ImageState::Unreadable) note = "Cannot be read: " + image.probe.error;
+        const float caption = FontSize(fonts.caption);
+        const float note_height =
+            note.empty() ? 0.0f : fonts.caption->CalcTextSizeA(caption, FLT_MAX, text_w, note.c_str()).y + Dp(3);
+        const float content = FontSize(fonts.label) + Dp(4) + caption + Dp(3) + caption + note_height;
+        const float height = std::max(banner.y, content) + Dp(20);
+        const ImVec2 max{pos.x + width, pos.y + height};
+        const bool hovered = ImGui::IsMouseHoveringRect(pos, max) && ImGui::IsWindowHovered();
+        const float hover = Animate(ImGui::GetID("##row_hover"), hovered, 12.0f);
+        if (pinned)
+        {
+            draw->AddRectFilled(pos, max, Col(color::accent, 0.07f + 0.03f * hover), Dp(12));
+            draw->AddRect(pos, max, Col(color::accent, 0.40f), Dp(12), 0, Dp(1));
+        }
+        else if (hover > 0.0f) draw->AddRectFilled(pos, max, Col(color::text, 0.04f * hover), Dp(12));
+        const ImVec2 banner_min{pos.x + Dp(10), pos.y + (height - banner.y) * 0.5f};
+        DrawBanner(draw, banner_min, {banner_min.x + banner.x, banner_min.y + banner.y}, charged ? info.game_id : "",
+                   state == ImageState::Unreadable ? 0.5f : 1.0f);
+        float y = pos.y + Dp(10);
+        DrawClipped(draw, fonts.label, {text_x, y}, text_w, color::text, ImageTitle(image));
+        y += FontSize(fonts.label) + Dp(4);
+        if (charged)
+        {
+            DrawRegionFlag(draw, {text_x, y + Dp(1.5f)}, Dp(11), RegionLetter(info.game_id));
+            DrawClipped(draw, fonts.caption, {text_x + Dp(22), y}, text_w - Dp(22), color::muted, meta);
+        }
+        else DrawClipped(draw, fonts.caption, {text_x, y}, text_w, color::muted, meta);
+        y += caption + Dp(3);
+        // The file name tells copies apart; an unreadable image shows it as its title already.
+        if (charged) DrawClipped(draw, fonts.caption, {text_x, y}, text_w, color::dim, PathUtf8(image.path.filename()));
+        else DrawPath(draw, fonts.caption, {text_x, y}, text_w, color::dim, PathUtf8(image.path.parent_path()));
+        y += caption + Dp(3);
+        if (!note.empty())
+            draw->AddText(fonts.caption, caption, {text_x, y}, Col(state == ImageState::Unsupported ? color::warning
+                                                                                                   : color::danger),
+                          note.c_str(), nullptr, text_w);
+        if (ImGui::IsMouseHoveringRect({pos.x, pos.y}, {text_x + text_w, max.y}) && ImGui::IsWindowHovered())
+            ImGui::SetTooltip("%s", path.c_str());
+
+        // Pinned, the action that pins it, or why it cannot be pinned.
+        const float action_x = max.x - actions;
+        if (pinned)
+        {
+            ImGui::SetCursorScreenPos({action_x, pos.y + (height - Dp(26)) * 0.5f});
+            Chip("Pinned", color::accent, Icon::Pin);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Play starts this image.");
+        }
+        else if (state == ImageState::Playable)
+        {
+            ImGui::SetCursorScreenPos({action_x, pos.y + (height - Dp(36)) * 0.5f});
+            if (SecondaryButton("use", "Use this image", {action_width, Dp(36)}, config_ok_ && !options_.launch.disc,
+                                Icon::Pin))
+            {
+                Pin(image.path, info, image.size);
+                Notice("Pinned " + PathUtf8(image.path.filename()) + " (" + RegionRevision(info) + ").",
+                       NoticeKind::Success);
+            }
+            if (options_.launch.disc && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("The image from the command line is used for this run.");
+        }
+        else
+        {
+            ImGui::SetCursorScreenPos({action_x, pos.y + (height - Dp(26)) * 0.5f});
+            const bool unsupported = state == ImageState::Unsupported;
+            Chip(unsupported ? "Not supported yet" : "Cannot be read", unsupported ? color::warning : color::danger,
+                 unsupported ? Icon::Warning : Icon::Error);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", unsupported ? ("This build runs " + PlayableReleasesText() + ".").c_str()
+                                                    : "Check that the file is a complete ISO or RVZ image.");
+        }
+        ImGui::SetCursorScreenPos({max.x - Dp(36 + 4), pos.y + (height - Dp(36)) * 0.5f});
+        if (GhostButton("open", "", Dp(36, 36), true, Icon::Folder)) OpenPath(image.path.parent_path());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open the folder that holds this image.");
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::Dummy({width, height});
+        ImGui::Dummy({0, Dp(2)});
+        ImGui::PopID();
     }
 
     void LanguageControl()
@@ -3220,6 +4086,11 @@ private:
             Notice(name + " takes screenshots and cannot be assigned.", NoticeKind::Warning);
             return;
         }
+        if (code == platform::kHudKey)
+        {
+            Notice(name + " shows or hides the HUD in a match and cannot be assigned.", NoticeKind::Warning);
+            return;
+        }
         auto bindings = DraftBindings();
         auto& mine = bindings[action];
         if (mine[0] == code || mine[1] == code) return;
@@ -3327,6 +4198,7 @@ private:
             ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch);
             KeyRow("Pointer", {"Mouse"}, "left click is A, right click is B", "Point at menu items");
             KeyRow("Screenshot", {"P"}, nullptr, "Saved in the screenshots folder");
+            KeyRow("Show or hide the HUD", {"H"}, nullptr, "In a match");
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
@@ -3897,6 +4769,7 @@ private:
             TweakRow(GameTweak::CpuVsCpu);
             TweakRow(GameTweak::MirrorMatch);
             TweakRow(GameTweak::BluePeach);
+            TweakRow(GameTweak::NoHud);
             TweakRow(GameTweak::UnlockAll);
             EndRows();
         }
@@ -4026,6 +4899,10 @@ private:
 
             Row("Verbose console", "Also prints development traces and the game's own debug output. Useful for bug reports.");
             if (Toggle("##verbose_console", &draft_.verbose_console)) dirty_ = true;
+#if defined(_WIN32) || defined(__APPLE__)
+            Row("Log window", "Shows the log in a separate window while Recharged runs, for testing. Closing it doesn't stop the game.");
+            if (Toggle("##log_window", &draft_.log_window)) dirty_ = true;
+#endif
 
             EndRows();
         }
@@ -4054,12 +4931,14 @@ private:
         BeginCard("##reset", "Reset", nullptr, Icon::Refresh);
         if (BeginRows("##reset_rows"))
         {
-            Row("Restore defaults", "Resets every setting except your disc. Save to keep the result.");
+            Row("Restore defaults", "Resets every setting except your pinned image and image library. Save to keep the result.");
             if (SecondaryButton("defaults", "Restore defaults", {ImGui::GetContentRegionAvail().x, Dp(40)}, config_ok_, Icon::Refresh))
             {
                 const auto disc = draft_.disc;
+                const auto library = draft_.library_folders;
                 draft_ = {};
                 draft_.disc = disc;
+                draft_.library_folders = library;
                 dirty_ = true;
                 Notice("Defaults restored. Save to keep them.", NoticeKind::Info);
             }
@@ -4225,6 +5104,28 @@ private:
     // The PC's languages, for Automatic (read once).
     std::vector<std::string> pc_languages_ = mscharged::platform::PcLanguages();
     std::future<DiscCheck> future_;
+    // An image chosen with Browse, a drop or Locate, checked before it is pinned.
+    std::future<DiscCheck> candidate_;
+    bool candidate_pending_ = false;
+    DiscInfo region_prompt_info_{};
+    Uint64 missing_probe_ = 0, folders_probe_ = 0;
+    // The image library (#65): the last finished scan and the running one.
+    fs::path library_data_;
+    ImageCache image_cache_;
+    std::vector<LibraryImage> library_;
+    std::vector<LibraryFolder> library_folders_, library_scan_folders_;
+    std::vector<bool> library_available_;
+    std::size_t library_other_games_ = 0;
+    bool library_limited_ = false;
+    std::vector<Settings::LibraryFolder> library_settings_; // the folders scanned last
+    std::future<LibraryScan> library_scan_;
+    std::shared_ptr<ScanProgress> library_progress_;
+    bool library_scanning_ = false, library_rescan_ = false, library_recheck_ = false, library_autopin_ = false;
+    LibrarySort library_sort_ = LibrarySort::Release;
+    bool library_descending_ = false;
+    std::string library_search_;
+    std::map<std::string, SDL_Texture*> banners_; // by disc ID
+    std::set<std::string> banner_failures_, banner_missing_;
     // The background search for a disc image when none is chosen.
     std::future<launcher::DiscSearchResult> search_;
     bool searching_ = false;
@@ -4249,8 +5150,14 @@ private:
 
 int main(int argc, char** argv)
 {
+    // The log window's own process (Advanced > Log window).
+    if (mscharged::platform::IsLogWindowProcess(argc, argv)) return mscharged::platform::RunLogWindow(argc, argv);
+    mscharged::platform::ConnectStandardStreams();
     Options options;
     SetAppName();
+#ifdef __APPLE__
+    if (int code = 0; mscharged::platform::LeaveAppTranslocation(code)) return code;
+#endif
     try
     {
     for (int i = 1; i < argc; ++i)

@@ -39,10 +39,24 @@ std::vector<std::filesystem::path> RemovableDrives(const std::filesystem::path& 
 std::vector<std::filesystem::path> FindDiscImages(const std::vector<DiscSearchFolder>& folders,
                                                   std::size_t limit = 16);
 
+// An image FindDiscImages lists, with the index of the folder it was found in
+// and its size and last write time (which tell whether it changed).
+struct FoundImage
+{
+    std::filesystem::path path;
+    std::size_t folder = 0;
+    std::uintmax_t size = 0;
+    std::int64_t modified = 0;
+};
+// Like FindDiscImages; reads at most `entry_limit` entries of each folder.
+std::vector<FoundImage> ListDiscImages(const std::vector<DiscSearchFolder>& folders, std::size_t limit,
+                                       std::size_t entry_limit = 512);
+
 struct DiscSearchResult
 {
     std::filesystem::path disc;  // the first supported image; empty when none
     std::size_t supported = 0;   // how many supported images were found
+    std::vector<std::filesystem::path> charged; // every Mario Strikers Charged image found, playable or not
     std::filesystem::path other; // the first Mario Strikers Charged image this build cannot play
     std::string other_id;        // its game ID
     std::uint8_t other_revision = 0;

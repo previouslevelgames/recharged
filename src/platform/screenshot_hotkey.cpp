@@ -1,5 +1,6 @@
 #include "platform/screenshot_hotkey.h"
 
+#include "platform/key_bindings.h"
 #include "platform/screenshot_path.h"
 
 #include <SDL3/SDL.h>
@@ -19,6 +20,7 @@ std::atomic<SDL_WindowID> sWindow{0};
 std::atomic<bool> sWatching{false};
 void (*sToggleLayers)() = nullptr;
 void (*sCycleLayer)() = nullptr;
+void (*sToggleHud)() = nullptr;
 
 void RequestScreenshot()
 {
@@ -69,6 +71,7 @@ bool SDLCALL Watch(void*, SDL_Event* event)
         if (event->key.scancode == SDL_SCANCODE_F8) RequestDrawDump();
         if (event->key.scancode == SDL_SCANCODE_F9 && sToggleLayers) sToggleLayers();
         if (event->key.scancode == SDL_SCANCODE_F10 && sCycleLayer) sCycleLayer();
+        if (event->key.scancode == kHudKey && sToggleHud) sToggleHud();
     }
     return true;
 }
@@ -90,9 +93,15 @@ void SetDebugLayerKeys(void (*toggle)(), void (*cycle)())
     sCycleLayer = cycle;
 }
 
+void SetHudKey(void (*toggle)())
+{
+    sToggleHud = toggle;
+}
+
 void ShutdownScreenshotHotkey()
 {
     SetDebugLayerKeys(nullptr, nullptr);
+    SetHudKey(nullptr);
     if (sWatching.exchange(false)) SDL_RemoveEventWatch(Watch, nullptr);
     sWindow = 0;
 }

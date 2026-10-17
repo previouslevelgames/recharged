@@ -15,6 +15,7 @@ extern "C" void charged_configure_performance_mode(bool enabled);
 extern "C" void charged_configure_frame_pacing(void (*swap)());
 extern "C" void charged_configure_rev1_data(bool enabled);
 extern "C" void charged_configure_sound_volumes(const int* volumes, int count);
+extern "C" void charged_toggle_hud(void);
 
 // The native VI's TV format (VI_NTSC 0, VI_PAL 1, VI_EURGB60 5) for the
 // original frame.
@@ -48,6 +49,16 @@ void CheckOriginal(const char* what)
             Check(mscharged_tweak_task_dilation(&other) == 1.0f && mscharged_tweak_real_time(0.25f) == 0.25f, what);
         }
     Check(!mscharged_tweak_title_pending() && !mscharged_tweak_take_title_press(), what);
+    mscharged_tweak_hud_frame();
+    Check(!mscharged_tweak_hud_hidden(), what);
+}
+
+// A frame of the game: the HUD state after `presses` of the H key.
+bool HudHiddenAfter(int presses)
+{
+    for (int n = 0; n < presses; ++n) charged_toggle_hud();
+    mscharged_tweak_hud_frame();
+    return mscharged_tweak_hud_hidden();
 }
 
 // The frame-rate hooks' answers at the original pacing.
@@ -137,7 +148,8 @@ int main()
             && unsigned(mscharged::GameTweak::FastTerrain) == MSCHARGED_TWEAK_FAST_TERRAIN
             && unsigned(mscharged::GameTweak::MirrorMatch) == MSCHARGED_TWEAK_MIRROR_MATCH
             && unsigned(mscharged::GameTweak::ThunderIslandWalls) == MSCHARGED_TWEAK_THUNDER_ISLAND_WALLS
-            && unsigned(mscharged::GameTweak::BluePeach) == MSCHARGED_TWEAK_BLUE_PEACH,
+            && unsigned(mscharged::GameTweak::BluePeach) == MSCHARGED_TWEAK_BLUE_PEACH
+            && unsigned(mscharged::GameTweak::NoHud) == MSCHARGED_TWEAK_NO_HUD,
             "Host tweak bits and the game hooks' IDs must agree");
 
         // Before configuration and with an empty set: the original game.
@@ -211,6 +223,37 @@ int main()
         mscharged_tweak_frontend_frame(true, true);
         Check(!mscharged_tweak_slide_reset_this_frame(&slide), "Slide reset kept into the next frame");
         Check(!mscharged_tweak_title_pending(), "Fast menus enabled skip intro");
+
+        // No HUD (issue #58): each match starts with the tweak's choice and H
+        // flips it during the match; presses in the menus do nothing.
+        alignas(8) static unsigned char hudMatch[8];
+        charged_configure_tweaks(0);
+        Check(!HudHiddenAfter(1), "No HUD: H hid the HUD outside a match");
+        g_pGame = reinterpret_cast<cGame*>(hudMatch);
+        Check(!HudHiddenAfter(0), "No HUD: HUD hidden with the tweak off");
+        Check(HudHiddenAfter(1) && HudHiddenAfter(0), "No HUD: H did not hide the HUD");
+        Check(HudHiddenAfter(2), "No HUD: two presses in a frame changed the HUD");
+        Check(!HudHiddenAfter(1), "No HUD: H did not show the HUD again");
+        Check(HudHiddenAfter(1), "No HUD: H did not hide the HUD again");
+        g_pGame = nullptr;
+        Check(!HudHiddenAfter(0), "No HUD: the next match kept the HUD hidden");
+        g_pGame = reinterpret_cast<cGame*>(hudMatch);
+        Check(!HudHiddenAfter(0), "No HUD: a match started with the HUD hidden");
+        g_pGame = nullptr;
+        charged_configure_tweaks(mscharged::GameTweakBit(mscharged::GameTweak::NoHud));
+        Check(HudHiddenAfter(0), "No HUD: the tweak did not hide the HUD");
+        g_pGame = reinterpret_cast<cGame*>(hudMatch);
+        Check(HudHiddenAfter(0), "No HUD: a match started with the HUD");
+        Check(!HudHiddenAfter(1) && !HudHiddenAfter(0), "No HUD: H did not show the HUD");
+        Check(HudHiddenAfter(1), "No HUD: H did not hide the HUD again");
+        Check(!HudHiddenAfter(1), "No HUD: H did not show the HUD");
+        g_pGame = nullptr;
+        Check(HudHiddenAfter(2) && HudHiddenAfter(1), "No HUD: presses in the menus changed the HUD");
+        g_pGame = reinterpret_cast<cGame*>(hudMatch);
+        Check(HudHiddenAfter(0), "No HUD: the next match did not start without the HUD");
+        g_pGame = nullptr;
+        charged_configure_tweaks(0);
+        Check(!HudHiddenAfter(0), "No HUD: HUD still hidden with the tweak off");
 
         // Frame rate: the original pacing until the host passes its swap.
         CheckOriginalFrames("Unconfigured frame pacing changed the original game");

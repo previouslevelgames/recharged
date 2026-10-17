@@ -54,7 +54,7 @@ come from the reconstructed source, unchanged.
 | + / − / HOME | Tab / - / Home | Start / Back / Guide |
 | Shake Remote / Nunchuk | E / Q | RT / RB |
 
-Press **P** for a screenshot.
+Press **P** for a screenshot and **H** to show or hide the HUD in a match.
 
 ## Picture and sound
 
@@ -123,16 +123,28 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   uses it against a captain of her colours, and nobody else is pink. Her menu
   pictures, Mega Strike hand, stadium banners and crowd have no blue version
   and stay pink.
+- **No HUD**: matches start without the scoreboard (score, clock, items,
+  ability meter), the player markers and the captions (replay label, goal
+  banner, super ability card), for clean recordings and screenshots. Press
+  **H** in a match to show or hide them, with or without this option. The
+  Mega Strike meter and the goalie's Mega Strike defence stay, as you need
+  them to play.
 
 `--no-tweaks` turns them off for one run.
 
 ## Launcher
 
-A start window that checks your disc, explains what is missing, and keeps every
-setting in one place: players and controllers, keyboard keys, gamepad
+A start window that checks your game image, explains what is missing, and keeps
+every setting in one place: players and controllers, keyboard keys, gamepad
 profiles, display, audio, gameplay tweaks and advanced options. It asks before
 playing with unsaved changes. Everything is also stored in `recharged.ini`
 beside the program ([settings](SETTINGS.md)).
+
+Its **image library** lists the Mario Strikers Charged images in your game
+folders, with their region, revision, game ID, format and size and the small
+banner the game uses for its save, read from your own image. You pin the one
+Play starts; images of versions this build cannot run yet are listed with the
+reason ([game images](SETTINGS.md#game-images)).
 
 It also **updates Recharged**: when a newer release is out it shows the release
 notes and asks, then installs it in place and restarts; only the program's own

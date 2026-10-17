@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..c5af264
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,141 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -42,6 +42,7 @@ index 0000000..c5af264
 +    MSCHARGED_TWEAK_MIRROR_MATCH = 6,
 +    MSCHARGED_TWEAK_THUNDER_ISLAND_WALLS = 7,
 +    MSCHARGED_TWEAK_BLUE_PEACH = 8,
++    MSCHARGED_TWEAK_NO_HUD = 9,
 +};
 +
 +bool mscharged_tweak_enabled(int tweak);
@@ -143,6 +144,13 @@ index 0000000..c5af264
 +// every group is at 100 %; and the gain (0-1) of the movies' audio samples.
 +float mscharged_tweak_sound_volume(const char* bank, unsigned category);
 +float mscharged_tweak_movie_volume(void);
++
++// No HUD: whether the match's HUD, player markers and captions are hidden.
++// Each match starts with the tweak's choice; the host's H key shows or hides
++// them during a match. Once a frame, at its start, the key's presses are
++// taken.
++void mscharged_tweak_hud_frame(void);
++bool mscharged_tweak_hud_hidden(void);
 +
 +#ifdef __cplusplus
 +}

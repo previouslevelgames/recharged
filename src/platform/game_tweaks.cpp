@@ -9,6 +9,7 @@
 #endif
 #include "mscharged_tweaks.h"
 
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -61,6 +62,13 @@ unsigned long sOriginalFrameCount;
 // European revision 1 data on the revision 2 code (tweak patch 0019): set by
 // the host for such a disc, whatever the enabled tweaks.
 bool sRev1Data;
+
+// No HUD (issue #58): whether this frame hides the match HUD. Each match
+// starts with the tweak's choice; H, pressed an odd number of times since,
+// flips it. The host passes the key's presses from its event thread.
+bool sHudHidden;
+bool sHudFlipped;
+std::atomic<unsigned> sHudKeyPresses;
 
 // Sound levels ([audio] in recharged.ini, a host setting outside the tweak
 // mask, issue #59), in the order of mscharged::SoundGroup: the decibels added
@@ -125,6 +133,15 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
     sTitlePassed = false;
     sMenus = sTransition = sOnTransitionTime = false;
     sStadium = -1;
+    sHudFlipped = false;
+    sHudHidden = mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_HUD);
+}
+
+// Host entry: the H key was pressed (any thread). A match takes it in its
+// next frame; in the menus it does nothing.
+__attribute__((visibility("default"))) void charged_toggle_hud(void)
+{
+    sHudKeyPresses.fetch_add(1, std::memory_order_relaxed);
 }
 
 __attribute__((visibility("default"))) void charged_configure_performance_mode(bool enabled)
@@ -189,6 +206,21 @@ unsigned long mscharged_tweak_rev1_ingame_texture_budget(unsigned long size)
 bool mscharged_tweak_enabled(int tweak)
 {
     return tweak >= 0 && tweak < 32 && (sEnabled & (1u << tweak)) != 0;
+}
+
+void mscharged_tweak_hud_frame(void)
+{
+    const unsigned presses = sHudKeyPresses.exchange(0, std::memory_order_relaxed);
+    if (!g_pGame)
+        sHudFlipped = false;
+    else if (presses % 2 != 0)
+        sHudFlipped = !sHudFlipped;
+    sHudHidden = mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_HUD) != sHudFlipped;
+}
+
+bool mscharged_tweak_hud_hidden(void)
+{
+    return sHudHidden;
 }
 
 void mscharged_tweak_report_stadium(int stadium)

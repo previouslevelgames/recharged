@@ -74,6 +74,14 @@ int main()
         Require(FindDiscImages({{root / "port" / "game", 0}, {root / "port" / "game" / ".", 0}}).size() == 2,
                 "Each file is listed once");
         Require(FindDiscImages({{root / "missing", 1}}).empty(), "A missing folder finds nothing");
+        // With the folder each image was found in, and its size.
+        const auto listed = ListDiscImages(folders, 16);
+        Require(listed.size() == 6 && listed[3].path.filename() == "beside.rvz" && listed[3].folder == 1
+                    && listed[3].size == kImage && listed[4].folder == 2,
+                "Images know their folder and size");
+        // A smaller entry limit reads fewer entries of each folder.
+        Require(ListDiscImages({{root / "port" / "game", 0}}, 16, 1).size() <= 1
+                    && ListDiscImages({{root / "port" / "game", 0}}, 16).size() == 2, "The entry limit holds");
 
         // /run/media: drives directly in it, and in the user's own folder.
         fs::create_directories(root / "media" / "deck" / "SD card");
@@ -97,6 +105,8 @@ int main()
         Require(result.disc == "us1.rvz" && result.supported == 2, "The first USA disc is picked");
         Require(result.other == "eu.rvz" && result.other_id == "R4QP01" && result.other_revision == 1,
                 "The European disc and its revision are remembered");
+        Require(result.charged == std::vector<fs::path>{"eu.rvz", "us1.rvz", "us2.iso"},
+                "Every Charged image is reported");
         result = PickDisc({"other.iso", "eu.rvz"}, inspect, usa_only);
         Require(result.disc.empty() && result.supported == 0 && result.other == "eu.rvz", "Only another region");
         result = PickDisc({}, inspect, usa_only);

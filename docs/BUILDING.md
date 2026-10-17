@@ -54,7 +54,8 @@ more parallel jobs.
 
 The build writes the program to `build/release/`: `recharged` starts the
 launcher, and `recharged --disc FILE` starts the game directly
-([options](SETTINGS.md#command-line-options)).
+([options](SETTINGS.md#command-line-options)). On macOS the build also makes
+`Recharged.app` there, which finds everything beside it like the program does.
 
 To update an existing checkout:
 

@@ -38,6 +38,10 @@ versions for the Windows executable, generated with:
 magick icon.png -define icon:auto-resize=256,128,64,48,32,24,16 icon.ico
 ```
 
+`icon.icns` is the macOS app icon (`Recharged.app`): the PNG itself at 512
+pixels and 256, 128, 64, 32 and 16 pixel versions, written by
+`tools/make_icns.py` (ImageMagick resizes).
+
 The icon artwork and its format conversion are outside the project's CC0
 dedication. The source metadata does not specify a redistribution license;
 rights remain with the respective owners.

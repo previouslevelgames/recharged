@@ -10,7 +10,8 @@ end of the [Steam Deck guide](STEAM_DECK.md#troubleshooting).
 
 Recharged runs **Mario Strikers Charged for the USA (game ID `R4QE01`,
 revision 1) and for Europe (`R4QP01`, revisions 1 and 2)**. The launcher's
-**Game** page shows the ID and revision of the image you chose.
+**Game** page shows the ID and revision of the pinned image and of every image
+in your library; *Not supported yet* images are listed but cannot be pinned.
 
 - **Another ID**, such as `R4QJ01` (Japan): not supported yet; the
   decompilation of these versions is still being completed. Renaming the file
@@ -20,8 +21,14 @@ revision 1) and for Europe (`R4QP01`, revisions 1 and 2)**. The launcher's
   extracted disc folders are not supported.
 - **"Expected a Mario Strikers Charged Wii image":** the file is another game
   or not a Wii disc image.
+- **"Cannot be read":** the file is incomplete or damaged (an unfinished
+  download, a failing drive). Copy or convert it again.
 - The image must stay where you chose it: Recharged reads it every time you
-  play.
+  play. If it moves or its drive is not connected, the launcher says so and
+  offers **Locate...**, a copy of the same release from your library, or
+  another image; it never switches to another image by itself.
+- A library folder shows *Not available* while its drive or memory card is
+  not connected. Its images come back when it is.
 
 ## The first start takes a while
 
@@ -51,11 +58,16 @@ Security* (*Open Anyway*), or run in Terminal:
 xattr -dr com.apple.quarantine <unpacked folder>
 ```
 
+While the folder still carries that quarantine mark, macOS starts
+`Recharged.app` from a temporary read-only copy, where it cannot see its
+modules, settings and saves. Recharged then offers to remove the mark from its
+folder and start again; choose *Allow and restart*, or run the command above.
+
 ## macOS: controllers do nothing
 
 macOS only lets an app read gamepads and Wii Remotes after you allow **Input
-Monitoring** for it, in *System Settings → Privacy & Security* (for the app
-you start it from, such as Terminal, if you use one). Quit and restart the
+Monitoring** for it, in *System Settings → Privacy & Security*: for
+Recharged, or for Terminal if you start `./recharged` there. Quit and restart the
 game afterwards, then unplug and reconnect the controller: one that was
 already connected stays silent until it is opened again.
 

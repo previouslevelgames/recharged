@@ -1,0 +1,152 @@
+Subject: Tweak: no HUD
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+For clean recordings and screenshots (issue #58), "No HUD" starts matches
+without their overlays; the host's H key shows or hides them during a match
+(mscharged_tweak_hud_frame takes its presses once a frame). Hidden are the
+scoreboard (hud_2.fen: team icons, clock, items, captain ability meter) with
+its score numbers (NumberDisplay, also a Mega Strike's goal count), the player
+number badges, ball-carrier arrows and screen-edge markers (Indicators), the
+REPLAY caption (ingame_text.fen), the goal's lower third (goal_overlay.fen)
+and the captain's super ability card.
+
+Only their drawing is skipped: FERender::RenderScene leaves out those scenes,
+NumberDisplay::Render and DrawIndicator return before they attach anything.
+The overlays, numbers and markers still update as in the original, so the
+game, replays and online matches are unchanged. The Mega Strike meter and the
+goalie's Mega Strike defence targets and countdown stay, as players need them
+to play; so do the pause menu, the screens after a match and the lessons'
+ticker. The guarded hooks exist only in the opt-in native game module.
+
+diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+index ae05c73..44745bd 100644
+--- a/src/Game/FE/feRender.cpp
++++ b/src/Game/FE/feRender.cpp
+@@ -16,6 +16,7 @@
+ #include "NL/gl/glState.h"
+ #include "NL/nlString.h"
+ #include "NL/platvmath.h"
++#include "mscharged_tweaks.h"
+ 
+ static nlFloatColour s_currentAssetColour;
+ static const nlVector3 s_quadPositions[4] = {
+@@ -30,6 +31,35 @@ RenderImageCallback g_pfnRenderImage;
+ static const unsigned long grabTex = nlStringLowerHash("target/grab_texture");
+ static const unsigned long movieTex = nlStringLowerHash("movie");
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "No HUD" (issue #58): while it hides the match's HUD, these
++// in-game overlays (their files in BaseGameSceneManager's scene table) are
++// not drawn: the scoreboard with clock, items and ability meter, the REPLAY
++// caption, the goal's lower third and the captain's super ability card. They
++// still update as in the original.
++static bool NoHudHidesScene(const FEScene* scene)
++{
++    static const unsigned long hidden[4] = {
++        nlStringLowerHash("art/fe/hud_2.fen"),
++        nlStringLowerHash("art/fe/ingame_text.fen"),
++        nlStringLowerHash("art/fe/goal_overlay.fen"),
++        nlStringLowerHash("art/fe/SUPER_ABILITY_PRESENTATION.fen"),
++    };
++    if (!mscharged_tweak_hud_hidden())
++    {
++        return false;
++    }
++    for (int i = 0; i < 4; i++)
++    {
++        if (scene->m_uHashID == hidden[i])
++        {
++            return true;
++        }
++    }
++    return false;
++}
++#endif
++
+ void FERender::CalculateCurrentAssetColour(const TLInstance* instance)
+ {
+     for (unsigned long i = 0; i < 4; i++)
+@@ -206,6 +236,12 @@ void FERender::RenderScene(FEScene* scene)
+     {
+         return;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    if (NoHudHidesScene(scene))
++    {
++        return;
++    }
++#endif
+ 
+     m_pRenderScene = scene;
+     s_currentAssetColour.c[0] = 1.0f;
+diff --git a/src/Game/Render/Indicators.cpp b/src/Game/Render/Indicators.cpp
+index 69e4dbb..275a4d8 100644
+--- a/src/Game/Render/Indicators.cpp
++++ b/src/Game/Render/Indicators.cpp
+@@ -27,6 +27,7 @@
+ #include "NL/nlString.h"
+ #include "types.h"
+ #include "Game/NetworkInput.h"
++#include "mscharged_tweaks.h"
+ #include <math.h>
+ 
+ static float s_fOverheadSize = 35.0f;
+@@ -208,6 +209,15 @@ static void DrawIndicator(int xCentre, int yCentre, float fPixelWidth,
+     nlColour colour, float rotationAngle,
+     unsigned char additiveBlending)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "No HUD" (issue #58): no player number badges, ball-carrier
++    // arrows or screen-edge markers. Their fades and the players' screen
++    // positions still update.
++    if (mscharged_tweak_hud_hidden())
++    {
++        return;
++    }
++#endif
+     if (glTextureLoad(uTexID))
+     {
+         glPoly2 poly;
+diff --git a/src/Game/Render/NumberDisplay.cpp b/src/Game/Render/NumberDisplay.cpp
+index 09f600a..2d6b2e8 100644
+--- a/src/Game/Render/NumberDisplay.cpp
++++ b/src/Game/Render/NumberDisplay.cpp
+@@ -20,6 +20,7 @@
+ #include "NL/nlString.h"
+ #include "NL/nlTask.h"
+ #include "NL/nlFunction.inl"
++#include "mscharged_tweaks.h"
+ 
+ const float gNumberDigitWidths[10] = {
+     0.1662f,
+@@ -207,6 +208,14 @@ void NumberDisplay::Render()
+     {
+         return;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "No HUD" (issue #58): no score numbers, nor a Mega Strike's
++    // goal count.
++    if (mscharged_tweak_hud_hidden())
++    {
++        return;
++    }
++#endif
+     if ((g_pGame->m_eGameState == GS_END_GAME
+          && nlTaskManager::m_pInstance->mCurrentState == TASK_REPLAY)
+         || !mVisible)
+diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
+index 7cd7dcb..baec505 100644
+--- a/src/Game/Task/BeginFrameTask.cpp
++++ b/src/Game/Task/BeginFrameTask.cpp
+@@ -416,6 +416,11 @@ void BeginFrameTask::Run(float dt)
+     // manager's measurement before its bounds and dilation.
+     mscharged_tweak_begin_frame(nlTaskManager::m_pInstance->mRealTimeDelta);
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "No HUD" (issue #58): this frame's HUD state, with the
++    // presses of the host's H key.
++    mscharged_tweak_hud_frame();
++#endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
+     if (gpHBMManager != NULL && gpHBMManager->mActive && gpHBMManager->mReady)
+     {

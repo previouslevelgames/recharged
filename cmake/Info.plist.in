@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Recharged</string>
+    <key>CFBundleExecutable</key>
+    <string>recharged</string>
+    <key>CFBundleIconFile</key>
+    <string>recharged</string>
+    <key>CFBundleIdentifier</key>
+    <string>io.github.previouslevelgames.recharged</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Recharged</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@PROJECT_VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>@PROJECT_VERSION@</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.games</string>@MSCHARGED_APP_MINIMUM_SYSTEM@
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <!-- SDL_GetBasePath is the folder holding Recharged.app: the modules,
+         assets, settings, saves and logs stay beside the app. -->
+    <key>SDL_FILESYSTEM_BASE_DIR_TYPE</key>
+    <string>parent</string>
+</dict>
+</plist>

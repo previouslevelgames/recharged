@@ -14,17 +14,17 @@ namespace
 {
 // Smaller files are not Wii disc images (an RVZ of the game is over 1 GB).
 constexpr std::uintmax_t kMinimumImageSize = 32ull << 20;
-// Entries read per folder: bounds a crowded Downloads folder.
+// Entries read per folder by default: bounds a crowded Downloads folder.
 constexpr std::size_t kFolderEntryLimit = 512;
 
 // A folder's entries without hidden ones, sorted by name; none when it
 // cannot be read.
-std::vector<fs::directory_entry> Entries(const fs::path& folder)
+std::vector<fs::directory_entry> Entries(const fs::path& folder, std::size_t limit = kFolderEntryLimit)
 {
     std::vector<fs::directory_entry> entries;
     std::error_code error;
     fs::directory_iterator it(folder, fs::directory_options::skip_permission_denied, error);
-    for (; !error && it != fs::directory_iterator() && entries.size() < kFolderEntryLimit; it.increment(error))
+    for (; !error && it != fs::directory_iterator() && entries.size() < limit; it.increment(error))
     {
         // native(): a name the narrow encoding cannot hold (Windows) must not throw.
         const auto name = it->path().filename().native();
@@ -52,12 +52,21 @@ bool IsDiscImageName(const fs::path& path)
     return is(".iso") || is(".rvz");
 }
 
-void Scan(const fs::path& folder, int depth, std::size_t limit, std::vector<fs::path>& images, std::set<fs::path>& seen)
+struct ScanContext
+{
+    std::size_t limit;
+    std::size_t entry_limit;
+    std::size_t folder;
+    std::vector<FoundImage>& images;
+    std::set<fs::path>& seen;
+};
+
+void Scan(const fs::path& folder, int depth, ScanContext& context)
 {
     std::vector<fs::path> subfolders;
-    for (const auto& entry : Entries(folder))
+    for (const auto& entry : Entries(folder, context.entry_limit))
     {
-        if (images.size() >= limit) return;
+        if (context.images.size() >= context.limit) return;
         std::error_code error;
         if (entry.is_directory(error))
         {
@@ -67,11 +76,14 @@ void Scan(const fs::path& folder, int depth, std::size_t limit, std::vector<fs::
         if (!IsDiscImageName(entry.path()) || !entry.is_regular_file(error)) continue;
         const auto size = entry.file_size(error);
         if (error || size < kMinimumImageSize) continue;
+        const auto modified = entry.last_write_time(error);
         auto identity = fs::weakly_canonical(entry.path(), error);
         if (error) identity = entry.path();
-        if (seen.insert(identity).second) images.push_back(entry.path());
+        if (context.seen.insert(identity).second)
+            context.images.push_back({entry.path(), context.folder, size,
+                                      std::int64_t(modified.time_since_epoch().count())});
     }
-    for (const auto& subfolder : subfolders) Scan(subfolder, depth - 1, limit, images, seen);
+    for (const auto& subfolder : subfolders) Scan(subfolder, depth - 1, context);
 }
 }
 
@@ -119,12 +131,23 @@ std::vector<fs::path> RemovableDrives(const fs::path& media_root, const std::str
     return drives;
 }
 
+std::vector<FoundImage> ListDiscImages(const std::vector<DiscSearchFolder>& folders, std::size_t limit,
+                                       std::size_t entry_limit)
+{
+    std::vector<FoundImage> images;
+    std::set<fs::path> seen;
+    for (std::size_t n = 0; n < folders.size() && images.size() < limit; ++n)
+    {
+        ScanContext context{limit, entry_limit, n, images, seen};
+        Scan(folders[n].path, folders[n].depth, context);
+    }
+    return images;
+}
+
 std::vector<fs::path> FindDiscImages(const std::vector<DiscSearchFolder>& folders, std::size_t limit)
 {
     std::vector<fs::path> images;
-    std::set<fs::path> seen;
-    for (const auto& folder : folders)
-        if (images.size() < limit) Scan(folder.path, folder.depth, limit, images, seen);
+    for (auto& image : ListDiscImages(folders, limit)) images.push_back(std::move(image.path));
     return images;
 }
 
@@ -138,6 +161,7 @@ DiscSearchResult PickDisc(const std::vector<fs::path>& images,
         DiscInfo info;
         try { info = inspect(image); }
         catch (const std::exception&) { continue; }
+        result.charged.push_back(image);
         if (playable(info))
         {
             if (result.disc.empty()) result.disc = image;

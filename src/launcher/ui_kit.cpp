@@ -62,7 +62,7 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
     fonts.title = add(30.0f);
     fonts.button = add(22.0f);
     fonts.overline = add(21.0f);
-    fonts.hero = add(54.0f);
+    fonts.hero = add(62.0f);
     io.FontDefault = fonts.body;
     io.FontGlobalScale = 1.0f / density;
     g_fonts = fonts;
@@ -331,7 +331,97 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(0.14f, -0.44f), p(0.44f, -0.44f), color, t);
         draw->AddLine(p(0.44f, -0.44f), p(0.44f, -0.14f), color, t);
         break;
+    case Icon::Close:
+        draw->AddLine(p(-0.28f, -0.28f), p(0.28f, 0.28f), color, t * 1.3f);
+        draw->AddLine(p(0.28f, -0.28f), p(-0.28f, 0.28f), color, t * 1.3f);
+        break;
+    case Icon::Search:
+        draw->AddCircle(p(-0.08f, -0.08f), 0.28f * s, color, 0, t * 1.2f);
+        draw->AddLine(p(0.13f, 0.13f), p(0.40f, 0.40f), color, t * 1.5f);
+        break;
+    case Icon::Pin:
+    {
+        // A push pin: cap, tapering body, collar and needle.
+        draw->AddRectFilled(p(-0.20f, -0.46f), p(0.20f, -0.36f), color, 0.04f * s);
+        draw->AddQuadFilled(p(-0.13f, -0.36f), p(0.13f, -0.36f), p(0.17f, -0.02f), p(-0.17f, -0.02f), color);
+        draw->AddRectFilled(p(-0.32f, -0.04f), p(0.32f, 0.06f), color, 0.04f * s);
+        draw->AddLine(p(0.0f, 0.06f), p(0.0f, 0.46f), color, t * 1.1f);
+        break;
     }
+    }
+}
+
+void DrawRegionFlag(ImDrawList* draw, ImVec2 pos, float height, char region)
+{
+    const float width = height * 1.5f;
+    const ImVec2 max{pos.x + width, pos.y + height};
+    const ImVec2 center{pos.x + width * 0.5f, pos.y + height * 0.5f};
+    const ImU32 white = IM_COL32(245, 245, 245, 255);
+    const float rounding = std::max(1.0f, height * 0.12f);
+    switch (region)
+    {
+    case 'E':
+    {
+        // Thirteen stripes and the blue canton with a few stars.
+        draw->AddRectFilled(pos, max, white, rounding);
+        const float stripe = height / 13.0f;
+        for (int n = 0; n < 13; n += 2)
+            draw->AddRectFilled({pos.x, pos.y + stripe * float(n)}, {max.x, pos.y + stripe * float(n + 1)},
+                                IM_COL32(178, 34, 52, 255), n == 0 || n == 12 ? rounding : 0.0f,
+                                n == 0 ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersBottom);
+        const ImVec2 canton{pos.x + width * 0.42f, pos.y + stripe * 7.0f};
+        draw->AddRectFilled(pos, canton, IM_COL32(60, 59, 110, 255), rounding, ImDrawFlags_RoundCornersTopLeft);
+        const float star = std::max(0.6f, height * 0.035f);
+        for (int row = 0; row < 3; ++row)
+            for (int column = 0; column < 4; ++column)
+                draw->AddCircleFilled({pos.x + (canton.x - pos.x) * (0.17f + 0.22f * float(column)),
+                                       pos.y + (canton.y - pos.y) * (0.22f + 0.28f * float(row))},
+                                      star, white, 6);
+        break;
+    }
+    case 'P':
+    {
+        // Twelve gold stars in a circle on blue.
+        draw->AddRectFilled(pos, max, IM_COL32(0, 51, 153, 255), rounding);
+        const float radius = height * 0.30f, star = std::max(0.7f, height * 0.05f);
+        for (int n = 0; n < 12; ++n)
+        {
+            const float angle = float(n) * 3.14159265f / 6.0f;
+            draw->AddCircleFilled({center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius}, star,
+                                  IM_COL32(255, 204, 0, 255), 6);
+        }
+        break;
+    }
+    case 'J':
+        draw->AddRectFilled(pos, max, white, rounding);
+        draw->AddCircleFilled(center, height * 0.30f, IM_COL32(188, 0, 45, 255));
+        break;
+    case 'K':
+    {
+        // The taegeuk (red over blue) and the four trigrams, simplified.
+        draw->AddRectFilled(pos, max, white, rounding);
+        const float radius = height * 0.24f;
+        draw->PathArcTo(center, radius, 3.14159265f, 2.0f * 3.14159265f);
+        draw->PathFillConvex(IM_COL32(205, 46, 58, 255));
+        draw->PathArcTo(center, radius, 0.0f, 3.14159265f);
+        draw->PathFillConvex(IM_COL32(0, 71, 160, 255));
+        const ImU32 black = IM_COL32(20, 20, 20, 255);
+        const float bar = std::max(1.0f, height * 0.08f);
+        const float dx = width * 0.33f, dy = height * 0.30f;
+        for (const float sx : {-1.0f, 1.0f})
+            for (const float sy : {-1.0f, 1.0f})
+            {
+                const ImVec2 a{center.x + sx * dx, center.y + sy * dy};
+                const ImVec2 along{-sy * height * 0.07f, sx * height * 0.07f};
+                draw->AddLine({a.x - along.x, a.y - along.y}, {a.x + along.x, a.y + along.y}, black, bar);
+            }
+        break;
+    }
+    default:
+        draw->AddRectFilled(pos, max, Col(color::dim), rounding);
+        break;
+    }
+    draw->AddRect(pos, max, IM_COL32(0, 0, 0, 70), rounding, 0, 1.0f);
 }
 
 float Animate(ImGuiID id, bool target, float speed)
@@ -807,25 +897,45 @@ bool SegmentedIcons(const char* id, int* selected, std::initializer_list<Segment
 bool PercentSlider(const char* id, int* value, float width)
 {
     ImGui::PushID(id);
+    const auto& fonts = CurrentFonts();
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     const float height = ImGui::GetFrameHeight();
-    auto* draw = ImGui::GetWindowDrawList();
-    const float fraction = std::clamp(float(*value) / 100.0f, 0.0f, 1.0f);
-    draw->AddRectFilled(pos, {pos.x + width, pos.y + height}, Col(color::field), Dp(10));
-    if (fraction > 0.0f)
-        FillGradient(draw, pos, {pos.x + std::max(Dp(20), width * fraction), pos.y + height},
-                     Col(Mix(color::accent_dark, color::accent, 0.55f)), Col(Mix(color::accent_dark, color::accent, 0.9f)),
-                     Dp(10), true);
+    // A slim track with a round knob, and the value beside it. ImGui's slider
+    // keeps the input (mouse, keys, gamepad) but draws nothing itself.
+    const float label_width = TextSize(fonts.body, "100%").x + Dp(16);
+    const float track_width = std::max(Dp(60), width - label_width);
+    const float knob = Dp(16);
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4{0, 0, 0, 0});
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4{1, 1, 1, 0.04f});
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4{1, 1, 1, 0.06f});
-    ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4{1, 1, 1, 0.92f});
-    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4{1, 1, 1, 1});
-    ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, Dp(6));
-    ImGui::SetNextItemWidth(width);
-    const bool changed = ImGui::SliderInt("##slider", value, 0, 100, "%d%%", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, knob);
+    ImGui::SetNextItemWidth(track_width);
+    const bool changed = ImGui::SliderInt("##slider", value, 0, 100, "", ImGuiSliderFlags_AlwaysClamp);
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(5);
+    const bool active = ImGui::IsItemActive();
+    const float lift = Animate(ImGui::GetID("##lift"), active || ImGui::IsItemHovered(), 14.0f);
+
+    // ImGui centres its grab between 2 px of padding at each end; the knob follows it.
+    auto* draw = ImGui::GetWindowDrawList();
+    const float alpha = ImGui::GetStyle().Alpha; // dimmed while disabled (Mute)
+    const float left = pos.x + 2.0f + knob * 0.5f, right = pos.x + track_width - 2.0f - knob * 0.5f;
+    const float x = left + (right - left) * std::clamp(float(*value) / 100.0f, 0.0f, 1.0f);
+    const float y = pos.y + height * 0.5f, half = Dp(2);
+    draw->AddRectFilled({left, y - half}, {right, y + half}, Col(color::text, 0.12f * alpha), half);
+    if (x > left + 0.5f)
+        FillGradient(draw, {left, y - half}, {x, y + half}, Col(Mix(color::accent_dark, color::accent, 0.6f), alpha),
+                     Col(color::accent, alpha), half, true);
+    const float radius = knob * 0.5f * (1.0f + 0.12f * lift);
+    if (lift > 0.01f) draw->AddCircleFilled({x, y}, radius + Dp(5), Col(color::accent, 0.16f * lift * alpha));
+    draw->AddCircleFilled({x, y + Dp(1)}, radius, Col(ImVec4{0, 0, 0, 1}, 0.35f * alpha));
+    draw->AddCircleFilled({x, y}, radius, Col(active ? color::accent_hi : color::text, alpha));
+
+    const std::string text = std::to_string(*value) + "%";
+    const ImVec2 size = TextSize(fonts.body, text.c_str());
+    DrawLabel(draw, fonts.body, {pos.x + width - size.x, y - size.y * 0.5f}, Col(color::text, 0.85f * alpha), text.c_str());
     ImGui::PopID();
     return changed;
 }

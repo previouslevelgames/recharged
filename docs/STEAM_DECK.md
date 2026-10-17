@@ -103,8 +103,9 @@ rest of the Gamepad template.
 
 Start the game from your library. The launcher appears first.
 
-1. On the **Game** page, browse to your `.iso` or `.rvz`. The launcher checks
-   it and shows *Supported release. Ready to play.* when Recharged runs it.
+1. On the **Game** page, the image in the `game` folder is already pinned
+   (*Ready to play.*). Otherwise add its folder with **Add folder...**, for
+   example the microSD card's, and choose **Use this image**.
 2. On the **Controls** page set player 1 to **`gamepad1`** (the first listed
    gamepad) and leave players 2-4 off for one player. Keep the *Default*
    gamepad profile at first.
