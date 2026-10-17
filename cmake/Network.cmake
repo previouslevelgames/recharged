@@ -8,7 +8,8 @@ find_package(Threads REQUIRED)
 set(MSCHARGED_NETWORK_SOURCES
     src/net/so.c
     src/net/so_host.c
-    src/net/so_state.c)
+    src/net/so_state.c
+    src/net/ncd.c)
 
 function(mscharged_configure_network_target target scope)
     target_include_directories("${target}" ${scope} src
