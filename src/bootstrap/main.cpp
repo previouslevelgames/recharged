@@ -13,14 +13,14 @@ namespace
 {
 void PrintVersion()
 {
-    std::cout << "mscharged-port " << mscharged::build::version
+    std::cout << "Recharged " << mscharged::build::version
               << " (" << MSCHARGED_BUILD_CONFIG << "; development bootstrap)\n";
 }
 
 void PrintUsage(std::ostream& output)
 {
     output << "Usage: mscharged-bootstrap [--config FILE | --disc FILE | --self-test | --version | --help]\n"
-           << "With no arguments, read [game] disc from ./mscharged.ini.\n"
+           << "With no arguments, read [game] disc from ./recharged.ini.\n"
            << "--disc accepts an ISO or RVZ directly; --self-test needs no game data.\n";
 }
 }
@@ -65,7 +65,7 @@ int main(int argc, char** argv)
         try
         {
             const auto path = use_disc ? mscharged::PathFromUtf8(argv[2])
-                : mscharged::LoadDiscPath(use_config ? mscharged::PathFromUtf8(argv[2]) : "mscharged.ini");
+                : mscharged::LoadDiscPath(use_config ? mscharged::PathFromUtf8(argv[2]) : "recharged.ini");
             std::cout << "Disc image: " << mscharged::PathUtf8(path) << '\n';
             const auto info = mscharged::InspectDisc(path);
             std::cout << "Disc: " << info.game_id << " revision " << unsigned(info.revision)

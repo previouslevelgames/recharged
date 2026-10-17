@@ -1,1 +1,0 @@
-{ global: charged_font_qualify; charged_scene_render_frame; charged_scene_update_and_render_frame; charged_scene_stop_movie; local: *; };

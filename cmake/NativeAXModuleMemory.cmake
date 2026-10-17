@@ -73,6 +73,6 @@ function(mscharged_add_native_ax_module_memory target)
     target_compile_features("${target}" PRIVATE c_std_17)
     # Existing host is shared by the selected Credits/frontend modules; only
     # the frontend loader arms this endpoint. Credits retains its own module.
-    target_link_libraries(charged_original_main_credits_host PRIVATE
+    target_link_libraries(charged_original_game_host PRIVATE
         charged_native_ax_module_memory)
 endfunction()

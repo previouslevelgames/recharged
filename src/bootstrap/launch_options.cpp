@@ -76,13 +76,23 @@ bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOpti
 std::filesystem::path DefaultConfigPath(const std::filesystem::path& executable_directory)
 {
     namespace fs = std::filesystem;
-    if (fs::exists("mscharged.ini")) return fs::absolute("mscharged.ini");
+    // A folder from before the rename (#64) has mscharged.ini: its settings are
+    // copied, so that older builds started from the same folder keep theirs.
+    const auto adopt = [](const fs::path& config) {
+        std::error_code error;
+        const fs::path old = config.parent_path() / "mscharged.ini";
+        if (fs::exists(config, error) || !fs::exists(old, error)) return config;
+        fs::copy_file(old, config, error);
+        return error ? old : config;
+    };
+    if (fs::exists("recharged.ini") || fs::exists("mscharged.ini")) return adopt(fs::absolute("recharged.ini"));
     for (auto directory = executable_directory; !directory.empty(); directory = directory.parent_path())
     {
-        if (fs::exists(directory / "mscharged.ini.example")) return directory / "mscharged.ini";
+        if (fs::exists(directory / "recharged.ini.example") || fs::exists(directory / "mscharged.ini.example"))
+            return adopt(directory / "recharged.ini");
         if (directory == directory.parent_path()) break;
     }
-    return executable_directory / "mscharged.ini";
+    return adopt(executable_directory / "recharged.ini");
 }
 
 ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& options,
@@ -199,6 +209,7 @@ std::string DescribeLaunch(const ResolvedLaunch& launch)
         + launch.settings.aspect + " (" + SettingSourceName(launch.aspect_source) + "); frame rate: "
         + launch.settings.frame_rate + " (" + SettingSourceName(launch.frame_rate_source) + "); tweaks: "
         + DescribeGameTweaks(launch.settings.GameTweakMask()) + " (" + SettingSourceName(launch.tweaks_source)
-        + "); performance mode: " + (launch.settings.performance_mode ? "on" : "off");
+        + "); performance mode: " + (launch.settings.performance_mode ? "on" : "off")
+        + "; sound levels: " + DescribeSoundVolumes(launch.settings.sound_volumes);
 }
 }

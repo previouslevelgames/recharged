@@ -292,9 +292,9 @@ function(mscharged_select_original_frontend_match_loading target)
     endforeach()
     # NisPlayer's original NIS load queue queries the console type through the
     # native disc boot identity's retail console.
-    target_link_libraries(charged_original_main_credits_host PRIVATE
+    target_link_libraries(charged_original_game_host PRIVATE
         charged_native_os_shutdown_requests)
-    mscharged_require_original_host_symbol(charged_original_main_credits_host
+    mscharged_require_original_host_symbol(charged_original_game_host
         INTERFACE OSGetConsoleType)
     # MatchLoadingScene, the HUD clock, the goal overlay's time/score and the
     # in-game text spacing format Wii16 L"..." literals through the original

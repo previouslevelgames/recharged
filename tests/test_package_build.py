@@ -31,7 +31,7 @@ class PackageBuildTests(unittest.TestCase):
         self.output = self.root / "package artifacts with spaces"
         self.pin = "1" * 40
         self.checksum = "2" * 64
-        self.write(self.build, "mscharged", b"synthetic executable", 0o755)
+        self.write(self.build, "recharged", b"synthetic executable", 0o755)
         for stem in PACKAGER.MODULES:
             self.write(self.build, stem + ".so", b"synthetic module", 0o755)
         for asset in PACKAGER.ASSETS:
@@ -160,9 +160,9 @@ checksum = "{self.checksum}"
                                       steamdeck=steamdeck)
 
     def test_allowlist_archive_manifest_and_executable_mode(self):
-        for root, path in ((self.source, "mscharged.ini"), (self.source, "game/R4QE01.rvz"),
+        for root, path in ((self.source, "recharged.ini"), (self.source, "game/R4QE01.rvz"),
                            (self.source, ".private/secret.md"), (self.build, "cache/driver.bin"),
-                           (self.build, "mscharged_original_frontend_module_us.map"),
+                           (self.build, "recharged_game_us.map"),
                            (self.build, "mscharged_original_loading_module.so"),
                            (self.build, "assets/launcher/extra-private.txt")):
             self.write(root, path, b"MUST NOT BE PACKAGED")
@@ -175,7 +175,7 @@ checksum = "{self.checksum}"
             manifest = json.load(archive.extractfile(manifest_member))
             self.assertEqual(manifest["version"], "1.0.0+g123456789abc")
             self.assertEqual(manifest["packaging_source_commit"], "6" * 40)
-            self.assertEqual(len(manifest["modules"]), 3)
+            self.assertEqual(len(manifest["modules"]), 2)
             self.assertEqual(len(manifest["prepared"]), len(PACKAGER.DEPENDENCIES))
             self.assertEqual(manifest["cargo"]["packages"][0]["name"], "codec")
             self.assertEqual(len(manifest["cargo"]["packages"]), 2)
@@ -188,14 +188,14 @@ checksum = "{self.checksum}"
                 self.assertEqual(self.hash(archive.extractfile(member).read()), item["sha256"])
                 self.assertEqual(member.mode, int(item["mode"], 8))
                 self.assertEqual(member.uid, 0)
-            self.assertEqual(manifest["files"]["mscharged"]["mode"], "0o755")
+            self.assertEqual(manifest["files"]["recharged"]["mode"], "0o755")
             self.assertIn("assets/graphics/initial_pipeline_cache.db", manifest["files"])
             self.assertIn("assets/graphics/README.md", manifest["files"])
             self.assertFalse(any("MUST NOT BE PACKAGED" in archive.extractfile(member).read().decode(errors="ignore")
                                  for member in members if member.isfile()))
             extraction = self.root / "extracted"
             archive.extractall(extraction, filter="data")
-            executable = next(extraction.glob("*/mscharged"))
+            executable = next(extraction.glob("*/recharged"))
             self.assertTrue(executable.stat().st_mode & 0o111)
 
     def test_pipeline_resource_is_required_and_matches_catalogue(self):
@@ -232,9 +232,7 @@ checksum = "{self.checksum}"
         shutil.rmtree(self.build)
         shutil.rmtree(self.source)
         manifest = json.loads((relocated / "SOURCE-MANIFEST.json").read_text())
-        self.assertEqual(manifest["modules"], ["mscharged_original_frontend_module_us.so",
-                                              "mscharged_original_frontend_module_eu.so",
-                                              "mscharged_original_main_credits_module.so"])
+        self.assertEqual(manifest["modules"], ["recharged_game_us.so", "recharged_game_eu.so"])
         self.assertFalse((relocated / "prepared").exists())
         self.assertFalse((relocated / "mscharged_original_loading_module.so").exists())
         for relative, recorded in manifest["files"].items():
@@ -267,10 +265,10 @@ checksum = "{self.checksum}"
             self.package()
 
     def test_nonexecutable_and_launcher_only_builds_fail(self):
-        (self.build / "mscharged").chmod(0o644)
+        (self.build / "recharged").chmod(0o644)
         with self.assertRaisesRegex(PACKAGER.PackageError, "not executable"):
             self.package()
-        (self.build / "mscharged").chmod(0o755)
+        (self.build / "recharged").chmod(0o755)
         self.write(self.build, "CMakeCache.txt", b"MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC:BOOL=OFF\n")
         with self.assertRaisesRegex(PACKAGER.PackageError, "not only the launcher"):
             self.package()
@@ -298,8 +296,8 @@ checksum = "{self.checksum}"
                                               if item.name.endswith("/PACKAGE-README.md"))).read().decode()
         self.assertEqual((manifest["platform"], manifest["architecture"]), ("steamdeck", "x86_64"))
         requirements = manifest["steamdeck_requirements"]
-        self.assertEqual(sorted(requirements), sorted(["mscharged"] + [m + ".so" for m in PACKAGER.MODULES]))
-        self.assertEqual(requirements["mscharged"]["newest"],
+        self.assertEqual(sorted(requirements), sorted(["recharged"] + [m + ".so" for m in PACKAGER.MODULES]))
+        self.assertEqual(requirements["recharged"]["newest"],
                          {"CXXABI": "CXXABI_1.3.15", "GCC": "GCC_3.0", "GLIBC": "GLIBC_2.39",
                           "GLIBCXX": "GLIBCXX_3.4.33"})
         self.assertIn("Add a Non-Steam Game", readme)
@@ -335,12 +333,12 @@ checksum = "{self.checksum}"
     def windows_build(self):
         self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
                    b'set(CMAKE_SYSTEM_NAME "Windows")\nset(CMAKE_SYSTEM_PROCESSOR "x86_64")\n')
-        (self.build / "mscharged").rename(self.build / "mscharged.exe")
+        (self.build / "recharged").rename(self.build / "recharged.exe")
         for stem in PACKAGER.MODULES:
             (self.build / (stem + ".so")).rename(self.build / (stem + ".dll"))
         toolchain = self.root / "llvm mingw"
         self.write(toolchain, "bin/llvm-readobj", b"fixture tool")
-        self.windows_imports = {"mscharged.exe": ["libc++.dll"],
+        self.windows_imports = {"recharged.exe": ["libc++.dll"],
                                 "libc++.dll": ["libunwind.dll"],
                                 "libunwind.dll": ["libwinpthread-1.dll", "api-ms-win-crt-runtime-l1-1-0.dll"]}
         for dll in PACKAGER.WINDOWS_RUNTIME:
@@ -369,20 +367,20 @@ checksum = "{self.checksum}"
 
     def test_windows_packages_exe_dlls_runtime_and_notices_as_zip(self):
         _, pin = self.windows_build()
-        self.windows_imports["mscharged.exe"].append("pdh.dll")
+        self.windows_imports["recharged.exe"].append("pdh.dll")
         path = self.package()
         self.assertTrue(path.name.endswith("-windows-x86_64.zip"))
         with zipfile.ZipFile(path) as archive:
             names = set(archive.namelist())
             manifest = json.loads(next(archive.read(n) for n in archive.namelist() if n.endswith("SOURCE-MANIFEST.json")))
-        self.assertIn("mscharged.exe", names)  # at the zip's root, no nested folder
+        self.assertIn("recharged.exe", names)  # at the zip's root, no nested folder
         self.assertTrue(set(PACKAGER.WINDOWS_RUNTIME) <= names)
         self.assertIn("LICENSES/toolchain/llvm-mingw/COPYING.winpthreads.txt", names)
         self.assertIn("assets/launcher/aurora.png", names)
         self.assertEqual(manifest["modules"], [stem + ".dll" for stem in PACKAGER.MODULES])
         self.assertEqual(manifest["platform"], "windows")
         self.assertEqual(manifest["windows_graphics"], pin)
-        self.assertEqual(manifest["windows_imports"]["mscharged.exe"], ["libc++.dll", "pdh.dll"])
+        self.assertEqual(manifest["windows_imports"]["recharged.exe"], ["libc++.dll", "pdh.dll"])
         self.assertNotIn("pdh.dll", names)  # Performance counters use the Windows OS component.
         for record in PACKAGER.graphics_file_records(pin):
             self.assertIn(record["path"], names)
@@ -415,7 +413,7 @@ checksum = "{self.checksum}"
     def test_windows_without_toolchain_root_fails(self):
         self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
                    b'set(CMAKE_SYSTEM_NAME "Windows")\nset(CMAKE_SYSTEM_PROCESSOR "x86_64")\n')
-        (self.build / "mscharged").rename(self.build / "mscharged.exe")
+        (self.build / "recharged").rename(self.build / "recharged.exe")
         with self.assertRaisesRegex(PACKAGER.PackageError, "LLVM_MINGW_ROOT"):
             self.package()
 

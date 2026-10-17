@@ -27,9 +27,9 @@ OLD_FILES = {
     "assets/launcher/header.png": (b"old header\n", 0o644),
     "docs/OLD.md": (b"only in the old package\n", 0o644),
 }
-NEW_FILES = {
-    "mscharged": (b"new launcher\n", 0o755),
-    "mscharged_original_frontend_module.so": (b"new module\n" * 1000, 0o644),
+NEW_FILES = {  # renamed to recharged (#64)
+    "recharged": (b"new launcher\n", 0o755),
+    "recharged_game_us.so": (b"new module\n" * 1000, 0o644),
     "assets/launcher/header.png": (b"new header\n", 0o644),
     "docs/NEW.md": (b"only in the new package\n", 0o644),
     # A path longer than ustar's 100-character name field (a pax header).
@@ -37,7 +37,7 @@ NEW_FILES = {
 }
 USER_FILES = {
     "mscharged.ini": b"[game]\ndisc = game/R4QE01.rvz\n",
-    "original-main-credits-data/nand/save.bin": b"save data",
+    "data/nand/save.bin": b"save data",
     "logs/mscharged.log": b"previous log\n",
 }
 
@@ -108,34 +108,34 @@ def main():
         (installed / path).write_bytes(data)
 
     for platform in ("linux", "steamdeck"):
-        name = f"mscharged-{NEW_VERSION}-{platform}-x86_64"
+        name = f"recharged-{NEW_VERSION}-{platform}-x86_64"
         stage(work / name, NEW_VERSION, platform, NEW_FILES)
         write_tar(output / f"{name}.tar.gz", work / name, name)
-    name = f"mscharged-{NEW_VERSION}-windows-x86_64"
+    name = f"recharged-{NEW_VERSION}-windows-x86_64"
     stage(work / name, NEW_VERSION, "windows", NEW_FILES)
     write_zip(output / f"{name}.zip", work / name)
 
-    top = "mscharged-1.0.10+gbbbbbbbbbbbb-linux-x86_64"
-    good_manifest = manifest(NEW_VERSION, "linux", {"mscharged": (b"x\n", 0o755)})
+    top = "recharged-1.0.10+gbbbbbbbbbbbb-linux-x86_64"
+    good_manifest = manifest(NEW_VERSION, "linux", {"recharged": (b"x\n", 0o755)})
     tar_with(output / "bad-traversal.tar.gz", [
         (file_info(f"{top}/SOURCE-MANIFEST.json", good_manifest), good_manifest),
         (file_info(f"{top}/../../evil", b"escaped\n"), b"escaped\n"),
     ])
-    link = tarfile.TarInfo(f"{top}/mscharged")
+    link = tarfile.TarInfo(f"{top}/recharged")
     link.type = tarfile.SYMTYPE
     link.linkname = "/bin/sh"
     tar_with(output / "bad-symlink.tar.gz", [
         (file_info(f"{top}/SOURCE-MANIFEST.json", good_manifest), good_manifest), (link, None)])
     tar_with(output / "bad-hash.tar.gz", [
         (file_info(f"{top}/SOURCE-MANIFEST.json", good_manifest), good_manifest),
-        (file_info(f"{top}/mscharged", b"y\n", 0o755), b"y\n"),
+        (file_info(f"{top}/recharged", b"y\n", 0o755), b"y\n"),
     ])
-    tar_with(output / "bad-absolute.tar.gz", [(file_info("/tmp/mscharged-absolute", b"x\n"), b"x\n")])
+    tar_with(output / "bad-absolute.tar.gz", [(file_info("/tmp/recharged-absolute", b"x\n"), b"x\n")])
     unlisted = work / "unlisted"
-    stage(unlisted, NEW_VERSION, "windows", {"mscharged.exe": (b"x\n", 0o755)})
+    stage(unlisted, NEW_VERSION, "windows", {"recharged.exe": (b"x\n", 0o755)})
     (unlisted / "extra.dll").write_bytes(b"not in the manifest\n")
     write_zip(output / "bad-unlisted.zip", unlisted)
-    complete = (output / f"mscharged-{NEW_VERSION}-linux-x86_64.tar.gz").read_bytes()
+    complete = (output / f"recharged-{NEW_VERSION}-linux-x86_64.tar.gz").read_bytes()
     (output / "bad-truncated.tar.gz").write_bytes(complete[: len(complete) // 2])
     shutil.rmtree(work)
 

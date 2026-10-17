@@ -18,7 +18,7 @@ function(mscharged_select_original_game_audio_task target)
         message(FATAL_ERROR "The original audio task belongs to its isolated main module")
     endif()
     target_compile_definitions("${target}" PRIVATE MSCHARGED_DIAGNOSTIC_GAME_AUDIO_TASK=1)
-    target_compile_definitions(charged_original_main_credits_host PRIVATE
+    target_compile_definitions(charged_original_game_host PRIVATE
         MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_TASK=1)
     # Host must observe actual owner+initialized+config-loaded flags==7 through
     # charged_original_audio_observe after main and before the FIRST frame.

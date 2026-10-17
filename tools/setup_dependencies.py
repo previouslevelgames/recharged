@@ -138,7 +138,7 @@ def setup(repo: Path, *, launcher: bool = False, system: str | None = None,
           dry_run: bool = False, shallow: bool = False) -> None:
     repo = repo.resolve()
     if Path(git(repo, "rev-parse", "--show-toplevel").strip()).resolve() != repo:
-        raise SetupError("Run the helper from a Git checkout of mscharged-port")
+        raise SetupError("Run the helper from a Git checkout of recharged")
     direct, nested = plan(launcher, system or platform.system())
     expected = pins(repo, direct)
     check_gitmodules(repo, direct)

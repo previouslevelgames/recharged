@@ -228,7 +228,7 @@ std::string Line(const char* format, ...)
 
 void Header(const char* version, int argc, char** argv)
 {
-    std::string text = Line("=== Mario Strikers Charged native port %s ===\n", version);
+    std::string text = Line("=== Recharged %s ===\n", version);
     const std::time_t now = std::time(nullptr);
     char stamp[64] = "";
     if (const std::tm* local = std::localtime(&now)) std::strftime(stamp, sizeof stamp, "%Y-%m-%d %H:%M:%S %z", local);
@@ -355,19 +355,20 @@ void WriteDump(EXCEPTION_POINTERS* info)
 bool OwnConsole()
 {
     DWORD processes[2];
-    return GetConsoleProcessList(processes, 2) <= 1 && !std::getenv("MSCHARGED_NO_DIALOGS");
+    return GetConsoleProcessList(processes, 2) <= 1 && !std::getenv("RECHARGED_NO_DIALOGS")
+        && !std::getenv("MSCHARGED_NO_DIALOGS"); // before the rename (#64)
 }
 
 void CrashDialog(const char* headline)
 {
     if (!OwnConsole()) return;
-    std::wstring text = L"Mario Strikers Charged ";
+    std::wstring text = L"Recharged ";
     wchar_t wide[512];
     MultiByteToWideChar(CP_UTF8, 0, headline, -1, wide, 512);
     text += wide;
     text += L"\n\nA report was saved to:\n" + g_log.path.wstring()
-        + L"\n\nPlease attach mscharged.log (and mscharged-crash.dmp, if present) to your bug report.";
-    MessageBoxW(nullptr, text.c_str(), L"Mario Strikers Charged", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+        + L"\n\nPlease attach recharged.log (and recharged-crash.dmp, if present) to your bug report.";
+    MessageBoxW(nullptr, text.c_str(), L"Recharged", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
 }
 
 const char* ExceptionName(DWORD code)
@@ -514,7 +515,9 @@ void SDLCALL SdlLog(void*, int category, SDL_LogPriority priority, const char* m
 
 fs::path ChooseDirectory()
 {
-    if (const char* chosen = std::getenv("MSCHARGED_LOG_DIR"); chosen && *chosen)
+    const char* chosen = std::getenv("RECHARGED_LOG_DIR");
+    if (!chosen) chosen = std::getenv("MSCHARGED_LOG_DIR"); // before the rename (#64)
+    if (chosen && *chosen)
         return std::string(chosen) == "off" ? fs::path() : PathFromUtf8(chosen);
     std::error_code error;
     if (const char* base = SDL_GetBasePath())
@@ -528,7 +531,7 @@ fs::path ChooseDirectory()
             return directory;
         }
     }
-    if (char* pref = SDL_GetPrefPath("mscharged", "mscharged"))
+    if (char* pref = SDL_GetPrefPath("recharged", "recharged"))
     {
         const fs::path directory = PathFromUtf8(pref) / "logs";
         SDL_free(pref);
@@ -546,9 +549,9 @@ void StartSessionLog(const char* version, int argc, char** argv)
     if (directory.empty()) return;
     std::error_code error;
     fs::create_directories(directory, error);
-    g_log.path = directory / "mscharged.log";
-    g_log.dump = directory / "mscharged-crash.dmp";
-    if (fs::exists(g_log.path, error)) fs::rename(g_log.path, directory / "mscharged.previous.log", error);
+    g_log.path = directory / "recharged.log";
+    g_log.dump = directory / "recharged-crash.dmp";
+    if (fs::exists(g_log.path, error)) fs::rename(g_log.path, directory / "recharged.previous.log", error);
     fs::remove(g_log.dump, error);
 #ifdef _WIN32
     g_log.file = _wopen(g_log.path.c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY, 0644);
@@ -686,7 +689,7 @@ void ReportFatalError(const std::string& message)
     std::wstring text = L"The game stopped with an error:\n\n" + wide;
     if (g_log.file >= 0)
         text += L"\n\nDetails are in:\n" + g_log.path.wstring() + L"\n\nPlease attach that file to your bug report.";
-    MessageBoxW(nullptr, text.c_str(), L"Mario Strikers Charged", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+    MessageBoxW(nullptr, text.c_str(), L"Recharged", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
 #endif
 }
 } // namespace mscharged::platform

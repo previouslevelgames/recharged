@@ -61,7 +61,7 @@ function(mscharged_select_original_frontend_boot_to_fe target)
     # owners and typed four-byte address projections as the source inventories.
     # This selects providers only; original callers still own initialization.
     mscharged_add_original_animation_inventory("${target}")
-    target_compile_definitions(charged_original_main_credits_host PRIVATE
+    target_compile_definitions(charged_original_game_host PRIVATE
         MSCHARGED_HAS_ORIGINAL_FRONTEND_BOOT_TO_FE=1)
     # Literal original main owns Particle/Emission/cache initialization and
     # task registration. Source LoadingTask StateTransition requests the hashed

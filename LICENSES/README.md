@@ -2,7 +2,7 @@
 
 ## Original project work
 
-The original port code, tools and documentation in `mscharged-port` are
+Recharged's original code, tools and documentation (this repository) are
 dedicated to the public domain under [CC0 1.0 Universal](../LICENSE), to the
 extent their authors hold the relevant rights. The root `LICENSE` contains the
 dedication text; the [Creative Commons legal code](https://creativecommons.org/publicdomain/zero/1.0/legalcode.en)
@@ -12,7 +12,8 @@ dedicated under the same terms, to the extent the submitter holds the rights.
 This dedication does not cover third-party source, the reconstructed game code,
 game assets or trademarks, and the project grants no rights on behalf of their
 owners. Mario Strikers Charged was developed by Next Level Games and published
-by Nintendo; this is an unofficial project, unaffiliated with either company.
+by Nintendo; Recharged is an unofficial project, unaffiliated with either
+company.
 
 ## Game data
 

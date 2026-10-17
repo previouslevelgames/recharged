@@ -18,7 +18,7 @@
 #include "platform/thread_queues.h"
 #include "platform/video_device.h"
 #include "platform/os_shutdown_record_transport.h"
-#include "credits_movie_hardware.h"
+#include "movie_hardware.h"
 #include <aurora/aurora.h>
 #include <aurora/dvd.h>
 #include <aurora/video.h>
@@ -288,7 +288,7 @@ void Run(int argc,char** argv) {
     NativeAXFunctionalBindings bindings{};
     for(unsigned i=0;i<spans.size();++i)bindings.addresses[i]=spans[i].mapping.physical_address;
     NativeAXFunctionalDevice device(memory,mail,control,bindings,NativeAXCoefficientPolicy::NativeWindowedSinc4TapV1);
-    mscharged::diagnostic::BindCreditsMovieDeviceService(DeviceService,&device);
+    mscharged::diagnostic::BindMovieDeviceService(DeviceService,&device);
     // Real platform AI prerequisite, then unchanged complete original AXInit.
     AIInit(nullptr);Load<decltype(&AXInit)>(image,"AXInit")();
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);

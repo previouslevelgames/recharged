@@ -7,7 +7,8 @@
 
 namespace mscharged::platform {
 
-// Shared by the original runtime and launcher; independent of the NAND setting.
+// The data folder (see DataFolder); shared by the original runtime and
+// launcher, independent of the NAND setting.
 std::filesystem::path ShaderCacheDirectory(const std::filesystem::path& executable_directory);
 
 // Hold before Aurora opens either cache, until after Aurora has shut down,

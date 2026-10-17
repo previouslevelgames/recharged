@@ -29,7 +29,8 @@ bool IsDolphinBarHid(const SDL_hid_device_info* info) {
 
 bool WiimoteDebug() {
     static const bool environment = [] {
-        const char* value = SDL_getenv("MSCHARGED_WIIMOTE_DEBUG");
+        const char* value = SDL_getenv("RECHARGED_WIIMOTE_DEBUG");
+        if (!value) value = SDL_getenv("MSCHARGED_WIIMOTE_DEBUG"); // before the rename (#64)
         return value && *value && *value != '0';
     }();
     return environment || VerboseConsole();

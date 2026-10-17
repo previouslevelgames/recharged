@@ -1,4 +1,4 @@
-# Copy this file to mscharged.ini and set your disc image path.
+# Copy this file to recharged.ini and set your disc image path.
 # Paths are relative to this INI file. Absolute paths also work.
 # ISO and RVZ are read directly; no extraction or conversion is needed.
 [game]
@@ -9,8 +9,8 @@ disc = game/R4QE01.rvz
 # the computer's language when the disc has it, else English.
 language = auto
 
-# Folder for the game's Wii saves. Empty: original-main-credits-data/nand next
-# to the program. A different folder starts without saves.
+# Folder for the game's Wii saves. Empty: data/nand next to the program.
+# A different folder starts without saves.
 save_folder = ""
 
 [display]
@@ -52,11 +52,20 @@ fps_overlay_corner = top-right
 monitor = 0
 
 [audio]
-# Host speaker volume (0-100) and mute. Music, effects and voice levels are in
-# the game's own Options menu.
+# Host speaker volume (0-100) and mute.
 master_volume = 100
+# Sound levels (0-100) of each kind of the game's sounds: music, sound
+# effects, character voices, the crowd, menu and on-screen display sounds,
+# cutscenes (captain introductions, goal celebrations, Mega Strikes) and
+# movies. The music, sound effect and voice settings in the game's own Options
+# menu still apply on top.
 music_volume = 100
 effects_volume = 100
+voice_volume = 100
+crowd_volume = 100
+menu_volume = 100
+cutscene_volume = 100
+movie_volume = 100
 mute = false
 
 [controls]

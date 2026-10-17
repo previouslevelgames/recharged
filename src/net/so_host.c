@@ -7,11 +7,13 @@
 #include <string.h>
 #include <sys/socket.h>
 
-// MSCHARGED_NET_IFACE (e.g. "enp3s0") forces one interface when several
+// RECHARGED_NET_IFACE (e.g. "enp3s0") forces one interface when several
 // qualify (Docker bridges, VPNs, wifi + ethernet)
 uint32_t so_host_find_ipv4(void)
 {
-    const char* wanted = getenv("MSCHARGED_NET_IFACE");
+    const char* wanted = getenv("RECHARGED_NET_IFACE");
+    if (wanted == NULL)
+        wanted = getenv("MSCHARGED_NET_IFACE"); /* before the rename (#64) */
     if (wanted != NULL && wanted[0] == '\0')
         wanted = NULL;
 

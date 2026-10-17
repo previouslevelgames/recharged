@@ -39,15 +39,15 @@ function(mscharged_select_original_frontend_reset target)
     # Source SDK tick deltas use signed32 wrap arithmetic under MWCC.
     set_property(SOURCE "${MSCHARGED_PREPARED}/src/RVL_SDK/os/OSAudioSystem.c"
         APPEND PROPERTY COMPILE_OPTIONS -fwrapv)
-    target_compile_definitions(charged_original_main_credits_host PRIVATE
+    target_compile_definitions(charged_original_game_host PRIVATE
         MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET=1)
-    target_link_libraries(charged_original_main_credits_host PRIVATE
+    target_link_libraries(charged_original_game_host PRIVATE
         charged_native_os_shutdown_requests)
     foreach(_symbol IN ITEMS __OSShutdownToSBY __OSHotReset OSGetAppType
             __OSReboot __OSLaunchMenu __OSRelaunchTitle
             __VISetRGBModeImm __PADDisableRecalibration
             ChargedOSAudioDSPRead ChargedOSAudioDSPReadPair ChargedOSAudioDSPWrite)
-        mscharged_require_original_host_symbol(charged_original_main_credits_host
+        mscharged_require_original_host_symbol(charged_original_game_host
             INTERFACE "${_symbol}")
     endforeach()
 endfunction()

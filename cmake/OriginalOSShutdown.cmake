@@ -26,7 +26,7 @@ add_executable(original_os_shutdown_tests
     "${MSCHARGED_PREPARED}/src/RVL_SDK/os/OSStateFlags.c"
     "${MSCHARGED_AURORA_PREPARED}/lib/dolphin/vi/vi.cpp"
     src/platform/os_shutdown_record_transport.cpp
-    tests/diagnostics/credits_movie_hardware.cpp
+    tests/diagnostics/movie_hardware.cpp
     src/platform/os.cpp src/platform/os_version.cpp src/platform/host_metadata.cpp)
 add_dependencies(original_os_shutdown_tests verify_prepared native_ax_active_source_fixture)
 target_include_directories(original_os_shutdown_tests PRIVATE src tests/diagnostics

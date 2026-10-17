@@ -40,6 +40,7 @@ int main()
         settings.height = 1080;
         settings.fullscreen = true;
         settings.master_volume = 65;
+        settings.sound_volumes = {20, 80, 35, 50, 70, 0, 60};
         settings.players = {"remote2", "keyboard", "remote1", "off"};
         settings.deadzone = 20;
         settings.rumble = false;
@@ -48,6 +49,7 @@ int main()
         const auto reloaded = LoadConfig(path);
         Require(reloaded.settings.width == 1920 && reloaded.settings.height == 1080
             && reloaded.settings.fullscreen && reloaded.settings.master_volume == 65
+            && reloaded.settings.sound_volumes == settings.sound_volumes
             && reloaded.settings.players == settings.players && reloaded.settings.deadzone == 20
             && !reloaded.settings.rumble && reloaded.settings.backend == "d3d12", "Settings round trip");
         Require(reloaded.contents.find("; keep my comment\r\n") != std::string::npos
@@ -63,6 +65,9 @@ int main()
         std::ofstream(path, std::ios::app) << "; edited elsewhere\r\n";
         Reject([&] { SaveConfig(file, settings); });
         Require(LoadConfig(path).contents.find("edited elsewhere") != std::string::npos, "External edits survive");
+        Require(Settings{}.sound_volumes == DefaultSoundVolumes()
+            && DescribeSoundVolumes(Settings{}.sound_volumes) == "original"
+            && DescribeSoundVolumes(settings.sound_volumes).find("Music 20%") == 0, "Sound group volumes");
         const auto missing = directory / "new.ini";
         auto fresh = LoadConfig(missing, true);
         Require(!fs::exists(missing), "Opening defaults must not create a file");
@@ -71,6 +76,11 @@ int main()
         std::ofstream(path) << "[display]\nwidth = 1920junk\n";
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[game]\ndisc = a.iso\ndisc = b.iso\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[audio]\nmusic_volume = 20\ncutscene_volume = 0\n";
+        Require(LoadConfig(path).settings.sound_volumes == SoundVolumes{20, 100, 100, 100, 100, 0, 100},
+                "Sound group keys");
+        std::ofstream(path) << "[audio]\nmovie_volume = 101\n";
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[display]\nvsync = maybe\n";
         Reject([&] { LoadConfig(path); });
@@ -212,7 +222,20 @@ int main()
             const fs::path executable = directory / "bin";
             Require(Settings{}.save_folder.empty()
                     && ResolveSaveFolder(Settings{}, path, executable)
-                        == executable / "original-main-credits-data" / "nand", "Default save folder");
+                        == executable / "data" / "nand", "Default save folder");
+            // Earlier builds' data folder stays in use until it has been moved.
+            fs::create_directories(executable / "original-main-credits-data" / "nand");
+            std::ofstream(executable / "original-main-credits-data" / "nand" / "save.bin") << "save";
+            Require(DefaultSaveFolder(executable) == executable / "original-main-credits-data" / "nand",
+                    "The old data folder is used before the move");
+            Require(MoveOldDataFolder(executable) && DataFolder(executable) == executable / "data"
+                        && fs::exists(executable / "data" / "nand" / "save.bin")
+                        && !fs::exists(executable / "original-main-credits-data"),
+                    "The old data folder moves to data");
+            fs::create_directories(executable / "original-main-credits-data");
+            Require(!MoveOldDataFolder(executable) && DataFolder(executable) == executable / "data",
+                    "An existing data folder is kept");
+            fs::remove_all(executable);
             std::ofstream(path) << "[game]\nsave_folder = \"My Saves/charged\"\n";
             auto saves = LoadConfig(path);
             Require(saves.settings.save_folder == "My Saves/charged"

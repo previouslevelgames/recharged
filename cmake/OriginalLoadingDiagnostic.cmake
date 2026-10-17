@@ -1,17 +1,17 @@
 include_guard(GLOBAL)
 
 # Temporary loading-only source diagnostic derived from the same original
-# source graph as the main/Credits diagnostic. Original main owns startup and
+# source graph as the game modules. Original main owns startup and
 # DisplayLoadingMessageFast; only the named checkpoint is selected here.
 option(MSCHARGED_BUILD_ORIGINAL_LOADING_DIAGNOSTIC "Build the original loading source diagnostic" OFF)
 if(NOT MSCHARGED_BUILD_ORIGINAL_LOADING_DIAGNOSTIC)
     return()
 endif()
-if(NOT TARGET mscharged_original_main_credits_module)
+if(NOT TARGET mscharged_original_game_module_template)
     message(FATAL_ERROR "The original loading diagnostic requires the original-main source graph")
 endif()
 
-get_target_property(_charged_loading_sources mscharged_original_main_credits_module SOURCES)
+get_target_property(_charged_loading_sources mscharged_original_game_module_template SOURCES)
 add_library(mscharged_original_loading_module MODULE
     ${_charged_loading_sources}
     "${MSCHARGED_PREPARED}/src/Game/FE/LidOpenMessage.cpp")
@@ -23,11 +23,11 @@ target_compile_features(mscharged_original_loading_module PRIVATE cxx_std_20)
 
 # Reuse exact source/native compiler and ownership interfaces. Every original
 # TU is compiled whole; this does not extract or copy game-side algorithms.
-get_target_property(_charged_loading_includes mscharged_original_main_credits_module INCLUDE_DIRECTORIES)
-get_target_property(_charged_loading_options mscharged_original_main_credits_module COMPILE_OPTIONS)
-get_target_property(_charged_loading_definitions mscharged_original_main_credits_module COMPILE_DEFINITIONS)
-get_target_property(_charged_loading_libraries mscharged_original_main_credits_module LINK_LIBRARIES)
-get_target_property(_charged_loading_link_options mscharged_original_main_credits_module LINK_OPTIONS)
+get_target_property(_charged_loading_includes mscharged_original_game_module_template INCLUDE_DIRECTORIES)
+get_target_property(_charged_loading_options mscharged_original_game_module_template COMPILE_OPTIONS)
+get_target_property(_charged_loading_definitions mscharged_original_game_module_template COMPILE_DEFINITIONS)
+get_target_property(_charged_loading_libraries mscharged_original_game_module_template LINK_LIBRARIES)
+get_target_property(_charged_loading_link_options mscharged_original_game_module_template LINK_OPTIONS)
 list(FILTER _charged_loading_definitions EXCLUDE REGEX
     "^MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND(_SCENE)?=|^MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE=|^MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS=|^MSCHARGED_DIAGNOSTIC_MAIN_INPUT=")
 target_include_directories(mscharged_original_loading_module PRIVATE ${_charged_loading_includes})
@@ -37,7 +37,7 @@ target_compile_definitions(mscharged_original_loading_module PRIVATE
 target_link_libraries(mscharged_original_loading_module PRIVATE ${_charged_loading_libraries})
 target_link_options(mscharged_original_loading_module PRIVATE ${_charged_loading_link_options})
 set_property(TARGET mscharged_original_loading_module APPEND PROPERTY LINK_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_exports.map")
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_game_exports.map")
 
 add_executable(mscharged-original-loading-check
     tests/diagnostics/original_loading_window.cpp
@@ -56,21 +56,21 @@ target_compile_options(mscharged-original-loading-check PRIVATE
     -O2 -ffunction-sections -fdata-sections -fno-strict-aliasing -ffp-contract=off)
 target_link_options(mscharged-original-loading-check PRIVATE
     -Wl,--gc-sections -Wl,--export-dynamic
-    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_host_exports.map")
+    "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_game_host_exports.map")
 set_property(TARGET mscharged-original-loading-check APPEND PROPERTY LINK_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_host_exports.map")
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_game_host_exports.map")
 set_property(TARGET mscharged-original-loading-check PROPERTY LINK_LIBRARY_OVERRIDE
     "WHOLE_ARCHIVE,aurora_gx,aurora_mtx,aurora_os")
 target_link_libraries(mscharged-original-loading-check PRIVATE
-    mscharged_original_main_credits_vi
+    mscharged_original_game_vi
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,aurora::gx,aurora::mtx,aurora::os>"
     aurora::core aurora::dvd charged_wii_string_format charged_native_stm
     charged_native_system_settings charged_native_video_device
     charged_native_video_output_device Threads::Threads ${CMAKE_DL_LIBS})
 
-if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN AND MSCHARGED_CREDITS_TEST_DISC)
+if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN AND MSCHARGED_TEST_DISC)
     add_test(NAME original_loading_vulkan COMMAND mscharged-original-loading-check
-        --disc "${MSCHARGED_CREDITS_TEST_DISC}")
+        --disc "${MSCHARGED_TEST_DISC}")
     set_tests_properties(original_loading_vulkan PROPERTIES TIMEOUT 70
         LABELS "gpu;vulkan;owned-data" RESOURCE_LOCK gx_check
         ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation"

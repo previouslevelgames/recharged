@@ -25,11 +25,11 @@ class BootstrapTests(unittest.TestCase):
         return result.stdout + result.stderr
 
     def test_version_and_self_test_need_no_game_data(self):
-        self.assertRegex(self.run_port("--version"), r"mscharged-port \d+\.\d+\.\d+\+g[0-9a-f]+")
+        self.assertRegex(self.run_port("--version"), r"Recharged \d+\.\d+\.\d+\+g[0-9a-f]+")
         self.assertIn("checks passed", self.run_port("--self-test"))
 
     def test_missing_configuration_reports_setup(self):
-        self.assertIn("Copy mscharged.ini.example", self.run_port(expected=1))
+        self.assertIn("Copy recharged.ini.example", self.run_port(expected=1))
 
     def test_iso_opens_data_partition(self):
         disc = self.root / "test.iso"
@@ -56,7 +56,7 @@ class BootstrapTests(unittest.TestCase):
 
     def test_default_configuration(self):
         write_disc(self.root / "test.iso")
-        (self.root / "mscharged.ini").write_text("[game]\ndisc = test.iso\n")
+        (self.root / "recharged.ini").write_text("[game]\ndisc = test.iso\n")
         self.assertIn("1 files", self.run_port())
 
     def test_config_relative_path_spaces_and_bom(self):
@@ -68,7 +68,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("1 files", self.run_port("--config", config))
 
     def test_empty_and_duplicate_configuration(self):
-        config = self.root / "mscharged.ini"
+        config = self.root / "recharged.ini"
         config.write_text("[game]\ndisc =\n")
         self.assertIn("Set [game] disc", self.run_port(expected=1))
         config.write_text("[game]\ndisc = one.iso\ndisc = two.iso\n")

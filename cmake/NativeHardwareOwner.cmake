@@ -33,7 +33,7 @@ endif()
 # Native SDK ownership/desktop raw transport, without a game input manager.
 # The explicit desktop profile composes with the existing movie AI owner.
 if(BUILD_TESTING)
-    include(cmake/OriginalCreditsMovieHardware.cmake)
+    include(cmake/MovieHardware.cmake)
     add_executable(desktop_wpad_tests tests/desktop_wpad_tests.cpp)
     target_compile_features(desktop_wpad_tests PRIVATE cxx_std_20)
     target_compile_definitions(desktop_wpad_tests PRIVATE
@@ -41,7 +41,7 @@ if(BUILD_TESTING)
     target_include_directories(desktop_wpad_tests PRIVATE
         "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
     target_link_libraries(desktop_wpad_tests PRIVATE
-        charged_native_hardware_owner charged_credits_movie_hardware)
+        charged_native_hardware_owner charged_movie_hardware)
     add_test(NAME desktop_wpad COMMAND desktop_wpad_tests)
     # Real Wii Remotes, a DolphinBar or other gamepads attached to the host must
     # not join the generated fixtures' WPAD channels: only the fixtures' own
@@ -57,7 +57,7 @@ if(BUILD_TESTING)
     target_include_directories(native_hardware_window_close_tests PRIVATE
         "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
     target_link_libraries(native_hardware_window_close_tests PRIVATE
-        charged_native_hardware_owner charged_credits_movie_hardware)
+        charged_native_hardware_owner charged_movie_hardware)
     add_test(NAME native_hardware_window_close COMMAND native_hardware_window_close_tests)
     set_tests_properties(native_hardware_window_close PROPERTIES TIMEOUT 15
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software")

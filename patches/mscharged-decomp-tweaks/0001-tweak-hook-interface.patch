@@ -2,7 +2,7 @@ Subject: Declare the port's opt-in tweak hooks
 Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 
 Opt-in game tweaks are the first changes of the port's mod phase: the player
-turns them on in [gameplay] of mscharged.ini, and each is off by default. This
+turns them on in [gameplay] of recharged.ini, and each is off by default. This
 series is separate from the faithful series and applied after it. Its hooks
 are compiled only into the game module built with MSCHARGED_TWEAKS; there,
 every hook takes the original path unless its tweak is enabled. Other targets
@@ -13,14 +13,14 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..bc7274a
+index 0000000..c5af264
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,133 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
-+// Opt-in game tweaks of the native port ([gameplay] in mscharged.ini). They
++// Opt-in game tweaks of the native port ([gameplay] in recharged.ini). They
 +// are not part of the original game. Their hooks exist only in builds with
 +// MSCHARGED_TWEAKS, and each keeps the original behaviour unless the player
 +// enabled its tweak. The functions are the port's src/platform/game_tweaks.cpp.
@@ -136,6 +136,13 @@ index 0000000..bc7274a
 +bool mscharged_tweak_performance_match(void);
 +// The stadium of the match being rendered (frame recordings).
 +void mscharged_tweak_report_stadium(int stadium);
++
++// Sound group volumes ([audio] in recharged.ini, a host setting outside the
++// tweak mask): the decibels to add to a sound of the named sound bank (null
++// when unknown) and mix category (its voice's calculation slider), 0 while
++// every group is at 100 %; and the gain (0-1) of the movies' audio samples.
++float mscharged_tweak_sound_volume(const char* bank, unsigned category);
++float mscharged_tweak_movie_volume(void);
 +
 +#ifdef __cplusplus
 +}

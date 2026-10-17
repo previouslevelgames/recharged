@@ -4,12 +4,15 @@
 #include <cctype>
 #include <charconv>
 #include <cstdio>
+#include <iterator>
 
 namespace mscharged::launcher
 {
 namespace
 {
 constexpr std::string_view kPlatforms[] = {"windows", "linux", "steamdeck", "macos"};
+// Releases before the rename to Recharged (#64) named their packages mscharged-.
+constexpr std::string_view kPackagePrefixes[] = {"recharged-", "mscharged-"};
 
 bool ParseNumber(std::string_view text, int& value)
 {
@@ -36,11 +39,13 @@ bool ParseTestTag(std::string_view tag, int& pull_request, std::string& commit)
     return IsHex(commit);
 }
 
-// mscharged-<version>-<platform>-<arch>.zip/.tar.gz: the version text.
+// recharged-<version>-<platform>-<arch>.zip/.tar.gz: the version text.
 bool PackageVersion(std::string_view name, std::string& version)
 {
-    if (name.substr(0, 10) != "mscharged-") return false;
-    name.remove_prefix(10);
+    const auto prefix = std::find_if(std::begin(kPackagePrefixes), std::end(kPackagePrefixes),
+                                     [&](std::string_view text) { return name.substr(0, text.size()) == text; });
+    if (prefix == std::end(kPackagePrefixes)) return false;
+    name.remove_prefix(prefix->size());
     if (name.size() > 4 && name.substr(name.size() - 4) == ".zip") name.remove_suffix(4);
     else if (name.size() > 7 && name.substr(name.size() - 7) == ".tar.gz") name.remove_suffix(7);
     else return false;
@@ -153,8 +158,11 @@ const PackageAsset* PublishedBuild::PackageFor(const std::string& package) const
     {
         std::string text;
         if (!PackageVersion(asset.name, text)) continue;
-        const std::string stem = "mscharged-" + text + "-" + package;
-        if (asset.name == stem + ".zip" || asset.name == stem + ".tar.gz") return &asset;
+        for (const auto prefix : kPackagePrefixes)
+        {
+            const std::string stem = std::string(prefix) + text + "-" + package;
+            if (asset.name == stem + ".zip" || asset.name == stem + ".tar.gz") return &asset;
+        }
     }
     return nullptr;
 }

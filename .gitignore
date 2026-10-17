@@ -11,6 +11,8 @@ __pycache__/
 # Local game data
 /game/*
 !/game/.gitkeep
+/recharged.ini
+/recharged.ini.tmp-*
 /mscharged.ini
 /mscharged.ini.tmp-*
 /game-data/

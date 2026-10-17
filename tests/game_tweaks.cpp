@@ -1,7 +1,9 @@
 // The game module's tweak state (src/platform/game_tweaks.cpp): with no tweak
 // enabled, every hook gets the original game's answer; each tweak acts alone.
-// A frame rate above the original keeps the original's per-frame steps.
+// A frame rate above the original keeps the original's per-frame steps, and
+// sound levels change only their own group's sounds.
 #include "bootstrap/game_tweaks.h"
+#include "bootstrap/sound_groups.h"
 #include "mscharged_tweaks.h"
 
 #include <cmath>
@@ -12,6 +14,7 @@ extern "C" void charged_configure_tweaks(unsigned mask);
 extern "C" void charged_configure_performance_mode(bool enabled);
 extern "C" void charged_configure_frame_pacing(void (*swap)());
 extern "C" void charged_configure_rev1_data(bool enabled);
+extern "C" void charged_configure_sound_volumes(const int* volumes, int count);
 
 // The native VI's TV format (VI_NTSC 0, VI_PAL 1, VI_EURGB60 5) for the
 // original frame.
@@ -60,6 +63,46 @@ void CheckOriginalFrames(const char* what)
         Check(mscharged_tweak_original_frames() == 1.0f && mscharged_tweak_original_frame(), what);
         Check(mscharged_tweak_frame_number(1234) == 1234, what);
     }
+}
+
+// Sounds of every group as the disc has them: sound bank, mix category
+// (global 0, default 1, music 2, dialogue 3, sfx 4) and their group.
+struct SampleSound
+{
+    const char* bank;
+    unsigned category;
+    mscharged::SoundGroup group;
+};
+constexpr SampleSound kSampleSounds[] = {
+    {"FE_GEN_Music", 2, mscharged::SoundGroup::Music},
+    {"STREAM_GEN_Music", 2, mscharged::SoundGroup::Music},
+    {"FE_GEN_LoadScreen", 2, mscharged::SoundGroup::Music},
+    {"STREAM_GEN_Music", 4, mscharged::SoundGroup::Effects},
+    {"CHAR_GEN_Sfx", 4, mscharged::SoundGroup::Effects},
+    {"CHAR_MARIO_Sfx", 4, mscharged::SoundGroup::Effects},
+    {"STAD_THUNDERISLAND_Sfx", 4, mscharged::SoundGroup::Effects},
+    {"WEATHER_LIGHTNING_Sfx", 4, mscharged::SoundGroup::Effects},
+    {nullptr, 4, mscharged::SoundGroup::Effects},
+    {"CHAR_MARIO_Sfx", 3, mscharged::SoundGroup::Voices},
+    {"CHAR_CRITTER_Sfx", 3, mscharged::SoundGroup::Voices},
+    {"FE_GEN_Sfx", 3, mscharged::SoundGroup::Voices},
+    {"STREAM_GEN_Crowd", 4, mscharged::SoundGroup::Crowd},
+    {"CROWD_GEN_Sfx", 4, mscharged::SoundGroup::Crowd},
+    {"FE_GEN_Sfx", 4, mscharged::SoundGroup::Menus},
+    {"FE_GEN_Sfx", 1, mscharged::SoundGroup::Menus},
+    {"FE_GEN_Splash", 1, mscharged::SoundGroup::Menus},
+    {"HUD_GEN_Sfx", 4, mscharged::SoundGroup::Menus},
+    {"HUD_PU_Sfx", 4, mscharged::SoundGroup::Menus},
+    {"STREAM_GEN_NIS", 1, mscharged::SoundGroup::Cutscenes},
+    {"STREAM_GEN_NIS", 2, mscharged::SoundGroup::Cutscenes},
+};
+
+// Every sound at the game's own level, and movies at full volume.
+void CheckOriginalSounds(const char* what)
+{
+    for (const auto& sound : kSampleSounds)
+        Check(mscharged_tweak_sound_volume(sound.bank, sound.category) == 0.0f, what);
+    Check(mscharged_tweak_movie_volume() == 1.0f, what);
 }
 
 int swaps;
@@ -239,6 +282,45 @@ int main()
         Check(mscharged_tweak_rev1_ingame_texture_budget(0x900000) == 0x966666, "Revision 1 texture budget");
         charged_configure_rev1_data(false);
         Check(mscharged_tweak_rev1_sound_bank(0x1A) == 0x1A, "Revision 1 data stayed on");
+
+        // Sound levels (issue #59): the game's own levels until the
+        // host passes others, whatever the tweak set.
+        CheckOriginalSounds("Unconfigured sound volumes changed the game's levels");
+        charged_configure_sound_volumes(mscharged::DefaultSoundVolumes().data(), int(mscharged::kSoundGroups.size()));
+        charged_configure_tweaks(~0u);
+        CheckOriginalSounds("Sound volumes at 100% changed the game's levels");
+        charged_configure_tweaks(0);
+        // Each group alone: only its sounds change, by its level in decibels;
+        // 0 % takes even the loudest level (+6 dB) below the game's -96 dB floor.
+        for (const auto& info : mscharged::kSoundGroups)
+            for (int level : {0, 50})
+            {
+                auto volumes = mscharged::DefaultSoundVolumes();
+                volumes[std::size_t(info.group)] = level;
+                charged_configure_sound_volumes(volumes.data(), int(volumes.size()));
+                for (const auto& sound : kSampleSounds)
+                {
+                    const float offset = mscharged_tweak_sound_volume(sound.bank, sound.category);
+                    if (sound.group != info.group)
+                        Check(offset == 0.0f, "A sound followed another group's level");
+                    else if (level == 0)
+                        Check(offset + 6.0f < -96.0f, "A silenced group stays audible");
+                    else
+                        Check(std::fabs(offset + 6.0206f) < 1e-3f, "A group at 50% is not 6 dB lower");
+                }
+                const bool movies = info.group == mscharged::SoundGroup::Movies;
+                Check(mscharged_tweak_movie_volume() == (movies ? float(level) / 100.0f : 1.0f),
+                    "Movie level follows another group");
+            }
+        // Out of range levels are clamped; missing groups keep 100 %.
+        const int partial[] = {150, -5};
+        charged_configure_sound_volumes(partial, 2);
+        Check(mscharged_tweak_sound_volume("FE_GEN_Music", 2) == 0.0f
+            && mscharged_tweak_sound_volume("CHAR_GEN_Sfx", 4) < -96.0f
+            && mscharged_tweak_sound_volume("CHAR_MARIO_Sfx", 3) == 0.0f && mscharged_tweak_movie_volume() == 1.0f,
+            "Sound volumes outside 0-100% or missing");
+        charged_configure_sound_volumes(nullptr, 0);
+        CheckOriginalSounds("Sound volumes not reset");
 
         // Back to the original rate and to no tweaks: the original game again.
         charged_configure_frame_pacing(nullptr);

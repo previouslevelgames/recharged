@@ -240,6 +240,21 @@ int main()
         const auto tall = LoadConfig(path);
         Check(tall.settings.width == 600 && tall.settings.height == 900,
             "INI could not represent a qualified tall native output");
+        // Settings from before the rename (#64) are copied to recharged.ini.
+        const auto previous_directory = fs::current_path();
+        fs::current_path(root / "working");
+        fs::create_directories(root / "package/bin");
+        std::ofstream(root / "package/recharged.ini.example") << "";
+        Check(DefaultConfigPath(root / "package/bin") == root / "package/recharged.ini"
+            && !fs::exists(root / "package/recharged.ini"), "Settings belong beside the example");
+        std::ofstream(root / "package/mscharged.ini") << "[game]\ndisc = old.rvz\n";
+        Check(DefaultConfigPath(root / "package/bin") == root / "package/recharged.ini"
+            && Read(root / "package/recharged.ini") == "[game]\ndisc = old.rvz\n"
+            && fs::exists(root / "package/mscharged.ini"), "Older settings not copied");
+        std::ofstream(root / "package/mscharged.ini") << "[game]\ndisc = changed.rvz\n";
+        Check(Read(DefaultConfigPath(root / "package/bin")) == "[game]\ndisc = old.rvz\n",
+            "recharged.ini replaced by older settings");
+        fs::current_path(previous_directory);
         fs::remove_all(root);
         std::cout << checks << " launch parsing, precedence, provenance, path and no-write checks passed.\n";
         return 0;

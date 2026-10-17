@@ -20,7 +20,7 @@ function(mscharged_select_original_frontend_flash target)
     endif()
     target_compile_definitions("${target}" PRIVATE
         MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH=1)
-    mscharged_require_original_host_symbol(charged_original_main_credits_host
+    mscharged_require_original_host_symbol(charged_original_game_host
         INTERFACE ChargedNativeBeginThreadPowerRemoval)
     get_target_property(_existing "${target}" SOURCES)
     # Keep original SDK state/functions in this same isolated source module.

@@ -46,7 +46,7 @@ function(mscharged_select_original_frontend_home target)
     # SC store provider must be linked before activation; a missing import may
     # not be deferred by ELF's lazy function binding.
     foreach(_symbol IN ITEMS WPADSaveConfig WPADGetSpeakerVolume WPADSetSpeakerVolume)
-        mscharged_require_original_host_symbol(charged_original_main_credits_host
+        mscharged_require_original_host_symbol(charged_original_game_host
             INTERFACE "${_symbol}")
     endforeach()
 endfunction()

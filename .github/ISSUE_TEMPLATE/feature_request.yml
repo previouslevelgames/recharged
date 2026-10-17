@@ -6,6 +6,6 @@ body:
     id: idea
     attributes:
       label: Your idea
-      description: What would you like the port to do, and why? For gameplay changes, say how they relate to the original game.
+      description: What would you like Recharged to do, and why? For gameplay changes, say how they relate to the original game.
     validations:
       required: true

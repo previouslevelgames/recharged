@@ -1,11 +1,11 @@
 blank_issues_enabled: true
 contact_links:
   - name: Install guide
-    url: https://github.com/yannicksuter/mscharged-port/blob/stable/docs/INSTALL.md
+    url: https://github.com/previouslevelgames/recharged/blob/stable/docs/INSTALL.md
     about: Downloading, unpacking and the first start.
   - name: Steam Deck guide
-    url: https://github.com/yannicksuter/mscharged-port/blob/stable/docs/STEAM_DECK.md
+    url: https://github.com/previouslevelgames/recharged/blob/stable/docs/STEAM_DECK.md
     about: Installing on a Steam Deck and adding the game to Steam.
   - name: Troubleshooting
-    url: https://github.com/yannicksuter/mscharged-port/blob/stable/docs/TROUBLESHOOTING.md
+    url: https://github.com/previouslevelgames/recharged/blob/stable/docs/TROUBLESHOOTING.md
     about: Answers to the most common problems.

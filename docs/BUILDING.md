@@ -1,6 +1,6 @@
 # Building from source
 
-You only need this to build the port yourself; to play, the
+You only need this to build Recharged yourself; to play, the
 [ready-made packages](INSTALL.md) are simpler. The build compiles the game from
 the pinned decompilation, so it takes a while the first time. You still need
 your own disc image to play (USA `R4QE01` revision 1, or Europe `R4QP01`
@@ -40,9 +40,9 @@ under Rosetta; Intel Macs build the same way.
 With your disc image ready, from the folder that should contain the checkout:
 
 ```sh
-git clone --no-recurse-submodules https://github.com/yannicksuter/mscharged-port.git && cd mscharged-port
+git clone --no-recurse-submodules https://github.com/previouslevelgames/recharged.git && cd recharged
 python3 tools/setup_dependencies.py && CMAKE_BUILD_PARALLEL_LEVEL=3 cmake --workflow --preset release --fresh
-./build/release/mscharged
+./build/release/recharged
 ```
 
 This builds `stable`, the released state. Add `--branch main` to the clone for
@@ -52,8 +52,8 @@ their recorded commits; it stops, without changing anything, if a dependency
 has local edits. Raise `CMAKE_BUILD_PARALLEL_LEVEL` if you have the memory for
 more parallel jobs.
 
-The build writes the program to `build/release/`: `mscharged` starts the
-launcher, and `mscharged --disc FILE` starts the game directly
+The build writes the program to `build/release/`: `recharged` starts the
+launcher, and `recharged --disc FILE` starts the game directly
 ([options](SETTINGS.md#command-line-options)).
 
 To update an existing checkout:
@@ -83,9 +83,9 @@ cmake --build --preset release
 
 ## Disc and settings
 
-Your disc image and personal `mscharged.ini` stay out of Git; the `game/`
+Your disc image and personal `recharged.ini` stay out of Git; the `game/`
 folder is ignored except for its placeholder. To keep settings, copy
-`mscharged.ini.example` to `mscharged.ini`:
+`recharged.ini.example` to `recharged.ini`:
 
 ```ini
 [game]
@@ -110,8 +110,14 @@ cmake --preset release -B build/windows \
     -DLLVM_MINGW_ROOT=/path/to/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64 \
     -DBUILD_TESTING=OFF
 cmake --build build/windows --target mscharged mscharged_original_frontend_module_us \
-    mscharged_original_frontend_module_eu mscharged_original_main_credits_module
+    mscharged_original_frontend_module_eu
 ```
+
+The targets keep their old names; they build `recharged.exe` and the game
+modules `recharged_game_us.dll` and `recharged_game_eu.dll`.
+
+The targets keep their old names; they build `recharged.exe` and the game
+modules `recharged_game_us.dll` and `recharged_game_eu.dll`.
 
 `setup_windows_graphics.py` downloads the checksum-pinned Microsoft DirectX
 shader compilers and their notices into `build/windows-graphics`; the build

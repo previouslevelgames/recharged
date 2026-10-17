@@ -3,7 +3,7 @@
 
 The reviewed source pins each recorded XXH3 key and configuration SHA-256.
 --import merges configurations that the game recorded in runtime caches, or
-that a session log (logs/mscharged.log) lists because a draw had to compile
+that a session log (logs/recharged.log) lists because a draw had to compile
 them; Aurora derives a configuration's key from its bytes again whenever it
 loads a row. Fog and vertex array byte order are per-draw state (GX v17), so
 one recorded configuration covers every stadium's fog. Ordinary builds require
@@ -332,7 +332,7 @@ def main():
     action.add_argument("--verify", type=Path)
     action.add_argument("--import", dest="databases", type=Path, nargs="+", metavar="CACHE_OR_LOG",
                         help="merge configurations recorded in runtime pipeline_cache.db files or "
-                             "listed in session logs (logs/mscharged.log)")
+                             "listed in session logs (logs/recharged.log)")
     args = parser.parse_args()
     try:
         if args.databases:

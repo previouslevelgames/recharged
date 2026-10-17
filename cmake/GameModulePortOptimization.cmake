@@ -1,6 +1,6 @@
 include_guard(GLOBAL)
 
-# The original game modules build at -O1 (OriginalMainCreditsDiagnostic.cmake),
+# The original game modules build at -O1 (OriginalGame.cmake),
 # and every source in them inherits that, including the port's own platform
 # code compiled into the module: ownership registry, data transports, audio
 # devices, skin rows. That code runs on every frame's emission path. Call this

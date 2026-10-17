@@ -29,9 +29,8 @@ from pipeline_catalog import CatalogError, catalog_rows, verify_database
 
 WINDOWS_GRAPHICS_PIN = Path(__file__).with_name("windows_graphics.json")
 
-# One game module per game version (USA, European), then the Credits diagnostic.
-MODULES = ("mscharged_original_frontend_module_us", "mscharged_original_frontend_module_eu",
-           "mscharged_original_main_credits_module")
+# One game module per game version (USA, European).
+MODULES = ("recharged_game_us", "recharged_game_eu")
 ASSETS = ("header.png", "icon.png", "aurora.png", "Roboto-Medium.ttf", "README.md", "LICENSE-APACHE")
 # LLVM-MinGW runtime DLLs a Windows build imports, and the notices that cover
 # them (LLVM: libc++/libunwind; mingw-w64: winpthreads and CRT startup code).
@@ -47,7 +46,7 @@ WINDOWS_SYSTEM_DLLS = frozenset((
     "rpcrt4.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll", "ucrtbase.dll",
     "user32.dll", "userenv.dll", "version.dll", "winhttp.dll", "winmm.dll", "wintrust.dll", "ws2_32.dll",
 ))
-PUBLIC_FILES = ("README.md", "LICENSE", "mscharged.ini.example", "docs/INSTALL.md", "docs/STEAM_DECK.md",
+PUBLIC_FILES = ("README.md", "LICENSE", "recharged.ini.example", "docs/INSTALL.md", "docs/STEAM_DECK.md",
                 "docs/FEATURES.md", "docs/SETTINGS.md", "docs/TROUBLESHOOTING.md", "docs/ARCHITECTURE.md",
                 "docs/BUILDING.md", "LICENSES/README.md", "LICENSES/Apache-2.0.txt",
                 "extern/README.md")
@@ -286,10 +285,10 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
         raise PackageError("Missing or invalid embedded build version.")
     version = match[1]
     windows = system == "windows"
-    executable_name = "mscharged.exe" if windows else "mscharged"
+    executable_name = "recharged.exe" if windows else "recharged"
     executable = regular_file(build, executable_name)
     if not windows and not executable.stat().st_mode & 0o111:
-        raise PackageError("mscharged is not executable; refusing an unusable package.")
+        raise PackageError("recharged is not executable; refusing an unusable package.")
     runtime_root = None
     graphics_root = None
     graphics_pin = None
@@ -327,9 +326,9 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise PackageError("Invalid packaging source Git revision.")
     packages, cargo_options = cargo_loader(build, cache)
-    package_name = f"mscharged-{version}-{'steamdeck' if steamdeck else system}-{arch}"
+    package_name = f"recharged-{version}-{'steamdeck' if steamdeck else system}-{arch}"
     output.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".mscharged-package-", dir=output) as temporary:
+    with tempfile.TemporaryDirectory(prefix=".recharged-package-", dir=output) as temporary:
         stage = Path(temporary) / package_name
         stage.mkdir()
         files = {}
@@ -438,9 +437,9 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
                 raise PackageError(f"Unexpected unpinned local Rust dependency: {key[:2]}")
             rust.append(item)
 
-        run_command = "mscharged.exe" if windows else "./mscharged"
+        run_command = "recharged.exe" if windows else "./recharged"
         runtime_note = ", the runtime DLLs" if windows else ""
-        readme = f"""# mscharged build package
+        readme = f"""# Recharged build package
 
 Build: {version} ({system}, {arch}).
 
@@ -483,9 +482,9 @@ it needs no newer system libraries than glibc 2.40 and the GCC 14 C++ runtime.
 docs/STEAM_DECK.md has the full guide; in short:
 
 1. In Desktop Mode, extract the directory to a folder you can write to, for
-   example ~/Games/mscharged.
+   example ~/Games/recharged.
 2. In Steam, choose Games > Add a Non-Steam Game to My Library, browse to
-   mscharged in that folder and add it. Leave Compatibility unchecked.
+   recharged in that folder and add it. Leave Compatibility unchecked.
 3. In Gaming Mode, apply the Gamepad controller template to it and start it.
    Choose your disc image on the launcher's Game page, set player 1 to
    gamepad1 on the Controls page and press Play.

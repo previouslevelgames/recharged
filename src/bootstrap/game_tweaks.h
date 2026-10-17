@@ -1,6 +1,6 @@
 #pragma once
 
-// Opt-in game tweaks: [gameplay] in mscharged.ini. They change the original
+// Opt-in game tweaks: [gameplay] in recharged.ini. They change the original
 // game on purpose, so each is off unless the player turns it on, and with all
 // of them off the game runs unchanged apart from the series' always-on fixes.
 // The hooks are the separate patch series patches/mscharged-decomp-tweaks; the

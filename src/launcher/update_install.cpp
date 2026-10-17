@@ -671,6 +671,18 @@ std::string FinishUpdates(const fs::path& base)
     return replaced;
 }
 
+fs::path InstalledLauncher(const fs::path& base)
+{
+#ifdef _WIN32
+    const char* const names[] = {"recharged.exe", "mscharged.exe"};
+#else
+    const char* const names[] = {"recharged", "mscharged"};
+#endif
+    for (const char* name : names)
+        if (Exists(base / name)) return base / name;
+    return base / names[0];
+}
+
 std::string RestartLauncher(const fs::path& executable, int argc, char** argv)
 {
 #ifdef _WIN32

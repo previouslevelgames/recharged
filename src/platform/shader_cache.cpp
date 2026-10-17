@@ -1,4 +1,5 @@
 #include "platform/shader_cache.h"
+#include "bootstrap/config.h"
 
 #include <array>
 #include <cerrno>
@@ -146,7 +147,7 @@ struct ShaderCacheUse::State {
 };
 
 std::filesystem::path ShaderCacheDirectory(const std::filesystem::path& executable_directory) {
-    return executable_directory / "original-main-credits-data";
+    return DataFolder(executable_directory);
 }
 
 ShaderCacheUse::ShaderCacheUse(const std::filesystem::path& directory) {

@@ -373,23 +373,23 @@ int main()
 
     // The address is captured by SOStartup, so the override needs a restart.
     // The caller may already have set the variable: keep it to restore later.
-    const char* env_iface = std::getenv("MSCHARGED_NET_IFACE");
+    const char* env_iface = std::getenv("RECHARGED_NET_IFACE");
     std::string saved_iface = env_iface != nullptr ? env_iface : "";
-    setenv("MSCHARGED_NET_IFACE", "lo", 1);
+    setenv("RECHARGED_NET_IFACE", "lo", 1);
     check_eq(SOCleanup(), SO_SUCCESS, "hostid: SOCleanup before forcing the interface");
     check_eq(SOGetHostID(), 0l, "hostid: SOGetHostID after SOCleanup (READY)");
-    check_eq(SOStartup(), SO_SUCCESS, "hostid: SOStartup with MSCHARGED_NET_IFACE=lo");
-    check_eq((u32)SOGetHostID(), SOHtoNl(0x7f000001), "hostid: MSCHARGED_NET_IFACE=lo must give 127.0.0.1");
+    check_eq(SOStartup(), SO_SUCCESS, "hostid: SOStartup with RECHARGED_NET_IFACE=lo");
+    check_eq((u32)SOGetHostID(), SOHtoNl(0x7f000001), "hostid: RECHARGED_NET_IFACE=lo must give 127.0.0.1");
 
-    setenv("MSCHARGED_NET_IFACE", "msc-does-not-exist", 1);
+    setenv("RECHARGED_NET_IFACE", "msc-does-not-exist", 1);
     check_eq(SOCleanup(), SO_SUCCESS, "hostid: SOCleanup before forcing a missing interface");
     check_eq(SOStartup(), SO_SUCCESS, "hostid: SOStartup with a missing interface");
     check_eq((u32)SOGetHostID(), SOHtoNl(0x7f000001), "hostid: a missing interface must fall back to 127.0.0.1");
 
     if (env_iface != nullptr)
-        setenv("MSCHARGED_NET_IFACE", saved_iface.c_str(), 1);
+        setenv("RECHARGED_NET_IFACE", saved_iface.c_str(), 1);
     else
-        unsetenv("MSCHARGED_NET_IFACE");
+        unsetenv("RECHARGED_NET_IFACE");
     check_eq(SOCleanup(), SO_SUCCESS, "hostid: SOCleanup before restoring the environment");
     check_eq(SOStartup(), SO_SUCCESS, "hostid: SOStartup with the original environment");
     check_eq((u32)SOGetHostID(), host, "hostid: with the original environment the first detected address comes back");

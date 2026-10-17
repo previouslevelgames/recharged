@@ -138,7 +138,7 @@ std::vector<DiscMessageImage> ReadDiscMessageImages(const std::filesystem::path&
     catch (const std::runtime_error& error)
     {
         throw std::runtime_error("The disc's game program is not the unmodified " + ReleaseLabel(release)
-                                 + " one; the port needs an unmodified disc image (" + error.what() + ")");
+                                 + " one; Recharged needs an unmodified disc image (" + error.what() + ")");
     }
 }
 

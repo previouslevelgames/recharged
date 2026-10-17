@@ -66,6 +66,10 @@ std::string FinishUpdates(const std::filesystem::path& base);
 void InstallStagedPackage(const std::filesystem::path& base, const std::filesystem::path& staged,
                           const std::filesystem::path& backup);
 
+// The launcher in `base` to start after an update: recharged, or mscharged
+// in a folder that went back to a release from before the rename (#64).
+std::filesystem::path InstalledLauncher(const std::filesystem::path& base);
+
 // Starts `executable` (the updated launcher) with this run's command line.
 // On Linux and macOS it replaces the running process and returns only on
 // failure; on Windows it starts a new process and the caller exits. Returns

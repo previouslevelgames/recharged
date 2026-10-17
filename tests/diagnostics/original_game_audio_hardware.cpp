@@ -1,5 +1,5 @@
 #include "original_game_audio_hardware.h"
-#include "credits_movie_hardware.h"
+#include "movie_hardware.h"
 #include "platform/ai.h"
 #include "platform/dsp_control_abi.h"
 #include <stdexcept>
@@ -24,7 +24,7 @@ OriginalGameAudioHardware::OriginalGameAudioHardware(platform::NativeAXModuleMem
             device_ = std::make_unique<NativeAXFunctionalDevice>(memory_.Endpoint(),
                 mail, control, bindings, NativeAXCoefficientPolicy::NativeWindowedSinc4TapV1);
             try {
-                BindCreditsMovieDeviceService(ServiceDevice, this);
+                BindMovieDeviceService(ServiceDevice, this);
                 service_bound_ = true;
             } catch (...) {
                 // Cold device attach failed to borrow the existing owner; no
@@ -55,7 +55,7 @@ void OriginalGameAudioHardware::ServiceDevice(void* context) {
 void OriginalGameAudioHardware::UnbindOwnerService() {
     if (!device_ || !service_bound_)
         throw std::logic_error("Native audio device service is already unbound");
-    UnbindCreditsMovieDeviceService(this);
+    UnbindMovieDeviceService(this);
     service_bound_ = false;
 }
 

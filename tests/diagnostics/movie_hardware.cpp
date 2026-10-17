@@ -1,4 +1,4 @@
-#include "credits_movie_hardware.h"
+#include "movie_hardware.h"
 #include "platform/ai.h"
 #include "platform/interrupts.h"
 
@@ -22,7 +22,7 @@ Owner& State() { static Owner owner; return owner; }
 }
 
 namespace mscharged::diagnostic {
-void ServiceCreditsMovieHardware() {
+void ServiceMovieHardware() {
     auto& owner = State();
     void (*service_device)(void*){};
     void* device_context{};
@@ -60,12 +60,12 @@ void InitializeOwner(void (*service_input)(), bool initialize_ai) {
     {
         std::lock_guard lock(owner.mutex);
         if (owner.registered || owner.ready)
-            throw std::logic_error("Credits movie hardware already has an owner");
+            throw std::logic_error("Movie hardware already has an owner");
         owner.thread = std::this_thread::get_id();
         owner.service_input = service_input;
         // Never replace a native input/power owner or create a second SDK
         // hardware endpoint. This selected diagnostic has one AI-only owner.
-        if (!aurora_register_hardware_service(ServiceCreditsMovieHardware)) {
+        if (!aurora_register_hardware_service(ServiceMovieHardware)) {
             owner.thread = {};
             owner.service_input = nullptr;
             throw std::logic_error("The SDK already has a native hardware owner");
@@ -74,12 +74,12 @@ void InitializeOwner(void (*service_input)(), bool initialize_ai) {
     }
     try {
         if (AICheckInit())
-            throw std::logic_error("Credits movie hardware requires an unclaimed host AI device");
+            throw std::logic_error("Movie hardware requires an unclaimed host AI device");
         if (initialize_ai)
-            AIInit(nullptr); // Credits only; original Backend owns AIInit in the audio-init mode.
+            AIInit(nullptr); // In the audio-init mode original Backend calls AIInit instead.
     } catch (...) {
         std::lock_guard lock(owner.mutex);
-        aurora_unregister_hardware_service(ServiceCreditsMovieHardware);
+        aurora_unregister_hardware_service(ServiceMovieHardware);
         owner.registered = false;
         owner.thread = {};
         owner.service_input = nullptr;
@@ -90,11 +90,11 @@ void InitializeOwner(void (*service_input)(), bool initialize_ai) {
 }
 } // namespace
 
-void InitializeCreditsMovieHardware() { InitializeCreditsMovieHardware(nullptr); }
-void InitializeCreditsMovieHardware(void (*service_input)()) { InitializeOwner(service_input, true); }
+void InitializeMovieHardware() { InitializeMovieHardware(nullptr); }
+void InitializeMovieHardware(void (*service_input)()) { InitializeOwner(service_input, true); }
 void InitializeOriginalGameAudioHardware(void (*service_input)()) { InitializeOwner(service_input, false); }
 
-void BindCreditsMovieDeviceService(void (*service_device)(void*), void* context) {
+void BindMovieDeviceService(void (*service_device)(void*), void* context) {
     auto& owner = State();
     std::lock_guard lock(owner.mutex);
     if (!owner.registered || !owner.ready || owner.thread != std::this_thread::get_id() ||
@@ -104,7 +104,7 @@ void BindCreditsMovieDeviceService(void (*service_device)(void*), void* context)
     owner.device_context = context;
 }
 
-void UnbindCreditsMovieDeviceService(void* context) {
+void UnbindMovieDeviceService(void* context) {
     auto& owner = State();
     std::lock_guard lock(owner.mutex);
     if (!owner.registered || !owner.ready || owner.thread != std::this_thread::get_id() ||
@@ -114,19 +114,19 @@ void UnbindCreditsMovieDeviceService(void* context) {
     owner.device_context = nullptr;
 }
 
-void ShutdownCreditsMovieHardware() {
+void ShutdownMovieHardware() {
     auto& owner = State();
     {
         std::lock_guard lock(owner.mutex);
         if (!owner.registered) return;
         if (owner.thread != std::this_thread::get_id())
-            throw std::logic_error("Credits movie hardware must retire on its owner thread");
+            throw std::logic_error("Movie hardware must retire on its owner thread");
         if (owner.active)
             throw std::logic_error("Cannot retire an active source audio callback");
         if (owner.service_device)
             throw std::logic_error("Borrowed native audio device must unbind before hardware retirement");
-        if (!aurora_unregister_hardware_service(ServiceCreditsMovieHardware))
-            throw std::logic_error("Credits movie hardware endpoint identity changed");
+        if (!aurora_unregister_hardware_service(ServiceMovieHardware))
+            throw std::logic_error("Movie hardware endpoint identity changed");
         owner.ready = false;
         owner.registered = false;
         owner.thread = {};

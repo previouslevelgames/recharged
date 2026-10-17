@@ -6,7 +6,7 @@
 namespace mscharged
 {
 // Actions of a standard gamepad playing as a Wii Remote with Nunchuk. Each
-// gamepad profile ([gamepad_profileN] in mscharged.ini) gives every action
+// gamepad profile ([gamepad_profileN] in recharged.ini) gives every action
 // one or two inputs, written as SDL gamepad names separated by " | ":
 // buttons (a, b, x, y = south, east, west, north; start, back, guide,
 // leftshoulder, leftstick, dpup, ...) or the triggers lefttrigger/righttrigger.
@@ -47,7 +47,7 @@ inline constexpr std::array<GamepadAction, GamepadActionCount> kGamepadActions{{
 }};
 
 inline constexpr std::size_t kGamepadSlots = 4;
-// Named gamepad profiles kept in mscharged.ini, beside the built-in "Default"
+// Named gamepad profiles kept in recharged.ini, beside the built-in "Default"
 // (the defaults above), which is never stored, changed or deleted.
 inline constexpr std::size_t kMaxGamepadProfiles = 16;
 inline constexpr const char* kDefaultGamepadProfile = "Default";

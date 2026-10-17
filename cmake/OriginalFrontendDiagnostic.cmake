@@ -1,7 +1,7 @@
 include_guard(GLOBAL)
 
-# A separate original-source module leaves the Credits diagnostic intact.
-# Both use the same host, with only one module selected for a given run.
+# The game modules: the shared template's sources and settings plus the
+# frontend selections below. The host loads one of them for a given run.
 include(cmake/OriginalFrontendSequenceDiagnostic.cmake)
 include(cmake/OriginalFrontendTaskCadenceDiagnostic.cmake)
 include(cmake/OriginalFrontendTitleDiagnostic.cmake)
@@ -51,14 +51,16 @@ include(cmake/OriginalOSShutdownRecords.cmake)
 # also runs European revision 1 discs). The host picks one by the disc.
 function(mscharged_add_original_frontend_diagnostic target version suffix)
     string(TOUPPER "${suffix}" _suffix)
-    get_target_property(_sources mscharged_original_main_credits_module SOURCES)
+    get_target_property(_sources mscharged_original_game_module_template SOURCES)
     add_library(${target} MODULE ${_sources})
+    # The shipped file: recharged_game_us/_eu beside the program.
+    set_target_properties(${target} PROPERTIES OUTPUT_NAME recharged_game_${suffix})
     add_dependencies(${target} verify_prepared)
     mscharged_add_original_shutdown_records(${target})
     foreach(_property IN ITEMS
             COMPILE_FEATURES COMPILE_DEFINITIONS COMPILE_OPTIONS INCLUDE_DIRECTORIES
             LINK_LIBRARIES LINK_OPTIONS LINK_DEPENDS MSCHARGED_ORIGINAL_EXPORT_MAP)
-        get_target_property(_value mscharged_original_main_credits_module ${_property})
+        get_target_property(_value mscharged_original_game_module_template ${_property})
         if(_value)
             set_property(TARGET ${target} PROPERTY ${_property} "${_value}")
         endif()
@@ -68,10 +70,10 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
         VISIBILITY_INLINES_HIDDEN ON MSCHARGED_GAME_VERSION ${version})
     # The input sources (KPAD, pads, FE input) differ by version as well.
     if(NOT version STREQUAL "R4QE01")
-        mscharged_add_original_main_credits_focus(mscharged_original_main_credits_focus_${suffix} ${version})
+        mscharged_add_original_game_focus(mscharged_original_game_focus_${suffix} ${version})
         get_target_property(_libraries ${target} LINK_LIBRARIES)
-        list(TRANSFORM _libraries REPLACE "^mscharged_original_main_credits_focus$"
-            "mscharged_original_main_credits_focus_${suffix}")
+        list(TRANSFORM _libraries REPLACE "^mscharged_original_game_focus$"
+            "mscharged_original_game_focus_${suffix}")
         set_property(TARGET ${target} PROPERTY LINK_LIBRARIES "${_libraries}")
     endif()
     # Flow omissions are scoped to this diagnostic module only.
@@ -127,7 +129,7 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     mscharged_select_original_frontend_lan(${target})
     # Last selection: copies the module's final settings for the original CreditScene.
     mscharged_select_original_frontend_credits(${target})
-    # MSCHARGED_DEBUG_LAYERS_OFF: switch the game's own rendering layers off.
+    # RECHARGED_DEBUG_LAYERS_OFF: switch the game's own rendering layers off.
     target_sources(${target} PRIVATE src/platform/debug_layer_toggles.cpp)
     # [gameplay] tweaks: the hooks of patches/mscharged-decomp-tweaks are
     # compiled into this game module only; every other target that builds the
@@ -163,10 +165,10 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     if(WIN32)
         mscharged_import_original_windows_host(${target})
     else()
-        add_dependencies(charged_original_main_credits_host ${target})
+        add_dependencies(charged_original_game_host ${target})
     endif()
-    target_link_libraries(charged_original_main_credits_host PRIVATE mscharged_build_info)
-    target_compile_definitions(charged_original_main_credits_host PRIVATE
+    target_link_libraries(charged_original_game_host PRIVATE mscharged_build_info)
+    target_compile_definitions(charged_original_game_host PRIVATE
         MSCHARGED_ORIGINAL_FRONTEND_MODULE_${_suffix}_FILENAME="$<TARGET_FILE_NAME:${target}>")
     if(TARGET mscharged)
         if(NOT WIN32)

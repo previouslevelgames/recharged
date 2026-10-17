@@ -170,6 +170,20 @@ void TestReleases()
               && !release->PackageFor("macos-x86_64") && release->Checksums(),
           "Package per platform");
 
+    // Packages are named recharged-... since the rename (#64), mscharged-... before.
+    std::string renamed = Release("v1.0.11", false, "2026-10-18T10:00:00Z", "1.0.11+gffffffffffff");
+    for (std::size_t at = 0; (at = renamed.find("mscharged-", at)) != std::string::npos;)
+        renamed.replace(at, 10, "recharged-");
+    const auto both = ParseReleases(platform::ParseJson("[" + renamed + "," + Release("v1.0.9", false,
+        "2026-10-15T17:22:00Z", "1.0.9+gaaaaaaaaaaaa") + "]"));
+    Check(both.size() == 2 && both[0].version.patch == 11 && both[0].PackageFor("windows-x86_64")
+              && both[0].PackageFor("linux-x86_64")->name == "recharged-1.0.11+gffffffffffff-linux-x86_64.tar.gz"
+              && both[1].PackageFor("linux-x86_64"),
+          "Recharged and mscharged packages");
+    const auto* renamed_update = FindUpdate(Build(BuildOrigin::Release, "1.0.10+gbbbbbbbbbbbb", 1792100000),
+                                            UpdateChannel::Release, both);
+    Check(renamed_update && renamed_update->tag == "v1.0.11", "A release finds the renamed release");
+
     // Release builds: newer versions only; the very same build is current.
     Check(!FindUpdate(Build(BuildOrigin::Release, "1.0.9+gaaaaaaaaaaaa", 1792084000), UpdateChannel::Release, builds),
           "A release is up to date with itself");
@@ -329,7 +343,7 @@ fs::path Fresh(const fs::path& root, const std::string& name)
 
 void TestUnpack(const fs::path& fixtures, const fs::path& work)
 {
-    const std::string linux_name = "mscharged-1.0.10+gbbbbbbbbbbbb-linux-x86_64";
+    const std::string linux_name = "recharged-1.0.10+gbbbbbbbbbbbb-linux-x86_64";
     const fs::path linux_root = UnpackPackage(fixtures / (linux_name + ".tar.gz"), Fresh(work, "unpack-linux"));
     Check(linux_root.filename() == linux_name, "tar.gz packages unpack into their folder");
     const auto manifest = ReadPackageManifest(linux_root / kPackageManifest);
@@ -339,20 +353,20 @@ void TestUnpack(const fs::path& fixtures, const fs::path& work)
     Check(fs::exists(linux_root / ("LICENSES/dependencies/" + std::string(60, 'a') + "/" + std::string(60, 'b') + "/LICENSE")),
           "Long pax path");
 #ifndef _WIN32
-    Check((fs::status(linux_root / "mscharged").permissions() & fs::perms::owner_exec) != fs::perms::none
+    Check((fs::status(linux_root / "recharged").permissions() & fs::perms::owner_exec) != fs::perms::none
               && (fs::status(linux_root / "docs/NEW.md").permissions() & fs::perms::owner_exec) == fs::perms::none,
           "Manifest modes");
 #endif
     const fs::path windows_root =
-        UnpackPackage(fixtures / "mscharged-1.0.10+gbbbbbbbbbbbb-windows-x86_64.zip", Fresh(work, "unpack-windows"));
-    Check(windows_root == work / "unpack-windows" && Read(windows_root / "mscharged_original_frontend_module.so").size() == 11000,
+        UnpackPackage(fixtures / "recharged-1.0.10+gbbbbbbbbbbbb-windows-x86_64.zip", Fresh(work, "unpack-windows"));
+    Check(windows_root == work / "unpack-windows" && Read(windows_root / "recharged_game_us.so").size() == 11000,
           "zip packages unpack at their root");
 
     for (const char* bad : {"bad-traversal.tar.gz", "bad-symlink.tar.gz", "bad-hash.tar.gz", "bad-absolute.tar.gz",
                             "bad-unlisted.zip", "bad-truncated.tar.gz"})
         Check(Throws([&] { UnpackPackage(fixtures / bad, Fresh(work, std::string("unpack-") + bad)); }),
               std::string("Refuses ") + bad);
-    Check(!fs::exists(work / "evil") && !fs::exists(work.parent_path() / "evil") && !fs::exists("/tmp/mscharged-absolute"),
+    Check(!fs::exists(work / "evil") && !fs::exists(work.parent_path() / "evil") && !fs::exists("/tmp/recharged-absolute"),
           "Nothing escapes the unpack folder");
     Check(Throws([&] { UnpackPackage(fixtures / (linux_name + ".tar.gz"), work / "unpack-linux"); }),
           "The unpack folder must be new");
@@ -371,7 +385,7 @@ fs::path InstalledCopy(const fs::path& fixtures, const fs::path& work, const std
 
 void TestInstall(const fs::path& fixtures, const fs::path& work)
 {
-    const std::string archive = "mscharged-1.0.10+gbbbbbbbbbbbb-linux-x86_64.tar.gz";
+    const std::string archive = "recharged-1.0.10+gbbbbbbbbbbbb-linux-x86_64.tar.gz";
     const auto installed = Tree(fixtures / "installed");
 
     // A complete update: package files replaced, user files untouched.
@@ -381,16 +395,16 @@ void TestInstall(const fs::path& fixtures, const fs::path& work)
               "A package folder can be updated");
         const fs::path root = UnpackPackage(fixtures / archive, UpdateFolder(base) / "staged-1");
         InstallStagedPackage(base, root, UpdateFolder(base) / "previous-1");
-        Check(Read(base / "mscharged") == "new launcher\n" && Read(base / "docs/NEW.md") == "only in the new package\n"
-                  && !fs::exists(base / "docs/OLD.md"),
+        Check(Read(base / "recharged") == "new launcher\n" && Read(base / "docs/NEW.md") == "only in the new package\n"
+                  && !fs::exists(base / "docs/OLD.md") && !fs::exists(base / "mscharged"),
               "New files in place, removed files gone");
         Check(ReadPackageManifest(base / kPackageManifest).version == "1.0.10+gbbbbbbbbbbbb", "New manifest in place");
         Check(Read(base / "mscharged.ini") == installed.at("mscharged.ini")
-                  && Read(base / "original-main-credits-data/nand/save.bin") == "save data"
+                  && Read(base / "data/nand/save.bin") == "save data"
                   && Read(base / "logs/mscharged.log") == "previous log\n",
               "Settings, saves and logs stay");
 #ifndef _WIN32
-        Check((fs::status(base / "mscharged").permissions() & fs::perms::owner_exec) != fs::perms::none,
+        Check((fs::status(base / "recharged").permissions() & fs::perms::owner_exec) != fs::perms::none,
               "The launcher stays executable");
 #endif
         Check(!fs::exists(UpdateFolder(base) / "replacing"), "No replacement marker after success");
@@ -429,7 +443,7 @@ void TestInstall(const fs::path& fixtures, const fs::path& work)
         fs::rename(base / "mscharged", previous / "mscharged"); // moved aside, the new one not yet in
         std::ofstream(UpdateFolder(base) / "replacing") << "staged-1/" << root.filename().generic_string() << "\nprevious-1\n";
         Check(FinishUpdates(base) == "1.0.9+gaaaaaaaaaaaa", "The interrupted update is completed");
-        Check(Read(base / "mscharged") == "new launcher\n" && Read(base / "docs/NEW.md") == "only in the new package\n"
+        Check(Read(base / "recharged") == "new launcher\n" && Read(base / "docs/NEW.md") == "only in the new package\n"
                   && !fs::exists(base / "docs/OLD.md") && Read(base / "mscharged.ini") == installed.at("mscharged.ini")
                   && ReadPackageManifest(base / kPackageManifest).version == "1.0.10+gbbbbbbbbbbbb",
               "Completed files");
@@ -439,7 +453,7 @@ void TestInstall(const fs::path& fixtures, const fs::path& work)
     // The package must be for this folder's platform.
     {
         const fs::path base = InstalledCopy(fixtures, work, "mismatch");
-        const fs::path root = UnpackPackage(fixtures / "mscharged-1.0.10+gbbbbbbbbbbbb-steamdeck-x86_64.tar.gz",
+        const fs::path root = UnpackPackage(fixtures / "recharged-1.0.10+gbbbbbbbbbbbb-steamdeck-x86_64.tar.gz",
                                             UpdateFolder(base) / "staged-1");
         Check(Throws([&] { ReplacePackage(base, root, UpdateFolder(base) / "previous-1"); }),
               "A package for another platform is refused");
@@ -447,6 +461,23 @@ void TestInstall(const fs::path& fixtures, const fs::path& work)
         for (auto it = after.begin(); it != after.end();)
             it = it->first.rfind(".update/", 0) == 0 ? after.erase(it) : std::next(it);
         Check(after == installed, "Nothing changed");
+    }
+
+    // After an update the launcher restarts as recharged, or as mscharged in a
+    // folder that went back to a release from before the rename (#64).
+    {
+#ifdef _WIN32
+        const std::string recharged = "recharged.exe", mscharged = "mscharged.exe";
+#else
+        const std::string recharged = "recharged", mscharged = "mscharged";
+#endif
+        const fs::path base = Fresh(work, "restart");
+        fs::create_directories(base);
+        Check(InstalledLauncher(base) == base / recharged, "Restart defaults to recharged");
+        std::ofstream(base / mscharged) << "old launcher\n";
+        Check(InstalledLauncher(base) == base / mscharged, "Restart as mscharged in an older release");
+        std::ofstream(base / recharged) << "new launcher\n";
+        Check(InstalledLauncher(base) == base / recharged, "Restart prefers recharged");
     }
 
     // Folders that were not installed from a package are not updated in place.

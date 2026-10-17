@@ -2,7 +2,7 @@
 #include "platform/app_icon.h"
 #include "platform/screenshot_hotkey.h"
 #include "platform/window_fit.h"
-#include "runtime/original_main_credits.h"
+#include "runtime/original_game.h"
 #include "platform/graphics_backend.h"
 #include "runtime/original_sh_menu_diagnostic.h"
 #include <aurora/aurora.h>
@@ -52,7 +52,7 @@
 #include "platform/ipc_boot_buffer.h"
 #include <revolution/os/OSIpc.h>
 #include <revolution/ipc.h>
-#include "credits_movie_hardware.h"
+#include "movie_hardware.h"
 #include "runtime/fps_overlay.h"
 #include "runtime/pipeline_warmup.h"
 #include "mscharged/build_version.h"
@@ -218,54 +218,53 @@ void ReadSelectedXFB(const AuroraVIPresentedState& presented,
 }
 void EndWithSnapshot(const std::filesystem::path& output) {
     auto s=std::make_shared<Snapshot>();
-    Check(aurora::gfx::resolve_pass({},s->target),"Cannot resolve actual original Credits EFB");
+    Check(aurora::gfx::resolve_pass({},s->target),"Cannot resolve the actual original EFB");
     Check(s->target.colorFormat==wgpu::TextureFormat::BGRA8Unorm || s->target.colorFormat==wgpu::TextureFormat::RGBA8Unorm,"Unsupported snapshot color format");
     s->stride=(s->target.width*4+255)&~255u;
     s->rgb.resize(std::size_t(s->target.width)*s->target.height*3);
-    const aurora::gfx::EncoderTaskDescriptor d{"Original Credits diagnostic snapshot",Snapshot::Copy,s.get(),Snapshot::Map};
+    const aurora::gfx::EncoderTaskDescriptor d{"Original main diagnostic snapshot",Snapshot::Copy,s.get(),Snapshot::Map};
     const auto task=aurora::gfx::register_encoder_task_type(d);
     const bool queued=aurora::gfx::push_encoder_task(task,nullptr,0);
     aurora_end_frame();aurora::gfx::synchronize();aurora::gfx::unregister_encoder_task_type(task);
     Check(queued,"Actual EFB snapshot task rejected");
     const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(5);
     while(!s->done && std::chrono::steady_clock::now()<end){aurora::gfx::device().Tick();std::this_thread::sleep_for(std::chrono::milliseconds(1));}
-    Check(s->done==1,"Original Credits GPU readback did not complete");
+    Check(s->done==1,"Original main GPU readback did not complete");
 #if defined(_WIN32)
     auto* f=_wfopen(output.c_str(),L"wb");
 #else
     auto* f=std::fopen(output.c_str(),"wb");
 #endif
-    Check(f,"Cannot create Credits snapshot");
+    Check(f,"Cannot create the EFB snapshot");
     std::fprintf(f,"P6\n%u %u\n255\n",s->target.width,s->target.height);
     const auto written=std::fwrite(s->rgb.data(),1,s->rgb.size(),f);const auto closed=std::fclose(f);
-    Check(written==s->rgb.size() && !closed,"Credits snapshot write failed");
+    Check(written==s->rgb.size() && !closed,"EFB snapshot write failed");
     unsigned lit=0;for(std::size_t i=0;i<s->rgb.size();i+=3)if(s->rgb[i]||s->rgb[i+1]||s->rgb[i+2])++lit;
-    Check(lit != 0, "Original Credits actual EFB is entirely black; visibility remains unqualified");
-    mscharged::platform::Trace("Actual Credits EFB %ux%u, nonblack pixels%u; saved %s.\n",s->target.width,s->target.height,lit,mscharged::PathUtf8(output).c_str());
+    Check(lit != 0, "Original actual EFB is entirely black; visibility remains unqualified");
+    mscharged::platform::Trace("Actual EFB %ux%u, nonblack pixels%u; saved %s.\n",s->target.width,s->target.height,lit,mscharged::PathUtf8(output).c_str());
 }
 }
-int mscharged::RunOriginalMainCredits(int argc, char** argv,
+int mscharged::RunOriginalGame(int argc, char** argv,
     const ResolvedLaunch* suppliedLaunch, bool interactive, OriginalMainScene scene, const char* title) {
     // Keep the cache lease through every shutdown/error path, including paths
     // that terminate with live native owners instead of unwinding them.
     std::optional<mscharged::platform::ShaderCacheUse> shaderCacheUse;
     try {
-        const bool frontend = scene != OriginalMainScene::Credits;
         const bool optionsScene = scene == OriginalMainScene::FrontendOptions;
 #if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_BOOT_SCRIPT)
-        const bool sourceBoot = frontend;
+        const bool sourceBoot = true;
 #else
         const bool sourceBoot = false;
 #endif
 #if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_BOOT_TO_FE)
-        const bool priorBoot = frontend;
+        const bool priorBoot = true;
 #else
         const bool priorBoot = false;
 #endif
         Check(!sourceBoot || !optionsScene,
               "Authored Boot script builds do not yet advance to Options; use FRONTEND_BOOT_SCRIPT=OFF for that diagnostic");
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
-        const bool sourceAudio = frontend;
+        const bool sourceAudio = true;
 #else
         const bool sourceAudio = false;
 #endif
@@ -280,22 +279,6 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             if (mscharged::ParseLaunchOption(argc,argv,i,launchOptions)) {
                 if(argument=="--window" || argument=="--fullscreen") interactive=true;
                 continue;
-            }
-            if (argument=="--help") {
-                std::puts("Usage: mscharged-original-main-credits-check [launch settings] [--resize-check] [--diagnostic-frame]\n"
-                          "Enter original main, then load and update the original Credits scene.\n"
-                          "Original THP movie/video and mode0 audio diagnostic; USA/English.\n"
-                          "Desktop keyboard and mouse feed original Wii/frontend input methods.\n"
-                          "Enter/Space=A, Escape/Backspace=B; arrows=DPad; Z/X=1/2.\n"
-                          "Mouse: pointer; left/right click=A/B.\n"
-                          "A selects original COPYRIGHTS; the following menu transition remains held.\n"
-                          "Full tasks, AX predecessor, motion and game shutdown are omitted.\n"
-                          "--window keeps the source scene running until you close the window.\n"
-                          "Original glSendFrame/swap/VI preserves source geometry at any window size.\n"
-                          "--diagnostic-frame selects the transitional unarmed frame comparison.");
-                std::fputs(mscharged::LaunchOptionsHelp.data(),stdout);
-                std::puts("--window or --fullscreen keeps this diagnostic open; without either, save a capture and exit.");
-                return 0;
             }
             if(argument=="--native-send")nativeSend=true;
             else if(argument=="--resize-check")resizeCheck=true;
@@ -312,7 +295,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         windowWidth=launch.settings.width;windowHeight=launch.settings.height;
         const auto& aspect = launch.settings.aspect;
         Check(aspect=="auto" || aspect=="4:3" || aspect=="16:9",
-              "Original Credits supports 4:3 or 16:9; select --aspect 4:3 or --aspect 16:9");
+              "The game supports 4:3 or 16:9; select --aspect 4:3 or --aspect 16:9");
         // Stage a Wii system preference. Original main queries SC and selects
         // its projection and authored scene; resizing only scales that image.
         const bool widescreen = aspect=="16:9" ||
@@ -345,31 +328,23 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         Check(!resizeCheck || !launch.settings.fullscreen,"--resize-check requires a windowed launch; add --window");
         Check(!priorBoot || !resizeCheck,
               "The prior Boot stage retains original effects/NPC owners; resize teardown is not qualified");
-        const char* moduleFilename=MSCHARGED_ORIGINAL_MAIN_CREDITS_MODULE_FILENAME;
-        if(frontend) {
-#if defined(MSCHARGED_ORIGINAL_FRONTEND_MODULE_US_FILENAME) && defined(MSCHARGED_ORIGINAL_FRONTEND_MODULE_EU_FILENAME)
-            // One game module per game version; both European revisions run the EU one.
-            moduleFilename=release->code==mscharged::GameCode::Europe
-                ? MSCHARGED_ORIGINAL_FRONTEND_MODULE_EU_FILENAME : MSCHARGED_ORIGINAL_FRONTEND_MODULE_US_FILENAME;
-#else
-            throw std::runtime_error("Original frontend sequence is not in this build");
-#endif
-        } else {
-            Check(release->code==mscharged::GameCode::Usa,"The Credits diagnostic runs the USA version only");
-        }
+        // One game module per game version; both European revisions run the EU one.
+        const char* moduleFilename=release->code==mscharged::GameCode::Europe
+            ? MSCHARGED_ORIGINAL_FRONTEND_MODULE_EU_FILENAME : MSCHARGED_ORIGINAL_FRONTEND_MODULE_US_FILENAME;
         const auto modulePath=executableDirectory/moduleFilename;
         Check(std::filesystem::is_regular_file(modulePath),"Original-main source module is missing beside the executable");
         // Real host window/device/FIFO owner exists before any original module
         // constructors. Original main still owns its GXInit/glStartup decisions.
-        const auto dataDirectory = std::filesystem::absolute(
-            executableDirectory / "original-main-credits-data");
+        if(mscharged::MoveOldDataFolder(executableDirectory))
+            mscharged::platform::SessionLogLine("Data: moved original-main-credits-data to data");
+        const auto dataDirectory = std::filesystem::absolute(mscharged::DataFolder(executableDirectory));
+        mscharged::platform::SessionLogLine("Data: "+mscharged::PathUtf8(dataDirectory));
         std::filesystem::create_directories(dataDirectory);
         const auto dataPath = dataDirectory.string();
         AuroraConfig config{};
         // Window title: the port's name and build, then the diagnostic scene.
-        const std::string appTitle=title ? title : "MSCharged Port";
-        const std::string windowTitle=optionsScene ? appTitle+" | Options diagnostic" :
-            frontend ? appTitle : appTitle+" | Credits diagnostic";
+        const std::string appTitle=title ? title : "Recharged";
+        const std::string windowTitle=optionsScene ? appTitle+" | Options diagnostic" : appTitle;
         config.appName=windowTitle.c_str();
         config.userPath=config.cachePath=dataPath.c_str();
         const auto graphicsResourcesPath=mscharged::PathUtf8(executableDirectory/"assets"/"graphics");
@@ -393,7 +368,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // remotes, including DolphinBar mode 4 and its IR sensor bar; SDL's
         // own Wii HID driver must not open the same devices.
         SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_WII,"0",SDL_HINT_DEFAULT);
-        // Startup milestones and display settings for logs/mscharged.log.
+        // Startup milestones and display settings for logs/recharged.log.
         const auto& shown=launch.settings;
         mscharged::platform::SessionLogLine("Display settings: "+std::string(shown.fullscreen?"fullscreen":"windowed")
             +" "+std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", aspect "+shown.aspect
@@ -481,7 +456,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         }
         bool retainedWindowClose=false;
 #if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
-        if(frontend && sourceAudio && nativeSend) {
+        if(sourceAudio && nativeSend) {
             mscharged::platform::RetainNativeHardwareWindowClose(host.window);
             retainedWindowClose=true;
         }
@@ -524,26 +499,23 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             // This mode never uses diagnostic aurora_begin/end_frame.
             aurora_configure_native_gx_hardware();
         }
-        std::optional<mscharged::platform::NativeFilesystemSettings> discBootIdentity;
-        if (frontend) {
-            // Physical IPC boot metadata is part of the native OS foundation.
-            // The whole original SDK keeps its advancing IPC buffer cursor;
-            // source nlFlashInitialize/NANDInit still run at their own positions.
-            alignas(32) static std::array<unsigned char, 32768> ipcBootMemory{};
-            mscharged::platform::InstallNativeIPCBootBuffer(
-                ipcBootMemory.data(), ipcBootMemory.size());
-            __OSInitIPCBuffer();
-            IPCInit();
-            // One isolated native title profile. UID is an explicit native IOS
-            // process identity, independent of the host account/retail console.
-            // Each title keeps its own storage in the save folder (the USA one
-            // the folder itself), as titles have separate homes on a Wii.
-            const auto saveFolder=mscharged::TitleSaveFolder(
-                mscharged::ResolveSaveFolder(launch.settings, launch.config.path, executableDirectory),
-                mscharged::ReadDiscTitleId(launch.disc_path));
-            discBootIdentity=mscharged::platform::InitializeNativeFilesystemForDisc(
-                {launch.disc_path, saveFolder, 0x1001});
-        }
+        // Physical IPC boot metadata is part of the native OS foundation.
+        // The whole original SDK keeps its advancing IPC buffer cursor;
+        // source nlFlashInitialize/NANDInit still run at their own positions.
+        alignas(32) static std::array<unsigned char, 32768> ipcBootMemory{};
+        mscharged::platform::InstallNativeIPCBootBuffer(
+            ipcBootMemory.data(), ipcBootMemory.size());
+        __OSInitIPCBuffer();
+        IPCInit();
+        // One isolated native title profile. UID is an explicit native IOS
+        // process identity, independent of the host account/retail console.
+        // Each title keeps its own storage in the save folder (the USA one
+        // the folder itself), as titles have separate homes on a Wii.
+        const auto saveFolder=mscharged::TitleSaveFolder(
+            mscharged::ResolveSaveFolder(launch.settings, launch.config.path, executableDirectory),
+            mscharged::ReadDiscTitleId(launch.disc_path));
+        const auto discBootIdentity=mscharged::platform::InitializeNativeFilesystemForDisc(
+            {launch.disc_path, saveFolder, 0x1001});
         mscharged::platform::InitializeNativeSTMDevice();
         // Report this live host IOS provider, not the disc-requested Wii IOS.
         mscharged::platform::ConfigureNativeIOSServiceRevision();
@@ -585,11 +557,11 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 mscharged::platform::ServiceNativeHardwareInput);
         else
 #endif
-            mscharged::diagnostic::InitializeCreditsMovieHardware(
+            mscharged::diagnostic::InitializeMovieHardware(
                 mscharged::platform::ServiceNativeHardwareInput);
         if(!aurora_dvd_open(mscharged::PathUtf8(disc).c_str())) throw std::runtime_error("Actual owned Wii data partition failed");
 #if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
-        if(frontend)mscharged::platform::ConfigureNativeOSDiscBootIdentity(*discBootIdentity);
+        mscharged::platform::ConfigureNativeOSDiscBootIdentity(discBootIdentity);
         std::optional<mscharged::diagnostic::OriginalTerminalVerifier> terminalVerifier;
 #endif
         std::unique_ptr<mscharged::platform::NativeAXModuleMemory> axModuleMemory;
@@ -599,10 +571,9 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         // Terminal diagnostics retain live source images and hardware owners on
         // failure. Unwinding a device with active source pins is not retirement.
         try {
-        if(frontend)
-            axModuleMemory=std::make_unique<mscharged::platform::NativeAXModuleMemory>(modulePath);
+        axModuleMemory=std::make_unique<mscharged::platform::NativeAXModuleMemory>(modulePath);
         auto* module=mscharged::platform::LoadNativeModule(modulePath);
-        if(frontend) {
+        {
             // The module's sources must have been built for the disc's game version.
             auto* moduleVersion=reinterpret_cast<const char*(*)()>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_game_version"));
@@ -610,7 +581,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             Check(moduleVersion && std::strcmp(moduleVersion(),expectedVersion)==0,
                   "The game module does not match the disc's game version");
         }
-        // MSCHARGED_DEBUG_LAYERS_OFF (frontend module only): diagnostic layer switches.
+        // RECHARGED_DEBUG_LAYERS_OFF: diagnostic layer switches.
         if(auto* layers=reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(
                module,"charged_apply_debug_layer_toggles"))) {
             layers();
@@ -618,7 +589,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_debug_layers")),
                 reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_cycle_debug_layer")));
         }
-        // [gameplay] tweaks (frontend module only): the enabled set, before original main.
+        // [gameplay] tweaks: the enabled set, before original main.
         {
             const unsigned tweaks=launch.settings.GameTweakMask();
             auto* configureTweaks=reinterpret_cast<void(*)(unsigned)>(
@@ -649,7 +620,22 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             mscharged::platform::SessionLogLine(line.c_str());
             std::fprintf(stderr,"%s\n",line.c_str());
         }
-        // display.frame_rate (frontend module only): above the original, Aurora
+        // [audio] sound levels: like the master volume a host setting,
+        // whatever the tweak set; the game module's hooks apply them.
+        {
+            const auto& volumes=launch.settings.sound_volumes;
+            auto* configureSoundVolumes=reinterpret_cast<void(*)(const int*,int)>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_sound_volumes"));
+            if(configureSoundVolumes)
+                configureSoundVolumes(volumes.data(),int(volumes.size()));
+            const auto described=mscharged::DescribeSoundVolumes(volumes);
+            const std::string line="Sound levels: "+described
+                +(described!="original" && !configureSoundVolumes
+                    ? " (not applied: this build's game module has no sound levels)" : "");
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
+        // display.frame_rate: above the original, Aurora
         // presents each frame as the game swaps and paces the next; VI retraces
         // keep their real rate for everything that counts them.
         std::optional<mscharged::runtime::HostFramePacing> framePacing;
@@ -719,7 +705,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             mscharged::platform::Trace("Original main audio: source owner initialized, nlxgs configuration genuinely loaded.\n");
         }
 #if defined(MSCHARGED_HAS_ORIGINAL_FRONTEND_RESET)
-        if(frontend && sourceAudio && nativeSend) {
+        if(sourceAudio && nativeSend) {
             terminalVerifier.emplace(*gameAudioHardware,*axModuleMemory,host.window);
             auto removal=terminalVerifier->Policy();
             // The opt-in frame timing log completes before the process ends.
@@ -853,7 +839,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
                 exit=true;
             }
             if(exit)break;
-            mscharged::diagnostic::ServiceCreditsMovieHardware();
+            mscharged::diagnostic::ServiceMovieHardware();
             if(requestSH) {
                 const auto status=requestSH();
                 if(status!=lastRequest) {
@@ -978,7 +964,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
             frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
-            if(sample){EndWithSnapshot(dataDirectory/"original-main-credits.ppm");snapshot=true;}
+            if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}
             else aurora_end_frame();
             aurora::gfx::synchronize();
             encoded=encoded || AuroraGXWasDrawEncoded(receipt);
@@ -990,12 +976,12 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         if(nativeSend){AuroraGXSync(); aurora::gfx::synchronize();}
         Check(snapshot && encoded && draws &&
               (nativeSend ? nativePresented : aurora_get_last_presentation().sequence != 0),
-              "Original main Credits real source draw/presentation incomplete");
+              "Original main real source draw/presentation incomplete");
         if(nativeSend) {
             mscharged::platform::Trace("Original main selected %s: %u native source-send frames, draw receipt+chosen-XFB VI presentation. Full startup/AX/world/reset/CRT remain incomplete.\n",
-                sourceBoot ? "authored Boot script0" : optionsScene ? "Options tasks" : frontend ? "Boot/Intro tasks" : "Credits",frames);
+                sourceBoot ? "authored Boot script0" : optionsScene ? "Options tasks" : "Boot/Intro tasks",frames);
         } else {
-        mscharged::platform::Trace("Original main→selected Credits live: %u actual source frames, %u encoded draws; one initialized game/SDK, native owner elapsed time. Actual original THP/movie/mode0 audio; digital input endpoints selected; full task/automatic swap reset/AX/motion/CRT scopes remain held.\n",frames,draws);
+        mscharged::platform::Trace("Original main live: %u actual source frames, %u encoded draws; one initialized game/SDK, native owner elapsed time. Actual original THP/movie/mode0 audio; digital input endpoints selected; full task/automatic swap reset/AX/motion/CRT scopes remain held.\n",frames,draws);
         }
         const auto audio=mscharged::platform::GetNativeAIStatus();
         const auto audioClock=mscharged::platform::GetNativeAIClockStatus();
@@ -1065,7 +1051,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)gameAudioHardware->UnbindOwnerService();
 #endif
-        mscharged::diagnostic::ShutdownCreditsMovieHardware();
+        mscharged::diagnostic::ShutdownMovieHardware();
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio) {
             gameAudioHardware->CloseAfterAIStop(retireAudioPin,unloadIdleBanks,shutdownAudio);
@@ -1075,8 +1061,7 @@ int mscharged::RunOriginalMainCredits(int argc, char** argv,
         }
 #endif
         mscharged::platform::ShutdownNativeHardwareInput();
-        if (frontend)
-            mscharged::platform::ShutdownNativeFilesystem();
+        mscharged::platform::ShutdownNativeFilesystem();
         if(axModuleMemory) {
             // Actual source audio retirement already released its module pins.
             // The constructor-only mode retains the earlier stopped device gate.

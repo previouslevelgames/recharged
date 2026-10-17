@@ -42,7 +42,7 @@ function(mscharged_select_original_frontend_hbm target)
     mscharged_select_original_hbm_layout_providers("${target}")
     mscharged_select_original_hbm_layout_transport("${target}")
     mscharged_select_original_hbm_sound_providers("${target}")
-    mscharged_link_original_hbm_sound_host(charged_original_main_credits_host)
+    mscharged_link_original_hbm_sound_host(charged_original_game_host)
     # SaveLoad and HOME share the same native binder/ARC byte registry.
     # Original TPLGet is selected once; HBMManager source remains unmodified.
 endfunction()

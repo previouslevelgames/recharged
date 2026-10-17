@@ -1,6 +1,6 @@
 # Source patches
 
-The port never edits its dependencies directly. Every change to upstream source
+Recharged never edits its dependencies directly. Every change to upstream source
 (the decompilation, Aurora, Dawn, nod, SDL) is a patch in this folder, applied
 in the order of each folder's `series` file to a copy of the pinned source
 during the build. Each patch explains its reason in its header.

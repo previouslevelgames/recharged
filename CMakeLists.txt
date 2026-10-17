@@ -10,7 +10,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_G
     set(MSCHARGED_GCC_NO_SANE_NEW_DELETE -fno-assume-sane-operators-new-delete)
 endif()
 if(WIN32 AND MINGW)
-    # COFF weak definitions cannot be exported from mscharged.exe to the game
+    # COFF weak definitions cannot be exported from recharged.exe to the game
     # DLLs (OSReport and friends would bind to address 0). Plain definitions,
     # as the SDK and decomp headers already use for MSVC.
     add_compile_definitions(DECL_WEAK=)
@@ -32,7 +32,7 @@ set(MSCHARGED_PORT_VERSION "${PROJECT_VERSION}")
 # as a prerelease while the pull request is open.
 set(MSCHARGED_BUILD_CHANNEL dev CACHE STRING "Where the build comes from: release, test or dev")
 set_property(CACHE MSCHARGED_BUILD_CHANNEL PROPERTY STRINGS release test dev)
-set(MSCHARGED_BUILD_REPOSITORY yannicksuter/mscharged-port CACHE STRING
+set(MSCHARGED_BUILD_REPOSITORY previouslevelgames/recharged CACHE STRING
     "GitHub repository (owner/name) whose releases and test builds update this build")
 set(MSCHARGED_BUILD_PULL_REQUEST 0 CACHE STRING "Pull request of a test build")
 set(MSCHARGED_BUILD_RUN 0 CACHE STRING "CI run that made the build (0: none)")
@@ -66,12 +66,8 @@ option(MSCHARGED_BUILD_THP_AUDIO_DIAGNOSTIC "Build the temporary original audio-
 option(MSCHARGED_NATIVE_VIDEO "Enable original-source native VI hardware (output integration in progress)" OFF)
 option(MSCHARGED_BUILD_GX_CHECK "Build the standalone Aurora GX diagnostic" OFF)
 option(MSCHARGED_BUILD_SCENE_PREVIEW "Build the experimental static Wii asset preview (not a game scene)" OFF)
-option(MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC "Build the temporary original Credits scene rendering check" OFF)
-option(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC "Build the temporary original Boot/Intro task sequence check" OFF)
+option(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC "Build the original game runtime (the game modules)" OFF)
 if(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC)
-    set(MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC ON)
-endif()
-if(MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC)
     set(MSCHARGED_BUILD_GX_CHECK ON)
 endif()
 if(MSCHARGED_BUILD_SCENE_PREVIEW)
@@ -92,8 +88,8 @@ if(MSCHARGED_BUILD_GAME_STARTUP)
         message(FATAL_ERROR "Use separate graphics and startup builds until the game's GX adapter is implemented")
     endif()
     if(MSCHARGED_BUILD_LAUNCHER AND NOT MSCHARGED_BUILD_SCENE_PREVIEW
-            AND NOT MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC)
-        message(FATAL_ERROR "Enable the scene preview or original Credits diagnostic for shared GX/launcher providers; otherwise disable the launcher")
+            AND NOT MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC)
+        message(FATAL_ERROR "Enable the scene preview or the original game runtime for shared GX/launcher providers; otherwise disable the launcher")
     endif()
     set(MSCHARGED_BUILD_AURORA_HOST ON)
 endif()
@@ -305,11 +301,8 @@ if(BUILD_TESTING OR MSCHARGED_BUILD_SCENE_PREVIEW OR MSCHARGED_BUILD_GAME_STARTU
 endif()
 
 if(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC)
-    # The game runtime enters original main. The older selected-scene fixture
-    # has a separate Linux-only module and is not a prerequisite for this path.
-    include(cmake/OriginalMainCreditsDiagnostic.cmake)
-elseif(MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC)
-    include(cmake/OriginalCreditsDiagnostic.cmake)
+    # The game runtime: the host enters original main in a game module.
+    include(cmake/OriginalGame.cmake)
 endif()
 
 if(BUILD_TESTING)

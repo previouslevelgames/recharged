@@ -61,7 +61,7 @@ void Releases()
               == "This build cannot run the European version (R4QP01, revision 1) yet.",
           "An unplayable release names its version: " + UnplayableReason(Disc("R4QP01", 1), &blocked));
     Check(UnplayableReason(Disc("R4QP01", 3), nullptr)
-              == "The port knows the European version (R4QP01) in revision 2 and revision 1; this disc is revision 3.",
+              == "Recharged knows the European version (R4QP01) in revision 2 and revision 1; this disc is revision 3.",
           "An unknown revision lists the known ones: " + UnplayableReason(Disc("R4QP01", 3), nullptr));
     Check(UnplayableReason(Disc("R4QJ01", 0)) == "Mario Strikers Charged for Japan (R4QJ01) is not supported yet."
               && UnplayableReason(Disc("R4QK01", 0)) == "Mario Strikers Charged for Korea (R4QK01) is not supported yet.",

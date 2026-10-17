@@ -127,7 +127,7 @@ std::string UnplayableReason(const DiscInfo& info, const GameRelease* release)
             if (!release) release = &other;
         }
     if (release)
-        return "The port knows the " + RegionAdjective(release->region) + " version (" + info.game_id + ") in "
+        return "Recharged knows the " + RegionAdjective(release->region) + " version (" + info.game_id + ") in "
             + known + "; this disc is revision " + std::to_string(info.revision) + ".";
     return "Mario Strikers Charged for " + std::string(DiscRegionName(info.game_id)) + " (" + info.game_id
         + ") is not supported yet.";

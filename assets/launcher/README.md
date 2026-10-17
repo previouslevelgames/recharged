@@ -15,7 +15,7 @@ This third-party artwork is outside the project's CC0 dedication. The source
 metadata does not specify a redistribution license; rights remain with the
 respective owners.
 
-CMake copies the image into `assets/launcher/header.png` beside the `mscharged`
+CMake copies the image into `assets/launcher/header.png` beside the `recharged`
 executable. The launcher preserves its proportions and crops vertically to fit
 the available header space. The source file is unchanged.
 

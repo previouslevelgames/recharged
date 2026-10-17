@@ -35,7 +35,7 @@ private:
 struct HttpRequest
 {
     std::string url; // https only, also for redirects
-    std::string user_agent = "mscharged";
+    std::string user_agent = "Recharged";
     std::vector<std::string> headers; // "Name: value"
     int connect_timeout = 15;          // seconds
     int stall_timeout = 30;            // seconds without data before the transfer fails

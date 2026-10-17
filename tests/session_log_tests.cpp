@@ -1,4 +1,4 @@
-// logs/mscharged.log: console output is copied to the log, and a crash is
+// logs/recharged.log: console output is copied to the log, and a crash is
 // recorded with its signal and call stack before the process ends as it would.
 #include "platform/session_log.h"
 
@@ -33,7 +33,7 @@ int Child(const std::string& directory, const char* mode, char* program)
     Require(pid >= 0, "fork failed");
     if (pid == 0)
     {
-        setenv("MSCHARGED_LOG_DIR", directory.c_str(), 1);
+        setenv("RECHARGED_LOG_DIR", directory.c_str(), 1);
         char* argv[] = {program, const_cast<char*>(mode), nullptr};
         mscharged::platform::StartSessionLog("test", 2, argv);
         std::printf("stdout before %s\n", mode);
@@ -60,12 +60,12 @@ int main(int, char** argv)
         char directory_template[] = "/tmp/mscharged-session-log-XXXXXX";
         Require(mkdtemp(directory_template), "mkdtemp failed");
         const std::string directory = directory_template;
-        const std::string log = directory + "/mscharged.log";
+        const std::string log = directory + "/recharged.log";
 
         int status = Child(directory, "normal", argv[0]);
         Require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "Normal run did not exit 0");
         auto text = Read(log);
-        Require(text.find("=== Mario Strikers Charged native port test ===") != std::string::npos, "No log header");
+        Require(text.find("=== Recharged test ===") != std::string::npos, "No log header");
         Require(text.find("stdout before normal") != std::string::npos
                     && text.find("stderr before normal") != std::string::npos,
                 "Console output missing from the log");
@@ -75,7 +75,7 @@ int main(int, char** argv)
         status = Child(directory, "fatal", argv[0]);
         Require(WIFEXITED(status) && WEXITSTATUS(status) == 1, "Fatal run did not exit 1");
         Require(Read(log).find("fatal test message") != std::string::npos, "Fatal error missing before _Exit");
-        Require(Read(directory + "/mscharged.previous.log").find("stdout before normal") != std::string::npos,
+        Require(Read(directory + "/recharged.previous.log").find("stdout before normal") != std::string::npos,
                 "Previous log not kept");
 
         status = Child(directory, "crash", argv[0]);

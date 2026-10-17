@@ -193,7 +193,7 @@ class PipelineCatalogTests(unittest.TestCase):
                 f"pipeline={name}{row['version']}-{row['hash']} frame={frame} config={encoded}\n")
 
     def test_game_log_lines_hold_the_catalogue_configurations(self):
-        log = self.root / "mscharged.log"
+        log = self.root / "recharged.log"
         log.write_text(GAME_LOG)
         rows = CATALOG.read_log(log)
         self.assertEqual([(row[0], row[1] & 0xFFFFFFFFFFFFFFFF, row[5]) for row in rows],
@@ -209,7 +209,7 @@ class PipelineCatalogTests(unittest.TestCase):
 
     def test_import_reads_session_logs(self):
         gx = self.gx_row(9, 0)
-        log = self.root / "mscharged.log"
+        log = self.root / "recharged.log"
         log.write_text("=== Mario Strikers Charged native port ===\n"
                        "Graphics: known pipeline compiled while drawing in 1.0 ms: pipeline=gx17-0123456789abcdef frame=4\n"
                        + self.log_line(gx, frame=812)
@@ -237,11 +237,11 @@ class PipelineCatalogTests(unittest.TestCase):
         }
         self.read()
         before = self.source.read_bytes()
-        log = self.root / "mscharged.log"
+        log = self.root / "recharged.log"
         for message, encodings in cases.items():
             for value in encodings:
                 log.write_text("first line\n" + self.log_line(gx, encoded=value))
-                with self.subTest(value=value), self.assertRaisesRegex(CATALOG.CatalogError, f"mscharged.log:2: .*{message}"):
+                with self.subTest(value=value), self.assertRaisesRegex(CATALOG.CatalogError, f"recharged.log:2: .*{message}"):
                     CATALOG.import_databases(self.source, [log])
         for line in ("Graphics: new pipeline compiled while drawing in 1.0 ms: pipeline=gx17-0123 frame=1 config=AAAA\n",
                      "Graphics: new pipeline compiled while drawing in 1.0 ms: pipeline=gx17-0123456789abcdef config=AAAA\n",

@@ -108,7 +108,7 @@ struct Child {
 };
 
 void Run(const fs::path& root) {
-    Check(mscharged::platform::ShaderCacheDirectory(root) == root / "original-main-credits-data",
+    Check(mscharged::platform::ShaderCacheDirectory(root) == root / "data",
           "Runtime and launcher cache directory disagree");
     const auto missing = root / "missing";
     Check(ClearShaderCache(missing).removed_files == 0 && !fs::exists(missing),
@@ -116,8 +116,8 @@ void Run(const fs::path& root) {
     const auto directory = root / "cache";
     for (const auto* name : names) Write(directory / name);
     Write(directory / "nand/title/game-save", "saved match");
-    Write(directory / "logs/mscharged.log", "session log");
-    Write(directory / "mscharged.ini", "settings");
+    Write(directory / "logs/recharged.log", "session log");
+    Write(directory / "recharged.ini", "settings");
     Write(directory / "pipeline_cache.db.backup", "keep backup");
     {
         ShaderCacheUse game(directory);
@@ -132,8 +132,8 @@ void Run(const fs::path& root) {
           "Cache clear did not report all database and SQLite sidecar bytes");
     for (const auto* name : names) Check(!fs::exists(directory / name), "A selected cache file survived clearing");
     Check(Read(directory / "nand/title/game-save") == "saved match" &&
-          Read(directory / "logs/mscharged.log") == "session log" &&
-          Read(directory / "mscharged.ini") == "settings" &&
+          Read(directory / "logs/recharged.log") == "session log" &&
+          Read(directory / "recharged.ini") == "settings" &&
           Read(directory / "pipeline_cache.db.backup") == "keep backup",
           "Cache clearing touched a save, log, configuration or unrelated file");
     Check(ClearShaderCache(directory).removed_files == 0, "Repeated empty clearing did not succeed");

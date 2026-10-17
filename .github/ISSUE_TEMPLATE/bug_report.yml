@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting! Please check [troubleshooting](https://github.com/yannicksuter/mscharged-port/blob/stable/docs/TROUBLESHOOTING.md) first; many problems have a quick answer there.
+        Thanks for reporting! Please check [troubleshooting](https://github.com/previouslevelgames/recharged/blob/stable/docs/TROUBLESHOOTING.md) first; many problems have a quick answer there.
   - type: input
     id: version
     attributes:
@@ -49,6 +49,6 @@ body:
     attributes:
       label: Log
       description: |
-        Drag `logs/mscharged.log` from the program folder here (copy it right after the problem; the next start replaces it). On Windows, add `mscharged-crash.dmp` too if there is one. The log can contain your user name in file paths.
+        Drag `logs/recharged.log` from the program folder here (copy it right after the problem; the next start replaces it). On Windows, add `recharged-crash.dmp` too if there is one. The log can contain your user name in file paths.
     validations:
       required: true

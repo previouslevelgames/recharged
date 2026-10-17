@@ -27,11 +27,11 @@ function(mscharged_select_original_game_audio_initialize target)
     target_compile_options("${target}" PRIVATE "$<$<COMPILE_LANGUAGE:C>:-fexceptions>")
     mscharged_set_original_module_exports("${target}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_game_audio_initialize_exports.map")
-    target_sources(charged_original_main_credits_host PRIVATE
+    target_sources(charged_original_game_host PRIVATE
         tests/diagnostics/original_game_audio_hardware.cpp)
-    target_compile_definitions(charged_original_main_credits_host PRIVATE
+    target_compile_definitions(charged_original_game_host PRIVATE
         MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE=1)
-    target_link_libraries(charged_original_main_credits_host PRIVATE
+    target_link_libraries(charged_original_game_host PRIVATE
         charged_native_ax_functional charged_native_thread_queues)
     # The original image imports true host helpers only when first executed.
     # Force extraction into the sole ELF host; no module SDK is linked.
@@ -41,6 +41,6 @@ function(mscharged_select_original_game_audio_initialize target)
             OSDisableInterrupts OSRestoreInterrupts SCGetSoundMode
             DCFlushRange DCFlushRangeNoSync DCInvalidateRange
             WPADCanSendStreamData WPADControlSpeaker WPADSendStreamData)
-        mscharged_require_original_host_symbol(charged_original_main_credits_host INTERFACE "${_symbol}")
+        mscharged_require_original_host_symbol(charged_original_game_host INTERFACE "${_symbol}")
     endforeach()
 endfunction()

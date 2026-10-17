@@ -11,7 +11,8 @@
 // running build's origin, GitHub's releases and test builds, and which of
 // them is an update. Test builds are prereleases tagged test-pr<N>-<commit>
 // (.github/workflows/build.yml); packages are named
-// mscharged-<version>-<platform>-<arch>.zip/.tar.gz (tools/package_build.py).
+// recharged-<version>-<platform>-<arch>.zip/.tar.gz (tools/package_build.py),
+// mscharged-... before the rename (#64).
 namespace mscharged::launcher
 {
 // A port version, x.y.z, and the commit the build adds as "+g<commit>".

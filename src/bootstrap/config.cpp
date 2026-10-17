@@ -42,8 +42,6 @@ Values Encode(const Settings& s)
             {"display.performance_mode", s.performance_mode ? "true" : "false"},
             {"display.antialiasing", s.antialiasing}, {"display.resolution", s.resolution},
             {"audio.master_volume", std::to_string(s.master_volume)},
-            {"audio.music_volume", std::to_string(s.music_volume)},
-            {"audio.effects_volume", std::to_string(s.effects_volume)},
             {"audio.mute", s.mute ? "true" : "false"},
             {"controls.player1", s.players[0]}, {"controls.player2", s.players[1]},
             {"controls.player3", s.players[2]}, {"controls.player4", s.players[3]},
@@ -66,6 +64,8 @@ Values Encode(const Settings& s)
         values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
         values.emplace(std::string("gameplay.") + kGameTweaks[n].key, s.tweaks[n] ? "true" : "false");
+    for (std::size_t n = 0; n < kSoundGroups.size(); ++n)
+        values.emplace(std::string("audio.") + kSoundGroups[n].key, std::to_string(s.sound_volumes[n]));
     for (std::size_t n = 0; n < s.pad_profiles.size(); ++n)
     {
         const auto& profile = s.pad_profiles[n];
@@ -136,8 +136,8 @@ Settings Decode(const Values& values)
     choice("display.antialiasing", s.antialiasing, {"off", "4x"});
     choice("display.resolution", s.resolution, {"window", "native", "2x", "3x", "4x"});
     number("audio.master_volume", s.master_volume, 0, 100);
-    number("audio.music_volume", s.music_volume, 0, 100);
-    number("audio.effects_volume", s.effects_volume, 0, 100);
+    for (std::size_t n = 0; n < kSoundGroups.size(); ++n)
+        number((std::string("audio.") + kSoundGroups[n].key).c_str(), s.sound_volumes[n], 0, 100);
     boolean("audio.mute", s.mute);
     for (int n = 0; n < 4; ++n)
     {
@@ -345,7 +345,7 @@ std::string Read(const std::filesystem::path& path)
     std::ifstream input(path, std::ios::binary);
     if (!input)
         throw std::runtime_error("Cannot read " + PathUtf8(path)
-            + ". Copy mscharged.ini.example to mscharged.ini and set [game] disc.");
+            + ". Copy recharged.ini.example to recharged.ini and set [game] disc.");
     if (std::filesystem::file_size(path) > 1024 * 1024)
         throw std::runtime_error("Configuration file is unexpectedly large: " + PathUtf8(path));
     std::ostringstream result;
@@ -451,9 +451,34 @@ std::filesystem::path ResolveDiscPath(const Settings& settings, const std::files
     return path.is_absolute() ? path : config.parent_path() / path;
 }
 
+namespace
+{
+constexpr const char* kDataFolder = "data";
+constexpr const char* kOldDataFolder = "original-main-credits-data";
+}
+
+std::filesystem::path DataFolder(const std::filesystem::path& executable_directory)
+{
+    auto folder = executable_directory / kDataFolder;
+    auto old = executable_directory / kOldDataFolder;
+    std::error_code error;
+    if (!std::filesystem::exists(folder, error) && std::filesystem::is_directory(old, error)) return old;
+    return folder;
+}
+
+bool MoveOldDataFolder(const std::filesystem::path& executable_directory)
+{
+    const auto folder = executable_directory / kDataFolder;
+    const auto old = executable_directory / kOldDataFolder;
+    std::error_code error;
+    if (std::filesystem::exists(folder, error) || !std::filesystem::is_directory(old, error)) return false;
+    std::filesystem::rename(old, folder, error);
+    return !error;
+}
+
 std::filesystem::path DefaultSaveFolder(const std::filesystem::path& executable_directory)
 {
-    return executable_directory / "original-main-credits-data" / "nand";
+    return DataFolder(executable_directory) / "nand";
 }
 
 std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::filesystem::path& config,

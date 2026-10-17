@@ -1,9 +1,8 @@
 include_guard(GLOBAL)
 
-# Owner-authorized original-main/selected-Credits diagnostic. Normal game
-# inventories do not enable these temporary flow gates. One source module owns
-# original main, FE/font/resources, handlers and rendering; the host supplies one
-# actual SDK and window/device services before original construction.
+# The original game runtime. One source module owns original main,
+# FE/font/resources, handlers and rendering; the host supplies one actual SDK
+# and window/device services before original construction.
 if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows)$" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
         OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC
         OR (WIN32 AND NOT (MINGW AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")))
@@ -21,7 +20,7 @@ include(cmake/NativeHBMDebug.cmake)
 include(cmake/NativeSystemSettings.cmake)
 include(cmake/NativeSTM.cmake)
 include(cmake/NativeVideo.cmake)
-include(cmake/OriginalCreditsMovieHardware.cmake)
+include(cmake/MovieHardware.cmake)
 include(cmake/NativeHardwareOwner.cmake)
 include(cmake/NativeVideoOutput.cmake)
 include(cmake/NativeFilesystemBoot.cmake)
@@ -40,7 +39,10 @@ if(BUILD_TESTING)
     include(cmake/OriginalHBMSoundArchive.cmake)
 endif()
 
-add_library(mscharged_original_main_credits_module MODULE
+# Sources and settings every game module starts from: the game modules
+# (OriginalFrontendDiagnostic.cmake) and the loading check copy them. This
+# template is never built itself.
+add_library(mscharged_original_game_module_template MODULE EXCLUDE_FROM_ALL
     "${MSCHARGED_PREPARED}/src/NL/nlMemory.cpp"
     "${MSCHARGED_PREPARED}/src/NL/plat/nlMemory.cpp"
     "${MSCHARGED_PREPARED}/src/NL/MemAlloc.cpp"
@@ -197,7 +199,7 @@ add_library(mscharged_original_main_credits_module MODULE
     "${MSCHARGED_PREPARED}/src/NL/nlConfig.cpp"
  )
 set_source_files_properties("${MSCHARGED_PREPARED}/src/RVL_SDK/mtx/mtx44.c" PROPERTIES LANGUAGE CXX)
-add_dependencies(mscharged_original_main_credits_module verify_prepared)
+add_dependencies(mscharged_original_game_module_template verify_prepared)
 include(cmake/OriginalCompressedFiles.cmake)
 include(cmake/OriginalARC.cmake)
 include(cmake/OriginalRFLShape.cmake)
@@ -205,30 +207,30 @@ include(cmake/OriginalRFLResource.cmake)
 include(cmake/OriginalRFLCharacterSources.cmake)
 include(cmake/OriginalCharacterLoading.cmake)
 include(cmake/OriginalAnimationControllers.cmake)
-mscharged_add_original_inflater(mscharged_original_main_credits_module)
-set_target_properties(mscharged_original_main_credits_module PROPERTIES
+mscharged_add_original_inflater(mscharged_original_game_module_template)
+set_target_properties(mscharged_original_game_module_template PROPERTIES
     PREFIX "" POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON)
-target_compile_features(mscharged_original_main_credits_module PRIVATE cxx_std_20)
-target_link_libraries(mscharged_original_main_credits_module PRIVATE charged_original_function_pool_abi)
-target_include_directories(mscharged_original_main_credits_module BEFORE PRIVATE
+target_compile_features(mscharged_original_game_module_template PRIVATE cxx_std_20)
+target_link_libraries(mscharged_original_game_module_template PRIVATE charged_original_function_pool_abi)
+target_include_directories(mscharged_original_game_module_template BEFORE PRIVATE
     "${MSCHARGED_AURORA_PREPARED}/include")
-target_include_directories(mscharged_original_main_credits_module PRIVATE
+target_include_directories(mscharged_original_game_module_template PRIVATE
     "${MSCHARGED_PREPARED}/src" "${MSCHARGED_PREPARED}/src/NL/gl"
     "${MSCHARGED_PREPARED}/src/NL/glx")
-target_compile_definitions(mscharged_original_main_credits_module PRIVATE
+target_compile_definitions(mscharged_original_game_module_template PRIVATE
     MSCHARGED_GAME_MODULE=1 AURORA_WII_CLOCK=1 dSINGLE=1 __alloca=__builtin_alloca
     MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP=1 MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND=1
     MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND_SCENE=1 MSCHARGED_DIAGNOSTIC_CREDITS_SCENE=1
     MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE=1 MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS=1
     MSCHARGED_DIAGNOSTIC_MAIN_INPUT=1
     C_MTXFrustum=Charged_C_MTXFrustum C_MTXOrtho=Charged_C_MTXOrtho)
-target_compile_options(mscharged_original_main_credits_module PRIVATE
+target_compile_options(mscharged_original_game_module_template PRIVATE
     -O1 -ffunction-sections -fdata-sections -fno-strict-aliasing
     -ffp-contract=off -fsigned-char -Wno-unknown-pragmas
     "$<$<COMPILE_LANGUAGE:CXX>:-Wno-invalid-offsetof;-fcheck-new>")
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(mscharged_original_main_credits_module PRIVATE
+    target_compile_options(mscharged_original_game_module_template PRIVATE
         "$<$<COMPILE_LANGUAGE:CXX>:-fno-gnu-unique;${MSCHARGED_GCC_NO_SANE_NEW_DELETE};-fno-devirtualize-speculatively>")
     # Retail loops that write past an array (PauseMenuScene's hover counts)
     # keep their full iteration count: GCC must not derive a shorter one from
@@ -237,36 +239,36 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # stored in pointer-typed contexts. Pointer truncation (-Wpointer-to-int-cast)
     # stays diagnosed; the online-only 32-bit connection handles in NetworkLobby
     # and ReliableSocket remain a known native online gap.
-    target_compile_options(mscharged_original_main_credits_module PRIVATE
+    target_compile_options(mscharged_original_game_module_template PRIVATE
         -fno-aggressive-loop-optimizations
         "$<$<COMPILE_LANGUAGE:CXX>:-Wno-register;-Wno-write-strings;-Wno-volatile;-Wno-int-to-pointer-cast>")
 else()
-    target_compile_options(mscharged_original_main_credits_module PRIVATE
+    target_compile_options(mscharged_original_game_module_template PRIVATE
         "$<$<COMPILE_LANGUAGE:CXX>:-fno-assume-sane-operator-new;-Wno-register>")
 endif()
 if(APPLE)
     # Original source remains incomplete: defer only unexecuted function imports.
     # Explicit exports keep game operators and the original codec module-local.
-    target_link_options(mscharged_original_main_credits_module PRIVATE
+    target_link_options(mscharged_original_game_module_template PRIVATE
         LINKER:-undefined,dynamic_lookup LINKER:-dead_strip LINKER:-no_fixup_chains)
 elseif(WIN32)
-    # The DLL imports host services from mscharged.exe (see
+    # The DLL imports host services from recharged.exe (see
     # mscharged_import_original_windows_host); unfinished functions stay
     # unresolved until called, like the ELF/Mach-O modules.
-    target_link_options(mscharged_original_main_credits_module PRIVATE -Wl,--gc-sections)
+    target_link_options(mscharged_original_game_module_template PRIVATE -Wl,--gc-sections)
 else()
-    target_link_options(mscharged_original_main_credits_module PRIVATE
+    target_link_options(mscharged_original_game_module_template PRIVATE
         -Wl,-Bsymbolic-functions -Wl,--gc-sections)
 endif()
-mscharged_select_original_hbm_debug(mscharged_original_main_credits_module)
-mscharged_set_original_module_exports(mscharged_original_main_credits_module
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_main_credits_exports.map")
+mscharged_select_original_hbm_debug(mscharged_original_game_module_template)
+mscharged_set_original_module_exports(mscharged_original_game_module_template
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_game_exports.map")
 
 # Actual source InitPads/FEInput at their original Initialize positions. Keep
 # source branches and whole TUs; ordinary O2 inlining matches the earlier bounded
 # source qualification and does not retain an unused unfinished base-vptr store.
 # One per game version: the European game module compiles them for its version.
-function(mscharged_add_original_main_credits_focus name version)
+function(mscharged_add_original_game_focus name version)
     add_library(${name} OBJECT
         "${MSCHARGED_PREPARED}/src/Game/PadActions.cpp"
         "${MSCHARGED_PREPARED}/src/NL/plat/globalpad.cpp"
@@ -309,64 +311,56 @@ function(mscharged_add_original_main_credits_focus name version)
     endif()
     set_target_properties(${name} PROPERTIES MSCHARGED_GAME_VERSION ${version})
 endfunction()
-mscharged_add_original_main_credits_focus(mscharged_original_main_credits_focus R4QE01)
-target_link_libraries(mscharged_original_main_credits_module PRIVATE mscharged_original_main_credits_focus)
+mscharged_add_original_game_focus(mscharged_original_game_focus R4QE01)
+target_link_libraries(mscharged_original_game_module_template PRIVATE mscharged_original_game_focus)
 
 # Target-local whole SDK VI owns the true native clock/IRQ implementation. The
 # default aurora_vi archive stays ordinary (never whole-linked here), so its
 # alternate VI object is not pulled after this complete provider resolves VI.
 # Preserve the normal/standalone diagnostic build's existing feature selection.
-add_library(mscharged_original_main_credits_vi OBJECT
+add_library(mscharged_original_game_vi OBJECT
     "${MSCHARGED_AURORA_PREPARED}/lib/dolphin/vi/vi.cpp")
-add_dependencies(mscharged_original_main_credits_vi verify_prepared)
-target_compile_features(mscharged_original_main_credits_vi PRIVATE cxx_std_20)
-target_compile_definitions(mscharged_original_main_credits_vi PRIVATE
+add_dependencies(mscharged_original_game_vi verify_prepared)
+target_compile_features(mscharged_original_game_vi PRIVATE cxx_std_20)
+target_compile_definitions(mscharged_original_game_vi PRIVATE
     AURORA_NATIVE_VIDEO=1 AURORA_WII_CLOCK=1 TARGET_PC=1)
-target_compile_options(mscharged_original_main_credits_vi PRIVATE -ffunction-sections -fdata-sections)
-target_link_libraries(mscharged_original_main_credits_vi PRIVATE aurora::vi)
+target_compile_options(mscharged_original_game_vi PRIVATE -ffunction-sections -fdata-sections)
+target_link_libraries(mscharged_original_game_vi PRIVATE aurora::vi)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SystemUsage.cmake")
-add_library(charged_original_main_credits_host OBJECT
-    src/runtime/original_main_credits.cpp src/runtime/frame_timing_log.cpp src/runtime/fps_overlay.cpp
+add_library(charged_original_game_host OBJECT
+    src/runtime/original_game.cpp src/runtime/frame_timing_log.cpp src/runtime/fps_overlay.cpp
     src/runtime/host_frame_pacing.cpp
     src/runtime/pipeline_warmup.cpp src/runtime/pipeline_demand_log.cpp src/runtime/graphics_loading_view.cpp
     src/platform/console.cpp
     src/platform/os.cpp src/platform/host_metadata.cpp src/platform/string_format.cpp
     src/platform/report.cpp src/platform/thread.cpp src/platform/os_version.cpp)
-if(NOT WIN32)
-    # On Windows the module instead builds after the host it imports from.
-    add_dependencies(charged_original_main_credits_host mscharged_original_main_credits_module)
-endif()
-target_compile_features(charged_original_main_credits_host PRIVATE cxx_std_20)
-target_include_directories(charged_original_main_credits_host BEFORE PRIVATE "${MSCHARGED_AURORA_PREPARED}/include")
-target_include_directories(charged_original_main_credits_host PUBLIC src)
-target_include_directories(charged_original_main_credits_host PRIVATE
+target_compile_features(charged_original_game_host PRIVATE cxx_std_20)
+target_include_directories(charged_original_game_host BEFORE PRIVATE "${MSCHARGED_AURORA_PREPARED}/include")
+target_include_directories(charged_original_game_host PUBLIC src)
+target_include_directories(charged_original_game_host PRIVATE
     "${MSCHARGED_AURORA_PREPARED}/lib"
     "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
-target_compile_definitions(charged_original_main_credits_host PRIVATE
-    MSCHARGED_NATIVE=1 TARGET_PC=1 AURORA_WII_CLOCK=1
-    MSCHARGED_ORIGINAL_MAIN_CREDITS_MODULE_FILENAME="$<TARGET_FILE_NAME:mscharged_original_main_credits_module>")
-target_compile_options(charged_original_main_credits_host PRIVATE
+target_compile_definitions(charged_original_game_host PRIVATE
+    MSCHARGED_NATIVE=1 TARGET_PC=1 AURORA_WII_CLOCK=1)
+target_compile_options(charged_original_game_host PRIVATE
     -O2 -ffunction-sections -fdata-sections -fno-strict-aliasing -ffp-contract=off)
-target_link_libraries(charged_original_main_credits_host PRIVATE
+target_link_libraries(charged_original_game_host PRIVATE
     charged_system_usage
     charged_app_icon
     charged_native_module_loader
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,aurora::gx,aurora::mtx,aurora::os>"
     aurora::core aurora::dvd charged_host charged_session_log charged_wii_string_format charged_native_stm
     absl::flat_hash_map
-    charged_native_system_settings charged_native_video_device charged_credits_movie_hardware
+    charged_native_system_settings charged_native_video_device charged_movie_hardware
     charged_native_hardware_owner
     charged_native_video_output_device charged_native_filesystem_boot
     charged_native_ipc_boot_buffer charged_original_rtc ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
 
-function(mscharged_link_original_main_credits target)
+function(mscharged_link_original_game target)
     mscharged_link_original_hbm_debug_host("${target}")
-    if(NOT WIN32)
-        add_dependencies(${target} mscharged_original_main_credits_module)
-    endif()
-    target_link_libraries(${target} PRIVATE charged_original_main_credits_host
-        mscharged_original_main_credits_vi aurora::core)
+    target_link_libraries(${target} PRIVATE charged_original_game_host
+        mscharged_original_game_vi aurora::core)
     if(APPLE)
         target_link_options(${target} PRIVATE LINKER:-dead_strip LINKER:-export_dynamic
             LINKER:-unexported_symbol,___OSSetVIForceDimming)
@@ -376,7 +370,7 @@ function(mscharged_link_original_main_credits target)
                 LINKER:-unexported_symbol,___OSShutdownToSBY)
         endif()
     elseif(WIN32)
-        # Host services for the game DLLs: mscharged.exe exports its symbols and
+        # Host services for the game DLLs: recharged.exe exports its symbols and
         # its import library is what the modules link against.
         # The game keeps addresses in 32-bit unsigned long carriers on LLP64
         # (64-bit on Linux and macOS). Game memory stays below 2 GB: the Wii
@@ -395,7 +389,7 @@ function(mscharged_link_original_main_credits target)
         if(MSCHARGED_DIAGNOSTIC_FRONTEND_RESET)
             set(_host_exports original_main_reset_host_exports.map)
         else()
-            set(_host_exports original_main_credits_host_exports.map)
+            set(_host_exports original_game_host_exports.map)
         endif()
         target_link_options(${target} PRIVATE
             -Wl,--gc-sections -Wl,--export-dynamic
@@ -414,50 +408,25 @@ function(mscharged_link_original_main_credits target)
         "WHOLE_ARCHIVE,aurora_gx,aurora_mtx,aurora_os")
 endfunction()
 
-add_executable(mscharged-original-main-credits-check
-    tests/diagnostics/original_main_credits_window.cpp)
-include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
-mscharged_stage_pipeline_catalog(mscharged-original-main-credits-check)
-mscharged_link_original_main_credits(mscharged-original-main-credits-check)
-
-# The user opts into this combined executable by enabling both existing options.
-# The graphics preset's ordinary launcher-OFF preference is never changed here.
+# The game runs through mscharged, when the launcher is built.
 if(TARGET mscharged)
-    target_compile_definitions(mscharged PRIVATE MSCHARGED_HAS_ORIGINAL_CREDITS=1)
-    mscharged_link_original_main_credits(mscharged)
+    mscharged_link_original_game(mscharged)
 endif()
 
-# Windows: a game DLL resolves host services through mscharged.exe's import
+# Windows: a game DLL resolves host services through recharged.exe's import
 # library, so it links after the executable (the reverse of the ELF order).
 function(mscharged_import_original_windows_host module)
     if(NOT WIN32 OR NOT TARGET mscharged)
         return()
     endif()
     add_dependencies(${module} mscharged)
-    # CMake writes the executable's import library (libmscharged.dll.a); a
+    # CMake writes the executable's import library (librecharged.dll.a); a
     # linker option rather than a file input, as that link produces it.
-    # Below 2 GB like the executable (see mscharged_link_original_main_credits).
-    if(module MATCHES "^mscharged_original_frontend_module_")
-        set(_base 0x20000000)
-    else()
-        set(_base 0x30000000)
-    endif()
-    target_link_options(${module} PRIVATE "-L${CMAKE_BINARY_DIR}" -lmscharged
-        -Wl,-Xlink=-force:unresolved -Wl,--image-base,${_base} -Wl,-Xlink=-highentropyva:no)
+    # Below 2 GB like the executable (see mscharged_link_original_game).
+    # Only one game module is loaded at a time, so they share one base.
+    target_link_options(${module} PRIVATE "-L${CMAKE_BINARY_DIR}" "-l$<TARGET_FILE_BASE_NAME:mscharged>"
+        -Wl,-Xlink=-force:unresolved -Wl,--image-base,0x20000000 -Wl,-Xlink=-highentropyva:no)
 endfunction()
-mscharged_import_original_windows_host(mscharged_original_main_credits_module)
-
-if(BUILD_TESTING AND MSCHARGED_TEST_VULKAN AND MSCHARGED_CREDITS_TEST_DISC)
-    add_test(NAME original_main_credits_vulkan COMMAND mscharged-original-main-credits-check
-        --disc "${MSCHARGED_CREDITS_TEST_DISC}")
-    set_tests_properties(original_main_credits_vulkan PROPERTIES TIMEOUT 70
-        LABELS "gpu;vulkan;owned-data" RESOURCE_LOCK gx_check
-        ENVIRONMENT "VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation"
-        FAIL_REGULAR_EXPRESSION "VUID-|Validation Error|Actual source diagnostic stopped:")
-endif()
 
 include(cmake/OriginalLoadingDiagnostic.cmake)
-
-if(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC)
-    include(cmake/OriginalFrontendDiagnostic.cmake)
-endif()
+include(cmake/OriginalFrontendDiagnostic.cmake)

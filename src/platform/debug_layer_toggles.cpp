@@ -1,4 +1,4 @@
-// MSCHARGED_DEBUG_LAYERS_OFF=DepthOfField,Warble,... switches the game's own
+// RECHARGED_DEBUG_LAYERS_OFF=DepthOfField,Warble,... switches the game's own
 // rendering-layer tweaks (eCLV_<name>Enabled, /Rendering/RLView Toggles) off
 // before the original main starts, to find which layer renders differently on
 // a platform. Unset, it changes nothing. Diagnostic only.
@@ -34,7 +34,7 @@ const LayerToggle kLayers[] = {
 };
 #undef LAYER
 
-std::vector<TweakValueBool*> sListed; // from MSCHARGED_DEBUG_LAYERS_OFF
+std::vector<TweakValueBool*> sListed; // from RECHARGED_DEBUG_LAYERS_OFF
 bool sListedOff = false;
 int sCycle = -1; // F10: index of the one layer switched off, -1 = none
 
@@ -42,7 +42,8 @@ void SetLayer(TweakValueBool* tweak, bool on) { tweak->ParseValue(on ? "true" : 
 } // namespace
 
 extern "C" __attribute__((visibility("default"))) void charged_apply_debug_layer_toggles() {
-    const char* list = std::getenv("MSCHARGED_DEBUG_LAYERS_OFF");
+    const char* list = std::getenv("RECHARGED_DEBUG_LAYERS_OFF");
+    if (!list) list = std::getenv("MSCHARGED_DEBUG_LAYERS_OFF"); // before the rename (#64)
     if (!list || !*list) return;
     std::string names(list);
     std::size_t start = 0;
@@ -64,10 +65,10 @@ extern "C" __attribute__((visibility("default"))) void charged_apply_debug_layer
     sListedOff = !sListed.empty();
 }
 
-// F9: switch the MSCHARGED_DEBUG_LAYERS_OFF layers back on / off again.
+// F9: switch the RECHARGED_DEBUG_LAYERS_OFF layers back on / off again.
 extern "C" __attribute__((visibility("default"))) void charged_toggle_debug_layers() {
     if (sListed.empty()) {
-        std::fprintf(stderr, "Debug: F9 needs MSCHARGED_DEBUG_LAYERS_OFF=Layer,...\n");
+        std::fprintf(stderr, "Debug: F9 needs RECHARGED_DEBUG_LAYERS_OFF=Layer,...\n");
         return;
     }
     sListedOff = !sListedOff;

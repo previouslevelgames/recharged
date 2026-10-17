@@ -29,7 +29,7 @@ function(mscharged_select_original_frontend_audio target)
         endif()
     endforeach()
     foreach(_symbol IN ITEMS OSGetTick ChargedGetBusClock)
-        mscharged_require_original_host_symbol(charged_original_main_credits_host INTERFACE "${_symbol}")
+        mscharged_require_original_host_symbol(charged_original_game_host INTERFACE "${_symbol}")
     endforeach()
     # Existing native SP/byte domains, actual NL/allocator/AX providers and
     # whole Movie source are same-module initialization prerequisites.

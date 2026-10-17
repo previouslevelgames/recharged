@@ -25,7 +25,7 @@ else()
 endif()
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WiimoteScan.cmake")
-# The run's log file and crash report (logs/mscharged.log).
+# The run's log file and crash report (logs/recharged.log).
 add_library(charged_session_log STATIC src/platform/session_log.cpp)
 target_include_directories(charged_session_log PUBLIC src)
 target_compile_features(charged_session_log PRIVATE cxx_std_20)
@@ -43,6 +43,8 @@ endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Updates.cmake")
 add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launcher/release_notes_view.cpp
     src/launcher/disc_search.cpp)
+# The program players start: recharged (recharged.exe). The target keeps its old name.
+set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
     charged_wiimote_scan charged_session_log charged_updates)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")

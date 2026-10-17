@@ -4,6 +4,7 @@
 #include "bootstrap/game_tweaks.h"
 #include "bootstrap/gamepad_actions.h"
 #include "bootstrap/key_actions.h"
+#include "bootstrap/sound_groups.h"
 
 #include <array>
 #include <filesystem>
@@ -48,8 +49,9 @@ struct Settings
     // multiples of it. Viewport and projection stay the game's own.
     std::string resolution = "window";
     int master_volume = 100;
-    int music_volume = 100;
-    int effects_volume = 100;
+    // [audio] <group>_volume: each group of the game's sounds (kSoundGroups
+    // order), 0-100 % of the levels the game sets itself.
+    SoundVolumes sound_volumes = DefaultSoundVolumes();
     bool mute = false;
     // controls.player1-4: keyboard, remote1-remote4 (Wii Remote in that
     // DolphinBar slot), remote-<Bluetooth address> (a Wii Remote paired over
@@ -154,8 +156,14 @@ bool SamePadProfileName(const std::string& a, const std::string& b);
 ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing = false);
 void SaveConfig(ConfigFile& file, const Settings& settings);
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config);
+// Saves, shader caches and the game clock, beside the executable: data/, or
+// the original-main-credits-data/ of earlier builds until it has been moved.
+std::filesystem::path DataFolder(const std::filesystem::path& executable_directory);
+// Renames the earlier builds' folder to data/ once. Returns false and leaves
+// the old folder in use when there is nothing to move or the rename fails.
+bool MoveOldDataFolder(const std::filesystem::path& executable_directory);
 // The game's Wii storage folder: game.save_folder, or by default
-// <executable directory>/original-main-credits-data/nand.
+// <data folder>/nand.
 std::filesystem::path DefaultSaveFolder(const std::filesystem::path& executable_directory);
 std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::filesystem::path& config,
                                         const std::filesystem::path& executable_directory);

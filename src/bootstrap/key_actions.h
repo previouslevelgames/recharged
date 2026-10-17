@@ -5,7 +5,7 @@
 
 namespace mscharged
 {
-// Actions of the keyboard & mouse Wii Remote ([keyboard] in mscharged.ini).
+// Actions of the keyboard & mouse Wii Remote ([keyboard] in recharged.ini).
 // Each takes one or two keys, written as SDL key names separated by " | ".
 struct KeyAction
 {

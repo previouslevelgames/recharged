@@ -37,8 +37,8 @@
 #include "runtime/startup.h"
 #endif
 #include "runtime/scene.h"
-#ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
-#include "runtime/original_main_credits.h"
+#ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+#include "runtime/original_game.h"
 #endif
 #include <charconv>
 #include <cmath>
@@ -70,11 +70,15 @@ namespace
 // Window title of the game and the launcher: the port's name and build.
 std::string GameTitle()
 {
-    std::string title = std::string("MSCharged Port ") + mscharged::build::version;
+    std::string title = std::string("Recharged ") + mscharged::build::version;
     if (std::string_view(mscharged::build::channel) == "test")
         title += " - test build of PR #" + std::to_string(mscharged::build::pull_request);
     return title;
 }
+
+// The name desktops show for the program (task switcher, audio mixer). SDL
+// forgets it at SDL_Quit, so the game sets it again after the launcher.
+void SetAppName() { SDL_SetAppMetadata("Recharged", mscharged::build::version, nullptr); }
 
 // The running build: where it comes from (MSCHARGED_BUILD_* in CMakeLists.txt)
 // and the package it was made for. The installed package's manifest refines
@@ -108,10 +112,11 @@ BuildIdentity CurrentBuild()
     return identity;
 }
 
+// The program, as tools/package_build.py ships it.
 #ifdef _WIN32
-constexpr const char* kExecutableName = "mscharged.exe";
+constexpr const char* kExecutableName = "recharged.exe";
 #else
-constexpr const char* kExecutableName = "mscharged";
+constexpr const char* kExecutableName = "recharged";
 #endif
 
 // Seconds since 1970 as local date and time.
@@ -161,7 +166,7 @@ static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageC
 // The udev rule from docs/SETTINGS.md (Wii Remotes): lets the logged-in user
 // open Wii Remotes, paired over Bluetooth or behind a DolphinBar.
 constexpr const char* kWiimoteUdevCommands =
-    "sudo tee /etc/udev/rules.d/60-mscharged-wiimote.rules >/dev/null <<'EOF'\n"
+    "sudo tee /etc/udev/rules.d/60-recharged-wiimote.rules >/dev/null <<'EOF'\n"
     "KERNEL==\"hidraw*\", SUBSYSTEM==\"hidraw\", KERNELS==\"*057E:0306*\", TAG+=\"uaccess\"\n"
     "KERNEL==\"hidraw*\", SUBSYSTEM==\"hidraw\", KERNELS==\"*057E:0330*\", TAG+=\"uaccess\"\n"
     "EOF\n"
@@ -177,10 +182,9 @@ struct Options
     bool smoke_test = false;
     bool experimental_startup = false;
     bool experimental_scene = false;
-    bool experimental_credits = false;
     bool experimental_frontend = false;
     bool experimental_options = false;
-    bool credits_arguments = false;
+    bool frame_arguments = false;
     bool scene_arguments = false;
     bool standalone_assets = false;
     bool page_selected = false;
@@ -230,7 +234,7 @@ enum class NoticeKind { Info, Success, Warning, Error };
 enum class FolderPurpose { SaveFolder, DolphinSave };
 
 // The save a release keeps: its title and the identity the runtime gives its
-// storage (InitializeNativeFilesystemForDisc in original_main_credits.cpp).
+// storage (InitializeNativeFilesystemForDisc in original_game.cpp).
 mscharged::platform::SaveTitle SaveTitleOf(const GameRelease& release)
 {
     return {release.title_id, 0x1001, release.title_group};
@@ -279,7 +283,7 @@ public:
     const std::optional<ResolvedLaunch>& FrontendLaunch() const { return frontend_launch_; }
     // An update was installed: main() starts the updated launcher.
     bool RestartRequested() const { return restart_; }
-    fs::path RestartExecutable() const { return base_ / kExecutableName; }
+    fs::path RestartExecutable() const { return InstalledLauncher(base_); }
 
     ResolvedLaunch EffectiveLaunch() const { return ResolveLaunch(file_, options_.launch, &draft_); }
     std::string DiscSelection() const { return PathUtf8(EffectiveLaunch().disc_path); }
@@ -542,11 +546,12 @@ private:
     void StartUpdates()
     {
         updates_ = std::make_unique<UpdateService>(CurrentBuild(), base_);
-        // Development captures stay offline unless MSCHARGED_CAPTURE_UPDATES
+        // Development captures stay offline unless RECHARGED_CAPTURE_UPDATES
         // asks for the real check: "dialog" also opens an offered update,
         // "install" installs it and restarts (the screenshot comes from the
         // restarted launcher), "preview-..." shows a made-up state.
-        const char* capture_updates = std::getenv("MSCHARGED_CAPTURE_UPDATES");
+        const char* capture_updates = std::getenv("RECHARGED_CAPTURE_UPDATES");
+        if (!capture_updates) capture_updates = std::getenv("MSCHARGED_CAPTURE_UPDATES"); // before the rename (#64)
         if (capture_ && !(capture_updates && *capture_updates)) return;
         if (capture_)
         {
@@ -943,11 +948,13 @@ private:
     }
 
     // A release's title without what the headline already says: CI names
-    // releases "Mario Strikers Charged Native Port <version>" (build.yml).
+    // releases "Recharged <version>" (build.yml), before the rename (#64)
+    // "Mario Strikers Charged Native Port <version>".
     static std::string ReleaseSubtitle(std::string title, const PortVersion& version)
     {
         const std::string number = VersionNumber(version);
-        for (const std::string& part : {"v" + number, number, std::string("Mario Strikers Charged Native Port")})
+        for (const std::string& part : {"Recharged v" + number, "Recharged " + number, "v" + number, number,
+                                        std::string("Mario Strikers Charged Native Port")})
             if (const auto at = title.find(part); at != std::string::npos) title.erase(at, part.size());
         const auto separator = [](char c) { return c == ' ' || c == '-' || c == ':' || c == '|'; };
         while (!title.empty() && separator(title.front())) title.erase(title.begin());
@@ -1534,12 +1541,7 @@ private:
     {
         const auto launch = EffectiveLaunch();
         const auto& s = launch.settings;
-#ifdef _WIN32
-        const auto executable = base_ / "mscharged.exe";
-#else
-        const auto executable = base_ / "mscharged";
-#endif
-        std::string command = Quote(PathUtf8(executable));
+        std::string command = Quote(PathUtf8(base_ / kExecutableName));
         if (!launch.disc_path.empty()) command += " --disc " + Quote(PathUtf8(launch.disc_path));
         command += s.fullscreen ? " --fullscreen" : " --window";
         command += " --size " + std::to_string(s.width) + "x" + std::to_string(s.height);
@@ -1589,17 +1591,17 @@ private:
         draw->AddLine({width - 1, 0}, {width - 1, height}, Col(color::border, 0.7f), 1.0f);
         const float pad = Dp(24);
         float y = Dp(30);
-        DrawTracked(draw, fonts.caption, {pad, y}, Col(color::muted), "MARIO STRIKERS", Dp(2.4f));
+        DrawTracked(draw, fonts.caption, {pad, y}, Col(color::muted), "NATIVE PC PORT", Dp(2.4f));
         y += FontSize(fonts.caption) + Dp(2);
-        // "CHARGED" with a soft glow and a vertical lime-to-green gradient.
+        // "RECHARGED" with a soft glow and a vertical lime-to-green gradient.
         for (int i = 3; i >= 1; --i)
-            DrawLabel(draw, fonts.title, {pad, y + Dp(float(i) * 0.7f)}, Col(color::accent, 0.08f * float(i)), "CHARGED");
+            DrawLabel(draw, fonts.title, {pad, y + Dp(float(i) * 0.7f)}, Col(color::accent, 0.08f * float(i)), "RECHARGED");
         const int start = draw->VtxBuffer.Size;
-        DrawLabel(draw, fonts.title, {pad, y}, IM_COL32_WHITE, "CHARGED");
+        DrawLabel(draw, fonts.title, {pad, y}, IM_COL32_WHITE, "RECHARGED");
         ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, {pad, y},
                                                      {pad, y + FontSize(fonts.title)}, Col(color::accent_hi), Col(color::accent));
         y += FontSize(fonts.title) + Dp(4);
-        DrawLabel(draw, fonts.caption, {pad, y}, Col(color::dim), "Native PC port");
+        DrawLabel(draw, fonts.caption, {pad, y}, Col(color::dim), "Mario Strikers Charged");
         y += FontSize(fonts.caption) + Dp(28);
 
         ImGui::SetCursorPos({Dp(12), y});
@@ -1714,12 +1716,12 @@ private:
         float y = origin.y + std::max(Dp(34), hero * 0.20f);
         DrawTracked(draw, fonts.caption, {origin.x + pad, y}, Col(color::accent, 0.95f), "NATIVE PC PORT", Dp(2.6f));
         y += FontSize(fonts.caption) + Dp(10);
-        DrawTracked(draw, fonts.overline, {origin.x + pad, y}, IM_COL32_WHITE, "MARIO STRIKERS", Dp(3.0f));
+        DrawTracked(draw, fonts.overline, {origin.x + pad, y}, IM_COL32_WHITE, "MARIO STRIKERS CHARGED", Dp(3.0f));
         y += FontSize(fonts.overline) - Dp(4);
         for (int i = 4; i >= 1; --i)
-            DrawLabel(draw, fonts.hero, {origin.x + pad, y + Dp(float(i))}, Col(color::accent, 0.07f * float(i)), "CHARGED");
+            DrawLabel(draw, fonts.hero, {origin.x + pad, y + Dp(float(i))}, Col(color::accent, 0.07f * float(i)), "RECHARGED");
         const int start = draw->VtxBuffer.Size;
-        DrawLabel(draw, fonts.hero, {origin.x + pad, y}, IM_COL32_WHITE, "CHARGED");
+        DrawLabel(draw, fonts.hero, {origin.x + pad, y}, IM_COL32_WHITE, "RECHARGED");
         ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, {origin.x, y},
                                                      {origin.x, y + FontSize(fonts.hero)}, Col(color::accent_hi),
                                                      Col(color::accent));
@@ -1885,8 +1887,9 @@ private:
         const auto choice = ChooseLanguage(Release(), s.language, pc_languages_);
         const std::string language = choice.automatic ? "Automatic (" + std::string(choice.language->label) + ")"
                                                       : std::string(choice.language->label);
-        return {language + " text", s.mute ? "Audio muted" : "Volume " + std::to_string(s.master_volume) + "%",
-                color::info};
+        std::string audio = s.mute ? "Audio muted" : "Volume " + std::to_string(s.master_volume) + "%";
+        if (!s.mute && s.sound_volumes != DefaultSoundVolumes()) audio += "  -  Custom sound levels";
+        return {language + " text", audio, color::info};
     }
 
     void SummaryCard(const char* id, const char* title, Icon icon, float width, int page, const Summary& summary)
@@ -2024,7 +2027,7 @@ private:
             if (check_.info) TextWrappedColored(fonts.body, color::muted, UnplayableReason(*check_.info).c_str());
             ImGui::Dummy({0, Dp(4)});
             const std::string runs = "This build runs " + PlayableReleasesText()
-                + ". The other versions follow as the port supports them.";
+                + ". The other versions follow as Recharged supports them.";
             TextWrappedColored(fonts.body, color::text, runs.c_str());
             ImGui::Dummy({0, Dp(10)});
             if (PrimaryButton("region_ok", "OK", Dp(120, 42), true) || CancelPressed()
@@ -2797,7 +2800,8 @@ private:
 
     void AudioPage()
     {
-        PageHeader("Audio", "Output volume for the game. Music, sound effect and voice levels are part of the game's own Options menu.");
+        PageHeader("Audio", "The game's volume and the level of each kind of sound. The music, sound effect and "
+                            "voice settings in the game's own Options menu still apply.");
         BeginCard("##output", "Output", "Plays through your system's default audio device.", Icon::Audio);
         if (BeginRows("##audio_rows"))
         {
@@ -2807,6 +2811,33 @@ private:
             ImGui::EndDisabled();
             Row("Mute", "Silences the game without changing the volume.");
             if (Toggle("##mute", &draft_.mute)) dirty_ = true;
+            EndRows();
+        }
+        EndCard();
+
+        // [audio] <group>_volume: applied by the game module when the game starts.
+        BeginCard("##sound_levels", "Sound levels",
+                  "Each kind of sound as a share of the level the game gives it. Applies when the game starts.",
+                  Icon::Sliders);
+        if (BeginRows("##sound_level_rows"))
+        {
+            ImGui::BeginDisabled(draft_.mute);
+            for (std::size_t n = 0; n < kSoundGroups.size(); ++n)
+            {
+                Row(kSoundGroups[n].name, kSoundGroups[n].description);
+                ImGui::PushID(kSoundGroups[n].key);
+                if (PercentSlider("##level", &draft_.sound_volumes[n], ImGui::GetContentRegionAvail().x)) dirty_ = true;
+                ImGui::PopID();
+            }
+            ImGui::EndDisabled();
+            Row("Reset levels", "Every kind of sound back to 100%, the game's own mix.");
+            const auto defaults = DefaultSoundVolumes();
+            if (SecondaryButton("sound_levels_reset", "Reset levels", {ImGui::GetContentRegionAvail().x, Dp(40)},
+                                draft_.sound_volumes != defaults, Icon::Refresh))
+            {
+                draft_.sound_volumes = defaults;
+                dirty_ = true;
+            }
             EndRows();
         }
         EndCard();
@@ -3313,7 +3344,7 @@ private:
     }
 
     // Gamepad profiles: the built-in Default and named button layouts kept in
-    // mscharged.ini, each made for one kind of controller; each gamepad plays
+    // recharged.ini, each made for one kind of controller; each gamepad plays
     // with the one chosen for it.
     void OpenGamepadView(std::size_t slot)
     {
@@ -4039,7 +4070,7 @@ private:
 
     void AboutPage()
     {
-        PageHeader("About", "Mario Strikers Charged - native PC port.");
+        PageHeader("About", "Recharged - native PC port of Mario Strikers Charged.");
         BeginCard("##build", "This build", nullptr, Icon::Info);
         if (BeginRows("##build_rows"))
         {
@@ -4080,8 +4111,8 @@ private:
 
         BeginCard("##project", "Mario Strikers Charged Decompilation Project", nullptr, Icon::Disc);
         TextWrappedColored(CurrentFonts().body, color::text,
-            "This port compiles the reconstructed C/C++ source of Mario Strikers Charged to native code. "
-            "The original game logic runs unchanged; the port provides the platform underneath it: graphics, audio, "
+            "Recharged compiles the reconstructed C/C++ source of Mario Strikers Charged to native code. "
+            "The original game logic runs unchanged; Recharged provides the platform underneath it: graphics, audio, "
             "input, files and timing.");
         ImGui::Dummy({0, Dp(2)});
         TextWrappedColored(CurrentFonts().caption, color::muted,
@@ -4129,7 +4160,7 @@ private:
 
         BeginCard("##licenses", "Credits & licenses", nullptr, Icon::Check);
         TextWrappedColored(CurrentFonts().caption, color::muted,
-            "Original port code, tools and documentation: CC0 1.0. Header artwork: SteamGridDB hero 8926 by Jiquita. "
+            "Recharged's original code, tools and documentation: CC0 1.0. Header artwork: SteamGridDB hero 8926 by Jiquita. "
             "Font: Roboto (Apache 2.0). Built with SDL3 (zlib), Dear ImGui (MIT), Aurora (MIT), Dawn (BSD), "
             "nod and its Rust dependencies, and other libraries listed in LICENSES. Each keeps its own license.");
         EndCard();
@@ -4219,6 +4250,7 @@ private:
 int main(int argc, char** argv)
 {
     Options options;
+    SetAppName();
     try
     {
     for (int i = 1; i < argc; ++i)
@@ -4227,7 +4259,7 @@ int main(int argc, char** argv)
         const std::string arg = argv[i];
         if (arg == "--version")
         {
-            std::cout << "mscharged " << mscharged::build::version << " (" << MSCHARGED_BUILD_CONFIG;
+            std::cout << "Recharged " << mscharged::build::version << " (" << MSCHARGED_BUILD_CONFIG;
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
             std::cout << "; original frontend runtime)\n";
 #else
@@ -4238,15 +4270,12 @@ int main(int argc, char** argv)
         }
         if (arg == "--help")
         {
-            std::cout << "Usage: mscharged [launch settings] [--launcher] [--version]\n" << LaunchOptionsHelp <<
+            std::cout << "Usage: recharged [launch settings] [--launcher] [--version]\n" << LaunchOptionsHelp <<
                          "Supplying --disc/--disk starts the original game runtime directly when included in this build.\n"
                          "Use --launcher to open settings; launcher checks and explicit runtime modes keep their selected mode.\n"
                          "Development checks: --smoke-test | --screenshot FILE [--page play|game|display|audio|controls|advanced|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
             std::cout << "Original startup prototype: --experimental-startup [--config FILE] (not playable)\n";
-#endif
-#ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
-            std::cout << "Original-main Credits test: --experimental-credits [--disk FILE] [--window] (temporary startup omissions)\n";
 #endif
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
             std::cout << "Original Boot/Intro test: --experimental-frontend [--disk FILE] [--window] (startup and game sound incomplete)\n";
@@ -4283,10 +4312,9 @@ int main(int argc, char** argv)
         else if (arg == "--launcher") options.launcher = true;
         else if (arg == "--experimental-startup") options.experimental_startup = true;
         else if (arg == "--experimental-scene") options.experimental_scene = true;
-        else if (arg == "--experimental-credits") options.experimental_credits = true;
         else if (arg == "--experimental-frontend") options.experimental_frontend = true;
         else if (arg == "--experimental-options") options.experimental_options = true;
-        else if (arg == "--native-send" || arg == "--diagnostic-frame" || arg == "--resize-check") options.credits_arguments = true;
+        else if (arg == "--native-send" || arg == "--diagnostic-frame" || arg == "--resize-check") options.frame_arguments = true;
         else if (arg == "--frontend-world") { options.scene_arguments = true; options.scene.frontend_world = true; }
         else if (arg == "--frontend-animate") { options.scene_arguments = true; options.scene.frontend_animate = true; }
         else if (arg == "--frontend-boot") { options.scene_arguments = true; options.scene.frontend_boot = true; }
@@ -4368,7 +4396,7 @@ int main(int argc, char** argv)
         else { std::cerr << "Unknown or incomplete argument: " << arg << ". Use --help.\n"; return 2; }
     }
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 2; }
-    // logs/mscharged.log for player runs (not the development smoke/screenshot checks).
+    // logs/recharged.log for player runs (not the development smoke/screenshot checks).
     if (!options.smoke_test && options.screenshot.empty())
     {
         mscharged::platform::StartSessionLog(mscharged::build::version, argc, argv);
@@ -4376,8 +4404,8 @@ int main(int argc, char** argv)
     }
     options.config = options.launch.config;
     unsigned runtime_modes = unsigned(options.experimental_startup)
-        + unsigned(options.experimental_scene) + unsigned(options.experimental_credits)
-        + unsigned(options.experimental_frontend) + unsigned(options.experimental_options);
+        + unsigned(options.experimental_scene) + unsigned(options.experimental_frontend)
+        + unsigned(options.experimental_options);
     const bool launcher_requested = options.launcher || options.smoke_test
         || !options.screenshot.empty() || options.page_selected;
     if (!runtime_modes && options.launch.disc && !launcher_requested)
@@ -4387,8 +4415,8 @@ int main(int argc, char** argv)
     }
     if (runtime_modes && (runtime_modes > 1 || launcher_requested))
     { std::cerr << "Select one runtime mode; --launcher and capture/smoke/page options select the launcher.\n"; return 2; }
-    if (options.credits_arguments && !options.experimental_credits && !options.experimental_frontend && !options.experimental_options)
-    { std::cerr << "Frame/resize options require --experimental-credits or --experimental-frontend.\n"; return 2; }
+    if (options.frame_arguments && !options.experimental_frontend && !options.experimental_options)
+    { std::cerr << "Frame/resize options require --experimental-frontend or --experimental-options.\n"; return 2; }
     if (options.scene_arguments && !options.experimental_scene)
     { std::cerr << "Asset/frame options require --experimental-scene.\n"; return 2; }
     if (options.scene.frame_timeout && !options.scene.frames)
@@ -4471,28 +4499,12 @@ int main(int argc, char** argv)
                 if (std::string_view(argv[i]) != "--experimental-frontend" &&
                     std::string_view(argv[i]) != "--experimental-options") arguments.push_back(argv[i]);
             arguments.push_back(nullptr);
-            return RunOriginalMainCredits(static_cast<int>(arguments.size()) - 1, arguments.data(),
+            return RunOriginalGame(static_cast<int>(arguments.size()) - 1, arguments.data(),
                 nullptr, false, options.experimental_options ?
                     OriginalMainScene::FrontendOptions : OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #else
             std::cerr << "Original game runtime is not included in this build. "
                          "A game-enabled build is required for direct disc startup; --launcher opens settings.\n";
-            return 2;
-#endif
-        }
-        if (options.experimental_credits)
-        {
-#ifdef MSCHARGED_HAS_ORIGINAL_CREDITS
-            // Preserve all shared launch options and diagnostic frame arguments;
-            // remove only the launcher mode selector before the shared driver.
-            std::vector<char*> arguments;
-            for (int i = 0; i < argc; ++i)
-                if (std::string_view(argv[i]) != "--experimental-credits") arguments.push_back(argv[i]);
-            arguments.push_back(nullptr);
-            return RunOriginalMainCredits(static_cast<int>(arguments.size()) - 1, arguments.data(), nullptr, false,
-                OriginalMainScene::Credits, GameTitle().c_str());
-#else
-            std::cerr << "Original-main Credits is not in this build. Enable MSCHARGED_BUILD_ORIGINAL_CREDITS_DIAGNOSTIC and MSCHARGED_BUILD_LAUNCHER.\n";
             return 2;
 #endif
         }
@@ -4548,8 +4560,9 @@ int main(int argc, char** argv)
                 + error + "). Please start it again yourself.");
             return 1;
         }
+        SetAppName();
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
-        if (frontend_launch) return RunOriginalMainCredits(argc, argv, &*frontend_launch, true,
+        if (frontend_launch) return RunOriginalGame(argc, argv, &*frontend_launch, true,
             OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #endif
         return result;

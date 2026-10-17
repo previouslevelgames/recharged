@@ -51,7 +51,7 @@ function(mscharged_select_original_frontend_boot_script target)
     # observer additions preserve genuine idle/bank-retirement exports416.
     set_property(TARGET "${target}" APPEND PROPERTY LINK_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/diagnostics/original_game_audio_initialize_exports.map")
-    target_compile_definitions(charged_original_main_credits_host PRIVATE
+    target_compile_definitions(charged_original_game_host PRIVATE
         MSCHARGED_HAS_ORIGINAL_FRONTEND_BOOT_SCRIPT=1)
     # Original allocator/completed-byte domains, pools, managers, GX resources,
     # NL file services and InitPads remain existing source-owned prerequisites.

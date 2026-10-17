@@ -1,14 +1,14 @@
 # Troubleshooting
 
 Solutions to the problems that come up most. If yours is not here, open an
-[issue](https://github.com/yannicksuter/mscharged-port/issues) and attach
-`logs/mscharged.log` from the program folder (see
+[issue](https://github.com/previouslevelgames/recharged/issues) and attach
+`logs/recharged.log` from the program folder (see
 [reporting a problem](#reporting-a-problem)). Steam Deck specifics are at the
 end of the [Steam Deck guide](STEAM_DECK.md#troubleshooting).
 
 ## The launcher does not accept my disc
 
-The port runs **Mario Strikers Charged for the USA (game ID `R4QE01`,
+Recharged runs **Mario Strikers Charged for the USA (game ID `R4QE01`,
 revision 1) and for Europe (`R4QP01`, revisions 1 and 2)**. The launcher's
 **Game** page shows the ID and revision of the image you chose.
 
@@ -20,7 +20,7 @@ revision 1) and for Europe (`R4QP01`, revisions 1 and 2)**. The launcher's
   extracted disc folders are not supported.
 - **"Expected a Mario Strikers Charged Wii image":** the file is another game
   or not a Wii disc image.
-- The image must stay where you chose it: the port reads it every time you
+- The image must stay where you chose it: Recharged reads it every time you
   play.
 
 ## The first start takes a while
@@ -61,7 +61,7 @@ already connected stays silent until it is opened again.
 
 ## Linux: the program does not start
 
-- Mark it executable: `chmod +x mscharged`.
+- Mark it executable: `chmod +x recharged`.
 - An error about `GLIBC_2.43`, `GLIBCXX` or `CXXABI` means your distribution
   is older than the build machine (Ubuntu 26.04). Use the
   `steamdeck-x86_64` package instead: the same build, made with older system
@@ -92,24 +92,24 @@ connected Remote and its battery.
 ## No sound
 
 The game plays through your system's default audio device. Check
-**Audio → Mute** and **Master volume** in the launcher, and the game's own
-music, effects and voice levels in its *Options* menu.
+**Audio → Mute**, **Master volume** and the **Sound levels** in the launcher,
+and the game's own music, effects and voice levels in its *Options* menu.
 
 ## Resetting the settings
 
 **Advanced → Reset → Restore defaults** resets every setting except your disc.
-To start completely fresh, quit and delete `mscharged.ini` from the program
+To start completely fresh, quit and delete `recharged.ini` from the program
 folder. Saves are separate and stay.
 
 ## Reporting a problem
 
-Open an [issue](https://github.com/yannicksuter/mscharged-port/issues) with:
+Open an [issue](https://github.com/previouslevelgames/recharged/issues) with:
 
 - the version (launcher **About** page, or the first line of the log),
 - your system and graphics card,
 - the controllers you used, and what you did when the problem appeared,
-- `logs/mscharged.log` from the program folder (it is replaced on the next
+- `logs/recharged.log` from the program folder (it is replaced on the next
   start, so copy it first). On Windows a crash also leaves
-  `mscharged-crash.dmp` there; attach it too.
+  `recharged-crash.dmp` there; attach it too.
 
 The log can contain your user name in file paths.

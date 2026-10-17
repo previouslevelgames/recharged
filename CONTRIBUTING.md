@@ -6,7 +6,7 @@ please check it first.
 
 ## Bug reports
 
-Open an [issue](https://github.com/yannicksuter/mscharged-port/issues/new/choose)
+Open an [issue](https://github.com/previouslevelgames/recharged/issues/new/choose)
 with:
 
 - **The version**: the launcher's **About** page shows it, as does the first
@@ -17,9 +17,9 @@ with:
   Bluetooth or a DolphinBar).
 - **What happened** and what you did just before: the menu, mode, stadium or
   captains if it was in a match.
-- **The log**: `logs/mscharged.log` in the program folder. It is replaced at
+- **The log**: `logs/recharged.log` in the program folder. It is replaced at
   the next start, so copy it right after the problem. On Windows a crash also
-  leaves `mscharged-crash.dmp` there; attach it too. The log can contain your
+  leaves `recharged-crash.dmp` there; attach it too. The log can contain your
   user name in file paths.
 
 A screenshot (key **P**, saved in `screenshots/`) helps for anything visual.
@@ -34,7 +34,7 @@ everyone.
 
 ## Behavior that differs from the Wii
 
-The port runs the original game code, including its original bugs, unless a
+Recharged runs the original game code, including its original bugs, unless a
 listed [tweak or fix](docs/FEATURES.md#optional-tweaks) changes it. If
 something plays differently from the Wii, describe what the Wii does, ideally
 with a video or a way to reproduce it, and say whether any tweaks were on.

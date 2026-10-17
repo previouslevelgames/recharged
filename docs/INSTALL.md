@@ -12,16 +12,16 @@ instead.
 
 ## 1. Download
 
-Open the [latest release](https://github.com/yannicksuter/mscharged-port/releases/latest)
+Open the [latest release](https://github.com/previouslevelgames/recharged/releases/latest)
 and download the package for your system:
 
 | System | Package |
 | --- | --- |
-| Windows 10/11, 64-bit | `mscharged-<version>-windows-x86_64.zip` |
-| Linux, x86_64 | `mscharged-<version>-linux-x86_64.tar.gz` |
-| Steam Deck, SteamOS 3.7+ | `mscharged-<version>-steamdeck-x86_64.tar.gz` |
-| macOS, Apple Silicon | `mscharged-<version>-macos-arm64.tar.gz` |
-| macOS 15+, Intel | `mscharged-<version>-macos-x86_64.tar.gz` |
+| Windows 10/11, 64-bit | `recharged-<version>-windows-x86_64.zip` |
+| Linux, x86_64 | `recharged-<version>-linux-x86_64.tar.gz` |
+| Steam Deck, SteamOS 3.7+ | `recharged-<version>-steamdeck-x86_64.tar.gz` |
+| macOS, Apple Silicon | `recharged-<version>-macos-arm64.tar.gz` |
+| macOS 15+, Intel | `recharged-<version>-macos-x86_64.tar.gz` |
 
 `SHA256SUMS` on the release page lists the checksums.
 
@@ -34,13 +34,18 @@ system libraries.
 ## 2. Unpack
 
 Unpack it into a folder of its own that you can write to, for example
-`Games/mscharged` in your home folder. Keep all files together: the program,
+`Games/recharged` in your home folder. Keep all files together: the program,
 its two modules and the `assets` folder. Settings, saves and logs are stored
 in this folder too, so it can be anywhere but should stay in one place.
 
+**Coming from an older version?** It called the program `mscharged`. Unpack
+the new package over the old folder and start `recharged`: it takes over your
+settings and saves. Then delete the old `mscharged` program and point any
+shortcut (on the Steam Deck: *Target*) at `recharged`.
+
 ## 3. Start
 
-Run **`mscharged.exe`** (Windows) or **`mscharged`** (Linux, macOS). The
+Run **`recharged.exe`** (Windows) or **`recharged`** (Linux, macOS). The
 builds are not signed, so the system asks once:
 
 - **Windows:** if SmartScreen warns, choose *More info → Run anyway*.
@@ -49,7 +54,7 @@ builds are not signed, so the system asks once:
   and Wii Remotes also need the **Input Monitoring** permission
   ([details](TROUBLESHOOTING.md#macos-controllers-do-nothing)).
 - **Linux:** if the file will not start, mark it executable
-  (`chmod +x mscharged`).
+  (`chmod +x recharged`).
 
 ## 4. Choose your disc and play
 
@@ -77,5 +82,5 @@ Cmd+Q on a Mac): the game shuts down like a Wii does.
 ## Something wrong?
 
 See [troubleshooting](TROUBLESHOOTING.md). Each run writes
-`logs/mscharged.log` beside the program; attach it to an
-[issue](https://github.com/yannicksuter/mscharged-port/issues) if you need help.
+`logs/recharged.log` beside the program; attach it to an
+[issue](https://github.com/previouslevelgames/recharged/issues) if you need help.

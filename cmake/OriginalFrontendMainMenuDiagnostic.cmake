@@ -53,8 +53,8 @@ function(mscharged_select_original_frontend_main_menu target)
     endforeach()
     # The original save path uses the existing sole Aurora OS calendar provider.
     # Require a real definition in every executable borrowing this host object.
-    if(NOT TARGET charged_original_main_credits_host)
+    if(NOT TARGET charged_original_game_host)
         message(FATAL_ERROR "Original MainMenu requires its existing native host")
     endif()
-    mscharged_require_original_host_symbol(charged_original_main_credits_host INTERFACE OSTicksToCalendarTime)
+    mscharged_require_original_host_symbol(charged_original_game_host INTERFACE OSTicksToCalendarTime)
 endfunction()

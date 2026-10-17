@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Raise the port version before a main -> stable pull request.
+"""Raise the Recharged version before a main -> stable pull request.
 
     python3 tools/bump_version.py patch   # bug fixes:        1.0.0 -> 1.0.1
     python3 tools/bump_version.py minor   # new features:     1.0.1 -> 1.1.0

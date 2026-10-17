@@ -1,4 +1,4 @@
-// Opt-in game tweaks ([gameplay] in mscharged.ini), inside the original game
+// Opt-in game tweaks ([gameplay] in recharged.ini), inside the original game
 // module. The hooks of patches/mscharged-decomp-tweaks call these functions;
 // each returns the original behaviour unless the player enabled its tweak.
 // The host passes the enabled set once, before original main starts, and for
@@ -9,7 +9,9 @@
 #endif
 #include "mscharged_tweaks.h"
 
+#include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace {
 unsigned sEnabled;
@@ -59,6 +61,53 @@ unsigned long sOriginalFrameCount;
 // European revision 1 data on the revision 2 code (tweak patch 0019): set by
 // the host for such a disc, whatever the enabled tweaks.
 bool sRev1Data;
+
+// Sound levels ([audio] in recharged.ini, a host setting outside the tweak
+// mask, issue #59), in the order of mscharged::SoundGroup: the decibels added
+// to each group's sounds, and the movies' gain.
+enum
+{
+    kMusic,
+    kEffects,
+    kVoices,
+    kCrowd,
+    kMenus,
+    kCutscenes,
+    kMovies,
+    kSoundGroupCount
+};
+float sSoundDecibels[kSoundGroupCount];
+bool sSoundMixed; // a group below 100 %
+float sMovieGain = 1.0f;
+// The game's mix categories, the calculation sliders of audio/nlxgs.bun
+// (UserOptions.cpp names them): global 0, default 1, music 2, dialogue 3,
+// sfx 4. Every sound has one; the Options menu sets music, dialogue and sfx.
+constexpr unsigned kCategoryMusic = 2;
+constexpr unsigned kCategoryDialogue = 3;
+
+bool BankIs(const char* bank, const char* name)
+{
+    return bank && std::strcmp(bank, name) == 0;
+}
+
+bool BankStarts(const char* bank, const char* prefix)
+{
+    return bank && std::strncmp(bank, prefix, std::strlen(prefix)) == 0;
+}
+
+// A sound's group, by its mix category and its sound bank (the same names on
+// every disc).
+int SoundGroupOf(const char* bank, unsigned category)
+{
+    // The cutscenes' streams carry their own music and voices.
+    if (BankIs(bank, "STREAM_GEN_NIS")) return kCutscenes;
+    if (category == kCategoryMusic) return kMusic;
+    if (category == kCategoryDialogue) return kVoices;
+    if (BankIs(bank, "STREAM_GEN_Crowd") || BankIs(bank, "CROWD_GEN_Sfx")) return kCrowd;
+    // The front end's banks and the match HUD's.
+    if (BankStarts(bank, "FE_") || BankStarts(bank, "HUD_")) return kMenus;
+    return kEffects;
+}
 } // namespace
 
 // Original SDK (the native VI): the TV format, VI_PAL being 1. The European
@@ -97,6 +146,23 @@ __attribute__((visibility("default"))) void charged_configure_rev1_data(bool ena
     sRev1Data = enabled;
 }
 
+// Host entry: the volume (0-100 %) of each sound group, in the order of
+// mscharged::SoundGroup; missing groups keep 100 %.
+__attribute__((visibility("default"))) void charged_configure_sound_volumes(const int* volumes, int count)
+{
+    sSoundMixed = false;
+    for (int n = 0; n < kSoundGroupCount; ++n)
+    {
+        int volume = volumes && n < count ? volumes[n] : 100;
+        volume = volume < 0 ? 0 : volume > 100 ? 100 : volume;
+        // 0 % takes any level the game sets below its floor of -96 dB, which
+        // the hook keeps and the mixer plays as silence.
+        sSoundDecibels[n] = volume == 0 ? -200.0f : 20.0f * std::log10(float(volume) / 100.0f);
+        sSoundMixed = sSoundMixed || volume != 100;
+        if (n == kMovies) sMovieGain = float(volume) / 100.0f;
+    }
+}
+
 // Revision 2 inserted FE_GEN_Music at 0x1A of the sound bank table
 // (AudioBankID.h); revision 1 loads STREAM_GEN_Music, its 0x30, in that step.
 int mscharged_tweak_rev1_sound_bank(int bank)
@@ -128,6 +194,16 @@ bool mscharged_tweak_enabled(int tweak)
 void mscharged_tweak_report_stadium(int stadium)
 {
     sStadium = stadium;
+}
+
+float mscharged_tweak_sound_volume(const char* bank, unsigned category)
+{
+    return sSoundMixed ? sSoundDecibels[SoundGroupOf(bank, category)] : 0.0f;
+}
+
+float mscharged_tweak_movie_volume(void)
+{
+    return sMovieGain;
 }
 
 bool mscharged_tweak_performance_mode(void)

@@ -4,7 +4,7 @@
 #include "platform/ai.h"
 #include "platform/interrupts.h"
 #include "platform/stm_device.h"
-#include "credits_movie_hardware.h"
+#include "movie_hardware.h"
 #include <aurora/hardware.h>
 #include <dolphin/ai.h>
 #include <dolphin/os.h>
@@ -43,7 +43,7 @@ void Audio() {
     const auto before=audio_callbacks;
     const auto old=OSEnableInterrupts();
     (void)OSGetTime();
-    diagnostic::ServiceCreditsMovieHardware();
+    diagnostic::ServiceMovieHardware();
     Check(audio_callbacks==before,"Input composition made audio recursive");
     OSRestoreInterrupts(old);
     AIInitDMA(reinterpret_cast<std::uintptr_t>(pcm.data()),sizeof(pcm));
@@ -80,7 +80,7 @@ WPADStatus Report(int channel) { WPADStatus report{};WPADRead(channel,&report);r
 template<class F> void Until(F fn,const char* message) {
     const auto end=std::chrono::steady_clock::now()+std::chrono::seconds(2);
     while(!fn()) {
-        diagnostic::ServiceCreditsMovieHardware();
+        diagnostic::ServiceMovieHardware();
         if(std::chrono::steady_clock::now()>=end) {
             std::fprintf(stderr,"Timeout: connects=%u samples=%u channels=%zu, reports err %d/%d buttons %u/%u\n",
                 connected,samples,platform::WpadSDLConnectedChannels(),int(Report(0).err),int(Report(1).err),
@@ -138,10 +138,10 @@ int main() {
         Reject([&]{platform::InitializeNativeHardwareInput(window,{0,3},stm,{true,true});},
             "Double input initialization replaced virtual device ownership");
         Check(aurora_register_hardware_service(Occupied),"Cannot occupy actual SDK hardware hook");
-        Reject([&]{diagnostic::InitializeCreditsMovieHardware(platform::ServiceNativeHardwareInput);},
+        Reject([&]{diagnostic::InitializeMovieHardware(platform::ServiceNativeHardwareInput);},
             "AI/input composition silently replaced SDK owner");
         Check(!AICheckInit()&&aurora_unregister_hardware_service(Occupied),"Collision opened AI or changed owner identity");
-        diagnostic::InitializeCreditsMovieHardware(platform::ServiceNativeHardwareInput);
+        diagnostic::InitializeMovieHardware(platform::ServiceNativeHardwareInput);
         OSCreateAlarm(&alarm);
         const u32 timer_ticks=OSNanosecondsToTicks(6666667);
         Check(timer_ticks==405000,"Original AudioBackend timer request overflowed");
@@ -159,7 +159,7 @@ int main() {
             "Neutral core-Wii raw gravity transport changed");
         Key(SDL_SCANCODE_RETURN,true);pad.A(true);
         const auto old=OSDisableInterrupts();const auto before_samples=samples;
-        SDL_Delay(12);(void)OSGetTime();diagnostic::ServiceCreditsMovieHardware();
+        SDL_Delay(12);(void)OSGetTime();diagnostic::ServiceMovieHardware();
         Check(samples==before_samples&&Report(0).button==0,"Masked owner delivered a desktop source report");
         OSRestoreInterrupts(old);
         Until([&]{return (Report(0).button&WPAD_BUTTON_A)&&(Report(1).button&WPAD_BUTTON_A);},
@@ -173,7 +173,7 @@ int main() {
         Key(SDL_SCANCODE_RETURN,true);
         bool foreign_rejected=false;
         std::thread worker([&]{
-            (void)OSGetTime();diagnostic::ServiceCreditsMovieHardware();
+            (void)OSGetTime();diagnostic::ServiceMovieHardware();
             try{platform::ShutdownNativeHardwareInput();}catch(const std::logic_error&){foreign_rejected=true;}
         });worker.join();
         Check(foreign_rejected&&Report(0).button==0,"Foreign owner delivered/retired desktop input");
@@ -183,7 +183,7 @@ int main() {
         Until([&]{return platform::GetNativeAIStatus().consumed_blocks!=0;},"Actual SDL dummy audio did not consume retained PCM");
         pad.Detach();
         Until([&]{return platform::WpadSDLConnectedChannels()==1;},"Generic hot-unplug retained its virtual raw-device lease");
-        AIStopDMA();diagnostic::ShutdownCreditsMovieHardware();
+        AIStopDMA();diagnostic::ShutdownMovieHardware();
         const auto stopped=platform::GetNativeAIStatus();
         Check(!stopped.initialized&&!stopped.retained_blocks,"Hardware owner retirement retained audio/device callbacks");
         platform::ShutdownNativeHardwareInput();
@@ -208,7 +208,7 @@ int main() {
         std::printf("Desktop WPAD/one-owner hardware: %u checks, %u source-shaped WPAD samples, %u real AI callbacks, %u real timer callbacks; genuine SDL/one prepared SDK, no original FE/game readiness claim.\n",checks,samples,audio_callbacks,alarm_callbacks);
         return 0;
     }catch(const std::exception& error){
-        try{diagnostic::ShutdownCreditsMovieHardware();}catch(...){}
+        try{diagnostic::ShutdownMovieHardware();}catch(...){}
         try{platform::ShutdownNativeHardwareInput();}catch(...){}
         try{platform::ShutdownNativeSTMDevice();}catch(...){}
         if(window)SDL_DestroyWindow(window);SDL_Quit();

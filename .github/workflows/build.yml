@@ -155,7 +155,6 @@ jobs:
         run: >-
           cmake --build --preset release --target
           mscharged mscharged_original_frontend_module_us mscharged_original_frontend_module_eu
-          mscharged_original_main_credits_module
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats || true
@@ -171,22 +170,22 @@ jobs:
           MACOS_ARCH: ${{ matrix.arch }}
         run: |
           if [ -n "$MACOS_ARCH" ]; then
-            for binary in build/release/mscharged \
-                build/release/mscharged_original_{frontend_module_us,frontend_module_eu,main_credits_module}.{so,dylib,bundle}; do
+            for binary in build/release/recharged \
+                build/release/recharged_game_{us,eu}.{so,dylib,bundle}; do
               [ -e "$binary" ] || continue
               lipo -archs "$binary"
               test "$(lipo -archs "$binary")" = "$MACOS_ARCH"
             done
           fi
-          ./build/release/mscharged --version | tee build/release/ci-version.txt
+          ./build/release/recharged --version | tee build/release/ci-version.txt
           grep -F 'original frontend runtime' build/release/ci-version.txt
-          ./build/release/mscharged --help
+          ./build/release/recharged --help
       - name: Package binaries and notices
         run: python tools/package_build.py --build-dir build/release --output-dir build/artifacts ${{ matrix.package_args }}
       # Pull requests to stable upload too, so the packages can be tested
       # before the promotion is merged.
       # Uploaded as the package file itself (no zip around it); the artifact
-      # takes the file's name, e.g. mscharged-<version>-<system>-<arch>.tar.gz.
+      # takes the file's name, e.g. recharged-<version>-<system>-<arch>.tar.gz.
       - name: Upload binaries
         uses: actions/upload-artifact@v7
         with:
@@ -286,7 +285,6 @@ jobs:
         run: >-
           cmake --build build/windows --target
           mscharged mscharged_original_frontend_module_us mscharged_original_frontend_module_eu
-          mscharged_original_main_credits_module
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats || true
@@ -299,12 +297,12 @@ jobs:
           key: ${{ steps.ccache.outputs.cache-primary-key }}
       - name: Check executable
         run: |
-          test -f build/windows/mscharged.exe
-          "build/toolchain/$LLVM_MINGW/bin/llvm-objdump" -p build/windows/mscharged.exe | grep -F 'DLL Name'
+          test -f build/windows/recharged.exe
+          "build/toolchain/$LLVM_MINGW/bin/llvm-objdump" -p build/windows/recharged.exe | grep -F 'DLL Name'
       - name: Package binaries and notices
         run: python tools/package_build.py --build-dir build/windows --output-dir build/artifacts
       # Uploaded as the package file itself (no zip around it); the artifact
-      # takes the file's name, e.g. mscharged-<version>-<system>-<arch>.zip.
+      # takes the file's name, e.g. recharged-<version>-<system>-<arch>.zip.
       - name: Upload binaries
         uses: actions/upload-artifact@v7
         with:
@@ -412,7 +410,7 @@ jobs:
       - uses: actions/download-artifact@v8
         if: steps.version.outputs.draft == 'true'
         with:
-          pattern: mscharged-*
+          pattern: recharged-*
           path: release
           merge-multiple: true
           skip-decompress: true
@@ -438,10 +436,10 @@ jobs:
 
           ---
 
-          **New here?** Download the package for your system below, unpack it into a folder of its own and start \`mscharged\`. You need your own Mario Strikers Charged disc image (USA R4QE01 revision 1, or Europe R4QP01 revision 1 or 2; ISO or RVZ); no game files are included. Guides: [install]($url/INSTALL.md), [Steam Deck]($url/STEAM_DECK.md), [troubleshooting]($url/TROUBLESHOOTING.md).
+          **New here?** Download the package for your system below, unpack it into a folder of its own and start \`recharged\`. You need your own Mario Strikers Charged disc image (USA R4QE01 revision 1, or Europe R4QP01 revision 1 or 2; ISO or RVZ); no game files are included. Guides: [install]($url/INSTALL.md), [Steam Deck]($url/STEAM_DECK.md), [troubleshooting]($url/TROUBLESHOOTING.md).
           EOF
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
-            --title "Mario Strikers Charged Native Port $VERSION" --notes-file notes.md \
+            --title "Recharged $VERSION" --notes-file notes.md \
             release/*.tar.gz release/*.zip release/SHA256SUMS
 
   test-build:
@@ -468,7 +466,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          pattern: mscharged-*
+          pattern: recharged-*
           path: test-build
           merge-multiple: true
           skip-decompress: true
