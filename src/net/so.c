@@ -10,11 +10,13 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 
 #include "so_convert.h"
 #include "so_host.h"
 #include "so_state.h"
+#include "so_resolve.h"
 
 int SOInit(SOLibraryConfig* config)
 {
@@ -559,13 +561,50 @@ char* SOInetNtoA(SOInAddr in)
     return addressBuffer;
 }
 
+static char online_server_override[256] = {0};
+
+static int endswith(const char *str, const char *suffix)
+{
+    if (!str || !suffix)
+        return 0;
+    size_t lenstr = strlen(str);
+    size_t lensuffix = strlen(suffix);
+    if (lensuffix >  lenstr)
+        return 0;
+    return strncasecmp(str + lenstr - lensuffix, suffix, lensuffix) == 0;
+}
+
+
 // The one place the SO name lookups reach the host resolver.
 static int so_resolve(const char* node, const char* service, const struct addrinfo* hints,
     struct addrinfo** list)
 {
+    if (endswith(node, ".nintendowifi.net") && online_server_override[0] != '\0')
+        node = online_server_override;
     const int error = getaddrinfo(node, service, hints, list);
     return error == 0 ? SO_SUCCESS : so_error_from_gai(error);
 }
+
+// NULL or "" clears the override. A server that does not fit the buffer is
+// refused with a warning, and the previous override stays.
+void so_set_server_override(const char *hijacked)
+{
+    if (hijacked == NULL || hijacked[0] == 0)
+    {
+        online_server_override[0] = 0;
+        return;
+    }
+    const size_t length = strlen(hijacked);
+    if (length >= sizeof(online_server_override))
+    {
+        fprintf(stderr, "Warning: online server ignored: %zu characters, at most %zu fit; keeping %s\n",
+            length, sizeof(online_server_override) - 1,
+            online_server_override[0] != 0 ? online_server_override : "the default servers");
+        return;
+    }
+    memcpy(online_server_override, hijacked, length + 1);
+}
+
 
 // The SDK fills one 0x460-byte buffer allocated by SOInit (soWork._unk10) and
 // returns it, so a result is valid until the next call. Callers only read the

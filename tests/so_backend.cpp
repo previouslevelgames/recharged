@@ -1,7 +1,8 @@
 // SO backend on host sockets, one call at a time: byte order, the library
 // lifecycle, the socket table, bind and fcntl, UDP and TCP traffic, socket
 // options, SOPoll, SOShutdown, SOGetHostID, broadcast, the address
-// conversions, the name lookups and SOGetInterfaceOpt, each with the argument
+// conversions, the name lookups with the online.server redirect and
+// SOGetInterfaceOpt, each with the argument
 // and descriptor errors the SDK's soBasic.c, SOOption.c and SOInformation.c
 // return.
 // The concurrent cases are in so_backend_threads.cpp.
@@ -16,6 +17,7 @@
 #include <string>
 #include <thread>
 
+#include "net/so_resolve.h"
 #include "so_test_peer.h"
 
 namespace
@@ -831,6 +833,75 @@ void AddrInfo()
     Check(res == nullptr, "addrinfo: *res stays NULL when the allocator fails");
 }
 
+// The first IPv4 address each lookup gives for name, in network order; 0 when
+// the lookup fails. The SOGetAddrInfo one also checks the port it was asked for.
+u32 HostByNameAddr(const char* name)
+{
+    const SOHostEnt* host = SOGetHostByName(name);
+    return host != nullptr && host->addrList[0] != nullptr ? AddrOf(host->addrList[0]) : 0;
+}
+
+u32 AddrInfoAddr(const char* name, const char* service, u16 port, const char* message)
+{
+    SOAddrInfo hints = { .family = SO_PF_INET, .sockType = SO_SOCK_DGRAM };
+    SOAddrInfo* res = nullptr;
+    if (SOGetAddrInfo(name, service, &hints, &res) != SO_SUCCESS)
+        return 0;
+    const SOSockAddrIn* sin = (const SOSockAddrIn*)res->addr;
+    Check(sin->port == SOHtoNs(port), message);
+    const u32 addr = sin->addr.addr;
+    SOFreeAddrInfo(res);
+    return addr;
+}
+
+// online.server: every *.nintendowifi.net name resolves to the configured
+// server instead, by both lookups. 127.0.0.2 is the server so that a result
+// can be told apart from an /etc/hosts entry sending the WFC names to 127.0.0.1.
+void ServerOverride()
+{
+    const u32 server = SOHtoNl(0x7f000002);
+    so_set_server_override("127.0.0.2");
+    Check(HostByNameAddr("gpcm.gs.nintendowifi.net") == server,
+          "override: SOGetHostByName sends a WFC name to the server");
+    Check(AddrInfoAddr("natneg1.gs.nintendowifi.net", "27901", 27901,
+                       "override: SOGetAddrInfo keeps the requested port") == server,
+          "override: SOGetAddrInfo sends a WFC name to the server");
+    Check(HostByNameAddr("mschargedwii.ms11.gs.nintendowifi.net") == server,
+          "override: a name built at run time (server browser) goes to the server");
+    Check(HostByNameAddr("NASWII.NintendoWifi.NET") == server, "override: names compare without case");
+
+    // Only names under the domain: the dot before it is part of the rule
+    Check(HostByNameAddr("127.0.0.1") == SOHtoNl(kLoopbackAddr), "override: a numeric host is not redirected");
+    const u32 local = HostByNameAddr("localhost");
+    Check(local != 0 && local != server, "override: localhost is not redirected");
+    Check(HostByNameAddr("evilnintendowifi.net") != server, "override: a name ending in the domain without its dot");
+    Check(HostByNameAddr("nintendowifi.net.invalid") != server, "override: a name only starting with the domain");
+
+    // The server may be a name, resolved by the host resolver
+    so_set_server_override("localhost");
+    const u32 named = HostByNameAddr("gpsp.gs.nintendowifi.net");
+    Check(named != 0 && IsLoopback((const u8*)&named), "override: a server given by name");
+
+    // A name that does not fit is refused and the previous server stays
+    so_set_server_override("127.0.0.2");
+    const std::string too_long(256, 'a');
+    so_set_server_override(too_long.c_str());
+    Check(HostByNameAddr("gpcm.gs.nintendowifi.net") == server, "override: a 256-character server is refused");
+    // 255 characters fit the buffer: accepted, though no resolver knows it
+    const std::string longest(255, 'a');
+    so_set_server_override(longest.c_str());
+    Check(HostByNameAddr("gpcm.gs.nintendowifi.net") != server, "override: a 255-character server is accepted");
+
+    // An empty server and NULL turn the redirect off: the names are looked up
+    // as they are, so /etc/hosts or DNS answer for them again
+    so_set_server_override("127.0.0.2");
+    so_set_server_override("");
+    Check(HostByNameAddr("gpcm.gs.nintendowifi.net") != server, "override: an empty server turns the redirect off");
+    so_set_server_override("127.0.0.2");
+    so_set_server_override(nullptr);
+    Check(HostByNameAddr("gpcm.gs.nintendowifi.net") != server, "override: NULL turns the redirect off");
+}
+
 // getlocalhost (gsPlatformSocket.c) asks for the count, sizes the table with
 // it and ignores both return values: these two calls must always work.
 void InterfaceOpt(u32 host)
@@ -953,6 +1024,7 @@ int main()
         InetConversions();
         HostByName();
         AddrInfo();
+        ServerOverride();
         InterfaceOpt((u32)SOGetHostID());
         ResolverFinish();
         std::cout << "SO backend: " << checks << " checks, host address " << (host & 0xff) << '.'

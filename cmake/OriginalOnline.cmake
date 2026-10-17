@@ -214,4 +214,6 @@ function(mscharged_select_original_frontend_online target)
             NCDiGetEnabledConfigList)
         mscharged_require_original_host_symbol(charged_original_game_host INTERFACE "${_symbol}")
     endforeach()
+    target_compile_definitions(charged_original_game_host PRIVATE
+        MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE=1)
 endfunction()
