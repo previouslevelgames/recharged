@@ -21,7 +21,7 @@ void PrintUsage(std::ostream& output)
 {
     output << "Usage: mscharged-bootstrap [--config FILE | --disc FILE | --self-test | --version | --help]\n"
            << "With no arguments, read [game] disc from ./recharged.ini.\n"
-           << "--disc accepts an ISO or RVZ directly; --self-test needs no game data.\n";
+           << "--disc accepts an ISO, RVZ or WBFS directly; --self-test needs no game data.\n";
 }
 }
 

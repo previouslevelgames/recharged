@@ -63,11 +63,11 @@ std::vector<std::uint8_t> MakeTpl(std::uint16_t (*texel)(std::size_t), std::uint
     return data;
 }
 
-DiscProbe Charged(const char* id, std::uint8_t revision)
+DiscProbe Charged(const char* id, std::uint8_t revision, const char* format = "RVZ")
 {
     DiscProbe probe;
     probe.kind = DiscProbe::Kind::Charged;
-    probe.info = {"RVZ", id, "Mario Strikers Charged", revision, 2354};
+    probe.info = {format, id, "Mario Strikers Charged", revision, 2354};
     return probe;
 }
 
@@ -168,8 +168,8 @@ void CheckScan(const fs::path& root)
 {
     // Files named after what the made-up reader reports for them.
     const std::map<std::string, DiscProbe> contents{
-        {"us.rvz", Charged("R4QE01", 1)},  {"us copy.iso", Charged("R4QE01", 1)},
-        {"eu2.rvz", Charged("R4QP01", 2)}, {"eu1.iso", Charged("R4QP01", 1)},
+        {"us.rvz", Charged("R4QE01", 1)},  {"us copy.iso", Charged("R4QE01", 1, "ISO")},
+        {"eu2.rvz", Charged("R4QP01", 2)}, {"eu1.iso", Charged("R4QP01", 1, "ISO")},
         {"jp.rvz", Charged("R4QJ01", 0)},  {"deep.rvz", Charged("R4QK01", 0)},
     };
     std::map<std::string, int> opened;
@@ -208,7 +208,7 @@ void CheckScan(const fs::path& root)
     const std::vector<LibraryFolder> folders{{games, true}, {sd, false}, {root / "unplugged", true},
                                              {games / "Europe", true}};
     ScanProgress progress;
-    auto scan = ScanLibrary(folders, {}, false, {"R4QE01"}, {}, progress, probe, banner);
+    auto scan = ScanLibrary(folders, {}, {"R4QE01"}, {}, progress, probe, banner);
     Require(!scan.cancelled && !scan.limited, "A complete scan");
     Require(scan.available == std::vector<bool>{true, true, false, true}, "Folder availability");
     Require(progress.found == 9 && progress.checked == 9 && !progress.listing, "Progress counts every file");
@@ -224,20 +224,17 @@ void CheckScan(const fs::path& root)
     Require(scan.banners.size() == 2 && scan.banners.count("R4QP01") && scan.banner_failures.count("R4QJ01"),
             "Banners and failures are reported");
 
-    // Order and search.
-    auto arranged = ArrangeImages(scan.images, LibrarySort::Release, false, "");
+    // Order.
+    auto arranged = ArrangeImages(scan.images, LibrarySort::Release, false);
     Require(Names(arranged) == "us copy.iso, us.rvz, eu1.iso, eu2.rvz, jp.rvz, deep.rvz, broken.rvz",
             "Release order: " + Names(arranged));
-    arranged = ArrangeImages(scan.images, LibrarySort::Size, false, "");
-    Require(PathUtf8(arranged.front()->path.filename()) == "eu1.iso", "Largest first");
-    arranged = ArrangeImages(scan.images, LibrarySort::Name, true, "");
+    arranged = ArrangeImages(scan.images, LibrarySort::Size, true);
+    Require(PathUtf8(arranged.front()->path.filename()) == "eu1.iso", "Largest first, descending");
+    arranged = ArrangeImages(scan.images, LibrarySort::Name, true);
     Require(PathUtf8(arranged.front()->path.filename()) == "us.rvz", "Names descending");
-    Require(Names(ArrangeImages(scan.images, LibrarySort::Release, false, "europe REV 2")) == "eu2.rvz",
-            "Search words match region and revision");
-    Require(Names(ArrangeImages(scan.images, LibrarySort::Release, false, "r4qj")) == "jp.rvz", "Search the ID");
-    Require(Names(ArrangeImages(scan.images, LibrarySort::Release, false, "broken")) == "broken.rvz",
-            "Search file names");
-    Require(ArrangeImages(scan.images, LibrarySort::Release, false, "zzz").empty(), "No match");
+    arranged = ArrangeImages(scan.images, LibrarySort::Format, false);
+    Require(Names(arranged) == "us copy.iso, eu1.iso, us.rvz, eu2.rvz, jp.rvz, deep.rvz, broken.rvz",
+            "Format, then release: " + Names(arranged));
 
     // States, titles and copies.
     for (const auto& image : scan.images)
@@ -254,19 +251,16 @@ void CheckScan(const fs::path& root)
     Require(copies.size() == 1 && copies[0]->path.filename() == "us copy.iso", "Copies of the same release");
     Require(SameRelease(scan.images, "R4QP01", 3, {}).empty(), "No copy of another revision");
 
-    // A second scan opens only changed files; unreadable ones only when asked.
+    // Every scan opens every image again, whatever the cache knows; known
+    // banners are not read again.
     opened.clear();
     banner_reads.clear();
-    MakeFile(games / "us.rvz", kImage + 10);
     ScanProgress again;
     const std::set<std::string> known{"R4QE01", "R4QP01", "R4QK01", "R4QJ01"};
-    auto rescan = ScanLibrary(folders, scan.cache, false, known, {}, again, probe, banner);
-    Require(opened.size() == 1 && opened.count("us.rvz"), "Only the changed file is opened again");
+    auto rescan = ScanLibrary(folders, scan.cache, known, {}, again, probe, banner);
+    Require(opened.size() == 9 && opened.count("us.rvz") && opened.count("broken.rvz") && opened.count("metroid.iso"),
+            "A scan opens every image again");
     Require(banner_reads.empty(), "No banner is read again");
-    opened.clear();
-    ScanProgress recheck;
-    rescan = ScanLibrary(folders, rescan.cache, true, known, {}, recheck, probe, banner);
-    Require(opened.size() == 1 && opened.count("broken.rvz"), "A refresh opens unreadable files again");
 
     // The cache keeps files below an unplugged drive and pinned files, and
     // forgets files that are gone from available folders.
@@ -275,16 +269,16 @@ void CheckScan(const fs::path& root)
     cache.Put(root / "elsewhere" / "pinned.rvz", kImage, 1, Charged("R4QP01", 1));
     cache.Put(games / "deleted.rvz", kImage, 1, Charged("R4QP01", 1));
     ScanProgress keep;
-    rescan = ScanLibrary(folders, cache, false, known, {root / "elsewhere" / "pinned.rvz"}, keep, probe, banner);
+    rescan = ScanLibrary(folders, cache, known, {root / "elsewhere" / "pinned.rvz"}, keep, probe, banner);
     Require(rescan.cache.Last(root / "unplugged" / "x.rvz"), "An unplugged drive's files stay known");
     Require(rescan.cache.Last(root / "elsewhere" / "pinned.rvz"), "Kept paths stay known");
     Require(!rescan.cache.Last(games / "deleted.rvz"), "Deleted files are forgotten");
-    Require(rescan.cache.Last(games / "metroid.iso"), "Other games stay known (they are not opened again)");
+    Require(rescan.cache.Last(games / "metroid.iso"), "Every listed file is recorded");
 
     // A cancelled scan stops and leaves the cache as it was.
     ScanProgress cancelled;
     cancelled.cancel = true;
-    rescan = ScanLibrary(folders, cache, false, known, {}, cancelled, probe, banner);
+    rescan = ScanLibrary(folders, cache, known, {}, cancelled, probe, banner);
     Require(rescan.cancelled && rescan.images.empty() && rescan.cache.Last(games / "deleted.rvz"),
             "Cancelling stops the scan");
 
@@ -293,6 +287,18 @@ void CheckScan(const fs::path& root)
     Require(SaveImageCache(scan.cache, file), "The cache is saved");
     Require(LoadImageCache(file).size() == scan.cache.size(), "and read back");
     Require(LoadImageCache(root / "missing.json").size() == 0, "A missing cache file is an empty cache");
+
+    // Which images a folder's rules cover, by path.
+    Require(InFolder(games / "us.rvz", {games, false}) && InFolder(games / "us.rvz", {games / "", true}),
+            "An image in the folder itself");
+    Require(!InFolder(games / "Europe" / "eu1.iso", {games, false}) && InFolder(games / "Europe" / "eu1.iso", {games, true}),
+            "An image in a subfolder needs Subfolders");
+    Require(InFolder(games / "a" / "b" / "c" / "d" / "deep.rvz", {games, true})
+                && !InFolder(games / "a" / "b" / "c" / "d" / "e" / "too-deep.rvz", {games, true}),
+            "Subfolders reach four levels down");
+    Require(!InFolder(sd / "jp.rvz", {games, true}) && !InFolder(root / "Games2" / "x.rvz", {games, true}),
+            "Other folders, and folders that only start with the same name, are not covered");
+    Require(InFolder(games / "Europe" / ".." / "us.rvz", {games, false}), "Paths are compared normalised");
 
     // Folders of found images, and why an image is missing.
     auto found = FoldersOfImages({games / "us.rvz", games / "us copy.iso", sd / "jp.rvz"});
@@ -345,9 +351,9 @@ int main(int argc, char** argv)
         if (mode == "scan" && argc == 3)
         {
             ScanProgress progress;
-            const auto scan = ScanLibrary({{PathFromUtf8(argv[2]), true}}, {}, false, {}, {}, progress, ProbeDisc,
+            const auto scan = ScanLibrary({{PathFromUtf8(argv[2]), true}}, {}, {}, {}, progress, ProbeDisc,
                                           ReadReleaseBanner);
-            for (const auto* image : ArrangeImages(scan.images, LibrarySort::Name, false, ""))
+            for (const auto* image : ArrangeImages(scan.images, LibrarySort::Name, false))
             {
                 const char* state = StateOf(*image) == ImageState::Playable      ? "playable"
                                     : StateOf(*image) == ImageState::Unsupported ? "unsupported"

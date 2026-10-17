@@ -2,6 +2,7 @@
 #include "path.h"
 
 #include <algorithm>
+#include <cctype>
 #include <memory>
 #include <stdexcept>
 
@@ -36,6 +37,29 @@ bool IsChargedHeader(const NodDiscHeader& header)
         && game_id.substr(0, 3) == "R4Q" && game_id.substr(4) == "01";
 }
 
+// The image formats the game reads ("ISO", "RVZ", "WBFS"); null for the
+// others nod knows (CISO, WIA, GCZ ...), which are not offered.
+const char* FormatName(NodFormat format)
+{
+    switch (format)
+    {
+    case NOD_FORMAT_ISO: return "ISO";
+    case NOD_FORMAT_RVZ: return "RVZ";
+    case NOD_FORMAT_WBFS: return "WBFS";
+    default: return nullptr;
+    }
+}
+
+bool IsWbfsName(const std::filesystem::path& path)
+{
+    auto extension = PathUtf8(path.extension());
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char c) { return char(std::tolower(c)); });
+    return extension == ".wbfs";
+}
+
+constexpr const char* kFormatError = "This build accepts ISO, RVZ and WBFS disc images.";
+
 std::string HeaderTitle(const NodDiscHeader& header)
 {
     return std::string(header.game_title, std::find(std::begin(header.game_title), std::end(header.game_title), '\0'));
@@ -52,8 +76,7 @@ Handle OpenChargedDisc(const std::filesystem::path& path,
 
     if (!IsChargedHeader(header))
         throw std::runtime_error("Expected a Mario Strikers Charged Wii image (R4Q?01).");
-    if (metadata.format != NOD_FORMAT_ISO && metadata.format != NOD_FORMAT_RVZ)
-        throw std::runtime_error("This build accepts ISO and RVZ disc images.");
+    if (!FormatName(metadata.format)) throw std::runtime_error(kFormatError);
 
     return disc;
 }
@@ -80,7 +103,7 @@ DiscInfo ReadChargedInfo(NodHandle* disc, const NodDiscHeader& header, const Nod
     if (file_count == 0)
         throw std::runtime_error("The game data partition has no files.");
 
-    return {metadata.format == NOD_FORMAT_RVZ ? "RVZ" : "ISO",
+    return {FormatName(metadata.format),
             std::string(header.game_id, sizeof(header.game_id)), HeaderTitle(header), header.disc_version,
             file_count};
 }
@@ -107,9 +130,12 @@ DiscProbe ProbeDisc(const std::filesystem::path& path)
     const NodResult opened = nod_disc_open(PathUtf8(path).c_str(), nullptr, &raw_disc);
     Handle disc(raw_disc, nod_free);
     // A format error: the file is no disc image the reader knows (an ISO of
-    // something else). Other errors come from an image it could not read.
+    // something else). Other errors come from an image it could not read, and
+    // so does a format error of a .wbfs file: a split image missing a part
+    // (.wbf1 ...) fails as a wrong WBFS size.
     if (opened != NOD_RESULT_OK)
-        return fail(opened == NOD_RESULT_ERR_FORMAT ? DiscProbe::Kind::NotDisc : DiscProbe::Kind::Unreadable,
+        return fail(opened == NOD_RESULT_ERR_FORMAT && !IsWbfsName(path) ? DiscProbe::Kind::NotDisc
+                                                                         : DiscProbe::Kind::Unreadable,
                     "Cannot open disc");
     NodDiscHeader header{};
     NodDiscMeta metadata{};
@@ -126,9 +152,9 @@ DiscProbe ProbeDisc(const std::filesystem::path& path)
         probe.info.file_count = 0;
         return probe;
     }
-    if (metadata.format != NOD_FORMAT_ISO && metadata.format != NOD_FORMAT_RVZ)
+    if (!FormatName(metadata.format))
     {
-        probe.error = "This build accepts ISO and RVZ disc images.";
+        probe.error = kFormatError;
         return probe;
     }
     try

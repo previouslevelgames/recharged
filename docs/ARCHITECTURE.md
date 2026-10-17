@@ -20,7 +20,7 @@ flowchart TB
     sdk["Wii SDK<br/>AX audio, WPAD/KPAD controllers, NAND,<br/>THP movies: original code from the decomp<br/>GX graphics, VI video, DVD: Aurora"]
     platform["Native Wii platform<br/>(src/platform, src/runtime)<br/>DSP audio, interrupts, threads, clocks,<br/>controllers, saves, video output"]
     gpu["Dawn → Vulkan / DirectX 12 / Metal"]
-    host["SDL3: window, audio, gamepads<br/>nod: ISO / RVZ<br/>files: saves, settings, logs"]
+    host["SDL3: window, audio, gamepads<br/>nod: ISO / RVZ / WBFS<br/>files: saves, settings, logs"]
 
     launcher -- "Play" --> game
     game --> sdk
@@ -91,7 +91,7 @@ compiled. Patches are written against `patched/`.
 | **Graphics** (GX, video interface) | Aurora turns the game's GX commands, textures and TEV shader stages into WebGPU pipelines, which [Dawn](https://dawn.googlesource.com/dawn) runs on Vulkan, DirectX 12 or Metal. Recharged presents the Wii's frame buffer in the window at the chosen size, layout and resolution. |
 | **Audio** (AX, DSP, audio interface) | The original AX audio library builds its command lists as on the Wii. Where the Wii's DSP chip ran Nintendo's audio microcode, Recharged processes those commands natively: ADPCM decoding, resampling, mixing and effect sends. The mixed sound goes to SDL audio. |
 | **Controllers** (WPAD, KPAD) | The original Wii Remote libraries receive Remote and Nunchuk reports from Recharged: built from keyboard & mouse, from SDL gamepads, or read from real Wii Remotes by Recharged's own HID driver (Bluetooth or DolphinBar), including the camera data for the pointer. |
-| **Disc** (DVD) | Aurora's DVD layer reads files straight from the ISO or RVZ image through [nod](https://github.com/encounter/nod); nothing is extracted. |
+| **Disc** (DVD) | Aurora's DVD layer reads files straight from the ISO, RVZ or WBFS image through [nod](https://github.com/encounter/nod); nothing is extracted. |
 | **Saves** (NAND) | The Wii's flash file system is a folder on disk, so the game reads and writes its own save files. |
 | **OS** | Wii threads, alarms, message queues and interrupts run on host threads and timers, at the Wii's own clock rates. The game's MEM1 and MEM2 memory arenas keep their Wii sizes. |
 | **Movies** (THP) | The game's own THP player plays the intro, credits and other videos, with the platform providing the timing and audio output. |

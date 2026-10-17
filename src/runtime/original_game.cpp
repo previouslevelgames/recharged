@@ -307,7 +307,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // advanced.log_window: the separate log window, when the launcher has not opened it.
         mscharged::platform::SetLogWindow(launch.settings.log_window);
         std::printf("%s\n",mscharged::DescribeLaunch(launch).c_str());
-        Check(!disc.empty() && std::filesystem::is_regular_file(launch.disc_path),"Supply your own game ISO/RVZ with --disc FILE or [game] disc in the INI");
+        Check(!disc.empty() && std::filesystem::is_regular_file(launch.disc_path),"Supply your own game ISO/RVZ/WBFS with --disc FILE or [game] disc in the INI");
         // Validate native preferences before acquiring any hardware/module owner.
         // The disc decides the release and so the languages a Wii could select;
         // the original game still owns its region and localization branches
@@ -638,6 +638,20 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const std::string line="Sound levels: "+described
                 +(described!="original" && !configureSoundVolumes
                     ? " (not applied: this build's game module has no sound levels)" : "");
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
+        // The logo reads RECHARGED (issue #63): always on, whatever the tweak
+        // set; RECHARGED_ORIGINAL_LOGO=1 keeps the game's own (a kill switch).
+        {
+            const char* original=std::getenv("RECHARGED_ORIGINAL_LOGO");
+            const bool keepOriginal=original && *original && std::strcmp(original,"0")!=0;
+            auto* configureLogo=reinterpret_cast<void(*)(bool)>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_title_logo"));
+            if(configureLogo)
+                configureLogo(!keepOriginal);
+            const std::string line=std::string("Title logo: ")+(keepOriginal ? "original (RECHARGED_ORIGINAL_LOGO)"
+                : configureLogo ? "RECHARGED" : "original (this build's game module has no RECHARGED logo)");
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }

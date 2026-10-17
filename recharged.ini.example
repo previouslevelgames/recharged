@@ -1,9 +1,15 @@
 # Copy this file to recharged.ini and set your disc image path.
 # Paths are relative to this INI file. Absolute paths also work.
-# ISO and RVZ are read directly; no extraction or conversion is needed.
+# ISO, RVZ and WBFS are read directly; no extraction or conversion is needed.
 [game]
-# The image Play starts (the launcher's pinned image).
+# The image Play starts (the one chosen on the launcher's Game page).
 disc = game/R4QE01.rvz
+
+# Game folder: the launcher lists the Mario Strikers Charged images in it;
+# clicking one sets disc above. folder_subfolders also lists the images in its
+# subfolders.
+folder = game
+folder_subfolders = true
 
 # Game text: auto, or a language of the disc: english, french or spanish
 # (USA); english, german, french, spanish or italian (Europe). Automatic takes
@@ -13,13 +19,6 @@ language = auto
 # Folder for the game's Wii saves. Empty: data/nand next to the program.
 # A different folder starts without saves.
 save_folder = ""
-
-# The launcher's image library: folders with your game images (up to 16). The
-# launcher lists the Mario Strikers Charged images in them; Use this image sets
-# disc above. folderN_subfolders = true also lists the images in subfolders.
-#[library]
-#folder1 = "game"
-#folder1_subfolders = true
 
 [display]
 width = 1280
@@ -48,8 +47,7 @@ performance_mode = false
 # Antialiasing of the game's 3D edges: off or 4x (more GPU time).
 antialiasing = 4x
 # 3D render size: window (one pixel per window pixel, default), native (the
-# Wii's 640x448) or 2x, 3x, 4x of it. The game's view stays the same. Only
-# set here; the launcher has no option for it.
+# Wii's 640x448) or 2x, 3x, 4x of it. The game's view stays the same.
 resolution = window
 # Performance overlay: FPS | GPU % | CPU % | LAT N/A, also in fullscreen.
 # GPU/CPU are total system usage; unavailable driver counters show N/A.

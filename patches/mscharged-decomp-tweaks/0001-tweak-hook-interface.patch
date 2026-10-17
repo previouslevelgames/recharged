@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..c5af264
+index 0000000..6b8bd66
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,147 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -151,6 +151,12 @@ index 0000000..c5af264
 +// taken.
 +void mscharged_tweak_hud_frame(void);
 +bool mscharged_tweak_hud_hidden(void);
++
++// The front end's logo reads RECHARGED (issue #63; always on, the host's
++// RECHARGED_ORIGINAL_LOGO=1 keeps the game's own): a front-end scene file as
++// read from the disc (Wii FENL bytes), or a rewritten copy of it (its size in
++// *size), valid until the next call.
++void* mscharged_tweak_frontend_package(void* data, unsigned long* size);
 +
 +#ifdef __cplusplus
 +}

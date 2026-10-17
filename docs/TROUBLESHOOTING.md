@@ -10,25 +10,28 @@ end of the [Steam Deck guide](STEAM_DECK.md#troubleshooting).
 
 Recharged runs **Mario Strikers Charged for the USA (game ID `R4QE01`,
 revision 1) and for Europe (`R4QP01`, revisions 1 and 2)**. The launcher's
-**Game** page shows the ID and revision of the pinned image and of every image
-in your library; *Not supported yet* images are listed but cannot be pinned.
+**Game** page shows the ID and revision of every image in your game folder;
+images of versions this build cannot run are listed with the reason but cannot
+be chosen.
 
 - **Another ID**, such as `R4QJ01` (Japan): not supported yet; the
   decompilation of these versions is still being completed. Renaming the file
   does not change the version inside it.
-- **"This build accepts ISO and RVZ disc images":** only complete `.iso` and
-  `.rvz` images work; other formats (`.wbfs`, `.ciso`, `.wia`, `.gcz`) and
-  extracted disc folders are not supported.
+- **"This build accepts ISO, RVZ and WBFS disc images":** only complete
+  `.iso`, `.rvz` and `.wbfs` images work; other formats (`.ciso`, `.wia`,
+  `.gcz`) and extracted disc folders are not supported. A WBFS image split into
+  parts (`.wbfs`, `.wbf1`, ...) works when all parts stay side by side; choose
+  the `.wbfs` file.
 - **"Expected a Mario Strikers Charged Wii image":** the file is another game
   or not a Wii disc image.
 - **"Cannot be read":** the file is incomplete or damaged (an unfinished
   download, a failing drive). Copy or convert it again.
 - The image must stay where you chose it: Recharged reads it every time you
   play. If it moves or its drive is not connected, the launcher says so and
-  offers **Locate...**, a copy of the same release from your library, or
+  offers **Locate...**, a copy of the same release from your game folder, or
   another image; it never switches to another image by itself.
-- A library folder shows *Not available* while its drive or memory card is
-  not connected. Its images come back when it is.
+- A game folder on a drive or memory card shows *Not found* while it is not
+  connected. Its images come back when it is.
 
 ## The first start takes a while
 

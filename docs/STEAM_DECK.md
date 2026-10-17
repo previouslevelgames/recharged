@@ -21,8 +21,8 @@ The steps in detail:
 
 - SteamOS 3.7 or newer. Check for updates in Gaming Mode under
   *Settings → System*.
-- Your own **Mario Strikers Charged disc image**, as `.iso` or `.rvz`: the
-  USA version (game ID `R4QE01`, revision 1) or the European version
+- Your own **Mario Strikers Charged disc image**, as `.iso`, `.rvz` or
+  `.wbfs`: the USA version (game ID `R4QE01`, revision 1) or the European version
   (`R4QP01`, revision 1 or 2). Renaming a file changes nothing.
 - Optional: a USB or Bluetooth mouse and keyboard make the setup easier.
 
@@ -48,7 +48,7 @@ archive adds one more folder level, use the folder that contains the
 
 ## 4. Put your disc image in place
 
-Copy your `.iso` or `.rvz` to the Deck, for example from a USB drive, into a
+Copy your `.iso`, `.rvz` or `.wbfs` to the Deck, for example from a USB drive, into a
 `game` folder: `/home/deck/Games/recharged/game/Mario Strikers Charged.iso`.
 Spaces in the name are fine. Do not extract or mount it: Recharged reads the
 image directly, every time you play, so it has to stay where it is.
@@ -103,9 +103,9 @@ rest of the Gamepad template.
 
 Start the game from your library. The launcher appears first.
 
-1. On the **Game** page, the image in the `game` folder is already pinned
-   (*Ready to play.*). Otherwise add its folder with **Add folder...**, for
-   example the microSD card's, and choose **Use this image**.
+1. On the **Game** page, the image in the `game` folder is already chosen
+   (its row is marked). Otherwise pick its folder with **Change...**, for
+   example on the microSD card, and click the image.
 2. On the **Controls** page set player 1 to **`gamepad1`** (the first listed
    gamepad) and leave players 2-4 off for one player. Keep the *Default*
    gamepad profile at first.

@@ -5,6 +5,11 @@ Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Refreshed for decomp 9046e67a: upstream gave the glxConfigure*Lighting
 functions C++ linkage; the wrappers follow.
 
+Materials whose original setup does not use the doubled-lighting flag
+(ShadowedDetailBlend and ScrollingShadowedDetailBlend call
+ShouldDoubleGameObjectLighting() and drop the result; SpecularDetailBlend never
+asks) keep it out of their shared helper.
+
 diff --git a/include/NL/glx/GXPipelinePreparation.h b/include/NL/glx/GXPipelinePreparation.h
 new file mode 100644
 index 0000000..f427976
@@ -1678,7 +1683,7 @@ index b86ac1c..e381998 100644
  
 -void glxConfigureScrollingShadowedDetailBlendLighting(
 -    int mode, GXScrollingShadowedDetailBlendMaterialProgram*)
-+static void glxConfigureScrollingShadowedDetailBlendPipelineState(int mode, int lightCount, bool doubleLighting)
++static void glxConfigureScrollingShadowedDetailBlendPipelineState(int mode, int lightCount)
  {
 -    sScrollingShadowedDetailBlendLightingMode = mode;
  
@@ -1693,8 +1698,7 @@ index b86ac1c..e381998 100644
      {
          gxSetNumTevStages(7);
          gxSetNumTexGens(5);
--        ShouldDoubleGameObjectLighting();
-+        doubleLighting;
+         ShouldDoubleGameObjectLighting();
  
          gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD3, GX_TEXMAP3, GX_COLOR0A0);
          gxSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD2, GX_TEXMAP2, GX_COLOR_NULL);
@@ -1706,13 +1710,13 @@ index b86ac1c..e381998 100644
 +    int mode, GXScrollingShadowedDetailBlendMaterialProgram*)
 +{
 +    sScrollingShadowedDetailBlendLightingMode = mode;
-+    glxConfigureScrollingShadowedDetailBlendPipelineState(mode, sScrollingShadowedDetailBlendLightCount, ShouldDoubleGameObjectLighting() != 0);
++    glxConfigureScrollingShadowedDetailBlendPipelineState(mode, sScrollingShadowedDetailBlendLightCount);
 +}
 +
  template <>
  void GXMaterialProgramImpl<GXScrollingShadowedDetailBlendMaterialProgram>::Activate(GLView* view)
  {
-@@ -250,3 +259,37 @@ void GXMaterialProgramImpl<GXScrollingShadowedDetailBlendMaterialProgram>::Draw(
+@@ -250,3 +259,36 @@ void GXMaterialProgramImpl<GXScrollingShadowedDetailBlendMaterialProgram>::Draw(
      else
          static_cast<GXScrollingShadowedDetailBlendMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -1724,7 +1728,6 @@ index b86ac1c..e381998 100644
 +    auto* program = static_cast<GXScrollingShadowedDetailBlendMaterialProgram*>(packet.materialProgram);
 +    const auto& params = *static_cast<const GXScrollingShadowedDetailBlendParameters*>(packet.materialParameters);
 +    const bool match = AutomaticGraphicsPreparationForMatch();
-+    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
 +    const int activeMode = ShouldUseGameObjectLightTexture(0) ? LIGHTING_TEXTURE
 +        : LIGHTING_VERTEX;
 +    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
@@ -1742,7 +1745,7 @@ index b86ac1c..e381998 100644
 +        program->ConfigureVertexFormat(true);
 +        program->BindVertexArrays(&packet);
 +        gxSetNumChans(1);
-+        glxConfigureScrollingShadowedDetailBlendPipelineState(mode, lightCount, doubled);
++        glxConfigureScrollingShadowedDetailBlendPipelineState(mode, lightCount);
 +        if (shadow != 0)
 +            glxConfigureProjectedShadowPipeline(false, false, false);
 +        EmitAutomaticMaterialPipeline(packet);
@@ -1977,7 +1980,7 @@ index 7167c14..4e52504 100644
  
 -void glxConfigureShadowedDetailBlendLighting(
 -    int mode, GXShadowedDetailBlendMaterialProgram*)
-+static void glxConfigureShadowedDetailBlendPipelineState(int mode, int lightCount, bool doubleLighting)
++static void glxConfigureShadowedDetailBlendPipelineState(int mode, int lightCount)
  {
 -    sShadowedDetailBlendLightingMode = mode;
  
@@ -1992,8 +1995,7 @@ index 7167c14..4e52504 100644
      {
          gxSetNumTevStages(7);
          gxSetNumTexGens(5);
--        ShouldDoubleGameObjectLighting();
-+        doubleLighting;
+         ShouldDoubleGameObjectLighting();
  
          gxSetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD3, GX_TEXMAP3, GX_COLOR0A0);
          gxSetTevOrder(GX_TEVSTAGE1, GX_TEXCOORD2, GX_TEXMAP2, GX_COLOR_NULL);
@@ -2005,13 +2007,13 @@ index 7167c14..4e52504 100644
 +    int mode, GXShadowedDetailBlendMaterialProgram*)
 +{
 +    sShadowedDetailBlendLightingMode = mode;
-+    glxConfigureShadowedDetailBlendPipelineState(mode, sShadowedDetailBlendLightCount, ShouldDoubleGameObjectLighting() != 0);
++    glxConfigureShadowedDetailBlendPipelineState(mode, sShadowedDetailBlendLightCount);
 +}
 +
  template <>
  void GXMaterialProgramImpl<GXShadowedDetailBlendMaterialProgram>::Activate(GLView* view)
  {
-@@ -228,3 +237,37 @@ void GXMaterialProgramImpl<GXShadowedDetailBlendMaterialProgram>::Draw(
+@@ -228,3 +237,36 @@ void GXMaterialProgramImpl<GXShadowedDetailBlendMaterialProgram>::Draw(
      else
          static_cast<GXShadowedDetailBlendMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -2023,7 +2025,6 @@ index 7167c14..4e52504 100644
 +    auto* program = static_cast<GXShadowedDetailBlendMaterialProgram*>(packet.materialProgram);
 +    const auto& params = *static_cast<const GXShadowedDetailBlendParameters*>(packet.materialParameters);
 +    const bool match = AutomaticGraphicsPreparationForMatch();
-+    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
 +    const int activeMode = ShouldUseGameObjectLightTexture(0) ? LIGHTING_TEXTURE
 +        : LIGHTING_VERTEX;
 +    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
@@ -2041,7 +2042,7 @@ index 7167c14..4e52504 100644
 +        program->ConfigureVertexFormat(true);
 +        program->BindVertexArrays(&packet);
 +        gxSetNumChans(1);
-+        glxConfigureShadowedDetailBlendPipelineState(mode, lightCount, doubled);
++        glxConfigureShadowedDetailBlendPipelineState(mode, lightCount);
 +        if (shadow != 0)
 +            glxConfigureProjectedShadowPipeline(false, false, false);
 +        EmitAutomaticMaterialPipeline(packet);
@@ -2294,7 +2295,7 @@ index 49c67db..a5927ae 100644
  int sSpecularDetailBlendLightingMode;
  
 -void glxConfigureSpecularDetailBlendLighting(int mode)
-+static void glxConfigureSpecularDetailBlendPipelineState(int mode, int lightCount, bool doubleLighting)
++static void glxConfigureSpecularDetailBlendPipelineState(int mode, int lightCount)
  {
 -    sSpecularDetailBlendLightingMode = mode;
 -    SetGameObjectSpecularLightingEnabled(1, sSpecularDetailBlendLightCount);
@@ -2315,13 +2316,13 @@ index 49c67db..a5927ae 100644
 +void glxConfigureSpecularDetailBlendLighting(int mode)
 +{
 +    sSpecularDetailBlendLightingMode = mode;
-+    glxConfigureSpecularDetailBlendPipelineState(mode, sSpecularDetailBlendLightCount, ShouldDoubleGameObjectLighting() != 0);
++    glxConfigureSpecularDetailBlendPipelineState(mode, sSpecularDetailBlendLightCount);
 +}
 +
  template <>
  void GXMaterialProgramImpl<GXSpecularDetailBlendMaterialProgram>::Activate(GLView* view)
  {
-@@ -203,3 +212,36 @@ void GXMaterialProgramImpl<GXSpecularDetailBlendMaterialProgram>::Draw(
+@@ -203,3 +212,35 @@ void GXMaterialProgramImpl<GXSpecularDetailBlendMaterialProgram>::Draw(
      else
          static_cast<GXSpecularDetailBlendMaterialProgram*>(this)->DrawDirect(packet);
  }
@@ -2333,7 +2334,6 @@ index 49c67db..a5927ae 100644
 +    auto* program = static_cast<GXSpecularDetailBlendMaterialProgram*>(packet.materialProgram);
 +    const auto& params = *static_cast<const GXSpecularDetailBlendParameters*>(packet.materialParameters);
 +    const bool match = AutomaticGraphicsPreparationForMatch();
-+    const bool doubled = ShouldDoubleGameObjectLighting() != 0;
 +    const int activeMode = DIFFUSE_LIGHTING_ENABLED;
 +    const int authoredMode = params.lightingEnabled != 0 && IsGameObjectLightingEnabled()
 +        ? activeMode : DIFFUSE_LIGHTING_DISABLED;
@@ -2350,7 +2350,7 @@ index 49c67db..a5927ae 100644
 +        program->ConfigureVertexFormat(true);
 +        program->BindVertexArrays(&packet);
 +        gxSetNumChans(1);
-+        glxConfigureSpecularDetailBlendPipelineState(mode, lightCount, doubled);
++        glxConfigureSpecularDetailBlendPipelineState(mode, lightCount);
 +        if (shadow != 0)
 +            glxConfigureProjectedShadowPipeline(false, false, false);
 +        EmitAutomaticMaterialPipeline(packet);

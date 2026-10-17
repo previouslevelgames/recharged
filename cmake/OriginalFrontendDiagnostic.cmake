@@ -136,6 +136,8 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     # same original sources keeps their original code unchanged.
     target_compile_definitions(${target} PRIVATE MSCHARGED_TWEAKS=1)
     target_sources(${target} PRIVATE src/platform/game_tweaks.cpp src/platform/away_kits.cpp)
+    # The logo reads RECHARGED (issue #63, tweak patch 0022, always on).
+    target_sources(${target} PRIVATE src/platform/recharged_logo.cpp src/platform/recharged_logo_hook.cpp)
     # The release this module's decomp sources resolve to (checked by the host).
     target_sources(${target} PRIVATE src/platform/game_version.cpp)
     # Graphics preparation happens only before the game starts (all known

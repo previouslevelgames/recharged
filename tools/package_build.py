@@ -478,7 +478,7 @@ run the game directly from a terminal:
 
 Keep the loadable modules{runtime_note} and assets beside {beside}. Game data is not
 included; players supply their own disc image (Mario Strikers Charged, USA
-R4QE01 revision 1 or Europe R4QP01 revision 1 or 2, as ISO or RVZ). docs/INSTALL.md covers the first start,
+R4QE01 revision 1 or Europe R4QP01 revision 1 or 2, as ISO, RVZ or WBFS). docs/INSTALL.md covers the first start,
 docs/SETTINGS.md the settings and docs/TROUBLESHOOTING.md common problems.
 
 Host prerequisites remain system components: on Linux, the C/C++ runtimes,

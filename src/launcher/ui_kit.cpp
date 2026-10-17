@@ -335,19 +335,6 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(-0.28f, -0.28f), p(0.28f, 0.28f), color, t * 1.3f);
         draw->AddLine(p(0.28f, -0.28f), p(-0.28f, 0.28f), color, t * 1.3f);
         break;
-    case Icon::Search:
-        draw->AddCircle(p(-0.08f, -0.08f), 0.28f * s, color, 0, t * 1.2f);
-        draw->AddLine(p(0.13f, 0.13f), p(0.40f, 0.40f), color, t * 1.5f);
-        break;
-    case Icon::Pin:
-    {
-        // A push pin: cap, tapering body, collar and needle.
-        draw->AddRectFilled(p(-0.20f, -0.46f), p(0.20f, -0.36f), color, 0.04f * s);
-        draw->AddQuadFilled(p(-0.13f, -0.36f), p(0.13f, -0.36f), p(0.17f, -0.02f), p(-0.17f, -0.02f), color);
-        draw->AddRectFilled(p(-0.32f, -0.04f), p(0.32f, 0.06f), color, 0.04f * s);
-        draw->AddLine(p(0.0f, 0.06f), p(0.0f, 0.46f), color, t * 1.1f);
-        break;
-    }
     }
 }
 

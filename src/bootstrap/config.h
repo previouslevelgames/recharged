@@ -15,28 +15,17 @@
 
 namespace mscharged
 {
-// [library] folder1 to folder16: folders of the launcher's image library.
-inline constexpr std::size_t kMaxLibraryFolders = 16;
-
 struct Settings
 {
     // game.disc: the image the game starts with (the launcher's pinned image).
     // A relative path counts from the settings file.
     std::string disc;
-    // [library] folderN and folderN_subfolders: the folders the launcher lists
-    // Mario Strikers Charged images from, and whether it also looks in their
-    // subfolders. Relative paths count from the settings file, like the disc.
-    struct LibraryFolder
-    {
-        std::string path;
-        bool subfolders = true;
-        bool operator==(const LibraryFolder& other) const
-        {
-            return path == other.path && subfolders == other.subfolders;
-        }
-        bool operator!=(const LibraryFolder& other) const { return !(*this == other); }
-    };
-    std::vector<LibraryFolder> library_folders;
+    // game.folder: the game folder, whose Mario Strikers Charged images the
+    // launcher lists (`game` beside the settings file by default; relative
+    // paths count from the settings file, like the disc), and
+    // game.folder_subfolders: whether it also looks in its subfolders.
+    std::string folder = "game";
+    bool folder_subfolders = true;
     // game.save_folder: where the game keeps its Wii storage (saves). Empty
     // uses the default folder next to the executable; a relative path
     // counts from the settings file, like the disc.
@@ -189,6 +178,6 @@ std::filesystem::path DefaultSaveFolder(const std::filesystem::path& executable_
 std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::filesystem::path& config,
                                         const std::filesystem::path& executable_directory);
 std::filesystem::path LoadDiscPath(const std::filesystem::path& config);
-// A library folder's path: relative ones count from the settings file.
-std::filesystem::path ResolveLibraryFolder(const std::string& folder, const std::filesystem::path& config);
+// The game folder's path: a relative one counts from the settings file.
+std::filesystem::path ResolveGameFolder(const Settings& settings, const std::filesystem::path& config);
 }

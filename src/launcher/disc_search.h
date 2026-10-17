@@ -33,11 +33,15 @@ std::vector<DiscSearchFolder> DiscSearchFolders(const std::filesystem::path& set
 // folders, and for the user's own folder (/run/media/<user>) the drives in it.
 std::vector<std::filesystem::path> RemovableDrives(const std::filesystem::path& media_root, const std::string& user);
 
-// ISO and RVZ files of at least 32 MiB in these folders: folder by folder,
+// ISO, RVZ and WBFS files of at least 32 MiB in these folders: folder by folder,
 // by name within a folder, at most `limit`. Hidden entries and unreadable
 // folders are skipped, and each file is listed once.
 std::vector<std::filesystem::path> FindDiscImages(const std::vector<DiscSearchFolder>& folders,
                                                   std::size_t limit = 16);
+
+// The image's size in bytes: its file's, plus the parts of a split WBFS
+// (.wbf1, .wbf2, ...). Sets `error` when the file cannot be read.
+std::uintmax_t DiscImageSize(const std::filesystem::path& path, std::error_code& error);
 
 // An image FindDiscImages lists, with the index of the folder it was found in
 // and its size and last write time (which tell whether it changed).

@@ -20,6 +20,10 @@ come from the reconstructed source, unchanged.
 - **Languages** of the disc: English, French and Spanish with the USA release;
   English, German, French, Spanish and Italian with the European one.
 - **Movies, music and sound** as on the console.
+- **The logo reads Mario Strikers RECHARGED** on the title screen, in the main
+  menu and on the captain select, with every release: the game's own animated
+  letters, with an R and an E in front of CHARGED
+  ([#63](https://github.com/previouslevelgames/recharged/issues/63)).
 
 ## Controls
 
@@ -140,11 +144,11 @@ profiles, display, audio, gameplay tweaks and advanced options. It asks before
 playing with unsaved changes. Everything is also stored in `recharged.ini`
 beside the program ([settings](SETTINGS.md)).
 
-Its **image library** lists the Mario Strikers Charged images in your game
-folders, with their region, revision, game ID, format and size and the small
-banner the game uses for its save, read from your own image. You pin the one
-Play starts; images of versions this build cannot run yet are listed with the
-reason ([game images](SETTINGS.md#game-images)).
+Its **game images** table lists the Mario Strikers Charged images in your game
+folder, with their region, revision, game ID, format and size and the small
+banner the game uses for its save, read from your own image. Click the one to
+play; images of versions this build cannot run yet are listed with the reason
+([game images](SETTINGS.md#game-images)).
 
 It also **updates Recharged**: when a newer release is out it shows the release
 notes and asks, then installs it in place and restarts; only the program's own

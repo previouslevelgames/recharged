@@ -403,6 +403,12 @@ if(BUILD_TESTING)
     target_include_directories(away_kits_tests PRIVATE src)
     target_compile_features(away_kits_tests PRIVATE cxx_std_20)
     add_test(NAME away_kits COMMAND away_kits_tests)
+    # The logo reads RECHARGED: the rewrite of the front end's scene files.
+    add_executable(recharged_logo_tests tests/recharged_logo.cpp src/platform/recharged_logo.cpp
+        src/platform/host_metadata.cpp src/resources/frontend_scene.cpp)
+    target_include_directories(recharged_logo_tests PRIVATE src)
+    target_compile_features(recharged_logo_tests PRIVATE cxx_std_20)
+    add_test(NAME recharged_logo COMMAND recharged_logo_tests)
     add_executable(frame_rate_tests tests/frame_rate.cpp)
     target_include_directories(frame_rate_tests PRIVATE src)
     target_compile_features(frame_rate_tests PRIVATE cxx_std_17)

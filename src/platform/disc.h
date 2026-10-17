@@ -36,7 +36,7 @@ struct DiscProbe
         Charged,    // Mario Strikers Charged with a readable game partition: `info`
         OtherGame,  // a GameCube or Wii image of another game: `info` has its ID and title
         NotDisc,    // no disc image format the reader knows (`error` says so)
-        Unreadable, // a disc image that cannot be read, or not as ISO or RVZ: `error`
+        Unreadable, // a disc image that cannot be read, or not as ISO, RVZ or WBFS: `error`
     };
     Kind kind = Kind::Unreadable;
     DiscInfo info{};

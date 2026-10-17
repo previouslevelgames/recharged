@@ -1,0 +1,43 @@
+Subject: Recharged title logo
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+The port is called Recharged (issue #64), and its logo says so (issue #63):
+wherever the game draws its logo, on the title screen, in the main menu and
+on Domination's captain select, the word under STRIKERS reads RECHARGED, on
+every release of the game.
+
+FEScene::LoadPackage hands each front-end scene file, as read from the disc,
+to the port (src/platform/recharged_logo_hook.cpp). A scene that draws the
+logo comes back rewritten: copies of the game's own animated R and E letters
+in front of its "charged" letters, the longer word drawn at 90 % so that it
+fits the logo's black backdrop, and the lightning around it extended to the
+new letters. Every
+other scene is left as it is. Like the listed bug fixes the change is always
+on, outside the tweak mask; the host's RECHARGED_ORIGINAL_LOGO=1 keeps the
+original logo. The hook exists only in the native game module.
+
+diff --git a/src/Game/FE/feScene.cpp b/src/Game/FE/feScene.cpp
+index 2a5eaf7..c6a046f 100644
+--- a/src/Game/FE/feScene.cpp
++++ b/src/Game/FE/feScene.cpp
+@@ -13,6 +13,7 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include "platform/frontend_package.h"
+ #endif
++#include "mscharged_tweaks.h"
+ 
+ struct FE_FILE_HEADER
+ {
+@@ -154,6 +155,12 @@ inline void FEScene::LoadPackageResources(FEPackage* pFEPackage)
+ 
+ void FEScene::LoadPackage(void* pData, unsigned long uSize)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port (issue #63): the logo of the title screen, the main menu and the
++    // captain select reads RECHARGED. A scene that draws it comes back
++    // rewritten: R and E in front of its "charged" letters.
++    pData = mscharged_tweak_frontend_package(pData, &uSize);
++#endif
+ #if defined(MSCHARGED_NATIVE)
+     auto nativePackage = mscharged::platform::PrepareFrontendPackage(pData, uSize);
+     pData = nativePackage.Data();

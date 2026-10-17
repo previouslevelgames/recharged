@@ -35,21 +35,24 @@ std::vector<fs::directory_entry> Entries(const fs::path& folder, std::size_t lim
     return entries;
 }
 
-bool IsDiscImageName(const fs::path& path)
+// Whether the extension is `wanted` (lower case), in any case.
+bool HasExtension(const fs::path& path, const char* wanted)
 {
     const auto extension = path.extension().native();
-    const auto is = [&](const char* wanted) {
-        std::size_t n = 0;
-        for (; wanted[n]; ++n)
-        {
-            if (n >= extension.size()) return false;
-            auto c = extension[n];
-            if (c >= 'A' && c <= 'Z') c = fs::path::value_type(c - 'A' + 'a');
-            if (c != fs::path::value_type(wanted[n])) return false;
-        }
-        return n == extension.size();
-    };
-    return is(".iso") || is(".rvz");
+    std::size_t n = 0;
+    for (; wanted[n]; ++n)
+    {
+        if (n >= extension.size()) return false;
+        auto c = extension[n];
+        if (c >= 'A' && c <= 'Z') c = fs::path::value_type(c - 'A' + 'a');
+        if (c != fs::path::value_type(wanted[n])) return false;
+    }
+    return n == extension.size();
+}
+
+bool IsDiscImageName(const fs::path& path)
+{
+    return HasExtension(path, ".iso") || HasExtension(path, ".rvz") || HasExtension(path, ".wbfs");
 }
 
 struct ScanContext
@@ -74,7 +77,7 @@ void Scan(const fs::path& folder, int depth, ScanContext& context)
             continue;
         }
         if (!IsDiscImageName(entry.path()) || !entry.is_regular_file(error)) continue;
-        const auto size = entry.file_size(error);
+        const auto size = DiscImageSize(entry.path(), error);
         if (error || size < kMinimumImageSize) continue;
         const auto modified = entry.last_write_time(error);
         auto identity = fs::weakly_canonical(entry.path(), error);
@@ -85,6 +88,27 @@ void Scan(const fs::path& folder, int depth, ScanContext& context)
     }
     for (const auto& subfolder : subfolders) Scan(subfolder, depth - 1, context);
 }
+}
+
+std::uintmax_t DiscImageSize(const fs::path& path, std::error_code& error)
+{
+    const auto size = fs::file_size(path, error);
+    if (error || !HasExtension(path, ".wbfs")) return size;
+    // A WBFS split into parts continues in name.wbf1, name.wbf2, ... (the
+    // extension's case kept), which the disc reader reads as one image.
+    auto extension = path.extension().string();
+    extension.pop_back();
+    std::uintmax_t total = size;
+    for (int index = 1; index < 100; ++index)
+    {
+        auto part = path;
+        part.replace_extension(extension + std::to_string(index));
+        std::error_code part_error;
+        const auto part_size = fs::file_size(part, part_error);
+        if (part_error) break;
+        total += part_size;
+    }
+    return total;
 }
 
 std::vector<DiscSearchFolder> DiscSearchFolders(const fs::path& settings_folder, const fs::path& home,

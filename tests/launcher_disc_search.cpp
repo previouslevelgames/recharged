@@ -56,6 +56,9 @@ int main()
 
         MakeFile(root / "port" / "game" / "b.rvz", kImage);
         MakeFile(root / "port" / "game" / "a.ISO", kImage);
+        // A split WBFS: the .wbfs is the image, its .wbf1 part is not listed.
+        MakeFile(root / "port" / "game" / "d.wbfs", kImage);
+        MakeFile(root / "port" / "game" / "d.wbf1", kImage);
         MakeFile(root / "port" / "game" / "Charged (USA)" / "c.iso", kImage);
         MakeFile(root / "port" / "game" / "small.iso", 1024);
         MakeFile(root / "port" / "game" / "notes.txt", kImage);
@@ -66,22 +69,24 @@ int main()
         MakeFile(root / "home" / "Games" / "Wii" / "e.rvz", kImage);
         MakeFile(root / "sd" / "Emulation" / "roms" / "wii" / "f.rvz", kImage);
         auto images = FindDiscImages(folders);
-        Require(Names(images, root) == "port/game/a.ISO, port/game/b.rvz, port/game/Charged (USA)/c.iso, "
+        Require(Names(images, root) == "port/game/a.ISO, port/game/b.rvz, port/game/d.wbfs, port/game/Charged (USA)/c.iso, "
                                        "port/beside.rvz, home/Games/Wii/e.rvz, sd/Emulation/roms/wii/f.rvz",
                 "Found " + Names(images, root));
         Require(FindDiscImages(folders, 2).size() == 2, "The limit holds");
         // A folder searched twice (a link to it, or the same drive mounted twice) lists its files once.
-        Require(FindDiscImages({{root / "port" / "game", 0}, {root / "port" / "game" / ".", 0}}).size() == 2,
+        Require(FindDiscImages({{root / "port" / "game", 0}, {root / "port" / "game" / ".", 0}}).size() == 3,
                 "Each file is listed once");
         Require(FindDiscImages({{root / "missing", 1}}).empty(), "A missing folder finds nothing");
         // With the folder each image was found in, and its size.
         const auto listed = ListDiscImages(folders, 16);
-        Require(listed.size() == 6 && listed[3].path.filename() == "beside.rvz" && listed[3].folder == 1
-                    && listed[3].size == kImage && listed[4].folder == 2,
+        Require(listed.size() == 7 && listed[4].path.filename() == "beside.rvz" && listed[4].folder == 1
+                    && listed[4].size == kImage && listed[5].folder == 2,
                 "Images know their folder and size");
+        Require(listed[2].path.filename() == "d.wbfs" && listed[2].size == 2 * kImage,
+                "A split WBFS counts its parts");
         // A smaller entry limit reads fewer entries of each folder.
         Require(ListDiscImages({{root / "port" / "game", 0}}, 16, 1).size() <= 1
-                    && ListDiscImages({{root / "port" / "game", 0}}, 16).size() == 2, "The entry limit holds");
+                    && ListDiscImages({{root / "port" / "game", 0}}, 16).size() == 3, "The entry limit holds");
 
         // /run/media: drives directly in it, and in the user's own folder.
         fs::create_directories(root / "media" / "deck" / "SD card");

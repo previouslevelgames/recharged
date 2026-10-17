@@ -248,53 +248,37 @@ int main()
                     && ResolveSaveFolder(changed, path, executable) == directory / "absolute saves",
                     "An absolute save folder round trips");
         }
-        // Image library folders (#65): [library] folderN in quotes, gaps close
-        // up, and removed folders leave the file.
+        // The game folder (#65): game beside the settings file by default, in
+        // quotes, with its subfolders; the first builds' [library] list moves to it.
         {
-            Require(Settings{}.library_folders.empty(), "No library folders by default");
+            Require(Settings{}.folder == "game" && Settings{}.folder_subfolders, "Default game folder");
+            Require(ResolveGameFolder(Settings{}, path) == path.parent_path() / "game", "The game folder is relative");
             const std::string sd = mscharged::PathUtf8(directory / "sd card" / "Wii");
-            std::ofstream(path) << "[game]\ndisc = \"game/R4QE01.rvz\"\n\n[library]\n; my folders\n"
-                                   "folder3 = \"" << sd << "\"\nfolder1 = \"game\"\nfolder1_subfolders = false\n";
-            auto library = LoadConfig(path);
-            const auto& folders = library.settings.library_folders;
-            Require(folders.size() == 2 && folders[0].path == "game" && !folders[0].subfolders
-                        && folders[1].path == sd && folders[1].subfolders,
-                    "Library folders load in number order, subfolders on by default");
-            Require(ResolveLibraryFolder("game", path) == path.parent_path() / "game"
-                        && ResolveLibraryFolder(sd, path) == directory / "sd card" / "Wii",
-                    "Relative library folders count from the settings file");
-            auto changed = library.settings;
-            changed.library_folders.push_back({"Wii games", true});
-            SaveConfig(library, changed);
-            Require(library.contents.find("folder1 = \"game\"") != std::string::npos
-                        && library.contents.find("folder2 = \"" + sd + "\"") != std::string::npos
-                        && library.contents.find("folder3 = \"Wii games\"") != std::string::npos
-                        && library.contents.find("folder2_subfolders = true") != std::string::npos,
-                    "Library folders are numbered again and quoted");
-            Require(LoadConfig(path).settings.library_folders == changed.library_folders, "Library folders round trip");
-            Require(library.contents.find("disc = \"game/R4QE01.rvz\"") != std::string::npos,
-                    "The chosen disc stays");
-            changed.library_folders.erase(changed.library_folders.begin() + 1, changed.library_folders.end());
-            SaveConfig(library, changed);
-            Require(library.contents.find("folder2") == std::string::npos
-                        && LoadConfig(path).settings.library_folders.size() == 1,
-                    "Removed library folders leave the file");
-            changed.library_folders.clear();
-            SaveConfig(library, changed);
-            Require(library.contents.find("[library]") == std::string::npos
-                        && LoadConfig(path).settings.library_folders.empty(),
-                    "Removing every folder removes the section");
-            std::ofstream(path) << "[library]\nfolder0 = \"x\"\n";
-            Reject([&] { LoadConfig(path); });
-            std::ofstream(path) << "[library]\nfolder17 = \"x\"\n";
-            Reject([&] { LoadConfig(path); });
-            std::ofstream(path) << "[library]\nfolders = \"x\"\n";
-            Reject([&] { LoadConfig(path); });
-            std::ofstream(path) << "[library]\nfolder2_subfolders = true\n";
-            Reject([&] { LoadConfig(path); });
-            std::ofstream(path) << "[library]\nfolder1 = \"\"\n";
-            Reject([&] { LoadConfig(path); });
-            std::ofstream(path) << "[library]\nfolder1 = \"x\"\nfolder1_subfolders = maybe\n";
+            std::ofstream(path) << "[game]\ndisc = \"game/R4QE01.rvz\"\nfolder = \"" << sd << "\"\n"
+                                   "folder_subfolders = false\n";
+            auto loaded = LoadConfig(path);
+            Require(loaded.settings.folder == sd && !loaded.settings.folder_subfolders
+                        && ResolveGameFolder(loaded.settings, path) == directory / "sd card" / "Wii",
+                    "An absolute game folder loads");
+            auto changed = loaded.settings;
+            changed.folder = "Wii games";
+            changed.folder_subfolders = true;
+            SaveConfig(loaded, changed);
+            Require(loaded.contents.find("folder = \"Wii games\"") != std::string::npos
+                        && loaded.contents.find("folder_subfolders = true") != std::string::npos
+                        && LoadConfig(path).settings.folder == "Wii games",
+                    "The game folder round trips in quotes");
+            std::ofstream(path) << "[game]\ndisc = \"x.rvz\"\n\n[library]\nfolder1 = \"" << sd
+                                << "\"\nfolder1_subfolders = false\nfolder2 = \"other\"\n";
+            auto old = LoadConfig(path);
+            Require(old.settings.folder == sd && !old.settings.folder_subfolders, "The first library folder is taken");
+            SaveConfig(old, old.settings);
+            Require(old.contents.find("[library]") == std::string::npos && old.contents.find("folder2") == std::string::npos
+                        && old.contents.find("folder = \"" + sd + "\"") != std::string::npos,
+                    "Saving replaces the old folder list");
+            std::ofstream(path) << "[game]\nfolder = \"\"\n";
+            Require(LoadConfig(path).settings.folder == "game", "An empty game folder is the default");
+            std::ofstream(path) << "[game]\nfolder = \"x\"\nfolder_subfolders = maybe\n";
             Reject([&] { LoadConfig(path); });
         }
 

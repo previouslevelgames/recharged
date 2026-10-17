@@ -239,7 +239,7 @@ ImageState StateOf(const DiscProbe& probe)
     return SupportedRelease(probe.info) ? ImageState::Playable : ImageState::Unsupported;
 }
 
-LibraryScan ScanLibrary(const std::vector<LibraryFolder>& folders, ImageCache cache, bool recheck_unreadable,
+LibraryScan ScanLibrary(const std::vector<LibraryFolder>& folders, ImageCache cache,
                         const std::set<std::string>& banners_known, const std::vector<fs::path>& keep,
                         ScanProgress& progress, const ProbeFunction& probe, const BannerFunction& banner)
 {
@@ -272,14 +272,8 @@ LibraryScan ScanLibrary(const std::vector<LibraryFolder>& folders, ImageCache ca
             break;
         }
         listed.insert(ImageCache::Key(file.path));
-        const DiscProbe* cached = cache.Find(file.path, file.size, file.modified);
-        DiscProbe result;
-        if (cached && !(recheck_unreadable && cached->kind == DiscProbe::Kind::Unreadable)) result = *cached;
-        else
-        {
-            result = probe(file.path);
-            cache.Put(file.path, file.size, file.modified, result);
-        }
+        DiscProbe result = probe(file.path);
+        cache.Put(file.path, file.size, file.modified, result);
         ++progress.checked;
         if (result.kind == DiscProbe::Kind::OtherGame) { ++scan.other_games; continue; }
         if (result.kind == DiscProbe::Kind::NotDisc) continue;
@@ -323,51 +317,31 @@ std::string ImageTitle(const LibraryImage& image)
 }
 
 std::vector<const LibraryImage*> ArrangeImages(const std::vector<LibraryImage>& images, LibrarySort sort,
-                                               bool descending, std::string_view search)
+                                               bool descending)
 {
-    std::vector<std::string> words;
-    {
-        std::istringstream input{std::string(search)};
-        for (std::string word; input >> word;) words.push_back(Lower(word));
-    }
     std::vector<const LibraryImage*> arranged;
-    for (const auto& image : images)
-    {
-        if (!words.empty())
-        {
-            std::string text = ImageTitle(image) + " " + FileName(image);
-            if (image.probe.kind == DiscProbe::Kind::Charged)
-            {
-                const auto& info = image.probe.info;
-                text += std::string(" ") + DiscRegionName(info.game_id) + " " + info.game_id + " revision "
-                    + std::to_string(unsigned(info.revision)) + " rev " + std::to_string(unsigned(info.revision))
-                    + " " + info.format;
-            }
-            text = Lower(text);
-            if (!std::all_of(words.begin(), words.end(),
-                             [&](const std::string& word) { return text.find(word) != std::string::npos; }))
-                continue;
-        }
-        arranged.push_back(&image);
-    }
+    for (const auto& image : images) arranged.push_back(&image);
     const auto name = [](const LibraryImage* image) { return Lower(FileName(*image)); };
     const auto location = [](const LibraryImage* image) { return Lower(PathUtf8(image->path)); };
+    const auto release = [&](const LibraryImage* image) {
+        const bool charged = image->probe.kind == DiscProbe::Kind::Charged;
+        return std::make_tuple(charged ? 0 : 1, charged ? RegionRank(image->probe.info.game_id) : 0,
+                               charged ? image->probe.info.revision : 0, name(image), location(image));
+    };
     const auto less = [&](const LibraryImage* a, const LibraryImage* b) {
         switch (sort)
         {
-        case LibrarySort::Release:
+        case LibrarySort::Release: return release(a) < release(b);
+        case LibrarySort::Name: return std::make_tuple(name(a), location(a)) < std::make_tuple(name(b), location(b));
+        case LibrarySort::Format:
         {
             const auto key = [&](const LibraryImage* image) {
-                const bool charged = image->probe.kind == DiscProbe::Kind::Charged;
-                return std::make_tuple(charged ? 0 : 1, charged ? RegionRank(image->probe.info.game_id) : 0,
-                                       charged ? image->probe.info.revision : 0, name(image), location(image));
+                return std::make_tuple(image->probe.kind == DiscProbe::Kind::Charged ? 0 : 1, image->probe.info.format,
+                                       release(image));
             };
             return key(a) < key(b);
         }
-        case LibrarySort::Name: return std::make_tuple(name(a), location(a)) < std::make_tuple(name(b), location(b));
-        case LibrarySort::Size:
-            return std::make_tuple(b->size, name(a), location(a)) < std::make_tuple(a->size, name(b), location(b));
-        default: return location(a) < location(b);
+        default: return std::make_tuple(a->size, name(a), location(a)) < std::make_tuple(b->size, name(b), location(b));
         }
     };
     std::stable_sort(arranged.begin(), arranged.end(), less);
@@ -423,6 +397,21 @@ std::vector<LibraryFolder> FoldersOfImages(const std::vector<fs::path>& images)
         merged.push_back(kept);
     }
     return merged;
+}
+
+bool InFolder(const fs::path& image, const LibraryFolder& folder)
+{
+    // Absolute and normalised, without a trailing separator ("/games/" is "/games").
+    const auto normal = [](const fs::path& path) {
+        auto key = PathFromUtf8(ImageCache::Key(path));
+        if (key.filename().empty() && key.has_relative_path()) key = key.parent_path();
+        return key;
+    };
+    const auto relative = normal(image.parent_path()).lexically_relative(normal(folder.path));
+    if (relative.empty() || *relative.begin() == "..") return false;
+    if (relative == ".") return true;
+    const auto depth = std::distance(relative.begin(), relative.end());
+    return folder.subfolders && depth <= kLibraryDepth;
 }
 
 std::string MissingImageReason(const fs::path& path)

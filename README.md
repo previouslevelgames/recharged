@@ -16,8 +16,8 @@ graphics, sound, controllers, disc access and saves.
 
 > [!IMPORTANT]
 > **The downloads contain no game files.** You need your own copy of
-> **Mario Strikers Charged** as an `.iso` or `.rvz` disc image: the USA
-> version (game ID `R4QE01`, revision 1) or the European version, *Mario
+> **Mario Strikers Charged** as an `.iso`, `.rvz` or `.wbfs` disc image: the
+> USA version (game ID `R4QE01`, revision 1) or the European version, *Mario
 > Strikers Charged Football* (`R4QP01`, revision 1 or 2). Japanese and Korean
 > discs are not supported yet.
 
@@ -86,10 +86,10 @@ See the **[feature list](docs/FEATURES.md)** and the
 
 ## Your game disc
 
-Recharged needs your own, legally obtained copy of the game as an `.iso` or
-`.rvz` disc image, which it reads directly from where you keep it. No game
+Recharged needs your own, legally obtained copy of the game as an `.iso`,
+`.rvz` or `.wbfs` disc image, which it reads directly from where you keep it. No game
 files are included, and this project cannot help you obtain them. The launcher
-lists the images in your game folders, checks each one and tells you which
+lists the images in your game folder, checks each one and tells you which
 versions it runs; renaming a file does not change its version.
 
 ## Questions
@@ -142,7 +142,7 @@ and attach `logs/recharged.log` from the program folder.
   GameCube/Wii platform layer, with graphics through
   [Dawn](https://dawn.googlesource.com/dawn).
 - [SDL](https://libsdl.org), [Dear ImGui](https://github.com/ocornut/imgui),
-  [nod](https://github.com/encounter/nod) (reads the ISO/RVZ image) and the
+  [nod](https://github.com/encounter/nod) (reads the ISO/RVZ/WBFS image) and the
   other [libraries](extern/README.md) Recharged is built with.
 - Launcher artwork from SteamGridDB: header by Jiquita, icon by roryypc.
 - Everyone who tested Recharged and sent in logs.

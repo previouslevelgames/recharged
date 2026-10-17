@@ -26,31 +26,39 @@ instead.
 
 ## Game images
 
-**Image library.** *Game → Image library* lists the Mario Strikers Charged
-images (`.iso`, `.rvz`) in your game folders: title, region, revision, game ID,
-format, size and file name. **Add folder...** (or dropping a folder onto the
-launcher) adds a folder, *Subfolders* also lists the images up to four levels
-below it, and drives or memory cards that are not connected show *Not
-available* until they are. Images of other games are left out. Images are
-checked in the background and remembered; an unchanged file is not opened
-again, and **Refresh** looks through the folders once more.
+*Game → Game images* is one table of the Mario Strikers Charged images
+(`.iso`, `.rvz`, `.wbfs`) in your game folder: title, region, revision, game
+ID, format, size and file name. Click a column title to sort by it.
 
-**Pinned image.** Play always starts the pinned image (`[game] disc`). Only you
-change it: **Use this image** in the library, **Browse for an image...**, or
-dropping an image onto the launcher. Images of versions this build cannot run
-yet are listed with the reason but cannot be pinned. If the pinned image moves
-or its drive is not connected, Play explains which release is missing and
-offers **Locate...**, a copy of the same release from the library, or another
-image; it never switches by itself.
+**Choosing the image.** Click an image to play it: its row is marked, and Play
+starts it from then on (`[game] disc`, saved with your settings). Sorting or
+refreshing never changes it. **Choose file...** (or dropping an image onto the
+launcher) plays an image from outside your game folder; it stays chosen until
+you click another image, whatever folder you select. Images of versions this
+build cannot run yet are listed with the reason and cannot be chosen. If the
+chosen image moves or its drive is not connected, its row and the Play page say
+so; click the row (or **Locate...**) to find it, use a copy of the same
+release, or choose another image. Recharged never switches to another image by
+itself.
+
+**Game folder.** By default the `game` folder beside the program; clicking it
+(or **Change...**, or dropping a folder onto the launcher) selects another one,
+and *Subfolders* also lists the images up to four levels below it. The list
+always shows the folder as it is now: it is read again at every start, when you
+select a folder or switch *Subfolders*, and with the refresh button. When the
+new folder or setting leaves out the chosen image, the folder's first playable
+image takes its place, or none when the folder has none. A folder on a drive or
+memory card that is not connected shows *Not found* until it is. Images of
+other games are left out.
 
 **Banners.** The small horizontal pictures are the banners the game puts into
 its Wii save, one per region. The launcher reads each one from your own image
 and keeps a copy in `data/launcher/banners/`; Recharged ships no game artwork
 and downloads nothing.
 
-The library is stored as `[library] folder1` to `folder16` with
-`folderN_subfolders` in `recharged.ini`; relative folders count from the
-settings file, like the disc.
+The folder is stored as `[game] folder` and `folder_subfolders` in
+`recharged.ini`; a relative folder counts from the settings file, like the
+disc.
 
 ## Graphics
 
@@ -86,7 +94,7 @@ log's `Frame rate:` line shows how frames are paced.
 **Picture.** *Sharp* (default) and *clean* fill the window with the game's
 picture; *soft* keeps the look of the Wii's TV signal, with its empty border.
 The 3D scene renders at the window's resolution by default, or at the Wii's
-640 x 448 or 2x-4x of it (`[display] resolution`, only in `recharged.ini`).
+640 x 448 or 2x-4x of it (Display → 3D resolution, `[display] resolution`).
 Antialiasing (4x) is on by default. The layout is 16:9 by default, or 4:3;
 resizing keeps it and fills unused space with bars.
 
