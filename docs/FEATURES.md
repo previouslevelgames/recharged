@@ -116,6 +116,13 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   fence of every other stadium, invisible but with its sparks: the ball and
   items bounce off it, and players knocked into it are electrocuted instead
   of falling off the island. Online matches are unchanged.
+- **Fair ball contests**: when players of both teams reach a loose ball in
+  the same instant, the one the game updates first takes it. The game
+  shuffles that order at every kickoff in a way that puts the home team
+  first slightly more often (52 % of the time on average, up to 55 %). With
+  this option the order is shuffled fairly, and again every simulation step.
+  On by default, as it is recommended to every player; online matches always
+  play with it.
 - **Mirror match**: both teams can pick the same captain in Domination. The
   away team wears an away kit, in the menus as on the field: the game's own,
   or for Mario, Luigi, Wario and Waluigi, who have none, one made from their

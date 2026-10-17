@@ -31,7 +31,8 @@ if(BUILD_TESTING AND CMAKE_SIZEOF_VOID_P EQUAL 8
     target_compile_features(native_dsp_memory_tests PRIVATE c_std_17 cxx_std_17)
     target_compile_options(native_dsp_memory_tests PRIVATE
         -ffunction-sections -fdata-sections -fexceptions -Wno-unknown-pragmas)
-    target_link_libraries(native_dsp_memory_tests PRIVATE charged_native_dsp_memory aurora::os)
+    target_link_libraries(native_dsp_memory_tests PRIVATE charged_native_dsp_memory aurora::os
+        SDL3::SDL3)
     target_link_options(native_dsp_memory_tests PRIVATE -Wl,--gc-sections)
     # Genuine OS memory/pin/mailbox qualifier without GX/window initialization.
     # It reuses this same test/provider graph in a GX-enabled Release build.

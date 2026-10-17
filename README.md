@@ -74,10 +74,11 @@ updates Recharged in place when you agree.
   16:9, any window size or fullscreen.
 - **High frame rates.** 120, 144, your display's refresh rate or unlimited,
   while the game keeps its original speed.
-- **Optional tweaks**, all off by default: skip the intro, fast menus, no Mega
-  Strikes, unlock everything, CPU vs CPU, fast terrain, Thunder Island walls,
-  mirror matches, blue Peach and no HUD. Three bugs of the original game are
-  fixed.
+- **Optional tweaks**: skip the intro, fast menus, no Mega Strikes, unlock
+  everything, CPU vs CPU, fast terrain, Thunder Island walls, mirror matches,
+  blue Peach and no HUD, all off by default. **Fair ball contests**, on by
+  default, keeps the home team from winning loose balls more often. Three bugs
+  of the original game are fixed.
 - **A launcher** that checks your disc, keeps every setting in one place and
   updates itself in place.
 

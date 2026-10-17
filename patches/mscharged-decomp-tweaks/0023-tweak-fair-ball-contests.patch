@@ -1,0 +1,111 @@
+Subject: Tweak: fair ball contests
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+cGame::Update updates the ten players one at a time in the order of
+m_pRandomPlayersArray, and when two of them can take the ball in the same
+step, the one updated first takes it (cPlayer::CanPickupBall sees the ball
+still loose). RandomizePlayerUpdateOrder sets that order at every kickoff
+(ResetCharacters): the home team's five players, then the away team's,
+then each slot swapped with any of the ten. Of those 10^10 equally likely
+swap sequences some orders come out more often than others: a home player
+is updated before a given away player in 52.3 % of kickoffs on average and
+in up to 55.4 % for some pairs, and the order holds until the next kickoff.
+
+With "Fair ball contests" enabled, the kickoff shuffle is a Fisher-Yates
+shuffle (slot i takes one of the slots from i on), where every order is
+equally likely. It draws as many numbers as the original, so the match's
+random sequence (gNetworkRandomSeed) is unchanged. Every step then shuffles
+the order again, so no player is ahead of another for a whole kickoff. These
+shuffles draw from their own seed, set at each kickoff from the match's seed
+without advancing it, and leave every other random event of the match as in
+the original. Online matches always play with the tweak, whatever the
+setting: both machines must update the players in the same order, and the
+order is part of the state they checksum (cGame::SyncLog), so a machine
+without it falls out of sync at the first check after kickoff.
+
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index 36d981f..d3e5166 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -48,6 +48,7 @@
+ #include "Game/Render/ShootToScoreArrow.h"
+ #include "Game/Render/NPCManager.h"
+ #include "Game/Render/PeachPhoto.h"
++#include "mscharged_tweaks.h"
+ #include "Game/Render/ElectricFence.h"
+ #include "Game/ReplayChoreo.h"
+ #include "Game/ReplayManager.h"
+@@ -1381,6 +1382,33 @@ void cGame::PreUpdate(float deltaTime)
+         g_pTeams[i]->PreUpdate(deltaTime);
+     }
+ }
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/NetworkRandomSeed.h"
++
++// Port tweak "Fair ball contests": the update order is shuffled without bias
++// at kickoff and again every step. Online matches always play with it, so
++// that both machines update the players in the same order.
++static bool FairBallContests()
++{
++    return mscharged_tweak_enabled(MSCHARGED_TWEAK_FAIR_BALL_CONTESTS) || GameInfoManager::Instance()->IsOnline();
++}
++
++// The per-step shuffles draw from their own seed, set at each kickoff from the
++// match's seed without advancing it, so the match's other random events stay
++// those of the original.
++static unsigned int sUpdateOrderSeed;
++
++static void ReshuffleUpdateOrder(cPlayer** players)
++{
++    for (int i = 0; i < 9; i++)
++    {
++        int j = i + (int)nlRandom(10 - i, &sUpdateOrderSeed);
++        cPlayer* temp = players[i];
++        players[i] = players[j];
++        players[j] = temp;
++    }
++}
++#endif
+ void cGame::RandomizePlayerUpdateOrder()
+ {
+     int i;
+@@ -1394,6 +1422,24 @@ void cGame::RandomizePlayerUpdateOrder()
+     }
+ 
+     static FilteredRandomRange randgen;
++#if defined(MSCHARGED_TWEAKS)
++    // Fisher-Yates: slot i takes one of the slots not yet chosen. As many
++    // draws as the original (the last has a single choice but advances the
++    // seed), so the match's random sequence is unchanged. Then the seed of
++    // the per-step shuffles.
++    if (FairBallContests())
++    {
++        for (i = 0; i < 10; i++)
++        {
++            int j = i + randgen.genrand(10 - i);
++            cPlayer* temp = m_pRandomPlayersArray[i];
++            m_pRandomPlayersArray[i] = m_pRandomPlayersArray[j];
++            m_pRandomPlayersArray[j] = temp;
++        }
++        nlSetRandomSeed(GetNetworkRandomSeed() ^ 0x9E3779B9, &sUpdateOrderSeed);
++        return;
++    }
++#endif
+     for (i = 0; i < 10; i++)
+     {
+         int j = randgen.genrand(10);
+@@ -1496,6 +1542,14 @@ void cGame::Update(float fDeltaT)
+ 
+     mpAIContext->Update(true, fDeltaT);
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Fair ball contests": a new order every step.
++    if (FairBallContests())
++    {
++        ReshuffleUpdateOrder(m_pRandomPlayersArray);
++    }
++#endif
++
+     for (int i = 0; i < 10; i++)
+     {
+         g_pCurrentlyUpdatingCharacter = m_pRandomPlayersArray[i];

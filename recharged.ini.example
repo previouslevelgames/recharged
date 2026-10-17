@@ -160,7 +160,8 @@ shake_nunchuk = Q
 
 [gameplay]
 # Optional tweaks that change the original game. All off plays it unchanged;
-# --no-tweaks turns them off for one run.
+# --no-tweaks turns them off for one run. Off unless set, except
+# fair_ball_contests, recommended to every player and on unless set to false.
 # skip_intro: start at the main menu (no notices, logo, intro or title screen).
 # fast_menus: skip menu transitions, also in the pause menu and on the
 # screens after a match (matches, movies and credits unchanged).
@@ -183,6 +184,9 @@ shake_nunchuk = Q
 # no_hud: matches start without the scoreboard, player markers and captions
 # (H shows or hides them in a match); the Mega Strike meter and its defence
 # stay.
+# fair_ball_contests: when players of both teams reach a loose ball at once,
+# neither team wins it more often (the game's player order slightly favours
+# the home team). On by default; online matches always play with it.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
@@ -193,6 +197,7 @@ mirror_match = false
 thunder_island_walls = false
 blue_peach = false
 no_hud = false
+fair_ball_contests = true
 
 [advanced]
 # Backend graphics debug layers (slower; turn on for bug reports). WebGPU

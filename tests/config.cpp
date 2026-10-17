@@ -344,16 +344,22 @@ int main()
             std::ofstream(path) << invalid;
             Reject([&] { LoadConfig(path); });
         }
-        // [gameplay] tweaks: all off by default and without the section;
-        // each round trips on its own and invalid values are rejected.
-        Require(defaults.GameTweakMask() == 0, "Tweaks are off by default");
+        // [gameplay] tweaks: only the recommended ones on by default and
+        // without the section, and those turn off; each round trips on its
+        // own and invalid values are rejected.
+        const unsigned recommended = GameTweakBit(GameTweak::FairBallContests);
+        Require(defaults.GameTweakMask() == recommended, "Only recommended tweaks are on by default");
         std::ofstream(path) << "[game]\ndisc = game.rvz\n";
-        Require(LoadConfig(path).settings.GameTweakMask() == 0, "No [gameplay] section means no tweaks");
+        Require(LoadConfig(path).settings.GameTweakMask() == recommended,
+            "No [gameplay] section means the recommended tweaks");
+        std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nfair_ball_contests = false\n";
+        Require(LoadConfig(path).settings.GameTweakMask() == 0, "A recommended tweak turns off");
         for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
         {
             const auto tweaks = directory / ("tweaks" + std::to_string(n) + ".ini");
             auto tweakFile = LoadConfig(tweaks, true);
             Settings tweakSettings;
+            tweakSettings.tweaks = {};
             tweakSettings.tweaks[n] = true;
             SaveConfig(tweakFile, tweakSettings);
             const auto reloaded = LoadConfig(tweaks);

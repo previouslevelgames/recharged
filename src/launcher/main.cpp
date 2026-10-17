@@ -4861,6 +4861,7 @@ private:
         {
             TweakRow(GameTweak::FastTerrain);
             TweakRow(GameTweak::ThunderIslandWalls);
+            TweakRow(GameTweak::FairBallContests);
             TweakRow(GameTweak::NoMegaStrikes);
             EndRows();
         }

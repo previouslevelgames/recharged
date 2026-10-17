@@ -1,8 +1,9 @@
 #pragma once
 
-// Opt-in game tweaks: [gameplay] in recharged.ini. They change the original
-// game on purpose, so each is off unless the player turns it on, and with all
-// of them off the game runs unchanged apart from the series' always-on fixes.
+// Game tweaks: [gameplay] in recharged.ini. They change the original game on
+// purpose, so each is off unless the player turns it on, except the few
+// recommended to every player, which are on unless turned off. With all of
+// them off the game runs unchanged apart from the series' always-on fixes.
 // The hooks are the separate patch series patches/mscharged-decomp-tweaks; the
 // game module receives the enabled set as a bit mask (charged_configure_tweaks)
 // before original main starts.
@@ -27,6 +28,7 @@ enum class GameTweak : unsigned
     ThunderIslandWalls = 7,
     BluePeach = 8,
     NoHud = 9,
+    FairBallContests = 10,
 };
 
 struct GameTweakInfo
@@ -35,9 +37,10 @@ struct GameTweakInfo
     const char* key;         // [gameplay] key
     const char* name;        // launcher label and log name
     const char* description; // launcher description
+    bool on_by_default = false; // recommended to every player: on without its [gameplay] key
 };
 
-inline constexpr std::array<GameTweakInfo, 10> kGameTweaks{{
+inline constexpr std::array<GameTweakInfo, 11> kGameTweaks{{
     {GameTweak::SkipIntro, "skip_intro", "Skip intro",
      "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
@@ -70,7 +73,21 @@ inline constexpr std::array<GameTweakInfo, 10> kGameTweaks{{
      "Matches start without the scoreboard, player markers and captions (replay label, goal banner, super ability "
      "card), for clean recordings. Press H in a match to show or hide them. The Mega Strike meter and its defence "
      "targets stay."},
+    {GameTweak::FairBallContests, "fair_ball_contests", "Fair ball contests",
+     "When players of both teams reach a loose ball at once, neither team wins more often. The game updates the "
+     "players in an order it shuffles at kickoff, slightly in the home team's favour; this shuffles it fairly, and "
+     "again every step. On by default; online matches always play with it.",
+     true},
 }};
+
+// The tweaks on without a [gameplay] key.
+inline constexpr std::array<bool, kGameTweaks.size()> DefaultGameTweaks()
+{
+    std::array<bool, kGameTweaks.size()> tweaks{};
+    for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
+        tweaks[n] = kGameTweaks[n].on_by_default;
+    return tweaks;
+}
 
 inline constexpr unsigned GameTweakBit(GameTweak tweak) { return 1u << unsigned(tweak); }
 

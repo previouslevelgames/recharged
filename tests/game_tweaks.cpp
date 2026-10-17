@@ -149,7 +149,8 @@ int main()
             && unsigned(mscharged::GameTweak::MirrorMatch) == MSCHARGED_TWEAK_MIRROR_MATCH
             && unsigned(mscharged::GameTweak::ThunderIslandWalls) == MSCHARGED_TWEAK_THUNDER_ISLAND_WALLS
             && unsigned(mscharged::GameTweak::BluePeach) == MSCHARGED_TWEAK_BLUE_PEACH
-            && unsigned(mscharged::GameTweak::NoHud) == MSCHARGED_TWEAK_NO_HUD,
+            && unsigned(mscharged::GameTweak::NoHud) == MSCHARGED_TWEAK_NO_HUD
+            && unsigned(mscharged::GameTweak::FairBallContests) == MSCHARGED_TWEAK_FAIR_BALL_CONTESTS,
             "Host tweak bits and the game hooks' IDs must agree");
 
         // Before configuration and with an empty set: the original game.

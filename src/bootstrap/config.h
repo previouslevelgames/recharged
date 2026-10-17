@@ -137,8 +137,9 @@ struct Settings
     // launcher.update_channel: release (official releases), test (also test
     // builds of pull requests) or auto (where this build comes from).
     std::string update_channel = "auto";
-    // [gameplay]: opt-in game tweaks (kGameTweaks order), all off by default.
-    std::array<bool, kGameTweaks.size()> tweaks{};
+    // [gameplay]: game tweaks (kGameTweaks order), off by default except the
+    // recommended ones.
+    std::array<bool, kGameTweaks.size()> tweaks = DefaultGameTweaks();
     unsigned GameTweakMask() const
     {
         unsigned mask = 0;

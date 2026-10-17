@@ -252,7 +252,7 @@ Settings Decode(const Values& values)
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
     {
-        bool value = false;
+        bool value = kGameTweaks[n].on_by_default;
         boolean((std::string("gameplay.") + kGameTweaks[n].key).c_str(), value);
         s.tweaks[n] = value;
     }
