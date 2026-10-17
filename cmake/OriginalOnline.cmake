@@ -177,13 +177,29 @@ function(mscharged_select_original_frontend_online target)
             src/Game/SH/SHOnlineMiiSelectOverlay.cpp
             src/Game/SH/SHOnlinePlayerCount.cpp
             src/Game/SH/SHOnlineRanking.cpp
-            src/Game/FE/feOnlinePlayerRow.cpp)
+            src/Game/FE/feOnlinePlayerRow.cpp
+            src/Game/FE/OnlineRanking.cpp)
         set(_source "${MSCHARGED_PREPARED}/${_relative}")
         if(NOT _source IN_LIST _online_known)
             target_sources("${target}" PRIVATE "${_source}")
             list(APPEND _online_known "${_source}")
         endif()
     endforeach()
+    # These TUs format and copy Wii16 L"%d"/L"%ls" literals through the
+    # original 16-bit formatter; none of them makes host wide-character calls.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+        foreach(_online_wii16 IN ITEMS
+                src/Game/SH/SHOnlineFriendCodeEntry.cpp
+                src/Game/SH/SHOnlineFriendsChooseSides.cpp
+                src/Game/SH/SHOnlineHub.cpp
+                src/Game/SH/SHOnlineInvitePreview.cpp
+                src/Game/SH/SHOnlineMiiSelect.cpp
+                src/Game/SH/SHOnlineMiiSelectOverlay.cpp
+                src/Game/SH/SHOnlineRanking.cpp)
+            set_property(SOURCE "${MSCHARGED_PREPARED}/${_online_wii16}"
+                APPEND PROPERTY COMPILE_OPTIONS -fshort-wchar)
+        endforeach()
+    endif()
 
     target_link_libraries(charged_original_game_host PRIVATE
         charged_network charged_native_system_settings)

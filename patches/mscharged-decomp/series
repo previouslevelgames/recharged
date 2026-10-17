@@ -536,3 +536,12 @@
 0737-native-mii-loading-from-nand.patch
 0738-native-nhttp-system-storage.patch
 0739-native-rfl-create-id-flags.patch
+0740-admit-original-online-scenes.patch
+0741-native-online-scene-context-words.patch
+0742-native-online-scene-inline-contracts.patch
+0743-native-online-lobby-connection-aid.patch
+0744-native-online-lobby-connection-pointers.patch
+0745-native-online-lobby-outgoing-connection-word.patch
+0746-admit-original-online-ranking-overlay.patch
+0747-native-online-ranking-navigation-inline.patch
+0748-native-friend-code-digit-buffer.patch
