@@ -524,3 +524,12 @@
 0725-dwc-pointer-arithmetic.patch
 0726-dwc-encsession-itoa-snprintf.patch
 0727-disable-tls-mp.patch
+0728-native-dwc-control-records.patch
+0729-native-dwc-ingamesn-u16.patch
+0730-native-gamespy-thread-ids.patch
+0731-native-dwc-sha1-word-order.patch
+0732-native-net-md5-length-words.patch
+0733-native-qr2-public-ip-decimal.patch
+0734-native-dwc-ranking-word-order.patch
+0735-native-dwc-match-filter-append.patch
+0736-native-dwc-little-endian-words.patch

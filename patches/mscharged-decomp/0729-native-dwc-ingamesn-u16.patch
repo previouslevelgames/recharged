@@ -1,0 +1,70 @@
+From: mscharged-port
+Subject: Handle DWC's in-game name as a u16 string natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+DWC's NAS login copies the in-game name with wcsncpy and measures it with
+wcslen. Both assume wchar_t is two bytes, as on the Wii; natively it is
+four. wcsncpy read pairs of u16 characters and wrote 26 four-byte cells
+into u16 ingamesn[26], 52 bytes past its end, and wcslen counted "67" as
+one character, so the NAS received a single u16. The NAS also reads the
+name as big-endian UTF-16, the Wii's memory order, while the native u16
+string is little-endian: the server logged the name "67" as U+3600.
+
+Natively the name is copied and measured as u16 and sent big-endian.
+
+diff --git a/src/RVL_SDK/dwc/dwc_auth_interface.c b/src/RVL_SDK/dwc/dwc_auth_interface.c
+index b37f39a..5db870e 100644
+--- a/src/RVL_SDK/dwc/dwc_auth_interface.c
++++ b/src/RVL_SDK/dwc/dwc_auth_interface.c
+@@ -185,7 +185,23 @@ int DWCi_Auth_StartAuthentication(const u16* ingamesn, const char* gsbrcd,
+         return FALSE;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // The in-game name is a u16 string; wchar_t is four bytes natively, so
++    // wcsncpy would read pairs of characters and write past ingamesn.
++    {
++        u32 i;
++        for (i = 0; i < 26 && ingamesn[i] != 0; i++)
++        {
++            s_auth_work->ingamesn[i] = ingamesn[i];
++        }
++        for (; i < 26; i++)
++        {
++            s_auth_work->ingamesn[i] = 0;
++        }
++    }
++#else
+     wcsncpy(s_auth_work->ingamesn, ingamesn, 26);
++#endif
+     strncpy(s_auth_work->gsbrcd, gsbrcd, 12);
+     s_auth_work->auth_kind = DWCi_AUTH_KIND_LOGIN;
+     memset(&s_auth_result, 0, sizeof(s_auth_result));
+@@ -654,9 +670,26 @@ static void DWCi_Auth_SendRequest(s32 action_kind, const u16* ingamesn,
+             NHTTPAddPostDataAscii(request, "userid",
+                 base64nize(strbuf, &b64_ptr));
+             DWC_Printf(DWC_REPORTFLAG_AUTH, " userid = 0x%016llx\n", userid);
++#if defined(MSCHARGED_NATIVE)
++            // The NAS reads ingamesn as big-endian UTF-16, the Wii's memory
++            // order; the native u16 string is measured and sent in that order.
++            {
++                u8 ingamesnBE[26 * sizeof(u16)];
++                u32 len = 0;
++                while (len < 26 && ingamesn[len] != 0)
++                {
++                    ingamesnBE[len * 2] = (u8)(ingamesn[len] >> 8);
++                    ingamesnBE[len * 2 + 1] = (u8)ingamesn[len];
++                    len++;
++                }
++                NHTTPAddPostDataAscii(request, "ingamesn",
++                    base64nize_with_len(ingamesnBE, &b64_ptr, len * sizeof(u16)));
++            }
++#else
+             NHTTPAddPostDataAscii(request, "ingamesn",
+                 base64nize_with_len(
+                     (void*)ingamesn, &b64_ptr, wcslen(ingamesn) * sizeof(u16)));
++#endif
+             break;
+ 
+         case DWCi_AUTH_KIND_SVCLOC:

@@ -1,0 +1,60 @@
+From: mscharged-port
+Subject: Keep DWC ranking words in their little-endian wire order natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native byte-order compatibility
+
+The DWC ranking protocol carries little-endian words, the DS's order, and
+the Wii's ranking and encrypted session units byte-swap every header and
+result word with DWCi_RankingByteSwap32. On a little-endian host that
+swap turned the request headers big-endian and the server's replies
+unreadable: the get2.asp reply's mode 1 became 0x01000000, which
+DWCi_RankingSessionVaridateResponse rejects, so the game reported that it
+could not get its stats.
+
+Natively the swap keeps each word as it is; a static assertion limits
+that to little-endian hosts, as the native save transport does.
+
+diff --git a/src/RVL_SDK/dwc/dwc_encsession.c b/src/RVL_SDK/dwc/dwc_encsession.c
+index ced9a52..154f4ee 100644
+--- a/src/RVL_SDK/dwc/dwc_encsession.c
++++ b/src/RVL_SDK/dwc/dwc_encsession.c
+@@ -36,9 +36,17 @@ static struct
+     BOOL (*callback)(u32* data, int size);
+ } g_session = { DWCi_ENC_SESSION_STATE_INITIAL };
+ 
++#if defined(MSCHARGED_NATIVE)
++// The ranking protocol's words are little-endian, the DS's order, which the
++// Wii swaps into; native hosts are little-endian and keep them as they are.
++#define DWCi_RankingByteSwap32(value) ((u32)(value))
++_Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
++    "Ranking words keep their little-endian wire order on little-endian hosts only");
++#else
+ #define DWCi_RankingByteSwap32(value) \
+     ((((u32)(value) << 24) & 0xFF000000) | (((u32)(value) << 8) & 0x00FF0000) \
+         | (((u32)(value) >> 8) & 0x0000FF00) | (((u32)(value) >> 24) & 0x000000FF))
++#endif
+ 
+ static u32 b64size(u32 len)
+ {
+diff --git a/src/RVL_SDK/dwc/dwc_ranksession.c b/src/RVL_SDK/dwc/dwc_ranksession.c
+index 670912d..db81bf5 100644
+--- a/src/RVL_SDK/dwc/dwc_ranksession.c
++++ b/src/RVL_SDK/dwc/dwc_ranksession.c
+@@ -23,9 +23,17 @@ typedef struct
+ 
+ static BOOL DWCi_RankingSessionVaridateResponse(u32* buf, int len);
+ 
++#if defined(MSCHARGED_NATIVE)
++// The ranking protocol's words are little-endian, the DS's order, which the
++// Wii swaps into; native hosts are little-endian and keep them as they are.
++#define DWCi_RankingByteSwap32(value) ((u32)(value))
++_Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
++    "Ranking words keep their little-endian wire order on little-endian hosts only");
++#else
+ #define DWCi_RankingByteSwap32(value) \
+     ((((u32)(value) << 24) & 0xFF000000) | (((u32)(value) << 8) & 0x00FF0000) \
+         | (((u32)(value) >> 8) & 0x0000FF00) | (((u32)(value) >> 24) & 0x000000FF))
++#endif
+ 
+ void DWCi_RankingSessionInitialize(BOOL releaseserver, const char* initdata)
+ {

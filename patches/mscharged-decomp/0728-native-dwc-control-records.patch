@@ -1,0 +1,327 @@
+From: mscharged-port
+Subject: Give DWCControl the actual friend and match control records natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+DWCControl in dwc_main.c embeds the friend and match control records,
+whose full types it did not see. It held them as a
+Wii-sized u8 friendcnt[0x60] and a DWCMatchControlView that places the
+fields dwc_main.c uses at their Wii offsets. Natively DWCFriendControl
+needs 0xA8 bytes and DWCMatchControl 0x4E0 instead of 0x4A0, and every
+viewed field moves (qr2Obj 0x10 -> 0x20, sbObj 0xE8 -> 0xF8, aidList
+0x2E8 -> 0x2F8, ...). DWCi_FriendInit wrote 0x48 bytes over the start of
+the match control, leaving a friend-control pointer where dwc_main.c
+reads qr2Obj, and DWCi_MatchInit wrote 0x40 bytes into transinfo. After a
+failed login, DWC_ShutdownFriendsMatch passed that pointer to
+qr2_shutdown, which freed memory the network allocator never returned.
+
+DWCFriendControl is in dwc_friend_internal.h and DWCMatchCommandControl
+in dwc_match.h; DWCNNInfo and DWCMatchControl move verbatim into
+dwci_control.h, which dwc_match.c includes in place of their definitions.
+Natively dwc_main.c embeds the actual DWCFriendControl and uses
+DWCMatchControl for its view, whose field names it already shares; the
+Wii view and friendcnt array are unchanged.
+
+diff --git a/src/RVL_SDK/dwc/dwc_main.c b/src/RVL_SDK/dwc/dwc_main.c
+index b32694d..6e6d4a7 100644
+--- a/src/RVL_SDK/dwc/dwc_main.c
++++ b/src/RVL_SDK/dwc/dwc_main.c
+@@ -20,6 +20,11 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++#include "dwci_control.h"
++
++typedef DWCMatchControl DWCMatchControlView;
++#else
+ typedef struct DWCMatchControlView
+ {
+     u8 _000[0xD];
+@@ -42,6 +47,7 @@ typedef struct DWCMatchControlView
+     u32 validAidBitmap;
+     u8 _304[0x194];
+ } DWCMatchControlView;
++#endif
+ 
+ typedef struct DWCstControl
+ {
+@@ -70,7 +76,11 @@ typedef struct DWCstControl
+     DWCConnectionClosedCallback closedCallback;
+     void* closedParam;
+     DWCLoginControl logcnt;
++#if defined(MSCHARGED_NATIVE)
++    DWCFriendControl friendcnt;
++#else
+     u8 friendcnt[0x60];
++#endif
+     DWCMatchControlView matchcnt;
+     DWCTransportInfo transinfo;
+ } DWCControl;
+@@ -91,8 +101,11 @@ static int stLastSocketError = 0;
+ int DWCi_GetNumAllConnection(void);
+ int DWCi_GetNumValidConnection(void);
+ int DWCi_GetValidAIDList(u8** aidList);
++#if !defined(MSCHARGED_NATIVE)
++/* Natively dwci_control.h declares it, with the actual friend record. */
+ void DWCi_FriendInit(void* friendcnt, void* pGpObj, const u16* playerName,
+     DWCFriendData* friendList, int friendListLen);
++#endif
+ void DWCi_MatchInit(void* matchcnt, void* pGpObj, GT2Socket* pGt2Socket,
+     GT2ConnectionCallbacks* gt2Callbacks, const char* gameName,
+     const char* secretKey, const DWCFriendData friendList[],
+@@ -200,7 +213,11 @@ void DWC_InitFriendsMatch(DWCFriendsMatchControl* dwccnt,
+         productID, userdata->gamecode, stpDwcCnt->playerName,
+         DWCi_LoginCallback, NULL);
+ 
++#if defined(MSCHARGED_NATIVE)
++    DWCi_FriendInit(&stpDwcCnt->friendcnt, &stpDwcCnt->gpObj,
++#else
+     DWCi_FriendInit(stpDwcCnt->friendcnt, &stpDwcCnt->gpObj,
++#endif
+         stpDwcCnt->playerName, friendList, friendListLen);
+ 
+     DWCi_MatchInit(&stpDwcCnt->matchcnt, &stpDwcCnt->gpObj,
+diff --git a/src/RVL_SDK/dwc/dwc_match.c b/src/RVL_SDK/dwc/dwc_match.c
+index f8ea864..b5894b2 100644
+--- a/src/RVL_SDK/dwc/dwc_match.c
++++ b/src/RVL_SDK/dwc/dwc_match.c
+@@ -53,14 +53,6 @@ typedef enum
+     DWC_MATCH_RESET_NUM
+ } DWCMatchResetLevel;
+ 
+-typedef struct DWCstNNInfo
+-{
+-    u8 isQR2;
+-    u8 retryCount;
+-    u16 port;
+-    u32 ip;
+-    int cookie;
+-} DWCNNInfo;
+ 
+ typedef struct DWCstConnectionInfo
+ {
+@@ -70,97 +62,7 @@ typedef struct DWCstConnectionInfo
+     void* param;
+ } DWCConnectionInfo;
+ 
+-typedef struct DWCstMatchControl
+-{
+-    GPConnection* pGpObj;
+-    GT2Socket* pGt2Socket;
+-    GT2ConnectionCallbacks* gt2Callbacks;
+-    u8 gt2ConnectCount;
+-    u8 gt2NumConnection;
+-    u8 gt2NumValidConn;
+-    u8 pad1;
+-    qr2_t qr2Obj;
+-    vu8 qr2NNFinishCount;
+-    vu8 qr2MatchType;
+-    vu8 qr2NumEntry;
+-    vu8 qr2IsReserved;
+-    u8 qr2ShutdownFlag;
+-    u8 pad2;
+-    u16 qr2Port;
+-    u32 qr2IP;
+-    volatile int qr2Reservation;
+-    u32 qr2IPList[DWC_MAX_CONNECTIONS];
+-    u16 qr2PortList[DWC_MAX_CONNECTIONS];
+-    ServerBrowser sbObj;
+-    int sbUpdateFlag;
+-    u8 _EC[4];
+-    s64 sbUpdateTick;
+-    int sbPidList[DWC_MAX_CONNECTIONS];
+-    s64 sbUpdateRequestTick;
+-    u8 nnRecvCount;
+-    u8 nnFailureCount;
+-    u16 nnCookieRand;
+-    int nnLastCookie;
+-    s64 nnFailedTime;
+-    s64 nnFinishTime;
+-    DWCNNInfo nnInfo;
+-    DWCMatchState state;
+-    u8 clLinkProgress;
+-    u8 friendCount;
+-    u8 distantFriend;
+-    u8 resvWaitCount;
+-    u8 closeState;
+-    u8 cancelState;
+-    u8 scResvRetryCount;
+-    u8 synResendCount;
+-    u8 cancelSynResendCount;
+-    u8 clWaitTimeoutCount;
+-    u8 stopSCFlag;
+-    u8 pad3;
+-    u16 baseLatency;
+-    u16 cancelBaseLatency;
+-    u16 searchPort;
+-    u16 pad4;
+-    u32 searchIP;
+-    int cmdResendFlag;
+-    u8 _1C4[4];
+-    s64 cmdResendTick;
+-    u32 cmdTimeoutTime;
+-    u8 _1D4[4];
+-    s64 cmdTimeoutStartTick;
+-    u32 synAckBit;
+-    u32 cancelSynAckBit;
+-    u32 friendAcceptBit;
+-    u8 _1EC[4];
+-    s64 lastSynSent;
+-    s64 lastCancelSynSent;
+-    s64 closedTime;
+-    s64 clWaitTime;
+-    volatile int profileID;
+-    int reqProfileID;
+-    int priorProfileID;
+-    int cbEventPid;
+-    u32 ipList[32];
+-    u16 portList[32];
+-    u8 aidList[32];
+-    u32 validAidBitmap;
+-    const char* gameName;
+-    const char* secretKey;
+-    const DWCFriendData* friendList;
+-    int friendListLen;
+-    u8 friendIdxList[DWC_MAX_MATCH_IDX_LIST];
+-    int friendIdxListLen;
+-    u32 svDataBak[DWC_MAX_CONNECTIONS + 1];
+-    DWCMatchCommandControl cmdCnt;
+-    DWCMatchedSCCallback matchedCallback;
+-    void* matchedParam;
+-    DWCNewClientCallback newClientCallback;
+-    void* newClientParam;
+-    DWCEvalPlayerCallback evalCallback;
+-    void* evalParam;
+-    void (*stopSCCallback)(void* param);
+-    void* stopSCParam;
+-} DWCMatchControl;
++#include "dwci_control.h"
+ 
+ typedef struct DWCstMatchOptSCBlock
+ {
+diff --git a/src/RVL_SDK/dwc/dwci_control.h b/src/RVL_SDK/dwc/dwci_control.h
+new file mode 100644
+index 0000000..30e0f11
+--- /dev/null
++++ b/src/RVL_SDK/dwc/dwci_control.h
+@@ -0,0 +1,119 @@
++#pragma once
++
++/* Control records of the friend and match units. DWCControl in dwc_main.c
++ * embeds both; natively it needs their actual layout instead of Wii-sized
++ * views. The friend record is in dwc_friend_internal.h and the match command
++ * record in dwc_match.h; the match record moves here so that dwc_main.c and
++ * dwc_match.c share it. */
++
++#include <dwc/dwc_datastorage.h>
++#include <dwc/dwc_friend.h>
++#include <dwc/dwc_friend_internal.h>
++#include <dwc/dwc_main.h>
++#include <dwc/dwc_match.h>
++#include <gamespy/GP/gp.h>
++#include <gamespy/gt2/gt2.h>
++#include <gamespy/qr2/qr2.h>
++#include <gamespy/serverbrowsing/sb_serverbrowsing.h>
++#include <revolution/os/OSTime.h>
++
++typedef struct DWCstNNInfo
++{
++    u8 isQR2;
++    u8 retryCount;
++    u16 port;
++    u32 ip;
++    int cookie;
++} DWCNNInfo;
++
++typedef struct DWCstMatchControl
++{
++    GPConnection* pGpObj;
++    GT2Socket* pGt2Socket;
++    GT2ConnectionCallbacks* gt2Callbacks;
++    u8 gt2ConnectCount;
++    u8 gt2NumConnection;
++    u8 gt2NumValidConn;
++    u8 pad1;
++    qr2_t qr2Obj;
++    vu8 qr2NNFinishCount;
++    vu8 qr2MatchType;
++    vu8 qr2NumEntry;
++    vu8 qr2IsReserved;
++    u8 qr2ShutdownFlag;
++    u8 pad2;
++    u16 qr2Port;
++    u32 qr2IP;
++    volatile int qr2Reservation;
++    u32 qr2IPList[DWC_MAX_CONNECTIONS];
++    u16 qr2PortList[DWC_MAX_CONNECTIONS];
++    ServerBrowser sbObj;
++    int sbUpdateFlag;
++    u8 _EC[4];
++    s64 sbUpdateTick;
++    int sbPidList[DWC_MAX_CONNECTIONS];
++    s64 sbUpdateRequestTick;
++    u8 nnRecvCount;
++    u8 nnFailureCount;
++    u16 nnCookieRand;
++    int nnLastCookie;
++    s64 nnFailedTime;
++    s64 nnFinishTime;
++    DWCNNInfo nnInfo;
++    DWCMatchState state;
++    u8 clLinkProgress;
++    u8 friendCount;
++    u8 distantFriend;
++    u8 resvWaitCount;
++    u8 closeState;
++    u8 cancelState;
++    u8 scResvRetryCount;
++    u8 synResendCount;
++    u8 cancelSynResendCount;
++    u8 clWaitTimeoutCount;
++    u8 stopSCFlag;
++    u8 pad3;
++    u16 baseLatency;
++    u16 cancelBaseLatency;
++    u16 searchPort;
++    u16 pad4;
++    u32 searchIP;
++    int cmdResendFlag;
++    u8 _1C4[4];
++    s64 cmdResendTick;
++    u32 cmdTimeoutTime;
++    u8 _1D4[4];
++    s64 cmdTimeoutStartTick;
++    u32 synAckBit;
++    u32 cancelSynAckBit;
++    u32 friendAcceptBit;
++    u8 _1EC[4];
++    s64 lastSynSent;
++    s64 lastCancelSynSent;
++    s64 closedTime;
++    s64 clWaitTime;
++    volatile int profileID;
++    int reqProfileID;
++    int priorProfileID;
++    int cbEventPid;
++    u32 ipList[32];
++    u16 portList[32];
++    u8 aidList[32];
++    u32 validAidBitmap;
++    const char* gameName;
++    const char* secretKey;
++    const DWCFriendData* friendList;
++    int friendListLen;
++    u8 friendIdxList[DWC_MAX_MATCH_IDX_LIST];
++    int friendIdxListLen;
++    u32 svDataBak[DWC_MAX_CONNECTIONS + 1];
++    DWCMatchCommandControl cmdCnt;
++    DWCMatchedSCCallback matchedCallback;
++    void* matchedParam;
++    DWCNewClientCallback newClientCallback;
++    void* newClientParam;
++    DWCEvalPlayerCallback evalCallback;
++    void* evalParam;
++    void (*stopSCCallback)(void* param);
++    void* stopSCParam;
++} DWCMatchControl;
