@@ -22,6 +22,17 @@
 
 namespace
 {
+// The loopback interface as RECHARGED_NET_IFACE names it on each host.
+#ifdef _WIN32
+constexpr const char* kLoopbackIface = "Loopback Pseudo-Interface 1";
+void SetEnv(const char* name, const char* value) { _putenv_s(name, value); }
+void UnsetEnv(const char* name) { _putenv_s(name, ""); }
+#else
+constexpr const char* kLoopbackIface = "lo";
+void SetEnv(const char* name, const char* value) { setenv(name, value, 1); }
+void UnsetEnv(const char* name) { unsetenv(name); }
+#endif
+
 unsigned checks = 0;
 void Check(bool condition, const char* message)
 {
@@ -395,7 +406,7 @@ u32 HostId()
     Check(host != 0, "hostid: SOGetHostID while ACTIVE must not be 0");
     Check((u32)SOGetHostID() == host, "hostid: SOGetHostID must be stable while ACTIVE");
     if (sizeof(long) > sizeof(u32))
-        Check(((unsigned long)SOGetHostID() >> 32) == 0, "hostid: no sign extension in the upper 32 bits of long");
+        Check(((unsigned long long)(unsigned long)SOGetHostID() >> 32) == 0, "hostid: no sign extension in the upper 32 bits of long");
 
     // Whatever was detected must belong to this host: bind to it and loop a datagram
     SOSockAddrIn self = { .len = sizeof(SOSockAddrIn), .family = SO_PF_INET, .port = 0, .addr = { .addr = host } };
@@ -412,21 +423,21 @@ u32 HostId()
     // The caller may already have set the variable: keep it to restore later.
     const char* env_iface = std::getenv("RECHARGED_NET_IFACE");
     const std::string saved_iface = env_iface != nullptr ? env_iface : "";
-    setenv("RECHARGED_NET_IFACE", "lo", 1);
+    SetEnv("RECHARGED_NET_IFACE", kLoopbackIface);
     CheckResult(SOCleanup(), SO_SUCCESS, "hostid: SOCleanup before forcing the interface");
     Check(SOGetHostID() == 0, "hostid: SOGetHostID after SOCleanup (READY)");
     CheckResult(SOStartup(), SO_SUCCESS, "hostid: SOStartup with RECHARGED_NET_IFACE=lo");
     Check((u32)SOGetHostID() == SOHtoNl(0x7f000001), "hostid: RECHARGED_NET_IFACE=lo must give 127.0.0.1");
 
-    setenv("RECHARGED_NET_IFACE", "msc-does-not-exist", 1);
+    SetEnv("RECHARGED_NET_IFACE", "msc-does-not-exist");
     CheckResult(SOCleanup(), SO_SUCCESS, "hostid: SOCleanup before forcing a missing interface");
     CheckResult(SOStartup(), SO_SUCCESS, "hostid: SOStartup with a missing interface");
     Check((u32)SOGetHostID() == SOHtoNl(0x7f000001), "hostid: a missing interface must fall back to 127.0.0.1");
 
     if (env_iface != nullptr)
-        setenv("RECHARGED_NET_IFACE", saved_iface.c_str(), 1);
+        SetEnv("RECHARGED_NET_IFACE", saved_iface.c_str());
     else
-        unsetenv("RECHARGED_NET_IFACE");
+        UnsetEnv("RECHARGED_NET_IFACE");
     CheckResult(SOCleanup(), SO_SUCCESS, "hostid: SOCleanup before restoring the environment");
     CheckResult(SOStartup(), SO_SUCCESS, "hostid: SOStartup with the original environment");
     Check((u32)SOGetHostID() == host, "hostid: with the original environment the first detected address comes back");
@@ -974,7 +985,7 @@ void InterfaceOpt(u32 host)
     // Loopback has no broadcast address: addr | ~netmask stands in for it.
     const char* env_iface = std::getenv("RECHARGED_NET_IFACE");
     const std::string saved_iface = env_iface != nullptr ? env_iface : "";
-    setenv("RECHARGED_NET_IFACE", "lo", 1);
+    SetEnv("RECHARGED_NET_IFACE", kLoopbackIface);
     len = sizeof(IPAddrEntry);
     CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_TABLE, table, &len), SO_SUCCESS,
                 "ifopt: SO_CONFIG_IP_ADDR_TABLE with RECHARGED_NET_IFACE=lo");
@@ -982,9 +993,9 @@ void InterfaceOpt(u32 host)
     Check(AddrOf(table[0].netMask) == SOHtoNl(0xff000000), "ifopt: lo netmask 255.0.0.0");
     Check(AddrOf(table[0].bcastAddr) == SOHtoNl(0x7fffffff), "ifopt: lo broadcast 127.255.255.255");
     if (env_iface != nullptr)
-        setenv("RECHARGED_NET_IFACE", saved_iface.c_str(), 1);
+        SetEnv("RECHARGED_NET_IFACE", saved_iface.c_str());
     else
-        unsetenv("RECHARGED_NET_IFACE");
+        UnsetEnv("RECHARGED_NET_IFACE");
 }
 
 // SOFreeAddrInfo after SOFinish frees nothing, like SOiFree behind it.

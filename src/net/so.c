@@ -1,17 +1,8 @@
 #include <stdio.h>
 #include <revolution/so.h>
-#include <errno.h>
 #include <stdarg.h>
-#include <sys/socket.h> // needs to be imported after so.h to avoid
-                        // redefinitions of symbols SO_BROADCAST
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <fcntl.h>
-#include <poll.h>
 #include <string.h>
 #include <strings.h>
-#include <unistd.h>
 
 #include "so_convert.h"
 #include "so_host.h"
@@ -34,6 +25,12 @@ int SOInit(SOLibraryConfig* config)
         {
             result = SO_EINVAL;
                 break;
+        }
+        const int error = so_sys_startup();
+        if (error != 0)
+        {
+            result = so_error_from_native(error);
+            break;
         }
         so_backend_set_allocator_locked(config->alloc, config->free);
         so_backend_set_state_locked(SO_INTERNAL_STATE_READY);
@@ -103,6 +100,7 @@ int SOFinish(void)
         result = SO_EALREADY;
         break;
     case SO_INTERNAL_STATE_READY:
+        so_sys_cleanup();
         so_backend_set_state_locked(SO_INTERNAL_STATE_TERMINATED);
         break;
     case SO_INTERNAL_STATE_ACTIVE:
@@ -147,41 +145,26 @@ int SOBind(int s, const void *sockAddr)
         || nlAddr->len < sizeof(SOSockAddr))
         return SO_EINVAL;
 
-    int real_fd;
+    so_sys_socket real_fd;
     result = so_backend_acquire(s, &real_fd, NULL);
     if (result != SO_SUCCESS)
         return result;
 
     struct sockaddr_in unixsock = to_native_sockaddr((const SOSockAddrIn*)nlAddr);
     if (bind(real_fd, (struct sockaddr *)&unixsock, sizeof(unixsock)) == -1)
-        result = so_error_from_errno(errno);
+        result = so_last_error();
     so_backend_release(s);
     return result;
 }
 
-static int so_fcntl_native(int fd, int cmd, int arg)
+static int so_fcntl_native(int s, int cmd, int arg)
 {
-    int flags;
     switch (cmd)
     {
         case SO_F_GETFL:
-            flags = fcntl(fd, F_GETFL, 0);
-            if (flags == -1)
-                return so_error_from_errno(errno);
-            if (flags & O_NONBLOCK)
-                return SO_O_NONBLOCK;
-            return SO_SUCCESS;
+            return so_backend_nonblocking(s) ? SO_O_NONBLOCK : SO_SUCCESS;
         case SO_F_SETFL:
-            flags = fcntl(fd, F_GETFL, 0);
-            if (flags == -1)
-                return so_error_from_errno(errno);
-            if (arg & SO_O_NONBLOCK)
-                flags |= O_NONBLOCK;
-            else
-                flags &= ~O_NONBLOCK;
-            if (fcntl(fd, F_SETFL, flags) == -1)
-                return so_error_from_errno(errno);
-            return SO_SUCCESS;
+            return so_backend_set_nonblocking(s, (arg & SO_O_NONBLOCK) != 0);
         default:
             return SO_EINVAL;
     }
@@ -199,11 +182,11 @@ int SOFcntl(int s, int cmd, ...)
     if (result != SO_SUCCESS)
         return result;
 
-    int real_fd;
+    so_sys_socket real_fd;
     result = so_backend_acquire(s, &real_fd, NULL);
     if (result != SO_SUCCESS)
         return result;
-    result = so_fcntl_native(real_fd, cmd, arg);
+    result = so_fcntl_native(s, cmd, arg);
     so_backend_release(s);
     return result;
 }
@@ -246,7 +229,7 @@ static int so_send_to(int s, const void* buf, int len, int flags, const void* so
         return SO_EINVAL;
     if (len < 0 || (len > 0 && buf == NULL))
         return SO_EINVAL;
-    int real_fd;
+    so_sys_socket real_fd;
     struct so_backend_io io;
     result = so_backend_acquire_io(s, SO_BACKEND_WRITE, SO_ENOTCONN, &real_fd, &io);
     if (result != SO_SUCCESS)
@@ -255,13 +238,13 @@ static int so_send_to(int s, const void* buf, int len, int flags, const void* so
     if (sockTo != NULL)
     {
         struct sockaddr_in addrnative = to_native_sockaddr((const SOSockAddrIn*)to);
-        sent = sendto(real_fd, buf, (size_t)len, flags, (struct sockaddr *)&addrnative, sizeof(struct sockaddr_in));
+        sent = sendto(real_fd, buf, (so_sys_len)len, flags, (struct sockaddr *)&addrnative, sizeof(struct sockaddr_in));
     }
     else
     {
-        sent = send(real_fd, buf, (size_t)len, flags);
+        sent = send(real_fd, buf, (so_sys_len)len, flags);
     }
-    return so_backend_release_io(&io, sent == -1 ? so_error_from_errno(errno) : (int)sent);
+    return so_backend_release_io(&io, sent == -1 ? so_last_error() : (int)sent);
 }
 
 static int so_recv_from(int s, void* buf, int len, int flags, void* sockFrom)
@@ -276,7 +259,7 @@ static int so_recv_from(int s, void* buf, int len, int flags, void* sockFrom)
         return SO_EINVAL;
     if (len < 0 || (len > 0 && buf == NULL))
         return SO_EINVAL;
-    int real_fd;
+    so_sys_socket real_fd;
     struct so_backend_io io;
     result = so_backend_acquire_io(s, SO_BACKEND_READ, SO_ENOTCONN, &real_fd, &io);
     if (result != SO_SUCCESS)
@@ -284,8 +267,8 @@ static int so_recv_from(int s, void* buf, int len, int flags, void* sockFrom)
     ssize_t received;
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    received = recvfrom(real_fd, buf, (size_t)len, 0, (struct sockaddr *)&addr, &addrlen);
-    result = so_backend_release_io(&io, received == -1 ? so_error_from_errno(errno) : (int)received);
+    received = recvfrom(real_fd, buf, (so_sys_len)len, 0, (struct sockaddr *)&addr, &addrlen);
+    result = so_backend_release_io(&io, received == -1 ? so_last_recv_result() : (int)received);
     if (result >= 0 && sockFrom != NULL)
         from_native_sockaddr(sockFrom, &addr);
     
@@ -321,7 +304,7 @@ int SOGetSockName(int s, void* sockAddr)
     SOSockAddr* addr = sockAddr;
     if (addr == NULL || sizeof(SOSockAddr) < addr->len || addr->len < sizeof(SOSockAddr))
         return SO_EINVAL;
-    int real_fd;
+    so_sys_socket real_fd;
     result = so_backend_acquire(s, &real_fd, NULL);
     if (result != SO_SUCCESS)
         return result;
@@ -329,7 +312,7 @@ int SOGetSockName(int s, void* sockAddr)
     socklen_t addrlen = sizeof(addrnative);
 
     if (getsockname(real_fd, (struct sockaddr*)&addrnative, &addrlen) == -1)
-        result = so_error_from_errno(errno);
+        result = so_last_error();
     so_backend_release(s);
     if (result == SO_SUCCESS)
         from_native_sockaddr(sockAddr, &addrnative);
@@ -350,18 +333,25 @@ int SOPoll(SOPollFD fds[], unsigned nfds, OSTime timeout)
     struct pollfd fdsnative[nfds];
     so_backend_acquire_pollfds(fdsnative, fds, nfds);
     int time = timeout < -1 ? -1 : (int)timeout;
-    int cnt = poll(fdsnative, nfds, time);
+    int cnt = so_sys_poll(fdsnative, nfds, time);
     if (cnt == -1)
-        cnt = so_error_from_errno(errno);
+        cnt = so_last_error();
     else
     {
         for (unsigned int i=0; i<nfds; i++)
         {
-            fds[i].revents = fdsnative[i].fd != -1 ?
+            fds[i].revents = fdsnative[i].fd != SO_SYS_INVALID_SOCKET ?
                  native_pollevent_to_so(fdsnative[i].revents)
                  : SO_POLLNVAL;
-            if (fdsnative[i].fd == -1)
+            if (fdsnative[i].fd == SO_SYS_INVALID_SOCKET)
                 cnt++;
+            // A socket SOClose closed during the wait is no longer valid.
+            // Linux reports it itself; Windows reports nothing for it.
+            else if (fdsnative[i].revents == 0 && so_backend_closing(fds[i].fd))
+            {
+                fds[i].revents = SO_POLLNVAL;
+                cnt++;
+            }
         }
     }
     so_backend_release_pollfds(fdsnative, fds, nfds);
@@ -390,14 +380,14 @@ int SOConnect(int s, const void* sockAddr)
     const SOSockAddr* addr = sockAddr;
     if (addr == NULL || sizeof(SOSockAddr) < addr->len || addr->len < sizeof(SOSockAddr))
         return SO_EINVAL;
-    int real_fd;
+    so_sys_socket real_fd;
     struct so_backend_io io;
     result = so_backend_acquire_io(s, SO_BACKEND_WRITE, SO_ENETUNREACH, &real_fd, &io);
     if (result != SO_SUCCESS)
         return result;
     struct sockaddr_in addrnative = to_native_sockaddr((const SOSockAddrIn*)addr);
     if (connect(real_fd, (struct sockaddr*)&addrnative, sizeof(addrnative)) == -1)
-        result = so_error_from_errno(errno);
+        result = so_last_connect_error();
     return so_backend_release_io(&io, result);
 }
 
@@ -407,12 +397,12 @@ int SOListen(int s, int backlog)
     int result = so_backend_check_active();
     if (result != SO_SUCCESS)
         return result;
-    int real_fd;
+    so_sys_socket real_fd;
     result = so_backend_acquire(s, &real_fd, NULL);
     if (result != SO_SUCCESS)
         return result;
     if (listen(real_fd, backlog) == -1)
-        result = so_error_from_errno(errno);
+        result = so_last_error();
     so_backend_release(s);
     return result;
 }
@@ -428,15 +418,15 @@ int SOAccept(int s, void* sockAddr)
         && nlAddr->len != sizeof(SOSockAddr))
         return SO_EINVAL;
 
-    int real_fd;
+    so_sys_socket real_fd;
     struct so_backend_io io;
     result = so_backend_acquire_io(s, SO_BACKEND_WRITE, SO_EINVAL, &real_fd, &io);
     if (result != SO_SUCCESS)
         return result;
     struct sockaddr_in addr;
     socklen_t size = sizeof(addr);
-    int new_conn = accept(real_fd, (struct sockaddr*)&addr, &size);
-    result = so_backend_release_io(&io, new_conn == -1 ? so_error_from_errno(errno) : SO_SUCCESS);
+    so_sys_socket new_conn = accept(real_fd, (struct sockaddr*)&addr, &size);
+    result = so_backend_release_io(&io, new_conn == SO_SYS_INVALID_SOCKET ? so_last_error() : SO_SUCCESS);
     if (result >= 0)
     {
         result = so_backend_insert_accepted(new_conn);
@@ -445,9 +435,9 @@ int SOAccept(int s, void* sockAddr)
             from_native_sockaddr(sockAddr, &addr);
         }
     }
-    else if (new_conn >= 0)
+    else if (new_conn != SO_SYS_INVALID_SOCKET)
     {
-        close(new_conn);
+        so_sys_close(new_conn);
     }
     return result;
 }
@@ -462,7 +452,8 @@ int SOShutdown(int s, int how)
     if (native_how == -1)
         return SO_EINVAL;
 
-    int real_fd, real_type;
+    so_sys_socket real_fd;
+    int real_type;
     result = so_backend_acquire(s, &real_fd, &real_type);
     if (result != SO_SUCCESS)
         return result;
@@ -472,8 +463,8 @@ int SOShutdown(int s, int how)
         const bool shut_read = native_how == SHUT_RD || native_how == SHUT_RDWR;
         const bool shut_write = native_how == SHUT_WR || native_how == SHUT_RDWR;
         so_backend_record_shutdown(s, shut_read, shut_write);
-        if (shutdown(real_fd, native_how) == -1)
-            result = so_error_from_errno(errno);
+        if (so_sys_shutdown(real_fd, native_how) == -1)
+            result = so_last_error();
     }
     so_backend_release(s);
     return result;
@@ -496,12 +487,12 @@ int SOSetSockOpt(int s, int level, int optname, const void* optval, int optlen)
     static const u8 zeros[SO_SOCKOPT_MAX_LEN];
     const void* native_value = optval != NULL ? optval : zeros;
 
-    int real_fd;
+    so_sys_socket real_fd;
     result = so_backend_acquire(s, &real_fd, NULL);
     if (result != SO_SUCCESS)
         return result;
     if (setsockopt(real_fd, native_level, native_optname, native_value, (socklen_t)optlen) == -1)
-        result = so_error_from_errno(errno);
+        result = so_last_error();
     so_backend_release(s);
     return result;
 }
@@ -515,14 +506,15 @@ int SOGetSockOpt(int s, int level, int optname, void* optval, int* optlen)
     if (!to_native_sockopt(level, optname, &native_level, &native_optname))
         return SO_ENOPROTOOPT;
 
-    int real_fd;
+    so_sys_socket real_fd;
     result = so_backend_acquire(s, &real_fd, NULL);
     if (result != SO_SUCCESS)
         return result;
     u8 value[SO_SOCKOPT_MAX_LEN];
     socklen_t length = sizeof(value);
-    if (getsockopt(real_fd, native_level, native_optname, value, &length) == -1)
-        result = so_error_from_errno(errno);
+    // Winsock takes the option buffer as char*.
+    if (getsockopt(real_fd, native_level, native_optname, (char*)value, &length) == -1)
+        result = so_last_error();
     so_backend_release(s);
     if (result != SO_SUCCESS || optlen == NULL)
         return result;
@@ -531,7 +523,7 @@ int SOGetSockOpt(int s, int level, int optname, void* optval, int* optlen)
     if (*optlen < (int)length)
         result = SO_EINVAL;
     else if (optval != NULL)
-        memcpy(optval, value, length);
+        memcpy(optval, value, (size_t)length);
     *optlen = (int)length;
     return result;
 }
@@ -547,7 +539,7 @@ int SOInetAtoN(const char* cp, SOInAddr* inp)
     if (cp == NULL)
         return SO_EINVAL;
     struct in_addr inaddr;
-    int res = inet_aton(cp, &inaddr);
+    int res = so_sys_inet_aton(cp, &inaddr);
     if (res > 0 && inp != NULL)
         inp->addr = inaddr.s_addr;
     return res;
@@ -711,27 +703,39 @@ int SOGetAddrInfo(const char* nodeName, const char* servName,
     size_t count = 0;
     for (const struct addrinfo* ai = native; ai != NULL && count < SO_ADDRINFO_MAX; ai = ai->ai_next)
     {
-        // With no socket type in the hints, getaddrinfo returns every address
-        // three times: for stream, datagram and raw sockets. SO has no raw
-        // sockets, so those entries are skipped.
-        const int type = from_native_type(ai->ai_socktype);
-        if (ai->ai_family != AF_INET || type == -1)
+        if (ai->ai_family != AF_INET)
             continue;
-        SOSockAddrIn* addr = &block->addrs[count];
-        from_native_sockaddr(addr, (const struct sockaddr_in*)ai->ai_addr);
-        // The SDK never relocates canonName into the block; no caller reads it.
-        block->entries[count] = (SOAddrInfo){
-            .family = SO_PF_INET,
-            .sockType = type,
-            .protocol = ai->ai_protocol,
-            .addrLen = sizeof(SOSockAddrIn),
-            .canonName = NULL,
-            .addr = addr,
-            .next = NULL,
-        };
-        if (count > 0)
-            block->entries[count - 1].next = &block->entries[count];
-        count++;
+        // With no socket type in the hints, POSIX's getaddrinfo returns every
+        // address three times: for stream, datagram and raw sockets. SO has
+        // no raw sockets, so those entries are skipped. Winsock's returns the
+        // address once, with no type; it stands for both SO entries.
+        int types[2] = { from_native_type(ai->ai_socktype), -1 };
+        int protocols[2] = { ai->ai_protocol, 0 };
+        if (ai->ai_socktype == 0)
+        {
+            types[0] = SO_SOCK_STREAM;
+            protocols[0] = SO_IPPROTO_TCP;
+            types[1] = SO_SOCK_DGRAM;
+            protocols[1] = SO_IPPROTO_UDP;
+        }
+        for (int i = 0; i < 2 && types[i] != -1 && count < SO_ADDRINFO_MAX; i++)
+        {
+            SOSockAddrIn* addr = &block->addrs[count];
+            from_native_sockaddr(addr, (const struct sockaddr_in*)ai->ai_addr);
+            // The SDK never relocates canonName into the block; no caller reads it.
+            block->entries[count] = (SOAddrInfo){
+                .family = SO_PF_INET,
+                .sockType = types[i],
+                .protocol = protocols[i],
+                .addrLen = sizeof(SOSockAddrIn),
+                .canonName = NULL,
+                .addr = addr,
+                .next = NULL,
+            };
+            if (count > 0)
+                block->entries[count - 1].next = &block->entries[count];
+            count++;
+        }
     }
     freeaddrinfo(native);
 

@@ -3,10 +3,10 @@
 #include <cstddef>
 #include <cstdint>
 
-// The other end of the TCP tests, on plain POSIX sockets. It lives in its own
-// TU because <sys/socket.h> and <revolution/so.h> both define SO_BROADCAST
-// (6 on Linux, 9 in the SDK). Ports and addresses are in network order, like
-// SOSockAddrIn.
+// The other end of the TCP tests, on plain POSIX sockets or Winsock. It lives
+// in its own TU because the host socket headers and <revolution/so.h> both
+// define SO_BROADCAST (6 on Linux, 9 in the SDK). Ports and addresses are in
+// network order, like SOSockAddrIn.
 
 // Listens on 127.0.0.1 with a port chosen by the kernel. Returns the fd or -1.
 int so_test_peer_listen(uint16_t* port);

@@ -1,13 +1,14 @@
 include_guard(GLOBAL)
-# The SO backend uses POSIX sockets. On Windows the original module keeps its
-# SO imports unresolved, as before this backend existed.
-if(WIN32)
-    return()
-endif()
+# The SO backend uses POSIX sockets, or Winsock on Windows (src/net/so_sys.h).
 find_package(Threads REQUIRED)
+if(WIN32)
+    set(_mscharged_so_host src/net/so_host_win32.c)
+else()
+    set(_mscharged_so_host src/net/so_host.c)
+endif()
 set(MSCHARGED_NETWORK_SOURCES
     src/net/so.c
-    src/net/so_host.c
+    ${_mscharged_so_host}
     src/net/so_state.c
     src/net/ncd.c)
 
@@ -17,6 +18,9 @@ function(mscharged_configure_network_target target scope)
         "${MSCHARGED_PREPARED}/include")
     target_compile_definitions("${target}" ${scope} MSCHARGED_NATIVE=1)
     target_link_libraries("${target}" ${scope} Threads::Threads)
+    if(WIN32)
+        target_link_libraries("${target}" ${scope} ws2_32 iphlpapi)
+    endif()
     set_target_properties("${target}" PROPERTIES
         C_STANDARD 11
         C_STANDARD_REQUIRED YES

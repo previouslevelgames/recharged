@@ -2,8 +2,6 @@
 
 #include <pthread.h>
 #include <stdbool.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #include "so_convert.h"
 
@@ -12,7 +10,9 @@
 enum slot_state { SLOT_FREE, SLOT_OPEN, SLOT_CLOSING };
 struct slot
 {
-    int fd, refs, type;
+    so_sys_socket fd;
+    int refs, type;
+    bool nonblocking;
     // SOShutdown calls per direction, so an operation can tell whether one
     // arrived while it was waiting.
     unsigned int shutdowns[2];
@@ -116,37 +116,32 @@ static int slot_find_free_locked(void)
     return SO_EMFILE;
 }
 
-static int so_configure_native_socket(int sock, int type)
+// Closes the socket when it fails.
+static int so_configure_native_socket(so_sys_socket sock, int type)
 {
-    int result = sock;
+    int result = SO_SUCCESS;
     int enable = 1;
-#ifndef MSG_NOSIGNAL
+    // Windows raises no SIGPIPE; Linux passes MSG_NOSIGNAL to each send.
+#if !defined(MSG_NOSIGNAL) && defined(SO_NOSIGPIPE)
     if (setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, &enable, sizeof(enable)) < 0)
-    {
-        result = so_error_from_errno(errno);
-        close(sock);
-        return result;
-    }
+        result = so_last_error();
 #endif
-    if (type == SO_SOCK_DGRAM)
-    {
-        if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &enable, sizeof(enable)) < 0)
-        {
-            result = so_error_from_errno(errno);
-            close(sock);
-            return result;
-        }
-    }
+    // Winsock takes the option value as const char*.
+    if (result == SO_SUCCESS && type == SO_SOCK_DGRAM
+        && setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (const char*)&enable, sizeof(enable)) < 0)
+        result = so_last_error();
+    if (result != SO_SUCCESS)
+        so_sys_close(sock);
     return result;
 }
 
-static int so_open_native_socket(int pf, int type, int protocol)
+static int so_open_native_socket(int pf, int type, int protocol, so_sys_socket* sock)
 {
     // protocol is safe since it's always called with protocol=0
-    int sock = socket(to_native_family(pf), to_native_type(type), protocol);
-    if (sock < 0)
-        return so_error_from_errno(errno);
-    return so_configure_native_socket(sock, type);
+    *sock = socket(to_native_family(pf), to_native_type(type), protocol);
+    if (*sock == SO_SYS_INVALID_SOCKET)
+        return so_last_error();
+    return so_configure_native_socket(*sock, type);
 }
 
 // socket() and setsockopt() never block, so creating the descriptor under the
@@ -159,11 +154,12 @@ int so_backend_open(int pf, int type, int protocol)
         result = slot_find_free_locked();
     if (result >= 0)
     {
-        int sock = so_open_native_socket(pf, type, protocol);
-        if (sock < 0)
-            result = sock;
+        so_sys_socket sock;
+        const int opened = so_open_native_socket(pf, type, protocol, &sock);
+        if (opened != SO_SUCCESS)
+            result = opened;
         else
-            slots[result] = (struct slot){ 
+            slots[result] = (struct slot){
                 .fd = sock,
                 .refs = 0,
                 .type = to_native_type(type),
@@ -174,13 +170,21 @@ int so_backend_open(int pf, int type, int protocol)
     return result;
 }
 
-int so_backend_insert_accepted(int fd)
+// The accepted socket starts blocking, as on Linux; Windows and the BSDs would
+// give it the listening socket's mode.
+int so_backend_insert_accepted(so_sys_socket fd)
 {
-    fd = so_configure_native_socket(fd, SO_SOCK_STREAM);
-    if (fd < 0)
-        return fd;
+    int result = so_configure_native_socket(fd, SO_SOCK_STREAM);
+    if (result != SO_SUCCESS)
+        return result;
+    if (so_sys_set_nonblocking(fd, false) == -1)
+    {
+        result = so_last_error();
+        so_sys_close(fd);
+        return result;
+    }
     pthread_mutex_lock(&so_lock);
-    int result = so_backend_check_active_locked();
+    result = so_backend_check_active_locked();
     if (result == SO_SUCCESS)
         result = slot_find_free_locked();
     if (result >= 0)
@@ -194,14 +198,14 @@ int so_backend_insert_accepted(int fd)
     }
     else
     {
-        close(fd);
+        so_sys_close(fd);
     }
     pthread_mutex_unlock(&so_lock);
     return result;
 }
 
-// close() does not wake a thread blocked on the same descriptor, shutdown()
-// does; the last so_backend_release then closes it.
+// close() does not wake a thread blocked on the same descriptor,
+// so_sys_wake does; the last so_backend_release then closes it.
 int so_backend_close_locked(int s)
 {
     if (!slot_is_open_locked(s))
@@ -209,12 +213,12 @@ int so_backend_close_locked(int s)
     if (slots[s].refs > 0)
     {
         slots[s].state = SLOT_CLOSING;
-        shutdown(slots[s].fd, SHUT_RDWR);
+        so_sys_wake(slots[s].fd);
         return SO_SUCCESS;
     }
     slots[s].state = SLOT_FREE;
-    if (close(slots[s].fd) == -1)
-        return so_error_from_errno(errno);
+    if (so_sys_close(slots[s].fd) == -1)
+        return so_last_error();
     return SO_SUCCESS;
 }
 
@@ -234,7 +238,7 @@ static int slot_acquire_locked(int s)
     return result;
 }
 
-int so_backend_acquire(int s, int* fd, int* type)
+int so_backend_acquire(int s, so_sys_socket* fd, int* type)
 {
     pthread_mutex_lock(&so_lock);
     int result = slot_acquire_locked(s);
@@ -249,7 +253,7 @@ int so_backend_acquire(int s, int* fd, int* type)
 }
 
 int so_backend_acquire_io(int s, enum so_backend_direction direction, int shutdown_error,
-    int* fd, struct so_backend_io* io)
+    so_sys_socket* fd, struct so_backend_io* io)
 {
     pthread_mutex_lock(&so_lock);
     int result = slot_acquire_locked(s);
@@ -263,6 +267,26 @@ int so_backend_acquire_io(int s, enum so_backend_direction direction, int shutdo
             .shutdowns = slots[s].shutdowns[direction],
         };
     }
+    pthread_mutex_unlock(&so_lock);
+    return result;
+}
+
+bool so_backend_nonblocking(int s)
+{
+    pthread_mutex_lock(&so_lock);
+    const bool nonblocking = slots[s].nonblocking;
+    pthread_mutex_unlock(&so_lock);
+    return nonblocking;
+}
+
+int so_backend_set_nonblocking(int s, bool nonblocking)
+{
+    pthread_mutex_lock(&so_lock);
+    int result = SO_SUCCESS;
+    if (so_sys_set_nonblocking(slots[s].fd, nonblocking) == -1)
+        result = so_last_error();
+    else
+        slots[s].nonblocking = nonblocking;
     pthread_mutex_unlock(&so_lock);
     return result;
 }
@@ -281,7 +305,7 @@ static void slot_release_locked(int s)
 {
     if (--slots[s].refs == 0 && slots[s].state == SLOT_CLOSING)
     {
-        close(slots[s].fd);
+        so_sys_close(slots[s].fd);
         slots[s].state = SLOT_FREE;
     }
 }
@@ -314,12 +338,20 @@ int so_backend_release_io(const struct so_backend_io* io, int result)
     return result;
 }
 
+bool so_backend_closing(int s)
+{
+    pthread_mutex_lock(&so_lock);
+    const bool closing = slots[s].state == SLOT_CLOSING;
+    pthread_mutex_unlock(&so_lock);
+    return closing;
+}
+
 void so_backend_acquire_pollfds(struct pollfd* dst, const SOPollFD* src, unsigned int n)
 {
     for (unsigned int i = 0; i < n; i++)
     {
         if (so_backend_acquire(src[i].fd, &dst[i].fd, NULL) != SO_SUCCESS)
-            dst[i].fd = -1;
+            dst[i].fd = SO_SYS_INVALID_SOCKET;
         dst[i].events = so_pollevent_to_native(src[i].events);
         dst[i].revents = 0;
     }
@@ -328,6 +360,6 @@ void so_backend_acquire_pollfds(struct pollfd* dst, const SOPollFD* src, unsigne
 void so_backend_release_pollfds(const struct pollfd* native, const SOPollFD* fds, unsigned int n)
 {
     for (unsigned int i = 0; i < n; i++)
-        if (native[i].fd != -1)
+        if (native[i].fd != SO_SYS_INVALID_SOCKET)
             so_backend_release(fds[i].fd);
 }

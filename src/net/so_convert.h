@@ -1,13 +1,7 @@
 #ifndef CHARGED_NET_SO_CONVERT_H
 #define CHARGED_NET_SO_CONVERT_H
 
-#include <revolution/so.h>
-#include <errno.h>
-#include <sys/socket.h> // needs to be imported after so.h to avoid
-                        // redefinitions of symbols SO_BROADCAST
-#include <netinet/in.h>
-#include <netdb.h>
-#include <poll.h>
+#include "so_sys.h"
 
 static inline sa_family_t to_native_family(int family)
 {
@@ -73,8 +67,11 @@ static inline short so_pollevent_to_native(int event)
         res |= POLLIN;
     if (event & SO_POLLRDBAND)
         res |= POLLRDBAND;
+#ifndef _WIN32
+    // WSAPoll fails the whole call with WSAEINVAL when asked for POLLPRI.
     if (event & SO_POLLPRI)
         res |= POLLPRI;
+#endif
     if (event & SO_POLLWRNORM)
         res |= POLLOUT;
     if (event & SO_POLLWRBAND)
@@ -125,6 +122,7 @@ static inline bool to_native_sockopt(int level, int optname, int* native_level, 
     }
 }
 
+#ifndef _WIN32
 static inline int so_error_from_errno(int error)
 {
     switch (error)
@@ -164,6 +162,85 @@ static inline int so_error_from_errno(int error)
     case EPROTOTYPE: return SO_EPROTOTYPE;
     default: return SO_EFATAL;
     }
+}
+#else
+// The Winsock counterparts of the errno table above. A send after shutdown
+// fails with WSAESHUTDOWN where POSIX reports EPIPE.
+static inline int so_error_from_wsa(int error)
+{
+    switch (error)
+    {
+    case WSAEWOULDBLOCK: return SO_EAGAIN;
+    case WSAEACCES: return SO_EACCES;
+    case WSAEADDRINUSE: return SO_EADDRINUSE;
+    case WSAEADDRNOTAVAIL: return SO_EADDRNOTAVAIL;
+    case WSAEAFNOSUPPORT: return SO_EAFNOSUPPORT;
+    case WSAEALREADY: return SO_EALREADY;
+    case WSAEBADF: return SO_EBADF;
+    case WSAECONNABORTED: return SO_ECONNABORTED;
+    case WSAECONNREFUSED: return SO_ECONNREFUSED;
+    case WSAECONNRESET: return SO_ECONNRESET;
+    case WSAEFAULT: return SO_EFAULT;
+    case WSAEHOSTUNREACH: return SO_EHOSTUNREACH;
+    case WSAEINPROGRESS: return SO_EINPROGRESS;
+    case WSAEINTR: return SO_EINTR;
+    case WSAEINVAL: return SO_EINVAL;
+    case WSAEISCONN: return SO_EISCONN;
+    case WSAEMFILE: return SO_EMFILE;
+    case WSAEMSGSIZE: return SO_EMSGSIZE;
+    case WSAENETDOWN: return SO_ENETDOWN;
+    case WSAENETUNREACH: return SO_ENETUNREACH;
+    case WSAENOBUFS: return SO_ENOBUFS;
+    case WSA_NOT_ENOUGH_MEMORY: return SO_ENOMEM;
+    case WSAENOPROTOOPT: return SO_ENOPROTOOPT;
+    case WSAENOTCONN: return SO_ENOTCONN;
+    case WSAENOTSOCK: return SO_ENOTSOCK;
+    case WSAEOPNOTSUPP: return SO_EOPNOTSUPP;
+    case WSAESHUTDOWN: return SO_EPIPE;
+    case WSAEPROTONOSUPPORT: return SO_EPROTONOSUPPORT;
+    case WSAEPROTOTYPE: return SO_EPROTOTYPE;
+    default: return SO_EFATAL;
+    }
+}
+#endif
+
+static inline int so_error_from_native(int error)
+{
+#ifdef _WIN32
+    return so_error_from_wsa(error);
+#else
+    return so_error_from_errno(error);
+#endif
+}
+
+// The SO error for the last failed host socket call.
+static inline int so_last_error(void)
+{
+    return so_error_from_native(so_sys_last_error());
+}
+
+// What a failed receive returns. After a read shutdown POSIX's recv reports
+// the end of the stream (0) where Winsock's fails with WSAESHUTDOWN.
+static inline int so_last_recv_result(void)
+{
+    const int error = so_sys_last_error();
+#ifdef _WIN32
+    if (error == WSAESHUTDOWN)
+        return 0;
+#endif
+    return so_error_from_native(error);
+}
+
+// A non-blocking connect reports EINPROGRESS on POSIX but WSAEWOULDBLOCK on
+// Windows; the SDK's callers expect SO_EINPROGRESS.
+static inline int so_last_connect_error(void)
+{
+    const int error = so_sys_last_error();
+#ifdef _WIN32
+    if (error == WSAEWOULDBLOCK)
+        return SO_EINPROGRESS;
+#endif
+    return so_error_from_native(error);
 }
 
 static inline int from_native_type(int type)
@@ -214,7 +291,9 @@ static inline int so_error_from_gai(int error)
     case EAI_SOCKTYPE: return SO_EPROTOTYPE;
     case EAI_SERVICE: return SO_EINVAL;
     case EAI_BADFLAGS: return SO_EINVAL;
+#ifdef EAI_SYSTEM
     case EAI_SYSTEM: return so_error_from_errno(errno);
+#endif
     default: return SO_EHOSTUNREACH;
     }
 }
