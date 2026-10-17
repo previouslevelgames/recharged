@@ -17,7 +17,7 @@ function(mscharged_configure_network_target target scope)
     target_compile_definitions("${target}" ${scope} MSCHARGED_NATIVE=1)
     target_link_libraries("${target}" ${scope} Threads::Threads)
     set_target_properties("${target}" PROPERTIES
-        C_STANDARD 99
+        C_STANDARD 11
         C_STANDARD_REQUIRED YES
         C_EXTENSIONS YES)
     add_dependencies("${target}" verify_prepared)

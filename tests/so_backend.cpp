@@ -1,7 +1,10 @@
 // SO backend on host sockets, one call at a time: byte order, the library
-// lifecycle, the socket table, bind and fcntl, UDP and TCP traffic, SOPoll,
-// SOGetHostID and broadcast, each with the argument and descriptor errors the
-// SDK's soBasic.c returns. The concurrent cases are in so_backend_threads.cpp.
+// lifecycle, the socket table, bind and fcntl, UDP and TCP traffic, socket
+// options, SOPoll, SOShutdown, SOGetHostID, broadcast, the address
+// conversions, the name lookups and SOGetInterfaceOpt, each with the argument
+// and descriptor errors the SDK's soBasic.c, SOOption.c and SOInformation.c
+// return.
+// The concurrent cases are in so_backend_threads.cpp.
 #include <revolution/so.h>
 
 #include <chrono>
@@ -261,6 +264,59 @@ void SockName(const UdpPair& udp, int closed)
     CheckResult(SOClose(eph), SO_SUCCESS, "getsockname: SOClose on the ephemeral-port socket");
 }
 
+// The options NHTTP and GameSpy set: SO_SO_RCVBUF and SO_SO_SNDBUF. Linux
+// doubles a buffer size it is given and reports the doubled value, so the
+// value read back is only checked to be at least the one set.
+void SockOpt(const UdpPair& udp, int closed)
+{
+    for (int optname : { SO_SO_RCVBUF, SO_SO_SNDBUF })
+    {
+        const int size = 0x8000;
+        CheckResult(SOSetSockOpt(udp.rx, SO_SOL_SOCKET, optname, &size, sizeof(size)), SO_SUCCESS,
+                    "sockopt: SOSetSockOpt of a buffer size");
+        int value = 0;
+        int len = sizeof(value);
+        CheckResult(SOGetSockOpt(udp.rx, SO_SOL_SOCKET, optname, &value, &len), SO_SUCCESS,
+                    "sockopt: SOGetSockOpt of a buffer size");
+        CheckResult(len, (int)sizeof(int), "sockopt: SOGetSockOpt length of a buffer size");
+        Check(value >= size, "sockopt: the buffer size read back is smaller than the one set");
+    }
+
+    // Argument handling copied from SOOption.c: the SDK zero-fills a NULL
+    // value, rejects lengths above its 20-byte buffer, skips the copy without
+    // optlen, and reports the needed length with SO_EINVAL when it is short.
+    const int size = 0x8000;
+    CheckResult(SOSetSockOpt(udp.rx, SO_SOL_SOCKET, SO_SO_RCVBUF, NULL, sizeof(int)), SO_SUCCESS,
+                "sockopt: SOSetSockOpt with a NULL value (zero-filled)");
+    CheckResult(SOSetSockOpt(udp.rx, SO_SOL_SOCKET, SO_SO_RCVBUF, &size, -1), SO_EINVAL,
+                "sockopt: SOSetSockOpt with a negative length");
+    CheckResult(SOSetSockOpt(udp.rx, SO_SOL_SOCKET, SO_SO_RCVBUF, &size, 21), SO_EINVAL,
+                "sockopt: SOSetSockOpt longer than the SDK's 20-byte buffer");
+    int value = 0;
+    CheckResult(SOGetSockOpt(udp.rx, SO_SOL_SOCKET, SO_SO_RCVBUF, &value, NULL), SO_SUCCESS,
+                "sockopt: SOGetSockOpt without optlen");
+    int short_len = 2;
+    CheckResult(SOGetSockOpt(udp.rx, SO_SOL_SOCKET, SO_SO_RCVBUF, &value, &short_len), SO_EINVAL,
+                "sockopt: SOGetSockOpt into a 2-byte buffer");
+    CheckResult(short_len, (int)sizeof(int), "sockopt: a short SOGetSockOpt must report the needed length");
+
+    // so.h's SO_BROADCAST is 9, which is SO_KEEPALIVE on Linux: an option the
+    // backend does not know must fail rather than reach the host.
+    const int sdk_broadcast = 9;
+    const int enable = 1;
+    int len = sizeof(value);
+    CheckResult(SOSetSockOpt(udp.rx, SO_SOL_SOCKET, sdk_broadcast, &enable, sizeof(enable)), SO_ENOPROTOOPT,
+                "sockopt: SOSetSockOpt of an option the backend does not translate");
+    CheckResult(SOGetSockOpt(udp.rx, SO_SOL_SOCKET, sdk_broadcast, &value, &len), SO_ENOPROTOOPT,
+                "sockopt: SOGetSockOpt of an option the backend does not translate");
+    CheckResult(SOSetSockOpt(udp.rx, SO_SOL_TCP, 0x2001, &enable, sizeof(enable)), SO_ENOPROTOOPT,
+                "sockopt: SOSetSockOpt at a level the backend does not translate");
+    CheckResult(SOSetSockOpt(closed, SO_SOL_SOCKET, SO_SO_RCVBUF, &size, sizeof(size)), SO_EBADF,
+                "sockopt: SOSetSockOpt on a closed descriptor");
+    CheckResult(SOGetSockOpt(closed, SO_SOL_SOCKET, SO_SO_RCVBUF, &value, &len), SO_EBADF,
+                "sockopt: SOGetSockOpt on a closed descriptor");
+}
+
 // The receiver must be non-blocking with an empty queue.
 void Poll(const UdpPair& udp, int closed)
 {
@@ -310,6 +366,21 @@ void Poll(const UdpPair& udp, int closed)
     CheckResult(pfd[0].revents, 0, "poll: empty socket next to invalid ones");
     CheckResult(pfd[1].revents, SO_POLLNVAL, "poll: fd -1 revents");
     CheckResult(pfd[2].revents, SO_POLLNVAL, "poll: fd 99 revents");
+}
+
+// The Wii ignores SOShutdown on UDP (Dolphin PR 8758's hwtest): the receiver
+// must keep receiving. so.h names no modes, so only 0, 1 and 2 are valid.
+void Shutdown(const UdpPair& udp, int closed)
+{
+    u8 buf[64];
+    CheckResult(SOShutdown(udp.rx, 2), SO_SUCCESS, "shutdown: SOShutdown on a UDP socket");
+    CheckResult(SOSendTo(udp.tx, kPayload, sizeof(kPayload), 0, &udp.rx_addr), (int)sizeof(kPayload),
+                "shutdown: SOSendTo to the shut down UDP receiver");
+    CheckResult(SORecvFrom(udp.rx, buf, sizeof(buf), 0, NULL), (int)sizeof(kPayload),
+                "shutdown: a UDP socket must keep receiving after SOShutdown");
+    CheckResult(SOShutdown(udp.rx, 3), SO_EINVAL, "shutdown: SOShutdown with how=3");
+    CheckResult(SOShutdown(udp.rx, -1), SO_EINVAL, "shutdown: SOShutdown with how=-1");
+    CheckResult(SOShutdown(closed, 2), SO_EBADF, "shutdown: SOShutdown on a closed descriptor");
 }
 
 // The detected address depends on the machine running the suite (it is
@@ -514,8 +585,349 @@ void AfterCleanup(const UdpPair& udp)
     CheckResult(SOGetSockName(udp.rx, &name), SO_EINVAL, "post tests: SOGetSockName after SOCleanup (READY)");
     CheckResult(SOConnect(0, &server), SO_EINVAL, "post tests: SOConnect after SOCleanup (READY)");
     CheckResult(SOSend(0, kPayload, sizeof(kPayload), 0), SO_EINVAL, "post tests: SOSend after SOCleanup (READY)");
+    int value = 0;
+    int len = sizeof(value);
+    CheckResult(SOSetSockOpt(0, SO_SOL_SOCKET, SO_SO_RCVBUF, &value, sizeof(value)), SO_EINVAL,
+                "post tests: SOSetSockOpt after SOCleanup (READY)");
+    CheckResult(SOGetSockOpt(0, SO_SOL_SOCKET, SO_SO_RCVBUF, &value, &len), SO_EINVAL,
+                "post tests: SOGetSockOpt after SOCleanup (READY)");
+    CheckResult(SOShutdown(0, 2), SO_EINVAL, "post tests: SOShutdown after SOCleanup (READY)");
     CheckResult(SOFinish(), SO_SUCCESS, "post tests: SOFinish after SOCleanup (READY -> TERMINATED)");
     Check(SOGetHostID() == 0, "post tests: SOGetHostID after SOFinish (TERMINATED)");
+}
+
+// The allocator SOInit receives. SOGetAddrInfo takes its block from it, so the
+// other tests' placeholder pointers would crash here.
+struct Allocations
+{
+    unsigned allocs, frees;
+    int live;
+    bool fail_next;
+    u32 last_name;
+    s32 last_size;
+    void* last_ptr;
+};
+Allocations allocations;
+
+void* CountingAlloc(u32 name, s32 size)
+{
+    allocations.allocs++;
+    allocations.last_name = name;
+    allocations.last_size = size;
+    if (allocations.fail_next)
+    {
+        allocations.fail_next = false;
+        return nullptr;
+    }
+    allocations.last_ptr = std::malloc((size_t)size);
+    allocations.live++;
+    return allocations.last_ptr;
+}
+
+void CountingFree(u32 name, void* ptr, s32 size)
+{
+    allocations.frees++;
+    allocations.last_name = name;
+    allocations.last_size = size;
+    allocations.last_ptr = ptr;
+    allocations.live--;
+    std::free(ptr);
+}
+
+const SOLibraryConfig kCountingConfig = { .alloc = CountingAlloc, .free = CountingFree };
+
+const u32 kLoopbackAddr = 0x7f000001;
+
+bool IsLoopback(const u8* addr)
+{
+    return addr[0] == 127;
+}
+
+u32 AddrOf(const u8* bytes)
+{
+    u32 addr;
+    std::memcpy(&addr, bytes, sizeof(addr));
+    return addr;
+}
+
+// Called in TERMINATED: SOInetAtoN and SOGetInterfaceOpt also work in READY,
+// the lookups only in ACTIVE (SOiPrepareTempRm against SOiConclude).
+void ResolverStates()
+{
+    SOInAddr in = { .addr = 0 };
+    SOAddrInfo* res = nullptr;
+    int count = 0;
+    int len = sizeof(count);
+    CheckResult(SOInetAtoN("1.2.3.4", &in), SO_ENETRESET, "resolver: SOInetAtoN before SOInit (TERMINATED)");
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_NUMBER, &count, &len), SO_ENETRESET,
+                "resolver: SOGetInterfaceOpt before SOInit (TERMINATED)");
+    Check(SOGetHostByName("127.0.0.1") == nullptr, "resolver: SOGetHostByName before SOInit (TERMINATED)");
+    CheckResult(SOGetAddrInfo("127.0.0.1", nullptr, nullptr, &res), SO_ENETRESET,
+                "resolver: SOGetAddrInfo before SOInit (TERMINATED)");
+
+    SOLibraryConfig config = kCountingConfig;
+    CheckResult(SOInit(&config), SO_SUCCESS, "resolver: SOInit with the counting allocator (TERMINATED -> READY)");
+    CheckResult(SOInetAtoN("1.2.3.4", &in), 1, "resolver: SOInetAtoN after SOInit (READY)");
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_NUMBER, &count, &len), SO_SUCCESS,
+                "resolver: SOGetInterfaceOpt after SOInit (READY)");
+    CheckResult(count, 1, "resolver: SO_CONFIG_IP_ADDR_NUMBER in READY");
+    Check(SOGetHostByName("127.0.0.1") == nullptr, "resolver: SOGetHostByName after SOInit (READY)");
+    CheckResult(SOGetAddrInfo("127.0.0.1", nullptr, nullptr, &res), SO_EINVAL,
+                "resolver: SOGetAddrInfo after SOInit (READY)");
+    CheckResult(SOStartup(), SO_SUCCESS, "resolver: SOStartup (READY -> ACTIVE)");
+}
+
+void InetConversions()
+{
+    SOInAddr in = { .addr = 0 };
+    CheckResult(SOInetAtoN("1.2.3.4", &in), 1, "inet: SOInetAtoN(\"1.2.3.4\")");
+    const u8* bytes = (const u8*)&in.addr;
+    Check(bytes[0] == 1 && bytes[1] == 2 && bytes[2] == 3 && bytes[3] == 4,
+          "inet: SOInetAtoN must store the address in network order");
+    CheckResult(SOInetAtoN("255.255.255.255", &in), 1, "inet: SOInetAtoN(\"255.255.255.255\")");
+    Check(in.addr == 0xffffffff, "inet: SOInetAtoN(\"255.255.255.255\") value");
+
+    // gsSocketRevolution.c's inet_addr reads 0 as "not an address" and
+    // leaves the output alone.
+    in.addr = 0x12345678;
+    CheckResult(SOInetAtoN("gpcm.gs.nintendowifi.net", &in), 0, "inet: SOInetAtoN on a host name");
+    CheckResult(SOInetAtoN("1.2.3.4.5", &in), 0, "inet: SOInetAtoN on five components");
+    CheckResult(SOInetAtoN("", &in), 0, "inet: SOInetAtoN on an empty string");
+    Check(in.addr == 0x12345678, "inet: a failed SOInetAtoN must not touch the output");
+    CheckResult(SOInetAtoN("1.2.3.4", nullptr), 1, "inet: SOInetAtoN with no output");
+    CheckResult(SOInetAtoN(nullptr, &in), SO_EINVAL, "inet: SOInetAtoN(NULL)");
+
+    SOInAddr local = { .addr = SOHtoNl(0xc0a80001) };
+    Check(std::strcmp(SOInetNtoA(local), "192.168.0.1") == 0, "inet: SOInetNtoA(192.168.0.1)");
+    SOInAddr all = { .addr = 0xffffffff };
+    Check(std::strcmp(SOInetNtoA(all), "255.255.255.255") == 0, "inet: SOInetNtoA(255.255.255.255)");
+    SOInAddr zero = { .addr = 0 };
+    Check(std::strcmp(SOInetNtoA(zero), "0.0.0.0") == 0, "inet: SOInetNtoA(0.0.0.0)");
+
+    SOInAddr back = { .addr = 0 };
+    CheckResult(SOInetAtoN(SOInetNtoA(local), &back), 1, "inet: SOInetAtoN(SOInetNtoA(x))");
+    Check(back.addr == local.addr, "inet: SOInetAtoN(SOInetNtoA(x)) must give x back");
+
+    // Each thread has its own buffer: a call on another thread must not
+    // overwrite the string this one still holds.
+    const char* mine = SOInetNtoA(local);
+    std::string theirs;
+    std::thread([&] { theirs = SOInetNtoA(all); }).join();
+    Check(theirs == "255.255.255.255", "inet: SOInetNtoA on another thread");
+    Check(std::strcmp(mine, "192.168.0.1") == 0, "inet: SOInetNtoA on another thread must not overwrite this thread's result");
+}
+
+void HostByName()
+{
+    const SOHostEnt* host = SOGetHostByName("127.0.0.1");
+    Check(host != nullptr, "hostbyname: SOGetHostByName(\"127.0.0.1\")");
+    CheckResult(host->addrType, SO_PF_INET, "hostbyname: addrType");
+    CheckResult(host->length, (int)sizeof(SOInAddr), "hostbyname: length");
+    Check(host->name != nullptr && std::strcmp(host->name, "127.0.0.1") == 0, "hostbyname: name of a numeric host");
+    Check(host->aliases != nullptr && host->aliases[0] == nullptr, "hostbyname: empty alias list");
+    Check(host->addrList != nullptr && host->addrList[0] != nullptr, "hostbyname: at least one address");
+    Check(AddrOf(host->addrList[0]) == SOHtoNl(kLoopbackAddr), "hostbyname: 127.0.0.1 in network order");
+    Check(host->addrList[1] == nullptr, "hostbyname: a numeric host has one address");
+
+    // NHTTP_socket_RVL.c and gsSocketRevolution.c resolve names, not numbers
+    host = SOGetHostByName("localhost");
+    Check(host != nullptr, "hostbyname: SOGetHostByName(\"localhost\")");
+    for (int i = 0; host->addrList[i] != nullptr; i++)
+        Check(IsLoopback(host->addrList[i]), "hostbyname: every address of localhost is in 127.0.0.0/8");
+
+    // Like the SDK's soWork buffer: one result per thread, overwritten by the
+    // next call on the same thread.
+    const SOHostEnt* first = SOGetHostByName("127.0.0.1");
+    const SOHostEnt* second = SOGetHostByName("127.0.0.2");
+    Check(first == second, "hostbyname: one result buffer per thread");
+    Check(AddrOf(second->addrList[0]) == SOHtoNl(0x7f000002), "hostbyname: the second call's address");
+    const SOHostEnt* other = nullptr;
+    u32 other_addr = 0;
+    std::thread([&] {
+        other = SOGetHostByName("127.0.0.3");
+        other_addr = other != nullptr ? AddrOf(other->addrList[0]) : 0;
+    }).join();
+    Check(other != nullptr && other != second, "hostbyname: another thread gets its own buffer");
+    Check(other_addr == SOHtoNl(0x7f000003), "hostbyname: the other thread's address");
+    Check(AddrOf(second->addrList[0]) == SOHtoNl(0x7f000002), "hostbyname: another thread must not overwrite this one's result");
+
+    Check(SOGetHostByName(nullptr) == nullptr, "hostbyname: SOGetHostByName(NULL)");
+}
+
+void AddrInfo()
+{
+    // No socket type: one entry for TCP and one for UDP, raw sockets skipped
+    SOAddrInfo* res = nullptr;
+    const Allocations before = allocations;
+    CheckResult(SOGetAddrInfo("127.0.0.1", "80", nullptr, &res), SO_SUCCESS, "addrinfo: SOGetAddrInfo(\"127.0.0.1\", \"80\")");
+    CheckResult((int)(allocations.allocs - before.allocs), 1, "addrinfo: one block from SOInit's allocator");
+    CheckResult((int)allocations.last_name, 10, "addrinfo: allocation name 10, like SOiAlloc in SOGetAddrInfo");
+    Check(res == allocations.last_ptr, "addrinfo: the list starts at the allocated block");
+    const s32 block_size = allocations.last_size;
+    bool stream = false, dgram = false;
+    int entries = 0;
+    for (const SOAddrInfo* ai = res; ai != nullptr; ai = ai->next)
+    {
+        entries++;
+        CheckResult(ai->family, SO_PF_INET, "addrinfo: entry family");
+        CheckResult((int)ai->addrLen, (int)sizeof(SOSockAddrIn), "addrinfo: entry addrLen");
+        Check(ai->canonName == nullptr, "addrinfo: no canonName");
+        Check((const u8*)ai->addr >= (const u8*)res && (const u8*)ai->addr < (const u8*)res + block_size,
+              "addrinfo: the address lives in the same block, so SOFreeAddrInfo frees it too");
+        const SOSockAddrIn* sin = (const SOSockAddrIn*)ai->addr;
+        CheckResult(sin->len, (int)sizeof(SOSockAddrIn), "addrinfo: address len");
+        CheckResult(sin->family, SO_PF_INET, "addrinfo: address family");
+        Check(sin->port == SOHtoNs(80), "addrinfo: port 80 in network order");
+        Check(sin->addr.addr == SOHtoNl(kLoopbackAddr), "addrinfo: 127.0.0.1 in network order");
+        if (ai->sockType == SO_SOCK_STREAM)
+        {
+            stream = true;
+            CheckResult(ai->protocol, SO_IPPROTO_TCP, "addrinfo: stream entry protocol");
+        }
+        else if (ai->sockType == SO_SOCK_DGRAM)
+        {
+            dgram = true;
+            CheckResult(ai->protocol, SO_IPPROTO_UDP, "addrinfo: datagram entry protocol");
+        }
+        else
+            Check(false, "addrinfo: entry socket type must be stream or datagram");
+    }
+    CheckResult(entries, 2, "addrinfo: one entry per socket type");
+    Check(stream && dgram, "addrinfo: a stream and a datagram entry");
+
+    const unsigned frees = allocations.frees;
+    SOFreeAddrInfo(res);
+    CheckResult((int)(allocations.frees - frees), 1, "addrinfo: SOFreeAddrInfo frees once");
+    Check(allocations.last_ptr == res, "addrinfo: SOFreeAddrInfo frees the allocated block");
+    CheckResult((int)allocations.last_name, 10, "addrinfo: SOFreeAddrInfo frees with name 10");
+    CheckResult(allocations.last_size, block_size, "addrinfo: SOFreeAddrInfo frees with the allocated size");
+
+    SOAddrInfo hints = { .family = 0, .sockType = SO_SOCK_DGRAM };
+    CheckResult(SOGetAddrInfo("127.0.0.1", "27900", &hints, &res), SO_SUCCESS, "addrinfo: SOGetAddrInfo with a datagram hint");
+    Check(res->next == nullptr && res->sockType == SO_SOCK_DGRAM, "addrinfo: a datagram hint gives one datagram entry");
+    Check(((const SOSockAddrIn*)res->addr)->port == SOHtoNs(27900), "addrinfo: port 27900 in network order");
+    SOFreeAddrInfo(res);
+
+    // getaddrinfo picks loopback for a missing node without AI_PASSIVE
+    CheckResult(SOGetAddrInfo(nullptr, "80", nullptr, &res), SO_SUCCESS, "addrinfo: SOGetAddrInfo with no node");
+    Check(IsLoopback((const u8*)&((const SOSockAddrIn*)res->addr)->addr), "addrinfo: no node gives a loopback address");
+    SOFreeAddrInfo(res);
+
+    hints = { .family = SO_PF_INET6 };
+    CheckResult(SOGetAddrInfo("127.0.0.1", nullptr, &hints, &res), SO_EPROTONOSUPPORT, "addrinfo: SO_PF_INET6 hint");
+    Check(res == nullptr, "addrinfo: a failed call leaves *res NULL");
+    hints = { .family = 99 };
+    CheckResult(SOGetAddrInfo("127.0.0.1", nullptr, &hints, &res), SO_EAFNOSUPPORT, "addrinfo: unknown family hint");
+    hints = { .sockType = 99 };
+    CheckResult(SOGetAddrInfo("127.0.0.1", nullptr, &hints, &res), SO_EPROTOTYPE, "addrinfo: unknown socket type hint");
+    CheckResult(SOGetAddrInfo("127.0.0.1", "msc-no-such-service", nullptr, &res), SO_EINVAL,
+                "addrinfo: unknown service name");
+    CheckResult(SOGetAddrInfo("127.0.0.1", nullptr, nullptr, nullptr), SO_EINVAL, "addrinfo: no res");
+
+    const unsigned allocs = allocations.allocs;
+    allocations.fail_next = true;
+    CheckResult(SOGetAddrInfo("127.0.0.1", "80", nullptr, &res), SO_ENOMEM, "addrinfo: the allocator fails");
+    CheckResult((int)(allocations.allocs - allocs), 1, "addrinfo: the failed allocation was attempted once");
+    Check(res == nullptr, "addrinfo: *res stays NULL when the allocator fails");
+}
+
+// getlocalhost (gsPlatformSocket.c) asks for the count, sizes the table with
+// it and ignores both return values: these two calls must always work.
+void InterfaceOpt(u32 host)
+{
+    int count = -1;
+    int len = sizeof(count);
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_NUMBER, &count, &len), SO_SUCCESS,
+                "ifopt: SO_CONFIG_IP_ADDR_NUMBER");
+    CheckResult(count, 1, "ifopt: one address");
+    CheckResult(len, (int)sizeof(int), "ifopt: SO_CONFIG_IP_ADDR_NUMBER length");
+
+    IPAddrEntry table[2];
+    std::memset(table, 0xaa, sizeof(table));
+    len = count * (int)sizeof(IPAddrEntry);
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_TABLE, table, &len), SO_SUCCESS,
+                "ifopt: SO_CONFIG_IP_ADDR_TABLE");
+    CheckResult(len, (int)sizeof(IPAddrEntry), "ifopt: SO_CONFIG_IP_ADDR_TABLE length");
+    const u32 addr = AddrOf(table[0].addr), mask = AddrOf(table[0].netMask), bcast = AddrOf(table[0].bcastAddr);
+    Check(addr == host, "ifopt: the table address must be SOGetHostID's");
+    Check(mask != 0, "ifopt: a netmask");
+    Check((bcast & mask) == (addr & mask), "ifopt: the broadcast address is in the address's subnet");
+    Check((bcast | mask) == 0xffffffff, "ifopt: the broadcast address has every host bit set");
+
+    // A bigger buffer reports the real length and leaves the rest alone
+    std::memset(table, 0xaa, sizeof(table));
+    len = sizeof(table);
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_TABLE, table, &len), SO_SUCCESS,
+                "ifopt: SO_CONFIG_IP_ADDR_TABLE with room for two entries");
+    CheckResult(len, (int)sizeof(IPAddrEntry), "ifopt: the length of one entry");
+    CheckResult(table[1].addr[0], 0xaa, "ifopt: the second entry is untouched");
+
+    // Too short: nothing copied, *optlen says how much is needed
+    for (int short_len : { 0, (int)sizeof(IPAddrEntry) - 1, -1 })
+    {
+        std::memset(table, 0xaa, sizeof(table));
+        len = short_len;
+        CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_TABLE, table, &len), SO_EINVAL,
+                    "ifopt: SO_CONFIG_IP_ADDR_TABLE with a short or negative length");
+        CheckResult(len, (int)sizeof(IPAddrEntry), "ifopt: a short length reports the needed one");
+        CheckResult(table[0].addr[0], 0xaa, "ifopt: nothing is copied into a short buffer");
+    }
+    count = -1;
+    len = -1;
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_NUMBER, &count, &len), SO_EINVAL,
+                "ifopt: SO_CONFIG_IP_ADDR_NUMBER with a negative length");
+    CheckResult(len, (int)sizeof(int), "ifopt: SO_CONFIG_IP_ADDR_NUMBER needed length");
+    CheckResult(count, -1, "ifopt: nothing is copied with a negative length");
+
+    // No buffer: only the length
+    len = sizeof(int);
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_NUMBER, nullptr, &len), SO_SUCCESS,
+                "ifopt: SO_CONFIG_IP_ADDR_NUMBER with no buffer");
+    len = sizeof(IPAddrEntry);
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_TABLE, nullptr, &len), SO_SUCCESS,
+                "ifopt: SO_CONFIG_IP_ADDR_TABLE with no buffer");
+
+    len = sizeof(count);
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_NUMBER, &count, nullptr), SO_EINVAL,
+                "ifopt: no optlen");
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_FILTER_INPUT, &count, &len), SO_EINVAL,
+                "ifopt: SO_CONFIG_FILTER_INPUT");
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_FILTER_OUTPUT, &count, &len), SO_EINVAL,
+                "ifopt: SO_CONFIG_FILTER_OUTPUT");
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_MAC_ADDRESS, &count, &len), SO_ENOPROTOOPT,
+                "ifopt: SO_CONFIG_MAC_ADDRESS is not supported");
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_SOCKET, SO_CONFIG_IP_ADDR_NUMBER, &count, &len), SO_ENOPROTOOPT,
+                "ifopt: SO_CONFIG_IP_ADDR_NUMBER at SO_SOL_SOCKET");
+
+    // The interface is read on every call, so the override needs no restart.
+    // Loopback has no broadcast address: addr | ~netmask stands in for it.
+    const char* env_iface = std::getenv("RECHARGED_NET_IFACE");
+    const std::string saved_iface = env_iface != nullptr ? env_iface : "";
+    setenv("RECHARGED_NET_IFACE", "lo", 1);
+    len = sizeof(IPAddrEntry);
+    CheckResult(SOGetInterfaceOpt(nullptr, SO_SOL_CONFIG, SO_CONFIG_IP_ADDR_TABLE, table, &len), SO_SUCCESS,
+                "ifopt: SO_CONFIG_IP_ADDR_TABLE with RECHARGED_NET_IFACE=lo");
+    Check(AddrOf(table[0].addr) == SOHtoNl(kLoopbackAddr), "ifopt: lo address 127.0.0.1");
+    Check(AddrOf(table[0].netMask) == SOHtoNl(0xff000000), "ifopt: lo netmask 255.0.0.0");
+    Check(AddrOf(table[0].bcastAddr) == SOHtoNl(0x7fffffff), "ifopt: lo broadcast 127.255.255.255");
+    if (env_iface != nullptr)
+        setenv("RECHARGED_NET_IFACE", saved_iface.c_str(), 1);
+    else
+        unsetenv("RECHARGED_NET_IFACE");
+}
+
+// SOFreeAddrInfo after SOFinish frees nothing, like SOiFree behind it.
+void ResolverFinish()
+{
+    SOAddrInfo* res = nullptr;
+    CheckResult(SOGetAddrInfo("127.0.0.1", "80", nullptr, &res), SO_SUCCESS, "resolver: SOGetAddrInfo before SOFinish");
+    CheckResult(SOCleanup(), SO_SUCCESS, "resolver: SOCleanup (ACTIVE -> READY)");
+    CheckResult(SOFinish(), SO_SUCCESS, "resolver: SOFinish (READY -> TERMINATED)");
+    const unsigned frees = allocations.frees;
+    SOFreeAddrInfo(res);
+    CheckResult((int)(allocations.frees - frees), 0, "resolver: SOFreeAddrInfo after SOFinish frees nothing");
+    CheckResult(allocations.live, 1, "resolver: every block but the one left after SOFinish went back to the allocator");
+    std::free(res);
 }
 } // namespace
 
@@ -530,11 +942,19 @@ int main()
         CleanupAndRestart(closed);
         const UdpPair udp = Udp(closed);
         SockName(udp, closed);
+        SockOpt(udp, closed);
         Poll(udp, closed);
+        Shutdown(udp, closed);
         const u32 host = HostId();
         Tcp(closed);
         const bool broadcast = Broadcast();
         AfterCleanup(udp);
+        ResolverStates();
+        InetConversions();
+        HostByName();
+        AddrInfo();
+        InterfaceOpt((u32)SOGetHostID());
+        ResolverFinish();
         std::cout << "SO backend: " << checks << " checks, host address " << (host & 0xff) << '.'
                   << ((host >> 8) & 0xff) << '.' << ((host >> 16) & 0xff) << '.' << (host >> 24)
                   << (broadcast ? "" : ", broadcast skipped (no route for 255.255.255.255)") << '\n';

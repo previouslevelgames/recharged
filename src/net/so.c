@@ -1,11 +1,16 @@
+#include <stdio.h>
 #include <revolution/so.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <sys/socket.h> // needs to be imported after so.h to avoid
                         // redefinitions of symbols SO_BROADCAST
+#include <netdb.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "so_convert.h"
 #include "so_host.h"
@@ -28,6 +33,7 @@ int SOInit(SOLibraryConfig* config)
             result = SO_EINVAL;
                 break;
         }
+        so_backend_set_allocator_locked(config->alloc, config->free);
         so_backend_set_state_locked(SO_INTERNAL_STATE_READY);
         break;
     }
@@ -140,7 +146,7 @@ int SOBind(int s, const void *sockAddr)
         return SO_EINVAL;
 
     int real_fd;
-    result = so_backend_acquire(s, &real_fd);
+    result = so_backend_acquire(s, &real_fd, NULL);
     if (result != SO_SUCCESS)
         return result;
 
@@ -192,7 +198,7 @@ int SOFcntl(int s, int cmd, ...)
         return result;
 
     int real_fd;
-    result = so_backend_acquire(s, &real_fd);
+    result = so_backend_acquire(s, &real_fd, NULL);
     if (result != SO_SUCCESS)
         return result;
     result = so_fcntl_native(real_fd, cmd, arg);
@@ -239,7 +245,8 @@ static int so_send_to(int s, const void* buf, int len, int flags, const void* so
     if (len < 0 || (len > 0 && buf == NULL))
         return SO_EINVAL;
     int real_fd;
-    result = so_backend_acquire(s, &real_fd);
+    struct so_backend_io io;
+    result = so_backend_acquire_io(s, SO_BACKEND_WRITE, SO_ENOTCONN, &real_fd, &io);
     if (result != SO_SUCCESS)
         return result;
     ssize_t sent;
@@ -252,20 +259,10 @@ static int so_send_to(int s, const void* buf, int len, int flags, const void* so
     {
         sent = send(real_fd, buf, (size_t)len, flags);
     }
-    return so_backend_release_io(s, sent == -1 ? so_error_from_errno(errno) : (int)sent);
+    return so_backend_release_io(&io, sent == -1 ? so_error_from_errno(errno) : (int)sent);
 }
 
-int SOSendTo(int s, const void* buf, int len, int flags, const void* sockTo)
-{
-    return so_send_to(s, buf, len, flags, sockTo);
-}
-
-int SOSend(int s, const void *buf, int len, int flags)
-{
-    return so_send_to(s, buf, len, flags, NULL);
-}
-
-int SORecvFrom(int s, void* buf, int len, int flags, void* sockFrom)
+static int so_recv_from(int s, void* buf, int len, int flags, void* sockFrom)
 {
     int result = so_backend_check_active();
     if (result != SO_SUCCESS)
@@ -278,16 +275,39 @@ int SORecvFrom(int s, void* buf, int len, int flags, void* sockFrom)
     if (len < 0 || (len > 0 && buf == NULL))
         return SO_EINVAL;
     int real_fd;
-    result = so_backend_acquire(s, &real_fd);
+    struct so_backend_io io;
+    result = so_backend_acquire_io(s, SO_BACKEND_READ, SO_ENOTCONN, &real_fd, &io);
     if (result != SO_SUCCESS)
         return result;
+    ssize_t received;
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    ssize_t received = recvfrom(real_fd, buf, (size_t)len, 0, (struct sockaddr *)&addr, &addrlen);
-    result = so_backend_release_io(s, received == -1 ? so_error_from_errno(errno) : (int)received);
+    received = recvfrom(real_fd, buf, (size_t)len, 0, (struct sockaddr *)&addr, &addrlen);
+    result = so_backend_release_io(&io, received == -1 ? so_error_from_errno(errno) : (int)received);
     if (result >= 0 && sockFrom != NULL)
         from_native_sockaddr(sockFrom, &addr);
+    
     return result;
+}
+
+int SOSendTo(int s, const void* buf, int len, int flags, const void* sockTo)
+{
+    return so_send_to(s, buf, len, flags, sockTo);
+}
+
+int SOSend(int s, const void *buf, int len, int flags)
+{
+    return so_send_to(s, buf, len, flags, NULL);
+}
+
+int SORecv(int s, void* buf, int len, int flags)
+{
+    return so_recv_from(s, buf, len, flags, NULL);
+}
+
+int SORecvFrom(int s, void* buf, int len, int flags, void* sockFrom)
+{
+    return so_recv_from(s, buf, len, flags, sockFrom);
 }
 
 int SOGetSockName(int s, void* sockAddr)
@@ -300,7 +320,7 @@ int SOGetSockName(int s, void* sockAddr)
     if (addr == NULL || sizeof(SOSockAddr) < addr->len || addr->len < sizeof(SOSockAddr))
         return SO_EINVAL;
     int real_fd;
-    result = so_backend_acquire(s, &real_fd);
+    result = so_backend_acquire(s, &real_fd, NULL);
     if (result != SO_SUCCESS)
         return result;
     struct sockaddr_in addrnative;
@@ -369,11 +389,378 @@ int SOConnect(int s, const void* sockAddr)
     if (addr == NULL || sizeof(SOSockAddr) < addr->len || addr->len < sizeof(SOSockAddr))
         return SO_EINVAL;
     int real_fd;
-    result = so_backend_acquire(s, &real_fd);
+    struct so_backend_io io;
+    result = so_backend_acquire_io(s, SO_BACKEND_WRITE, SO_ENETUNREACH, &real_fd, &io);
     if (result != SO_SUCCESS)
         return result;
     struct sockaddr_in addrnative = to_native_sockaddr((const SOSockAddrIn*)addr);
     if (connect(real_fd, (struct sockaddr*)&addrnative, sizeof(addrnative)) == -1)
         result = so_error_from_errno(errno);
-    return so_backend_release_io(s, result);
+    return so_backend_release_io(&io, result);
+}
+
+
+int SOListen(int s, int backlog)
+{
+    int result = so_backend_check_active();
+    if (result != SO_SUCCESS)
+        return result;
+    int real_fd;
+    result = so_backend_acquire(s, &real_fd, NULL);
+    if (result != SO_SUCCESS)
+        return result;
+    if (listen(real_fd, backlog) == -1)
+        result = so_error_from_errno(errno);
+    so_backend_release(s);
+    return result;
+}
+
+int SOAccept(int s, void* sockAddr)
+{
+    int result = so_backend_check_active();
+    if (result != SO_SUCCESS)
+        return result;
+
+    const SOSockAddr* nlAddr = sockAddr;
+    if (sockAddr != NULL
+        && nlAddr->len != sizeof(SOSockAddr))
+        return SO_EINVAL;
+
+    int real_fd;
+    struct so_backend_io io;
+    result = so_backend_acquire_io(s, SO_BACKEND_WRITE, SO_EINVAL, &real_fd, &io);
+    if (result != SO_SUCCESS)
+        return result;
+    struct sockaddr_in addr;
+    socklen_t size = sizeof(addr);
+    int new_conn = accept(real_fd, (struct sockaddr*)&addr, &size);
+    result = so_backend_release_io(&io, new_conn == -1 ? so_error_from_errno(errno) : SO_SUCCESS);
+    if (result >= 0)
+    {
+        result = so_backend_insert_accepted(new_conn);
+        if (result >= 0 && sockAddr != NULL)
+        {
+            from_native_sockaddr(sockAddr, &addr);
+        }
+    }
+    else if (new_conn >= 0)
+    {
+        close(new_conn);
+    }
+    return result;
+}
+
+
+int SOShutdown(int s, int how)
+{
+    int result = so_backend_check_active();
+    if (result != SO_SUCCESS)
+        return result;
+    const int native_how = to_native_how(how);
+    if (native_how == -1)
+        return SO_EINVAL;
+
+    int real_fd, real_type;
+    result = so_backend_acquire(s, &real_fd, &real_type);
+    if (result != SO_SUCCESS)
+        return result;
+    // The Wii does nothing and returns 0 for UDP (Dolphin PR 8758's hwtest).
+    if (real_type == SOCK_STREAM)
+    {
+        const bool shut_read = native_how == SHUT_RD || native_how == SHUT_RDWR;
+        const bool shut_write = native_how == SHUT_WR || native_how == SHUT_RDWR;
+        so_backend_record_shutdown(s, shut_read, shut_write);
+        if (shutdown(real_fd, native_how) == -1)
+            result = so_error_from_errno(errno);
+    }
+    so_backend_release(s);
+    return result;
+}
+
+// The SDK copies option values through a 20-byte IOS buffer.
+#define SO_SOCKOPT_MAX_LEN 20
+
+int SOSetSockOpt(int s, int level, int optname, const void* optval, int optlen)
+{
+    int result = so_backend_check_active();
+    if (result != SO_SUCCESS)
+        return result;
+    if (optlen < 0 || optlen > SO_SOCKOPT_MAX_LEN)
+        return SO_EINVAL;
+    int native_level, native_optname;
+    if (!to_native_sockopt(level, optname, &native_level, &native_optname))
+        return SO_ENOPROTOOPT;
+    // A NULL value is zero-filled, as the SDK does before calling IOS.
+    static const u8 zeros[SO_SOCKOPT_MAX_LEN];
+    const void* native_value = optval != NULL ? optval : zeros;
+
+    int real_fd;
+    result = so_backend_acquire(s, &real_fd, NULL);
+    if (result != SO_SUCCESS)
+        return result;
+    if (setsockopt(real_fd, native_level, native_optname, native_value, (socklen_t)optlen) == -1)
+        result = so_error_from_errno(errno);
+    so_backend_release(s);
+    return result;
+}
+
+int SOGetSockOpt(int s, int level, int optname, void* optval, int* optlen)
+{
+    int result = so_backend_check_active();
+    if (result != SO_SUCCESS)
+        return result;
+    int native_level, native_optname;
+    if (!to_native_sockopt(level, optname, &native_level, &native_optname))
+        return SO_ENOPROTOOPT;
+
+    int real_fd;
+    result = so_backend_acquire(s, &real_fd, NULL);
+    if (result != SO_SUCCESS)
+        return result;
+    u8 value[SO_SOCKOPT_MAX_LEN];
+    socklen_t length = sizeof(value);
+    if (getsockopt(real_fd, native_level, native_optname, value, &length) == -1)
+        result = so_error_from_errno(errno);
+    so_backend_release(s);
+    if (result != SO_SUCCESS || optlen == NULL)
+        return result;
+
+    // As in the SDK, a short buffer gets the needed length and SO_EINVAL.
+    if (*optlen < (int)length)
+        result = SO_EINVAL;
+    else if (optval != NULL)
+        memcpy(optval, value, length);
+    *optlen = (int)length;
+    return result;
+}
+
+
+int SOInetAtoN(const char* cp, SOInAddr* inp)
+{
+    so_backend_lock();
+    int state = so_backend_state_locked();
+    so_backend_unlock();
+    if (state == SO_INTERNAL_STATE_TERMINATED)
+        return SO_ENETRESET;
+    if (cp == NULL)
+        return SO_EINVAL;
+    struct in_addr inaddr;
+    int res = inet_aton(cp, &inaddr);
+    if (res > 0 && inp != NULL)
+        inp->addr = inaddr.s_addr;
+    return res;
+}
+
+static _Thread_local char addressBuffer[40];
+char* SOInetNtoA(SOInAddr in)
+{
+    u8* addr = (u8*)&in;
+    sprintf(addressBuffer, "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
+    return addressBuffer;
+}
+
+// The one place the SO name lookups reach the host resolver.
+static int so_resolve(const char* node, const char* service, const struct addrinfo* hints,
+    struct addrinfo** list)
+{
+    const int error = getaddrinfo(node, service, hints, list);
+    return error == 0 ? SO_SUCCESS : so_error_from_gai(error);
+}
+
+// The SDK fills one 0x460-byte buffer allocated by SOInit (soWork._unk10) and
+// returns it, so a result is valid until the next call. Callers only read the
+// SOHostEnt fields, so this keeps a native layout instead of the IOS one. It
+// is per thread: GameSpy resolves both on its resolver thread and on the main
+// thread, and reads the result after the call returns.
+#define SO_HOSTENT_MAX_ADDRS 16
+
+struct so_hostent_storage
+{
+    SOHostEnt host;
+    char name[256];
+    char* aliases[1];
+    u8* addr_list[SO_HOSTENT_MAX_ADDRS + 1];
+    SOInAddr addrs[SO_HOSTENT_MAX_ADDRS];
+};
+static _Thread_local struct so_hostent_storage so_hostent;
+
+SOHostEnt* SOGetHostByName(const char* name)
+{
+    if (so_backend_check_active() != SO_SUCCESS || name == NULL)
+        return NULL;
+
+    struct addrinfo hints = {
+        .ai_family = AF_INET,
+        .ai_socktype = SOCK_STREAM,
+        .ai_flags = AI_CANONNAME,
+    };
+    struct addrinfo* res;
+    if (so_resolve(name, NULL, &hints, &res) != SO_SUCCESS)
+        return NULL;
+
+    struct so_hostent_storage* storage = &so_hostent;
+    size_t count = 0;
+    for (const struct addrinfo* ai = res; ai != NULL && count < SO_HOSTENT_MAX_ADDRS; ai = ai->ai_next)
+    {
+        if (ai->ai_family != AF_INET)
+            continue;
+        // Both keep the address in network byte order.
+        const struct sockaddr_in* sin = (const struct sockaddr_in*)ai->ai_addr;
+        storage->addrs[count].addr = sin->sin_addr.s_addr;
+        storage->addr_list[count] = (u8*)&storage->addrs[count];
+        count++;
+    }
+    storage->addr_list[count] = NULL;
+
+    const char* canonical = res->ai_canonname != NULL ? res->ai_canonname : name;
+    snprintf(storage->name, sizeof(storage->name), "%s", canonical);
+    freeaddrinfo(res);
+    if (count == 0)
+        return NULL;
+
+    storage->aliases[0] = NULL;
+    storage->host = (SOHostEnt){
+        .name = storage->name,
+        .aliases = storage->aliases,
+        .addrType = SO_PF_INET,
+        .length = (s16)sizeof(SOInAddr),
+        .addrList = storage->addr_list,
+    };
+    return &storage->host;
+}
+
+// The SDK returns one 0x840-byte block from SOInit's allocator (name 10): the
+// SOAddrInfo entries are consecutive and each addr points to a SOSockAddrIn
+// further in the same block, so SOFreeAddrInfo frees the whole list at once.
+// The IOS layout holds 35 entries.
+#define SO_ADDRINFO_ALLOC_NAME 10
+#define SO_ADDRINFO_MAX 35
+
+struct so_addrinfo_block
+{
+    SOAddrInfo entries[SO_ADDRINFO_MAX];
+    SOSockAddrIn addrs[SO_ADDRINFO_MAX];
+};
+
+int SOGetAddrInfo(const char* nodeName, const char* servName,
+    const SOAddrInfo* hints, SOAddrInfo** res)
+{
+    int result = so_backend_check_active();
+    if (result != SO_SUCCESS)
+        return result;
+    if (res == NULL)
+        return SO_EINVAL;
+    *res = NULL;
+
+    struct addrinfo native_hints;
+    result = to_native_addrinfo_hints(hints, &native_hints);
+    if (result != SO_SUCCESS)
+        return result;
+
+    struct addrinfo* native;
+    result = so_resolve(nodeName, servName, &native_hints, &native);
+    if (result != SO_SUCCESS)
+        return result;
+
+    struct so_addrinfo_block* block = so_backend_alloc(SO_ADDRINFO_ALLOC_NAME, (s32)sizeof(*block));
+    if (block == NULL)
+    {
+        freeaddrinfo(native);
+        return SO_ENOMEM;
+    }
+
+    size_t count = 0;
+    for (const struct addrinfo* ai = native; ai != NULL && count < SO_ADDRINFO_MAX; ai = ai->ai_next)
+    {
+        // With no socket type in the hints, getaddrinfo returns every address
+        // three times: for stream, datagram and raw sockets. SO has no raw
+        // sockets, so those entries are skipped.
+        const int type = from_native_type(ai->ai_socktype);
+        if (ai->ai_family != AF_INET || type == -1)
+            continue;
+        SOSockAddrIn* addr = &block->addrs[count];
+        from_native_sockaddr(addr, (const struct sockaddr_in*)ai->ai_addr);
+        // The SDK never relocates canonName into the block; no caller reads it.
+        block->entries[count] = (SOAddrInfo){
+            .family = SO_PF_INET,
+            .sockType = type,
+            .protocol = ai->ai_protocol,
+            .addrLen = sizeof(SOSockAddrIn),
+            .canonName = NULL,
+            .addr = addr,
+            .next = NULL,
+        };
+        if (count > 0)
+            block->entries[count - 1].next = &block->entries[count];
+        count++;
+    }
+    freeaddrinfo(native);
+
+    if (count == 0)
+    {
+        so_backend_free(SO_ADDRINFO_ALLOC_NAME, block, (s32)sizeof(*block));
+        return SO_EHOSTUNREACH;
+    }
+    *res = block->entries;
+    return SO_SUCCESS;
+}
+
+void SOFreeAddrInfo(SOAddrInfo* head)
+{
+    so_backend_free(SO_ADDRINFO_ALLOC_NAME, head, (s32)sizeof(struct so_addrinfo_block));
+}
+
+int SOGetInterfaceOpt(IPInterface* interface, int level, int optname,
+                        void* optval, int* optlen)
+{
+    (void)interface;
+    so_backend_lock();
+    int state = so_backend_state_locked();
+    so_backend_unlock();
+    if (state == SO_INTERNAL_STATE_TERMINATED)
+        return SO_ENETRESET;
+    if (optname == SO_CONFIG_FILTER_INPUT || optname == SO_CONFIG_FILTER_OUTPUT)
+        return SO_EINVAL;
+    if (optlen == NULL)
+        return SO_EINVAL;
+    if (level != SO_SOL_CONFIG)
+        return SO_ENOPROTOOPT;
+    switch (optname)
+    {
+        case SO_CONFIG_IP_ADDR_NUMBER:
+            if (*optlen >= (long)sizeof(int))
+            {
+                if (optval != NULL)
+                    *(s32*)optval = 1;
+                *optlen = sizeof(int);
+            }
+            else
+            {
+                *optlen = sizeof(int);
+                return SO_EINVAL;
+            }
+            break;
+        case SO_CONFIG_IP_ADDR_TABLE:
+            if (*optlen >= (long)sizeof(IPAddrEntry))
+            {
+                if (optval != NULL)
+                {
+                    IPAddrEntry* ipaddr = optval;
+                    struct so_host_ipv4 ipaddr_native;
+                    so_host_find_ipv4_info(&ipaddr_native);
+                    memcpy(ipaddr->addr, &ipaddr_native.addr, sizeof(u32));
+                    memcpy(ipaddr->bcastAddr, &ipaddr_native.broadcast, sizeof(u32));
+                    memcpy(ipaddr->netMask, &ipaddr_native.netmask, sizeof(u32));
+                }
+                *optlen = sizeof(IPAddrEntry);
+            }
+            else
+            {
+                *optlen = sizeof(IPAddrEntry);
+                return SO_EINVAL;
+            }
+            break;
+        default: return SO_ENOPROTOOPT;
+    }
+    return SO_SUCCESS;
 }

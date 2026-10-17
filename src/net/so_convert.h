@@ -6,6 +6,7 @@
 #include <sys/socket.h> // needs to be imported after so.h to avoid
                         // redefinitions of symbols SO_BROADCAST
 #include <netinet/in.h>
+#include <netdb.h>
 #include <poll.h>
 
 static inline sa_family_t to_native_family(int family)
@@ -103,6 +104,27 @@ static inline int native_pollevent_to_so(short event)
     return res;
 }
 
+// Only the options the game's libraries use. The SDK numbers name other
+// options on Linux (SO_SO_RCVBUF is 0x1002, SO_RCVBUF is 8), so an unknown
+// option must fail instead of reaching the host.
+static inline bool to_native_sockopt(int level, int optname, int* native_level, int* native_optname)
+{
+    if (level != SO_SOL_SOCKET)
+        return false;
+    *native_level = SOL_SOCKET;
+    switch (optname)
+    {
+    case SO_SO_SNDBUF:
+        *native_optname = SO_SNDBUF;
+        return true;
+    case SO_SO_RCVBUF:
+        *native_optname = SO_RCVBUF;
+        return true;
+    default:
+        return false;
+    }
+}
+
 static inline int so_error_from_errno(int error)
 {
     switch (error)
@@ -133,6 +155,7 @@ static inline int so_error_from_errno(int error)
     case ENFILE: return SO_ENFILE;
     case ENOBUFS: return SO_ENOBUFS;
     case ENOMEM: return SO_ENOMEM;
+    case ENOPROTOOPT: return SO_ENOPROTOOPT;
     case ENOTCONN: return SO_ENOTCONN;
     case ENOTSOCK: return SO_ENOTSOCK;
     case EOPNOTSUPP: return SO_EOPNOTSUPP;
@@ -140,6 +163,75 @@ static inline int so_error_from_errno(int error)
     case EPROTONOSUPPORT: return SO_EPROTONOSUPPORT;
     case EPROTOTYPE: return SO_EPROTOTYPE;
     default: return SO_EFATAL;
+    }
+}
+
+static inline int from_native_type(int type)
+{
+    switch (type)
+    {
+    case SOCK_STREAM:
+        return SO_SOCK_STREAM;
+    case SOCK_DGRAM:
+        return SO_SOCK_DGRAM;
+    default:
+        return -1;
+    }
+}
+
+// SOGetAddrInfo's hints. The SDK sends a zero family as SO_PF_INET and
+// refuses SO_PF_INET6; the backend is IPv4 only. SO_IPPROTO_TCP and
+// SO_IPPROTO_UDP are the IANA numbers the host uses. so.h names no AI_* flags
+// and no caller sets any, so none are passed on.
+static inline int to_native_addrinfo_hints(const SOAddrInfo* hints, struct addrinfo* native)
+{
+    *native = (struct addrinfo){ .ai_family = AF_INET };
+    if (hints == NULL)
+        return SO_SUCCESS;
+    if (hints->family == SO_PF_INET6)
+        return SO_EPROTONOSUPPORT;
+    if (hints->family != 0 && hints->family != SO_PF_INET)
+        return SO_EAFNOSUPPORT;
+    if (hints->sockType != 0)
+    {
+        native->ai_socktype = to_native_type(hints->sockType);
+        if (native->ai_socktype == -1)
+            return SO_EPROTOTYPE;
+    }
+    native->ai_protocol = hints->protocol;
+    return SO_SUCCESS;
+}
+
+// getaddrinfo reports its own EAI_* codes. The game's callers only test for
+// 0, so these keep the SO meaning closest to each failure.
+static inline int so_error_from_gai(int error)
+{
+    switch (error)
+    {
+    case EAI_AGAIN: return SO_EAGAIN;
+    case EAI_FAMILY: return SO_EAFNOSUPPORT;
+    case EAI_MEMORY: return SO_ENOMEM;
+    case EAI_SOCKTYPE: return SO_EPROTOTYPE;
+    case EAI_SERVICE: return SO_EINVAL;
+    case EAI_BADFLAGS: return SO_EINVAL;
+    case EAI_SYSTEM: return so_error_from_errno(errno);
+    default: return SO_EHOSTUNREACH;
+    }
+}
+
+// so.h names no shutdown modes: callers pass the BSD numbers 0, 1 and 2.
+static inline int to_native_how(int how)
+{
+    switch (how)
+    {
+    case 0:
+        return SHUT_RD;
+    case 1:
+        return SHUT_WR;
+    case 2:
+        return SHUT_RDWR;
+    default:
+        return -1;
     }
 }
 

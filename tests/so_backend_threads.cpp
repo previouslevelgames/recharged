@@ -1,5 +1,6 @@
 // SO backend shared by several threads, as DWC, GameSpy and NHTTP share it:
-// SOClose waking operations other threads are blocked in, slot ownership while
+// SOClose and SOShutdown ending operations other threads are blocked in, as
+// IOS ends them (dolphin-emu PR 8758's hwtest), slot ownership while
 // many threads open and close sockets, SOCleanup racing with socket use, and
 // parallel traffic on separate sockets. Workers only record what they saw; the
 // main thread checks it after joining them. The ThreadSanitizer build of this
@@ -143,6 +144,81 @@ void CloseWakesBlockedPoll()
     poller.join();
     CheckResult(ready, 1, "poll: SOPoll must return when another thread closes its socket");
     CheckTableEmpty("poll: the polled slot must be free once its thread returned");
+}
+
+// IOS fails only the receives already waiting when SOShutdown arrives; a
+// later receive gets what the host returns, and the write side stays open.
+void ShutdownEndsPendingReceive()
+{
+    u16 port = 0;
+    const int listener = so_test_peer_listen(&port);
+    Check(listener >= 0, "shutdown: POSIX listener on 127.0.0.1:0");
+    const int s = SOSocket2(SO_PF_INET, SO_SOCK_STREAM, 0);
+    Check(s >= 0, "shutdown: SOSocket2 for the stream client");
+    SOSockAddrIn server = Loopback(port);
+    CheckResult(SOConnect(s, &server), SO_SUCCESS, "shutdown: SOConnect to the listener");
+    const int peer = so_test_peer_accept(listener, nullptr, nullptr);
+    Check(peer >= 0, "shutdown: POSIX accept of the SO client");
+
+    std::atomic<int> received{1};
+    std::thread reader([&] {
+        u8 buf[16];
+        received = SORecv(s, buf, sizeof(buf), 0);
+    });
+    std::this_thread::sleep_for(kBlockDelay);
+    CheckResult(SOShutdown(s, 0), SO_SUCCESS, "shutdown: SOShutdown of the read side while SORecv waits");
+    reader.join();
+    CheckResult(received, SO_ENOTCONN, "shutdown: the waiting SORecv must fail like IOS");
+    u8 buf[16];
+    CheckResult(SORecv(s, buf, sizeof(buf), 0), 0, "shutdown: a SORecv started after SOShutdown returns what the host does");
+    CheckResult(SOSend(s, "x", 1, 0), 1, "shutdown: the write side stays open after a read shutdown");
+    u8 byte = 0;
+    Check(so_test_peer_recv(peer, &byte, 1) == 1 && byte == 'x', "shutdown: the peer must receive what was sent after the read shutdown");
+    CheckResult(SOClose(s), SO_SUCCESS, "shutdown: SOClose on the stream client");
+    so_test_peer_close(peer);
+    so_test_peer_close(listener);
+    CheckTableEmpty("shutdown: the table must be empty after the receive test");
+}
+
+// GameSpy shuts its listening peer socket down with how=2; IOS fails the
+// waiting SOAccept with SO_EINVAL and the socket itself stays open.
+void ShutdownEndsPendingAccept()
+{
+    const int listener = SOSocket2(SO_PF_INET, SO_SOCK_STREAM, 0);
+    Check(listener >= 0, "shutdown: SOSocket2 for the SO listener");
+    SOSockAddrIn any_port = Loopback(0);
+    CheckResult(SOBind(listener, &any_port), SO_SUCCESS, "shutdown: SOBind of the SO listener");
+    CheckResult(SOListen(listener, 5), SO_SUCCESS, "shutdown: SOListen");
+
+    std::atomic<int> accepted{1};
+    std::thread acceptor([&] { accepted = SOAccept(listener, nullptr); });
+    std::this_thread::sleep_for(kBlockDelay);
+    CheckResult(SOShutdown(listener, 2), SO_SUCCESS, "shutdown: SOShutdown of the listener while SOAccept waits");
+    acceptor.join();
+    CheckResult(accepted, SO_EINVAL, "shutdown: the waiting SOAccept must fail like IOS");
+    CheckResult(SOClose(listener), SO_SUCCESS, "shutdown: the listener must still be open after SOShutdown");
+    CheckTableEmpty("shutdown: the table must be empty after the accept test");
+}
+
+// SOShutdown does nothing on UDP, so a waiting receive keeps waiting until
+// SOClose ends it.
+void ShutdownLeavesDatagramReceive()
+{
+    SOSockAddrIn bound;
+    const int s = BoundUdp(&bound);
+    std::atomic<int> received{1};
+    std::thread reader([&] {
+        u8 buf[16];
+        received = SORecvFrom(s, buf, sizeof(buf), 0, nullptr);
+    });
+    std::this_thread::sleep_for(kBlockDelay);
+    CheckResult(SOShutdown(s, 2), SO_SUCCESS, "shutdown: SOShutdown of a UDP socket while SORecvFrom waits");
+    std::this_thread::sleep_for(kBlockDelay);
+    CheckResult(received, 1, "shutdown: SOShutdown must not wake a receive on a UDP socket");
+    CheckResult(SOClose(s), SO_SUCCESS, "shutdown: SOClose on the UDP socket");
+    reader.join();
+    CheckResult(received, SO_ENOTCONN, "shutdown: SOClose must still end the UDP receive");
+    CheckTableEmpty("shutdown: the table must be empty after the UDP test");
 }
 
 void ConcurrentOpenClose()
@@ -313,6 +389,10 @@ int main(int argc, char** argv)
         CloseWakesBlockedStreamReceive();
         if (udp_wakeups)
             CloseWakesBlockedPoll();
+        ShutdownEndsPendingReceive();
+        ShutdownEndsPendingAccept();
+        if (udp_wakeups)
+            ShutdownLeavesDatagramReceive();
         ConcurrentOpenClose();
         CleanupWhileInUse();
         ParallelTraffic();
