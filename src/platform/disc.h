@@ -50,6 +50,13 @@ DiscProbe ProbeDisc(const std::filesystem::path& path);
 std::vector<std::uint8_t> ReadDiscFile(const std::filesystem::path& disc, const std::string& file,
                                        std::size_t max_size);
 
+// Super Mario Strikers (GameCube): G4QE01, G4QP01 or G4QJ01.
+bool IsStrikersGameId(const std::string& game_id);
+// Files of a Super Mario Strikers image, in the order asked for, by their paths
+// there (any case). Throws std::runtime_error when the image is not Super Mario
+// Strikers or a file cannot be read or is larger than `max_size` bytes.
+std::vector<std::vector<std::uint8_t>> ReadStrikersFiles(const std::filesystem::path& disc,
+                                                         const std::vector<std::string>& files, std::size_t max_size);
 // The game's main.dol from the data partition, as its boot header locates it.
 std::vector<std::uint8_t> ReadDiscMainDol(const std::filesystem::path& path);
 

@@ -120,8 +120,12 @@ struct SegmentItem
     const char* label;
     Icon icon;
     ImVec4 tint;
+    bool menu = false; // a small down chevron after the label: the segment opens a menu
 };
-bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass);
+// Returns true when the selection changed; `pressed` (optional) receives the
+// segment clicked this frame, also the selected one, else -1.
+bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass,
+                    int* pressed = nullptr);
 // `zero_label` replaces "0%" (for example "Off"); the value stays within
 // `minimum`..`maximum`.
 bool PercentSlider(const char* id, int* value, float width, const char* zero_label = nullptr, int minimum = 0,
@@ -135,6 +139,7 @@ bool KeyCapButton(const char* id, const char* key, bool waiting);
 // Keycap with a drawn arrow: 0 up, 1 down, 2 left, 3 right (no font glyphs needed).
 void KeyCapArrow(int direction);
 void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
+void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
 // A small flag of a disc region (the disc ID's fourth letter: E USA, P Europe,
 // J Japan, K Korea; grey for others), `height` tall and 1.5 times as wide.
 // Always shown with the region's name: the flag alone tells nothing to some.

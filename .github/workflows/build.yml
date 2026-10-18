@@ -136,7 +136,8 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ccache-${{ matrix.platform }}-${{ github.sha }}
           restore-keys: ccache-${{ matrix.platform }}-
-      # The build's origin (release, test or dev) for the launcher's update check.
+      # The build's origin (release, test or dev) for the launcher's update check,
+      # and the Discord status's application (a repository variable: public, not a secret).
       - name: Configure original runtime
         run: >-
           cmake --preset release
@@ -147,6 +148,7 @@ jobs:
           -DMSCHARGED_BUILD_PULL_REQUEST=${{ github.event.pull_request.number || 0 }}
           -DMSCHARGED_BUILD_RUN=${{ github.run_id }}
           -DMSCHARGED_BUILD_TIME=$(date -u +%s)
+          -DMSCHARGED_DISCORD_APPLICATION_ID=${{ vars.DISCORD_APPLICATION_ID }}
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ${{ matrix.cmake_args }}
@@ -278,6 +280,7 @@ jobs:
           -DMSCHARGED_BUILD_PULL_REQUEST=${{ github.event.pull_request.number || 0 }}
           -DMSCHARGED_BUILD_RUN=${{ github.run_id }}
           -DMSCHARGED_BUILD_TIME=$(date -u +%s)
+          -DMSCHARGED_DISCORD_APPLICATION_ID=${{ vars.DISCORD_APPLICATION_ID }}
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       # Only the packaged targets: some Linux-only diagnostics are not portable.
@@ -484,13 +487,14 @@ jobs:
             exit 0
           fi
           tag="test-pr$PR_NUMBER-${HEAD_SHA:0:12}"
+          # The pull request's change list first: the launcher shows these
+          # notes. test-builds.yml writes the same when the description changes.
           {
-            echo "Test build of [pull request #$PR_NUMBER]($PR_URL) at commit ${HEAD_SHA:0:12}, to try it before it is released."
-            echo "It is replaced by each new push to the pull request and removed when the pull request closes."
+            printf '%s\n' "$PR_BODY"
             echo
             echo "---"
             echo
-            printf '%s\n' "$PR_BODY"
+            echo "Test build of [pull request #$PR_NUMBER]($PR_URL) at commit ${HEAD_SHA:0:12}; each push replaces it, and it is removed when the pull request closes."
           } > notes.md
           gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$HEAD_SHA" \

@@ -13,4 +13,7 @@ inline constexpr long long commit_time = @PORT_COMMIT_TIME@;
 inline constexpr int pull_request = @BUILD_PULL_REQUEST@;
 inline constexpr long long run_id = @BUILD_RUN@;
 inline constexpr long long build_time = @BUILD_TIME@; // 0: unknown (local builds)
+// The Discord application of the Discord status (MSCHARGED_DISCORD_APPLICATION_ID);
+// empty when the build has none.
+inline constexpr const char* discord_application_id = "@DISCORD_APPLICATION_ID@";
 }

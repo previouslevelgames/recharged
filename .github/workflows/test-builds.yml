@@ -1,10 +1,13 @@
 name: Remove test builds
 
 # A pull request's test builds (prereleases test-pr<N>-<commit>, published by
-# build.yml) end with the pull request: merged into a release or closed.
+# build.yml) end with the pull request: merged into a release or closed. So do
+# its compiler caches, which only that pull request could restore; several
+# release pull requests open at once otherwise fill the repository's cache.
+# A new description (the change list) becomes the test build's notes at once.
 on:
   pull_request:
-    types: [closed]
+    types: [closed, edited]
     branches: [stable]
 
 permissions:
@@ -13,10 +16,11 @@ permissions:
 jobs:
   remove:
     name: remove test builds
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: write
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -29,3 +33,45 @@ jobs:
                 echo "Removing $tag"
                 gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
               done
+      - name: Delete the pull request's compiler caches
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --ref "refs/pull/$PR_NUMBER/merge" --limit 100 \
+              --json id --jq '.[].id' \
+            | while read -r id; do
+                gh cache delete "$id" --repo "$GITHUB_REPOSITORY"
+              done
+
+  notes:
+    # The notes as build.yml writes them, from the edited description.
+    name: update test build notes
+    if: >-
+      github.event.action == 'edited' && github.event.changes.body
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: test-build-notes-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Rewrite the test build's notes
+        run: |
+          tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' \
+            | { grep -E "^test-pr$PR_NUMBER-[0-9a-f]+$" || true; } | head -n 1)
+          if [ -z "$tag" ]; then
+            echo "::notice::Pull request #$PR_NUMBER has no test build yet."
+            exit 0
+          fi
+          {
+            printf '%s\n' "$PR_BODY"
+            echo
+            echo "---"
+            echo
+            echo "Test build of [pull request #$PR_NUMBER]($PR_URL) at commit ${tag##*-}; each push replaces it, and it is removed when the pull request closes."
+          } > notes.md
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file notes.md

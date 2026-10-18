@@ -275,7 +275,12 @@ LibraryScan ScanLibrary(const std::vector<LibraryFolder>& folders, ImageCache ca
         DiscProbe result = probe(file.path);
         cache.Put(file.path, file.size, file.modified, result);
         ++progress.checked;
-        if (result.kind == DiscProbe::Kind::OtherGame) { ++scan.other_games; continue; }
+        if (result.kind == DiscProbe::Kind::OtherGame)
+        {
+            ++scan.other_games;
+            if (IsStrikersGameId(result.info.game_id)) scan.strikers.push_back(file.path);
+            continue;
+        }
         if (result.kind == DiscProbe::Kind::NotDisc) continue;
         const auto& id = result.info.game_id;
         if (result.kind == DiscProbe::Kind::Charged && banner && !banners_known.count(id) && !scan.banners.count(id)

@@ -163,7 +163,8 @@ settings:
 - **Speaker volume** (`controls.speaker_volume`, 0-100, default 70 like the
   Wii): the game plays some sounds on each player's Remote as well as on the
   TV. 0 sends no sound to the Remotes. How clean it sounds depends on the
-  Bluetooth link; turn it down or off if it crackles.
+  Bluetooth link; turn it down or off if it crackles. The log
+  (`logs/recharged.log`) says when the connection was too slow for it.
 
 The **Rumble** card switches rumble for Wii Remotes and gamepads
 (`controls.rumble`) and sets how strongly gamepads rumble
@@ -192,7 +193,26 @@ A and B. A gamepad profile also sets, for both sticks:
 - **Trigger press point** (`trigger_press`, 10-90 %, default 50): a trigger
   bound to a button presses it past this much of its travel.
 
-The profile page shows both sticks and triggers live with these settings.
+**Sticks as buttons**: pushing a stick one way past half its travel can press
+any action, like a button (`rightstick_up`, `leftstick_left` and so on in the
+INI). To bind one, select the action and push the stick. With the gyro
+pointer on, **Right stick as D-pad** puts the free stick on the D-pad: in a
+match the D-pad dekes with the ball and slide-tackles without it. A stick that
+also moves the Nunchuk stick or the pointer does both at once; the profile page
+says so.
+
+**Gyro pointer** (`gyro_pointer`, off by default): a controller with a gyro,
+such as a PlayStation or Switch Pro controller, points by turning it, like a
+Wii Remote, instead of with the stick. **Gyro speed** (`gyro_speed`, 25-300 %,
+default 100): at 100 %, turning the controller about 25 degrees moves the
+pointer across the picture. **Recenter pointer** (`recenter_pointer`, default
+the right stick click) puts it back in the middle; it also goes there whenever
+the game turns the pointer on, as at the start of a goalie's Mega Strike
+defence. A controller without a gyro points with its stick. Controllers seen
+through Steam Input usually show the game no gyro.
+
+The profile page shows both sticks and triggers live with these settings, and
+the gyro pointer when it is on.
 The built-in Default always uses the defaults; changing it makes your own copy.
 
 **Linux permissions.** If a Remote is connected but cannot be opened, the
@@ -232,6 +252,17 @@ user folder or that save folder. The current save is first copied to
 `backups/` in the save folder. Dolphin's encrypted `data.bin` exports are not
 supported.
 
+## Discord status
+
+While the Discord app runs on the same computer, your Discord profile shows
+what you are playing: the menu you are in, or the match with its mode,
+stadium, captains, score and match time. The game talks only to the Discord
+app on your computer, which shows the status to your friends. Switch it off on
+the launcher's **Game** page (`[discord] rich_presence`); Discord's own
+activity privacy setting hides it too. Builds that do not come from the
+project's releases and test builds have no Discord application and show no
+status, unless `[discord] application_id` names one.
+
 ## Updates
 
 At each start the launcher asks GitHub whether a newer build exists (one
@@ -249,9 +280,17 @@ checks on demand.
 **Release / Test** on the Play page (`[launcher] update_channel`) chooses what
 to follow: official releases, or also the **test builds** of changes that are
 not released yet, with the change's description as notes. Switching asks
-whether to install the other channel's build. On a test build, *Release*
+whether to install the other channel's build; *Later* keeps the build and
+the choice you had. On a test build, *Release*
 offers the way back to the latest release. A test build moves on to the
 release that contains it.
+
+Several changes can be tested at once, such as the next bug-fix release and a
+bigger feature release. Then **Test** gets a menu (click it again) listing the
+test build of each, newest version first; choose one to read its notes and
+switch to it (`[launcher] test_build`). You keep getting the updates of the
+test build you chose, then its release; the launcher never moves you to
+another one by itself.
 
 ## Command-line options
 

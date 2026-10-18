@@ -11,10 +11,19 @@
 
 namespace mscharged::platform {
 // A gamepad input: an SDL button (0 .. SDL_GAMEPAD_BUTTON_COUNT - 1), a
-// trigger (kGamepadTriggerBase + its SDL axis) or kGamepadNone.
+// trigger (kGamepadTriggerBase + its SDL axis), a stick direction
+// (kGamepadStickBase + GamepadStickDirection) or kGamepadNone.
 using GamepadInput = int;
 inline constexpr GamepadInput kGamepadNone = -1;
 inline constexpr GamepadInput kGamepadTriggerBase = 64;
+inline constexpr GamepadInput kGamepadStickBase = 80;
+// Pushing a stick one way presses a button (issue #14), e.g. the right stick
+// for the D-pad: leftstick_up ... rightstick_right in recharged.ini.
+enum GamepadStickDirection {
+    LeftStickUp, LeftStickDown, LeftStickLeft, LeftStickRight,
+    RightStickUp, RightStickDown, RightStickLeft, RightStickRight,
+    GamepadStickDirectionCount
+};
 // One or two inputs per gamepad action; kGamepadNone = unused.
 using GamepadBinding = std::array<GamepadInput, 2>;
 using GamepadBindings = std::array<GamepadBinding, GamepadActionCount>;
@@ -33,6 +42,10 @@ struct GamepadProfile {
     int inner_deadzone = kDefaultInnerDeadzone;
     int outer_deadzone = kDefaultOuterDeadzone;
     int trigger_press = kDefaultTriggerPress;
+    // The controller's gyro moves the pointer instead of the stick, when it
+    // has one (issue #14); gyro_speed in percent (see gamepad_actions.h).
+    bool gyro_pointer = false;
+    int gyro_speed = kDefaultGyroSpeed;
 };
 
 // Controller families with their own default layout and button names.
@@ -53,8 +66,9 @@ const char* GamepadKindName(std::string_view kind);
 // is its right face button; GameCube lacks buttons for 1, - and HOME.
 std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily family);
 
-// SDL names ("a", "leftshoulder", "righttrigger"); unknown names, analog
-// stick axes and kGamepadNone give kGamepadNone / an empty string.
+// SDL names ("a", "leftshoulder", "righttrigger") and stick directions
+// ("rightstick_up"); unknown names, analog stick axes ("leftx") and
+// kGamepadNone give kGamepadNone / an empty string.
 GamepadInput ParseGamepadInput(std::string_view name);
 std::string GamepadInputName(GamepadInput input);
 // "a | start", or "none" for no input. Unknown names are left out.
@@ -72,6 +86,12 @@ bool GamepadInputHeld(SDL_Gamepad* pad, GamepadInput input, int press = kDefault
 bool GamepadBindingHeld(SDL_Gamepad* pad, const GamepadBinding& binding, int press = kDefaultTriggerPress);
 // The trigger value (0-32767) past which it counts as pressed.
 Sint16 GamepadTriggerThreshold(int press);
+bool IsGamepadStickDirection(GamepadInput input);
+// A stick direction is pressed once the stick leans that way past half its
+// travel and stays pressed until it falls back below 40 % (`held`: pressed so
+// far). Pushed diagonally, the stick presses two directions.
+inline constexpr float kStickDirectionPress = 0.5f, kStickDirectionRelease = 0.4f;
+bool GamepadStickDirectionHeld(SDL_Gamepad* pad, GamepadInput input, bool held = false);
 
 // A stick position (each axis -1..1) after a profile's dead zones, which are
 // round: 0 up to the inner dead zone, then rising evenly to length 1 at the

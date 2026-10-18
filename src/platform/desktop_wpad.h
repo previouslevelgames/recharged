@@ -42,6 +42,7 @@ struct DesktopWpadSettings {
     bool gamepad_players = false;
     std::array<int, 4> gamepad_channels{-1, -1, -1, -1};
     // Buttons and sticks of the n-th gamepad (its profile, controls.gamepadN_profile).
+    // With gyro_pointer a pad that has a gyro points with it instead of the stick.
     std::array<GamepadProfile, 4> gamepad_profiles{
         GamepadProfile{DefaultGamepadBindings()}, GamepadProfile{DefaultGamepadBindings()},
         GamepadProfile{DefaultGamepadBindings()}, GamepadProfile{DefaultGamepadBindings()}};

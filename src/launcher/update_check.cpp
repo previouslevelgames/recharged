@@ -222,34 +222,84 @@ PullRequestInfo ParsePullRequest(const platform::JsonValue& pull)
     return info;
 }
 
+std::vector<const PublishedBuild*> TestBuilds(const BuildIdentity& build,
+                                              const std::vector<PublishedBuild>& published)
+{
+    std::vector<const PublishedBuild*> builds;
+    for (const auto& candidate : published)
+    {
+        if (!candidate.test || !candidate.PackageFor(build.package)) continue;
+        const auto same = std::find_if(builds.begin(), builds.end(), [&](const PublishedBuild* other) {
+            return other->pull_request == candidate.pull_request;
+        });
+        if (same == builds.end()) builds.push_back(&candidate);
+        else if (Newer(candidate, **same)) *same = &candidate;
+    }
+    std::stable_sort(builds.begin(), builds.end(),
+                     [](const PublishedBuild* a, const PublishedBuild* b) { return Newer(*a, *b); });
+    return builds;
+}
+
+int FollowedPullRequest(const BuildIdentity& build, int chosen, const std::vector<PublishedBuild>& published)
+{
+    const auto builds = TestBuilds(build, published);
+    auto open = [&](int pull_request) {
+        return pull_request > 0
+            && std::any_of(builds.begin(), builds.end(),
+                           [&](const PublishedBuild* test) { return test->pull_request == pull_request; });
+    };
+    if (open(chosen)) return chosen;
+    if (build.origin == BuildOrigin::Test && open(build.pull_request)) return build.pull_request;
+    return 0;
+}
+
 const PublishedBuild* FindUpdate(const BuildIdentity& build, UpdateChannel channel,
-                                 const std::vector<PublishedBuild>& published)
+                                 const std::vector<PublishedBuild>& published, int chosen)
 {
     const PortVersion self = ParsePortVersion(build.version);
     if (!self.Valid()) return nullptr;
-    // A test build follows its own pull request while that has test builds.
-    bool own_pull_request = false;
-    if (channel == UpdateChannel::Test && build.origin == BuildOrigin::Test)
-        for (const auto& candidate : published)
-            own_pull_request = own_pull_request || (candidate.test && candidate.pull_request == build.pull_request
-                && candidate.PackageFor(build.package));
-    const PublishedBuild* best = nullptr;
-    for (const auto& candidate : published)
-    {
-        if (!candidate.PackageFor(build.package)) continue;
-        if (candidate.test && (channel == UpdateChannel::Release
-            || (own_pull_request && candidate.pull_request != build.pull_request)))
-            continue;
-        if (!best || Newer(candidate, *best)) best = &candidate;
-    }
-    if (!best) return nullptr;
     // This very build (same commit).
-    if (!best->version.commit.empty() && !self.commit.empty()
-        && (best->version.commit.rfind(self.commit, 0) == 0 || self.commit.rfind(best->version.commit, 0) == 0))
-        return nullptr;
-    // The way back from a test build to the release, whatever its version.
-    if (channel == UpdateChannel::Release && build.origin == BuildOrigin::Test) return best;
-    return IsNewer(build, *best) ? best : nullptr;
+    auto same_build = [&](const PublishedBuild& offer) {
+        return !offer.version.commit.empty() && !self.commit.empty()
+            && (offer.version.commit.rfind(self.commit, 0) == 0 || self.commit.rfind(offer.version.commit, 0) == 0);
+    };
+    auto newest = [&](auto&& wanted) {
+        const PublishedBuild* best = nullptr;
+        for (const auto& candidate : published)
+            if (candidate.PackageFor(build.package) && wanted(candidate) && (!best || Newer(candidate, *best)))
+                best = &candidate;
+        return best;
+    };
+    auto release = [](const PublishedBuild& candidate) { return !candidate.test; };
+    auto offer_if_newer = [&](const PublishedBuild* best) {
+        return best && !same_build(*best) && IsNewer(build, *best) ? best : nullptr;
+    };
+    if (channel == UpdateChannel::Release)
+    {
+        const PublishedBuild* best = newest(release);
+        if (!best || same_build(*best)) return nullptr;
+        // The way back from a test build to the release, whatever its version.
+        if (build.origin == BuildOrigin::Test) return best;
+        return offer_if_newer(best);
+    }
+    const int track = FollowedPullRequest(build, chosen, published);
+    if (track && !(build.origin == BuildOrigin::Test && build.pull_request == track))
+    {
+        // A switch to the chosen pull request's newest test build.
+        const PublishedBuild* best
+            = newest([&](const PublishedBuild& candidate) { return candidate.test && candidate.pull_request == track; });
+        return best && !same_build(*best) ? best : nullptr;
+    }
+    if (track)
+        return offer_if_newer(newest([&](const PublishedBuild& candidate) {
+            return !candidate.test || candidate.pull_request == track;
+        }));
+    if (const PublishedBuild* update = offer_if_newer(newest(release))) return update;
+    // Nothing followed: only a build that never followed a test build is
+    // offered one by itself, and only when one pull request has test builds.
+    const auto tests = TestBuilds(build, published);
+    if (chosen == 0 && build.origin != BuildOrigin::Test && tests.size() == 1) return offer_if_newer(tests.front());
+    return nullptr;
 }
 
 bool IsNewer(const BuildIdentity& build, const PublishedBuild& offer)

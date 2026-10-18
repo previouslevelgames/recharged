@@ -137,6 +137,7 @@ int main()
         std::ofstream(path) << "; my pads\n[controls]\ngamepad2_profile = kyle\ngamepad3_profile = Gone\n"
                                "[gamepad_profile1]\n; Kyle's layout\nname = Kyle\na = b | start\nswap_sticks = true\n"
                                "inner_deadzone = 22\nouter_deadzone = 90\ntrigger_press = 30\n"
+                               "gyro_pointer = true\ngyro_speed = 150\nrecenter_pointer = leftstick\n"
                                "[gamepad_profile2]\nname = Spare\nb = x\ncontroller = gamecube\n";
         {
             auto file = LoadConfig(path);
@@ -152,6 +153,12 @@ int main()
                         && loaded.pad_profiles[1].outer_deadzone == 71 && loaded.pad_profiles[1].trigger_press == 50
                         && Settings{}.PadProfileOf(0).outer_deadzone == 71,
                     "Gamepad profiles keep their dead zones; missing ones are the Wii Nunchuk's");
+            Require(loaded.pad_profiles[0].gyro_pointer && loaded.pad_profiles[0].gyro_speed == 150
+                        && loaded.pad_profiles[0].inputs[mscharged::GamepadActionRecenterPointer] == "leftstick"
+                        && !loaded.pad_profiles[1].gyro_pointer && loaded.pad_profiles[1].gyro_speed == 100
+                        && loaded.pad_profiles[1].inputs[mscharged::GamepadActionRecenterPointer] == "rightstick"
+                        && !Settings{}.PadProfileOf(0).gyro_pointer,
+                    "Gamepad profiles keep their gyro pointer; it is off unless asked for");
             Require(loaded.PadProfileIndex(1) == 0 && loaded.pad_profile_names[1] == "Kyle",
                     "A gamepad finds its profile by name, ignoring case");
             Require(loaded.PadProfileIndex(2) == -1 && loaded.pad_profile_names[2] == "Default",
@@ -164,6 +171,8 @@ int main()
             changed.pad_profiles[0].inner_deadzone = 0;
             changed.pad_profiles[0].outer_deadzone = 100;
             changed.pad_profiles[0].trigger_press = 90;
+            changed.pad_profiles[0].gyro_pointer = true;
+            changed.pad_profiles[0].gyro_speed = 25;
             SaveConfig(file, changed);
             const auto saved = LoadConfig(path);
             Require(saved.settings.pad_profiles.size() == 1 && saved.settings.pad_profiles[0].name == "Spare"
@@ -173,6 +182,8 @@ int main()
                         && saved.settings.pad_profiles[0].inner_deadzone == 0
                         && saved.settings.pad_profiles[0].outer_deadzone == 100
                         && saved.settings.pad_profiles[0].trigger_press == 90
+                        && saved.settings.pad_profiles[0].gyro_pointer
+                        && saved.settings.pad_profiles[0].gyro_speed == 25
                         && saved.settings.PadProfileIndex(3) == 0
                         && saved.settings.PadProfileIndex(1) == -1,
                     "A deleted gamepad profile stays deleted");
@@ -204,7 +215,8 @@ int main()
         std::ofstream(path) << "[gamepad_profile1]\nname = Pad\na = a | b | x\n";
         Reject([&] { LoadConfig(path); });
         for (const char* range : {"inner_deadzone = 31", "inner_deadzone = -1", "outer_deadzone = 69",
-                                  "outer_deadzone = 101", "trigger_press = 9", "trigger_press = 91"})
+                                  "outer_deadzone = 101", "trigger_press = 9", "trigger_press = 91",
+                                  "gyro_speed = 24", "gyro_speed = 301", "gyro_pointer = maybe"})
         {
             std::ofstream(path) << "[gamepad_profile1]\nname = Pad\n" << range << "\n";
             Reject([&] { LoadConfig(path); });
@@ -281,6 +293,31 @@ int main()
                     && ResolveSaveFolder(changed, path, executable) == directory / "absolute saves",
                     "An absolute save folder round trips");
         }
+        // The Super Team's GameCube disc and robot side.
+        {
+            Require(Settings{}.gamecube_disc.empty() && ResolveGameCubeDiscPath(Settings{}, path).empty()
+                    && Settings{}.super_team_side == "away", "Super Team defaults");
+            std::ofstream(path) << "[game]\ngamecube_disc = \"game/Strikers.rvz\"\n[gameplay]\nsuper_team = true\n"
+                                   "super_team_side = both\n";
+            auto loaded = LoadConfig(path);
+            Require(loaded.settings.gamecube_disc == "game/Strikers.rvz"
+                    && ResolveGameCubeDiscPath(loaded.settings, path) == path.parent_path() / "game/Strikers.rvz"
+                    && loaded.settings.super_team_side == "both"
+                    && loaded.settings.tweaks[std::size_t(mscharged::GameTweak::SuperTeam)],
+                    "The Super Team settings load");
+            auto changed = loaded.settings;
+            changed.super_team_side = "home";
+            changed.gamecube_disc = "other.iso";
+            SaveConfig(loaded, changed);
+            const auto saved = LoadConfig(path);
+            Require(saved.settings.super_team_side == "home" && saved.settings.gamecube_disc == "other.iso"
+                    && saved.contents.find("gamecube_disc = \"other.iso\"") != std::string::npos,
+                    "The Super Team settings round trip");
+            std::ofstream(path) << "[gameplay]\nsuper_team_side = left\n";
+            bool rejected = false;
+            try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
+            Require(rejected, "An unknown Super Team side is rejected");
+        }
         // The game folder (#65): game beside the settings file by default, in
         // quotes, with its subfolders; the first builds' [library] list moves to it.
         {
@@ -322,6 +359,7 @@ int main()
             && defaults.monitor == 0 && !defaults.graphics_validation
             && defaults.log_level == "info" && !defaults.verbose_console && !defaults.frame_logging && !defaults.log_window
             && defaults.ui_scale == "auto" && defaults.check_updates && defaults.update_channel == "auto"
+            && defaults.test_build == 0
             && !defaults.performance_mode,
             "Host setting defaults");
         const auto host = directory / "host.ini";
@@ -339,6 +377,7 @@ int main()
         hostSettings.ui_scale = "150";
         hostSettings.check_updates = false;
         hostSettings.update_channel = "test";
+        hostSettings.test_build = 72;
         SaveConfig(hostFile, hostSettings);
         const auto hostReloaded = LoadConfig(host).settings;
         Require(hostReloaded.fps_overlay && hostReloaded.fps_overlay_corner == "bottom-left"
@@ -346,7 +385,8 @@ int main()
             && hostReloaded.monitor == 2 && hostReloaded.graphics_validation
             && hostReloaded.log_level == "warning" && hostReloaded.verbose_console && hostReloaded.frame_logging
             && hostReloaded.log_window
-            && hostReloaded.ui_scale == "150" && !hostReloaded.check_updates && hostReloaded.update_channel == "test",
+            && hostReloaded.ui_scale == "150" && !hostReloaded.check_updates && hostReloaded.update_channel == "test"
+                && hostReloaded.test_build == 72,
             "Host settings round trip");
         const auto hostText = LoadConfig(host).contents;
         Require(hostText.find("[advanced]") != std::string::npos && hostText.find("[launcher]") != std::string::npos
@@ -359,6 +399,25 @@ int main()
         hostSettings.frame_logging = false;
         SaveConfig(hostFile, hostSettings);
         Require(!LoadConfig(host).settings.frame_logging, "Frame logging can be disabled after enabling");
+        // [discord]: the status is on by default and round trips; an
+        // application ID in the INI (testing) is read but never written.
+        Require(defaults.discord_status && defaults.discord_application_id.empty(), "Discord defaults");
+        std::ofstream(path) << "[discord]\nrich_presence = false\napplication_id = 123456789012345678\n";
+        auto discordFile = LoadConfig(path);
+        Require(!discordFile.settings.discord_status
+                && discordFile.settings.discord_application_id == "123456789012345678", "Discord settings read");
+        auto discordSettings = discordFile.settings;
+        discordSettings.discord_status = true;
+        discordSettings.discord_application_id.clear();
+        SaveConfig(discordFile, discordSettings);
+        const auto discordReloaded = LoadConfig(path);
+        Require(discordReloaded.settings.discord_status
+                && discordReloaded.contents.find("rich_presence = true") != std::string::npos
+                && discordReloaded.settings.discord_application_id == "123456789012345678",
+                "Saving changed or dropped the Discord application ID");
+        hostFile = LoadConfig(host);
+        Require(hostFile.contents.find("application_id") == std::string::npos
+                && hostFile.contents.find("[discord]") != std::string::npos, "Saving wrote a Discord application ID");
         // Old title-bar settings are accepted, ignored and retired on explicit save.
         std::ofstream(path) << "[display]\nshow_fps = true\nfps_overlay = false\ncustom = preserved\n";
         auto legacyFps = LoadConfig(path);
@@ -378,7 +437,10 @@ int main()
                                     "[advanced]\nlog_level = verbose\n", "[launcher]\nui_scale = 110\n",
                                     "[advanced]\ngraphics_validation = 2\n", "[advanced]\nverbose_console = yes\n",
                                     "[advanced]\nframe_logging = maybe\n", "[advanced]\nlog_window = on\n", "[launcher]\ncheck_updates = sometimes\n",
-                                    "[launcher]\nupdate_channel = nightly\n"})
+                                    "[launcher]\nupdate_channel = nightly\n", "[launcher]\ntest_build = -1\n",
+                                    "[launcher]\ntest_build = pr72\n", "[discord]\nrich_presence = maybe\n",
+                                    "[discord]\napplication_id = 1234\n",
+                                    "[discord]\napplication_id = 12345678901234567x8\n"})
         {
             std::ofstream(path) << invalid;
             Reject([&] { LoadConfig(path); });

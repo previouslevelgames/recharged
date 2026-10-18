@@ -822,8 +822,10 @@ bool Segmented(const char* id, int* selected, const std::vector<const char*>& it
     return changed;
 }
 
-bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass)
+bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass,
+                    int* pressed)
 {
+    if (pressed) *pressed = -1;
     ImGui::PushID(id);
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     const int count = int(items.size());
@@ -858,21 +860,29 @@ bool SegmentedIcons(const char* id, int* selected, std::initializer_list<Segment
         const SegmentItem& item = items_begin[index];
         ImGui::SetCursorScreenPos({pos.x + segment * float(index), pos.y});
         ImGui::PushID(index);
-        if (ImGui::InvisibleButton("##segment", {segment, size.y}) && *selected != index)
+        if (ImGui::InvisibleButton("##segment", {segment, size.y}))
         {
-            *selected = index;
-            changed = true;
+            if (pressed) *pressed = index;
+            if (*selected != index)
+            {
+                *selected = index;
+                changed = true;
+            }
         }
         const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered() && enabled, 12.0f);
         const bool active = index == *selected;
         const ImVec2 text = TextSize(fonts.body, item.label);
-        const float left = pos.x + segment * float(index) + (segment - (icon_size + gap + text.x)) * 0.5f;
+        const float chevron = item.menu ? Dp(14) : 0.0f;
+        const float left = pos.x + segment * float(index) + (segment - (icon_size + gap + text.x + chevron)) * 0.5f;
         const float middle = pos.y + size.y * 0.5f;
         const ImVec4 ink = active ? color::text : Mix(color::muted, color::text, hover * 0.7f);
         DrawIcon(draw, item.icon, {left + icon_size * 0.5f, middle}, icon_size,
                  Col(active ? item.tint : Mix(color::dim, color::muted, 0.5f + 0.5f * hover), enabled ? 1.0f : 0.6f));
         DrawLabel(draw, fonts.body, {left + icon_size + gap, middle - text.y * 0.5f}, Col(ink, enabled ? 1.0f : 0.6f),
                   item.label);
+        if (item.menu)
+            DrawChevronDown(draw, {left + icon_size + gap + text.x + Dp(9), middle + Dp(1)}, Dp(10),
+                            Col(active ? Mix(item.tint, color::text, 0.3f) : color::muted, enabled ? 1.0f : 0.6f));
         ImGui::PopID();
     }
     ImGui::SetCursorScreenPos(pos);
@@ -1030,6 +1040,13 @@ void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color)
 {
     const ImVec2 points[] = {{center.x - size * 0.2f, center.y - size * 0.4f}, {center.x + size * 0.2f, center.y},
                              {center.x - size * 0.2f, center.y + size * 0.4f}};
+    draw->AddPolyline(points, 3, color, 0, std::max(1.5f, size * 0.14f));
+}
+
+void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color)
+{
+    const ImVec2 points[] = {{center.x - size * 0.4f, center.y - size * 0.2f}, {center.x, center.y + size * 0.2f},
+                             {center.x + size * 0.4f, center.y - size * 0.2f}};
     draw->AddPolyline(points, 3, color, 0, std::max(1.5f, size * 0.14f));
 }
 

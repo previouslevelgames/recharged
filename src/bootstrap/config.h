@@ -30,6 +30,10 @@ struct Settings
     // uses the default folder next to the executable; a relative path
     // counts from the settings file, like the disc.
     std::string save_folder;
+    // game.gamecube_disc: a Super Mario Strikers image (GameCube), for the
+    // Super Team tweak: its robot model and textures come from that disc. A
+    // relative path counts from the settings file, like the disc.
+    std::string gamecube_disc;
     std::string language = "auto";
     int width = 1280;
     int height = 720;
@@ -92,12 +96,17 @@ struct Settings
         int inner_deadzone = kDefaultInnerDeadzone;
         int outer_deadzone = kDefaultOuterDeadzone;
         int trigger_press = kDefaultTriggerPress;
+        // gyro_pointer: a controller with a gyro points by turning it, at
+        // gyro_speed percent (issue #14); recenter_pointer centres it.
+        bool gyro_pointer = false;
+        int gyro_speed = kDefaultGyroSpeed;
         // Spelled out: charged_host is C++17.
         bool operator==(const PadProfile& other) const
         {
             return name == other.name && inputs == other.inputs && swap_sticks == other.swap_sticks
                 && controller == other.controller && inner_deadzone == other.inner_deadzone
-                && outer_deadzone == other.outer_deadzone && trigger_press == other.trigger_press;
+                && outer_deadzone == other.outer_deadzone && trigger_press == other.trigger_press
+                && gyro_pointer == other.gyro_pointer && gyro_speed == other.gyro_speed;
         }
         bool operator!=(const PadProfile& other) const { return !(*this == other); }
     };
@@ -152,9 +161,22 @@ struct Settings
     // launcher.update_channel: release (official releases), test (also test
     // builds of pull requests) or auto (where this build comes from).
     std::string update_channel = "auto";
+    // launcher.test_build: the pull request whose test builds the test channel
+    // follows, chosen on the Play page; 0 for the running test build's own.
+    int test_build = 0;
+    // discord.rich_presence: show what is being played as the Discord status
+    // (issue #71), when the Discord app runs on this computer.
+    bool discord_status = true;
+    // discord.application_id: the Discord application to show it under
+    // instead of the build's own (testing; the ID is public, not a secret).
+    // Read only: saving never writes it.
+    std::string discord_application_id;
     // [gameplay]: game tweaks (kGameTweaks order), off by default except the
     // recommended ones.
     std::array<bool, kGameTweaks.size()> tweaks = DefaultGameTweaks();
+    // gameplay.super_team_side: the team the Super Team tweak dresses as
+    // robots: away, home or both.
+    std::string super_team_side = "away";
     unsigned GameTweakMask() const
     {
         unsigned mask = 0;
@@ -182,6 +204,8 @@ bool SamePadProfileName(const std::string& a, const std::string& b);
 ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing = false);
 void SaveConfig(ConfigFile& file, const Settings& settings);
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config);
+// game.gamecube_disc's path, empty when none is set.
+std::filesystem::path ResolveGameCubeDiscPath(const Settings& settings, const std::filesystem::path& config);
 // Saves, shader caches and the game clock, beside the executable: data/, or
 // the original-main-credits-data/ of earlier builds until it has been moved.
 std::filesystem::path DataFolder(const std::filesystem::path& executable_directory);

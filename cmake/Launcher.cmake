@@ -105,6 +105,12 @@ add_custom_command(TARGET mscharged POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/LICENSES/Apache-2.0.txt"
             "$<TARGET_FILE_DIR:mscharged>/assets/launcher/LICENSE-APACHE"
+    # Gameplay data the host passes to the game module (tweak "Robot goalies").
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:mscharged>/assets/gameplay"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/robot_goalie.map"
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/README.md"
+            "$<TARGET_FILE_DIR:mscharged>/assets/gameplay"
     VERBATIM)
 # Resource edits must refresh the copied files even without a C++ source edit.
 set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
@@ -112,6 +118,8 @@ set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.png"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/README.md"
     "${CMAKE_CURRENT_SOURCE_DIR}/LICENSES/Apache-2.0.txt"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/robot_goalie.map"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/README.md"
     "${MSCHARGED_IMGUI_PREPARED}/misc/fonts/Roboto-Medium.ttf"
     "${MSCHARGED_AURORA_PREPARED}/assets/aurora.png")
 

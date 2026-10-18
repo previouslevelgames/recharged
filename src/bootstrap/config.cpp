@@ -36,7 +36,8 @@ Values Encode(const Settings& s)
 {
     Values values{{"game.disc", s.disc}, {"game.folder", s.folder},
             {"game.folder_subfolders", s.folder_subfolders ? "true" : "false"},
-            {"game.save_folder", s.save_folder}, {"game.language", s.language},
+            {"game.save_folder", s.save_folder}, {"game.gamecube_disc", s.gamecube_disc},
+            {"game.language", s.language}, {"gameplay.super_team_side", s.super_team_side},
             {"display.width", std::to_string(s.width)}, {"display.height", std::to_string(s.height)},
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.vsync", s.vsync ? "true" : "false"}, {"display.frame_rate", s.frame_rate},
@@ -64,7 +65,9 @@ Values Encode(const Settings& s)
             {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
-            {"launcher.update_channel", s.update_channel}};
+            {"launcher.update_channel", s.update_channel},
+            {"launcher.test_build", std::to_string(s.test_build)},
+            {"discord.rich_presence", s.discord_status ? "true" : "false"}};
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
@@ -82,6 +85,8 @@ Values Encode(const Settings& s)
         values.emplace(section + "inner_deadzone", std::to_string(profile.inner_deadzone));
         values.emplace(section + "outer_deadzone", std::to_string(profile.outer_deadzone));
         values.emplace(section + "trigger_press", std::to_string(profile.trigger_press));
+        values.emplace(section + "gyro_pointer", profile.gyro_pointer ? "true" : "false");
+        values.emplace(section + "gyro_speed", std::to_string(profile.gyro_speed));
         values.emplace(section + "controller", profile.controller);
     }
     for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
@@ -133,6 +138,9 @@ Settings Decode(const Values& values)
     if (const auto it = values.find("game.save_folder"); it != values.end()) s.save_folder = it->second;
     if (s.save_folder.find_first_of("\r\n") != std::string::npos || s.save_folder.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: the save folder contains a line break or NUL");
+    if (const auto it = values.find("game.gamecube_disc"); it != values.end()) s.gamecube_disc = it->second;
+    if (s.gamecube_disc.find_first_of("\r\n") != std::string::npos || s.gamecube_disc.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: the GameCube disc path contains a line break or NUL");
     choice("game.language", s.language, {"auto", "english", "french", "spanish", "german", "italian", "japanese"});
     number("display.width", s.width, 1, 16384);
     number("display.height", s.height, 1, 16384);
@@ -218,6 +226,8 @@ Settings Decode(const Values& values)
         number((section + "inner_deadzone").c_str(), profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone);
         number((section + "outer_deadzone").c_str(), profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone);
         number((section + "trigger_press").c_str(), profile.trigger_press, kMinTriggerPress, kMaxTriggerPress);
+        boolean((section + "gyro_pointer").c_str(), profile.gyro_pointer);
+        number((section + "gyro_speed").c_str(), profile.gyro_speed, kMinGyroSpeed, kMaxGyroSpeed);
         choice((section + "controller").c_str(), profile.controller, {"xbox", "nintendo", "gamecube"});
         profiles.push_back(std::move(profile));
     }
@@ -260,12 +270,23 @@ Settings Decode(const Values& values)
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
     boolean("launcher.check_updates", s.check_updates);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
+    number("launcher.test_build", s.test_build, 0, 999999999);
+    boolean("discord.rich_presence", s.discord_status);
+    if (const auto it = values.find("discord.application_id"); it != values.end() && !it->second.empty())
+    {
+        const auto& id = it->second;
+        if (id.size() < 17 || id.size() > 20 || id.find_first_not_of("0123456789") != std::string::npos)
+            throw std::runtime_error("Invalid configuration: discord.application_id must be a Discord application ID "
+                "(17 to 20 digits)");
+        s.discord_application_id = id;
+    }
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
     {
         bool value = kGameTweaks[n].on_by_default;
         boolean((std::string("gameplay.") + kGameTweaks[n].key).c_str(), value);
         s.tweaks[n] = value;
     }
+    choice("gameplay.super_team_side", s.super_team_side, {"away", "home", "both"});
     return s;
 }
 
@@ -283,7 +304,10 @@ bool OwnedSection(const std::string& section)
 }
 
 // Paths are written in quotes.
-bool QuotedKey(const std::string& key) { return key == "game.disc" || key == "game.folder" || key == "game.save_folder"; }
+bool QuotedKey(const std::string& key)
+{
+    return key == "game.disc" || key == "game.folder" || key == "game.save_folder" || key == "game.gamecube_disc";
+}
 
 Values Parse(const std::string& contents, std::string* updated = nullptr, Values replacements = {})
 {
@@ -506,6 +530,13 @@ bool MoveOldDataFolder(const std::filesystem::path& executable_directory)
 std::filesystem::path DefaultSaveFolder(const std::filesystem::path& executable_directory)
 {
     return DataFolder(executable_directory) / "nand";
+}
+
+std::filesystem::path ResolveGameCubeDiscPath(const Settings& settings, const std::filesystem::path& config)
+{
+    if (settings.gamecube_disc.empty()) return {};
+    const auto path = PathFromUtf8(settings.gamecube_disc);
+    return path.is_absolute() ? path : config.parent_path() / path;
 }
 
 std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::filesystem::path& config,

@@ -36,6 +36,7 @@
 #include "platform/shader_cache.h"
 #include "platform/session_log.h"
 #include "platform/gamepad_bindings.h"
+#include "platform/gyro_pointer.h"
 #include "platform/key_bindings.h"
 #include "platform/wiimote_bluetooth.h"
 #include "platform/wiimote_hid.h"
@@ -467,7 +468,11 @@ public:
                     && platform::MouseKeyInput(event.button.button) != platform::kKeyNone)
                     CaptureKey(platform::MouseKeyInput(event.button.button));
                 GamepadCaptureEvent(event);
+                GyroPreviewEvent(event);
             }
+            // The gyro preview takes readings only while it is on screen.
+            if (!gyro_preview_drawn_) StopGyroPreview();
+            gyro_preview_drawn_ = false;
             // While an input waits for a gamepad press, and until the press
             // that set it is released, the gamepad does not drive the launcher.
             auto& io = ImGui::GetIO();
@@ -640,18 +645,30 @@ private:
         if (capture_ && !(capture_updates && *capture_updates)) return;
         if (capture_)
         {
-            // "preview-<state>[-dialog]" shows a made-up state offline (UpdateService::Preview).
+            // "preview-<state>[-dialog|-menu]" shows a made-up state offline
+            // (UpdateService::Preview), optionally with the update dialog or
+            // the Test menu open.
             std::string mode = capture_updates;
             if (mode.rfind("preview-", 0) == 0)
             {
                 mode.erase(0, 8);
-                const bool dialog = mode.size() > 7 && mode.compare(mode.size() - 7, 7, "-dialog") == 0;
-                if (dialog) mode.resize(mode.size() - 7);
+                auto suffix = [&mode](const std::string& text) {
+                    const bool found = mode.size() > text.size()
+                        && mode.compare(mode.size() - text.size(), text.size(), text) == 0;
+                    if (found) mode.resize(mode.size() - text.size());
+                    return found;
+                };
+                const bool dialog = suffix("-dialog"), menu = !dialog && suffix("-menu");
                 update_preview_ = updates_->Preview(mode);
                 update_dialog_ = update_preview_ && dialog;
-                // The switch shows the previewed channel (not saved).
+                test_menu_ = update_preview_ && menu;
+                // The switch shows the previewed channel and choice (not saved).
                 if (update_preview_)
-                    draft_.update_channel = updates_->Snapshot().channel == UpdateChannel::Test ? "test" : "release";
+                {
+                    const auto preview = updates_->Snapshot();
+                    draft_.update_channel = preview.channel == UpdateChannel::Test ? "test" : "release";
+                    draft_.test_build = preview.chosen;
+                }
                 return;
             }
             update_capture_dialog_ = mode == "dialog";
@@ -674,13 +691,14 @@ private:
 
     // The update dialog opens by itself when a check finds a build: after the
     // start only for a newer one; after the Release / Test switch or a click on
-    // the status also for the way back to the release.
-    enum class UpdatePrompt { None, Newer, Any };
+    // the status also for the way back to the release. After the switch to
+    // Test with several test builds and none followed, the Test menu opens.
+    enum class UpdatePrompt { None, Newer, Any, Switch };
 
     void CheckForUpdates(UpdatePrompt prompt, UpdateChannel channel)
     {
         update_prompt_ = capture_ ? UpdatePrompt::None : prompt;
-        updates_->Check(channel);
+        updates_->Check(channel, draft_.test_build);
     }
 
     bool UpdateBusy() const
@@ -695,23 +713,84 @@ private:
         return ResolveChannel(draft_.update_channel, updates_ ? updates_->Build() : CurrentBuild());
     }
 
-    // The Play page's Release / Test switch is saved at once, without other
-    // unsaved changes, so it never holds an update back.
+    // The Play page's Release / Test switch and the Test menu's choice are
+    // saved at once, without other unsaved changes, so they never hold an
+    // update back.
+    void SaveUpdateChoice(const std::string& channel, int test_build)
+    {
+        draft_.update_channel = channel;
+        draft_.test_build = test_build;
+        if (!config_ok_) return;
+        try
+        {
+            Settings saved = file_.settings;
+            saved.update_channel = channel;
+            saved.test_build = test_build;
+            SaveConfig(file_, saved);
+        }
+        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+    }
+
+    // Release leaves the test builds; Test asks which one when several are open.
     void SelectUpdateChannel(UpdateChannel channel)
     {
-        const std::string value = channel == UpdateChannel::Test ? "test" : "release";
-        draft_.update_channel = value;
-        if (config_ok_)
-        {
-            try
-            {
-                Settings saved = file_.settings;
-                saved.update_channel = value;
-                SaveConfig(file_, saved);
-            }
-            catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
-        }
-        CheckForUpdates(UpdatePrompt::Any, channel);
+        BeginSwitch();
+        const bool test = channel == UpdateChannel::Test;
+        SaveUpdateChoice(test ? "test" : "release", test ? draft_.test_build : 0);
+        CheckForUpdates(test ? UpdatePrompt::Switch : UpdatePrompt::Any, channel);
+    }
+
+    // A test build chosen in the Test menu: followed from now on, offered
+    // with its notes when it is not the running build.
+    void SelectTestBuild(int pull_request)
+    {
+        BeginSwitch();
+        SaveUpdateChoice("test", pull_request);
+        CheckForUpdates(UpdatePrompt::Any, UpdateChannel::Test);
+    }
+
+    // A switch (Release / Test, or a test build from the menu) holds only
+    // when something gets installed: Later in the update dialog, or closing
+    // the menu without a choice, brings the previous choice back, since
+    // nothing changed. Without anything to install (no test builds, no
+    // network) the new choice stays.
+    void BeginSwitch()
+    {
+        if (!switch_from_) switch_from_ = UpdateChoice{draft_.update_channel, draft_.test_build};
+    }
+
+    void CancelSwitch()
+    {
+        if (!switch_from_) return;
+        const UpdateChoice previous = *switch_from_;
+        switch_from_.reset();
+        SaveUpdateChoice(previous.channel, previous.test_build);
+        CheckForUpdates(UpdatePrompt::None, UpdateChannelSetting());
+    }
+
+    // Later (or Escape / B) in the update dialog.
+    void DismissUpdateDialog()
+    {
+        ImGui::CloseCurrentPopup();
+        CancelSwitch();
+    }
+
+    // On the test channel, test builds are published but none is followed
+    // (several pull requests are open, or the one followed has closed).
+    bool ChooseTestBuild() const
+    {
+        return update_.channel == UpdateChannel::Test && update_.state == UpdateService::State::UpToDate
+            && !update_.track && !update_.test_builds.empty();
+    }
+
+    // Test gets its menu when there is a choice to make.
+    bool TestMenuAvailable() const
+    {
+        using State = UpdateService::State;
+        if (update_.channel != UpdateChannel::Test || update_.state == State::Downloading
+            || update_.state == State::Installing || update_.state == State::Installed)
+            return false;
+        return update_.test_builds.size() >= 2 || ChooseTestBuild();
     }
 
     // The update status: a glass pill over the artwork, tinted with the
@@ -765,11 +844,25 @@ private:
             break;
         case State::Checking: look = {Icon::None, true, "Checking for updates...", "", color::info}; break;
         case State::UpToDate:
-            // Switched to Test on a build that is no test build: say why nothing changes.
-            if (test && updates_->Build().origin != BuildOrigin::Test)
-                look = {Icon::Check, false, "No new test builds",
-                        "No test build is newer than this build right now. Test builds are published while "
-                        "pull requests are open."
+            if (ChooseTestBuild())
+            {
+                // Test builds to choose from: the click opens the Test menu.
+                const auto count = update_.test_builds.size();
+                look = {Icon::Flask, false, count == 1 ? "Test build available" : "Choose a test build",
+                        (count == 1 ? std::string("A test build is published.")
+                                    : std::to_string(count) + " test builds are published, one for each change "
+                                                              "being tested.")
+                            + "\nClick to choose which one to follow.",
+                        color::warning};
+                look.filled = true;
+                look.action = PillAction::Open;
+                return look;
+            }
+            // Switched to Test while no test build is published: say why nothing changes.
+            if (test && update_.test_builds.empty() && updates_->Build().origin != BuildOrigin::Test)
+                look = {Icon::Check, false, "No test builds",
+                        "No test build is published right now. Test builds are published while pull requests "
+                        "are open."
                             + checked + again,
                         color::warning};
             else
@@ -906,27 +999,172 @@ private:
         int channel = UpdateChannelSetting() == UpdateChannel::Test ? 1 : 0;
         const bool busy = update_.state == State::Downloading || update_.state == State::Installing
             || update_.state == State::Installed;
+        const bool menu = TestMenuAvailable();
+        int pressed = -1;
         ImGui::BeginDisabled(busy || !config_ok_);
         if (SegmentedIcons("##update_channel", &channel,
-                           {{"Release", Icon::Tag, color::accent}, {"Test", Icon::Flask, color::warning}},
-                           {switch_width, height}, true))
+                           {{"Release", Icon::Tag, color::accent}, {"Test", Icon::Flask, color::warning, menu}},
+                           {switch_width, height}, true, &pressed))
             SelectUpdateChannel(channel ? UpdateChannel::Test : UpdateChannel::Release);
+        // Test again, with a choice: the menu, unless this mouse click closed it.
+        else if (pressed == 1 && menu
+                 && !(ImGui::GetIO().MouseReleased[0] && test_menu_closed_ >= ImGui::GetIO().MouseClickedTime[0]))
+            test_menu_ = true;
         ImGui::EndDisabled();
+        const ImVec2 menu_anchor{ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y + Dp(8)};
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Release: official releases.\n"
-                              "Test: also the test builds of pull requests, to try changes before they are released.\n"
-                              "Nothing is installed without asking.");
+            ImGui::SetTooltip(menu ? "Release: official releases.\n"
+                                     "Test: test builds of changes before they are released; click Test again to "
+                                     "choose which one.\n"
+                                     "Nothing is installed without asking."
+                                   : "Release: official releases.\n"
+                                     "Test: also the test builds of pull requests, to try changes before they are "
+                                     "released.\n"
+                                     "Nothing is installed without asking.");
         const float pill_width = PillWidth(look);
         x -= Dp(10) + pill_width;
         ImGui::SetCursorScreenPos({x, y});
         if (DrawUpdatePill(look, {pill_width, height}))
         {
-            if (update_.state == State::Idle || update_.state == State::UpToDate || update_.state == State::CheckFailed)
+            if (ChooseTestBuild()) test_menu_ = true;
+            else if (update_.state == State::Idle || update_.state == State::UpToDate
+                     || update_.state == State::CheckFailed)
                 CheckForUpdates(UpdatePrompt::Any, UpdateChannelSetting());
             else if (update_.offer)
                 update_dialog_ = true;
         }
         if (!look.tooltip.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", look.tooltip.c_str());
+        DrawTestBuildMenu(menu_anchor);
+    }
+
+    // What a test build's title says besides its version: CI names them
+    // "Test build: <pull request title> (#N)", release pull requests are
+    // titled "Release 1.1.0 – NetCode!".
+    static std::string TestBuildSubtitle(const PublishedBuild& build)
+    {
+        std::string title = build.title;
+        const std::string prefix = "Test build: ", suffix = " (#" + std::to_string(build.pull_request) + ")";
+        if (title.rfind(prefix, 0) == 0) title.erase(0, prefix.size());
+        if (title.size() > suffix.size() && title.compare(title.size() - suffix.size(), suffix.size(), suffix) == 0)
+            title.resize(title.size() - suffix.size());
+        if (title.rfind("Release ", 0) == 0) title.erase(0, 8);
+        return ReleaseSubtitle(title, build.version);
+    }
+
+    // `text` cut to `width` with an ellipsis, at a UTF-8 character boundary.
+    static std::string Elide(ImFont* font, std::string text, float width)
+    {
+        if (TextSize(font, text.c_str()).x <= width) return text;
+        const std::string ellipsis = "\xE2\x80\xA6";
+        while (!text.empty() && TextSize(font, (text + ellipsis).c_str()).x > width)
+        {
+            do text.pop_back();
+            while (!text.empty() && (static_cast<unsigned char>(text.back()) & 0xC0) == 0x80);
+            while (!text.empty() && text.back() == ' ') text.pop_back();
+        }
+        return text + ellipsis;
+    }
+
+    // The Test menu below the switch: the newest test build of each open
+    // pull request. A click follows that one and offers it in the update
+    // dialog; the running build's own is marked as installed.
+    void DrawTestBuildMenu(ImVec2 anchor)
+    {
+        if (test_menu_)
+        {
+            test_menu_ = false;
+            if (!update_.test_builds.empty()) ImGui::OpenPopup("##test_builds");
+        }
+        const auto& fonts = CurrentFonts();
+        const float width = Dp(392);
+        ImGui::SetNextWindowPos(anchor, ImGuiCond_Always, {1.0f, 0.0f});
+        ImGui::SetNextWindowSize({width, 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(10, 14));
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4{0, 0, 0, 0});
+        const bool open = ImGui::BeginPopup("##test_builds", ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+        if (!open)
+        {
+            if (test_menu_open_)
+            {
+                test_menu_closed_ = ImGui::GetTime();
+                // Closed without a choice: a switch to Test that waited for one is undone.
+                if (!test_menu_chose_) CancelSwitch();
+            }
+            test_menu_open_ = test_menu_chose_ = false;
+            return;
+        }
+        test_menu_open_ = true;
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
+        DrawDialogCard(color::warning, Dp(14), Dp(6));
+        auto* draw = ImGui::GetWindowDrawList();
+        const float left = ImGui::GetCursorScreenPos().x;
+        DrawTracked(draw, fonts.caption, {left + Dp(8), ImGui::GetCursorScreenPos().y}, Col(color::dim), "TEST BUILDS",
+                    Dp(1.2f));
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(10)});
+        const BuildIdentity self = updates_->Build();
+        const PortVersion mine = ParsePortVersion(self.version);
+        const float row_width = width - Dp(20), row_height = Dp(56);
+        int choice = 0;
+        for (const auto& build : update_.test_builds)
+        {
+            const bool followed = build.pull_request == update_.track;
+            const bool running = self.origin == BuildOrigin::Test && build.pull_request == self.pull_request;
+            const bool current = running && !mine.commit.empty() && build.version.commit.rfind(mine.commit, 0) == 0;
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            ImGui::PushID(build.pull_request);
+            if (ImGui::InvisibleButton("##test_build", {row_width, row_height})) choice = build.pull_request;
+            if (followed) ImGui::SetItemDefaultFocus();
+            const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered() || ImGui::IsItemFocused(), 14.0f);
+            ImGui::PopID();
+            const ImVec2 max{pos.x + row_width, pos.y + row_height};
+            if (followed || hover > 0.01f)
+                draw->AddRectFilled(pos, max,
+                                    Col(Mix(DialogFill(), color::warning, followed ? 0.10f + 0.06f * hover : 0.07f),
+                                        followed ? 1.0f : hover),
+                                    Dp(10));
+            // A flask in a soft disc, then the version and title over the pull request and date.
+            const ImVec2 icon{pos.x + Dp(26), pos.y + row_height * 0.5f};
+            draw->AddCircleFilled(icon, Dp(15), Col(Mix(DialogFill(), color::warning, followed ? 0.24f : 0.13f)));
+            DrawIcon(draw, Icon::Flask, icon, Dp(15), Col(color::warning, followed ? 1.0f : 0.8f));
+            const float text_left = pos.x + Dp(52), text_right = max.x - Dp(36);
+            const std::string number = VersionNumber(build.version);
+            const float line1 = pos.y + Dp(9);
+            DrawLabel(draw, fonts.label, {text_left, line1}, Col(color::text), number.c_str());
+            const float title_left = text_left + TextSize(fonts.label, number.c_str()).x + Dp(9);
+            const std::string subtitle = Elide(fonts.body, TestBuildSubtitle(build), text_right - title_left);
+            DrawLabel(draw, fonts.body,
+                      {title_left, line1 + (FontSize(fonts.label) - FontSize(fonts.body)) * 0.5f + Dp(1)},
+                      Col(Mix(color::muted, color::text, 0.55f + 0.45f * hover)), subtitle.c_str());
+            std::string detail = "Test build #" + std::to_string(build.pull_request);
+            if (build.published) detail += "  \xC2\xB7  " + LocalTime(build.published);
+            const float line2 = pos.y + row_height - Dp(9) - FontSize(fonts.caption);
+            DrawLabel(draw, fonts.caption, {text_left, line2}, Col(color::dim), detail.c_str());
+            // Installed, or the running build's pull request has a newer build.
+            if (running)
+            {
+                const char* tag = current ? "INSTALLED" : "UPDATE";
+                const ImVec4 tint = current ? color::muted : color::accent;
+                const float tag_x = text_left + TextSize(fonts.caption, detail.c_str()).x + Dp(10);
+                DrawTracked(draw, fonts.caption, {tag_x, line2}, Col(tint), tag, Dp(0.8f));
+            }
+            if (followed) DrawIcon(draw, Icon::Check, {max.x - Dp(18), pos.y + row_height * 0.5f}, Dp(15), Col(color::warning));
+            ImGui::Dummy({0, Dp(2)});
+        }
+        ImGui::Dummy({0, Dp(8)});
+        TextWrappedColored(fonts.caption, color::dim, "Updates come from the test build you choose. Release takes you "
+                                                      "back to the official release.");
+        ImGui::PopStyleVar();
+        if (choice)
+        {
+            ImGui::CloseCurrentPopup();
+            test_menu_chose_ = true;
+            SelectTestBuild(choice);
+        }
+        else if (CancelPressed()) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
 
     // One line on the Advanced page: what the last check found.
@@ -938,7 +1176,9 @@ private:
         {
         case State::Idle: return "Not checked yet.";
         case State::Checking: return "Checking...";
-        case State::UpToDate: return "This build is up to date." + checked;
+        case State::UpToDate:
+            if (ChooseTestBuild()) return "Test builds are available; choose one with Test on the Play page." + checked;
+            return "This build is up to date." + checked;
         case State::CheckFailed: return "Couldn't check: " + update_.error;
         case State::Available:
             switch (ClassifyOffer(updates_->Build(), *update_.offer))
@@ -996,17 +1236,16 @@ private:
     // The dialog's card: a soft shadow, a fill a shade lighter than the
     // launcher's cards, a hairline edge, and the offer's colour as a fine line
     // along the top that fades out to both sides.
-    static void DrawDialogCard(const ImVec4& tint)
+    static void DrawDialogCard(const ImVec4& tint, float rounding = Dp(18), float drop = Dp(14))
     {
         auto* draw = ImGui::GetWindowDrawList();
         const ImVec2 min = ImGui::GetWindowPos();
         const ImVec2 max{min.x + ImGui::GetWindowWidth(), min.y + ImGui::GetWindowHeight()};
-        const float rounding = Dp(18);
         draw->PushClipRectFullScreen();
         for (int i = 0; i < 8; ++i)
         {
             const float grow = Dp(2.0f + 3.0f * float(i));
-            draw->AddRectFilled({min.x - grow, min.y - grow + Dp(14)}, {max.x + grow, max.y + grow + Dp(14)},
+            draw->AddRectFilled({min.x - grow, min.y - grow + drop}, {max.x + grow, max.y + grow + drop},
                                 Col(ImVec4{0, 0, 0, 1}, 0.075f - 0.008f * float(i)), rounding + grow);
         }
         draw->AddRectFilled(min, max, Col(DialogFill()), rounding);
@@ -1169,11 +1408,18 @@ private:
         bool callout = false;
         if (kind != OfferKind::Update)
         {
-            std::string meaning = kind == OfferKind::TestBuild
-                ? "Test builds have changes that are not released yet, to try them early; they can have new "
-                  "problems. Release on the Play page takes you back."
-                : "This replaces your test build by the official release: changes that are not released yet "
-                  "go away. Your settings and saves stay.";
+            std::string meaning;
+            if (kind == OfferKind::TestBuild && self.origin == BuildOrigin::Test)
+                meaning = "This replaces test build #" + std::to_string(self.pull_request) + " by test build #"
+                    + std::to_string(offer.pull_request)
+                    + ", whose updates you then get. Test on the Play page switches between test builds, Release "
+                      "takes you back to the official release.";
+            else if (kind == OfferKind::TestBuild)
+                meaning = "Test builds have changes that are not released yet, to try them early; they can have new "
+                          "problems. Release on the Play page takes you back.";
+            else
+                meaning = "This replaces your test build by the official release: changes that are not released yet "
+                          "go away. Your settings and saves stay.";
             if (kind == OfferKind::BackToRelease && !UpdatesItself(offer.version))
                 meaning += " Version " + VersionNumber(offer.version)
                     + " cannot update itself; newer versions are downloaded from the releases page.";
@@ -1324,13 +1570,19 @@ private:
             const float action_width = action ? PrimaryWidth(action, Icon::Download) : 0.0f;
             align_right(later_width + (action ? Dp(10) + action_width : 0.0f));
             if (GhostButton("update_later", later, {later_width, height}) || CancelPressed())
-                ImGui::CloseCurrentPopup();
+                DismissUpdateDialog();
             if (action)
             {
                 ImGui::SameLine(0, Dp(10));
                 if (PrimaryButton("update_now", action, {action_width, height}, true, Icon::Download))
                 {
-                    if (status.install_blocker.empty()) updates_->Install();
+                    if (status.install_blocker.empty())
+                    {
+                        // Its pull request is followed from now on, also after it is released.
+                        if (offer.test && draft_.test_build != offer.pull_request)
+                            SaveUpdateChoice(draft_.update_channel, offer.pull_request);
+                        updates_->Install();
+                    }
                     else SDL_OpenURL(asset->url.c_str());
                 }
                 if (ImGui::IsItemHovered() && status.install_blocker.empty())
@@ -1620,6 +1872,8 @@ private:
             library_available_ = std::move(scan.available);
             library_folders_ = library_scan_folders_;
             library_other_games_ = scan.other_games;
+            library_strikers_ = std::move(scan.strikers);
+            PrefillGameCubeDisc();
             library_limited_ = scan.limited;
             for (auto& [id, rgba] : scan.banners) StoreBanner(id, rgba);
             banner_failures_.insert(scan.banner_failures.begin(), scan.banner_failures.end());
@@ -1780,10 +2034,18 @@ private:
             update_ = updates_->Snapshot();
             if (update_prompt_ != UpdatePrompt::None && update_.state != UpdateService::State::Checking)
             {
-                if (update_.state == UpdateService::State::Available && update_.offer
-                    && (update_prompt_ == UpdatePrompt::Any
-                        || ClassifyOffer(updates_->Build(), *update_.offer) != OfferKind::BackToRelease))
-                    update_dialog_ = true;
+                if (update_.state == UpdateService::State::Available && update_.offer)
+                {
+                    // After the start only newer builds: an update or a newer test build.
+                    const OfferKind kind = ClassifyOffer(updates_->Build(), *update_.offer);
+                    if (update_prompt_ != UpdatePrompt::Newer || kind == OfferKind::Update
+                        || (kind == OfferKind::TestBuild && IsNewer(updates_->Build(), *update_.offer)))
+                        update_dialog_ = true;
+                }
+                else if (update_prompt_ == UpdatePrompt::Switch && ChooseTestBuild())
+                    test_menu_ = true;
+                // Nothing to install or choose: the switch stands.
+                if (!update_dialog_ && !test_menu_) switch_from_.reset();
                 update_prompt_ = UpdatePrompt::None;
             }
             if (update_.state == UpdateService::State::Available && update_capture_dialog_)
@@ -1814,6 +2076,15 @@ private:
                 folder_dialog_->ready = false;
                 if (!folder_dialog_->error.empty()) Notice(folder_dialog_->error, NoticeKind::Error);
                 else if (!folder_dialog_->path.empty()) FolderChosen(folder_dialog_->path);
+            }
+        }
+        {
+            std::lock_guard<std::mutex> lock(gamecube_dialog_->mutex);
+            if (gamecube_dialog_->ready)
+            {
+                gamecube_dialog_->ready = false;
+                if (!gamecube_dialog_->error.empty()) Notice(gamecube_dialog_->error, NoticeKind::Error);
+                else if (!gamecube_dialog_->path.empty()) GameCubeDiscChosen(PathFromUtf8(gamecube_dialog_->path));
             }
         }
         if (pending_ && future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
@@ -1852,11 +2123,13 @@ private:
     void RefreshGamepad()
     {
         // Every pad stays open: the gamepad setup takes presses from any of them.
+        StopGyroPreview();
         for (auto* pad : pads_) SDL_CloseGamepad(pad);
         pads_.clear();
         gamepad_ = nullptr;
         gamepad_names_.clear();
         trigger_held_.clear();
+        stick_held_.clear();
         int count = 0;
         auto* ids = SDL_GetGamepads(&count);
         for (int n = 0; ids && n < count; ++n)
@@ -2611,7 +2884,7 @@ private:
     // -------------------------------------------------------------- pages
     void GamePage()
     {
-        PageHeader("Game", "Your Mario Strikers Charged images, the game's language and your saves.");
+        PageHeader("Game", "Your Mario Strikers Charged images, the game's language, the Discord status and your saves.");
         if (options_.launch.disc || options_.launch.size || options_.launch.fullscreen || options_.launch.aspect
             || options_.launch.frame_rate)
         {
@@ -2631,7 +2904,29 @@ private:
         }
         EndCard();
 
+        DiscordCard();
         SaveDataCard();
+    }
+
+    // The Discord status (issue #71): on unless switched off; builds without
+    // a Discord application (forks, local builds) cannot show one.
+    void DiscordCard()
+    {
+        BeginCard("##discord", "Discord", "Show what you play on your Discord profile.", Icon::Link);
+        if (BeginRows("##discord_rows"))
+        {
+            const bool available = *mscharged::build::discord_application_id != '\0'
+                || !draft_.discord_application_id.empty();
+            Row("Discord status", available
+                ? "Your profile shows the menu or match you are in, with the score and match time, while the "
+                  "Discord app runs on this computer."
+                : "This build has no Discord application, so it cannot show a Discord status.");
+            ImGui::BeginDisabled(!available);
+            if (Toggle("##discord_status", &draft_.discord_status)) dirty_ = true;
+            ImGui::EndDisabled();
+            EndRows();
+        }
+        EndCard();
     }
 
     // Where the game keeps its Wii storage, and importing a save from Dolphin.
@@ -3556,15 +3851,20 @@ private:
             });
             table("NUNCHUK & MOTION", "##pad_sticks", [&] {
                 row(swap ? "Right stick" : "Left stick", "Nunchuk stick");
-                for (std::size_t n = GamepadActionC; n < GamepadActionCount; ++n)
+                for (std::size_t n = GamepadActionC; n < GamepadActionRecenterPointer; ++n)
                     row(PadBindingLabel(bindings[n], type), kGamepadActions[n].label);
-                row(swap ? "Left stick" : "Right stick", "Pointer");
+                row(profile.gyro_pointer ? "Gyro" : swap ? "Left stick" : "Right stick", "Pointer");
+                if (profile.gyro_pointer)
+                    row(PadBindingLabel(bindings[GamepadActionRecenterPointer], type),
+                        kGamepadActions[GamepadActionRecenterPointer].label);
             });
             ImGui::Dummy({0, Dp(6)});
             TextColored(fonts.caption, color::muted,
                         ("Stick dead zones " + std::to_string(profile.inner_deadzone) + "-"
                          + std::to_string(profile.outer_deadzone) + "%, triggers press at "
-                         + std::to_string(profile.trigger_press) + "%")
+                         + std::to_string(profile.trigger_press) + "%"
+                         + (profile.gyro_pointer ? ", gyro speed " + std::to_string(profile.gyro_speed) + "%"
+                                                 : std::string()))
                             .c_str());
             ImGui::EndTooltip();
         }
@@ -3594,6 +3894,14 @@ private:
         };
         if (input == platform::kGamepadTriggerBase + SDL_GAMEPAD_AXIS_LEFT_TRIGGER) return pick("LT", "L2", "ZL", "L");
         if (input == platform::kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) return pick("RT", "R2", "ZR", "R");
+        if (platform::IsGamepadStickDirection(input))
+        {
+            static const char* const ways[] = {" up", " down", " left", " right"};
+            const int direction = input - platform::kGamepadStickBase;
+            return (direction >= platform::RightStickUp ? pick("Right stick", "Right stick", "Right stick", "C-stick")
+                                                        : std::string("Left stick"))
+                + ways[direction % 4];
+        }
         if (input < 0 || input >= SDL_GAMEPAD_BUTTON_COUNT) return "Not set";
         const auto button = SDL_GamepadButton(input);
         if (button <= SDL_GAMEPAD_BUTTON_NORTH)
@@ -4478,10 +4786,26 @@ private:
         return chosen;
     }
 
-    // Gamepad presses while an input waits for one: a button, or a trigger
-    // pressed past half its travel. Escape stops waiting.
+    // Gamepad presses while an input waits for one: a button, a trigger
+    // pressed past half its travel or a stick pushed one way past half its
+    // travel. Escape stops waiting.
     void GamepadCaptureEvent(const SDL_Event& event)
     {
+        if (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && event.gaxis.axis <= SDL_GAMEPAD_AXIS_RIGHTY)
+            if (SDL_Gamepad* pad = SDL_GetGamepadFromID(event.gaxis.which))
+            {
+                const int first = event.gaxis.axis >= SDL_GAMEPAD_AXIS_RIGHTX ? platform::RightStickUp
+                                                                              : platform::LeftStickUp;
+                auto& held = stick_held_[event.gaxis.which];
+                for (int direction = first; direction < first + 4; ++direction)
+                {
+                    const auto input = platform::kGamepadStickBase + direction;
+                    const bool pressed = platform::GamepadStickDirectionHeld(pad, input, held[direction]);
+                    if (pressed && !held[direction] && pad_capture_action_ >= 0) CaptureGamepadInput(input);
+                    held[direction] = pressed;
+                    TrackPadInput(event.gaxis.which, input, pressed);
+                }
+            }
         if (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && (event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER
                                                             || event.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))
         {
@@ -4771,7 +5095,7 @@ private:
                         }
                         if (ImGui::IsItemHovered() && !waiting)
                             ImGui::SetTooltip(input != platform::kGamepadNone
-                                                  ? "Select, then press the new button on the controller"
+                                                  ? "Select, then press the new button or push a stick on the controller"
                                                   : slot == 0 ? "No button presses this. Select, then press one."
                                                               : "Add a second button");
                         ImGui::PopID();
@@ -4803,16 +5127,19 @@ private:
         rows(GamepadActionA, GamepadActionC);
         EndCard();
         BeginCard("##pad_nunchuk", "Nunchuk & motion",
-                  "The Nunchuk stick and pointer on the controller's sticks, the Nunchuk buttons and the shakes.",
+                  "The Nunchuk stick and pointer on the controller's sticks or gyro, the Nunchuk buttons and "
+                  "the shakes.",
                   Icon::Gamepad);
         const bool swap = profile.swap_sticks;
+        const bool gyro = profile.gyro_pointer;
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
         if (ImGui::BeginTable("##pad_sticks", 2))
         {
             ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
             ImGui::TableSetupColumn("inputs", ImGuiTableColumnFlags_WidthStretch);
             KeyRow("Nunchuk stick", {swap ? "Right stick" : "Left stick"}, nullptr, "Move, aim");
-            KeyRow("Pointer", {swap ? "Left stick" : "Right stick"}, nullptr, "Point at menu items");
+            KeyRow("Pointer", {gyro ? "Gyro" : swap ? "Left stick" : "Right stick"}, nullptr,
+                   "Point at menu items and Mega Strike shots");
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
@@ -4826,9 +5153,76 @@ private:
                     target->swap_sticks = swapped;
                     dirty_ = true;
                 }
+            // Gyro pointer (issue #14).
+            Row("Gyro pointer", "Point by turning the controller, like a Wii Remote, instead of with the stick. "
+                "For controllers with a gyro, such as PlayStation and Switch Pro controllers.");
+            bool gyro_on = gyro;
+            if (Toggle("##gyro_pointer", &gyro_on))
+                if (auto* target = editable())
+                {
+                    target->gyro_pointer = gyro_on;
+                    dirty_ = true;
+                }
+            if (gyro)
+            {
+                Row("Gyro speed", "At 100%, turning the controller about 25 degrees moves the pointer across "
+                    "the picture.");
+                int speed = profile.gyro_speed;
+                if (PercentSlider("##gyro_speed", &speed, ImGui::GetContentRegionAvail().x, nullptr, kMinGyroSpeed,
+                                  kMaxGyroSpeed)
+                    && speed != profile.gyro_speed)
+                    if (auto* target = editable())
+                    {
+                        target->gyro_speed = speed;
+                        dirty_ = true;
+                    }
+                // The stick the gyro frees can press the D-pad.
+                const int free_stick = swap ? platform::LeftStickUp : platform::RightStickUp;
+                bool stick_dpad = true;
+                for (int n = 0; n < 4; ++n)
+                {
+                    const auto& binding = bindings[GamepadActionUp + std::size_t(n)];
+                    const auto input = platform::kGamepadStickBase + free_stick + n;
+                    stick_dpad = stick_dpad && (binding[0] == input || binding[1] == input);
+                }
+                const std::string stick_dpad_label = std::string(swap ? "Left" : "Right") + " stick as D-pad";
+                Row(stick_dpad_label.c_str(), "Push it to press the D-pad: in a match, a deke with the ball and a "
+                    "slide tackle without it.");
+                if (Toggle("##stick_dpad", &stick_dpad))
+                    if (auto* target = editable())
+                    {
+                        SetStickDpad(*target, free_stick, stick_dpad);
+                        dirty_ = true;
+                    }
+            }
             EndRows();
         }
-        rows(GamepadActionC, GamepadActionCount);
+        if (gyro)
+        {
+            rows(GamepadActionRecenterPointer, GamepadActionCount);
+            GyroPreview(profile, bindings);
+        }
+        rows(GamepadActionC, GamepadActionRecenterPointer);
+        // A stick's directions bound to buttons while it also moves the
+        // Nunchuk stick or the pointer do both at once.
+        const auto stick_bound = [&](int first) {
+            for (const auto& binding : bindings)
+                for (const auto input : binding)
+                    if (input >= platform::kGamepadStickBase + first && input < platform::kGamepadStickBase + first + 4)
+                        return true;
+            return false;
+        };
+        const int nunchuk_stick = swap ? platform::RightStickUp : platform::LeftStickUp;
+        const int pointer_stick = swap ? platform::LeftStickUp : platform::RightStickUp;
+        std::string stick_note;
+        if (stick_bound(nunchuk_stick))
+            stick_note = std::string(swap ? "The right" : "The left")
+                + " stick moves the Nunchuk stick and presses buttons too: pushing it does both.";
+        else if (!gyro && stick_bound(pointer_stick))
+            stick_note = std::string(swap ? "The left" : "The right")
+                + " stick moves the pointer and presses buttons too: pushing it does both. "
+                  "With the gyro pointer on, it only presses the buttons.";
+        if (!stick_note.empty()) TextWrappedColored(CurrentFonts().caption, color::warning, stick_note.c_str());
         EndCard();
 
         // Dead zones and trigger press point (issue #62), tried live on the
@@ -4868,7 +5262,8 @@ private:
         const bool changed = platform::ParseGamepadBindings(profile.inputs) != platform::ParseGamepadBindings(defaults)
             || swap || profile.inner_deadzone != default_profile.inner_deadzone
             || profile.outer_deadzone != default_profile.outer_deadzone
-            || profile.trigger_press != default_profile.trigger_press;
+            || profile.trigger_press != default_profile.trigger_press
+            || profile.gyro_pointer != default_profile.gyro_pointer || profile.gyro_speed != default_profile.gyro_speed;
         ImGui::Dummy(Dp(0, 4));
         if (SecondaryButton("##reset_pad", "Reset to defaults", Dp(180, 36), changed, Icon::Refresh))
         {
@@ -4877,14 +5272,125 @@ private:
             profile.inner_deadzone = default_profile.inner_deadzone;
             profile.outer_deadzone = default_profile.outer_deadzone;
             profile.trigger_press = default_profile.trigger_press;
+            profile.gyro_pointer = default_profile.gyro_pointer;
+            profile.gyro_speed = default_profile.gyro_speed;
             pad_capture_action_ = pad_capture_slot_ = -1;
             dirty_ = true;
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Buttons, sticks, dead zones and triggers as in Default");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Buttons, sticks, gyro, dead zones and triggers as in Default");
         EndCard();
         // A click anywhere else stops waiting for a press.
         if (pad_capture_action_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             pad_capture_action_ = pad_capture_slot_ = -1;
+    }
+
+    // Adds a stick's four directions to the D-pad's inputs, after the D-pad's
+    // own (a direction bound elsewhere moves here), or takes them away again;
+    // a D-pad action left without input gets its default back.
+    void SetStickDpad(Settings::PadProfile& profile, int first_direction, bool on)
+    {
+        const auto before = platform::ParseGamepadBindings(profile.inputs);
+        const auto defaults = platform::ParseGamepadBindings(platform::DefaultGamepadInputs(PageFamily()));
+        auto bindings = before;
+        for (int n = 0; n < 4; ++n)
+        {
+            const auto input = platform::kGamepadStickBase + first_direction + n;
+            for (auto& binding : bindings)
+            {
+                if (binding[1] == input) binding[1] = platform::kGamepadNone;
+                if (binding[0] == input) binding = {binding[1], platform::kGamepadNone};
+            }
+            const std::size_t action = GamepadActionUp + std::size_t(n);
+            auto& dpad = bindings[action];
+            if (on) dpad = dpad[0] != platform::kGamepadNone ? platform::GamepadBinding{dpad[0], input}
+                                                             : platform::GamepadBinding{input, platform::kGamepadNone};
+            else if (dpad[0] == platform::kGamepadNone) dpad = defaults[action];
+        }
+        for (std::size_t action = 0; action < GamepadActionCount; ++action)
+            if (bindings[action] != before[action]) profile.inputs[action] = platform::FormatGamepadBinding(bindings[action]);
+    }
+
+    // The page's gamepad turning a pointer over a picture-shaped box at the
+    // profile's gyro speed, as in the game; its recentre button or a click
+    // centres it. Without a gyro the stick points, as in the game.
+    void GyroPreview(const Settings::PadProfile& profile, const platform::GamepadBindings& bindings)
+    {
+        gyro_preview_drawn_ = true;
+        const auto& fonts = CurrentFonts();
+        SDL_Gamepad* pad = pad_slot_ < pads_.size() ? pads_[pad_slot_] : nullptr;
+        if (!pad)
+        {
+            TextWrappedColored(fonts.caption, color::muted,
+                               ("Connect gamepad " + std::to_string(pad_slot_ + 1) + " to try the gyro here.").c_str());
+            return;
+        }
+        const std::string name = pad_slot_ < gamepad_names_.size() ? gamepad_names_[pad_slot_] : "This controller";
+        if (!SDL_GamepadHasSensor(pad, SDL_SENSOR_GYRO))
+        {
+            TextWrappedColored(fonts.caption, color::warning,
+                               (name + " has no gyro: its " + (profile.swap_sticks ? "left" : "right")
+                                + " stick moves the pointer instead.")
+                                   .c_str());
+            return;
+        }
+        if (gyro_preview_pad_ != pad)
+        {
+            StopGyroPreview();
+            SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_GYRO, true);
+            if (SDL_GamepadHasSensor(pad, SDL_SENSOR_ACCEL)) SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_ACCEL, true);
+            gyro_preview_pad_ = pad;
+        }
+        const auto& recenter_binding = bindings[GamepadActionRecenterPointer];
+        const bool recenter = platform::GamepadBindingHeld(pad, recenter_binding, profile.trigger_press);
+        if (recenter && !gyro_preview_recenter_held_) gyro_preview_x_ = gyro_preview_y_ = 0.5f;
+        gyro_preview_recenter_held_ = recenter;
+        platform::MoveGyroPointer(gyro_preview_x_, gyro_preview_y_, platform::TakeGyroTurn(gyro_preview_motion_),
+                                  profile.gyro_speed, 9.0f / 16.0f);
+        ImGui::Dummy(Dp(0, 8));
+        const float width = std::min(ImGui::GetContentRegionAvail().x, Dp(320)), height = width * 9.0f / 16.0f;
+        const ImVec2 origin = ImGui::GetCursorScreenPos(), end{origin.x + width, origin.y + height};
+        if (ImGui::InvisibleButton("##gyro_preview", {width, height})) gyro_preview_x_ = gyro_preview_y_ = 0.5f;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click to centre the pointer");
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(origin, end, Col(color::field), Dp(8));
+        // Hairlines as thin rectangles: SDL's software renderer drops parts of long lines.
+        const float hair = std::max(1.0f, Dp(1)), cx = origin.x + width * 0.5f, cy = origin.y + height * 0.5f;
+        draw->AddRectFilled({cx - hair * 0.5f, origin.y}, {cx + hair * 0.5f, end.y}, Col(color::border));
+        draw->AddRectFilled({origin.x, cy - hair * 0.5f}, {end.x, cy + hair * 0.5f}, Col(color::border));
+        draw->AddRect(origin, end, Col(color::border), Dp(8), 0, Dp(1.5f));
+        const ImVec2 dot{origin.x + gyro_preview_x_ * width, origin.y + gyro_preview_y_ * height};
+        draw->AddCircle(dot, Dp(11), Col(color::accent, 0.45f), 24, Dp(1.5f));
+        draw->AddCircleFilled(dot, Dp(6), Col(color::accent_hi));
+        const std::string centre = recenter_binding[0] != platform::kGamepadNone
+            ? PadInputLabel(recenter_binding[0], SDL_GetGamepadType(pad)) + " or a click centres it."
+            : "A click centres it.";
+        TextWrappedColored(fonts.caption, color::muted, ("Turn " + name + " to move the pointer. " + centre).c_str());
+    }
+
+    // Readings of the gamepad whose gyro the preview shows.
+    void GyroPreviewEvent(const SDL_Event& event)
+    {
+        if (event.type != SDL_EVENT_GAMEPAD_SENSOR_UPDATE || !gyro_preview_pad_
+            || event.gsensor.which != SDL_GetGamepadID(gyro_preview_pad_))
+            return;
+        if (event.gsensor.sensor == SDL_SENSOR_GYRO)
+            platform::AddGyroReading(gyro_preview_motion_, event.gsensor.data, event.gsensor.sensor_timestamp);
+        else if (event.gsensor.sensor == SDL_SENSOR_ACCEL)
+            platform::AddAccelReading(gyro_preview_motion_, event.gsensor.data, event.gsensor.sensor_timestamp);
+    }
+
+    // Turns the preview's sensors off; it starts again centred.
+    void StopGyroPreview()
+    {
+        if (gyro_preview_pad_)
+        {
+            SDL_SetGamepadSensorEnabled(gyro_preview_pad_, SDL_SENSOR_GYRO, false);
+            SDL_SetGamepadSensorEnabled(gyro_preview_pad_, SDL_SENSOR_ACCEL, false);
+        }
+        gyro_preview_pad_ = nullptr;
+        gyro_preview_motion_ = {};
+        gyro_preview_x_ = gyro_preview_y_ = 0.5f;
+        gyro_preview_recenter_held_ = false;
     }
 
     // Both sticks and triggers of the page's gamepad, live, with `profile`'s
@@ -4893,6 +5399,7 @@ private:
     // pushed.
     void DeadzonePreview(const Settings::PadProfile& profile)
     {
+        const auto bindings = platform::ParseGamepadBindings(profile.inputs);
         SDL_Gamepad* pad = pad_slot_ < pads_.size() ? pads_[pad_slot_] : nullptr;
         if (!pad)
         {
@@ -4934,8 +5441,14 @@ private:
             if (const float length = std::hypot(x, y); length > 1.0f) { x /= length; y /= length; }
             const ImVec4 dot = pushed <= 0.0f ? color::muted : pushed >= 1.0f ? color::accent_hi : color::accent;
             draw->AddCircleFilled({c.x + x * radius, c.y + y * radius}, Dp(6), Col(dot));
+            bool buttons = false;
+            for (const auto& binding : bindings)
+                for (const auto input : binding)
+                    buttons = buttons
+                        || (platform::IsGamepadStickDirection(input)
+                            && (input - platform::kGamepadStickBase >= platform::RightStickUp) != left_stick);
             const std::string name = std::string(left_stick ? "Left stick" : "Right stick") + ": "
-                + (nunchuk ? "Nunchuk" : "pointer");
+                + (nunchuk ? "Nunchuk" : !profile.gyro_pointer ? "pointer" : buttons ? "buttons" : "not used");
             centred(c.x, origin.y + radius * 2 + Dp(6), fonts.caption, color::muted, name);
             centred(c.x, origin.y + radius * 2 + Dp(22), fonts.caption, pushed > 0 ? color::text : color::dim,
                     std::to_string(int(std::lround(pushed * 100))) + "% pushed");
@@ -4998,6 +5511,89 @@ private:
         EndCard();
     }
 
+    // The Super Team needs a Super Mario Strikers (GameCube) image: one of the
+    // game folder is taken when none is set; turning the tweak on without one
+    // asks for it.
+    void PrefillGameCubeDisc()
+    {
+        if (!draft_.gamecube_disc.empty() || library_strikers_.empty()) return;
+        const bool clean = !dirty_;
+        draft_.gamecube_disc = SettingsPath(library_strikers_.front());
+        dirty_ = true;
+        if (clean) Save();
+        if (draft_.tweaks[std::size_t(GameTweak::SuperTeam)])
+            Notice("The Super Team uses " + PathUtf8(library_strikers_.front().filename()) + " from your game folder.",
+                   NoticeKind::Success);
+    }
+
+    void BrowseGameCubeDisc()
+    {
+        static const SDL_DialogFileFilter filters[] = {
+            {"GameCube disc images (ISO / RVZ / GCM)", "iso;rvz;gcm;ISO;RVZ;GCM"}, {"All files", "*"}};
+        {
+            std::lock_guard<std::mutex> lock(gamecube_dialog_->mutex);
+            gamecube_dialog_->active = true;
+        }
+        const fs::path current = draft_.gamecube_disc.empty() ? fs::path()
+                                                              : ResolveGameCubeDiscPath(draft_, file_.path);
+        const fs::path start = !current.empty() ? current.parent_path() : ResolveGameFolder(draft_, file_.path);
+        const std::string location = PathUtf8(start);
+        SDL_ShowOpenFileDialog(DiscChosen, new std::shared_ptr<DialogResult>(gamecube_dialog_), window_, filters,
+                               int(std::size(filters)), location.empty() ? nullptr : location.c_str(), false);
+    }
+
+    void GameCubeDiscChosen(const fs::path& path)
+    {
+        const DiscProbe probe = ProbeDisc(path);
+        if (probe.kind != DiscProbe::Kind::OtherGame || !IsStrikersGameId(probe.info.game_id))
+        {
+            Notice(PathUtf8(path.filename()) + " is not a Super Mario Strikers (GameCube) image.", NoticeKind::Error);
+            return;
+        }
+        draft_.gamecube_disc = SettingsPath(path);
+        dirty_ = true;
+        Notice("The Super Team uses " + PathUtf8(path.filename()) + ".", NoticeKind::Success);
+    }
+
+    void SuperTeamRows()
+    {
+        const auto index = std::size_t(GameTweak::SuperTeam);
+        const auto& info = kGameTweaks[index];
+        Row(info.name, info.description);
+        if (Toggle("##tweak_super_team", &draft_.tweaks[index]))
+        {
+            dirty_ = true;
+            if (draft_.tweaks[index] && draft_.gamecube_disc.empty()) BrowseGameCubeDisc();
+        }
+        if (!draft_.tweaks[index]) return;
+        Row("Super Team side", "The team whose captain and sidekicks are robots.");
+        const char* sides[] = {"away", "home", "both"};
+        int side = 0;
+        for (int i = 0; i < 3; ++i)
+            if (draft_.super_team_side == sides[i]) side = i;
+        if (Segmented("##super_team_side", &side, {"Away team", "Home team", "Both teams"},
+                      ImGui::GetContentRegionAvail().x))
+        {
+            draft_.super_team_side = sides[side];
+            dirty_ = true;
+        }
+        bool browsing;
+        {
+            std::lock_guard<std::mutex> lock(gamecube_dialog_->mutex);
+            browsing = gamecube_dialog_->active;
+        }
+        const std::string path = draft_.gamecube_disc.empty()
+            ? std::string("None found in your game folder. Choose your Super Mario Strikers image.")
+            : PathUtf8(ResolveGameCubeDiscPath(draft_, file_.path));
+        Row("GameCube disc", path.c_str());
+        const std::string label = draft_.gamecube_disc.empty()
+            ? std::string("Choose image...")
+            : PathUtf8(PathFromUtf8(draft_.gamecube_disc).filename());
+        if (SecondaryButton("gamecube_disc", label.c_str(), {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()},
+                            !browsing && config_ok_, Icon::Disc))
+            BrowseGameCubeDisc();
+    }
+
     void TweakRow(GameTweak tweak)
     {
         const auto index = std::size_t(tweak);
@@ -5044,6 +5640,8 @@ private:
             TweakRow(GameTweak::CpuVsCpu);
             TweakRow(GameTweak::MirrorMatch);
             TweakRow(GameTweak::BluePeach);
+            TweakRow(GameTweak::RobotGoalies);
+            SuperTeamRows();
             TweakRow(GameTweak::NoHud);
             TweakRow(GameTweak::UnlockAll);
             EndRows();
@@ -5338,8 +5936,10 @@ private:
     std::vector<SDL_Gamepad*> pads_;
     SDL_Gamepad* gamepad_ = nullptr;
     std::vector<std::string> gamepad_names_;
-    // Triggers past half travel per pad, so a held trigger is not a new press.
+    // Triggers past half travel per pad, so a held trigger is not a new press;
+    // the same for stick directions.
     std::map<SDL_JoystickID, std::array<bool, 2>> trigger_held_;
+    std::map<SDL_JoystickID, std::array<bool, platform::GamepadStickDirectionCount>> stick_held_;
     std::set<std::pair<SDL_JoystickID, platform::GamepadInput>> pad_inputs_held_;
     bool pad_capture_release_ = false;
     // Wii Remote / DolphinBar detection for the Controls and Play pages (non-blocking).
@@ -5359,6 +5959,12 @@ private:
     bool renaming_ = false, rename_focus_ = false, confirm_delete_ = false;
     std::string rename_buffer_;
     int pad_capture_action_ = -1, pad_capture_slot_ = -1;
+    // Gyro pointer preview on the profile page: the pad whose gyro it shows,
+    // its readings and the preview pointer (0..1 of the box).
+    SDL_Gamepad* gyro_preview_pad_ = nullptr;
+    platform::GyroMotion gyro_preview_motion_;
+    float gyro_preview_x_ = 0.5f, gyro_preview_y_ = 0.5f;
+    bool gyro_preview_recenter_held_ = false, gyro_preview_drawn_ = false;
     bool wii_known_ = false;
     Uint64 wii_next_probe_ns_ = 0;
     float header_width_ = 1920;
@@ -5394,6 +6000,7 @@ private:
     std::vector<LibraryFolder> library_folders_, library_scan_folders_;
     std::vector<bool> library_available_;
     std::size_t library_other_games_ = 0;
+    std::vector<fs::path> library_strikers_; // Super Mario Strikers images of the game folder
     bool library_limited_ = false;
     std::string scanned_folder_; // the game folder setting of the last scan
     bool scanned_subfolders_ = true;
@@ -5415,6 +6022,7 @@ private:
     std::vector<SDL_DisplayID> display_ids_;
     std::shared_ptr<DialogResult> dialog_ = std::make_shared<DialogResult>();
     std::shared_ptr<DialogResult> folder_dialog_ = std::make_shared<DialogResult>();
+    std::shared_ptr<DialogResult> gamecube_dialog_ = std::make_shared<DialogResult>();
     FolderPurpose folder_purpose_ = FolderPurpose::SaveFolder;
     fs::path import_source_;
     bool import_prompt_ = false;
@@ -5424,6 +6032,17 @@ private:
     bool update_dialog_ = false, update_capture_dialog_ = false, update_capture_install_ = false, restart_ = false;
     bool update_preview_ = false;
     UpdatePrompt update_prompt_ = UpdatePrompt::None;
+    // The Test menu: open it next frame; whether it was open, closed with a
+    // choice, and when it closed.
+    bool test_menu_ = false, test_menu_open_ = false, test_menu_chose_ = false;
+    double test_menu_closed_ = -1.0;
+    // The update choice before a switch that is not settled yet (BeginSwitch).
+    struct UpdateChoice
+    {
+        std::string channel;
+        int test_build = 0;
+    };
+    std::optional<UpdateChoice> switch_from_;
     std::string notes_source_;
     std::vector<NoteBlock> notes_;
 };

@@ -4,7 +4,15 @@
 #include <cmath>
 
 namespace mscharged::platform {
+namespace {
+constexpr const char* kStickDirectionNames[GamepadStickDirectionCount] = {
+    "leftstick_up", "leftstick_down", "leftstick_left", "leftstick_right",
+    "rightstick_up", "rightstick_down", "rightstick_left", "rightstick_right"};
+} // namespace
+
 GamepadInput ParseGamepadInput(std::string_view name) {
+    for (int n = 0; n < GamepadStickDirectionCount; ++n)
+        if (name == kStickDirectionNames[n]) return kGamepadStickBase + n;
     const std::string text(name);
     const SDL_GamepadButton button = SDL_GetGamepadButtonFromString(text.c_str());
     if (button != SDL_GAMEPAD_BUTTON_INVALID) return GamepadInput(button);
@@ -21,6 +29,8 @@ std::string GamepadInputName(GamepadInput input) {
     else if (input == kGamepadTriggerBase + SDL_GAMEPAD_AXIS_LEFT_TRIGGER ||
              input == kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)
         name = SDL_GetGamepadStringForAxis(SDL_GamepadAxis(input - kGamepadTriggerBase));
+    else if (IsGamepadStickDirection(input))
+        name = kStickDirectionNames[input - kGamepadStickBase];
     return name ? name : "";
 }
 
@@ -140,7 +150,7 @@ std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily f
     } else if (family == GamepadFamily::GameCube) {
         // GameCube (USB adapter): A bottom, B left, X right, Y top; L/R are
         // the analog triggers and Z the right shoulder button. It has no
-        // buttons left for 1, - and HOME.
+        // buttons left for 1, - and HOME, and no stick buttons (nor a gyro).
         inputs[GamepadActionA] = "a";
         inputs[GamepadActionB] = "x";
         inputs[GamepadActionOne] = "none";
@@ -151,6 +161,7 @@ std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily f
         inputs[GamepadActionZ] = "rightshoulder";
         inputs[GamepadActionShakeRemote] = "righttrigger";
         inputs[GamepadActionShakeNunchuk] = "b";
+        inputs[GamepadActionRecenterPointer] = "none";
     }
     return inputs;
 }
@@ -160,11 +171,33 @@ Sint16 GamepadTriggerThreshold(int press) {
     return Sint16(std::min(std::clamp(press, 0, 100) * 32768 / 100, 32767));
 }
 
+bool IsGamepadStickDirection(GamepadInput input) {
+    return input >= kGamepadStickBase && input < kGamepadStickBase + GamepadStickDirectionCount;
+}
+
+bool GamepadStickDirectionHeld(SDL_Gamepad* pad, GamepadInput input, bool held) {
+    if (!IsGamepadStickDirection(input)) return false;
+    const int direction = input - kGamepadStickBase;
+    const bool right_stick = direction >= RightStickUp;
+    const auto axis = [&](SDL_GamepadAxis which) {
+        return std::clamp(float(SDL_GetGamepadAxis(pad, which)) / 32767.0f, -1.0f, 1.0f);
+    };
+    // SDL's y axes point down.
+    float lean = 0;
+    switch (direction % 4) {
+    case 0: lean = -axis(right_stick ? SDL_GAMEPAD_AXIS_RIGHTY : SDL_GAMEPAD_AXIS_LEFTY); break;
+    case 1: lean = axis(right_stick ? SDL_GAMEPAD_AXIS_RIGHTY : SDL_GAMEPAD_AXIS_LEFTY); break;
+    case 2: lean = -axis(right_stick ? SDL_GAMEPAD_AXIS_RIGHTX : SDL_GAMEPAD_AXIS_LEFTX); break;
+    default: lean = axis(right_stick ? SDL_GAMEPAD_AXIS_RIGHTX : SDL_GAMEPAD_AXIS_LEFTX); break;
+    }
+    return lean >= (held ? kStickDirectionRelease : kStickDirectionPress);
+}
+
 bool GamepadInputHeld(SDL_Gamepad* pad, GamepadInput input, int press) {
     if (input >= 0 && input < SDL_GAMEPAD_BUTTON_COUNT) return SDL_GetGamepadButton(pad, SDL_GamepadButton(input));
     if (input >= kGamepadTriggerBase && input < kGamepadTriggerBase + SDL_GAMEPAD_AXIS_COUNT)
         return SDL_GetGamepadAxis(pad, SDL_GamepadAxis(input - kGamepadTriggerBase)) > GamepadTriggerThreshold(press);
-    return false;
+    return GamepadStickDirectionHeld(pad, input);
 }
 
 bool GamepadBindingHeld(SDL_Gamepad* pad, const GamepadBinding& binding, int press) {

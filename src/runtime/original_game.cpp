@@ -24,6 +24,8 @@
 #include <array>
 #include <algorithm>
 #include <vector>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <optional>
 #include <chrono>
@@ -41,6 +43,9 @@
 #include "platform/console.h"
 #include "platform/log_window.h"
 #include "platform/session_log.h"
+#include "platform/discord_presence.h"
+#include "platform/game_presence.h"
+#include "platform/presence_snapshot.h"
 #include "platform/shader_cache.h"
 #include "platform/process_exit.h"
 #include "platform/native_ax_module_memory.h"
@@ -554,7 +559,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const auto& profile = launch.settings.PadProfileOf(pad);
             desktop.gamepad_profiles[pad] = {mscharged::platform::ParseGamepadBindings(profile.inputs),
                                              profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0,
-                                             profile.inner_deadzone, profile.outer_deadzone, profile.trigger_press};
+                                             profile.inner_deadzone, profile.outer_deadzone, profile.trigger_press,
+                                             profile.gyro_pointer, profile.gyro_speed};
         }
         mscharged::platform::WpadSDLSettings wpad{static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),
             static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
@@ -575,7 +581,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 mscharged::platform::SessionLogLine("Gamepad " + std::to_string(pad + 1) + ": profile " + profile.name
                     + ", stick dead zones " + std::to_string(profile.inner_deadzone) + "-"
                     + std::to_string(profile.outer_deadzone) + "%, trigger press point "
-                    + std::to_string(profile.trigger_press) + "%");
+                    + std::to_string(profile.trigger_press) + "%, pointer "
+                    + (profile.gyro_pointer ? "gyro (speed " + std::to_string(profile.gyro_speed) + "%)"
+                                            : std::string(profile.swap_sticks ? "left stick" : "right stick")));
             }
         }
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
@@ -629,6 +637,65 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // No HUD (issue #58): H shows or hides the match HUD, whatever the tweak set.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_hud")));
+            // Robot goalies: the map that lays the disc's unused robot goalie
+            // texture onto Charged's goalie. The module keeps a view of it.
+            if(tweaks & mscharged::GameTweakBit(mscharged::GameTweak::RobotGoalies)) {
+                static std::vector<unsigned char> robotGoalieMap;
+                const auto path=executableDirectory/"assets"/"gameplay"/"robot_goalie.map";
+                std::error_code error;
+                const auto size=std::filesystem::file_size(path,error);
+                if(!error && size>0 && size<=(16u<<20)) {
+                    robotGoalieMap.resize(size_t(size));
+                    std::ifstream file(path,std::ios::binary);
+                    if(!file.read(reinterpret_cast<char*>(robotGoalieMap.data()),std::streamsize(size)))
+                        robotGoalieMap.clear();
+                }
+                auto* configureRobotGoalie=reinterpret_cast<bool(*)(const void*,unsigned long)>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_robot_goalie"));
+                const bool ready=configureRobotGoalie && !robotGoalieMap.empty()
+                    && configureRobotGoalie(robotGoalieMap.data(),(unsigned long)robotGoalieMap.size());
+                const std::string robotLine=std::string("Robot goalies: ")+(ready ? "on"
+                    : !configureRobotGoalie ? "off (this build's game module has no robot goalies)"
+                    : "off (assets/gameplay/robot_goalie.map is missing or not valid)");
+                mscharged::platform::SessionLogLine(robotLine.c_str());
+                std::fprintf(stderr,"%s\n",robotLine.c_str());
+            }
+            // Super Team: the GameCube robot's model, skeleton and textures from
+            // the player's Super Mario Strikers disc. The module keeps a view of them.
+            if(tweaks & mscharged::GameTweakBit(mscharged::GameTweak::SuperTeam)) {
+                static std::vector<std::vector<std::uint8_t>> superTeamFiles;
+                std::string why;
+                const auto gamecube=mscharged::ResolveGameCubeDiscPath(launch.settings,launch.config.path);
+                if(gamecube.empty())
+                    why="no Super Mario Strikers (GameCube) disc is set ([game] gamecube_disc)";
+                else {
+                    try {
+                        superTeamFiles=mscharged::ReadStrikersFiles(gamecube,
+                            {"art/characters/SuperTeam/SuperTeam.glg","art/animation/SuperTeam.shier",
+                             "art/characters/SuperTeam/SuperTeam.glt"},16u<<20);
+                    } catch(const std::exception& error) {
+                        why=error.what();
+                        superTeamFiles.clear();
+                    }
+                }
+                auto* configureSuperTeam=reinterpret_cast<bool(*)(const void*,unsigned long,const void*,unsigned long,
+                    const void*,unsigned long,int)>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_super_team"));
+                const std::string& side=launch.settings.super_team_side;
+                const int sides=side=="home" ? 1 : side=="both" ? 3 : 2;
+                bool ready=false;
+                if(!configureSuperTeam) why="this build's game module has no Super Team";
+                else if(superTeamFiles.size()==3) {
+                    const auto& f=superTeamFiles;
+                    ready=configureSuperTeam(f[0].data(),(unsigned long)f[0].size(),f[1].data(),(unsigned long)f[1].size(),
+                        f[2].data(),(unsigned long)f[2].size(),sides);
+                    if(!ready) why="the GameCube disc's Super Team files are not the expected ones";
+                }
+                const std::string superTeamLine=std::string("Super Team: ")
+                    +(ready ? "on ("+side+(side=="both" ? " teams)" : " team)") : "off ("+why+")");
+                mscharged::platform::SessionLogLine(superTeamLine.c_str());
+                std::fprintf(stderr,"%s\n",superTeamLine.c_str());
+            }
         }
         // European revision 1 disc: its data runs on the revision 2 code
         // through the tweak series' adapters, whatever the tweak set.
@@ -696,6 +763,45 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 framePacing.emplace(rate,launch.settings.vsync,host.window);
                 configurePacing(aurora_paced_video_swap);
                 line+=framePacing->Description();
+            }
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
+        // The Discord status (issue #71): the game module reports what the
+        // game is doing; the host shows it on this computer's Discord app.
+        // A host setting like the sound levels, whatever the tweak set.
+        auto presenceSnapshot=reinterpret_cast<ChargedPresenceSnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_presence_snapshot"));
+        std::optional<mscharged::platform::DiscordPresence> discordPresence;
+        std::optional<mscharged::platform::GamePresence> gamePresence;
+        {
+            const bool ownApplication=!launch.settings.discord_application_id.empty();
+            const std::string application=ownApplication ? launch.settings.discord_application_id
+                : std::string(mscharged::build::discord_application_id);
+            std::string line="Discord status: ";
+            if(!launch.settings.discord_status)
+                line+="off";
+            else if(application.empty())
+                line+="off (this build has no Discord application)";
+            else if(!presenceSnapshot)
+                line+="off (this build's game module reports no game state)";
+            else {
+                mscharged::platform::DiscordPresence::Options options;
+                options.application_id=application;
+                options.log=[](const std::string& text) {
+                    mscharged::platform::SessionLogLine(text);
+                    std::fprintf(stderr,"%s\n",text.c_str());
+                };
+                options.shown=[](const std::optional<mscharged::platform::discord::Activity>& activity) {
+                    if(activity)
+                        mscharged::platform::Trace("Discord: showing \"%s\" / \"%s\"%s.\n",activity->details.c_str(),
+                            activity->state.c_str(),activity->start ? " with a timer" : "");
+                };
+                discordPresence.emplace(std::move(options));
+                const auto started=std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                gamePresence.emplace(release->title,release->region,release->game_id,started);
+                line+=std::string("on")+(ownApplication ? " (application from recharged.ini)" : "");
             }
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
@@ -838,6 +944,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 std::fflush(stdout);optionsBoundsReported=true;
             }
         };
+        // Once a second, after a game frame: the game's state for the Discord status.
+        std::chrono::steady_clock::time_point lastPresence{};
+        auto observePresence = [&] {
+            if(!discordPresence)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-lastPresence<std::chrono::seconds(1))return;
+            lastPresence=now;
+            ChargedPresenceSnapshot snapshot{};
+            if(!presenceSnapshot(&snapshot,sizeof snapshot))return;
+            const auto unixNow=std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            discordPresence->Show(gamePresence->Describe(snapshot,unixNow));
+        };
         // Existing actual source GX/state/material/font/view initialization is
         // retained. No host GXInit, source pool restart or fixture font setup.
         AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
@@ -916,7 +1035,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -1005,7 +1124,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}

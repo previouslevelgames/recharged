@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <vector>
 
 namespace mscharged::platform
 {
@@ -34,6 +35,11 @@ public:
         std::string error; // CheckFailed, InstallFailed
         std::optional<PublishedBuild> offer;
         std::optional<PullRequestInfo> pull; // the pull request of a test build offer, when known
+        // Test channel: the newest test build of each open pull request
+        // (TestBuilds) and the pull request followed (0: none), from the last
+        // completed check, and the one chosen.
+        std::vector<PublishedBuild> test_builds;
+        int track = 0, chosen = 0;
         std::string install_blocker;         // why Update would only open the download page
         std::uint64_t received = 0, total = 0;
         std::int64_t checked = 0; // when the last check succeeded, seconds since 1970
@@ -46,7 +52,9 @@ public:
     UpdateService(const UpdateService&) = delete;
     UpdateService& operator=(const UpdateService&) = delete;
 
-    void Check(UpdateChannel channel);
+    // `chosen`: the pull request whose test builds the test channel follows
+    // (launcher.test_build), 0 for the running test build's own.
+    void Check(UpdateChannel channel, int chosen = 0);
     void Install(); // the offer of the last check
     void Cancel();  // a running check or download
     Status Snapshot() const;
@@ -54,14 +62,15 @@ public:
     BuildIdentity Build() const;
     // Development captures: shows a made-up state without network ("uptodate",
     // "notest", "checking", "failed", "available", "newtest", "test", "back",
-    // "blocked", "downloading", "installing", "installfailed"). False for others.
+    // "blocked", "downloading", "installing", "installfailed", and with
+    // several open pull requests "choose", "tracks", "switch"). False for others.
     bool Preview(std::string_view state);
 
 private:
     void Start(std::shared_ptr<platform::HttpCancel> cancel, const std::function<void(Status&)>& begin,
                std::function<void()> task);
     void Set(const std::function<void(Status&)>& change);
-    void RunCheck(UpdateChannel channel, std::shared_ptr<platform::HttpCancel> cancel);
+    void RunCheck(UpdateChannel channel, int chosen, std::shared_ptr<platform::HttpCancel> cancel);
     void RunInstall(PublishedBuild offer, std::shared_ptr<platform::HttpCancel> cancel);
 
     BuildIdentity build_;

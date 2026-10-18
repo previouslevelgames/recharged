@@ -39,6 +39,10 @@ set(PORT_VERSION_STRING "${PORT_VERSION}+g${PORT_REVISION}")
 if(NOT source_changes STREQUAL "")
     string(APPEND PORT_VERSION_STRING ".dirty")
 endif()
+# Optional: builds without a Discord application show no Discord status.
+if(NOT DEFINED DISCORD_APPLICATION_ID)
+    set(DISCORD_APPLICATION_ID "")
+endif()
 file(MAKE_DIRECTORY "${OUTPUT_DIR}")
 # configure_file preserves the output timestamp when its contents are unchanged.
 configure_file("${CMAKE_CURRENT_LIST_DIR}/build_version.h.in"

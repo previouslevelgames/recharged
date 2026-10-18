@@ -131,11 +131,17 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     mscharged_select_original_frontend_credits(${target})
     # RECHARGED_DEBUG_LAYERS_OFF: switch the game's own rendering layers off.
     target_sources(${target} PRIVATE src/platform/debug_layer_toggles.cpp)
+    # The Discord status (issue #71): what the game is doing, read by the host after a frame.
+    target_sources(${target} PRIVATE src/platform/presence_snapshot.cpp)
     # [gameplay] tweaks: the hooks of patches/mscharged-decomp-tweaks are
     # compiled into this game module only; every other target that builds the
     # same original sources keeps their original code unchanged.
     target_compile_definitions(${target} PRIVATE MSCHARGED_TWEAKS=1)
-    target_sources(${target} PRIVATE src/platform/game_tweaks.cpp src/platform/away_kits.cpp)
+    target_sources(${target} PRIVATE src/platform/game_tweaks.cpp src/platform/gx_texture.cpp src/platform/away_kits.cpp)
+    # Robot goalies: the disc's unused robot goalie texture on Charged's goalie (tweak patch 0025).
+    target_sources(${target} PRIVATE src/platform/robot_goalie.cpp src/platform/robot_goalie_hook.cpp)
+    # Super Team: robot captains and sidekicks from the GameCube robot (tweak patch 0026).
+    target_sources(${target} PRIVATE src/platform/super_team.cpp src/platform/super_team_hook.cpp)
     # The logo reads RECHARGED (issue #63, tweak patch 0022, always on).
     target_sources(${target} PRIVATE src/platform/recharged_logo.cpp src/platform/recharged_logo_hook.cpp)
     # The release this module's decomp sources resolve to (checked by the host).

@@ -34,11 +34,15 @@ come from the reconstructed source, unchanged.
 - **Gamepads**: Xbox, PlayStation, Switch Pro, GameCube (USB adapter) and
   other standard controllers stand in for the Wii Remote with Nunchuk the game
   is played with, with rumble (its strength can be set). The right stick
-  moves the pointer. **Gamepad profiles** say which controller button presses
-  each Wii button: a built-in
-  Default that gives each controller family its own layout (Nintendo's A is
-  its right button) plus up to 16 named profiles (up to two buttons per Wii
-  button, or none; sticks can be swapped). A profile also sets the sticks'
+  moves the pointer, or the gyro of a controller that has one (PlayStation,
+  Switch Pro): turn it to point, like a Wii Remote
+  ([#14](https://github.com/previouslevelgames/recharged/issues/14)).
+  **Gamepad profiles** say which controller button presses each Wii button: a
+  built-in Default that gives each controller family its own layout
+  (Nintendo's A is its right button) plus up to 16 named profiles (up to two
+  buttons per Wii button, or none; sticks can be swapped, and a stick pushed
+  one way can press a button, such as the right stick as the D-pad for
+  dekes). A profile also sets the sticks'
   inner and outer dead zones and the triggers' press point, tried live on the
   controller in the launcher; the defaults play like a Nunchuk on the Wii
   ([#62](https://github.com/previouslevelgames/recharged/issues/62)). A
@@ -57,7 +61,7 @@ come from the reconstructed source, unchanged.
 
 | Wii input | Keyboard / mouse | Gamepad (Xbox names) |
 | --- | --- | --- |
-| Pointer | Mouse | Right stick |
+| Pointer | Mouse | Right stick or gyro |
 | A / B | Enter or left click / Esc or right click | A / B |
 | D-pad | Arrow keys | D-pad |
 | Nunchuk stick | W A S D | Left stick |
@@ -145,6 +149,17 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   uses it against a captain of her colours, and nobody else is pink. Her menu
   pictures, Mega Strike hand, stadium banners and crowd have no blue version
   and stay pink.
+- **Robot goalies**: both goalies wear the robot Kritter skin of the Super
+  Team, the hidden robot team of Super Mario Strikers on the GameCube. The
+  game's disc still holds its texture, unused and made for the older game's
+  goalie; Recharged lays it onto Charged's goalie (assets/gameplay). Only the
+  look changes.
+- **Super Team**: the captain and sidekicks of a team (the away team, the home
+  team or both) become the Super Team's robots. Their model comes from your own
+  Super Mario Strikers (GameCube) disc image: the launcher finds one in your
+  game folder, or asks for it when you turn the option on. Each robot is fitted
+  to its character's size and keeps the character's animations and play;
+  Bowser, Petey Piranha and Boo keep their own look.
 - **No HUD**: matches start without the scoreboard (score, clock, items,
   ability meter), the player markers and the captions (replay label, goal
   banner, super ability card), for clean recordings and screenshots. Press
@@ -172,7 +187,14 @@ It also **updates Recharged**: when a newer release is out it shows the release
 notes and asks, then installs it in place and restarts; only the program's own
 files are replaced. **Release / Test** on the Play page switches between
 official releases and test builds of changes not yet released, and back,
-asking before it installs anything ([updates](SETTINGS.md#updates)).
+asking before it installs anything; with several changes in testing, Test
+lets you choose which one to follow ([updates](SETTINGS.md#updates)).
+
+## Discord status
+
+While the Discord app runs on the same computer, your Discord profile shows the
+menu you are in or the match you play, with its mode, stadium, captains, score
+and match time ([settings](SETTINGS.md#discord-status)).
 
 ## Not supported (yet)
 

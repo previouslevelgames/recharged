@@ -144,6 +144,84 @@ BuildIdentity Build(BuildOrigin origin, const std::string& version, std::int64_t
     return build;
 }
 
+// Release pull requests open at once (1.0.11, 1.1.0 and 1.2.0), each with
+// its test builds: which one a build follows and what it is offered.
+void TestTracks()
+{
+    const std::string list = "["
+        + Release("test-pr69-111111111111", true, "2026-10-17T08:00:00Z", "1.0.11+g111111111111") + ","
+        + Release("test-pr69-222222222222", true, "2026-10-18T08:00:00Z", "1.0.11+g222222222222") + ","
+        + Release("test-pr72-333333333333", true, "2026-10-18T09:00:00Z", "1.1.0+g333333333333") + ","
+        + Release("test-pr74-444444444444", true, "2026-10-16T09:00:00Z", "1.2.0+g444444444444") + ","
+        + Release("v1.0.10", false, "2026-10-17T21:00:00Z", "1.0.10+gaaaaaaaaaaaa") + "]";
+    const auto published = ParseReleases(platform::ParseJson(list));
+    const BuildIdentity release10 = Build(BuildOrigin::Release, "1.0.10+gaaaaaaaaaaaa", 1792180000);
+    const BuildIdentity test69 = Build(BuildOrigin::Test, "1.0.11+g111111111111", 1792200000, 69);
+    const BuildIdentity test72 = Build(BuildOrigin::Test, "1.1.0+g333333333333", 1792300000, 72);
+
+    const auto tests = TestBuilds(release10, published);
+    Check(tests.size() == 3 && tests[0]->pull_request == 74 && tests[1]->pull_request == 72
+              && tests[2]->pull_request == 69 && tests[2]->version.commit == "222222222222",
+          "Test builds: the newest of each pull request, highest version first");
+    Check(TestBuilds(Build(BuildOrigin::Release, "1.0.10", 0, 0, "macos-x86_64"), published).empty(),
+          "Test builds without a package for this platform are left out");
+
+    Check(FollowedPullRequest(release10, 0, published) == 0 && FollowedPullRequest(release10, 72, published) == 72
+              && FollowedPullRequest(test69, 0, published) == 69 && FollowedPullRequest(test69, 72, published) == 72
+              && FollowedPullRequest(test69, 99, published) == 69 && FollowedPullRequest(release10, 99, published) == 0,
+          "Followed pull request: the chosen one while open, else the test build's own");
+
+    // A release on the test channel: a choice to make, then the chosen build.
+    Check(!FindUpdate(release10, UpdateChannel::Test, published), "Three pull requests: nothing without a choice");
+    const PublishedBuild* update = FindUpdate(release10, UpdateChannel::Test, published, 72);
+    Check(update && update->tag == "test-pr72-333333333333" && ClassifyOffer(release10, *update) == OfferKind::TestBuild,
+          "A release switches to the chosen test build");
+    // A test build follows its own pull request, whatever else is newer.
+    update = FindUpdate(test69, UpdateChannel::Test, published);
+    Check(update && update->tag == "test-pr69-222222222222" && ClassifyOffer(test69, *update) == OfferKind::Update,
+          "A test build gets its own pull request's updates, not a higher version's");
+    Check(!FindUpdate(Build(BuildOrigin::Test, "1.0.11+g222222222222", 1792300000, 69), UpdateChannel::Test, published),
+          "The newest build of the own pull request is current");
+    // Switching between test builds, also to a lower version.
+    update = FindUpdate(test72, UpdateChannel::Test, published, 69);
+    Check(update && update->tag == "test-pr69-222222222222" && ClassifyOffer(test72, *update) == OfferKind::TestBuild
+              && !IsNewer(test72, *update),
+          "Choosing another pull request switches to its build, even a lower version");
+    update = FindUpdate(test69, UpdateChannel::Test, published, 99);
+    Check(update && update->tag == "test-pr69-222222222222", "A closed choice falls back to the own pull request");
+    Check(!FindUpdate(Build(BuildOrigin::Dev, "1.1.0+g333333333333", 0), UpdateChannel::Test, published, 72),
+          "A local build of the chosen commit is current");
+
+    // 1.0.11 is merged: its test builds are gone while 1.1.0 and 1.2.0 stay open.
+    const std::string after = "["
+        + Release("test-pr72-333333333333", true, "2026-10-18T09:00:00Z", "1.1.0+g333333333333") + ","
+        + Release("test-pr74-444444444444", true, "2026-10-16T09:00:00Z", "1.2.0+g444444444444") + ","
+        + Release("v1.0.10", false, "2026-10-17T21:00:00Z", "1.0.10+gaaaaaaaaaaaa") + "]";
+    const auto merged = ParseReleases(platform::ParseJson(after));
+    Check(!FindUpdate(test69, UpdateChannel::Test, merged) && !FindUpdate(test69, UpdateChannel::Test, merged, 69),
+          "Before its release, a merged test build is offered no other pull request's test build");
+    const auto released = ParseReleases(platform::ParseJson("["
+        + Release("v1.0.11", false, "2026-10-19T10:00:00Z", "1.0.11+g555555555555") + ","
+        + after.substr(1)));
+    update = FindUpdate(test69, UpdateChannel::Test, released, 69);
+    Check(update && update->tag == "v1.0.11" && ClassifyOffer(test69, *update) == OfferKind::Update,
+          "A merged test build moves on to its release, not to 1.1.0's test build");
+    const BuildIdentity release11 = Build(BuildOrigin::Release, "1.0.11+g555555555555", 1792400000);
+    Check(!FindUpdate(release11, UpdateChannel::Test, released, 69),
+          "After the release, the closed choice offers nothing by itself");
+
+    // One pull request with test builds: offered by itself to a build that never followed one.
+    const auto single = ParseReleases(platform::ParseJson("["
+        + Release("test-pr72-333333333333", true, "2026-10-18T09:00:00Z", "1.1.0+g333333333333") + ","
+        + Release("v1.0.10", false, "2026-10-17T21:00:00Z", "1.0.10+gaaaaaaaaaaaa") + "]"));
+    update = FindUpdate(release10, UpdateChannel::Test, single);
+    Check(update && update->tag == "test-pr72-333333333333", "The only open pull request's test build is offered");
+    Check(!FindUpdate(release10, UpdateChannel::Test, single, 69) && !FindUpdate(test69, UpdateChannel::Test, single),
+          "Not to a build that followed another pull request");
+    update = FindUpdate(test69, UpdateChannel::Release, released);
+    Check(update && update->tag == "v1.0.11", "The release channel ignores test builds");
+}
+
 void TestReleases()
 {
     const std::string list = "[" + Release("test-pr48-cccccccccccc", true, "2026-10-16T10:00:00Z", "1.0.10+gcccccccccccc")
@@ -190,8 +268,11 @@ void TestReleases()
     const auto* update = FindUpdate(Build(BuildOrigin::Release, "1.0.8+g999999999999", 1791000000),
                                     UpdateChannel::Release, builds);
     Check(update && update->tag == "v1.0.9", "A release finds the newest release");
-    update = FindUpdate(Build(BuildOrigin::Release, "1.0.9+gaaaaaaaaaaaa", 1792084000), UpdateChannel::Test, builds);
-    Check(update && update->tag == "test-pr50-dddddddddddd", "The test channel offers the newest test build");
+    // Two pull requests have test builds: the test channel offers one only once it is chosen.
+    Check(!FindUpdate(Build(BuildOrigin::Release, "1.0.9+gaaaaaaaaaaaa", 1792084000), UpdateChannel::Test, builds),
+          "With several pull requests the test channel waits for a choice");
+    update = FindUpdate(Build(BuildOrigin::Release, "1.0.9+gaaaaaaaaaaaa", 1792084000), UpdateChannel::Test, builds, 50);
+    Check(update && update->tag == "test-pr50-dddddddddddd", "The test channel offers the chosen pull request's build");
     Check(!FindUpdate(Build(BuildOrigin::Release, "1.0.9+gaaaaaaaaaaaa", 1792084000, 0, "macos-x86_64"),
                       UpdateChannel::Release, builds),
           "No package for this platform, no update");
@@ -201,19 +282,19 @@ void TestReleases()
     Check(update && update->tag == "test-pr48-cccccccccccc", "A test build follows its own pull request");
     Check(!FindUpdate(Build(BuildOrigin::Test, "1.0.10+gcccccccccccc", 1792140000, 48), UpdateChannel::Test, builds),
           "The newest build of the pull request is current");
-    update = FindUpdate(Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 47), UpdateChannel::Test, builds);
-    Check(update && update->tag == "test-pr50-dddddddddddd", "A closed pull request's build takes the newest test build");
+    Check(!FindUpdate(Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 47), UpdateChannel::Test, builds),
+          "A closed pull request's build is not moved to another pull request's test build");
 
     // What an offer means: the dialog's update or switch.
     const BuildIdentity test48 = Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 48);
     const BuildIdentity release9 = Build(BuildOrigin::Release, "1.0.9+gaaaaaaaaaaaa", 1792084000);
     update = FindUpdate(test48, UpdateChannel::Test, builds);
     Check(update && ClassifyOffer(test48, *update) == OfferKind::Update, "A newer build of the own pull request updates");
-    update = FindUpdate(Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 47), UpdateChannel::Test, builds);
+    update = FindUpdate(Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 47), UpdateChannel::Test, builds, 50);
     Check(update && ClassifyOffer(Build(BuildOrigin::Test, "1.0.10+gffffffffffff", 1792140000, 47), *update)
               == OfferKind::TestBuild,
           "Another pull request's test build is a switch");
-    update = FindUpdate(release9, UpdateChannel::Test, builds);
+    update = FindUpdate(release9, UpdateChannel::Test, builds, 48);
     Check(update && ClassifyOffer(release9, *update) == OfferKind::TestBuild, "A release switches to a test build");
 
     // Back from a test build: the newest release, also an older one.
@@ -251,6 +332,8 @@ void TestReleases()
           "Local builds are offered higher versions");
     Check(!FindUpdate(Build(BuildOrigin::Release, "not a version", 0), UpdateChannel::Release, released),
           "An unknown own version offers nothing");
+
+    TestTracks();
 
     Check(ResolveChannel("auto", Build(BuildOrigin::Test, "1.0.0", 0, 1)) == UpdateChannel::Test
               && ResolveChannel("auto", Build(BuildOrigin::Dev, "1.0.0", 0)) == UpdateChannel::Release

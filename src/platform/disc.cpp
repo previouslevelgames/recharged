@@ -166,22 +166,19 @@ DiscProbe ProbeDisc(const std::filesystem::path& path)
     return probe;
 }
 
-std::vector<std::uint8_t> ReadDiscFile(const std::filesystem::path& path, const std::string& file,
-                                       std::size_t max_size)
+namespace
 {
-    NodDiscHeader header{};
-    NodDiscMeta metadata{};
-    auto disc = OpenChargedDisc(path, header, metadata);
-    auto partition = OpenGamePartition(disc.get());
+std::vector<std::uint8_t> ReadPartitionFile(NodHandle* partition, const std::string& file, std::size_t max_size)
+{
     NodNodeKind kind{};
     uint32_t length = 0;
-    const uint32_t index = nod_partition_find_file(partition.get(), file.c_str(), &kind, &length);
+    const uint32_t index = nod_partition_find_file(partition, file.c_str(), &kind, &length);
     if (index == NOD_FST_STOP || kind != NOD_NODE_KIND_FILE)
         throw std::runtime_error("The disc has no " + file + ".");
     if (length > max_size)
         throw std::runtime_error("The disc's " + file + " is unexpectedly large.");
     NodHandle* raw_file = nullptr;
-    Check(nod_partition_open_file(partition.get(), index, &raw_file), ("Cannot open " + file).c_str());
+    Check(nod_partition_open_file(partition, index, &raw_file), ("Cannot open " + file).c_str());
     Handle handle(raw_file, nod_free);
     std::vector<std::uint8_t> data(length);
     std::size_t done = 0;
@@ -193,6 +190,39 @@ std::vector<std::uint8_t> ReadDiscFile(const std::filesystem::path& path, const 
         done += std::size_t(read);
     }
     return data;
+}
+}
+
+std::vector<std::uint8_t> ReadDiscFile(const std::filesystem::path& path, const std::string& file,
+                                       std::size_t max_size)
+{
+    NodDiscHeader header{};
+    NodDiscMeta metadata{};
+    auto disc = OpenChargedDisc(path, header, metadata);
+    auto partition = OpenGamePartition(disc.get());
+    return ReadPartitionFile(partition.get(), file, max_size);
+}
+
+bool IsStrikersGameId(const std::string& game_id)
+{
+    return game_id.size() == 6 && game_id.compare(0, 3, "G4Q") == 0 && game_id.compare(4, 2, "01") == 0
+        && (game_id[3] == 'E' || game_id[3] == 'P' || game_id[3] == 'J');
+}
+
+std::vector<std::vector<std::uint8_t>> ReadStrikersFiles(const std::filesystem::path& path,
+                                                         const std::vector<std::string>& files, std::size_t max_size)
+{
+    NodHandle* raw_disc = nullptr;
+    Check(nod_disc_open(PathUtf8(path).c_str(), nullptr, &raw_disc), "Cannot open the GameCube disc");
+    Handle disc(raw_disc, nod_free);
+    NodDiscHeader header{};
+    Check(nod_disc_header(disc.get(), &header), "Cannot read the GameCube disc header");
+    if (!IsStrikersGameId(std::string(header.game_id, sizeof(header.game_id))))
+        throw std::runtime_error("Expected a Super Mario Strikers GameCube image (G4QE01, G4QP01 or G4QJ01).");
+    auto partition = OpenGamePartition(disc.get());
+    std::vector<std::vector<std::uint8_t>> out;
+    for (const auto& file : files) out.push_back(ReadPartitionFile(partition.get(), file, max_size));
+    return out;
 }
 
 const char* DiscRegionName(const std::string& game_id)

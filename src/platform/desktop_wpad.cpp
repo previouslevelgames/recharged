@@ -1,6 +1,7 @@
 #include "platform/desktop_wpad.h"
 #include "platform/desktop_dpd.h"
 #include "platform/desktop_nunchuk.h"
+#include "platform/gyro_pointer.h"
 #include "platform/wpad_sdl.h"
 #include <revolution/wpad/WPAD.h>
 #include <SDL3/SDL.h>
@@ -45,6 +46,13 @@ struct Device {
     // the shake buttons' previous state, for press edges.
     float pointer_x = 0.5f, pointer_y = 0.5f;
     std::array<bool, ShakeCount> shake_held{};
+    // Gamepad player's WPAD channel, and the gyro pointer (issue #14): on when
+    // the profile asks for it and the pad has a gyro. The recentre button's
+    // and the game's pointer camera's previous state, for edges.
+    int channel = -1;
+    bool gyro = false, recenter_held = false, pointer_camera = false;
+    // Stick directions bound like buttons, pressed as of this service.
+    std::array<bool, mscharged::platform::GamepadStickDirectionCount> stick_held{};
     Clock::time_point last_service{};
     // This pad's [gamepadN] buttons and sticks.
     mscharged::platform::GamepadProfile profile{mscharged::platform::DefaultGamepadBindings()};
@@ -64,6 +72,10 @@ struct State {
     bool event_memory_failed{};
     std::unique_ptr<Device> keyboard;
     std::array<std::unique_ptr<Device>, 4> pads;
+    // Gyro pointer pads' motion by SDL instance, fed by the event watch.
+    std::map<SDL_JoystickID, mscharged::platform::GyroMotion> gyro_motion;
+    // Height over width of the presented picture, for the gyro pointer.
+    float picture_aspect = 0.75f;
     bool ready{}, focused{};
     bool mouse_known{}, mouse_inside{};
     float mouse_x{}, mouse_y{};
@@ -181,6 +193,10 @@ void Retire(std::unique_ptr<Device>& device) {
         mscharged::platform::DetachNativeWpadDpdSource(device->dpd_source);
     if (device->nunchuk_source.generation)
         mscharged::platform::DetachNativeWpadNunchukSource(device->nunchuk_source);
+    if (device->gyro) {
+        std::lock_guard lock(Get().mutex);
+        Get().gyro_motion.erase(device->input_id);
+    }
     const auto id = device->virtual_id;
     mscharged::platform::SetNativeWpadFixedChannel(id, -1);
     SDL_CloseJoystick(device->virtual_joystick);
@@ -217,6 +233,17 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
             state.focused = false;
             ClearKeyboard(state);
             ClearMouse(state);
+        } else if (event->type == SDL_EVENT_GAMEPAD_SENSOR_UPDATE) {
+            // Every gyro and accelerometer reading of a gyro pointer pad.
+            const auto motion = state.gyro_motion.find(event->gsensor.which);
+            if (motion != state.gyro_motion.end()) {
+                if (event->gsensor.sensor == SDL_SENSOR_GYRO)
+                    mscharged::platform::AddGyroReading(motion->second, event->gsensor.data,
+                                                        event->gsensor.sensor_timestamp);
+                else if (event->gsensor.sensor == SDL_SENSOR_ACCEL)
+                    mscharged::platform::AddAccelReading(motion->second, event->gsensor.data,
+                                                         event->gsensor.sensor_timestamp);
+            }
         } else if (event->type == SDL_EVENT_KEYBOARD_REMOVED) {
             // SDL removal does not guarantee a final key-up or focus loss.
             // Retire only this actual input instance, not the virtual remote.
@@ -397,7 +424,25 @@ void AttachGamepadPlayer(State& state, Device& pad, int index) {
     pad.nunchuk_source = mscharged::platform::AttachNativeWpadNunchukSource(pad.virtual_id);
     if (state.settings.pointer_projection)
         pad.dpd_source = mscharged::platform::AttachNativeWpadDpdSource(pad.virtual_id);
-    mscharged::platform::SetNativeWpadFixedChannel(pad.virtual_id, state.settings.gamepad_channels[index]);
+    pad.channel = state.settings.gamepad_channels[index];
+    mscharged::platform::SetNativeWpadFixedChannel(pad.virtual_id, pad.channel);
+    if (!pad.dpd_source.generation || !pad.profile.gyro_pointer) return;
+    // The gyro points when the pad has one; its accelerometer, when it has
+    // one too, gives the room's vertical. Without a gyro the stick points.
+    const char* name = SDL_GetGamepadName(pad.input);
+    if (SDL_GamepadHasSensor(pad.input, SDL_SENSOR_GYRO) &&
+            SDL_SetGamepadSensorEnabled(pad.input, SDL_SENSOR_GYRO, true)) {
+        if (SDL_GamepadHasSensor(pad.input, SDL_SENSOR_ACCEL))
+            SDL_SetGamepadSensorEnabled(pad.input, SDL_SENSOR_ACCEL, true);
+        {
+            std::lock_guard lock(state.mutex);
+            state.gyro_motion[pad.input_id] = {};
+        }
+        pad.gyro = true;
+        SDL_Log("Gamepad %d (%s): the gyro moves the pointer (speed %d%%)", index + 1, name ? name : "controller",
+                pad.profile.gyro_speed);
+    } else
+        SDL_Log("Gamepad %d (%s) has no gyro: its stick moves the pointer", index + 1, name ? name : "controller");
 }
 // The Nunchuk stick (or with swapped sticks the pointer) after the profile's
 // dead zones; y down as SDL reports it.
@@ -408,7 +453,21 @@ mscharged::platform::StickTilt PadStick(const Device& pad, bool nunchuk) {
                                                  pad.profile.inner_deadzone, pad.profile.outer_deadzone);
 }
 bool PadHeld(const Device& pad, std::size_t action) {
-    return mscharged::platform::GamepadBindingHeld(pad.input, pad.profile.bindings[action], pad.profile.trigger_press);
+    for (const auto input : pad.profile.bindings[action]) {
+        if (mscharged::platform::IsGamepadStickDirection(input)) {
+            if (pad.stick_held[std::size_t(input - mscharged::platform::kGamepadStickBase)]) return true;
+        } else if (mscharged::platform::GamepadInputHeld(pad.input, input, pad.profile.trigger_press))
+            return true;
+    }
+    return false;
+}
+// Stick directions keep their press until the stick falls back (see
+// GamepadStickDirectionHeld), so a stick resting near the press point does not
+// press again and again. Without focus nothing is pressed.
+void UpdateStickDirections(Device& pad, bool focused) {
+    for (std::size_t n = 0; n < pad.stick_held.size(); ++n)
+        pad.stick_held[n] = focused && mscharged::platform::GamepadStickDirectionHeld(
+            pad.input, mscharged::platform::kGamepadStickBase + int(n), pad.stick_held[n]);
 }
 mscharged::platform::NativeNunchukObservation GamepadNunchuk(Device& pad, bool focused) {
     // The Nunchuk stick (left by default) through the profile's dead zones, in
@@ -445,7 +504,26 @@ mscharged::platform::NativeDpdObservation GamepadPointer(State& state, Device& p
     const float seconds = pad.last_service == Clock::time_point{} ? 0.0f
         : std::min(0.1f, std::chrono::duration<float>(now - pad.last_service).count());
     pad.last_service = now;
-    if (focused) {
+    if (pad.gyro) {
+        // The gyro turns the pointer like a Wii Remote. It goes back to the
+        // middle on the recentre button and whenever the game turns the
+        // pointer camera on (menus, the goalie's Mega Strike defence). Turns
+        // while the window has no focus are dropped.
+        mscharged::platform::GyroTurn turn;
+        {
+            std::lock_guard lock(state.mutex);
+            const auto motion = state.gyro_motion.find(pad.input_id);
+            if (motion != state.gyro_motion.end()) turn = mscharged::platform::TakeGyroTurn(motion->second);
+        }
+        const bool recenter = focused && PadHeld(pad, mscharged::GamepadActionRecenterPointer);
+        const bool camera = pad.channel >= 0 && WPADIsDpdEnabled(pad.channel);
+        if ((recenter && !pad.recenter_held) || (camera && !pad.pointer_camera)) pad.pointer_x = pad.pointer_y = 0.5f;
+        else if (focused)
+            mscharged::platform::MoveGyroPointer(pad.pointer_x, pad.pointer_y, turn, pad.profile.gyro_speed,
+                                                 state.picture_aspect);
+        pad.recenter_held = recenter;
+        pad.pointer_camera = camera;
+    } else if (focused) {
         constexpr float speed = 1.25f;
         const auto tilt = PadStick(pad, false);
         pad.pointer_x = std::clamp(pad.pointer_x + tilt.x * speed * seconds, 0.0f, 1.0f);
@@ -605,6 +683,16 @@ void ServiceDesktopWpad() {
         if (state.settings.share_mouse_with_remotes) SetNativeWpadSharedPointer(&observation);
     }
     const auto now = Clock::now();
+    // The gyro pointer takes the same angle across and down the presented picture.
+    if (state.settings.pointer_projection &&
+        std::any_of(state.pads.begin(), state.pads.end(), [](const auto& pad) { return pad && pad->gyro; })) {
+        DesktopDpdProjection projection{};
+        SDL_Window* window = SDL_GetWindowFromID(state.window);
+        if (window && state.settings.pointer_projection(state.settings.pointer_projection_context, window, &projection) &&
+            std::isfinite(projection.width) && std::isfinite(projection.height) &&
+            projection.width > 0 && projection.height > 0)
+            state.picture_aspect = projection.height / projection.width;
+    }
     if (state.settings.mouse_player_channel >= 0) {
         // The mouse points while it is in use; otherwise the controller does.
         const bool held = focused && (mouse_buttons & (SDL_BUTTON_LMASK | SDL_BUTTON_RMASK));
@@ -640,6 +728,7 @@ void ServiceDesktopWpad() {
         Report(keyboard, buttons, now, state.settings.mouse ? &observation : nullptr, &nunchuk);
     }
     for (auto& pad : state.pads) if (pad) {
+        UpdateStickDirections(*pad, focused);
         std::array<bool, 11> buttons{};
         // WPAD order: A, B, 1, 2, +, -, HOME, up, down, left, right.
         if (focused) for (std::size_t n = 0; n < buttons.size(); ++n)

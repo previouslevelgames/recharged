@@ -355,7 +355,7 @@ target_link_libraries(charged_original_game_host PRIVATE
     charged_native_system_settings charged_native_video_device charged_movie_hardware
     charged_native_hardware_owner
     charged_native_video_output_device charged_native_filesystem_boot
-    charged_native_ipc_boot_buffer charged_original_rtc ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
+    charged_native_ipc_boot_buffer charged_original_rtc charged_discord ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
 
 function(mscharged_link_original_game target)
     mscharged_link_original_hbm_debug_host("${target}")
