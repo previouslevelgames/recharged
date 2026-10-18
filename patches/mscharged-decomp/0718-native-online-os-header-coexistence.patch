@@ -1,0 +1,75 @@
+From: mscharged-port
+Subject: Let the online SDK sources share Aurora's OS headers
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+ncd.h needs only the time types
+OSTime_fwd.h yields to Aurora when <dolphin/os.h> came first
+nonport.c includes the OS umbrella first so its pasted files see Aurora before
+the SDK.
+
+diff --git a/libs/RVL_SDK/include/revolution/ncd.h b/libs/RVL_SDK/include/revolution/ncd.h
+index 42acbe2..fb8d032 100644
+--- a/libs/RVL_SDK/include/revolution/ncd.h
++++ b/libs/RVL_SDK/include/revolution/ncd.h
+@@ -5,7 +5,7 @@
+ extern "C" {
+ #endif  // __cplusplus
+ 
+-#include <revolution/os/OSTime.h>
++#include <revolution/os/OSTime_fwd.h>
+ 
+ #include <revolution/ncd/NCDTypes.h>
+ 
+diff --git a/libs/RVL_SDK/include/revolution/os/OSSemaphore.h b/libs/RVL_SDK/include/revolution/os/OSSemaphore.h
+index a138e00..cd2e5a6 100644
+--- a/libs/RVL_SDK/include/revolution/os/OSSemaphore.h
++++ b/libs/RVL_SDK/include/revolution/os/OSSemaphore.h
+@@ -1,6 +1,10 @@
+ #ifndef REVOLUTION_OS_SEMAPHORE_H
+ #define REVOLUTION_OS_SEMAPHORE_H
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <dolphin/os/OSSemaphore.h>
++#else
++
+ #include <revolution/os/OSThread.h>
+ 
+ #ifdef __cplusplus
+@@ -20,4 +24,5 @@ s32 OSSignalSemaphore(OSSemaphore* sem);
+ }
+ #endif
+ 
++#endif
+ #endif  // REVOLUTION_OS_SEMAPHORE_H
+diff --git a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h b/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
+index 08a380a..d0b68e8 100644
+--- a/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
++++ b/libs/RVL_SDK/include/revolution/os/OSTime_fwd.h
+@@ -1,6 +1,9 @@
+ #ifndef REVOLUTION_OS_TIME_FWD_H
+ #define REVOLUTION_OS_TIME_FWD_H
+ 
++#if defined(MSCHARGED_NATIVE) && defined(_DOLPHIN_OS_H_)
++#include <dolphin/os.h>
++#else
+ #include <revolution/os/OSHardware_fwd.h>
+ #include <stdint.h>
+ 
+@@ -67,4 +70,5 @@ OSTime OSCalendarTimeToTicks(const OSCalendarTime* calendar);
+ }
+ #endif
+ 
++#endif // MSCHARGED_NATIVE && _DOLPHIN_OS_H_
+ #endif // REVOLUTION_OS_TIME_FWD_H
+diff --git a/src/RVL_SDK/gamespy/nonport.c b/src/RVL_SDK/gamespy/nonport.c
+index f1863b2..646e2c0 100644
+--- a/src/RVL_SDK/gamespy/nonport.c
++++ b/src/RVL_SDK/gamespy/nonport.c
+@@ -1,3 +1,6 @@
++#ifdef MSCHARGED_NATIVE
++#include <revolution/os.h>
++#endif
+ ///////////////////////////////////////////////////////////////////////////////
+ ///////////////////////////////////////////////////////////////////////////////
+ // Deprecated.  Stubbed here for backwards compatability

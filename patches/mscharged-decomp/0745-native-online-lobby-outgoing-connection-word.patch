@@ -1,0 +1,52 @@
+From: mscharged-port
+Subject: Keep the online lobby's outgoing connection as its word
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+NetworkLobby::UpdatePeerConnectionState passes &mPlayers[aid].mConnection,
+an unsigned int, to NetworkSocket::Connect, and ReliableSocket::Connect
+stores the new TransportConnection through it as a void*. On the Wii both
+are four bytes. Natively the eight-byte pointer kept its low half in
+mConnection and overwrote mAid with the high half, so the stored value
+was not the encoded word (0476) the transport callbacks report:
+
+- OnConnected never matched the peer, which stayed connecting until
+  "Lobby Start game timed out" failed the match after five seconds;
+- CloseConnections then decoded that value and stopped with "Connection
+  word is outside Wii cached memory" (with 0744) or crashed (without).
+
+LANLobby's slot is a TransportConnection*, so ReliableSocket::Connect
+keeps its contract. Natively the lobby receives the pointer in a local
+and stores its word; a failed connect leaves the word 0 as before.
+
+diff --git a/src/Game/NetworkLobby.cpp b/src/Game/NetworkLobby.cpp
+index 27a104a..930c288 100644
+--- a/src/Game/NetworkLobby.cpp
++++ b/src/Game/NetworkLobby.cpp
+@@ -15,6 +15,9 @@
+ // Closing a peer passes the connection itself, decoded from its word.
+ #define NETWORK_LOBBY_CONNECTION_POINTER(word) \
+     mscharged::platform::DecodeTransportConnectionAddress(static_cast<std::uint32_t>(word))
++// An outgoing connection is returned as a pointer and kept as its word.
++#define NETWORK_LOBBY_CONNECTION_WORD(pointer) \
++    mscharged::platform::EncodeTransportConnectionAddress(pointer)
+ #else
+ #define NETWORK_LOBBY_CONNECTION_AID(word) (*((u8*)(word) + 0x27))
+ #define NETWORK_LOBBY_CONNECTION_POINTER(word) (TransportConnection*)(word)
+@@ -840,7 +843,16 @@ void NetworkLobby::UpdatePeerConnectionState(int aid)
+         address[3] = aid;
+         NetworkSocket* socket =
+             g_pNetworkSessionBase->GetDirectSocket();
++#if defined(MSCHARGED_NATIVE)
++        // ReliableSocket::Connect writes the connection through a
++        // pointer-sized slot; mConnection is a 32-bit word.
++        TransportConnection* connection = 0;
++        bool connecting = socket->Connect(&connection, address, 0);
++        mPlayers[aid].mConnection = NETWORK_LOBBY_CONNECTION_WORD(connection);
++        if (connecting)
++#else
+         if (socket->Connect(&mPlayers[aid].mConnection, address, 0))
++#endif
+         {
+             tDebugPrintManager::Print(DC_NETWORK,
+                 "Attempting Reliable connection to AID %d...\n", aid);

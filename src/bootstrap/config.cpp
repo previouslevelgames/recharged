@@ -62,7 +62,8 @@ Values Encode(const Settings& s)
             {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
-            {"launcher.update_channel", s.update_channel}};
+            {"launcher.update_channel", s.update_channel},
+            {"online.server", s.online_server}};
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
@@ -256,6 +257,10 @@ Settings Decode(const Values& values)
         boolean((std::string("gameplay.") + kGameTweaks[n].key).c_str(), value);
         s.tweaks[n] = value;
     }
+
+    if (const auto it = values.find("online.server"); it != values.end()) s.online_server = it->second;
+    if (s.online_server.find_first_of("\r\n") != std::string::npos || s.online_server.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: the online server redirect contains a line break or NUL");
     return s;
 }
 

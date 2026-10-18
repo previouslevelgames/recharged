@@ -77,6 +77,9 @@
 #include <stdexcept>
 #include <filesystem>
 #include <string>
+#if defined(MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE)
+#include "net/so_resolve.h"
+#endif
 namespace aurora { extern AuroraConfig g_config; }
 extern "C" bool __OSInitSTM();
 // Whole original OSRtc software/cache owner, linked once into the host.
@@ -306,6 +309,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::SetVerboseConsole(launch.settings.verbose_console);
         // advanced.log_window: the separate log window, when the launcher has not opened it.
         mscharged::platform::SetLogWindow(launch.settings.log_window);
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        so_set_server_override(launch.settings.online_server.c_str());
+#endif
         std::printf("%s\n",mscharged::DescribeLaunch(launch).c_str());
         Check(!disc.empty() && std::filesystem::is_regular_file(launch.disc_path),"Supply your own game ISO/RVZ/WBFS with --disc FILE or [game] disc in the INI");
         // Validate native preferences before acquiring any hardware/module owner.

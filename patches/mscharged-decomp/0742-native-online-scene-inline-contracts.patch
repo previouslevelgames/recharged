@@ -1,0 +1,68 @@
+From: mscharged-port
+Subject: Native compiler contracts of the original online scenes
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler contract; no game behavior change.
+
+Retail MWCC emits header inline functions out of line, so units that see only
+a declaration still link. GCC emits no out-of-line copy, which left the module
+importing symbols nothing defines, as in the Challenge preview (0621).
+
+- SHOnlineMiiSelectOverlay.cpp includes the unchanged inline bodies of
+  fn_801CA660 (GameInfo.inl) and BaseSceneHandler::GetPresentation
+  (BaseSceneHandler.inl).
+- SHOnlineInvitePreview.cpp includes GetFriendManager (GameInfo.inl),
+  BaseSceneHandler::GetPresentation and the InlineHasher constructors
+  (feInlineHasher.h).
+- SHOnlineInvitePlayers.cpp includes GetFriendManager.
+
+diff --git a/src/Game/SH/SHOnlineInvitePlayers.cpp b/src/Game/SH/SHOnlineInvitePlayers.cpp
+index 6abae2e..82d39bd 100644
+--- a/src/Game/SH/SHOnlineInvitePlayers.cpp
++++ b/src/Game/SH/SHOnlineInvitePlayers.cpp
+@@ -39,6 +39,11 @@
+ #include "Game/FE/feDPD.h"
+ #include "Game/SH/SHNavigation.h"
+ #include "NL/nlstring_tmpl.h"
++#if defined(MSCHARGED_NATIVE)
++// Retail emits these inlines out of line in other units; natively this
++// unit includes their unchanged bodies.
++#include "Game/GameInfo.inl"
++#endif
+ 
+ SHOnlineInvitePlayers::SHOnlineInvitePlayers()
+     : mIsHost(true)
+diff --git a/src/Game/SH/SHOnlineInvitePreview.cpp b/src/Game/SH/SHOnlineInvitePreview.cpp
+index 0286f8c..95e5047 100644
+--- a/src/Game/SH/SHOnlineInvitePreview.cpp
++++ b/src/Game/SH/SHOnlineInvitePreview.cpp
+@@ -23,6 +23,13 @@
+ #include "Game/SH/SHNavigation.h"
+ 
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++// Retail emits these inlines out of line in other units; natively this
++// unit includes their unchanged bodies.
++#include "Game/BaseSceneHandler.inl"
++#include "Game/FE/feInlineHasher.h"
++#include "Game/GameInfo.inl"
++#endif
+ 
+ SHOnlineInvitePreview::SHOnlineInvitePreview()
+     : mContinueButton()
+diff --git a/src/Game/SH/SHOnlineMiiSelectOverlay.cpp b/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
+index 7fbc784..1e17246 100644
+--- a/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
++++ b/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
+@@ -39,6 +39,12 @@
+ #include <string.h>
+ #include "Game/FE/fePageControls.h"
+ #include "NL/nlstring_tmpl.h"
++#if defined(MSCHARGED_NATIVE)
++// Retail emits these inlines out of line in other units; natively this
++// unit includes their unchanged bodies.
++#include "Game/BaseSceneHandler.inl"
++#include "Game/GameInfo.inl"
++#endif
+ 
+ SHOnlineMiiSelectOverlay::SHOnlineMiiSelectOverlay()
+     : mInitialized(false)

@@ -140,6 +140,7 @@ struct Settings
     // [gameplay]: game tweaks (kGameTweaks order), off by default except the
     // recommended ones.
     std::array<bool, kGameTweaks.size()> tweaks = DefaultGameTweaks();
+    std::string online_server;
     unsigned GameTweakMask() const
     {
         unsigned mask = 0;

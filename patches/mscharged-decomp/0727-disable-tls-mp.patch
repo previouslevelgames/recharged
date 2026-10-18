@@ -1,0 +1,24 @@
+From: mscharged-port
+Subject: Disable TLS
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+I haven't implemented SSL functions. For testing, I'll just stick with HTTP.
+The lazy load of functions will keep me covered.
+
+diff --git a/src/RVL_SDK/dwc/dwc_auth_interface.c b/src/RVL_SDK/dwc/dwc_auth_interface.c
+index a82e48c..b37f39a 100644
+--- a/src/RVL_SDK/dwc/dwc_auth_interface.c
++++ b/src/RVL_SDK/dwc/dwc_auth_interface.c
+@@ -59,9 +59,9 @@ enum
+ static const char* s_filename = "/shared2/DWC_AUTHDATA";
+ 
+ static char* s_authserver_hosts[3] = {
+-    "https://naswii.test.nintendowifi.net/ac",
+-    "https://naswii.nintendowifi.net/ac",
+-    "https://naswii.dev.nintendowifi.net/ac",
++    "http://naswii.test.nintendowifi.net/ac",
++    "http://naswii.nintendowifi.net/ac",
++    "http://naswii.dev.nintendowifi.net/ac",
+ };
+ 
+ static struct

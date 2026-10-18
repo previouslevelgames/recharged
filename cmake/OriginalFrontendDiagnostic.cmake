@@ -24,6 +24,7 @@ include(cmake/OriginalFrontendWorldDiagnostic.cmake)
 include(cmake/OriginalFrontendWorldDrawDiagnostic.cmake)
 include(cmake/OriginalFrontendNetworkOwnerDiagnostic.cmake)
 include(cmake/OriginalFrontendLANDiagnostic.cmake)
+include(cmake/OriginalOnline.cmake)
 include(cmake/OriginalFrontendPresentationOwnerDiagnostic.cmake)
 include(cmake/OriginalFrontendMiiResources.cmake)
 include(cmake/OriginalFrontendFinalizeDiagnostic.cmake)
@@ -127,6 +128,8 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     mscharged_select_original_frontend_challenge_play(${target})
     mscharged_select_original_frontend_fe_models(${target})
     mscharged_select_original_frontend_lan(${target})
+    # After the Mii resources, which add OSMutex without checking for it.
+    mscharged_select_original_frontend_online(${target})
     # Last selection: copies the module's final settings for the original CreditScene.
     mscharged_select_original_frontend_credits(${target})
     # RECHARGED_DEBUG_LAYERS_OFF: switch the game's own rendering layers off.

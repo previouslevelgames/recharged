@@ -1,0 +1,66 @@
+From: mscharged-port
+Subject: Give DWC's GameSpy memory callbacks GameSpy's size_t
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+gsiMemoryCallbacksSet takes callbacks whose sizes are size_t, which was
+u32 on the Wii. DWC's callbacks took u32, so on a 64-bit host GameSpy
+would call them through a pointer of another type. They take size_t and
+hand DWC's allocator the u32 it keeps; no GameSpy allocation nears 4 GiB.
+
+diff --git a/libs/RVL_SDK/include/dwc/dwci_memfunc.h b/libs/RVL_SDK/include/dwc/dwci_memfunc.h
+index a7a622b..803797f 100644
+--- a/libs/RVL_SDK/include/dwc/dwci_memfunc.h
++++ b/libs/RVL_SDK/include/dwc/dwci_memfunc.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include <dwc/dwc_memfunc.h>
++#include <stddef.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -20,10 +21,11 @@ u32 DWCi_GetAllocateSize(void* block);
+ 
+ void DWCi_SetMemFunc(DWCAllocEx allocator, DWCFreeEx freer);
+ 
+-void* DWCi_GsMalloc(u32 size);
+-void* DWCi_GsRealloc(void* block, u32 size);
++// GameSpy's gsMemory callbacks take size_t.
++void* DWCi_GsMalloc(size_t size);
++void* DWCi_GsRealloc(void* block, size_t size);
+ void DWCi_GsFree(void* block);
+-void* DWCi_GsMemalign(u32 align, u32 size);
++void* DWCi_GsMemalign(size_t align, size_t size);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/RVL_SDK/dwc/dwc_memfunc.c b/src/RVL_SDK/dwc/dwc_memfunc.c
+index 6de75c0..c12aa32 100644
+--- a/src/RVL_SDK/dwc/dwc_memfunc.c
++++ b/src/RVL_SDK/dwc/dwc_memfunc.c
+@@ -63,18 +63,18 @@ void* DWC_ReallocEx(DWCAllocType type, void* block, u32 before, u32 after, int a
+   return newBlock;
+ }
+ 
+-void* DWCi_GsMalloc(u32 size) {
+-  return DWC_Alloc(DWC_ALLOCTYPE_GS, size);
++void* DWCi_GsMalloc(size_t size) {
++  return DWC_Alloc(DWC_ALLOCTYPE_GS, (u32)size);
+ }
+ 
+-void* DWCi_GsRealloc(void* block, u32 size) {
+-  return DWC_Realloc(DWC_ALLOCTYPE_GS, block, size, size);
++void* DWCi_GsRealloc(void* block, size_t size) {
++  return DWC_Realloc(DWC_ALLOCTYPE_GS, block, (u32)size, (u32)size);
+ }
+ 
+ void DWCi_GsFree(void* block) {
+   DWC_Free(DWC_ALLOCTYPE_GS, block, 0);
+ }
+ 
+-void* DWCi_GsMemalign(u32 align, u32 size) {
+-  return DWC_AllocEx(DWC_ALLOCTYPE_GS, size, align);
++void* DWCi_GsMemalign(size_t align, size_t size) {
++  return DWC_AllocEx(DWC_ALLOCTYPE_GS, (u32)size, (int)align);
+ }
