@@ -42,7 +42,7 @@ WINDOWS_RUNTIME_NOTICES = ("LICENSE.TXT", "x86_64-w64-mingw32/share/mingw32/COPY
 WINDOWS_SYSTEM_DLLS = frozenset((
     "advapi32.dll", "bcrypt.dll", "bcryptprimitives.dll", "cfgmgr32.dll", "comdlg32.dll",
     "crypt32.dll", "d3d11.dll", "d3d12.dll", "dbghelp.dll", "dwmapi.dll", "dxgi.dll",
-    "gdi32.dll", "imm32.dll", "kernel32.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll", "pdh.dll",
+    "gdi32.dll", "imm32.dll", "iphlpapi.dll", "kernel32.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll", "pdh.dll",
     "rpcrt4.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll", "ucrtbase.dll",
     "user32.dll", "userenv.dll", "version.dll", "winhttp.dll", "winmm.dll", "wintrust.dll", "ws2_32.dll",
 ))
