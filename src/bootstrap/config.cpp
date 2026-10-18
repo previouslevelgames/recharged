@@ -70,7 +70,10 @@ Values Encode(const Settings& s)
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
             {"launcher.test_build", std::to_string(s.test_build)},
-            {"discord.rich_presence", s.discord_status ? "true" : "false"}};
+            {"discord.rich_presence", s.discord_status ? "true" : "false"},
+            {"mods.texture_packs", s.texture_packs ? "true" : "false"}, {"mods.texture_folder", s.texture_folder},
+            {"mods.texture_pack_order", s.texture_pack_order}, {"mods.texture_packs_off", s.texture_packs_off},
+            {"mods.dump_textures", s.dump_textures ? "true" : "false"}};
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
@@ -297,6 +300,15 @@ Settings Decode(const Values& values)
                 "(17 to 20 digits)");
         s.discord_application_id = id;
     }
+    boolean("mods.texture_packs", s.texture_packs);
+    if (const auto it = values.find("mods.texture_folder"); it != values.end() && !it->second.empty())
+        s.texture_folder = it->second;
+    if (const auto it = values.find("mods.texture_pack_order"); it != values.end()) s.texture_pack_order = it->second;
+    if (const auto it = values.find("mods.texture_packs_off"); it != values.end()) s.texture_packs_off = it->second;
+    for (const auto* text : {&s.texture_folder, &s.texture_pack_order, &s.texture_packs_off})
+        if (text->find_first_of("\r\n") != std::string::npos || text->find('\0') != std::string::npos)
+            throw std::runtime_error("Invalid configuration: a [mods] setting contains a line break or NUL");
+    boolean("mods.dump_textures", s.dump_textures);
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
     {
         bool value = kGameTweaks[n].on_by_default;
@@ -323,7 +335,8 @@ bool OwnedSection(const std::string& section)
 // Paths are written in quotes.
 bool QuotedKey(const std::string& key)
 {
-    return key == "game.disc" || key == "game.folder" || key == "game.save_folder" || key == "game.gamecube_disc";
+    return key == "game.disc" || key == "game.folder" || key == "game.save_folder" || key == "game.gamecube_disc"
+        || key == "mods.texture_folder";
 }
 
 Values Parse(const std::string& contents, std::string* updated = nullptr, Values replacements = {})
@@ -567,6 +580,12 @@ std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::fil
 std::filesystem::path ResolveGameFolder(const Settings& settings, const std::filesystem::path& config)
 {
     const auto path = PathFromUtf8(settings.folder.empty() ? "game" : settings.folder);
+    return path.is_absolute() ? path : config.parent_path() / path;
+}
+
+std::filesystem::path ResolveTextureFolder(const Settings& settings, const std::filesystem::path& config)
+{
+    const auto path = PathFromUtf8(settings.texture_folder.empty() ? "texture_packs" : settings.texture_folder);
     return path.is_absolute() ? path : config.parent_path() / path;
 }
 

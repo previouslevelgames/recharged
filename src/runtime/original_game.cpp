@@ -3,6 +3,7 @@
 #include "platform/screenshot_hotkey.h"
 #include "platform/window_fit.h"
 #include "runtime/original_game.h"
+#include "runtime/texture_pack_loading.h"
 #include "platform/graphics_backend.h"
 #include "runtime/original_sh_menu_diagnostic.h"
 #include <aurora/aurora.h>
@@ -387,6 +388,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         const auto& antialiasing=mscharged::FindAntialiasing(launch.settings.antialiasing);
         config.msaa=antialiasing.samples;
         config.sampleShading=antialiasing.sample_shading;
+        // mods.dump_textures: Aurora saves each game texture no pack replaces
+        // to data/texture_dumps, named for texture packs.
+        config.allowTextureDumps=launch.settings.dump_textures;
         // The native Wii Remote driver (platform/wiimote_hid) owns physical
         // remotes, including DolphinBar mode 4 and its IR sensor bar; SDL's
         // own Wii HID driver must not open the same devices.
@@ -414,6 +418,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         }
         mscharged::platform::SetApplicationIcon(host.window);
         mscharged::platform::SessionLogLine("Startup: graphics ready");
+        // [mods]: HD texture packs, swapped in by Aurora (host graphics only).
+        mscharged::LoadTexturePacks(launch.settings,launch.config.path,release->game_id);
         mscharged::platform::LogSessionDisplays(host.window);
         if(launch.settings.monitor>0) {
             // Start on the selected display; fullscreen then uses that display.
@@ -659,6 +665,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 : "none (this build's game module has no tweaks)");
             mscharged::platform::SessionLogLine(line.c_str());
             std::fprintf(stderr,"%s\n",line.c_str());
+            // Texture packs: Mirror match's recoloured textures in HD.
+            if(auto* configureRecolour=reinterpret_cast<void(*)(ChargedRecolouredTextureHook)>(
+                   mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_hd_recolour")))
+                configureRecolour(mscharged::TexturePackRecolourHook());
             // No HUD (issue #58): H shows or hides the match HUD, whatever the tweak set.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_hud")));

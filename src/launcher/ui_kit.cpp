@@ -335,6 +335,30 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(-0.28f, -0.28f), p(0.28f, 0.28f), color, t * 1.3f);
         draw->AddLine(p(0.28f, -0.28f), p(-0.28f, 0.28f), color, t * 1.3f);
         break;
+    case Icon::Archive:
+    {
+        // A zip file: a page with a zipper down its middle.
+        draw->AddRect(p(-0.32f, -0.42f), p(0.32f, 0.42f), color, s * 0.08f, 0, t);
+        for (int i = 0; i < 4; ++i)
+        {
+            const float y = -0.34f + 0.13f * float(i);
+            const float x = i % 2 ? 0.0f : -0.08f;
+            draw->AddRectFilled(p(x, y), p(x + 0.08f, y + 0.07f), color);
+        }
+        draw->AddRect(p(-0.09f, 0.14f), p(0.09f, 0.32f), color, 0.0f, 0, t);
+        break;
+    }
+    case Icon::More:
+        for (int i = -1; i <= 1; ++i) draw->AddCircleFilled(p(0.28f * float(i), 0.0f), s * 0.075f, color);
+        break;
+    case Icon::Up:
+    case Icon::Down:
+    {
+        const float y = icon == Icon::Up ? 1.0f : -1.0f;
+        const ImVec2 points[] = {p(-0.3f, 0.15f * y), p(0.0f, -0.15f * y), p(0.3f, 0.15f * y)};
+        draw->AddPolyline(points, 3, color, 0, t * 1.3f);
+        break;
+    }
     }
 }
 
@@ -1062,16 +1086,25 @@ void BeginCard(const char* id, const char* title, const char* subtitle, Icon ico
     if (title)
     {
         const ImVec2 pos = ImGui::GetCursorScreenPos();
-        float indent = 0.0f;
+        const float box = icon != Icon::None ? Dp(34) : 0.0f;
+        const float indent = icon != Icon::None ? box + Dp(14) : 0.0f;
+        // The icon and the title (with its subtitle) are centred on each
+        // other, whichever is taller.
+        float block = FontSize(fonts.heading);
+        if (subtitle)
+        {
+            const float wrap = ImGui::GetContentRegionAvail().x - indent;
+            block += ImGui::GetStyle().ItemSpacing.y - Dp(6)
+                + fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, subtitle).y;
+        }
         if (icon != Icon::None)
         {
             auto* draw = ImGui::GetWindowDrawList();
-            const float box = Dp(34);
-            draw->AddRectFilled(pos, {pos.x + box, pos.y + box}, Col(color::accent, 0.12f), Dp(10));
-            DrawIcon(draw, icon, {pos.x + box * 0.5f, pos.y + box * 0.5f}, Dp(18), Col(color::accent));
-            indent = box + Dp(14);
+            const ImVec2 at{pos.x, pos.y + std::max(0.0f, (block - box) * 0.5f)};
+            draw->AddRectFilled(at, {at.x + box, at.y + box}, Col(color::accent, 0.12f), Dp(10));
+            DrawIcon(draw, icon, {at.x + box * 0.5f, at.y + box * 0.5f}, Dp(18), Col(color::accent));
         }
-        ImGui::SetCursorScreenPos({pos.x + indent, pos.y + (subtitle ? 0.0f : Dp(4))});
+        ImGui::SetCursorScreenPos({pos.x + indent, pos.y + std::max(0.0f, (box - block) * 0.5f)});
         ImGui::BeginGroup();
         TextColored(fonts.heading, color::text, title);
         if (subtitle)
@@ -1080,6 +1113,7 @@ void BeginCard(const char* id, const char* title, const char* subtitle, Icon ico
             TextWrappedColored(fonts.caption, color::muted, subtitle);
         }
         ImGui::EndGroup();
+        ImGui::SetCursorScreenPos({pos.x, std::max(ImGui::GetCursorScreenPos().y, pos.y + box + ImGui::GetStyle().ItemSpacing.y)});
         ImGui::Dummy({0, Dp(6)});
     }
 }

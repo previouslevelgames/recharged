@@ -1,6 +1,8 @@
 #include "platform/away_kits.h"
 
 #include "platform/gx_texture.h"
+#include "platform/kit_colour.h"
+#include "platform/recoloured_texture.h"
 
 #include <algorithm>
 #include <array>
@@ -58,79 +60,10 @@ const AwayKit kKits[] = {
         {"luigi", "wario"}, false},
 };
 
-struct Lab
-{
-    float L, a, b;
-};
-
-float ToLinear(float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); }
-float ToSrgb(float c) { return c <= 0.0031308f ? 12.92f * c : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f; }
-
-// OKLab (Björn Ottosson's published matrices).
-Lab ToLab(RGB c)
-{
-    float r = ToLinear(c.r), g = ToLinear(c.g), b = ToLinear(c.b);
-    float l = std::cbrt(0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b);
-    float m = std::cbrt(0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b);
-    float s = std::cbrt(0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b);
-    return {0.2104542553f * l + 0.7936177850f * m - 0.0040720468f * s,
-        1.9779984951f * l - 2.4285922050f * m + 0.4505937099f * s,
-        0.0259040371f * l + 0.7827717662f * m - 0.8086757660f * s};
-}
-
-// Linear sRGB; may lie outside 0..1.
-void LabToLinear(Lab c, float out[3])
-{
-    float l = c.L + 0.3963377774f * c.a + 0.2158037573f * c.b;
-    float m = c.L - 0.1055613458f * c.a - 0.0638541728f * c.b;
-    float s = c.L - 0.0894841775f * c.a - 1.2914855480f * c.b;
-    l = l * l * l;
-    m = m * m * m;
-    s = s * s * s;
-    out[0] = 4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s;
-    out[1] = -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s;
-    out[2] = -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s;
-}
-
-// From lightness, chroma and hue (radians), reducing chroma until the colour
-// fits sRGB.
-RGB FromLch(float L, float C, float h)
-{
-    L = std::clamp(L, 0.0f, 1.0f);
-    float lo = 0.0f, hi = C;
-    float rgb[3];
-    for (int i = 0; i < 16; ++i)
-    {
-        float c = i == 0 ? C : 0.5f * (lo + hi);
-        LabToLinear({L, c * std::cos(h), c * std::sin(h)}, rgb);
-        bool inside = rgb[0] >= -0.0001f && rgb[0] <= 1.0001f && rgb[1] >= -0.0001f && rgb[1] <= 1.0001f
-            && rgb[2] >= -0.0001f && rgb[2] <= 1.0001f;
-        if (i == 0 && inside) break;
-        if (inside)
-            lo = c;
-        else
-            hi = c;
-        if (i == 15) LabToLinear({L, lo * std::cos(h), lo * std::sin(h)}, rgb);
-    }
-    return {ToSrgb(std::clamp(rgb[0], 0.0f, 1.0f)), ToSrgb(std::clamp(rgb[1], 0.0f, 1.0f)),
-        ToSrgb(std::clamp(rgb[2], 0.0f, 1.0f))};
-}
-
-void ToHsv(RGB c, float& h, float& s, float& v)
-{
-    float mx = std::max({c.r, c.g, c.b}), mn = std::min({c.r, c.g, c.b});
-    v = mx;
-    s = mx > 0.0f ? (mx - mn) / mx : 0.0f;
-    float d = mx - mn;
-    if (d <= 0.0f)
-        h = 0.0f;
-    else if (mx == c.r)
-        h = 60.0f * std::fmod((c.g - c.b) / d + 6.0f, 6.0f);
-    else if (mx == c.g)
-        h = 60.0f * ((c.b - c.r) / d + 2.0f);
-    else
-        h = 60.0f * ((c.r - c.g) / d + 4.0f);
-}
+using kit_colour::Lab;
+using kit_colour::LchStats;
+using kit_colour::ToLab;
+using kit_colour::ToHsv;
 
 bool InBand(const Band& band, float h, float s, float v)
 {
@@ -271,11 +204,6 @@ void TeamMask(const AwayKit& kit, const HostVector<Texel>& texels, const HostVec
     }
 }
 
-struct LchStats
-{
-    float L, C, h; // medians; h in radians
-};
-
 LchStats Median(const HostVector<Texel>& texels, const HostVector<std::uint8_t>& mask)
 {
     HostVector<float> L, C, a, b;
@@ -297,27 +225,21 @@ LchStats Median(const HostVector<Texel>& texels, const HostVector<std::uint8_t>&
     return {median(L), median(C), std::atan2(mb, ma)};
 }
 
-RGB Recolour(RGB colour, const LchStats& from, const LchStats& to)
+RGB Recolour(RGB colour, const LchStats& from, const LchStats& to) { return kit_colour::Recolour(colour, from, to); }
+
+// The host's HD recolour of texture packs (charged_configure_hd_recolour), or null.
+ChargedRecolouredTextureHook sRecolouredHook = nullptr;
+
+// The bytes of one level in its format (CMPR 8x8 tiles of 4 bits per texel,
+// RGB5A3 4x4 tiles of 16 bits, RGBA8 4x4 tiles of 32 bits).
+std::size_t LevelBytes(std::uint32_t format, const Level& level)
 {
-    Lab c = ToLab(colour);
-    float C = std::sqrt(c.a * c.a + c.b * c.b);
-    // Shading darker than the kit's own colour scales towards black, so
-    // shadows next to black lines stay dark; highlights share what lightness
-    // remains above the new colour.
-    float L;
-    if (c.L <= from.L)
-        L = from.L > 0.0f ? c.L * (to.L / from.L) : to.L;
-    else
-        L = to.L + (c.L - from.L) * (1.0f - to.L) / std::max(1.0f - from.L, 0.05f);
-    float chroma = from.C > 0.01f ? C * (to.C / from.C) : to.C;
-    return FromLch(L, std::max(chroma, 0.0f), to.h);
+    const std::size_t tiles = format == kCMPR ? std::size_t((level.width + 7) / 8) * ((level.height + 7) / 8)
+                                              : std::size_t((level.width + 3) / 4) * ((level.height + 3) / 4);
+    return tiles * (format == kCMPR ? 32 : format == kRGB5A3 ? 32 : 64);
 }
 
-LchStats Target(std::uint32_t rgb)
-{
-    Lab c = ToLab({((rgb >> 16) & 255) / 255.0f, ((rgb >> 8) & 255) / 255.0f, (rgb & 255) / 255.0f});
-    return {c.L, std::sqrt(c.a * c.a + c.b * c.b), std::atan2(c.b, c.a)};
-}
+std::uint8_t Byte(float value) { return std::uint8_t(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f)); }
 
 bool DecodeReference(std::span<const std::uint8_t> reference, std::uint32_t format, const Level& level,
     std::size_t levelIndex, HostVector<Texel>& out)
@@ -414,7 +336,7 @@ bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uin
     if (!Levels(texture, format, levels)) return false;
     HostVector<Texel> texels, ref0, ref1;
     HostVector<std::uint8_t> mask;
-    const LchStats target = Target(kit.colour);
+    const LchStats target = kit_colour::Target<RGB>(kit.colour);
     LchStats from{};
     for (std::size_t l = 0; l < levels.size(); ++l)
     {
@@ -437,7 +359,34 @@ bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uin
         // The reference colours come from the full-size level, so every mip
         // level gets the same mapping.
         if (l == 0) from = Median(texels, mask);
+        // Texture packs: the host recolours the pack's HD image of the largest
+        // level alike, from its texels before and the texels recoloured.
+        HostVector<std::uint8_t> original, rgba;
+        const std::size_t bytes = LevelBytes(format, level);
+        const bool tell = l == 0 && sRecolouredHook && level.offset + bytes <= texture.size()
+            && std::find(mask.begin(), mask.end(), std::uint8_t(kKit)) != mask.end();
+        if (tell)
+        {
+            original.assign(texture.begin() + std::ptrdiff_t(level.offset),
+                texture.begin() + std::ptrdiff_t(level.offset + bytes));
+            rgba.resize(texels.size() * 4);
+            for (std::size_t i = 0; i < texels.size(); ++i)
+            {
+                rgba[i * 4] = Byte(texels[i].colour.r);
+                rgba[i * 4 + 1] = Byte(texels[i].colour.g);
+                rgba[i * 4 + 2] = Byte(texels[i].colour.b);
+                rgba[i * 4 + 3] = Byte(texels[i].alpha);
+            }
+        }
         WriteLevel(texture, format, level, mask, from, target);
+        if (tell)
+        {
+            const ChargedRecolouredTexture info{format == kCMPR ? 14u : format == kRGB5A3 ? 5u : 6u,
+                unsigned(level.width), unsigned(level.height), unsigned(levels.size()), original.data(),
+                texture.data() + level.offset, (unsigned long)bytes, mask.data(), rgba.data(),
+                {target.L, target.C, target.h}, int(kind)};
+            sRecolouredHook(&info);
+        }
     }
     return true;
 }
@@ -470,6 +419,12 @@ bool mscharged_tweak_away_kit_photos(const char* captain)
 {
     const AwayKit* kit = FindGeneratedAwayKit(captain);
     return kit && AwayKitPhotos(*kit);
+}
+
+// Host entry: the HD recolour of texture packs, told about each recoloured texture.
+__attribute__((visibility("default"))) void charged_configure_hd_recolour(ChargedRecolouredTextureHook hook)
+{
+    sRecolouredHook = hook;
 }
 
 // The kinds of mscharged_tweaks.h (0 kit texture, 1 team texture, 2 picture).

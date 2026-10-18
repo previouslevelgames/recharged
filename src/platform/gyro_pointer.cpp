@@ -23,6 +23,10 @@ constexpr float kTightenRate = 0.5f * kDegree;
 // Player-space yaw (as described on GyroWiki): a turn about the vertical,
 // allowed up to 1.41 times the controller's own yaw and roll.
 constexpr float kYawRelax = 1.41f;
+// Without a reading for this long the pointer stops instead of holding the
+// last turning speed; the turn not shown yet is made up over kCatchUpSeconds.
+constexpr float kHoldSeconds = 0.05f;
+constexpr float kCatchUpSeconds = 0.1f;
 
 double Seconds(std::uint64_t& last, std::uint64_t now) {
     const double seconds = last && now > last ? double(now - last) * 1e-9 : 0.0;
@@ -81,12 +85,31 @@ void AddGyroReading(GyroMotion& motion, const float rate[3], std::uint64_t times
     if (const float moving = std::hypot(yaw, pitch); moving < kTightenRate) scale = moving / kTightenRate;
     motion.yaw += yaw * scale * seconds;
     motion.pitch += pitch * scale * seconds;
+    motion.seconds += seconds;
 }
 
-GyroTurn TakeGyroTurn(GyroMotion& motion) {
-    const GyroTurn turn{motion.yaw, motion.pitch};
-    motion.yaw = motion.pitch = 0;
+GyroTurn TakeGyroTurn(GyroMotion& motion, float seconds) {
+    seconds = std::isfinite(seconds) ? std::clamp(seconds, 0.0f, float(kMaxGap)) : 0.0f;
+    if (motion.seconds > 0) {
+        motion.yaw_rate = motion.yaw / motion.seconds;
+        motion.pitch_rate = motion.pitch / motion.seconds;
+        motion.held = 0;
+    } else if ((motion.held += seconds) > kHoldSeconds) motion.yaw_rate = motion.pitch_rate = 0;
+    motion.yaw_owed += motion.yaw;
+    motion.pitch_owed += motion.pitch;
+    motion.yaw = motion.pitch = motion.seconds = 0;
+    GyroTurn turn{motion.yaw_rate * seconds, motion.pitch_rate * seconds};
+    const float catch_up = std::min(1.0f, seconds / kCatchUpSeconds);
+    turn.yaw += (motion.yaw_owed - turn.yaw) * catch_up;
+    turn.pitch += (motion.pitch_owed - turn.pitch) * catch_up;
+    motion.yaw_owed -= turn.yaw;
+    motion.pitch_owed -= turn.pitch;
     return turn;
+}
+
+void ClearGyroTurn(GyroMotion& motion) {
+    motion.yaw = motion.pitch = motion.seconds = 0;
+    motion.yaw_owed = motion.pitch_owed = 0;
 }
 
 void MoveGyroPointer(float& x, float& y, GyroTurn turn, int speed, float aspect) {

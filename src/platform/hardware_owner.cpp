@@ -118,9 +118,10 @@ void Service() {
     if (!exclusion) return;
     mscharged::platform::ServiceNativeAlarms();
     const auto now = std::chrono::steady_clock::now();
-    // Desktop devices and real remotes are serviced every 10 ms.
+    // Desktop devices and real remotes are serviced every 5 ms, so each
+    // report reaches the game in its own service, 200 a second.
     if ((!state.desktop_cadence && !mscharged::platform::WiimoteHidHasDevices()) || now >= state.next_input) {
-        state.next_input = now + std::chrono::milliseconds(10);
+        state.next_input = now + std::chrono::milliseconds(5);
         SDL_PumpEvents();
         mscharged::platform::ServiceWiimoteHid();
         mscharged::platform::ServiceDesktopWpad();

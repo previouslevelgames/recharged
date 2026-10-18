@@ -743,29 +743,39 @@ void GyroPointerChecks() {
             AddGyroReading(motion, rate.data(), ns);
         }
     };
+    // Everything a motion has left to show, taken 10 ms at a time.
+    const auto shown = [](GyroMotion& motion) {
+        GyroTurn sum;
+        for (int n = 0; n < 300; ++n) {
+            const auto turn = TakeGyroTurn(motion, 0.01f);
+            sum.yaw += turn.yaw;
+            sum.pitch += turn.pitch;
+        }
+        return sum;
+    };
     const auto start = [&](const std::array<float, 3>* accel = nullptr) {
         GyroMotion motion;
         feed(motion, {}, 0.01f, accel);
-        (void)TakeGyroTurn(motion);
+        (void)shown(motion);
         return motion;
     };
     // Turning right 5 degrees moves the pointer a fifth of the way across (25 per picture).
     auto motion = start(&flat);
     feed(motion, {0, -5 * degree, 0}, 1.0f, &flat);
     float x = 0.5f, y = 0.5f;
-    MoveGyroPointer(x, y, TakeGyroTurn(motion), 100, 0.5625f);
+    MoveGyroPointer(x, y, shown(motion), 100, 0.5625f);
     Check(std::fabs(x - 0.7f) < 0.002f && std::fabs(y - 0.5f) < 1e-5f,
           "A 5 degree turn right did not move the pointer a fifth of the picture right");
     // Up and down take the same angle per distance: 2.5 degrees up at 200 %
     // on a 16:9 picture is 2.5 / (12.5 * 0.5625) of its height.
     feed(motion, {5 * degree, 0, 0}, 0.5f, &flat);
     x = y = 0.5f;
-    MoveGyroPointer(x, y, TakeGyroTurn(motion), 200, 0.5625f);
+    MoveGyroPointer(x, y, shown(motion), 200, 0.5625f);
     Check(std::fabs(y - (0.5f - 2.5f / (12.5f * 0.5625f))) < 0.002f && std::fabs(x - 0.5f) < 1e-5f,
           "Tilting up did not move the pointer up by the same angle per distance");
     // Rolling a flat controller does not move the pointer.
     feed(motion, {0, 0, 10 * degree}, 1.0f, &flat);
-    const auto rolled = TakeGyroTurn(motion);
+    const auto rolled = shown(motion);
     Check(std::fabs(rolled.yaw) < 1e-5f && std::fabs(rolled.pitch) < 1e-5f, "Rolling a flat controller pointed");
     // Held with its front 45 degrees up, a turn about the room's vertical
     // still moves the pointer the whole amount.
@@ -774,29 +784,29 @@ void GyroPointerChecks() {
     auto held = start(&tilted);
     feed(held, {0, -5 * degree * c, 5 * degree * c}, 1.0f, &tilted);
     x = y = 0.5f;
-    MoveGyroPointer(x, y, TakeGyroTurn(held), 100, 0.5625f);
+    MoveGyroPointer(x, y, shown(held), 100, 0.5625f);
     Check(std::fabs(x - 0.7f) < 0.002f && std::fabs(y - 0.5f) < 1e-5f,
           "A tilted controller turning about the vertical did not point the whole amount");
     // A gyro that reads 1 degree a second at rest: after a while still, its
     // offset is taken off and the pointer stops creeping.
     auto resting = start(&flat);
     feed(resting, {0, 1 * degree, 0}, 5.0f, &flat);
-    (void)TakeGyroTurn(resting);
+    (void)shown(resting);
     feed(resting, {0, 1 * degree, 0}, 5.0f, &flat);
     x = y = 0.5f;
-    MoveGyroPointer(x, y, TakeGyroTurn(resting), 100, 0.5625f);
+    MoveGyroPointer(x, y, shown(resting), 100, 0.5625f);
     Check(std::fabs(x - 0.5f) < 0.01f && std::fabs(resting.bias[1] - 1 * degree) < 0.2f * degree,
           "The gyro's offset at rest was not taken off");
     // Moving faster than 2 degrees a second is never taken for an offset.
     auto moving = start(&flat);
     feed(moving, {0, -3 * degree, 0}, 5.0f, &flat);
-    Check(moving.bias[1] == 0.0f && std::fabs(TakeGyroTurn(moving).yaw + 15 * degree) < 0.1f * degree,
+    Check(moving.bias[1] == 0.0f && std::fabs(shown(moving).yaw + 15 * degree) < 0.1f * degree,
           "A slow steady turn was taken for the gyro's offset");
     // Readings after a gap (a pause, a reconnect) add no turn.
     ns += 500'000'000;
     const float fast[3]{0, 90 * degree, 0};
     AddGyroReading(moving, fast, ns);
-    Check(std::fabs(TakeGyroTurn(moving).yaw) < 1e-6f, "A reading after a gap added a turn");
+    Check(std::fabs(shown(moving).yaw) < 1e-6f, "A reading after a gap added a turn");
     // The pointer stops at the edges; speeds stay within 25-300 %.
     x = y = 0.5f;
     MoveGyroPointer(x, y, {-90 * degree, -90 * degree}, 100, 0.5625f);
@@ -805,6 +815,44 @@ void GyroPointerChecks() {
     MoveGyroPointer(a, ay, {1 * degree, 0}, 1000, 0.75f);
     MoveGyroPointer(b, by, {1 * degree, 0}, 300, 0.75f);
     Check(a == b, "Gyro speed was not kept within its range");
+    // Readings 4 ms apart handed over in bunches of 20 ms every other 10 ms
+    // still move the pointer evenly, at the turning speed, and in the end
+    // exactly as far as the controller turned. It stops with the controller.
+    auto even = start(&flat);
+    const float right[3]{0, -30 * degree, 0}, still[3]{};
+    float total = 0, least = 1, most = 0;
+    for (int take = 0; take < 100; ++take) {
+        if (take % 2 == 0)
+            for (int n = 0; n < 5; ++n) {
+                ns += 4'000'000;
+                AddAccelReading(even, flat.data(), ns);
+                AddGyroReading(even, right, ns);
+            }
+        const float yaw = -TakeGyroTurn(even, 0.01f).yaw;
+        total += yaw;
+        if (take >= 10) least = std::min(least, yaw), most = std::max(most, yaw);
+    }
+    Check(least > 0.27f * degree && most < 0.33f * degree, "Readings in bunches moved the gyro pointer unevenly");
+    float after = 0;
+    for (int take = 0; take < 30; ++take) {
+        for (int n = 0; n < 2; ++n) {
+            ns += 5'000'000;
+            AddAccelReading(even, flat.data(), ns);
+            AddGyroReading(even, still, ns);
+        }
+        const float yaw = -TakeGyroTurn(even, 0.01f).yaw;
+        if (take >= 2) after = std::max(after, std::fabs(yaw));
+        total += yaw;
+    }
+    Check(after < 0.03f * degree, "The gyro pointer kept moving after the controller stopped");
+    Check(std::fabs(total - 30 * degree) < 0.01f * degree, "Turns shown evenly did not add up to the turn");
+    // Going back to the middle forgets the turn not shown yet.
+    auto cleared = start(&flat);
+    feed(cleared, {0, -30 * degree, 0}, 0.5f, &flat);
+    (void)TakeGyroTurn(cleared, 0.01f);
+    ClearGyroTurn(cleared);
+    feed(cleared, {}, 0.1f, &flat);
+    Check(std::fabs(shown(cleared).yaw) < 0.05f * degree, "Centring the pointer kept the turn not shown yet");
 }
 // A gamepad with a gyro and an accelerometer, like a PlayStation controller.
 struct GyroPad {

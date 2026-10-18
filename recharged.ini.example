@@ -240,6 +240,20 @@ super_team_side = away
 no_hud = false
 fair_ball_contests = true
 
+[mods]
+# Texture packs made for Dolphin (folders or .zip files with tex1_*.png or
+# .dds images) replace the game's textures. They change only how it looks.
+texture_packs = true
+# The folder holding the packs; a relative path counts from this file.
+texture_folder = "texture_packs"
+# Pack names (file or folder names), first to last: where two packs replace
+# the same texture, the earlier one wins. Packs not listed follow by name.
+texture_pack_order =
+# Packs that stay unused, separated by |.
+texture_packs_off =
+# For pack makers: save each texture no pack replaces to data/texture_dumps.
+dump_textures = false
+
 [advanced]
 # Backend graphics debug layers (slower; turn on for bug reports). WebGPU
 # validation and robust buffer access stay enabled in both modes.

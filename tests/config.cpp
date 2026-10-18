@@ -420,6 +420,36 @@ int main()
         hostFile = LoadConfig(host);
         Require(hostFile.contents.find("application_id") == std::string::npos
                 && hostFile.contents.find("[discord]") != std::string::npos, "Saving wrote a Discord application ID");
+        // [mods]: texture packs on, their folder beside the settings file, no
+        // order or switched-off packs and no texture dumps by default; each
+        // round trips, and the folder is written in quotes.
+        Require(defaults.texture_packs && defaults.texture_folder == "texture_packs" && defaults.texture_pack_order.empty()
+                && defaults.texture_packs_off.empty() && !defaults.dump_textures, "Texture pack defaults");
+        Require(ResolveTextureFolder(defaults, directory / "recharged.ini") == directory / "texture_packs",
+                "The texture packs folder counts from the settings file");
+        std::ofstream(path) << "[mods]\ntexture_packs = false\ntexture_folder = \"../packs\"\n"
+                               "texture_pack_order = R4Q.zip | HD Pack\ntexture_packs_off = Old Pack\ndump_textures = true\n";
+        auto modsFile = LoadConfig(path);
+        const auto& mods = modsFile.settings;
+        Require(!mods.texture_packs && mods.texture_folder == "../packs" && mods.texture_pack_order == "R4Q.zip | HD Pack"
+                && mods.texture_packs_off == "Old Pack" && mods.dump_textures, "Texture pack settings read");
+        Require(ResolveTextureFolder(mods, directory / "recharged.ini") == directory / "../packs",
+                "A relative texture packs folder");
+        auto modsSettings = mods;
+        modsSettings.texture_packs = true;
+        modsSettings.texture_folder = "/srv/packs";
+        modsSettings.texture_pack_order.clear();
+        modsSettings.texture_packs_off = "R4Q.zip";
+        modsSettings.dump_textures = false;
+        SaveConfig(modsFile, modsSettings);
+        const auto modsReloaded = LoadConfig(path);
+        Require(modsReloaded.settings.texture_packs && modsReloaded.settings.texture_folder == "/srv/packs"
+                && modsReloaded.settings.texture_pack_order.empty() && modsReloaded.settings.texture_packs_off == "R4Q.zip"
+                && !modsReloaded.settings.dump_textures
+                && modsReloaded.contents.find("texture_folder = \"/srv/packs\"") != std::string::npos,
+                "Texture pack settings round trip");
+        std::ofstream(path) << "[mods]\ntexture_folder =\n";
+        Require(LoadConfig(path).settings.texture_folder == "texture_packs", "An empty texture packs folder is the default");
         // Old title-bar settings are accepted, ignored and retired on explicit save.
         std::ofstream(path) << "[display]\nshow_fps = true\nfps_overlay = false\ncustom = preserved\n";
         auto legacyFps = LoadConfig(path);
@@ -445,7 +475,8 @@ int main()
                                     "[display]\ngpu = 0000:1f99\n", "[display]\ngpu = 10de:1f9\n",
                                     "[launcher]\ntest_build = pr72\n", "[discord]\nrich_presence = maybe\n",
                                     "[discord]\napplication_id = 1234\n",
-                                    "[discord]\napplication_id = 12345678901234567x8\n"})
+                                    "[discord]\napplication_id = 12345678901234567x8\n",
+                                    "[mods]\ntexture_packs = maybe\n", "[mods]\ndump_textures = 2\n"})
         {
             std::ofstream(path) << invalid;
             Reject([&] { LoadConfig(path); });

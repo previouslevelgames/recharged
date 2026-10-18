@@ -176,6 +176,19 @@ struct Settings
     // instead of the build's own (testing; the ID is public, not a secret).
     // Read only: saving never writes it.
     std::string discord_application_id;
+    // [mods] HD texture packs (Dolphin's format): mods.texture_packs uses the
+    // packs (folders and .zip files) in mods.texture_folder (`texture_packs`
+    // beside the settings file by default; relative paths count from the
+    // settings file, like the disc). mods.texture_pack_order lists pack names
+    // first to last ("A | B"; the first one wins where two replace the same
+    // texture; packs not listed follow by name), mods.texture_packs_off the
+    // packs switched off. mods.dump_textures saves the game's textures to
+    // data/texture_dumps for pack makers.
+    bool texture_packs = true;
+    std::string texture_folder = "texture_packs";
+    std::string texture_pack_order;
+    std::string texture_packs_off;
+    bool dump_textures = false;
     // [gameplay]: game tweaks (kGameTweaks order), off by default except the
     // recommended ones.
     std::array<bool, kGameTweaks.size()> tweaks = DefaultGameTweaks();
@@ -225,4 +238,6 @@ std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::fil
 std::filesystem::path LoadDiscPath(const std::filesystem::path& config);
 // The game folder's path: a relative one counts from the settings file.
 std::filesystem::path ResolveGameFolder(const Settings& settings, const std::filesystem::path& config);
+// The texture packs folder's path: a relative one counts from the settings file.
+std::filesystem::path ResolveTextureFolder(const Settings& settings, const std::filesystem::path& config);
 }

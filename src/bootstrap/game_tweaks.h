@@ -83,7 +83,7 @@ inline constexpr std::array<GameTweakInfo, 13> kGameTweaks{{
     {GameTweak::RobotGoalies, "robot_goalies", "Robot goalies",
      "Both goalies wear the robot Kritter skin of the Super Team from Super Mario Strikers, which the game's disc "
      "still holds unused: red lens eyes, metal plating and the robot jersey. Only the look changes."},
-    {GameTweak::SuperTeam, "super_team", "Super Team",
+    {GameTweak::SuperTeam, "super_team", "Super Team (Work in Progress)",
      "A team's captain and sidekicks become the robots of the Super Team from Super Mario Strikers, fitted to each "
      "character's size. Needs a Super Mario Strikers (GameCube) disc image. Bowser, Petey Piranha and Boo keep "
      "their own look; only the look changes."},

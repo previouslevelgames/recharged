@@ -77,6 +77,10 @@ bool ReopenLauncher(const char* reason)
                      std::system_category().message(int(GetLastError())).c_str());
         return true;
     }
+    // This process has the user's last input (the game window closing):
+    // Windows lets only it hand the foreground on, so the launcher can come
+    // to the front instead of opening behind other windows.
+    AllowSetForegroundWindow(process.dwProcessId);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
 #else

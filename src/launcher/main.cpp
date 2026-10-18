@@ -35,6 +35,7 @@
 #include "platform/path.h"
 #include "platform/save_import.h"
 #include "platform/shader_cache.h"
+#include "platform/texture_packs.h"
 #include "platform/session_log.h"
 #include "platform/gamepad_bindings.h"
 #include "platform/graphics_cards.h"
@@ -304,7 +305,7 @@ bool SafeGameId(const std::string& id)
 }
 
 enum class NoticeKind { Info, Success, Warning, Error };
-enum class FolderPurpose { SaveFolder, DolphinSave, GameFolder };
+enum class FolderPurpose { SaveFolder, DolphinSave, GameFolder, TextureFolder };
 
 // The save a release keeps: its title and the identity the runtime gives its
 // storage (InitializeNativeFilesystemForDisc in original_game.cpp).
@@ -447,6 +448,11 @@ public:
         const char* video = SDL_GetCurrentVideoDriver();
         const bool headless = video && (std::string(video) == "dummy" || std::string(video) == "offscreen");
         if (!capture_ || (!options_.screenshot.empty() && !headless)) SDL_ShowWindow(window_);
+#ifdef _WIN32
+        // Reopened by a game that closed (launcher.reopen_after_game): come to
+        // the front, which the game allowed, rather than behind other windows.
+        if (!capture_) SDL_RaiseWindow(window_);
+#endif
         if (config_ok_ && !EffectiveLaunch().disc_path.empty() && !options_.smoke_test) CheckDisc();
         StartDiscSearch();
 
@@ -467,7 +473,10 @@ public:
                     RefreshGamepad();
                 if (event.type == SDL_EVENT_DISPLAY_ADDED || event.type == SDL_EVENT_DISPLAY_REMOVED)
                     RefreshDisplays();
-                if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
+                // On the Gameplay page a dropped texture pack is added; anything
+                // else is a game image or folder, as on the other pages.
+                if (event.type == SDL_EVENT_DROP_FILE && event.drop.data
+                    && !(page_ == PageGameplay && config_ok_ && AddTexturePack(PathFromUtf8(event.drop.data))))
                     SelectDisc(event.drop.data);
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && capture_action_ >= 0)
                     CaptureKey(event.key.scancode);
@@ -516,7 +525,8 @@ public:
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
             const bool update_settled = update_preview_ || (!UpdateBusy() && !(update_capture_install_ && update_.offer));
             if (!options_.screenshot.empty() && frame >= 12
-                && ((!pending_ && !searching_ && !library_scanning_ && !candidate_pending_ && update_settled)
+                && ((!pending_ && !searching_ && !library_scanning_ && !candidate_pending_ && !texture_scanning_
+                     && update_settled)
                     || frame > 600))
             {
                 SDL_SetRenderScale(renderer_, 1.0f, 1.0f);
@@ -2396,6 +2406,7 @@ private:
     {
         if (page_ != PageControls && keyboard_view_) CloseKeyboardView();
         if (page_ != PageControls && gamepad_view_) CloseGamepadView();
+        if (page_ != PageGameplay) texture_page_open_ = false;
         // Bluetooth inquiries can disturb other Bluetooth devices: search only
         // while the Controls page is open (never in development captures).
         bluetooth_search_.SetActive(page_ == PageControls && config_ok_ && draft_.bluetooth_search && !capture_);
@@ -3115,6 +3126,12 @@ private:
         if (folder_purpose_ == FolderPurpose::GameFolder)
         {
             SelectGameFolder(PathFromUtf8(chosen));
+            return;
+        }
+        if (folder_purpose_ == FolderPurpose::TextureFolder)
+        {
+            draft_.texture_folder = SettingsPath(PathFromUtf8(chosen));
+            dirty_ = true;
             return;
         }
         const auto save = mscharged::platform::ResolveDolphinSave(PathFromUtf8(chosen), Release().title_id,
@@ -5409,14 +5426,17 @@ private:
         }
         const auto& recenter_binding = bindings[GamepadActionRecenterPointer];
         const bool recenter = platform::GamepadBindingHeld(pad, recenter_binding, profile.trigger_press);
-        if (recenter && !gyro_preview_recenter_held_) gyro_preview_x_ = gyro_preview_y_ = 0.5f;
+        const Uint64 now = SDL_GetTicksNS();
+        const float seconds = gyro_preview_ns_ ? float(double(now - gyro_preview_ns_) * 1e-9) : 0.0f;
+        gyro_preview_ns_ = now;
+        const auto turn = platform::TakeGyroTurn(gyro_preview_motion_, seconds);
+        if (recenter && !gyro_preview_recenter_held_) CentreGyroPreview();
+        else platform::MoveGyroPointer(gyro_preview_x_, gyro_preview_y_, turn, profile.gyro_speed, 9.0f / 16.0f);
         gyro_preview_recenter_held_ = recenter;
-        platform::MoveGyroPointer(gyro_preview_x_, gyro_preview_y_, platform::TakeGyroTurn(gyro_preview_motion_),
-                                  profile.gyro_speed, 9.0f / 16.0f);
         ImGui::Dummy(Dp(0, 8));
         const float width = std::min(ImGui::GetContentRegionAvail().x, Dp(320)), height = width * 9.0f / 16.0f;
         const ImVec2 origin = ImGui::GetCursorScreenPos(), end{origin.x + width, origin.y + height};
-        if (ImGui::InvisibleButton("##gyro_preview", {width, height})) gyro_preview_x_ = gyro_preview_y_ = 0.5f;
+        if (ImGui::InvisibleButton("##gyro_preview", {width, height})) CentreGyroPreview();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click to centre the pointer");
         auto* draw = ImGui::GetWindowDrawList();
         draw->AddRectFilled(origin, end, Col(color::field), Dp(8));
@@ -5456,8 +5476,16 @@ private:
         }
         gyro_preview_pad_ = nullptr;
         gyro_preview_motion_ = {};
+        gyro_preview_ns_ = 0;
         gyro_preview_x_ = gyro_preview_y_ = 0.5f;
         gyro_preview_recenter_held_ = false;
+    }
+
+    // Puts the preview's pointer back in the middle.
+    void CentreGyroPreview()
+    {
+        gyro_preview_x_ = gyro_preview_y_ = 0.5f;
+        platform::ClearGyroTurn(gyro_preview_motion_);
     }
 
     // Both sticks and triggers of the page's gamepad, live, with `profile`'s
@@ -5726,14 +5754,476 @@ private:
         }
         EndCard();
 
-        BeginCard("##mods", "Mods", "Coming later", Icon::Sliders);
-        TextWrappedColored(CurrentFonts().body, color::text,
-            "Texture packs and script mods will be managed here.");
+        ModsCard();
+    }
+
+    // ------------------------------------------------------- texture packs
+    // The packs in the texture packs folder, read in the background when the
+    // Gameplay page opens, the folder changes, a pack is added or Refresh is chosen.
+    void PollTexturePacks()
+    {
+        if (texture_scanning_ && texture_scan_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            texture_packs_ = texture_scan_.get();
+            texture_scanning_ = false;
+        }
+        if (pack_copy_.valid() && pack_copy_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            const std::string error = pack_copy_.get();
+            if (error.empty()) Notice(pack_copy_name_ + " was added to your texture packs.", NoticeKind::Success);
+            else Notice(error, NoticeKind::Error);
+            pack_copy_name_.clear();
+            texture_rescan_ = true;
+        }
+        const bool opened = !texture_page_open_;
+        texture_page_open_ = true;
+        const auto folder = TextureFolder();
+        if (opened || PathUtf8(folder) != texture_scanned_folder_) texture_rescan_ = true;
+        if (texture_rescan_ && !texture_scanning_)
+        {
+            texture_rescan_ = false;
+            texture_scanned_folder_ = PathUtf8(folder);
+            texture_scanning_ = true;
+            texture_scan_ = std::async(std::launch::async, [folder] { return platform::FindTexturePacks(folder); });
+        }
+    }
+
+    fs::path TextureFolder() const { return ResolveTextureFolder(draft_, file_.path).lexically_normal(); }
+
+    // The packs in the player's order (mods.texture_pack_order).
+    std::vector<platform::TexturePack> OrderedTexturePacks() const
+    {
+        return platform::OrderTexturePacks(texture_packs_, platform::SplitPackNames(draft_.texture_pack_order));
+    }
+
+    void MoveTexturePack(std::vector<platform::TexturePack> packs, std::size_t from, std::size_t to)
+    {
+        if (from >= packs.size() || to >= packs.size() || from == to) return;
+        auto pack = std::move(packs[from]);
+        packs.erase(packs.begin() + std::ptrdiff_t(from));
+        packs.insert(packs.begin() + std::ptrdiff_t(to), std::move(pack));
+        std::vector<std::string> names;
+        for (const auto& item : packs) names.push_back(item.name);
+        draft_.texture_pack_order = platform::JoinPackNames(names);
+        dirty_ = true;
+    }
+
+    void SetTexturePackOn(const std::string& name, bool on)
+    {
+        auto off = platform::SplitPackNames(draft_.texture_packs_off);
+        off.erase(std::remove(off.begin(), off.end(), name), off.end());
+        if (!on) off.push_back(name);
+        draft_.texture_packs_off = platform::JoinPackNames(off);
+        dirty_ = true;
+    }
+
+    // A folder or .zip file dropped onto the Gameplay page: a pack is copied
+    // into the texture packs folder in the background. False when it is none.
+    bool AddTexturePack(const fs::path& source)
+    {
+        const auto pack = platform::ProbeTexturePack(source);
+        if (!pack) return false;
+        const fs::path folder = TextureFolder();
+        std::error_code error;
+        if (fs::equivalent(source.parent_path(), folder, error))
+            Notice(pack->name + " is already in your texture packs folder.", NoticeKind::Info);
+        else if (pack_copy_.valid())
+            Notice("Wait until " + pack_copy_name_ + " is added.", NoticeKind::Warning);
+        else if (fs::exists(folder / source.filename(), error))
+            Notice("Your texture packs folder already has a " + pack->name + ".", NoticeKind::Warning);
+        else
+        {
+            pack_copy_name_ = pack->name;
+            pack_copy_textures_ = pack->textures;
+            pack_copy_ = std::async(std::launch::async, [source, folder] { return CopyTexturePack(source, folder); });
+        }
+        return true;
+    }
+
+    // Copies under a hidden name first, so the folder never lists half a pack.
+    static std::string CopyTexturePack(const fs::path& source, const fs::path& folder)
+    {
+        std::error_code error;
+        fs::create_directories(folder, error);
+        if (error) return "Cannot create " + PathUtf8(folder) + ": " + error.message();
+        const auto name = source.filename();
+        const auto temporary = folder / PathFromUtf8("." + PathUtf8(name) + ".adding");
+        fs::remove_all(temporary, error);
+        error.clear();
+        if (fs::is_directory(source, error))
+            fs::copy(source, temporary, fs::copy_options::recursive, error);
+        else if (!error)
+            fs::copy_file(source, temporary, error);
+        if (!error) fs::rename(temporary, folder / name, error);
+        if (!error) return {};
+        std::error_code ignored;
+        fs::remove_all(temporary, ignored);
+        return "Cannot add " + PathUtf8(name) + ": " + error.message();
+    }
+
+    void ModsCard()
+    {
+        const auto& fonts = CurrentFonts();
+        PollTexturePacks();
+        BeginCard("##mods", "Mods", "Texture packs replace the game's textures with sharper ones. They change only "
+                                    "how the game looks.", Icon::Sliders);
+        if (BeginRows("##mods_rows"))
+        {
+            Row("Texture packs", "Texture packs made for Dolphin, from the folder below. Drop a pack's folder or .zip "
+                                 "file onto this page to add it.");
+            if (Toggle("##texture_packs", &draft_.texture_packs)) dirty_ = true;
+            EndRows();
+        }
+        ImGui::BeginDisabled(!draft_.texture_packs);
+        TextureFolderPicker();
+        ImGui::Dummy({0, Dp(4)});
+        if (!pack_copy_name_.empty()) PackCopyLine();
+        const auto packs = OrderedTexturePacks();
+        if (!packs.empty())
+        {
+            TexturePackTable(packs);
+            if (packs.size() > 1)
+                TextWrappedColored(fonts.caption, color::dim,
+                                   "Drag a pack to change the order: where two packs replace the same texture, the "
+                                   "higher one wins.");
+        }
+        else if (pack_copy_name_.empty())
+            PackDropZone();
+        ImGui::EndDisabled();
+
+        ImGui::Dummy({0, Dp(6)});
+        if (BeginRows("##dump_rows"))
+        {
+            Row("Dump textures", "For pack makers: each texture no pack replaces is saved to data/texture_dumps, "
+                                 "named as texture packs need it. Takes disk space and can make the game stutter.");
+            if (Toggle("##dump_textures", &draft_.dump_textures)) dirty_ = true;
+            const fs::path dumps = DataFolder(base_) / "texture_dumps";
+            std::error_code error;
+            ImGui::SameLine(0, Dp(12));
+            if (GhostButton("open_dumps", "Open", {GhostWidth("Open", Icon::Folder), Dp(30)},
+                            fs::is_directory(dumps, error), Icon::Folder))
+                OpenPath(dumps);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", fs::is_directory(dumps, error) ? PathUtf8(dumps).c_str()
+                                                                       : "Made when the game first dumps a texture.");
+            EndRows();
+        }
         ImGui::Dummy({0, Dp(2)});
-        TextWrappedColored(CurrentFonts().caption, color::muted,
-            "Tweaks apply when the game starts. For a bug report, try again with them off (or start the game "
-            "with --no-tweaks) to check whether a tweak is involved.");
+        TextWrappedColored(fonts.caption, color::muted,
+            "Tweaks and texture packs apply when the game starts. For a bug report, try again with the tweaks off "
+            "(or start the game with --no-tweaks) and without texture packs to check whether one of them is "
+            "involved.");
         EndCard();
+    }
+
+    // The texture packs folder as one picker, like the game folder's: click it
+    // (or Change...) to select another; Open shows it (and makes it).
+    void TextureFolderPicker()
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(60);
+        const ImVec2 max{pos.x + width, pos.y + height};
+        const float center = pos.y + height * 0.5f;
+        bool browsing;
+        { std::lock_guard<std::mutex> lock(folder_dialog_->mutex); browsing = folder_dialog_->active; }
+        const bool can_select = !browsing && config_ok_ && draft_.texture_packs;
+
+        const char* change = "Change...";
+        const char* open = "Open";
+        const float change_w = TextSize(fonts.body, change).x + Dp(32);
+        const float open_w = GhostWidth(open, Icon::Folder);
+        const float change_x = max.x - Dp(12) - change_w;
+        const float open_x = change_x - Dp(8) - open_w;
+        const float refresh_x = open_x - Dp(4) - Dp(34);
+
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::BeginDisabled(!can_select);
+        const bool picked = ImGui::InvisibleButton("##texture_folder", {refresh_x - Dp(10) - pos.x, height});
+        ImGui::EndDisabled();
+        const float hover = Animate(ImGui::GetID("##texture_folder_hover"), ImGui::IsItemHovered() && can_select, 12.0f);
+        draw->AddRectFilled(pos, max, Col(Mix(Mix(color::field, color::card, 0.45f), color::field, hover)), Dp(12));
+        draw->AddRect(pos, max, Col(Mix(color::border, color::accent, 0.45f * hover)), Dp(12), 0, Dp(1));
+        const ImVec2 box{pos.x + Dp(12), center - Dp(18)};
+        draw->AddRectFilled(box, {box.x + Dp(36), box.y + Dp(36)}, Col(color::accent, 0.12f + 0.06f * hover), Dp(10));
+        DrawIcon(draw, Icon::Folder, {box.x + Dp(18), box.y + Dp(18)}, Dp(18), Col(color::accent));
+
+        const fs::path path = TextureFolder();
+        std::error_code error;
+        std::string status;
+        ImVec4 tint = color::muted;
+        if (texture_scanning_ && texture_packs_.empty())
+        {
+            status = "Looking for texture packs...";
+            tint = color::info;
+        }
+        else if (!fs::is_directory(path, error))
+            status = "Not there yet: Open makes it, and a dropped pack goes into it";
+        else
+        {
+            const auto off = platform::SplitPackNames(draft_.texture_packs_off);
+            std::size_t used = 0, textures = 0;
+            for (const auto& pack : texture_packs_)
+                if (pack.error.empty() && std::find(off.begin(), off.end(), pack.name) == off.end())
+                {
+                    ++used;
+                    textures += pack.textures;
+                }
+            const auto count = texture_packs_.size();
+            status = count == 0 ? "No texture packs"
+                : std::to_string(count) + (count == 1 ? " pack" : " packs") + ", " + std::to_string(used) + " in use ("
+                    + std::to_string(textures) + " textures)";
+        }
+        const float text_x = box.x + Dp(36 + 14), text_w = std::max(Dp(80), refresh_x - Dp(14) - text_x);
+        const float lines = FontSize(fonts.label) + Dp(3) + FontSize(fonts.caption);
+        const float top = center - lines * 0.5f;
+        DrawPath(draw, fonts.label, {text_x, top}, text_w, color::text, PathUtf8(path));
+        DrawClipped(draw, fonts.caption, {text_x, top + FontSize(fonts.label) + Dp(3)}, text_w, tint, status);
+        if (picked) BrowseFolder(FolderPurpose::TextureFolder, path);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\nClick to select another texture packs folder.",
+                                                      PathUtf8(path).c_str());
+
+        ImGui::SetCursorScreenPos({refresh_x, center - Dp(17)});
+        if (GhostButton("refresh_texture_packs", "", Dp(34, 34), config_ok_ && !texture_scanning_, Icon::Refresh))
+            texture_rescan_ = true;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Look for texture packs again.");
+        ImGui::SetCursorScreenPos({open_x, center - Dp(17)});
+        if (GhostButton("open_texture_folder", open, {open_w, Dp(34)}, config_ok_, Icon::Folder))
+        {
+            fs::create_directories(path, error);
+            if (error) Notice("Cannot create " + PathUtf8(path) + ": " + error.message(), NoticeKind::Error);
+            else
+            {
+                OpenPath(path);
+                texture_rescan_ = true;
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show the folder (it is made when missing).");
+        ImGui::SetCursorScreenPos({change_x, center - Dp(17)});
+        if (SecondaryButton("change_texture_folder", change, {change_w, Dp(34)}, can_select))
+            BrowseFolder(FolderPurpose::TextureFolder, path);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select another texture packs folder.");
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::Dummy({width, height});
+    }
+
+    // A pack being copied in (dropped onto the page).
+    void PackCopyLine()
+    {
+        const auto& fonts = CurrentFonts();
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float line = Dp(44);
+        Spinner({at.x + Dp(22), at.y + line * 0.5f}, Dp(7), Col(color::info));
+        const std::string text = "Adding " + pack_copy_name_ + " (" + std::to_string(pack_copy_textures_) + " textures)...";
+        DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x + Dp(44), at.y + (line - FontSize(fonts.body)) * 0.5f},
+                  Col(color::muted), text.c_str());
+        ImGui::Dummy({ImGui::GetContentRegionAvail().x, line});
+    }
+
+    // No packs yet: a dashed area that says where they come from.
+    void PackDropZone()
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(104);
+        const ImVec2 max{pos.x + width, pos.y + height};
+        draw->AddRectFilled(pos, max, Col(color::field, 0.35f), Dp(14));
+        // Dashes along the edges, drawn as small rectangles (the software
+        // renderer garbles long thin lines).
+        const float dash = Dp(8), gap = Dp(6), thick = Dp(1.2f), inset = Dp(14);
+        const ImU32 ink = Col(color::border, 1.0f);
+        for (float x = pos.x + inset; x + dash <= max.x - inset; x += dash + gap)
+        {
+            draw->AddRectFilled({x, pos.y}, {x + dash, pos.y + thick}, ink);
+            draw->AddRectFilled({x, max.y - thick}, {x + dash, max.y}, ink);
+        }
+        for (float y = pos.y + inset; y + dash <= max.y - inset; y += dash + gap)
+        {
+            draw->AddRectFilled({pos.x, y}, {pos.x + thick, y + dash}, ink);
+            draw->AddRectFilled({max.x - thick, y}, {max.x, y + dash}, ink);
+        }
+        const float cx = pos.x + width * 0.5f;
+        draw->AddCircleFilled({cx, pos.y + Dp(30)}, Dp(17), Col(color::accent, 0.12f));
+        DrawIcon(draw, Icon::Download, {cx, pos.y + Dp(30)}, Dp(18), Col(color::accent));
+        const char* title = "Drop a texture pack here";
+        const char* detail = "A pack's folder (such as R4Q) or its .zip file: it is copied into the folder above.";
+        DrawLabel(draw, fonts.label, {cx - TextSize(fonts.label, title).x * 0.5f, pos.y + Dp(54)}, Col(color::text), title);
+        DrawLabel(draw, fonts.caption, {cx - TextSize(fonts.caption, detail).x * 0.5f, pos.y + Dp(54) + FontSize(fonts.label) + Dp(4)},
+                  Col(color::muted), detail);
+        ImGui::Dummy({width, height});
+    }
+
+    void TexturePackTable(const std::vector<platform::TexturePack>& packs)
+    {
+        const auto& fonts = CurrentFonts();
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(7, 0));
+        ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, ImVec4{0, 0, 0, 0});
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4{0, 0, 0, 0});
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4{0, 0, 0, 0});
+        if (ImGui::BeginTable("##texture_packs_table", 5,
+                              ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_NoClip))
+        {
+            const auto fixed = ImGuiTableColumnFlags_WidthFixed;
+            ImGui::TableSetupColumn("ORDER", fixed, Dp(58));
+            ImGui::TableSetupColumn("PACK", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("TEXTURES", fixed, Dp(84));
+            ImGui::TableSetupColumn("IN USE", fixed, Dp(64));
+            ImGui::TableSetupColumn("##menu", fixed, Dp(34));
+            ImGui::TableNextRow(ImGuiTableRowFlags_Headers, Dp(24));
+            ImGui::PushFont(fonts.caption);
+            ImGui::PushStyleColor(ImGuiCol_Text, color::dim);
+            for (int column = 0; column < ImGui::TableGetColumnCount(); ++column)
+            {
+                ImGui::TableSetColumnIndex(column);
+                ImGui::TableHeader(ImGui::TableGetColumnName(column));
+            }
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+            if (const ImGuiTable* table = ImGui::GetCurrentTable())
+            {
+                const float y = ImGui::GetItemRectMax().y + Dp(3);
+                ImGui::GetWindowDrawList()->AddRectFilled({table->WorkRect.Min.x, y}, {table->WorkRect.Max.x, y + Dp(1)},
+                                                          Col(color::border));
+            }
+            const auto off = platform::SplitPackNames(draft_.texture_packs_off);
+            for (std::size_t n = 0; n < packs.size(); ++n) TexturePackRow(packs, n, off);
+            ImGui::EndTable();
+        }
+        ImGui::PopStyleColor(3);
+        ImGui::PopStyleVar();
+    }
+
+    void TexturePackRow(const std::vector<platform::TexturePack>& packs, std::size_t n,
+                        const std::vector<std::string>& off)
+    {
+        const auto& fonts = CurrentFonts();
+        const auto& pack = packs[n];
+        const bool storable = platform::StorablePackName(pack.name);
+        const bool readable = pack.error.empty();
+        const bool reorder = storable && packs.size() > 1;
+        bool on = readable && std::find(off.begin(), off.end(), pack.name) == off.end();
+        const float height = Dp(58);
+        ImGui::PushID(pack.name.c_str());
+        ImGui::TableNextRow(ImGuiTableRowFlags_None, height);
+        ImGui::TableSetColumnIndex(0);
+        const ImVec2 cell = ImGui::GetCursorScreenPos();
+        ImGui::Selectable("##row", false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
+                          {0, height});
+        const bool hovered = ImGui::IsItemHovered();
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImGuiTable* table = ImGui::GetCurrentTable();
+        const float left = table ? table->WorkRect.Min.x : cell.x;
+        const float right = table ? table->WorkRect.Max.x : cell.x + ImGui::GetContentRegionAvail().x;
+        const ImVec2 box_min{left, cell.y + Dp(3)}, box_max{right, cell.y + height - Dp(3)};
+        constexpr const char* kPayload = "RECHARGED_TEXTURE_PACK";
+        const ImGuiPayload* dragging = ImGui::GetDragDropPayload();
+        const bool moving = dragging && dragging->IsDataType(kPayload) && *static_cast<const int*>(dragging->Data) == int(n);
+        if (reorder && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoPreviewTooltip))
+        {
+            const int index = int(n);
+            ImGui::SetDragDropPayload(kPayload, &index, sizeof index);
+            ImGui::EndDragDropSource();
+        }
+        if (reorder && ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(
+                    kPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
+            {
+                const std::size_t from = std::size_t(*static_cast<const int*>(payload->Data));
+                if (from != n)
+                {
+                    // Where it lands: above this row moving up, below it moving down.
+                    const float y = from > n ? box_min.y - Dp(2) : box_max.y + Dp(1);
+                    draw->AddRectFilled({left + Dp(6), y}, {right - Dp(6), y + Dp(2)}, Col(color::accent), Dp(1));
+                }
+                if (payload->IsDelivery()) MoveTexturePack(packs, from, n);
+            }
+            ImGui::EndDragDropTarget();
+        }
+        const float hover = Animate(ImGui::GetID("##hover"), hovered || moving, 14.0f);
+        if (moving)
+            draw->AddRect(box_min, box_max, Col(color::accent, 0.6f), Dp(12), 0, Dp(1.2f));
+        if (hover > 0.0f) draw->AddRectFilled(box_min, box_max, Col(color::text, 0.05f * hover), Dp(12));
+        if (hovered && !dragging)
+            ImGui::SetTooltip("%s%s", PathUtf8(pack.path).c_str(), reorder ? "\nDrag to change the order." : "");
+        const float fade = on ? 1.0f : 0.55f;
+        const float center = cell.y + height * 0.5f;
+
+        // Order: a grip to drag it by, and its place.
+        const ImU32 grip = Col(color::dim, hovered && reorder ? 1.0f : 0.6f);
+        for (int row = -1; row <= 1; ++row)
+            for (int column = 0; column < 2; ++column)
+                draw->AddCircleFilled({cell.x + Dp(6 + 5.0f * float(column)), center + Dp(5.0f * float(row))}, Dp(1.5f),
+                                      grip);
+        const ImVec2 badge{cell.x + Dp(34), center};
+        draw->AddCircleFilled(badge, Dp(12), Col(n == 0 && on ? color::accent : color::border, n == 0 && on ? 0.18f : 0.7f));
+        const std::string place = std::to_string(n + 1);
+        const ImVec2 place_size = TextSize(fonts.caption, place.c_str());
+        DrawLabel(draw, fonts.caption, {badge.x - place_size.x * 0.5f, badge.y - place_size.y * 0.5f},
+                  Col(n == 0 && on ? color::accent : color::text), place.c_str());
+
+        // The pack: what it is, its name and its state.
+        ImGui::TableSetColumnIndex(1);
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float column = ImGui::GetContentRegionAvail().x;
+        const ImVec4 tint = readable ? color::accent : color::danger;
+        const ImVec2 icon{at.x, center - Dp(17)};
+        draw->AddRectFilled(icon, {icon.x + Dp(34), icon.y + Dp(34)}, Col(tint, 0.12f * fade), Dp(9));
+        DrawIcon(draw, pack.archive ? Icon::Archive : Icon::Folder, {icon.x + Dp(17), icon.y + Dp(17)}, Dp(17),
+                 Col(tint, fade));
+        const float text_x = at.x + Dp(46), text_w = column - Dp(48);
+        const float lines = FontSize(fonts.label) + Dp(3) + FontSize(fonts.caption);
+        const float top = center - lines * 0.5f;
+        DrawClipped(draw, fonts.label, {text_x, top}, text_w, Mix(color::muted, color::text, fade), pack.name);
+        std::string detail = pack.archive ? "Zip file" : "Folder";
+        ImVec4 detail_tint = color::muted;
+        if (!readable)
+        {
+            detail = "Cannot be read: " + pack.error;
+            detail_tint = color::danger;
+        }
+        else if (!on)
+            detail += ", not in use";
+        DrawClipped(draw, fonts.caption, {text_x, top + FontSize(fonts.label) + Dp(3)}, text_w, detail_tint, detail);
+
+        // Textures, and whether it is in use.
+        ImGui::TableSetColumnIndex(2);
+        const std::string textures = std::to_string(pack.textures);
+        DrawLabel(draw, fonts.body, {ImGui::GetCursorScreenPos().x, center - FontSize(fonts.body) * 0.5f},
+                  Col(Mix(color::dim, color::text, fade)), textures.c_str());
+        ImGui::TableSetColumnIndex(3);
+        ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, center - Dp(14)});
+        ImGui::BeginDisabled(!storable || !readable);
+        if (Toggle("##on", &on)) SetTexturePackOn(pack.name, on);
+        ImGui::EndDisabled();
+
+        // Its menu: the same moves without dragging (keyboard, gamepad), and its place on disk.
+        ImGui::TableSetColumnIndex(4);
+        ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, center - Dp(16)});
+        if (GhostButton("menu", "", Dp(32, 32), true, Icon::More)) ImGui::OpenPopup("pack_menu");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("More");
+        const float width = Dp(220);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(6, 6));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, Dp(10));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
+        if (ImGui::BeginPopup("pack_menu"))
+        {
+            ImGui::BeginDisabled(!reorder || n == 0);
+            if (MenuAction("up", "Move up", width)) MoveTexturePack(packs, n, n - 1);
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!reorder || n + 1 >= packs.size());
+            if (MenuAction("down", "Move down", width)) MoveTexturePack(packs, n, n + 1);
+            ImGui::EndDisabled();
+            MenuSeparator(width);
+            if (MenuAction("show", "Show in folder", width)) OpenPath(pack.path.parent_path());
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(3);
+        ImGui::PopID();
     }
 
     void AdvancedPage()
@@ -6038,6 +6528,7 @@ private:
     // its readings and the preview pointer (0..1 of the box).
     SDL_Gamepad* gyro_preview_pad_ = nullptr;
     platform::GyroMotion gyro_preview_motion_;
+    Uint64 gyro_preview_ns_ = 0;
     float gyro_preview_x_ = 0.5f, gyro_preview_y_ = 0.5f;
     bool gyro_preview_recenter_held_ = false, gyro_preview_drawn_ = false;
     bool wii_known_ = false;
@@ -6103,6 +6594,15 @@ private:
     std::shared_ptr<DialogResult> folder_dialog_ = std::make_shared<DialogResult>();
     std::shared_ptr<DialogResult> gamecube_dialog_ = std::make_shared<DialogResult>();
     FolderPurpose folder_purpose_ = FolderPurpose::SaveFolder;
+    // The texture packs folder's packs (Gameplay -> Mods), read in the background.
+    std::future<std::vector<platform::TexturePack>> texture_scan_;
+    std::vector<platform::TexturePack> texture_packs_;
+    std::string texture_scanned_folder_;
+    bool texture_scanning_ = false, texture_rescan_ = false, texture_page_open_ = false;
+    // A pack dropped onto the page, being copied into the folder: an error, or empty.
+    std::future<std::string> pack_copy_;
+    std::string pack_copy_name_;
+    std::size_t pack_copy_textures_ = 0;
     fs::path import_source_;
     bool import_prompt_ = false;
     // Update check and installation (#50).
