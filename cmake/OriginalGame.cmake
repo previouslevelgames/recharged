@@ -15,6 +15,7 @@ include(cmake/NativeModuleLoader.cmake)
 include(cmake/OriginalFrontendResetDiagnostic.cmake)
 include(cmake/OriginalFunctionPools.cmake)
 include(cmake/WiiStringFormat.cmake)
+include(cmake/WiiQsort.cmake)
 include(cmake/OriginalHBMWii16.cmake)
 include(cmake/NativeHBMDebug.cmake)
 include(cmake/NativeSystemSettings.cmake)
@@ -213,6 +214,8 @@ set_target_properties(mscharged_original_game_module_template PROPERTIES
     VISIBILITY_INLINES_HIDDEN ON)
 target_compile_features(mscharged_original_game_module_template PRIVATE cxx_std_20)
 target_link_libraries(mscharged_original_game_module_template PRIVATE charged_original_function_pool_abi)
+# Team.cpp sorts the fielders with the Wii's qsort natively (patch 0754).
+target_link_libraries(mscharged_original_game_module_template PRIVATE charged_wii_qsort)
 target_include_directories(mscharged_original_game_module_template BEFORE PRIVATE
     "${MSCHARGED_AURORA_PREPARED}/include")
 target_include_directories(mscharged_original_game_module_template PRIVATE

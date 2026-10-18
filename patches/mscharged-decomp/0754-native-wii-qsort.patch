@@ -1,0 +1,181 @@
+From: mscharged-port
+Subject: Sort with the Wii's qsort natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native libc compatibility
+
+qsort leaves the order of equal elements to the implementation, and the
+host libraries disagree: for two equal elements glibc keeps them as they
+are, while the Wii's MSL heapsort and Windows' UCRT swap them, and longer
+arrays differ further. The online draft sorts the teams by score
+(NetworkDraft::CompareDraftTeams), so two new players tie: a Linux and a
+Windows machine then each put their own team first, both draft at once and
+the match falls out of sync. cTeam::UpdateTeamAI sorts the fielders by
+their X position the same way during a match, and cGame orders each
+player's closest players by distance with nlQSort.
+
+Natively these calls and nlQSort use ChargedWii_qsort
+(src/platform/wii_qsort.h), the MSL qsort of the decomp built under its own
+name (cmake/WiiQsort.cmake), so every host sorts as the Wii and as Dolphin.
+The friend list, the ranking rows, the fonts and GameSpy's arrays take it
+too. The Wii build is unchanged.
+
+diff --git a/include/NL/nlAlgorithm.h b/include/NL/nlAlgorithm.h
+index 41349c4..1d2a398 100644
+--- a/include/NL/nlAlgorithm.h
++++ b/include/NL/nlAlgorithm.h
+@@ -2,6 +2,12 @@
+ #define NL_ALGORITHM_H
+ 
+ #include "stdlib.h"
++#if defined(MSCHARGED_NATIVE)
++// src/platform/wii_qsort.h, declared here so that every includer compiles
++// without the port's include path.
++extern "C" void ChargedWii_qsort(void* base, size_t count, size_t size,
++    int (*compare)(const void*, const void*));
++#endif
+ 
+ template <typename T, typename Key>
+ T* nlBSearch(const Key& key, T* array, int size)
+@@ -38,7 +44,12 @@ int nlDefaultQSortComparer(const T* pa, const T* pb)
+ template <typename T>
+ inline void nlQSort(T* array, int count, int (*comparefunc)(const T*, const T*))
+ {
++#if defined(MSCHARGED_NATIVE)
++    // cGame sorts the players by distance with it: ties must fall as on the Wii.
++    ChargedWii_qsort(array, count, sizeof(T), (int (*)(const void*, const void*))comparefunc);
++#else
+     qsort(array, count, sizeof(T), (int (*)(const void*, const void*))comparefunc);
++#endif
+ }
+ 
+ #endif // NL_ALGORITHM_H
+diff --git a/src/Game/NetworkDraft.cpp b/src/Game/NetworkDraft.cpp
+index 5f92004..2052d3e 100644
+--- a/src/Game/NetworkDraft.cpp
++++ b/src/Game/NetworkDraft.cpp
+@@ -17,6 +17,9 @@
+ #include <stddef.h>
+ #include <stdlib.h>
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/wii_qsort.h"
++#endif
+ 
+ static NetworkDraft* sNetworkDraft;
+ 
+@@ -96,7 +99,13 @@ void NetworkDraft::BeginSortedDraft(NetMessageDraft* message)
+         player.mPeerIndex = (s8)entry.mMachineIndex;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // CompareDraftTeams ties teams of the same score, and host qsorts order
++    // equal elements differently: every machine must sort as the Wii.
++    ChargedWii_qsort(mTeams, mTeamCount, sizeof(NetworkDraftTeam), CompareDraftTeams);
++#else
+     qsort(mTeams, mTeamCount, sizeof(NetworkDraftTeam), CompareDraftTeams);
++#endif
+     for (int teamIndex = 0; teamIndex < mTeamCount; ++teamIndex)
+     {
+         if (mTeams[teamIndex].mPlayers[0].mPeerIndex == GetLocalMachineIndex())
+diff --git a/src/Game/NetworkStats.cpp b/src/Game/NetworkStats.cpp
+index bbad55d..160c209 100644
+--- a/src/Game/NetworkStats.cpp
++++ b/src/Game/NetworkStats.cpp
+@@ -22,6 +22,9 @@
+ 
+ #include <stdlib.h>
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/wii_qsort.h"
++#endif
+ #include "Game/TweakValue.inl"
+ 
+ int g_nConnectToStatsAddress[4] = { 192, 168, 2, 188 };
+@@ -959,8 +962,13 @@ void NetworkRanking::SortLeaderboardResults(int count)
+             rows[i].mPlayer.CopyFrom(mLeaderboardPlayers[i]);
+             rows[i].mMetadata = mLeaderboardMetadata[i];
+         }
++#if defined(MSCHARGED_NATIVE)
++        ChargedWii_qsort(rows, count, sizeof(NetworkRankingSortRow),
++            CompareLeaderboardRows);
++#else
+         qsort(rows, count, sizeof(NetworkRankingSortRow),
+             CompareLeaderboardRows);
++#endif
+         for (int i = 0; i < count; ++i)
+         {
+             mLeaderboardPlayers[i].CopyFrom(rows[i].mPlayer);
+diff --git a/src/Game/SH/SHOnlineFriends.cpp b/src/Game/SH/SHOnlineFriends.cpp
+index 81395ae..cdd86da 100644
+--- a/src/Game/SH/SHOnlineFriends.cpp
++++ b/src/Game/SH/SHOnlineFriends.cpp
+@@ -42,6 +42,9 @@
+ #include "Game/FE/feOnlineError.h"
+ 
+ #include <stdlib.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/wii_qsort.h"
++#endif
+ #include "Game/FE/tlDefault.h"
+ 
+ typedef BasicString<unsigned short, Detail::TempStringAllocator> WideString;
+@@ -170,7 +173,11 @@ static inline void RefreshFriends(SHOnlineFriends* self)
+         self->UpdateFriend(i);
+     for (int i = 0; i < 64; ++i)
+         self->mSortedFriendRows[i] = &self->mFriendRows[i];
++#if defined(MSCHARGED_NATIVE)
++    ChargedWii_qsort(self->mSortedFriendRows, 64, sizeof(self->mSortedFriendRows[0]), SHOnlineFriends::CompareFriendStatus);
++#else
+     qsort(self->mSortedFriendRows, 64, sizeof(self->mSortedFriendRows[0]), SHOnlineFriends::CompareFriendStatus);
++#endif
+ }
+ 
+ void SHOnlineFriends::SceneCreated()
+diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
+index 0216bd4..6f89701 100644
+--- a/src/Game/Team.cpp
++++ b/src/Game/Team.cpp
+@@ -50,6 +50,7 @@
+ #include "Game/CharacterTriggers.h"
+ #if defined(MSCHARGED_NATIVE)
+ #include <revolution/os/OSHardware_fwd.h>
++#include "platform/wii_qsort.h"
+ #endif
+ 
+ cTeam* g_pTeams[2] = { NULL, NULL };
+@@ -624,7 +625,8 @@ void cTeam::UpdateTeamAI(float fDeltaT)
+ 
+ #if defined(MSCHARGED_NATIVE)
+     // The Wii element size 4 is sizeof(cFielder*); native pointers are wider.
+-    qsort(m_pFieldersByTeamRelativeX, 4, sizeof(m_pFieldersByTeamRelativeX[0]),
++    // Fielders level on X stay in the Wii's order on every host.
++    ChargedWii_qsort(m_pFieldersByTeamRelativeX, 4, sizeof(m_pFieldersByTeamRelativeX[0]),
+         CompareFieldersByTeamRelativeX);
+ #else
+     qsort(m_pFieldersByTeamRelativeX, 4, 4, CompareFieldersByTeamRelativeX);
+diff --git a/src/RVL_SDK/gamespy/darray.c b/src/RVL_SDK/gamespy/darray.c
+index e8cb3c8..177d705 100644
+--- a/src/RVL_SDK/gamespy/darray.c
++++ b/src/RVL_SDK/gamespy/darray.c
+@@ -10,6 +10,9 @@
+ #include "darray.h"
+ #include <stdlib.h>
+ #include <string.h>
++#if defined(MSCHARGED_NATIVE)
++#include "platform/wii_qsort.h"
++#endif
+ 
+ #ifdef _MFC_MEM_DEBUG
+ #define _CRTDBG_MAP_ALLOC 1
+@@ -211,7 +214,11 @@ void ArrayReplaceAt(DArray array, const void* newElem, int n) {
+ 
+ void ArraySort(DArray array, ArrayCompareFn comparator) {
+   GS_ASSERT(array)
++#if defined(MSCHARGED_NATIVE)
++  ChargedWii_qsort(array->list, (size_t)array->count, (size_t)array->elemsize, comparator);
++#else
+   qsort(array->list, (size_t)array->count, (size_t)array->elemsize, comparator);
++#endif
+ }
+ 
+ // GS_ASSERT will be raised by ArrayNth if fromindex out of range

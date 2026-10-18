@@ -550,3 +550,4 @@
 0751-native-gp-buddy-index-intptr.patch
 0752-native-online-friend-invitations.patch
 0753-fix-dwc-nastime-gcc-nativepointer-fix.patch
+0754-native-wii-qsort.patch
