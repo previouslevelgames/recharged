@@ -2,6 +2,7 @@ include_guard(GLOBAL)
 include(cmake/Network.cmake)
 include(cmake/OriginalModuleLinkage.cmake)
 include(cmake/OriginalWorldOwners.cmake)
+include(cmake/WiiQsort.cmake)
 
 option(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE
     "Admit the original DWC, GameSpy, NHTTP and NET sources in the frontend module" OFF)
@@ -144,6 +145,9 @@ function(mscharged_select_original_frontend_online target)
             list(APPEND _online_added "${_source}")
         endif()
     endforeach()
+    # GameSpy's arrays and the friend list sort with the Wii's qsort natively
+    # (patch 0754).
+    target_link_libraries("${target}" PRIVATE charged_wii_qsort)
     # Nothing outside the module calls the SDK, so every entry point is hidden
     # and --gc-sections drops those the game never reaches, as CodeWarrior's
     # linker did for the retail binary.
