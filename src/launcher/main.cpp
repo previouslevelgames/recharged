@@ -7,6 +7,7 @@
 #include "imgui_impl_sdlrenderer3.h"
 #include "imgui_stdlib.h"
 
+#include "bootstrap/antialiasing.h"
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
 #include "launcher/disc_search.h"
@@ -36,8 +37,10 @@
 #include "platform/shader_cache.h"
 #include "platform/session_log.h"
 #include "platform/gamepad_bindings.h"
+#include "platform/graphics_cards.h"
 #include "platform/gyro_pointer.h"
 #include "platform/key_bindings.h"
+#include "platform/launcher_reopen.h"
 #include "platform/wiimote_bluetooth.h"
 #include "platform/wiimote_hid.h"
 #ifdef MSCHARGED_HAS_GAME_STARTUP
@@ -385,6 +388,11 @@ public:
         page_ = options_.page;
         capture_ = options_.smoke_test || !options_.screenshot.empty();
         StartUpdates();
+#if !defined(__APPLE__)
+        // The PC's graphics cards, for Advanced -> Graphics card and the log.
+        graphics_cards_scan_ = std::async(std::launch::async, platform::ListGraphicsCards);
+        graphics_cards_listing_ = true;
+#endif
 
         // Created at the design size, then fitted once the window knows its
         // display's pixel density and content scale.
@@ -2029,6 +2037,12 @@ private:
 
     void PollResults()
     {
+        if (graphics_cards_listing_ && graphics_cards_scan_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            graphics_cards_listing_ = false;
+            graphics_cards_ = graphics_cards_scan_.get();
+            platform::SessionLogLine(platform::DescribeGraphicsCards(graphics_cards_));
+        }
         if (updates_)
         {
             update_ = updates_->Snapshot();
@@ -2115,6 +2129,45 @@ private:
         {
             searching_ = false;
             DiscSearchDone(search_.get());
+        }
+    }
+
+    // Advanced -> Graphics card (display.gpu): Automatic or one of the PC's cards.
+    void GraphicsCardRow()
+    {
+#if defined(_WIN32)
+        Row("Graphics card", "Automatic uses the fastest. A card switched off (in Device Manager or by a laptop's GPU "
+                             "mode) is not listed. Used the next time you start the game.");
+#else
+        Row("Graphics card", "Automatic uses the fastest; cards with a Vulkan driver are listed. Used the next time "
+                             "you start the game.");
+#endif
+        std::optional<GraphicsCardId> chosen;
+        try { chosen = ParseGraphicsCard(draft_.gpu); }
+        catch (const std::invalid_argument&) {}
+        std::string preview = "Automatic (fastest)";
+        if (chosen)
+        {
+            preview = graphics_cards_listing_ ? draft_.gpu : "Not found: " + draft_.gpu;
+            for (const auto& card : graphics_cards_)
+                if (card.id == *chosen) preview = card.name;
+        }
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo("##graphics_card", preview.c_str()))
+        {
+            if (ImGui::Selectable("Automatic (fastest)", !chosen)) { draft_.gpu = "auto"; dirty_ = true; }
+            for (const auto& card : graphics_cards_)
+            {
+                // Two cards of one name (some laptops list the same model twice) show their IDs.
+                bool twin = false;
+                for (const auto& other : graphics_cards_) twin = twin || (other.id != card.id && other.name == card.name);
+                const std::string label = card.name + (twin ? " (" + GraphicsCardSetting(card.id) + ")" : "")
+                    + "##" + GraphicsCardSetting(card.id);
+                if (ImGui::Selectable(label.c_str(), chosen && *chosen == card.id))
+                { draft_.gpu = GraphicsCardSetting(card.id); dirty_ = true; }
+            }
+            if (graphics_cards_listing_) ImGui::TextDisabled("Looking for graphics cards...");
+            ImGui::EndCombo();
         }
     }
 
@@ -3704,13 +3757,8 @@ private:
                           ImGui::GetContentRegionAvail().x))
             { draft_.resolution = resolutions[resolution]; dirty_ = true; }
 
-            Row("Antialiasing", "Smooths the jagged edges of 3D shapes (4x multisampling). Costs some GPU time.");
-            bool antialiasing = draft_.antialiasing == "4x";
-            if (Toggle("##antialiasing", &antialiasing))
-            {
-                draft_.antialiasing = antialiasing ? "4x" : "off";
-                dirty_ = true;
-            }
+            Row("Antialiasing", "Smooths jagged edges. The stronger kinds cost more GPU time.");
+            AntialiasingKindChoice();
 
             Row("VSync", "Synchronizes frames with your display to prevent tearing.");
             if (Toggle("##vsync", &draft_.vsync)) dirty_ = true;
@@ -3784,6 +3832,25 @@ private:
                 note += "This display refreshes at " + hz(display) + " Hz.";
         }
         if (!note.empty()) TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
+    }
+
+    void AntialiasingKindChoice()
+    {
+        const mscharged::AntialiasingChoice* selected = nullptr;
+        for (const auto& choice : kAntialiasingChoices)
+            if (draft_.antialiasing == choice.value) selected = &choice;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        if (ImGui::BeginCombo("##antialiasing", selected ? selected->label : draft_.antialiasing.c_str()))
+        {
+            for (const auto& choice : kAntialiasingChoices)
+                if (ImGui::Selectable(choice.label, selected == &choice))
+                { draft_.antialiasing = choice.value; dirty_ = true; }
+            ImGui::EndCombo();
+        }
+        // The chosen kind's note; the launcher reads only known values.
+        for (const auto& choice : kAntialiasingChoices)
+            if (draft_.antialiasing == choice.value)
+                TextWrappedColored(CurrentFonts().caption, color::muted, choice.description);
     }
 
     void FpsCornerChoice()
@@ -5687,6 +5754,8 @@ private:
                     if (ImGui::Selectable(names[i], draft_.ui_scale == values[i])) { draft_.ui_scale = values[i]; dirty_ = true; }
                 ImGui::EndCombo();
             }
+            Row("Reopen after the game", "Opens the launcher again when you close the game.");
+            if (Toggle("##reopen_after_game", &draft_.reopen_after_game)) dirty_ = true;
             EndRows();
         }
         EndCard();
@@ -5709,23 +5778,29 @@ private:
         BeginCard("##graphics", "Graphics", nullptr, Icon::Display);
         if (BeginRows("##graphics_rows"))
         {
-            Row("Graphics API", "Used the next time you start the game.");
 #if defined(_WIN32)
-            const std::string selected = draft_.backend == "auto" ? kGraphicsBackends.front().value : draft_.backend;
-            const char* preview = "Choose a graphics API";
+            // Automatic is its own choice: only it may switch to DirectX 12.
+            Row("Graphics API", "Automatic uses Vulkan, or DirectX 12 when Vulkan cannot start. Used the next time you start the game.");
+            const char* preview = draft_.backend == "auto" ? "Automatic" : "Choose a graphics API";
             for (const auto& choice : kGraphicsBackends)
-                if (selected == choice.value) preview = choice.label;
+                if (draft_.backend == choice.value) preview = choice.label;
             ImGui::SetNextItemWidth(-1);
             if (ImGui::BeginCombo("##graphics_api", preview))
             {
+                if (ImGui::Selectable("Automatic", draft_.backend == "auto"))
+                { draft_.backend = "auto"; dirty_ = true; }
                 for (const auto& choice : kGraphicsBackends)
-                    if (ImGui::Selectable(choice.label, selected == choice.value))
+                    if (ImGui::Selectable(choice.label, draft_.backend == choice.value))
                     { draft_.backend = choice.value; dirty_ = true; }
                 ImGui::EndCombo();
             }
 #else
+            Row("Graphics API", "Used the next time you start the game.");
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(4));
             Chip(kGraphicsBackends.front().label, color::info);
+#endif
+#if !defined(__APPLE__)
+            GraphicsCardRow();
 #endif
             EndRows();
         }
@@ -6016,6 +6091,10 @@ private:
     std::set<std::string> banner_failures_, banner_missing_;
     // The background search for a disc image when none is chosen.
     std::future<launcher::DiscSearchResult> search_;
+    // The PC's graphics cards (Advanced -> Graphics card), listed once at start.
+    std::future<std::vector<platform::GraphicsCard>> graphics_cards_scan_;
+    std::vector<platform::GraphicsCard> graphics_cards_;
+    bool graphics_cards_listing_ = false;
     bool searching_ = false;
     std::string search_from_;
     std::vector<std::string> displays_;
@@ -6350,12 +6429,13 @@ int main(int argc, char** argv)
         }
         std::optional<ResolvedLaunch> frontend_launch;
         int result;
-        fs::path restart;
+        fs::path restart, reopen;
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
             frontend_launch = launcher.FrontendLaunch();
             if (launcher.RestartRequested()) restart = launcher.RestartExecutable();
+            else if (frontend_launch && frontend_launch->settings.reopen_after_game) reopen = launcher.RestartExecutable();
         } // Destroy the launcher/ImGui/SDL session before Aurora initializes.
         if (!restart.empty())
         {
@@ -6369,6 +6449,8 @@ int main(int argc, char** argv)
         }
         SetAppName();
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+        // [launcher] reopen_after_game: closing the game starts this launcher again.
+        if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(reopen, argc, argv);
         if (frontend_launch) return RunOriginalGame(argc, argv, &*frontend_launch, true,
             OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #endif

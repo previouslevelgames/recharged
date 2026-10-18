@@ -98,10 +98,8 @@ std::string DiscMessageImageName(std::size_t index)
 }
 
 std::vector<DiscMessageImage> ExtractDiscMessageImages(const std::uint8_t* dol, std::size_t size,
-                                                       std::string_view dol_sha1, std::uint32_t table_address)
+                                                       std::uint32_t table_address)
 {
-    const std::string hash = platform::Sha1Hex(dol, size);
-    if (hash != dol_sha1) throw std::runtime_error("main.dol has SHA-1 " + hash + ", expected " + std::string(dol_sha1));
     const Dol executable(dol, size);
     const std::uint8_t* table = executable.Data(table_address, kDiscMessageImageCount * kEntrySize);
     if (!table) throw std::runtime_error("The disc-message table " + Hex(table_address) + " is not in a data section");
@@ -128,18 +126,32 @@ std::vector<DiscMessageImage> ExtractDiscMessageImages(const std::uint8_t* dol, 
     return images;
 }
 
-std::vector<DiscMessageImage> ReadDiscMessageImages(const std::filesystem::path& disc, const GameRelease& release)
+std::vector<DiscMessageImage> ExtractDiscMessageImages(const std::uint8_t* dol, std::size_t size,
+                                                       std::string_view dol_sha1, std::uint32_t table_address)
+{
+    const std::string hash = platform::Sha1Hex(dol, size);
+    if (hash != dol_sha1) throw std::runtime_error("main.dol has SHA-1 " + hash + ", expected " + std::string(dol_sha1));
+    return ExtractDiscMessageImages(dol, size, table_address);
+}
+
+DiscMessages ReadDiscMessages(const std::filesystem::path& disc, const GameRelease& release)
 {
     const std::vector<std::uint8_t> dol = ReadDiscMainDol(disc);
+    DiscMessages found;
+    found.dol_sha1 = platform::Sha1Hex(dol.data(), dol.size());
+    found.modified = found.dol_sha1 != release.dol_sha1;
     try
     {
-        return ExtractDiscMessageImages(dol.data(), dol.size(), release.dol_sha1, release.disc_message_table);
+        found.images = ExtractDiscMessageImages(dol.data(), dol.size(), release.disc_message_table);
     }
     catch (const std::runtime_error& error)
     {
-        throw std::runtime_error("The disc's game program is not the unmodified " + ReleaseLabel(release)
-                                 + " one; Recharged needs an unmodified disc image (" + error.what() + ")");
+        if (!found.modified)
+            throw std::runtime_error("The " + ReleaseLabel(release) + " main.dol has no readable disc-message images ("
+                                     + error.what() + ")");
+        found.missing = error.what();
     }
+    return found;
 }
 
 void InstallDiscMessageImages(const std::vector<DiscMessageImage>& images, DiscMessageImageStorage storage)
@@ -168,5 +180,64 @@ void InstallDiscMessageImages(const std::vector<DiscMessageImage>& images, DiscM
         throw std::runtime_error("The game module has more disc-message images than main.dol's table");
     for (std::size_t i = 0; i < kDiscMessageImageCount; ++i)
         std::memcpy(targets[i], images[i].data.data(), images[i].data.size());
+}
+
+std::vector<std::uint8_t> BlankDiscMessageImage(std::size_t packed_size, std::uint32_t width, std::uint32_t height)
+{
+    // Zero runs as (0, count) pairs from the start; the last byte, which the
+    // game always writes as is, stays 0 (with an even size it is also the
+    // count of a last, empty pair).
+    const std::uint64_t zeros = std::uint64_t(width) * height / 8;
+    const std::size_t pairs = packed_size ? (packed_size - 1) / 2 : 0;
+    if (!zeros || !packed_size || zeros - 1 > std::uint64_t(pairs) * 255)
+        throw std::runtime_error("No empty " + std::to_string(width) + "x" + std::to_string(height)
+                                 + " picture fits in " + std::to_string(packed_size) + " bytes");
+    std::vector<std::uint8_t> packed(packed_size, 0);
+    std::uint64_t left = zeros - 1;
+    for (std::size_t pair = 0; pair < pairs && left; ++pair)
+    {
+        const auto count = std::uint8_t(left < 255 ? left : 255);
+        packed[2 * pair + 1] = count;
+        left -= count;
+    }
+    return packed;
+}
+
+std::string InstallDiscMessages(const DiscMessages& found, DiscMessageImageStorage storage)
+{
+    const std::string count = std::to_string(kDiscMessageImageCount);
+    if (!found.modified)
+    {
+        InstallDiscMessageImages(found.images, storage);
+        return "Disc messages: " + count + " images from the disc's main.dol";
+    }
+    const std::string modified = "the disc's main.dol is modified (SHA-1 " + found.dol_sha1 + ")";
+    std::string reason = found.missing;
+    if (reason.empty())
+    {
+        try
+        {
+            InstallDiscMessageImages(found.images, storage);
+            return "Disc messages: " + count + " images; " + modified + ", its disc messages are intact";
+        }
+        catch (const std::runtime_error& error)
+        {
+            reason = error.what();
+        }
+    }
+    // Empty pictures of the module's own sizes, through the same checks.
+    std::vector<DiscMessageImage> blanks;
+    for (unsigned int i = 0; i < kDiscMessageImageCount; ++i)
+    {
+        unsigned long size = 0;
+        int width = 0, height = 0;
+        if (!storage(i, &size, &width, &height) || width <= 0 || height <= 0)
+            throw std::runtime_error("The game module has no storage for disc-message image " + DiscMessageImageName(i));
+        blanks.push_back({std::uint32_t(width), std::uint32_t(height),
+                          BlankDiscMessageImage(size, std::uint32_t(width), std::uint32_t(height))});
+    }
+    InstallDiscMessageImages(blanks, storage);
+    return "Disc messages: blank; " + modified + " without usable disc messages (" + reason
+        + "), so the disc error and loading screens stay empty";
 }
 } // namespace mscharged

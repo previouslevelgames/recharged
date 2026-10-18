@@ -1,0 +1,114 @@
+From: mscharged-port
+Subject: Use a chosen graphics card when the backend offers it
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+A player with two GPUs can pick one in the launcher. AuroraConfig gains the
+card's PCI vendor and device ID; after the usual request (the first of
+Dawn's adapter list), the same list's matching adapter replaces it, or the
+default choice stays with a warning. The instance is created through Dawn's
+own Instance object, which can list adapters. The adapter is also cleared
+before each request: a retry with another backend kept the failed one's.
+
+diff --git a/include/aurora/aurora.h b/include/aurora/aurora.h
+index f78538f..b62d84d 100644
+--- a/include/aurora/aurora.h
++++ b/include/aurora/aurora.h
+@@ -139,6 +139,14 @@ typedef struct {
+    * did, it returns a null window and the errors are in the log.
+    */
+   AuroraBackend fallbackBackend;
++
++  /**
++   * The graphics card to use, by PCI vendor and device ID; a zero vendor keeps
++   * the default choice (the high-performance adapter), as does a backend that
++   * has no such adapter.
++   */
++  uint32_t adapterVendorId;
++  uint32_t adapterDeviceId;
+ } AuroraConfig;
+ 
+ typedef struct {
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index bec508f..7139758 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -6,6 +6,7 @@
+ #include <array>
+ #include <cmath>
+ #include <cstdint>
++#include <memory>
+ #include <span>
+ #include <string>
+ #include <string_view>
+@@ -65,6 +66,10 @@ static TextureWithSampler g_resampledFrameBuffer;
+ 
+ static wgpu::Adapter g_adapter;
+ wgpu::Instance g_instance;
++#ifdef WEBGPU_DAWN
++// The same instance as Dawn's own object, which lists every adapter (for a chosen graphics card).
++static std::unique_ptr<dawn::native::Instance> g_dawnInstance;
++#endif
+ wgpu::AdapterInfo g_adapterInfo;
+ static wgpu::SurfaceCapabilities g_surfaceCapabilities;
+ bool g_hasCoreFeatures = false;
+@@ -801,7 +806,12 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     dawnInstanceDescriptor.platform = dawn_platform();
+     instanceDescriptor.nextInChain = &dawnInstanceDescriptor;
+ #endif
++#ifdef WEBGPU_DAWN
++    g_dawnInstance = std::make_unique<dawn::native::Instance>(&instanceDescriptor);
++    g_instance = wgpu::Instance(g_dawnInstance->Get());
++#else
+     g_instance = wgpu::CreateInstance(&instanceDescriptor);
++#endif
+     if (!g_instance) {
+       Log.error("Failed to create WebGPU instance");
+       return false;
+@@ -827,6 +837,7 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     Log.info("Requesting adapter\n  Feature level: {}\n  Power preference: {}\n  Backend: {}\n  Compatible surface: {}",
+              magic_enum::enum_name(options.featureLevel), magic_enum::enum_name(options.powerPreference),
+              magic_enum::enum_name(options.backendType), static_cast<bool>(options.compatibleSurface));
++    g_adapter = {}; // a retry with another backend must not keep the last one's adapter
+     bool requestAdapterCallbackCompleted = false;
+     wgpu::RequestAdapterStatus requestAdapterStatus = wgpu::RequestAdapterStatus::CallbackCancelled;
+     std::string requestAdapterMessage;
+@@ -862,6 +873,29 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+       }
+       return false;
+     }
++#ifdef WEBGPU_DAWN
++    // A chosen graphics card replaces the default choice, the first of the
++    // same list, when this backend offers it.
++    if (g_config.adapterVendorId != 0) {
++      bool chosen = false;
++      for (const auto& candidate : g_dawnInstance->EnumerateAdapters(&options)) {
++        wgpu::Adapter adapter(candidate.Get());
++        wgpu::AdapterInfo info;
++        adapter.GetInfo(&info);
++        if (info.vendorID == g_config.adapterVendorId && info.deviceID == g_config.adapterDeviceId) {
++          g_adapter = std::move(adapter);
++          chosen = true;
++          break;
++        }
++      }
++      if (chosen) {
++        Log.info("Using the chosen graphics card {:04x}:{:04x}", g_config.adapterVendorId, g_config.adapterDeviceId);
++      } else {
++        Log.warn("The chosen graphics card {:04x}:{:04x} is not available with {}; using the default choice",
++                 g_config.adapterVendorId, g_config.adapterDeviceId, magic_enum::enum_name(backend));
++      }
++    }
++#endif
+   }
+   g_adapter.GetInfo(&g_adapterInfo);
+   auto adapterName = g_adapterInfo.device;
+@@ -1122,6 +1156,9 @@ void shutdown() {
+   g_device = {};
+   g_adapter = {};
+   g_instance = {};
++#ifdef WEBGPU_DAWN
++  g_dawnInstance.reset();
++#endif
+   cache_shutdown();
+ }
+ 

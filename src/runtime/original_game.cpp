@@ -7,6 +7,8 @@
 #include "runtime/original_sh_menu_diagnostic.h"
 #include <aurora/aurora.h>
 #include <aurora/hardware.h>
+#include "bootstrap/antialiasing.h"
+#include "bootstrap/graphics_card.h"
 #include "bootstrap/launch_options.h"
 #include "platform/path.h"
 #include "platform/disc.h"
@@ -43,6 +45,7 @@
 #include "platform/console.h"
 #include "platform/log_window.h"
 #include "platform/session_log.h"
+#include "platform/launcher_reopen.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
 #include "platform/presence_snapshot.h"
@@ -357,8 +360,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         config.userPath=config.cachePath=dataPath.c_str();
         const auto graphicsResourcesPath=mscharged::PathUtf8(executableDirectory/"assets"/"graphics");
         config.resourcesPath=graphicsResourcesPath.c_str();
-        const auto& graphics=mscharged::ResolveGraphicsBackend(launch.settings.backend);
-        config.desiredBackend=mscharged::platform::AuroraGraphicsBackend(graphics.backend);
+        // display.backend: only auto names a second API for Aurora to try.
+        const auto* graphics=&mscharged::ResolveGraphicsBackend(launch.settings.backend);
+        const auto* graphicsFallback=mscharged::GraphicsBackendFallback(launch.settings.backend);
+        config.desiredBackend=mscharged::platform::AuroraGraphicsBackend(graphics->backend);
+        if(graphicsFallback)
+            config.fallbackBackend=mscharged::platform::AuroraGraphicsBackend(graphicsFallback->backend);
+        // display.gpu: a chosen card; Aurora keeps the fastest when the API does not offer it.
+        if(const auto card=mscharged::ParseGraphicsCard(launch.settings.gpu)) {
+            config.adapterVendorId=card->vendor;
+            config.adapterDeviceId=card->device;
+        }
         config.windowWidth=windowWidth;config.windowHeight=windowHeight;
         config.windowPosX=config.windowPosY=-1;
         config.mem1Size=MEM1_DEFAULT_SIZE;
@@ -370,8 +382,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         config.logCallback=mscharged::platform::ConsoleLog;
         config.enableBackendValidation=launch.settings.graphics_validation;
         config.vsync=launch.settings.vsync;
-        // display.antialiasing: Aurora multisampling of the original frame.
-        config.msaa=launch.settings.antialiasing=="4x"?4:1;
+        // display.antialiasing: Aurora multisampling of the original frame,
+        // optionally shaded per sample; FXAA is the scanout's (below).
+        const auto& antialiasing=mscharged::FindAntialiasing(launch.settings.antialiasing);
+        config.msaa=antialiasing.samples;
+        config.sampleShading=antialiasing.sample_shading;
         // The native Wii Remote driver (platform/wiimote_hid) owns physical
         // remotes, including DolphinBar mode 4 and its IR sensor bar; SDL's
         // own Wii HID driver must not open the same devices.
@@ -382,15 +397,21 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             +" "+std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", aspect "+shown.aspect
             +", 3D resolution "+shown.resolution+", antialiasing "+shown.antialiasing+", picture "+shown.picture
             +", vsync "+(shown.vsync?"on":"off")+", display "+std::to_string(shown.monitor)
+            +", graphics card "+shown.gpu
             +", performance overlay "+(shown.fps_overlay?shown.fps_overlay_corner:std::string("off"))
             +", graphics validation "+(shown.graphics_validation?"on":"off"));
         mscharged::platform::SessionLogLine(std::string("Startup: initializing ")
-            +graphics.label+" graphics and the window");
+            +graphics->label+" graphics and the window");
         shaderCacheUse.emplace(mscharged::platform::ShaderCacheDirectory(executableDirectory));
         const auto host=aurora_initialize(argc,argv,&config);
-        if(!host.window||host.backend!=config.desiredBackend)
-            throw std::runtime_error(std::string(graphics.label)
-                +" is unavailable. Select a different graphics API in the launcher.");
+        if(!host.window)
+            throw std::runtime_error(mscharged::GraphicsStartFailure(*graphics,graphicsFallback));
+        if(host.backend!=config.desiredBackend) {
+            Check(graphicsFallback && host.backend==config.fallbackBackend,"Aurora started an unrequested graphics API");
+            mscharged::platform::SessionLogLine(std::string("Startup: ")+graphics->label+" could not start; using "
+                +graphicsFallback->label);
+            graphics=graphicsFallback;
+        }
         mscharged::platform::SetApplicationIcon(host.window);
         mscharged::platform::SessionLogLine("Startup: graphics ready");
         mscharged::platform::LogSessionDisplays(host.window);
@@ -459,7 +480,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         }
         if(!graphicsPrepared) {
             aurora_shutdown();
-            mscharged::platform::SessionLogLine("=== Session ended during graphics preparation ===");
+            // [launcher] reopen_after_game: the launcher comes back instead (POSIX: in this process).
+            if(!mscharged::platform::ReopenLauncher("closed during graphics preparation, reopening the launcher"))
+                mscharged::platform::SessionLogLine("=== Session ended during graphics preparation ===");
             return 0;
         }
         bool retainedWindowClose=false;
@@ -498,11 +521,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::ConfigureNativeSystemIdleMode(nullptr,0);
         mscharged::platform::ConfigureNativeVideoHardware(eurgb60?VI_TVMODE_EURGB60_INT:VI_TVMODE_NTSC_INT,false);
         if(nativeSend) {
-            // display.picture: host desktop presentation of the original XFB.
+            // display.picture: host desktop presentation of the original XFB,
+            // with display.antialiasing's FXAA.
             mscharged::platform::ConfigureNativeVideoOutputHardware(settings,
                 launch.settings.picture=="sharp" ? mscharged::platform::NativeDesktopPicture::Sharp
                 : launch.settings.picture=="clean" ? mscharged::platform::NativeDesktopPicture::Clean
-                                                   : mscharged::platform::NativeDesktopPicture::Signal);
+                                                   : mscharged::platform::NativeDesktopPicture::Signal,
+                mscharged::FindAntialiasing(launch.settings.antialiasing).fxaa);
             // Arm source-owned recording before original constructors/commands.
             // This mode never uses diagnostic aurora_begin/end_frame.
             aurora_configure_native_gx_hardware();
@@ -814,17 +839,16 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // Disc-message images (the loading message and the DVD error screens):
         // the game module only reserves their arrays and the player's own
         // main.dol fills them, as the port ships no game data. Modules without
-        // this export still embed their images.
+        // this export still embed their images. A modified main.dol (a
+        // Wiimmfi-patched image) is fine: the game never runs it.
         if(auto* discMessages=reinterpret_cast<mscharged::DiscMessageImageStorage>(
-               mscharged::platform::FindNativeModuleSymbol(module,"charged_disc_message_image"))) {
-            mscharged::InstallDiscMessageImages(mscharged::ReadDiscMessageImages(launch.disc_path,*release),discMessages);
-            mscharged::platform::SessionLogLine("Disc messages: "+std::to_string(mscharged::kDiscMessageImageCount)
-                +" images from the disc's main.dol");
-        }
+               mscharged::platform::FindNativeModuleSymbol(module,"charged_disc_message_image")))
+            mscharged::platform::SessionLogLine(mscharged::InstallDiscMessages(
+                mscharged::ReadDiscMessages(launch.disc_path,*release),discMessages));
         auto entry=reinterpret_cast<int(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_original_entry"));
         if(!entry)throw std::runtime_error("Original source main export unavailable");
         mscharged::platform::Trace("Entering actual source main with real Aurora %s/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n",
-                     graphics.label);
+                     graphics->label);
         mscharged::platform::SessionLogLine("Startup: game module loaded, entering the game");
         std::fflush(nullptr);
         const int result=entry();
@@ -863,8 +887,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 mscharged::runtime::FrameTimingLog::FinishForProcessExit();
                 mscharged::runtime::LogGraphicsPipelineStats();
                 // The power-off path ends with TerminateProcessNow: hand the last lines to the log and console.
-                mscharged::platform::SessionLogLine("=== Session ended (original power off) ===");
-                mscharged::platform::FlushSessionLog();
+                // [launcher] reopen_after_game starts the launcher first (POSIX: in this process).
+                if(!mscharged::platform::ReopenLauncher("original power off, reopening the launcher")) {
+                    mscharged::platform::SessionLogLine("=== Session ended (original power off) ===");
+                    mscharged::platform::FlushSessionLog();
+                }
             };
             mscharged::platform::ConfigureNativeSTMPowerRemoval(removal);
             // The actual source entry/audio predicates and terminal policy now
@@ -983,7 +1010,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         if(frameTiming)
             frameTiming->SetContext(std::string("Session: version ")+mscharged::build::version+" ("
                 +mscharged::build::channel+")\nSettings: "+(shown.fullscreen?"fullscreen":"windowed")+" "
-                +std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", graphics "+graphics.label
+                +std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", graphics "+graphics->label
                 +", 3D resolution "+shown.resolution+", antialiasing "+shown.antialiasing
                 +", frame rate "+shown.frame_rate+", vsync "+(shown.vsync?"on":"off")
                 +", performance mode "+(shown.performance_mode?"on":"off")+"\n");
@@ -1252,11 +1279,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::SessionLogLine("=== Session ended ===");
         std::fflush(nullptr);mscharged::platform::TerminateProcessNow(0);
         } catch(const std::exception& e) {
-            mscharged::platform::ReportFatalError(std::string("Actual source diagnostic stopped with live owners: ")+e.what());
+            // The player's box shows only the reason; the log keeps the context.
+            mscharged::platform::SessionLogLine("The game stopped with its source owners still live.");
+            mscharged::platform::ReportFatalError(e.what());
             mscharged::platform::TerminateProcessNow(1);
         }
     }catch(const std::exception& e){
-        mscharged::platform::ReportFatalError(std::string("Actual source diagnostic stopped: ")+e.what());
+        mscharged::platform::ReportFatalError(e.what());
         mscharged::platform::TerminateProcessNow(1);
     }
 }

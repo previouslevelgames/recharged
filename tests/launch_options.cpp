@@ -1,3 +1,4 @@
+#include "bootstrap/antialiasing.h"
 #include "bootstrap/launch_options.h"
 #include "platform/path.h"
 #include <chrono>
@@ -196,6 +197,30 @@ int main()
                 "Launcher frame rate draft lost");
             std::ofstream(paced, std::ios::binary) << "[display]\nframe_rate = 25\n";
             Reject([&] { LoadConfig(paced); });
+            // display.antialiasing: every kind the launcher offers loads and
+            // maps to its own render settings; performance mode turns it off.
+            for (const auto& kind : kAntialiasingChoices)
+            {
+                std::ofstream(paced, std::ios::binary) << "[display]\nantialiasing = " << kind.value << "\n";
+                auto loaded = LoadConfig(paced);
+                Check(loaded.settings.antialiasing == kind.value
+                    && &FindAntialiasing(ResolveLaunch(loaded, {}).settings.antialiasing) == &kind,
+                    "Antialiasing kind not loaded");
+                loaded.settings.performance_mode = true;
+                Check(ResolveLaunch(loaded, {}, &loaded.settings).settings.antialiasing == "off",
+                    "Performance mode kept antialiasing");
+                Check((kind.samples == 1 || kind.samples == 4) && (!kind.sample_shading || kind.samples > 1),
+                    "Antialiasing kind needs a sample count WebGPU offers");
+            }
+            Check(&FindAntialiasing("off") == &kAntialiasingChoices.front() && !FindAntialiasing("off").fxaa
+                && FindAntialiasing("4x").samples == 4 && !FindAntialiasing("4x").fxaa
+                && FindAntialiasing("4x_ssaa").sample_shading && FindAntialiasing("fxaa").samples == 1,
+                "Antialiasing kinds changed meaning");
+            for (const char* bad : {"8x", "2x", "on", "ssaa", "4X"})
+            {
+                std::ofstream(paced, std::ios::binary) << "[display]\nantialiasing = " << bad << "\n";
+                Reject([&] { LoadConfig(paced); });
+            }
         }
         Settings draft = file.settings; draft.disc = "launcher.rvz"; draft.width = 1111; draft.aspect = "auto"; draft.language = "spanish";
         const auto edited = ResolveLaunch(file, {}, &draft);

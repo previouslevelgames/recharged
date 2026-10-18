@@ -192,6 +192,10 @@ void TestExtraction()
         Require(images[i].width == synthetic.images[i].width && images[i].height == synthetic.images[i].height
                     && images[i].data == synthetic.images[i].data,
                 "Image " + std::to_string(i) + " read back");
+    // Without a hash (a modified main.dol): the same images.
+    const auto unchecked = ExtractDiscMessageImages(synthetic.dol.data(), synthetic.dol.size(), synthetic.table);
+    for (std::size_t i = 0; i < images.size(); ++i)
+        Require(unchecked[i].data == images[i].data, "Image " + std::to_string(i) + " read without a hash");
 
     RequireThrows([&] { ExtractDiscMessageImages(synthetic.dol.data(), synthetic.dol.size(), std::string(40, '0'),
                                                  synthetic.table); },
@@ -305,6 +309,85 @@ void TestInstall()
     RequireThrows([&] { InstallDiscMessageImages(fewer, FakeStorage); }, "Expected 35", "Too few images");
 }
 
+// Empty pictures for a modified main.dol: exactly the array's size, and the
+// game's unpacking gives width * height / 8 zero bytes.
+void TestBlank()
+{
+    for (const std::uint32_t width : {8u, 16u, 128u, 640u})
+        for (const std::uint32_t height : {1u, 3u, 30u, 64u})
+        {
+            const std::size_t zeros = width * height / 8;
+            const std::size_t smallest = 1 + 2 * ((zeros - 1 + 254) / 255); // just enough (0, 255) pairs
+            for (const std::size_t size : {smallest, smallest + 1, smallest + 2, smallest + 7, 2 * zeros + 9})
+            {
+                const std::string name = std::to_string(width) + "x" + std::to_string(height) + " in "
+                    + std::to_string(size) + " bytes";
+                const Bytes packed = BlankDiscMessageImage(size, width, height);
+                Require(packed.size() == size, "Empty " + name + " fills the array");
+                Require(Unpack(packed, zeros) == Bytes(zeros, 0), "Empty " + name + " unpacks to zeros");
+            }
+            if (smallest > 1)
+                RequireThrows([&] { BlankDiscMessageImage(smallest - 1, width, height); }, "No empty",
+                              "No room for an empty " + std::to_string(width) + "x" + std::to_string(height));
+        }
+    RequireThrows([] { BlankDiscMessageImage(0, 8, 1); }, "No empty", "An empty array");
+}
+
+bool InstalledBlank(const std::vector<DiscMessageImage>& layout)
+{
+    for (std::size_t i = 0; i < layout.size(); ++i)
+    {
+        const std::size_t zeros = layout[i].width * layout[i].height / 8;
+        if (fake.arrays[i].size() != layout[i].data.size() || Unpack(fake.arrays[i], zeros) != Bytes(zeros, 0))
+            return false;
+    }
+    return true;
+}
+
+// The game never runs main.dol: a modified one (a Wiimmfi-patched image) is
+// used for its images when they fit, and gives empty pictures otherwise.
+void TestModifiedDol()
+{
+    const SyntheticDol synthetic = MakeDol();
+    const auto images = Extract(synthetic.dol, synthetic.table);
+    const std::string hash(40, 'a');
+    auto installed = [&] {
+        for (std::size_t i = 0; i < images.size(); ++i)
+            if (fake.arrays[i] != images[i].data) return false;
+        return true;
+    };
+
+    ResetFake(images);
+    std::string line = InstallDiscMessages({hash, false, images, {}}, FakeStorage);
+    Require(line == "Disc messages: 35 images from the disc's main.dol" && installed(), "The release's main.dol");
+
+    ResetFake(images);
+    line = InstallDiscMessages({hash, true, images, {}}, FakeStorage);
+    Require(line.find("modified (SHA-1 " + hash + ")") != std::string::npos && line.find("intact") != std::string::npos
+                && installed(),
+            "A modified main.dol with its images");
+
+    ResetFake(images);
+    line = InstallDiscMessages({hash, true, {}, "The disc-message table 0x804E70E0 is not in a data section"},
+                               FakeStorage);
+    Require(line.find("Disc messages: blank") == 0 && line.find("is not in a data section") != std::string::npos
+                && InstalledBlank(images),
+            "A modified main.dol without a table");
+
+    auto bigger = images;
+    bigger[5].data.push_back(0);
+    ResetFake(images);
+    line = InstallDiscMessages({hash, true, bigger, {}}, FakeStorage);
+    Require(line.find("Disc messages: blank") == 0 && line.find("HEADER_FatalErrorImage_fre") != std::string::npos
+                && InstalledBlank(images),
+            "A modified main.dol with images that do not fit");
+
+    ResetFake(images);
+    RequireThrows([&] { InstallDiscMessages({hash, false, bigger, {}}, FakeStorage); }, "HEADER_FatalErrorImage_fre",
+                  "The release's main.dol with images that do not fit");
+    Require(Untouched(), "Nothing copied for the release's main.dol that does not fit");
+}
+
 void TestNames()
 {
     Require(DiscMessageImageName(0) == "HEADER_FatalErrorImage_eng", "First name");
@@ -362,7 +445,10 @@ int ReadDisc(int argc, char** argv)
     {
         const GameRelease* release = FindRelease(id, std::uint8_t(revision));
         if (!release) throw std::runtime_error("Unknown release " + id + " revision " + std::to_string(revision));
-        images = ReadDiscMessageImages(disc, *release);
+        const DiscMessages found = ReadDiscMessages(disc, *release);
+        std::printf("%s\n", found.modified ? "modified main.dol" : "release main.dol");
+        if (found.images.empty()) std::printf("no images: %s\n", found.missing.c_str());
+        images = found.images;
     }
     else
         images = ExtractDiscMessageImages(dol.data(), dol.size(), sha1, table);
@@ -382,6 +468,8 @@ int main(int argc, char** argv)
         TestNames();
         TestExtraction();
         TestInstall();
+        TestBlank();
+        TestModifiedDol();
         std::printf("disc_message_images: %d checks passed\n", checks);
         return 0;
     }

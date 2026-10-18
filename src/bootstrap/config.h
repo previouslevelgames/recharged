@@ -44,6 +44,8 @@ struct Settings
     // presents every frame; the game keeps its own speed.
     std::string frame_rate = "original";
     std::string backend = "auto";
+    // display.gpu: auto (the fastest graphics card) or a card's PCI ID, such as 10de:1f99.
+    std::string gpu = "auto";
     std::string aspect = "16:9";
     // display.picture: soft (the TV signal, as on a Wii), clean (one smooth
     // pass to the window, no TV flicker filter) or sharp (square pixels).
@@ -53,8 +55,8 @@ struct Settings
     // effects, bloom, heat distortion, depth of field, stadium shadow volumes);
     // the 3D render size stays as chosen.
     bool performance_mode = false;
-    // display.antialiasing: off or 4x (Aurora multisampling of the game's
-    // frame; smooths polygon edges at any 3D resolution).
+    // display.antialiasing: off, fxaa, 4x (multisampling of the game's frame),
+    // 4x_fxaa or 4x_ssaa (supersampling); see kAntialiasingChoices.
     std::string antialiasing = "4x";
     // display.resolution: the game's 3D render size. window renders one pixel
     // per window pixel of the picture; native the Wii's 640x448; 2x-4x fixed
@@ -158,6 +160,9 @@ struct Settings
     std::string ui_scale = "auto";    // launcher.ui_scale: auto or a percentage (75 to 200)
     // launcher.check_updates: look for a newer build each time the launcher starts.
     bool check_updates = true;
+    // launcher.reopen_after_game: open the launcher again when a game started
+    // from it closes normally.
+    bool reopen_after_game = false;
     // launcher.update_channel: release (official releases), test (also test
     // builds of pull requests) or auto (where this build comes from).
     std::string update_channel = "auto";

@@ -1,0 +1,103 @@
+From: mscharged-port
+Subject: Try one fallback graphics backend; let the caller report a failure
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+0091 made a failed explicit backend abort inside aurora_initialize, so a
+player whose graphics driver Dawn rejects (Intel Vulkan on Windows below
+driver 101.2111) got a crash report instead of the reason. The caller now
+gets a null window and explains the failure itself. AuroraConfig gains
+fallbackBackend: one other backend tried after the desired one fails (the
+game's "auto" setting tries DirectX 12 after Vulkan); an explicit choice
+without it still never switches.
+
+diff --git a/include/aurora/aurora.h b/include/aurora/aurora.h
+index 30338f7..e6eef05 100644
+--- a/include/aurora/aurora.h
++++ b/include/aurora/aurora.h
+@@ -125,6 +125,14 @@ typedef struct {
+    * legacy preparation of every remembered/bundled configuration.
+    */
+   bool automaticPipelinePreparation;
++
++  /**
++   * Tried once when the explicit desiredBackend cannot start (no supported
++   * adapter, device or surface). BACKEND_AUTO, the zero default, tries no other
++   * backend. aurora_initialize reports the backend that started; when none
++   * did, it returns a null window and the errors are in the log.
++   */
++  AuroraBackend fallbackBackend;
+ } AuroraConfig;
+ 
+ typedef struct {
+diff --git a/lib/aurora.cpp b/lib/aurora.cpp
+index 4e8bec4..ba82ede 100644
+--- a/lib/aurora.cpp
++++ b/lib/aurora.cpp
+@@ -131,6 +131,30 @@ constexpr std::array PreferredBackendOrder{
+ constexpr std::array<AuroraBackend, 0> PreferredBackendOrder{};
+ #endif
+ 
++// For the fallback log line (magic_enum cannot reflect this C enum under Clang).
++constexpr const char* backend_name(AuroraBackend backend) {
++  switch (backend) {
++  case BACKEND_D3D11:
++    return "D3D11";
++  case BACKEND_D3D12:
++    return "D3D12";
++  case BACKEND_METAL:
++    return "Metal";
++  case BACKEND_VULKAN:
++    return "Vulkan";
++  case BACKEND_OPENGL:
++    return "OpenGL";
++  case BACKEND_OPENGLES:
++    return "OpenGL ES";
++  case BACKEND_WEBGPU:
++    return "WebGPU";
++  case BACKEND_NULL:
++    return "Null";
++  default:
++    return "Auto";
++  }
++}
++
+ bool g_initialFrame = false;
+ 
+ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexcept {
+@@ -178,6 +202,21 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+     }
+   }
+ 
++  // An explicit backend may name one fallback, never the whole preferred list.
++  if (!windowCreated && config.desiredBackend != BACKEND_AUTO && config.fallbackBackend != BACKEND_AUTO &&
++      config.fallbackBackend != config.desiredBackend) {
++    Log.warn("{} could not start; trying {}", backend_name(config.desiredBackend),
++             backend_name(config.fallbackBackend));
++    selectedBackend = config.fallbackBackend;
++    if (window::create_window(selectedBackend)) {
++      if (webgpu::initialize(selectedBackend, config.allowCpuAdapter)) {
++        windowCreated = true;
++      } else {
++        window::destroy_window();
++      }
++    }
++  }
++
+   if (!windowCreated && config.desiredBackend == BACKEND_AUTO) {
+     for (const auto backendType : PreferredBackendOrder) {
+       selectedBackend = backendType;
+@@ -193,7 +232,13 @@ AuroraInfo initialize(int argc, char* argv[], const AuroraConfig& config) noexce
+     }
+   }
+ 
+-  AURORA_ASSERT(windowCreated, "Could not initialize the requested graphics backend; see preceding graphics errors. SDL: {}", SDL_GetError());
++  // The caller explains the failure to the player (null window); an abort here
++  // only produced a crash report.
++  if (!windowCreated) {
++    Log.error("Could not initialize the requested graphics backend; see preceding graphics errors. SDL: {}",
++              SDL_GetError());
++    return {};
++  }
+ 
+   // Initialize SDL_Renderer for ImGui when we can't use a Dawn backend
+   if (webgpu::g_backendType == wgpu::BackendType::Null) {

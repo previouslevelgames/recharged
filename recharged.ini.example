@@ -36,20 +36,27 @@ vsync = true
 # the display's.
 frame_rate = original
 # Windows: vulkan or d3d12. macOS: metal. Linux: vulkan.
-# auto preserves the platform default (Vulkan on Windows/Linux, Metal on macOS).
+# auto preserves the platform default (Vulkan on Windows/Linux, Metal on macOS);
+# on Windows it switches to DirectX 12 when Vulkan cannot start.
 backend = auto
+# Graphics card (Windows and Linux): auto (the fastest) or a card's PCI ID,
+# such as 10de:1f99 (Advanced -> Graphics card lists the PC's cards). A card
+# the graphics API does not offer falls back to auto.
+gpu = auto
 # Game layout: auto (by window shape), 4:3 or 16:9.
 aspect = 16:9
 # Picture: soft (the original TV signal, with its empty border), clean (the
 # game's picture drawn straight into the window, without the TV flicker filter
 # and the border) or sharp (clean with square pixels).
 picture = sharp
-# Performance mode (gear menu on the Play button): lighter matches without 4x
+# Performance mode (gear menu on the Play button): lighter matches without
 # antialiasing, the crowd, background NPCs, ambient stadium effects, bloom,
 # heat distortion, depth of field and stadium shadows. The 3D render size,
 # gameplay, hazards and weather effects are unchanged.
 performance_mode = false
-# Antialiasing of the game's 3D edges: off or 4x (more GPU time).
+# Antialiasing: off; fxaa (smooths the finished picture, nearly free); 4x
+# (multisampling, the edges of 3D shapes); 4x_fxaa (both); or 4x_ssaa
+# (supersampling, also the edges inside textures; the most GPU time).
 antialiasing = 4x
 # 3D render size: window (one pixel per window pixel, default), native (the
 # Wii's 640x448) or 2x, 3x, 4x of it. The game's view stays the same.
@@ -253,6 +260,8 @@ log_window = false
 ui_scale = auto
 # Look for a newer build on GitHub each time the launcher starts.
 check_updates = true
+# Open the launcher again when you close a game started from it.
+reopen_after_game = false
 # Which builds to update to: release (official releases), test (also test
 # builds of open pull requests) or auto (releases, or test builds for a test build).
 update_channel = auto

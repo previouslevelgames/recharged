@@ -1,4 +1,5 @@
 #include "config.h"
+#include "graphics_card.h"
 #include "platform/path.h"
 #include "platform/wiimote_ids.h"
 
@@ -41,7 +42,8 @@ Values Encode(const Settings& s)
             {"display.width", std::to_string(s.width)}, {"display.height", std::to_string(s.height)},
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.vsync", s.vsync ? "true" : "false"}, {"display.frame_rate", s.frame_rate},
-            {"display.backend", s.backend}, {"display.aspect", s.aspect}, {"display.picture", s.picture},
+            {"display.backend", s.backend}, {"display.gpu", s.gpu}, {"display.aspect", s.aspect},
+            {"display.picture", s.picture},
             {"display.performance_mode", s.performance_mode ? "true" : "false"},
             {"display.antialiasing", s.antialiasing}, {"display.resolution", s.resolution},
             {"audio.master_volume", std::to_string(s.master_volume)},
@@ -65,6 +67,7 @@ Values Encode(const Settings& s)
             {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
+            {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
             {"launcher.test_build", std::to_string(s.test_build)},
             {"discord.rich_presence", s.discord_status ? "true" : "false"}};
@@ -155,10 +158,23 @@ Settings Decode(const Values& values)
         s.frame_rate = it->second;
     }
     choice("display.backend", s.backend, {"auto", "vulkan", "metal", "d3d12"});
+    if (const auto it = values.find("display.gpu"); it != values.end())
+    {
+        try
+        {
+            ParseGraphicsCard(it->second);
+        }
+        catch (const std::invalid_argument&)
+        {
+            throw std::runtime_error("Invalid configuration: display.gpu must be auto or a graphics card's PCI ID "
+                                     "such as 10de:1f99");
+        }
+        s.gpu = it->second;
+    }
     choice("display.aspect", s.aspect, {"auto", "4:3", "16:9", "16:10", "21:9"});
     choice("display.picture", s.picture, {"soft", "clean", "sharp"});
     boolean("display.performance_mode", s.performance_mode);
-    choice("display.antialiasing", s.antialiasing, {"off", "4x"});
+    choice("display.antialiasing", s.antialiasing, {"off", "fxaa", "4x", "4x_fxaa", "4x_ssaa"});
     choice("display.resolution", s.resolution, {"window", "native", "2x", "3x", "4x"});
     number("audio.master_volume", s.master_volume, 0, 100);
     for (std::size_t n = 0; n < kSoundGroups.size(); ++n)
@@ -269,6 +285,7 @@ Settings Decode(const Values& values)
     boolean("advanced.log_window", s.log_window);
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
     boolean("launcher.check_updates", s.check_updates);
+    boolean("launcher.reopen_after_game", s.reopen_after_game);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
     number("launcher.test_build", s.test_build, 0, 999999999);
     boolean("discord.rich_presence", s.discord_status);

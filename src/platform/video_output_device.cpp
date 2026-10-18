@@ -7,7 +7,7 @@
 #include <stdexcept>
 
 namespace mscharged::platform {
-void ConfigureNativeVideoOutputHardware(const NativeSystemSettings& settings, NativeDesktopPicture picture) {
+void ConfigureNativeVideoOutputHardware(const NativeSystemSettings& settings, NativeDesktopPicture picture, bool fxaa) {
     NativeInterruptGuard exclusion;
     const auto controller = GetNativeInterruptControllerStatus();
     if (!controller.initialized || !controller.owner_thread)
@@ -17,7 +17,8 @@ void ConfigureNativeVideoOutputHardware(const NativeSystemSettings& settings, Na
     const AuroraVIOutputConfig output{settings.aspect_ratio == 1,
         static_cast<std::uint8_t>(picture == NativeDesktopPicture::Sharp ? AURORA_DESKTOP_SHARP
                                   : picture == NativeDesktopPicture::Clean ? AURORA_DESKTOP_SMOOTH
-                                                                           : AURORA_DESKTOP_SIGNAL)};
+                                                                           : AURORA_DESKTOP_SIGNAL),
+        fxaa};
     aurora_configure_video_output_hardware(&output);
 }
 } // namespace mscharged::platform

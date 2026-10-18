@@ -8,7 +8,7 @@ instead.
 > **Mario Strikers Charged** as an `.iso`, `.rvz` or `.wbfs` disc image: the
 > USA version (game ID `R4QE01`, revision 1) or the European version (game ID
 > `R4QP01`, revision 1 or 2). Other regions do not work yet, and renaming a
-> file does not change that.
+> file does not change that. An image patched for Wiimmfi plays too.
 
 ## 1. Download
 

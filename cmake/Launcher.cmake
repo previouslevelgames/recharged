@@ -25,8 +25,10 @@ else()
 endif()
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WiimoteScan.cmake")
-# The run's log file and crash report (logs/recharged.log), and its log window.
-add_library(charged_session_log STATIC src/platform/session_log.cpp src/platform/log_window.cpp)
+# The run's log file and crash report (logs/recharged.log), its log window, and
+# reopening the launcher when the game closes (it ends the log).
+add_library(charged_session_log STATIC src/platform/session_log.cpp src/platform/log_window.cpp
+    src/platform/launcher_reopen.cpp)
 target_include_directories(charged_session_log PUBLIC src)
 target_compile_features(charged_session_log PRIVATE cxx_std_20)
 target_link_libraries(charged_session_log PUBLIC SDL3::SDL3)
@@ -39,6 +41,28 @@ if(NOT WIN32)
     target_compile_features(session_log_tests PRIVATE cxx_std_20)
     target_link_libraries(session_log_tests PRIVATE charged_session_log)
     add_test(NAME session_log COMMAND session_log_tests)
+    add_executable(launcher_reopen_tests tests/launcher_reopen.cpp)
+    target_compile_features(launcher_reopen_tests PRIVATE cxx_std_20)
+    target_link_libraries(launcher_reopen_tests PRIVATE charged_session_log)
+    add_test(NAME launcher_reopen COMMAND launcher_reopen_tests)
+endif()
+# The graphics cards the launcher offers (Advanced -> Graphics card): DXGI on
+# Windows, the Vulkan loader on Linux (its headers come with Dawn), none on macOS.
+add_library(charged_graphics_cards STATIC src/platform/graphics_cards.cpp)
+target_include_directories(charged_graphics_cards PUBLIC src)
+target_compile_features(charged_graphics_cards PRIVATE cxx_std_17)
+if(WIN32)
+    target_link_libraries(charged_graphics_cards PRIVATE dxgi)
+elseif(NOT APPLE AND DEFINED MSCHARGED_DAWN_PREPARED)
+    target_compile_definitions(charged_graphics_cards PRIVATE MSCHARGED_GRAPHICS_CARDS_VULKAN=1)
+    target_include_directories(charged_graphics_cards PRIVATE
+        "${MSCHARGED_DAWN_PREPARED}/third_party/vulkan-headers/src/include")
+    target_link_libraries(charged_graphics_cards PRIVATE ${CMAKE_DL_LIBS})
+endif()
+if(BUILD_TESTING)
+    add_executable(graphics_cards_tests tests/graphics_cards.cpp)
+    target_link_libraries(graphics_cards_tests PRIVATE charged_graphics_cards)
+    add_test(NAME graphics_cards COMMAND graphics_cards_tests)
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Updates.cmake")
 # Finding and checking disc images: the first-start search and the image library (#65).
@@ -52,7 +76,7 @@ add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launc
 # On Windows it is a Windows (GUI) program, so no console opens with it (#61).
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
-    charged_wiimote_scan charged_session_log charged_updates charged_image_library)
+    charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_graphics_cards)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
 mscharged_stage_pipeline_catalog(mscharged)
 if(APPLE)
