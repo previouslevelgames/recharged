@@ -234,7 +234,9 @@ show_hud = true
 # character. Needs [game] gamecube_disc. Bowser, Petey and Boo keep their look.
 # fair_ball_contests: when players of both teams reach a loose ball at once,
 # neither team wins it more often (the game's player order slightly favours
-# the home team). On by default; online matches always play with it.
+# the home team, and one-timers, first-time shots off rebounds and pass
+# receptions always favour it). On by default; online matches always play
+# with it.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false

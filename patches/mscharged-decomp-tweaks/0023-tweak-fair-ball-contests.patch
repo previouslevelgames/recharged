@@ -11,6 +11,14 @@ swap sequences some orders come out more often than others: a home player
 is updated before a given away player in 52.3 % of kickoffs on average and
 in up to 55.4 % for some pairs, and the order holds until the next kickoff.
 
+Some contests are settled after the physics step instead. PostPhysicsAITask
+calls PrePhysicsUpdate on the characters in g_pCharacters order: the home
+fielders (slots 0-3), the away fielders (4-7), then the two goalies. There
+cFielder::TestAnimBallContact gives the ball to the first fielder whose
+one-timer, first-time shot or pass off a loose ball, or pass reception
+touches it while it is still loose, so when fielders of both teams touched
+it in the same step, the home fielder always took it.
+
 With "Fair ball contests" enabled, the kickoff shuffle is a Fisher-Yates
 shuffle (slot i takes one of the slots from i on), where every order is
 equally likely. It draws as many numbers as the original, so the match's
@@ -18,13 +26,32 @@ random sequence (gNetworkRandomSeed) is unchanged. Every step then shuffles
 the order again, so no player is ahead of another for a whole kickoff. These
 shuffles draw from their own seed, set at each kickoff from the match's seed
 without advancing it, and leave every other random event of the match as in
-the original. Online matches always play with the tweak, whatever the
+the original. PostPhysicsAITask then follows the step's update order too
+(cGame::FairBallContestsOrder); nothing else it does depends on the order,
+as each fielder only updates itself and the opposing goalie's deke on it.
+Online matches always play with the tweak, whatever the
 setting: both machines must update the players in the same order, and the
 order is part of the state they checksum (cGame::SyncLog), so a machine
 without it falls out of sync at the first check after kickoff.
 
+diff --git a/include/Game/Game.h b/include/Game/Game.h
+index 62c5df0..742219a 100644
+--- a/include/Game/Game.h
++++ b/include/Game/Game.h
+@@ -98,6 +98,11 @@ public:
+     void SendSlowDownEnd();
+     void PreUpdate(float deltaTime);
+     void RandomizePlayerUpdateOrder();
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Fair ball contests": this step's update order, or NULL when
++    // the tweak is off or no kickoff has set the order yet.
++    cPlayer* const* FairBallContestsOrder() const;
++#endif
+     void ResetCharacters();
+     void SendPlayerVisibility();
+     void UpdateCachedGameData(float fDeltaT);
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
-index 36d981f..b8f7223 100644
+index 36d981f..1a6cf4e 100644
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
 @@ -48,6 +48,7 @@
@@ -35,7 +62,7 @@ index 36d981f..b8f7223 100644
  #include "Game/Render/ElectricFence.h"
  #include "Game/ReplayChoreo.h"
  #include "Game/ReplayManager.h"
-@@ -1381,6 +1382,31 @@ void cGame::PreUpdate(float deltaTime)
+@@ -1381,6 +1382,47 @@ void cGame::PreUpdate(float deltaTime)
          g_pTeams[i]->PreUpdate(deltaTime);
      }
  }
@@ -63,11 +90,27 @@ index 36d981f..b8f7223 100644
 +        players[j] = temp;
 +    }
 +}
++
++cPlayer* const* cGame::FairBallContestsOrder() const
++{
++    if (!FairBallContests())
++    {
++        return NULL;
++    }
++    for (int i = 0; i < 10; i++)
++    {
++        if (m_pRandomPlayersArray[i] == NULL)
++        {
++            return NULL;
++        }
++    }
++    return m_pRandomPlayersArray;
++}
 +#endif
  void cGame::RandomizePlayerUpdateOrder()
  {
      int i;
-@@ -1394,6 +1420,24 @@ void cGame::RandomizePlayerUpdateOrder()
+@@ -1394,6 +1436,24 @@ void cGame::RandomizePlayerUpdateOrder()
      }
  
      static FilteredRandomRange randgen;
@@ -92,7 +135,7 @@ index 36d981f..b8f7223 100644
      for (i = 0; i < 10; i++)
      {
          int j = randgen.genrand(10);
-@@ -1496,6 +1540,14 @@ void cGame::Update(float fDeltaT)
+@@ -1496,6 +1556,14 @@ void cGame::Update(float fDeltaT)
  
      mpAIContext->Update(true, fDeltaT);
  
@@ -107,3 +150,30 @@ index 36d981f..b8f7223 100644
      for (int i = 0; i < 10; i++)
      {
          g_pCurrentlyUpdatingCharacter = m_pRandomPlayersArray[i];
+diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
+index 5ccf801..f0fbe6d 100644
+--- a/src/Game/Task/FixedUpdateTask.cpp
++++ b/src/Game/Task/FixedUpdateTask.cpp
+@@ -419,6 +419,22 @@ static void PrePhysicsAITask(float fDeltaT)
+ static void PostPhysicsAITask(float fDeltaT)
+ {
+     int i;
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Fair ball contests": one-timers, first-time shots and passes
++    // off a loose ball, and pass receptions take the ball here, first come
++    // first served. The characters' own order puts the home fielders first,
++    // so with the tweak they follow this step's update order instead.
++    cPlayer* const* order = g_pGame->FairBallContestsOrder();
++    if (order != NULL)
++    {
++        for (i = 0; i < 10; i++)
++        {
++            order[i]->PrePhysicsUpdate();
++        }
++        g_pBall->PostPhysicsUpdate(fDeltaT);
++        return;
++    }
++#endif
+     for (i = 0; i < 10; i++)
+     {
+         g_pCharacters[i]->PrePhysicsUpdate();

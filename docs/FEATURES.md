@@ -146,8 +146,11 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
 - **Fair ball contests**: when players of both teams reach a loose ball in
   the same instant, the one the game updates first takes it. The game
   shuffles that order at every kickoff in a way that puts the home team
-  first slightly more often (52 % of the time on average, up to 55 %). With
-  this option the order is shuffled fairly, and again every simulation step.
+  first slightly more often (52 % of the time on average, up to 55 %).
+  One-timers, first-time shots and passes off a loose ball (a rebound off
+  the goalie or the post) and pass receptions are settled after the physics
+  step instead, always home team first. With this option the order is
+  shuffled fairly, again every simulation step, and used for those too.
   On by default, as it is recommended to every player; online matches always
   play with it.
 - **Mirror match**: both teams can pick the same captain in Domination. The

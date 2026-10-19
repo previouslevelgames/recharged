@@ -74,8 +74,9 @@ inline constexpr std::array<GameTweakInfo, 12> kGameTweaks{{
      "has no blue menu pictures, Mega Strike hand, banners or crowd for it, so those stay pink."},
     {GameTweak::FairBallContests, "fair_ball_contests", "Fair ball contests",
      "When players of both teams reach a loose ball at once, neither team wins more often. The game updates the "
-     "players in an order it shuffles at kickoff, slightly in the home team's favour; this shuffles it fairly, and "
-     "again every step. On by default; online matches always play with it.",
+     "players in an order it shuffles at kickoff, slightly in the home team's favour, and settles one-timers, "
+     "first-time shots off rebounds and pass receptions with the home team always first; this shuffles the order "
+     "fairly, again every step, and uses it for those too. On by default; online matches always play with it.",
      true},
     {GameTweak::RobotGoalies, "robot_goalies", "Robot goalies",
      "Both goalies wear the robot Kritter skin of the Super Team from Super Mario Strikers, which the game's disc "
