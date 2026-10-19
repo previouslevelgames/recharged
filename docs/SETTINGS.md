@@ -191,14 +191,6 @@ settings:
   TV. 0 sends no sound to the Remotes. How clean it sounds depends on the
   Bluetooth link; turn it down or off if it crackles. The log
   (`logs/recharged.log`) says when the connection was too slow for it.
-- **Speaker format** (`controls.speaker_format`, INI only): `pcm` (default)
-  sends the Remotes 8-bit sound at 3000 samples a second, made from the
-  game's own speaker sound. `adpcm` sends the game's sound as a Wii does
-  (6000 samples a second). A Wii runs its Remote link in a faster mode that
-  PC Bluetooth cannot switch on, so a Remote can miss some of the game's
-  speaker data: with `adpcm` that turns the rest into noise until the next
-  pause, with `pcm` it only skips a moment. `pcm` sounds duller; try `adpcm`
-  if your Remote plays it cleanly.
 
 The **Rumble** card switches rumble for Wii Remotes and gamepads
 (`controls.rumble`) and sets how strongly gamepads rumble

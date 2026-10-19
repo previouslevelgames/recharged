@@ -91,14 +91,18 @@ int main() {
         const std::vector<Report> on{{0x14, 0x04}, {0x19, 0x04}, write(0xa20009, {0x01}), write(0xa20001, {0x08}),
                                      write(0xa20001, {0x00, 0x00, 0xd0, 0x07, 89, 0x0c, 0x0e}), {0x19, 0x00}};
         Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 89) == on, "speaker ON sequence");
+        // The American game's WPAD writes 0x80 to 0xa20001 first.
+        auto usa_on = on;
+        usa_on[3] = write(0xa20001, {0x80});
+        Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 89, 0x80) == usa_on,
+              "speaker ON sequence of the American game");
         Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 255)[4][10] == 127, "speaker volume above 127");
-        // 8-bit PCM: format 0x40, rate 0x0fa0 (3000 Hz), the volume on 0-255.
-        auto pcm_on = on;
-        pcm_on[4] = write(0xa20001, {0x00, 0x40, 0xa0, 0x0f, 179, 0x00, 0x00});
-        Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 89, true) == pcm_on, "speaker ON sequence for PCM");
-        Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 200, true)[4][10] == 255, "PCM speaker volume at most");
         const std::vector<Report> off{{0x19, 0x04}, write(0xa20001, {0x01}), write(0xa20009, {0x00}), {0x14, 0x00}};
         Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::Off, 0) == off, "speaker OFF sequence");
+        // A Remote the driver newly hears from: enabled, then OFF.
+        auto reset = off;
+        reset.insert(reset.begin(), Report{0x14, 0x04});
+        Check(WiimoteSpeakerResetReports() == reset, "speaker reset sequence");
         Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::Mute, 0) == std::vector<Report>{{0x19, 0x04}} &&
               WiimoteSpeakerReports(WiimoteSpeakerCommand::Unmute, 0) == std::vector<Report>{{0x19, 0x00}},
               "speaker mute and unmute");

@@ -54,7 +54,6 @@ Values Encode(const Settings& s)
             {"controls.rumble_strength", std::to_string(s.rumble_strength)},
             {"controls.ir_sensitivity", std::to_string(s.ir_sensitivity)},
             {"controls.speaker_volume", std::to_string(s.speaker_volume)},
-            {"controls.speaker_format", s.speaker_format},
             {"controls.mouse_pointer", s.mouse_pointer ? "true" : "false"},
             {"controls.bluetooth_search", s.bluetooth_search ? "true" : "false"},
             {"controls.sensor_bar", s.sensor_bar},
@@ -276,7 +275,6 @@ Settings Decode(const Values& values)
     number("controls.rumble_strength", s.rumble_strength, 0, 100);
     number("controls.ir_sensitivity", s.ir_sensitivity, 1, 5);
     number("controls.speaker_volume", s.speaker_volume, 0, 100);
-    choice("controls.speaker_format", s.speaker_format, {"pcm", "adpcm"});
     boolean("controls.mouse_pointer", s.mouse_pointer);
     boolean("controls.bluetooth_search", s.bluetooth_search);
     choice("controls.sensor_bar", s.sensor_bar, {"bottom", "top"});
@@ -381,10 +379,12 @@ Values Parse(const std::string& contents, std::string* updated = nullptr, Values
                 if (!values.emplace(full_key, value).second)
                     throw std::runtime_error("Invalid configuration: duplicate " + full_key);
                 key_line = true;
-                // Retired keys, accepted in old INIs: the title-bar counter and a
-                // dead zone nothing read (gamepad profiles have their own, #62).
+                // Retired keys, accepted in old INIs: the title-bar counter, a
+                // dead zone nothing read (gamepad profiles have their own, #62)
+                // and a 1.0.12 test build's Wii Remote speaker format (#60).
                 drop = updated && ((OwnedSection(section) && !kept.count(full_key))
-                    || full_key == "display.show_fps" || full_key == "controls.deadzone");
+                    || full_key == "display.show_fps" || full_key == "controls.deadzone"
+                    || full_key == "controls.speaker_format");
                 if (const auto it = replacements.find(full_key); it != replacements.end())
                 {
                     if (it->second != value)

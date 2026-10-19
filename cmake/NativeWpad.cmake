@@ -6,8 +6,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WiimoteScan.cmake")
 # Native hardware SDK interfaces underneath the original game/KPAD code.
 # Owner servicing is explicit; no alternate pad manager or device readiness.
 add_library(charged_native_wpad STATIC EXCLUDE_FROM_ALL
-    src/platform/wpad_sdl.cpp src/platform/wiimote_hid.cpp src/platform/wiimote_speaker.cpp
-    src/platform/os_version.cpp)
+    src/platform/wpad_sdl.cpp src/platform/wiimote_hid.cpp src/platform/os_version.cpp)
 add_dependencies(charged_native_wpad verify_prepared)
 target_include_directories(charged_native_wpad PUBLIC src PRIVATE
     "${MSCHARGED_PREPARED}/include"
@@ -39,15 +38,4 @@ if(BUILD_TESTING)
     add_test(NAME wiimote_hid COMMAND wiimote_hid_tests)
     set_tests_properties(wiimote_hid PROPERTIES TIMEOUT 10
         ENVIRONMENT "SDL_HIDAPI_IGNORE_DEVICES=0x057e/0x0306,0x057e/0x0330")
-
-    # The speaker's PCM against the game's own encoder from the prepared tree.
-    add_executable(wiimote_speaker_tests tests/wiimote_speaker_tests.cpp
-        "${MSCHARGED_PREPARED}/src/RVL_SDK/wenc/wenc.c")
-    target_compile_features(wiimote_speaker_tests PRIVATE cxx_std_20)
-    target_compile_definitions(wiimote_speaker_tests PRIVATE MSCHARGED_NATIVE=1 TARGET_PC=1)
-    target_include_directories(wiimote_speaker_tests PRIVATE
-        "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
-    target_link_libraries(wiimote_speaker_tests PRIVATE charged_native_wpad)
-    add_test(NAME wiimote_speaker COMMAND wiimote_speaker_tests)
-    set_tests_properties(wiimote_speaker PROPERTIES TIMEOUT 10)
 endif()

@@ -570,8 +570,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // position (bottom/top) original KPAD aims the pointer from and
         // controls.ir_sensitivity the Wii's sensitivity (1-5);
         // controls.speaker_volume the Remotes' speaker volume (BT.SPKV, 0-127
-        // as the HOME Menu's 10 steps of 12.7; 0 sends no speaker sound) and
-        // controls.speaker_format what they get (8-bit PCM or the game's ADPCM).
+        // as the HOME Menu's 10 steps of 12.7; 0 sends no speaker sound).
         // controls.player1-4 fix who plays as which player.
         mscharged::platform::NativePlayers players{};
         players.fixed = true;
@@ -599,14 +598,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
         wpad.speaker_volume=static_cast<std::uint8_t>((launch.settings.speaker_volume*127+50)/100);
         wpad.remote_speaker=launch.settings.speaker_volume>0;
-        wpad.remote_speaker_pcm=launch.settings.speaker_format!="adpcm";
+        // Original WPADControlSpeaker ON: 0x80 in the American game, 0x08 in the European one.
+        wpad.remote_speaker_reg01=release->code==mscharged::GameCode::Usa ? 0x80 : 0x08;
         mscharged::platform::InitializeNativeHardwareInput(host.window,wpad,
             mscharged::platform::GetNativeSTMInput(), desktop, players);
         {
             const auto& s=launch.settings;
             const std::string line="Wii Remote settings: sensor bar "+s.sensor_bar+", sensitivity "
-                +std::to_string(s.ir_sensitivity)+", speaker "
-                +(s.speaker_volume ? std::to_string(s.speaker_volume)+"% ("+(s.speaker_format=="adpcm" ? "ADPCM" : "PCM")+")" : "off")
+                +std::to_string(s.ir_sensitivity)+", speaker "+(s.speaker_volume ? std::to_string(s.speaker_volume)+"%" : "off")
                 +", rumble "+(s.rumble ? "on (gamepads "+std::to_string(s.rumble_strength)+"%)" : "off");
             mscharged::platform::SessionLogLine(line);
             for (const auto& device : s.players) {

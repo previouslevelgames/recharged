@@ -113,10 +113,6 @@ sensor_bar = bottom
 # (0-100, 0 = no sound on the Remotes).
 ir_sensitivity = 3
 speaker_volume = 70
-# What the Remote speakers get: pcm (8-bit, 3000 Hz; a missed packet only
-# skips a moment) or adpcm (the game's own 6000 Hz sound, as on a Wii; on a
-# PC a missed packet turns it into noise until the next pause).
-speaker_format = pcm
 # Button profile of each gamepad: Default (built in; each controller family
 # gets its own layout) or the name of a [gamepad_profileN] below. A missing
 # profile plays as Default.

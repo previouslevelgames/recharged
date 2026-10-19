@@ -46,7 +46,6 @@ int main()
         settings.rumble_strength = 40;
         settings.ir_sensitivity = 5;
         settings.speaker_volume = 0;
-        settings.speaker_format = "adpcm";
         settings.backend = "d3d12";
         SaveConfig(file, settings);
         const auto reloaded = LoadConfig(path);
@@ -56,7 +55,6 @@ int main()
             && reloaded.settings.players == settings.players
             && !reloaded.settings.rumble && reloaded.settings.rumble_strength == 40
             && reloaded.settings.ir_sensitivity == 5 && reloaded.settings.speaker_volume == 0
-            && reloaded.settings.speaker_format == "adpcm"
             && reloaded.settings.backend == "d3d12", "Settings round trip");
         Require(reloaded.contents.find("; keep my comment\r\n") != std::string::npos
             && reloaded.contents.find("option = keep me\r\n") != std::string::npos
@@ -117,10 +115,6 @@ int main()
         std::ofstream(path) << "[controls]\nir_sensitivity = 6\n";
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[controls]\nspeaker_volume = 101\n";
-        Reject([&] { LoadConfig(path); });
-        // The speaker gets 8-bit PCM unless the game's own ADPCM is asked for.
-        Require(Settings{}.speaker_format == "pcm", "Speaker format default");
-        std::ofstream(path) << "[controls]\nspeaker_format = wav\n";
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[controls]\nrumble_strength = -1\n";
         Reject([&] { LoadConfig(path); });
@@ -469,6 +463,12 @@ int main()
         SaveConfig(legacyDeadzone, legacyDeadzone.settings);
         Require(legacyDeadzone.contents.find("deadzone") == std::string::npos
             && legacyDeadzone.contents.find("rumble = false") != std::string::npos, "Retired dead zone key is removed");
+        // A 1.0.12 test build sent the Wii Remote speaker PCM on request (#60).
+        std::ofstream(path) << "[controls]\nspeaker_format = pcm\nrumble = false\n";
+        auto legacySpeaker = LoadConfig(path);
+        SaveConfig(legacySpeaker, legacySpeaker.settings);
+        Require(legacySpeaker.contents.find("speaker_format") == std::string::npos
+            && legacySpeaker.contents.find("rumble = false") != std::string::npos, "Retired speaker format key is removed");
         for (const char* invalid : {"[display]\nmonitor = 16\n",
                                     "[display]\nfps_overlay = maybe\n", "[display]\nfps_overlay_corner = center\n",
                                     "[display]\nperformance_mode = maybe\n",
