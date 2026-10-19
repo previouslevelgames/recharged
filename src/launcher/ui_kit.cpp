@@ -335,6 +335,12 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(-0.28f, -0.28f), p(0.28f, 0.28f), color, t * 1.3f);
         draw->AddLine(p(0.28f, -0.28f), p(-0.28f, 0.28f), color, t * 1.3f);
         break;
+    case Icon::Person:
+        // A Mii: the head over rounded shoulders.
+        draw->AddCircleFilled(p(0.0f, -0.20f), 0.20f * s, color);
+        draw->PathArcTo(p(0.0f, 0.42f), 0.38f * s, 3.14159f, 6.28318f);
+        draw->PathFillConvex(color);
+        break;
     }
 }
 

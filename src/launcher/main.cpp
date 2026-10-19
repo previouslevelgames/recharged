@@ -300,7 +300,9 @@ bool SafeGameId(const std::string& id)
 }
 
 enum class NoticeKind { Info, Success, Warning, Error };
-enum class FolderPurpose { SaveFolder, DolphinSave, GameFolder };
+enum class FolderPurpose { SaveFolder, DolphinSave, DolphinMiis, GameFolder };
+// What the import prompt copies from Dolphin.
+enum class ImportKind { Save, Miis };
 
 // The save a release keeps: its title and the identity the runtime gives its
 // storage (InitializeNativeFilesystemForDisc in original_game.cpp).
@@ -2628,6 +2630,7 @@ private:
         EndCard();
 
         SaveDataCard();
+        MiiCard();
     }
 
     // Where the game keeps its Wii storage, and importing a save from Dolphin.
@@ -2681,7 +2684,7 @@ private:
             if (!found.empty())
             {
                 if (SecondaryButton("import_dolphin", "Import Dolphin save", {width, Dp(40)}, config_ok_, Icon::Copy))
-                    AskImport(found.front());
+                    AskImport(found.front(), ImportKind::Save);
                 ImGui::Dummy({0, Dp(2)});
             }
             if (SecondaryButton("import_choose", found.empty() ? "Choose folder..." : "Choose another folder...",
@@ -2690,6 +2693,57 @@ private:
             EndRows();
         }
         EndCard();
+    }
+
+    // The Miis the game finds in its Wii storage, and importing Dolphin's.
+    void MiiCard()
+    {
+        BeginCard("##miis", "Miis", "Online play needs a Mii. Every Wii game reads them from the same database.",
+                  Icon::Person);
+        bool browsing;
+        { std::lock_guard<std::mutex> lock(folder_dialog_->mutex); browsing = folder_dialog_->active; }
+        if (BeginRows("##mii_rows"))
+        {
+            const auto& miis = InstalledMiis();
+            std::string names;
+            for (const auto& name : miis) names += (names.empty() ? "" : ", ") + name;
+            Row("Miis in use", miis.empty() ? "None yet. Import them from Dolphin to play online." : names.c_str());
+
+            const auto found = mscharged::platform::FindDolphinMiiDatabases();
+            const std::string description = found.empty()
+                ? "Copies the Miis of the Dolphin emulator. Choose Dolphin's user folder."
+                : "Copies the Miis Dolphin keeps in " + PathUtf8(found.front()) + ".";
+            Row("Import from Dolphin", description.c_str());
+            const float width = ImGui::GetContentRegionAvail().x;
+            if (!found.empty())
+            {
+                if (SecondaryButton("import_miis", "Import Dolphin Miis", {width, Dp(40)}, config_ok_, Icon::Copy))
+                    AskImport(found.front(), ImportKind::Miis);
+                ImGui::Dummy({0, Dp(2)});
+            }
+            if (SecondaryButton("import_miis_choose", found.empty() ? "Choose folder..." : "Choose another folder...",
+                                {width, Dp(40)}, !browsing && config_ok_, Icon::Folder))
+                BrowseFolder(FolderPurpose::DolphinMiis);
+            EndRows();
+        }
+        EndCard();
+    }
+
+    // The Miis of the save folder in use, read again when its catalog
+    // changes (an import, or the game writing its storage).
+    const std::vector<std::string>& InstalledMiis()
+    {
+        const auto folder = SaveFolder();
+        std::error_code error;
+        const auto changed = fs::last_write_time(folder / "metadata.txt", error);
+        const auto time = error ? fs::file_time_type{} : changed;
+        if (folder != miis_folder_ || time != miis_time_)
+        {
+            miis_folder_ = folder;
+            miis_time_ = time;
+            miis_ = mscharged::platform::InstalledMiis(folder, SaveTitleOf(Release()));
+        }
+        return miis_;
     }
 
     // The checked disc's release, or the USA one before a disc is known.
@@ -2765,16 +2819,24 @@ private:
             SelectGameFolder(PathFromUtf8(chosen));
             return;
         }
+        if (folder_purpose_ == FolderPurpose::DolphinMiis)
+        {
+            const auto database = mscharged::platform::ResolveDolphinMiiDatabase(PathFromUtf8(chosen));
+            if (database.empty()) Notice("No Mii database (RFL_DB.dat) found in " + chosen + ".", NoticeKind::Warning);
+            else AskImport(database, ImportKind::Miis);
+            return;
+        }
         const auto save = mscharged::platform::ResolveDolphinSave(PathFromUtf8(chosen), Release().title_id,
                                                                     kSaveFile);
         if (save.empty())
             Notice("No Mario Strikers Charged save found in " + chosen + ".", NoticeKind::Warning);
-        else AskImport(save);
+        else AskImport(save, ImportKind::Save);
     }
 
-    void AskImport(const fs::path& source)
+    void AskImport(const fs::path& source, ImportKind kind)
     {
         import_source_ = source;
+        import_kind_ = kind;
         import_prompt_ = true;
     }
 
@@ -2794,30 +2856,49 @@ private:
         catch (const std::exception& e) { Notice(std::string("Import failed: ") + e.what(), NoticeKind::Error); }
     }
 
+    void ImportDolphinMiis()
+    {
+        try
+        {
+            const auto folder = SaveFolder();
+            const auto result = mscharged::platform::ImportDolphinMiis(import_source_, folder, SaveTitleOf(Release()),
+                                                                       folder / "backups");
+            std::string names;
+            for (const auto& name : result.names) names += (names.empty() ? "" : ", ") + name;
+            Notice("Dolphin Miis imported (" + names + ")."
+                       + (result.backup.empty() ? "" : " Your previous Miis are in " + PathUtf8(result.backup) + "."),
+                   NoticeKind::Success);
+        }
+        catch (const std::exception& e) { Notice(std::string("Import failed: ") + e.what(), NoticeKind::Error); }
+    }
+
     void DrawImportPrompt()
     {
         if (import_prompt_)
         {
-            ImGui::OpenPopup("Import Dolphin save?");
+            ImGui::OpenPopup("Import from Dolphin?");
             import_prompt_ = false;
         }
+        const bool miis = import_kind_ == ImportKind::Miis;
         const auto& fonts = CurrentFonts();
         ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
         ImGui::SetNextWindowSizeConstraints({Dp(460), 0}, {Dp(640), FLT_MAX});
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
-        if (ImGui::BeginPopupModal("Import Dolphin save?", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+        if (ImGui::BeginPopupModal("Import from Dolphin?", nullptr, ImGuiWindowFlags_AlwaysAutoResize
             | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
         {
-            TextColored(fonts.heading, color::text, "Import the Dolphin save?");
+            TextColored(fonts.heading, color::text, miis ? "Import the Dolphin Miis?" : "Import the Dolphin save?");
             TextWrappedColored(fonts.body, color::muted, ("From " + PathUtf8(import_source_)).c_str());
             TextWrappedColored(fonts.body, color::muted, ("Into " + PathUtf8(SaveFolder())).c_str());
             TextWrappedColored(fonts.body, color::muted,
-                               "It replaces the game's save there; the current one is backed up first.");
+                               miis ? "They replace the game's Miis there; the current ones are backed up first."
+                                    : "It replaces the game's save there; the current one is backed up first.");
             ImGui::Dummy({0, Dp(8)});
             if (PrimaryButton("import_confirm", "Import", Dp(140, 42), true, Icon::Copy))
             {
                 ImGui::CloseCurrentPopup();
-                ImportDolphinSave();
+                if (miis) ImportDolphinMiis();
+                else ImportDolphinSave();
             }
             ImGui::SameLine(0, Dp(10));
             if (SecondaryButton("import_cancel", "Cancel", Dp(100, 42)) || CancelPressed())
@@ -5223,7 +5304,12 @@ private:
     std::shared_ptr<DialogResult> folder_dialog_ = std::make_shared<DialogResult>();
     FolderPurpose folder_purpose_ = FolderPurpose::SaveFolder;
     fs::path import_source_;
+    ImportKind import_kind_ = ImportKind::Save;
     bool import_prompt_ = false;
+    // The Miis of the save folder in use and the catalog time they were read at.
+    fs::path miis_folder_;
+    fs::file_time_type miis_time_;
+    std::vector<std::string> miis_;
     // Update check and installation (#50).
     std::unique_ptr<UpdateService> updates_;
     UpdateService::Status update_;

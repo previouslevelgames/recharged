@@ -8,8 +8,9 @@
 // Import a Wii save that Dolphin keeps in its emulated NAND. Dolphin stores
 // the files of a title's data folder exactly as the game wrote them, so they
 // are copied byte for byte into the port's NAND backing and its ownership
-// catalog (filesystem_device.cpp) gains entries for new files. The game must
-// not be running: the catalog is only read at its start.
+// catalog (filesystem_device.cpp) gains entries for new files. The Mii
+// database is imported the same way. The game must not be running: the
+// catalog is only read at its start.
 namespace mscharged::platform {
 // Identity of the title whose save is imported; the same values
 // InitializeNativeFilesystemForDisc gives the game's storage.
@@ -48,4 +49,36 @@ struct SaveImportResult {
 SaveImportResult ImportDolphinSave(const std::filesystem::path& source, const std::filesystem::path& nand_root,
                                    const SaveTitle& title, const std::string& required,
                                    const std::filesystem::path& backup_parent);
+
+// The Miis. Every Wii game reads them from one database in the shared part of
+// the NAND, /shared2/menu/FaceLib/RFL_DB.dat, and online play needs at least
+// one. Dolphin keeps it below its user directory:
+// <user>/Wii/shared2/menu/FaceLib/RFL_DB.dat.
+std::filesystem::path DolphinMiiDatabase(const std::filesystem::path& dolphin_user);
+
+// Dolphin Mii databases that exist on this computer, in the same user
+// directories as FindDolphinSaves.
+std::vector<std::filesystem::path> FindDolphinMiiDatabases();
+
+// The Mii database for what the player chose: the file itself, or a folder
+// from FaceLib up to the Dolphin user directory. Empty when none is there.
+std::filesystem::path ResolveDolphinMiiDatabase(const std::filesystem::path& chosen);
+
+// Names of the Miis in the database of the NAND backing at `nand_root`, in
+// the database's order. Empty when it has none, or a database the game would
+// not load (missing, not in the catalog, or failing its own checks).
+std::vector<std::string> InstalledMiis(const std::filesystem::path& nand_root, const SaveTitle& title);
+
+struct MiiImportResult {
+    std::vector<std::string> names;   // the imported Miis, UTF-8
+    std::filesystem::path backup;     // previous catalog and database, empty for a new save folder
+};
+
+// Copy the Mii database `source` into the NAND backing at `nand_root`, after
+// the checks the game's Mii library makes when it loads it. The previous
+// database and the catalog are first copied to `backup_parent`/<timestamp>.
+// Throws with a readable message when `source` is not a database with Miis or
+// the backing is not usable; nothing is changed then.
+MiiImportResult ImportDolphinMiis(const std::filesystem::path& source, const std::filesystem::path& nand_root,
+                                  const SaveTitle& title, const std::filesystem::path& backup_parent);
 } // namespace mscharged::platform
