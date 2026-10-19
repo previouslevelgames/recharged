@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..84ba3f5
+index 0000000..0469830
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,178 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -147,6 +147,13 @@ index 0000000..84ba3f5
 +// every group is at 100 %; and the gain (0-1) of the movies' audio samples.
 +float mscharged_tweak_sound_volume(const char* bank, unsigned category);
 +float mscharged_tweak_movie_volume(void);
++// The sound being set (SoundPlaybackEvent): its group's level becomes the MIX
++// fader of the voices MIXSetInput sets until it is cleared, so it lowers what
++// the sound plays on the PC and not what the Wii Remote speaker plays. The
++// fader is in tenths of a decibel, 0 outside such a sound.
++void mscharged_tweak_set_sound_level(const char* bank, unsigned category);
++void mscharged_tweak_clear_sound_level(void);
++int mscharged_tweak_sound_fader(void);
 +
 +// No HUD: whether the match's HUD, player markers and captions are hidden.
 +// Each match starts with the tweak's choice; the host's H key shows or hides

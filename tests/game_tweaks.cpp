@@ -1,7 +1,8 @@
 // The game module's tweak state (src/platform/game_tweaks.cpp): with no tweak
 // enabled, every hook gets the original game's answer; each tweak acts alone.
 // A frame rate above the original keeps the original's per-frame steps, and
-// sound levels change only their own group's sounds.
+// sound levels change only their own group's sounds, as the MIX fader of the
+// sound being set.
 #include "bootstrap/game_tweaks.h"
 #include "bootstrap/sound_groups.h"
 #include "mscharged_tweaks.h"
@@ -112,7 +113,12 @@ constexpr SampleSound kSampleSounds[] = {
 void CheckOriginalSounds(const char* what)
 {
     for (const auto& sound : kSampleSounds)
+    {
         Check(mscharged_tweak_sound_volume(sound.bank, sound.category) == 0.0f, what);
+        mscharged_tweak_set_sound_level(sound.bank, sound.category);
+        Check(mscharged_tweak_sound_fader() == 0, what);
+        mscharged_tweak_clear_sound_level();
+    }
     Check(mscharged_tweak_movie_volume() == 1.0f, what);
 }
 
@@ -347,12 +353,19 @@ int main()
                 for (const auto& sound : kSampleSounds)
                 {
                     const float offset = mscharged_tweak_sound_volume(sound.bank, sound.category);
+                    // The sound's voices get its level as their MIX fader, in
+                    // whole tenths of a decibel, until the hook clears it.
+                    mscharged_tweak_set_sound_level(sound.bank, sound.category);
+                    const int fader = mscharged_tweak_sound_fader();
+                    mscharged_tweak_clear_sound_level();
+                    Check(mscharged_tweak_sound_fader() == 0, "A cleared sound level stays a fader");
                     if (sound.group != info.group)
-                        Check(offset == 0.0f, "A sound followed another group's level");
+                        Check(offset == 0.0f && fader == 0, "A sound followed another group's level");
                     else if (level == 0)
-                        Check(offset + 6.0f < -96.0f, "A silenced group stays audible");
+                        // MIX plays -90.4 dB and below as silence, whatever pan adds.
+                        Check(offset + 6.0f < -96.0f && fader + 60 <= -904, "A silenced group stays audible");
                     else
-                        Check(std::fabs(offset + 6.0206f) < 1e-3f, "A group at 50% is not 6 dB lower");
+                        Check(std::fabs(offset + 6.0206f) < 1e-3f && fader == -60, "A group at 50% is not 6 dB lower");
                 }
                 const bool movies = info.group == mscharged::SoundGroup::Movies;
                 Check(mscharged_tweak_movie_volume() == (movies ? float(level) / 100.0f : 1.0f),

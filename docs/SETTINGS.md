@@ -154,7 +154,9 @@ the music down for a recording while voices and effects stay:
 | Cutscenes | Captain introductions, goal celebrations, Mega Strikes and the scenes after a match, with their own music and voices |
 | Movies | The intro movie, the stadium previews and the credits |
 
-They apply when the game starts. The music, sound effect and voice settings
+They apply when the game starts, to what plays on the PC only: the sounds the
+game also plays on a Wii Remote's speaker keep their level there, which the
+Remote's **Speaker volume** sets. The music, sound effect and voice settings
 in the game's own *Options* menu still apply on top and stay saved with your
 game; cutscenes and movies have no setting there. The log's `Sound levels:`
 line lists the levels in use.

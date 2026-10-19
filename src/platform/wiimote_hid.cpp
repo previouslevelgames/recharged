@@ -139,12 +139,6 @@ struct Driver {
     unsigned scans = 0;
     Clock::time_point next_open_retry{};
     bool reported_other_mode = false;
-    // Temporary speaker test switches (#60), from the environment at start:
-    // RECHARGED_SPEAKER_TEST_VOLUME=0-255 replaces the configuration's volume
-    // byte (a Wii sends 0-127); RECHARGED_SPEAKER_TEST_STREAM=all sends every
-    // frame the game encodes, also while it mutes the speaker, as a Wii does.
-    int test_volume = -1;
-    bool test_stream_all = false;
 };
 Driver& State() { static Driver driver; return driver; }
 
@@ -783,17 +777,6 @@ void InitializeWiimoteHid(WiimoteHidSettings settings) {
     }
     driver.settings = settings;
     driver.owner = std::this_thread::get_id();
-    driver.test_volume = -1;
-    if (const char* value = SDL_getenv("RECHARGED_SPEAKER_TEST_VOLUME"); value && *value) {
-        const int volume = SDL_atoi(value);
-        if (volume >= 0 && volume <= 255) driver.test_volume = volume;
-    }
-    const char* stream = SDL_getenv("RECHARGED_SPEAKER_TEST_STREAM");
-    driver.test_stream_all = stream && SDL_strcasecmp(stream, "all") == 0;
-    if (driver.test_volume >= 0 || driver.test_stream_all)
-        SDL_Log("Wii Remote speaker test: volume byte %s, data while muted %s",
-                driver.test_volume >= 0 ? std::to_string(driver.test_volume).c_str() : "as set",
-                driver.test_stream_all ? "sent" : "not sent");
     driver.initialized = true;
     driver.scans = 0;
     driver.device_changes = SDL_hid_device_change_count();
@@ -907,9 +890,6 @@ bool WiimoteHidControlSpeaker(std::uint32_t joystick_id, WiimoteSpeakerCommand c
     if (!remote) return false;
     auto reports = WiimoteSpeakerReports(command, volume, State().settings.speaker_reg01);
     if (reports.empty()) return false;
-    // The configuration write's volume byte (test switch).
-    if (command == WiimoteSpeakerCommand::On && State().test_volume >= 0)
-        reports[4][10] = static_cast<std::uint8_t>(State().test_volume);
     for (std::size_t n = 0; n < reports.size(); ++n) {
         const bool written = reports[n][0] == 0x16;
         remote->queue.push_back({std::move(reports[n]), written ? Wait::Ack : Wait::None, Tag::None,
@@ -943,7 +923,7 @@ namespace {
 // the frame is either not sent (muted) or finds room in the queue.
 bool SpeakerTakesFrame(Remote* remote) {
     if (!remote || !remote->speaker || !remote->stream || remote->speaker_commands) return false;
-    if (remote->speaker_muted && !remote->speaker_tail && !State().test_stream_all) return true;
+    if (remote->speaker_muted && !remote->speaker_tail) return true;
     std::lock_guard lock(remote->stream->mutex);
     if (remote->stream->frames.size() < kSpeakerQueue) return true;
     ++remote->speaker_late;
@@ -958,7 +938,7 @@ bool WiimoteHidCanStreamSpeaker(std::uint32_t joystick_id) {
 bool WiimoteHidStreamSpeaker(std::uint32_t joystick_id, const void* data, std::uint16_t size) {
     auto* remote = SpeakerRemote(joystick_id);
     if (!data || size > 20 || !SpeakerTakesFrame(remote)) return false;
-    if (remote->speaker_muted && !State().test_stream_all) {
+    if (remote->speaker_muted) {
         if (!remote->speaker_tail) {
             ++remote->speaker_quiet;
             return true;

@@ -1126,6 +1126,18 @@ void EndCard()
     ImGui::Dummy({0, Dp(8)});
 }
 
+namespace
+{
+// The sub-rows being drawn, between BeginSubRows and EndSubRows.
+struct SubRows
+{
+    ImGuiTable* table = nullptr;
+    float parent_top = 0.0f; // the parent row's top
+    float top = -1.0f;       // the first sub-row's top, once it has begun
+};
+SubRows g_sub_rows;
+} // namespace
+
 bool BeginRows(const char* id)
 {
     const float available = ImGui::GetContentRegionAvail().x;
@@ -1145,7 +1157,10 @@ void Row(const char* label, const char* description)
 {
     const auto& fonts = CurrentFonts();
     ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
+    const bool sub = g_sub_rows.table && g_sub_rows.table == ImGui::GetCurrentTable();
+    if (sub && g_sub_rows.top < 0.0f) g_sub_rows.top = g_sub_rows.table->RowPosY1;
     ImGui::TableSetColumnIndex(0);
+    if (sub) ImGui::Indent(Dp(16));
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - Dp(24));
     TextColored(fonts.label, color::text, label);
     if (description)
@@ -1158,7 +1173,41 @@ void Row(const char* label, const char* description)
         ImGui::PopFont();
     }
     ImGui::PopTextWrapPos();
+    if (sub) ImGui::Unindent(Dp(16));
     ImGui::TableSetColumnIndex(1);
+}
+
+void BeginSubRows()
+{
+    ImGuiTable* table = ImGui::GetCurrentTable();
+    IM_ASSERT(table && table->IsInsideRow && !g_sub_rows.table);
+    g_sub_rows = {table, table->RowPosY1, -1.0f};
+}
+
+void EndSubRows()
+{
+    ImGuiTable* table = g_sub_rows.table;
+    IM_ASSERT(table && table == ImGui::GetCurrentTable() && g_sub_rows.top >= 0.0f);
+    // Ends the last sub-row now, so its height is known.
+    ImGui::TableEndRow(table);
+    // Drawn on the table's background channel, behind every cell, and clipped
+    // to the card, so the panel and the line reach a little into its padding.
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const int channel = table->DrawSplitter->_Current;
+    table->DrawSplitter->SetCurrentChannel(draw, 0);
+    const ImRect clip = table->Bg0ClipRectForDrawCmd;
+    draw->PushClipRect(clip.Min, clip.Max, false);
+    const float left = table->WorkRect.Min.x;
+    const ImVec2 min{left, g_sub_rows.top + Dp(3)};
+    const ImVec2 max{std::min(table->WorkRect.Max.x + Dp(12), clip.Max.x - 1.0f), table->RowPosY2 - Dp(3)};
+    draw->AddRectFilled(min, max, Col(color::field), Dp(12));
+    draw->AddRect(min, max, Col(color::border, 0.7f), Dp(12));
+    const float rail = std::max(left - Dp(9), clip.Min.x + 1.0f);
+    draw->AddRectFilled({rail, g_sub_rows.parent_top + Dp(10)}, {rail + Dp(3), max.y}, Col(color::accent, 0.9f),
+                        Dp(1.5f));
+    draw->PopClipRect();
+    table->DrawSplitter->SetCurrentChannel(draw, channel);
+    g_sub_rows = {};
 }
 
 void EndRows()

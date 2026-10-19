@@ -151,6 +151,12 @@ void EndCard();
 // Two-column setting rows inside a card: label/description, then control.
 bool BeginRows(const char* id);
 void Row(const char* label, const char* description = nullptr);
+// Rows that belong to the row above them, such as the options its switch
+// shows: BeginSubRows after the parent row's control, then a Row for each.
+// They sit indented on an inset panel, with an accent line from the parent's
+// label down beside them.
+void BeginSubRows();
+void EndSubRows();
 void EndRows();
 void PageHeader(const char* title, const char* description);
 void Spinner(ImVec2 center, float radius, ImU32 color);
