@@ -57,11 +57,13 @@ struct Command {
     bool speaker_done = false;
 };
 
-// Speaker data goes out on a thread of its own: original WPAD sends a frame
-// every 6.7 ms, and a write that waits (Windows Bluetooth, a busy DolphinBar
-// link) would hold the game thread. A few frames may wait, so one slow write
-// does not cost the game a frame (WPAD's stream check would refuse it and the
-// Remote would play a gap).
+// Every write to a remote goes out on a thread of its own, the remote's
+// writer: one write over Windows Bluetooth can take 200 ms while the link is
+// busy, and the game thread must never wait for that. The owner's reports go
+// out in the order it hands them over, before speaker frames that wait.
+// Original WPAD sends a speaker frame every 6.7 ms. A few frames may wait, so
+// one slow write does not cost the game a frame (WPAD's stream check would
+// refuse it and the Remote would play a gap).
 constexpr std::size_t kSpeakerQueue = 3;
 // A failed write loses a frame the game has already encoded: the Remote's
 // ADPCM decoder then works from another state than the game's encoder and
@@ -76,12 +78,20 @@ constexpr int kSpeakerAttempts = 3;
 constexpr int kSpeakerMuteTail = 8;
 constexpr std::chrono::seconds kSpeakerReport{30};
 using Frame = std::array<std::uint8_t, 22>;
-struct SpeakerStream {
+struct Writer {
+    struct Report {
+        std::vector<std::uint8_t> bytes; // byte 1 bit 0 gets the rumble state when it goes out
+        std::uint64_t sequence = 0;      // nonzero: the owner wants the result
+        int attempts = 1;                // a rejected write is tried again kWriteRetry apart
+    };
     std::mutex mutex;
     std::condition_variable wake;
+    std::deque<Report> reports;
     std::deque<Frame> frames;
-    bool stop = false;
-    // Since the last report, under the mutex.
+    bool frame_out = false; // a frame is being written: it counts against the queue
+    std::deque<std::pair<std::uint64_t, bool>> results; // sequence, sent
+    bool stop = false, drain = false;
+    // Speaker frames since the last report, under the mutex.
     unsigned sent = 0, lost = 0, retried = 0;
     std::chrono::nanoseconds write_total{}, write_max{};
     std::thread thread;
@@ -100,24 +110,25 @@ struct Remote {
     bool waiting = false;
     Command current;
     Clock::time_point wait_deadline{};
-    // Read by the speaker thread: every output report carries the rumble bit.
+    // Read by the writer: every output report carries the rumble bit.
     std::atomic<bool> rumble{false};
-    // One HID write at a time: the owner's commands and the speaker thread.
-    std::mutex write;
+    std::unique_ptr<Writer> writer; // while the HID device is open
+    // Owner reports handed to the writer are numbered from next_write; results
+    // of those before first_write belong to a remote that was lost since.
+    std::uint64_t next_write = 1, first_write = 1;
+    std::uint64_t awaited_write = 0; // the command waiting for its reply, until it went out
+    std::uint64_t probe_write = 0;   // the status request of a probe, until it went out
     bool speaker = false; // WPAD turned the speaker on (and not off since)
     bool speaker_muted = false;
     int speaker_tail = 0;     // frames still sent after the mute
     int speaker_commands = 0; // WPAD speaker commands still going out
     unsigned speaker_late = 0, speaker_quiet = 0; // since the last report
     Clock::time_point next_speaker_report{};
-    std::unique_ptr<SpeakerStream> stream;
     int zero[3]{512, 512, 512}, one[3]{612, 612, 612};
     bool extension = false, nunchuk = false;
     int nunchuk_zero[3]{512, 512, 512}, nunchuk_one[3]{712, 712, 712}, nunchuk_centre[2]{128, 128};
     std::uint8_t battery = 0;
     bool ir_visible = false;
-    int write_failures = 0;
-    Clock::time_point retry_at{};
     Clock::time_point next_debug_log{};
     int led_channel = -2;
     Clock::time_point next_mode_restore{}, last_data{}, next_data_restore{};
@@ -149,57 +160,97 @@ std::string Describe(const Remote& remote) {
     return address.empty() ? "connected directly" : "Bluetooth " + address;
 }
 
-bool Send(Remote& remote, std::vector<std::uint8_t> report) {
-    if (!remote.hid || report.size() < 2) return false;
-    std::lock_guard lock(remote.write);
+bool Write(const Remote& remote, SDL_hid_device* hid, std::uint8_t* report, std::size_t size) {
     report[1] = static_cast<std::uint8_t>((report[1] & ~1u) | (remote.rumble ? 1u : 0u));
-    return mscharged::platform::WriteWiimoteReport(remote.hid, report.data(), report.size());
+    return mscharged::platform::WriteWiimoteReport(hid, report, size);
 }
 
-void StreamSpeaker(Remote* remote, SDL_hid_device* hid) {
-    auto& stream = *remote->stream;
-    std::unique_lock lock(stream.mutex);
+void RunWriter(Remote* remote, SDL_hid_device* hid) {
+    auto& writer = *remote->writer;
+    std::unique_lock lock(writer.mutex);
     for (;;) {
-        stream.wake.wait(lock, [&] { return !stream.frames.empty() || stream.stop; });
-        if (stream.stop) return;
-        auto frame = stream.frames.front();
+        writer.wake.wait(lock, [&] { return writer.stop || !writer.reports.empty() || !writer.frames.empty(); });
+        if (writer.stop && (!writer.drain || writer.reports.empty())) return;
+        if (!writer.reports.empty()) {
+            auto report = std::move(writer.reports.front());
+            writer.reports.pop_front();
+            lock.unlock();
+            bool sent = false;
+            for (int attempt = 0; !sent && attempt < report.attempts; ++attempt) {
+                if (attempt) std::this_thread::sleep_for(kWriteRetry);
+                sent = Write(*remote, hid, report.bytes.data(), report.bytes.size());
+            }
+            lock.lock();
+            if (report.sequence) writer.results.emplace_back(report.sequence, sent);
+            continue;
+        }
+        if (writer.stop) return;
+        auto frame = writer.frames.front();
+        writer.frames.pop_front();
+        writer.frame_out = true;
         lock.unlock();
         const auto start = Clock::now();
         bool sent = false;
         int attempt = 0;
         while (!sent && attempt < kSpeakerAttempts) {
             if (attempt++) SDL_DelayPrecise(1'000'000);
-            std::lock_guard write(remote->write);
-            frame[1] = static_cast<std::uint8_t>((frame[1] & ~1u) | (remote->rumble ? 1u : 0u));
-            sent = mscharged::platform::WriteWiimoteReport(hid, frame.data(), frame.size());
+            sent = Write(*remote, hid, frame.data(), frame.size());
         }
         const auto took = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start);
         lock.lock();
-        // Popped after the write: a waiting frame counts against the queue.
-        stream.frames.pop_front();
+        writer.frame_out = false;
         // A remote that is gone shows on the owner's side (failed commands,
         // no reports); here the frame is only counted.
-        ++(sent ? stream.sent : stream.lost);
-        if (sent && attempt > 1) ++stream.retried;
-        stream.write_total += took;
-        stream.write_max = std::max(stream.write_max, took);
+        ++(sent ? writer.sent : writer.lost);
+        if (sent && attempt > 1) ++writer.retried;
+        writer.write_total += took;
+        writer.write_max = std::max(writer.write_max, took);
     }
 }
-void StartSpeakerStream(Remote& remote) {
-    if (remote.stream || !remote.hid) return;
-    remote.stream = std::make_unique<SpeakerStream>();
-    remote.stream->thread = std::thread(StreamSpeaker, &remote, remote.hid);
+void StartWriter(Remote& remote) {
+    if (remote.writer || !remote.hid) return;
+    remote.writer = std::make_unique<Writer>();
+    remote.writer->thread = std::thread(RunWriter, &remote, remote.hid);
 }
-// Before the HID device closes: waits for a frame being written.
-void StopSpeakerStream(Remote& remote) {
-    if (!remote.stream) return;
+// Before the HID device closes: waits for the write in progress. With `drain`
+// the reports still waiting go out first (rumble off at shutdown), frames not.
+void StopWriter(Remote& remote, bool drain) {
+    if (!remote.writer) return;
     {
-        std::lock_guard lock(remote.stream->mutex);
-        remote.stream->stop = true;
+        std::lock_guard lock(remote.writer->mutex);
+        remote.writer->stop = true;
+        remote.writer->drain = drain;
     }
-    remote.stream->wake.notify_one();
-    remote.stream->thread.join();
-    remote.stream.reset();
+    remote.writer->wake.notify_one();
+    remote.writer->thread.join();
+    remote.writer.reset();
+}
+void CloseHid(Remote& remote, bool drain = false) {
+    StopWriter(remote, drain);
+    if (remote.hid) SDL_hid_close(remote.hid);
+    remote.hid = nullptr;
+}
+// Hands a report to the writer. A nonzero `sequence` brings its result back
+// (TakeWriteResults); `attempts` above 1 tries a rejected write again.
+bool Post(Remote& remote, std::vector<std::uint8_t> report, std::uint64_t sequence = 0, int attempts = 1) {
+    if (!remote.writer || report.size() < 2) return false;
+    {
+        std::lock_guard lock(remote.writer->mutex);
+        remote.writer->reports.push_back({std::move(report), sequence, attempts});
+    }
+    remote.writer->wake.notify_one();
+    return true;
+}
+// A remote that is gone gets nothing that still waits for it, and the results
+// of what went out before are dropped.
+void ClearWriter(Remote& remote) {
+    remote.first_write = remote.next_write;
+    remote.awaited_write = remote.probe_write = 0;
+    if (!remote.writer) return;
+    std::lock_guard lock(remote.writer->mutex);
+    remote.writer->reports.clear();
+    remote.writer->frames.clear();
+    remote.writer->results.clear();
 }
 void CompleteSpeaker(Remote& remote, bool ok) {
     if (remote.speaker_commands > 0) --remote.speaker_commands;
@@ -208,18 +259,18 @@ void CompleteSpeaker(Remote& remote, bool ok) {
 // How the speaker data fared, for testers' logs: always when frames were lost
 // or came too late, else with RECHARGED_WIIMOTE_DEBUG.
 void ReportSpeaker(Remote& remote, Clock::time_point now) {
-    if (!remote.stream || now < remote.next_speaker_report) return;
+    if (!remote.speaker || !remote.writer || now < remote.next_speaker_report) return;
     const bool first = remote.next_speaker_report == Clock::time_point{};
     remote.next_speaker_report = now + kSpeakerReport;
     if (first) return;
     unsigned sent, lost, retried;
     std::chrono::nanoseconds total, max;
     {
-        std::lock_guard lock(remote.stream->mutex);
-        sent = remote.stream->sent, lost = remote.stream->lost, retried = remote.stream->retried;
-        total = remote.stream->write_total, max = remote.stream->write_max;
-        remote.stream->sent = remote.stream->lost = remote.stream->retried = 0;
-        remote.stream->write_total = remote.stream->write_max = {};
+        std::lock_guard lock(remote.writer->mutex);
+        sent = remote.writer->sent, lost = remote.writer->lost, retried = remote.writer->retried;
+        total = remote.writer->write_total, max = remote.writer->write_max;
+        remote.writer->sent = remote.writer->lost = remote.writer->retried = 0;
+        remote.writer->write_total = remote.writer->write_max = {};
     }
     const unsigned late = remote.speaker_late, quiet = remote.speaker_quiet;
     remote.speaker_late = remote.speaker_quiet = 0;
@@ -304,7 +355,7 @@ bool SDLCALL VirtualRumble(void* userdata, Uint16 low, Uint16 high) {
     const bool on = low || high;
     if (on == remote.rumble) return true;
     remote.rumble = on;
-    return Send(remote, {0x10, 0x00});
+    return Post(remote, {0x10, 0x00});
 }
 bool SDLCALL VirtualSensors(void* userdata, bool enabled) {
     static_cast<Remote*>(userdata)->sensors = enabled;
@@ -327,7 +378,7 @@ void AttachVirtual(Remote& remote) {
         // Connected but not a player: LEDs off.
         if (remote.led_channel != -3) {
             remote.led_channel = -3;
-            Send(remote, {0x11, 0x00});
+            Post(remote, {0x11, 0x00});
             SDL_Log("Wii Remote (%s, %s) is not assigned to a player", Describe(remote).c_str(), remote.id.c_str());
         }
         return;
@@ -388,13 +439,11 @@ void Lost(Remote& remote, const char* why) {
     DetachVirtual(remote);
     remote.present = remote.ready = remote.probing = remote.waiting = false;
     remote.queue.clear();
-    remote.write_failures = 0;
-    remote.retry_at = {};
     remote.extension = remote.nunchuk = false;
     remote.rumble = false;
     remote.speaker = remote.speaker_muted = false;
     remote.speaker_tail = remote.speaker_commands = 0;
-    StopSpeakerStream(remote);
+    ClearWriter(remote);
     remote.next_probe = Clock::now() + 1s;
 }
 
@@ -587,8 +636,41 @@ void HandleReport(Remote& remote, const std::uint8_t* report, int size, Clock::t
     }
 }
 
+// Results of the owner's reports the writer finished. A command the writer
+// could not get out even after kWriteAttempts tries means the remote is gone;
+// an awaited reply is timed from when its command went out. False: lost.
+bool TakeWriteResults(Remote& remote, Clock::time_point now) {
+    if (!remote.writer) return true;
+    std::deque<std::pair<std::uint64_t, bool>> results;
+    {
+        std::lock_guard lock(remote.writer->mutex);
+        results.swap(remote.writer->results);
+    }
+    for (const auto& [sequence, sent] : results) {
+        if (sequence < remote.first_write) continue;
+        if (sequence == remote.probe_write) {
+            // An empty DolphinBar slot rejects the write (EPIPE); ask again later.
+            remote.probe_write = 0;
+            if (!sent && remote.probing) {
+                remote.probing = false;
+                remote.next_probe = now + kProbeInterval;
+            }
+            continue;
+        }
+        if (!sent) {
+            Lost(remote, "write failed");
+            return false;
+        }
+        if (sequence == remote.awaited_write) {
+            remote.awaited_write = 0;
+            remote.wait_deadline = now + kCommandWait;
+        }
+    }
+    return true;
+}
+
 void Pump(Remote& remote, Clock::time_point now) {
-    if (now < remote.retry_at) return;
+    if (!TakeWriteResults(remote, now) || remote.awaited_write) return;
     if (remote.waiting && now < remote.wait_deadline) return;
     if (remote.waiting && Verbose())
         SDL_Log("Wii Remote %s: no reply to %02x", remote.path.c_str(), remote.current.report[0]);
@@ -603,18 +685,19 @@ void Pump(Remote& remote, Clock::time_point now) {
         if (Verbose())
             SDL_Log("Wii Remote %s: send %02x %02x (%zu bytes)", remote.path.c_str(), remote.current.report[0],
                     remote.current.report.size() > 1 ? remote.current.report[1] : 0, remote.current.report.size());
-        if (!Send(remote, remote.current.report)) {
-            if (++remote.write_failures >= kWriteAttempts) { Lost(remote, "write failed"); return; }
-            remote.queue.push_front(std::move(remote.current));
-            remote.retry_at = now + kWriteRetry;
+        const std::uint64_t sequence = remote.next_write++;
+        if (!Post(remote, remote.current.report, sequence, kWriteAttempts)) {
+            Lost(remote, "write failed");
             return;
         }
-        remote.write_failures = 0;
         if (remote.current.wait != Wait::None) {
+            // A reply can come before Pump hears that the command went out.
             remote.waiting = true;
-            remote.wait_deadline = now + kCommandWait;
+            remote.awaited_write = sequence;
             return;
         }
+        // It goes out before any speaker frame handed over later, so WPAD
+        // hears of it now and the frames that follow may come.
         if (remote.current.speaker_done) CompleteSpeaker(remote, true);
     }
     if (!remote.ready && remote.present) {
@@ -632,8 +715,7 @@ void ReadAll(Remote& remote, Clock::time_point now) {
         if (size < 0) {
             // The adapter or Bluetooth link went away.
             Lost(remote, "device removed");
-            SDL_hid_close(remote.hid);
-            remote.hid = nullptr;
+            CloseHid(remote);
             return;
         }
         if (Verbose() && buffer[0] < 0x30)
@@ -650,13 +732,15 @@ void UpdateLeds(Remote& remote) {
     if (channel == remote.led_channel) return;
     remote.led_channel = channel;
     const std::uint8_t leds = channel >= 0 && channel < 4 ? std::uint8_t(0x10u << channel) : std::uint8_t(0xf0);
-    Send(remote, {0x11, leds});
+    Post(remote, {0x11, leds});
 }
 
 bool Open(Remote& remote) {
     remote.hid = SDL_hid_open_path(remote.path.c_str());
-    if (remote.hid) SDL_hid_set_nonblocking(remote.hid, 1);
-    return remote.hid != nullptr;
+    if (!remote.hid) return false;
+    SDL_hid_set_nonblocking(remote.hid, 1);
+    StartWriter(remote);
+    return true;
 }
 
 void Enumerate(Driver& driver) {
@@ -701,7 +785,7 @@ void Enumerate(Driver& driver) {
     for (auto it = driver.remotes.begin(); it != driver.remotes.end();) {
         if (std::find(seen.begin(), seen.end(), (*it)->path) != seen.end()) { ++it; continue; }
         Lost(**it, "device removed");
-        if ((*it)->hid) SDL_hid_close((*it)->hid);
+        CloseHid(**it);
         it = driver.remotes.erase(it);
     }
     // Remotes take players in slot order: adapter slots first, then directly
@@ -720,13 +804,16 @@ void ServiceRemote(Remote& remote, Clock::time_point now) {
     ReadAll(remote, now);
     if (!remote.hid) return;
     if (!remote.present) {
+        if (!TakeWriteResults(remote, now)) return;
         if (remote.probing && now >= remote.probe_deadline) {
             remote.probing = false;
             remote.next_probe = now + kProbeInterval;
         }
         if (!remote.probing && now >= remote.next_probe) {
-            // An empty DolphinBar slot rejects the write (EPIPE); ask again later.
-            if (!Send(remote, {0x15, 0x00})) {
+            // A rejected status request ends the probe early (TakeWriteResults).
+            remote.probe_write = remote.next_write++;
+            if (!Post(remote, {0x15, 0x00}, remote.probe_write)) {
+                remote.probe_write = 0;
                 remote.next_probe = now + kProbeInterval;
                 return;
             }
@@ -832,11 +919,11 @@ void ShutdownWiimoteHid() {
     if (!driver.initialized) return;
     RequireOwner();
     for (auto& remote : driver.remotes) {
-        StopSpeakerStream(*remote);
-        if (remote->rumble) { remote->rumble = false; Send(*remote, {0x10, 0x00}); }
+        ClearWriter(*remote);
+        if (remote->rumble) { remote->rumble = false; Post(*remote, {0x10, 0x00}); }
         DetachVirtual(*remote);
-        if (remote->hid) SDL_hid_close(remote->hid);
-        remote->hid = nullptr;
+        // Only the rumble off still waits to go out.
+        CloseHid(*remote, true);
     }
     driver.remotes.clear();
     driver.initialized = false;
@@ -907,25 +994,27 @@ bool WiimoteHidControlSpeaker(std::uint32_t joystick_id, WiimoteSpeakerCommand c
         if (!remote->speaker)
             SDL_Log("Wii Remote (%s): speaker on, volume %d of 127", Describe(*remote).c_str(), std::min(127, int(volume)));
         remote->speaker = true;
-        StartSpeakerStream(*remote);
     } else if (command == WiimoteSpeakerCommand::Off) {
         remote->speaker = false;
-        StopSpeakerStream(*remote);
+        if (remote->writer) {
+            std::lock_guard lock(remote->writer->mutex);
+            remote->writer->frames.clear();
+        }
     }
-    // Out at once (mute and unmute come with each sound), unless a command
-    // still waits for its reply.
+    // To the writer at once (mute and unmute come with each sound), unless a
+    // command still waits for its reply.
     Pump(*remote, Clock::now());
     return true;
 }
 
 namespace {
-// A frame the stream takes now: the speaker is on, its commands went out and
+// A frame the writer takes now: the speaker is on, its commands went out and
 // the frame is either not sent (muted) or finds room in the queue.
 bool SpeakerTakesFrame(Remote* remote) {
-    if (!remote || !remote->speaker || !remote->stream || remote->speaker_commands) return false;
+    if (!remote || !remote->speaker || !remote->writer || remote->speaker_commands) return false;
     if (remote->speaker_muted && !remote->speaker_tail) return true;
-    std::lock_guard lock(remote->stream->mutex);
-    if (remote->stream->frames.size() < kSpeakerQueue) return true;
+    std::lock_guard lock(remote->writer->mutex);
+    if (remote->writer->frames.size() + (remote->writer->frame_out ? 1 : 0) < kSpeakerQueue) return true;
     ++remote->speaker_late;
     return false;
 }
@@ -945,16 +1034,16 @@ bool WiimoteHidStreamSpeaker(std::uint32_t joystick_id, const void* data, std::u
         }
         --remote->speaker_tail;
     }
-    auto& stream = *remote->stream;
+    auto& writer = *remote->writer;
     {
-        std::lock_guard lock(stream.mutex);
+        std::lock_guard lock(writer.mutex);
         Frame frame{};
         frame[0] = 0x18;
         frame[1] = static_cast<std::uint8_t>(size << 3);
         std::memcpy(frame.data() + 2, data, size);
-        stream.frames.push_back(frame);
+        writer.frames.push_back(frame);
     }
-    stream.wake.notify_one();
+    writer.wake.notify_one();
     return true;
 }
 
