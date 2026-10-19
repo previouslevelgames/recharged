@@ -170,10 +170,38 @@ void CustomKeysCycle() {
     mscharged::platform::ConfigureWpadSDL({0,3,false,false});
     mscharged::platform::DesktopWpadSettings settings{};
     settings.keyboard = true;
+    // The hotkeys ([hotkeys]) are no action's keys: P and H unless rebound.
+    {
+        using mscharged::platform::Hotkeys;
+        using mscharged::platform::KeyBinding;
+        using mscharged::platform::ParseHotkeys;
+        std::array<std::string, mscharged::KeyActionCount> texts{};
+        texts[mscharged::KeyActionB] = "Return | P";
+        texts[mscharged::KeyActionOne] = "H";
+        auto bindings = mscharged::platform::ParseKeyBindings(texts, Hotkeys{});
+        Check(bindings[mscharged::KeyActionB] == KeyBinding{SDL_SCANCODE_RETURN, SDL_SCANCODE_UNKNOWN},
+              "The screenshot key was bound to an action");
+        Check(bindings[mscharged::KeyActionOne] == KeyBinding{SDL_SCANCODE_Z, SDL_SCANCODE_UNKNOWN},
+              "An action left with only the HUD key did not keep its default");
+        bindings = mscharged::platform::ParseKeyBindings(texts, Hotkeys{SDL_SCANCODE_F5, SDL_SCANCODE_Z});
+        Check(bindings[mscharged::KeyActionB] == KeyBinding{SDL_SCANCODE_RETURN, SDL_SCANCODE_P}
+                  && bindings[mscharged::KeyActionOne] == KeyBinding{SDL_SCANCODE_H, SDL_SCANCODE_UNKNOWN},
+              "Rebound hotkeys did not free P and H");
+        texts[mscharged::KeyActionOne] = "";
+        Check(mscharged::platform::ParseKeyBindings(texts, Hotkeys{SDL_SCANCODE_F5, SDL_SCANCODE_Z})
+                      [mscharged::KeyActionOne][0] == SDL_SCANCODE_UNKNOWN,
+              "A default key taken by a hotkey stayed bound");
+        const auto keys = [](const Hotkeys& hotkeys, SDL_Scancode screenshot, SDL_Scancode hud) {
+            return hotkeys.screenshot == screenshot && hotkeys.hud == hud;
+        };
+        Check(keys(ParseHotkeys("F12", "G"), SDL_SCANCODE_F12, SDL_SCANCODE_G), "Hotkeys did not parse");
+        Check(keys(ParseHotkeys("Left Alt", "Mouse 4"), SDL_SCANCODE_P, SDL_SCANCODE_H)
+                  && keys(ParseHotkeys("", "Nonsense"), SDL_SCANCODE_P, SDL_SCANCODE_H),
+              "A modifier, mouse button or unknown name became a hotkey");
+        Check(keys(ParseHotkeys("G", "G"), SDL_SCANCODE_P, SDL_SCANCODE_H), "Both hotkeys took the same key");
+    }
     settings.keys[mscharged::KeyActionA] = mscharged::platform::ParseKeyBinding("F1");
-    settings.keys[mscharged::KeyActionB] = mscharged::platform::ParseKeyBinding("Return | P");
-    Check(settings.keys[mscharged::KeyActionB][1] == SDL_SCANCODE_UNKNOWN, "The screenshot key was bound to an action");
-    Check(mscharged::platform::ParseKeyBinding("H")[0] == SDL_SCANCODE_UNKNOWN, "The HUD key was bound to an action");
+    settings.keys[mscharged::KeyActionB] = mscharged::platform::ParseKeyBinding("Return");
     mscharged::platform::InitializeDesktopWpad(window, settings);
     WPADInit();
     Event(SDL_EVENT_WINDOW_FOCUS_GAINED);

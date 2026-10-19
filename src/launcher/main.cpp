@@ -481,6 +481,8 @@ public:
                     SelectDisc(event.drop.data);
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && capture_action_ >= 0)
                     CaptureKey(event.key.scancode);
+                if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && hotkey_capture_ >= 0)
+                    CaptureHotkey(event.key.scancode);
                 // Middle and side mouse buttons can take a key's place (#62).
                 if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && capture_action_ >= 0
                     && platform::MouseKeyInput(event.button.button) != platform::kKeyNone)
@@ -2719,6 +2721,11 @@ private:
         std::string detail = aspect + (s.vsync ? "  -  VSync on" : "  -  VSync off");
         if (s.frame_rate != "original") detail += "  -  " + FrameRateLabel(s.frame_rate);
         if (s.performance_mode) detail += "  -  Performance mode";
+        if (!s.show_hud)
+        {
+            const auto hud = platform::ParseHotkeys(s.screenshot_key, s.hud_key).hud;
+            detail += "  -  HUD hidden (" + platform::KeyInputName(hud) + ")";
+        }
         return {s.fullscreen ? "Fullscreen" : std::to_string(s.width) + " x " + std::to_string(s.height) + " window",
                 detail, color::info};
     }
@@ -4193,19 +4200,10 @@ private:
         EndCard();
     }
 
-    // `together`: the keys are pressed at once ("Alt + Enter"), not alternatives.
-    void KeyRow(const char* button, std::initializer_list<const char*> keys, const char* alternative = nullptr,
-                const char* note = nullptr, bool together = false)
+    // Keycaps side by side. `together`: the keys are pressed at once
+    // ("Alt + Enter"), not alternatives.
+    static void KeyCaps(std::initializer_list<const char*> keys, bool together)
     {
-        ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
-        ImGui::TableSetColumnIndex(0);
-        TextColored(CurrentFonts().label, color::text, button);
-        if (note)
-        {
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
-            TextColored(CurrentFonts().caption, color::muted, note);
-        }
-        ImGui::TableSetColumnIndex(1);
         bool first = true;
         for (const char* key : keys)
         {
@@ -4221,6 +4219,21 @@ private:
             KeyCap(key);
             first = false;
         }
+    }
+
+    void KeyRow(const char* button, std::initializer_list<const char*> keys, const char* alternative = nullptr,
+                const char* note = nullptr, bool together = false)
+    {
+        ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
+        ImGui::TableSetColumnIndex(0);
+        TextColored(CurrentFonts().label, color::text, button);
+        if (note)
+        {
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
+            TextColored(CurrentFonts().caption, color::muted, note);
+        }
+        ImGui::TableSetColumnIndex(1);
+        KeyCaps(keys, together);
         if (alternative)
         {
             ImGui::SameLine(0, Dp(10));
@@ -4614,7 +4627,7 @@ private:
     void OpenKeyboardView()
     {
         keyboard_view_ = true;
-        capture_action_ = capture_slot_ = -1;
+        capture_action_ = capture_slot_ = hotkey_capture_ = -1;
     }
 
     void CloseKeyboardView()
@@ -4624,7 +4637,8 @@ private:
         if (dirty_ && config_ok_) Save();
     }
 
-    platform::KeyBindings DraftBindings() const { return platform::ParseKeyBindings(draft_.keys); }
+    platform::Hotkeys DraftHotkeys() const { return platform::ParseHotkeys(draft_.screenshot_key, draft_.hud_key); }
+    platform::KeyBindings DraftBindings() const { return platform::ParseKeyBindings(draft_.keys, DraftHotkeys()); }
 
     // A key or mouse button pressed while a keycap waits: it takes that slot,
     // moving it from another action unless it is that action's only key.
@@ -4635,14 +4649,12 @@ private:
         if (action < 0) return;
         const std::string name = platform::KeyInputName(code);
         if (name.empty()) return;
-        if (code == platform::kScreenshotKey)
+        const auto hotkeys = DraftHotkeys();
+        if (code == hotkeys.screenshot || code == hotkeys.hud)
         {
-            Notice(name + " takes screenshots and cannot be assigned.", NoticeKind::Warning);
-            return;
-        }
-        if (code == platform::kHudKey)
-        {
-            Notice(name + " shows or hides the HUD in a match and cannot be assigned.", NoticeKind::Warning);
+            Notice(name + (code == hotkeys.screenshot ? " takes screenshots" : " shows or hides the HUD")
+                       + " (Hotkeys on the Controls page) and cannot be assigned.",
+                   NoticeKind::Warning);
             return;
         }
         auto bindings = DraftBindings();
@@ -4674,6 +4686,95 @@ private:
         Notice(name + " now presses " + kKeyActions[action].label
                    + (moved >= 0 ? std::string(" (moved from ") + kKeyActions[moved].label + ")" : std::string()) + ".",
                NoticeKind::Info);
+    }
+
+    // A key pressed while a hotkey's keycap waits (0 screenshot, 1 HUD).
+    // Another hotkey's key, a modifier or a keyboard & mouse key is refused.
+    void CaptureHotkey(platform::KeyInput code)
+    {
+        const int which = hotkey_capture_;
+        hotkey_capture_ = -1;
+        const std::string name = platform::KeyInputName(code);
+        if (which < 0 || name.empty()) return;
+        if (!platform::HotkeyAllowed(code))
+        {
+            Notice(name + " cannot be a hotkey: Shift, Ctrl, Alt and the system key stay free for shortcuts.",
+                   NoticeKind::Warning);
+            return;
+        }
+        const auto hotkeys = DraftHotkeys();
+        if (code == (which == 0 ? hotkeys.screenshot : hotkeys.hud)) return;
+        if (code == (which == 0 ? hotkeys.hud : hotkeys.screenshot))
+        {
+            Notice(name + (which == 0 ? " already shows or hides the HUD." : " already takes screenshots."),
+                   NoticeKind::Warning);
+            return;
+        }
+        const auto bindings = DraftBindings();
+        for (std::size_t action = 0; action < KeyActionCount; ++action)
+            if (bindings[action][0] == code || bindings[action][1] == code)
+            {
+                Notice(name + " presses " + kKeyActions[action].label
+                           + " for keyboard & mouse. Give that action another key first.",
+                       NoticeKind::Warning);
+                return;
+            }
+        (which == 0 ? draft_.screenshot_key : draft_.hud_key) = name;
+        dirty_ = true;
+        Notice(name + (which == 0 ? " now takes screenshots." : " now shows or hides the HUD."), NoticeKind::Info);
+    }
+
+    // [hotkeys]: keys of the game window, whoever plays. The screenshot and
+    // HUD keys can be changed; Alt+Enter cannot. No HUD sits with its key.
+    void HotkeysCard()
+    {
+        BeginCard("##hotkeys", "Hotkeys", "Keys of the game window, whoever plays. Click a key, then press the new one.",
+                  Icon::Keyboard);
+        const auto hotkeys = DraftHotkeys();
+        bool clicked = false;
+        const auto hotkey = [&](int which, const char* label, const char* note, SDL_Scancode key) {
+            Row(label, note);
+            const bool waiting = hotkey_capture_ == which;
+            const std::string name = waiting ? std::string("Press a key...") : platform::KeyInputName(key);
+            ImGui::PushID(which);
+            if (KeyCapButton("##hotkey", name.c_str(), waiting))
+            {
+                clicked = true;
+                hotkey_capture_ = waiting ? -1 : which;
+            }
+            if (ImGui::IsItemHovered() && !waiting) ImGui::SetTooltip("Click, then press the new key");
+            ImGui::PopID();
+        };
+        if (BeginRows("##hotkey_rows"))
+        {
+            hotkey(0, "Screenshot", "Saved in the screenshots folder.", hotkeys.screenshot);
+            Row("Fullscreen or window", "For this run.");
+#if defined(__APPLE__)
+            KeyCaps({"Option", "Return"}, true);
+#else
+            KeyCaps({"Alt", "Enter"}, true);
+#endif
+            hotkey(1, "Show or hide the HUD", "In a match.", hotkeys.hud);
+            const std::string note = "The scoreboard, player markers and captions. Off starts matches without them, "
+                "for clean recordings; " + platform::KeyInputName(hotkeys.hud)
+                + " shows them. The Mega Strike meter and its defence always stay.";
+            Row("Show the HUD when a match starts", note.c_str());
+            if (Toggle("##show_hud", &draft_.show_hud)) dirty_ = true;
+            EndRows();
+        }
+        static const Settings defaults;
+        if (SecondaryButton("##reset_hotkeys", "Reset keys", Dp(140, 36),
+                            draft_.screenshot_key != defaults.screenshot_key || draft_.hud_key != defaults.hud_key,
+                            Icon::Refresh))
+        {
+            draft_.screenshot_key = defaults.screenshot_key;
+            draft_.hud_key = defaults.hud_key;
+            hotkey_capture_ = -1;
+            dirty_ = true;
+        }
+        EndCard();
+        // A click anywhere else stops waiting for a key.
+        if (hotkey_capture_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) hotkey_capture_ = -1;
     }
 
     void KeyboardView()
@@ -4744,20 +4845,14 @@ private:
         BeginCard("##nunchuk_keys", "Nunchuk & motion", "The Nunchuk stick and buttons, and the shakes.", Icon::Gamepad);
         rows(KeyActionStickUp, KeyActionCount);
         EndCard();
-        BeginCard("##mouse_keys", "Mouse & more", nullptr, Icon::Mouse);
+        BeginCard("##mouse_keys", "Mouse",
+                  "The screenshot, HUD and fullscreen keys are under Hotkeys on the Controls page.", Icon::Mouse);
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
         if (ImGui::BeginTable("##fixed_keys", 2))
         {
             ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
             ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch);
             KeyRow("Pointer", {"Mouse"}, "left click is A, right click is B", "Point at menu items");
-            KeyRow("Screenshot", {"P"}, nullptr, "Saved in the screenshots folder");
-            KeyRow("Show or hide the HUD", {"H"}, nullptr, "In a match");
-#if defined(__APPLE__)
-            KeyRow("Fullscreen or window", {"Option", "Return"}, nullptr, "For this run", true);
-#else
-            KeyRow("Fullscreen or window", {"Alt", "Enter"}, nullptr, "For this run", true);
-#endif
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
@@ -5598,6 +5693,7 @@ private:
         PlayersCard();
         WiiRemoteCard();
         RumbleCard();
+        HotkeysCard();
 
         BeginCard("##controller", "Controller test", "Check a gamepad's buttons and sticks. Assign gamepads to players above.", Icon::Gamepad);
         if (!gamepad_)
@@ -5633,7 +5729,7 @@ private:
         draft_.gamecube_disc = SettingsPath(library_strikers_.front());
         dirty_ = true;
         if (clean) Save();
-        if (draft_.tweaks[std::size_t(GameTweak::SuperTeam)])
+        if (draft_.tweaks[GameTweakIndex(GameTweak::SuperTeam)])
             Notice("The Super Team uses " + PathUtf8(library_strikers_.front().filename()) + " from your game folder.",
                    NoticeKind::Success);
     }
@@ -5669,7 +5765,7 @@ private:
 
     void SuperTeamRows()
     {
-        const auto index = std::size_t(GameTweak::SuperTeam);
+        const auto index = GameTweakIndex(GameTweak::SuperTeam);
         const auto& info = kGameTweaks[index];
         Row(info.name, info.description);
         if (Toggle("##tweak_super_team", &draft_.tweaks[index]))
@@ -5710,7 +5806,7 @@ private:
 
     void TweakRow(GameTweak tweak)
     {
-        const auto index = std::size_t(tweak);
+        const auto index = GameTweakIndex(tweak);
         const auto& info = kGameTweaks[index];
         Row(info.name, info.description);
         const std::string id = std::string("##tweak_") + info.key;
@@ -5756,7 +5852,6 @@ private:
             TweakRow(GameTweak::BluePeach);
             TweakRow(GameTweak::RobotGoalies);
             SuperTeamRows();
-            TweakRow(GameTweak::NoHud);
             TweakRow(GameTweak::UnlockAll);
             EndRows();
         }
@@ -6535,6 +6630,7 @@ private:
     // Controls: keyboard & mouse keys view, and the keycap waiting for a key.
     bool keyboard_view_ = false;
     int capture_action_ = -1, capture_slot_ = -1;
+    int hotkey_capture_ = -1; // Hotkeys card: 0 screenshot, 1 HUD, waiting for a key
     // Gamepad profiles view: the profile being edited, its rename field and
     // the input waiting for a gamepad press.
     bool gamepad_view_ = false;

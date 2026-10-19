@@ -20,7 +20,7 @@ Everything stays in the program folder:
 | `texture_packs/` | Texture packs (or the folder set under *Gameplay → Mods*) |
 | `data/texture_dumps/` | The game's textures, when *Dump textures* is on |
 | `logs/recharged.log` | The log of the last run |
-| `screenshots/` | Screenshots taken with **P**, in the folder the game was started from |
+| `screenshots/` | Screenshots taken with the screenshot key (**P** by default), in the folder the game was started from |
 
 Updates replace only the program's own files; these stay. If the program
 folder is not writable, the log goes to your user's application data folder
@@ -242,6 +242,15 @@ through Steam Input usually show the game no gyro.
 The profile page shows both sticks and triggers live with these settings, and
 the gyro pointer when it is on.
 The built-in Default always uses the defaults; changing it makes your own copy.
+
+**Hotkeys** (Controls → Hotkeys, `[hotkeys]`) work in the game window whoever
+plays: **P** saves a screenshot (`screenshot`) and **H** shows or hides the HUD
+in a match (`hud`). Click a key to change it; a hotkey cannot be Shift, Ctrl,
+Alt or the system key, nor a key of keyboard & mouse. With **Show the HUD
+when a match starts** off (`show_hud = false`), every match starts without the
+scoreboard, player markers and captions, for clean recordings; the HUD key
+shows them, and the Mega Strike meter stays. **Alt+Enter** (Option+Return on a Mac) cannot be
+changed.
 
 **Linux permissions.** If a Remote is connected but cannot be opened, the
 Controls page says so and copies these commands. Run them once, then

@@ -70,8 +70,16 @@ come from the reconstructed source, unchanged.
 | + / − / HOME | Tab / - / Home | Start / Back / Guide |
 | Shake Remote / Nunchuk | E / Q | RT / RB |
 
-Press **P** for a screenshot, **H** to show or hide the HUD in a match and
-**Alt+Enter** (Option+Return on a Mac) to switch between fullscreen and a window.
+**Hotkeys** work whoever plays: **P** saves a screenshot, **H** shows or hides
+the HUD in a match and **Alt+Enter** (Option+Return on a Mac) switches between
+fullscreen and a window. P and H can be changed under Controls → Hotkeys.
+
+**No HUD** (Controls → Hotkeys → *Show the HUD when a match starts* off):
+matches start without the scoreboard (score, clock, items, ability meter),
+the player markers and the captions (replay label, goal banner, super ability
+card), for clean recordings and screenshots; the HUD key shows them. The Mega
+Strike meter and the goalie's Mega Strike defence stay, as you need them to
+play.
 
 ## Picture and sound
 
@@ -98,7 +106,7 @@ Press **P** for a screenshot, **H** to show or hide the HUD in a match and
 - Master volume, mute and **sound levels** (Audio): music, sound effects,
   voices, the crowd, menus and HUD, cutscenes and movies each from 0 to 100 %,
   on top of the game's own music, effect and voice options.
-- **Screenshots** with the P key.
+- **Screenshots** with the P key, or the one chosen under Controls → Hotkeys.
 
 ## Optional tweaks
 
@@ -164,12 +172,6 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   game folder, or asks for it when you turn the option on. Each robot is fitted
   to its character's size and keeps the character's animations and play;
   Bowser, Petey Piranha and Boo keep their own look.
-- **No HUD**: matches start without the scoreboard (score, clock, items,
-  ability meter), the player markers and the captions (replay label, goal
-  banner, super ability card), for clean recordings and screenshots. Press
-  **H** in a match to show or hide them, with or without this option. The
-  Mega Strike meter and the goalie's Mega Strike defence stay, as you need
-  them to play.
 
 `--no-tweaks` turns them off for one run.
 

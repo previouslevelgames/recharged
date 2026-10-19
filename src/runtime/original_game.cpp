@@ -582,8 +582,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             else if (device.rfind("gamepad", 0) == 0) players.gamepads[device.back() - '1'] = player;
             else if (device != "off") players.remotes[device] = player;
         }
+        // [hotkeys]: the screenshot and HUD keys, which the keyboard player never presses.
+        const auto hotkeys=mscharged::platform::ParseHotkeys(launch.settings.screenshot_key,launch.settings.hud_key);
+        mscharged::platform::SetHotkeys(hotkeys);
         mscharged::platform::DesktopWpadSettings desktop{true,false,true,mscharged::platform::QueryPresentedDesktopDpd,
-            nullptr,true,true,-1,mscharged::platform::ParseKeyBindings(launch.settings.keys)};
+            nullptr,true,true,-1,mscharged::platform::ParseKeyBindings(launch.settings.keys,hotkeys)};
         desktop.kpad_sensor_height=release->code==mscharged::GameCode::Usa;
         desktop.rumble_strength=launch.settings.rumble_strength;
         // Each gamepad's profile (controls.gamepadN_profile).
@@ -608,6 +611,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 +std::to_string(s.ir_sensitivity)+", speaker "+(s.speaker_volume ? std::to_string(s.speaker_volume)+"%" : "off")
                 +", rumble "+(s.rumble ? "on (gamepads "+std::to_string(s.rumble_strength)+"%)" : "off");
             mscharged::platform::SessionLogLine(line);
+            mscharged::platform::SessionLogLine("Hotkeys: screenshot "+mscharged::platform::KeyInputName(hotkeys.screenshot)
+                +", HUD "+mscharged::platform::KeyInputName(hotkeys.hud)+" (matches start with the HUD "
+                +(s.show_hud ? "shown)" : "hidden)"));
             for (const auto& device : s.players) {
                 if (device.rfind("gamepad", 0) != 0) continue;
                 const std::size_t pad = std::size_t(device.back() - '1');
@@ -658,12 +664,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_debug_layers")),
                 reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_cycle_debug_layer")));
         }
-        // [gameplay] tweaks: the enabled set, before original main.
+        // [gameplay] tweaks: the enabled set, before original main, with
+        // the No HUD bit of [hotkeys] show_hud = false.
         {
             const unsigned tweaks=launch.settings.GameTweakMask();
             auto* configureTweaks=reinterpret_cast<void(*)(unsigned)>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tweaks"));
-            if(configureTweaks) configureTweaks(tweaks);
+            if(configureTweaks) configureTweaks(launch.settings.ModuleTweakMask());
             const auto line="Tweaks: "+(configureTweaks || !tweaks ? mscharged::DescribeGameTweaks(tweaks)
                 : "none (this build's game module has no tweaks)");
             mscharged::platform::SessionLogLine(line.c_str());
@@ -672,7 +679,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(auto* configureRecolour=reinterpret_cast<void(*)(ChargedRecolouredTextureHook)>(
                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_hd_recolour")))
                 configureRecolour(mscharged::TexturePackRecolourHook());
-            // No HUD (issue #58): H shows or hides the match HUD, whatever the tweak set.
+            // No HUD (issue #58): the HUD key shows or hides the match HUD, whatever show_hud says.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_hud")));
             // Robot goalies: the map that lays the disc's unused robot goalie

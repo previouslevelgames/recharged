@@ -18,6 +18,8 @@ namespace
 {
 std::atomic<SDL_WindowID> sWindow{0};
 std::atomic<bool> sWatching{false};
+std::atomic<SDL_Scancode> sScreenshotKey{Hotkeys{}.screenshot};
+std::atomic<SDL_Scancode> sHudKey{Hotkeys{}.hud};
 void (*sToggleLayers)() = nullptr;
 void (*sCycleLayer)() = nullptr;
 void (*sToggleHud)() = nullptr;
@@ -62,7 +64,7 @@ void RequestDrawDump()
 
 bool SDLCALL Watch(void*, SDL_Event* event)
 {
-    if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.scancode == SDL_SCANCODE_P
+    if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.scancode == sScreenshotKey.load()
         && event->key.windowID != 0 && event->key.windowID == sWindow.load())
         RequestScreenshot();
     if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.windowID != 0
@@ -71,7 +73,7 @@ bool SDLCALL Watch(void*, SDL_Event* event)
         if (event->key.scancode == SDL_SCANCODE_F8) RequestDrawDump();
         if (event->key.scancode == SDL_SCANCODE_F9 && sToggleLayers) sToggleLayers();
         if (event->key.scancode == SDL_SCANCODE_F10 && sCycleLayer) sCycleLayer();
-        if (event->key.scancode == kHudKey && sToggleHud) sToggleHud();
+        if (event->key.scancode == sHudKey.load() && sToggleHud) sToggleHud();
     }
     return true;
 }
@@ -85,6 +87,12 @@ void InitializeScreenshotHotkey(SDL_Window* window)
         sWatching = false;
         std::fprintf(stderr, "Screenshot key unavailable: %s\n", SDL_GetError());
     }
+}
+
+void SetHotkeys(const Hotkeys& hotkeys)
+{
+    sScreenshotKey = hotkeys.screenshot;
+    sHudKey = hotkeys.hud;
 }
 
 void SetDebugLayerKeys(void (*toggle)(), void (*cycle)())

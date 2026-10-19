@@ -145,6 +145,19 @@ z = V
 shake_remote = E
 shake_nunchuk = Q
 
+[hotkeys]
+# Keys of the game window, whoever plays: one SDL key name each, not Shift,
+# Ctrl, Alt or the system key. No [keyboard] action takes them. Alt+Enter
+# (Option+Return on a Mac) switches between fullscreen and a window and cannot
+# be changed.
+# screenshot: saves the picture in the screenshots folder.
+# hud: shows or hides the scoreboard, player markers and captions in a match.
+# show_hud = false: matches start with them hidden, for clean recordings; the
+# Mega Strike meter and its defence stay.
+screenshot = P
+hud = H
+show_hud = true
+
 # Gamepad profiles ([gamepad_profile1] to [gamepad_profile16]), made on the
 # launcher's Controls page: a unique name (not Default) and one or two SDL
 # gamepad inputs per action, separated by |: a, b, x, y (bottom, right, left,
@@ -219,9 +232,6 @@ shake_nunchuk = Q
 # super_team: the captain and sidekicks of super_team_side (away, home or both)
 # become the robots of the Super Team from Super Mario Strikers, fitted to each
 # character. Needs [game] gamecube_disc. Bowser, Petey and Boo keep their look.
-# no_hud: matches start without the scoreboard, player markers and captions
-# (H shows or hides them in a match); the Mega Strike meter and its defence
-# stay.
 # fair_ball_contests: when players of both teams reach a loose ball at once,
 # neither team wins it more often (the game's player order slightly favours
 # the home team). On by default; online matches always play with it.
@@ -237,7 +247,6 @@ blue_peach = false
 robot_goalies = false
 super_team = false
 super_team_side = away
-no_hud = false
 fair_ball_contests = true
 
 [mods]

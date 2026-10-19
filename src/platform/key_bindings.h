@@ -33,10 +33,23 @@ using KeyBindings = std::array<KeyBinding, KeyActionCount>;
 // are left out.
 KeyBinding ParseKeyBinding(std::string_view text);
 std::string FormatKeyBinding(const KeyBinding& binding);
-KeyBindings ParseKeyBindings(const std::array<std::string, KeyActionCount>& texts);
+
+// The host's hotkeys ([hotkeys]): the screenshot key and the key that shows or
+// hides the match HUD (No HUD, issue #58). They work whoever plays, and no
+// keyboard & mouse action takes them.
+struct Hotkeys {
+    SDL_Scancode screenshot = SDL_SCANCODE_P;
+    SDL_Scancode hud = SDL_SCANCODE_H;
+};
+// Whether `input` can be a hotkey: a named key, not a mouse button and not a
+// modifier (shortcuts such as Alt+Enter need those).
+bool HotkeyAllowed(KeyInput input);
+// hotkeys.screenshot and hotkeys.hud; a key that cannot be a hotkey keeps its
+// default, and when both name the same key both keep theirs.
+Hotkeys ParseHotkeys(std::string_view screenshot, std::string_view hud);
+
+// The actions' keys without the hotkeys; an action left without a key keeps
+// its default keys (also without the hotkeys).
+KeyBindings ParseKeyBindings(const std::array<std::string, KeyActionCount>& texts, const Hotkeys& hotkeys);
 KeyBindings DefaultKeyBindings();
-// The host screenshot key and the key that shows or hides the match HUD
-// (No HUD, issue #58), which no action may take.
-inline constexpr SDL_Scancode kScreenshotKey = SDL_SCANCODE_P;
-inline constexpr SDL_Scancode kHudKey = SDL_SCANCODE_H;
 } // namespace mscharged::platform

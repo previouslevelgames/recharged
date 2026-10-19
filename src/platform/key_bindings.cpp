@@ -25,8 +25,14 @@ bool SameName(std::string_view a, std::string_view b) {
 KeyInput ParseKeyInput(std::string_view name) {
     for (const auto& mouse : kMouseKeys)
         if (SameName(name, mouse.name)) return kMouseKeyBase + mouse.button;
-    const SDL_Scancode code = SDL_GetScancodeFromName(std::string(name).c_str());
-    return code == kScreenshotKey || code == kHudKey ? kKeyNone : code;
+    return SDL_GetScancodeFromName(std::string(name).c_str());
+}
+
+KeyBinding WithoutHotkeys(KeyBinding binding, const Hotkeys& hotkeys) {
+    for (auto& input : binding)
+        if (input == hotkeys.screenshot || input == hotkeys.hud) input = kKeyNone;
+    if (binding[0] == kKeyNone) binding = {binding[1], kKeyNone};
+    return binding;
 }
 } // namespace
 
@@ -76,12 +82,31 @@ std::string FormatKeyBinding(const KeyBinding& binding) {
     return text;
 }
 
-KeyBindings ParseKeyBindings(const std::array<std::string, KeyActionCount>& texts) {
+bool HotkeyAllowed(KeyInput input) {
+    if (input <= kKeyNone || input >= SDL_SCANCODE_COUNT || KeyInputName(input).empty()) return false;
+    return input < SDL_SCANCODE_LCTRL || input > SDL_SCANCODE_RGUI;
+}
+
+Hotkeys ParseHotkeys(std::string_view screenshot, std::string_view hud) {
+    Hotkeys hotkeys;
+    const auto key = [](std::string_view name, SDL_Scancode fallback) {
+        const KeyInput input = name.empty() ? kKeyNone : ParseKeyInput(name);
+        return HotkeyAllowed(input) ? SDL_Scancode(input) : fallback;
+    };
+    const Hotkeys defaults;
+    hotkeys.screenshot = key(screenshot, defaults.screenshot);
+    hotkeys.hud = key(hud, defaults.hud);
+    if (hotkeys.screenshot == hotkeys.hud) hotkeys = defaults;
+    return hotkeys;
+}
+
+KeyBindings ParseKeyBindings(const std::array<std::string, KeyActionCount>& texts, const Hotkeys& hotkeys) {
     KeyBindings bindings{};
     for (std::size_t n = 0; n < KeyActionCount; ++n) {
-        bindings[n] = ParseKeyBinding(texts[n]);
+        bindings[n] = WithoutHotkeys(ParseKeyBinding(texts[n]), hotkeys);
         // An action without a usable key keeps its default.
-        if (bindings[n][0] == kKeyNone) bindings[n] = ParseKeyBinding(kKeyActions[n].defaults);
+        if (bindings[n][0] == kKeyNone)
+            bindings[n] = WithoutHotkeys(ParseKeyBinding(kKeyActions[n].defaults), hotkeys);
     }
     return bindings;
 }
