@@ -46,6 +46,7 @@ int main()
         settings.rumble_strength = 40;
         settings.ir_sensitivity = 5;
         settings.speaker_volume = 0;
+        settings.speaker_format = "adpcm";
         settings.backend = "d3d12";
         SaveConfig(file, settings);
         const auto reloaded = LoadConfig(path);
@@ -55,6 +56,7 @@ int main()
             && reloaded.settings.players == settings.players
             && !reloaded.settings.rumble && reloaded.settings.rumble_strength == 40
             && reloaded.settings.ir_sensitivity == 5 && reloaded.settings.speaker_volume == 0
+            && reloaded.settings.speaker_format == "adpcm"
             && reloaded.settings.backend == "d3d12", "Settings round trip");
         Require(reloaded.contents.find("; keep my comment\r\n") != std::string::npos
             && reloaded.contents.find("option = keep me\r\n") != std::string::npos
@@ -115,6 +117,10 @@ int main()
         std::ofstream(path) << "[controls]\nir_sensitivity = 6\n";
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[controls]\nspeaker_volume = 101\n";
+        Reject([&] { LoadConfig(path); });
+        // The speaker gets 8-bit PCM unless the game's own ADPCM is asked for.
+        Require(Settings{}.speaker_format == "pcm", "Speaker format default");
+        std::ofstream(path) << "[controls]\nspeaker_format = wav\n";
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[controls]\nrumble_strength = -1\n";
         Reject([&] { LoadConfig(path); });

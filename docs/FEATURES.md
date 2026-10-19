@@ -70,14 +70,16 @@ come from the reconstructed source, unchanged.
 | + / − / HOME | Tab / - / Home | Start / Back / Guide |
 | Shake Remote / Nunchuk | E / Q | RT / RB |
 
-Press **P** for a screenshot and **H** to show or hide the HUD in a match.
+Press **P** for a screenshot, **H** to show or hide the HUD in a match and
+**Alt+Enter** (Option+Return on a Mac) to switch between fullscreen and a window.
 
 ## Picture and sound
 
 - Vulkan on Linux, Vulkan or DirectX 12 on Windows (Advanced → Graphics API),
   Metal on macOS; on PCs with two GPUs, a choice of graphics card (Advanced →
   Graphics card).
-- Window or fullscreen on any monitor, freely sized, 4:3 or 16:9.
+- Window or fullscreen on any monitor, freely sized, 4:3 or 16:9; Alt+Enter
+  switches while playing.
 - **3D at your window's resolution** (default) instead of the Wii's 640 x 448,
   or fixed 2x-4x; menus and the HUD keep their original artwork.
 - Picture styles: **sharp** (default) or clean fill the window with the game's

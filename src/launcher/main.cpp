@@ -39,6 +39,7 @@
 #include "platform/session_log.h"
 #include "platform/gamepad_bindings.h"
 #include "platform/graphics_cards.h"
+#include "platform/fullscreen_hotkey.h"
 #include "platform/gyro_pointer.h"
 #include "platform/key_bindings.h"
 #include "platform/launcher_reopen.h"
@@ -3725,10 +3726,10 @@ private:
         if (BeginRows("##window_rows"))
         {
             const std::string native = FullscreenResolution();
-            Row("Mode", native.empty()
-                    ? "Fullscreen covers the whole display at its own resolution, without a mode change."
-                    : ("Fullscreen covers the whole display at its own resolution, " + native
-                       + " here, without a mode change.").c_str());
+            const std::string mode_note = "Fullscreen covers the whole display at its own resolution, "
+                + (native.empty() ? std::string() : native + " here, ") + "without a mode change. "
+                + platform::kFullscreenShortcut + " switches while playing.";
+            Row("Mode", mode_note.c_str());
             int mode = draft_.fullscreen ? 1 : 0;
             if (Segmented("##mode", &mode, {"Windowed", "Fullscreen"}, ImGui::GetContentRegionAvail().x))
             { draft_.fullscreen = mode == 1; dirty_ = true; }
@@ -4192,8 +4193,9 @@ private:
         EndCard();
     }
 
+    // `together`: the keys are pressed at once ("Alt + Enter"), not alternatives.
     void KeyRow(const char* button, std::initializer_list<const char*> keys, const char* alternative = nullptr,
-                const char* note = nullptr)
+                const char* note = nullptr, bool together = false)
     {
         ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
         ImGui::TableSetColumnIndex(0);
@@ -4208,6 +4210,14 @@ private:
         for (const char* key : keys)
         {
             if (!first) ImGui::SameLine(0, Dp(6));
+            if (!first && together)
+            {
+                // Centred on the 28 dp keycaps.
+                const float height = TextSize(CurrentFonts().label, "+").y;
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (Dp(28) - height) * 0.5f);
+                TextColored(CurrentFonts().label, color::muted, "+");
+                ImGui::SameLine(0, Dp(6));
+            }
             KeyCap(key);
             first = false;
         }
@@ -4743,6 +4753,11 @@ private:
             KeyRow("Pointer", {"Mouse"}, "left click is A, right click is B", "Point at menu items");
             KeyRow("Screenshot", {"P"}, nullptr, "Saved in the screenshots folder");
             KeyRow("Show or hide the HUD", {"H"}, nullptr, "In a match");
+#if defined(__APPLE__)
+            KeyRow("Fullscreen or window", {"Option", "Return"}, nullptr, "For this run", true);
+#else
+            KeyRow("Fullscreen or window", {"Alt", "Enter"}, nullptr, "For this run", true);
+#endif
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();

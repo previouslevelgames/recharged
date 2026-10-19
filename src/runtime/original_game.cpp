@@ -1,5 +1,6 @@
 #include "platform/graphics_stats.h"
 #include "platform/app_icon.h"
+#include "platform/fullscreen_hotkey.h"
 #include "platform/screenshot_hotkey.h"
 #include "platform/window_fit.h"
 #include "runtime/original_game.h"
@@ -569,7 +570,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // position (bottom/top) original KPAD aims the pointer from and
         // controls.ir_sensitivity the Wii's sensitivity (1-5);
         // controls.speaker_volume the Remotes' speaker volume (BT.SPKV, 0-127
-        // as the HOME Menu's 10 steps of 12.7; 0 sends no speaker sound).
+        // as the HOME Menu's 10 steps of 12.7; 0 sends no speaker sound) and
+        // controls.speaker_format what they get (8-bit PCM or the game's ADPCM).
         // controls.player1-4 fix who plays as which player.
         mscharged::platform::NativePlayers players{};
         players.fixed = true;
@@ -597,12 +599,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
         wpad.speaker_volume=static_cast<std::uint8_t>((launch.settings.speaker_volume*127+50)/100);
         wpad.remote_speaker=launch.settings.speaker_volume>0;
+        wpad.remote_speaker_pcm=launch.settings.speaker_format!="adpcm";
         mscharged::platform::InitializeNativeHardwareInput(host.window,wpad,
             mscharged::platform::GetNativeSTMInput(), desktop, players);
         {
             const auto& s=launch.settings;
             const std::string line="Wii Remote settings: sensor bar "+s.sensor_bar+", sensitivity "
-                +std::to_string(s.ir_sensitivity)+", speaker "+(s.speaker_volume ? std::to_string(s.speaker_volume)+"%" : "off")
+                +std::to_string(s.ir_sensitivity)+", speaker "
+                +(s.speaker_volume ? std::to_string(s.speaker_volume)+"% ("+(s.speaker_format=="adpcm" ? "ADPCM" : "PCM")+")" : "off")
                 +", rumble "+(s.rumble ? "on (gamepads "+std::to_string(s.rumble_strength)+"%)" : "off");
             mscharged::platform::SessionLogLine(line);
             for (const auto& device : s.players) {
@@ -1039,6 +1043,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 exit=true;
             }
             if(exit)break;
+            // Alt+Enter (Option+Return on a Mac): fullscreen or a window, for this run (issue #77).
+            switch(mscharged::platform::ServiceFullscreenHotkey()) {
+            case mscharged::platform::FullscreenSwitch::Fullscreen:
+                mscharged::platform::SessionLogLine(std::string("Display: fullscreen (")
+                    +mscharged::platform::kFullscreenShortcut+")"); break;
+            case mscharged::platform::FullscreenSwitch::Windowed:
+                mscharged::platform::SessionLogLine(std::string("Display: windowed (")
+                    +mscharged::platform::kFullscreenShortcut+")"); break;
+            case mscharged::platform::FullscreenSwitch::Failed:
+                mscharged::platform::SessionLogLine(std::string("Display: ")+mscharged::platform::kFullscreenShortcut
+                    +" could not switch: "+SDL_GetError()); break;
+            case mscharged::platform::FullscreenSwitch::None: break;
+            }
             mscharged::diagnostic::ServiceMovieHardware();
             if(requestSH) {
                 const auto status=requestSH();

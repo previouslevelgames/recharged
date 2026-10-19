@@ -92,6 +92,11 @@ int main() {
                                      write(0xa20001, {0x00, 0x00, 0xd0, 0x07, 89, 0x0c, 0x0e}), {0x19, 0x00}};
         Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 89) == on, "speaker ON sequence");
         Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 255)[4][10] == 127, "speaker volume above 127");
+        // 8-bit PCM: format 0x40, rate 0x0fa0 (3000 Hz), the volume on 0-255.
+        auto pcm_on = on;
+        pcm_on[4] = write(0xa20001, {0x00, 0x40, 0xa0, 0x0f, 179, 0x00, 0x00});
+        Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 89, true) == pcm_on, "speaker ON sequence for PCM");
+        Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::On, 200, true)[4][10] == 255, "PCM speaker volume at most");
         const std::vector<Report> off{{0x19, 0x04}, write(0xa20001, {0x01}), write(0xa20009, {0x00}), {0x14, 0x00}};
         Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::Off, 0) == off, "speaker OFF sequence");
         Check(WiimoteSpeakerReports(WiimoteSpeakerCommand::Mute, 0) == std::vector<Report>{{0x19, 0x04}} &&

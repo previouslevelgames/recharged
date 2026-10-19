@@ -54,6 +54,7 @@ Values Encode(const Settings& s)
             {"controls.rumble_strength", std::to_string(s.rumble_strength)},
             {"controls.ir_sensitivity", std::to_string(s.ir_sensitivity)},
             {"controls.speaker_volume", std::to_string(s.speaker_volume)},
+            {"controls.speaker_format", s.speaker_format},
             {"controls.mouse_pointer", s.mouse_pointer ? "true" : "false"},
             {"controls.bluetooth_search", s.bluetooth_search ? "true" : "false"},
             {"controls.sensor_bar", s.sensor_bar},
@@ -275,6 +276,7 @@ Settings Decode(const Values& values)
     number("controls.rumble_strength", s.rumble_strength, 0, 100);
     number("controls.ir_sensitivity", s.ir_sensitivity, 1, 5);
     number("controls.speaker_volume", s.speaker_volume, 0, 100);
+    choice("controls.speaker_format", s.speaker_format, {"pcm", "adpcm"});
     boolean("controls.mouse_pointer", s.mouse_pointer);
     boolean("controls.bluetooth_search", s.bluetooth_search);
     choice("controls.sensor_bar", s.sensor_bar, {"bottom", "top"});

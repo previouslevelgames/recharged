@@ -140,6 +140,10 @@ struct Settings
     // controls.speaker_volume: Wii Remote speaker volume (0-100 %, 70 = the
     // Wii's default); 0 sends no sound to the Remotes.
     int speaker_volume = 70;
+    // controls.speaker_format: pcm (8-bit PCM at 3000 Hz made from the game's
+    // sound; a lost packet only skips a moment) or adpcm (the game's own
+    // 6000 Hz ADPCM, as on a Wii; a lost packet garbles it until a pause).
+    std::string speaker_format = "pcm";
     // The mouse also points for player 1 on a Wii Remote or gamepad playing alone.
     bool mouse_pointer = true;
     // controls.bluetooth_search: on Windows the launcher's Controls page

@@ -29,6 +29,11 @@ struct WiimoteHidSettings {
     // The remotes offer original WPAD their speaker (controls.speaker_volume
     // above 0); without it WPAD finds none, and no sound goes to them.
     bool speaker = false;
+    // The speaker plays 8-bit PCM at 3000 Hz made from the game's sound
+    // (controls.speaker_format pcm) instead of the game's own 6000 Hz ADPCM.
+    // A Remote whose link does not run in the Wii's sniff mode loses some of
+    // the 150 packets a second, which garbles ADPCM until the next silence.
+    bool speaker_pcm = true;
     // Players by remote id (wiimote_ids.h): WPAD channel (player - 1); a
     // remote without an entry is not a player. Without fixed players every
     // remote plays, DolphinBar slots first.
@@ -82,8 +87,10 @@ unsigned WiimoteHidScans();
 // joystick of a remote. Owner thread.
 enum class WiimoteSpeakerCommand { Off, On, Mute, Unmute, Play };
 // The output reports of original WPADControlSpeaker for a command, in order;
-// `volume` (0-127) is the configuration's volume byte for On.
-std::vector<std::vector<std::uint8_t>> WiimoteSpeakerReports(WiimoteSpeakerCommand command, std::uint8_t volume);
+// `volume` (0-127) is the configuration's volume byte for On. With `pcm`
+// On configures 8-bit PCM at 3000 Hz and the volume spans 0-255.
+std::vector<std::vector<std::uint8_t>> WiimoteSpeakerReports(WiimoteSpeakerCommand command, std::uint8_t volume,
+                                                             bool pcm = false);
 // A ready remote of this driver with the speaker setting on.
 bool WiimoteHidHasSpeaker(std::uint32_t joystick_id);
 // Queues the command's reports; the driver calls CompleteNativeWpadSpeaker

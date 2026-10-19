@@ -1,5 +1,6 @@
 #include "platform/desktop_dpd.h"
 #include "platform/desktop_wpad.h"
+#include "platform/fullscreen_hotkey.h"
 #include "platform/gyro_pointer.h"
 #include "platform/wpad_sdl.h"
 #include "platform/interrupts.h"
@@ -954,6 +955,85 @@ void GyroPadCycle(bool has_gyro) {
     ShutdownDesktopWpad();
     WPADShutdown();
 }
+// A key event with modifiers; false when an event filter took it out.
+bool Key(Uint32 type, SDL_Scancode key, SDL_Keymod mod, bool repeat = false, SDL_WindowID target = 0) {
+    SDL_Event e{}; e.type = type;
+    e.key.windowID = target ? target : SDL_GetWindowID(window);
+    e.key.scancode = key;
+    e.key.mod = mod;
+    e.key.down = type == SDL_EVENT_KEY_DOWN;
+    e.key.repeat = repeat;
+    return SDL_PushEvent(&e);
+}
+// Alt+Enter (Option+Return on a Mac) switches the window between fullscreen
+// and a window (issue #77); its Enter never presses the keyboard's A.
+void FullscreenShortcutCycle() {
+    using mscharged::platform::FullscreenSwitch;
+    using mscharged::platform::IsFullscreenShortcut;
+    using mscharged::platform::ServiceFullscreenHotkey;
+    Check(IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT) &&
+          IsFullscreenShortcut(SDL_SCANCODE_KP_ENTER, SDL_KMOD_RALT) &&
+          IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LSHIFT), "Alt+Enter is not the shortcut");
+    Check(!IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_NONE) &&
+          !IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LCTRL) &&
+          !IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LGUI) &&
+          !IsFullscreenShortcut(SDL_SCANCODE_SPACE, SDL_KMOD_LALT), "Another key or modifier made the shortcut");
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.keyboard = true;
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    mscharged::platform::InitializeFullscreenHotkey(window);
+    WPADInit();
+    Check(SDL_ShowWindow(window), "Actual SDL fixture window did not show");
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard remote did not connect");
+    const auto fullscreen = [] { return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0; };
+    Check(!fullscreen() && ServiceFullscreenHotkey() == FullscreenSwitch::None, "The window switched without a press");
+
+    // The window goes fullscreen; Enter's press, repeats and release stay out of the game.
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_LALT, SDL_KMOD_LALT), "Alt was taken out");
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT), "Alt+Enter reached the game");
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT, true), "Alt+Enter's repeat reached the game");
+    Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_LALT, SDL_KMOD_NONE), "Alt's release was taken out");
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE, true),
+          "The shortcut's Enter repeated into the game after Alt's release");
+    Check(!Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN, SDL_KMOD_NONE), "The shortcut's Enter release reached the game");
+    for (int n = 0; n != 10; ++n) { Service(); SDL_Delay(2); }
+    Check(Report().button == 0, "Alt+Enter pressed A");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::Fullscreen && fullscreen(), "Alt+Enter did not go fullscreen");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::None, "One press switched twice");
+
+    // Enter alone, and Enter with Ctrl+Alt, stay A.
+    for (const SDL_Keymod mod : {SDL_Keymod(SDL_KMOD_NONE), SDL_Keymod(SDL_KMOD_LALT | SDL_KMOD_LCTRL)}) {
+        Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, mod), "Enter without the shortcut was taken out");
+        Until([&] { return Report().button == WPAD_BUTTON_A; }, "Enter without the shortcut did not press A");
+        Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN, mod), "Enter's release was taken out");
+        Until([&] { return Report().button == 0; }, "Enter's release kept A");
+    }
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::None && fullscreen(), "Enter without the shortcut switched");
+
+    // The keypad's Enter goes back to a window. A release lost with the focus
+    // does not take the next press, and another window's shortcut is not ours.
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_KP_ENTER, SDL_KMOD_RALT), "Alt+keypad Enter reached the game");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::Windowed && !fullscreen(), "Alt+keypad Enter did not leave fullscreen");
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_KP_ENTER, SDL_KMOD_NONE), "A new keypad Enter press was taken out");
+    Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_KP_ENTER, SDL_KMOD_NONE), "A new keypad Enter release was taken out");
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT, false, SDL_GetWindowID(window) + 1000),
+          "Another window's Alt+Enter was taken out");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::None && !fullscreen(), "Another window's Alt+Enter switched");
+
+    // After shutdown Alt+Enter is A again.
+    mscharged::platform::ShutdownFullscreenHotkey();
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT), "Alt+Enter was taken out after shutdown");
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "Alt+Enter after shutdown did not press A");
+    Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN, SDL_KMOD_NONE), "Enter's release was taken out after shutdown");
+    Until([&] { return Report().button == 0; }, "Enter's release kept A after shutdown");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::None, "The shortcut switched after shutdown");
+    Check(SDL_HideWindow(window), "Actual SDL fixture window did not hide");
+    mscharged::platform::ShutdownDesktopWpad();
+    WPADShutdown();
+}
 }
 int main() {
     try {
@@ -980,11 +1060,13 @@ int main() {
         GyroPointerChecks();
         GyroPadCycle(true);
         GyroPadCycle(false);
+        FullscreenShortcutCycle();
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys, stick directions as buttons, the gyro pointer and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys, stick directions as buttons, the gyro pointer, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
+        mscharged::platform::ShutdownFullscreenHotkey();
         try { mscharged::platform::ShutdownDesktopWpad(); } catch (...) {}
         try { WPADShutdown(); } catch (...) {}
         if (window) SDL_DestroyWindow(window);

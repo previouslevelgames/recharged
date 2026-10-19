@@ -1,6 +1,7 @@
 #include "platform/wiimote_hid.h"
 #include "platform/desktop_dpd.h"
 #include "platform/desktop_nunchuk.h"
+#include "platform/wiimote_speaker.h"
 #include "platform/wpad_sdl.h"
 
 #include <SDL3/SDL.h>
@@ -63,16 +64,16 @@ struct Command {
 // does not cost the game a frame (WPAD's stream check would refuse it and the
 // Remote would play a gap).
 constexpr std::size_t kSpeakerQueue = 3;
-// A failed write loses a frame the game has already encoded: the Remote's
-// ADPCM decoder then works from another state than the game's encoder and
-// plays noise until the next silence. A busy DolphinBar link rejects writes
-// for a moment, so a frame is tried again before it is given up.
+// A failed write loses a frame the game has already encoded: with the game's
+// ADPCM the Remote's decoder then works from another state than the game's
+// encoder and plays noise until the next silence. A busy DolphinBar link
+// rejects writes for a moment, so a frame is tried again before it is given up.
 constexpr int kSpeakerAttempts = 3;
 // While the game keeps the speaker muted (between its speaker sounds) its
-// frames are not sent, which keeps the link free for buttons and pointer. The
-// first frames after the mute still go out: they end the sound and its
-// silence brings the Remote's decoder to the same state as the encoder, so
-// the next sound starts in step.
+// frames are not sent, which keeps the link free for buttons and pointer. With
+// ADPCM the first frames after the mute still go out: they end the sound and
+// its silence brings the Remote's decoder to the same state as the encoder, so
+// the next sound starts in step. PCM needs no such tail.
 constexpr int kSpeakerMuteTail = 8;
 constexpr std::chrono::seconds kSpeakerReport{30};
 using Frame = std::array<std::uint8_t, 22>;
@@ -111,6 +112,9 @@ struct Remote {
     unsigned speaker_late = 0, speaker_quiet = 0; // since the last report
     Clock::time_point next_speaker_report{};
     std::unique_ptr<SpeakerStream> stream;
+    // PCM speaker: follows the game's encoder from each speaker On.
+    mscharged::platform::WiimoteAdpcm speaker_adpcm{};
+    mscharged::platform::WiimotePcmHalfRate speaker_pcm{};
     int zero[3]{512, 512, 512}, one[3]{612, 612, 612};
     bool extension = false, nunchuk = false;
     int nunchuk_zero[3]{512, 512, 512}, nunchuk_one[3]{712, 712, 712}, nunchuk_centre[2]{128, 128};
@@ -834,7 +838,8 @@ void ShutdownWiimoteHid() {
     SDL_hid_exit();
 }
 
-std::vector<std::vector<std::uint8_t>> WiimoteSpeakerReports(WiimoteSpeakerCommand command, std::uint8_t volume) {
+std::vector<std::vector<std::uint8_t>> WiimoteSpeakerReports(WiimoteSpeakerCommand command, std::uint8_t volume,
+                                                             bool pcm) {
     // Register writes (0x16): control registers, 3 address bytes, length,
     // 16 data bytes. 0xa20001 is the speaker configuration, 0xa20008 starts
     // playing, 0xa20009 powers the speaker's decoder.
@@ -853,12 +858,18 @@ std::vector<std::vector<std::uint8_t>> WiimoteSpeakerReports(WiimoteSpeakerComma
     switch (command) {
     case WiimoteSpeakerCommand::Off:
         return {mute, write(0xa20001, {0x01}), write(0xa20009, {0x00}), disable};
-    case WiimoteSpeakerCommand::On:
+    case WiimoteSpeakerCommand::On: {
         // 4-bit ADPCM, rate 0x07d0, the volume, then WPAD's last two bytes.
         // The USA SDK writes 0x80 to 0xa20001 first, later SDKs (the European
-        // game's) 0x08: the later value.
-        return {enable, mute, write(0xa20009, {0x01}), write(0xa20001, {0x08}),
-                write(0xa20001, {0x00, 0x00, 0xd0, 0x07, std::min<std::uint8_t>(volume, 127), 0x0c, 0x0e}), unmute};
+        // game's) 0x08: the later value. The sample rate is 12 MHz / rate.
+        // PCM: format 0x40, rate 0x0fa0 (3000 Hz) and the volume on its 0-255
+        // scale; the last two bytes as in WiiBrew's tested PCM settings.
+        const int level = std::min<int>(volume, 127);
+        const auto config = pcm
+            ? write(0xa20001, {0x00, 0x40, 0xa0, 0x0f, std::uint8_t((level * 255 + 63) / 127), 0x00, 0x00})
+            : write(0xa20001, {0x00, 0x00, 0xd0, 0x07, std::uint8_t(level), 0x0c, 0x0e});
+        return {enable, mute, write(0xa20009, {0x01}), write(0xa20001, {0x08}), config, unmute};
+    }
     case WiimoteSpeakerCommand::Mute: return {mute};
     case WiimoteSpeakerCommand::Unmute: return {unmute};
     case WiimoteSpeakerCommand::Play: return {write(0xa20008, {0x01})};
@@ -871,7 +882,8 @@ bool WiimoteHidHasSpeaker(std::uint32_t joystick_id) { return SpeakerRemote(joys
 bool WiimoteHidControlSpeaker(std::uint32_t joystick_id, WiimoteSpeakerCommand command, std::uint8_t volume) {
     auto* remote = SpeakerRemote(joystick_id);
     if (!remote) return false;
-    auto reports = WiimoteSpeakerReports(command, volume);
+    const bool pcm = State().settings.speaker_pcm;
+    auto reports = WiimoteSpeakerReports(command, volume, pcm);
     if (reports.empty()) return false;
     for (std::size_t n = 0; n < reports.size(); ++n) {
         const bool written = reports[n][0] == 0x16;
@@ -881,15 +893,19 @@ bool WiimoteHidControlSpeaker(std::uint32_t joystick_id, WiimoteSpeakerCommand c
     ++remote->speaker_commands;
     // The sequences end unmuted (ON) or muted; data that follows waits for them.
     if (command == WiimoteSpeakerCommand::Mute) {
-        if (!remote->speaker_muted) remote->speaker_tail = kSpeakerMuteTail;
+        if (!remote->speaker_muted && !pcm) remote->speaker_tail = kSpeakerMuteTail;
         remote->speaker_muted = true;
     } else if (command == WiimoteSpeakerCommand::Unmute || command == WiimoteSpeakerCommand::On) {
         remote->speaker_muted = false;
     }
     if (command == WiimoteSpeakerCommand::On) {
         if (!remote->speaker)
-            SDL_Log("Wii Remote (%s): speaker on, volume %d of 127", Describe(*remote).c_str(), std::min(127, int(volume)));
+            SDL_Log("Wii Remote (%s): speaker on, %s, volume %d of 127", Describe(*remote).c_str(),
+                    pcm ? "8-bit PCM at 3000 Hz" : "the game's ADPCM at 6000 Hz", std::min(127, int(volume)));
         remote->speaker = true;
+        // The game starts its encoder afresh with the first frame after On.
+        remote->speaker_adpcm = {};
+        remote->speaker_pcm.Reset();
         StartSpeakerStream(*remote);
     } else if (command == WiimoteSpeakerCommand::Off) {
         remote->speaker = false;
@@ -921,20 +937,36 @@ bool WiimoteHidCanStreamSpeaker(std::uint32_t joystick_id) {
 bool WiimoteHidStreamSpeaker(std::uint32_t joystick_id, const void* data, std::uint16_t size) {
     auto* remote = SpeakerRemote(joystick_id);
     if (!data || size > 20 || !SpeakerTakesFrame(remote)) return false;
-    if (remote->speaker_muted) {
-        if (!remote->speaker_tail) {
+    Frame frame{};
+    frame[0] = 0x18;
+    frame[1] = static_cast<std::uint8_t>(size << 3);
+    if (State().settings.speaker_pcm) {
+        // 40 samples at 6000 Hz in, 20 at 3000 Hz out: one packet per frame,
+        // as often as the game sends. Every frame the game encoded moves the
+        // decoder, also those the Remote does not get while muted.
+        std::array<std::int16_t, 40> samples{};
+        std::array<std::int8_t, 20> pcm{};
+        mscharged::platform::DecodeWiimoteAdpcm(remote->speaker_adpcm, static_cast<const std::uint8_t*>(data), size,
+                                                samples.data());
+        remote->speaker_pcm.Convert(samples.data(), std::size_t(size) * 2, pcm.data());
+        if (remote->speaker_muted) {
             ++remote->speaker_quiet;
             return true;
         }
-        --remote->speaker_tail;
+        std::memcpy(frame.data() + 2, pcm.data(), size);
+    } else {
+        if (remote->speaker_muted) {
+            if (!remote->speaker_tail) {
+                ++remote->speaker_quiet;
+                return true;
+            }
+            --remote->speaker_tail;
+        }
+        std::memcpy(frame.data() + 2, data, size);
     }
     auto& stream = *remote->stream;
     {
         std::lock_guard lock(stream.mutex);
-        Frame frame{};
-        frame[0] = 0x18;
-        frame[1] = static_cast<std::uint8_t>(size << 3);
-        std::memcpy(frame.data() + 2, data, size);
         stream.frames.push_back(frame);
     }
     stream.wake.notify_one();
