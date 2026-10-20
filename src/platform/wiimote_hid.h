@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 
 struct SDL_hid_device;
@@ -37,6 +38,13 @@ struct WiimoteHidSettings {
     // remote plays, DolphinBar slots first.
     bool fixed_players = false;
     std::map<std::string, int> channels;
+    // Continuous scanning (controls.bluetooth_search, Windows): while a
+    // player's directly connected remote is missing, scan over Bluetooth so
+    // 1+2 connects it again (wiimote_bluetooth.h).
+    bool bluetooth_search = false;
+    // A remote that becomes a player (connects, or comes back during a game)
+    // rumbles briefly as its player light comes on (controls.rumble).
+    bool bind_rumble = false;
 };
 
 struct WiimoteHidRemote {
@@ -134,6 +142,24 @@ private:
     bool active_ = false, initialized_ = false;
 };
 WiimoteHidStatus ScanWiimoteHid(int timeout_ms = 400);
+
+// Launcher: a connected remote shows on its lights which player it would be
+// (player 0-3; -1: not a player, lights off), as the game shows it once it
+// runs; with `rumble` it rumbles briefly as it becomes that player. One
+// thread writes them in order (a Bluetooth write can take 200 ms).
+class WiimotePlayerLights {
+public:
+    WiimotePlayerLights();
+    ~WiimotePlayerLights(); // finishes the remote in progress, so none keeps rumbling
+    WiimotePlayerLights(const WiimotePlayerLights&) = delete;
+    WiimotePlayerLights& operator=(const WiimotePlayerLights&) = delete;
+    void Show(const std::string& path, int player, bool rumble);
+
+    struct State;
+
+private:
+    std::unique_ptr<State> state_;
+};
 
 bool IsWiimoteHid(const SDL_hid_device_info* info);
 bool IsDolphinBarHid(const SDL_hid_device_info* info);

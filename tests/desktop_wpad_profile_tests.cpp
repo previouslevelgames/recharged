@@ -183,22 +183,51 @@ void CustomKeysCycle() {
               "The screenshot key was bound to an action");
         Check(bindings[mscharged::KeyActionOne] == KeyBinding{SDL_SCANCODE_Z, SDL_SCANCODE_UNKNOWN},
               "An action left with only the HUD key did not keep its default");
-        bindings = mscharged::platform::ParseKeyBindings(texts, Hotkeys{SDL_SCANCODE_F5, SDL_SCANCODE_Z});
+        Hotkeys rebound;
+        rebound[mscharged::HotkeyScreenshot] = SDL_SCANCODE_F5;
+        rebound[mscharged::HotkeyHud] = SDL_SCANCODE_Z;
+        bindings = mscharged::platform::ParseKeyBindings(texts, rebound);
         Check(bindings[mscharged::KeyActionB] == KeyBinding{SDL_SCANCODE_RETURN, SDL_SCANCODE_P}
                   && bindings[mscharged::KeyActionOne] == KeyBinding{SDL_SCANCODE_H, SDL_SCANCODE_UNKNOWN},
               "Rebound hotkeys did not free P and H");
         texts[mscharged::KeyActionOne] = "";
-        Check(mscharged::platform::ParseKeyBindings(texts, Hotkeys{SDL_SCANCODE_F5, SDL_SCANCODE_Z})
-                      [mscharged::KeyActionOne][0] == SDL_SCANCODE_UNKNOWN,
+        Check(mscharged::platform::ParseKeyBindings(texts, rebound)[mscharged::KeyActionOne][0] == SDL_SCANCODE_UNKNOWN,
               "A default key taken by a hotkey stayed bound");
-        const auto keys = [](const Hotkeys& hotkeys, SDL_Scancode screenshot, SDL_Scancode hud) {
-            return hotkeys.screenshot == screenshot && hotkeys.hud == hud;
+        // The display hotkeys (issue #91) are no action's keys either, unless unused.
+        texts[mscharged::KeyActionC] = "F | PageUp";
+        Check(mscharged::platform::ParseKeyBindings(texts, Hotkeys{})[mscharged::KeyActionC]
+                  == KeyBinding{SDL_SCANCODE_C, SDL_SCANCODE_UNKNOWN},
+              "The stretch or 3D resolution key was bound to an action");
+        Hotkeys unused;
+        unused[mscharged::HotkeyStretch] = SDL_SCANCODE_UNKNOWN;
+        Check(mscharged::platform::ParseKeyBindings(texts, unused)[mscharged::KeyActionC]
+                  == KeyBinding{SDL_SCANCODE_F, SDL_SCANCODE_UNKNOWN},
+              "An unused hotkey still took its key from an action");
+        texts[mscharged::KeyActionC] = "";
+        using Names = std::array<std::string, mscharged::HotkeyCount>;
+        const auto keys = [](const Hotkeys& hotkeys, std::array<SDL_Scancode, mscharged::HotkeyCount> expected) {
+            return hotkeys.keys == expected;
         };
-        Check(keys(ParseHotkeys("F12", "G"), SDL_SCANCODE_F12, SDL_SCANCODE_G), "Hotkeys did not parse");
-        Check(keys(ParseHotkeys("Left Alt", "Mouse 4"), SDL_SCANCODE_P, SDL_SCANCODE_H)
-                  && keys(ParseHotkeys("", "Nonsense"), SDL_SCANCODE_P, SDL_SCANCODE_H),
+        constexpr std::array<SDL_Scancode, mscharged::HotkeyCount> defaults{SDL_SCANCODE_P, SDL_SCANCODE_H,
+            SDL_SCANCODE_F, SDL_SCANCODE_PAGEUP, SDL_SCANCODE_PAGEDOWN};
+        Check(keys(ParseHotkeys(Names{"F12", "G", "T", "F6", "F7"}),
+                   {SDL_SCANCODE_F12, SDL_SCANCODE_G, SDL_SCANCODE_T, SDL_SCANCODE_F6, SDL_SCANCODE_F7}),
+              "Hotkeys did not parse");
+        Check(keys(ParseHotkeys(Names{"Left Alt", "Mouse 4", "", "Nonsense", "PageDown"}), defaults),
               "A modifier, mouse button or unknown name became a hotkey");
-        Check(keys(ParseHotkeys("G", "G"), SDL_SCANCODE_P, SDL_SCANCODE_H), "Both hotkeys took the same key");
+        Check(keys(ParseHotkeys(Names{"G", "G", "F", "PageUp", "PageDown"}), defaults),
+              "Two hotkeys took the same key");
+        Check(keys(ParseHotkeys(Names{"P", "F", "F", "PageUp", "PageDown"}), defaults),
+              "A hotkey took another one's default key");
+        Check(keys(ParseHotkeys(Names{"P", "H", "None", "none", "PageDown"}),
+                   {SDL_SCANCODE_P, SDL_SCANCODE_H, SDL_SCANCODE_UNKNOWN, SDL_SCANCODE_UNKNOWN, SDL_SCANCODE_PAGEDOWN}),
+              "none did not leave a hotkey unused");
+        Check(mscharged::platform::HotkeyName(SDL_SCANCODE_UNKNOWN) == "none"
+                  && mscharged::platform::HotkeyName(SDL_SCANCODE_PAGEUP) == "PageUp"
+                  && ParseHotkeys(Names{"P", "H", "F", "PageUp", "PageDown"}).Find(SDL_SCANCODE_PAGEUP)
+                         == mscharged::HotkeyResolutionUp
+                  && Hotkeys{}.Find(SDL_SCANCODE_UNKNOWN) == mscharged::HotkeyCount,
+              "Hotkey names or lookup");
     }
     settings.keys[mscharged::KeyActionA] = mscharged::platform::ParseKeyBinding("F1");
     settings.keys[mscharged::KeyActionB] = mscharged::platform::ParseKeyBinding("Return");

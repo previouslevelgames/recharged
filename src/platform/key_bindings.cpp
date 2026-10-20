@@ -30,7 +30,7 @@ KeyInput ParseKeyInput(std::string_view name) {
 
 KeyBinding WithoutHotkeys(KeyBinding binding, const Hotkeys& hotkeys) {
     for (auto& input : binding)
-        if (input == hotkeys.screenshot || input == hotkeys.hud) input = kKeyNone;
+        if (hotkeys.Find(input) != HotkeyCount) input = kKeyNone;
     if (binding[0] == kKeyNone) binding = {binding[1], kKeyNone};
     return binding;
 }
@@ -87,17 +87,40 @@ bool HotkeyAllowed(KeyInput input) {
     return input < SDL_SCANCODE_LCTRL || input > SDL_SCANCODE_RGUI;
 }
 
-Hotkeys ParseHotkeys(std::string_view screenshot, std::string_view hud) {
-    Hotkeys hotkeys;
-    const auto key = [](std::string_view name, SDL_Scancode fallback) {
-        const KeyInput input = name.empty() ? kKeyNone : ParseKeyInput(name);
-        return HotkeyAllowed(input) ? SDL_Scancode(input) : fallback;
-    };
+HotkeyIndex Hotkeys::Find(KeyInput input) const {
+    if (input == kKeyNone) return HotkeyCount;
+    for (std::size_t n = 0; n < HotkeyCount; ++n)
+        if (keys[n] == input) return HotkeyIndex(n);
+    return HotkeyCount;
+}
+
+Hotkeys ParseHotkeys(const std::array<std::string, HotkeyCount>& names) {
     const Hotkeys defaults;
-    hotkeys.screenshot = key(screenshot, defaults.screenshot);
-    hotkeys.hud = key(hud, defaults.hud);
-    if (hotkeys.screenshot == hotkeys.hud) hotkeys = defaults;
+    Hotkeys hotkeys;
+    for (std::size_t n = 0; n < HotkeyCount; ++n) {
+        if (SameName(names[n], kNoHotkey)) { hotkeys.keys[n] = SDL_SCANCODE_UNKNOWN; continue; }
+        const KeyInput input = names[n].empty() ? kKeyNone : ParseKeyInput(names[n]);
+        hotkeys.keys[n] = HotkeyAllowed(input) ? SDL_Scancode(input) : defaults.keys[n];
+    }
+    // Two hotkeys on one key both take their defaults, until none share one
+    // (the defaults differ; each round puts at least one more at its default).
+    for (bool shared = true; shared;) {
+        shared = false;
+        for (std::size_t a = 0; a < HotkeyCount; ++a)
+            for (std::size_t b = a + 1; b < HotkeyCount; ++b)
+                if (hotkeys.keys[a] != SDL_SCANCODE_UNKNOWN && hotkeys.keys[a] == hotkeys.keys[b]
+                    && (hotkeys.keys[a] != defaults.keys[a] || hotkeys.keys[b] != defaults.keys[b])) {
+                    hotkeys.keys[a] = defaults.keys[a];
+                    hotkeys.keys[b] = defaults.keys[b];
+                    shared = true;
+                }
+    }
     return hotkeys;
+}
+
+std::string HotkeyName(SDL_Scancode key) {
+    const auto name = KeyInputName(key);
+    return name.empty() ? std::string(kNoHotkey) : name;
 }
 
 KeyBindings ParseKeyBindings(const std::array<std::string, KeyActionCount>& texts, const Hotkeys& hotkeys) {

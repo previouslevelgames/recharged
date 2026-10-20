@@ -83,4 +83,33 @@ inline FpsOverlayLayout LayoutFpsOverlay(std::uint32_t surface_width, std::uint3
     return layout;
 }
 
+// Messages read a little larger than the performance overlay's numbers.
+inline float MessageFontSize(float overlay_font_size)
+{
+    return std::round(overlay_font_size * 1.25f);
+}
+
+// A short message (what a hotkey changed) on a dark panel in the top-left
+// corner, below the performance overlay when that has the same corner.
+struct OverlayMessageLayout {
+    float left, top, right, bottom;
+    float text_x, text_y;
+};
+
+inline OverlayMessageLayout LayoutOverlayMessage(std::uint32_t surface_width, std::uint32_t surface_height,
+    float font_size, float text_width, const FpsOverlayLayout* top_left_performance)
+{
+    const float margin = std::max(8.0f, std::round(FpsOverlayShortSide(surface_width, surface_height) * 0.015f));
+    const float padding = std::round(font_size * 0.7f);
+    const float height = std::round(font_size * 1.8f);
+    OverlayMessageLayout layout{};
+    layout.left = margin;
+    layout.top = top_left_performance ? top_left_performance->bottom + std::round(font_size * 0.5f) : margin;
+    layout.right = layout.left + std::ceil(text_width) + 2 * padding;
+    layout.bottom = layout.top + height;
+    layout.text_x = layout.left + padding;
+    layout.text_y = std::round(layout.top + (height - font_size) * 0.5f);
+    return layout;
+}
+
 } // namespace mscharged::runtime

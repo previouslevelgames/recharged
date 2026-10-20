@@ -92,4 +92,38 @@ inline std::string MissingControllersNote(const std::array<std::string, 4>& play
     for (const auto& device : lineup.playing) names.push_back(ShortDeviceName(device));
     return note + std::to_string(names.size()) + " players: " + JoinList(names) + ".";
 }
+
+// The same in a few words, for the Play page: what is not connected ("Wii
+// Remote not connected"; "Player 2's Wii Remote not connected" when more than
+// one player is set; "2 controllers not connected") and who plays instead
+// ("keyboard & mouse plays", "... plays alone", "2 players start"). Empty
+// while every controller is there.
+struct ControllersBrief
+{
+    std::string missing;
+    std::string instead;
+};
+
+inline ControllersBrief MissingControllersBrief(const std::array<std::string, 4>& players, const PlayerLineup& lineup)
+{
+    std::size_t set = 0, count = 0, first = 0;
+    for (std::size_t n = 0; n < 4; ++n)
+    {
+        set += players[n] != "off";
+        if (lineup.missing[n] && count++ == 0) first = n;
+    }
+    if (count == 0) return {};
+    ControllersBrief brief;
+    if (count > 1) brief.missing = std::to_string(count) + " controllers not connected";
+    else
+    {
+        brief.missing = (set > 1 ? "player " + std::to_string(first + 1) + "'s " : std::string())
+            + ShortDeviceName(players[first]) + " not connected";
+        if (brief.missing[0] >= 'a' && brief.missing[0] <= 'z') brief.missing[0] = char(brief.missing[0] - 'a' + 'A');
+    }
+    brief.instead = lineup.playing.size() == 1
+        ? ShortDeviceName(lineup.playing[0]) + (set > 1 ? " plays alone" : " plays")
+        : std::to_string(lineup.playing.size()) + " players start";
+    return brief;
+}
 } // namespace mscharged::launcher

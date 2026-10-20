@@ -25,8 +25,8 @@ SettingSource Source(const ConfigFile& config, const char* key)
 
 void ValidateAspect(std::string_view value)
 {
-    if (value != "auto" && value != "4:3" && value != "16:9")
-        throw std::invalid_argument("Aspect requires auto, 4:3 or 16:9");
+    if (value != "auto" && value != "4:3" && value != "16:9" && value != "stretch")
+        throw std::invalid_argument("Aspect requires auto, 4:3, 16:9 or stretch");
 }
 
 void ValidateFrameRate(std::string_view value)

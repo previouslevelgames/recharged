@@ -34,19 +34,27 @@ using KeyBindings = std::array<KeyBinding, KeyActionCount>;
 KeyBinding ParseKeyBinding(std::string_view text);
 std::string FormatKeyBinding(const KeyBinding& binding);
 
-// The host's hotkeys ([hotkeys]): the screenshot key and the key that shows or
-// hides the match HUD (No HUD, issue #58). They work whoever plays, and no
-// keyboard & mouse action takes them.
+// The host's hotkeys ([hotkeys], kHotkeys order): a screenshot, the match HUD
+// (No HUD, issue #58), the stretched picture and the 3D resolution up and down
+// (issue #91). They work whoever plays, and no keyboard & mouse action takes
+// them. SDL_SCANCODE_UNKNOWN (kKeyNone) leaves one unused.
 struct Hotkeys {
-    SDL_Scancode screenshot = SDL_SCANCODE_P;
-    SDL_Scancode hud = SDL_SCANCODE_H;
+    std::array<SDL_Scancode, HotkeyCount> keys{SDL_SCANCODE_P, SDL_SCANCODE_H, SDL_SCANCODE_F, SDL_SCANCODE_PAGEUP,
+                                               SDL_SCANCODE_PAGEDOWN};
+    SDL_Scancode operator[](HotkeyIndex hotkey) const { return keys[hotkey]; }
+    SDL_Scancode& operator[](HotkeyIndex hotkey) { return keys[hotkey]; }
+    // The hotkey that `input` presses, or HotkeyCount.
+    HotkeyIndex Find(KeyInput input) const;
 };
 // Whether `input` can be a hotkey: a named key, not a mouse button and not a
 // modifier (shortcuts such as Alt+Enter need those).
 bool HotkeyAllowed(KeyInput input);
-// hotkeys.screenshot and hotkeys.hud; a key that cannot be a hotkey keeps its
-// default, and when both name the same key both keep theirs.
-Hotkeys ParseHotkeys(std::string_view screenshot, std::string_view hud);
+// [hotkeys] names: "none" leaves a hotkey unused; a key that cannot be a
+// hotkey keeps its default, and two hotkeys naming the same key both keep
+// their defaults.
+Hotkeys ParseHotkeys(const std::array<std::string, HotkeyCount>& names);
+// The [hotkeys] name of a key: its SDL name, or "none".
+std::string HotkeyName(SDL_Scancode key);
 
 // The actions' keys without the hotkeys; an action left without a key keeps
 // its default keys (also without the hotkeys).

@@ -33,6 +33,23 @@ std::string Trim(const std::string& value)
     return value.substr(start, value.find_last_not_of(" \t\r\n") - start + 1);
 }
 
+// Whether a [keyboard] binding ("Return | Space") names the key `name`; SDL
+// key names compare case-insensitively.
+bool BindingNamesKey(const std::string& binding, const char* name)
+{
+    std::size_t start = 0;
+    while (start <= binding.size())
+    {
+        const auto bar = std::min(binding.find('|', start), binding.size());
+        const auto key = Trim(binding.substr(start, bar - start));
+        if (std::equal(key.begin(), key.end(), name, name + std::char_traits<char>::length(name),
+                       [](unsigned char a, unsigned char b) { return std::tolower(a) == std::tolower(b); }))
+            return true;
+        start = bar + 1;
+    }
+    return false;
+}
+
 Values Encode(const Settings& s)
 {
     Values values{{"game.disc", s.disc}, {"game.folder", s.folder},
@@ -43,7 +60,8 @@ Values Encode(const Settings& s)
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.vsync", s.vsync ? "true" : "false"}, {"display.frame_rate", s.frame_rate},
             {"display.backend", s.backend}, {"display.gpu", s.gpu}, {"display.aspect", s.aspect},
-            {"display.picture", s.picture},
+            {"display.picture", s.picture}, {"display.tv_border", s.tv_border ? "true" : "false"},
+            {"display.remember_window", s.remember_window ? "true" : "false"}, {"display.position", s.position},
             {"display.performance_mode", s.performance_mode ? "true" : "false"},
             {"display.antialiasing", s.antialiasing}, {"display.resolution", s.resolution},
             {"audio.master_volume", std::to_string(s.master_volume)},
@@ -76,8 +94,8 @@ Values Encode(const Settings& s)
             {"mods.dump_textures", s.dump_textures ? "true" : "false"}};
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
-    values.emplace("hotkeys.screenshot", s.screenshot_key);
-    values.emplace("hotkeys.hud", s.hud_key);
+    for (std::size_t n = 0; n < HotkeyCount; ++n)
+        values.emplace(std::string("hotkeys.") + kHotkeys[n].key, s.hotkeys[n]);
     values.emplace("hotkeys.show_hud", s.show_hud ? "true" : "false");
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
         values.emplace(std::string("gameplay.") + kGameTweaks[n].key, s.tweaks[n] ? "true" : "false");
@@ -177,8 +195,17 @@ Settings Decode(const Values& values)
         }
         s.gpu = it->second;
     }
-    choice("display.aspect", s.aspect, {"auto", "4:3", "16:9", "16:10", "21:9"});
+    choice("display.aspect", s.aspect, {"auto", "4:3", "16:9", "stretch", "16:10", "21:9"});
     choice("display.picture", s.picture, {"soft", "clean", "sharp"});
+    boolean("display.tv_border", s.tv_border);
+    boolean("display.remember_window", s.remember_window);
+    if (const auto it = values.find("display.position"); it != values.end())
+    {
+        if (!it->second.empty() && !ParseWindowPosition(it->second))
+            throw std::runtime_error("Invalid configuration: display.position must be X,Y (the window's position on "
+                                     "the desktop) or empty");
+        s.position = it->second;
+    }
     boolean("display.performance_mode", s.performance_mode);
     choice("display.antialiasing", s.antialiasing, {"off", "fxaa", "4x", "4x_fxaa", "4x_ssaa"});
     choice("display.resolution", s.resolution, {"window", "native", "2x", "3x", "4x"});
@@ -214,15 +241,21 @@ Settings Decode(const Values& values)
     };
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         names(std::string("keyboard.") + kKeyActions[n].key, s.keys[n], "key names");
-    // [hotkeys]: one key name each.
-    for (const auto& [key, value] : {std::pair{"hotkeys.screenshot", &s.screenshot_key},
-                                     std::pair{"hotkeys.hud", &s.hud_key}})
+    // [hotkeys]: one key name each, or none. A hotkey an older INI does not
+    // name yet stays unused when a [keyboard] action has its default key.
+    for (std::size_t n = 0; n < HotkeyCount; ++n)
     {
+        const auto key = std::string("hotkeys.") + kHotkeys[n].key;
         const auto it = values.find(key);
-        if (it == values.end()) continue;
+        if (it == values.end())
+        {
+            for (const auto& keys : s.keys)
+                if (BindingNamesKey(keys, kHotkeys[n].defaults)) s.hotkeys[n] = kNoHotkey;
+            continue;
+        }
         if (it->second.empty() || it->second.find('|') != std::string::npos)
-            throw std::runtime_error(std::string("Invalid configuration: ") + key + " must be one key name");
-        *value = it->second;
+            throw std::runtime_error("Invalid configuration: " + key + " must be one key name or none");
+        s.hotkeys[n] = it->second;
     }
     // No HUD was the [gameplay] tweak no_hud until it moved beside its key.
     if (values.count("hotkeys.show_hud")) boolean("hotkeys.show_hud", s.show_hud);
@@ -457,6 +490,27 @@ std::string Read(const std::filesystem::path& path)
     if (input.bad()) throw std::runtime_error("Failed to read configuration: " + PathUtf8(path));
     return result.str();
 }
+}
+
+std::optional<std::array<int, 2>> ParseWindowPosition(std::string_view text)
+{
+    const auto comma = text.find(',');
+    if (comma == std::string_view::npos) return std::nullopt;
+    std::array<int, 2> position{};
+    for (int n = 0; n < 2; ++n)
+    {
+        const auto part = Trim(std::string(n == 0 ? text.substr(0, comma) : text.substr(comma + 1)));
+        const auto result = std::from_chars(part.data(), part.data() + part.size(), position[std::size_t(n)]);
+        if (part.empty() || result.ec != std::errc{} || result.ptr != part.data() + part.size()
+            || position[std::size_t(n)] < -32768 || position[std::size_t(n)] > 32767)
+            return std::nullopt;
+    }
+    return position;
+}
+
+std::string FormatWindowPosition(int x, int y)
+{
+    return std::to_string(x) + "," + std::to_string(y);
 }
 
 bool ValidPadProfileName(const std::string& name)

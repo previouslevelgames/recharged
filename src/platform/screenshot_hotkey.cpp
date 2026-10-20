@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 #include <aurora/video.h>
 
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <exception>
@@ -18,8 +19,16 @@ namespace
 {
 std::atomic<SDL_WindowID> sWindow{0};
 std::atomic<bool> sWatching{false};
-std::atomic<SDL_Scancode> sScreenshotKey{Hotkeys{}.screenshot};
-std::atomic<SDL_Scancode> sHudKey{Hotkeys{}.hud};
+std::array<std::atomic<SDL_Scancode>, HotkeyCount> sKeys{
+    {SDL_SCANCODE_P, SDL_SCANCODE_H, SDL_SCANCODE_F, SDL_SCANCODE_PAGEUP, SDL_SCANCODE_PAGEDOWN}};
+static_assert(HotkeyCount == 5, "sKeys lists the defaults of every hotkey");
+std::atomic<int> sStretchToggles{0};
+std::atomic<int> sResolutionSteps{0};
+bool Pressed(const SDL_Event* event, HotkeyIndex hotkey)
+{
+    const auto key = sKeys[hotkey].load();
+    return key != SDL_SCANCODE_UNKNOWN && event->key.scancode == key;
+}
 void (*sToggleLayers)() = nullptr;
 void (*sCycleLayer)() = nullptr;
 void (*sToggleHud)() = nullptr;
@@ -64,16 +73,17 @@ void RequestDrawDump()
 
 bool SDLCALL Watch(void*, SDL_Event* event)
 {
-    if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.scancode == sScreenshotKey.load()
-        && event->key.windowID != 0 && event->key.windowID == sWindow.load())
-        RequestScreenshot();
     if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.windowID != 0
         && event->key.windowID == sWindow.load())
     {
+        if (Pressed(event, HotkeyScreenshot)) RequestScreenshot();
         if (event->key.scancode == SDL_SCANCODE_F8) RequestDrawDump();
         if (event->key.scancode == SDL_SCANCODE_F9 && sToggleLayers) sToggleLayers();
         if (event->key.scancode == SDL_SCANCODE_F10 && sCycleLayer) sCycleLayer();
-        if (event->key.scancode == sHudKey.load() && sToggleHud) sToggleHud();
+        if (Pressed(event, HotkeyHud) && sToggleHud) sToggleHud();
+        if (Pressed(event, HotkeyStretch)) ++sStretchToggles;
+        if (Pressed(event, HotkeyResolutionUp)) ++sResolutionSteps;
+        if (Pressed(event, HotkeyResolutionDown)) --sResolutionSteps;
     }
     return true;
 }
@@ -91,8 +101,12 @@ void InitializeScreenshotHotkey(SDL_Window* window)
 
 void SetHotkeys(const Hotkeys& hotkeys)
 {
-    sScreenshotKey = hotkeys.screenshot;
-    sHudKey = hotkeys.hud;
+    for (std::size_t n = 0; n < HotkeyCount; ++n) sKeys[n] = hotkeys.keys[n];
+}
+
+DisplayHotkeyPresses TakeDisplayHotkeyPresses()
+{
+    return {sStretchToggles.exchange(0), sResolutionSteps.exchange(0)};
 }
 
 void SetDebugLayerKeys(void (*toggle)(), void (*cycle)())

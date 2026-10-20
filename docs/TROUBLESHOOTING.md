@@ -112,9 +112,11 @@ already connected stays silent until it is opened again.
 ## A Wii Remote is not found
 
 See [Wii Remotes](SETTINGS.md#wii-remotes): the DolphinBar must be in mode 4,
-and on Linux the udev rule there must be installed once. Over Bluetooth the
-Remote needs a sensor bar for its pointer. The Controls page shows each
-connected Remote and its battery.
+and on Linux the udev rule there must be installed once. On Windows, pair the
+Remote with **Sync** on the Controls page; if a paired Remote no longer
+connects, press **Reset** and sync it again. Over Bluetooth the Remote needs a
+sensor bar for its pointer. The Controls page shows each connected Remote and
+its battery.
 
 ## No sound
 

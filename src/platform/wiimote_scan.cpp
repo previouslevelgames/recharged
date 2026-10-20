@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <cwchar>
+#include <deque>
 #include <mutex>
 #include <set>
 #include <string>
@@ -203,5 +205,70 @@ WiimoteHidStatus ScanWiimoteHid(int timeout_ms) {
     probe.Start(timeout_ms);
     while (!probe.Poll()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
     return probe.Result();
+}
+
+struct WiimotePlayerLights::State {
+    struct Job {
+        std::string path;
+        int player = -1;
+        bool rumble = false;
+    };
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::deque<Job> jobs;
+    bool stop = false;
+    std::thread thread;
+    bool hid = false; // holds an SDL_hid_init reference
+};
+
+namespace {
+// On the writer thread: SDL_hid_init/exit count without a lock, so the owner's
+// thread keeps the reference (WiimotePlayerLights).
+void ShowPlayer(const WiimotePlayerLights::State::Job& job) {
+    if (auto* hid = SDL_hid_open_path(job.path.c_str())) {
+        // LED report: player 1-4 is light 1-4. Byte 1 bit 0 is the rumble.
+        const auto lights = job.player >= 0 && job.player < 4 ? 0x10u << job.player : 0u;
+        const unsigned char show[2]{0x11, static_cast<unsigned char>(lights | (job.rumble ? 1u : 0u))};
+        if (WriteWiimoteReport(hid, show, sizeof show) && job.rumble) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            const unsigned char still[2]{0x10, 0x00};
+            WriteWiimoteReport(hid, still, sizeof still);
+        }
+        SDL_hid_close(hid);
+    }
+}
+} // namespace
+
+WiimotePlayerLights::WiimotePlayerLights() : state_(std::make_unique<State>()) { state_->hid = SDL_hid_init() == 0; }
+
+WiimotePlayerLights::~WiimotePlayerLights() {
+    {
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        state_->stop = true;
+        state_->jobs.clear();
+    }
+    state_->wake.notify_all();
+    if (state_->thread.joinable()) state_->thread.join();
+    if (state_->hid) SDL_hid_exit();
+}
+
+void WiimotePlayerLights::Show(const std::string& path, int player, bool rumble) {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    if (!state_->hid) return;
+    state_->jobs.push_back({path, player, rumble});
+    if (!state_->thread.joinable())
+        state_->thread = std::thread([state = state_.get()] {
+            std::unique_lock<std::mutex> lock(state->mutex);
+            for (;;) {
+                state->wake.wait(lock, [&] { return state->stop || !state->jobs.empty(); });
+                if (state->stop) return;
+                const auto job = std::move(state->jobs.front());
+                state->jobs.pop_front();
+                lock.unlock();
+                ShowPlayer(job);
+                lock.lock();
+            }
+        });
+    state_->wake.notify_all();
 }
 } // namespace mscharged::platform

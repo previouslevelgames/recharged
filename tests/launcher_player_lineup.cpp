@@ -18,6 +18,12 @@ void RequireNote(const std::string& note, const std::string& expected)
     Require(note == expected, "Note \"" + note + "\" is not \"" + expected + "\"");
 }
 
+void RequireBrief(const ControllersBrief& brief, const std::string& missing, const std::string& instead)
+{
+    Require(brief.missing == missing && brief.instead == instead,
+            "Brief \"" + brief.missing + " / " + brief.instead + "\" is not \"" + missing + " / " + instead + "\"");
+}
+
 const std::string kRemote = "remote-9ce635c69076";
 const std::string kOtherRemote = "remote-0019fd1a2b3c";
 auto Connected(bool value) { return [value](const std::string&) { return value; }; }
@@ -34,10 +40,12 @@ int main()
                 "A missing remote leaves keyboard & mouse as player 1");
         RequireNote(MissingControllersNote(players, lineup),
                     "Player 1's Wii Remote is not connected, so the game starts with keyboard & mouse as player 1.");
+        RequireBrief(MissingControllersBrief(players, lineup), "Wii Remote not connected", "keyboard & mouse plays");
         // Not checked yet (or connected): nothing is missing and nothing is said.
         lineup = PredictLineup(players, Connected(true), 0);
         Require(!lineup.missing[0] && lineup.playing.size() == 1 && lineup.playing[0] == kRemote, "Connected remote plays");
         RequireNote(MissingControllersNote(players, lineup), "");
+        RequireBrief(MissingControllersBrief(players, lineup), "", "");
 
         // Player 2's DolphinBar remote is missing: player 1 plays alone.
         players = {"keyboard", "remote2", "off", "off"};
@@ -45,6 +53,8 @@ int main()
         Require(!lineup.missing[0] && lineup.missing[1] && lineup.playing.size() == 1, "Player 2 drops out");
         RequireNote(MissingControllersNote(players, lineup),
                     "Player 2's Wii Remote is not connected, so the game starts with keyboard & mouse as player 1.");
+        RequireBrief(MissingControllersBrief(players, lineup), "Player 2's Wii Remote not connected",
+                     "keyboard & mouse plays alone");
 
         // Gamepads stay in gamepad order, as in the game: with one connected,
         // gamepad 1 plays (as player 1) and player 1's gamepad 2 drops out.
@@ -54,6 +64,8 @@ int main()
                 "Gamepad players keep gamepad order");
         RequireNote(MissingControllersNote(players, lineup),
                     "Player 1's gamepad 2 is not connected, so the game starts with gamepad 1 as player 1.");
+        RequireBrief(MissingControllersBrief(players, lineup), "Player 1's gamepad 2 not connected",
+                     "gamepad 1 plays alone");
         Require(!PredictLineup(players, Connected(true), 2).missing[0], "Two gamepads: both play");
 
         // Two missing, two left: they close up in order.
@@ -65,6 +77,7 @@ int main()
         RequireNote(MissingControllersNote(players, lineup),
                     "Player 1's Wii Remote and player 4's gamepad 1 are not connected, so the game starts with 2 "
                     "players: keyboard & mouse and Wii Remote.");
+        RequireBrief(MissingControllersBrief(players, lineup), "2 controllers not connected", "2 players start");
 
         // The longest note: every controller but keyboard & mouse missing.
         players = {kRemote, "gamepad1", "keyboard", "off"};
@@ -76,10 +89,15 @@ int main()
                     "keyboard & mouse as player 1.");
         RequireNote(MissingControllersNote({"keyboard", "off", "off", "off"}, WorstLineup({"keyboard", "off", "off", "off"})),
                     "");
+        // A gamepad alone: its own name, capitalised.
+        players = {"gamepad1", "off", "off", "off"};
+        RequireBrief(MissingControllersBrief(players, WorstLineup(players)), "Gamepad 1 not connected",
+                     "keyboard & mouse plays");
 
         Require(JoinList({"a"}) == "a" && JoinList({"a", "b"}) == "a and b" && JoinList({"a", "b", "c"}) == "a, b and c",
                 "Lists read naturally");
-        std::puts("Launcher player lineup passed (missing remotes and gamepads, gamepad order, close-up, notes).");
+        std::puts("Launcher player lineup passed (missing remotes and gamepads, gamepad order, close-up, notes, "
+                  "short notes).");
         return 0;
     }
     catch (const std::exception& error)
