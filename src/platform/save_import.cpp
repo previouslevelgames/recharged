@@ -3,6 +3,7 @@
 #include "platform/filesystem_physical.h"
 #include "platform/path.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -148,16 +149,23 @@ std::string MiiName(const unsigned char* name) {
     return text;
 }
 
-// The Miis of a database, empty slots left out: a slot holds a Mii when its
-// create ID is not all zero (RFLiIsValidID).
+// A Mii record of the database, and whether its slot holds a Mii: its create
+// ID is not all zero (RFLiIsValidID).
+const unsigned char* MiiRecord(const std::string& database, std::size_t slot) {
+    return reinterpret_cast<const unsigned char*>(database.data()) + 4 + slot * kMiiBytes;
+}
+
+bool MiiUsed(const unsigned char* mii) {
+    for (std::size_t n = 0; n < kMiiCreateIdBytes; ++n)
+        if (mii[kMiiCreateIdOffset + n]) return true;
+    return false;
+}
+
+// The Miis of a database, empty slots left out.
 std::vector<std::string> MiiNames(const std::string& database) {
     std::vector<std::string> names;
-    for (std::size_t slot = 0; slot < kMiiSlots; ++slot) {
-        const auto* mii = reinterpret_cast<const unsigned char*>(database.data()) + 4 + slot * kMiiBytes;
-        bool used = false;
-        for (std::size_t n = 0; n < kMiiCreateIdBytes; ++n) used = used || mii[kMiiCreateIdOffset + n];
-        if (used) names.push_back(MiiName(mii + kMiiNameOffset));
-    }
+    for (std::size_t slot = 0; slot < kMiiSlots; ++slot)
+        if (MiiUsed(MiiRecord(database, slot))) names.push_back(MiiName(MiiRecord(database, slot) + kMiiNameOffset));
     return names;
 }
 
@@ -231,6 +239,20 @@ std::string Timestamp() {
     char text[32];
     std::strftime(text, sizeof text, "%Y%m%d-%H%M%S", &local);
     return text;
+}
+
+// A new folder for one backup. Another backup in the same second gets its own
+// (<name>-2, <name>-3...) instead of overwriting the first.
+fs::path NewBackupFolder(const fs::path& parent, const std::string& prefix) {
+    const auto name = prefix + Timestamp();
+    auto folder = parent / name;
+    std::error_code error;
+    for (int n = 2; fs::exists(folder, error) || error; ++n) {
+        if (error) throw std::system_error(error, PathUtf8(folder));
+        folder = parent / (name + '-' + std::to_string(n));
+    }
+    fs::create_directories(folder);
+    return folder;
 }
 
 fs::path Environment(const char* name) {
@@ -349,8 +371,7 @@ SaveImportResult ImportDolphinSave(const fs::path& source, const fs::path& nand_
     // Back up what is replaced: the catalog and existing files of the same names.
     SaveImportResult result;
     if (existing) {
-        result.backup = backup_parent / ("before-dolphin-import-" + Timestamp());
-        fs::create_directories(result.backup);
+        result.backup = NewBackupFolder(backup_parent, "before-dolphin-import-");
         WriteAtomically(result.backup / "metadata.txt", ReadFile(metadata));
         for (const auto& [name, bytes] : files)
             if (catalog.entries.count(home + '/' + name))
@@ -393,19 +414,120 @@ fs::path ResolveDolphinMiiDatabase(const fs::path& chosen) {
     return {};
 }
 
-std::vector<std::string> InstalledMiis(const fs::path& nand_root, const SaveTitle& title) {
-    // Only a database the catalog has: the game's device opens nothing else.
-    try {
-        const auto metadata = nand_root / "metadata.txt";
-        if (!IsFile(metadata)) return {};
-        const auto catalog = LoadCatalog(metadata, title);
-        const auto entry = catalog.entries.find(kMiiDatabase);
-        if (entry == catalog.entries.end() || entry->second.directory) return {};
-        const auto database = ReadFile(Physical(nand_root / "data", kMiiDatabase));
-        return ValidMiiDatabase(database) ? MiiNames(database) : std::vector<std::string>{};
-    } catch (const std::exception&) {
-        return {};
+namespace {
+// The backing a Mii database goes to: its catalog, checked for the database's
+// folders and file, and the database it holds (empty when it has none).
+struct MiiBacking {
+    fs::path data, metadata;
+    bool existing{};
+    Catalog catalog;
+    std::string database;
+};
+
+const std::vector<std::string>& MiiFolders() {
+    static const std::vector<std::string> folders{"/shared2", "/shared2/menu", kFaceLib};
+    return folders;
+}
+
+// The database's folders and file must be what the catalog says they are.
+void CheckMiiEntries(const Catalog& catalog) {
+    for (const auto& path : MiiFolders()) {
+        const auto entry = catalog.entries.find(path);
+        if (entry != catalog.entries.end() && !entry->second.directory)
+            throw std::runtime_error("The save folder's catalog (metadata.txt) has a file named " + path + ".");
     }
+    const auto database = catalog.entries.find(kMiiDatabase);
+    if (database != catalog.entries.end() && database->second.directory)
+        throw std::runtime_error("The save folder's catalog (metadata.txt) has a folder named " + kMiiDatabase + ".");
+}
+
+MiiBacking OpenMiiBacking(const fs::path& nand_root, const SaveTitle& title) {
+    const auto root = physical::PrepareRoot(nand_root);
+    MiiBacking backing{root / "data", root / "metadata.txt"};
+    backing.catalog = ExistingCatalog(root, title, backing.existing);
+    CheckMiiEntries(backing.catalog);
+    // A database the catalog has but the disk lost holds nothing to keep.
+    const auto file = Physical(backing.data, kMiiDatabase);
+    if (backing.catalog.entries.count(kMiiDatabase) && IsFile(file)) backing.database = ReadFile(file);
+    return backing;
+}
+
+// Write `database` as the backing's Mii database. The catalog and the
+// database it replaces are first copied to `backup_parent`/<prefix><time>,
+// which is returned (empty for a new backing).
+fs::path WriteMiiDatabase(MiiBacking& backing, const SaveTitle& title, const std::string& database,
+                          const fs::path& backup_parent, const std::string& prefix) {
+    fs::path backup;
+    auto& catalog = backing.catalog;
+    const bool replacing = catalog.entries.count(kMiiDatabase) != 0;
+    if (backing.existing) {
+        backup = NewBackupFolder(backup_parent, prefix);
+        WriteAtomically(backup / "metadata.txt", ReadFile(backing.metadata));
+        if (!backing.database.empty()) WriteAtomically(backup / "RFL_DB.dat", backing.database);
+    } else {
+        physical::MakeDirs(backing.data);
+        catalog = NewCatalog(backing.data, title);
+    }
+
+    // Every game reads and writes the database (the Mii library keeps the
+    // hidden Miis in it): the shared folders and the file belong to no title
+    // and are read/write for all. Entries the backing has already stay.
+    for (const auto& path : MiiFolders()) {
+        if (catalog.entries.count(path)) continue;
+        physical::MakeDirs(Physical(backing.data, path));
+        catalog.entries.emplace(path, Entry{0, 0, 3, 3, 3, 0, 1, catalog.next++});
+    }
+    WriteAtomically(Physical(backing.data, kMiiDatabase), database);
+    if (!replacing) catalog.entries.emplace(kMiiDatabase, Entry{0, 0, 3, 3, 3, 0, 0, catalog.next++});
+    WriteAtomically(backing.metadata, CatalogText(catalog, title));
+    return backup;
+}
+
+// Store the CRC that makes the checked bytes' CRC come out 0: the CRC of the
+// rest with its field 0.
+void SetMiiCrc(std::string& database) {
+    database[kMiiCheckedBytes - 2] = database[kMiiCheckedBytes - 1] = 0;
+    const auto crc = MiiCrc(database, kMiiCheckedBytes);
+    database[kMiiCheckedBytes - 2] = char(crc >> 8);
+    database[kMiiCheckedBytes - 1] = char(crc);
+}
+
+// The database the Mii library formats (RFL_Format.c): no Miis, isolation
+// set, an empty list of hidden Miis (head, tail and every link -1), zeros
+// for the hidden Miis themselves, and its CRC.
+std::string EmptyMiiDatabase() {
+    std::string database(kMiiDatabaseBytes, '\0');
+    database.replace(0, 4, "RNOD");
+    database[0x1CEC] = char(0x80);
+    database.replace(0x1D00, 8, "RNHD\xFF\xFF\xFF\xFF");
+    for (std::size_t entry = 0; entry < 10000; ++entry)
+        database.replace(0x1D08 + entry * 12 + 8, 4, "\x7F\xFF\x7F\xFF");
+    SetMiiCrc(database);
+    return database;
+}
+} // namespace
+
+MiiDatabaseStatus InstalledMiis(const fs::path& nand_root, const SaveTitle& title) {
+    // Only a database the catalog has: the game's device opens nothing else.
+    // The same checks as AddMii and ImportDolphinMiis, without writing.
+    MiiDatabaseStatus status;
+    try {
+        bool existing{};
+        const auto catalog = ExistingCatalog(nand_root, title, existing);
+        CheckMiiEntries(catalog);
+        const auto file = Physical(nand_root / "data", kMiiDatabase);
+        if (!catalog.entries.count(kMiiDatabase) || !IsFile(file)) return status;
+        const auto database = ReadFile(file);
+        if (!ValidMiiDatabase(database)) {
+            status.state = MiiDatabaseState::Damaged;
+            return status;
+        }
+        status.state = MiiDatabaseState::Ready;
+        status.names = MiiNames(database);
+    } catch (const std::exception& error) {
+        status = {MiiDatabaseState::Unusable, {}, error.what()};
+    }
+    return status;
 }
 
 MiiImportResult ImportDolphinMiis(const fs::path& source, const fs::path& nand_root, const SaveTitle& title,
@@ -422,43 +544,39 @@ MiiImportResult ImportDolphinMiis(const fs::path& source, const fs::path& nand_r
         throw std::runtime_error("The Mii database " + PathUtf8(source)
                                  + " has no Miis. Create one in the Mii Channel first.");
 
-    const auto root = physical::PrepareRoot(nand_root);
-    const auto data = root / "data", metadata = root / "metadata.txt";
-    bool existing{};
-    auto catalog = ExistingCatalog(root, title, existing);
-    const std::vector<std::string> folders{"/shared2", "/shared2/menu", kFaceLib};
-    for (const auto& path : folders) {
-        const auto entry = catalog.entries.find(path);
-        if (entry != catalog.entries.end() && !entry->second.directory)
-            throw std::runtime_error("The save folder's catalog (metadata.txt) has a file named " + path + ".");
-    }
-    const auto previous = catalog.entries.find(kMiiDatabase);
-    const bool replacing = previous != catalog.entries.end();
-    if (replacing && previous->second.directory)
-        throw std::runtime_error("The save folder's catalog (metadata.txt) has a folder named " + kMiiDatabase + ".");
+    auto backing = OpenMiiBacking(nand_root, title);
+    result.backup = WriteMiiDatabase(backing, title, database, backup_parent, "before-mii-import-");
+    return result;
+}
 
-    // Back up what is replaced: the catalog and the previous database.
-    if (existing) {
-        result.backup = backup_parent / ("before-mii-import-" + Timestamp());
-        fs::create_directories(result.backup);
-        WriteAtomically(result.backup / "metadata.txt", ReadFile(metadata));
-        if (replacing) WriteAtomically(result.backup / "RFL_DB.dat", ReadFile(Physical(data, kMiiDatabase)));
-    } else {
-        physical::MakeDirs(data);
-        catalog = NewCatalog(data, title);
-    }
+MiiImportResult AddMii(const std::string& record, const fs::path& nand_root, const SaveTitle& title,
+                       const fs::path& backup_parent) {
+    const auto* mii = reinterpret_cast<const unsigned char*>(record.data());
+    if (record.size() != kMiiBytes || !MiiUsed(mii) || (!mii[kMiiNameOffset] && !mii[kMiiNameOffset + 1]))
+        throw std::invalid_argument("Not a Mii record with a name and a create ID.");
+    auto backing = OpenMiiBacking(nand_root, title);
+    auto database = backing.database.empty() ? EmptyMiiDatabase() : backing.database;
+    if (!ValidMiiDatabase(database))
+        throw std::runtime_error("The game's Mii database is damaged. Import the Miis from Dolphin instead.");
 
-    // Every game reads and writes the database (the Mii library keeps the
-    // hidden Miis in it): the shared folders and the file belong to no title
-    // and are read/write for all. Entries the backing has already stay.
-    for (const auto& path : folders) {
-        if (catalog.entries.count(path)) continue;
-        physical::MakeDirs(Physical(data, path));
-        catalog.entries.emplace(path, Entry{0, 0, 3, 3, 3, 0, 1, catalog.next++});
+    // The first free slot; a create ID already there would share its save slot.
+    std::size_t free = kMiiSlots;
+    for (std::size_t slot = 0; slot < kMiiSlots; ++slot) {
+        const auto* other = MiiRecord(database, slot);
+        if (!MiiUsed(other)) {
+            if (free == kMiiSlots) free = slot;
+        } else if (std::equal(other + kMiiCreateIdOffset, other + kMiiCreateIdOffset + kMiiCreateIdBytes,
+                              mii + kMiiCreateIdOffset)) {
+            throw MiiCreateIdTaken();
+        }
     }
-    WriteAtomically(Physical(data, kMiiDatabase), database);
-    if (!replacing) catalog.entries.emplace(kMiiDatabase, Entry{0, 0, 3, 3, 3, 0, 0, catalog.next++});
-    WriteAtomically(metadata, CatalogText(catalog, title));
+    if (free == kMiiSlots) throw std::runtime_error("The Mii database is full: it holds 100 Miis.");
+    database.replace(4 + free * kMiiBytes, kMiiBytes, record);
+    SetMiiCrc(database);
+
+    MiiImportResult result;
+    result.names = {MiiName(mii + kMiiNameOffset)};
+    result.backup = WriteMiiDatabase(backing, title, database, backup_parent, "before-mii-create-");
     return result;
 }
 } // namespace mscharged::platform

@@ -1,8 +1,10 @@
 // Dolphin save import: the imported files must be what the game's own IOS
 // filesystem device then opens, with the permissions the game gives its saves.
 #include "platform/filesystem_device.h"
+#include "platform/filesystem_physical.h"
 #include "platform/game_release.h"
 #include "platform/ios_device.h"
+#include "platform/mii_maker.h"
 #include "platform/save_import.h"
 #include <revolution/ipc.h>
 
@@ -196,6 +198,13 @@ std::string MiiDatabase(const std::vector<std::pair<std::size_t, std::u16string>
     return bytes;
 }
 
+// The Miis of a database the game loads; any other state fails the check.
+std::vector<std::string> Miis(const fs::path& nand) {
+    const auto status = InstalledMiis(nand, kTitle);
+    Check(status.state == MiiDatabaseState::Ready && status.error.empty(), "Mii database not ready");
+    return status.names;
+}
+
 // Dolphin's Mii database: what the game's device opens afterwards, read and
 // write for the game, and nothing changed when it is unusable.
 void RunMiis(const fs::path& root) {
@@ -211,14 +220,14 @@ void RunMiis(const fs::path& root) {
 
     // Into the NAND that has the save: the shared folders join its catalog.
     const auto nand = root / "nand", backups = root / "backups";
-    Check(InstalledMiis(nand, kTitle).empty(), "Miis listed before any import");
+    Check(InstalledMiis(nand, kTitle).state == MiiDatabaseState::Missing, "Mii database before any import");
     const std::vector<std::string> names{"Mario", "Lu\xE2\x98\x86gi\xF0\x9F\x98\x80"};
     auto result = ImportDolphinMiis(source, nand, kTitle, backups);
     Check(result.names == names, "Imported Mii names");
     Check(!result.backup.empty() && fs::exists(result.backup / "metadata.txt")
               && !fs::exists(result.backup / "RFL_DB.dat"),
           "First Mii import backup");
-    Check(InstalledMiis(nand, kTitle) == names, "Installed Miis after the import");
+    Check(Miis(nand) == names, "Installed Miis after the import");
     InitializeNativeFilesystem({nand, kTitle.title_id, kTitle.uid, kTitle.gid});
     Check(IosRead(kMiiPath, kMiiDatabaseBytes + 1) == miis, "Mii database differs through the IOS device");
     const auto fd = IOS_Open(kMiiPath.c_str(), IPC_OPEN_RW);
@@ -234,7 +243,7 @@ void RunMiis(const fs::path& root) {
     result = ImportDolphinMiis(source, nand, kTitle, backups);
     Check(result.names == std::vector<std::string>{"Luigi"} && Bytes(result.backup / "RFL_DB.dat") == miis,
           "Previous Mii database not backed up");
-    Check(InstalledMiis(nand, kTitle) == result.names, "Installed Miis after the second import");
+    Check(Miis(nand) == result.names, "Installed Miis after the second import");
 
     // Unusable databases change nothing.
     const auto before = Bytes(nand / "metadata.txt");
@@ -246,21 +255,102 @@ void RunMiis(const fs::path& root) {
     Reject([&] { ImportDolphinMiis(source, nand, kTitle, backups); }, "Mii database without Miis accepted");
     Put(source, changed.substr(0, kMiiChecked));
     Reject([&] { ImportDolphinMiis(source, nand, kTitle, backups); }, "Short Mii database accepted");
-    Check(Bytes(nand / "metadata.txt") == before && InstalledMiis(nand, kTitle) == result.names,
+    Check(Bytes(nand / "metadata.txt") == before && Miis(nand) == result.names,
           "Rejected Mii import changed the NAND");
 
     // A new save folder gets the device's layout plus the Miis.
     const auto fresh = root / "fresh-miis";
     Put(source, miis);
     result = ImportDolphinMiis(source, fresh, kTitle, backups);
-    Check(result.backup.empty() && InstalledMiis(fresh, kTitle) == names, "Mii import into a new save folder");
+    Check(result.backup.empty() && Miis(fresh) == names, "Mii import into a new save folder");
     InitializeNativeFilesystem({fresh, kTitle.title_id, kTitle.uid, kTitle.gid});
     Check(IosRead(kMiiPath, kMiiDatabaseBytes + 1) == miis, "New save folder's Mii database differs");
     ShutdownNativeFilesystem();
     // A database the catalog does not have is not one the game sees.
     const auto orphan = root / "orphan-miis";
     Put(orphan / "data" / "shared2" / "menu" / "FaceLib" / "RFL_DB.dat", miis);
-    Check(InstalledMiis(orphan, kTitle).empty(), "A Mii database outside the catalog was listed");
+    const auto orphaned = InstalledMiis(orphan, kTitle);
+    Check(orphaned.state == MiiDatabaseState::Unusable && !orphaned.error.empty() && orphaned.names.empty(),
+          "A save folder without a catalog was not unusable");
+    const auto other = InstalledMiis(nand, {kTitle.title_id + 1, kTitle.uid, kTitle.gid});
+    Check(other.state == MiiDatabaseState::Unusable, "Another game's save folder was not unusable");
+}
+
+// A new Mii: into a save folder without Miis (a database formatted as the
+// Mii library formats one), beside imported Miis, and never into a damaged
+// or full database or twice.
+void RunAddMii(const fs::path& root) {
+    const std::int64_t now = 1760000000;
+    const auto mario = MakeRandomMii("Mario", 1, now), luigi = MakeRandomMii("Luigi", 2, now);
+    const auto fresh = root / "new-mii", backups = root / "backups";
+    auto result = AddMii(mario, fresh, kTitle, backups);
+    Check(result.backup.empty() && result.names == std::vector<std::string>{"Mario"}, "First new Mii");
+    Check(Miis(fresh) == result.names, "New Mii not installed");
+    InitializeNativeFilesystem({fresh, kTitle.title_id, kTitle.uid, kTitle.gid});
+    const auto database = IosRead(kMiiPath, kMiiDatabaseBytes + 1);
+    ShutdownNativeFilesystem();
+    Check(database.size() == kMiiDatabaseBytes && MiiCrc(database) == 0, "New database fails the Mii library's CRC");
+    Check(database.compare(4, 74, mario) == 0, "New Mii not in the first slot");
+    Check(database.compare(0x1CEC, 4, std::string("\x80\0\0\0", 4)) == 0
+              && database.compare(0x1D00, 8, "RNHD\xFF\xFF\xFF\xFF") == 0,
+          "New database header differs from a formatted one");
+    bool links = true;
+    for (std::size_t entry = 0; entry < 10000; ++entry)
+        links = links && database.compare(0x1D08 + entry * 12, 12, std::string(8, '\0') + "\x7F\xFF\x7F\xFF") == 0;
+    Check(links && database.find_first_not_of('\0', kMiiChecked) == std::string::npos,
+          "New database's hidden Miis differ from a formatted one");
+
+    result = AddMii(luigi, fresh, kTitle, backups);
+    Check(Miis(fresh) == std::vector<std::string>{"Mario", "Luigi"}
+              && Bytes(result.backup / "RFL_DB.dat") == database,
+          "Second new Mii, and the previous database's backup");
+    const auto before = Bytes(fresh / "metadata.txt");
+    bool taken{};
+    try { AddMii(luigi, fresh, kTitle, backups); } catch (const MiiCreateIdTaken&) { taken = true; }
+    Check(taken, "The same Mii was added twice");
+    Reject([&] { AddMii(luigi.substr(1), fresh, kTitle, backups); }, "A short record was added");
+    Check(Bytes(fresh / "metadata.txt") == before && Miis(fresh).size() == 2,
+          "A rejected new Mii changed the save folder");
+    // Backups made in the same second each keep their own state.
+    const auto third = AddMii(MakeRandomMii("Toad", 4, now), fresh, kTitle, backups);
+    Check(third.backup != result.backup && Bytes(result.backup / "RFL_DB.dat") == database,
+          "A backup was overwritten by the next one");
+
+    // Beside Dolphin's Miis: the first free slot.
+    const auto imported = root / "nand";
+    Check(Miis(imported) == std::vector<std::string>{"Luigi"}, "Imported Miis before a new one");
+    AddMii(MakeRandomMii("Peach", 3, now), imported, kTitle, backups);
+    Check(Miis(imported) == std::vector<std::string>{"Peach", "Luigi"}, "New Mii beside imported");
+
+    // A full database, and a damaged one, take no new Mii.
+    const auto full = root / "full-miis";
+    std::vector<std::pair<std::size_t, std::u16string>> hundred;
+    for (std::size_t slot = 0; slot < 100; ++slot) hundred.push_back({slot, u"Mii"});
+    const auto source = DolphinMiiDatabase(root / "dolphin-user");
+    Put(source, MiiDatabase(hundred));
+    ImportDolphinMiis(source, full, kTitle, backups);
+    Check(InstalledMiis(full, kTitle).Full(), "A database of 100 Miis is not full");
+    Reject([&] { AddMii(mario, full, kTitle, backups); }, "A Mii was added to a full database");
+    auto damaged = Bytes(source);
+    damaged[0x100] ^= 1;
+    namespace physical = mscharged::platform::filesystem_detail;
+    auto stored = full / "data";
+    for (const char* name : {"shared2", "menu", "FaceLib", "RFL_DB.dat"}) stored /= physical::Component(name);
+    Put(stored, damaged);
+    Check(InstalledMiis(full, kTitle).state == MiiDatabaseState::Damaged, "A damaged database was not damaged");
+    Reject([&] { AddMii(mario, full, kTitle, backups); }, "A Mii was added to a damaged database");
+    // Dolphin's Miis replace a damaged database, which is backed up.
+    Put(source, MiiDatabase({{0, u"Daisy"}}));
+    Check(Bytes(ImportDolphinMiis(source, full, kTitle, backups).backup / "RFL_DB.dat") == damaged
+              && Miis(full) == std::vector<std::string>{"Daisy"},
+          "Dolphin's Miis did not replace a damaged database");
+
+    // A database the catalog has but the disk lost is missing: a new one replaces it.
+    fs::remove(stored);
+    Check(InstalledMiis(full, kTitle).state == MiiDatabaseState::Missing, "A lost database was not missing");
+    result = AddMii(mario, full, kTitle, backups);
+    Check(Miis(full) == std::vector<std::string>{"Mario"} && !fs::exists(result.backup / "RFL_DB.dat"),
+          "A new Mii did not replace a lost database");
 }
 
 void SetEnvironment(const char* name, const fs::path& value) {
@@ -331,6 +421,7 @@ int main(int argc, char** argv) {
         Run(fs::path(argv[1]));
         RunEurope(fs::path(argv[1]));
         RunMiis(fs::path(argv[1]));
+        RunAddMii(fs::path(argv[1]));
         RunFind(fs::path(argv[1]));
         std::cout << "save_import: " << checks << " checks passed\n";
         return 0;

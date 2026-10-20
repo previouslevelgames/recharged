@@ -47,12 +47,14 @@ add_library(charged_image_library STATIC src/launcher/disc_search.cpp src/launch
 target_include_directories(charged_image_library PUBLIC src)
 target_compile_features(charged_image_library PUBLIC cxx_std_17)
 target_link_libraries(charged_image_library PUBLIC charged_host charged_json)
+# New Miis for players without any (the Miis page).
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MiiMaker.cmake")
 add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launcher/release_notes_view.cpp)
 # The program players start: recharged (recharged.exe). The target keeps its old name.
 # On Windows it is a Windows (GUI) program, so no console opens with it (#61).
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
-    charged_wiimote_scan charged_session_log charged_updates charged_image_library)
+    charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_mii_maker)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
 mscharged_stage_pipeline_catalog(mscharged)
 if(APPLE)

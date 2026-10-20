@@ -23,9 +23,11 @@ if(UNIX OR WIN32)
             "${CMAKE_CURRENT_BINARY_DIR}/native-filesystem-physical-data")
         set_tests_properties(native_filesystem_physical PROPERTIES TIMEOUT 30)
 
-        # Dolphin save import (launcher) into a backing the device then opens.
+        # Dolphin save and Mii import, and new Miis (launcher), into a backing
+        # the device then opens.
+        include(cmake/MiiMaker.cmake)
         add_executable(save_import_tests tests/save_import.cpp)
-        target_link_libraries(save_import_tests PRIVATE charged_native_filesystem charged_host)
+        target_link_libraries(save_import_tests PRIVATE charged_native_filesystem charged_host charged_mii_maker)
         target_compile_features(save_import_tests PRIVATE cxx_std_17)
         add_test(NAME save_import COMMAND save_import_tests
             "${CMAKE_CURRENT_BINARY_DIR}/save-import-tests-data")

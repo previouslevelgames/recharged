@@ -32,6 +32,7 @@
 #endif
 #include "platform/app_icon.h"
 #include "platform/path.h"
+#include "platform/mii_maker.h"
 #include "platform/save_import.h"
 #include "platform/shader_cache.h"
 #include "platform/session_log.h"
@@ -53,7 +54,9 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
+#include <ctime>
 #include <filesystem>
 #include <future>
 #include <iostream>
@@ -61,6 +64,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -160,10 +164,10 @@ void Callout(const std::string& text, const ImVec4& tint, Icon icon)
     ImGui::Dummy({width, height});
 }
 
-enum Page { PagePlay, PageGame, PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play", "Game", "Display", "Audio", "Controls", "Gameplay", "Advanced", "About"};
-constexpr const char* page_ids[] = {"play", "game", "display", "audio", "controls", "gameplay", "advanced", "about"};
-constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Display, Icon::Audio, Icon::Keyboard, Icon::Target,
+enum Page { PagePlay, PageGame, PageMiis, PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_names[] = {"Play", "Game", "Miis", "Display", "Audio", "Controls", "Gameplay", "Advanced", "About"};
+constexpr const char* page_ids[] = {"play", "game", "miis", "display", "audio", "controls", "gameplay", "advanced", "about"};
+constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Display, Icon::Audio, Icon::Keyboard, Icon::Target,
                                Icon::Sliders, Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
     && std::size(page_icons) == PageCount);
@@ -2091,6 +2095,7 @@ private:
             switch (page_)
             {
             case PageGame: GamePage(); break;
+            case PageMiis: MiiPage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
@@ -2630,7 +2635,6 @@ private:
         EndCard();
 
         SaveDataCard();
-        MiiCard();
     }
 
     // Where the game keeps its Wii storage, and importing a save from Dolphin.
@@ -2695,25 +2699,67 @@ private:
         EndCard();
     }
 
-    // The Miis the game finds in its Wii storage, and importing Dolphin's.
-    void MiiCard()
+    // The Miis the game finds in its Wii storage: making one, or importing Dolphin's.
+    void MiiPage()
     {
-        BeginCard("##miis", "Miis", "Online play needs a Mii. Every Wii game reads them from the same database.",
+        PageHeader("Miis", "Online play needs a Mii. Every Wii game reads them from the same database.");
+        const auto& fonts = CurrentFonts();
+        BeginCard("##miis", "Your Miis", "The Miis the game lists, in the save folder in use.", Icon::Person);
+        using mscharged::platform::MiiDatabaseState;
+        const auto& miis = InstalledMiis();
+        if (miis.state == MiiDatabaseState::Damaged)
+            Callout("The game cannot read this Mii database. Import your Miis from Dolphin to replace it.",
+                    color::warning, Icon::Warning);
+        else if (miis.state == MiiDatabaseState::Unusable)
+            Callout(miis.error, color::danger, Icon::Error);
+        else if (BeginRows("##mii_rows"))
+        {
+            std::string names;
+            for (const auto& name : miis.names) names += (names.empty() ? "" : ", ") + name;
+            const std::string count = std::to_string(miis.names.size()) + (miis.names.size() == 1 ? " Mii" : " Miis");
+            if (miis.Full()) names += ". The database is full.";
+            Row(miis.names.empty() ? "None yet" : count.c_str(),
+                miis.names.empty() ? "Make one below, or import yours from Dolphin, to play online." : names.c_str());
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##new_mii", "Make a Mii", "A random face from the Wii's own Mii maker, with the name you choose.",
                   Icon::Person);
+        if (BeginRows("##new_mii_rows"))
+        {
+            Row("Name", "Up to 10 characters. The face is random: there is no Mii editor here.");
+            const float button = Dp(150);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - button - Dp(10));
+            ImGui::InputTextWithHint("##mii_name", "Mii name", &new_mii_name_);
+            ImGui::SameLine(0, Dp(10));
+            const bool valid = mscharged::platform::ValidMiiName(new_mii_name_);
+            // What keeps a new Mii out of the database, told before the click.
+            const char* blocked = miis.state == MiiDatabaseState::Damaged    ? "Replace the damaged Mii database first."
+                : miis.state == MiiDatabaseState::Unusable                    ? "The save folder cannot take a Mii."
+                : miis.Full()                                                 ? "The database holds 100 Miis already."
+                                                                              : nullptr;
+            if (PrimaryButton("make_mii", "Make Mii", {button, ImGui::GetFrameHeight()},
+                              valid && !blocked && config_ok_, Icon::Person))
+                MakeMii();
+            if (blocked) TextWrappedColored(fonts.caption, color::warning, blocked);
+            else if (!new_mii_name_.empty() && !valid)
+                TextWrappedColored(fonts.caption, color::warning, "A Mii's name has 1 to 10 characters, without emoji.");
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##dolphin_miis", "Import from Dolphin",
+                  "Your own Miis, if you play on Dolphin. They replace the Miis above.", Icon::Copy);
         bool browsing;
         { std::lock_guard<std::mutex> lock(folder_dialog_->mutex); browsing = folder_dialog_->active; }
-        if (BeginRows("##mii_rows"))
+        if (BeginRows("##dolphin_mii_rows"))
         {
-            const auto& miis = InstalledMiis();
-            std::string names;
-            for (const auto& name : miis) names += (names.empty() ? "" : ", ") + name;
-            Row("Miis in use", miis.empty() ? "None yet. Import them from Dolphin to play online." : names.c_str());
-
             const auto found = mscharged::platform::FindDolphinMiiDatabases();
             const std::string description = found.empty()
-                ? "Copies the Miis of the Dolphin emulator. Choose Dolphin's user folder."
+                ? "No Dolphin Miis found. Choose Dolphin's user folder."
                 : "Copies the Miis Dolphin keeps in " + PathUtf8(found.front()) + ".";
-            Row("Import from Dolphin", description.c_str());
+            Row("Dolphin's Miis", description.c_str());
             const float width = ImGui::GetContentRegionAvail().x;
             if (!found.empty())
             {
@@ -2729,9 +2775,32 @@ private:
         EndCard();
     }
 
+    void MakeMii()
+    {
+        try
+        {
+            const auto folder = SaveFolder();
+            // A create ID already there is made again: another random face and ID.
+            for (int attempt = 0;; ++attempt)
+            {
+                const auto record = mscharged::platform::MakeRandomMii(new_mii_name_, std::random_device{}(),
+                                                                       std::int64_t(std::time(nullptr)));
+                try
+                {
+                    mscharged::platform::AddMii(record, folder, SaveTitleOf(Release()), folder / "backups");
+                    break;
+                }
+                catch (const mscharged::platform::MiiCreateIdTaken&) { if (attempt == 2) throw; }
+            }
+            Notice("Mii " + new_mii_name_ + " made. Choose it in the game's online menu.", NoticeKind::Success);
+            new_mii_name_.clear();
+        }
+        catch (const std::exception& e) { Notice(std::string("Making the Mii failed: ") + e.what(), NoticeKind::Error); }
+    }
+
     // The Miis of the save folder in use, read again when its catalog
     // changes (an import, or the game writing its storage).
-    const std::vector<std::string>& InstalledMiis()
+    const mscharged::platform::MiiDatabaseStatus& InstalledMiis()
     {
         const auto folder = SaveFolder();
         std::error_code error;
@@ -5309,7 +5378,8 @@ private:
     // The Miis of the save folder in use and the catalog time they were read at.
     fs::path miis_folder_;
     fs::file_time_type miis_time_;
-    std::vector<std::string> miis_;
+    mscharged::platform::MiiDatabaseStatus miis_;
+    std::string new_mii_name_;
     // Update check and installation (#50).
     std::unique_ptr<UpdateService> updates_;
     UpdateService::Status update_;
