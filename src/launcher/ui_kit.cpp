@@ -1099,6 +1099,48 @@ bool KeyCapButton(const char* id, const char* key, bool waiting)
     return pressed;
 }
 
+bool KeyComboButton(const char* id, const std::vector<std::string>& keys, bool waiting)
+{
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float gap = Dp(6);
+    const ImVec2 plus = TextSize(fonts.label, "+");
+    std::vector<float> widths;
+    float width = 0.0f;
+    for (const auto& key : keys)
+    {
+        widths.push_back(std::max(Dp(30), TextSize(fonts.caption, key.c_str()).x + Dp(18)));
+        width += widths.back() + (widths.size() > 1 ? gap * 2 + plus.x : 0.0f);
+    }
+    const float height = Dp(28);
+    const bool pressed = ImGui::InvisibleButton(id, {std::max(width, Dp(30)), height + Dp(2)});
+    const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+    const float pulse = waiting ? 0.5f + 0.5f * std::sin(float(ImGui::GetTime()) * 6.0f) : 0.0f;
+    auto* draw = ImGui::GetWindowDrawList();
+    float x = pos.x;
+    for (std::size_t n = 0; n < keys.size(); ++n)
+    {
+        if (n > 0)
+        {
+            DrawLabel(draw, fonts.label, {x + gap, pos.y + (height - plus.y) * 0.5f}, Col(color::muted), "+");
+            x += gap * 2 + plus.x;
+        }
+        const ImVec2 min{x, pos.y}, max{x + widths[n], pos.y + height};
+        draw->AddRectFilled({min.x, min.y + Dp(2)}, {max.x, max.y + Dp(2)}, Col(color::window), Dp(7));
+        draw->AddRectFilled(min, max,
+                            Col(Mix(Mix(color::field, color::border, 0.5f + 0.3f * hover), color::accent_dark, pulse)),
+                            Dp(7));
+        draw->AddRect(min, max, Col(waiting ? Mix(color::border, color::accent, 0.4f + 0.6f * pulse)
+                                            : Mix(color::border, color::accent, 0.6f * hover)),
+                      Dp(7), 0, Dp(waiting ? 1.5f : 1.0f));
+        const ImVec2 label = TextSize(fonts.caption, keys[n].c_str());
+        DrawLabel(draw, fonts.caption, {x + (widths[n] - label.x) * 0.5f, pos.y + (height - label.y) * 0.5f},
+                  Col(waiting ? color::accent : color::text), keys[n].c_str());
+        x = max.x;
+    }
+    return pressed;
+}
+
 void KeyCapArrow(int direction)
 {
     const ImVec2 pos = ImGui::GetCursorScreenPos();

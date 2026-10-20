@@ -74,7 +74,8 @@ come from the reconstructed source, unchanged.
 the HUD in a match, **F** stretches the picture over the window or gives it
 back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
 and **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
-window. All but Alt+Enter can be changed under Controls → Hotkeys.
+window. Each can be changed under Controls → Hotkeys, to a key alone or with
+Ctrl, Shift or Alt.
 
 **No HUD** (Controls → Hotkeys → *Show the HUD when a match starts* off):
 matches start without the scoreboard (score, clock, items, ability meter),
@@ -88,12 +89,16 @@ play.
 - Vulkan on Linux, Vulkan or DirectX 12 on Windows (Advanced → Graphics API),
   Metal on macOS; on PCs with two GPUs, a choice of graphics card (Advanced →
   Graphics card).
-- Window or fullscreen on any monitor; Alt+Enter switches while playing. The
-  window reopens at the size and place you left it at.
+- Window or fullscreen on any monitor, at a resolution your graphics card
+  offers (fullscreen keeps the display's own unless you pick another);
+  Alt+Enter switches while playing. The window reopens at the size and place
+  you left it at.
 - **16:9** (the game's widescreen layout) or **4:3**, both keeping their shape:
   the window keeps it when resized, so the picture fills it without bars.
-  **Stretch** fills any window or display instead; F switches while playing.
-- **3D at your window's resolution** (default) instead of the Wii's 640 x 448,
+  **Stretch** fills any window or display instead, and the optional **wider
+  view** fills it in matches without stretching by showing more of the
+  stadium; F switches while playing.
+- **3D at full resolution** (default) instead of the Wii's 640 x 448,
   or fixed 2x-4x for slower graphics cards; Page Up and Page Down change it
   while playing. Menus and the HUD keep their original artwork.
 - Picture styles: **Modern** (default) draws the game's picture crisp, straight

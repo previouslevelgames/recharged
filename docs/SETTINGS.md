@@ -109,33 +109,44 @@ keep their shape. A window keeps that shape when you resize it, so the picture
 fills it; a display of another shape (16:10, 21:9) shows bars beside or above
 and below the picture. **Stretch** (`stretch`) fills the whole window or
 display, changing the picture's shape: it uses the 16:9 layout, or 4:3 on
-screens closer to that shape. **F** switches between the stretched picture and
-its own shape while playing, for that run. The Display page tells what each
-choice does on your display.
+screens closer to that shape. **Wider view** (`wider_view = true`, with 16:9)
+fills a screen of another shape in matches without stretching: the game shows
+more of the stadium at the sides of a wider screen (21:9) or above and below a
+taller one (16:10, the Steam Deck), with the HUD in the 16:9 middle. Menus keep
+their 16:9 picture. **F** switches the stretched picture or the wider view on
+and off while playing, for that run. The Display page
+tells what each choice does on your display.
 
-**3D resolution** (Display → 3D resolution, `[display] resolution`). **Window**
-(the default) draws the game at the size of its picture in the window, the
-sharpest. **Native** is the Wii's 640 x 448 and **2x-4x** its multiples, for
-slower graphics cards. **Page Up** and **Page Down** change it while playing, for
-that run.
+**3D resolution** (Display → 3D resolution, `[display] resolution`). **Full**
+(`window`, the default) draws the game at the resolution its picture has on the
+screen, the sharpest. **Native** is the Wii's 640 x 448 and **2x-4x** its
+multiples, for slower graphics cards. **Page Up** and **Page Down** change it
+while playing, for that run.
 
 **Picture style** (Display → Picture style, `[display] picture`). **Modern**
 draws the game's picture crisp, straight into the window; when the 3D
-resolution is not Window, **Upscaling** scales it to the window smoothly
+resolution is not Full, **Upscaling** scales it to the screen smoothly
 (`clean`) or with square pixels (`sharp`, the default). **Original TV**
 (`soft`) adds the Wii's flicker filter and a TV's softness. **TV border**
 (`tv_border = true`) also shows the empty border a Wii sends around its
 picture, which a TV hides.
 
-**Window size** (Display → Window size, `[display] width` and `height`). The
-game window opens at the size and place you leave it at
+**Resolution** (Display → Resolution) lists the sizes your graphics card offers
+for the display. In a window it is the window's size (`[display] width` and
+`height`), of the picture's shape while the window keeps it; a size larger
+than a window can take there opens as the largest window that fits. The game
+window also opens at the size and place you leave it at
 (`remember_window = false` turns that off; the place is `position`). Wayland
-desktops place windows themselves.
+desktops place windows themselves. In fullscreen it is the screen's resolution
+(`fullscreen_resolution`): **Desktop** (`desktop`, the default) keeps the
+display's own; another (`1280x720`) switches the display to it while the game
+runs. A resolution of another shape than the display may be stretched by the
+display or shown with bars.
 
 **Fullscreen** (Display → Mode, `[display] fullscreen`) covers the whole
-display at its own resolution. **Alt+Enter** (Option+Return on a Mac) switches
-between fullscreen and a window while playing, for that run only; that Enter
-never presses A.
+display, at the resolution chosen for it. **Alt+Enter** (Option+Return on a
+Mac, the `fullscreen` hotkey) switches between fullscreen and a window while
+playing, for that run only; that Enter never presses A.
 
 **Antialiasing** (Display → Antialiasing, `[display] antialiasing`) smooths
 jagged edges. **4x MSAA** (`4x`, the default) smooths the edges of 3D shapes.
@@ -281,16 +292,20 @@ The built-in Default always uses the defaults; changing it makes your own copy.
 **Hotkeys** (Controls → Hotkeys, `[hotkeys]`) work in the game window whoever
 plays: **P** saves a screenshot (`screenshot`), **H** shows or hides the HUD in
 a match (`hud`), **F** stretches the picture over the window or gives it back
-its shape (`stretch`), and **Page Up** and **Page Down** raise and lower the 3D
-resolution (`resolution_up`, `resolution_down`); these three last for the run.
-Click a key to change it; a hotkey cannot be Shift, Ctrl, Alt or the system
-key, nor a key of keyboard & mouse, and `none` leaves it unused. A settings
-file whose keyboard & mouse keys already use F, Page Up or Page Down keeps
-them, with that hotkey unused. With **Show the HUD
-when a match starts** off (`show_hud = false`), every match starts without the
-scoreboard, player markers and captions, for clean recordings; the HUD key
-shows them, and the Mega Strike meter stays. **Alt+Enter** (Option+Return on a Mac) cannot be
-changed.
+its shape (`stretch`), **Page Up** and **Page Down** raise and lower the 3D
+resolution (`resolution_up`, `resolution_down`), and **Alt+Enter**
+(Option+Return on a Mac) switches between fullscreen and a window
+(`fullscreen`); the last four last for the run. Click a hotkey, then press the
+new key, alone or with Ctrl, Shift or Alt (Control or Option on a Mac); Escape
+cancels and Backspace or Delete leaves it unused. In the file a hotkey is a key
+name after the `Ctrl+`, `Shift+` and `Alt+` it needs (`Ctrl+Shift+F12`), or
+`none`. A hotkey's key does not reach the game, so a key pressed alone cannot
+be a key of keyboard & mouse too; with Ctrl, Shift or Alt it can. The Windows
+and Command keys stay with the system. A settings file whose keyboard & mouse
+keys already use F, Page Up or Page Down keeps them, with that hotkey unused.
+With **Show the HUD when a match starts** off (`show_hud = false`), every match
+starts without the scoreboard, player markers and captions, for clean
+recordings; the HUD key shows them, and the Mega Strike meter stays.
 
 **Linux permissions.** If a Remote is connected but cannot be opened, the
 Controls page says so and copies these commands. Run them once, then

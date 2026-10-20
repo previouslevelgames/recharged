@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <string>
 #include <string_view>
 
 namespace mscharged
@@ -36,6 +37,30 @@ struct ShapeSize
 {
     int width = 0, height = 0;
 };
+
+// display.fullscreen_resolution: the display mode fullscreen switches the
+// display to while the game runs ("1280x720"), or "desktop", which keeps the
+// display's own resolution (no mode change).
+inline constexpr std::string_view kDesktopResolution = "desktop";
+// The size a fullscreen resolution names; {} for desktop or anything else.
+inline ShapeSize ParseResolution(std::string_view text)
+{
+    const auto x = text.find('x');
+    if (x == std::string_view::npos || x == 0 || x + 1 == text.size()) return {};
+    int size[2] = {0, 0};
+    for (int part = 0; part < 2; ++part)
+        for (const char c : part == 0 ? text.substr(0, x) : text.substr(x + 1))
+        {
+            if (c < '0' || c > '9' || size[part] > 16384) return {};
+            size[part] = size[part] * 10 + (c - '0');
+        }
+    if (size[0] < 320 || size[0] > 16384 || size[1] < 240 || size[1] > 16384) return {};
+    return {size[0], size[1]};
+}
+inline std::string FormatResolution(int width, int height)
+{
+    return std::to_string(width) + "x" + std::to_string(height);
+}
 
 // A window of `width` that shows an aspect_width:aspect_height picture
 // without bars: the same width, and the height of that shape.
@@ -95,7 +120,9 @@ inline float RenderScale(std::string_view resolution)
 // How players read a display.resolution value: Window, Native, 2x...
 inline std::string_view RenderResolutionLabel(std::string_view resolution)
 {
-    if (resolution == "window") return "Window";
+    // window: the full resolution of the screen it draws on (the window, or
+    // the display in fullscreen).
+    if (resolution == "window") return "Full";
     if (resolution == "native") return "Native";
     return resolution;
 }

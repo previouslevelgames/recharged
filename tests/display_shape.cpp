@@ -67,9 +67,20 @@ int main()
         Check(RenderWidth("window", 1920) == 1920 && RenderWidth("window", 320) == kNativeRenderWidth
                   && RenderWidth("2x", 1920) == 1280 && RenderWidth("native", 1920) == 640,
               "Render widths");
-        Check(RenderResolutionLabel("window") == "Window" && RenderResolutionLabel("native") == "Native"
+        Check(RenderResolutionLabel("window") == "Full" && RenderResolutionLabel("native") == "Native"
                   && RenderResolutionLabel("3x") == "3x",
               "Labels");
+        // display.fullscreen_resolution: desktop, or a display mode.
+        const auto resolution = [](std::string_view text, int width, int height) {
+            const auto size = ParseResolution(text);
+            return size.width == width && size.height == height;
+        };
+        Check(resolution("1920x1080", 1920, 1080) && resolution("320x240", 320, 240)
+                  && FormatResolution(2560, 1440) == "2560x1440",
+              "Fullscreen resolutions");
+        for (const char* other : {"desktop", "", "1920", "x1080", "1920x", "1920 x 1080", "-1x5", "100x100",
+                                  "1920x1080x2", "99999999999x1080"})
+            Check(resolution(other, 0, 0), "A fullscreen resolution that is none parsed");
         Check(RenderHeight("window", 1080) == 1080 && RenderHeight("window", 300) == kNativeRenderHeight
                   && RenderHeight("3x", 1080) == 1344 && RenderHeight("native", 1080) == 448,
               "Render heights");

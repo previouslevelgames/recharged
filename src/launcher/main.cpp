@@ -41,7 +41,6 @@
 #include "platform/session_log.h"
 #include "platform/gamepad_bindings.h"
 #include "platform/graphics_cards.h"
-#include "platform/fullscreen_hotkey.h"
 #include "platform/gyro_pointer.h"
 #include "platform/key_bindings.h"
 #include "platform/launcher_reopen.h"
@@ -470,7 +469,9 @@ public:
             SDL_Event event;
             while (SDL_PollEvent(&event))
             {
-                ImGui_ImplSDL3_ProcessEvent(&event);
+                const bool capturing = capture_action_ >= 0 || hotkey_capture_ >= 0;
+                if (!capturing || (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_TEXT_INPUT))
+                    ImGui_ImplSDL3_ProcessEvent(&event);
                 if (event.type == SDL_EVENT_QUIT || (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED
                     && event.window.windowID == SDL_GetWindowID(window_)))
                     close_requested_ = true;
@@ -486,7 +487,7 @@ public:
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && capture_action_ >= 0)
                     CaptureKey(event.key.scancode);
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && hotkey_capture_ >= 0)
-                    CaptureHotkey(event.key.scancode);
+                    CaptureHotkey(event.key.scancode, event.key.mod);
                 // Middle and side mouse buttons can take a key's place (#62).
                 if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && capture_action_ >= 0
                     && platform::MouseKeyInput(event.button.button) != platform::kKeyNone)
@@ -2804,8 +2805,8 @@ private:
         if (s.performance_mode) detail += "  -  Performance mode";
         if (!s.show_hud)
         {
-            const auto hud = platform::ParseHotkeys(s.hotkeys)[HotkeyHud];
-            detail += "  -  HUD hidden" + (hud ? " (" + platform::KeyInputName(hud) + ")" : std::string());
+            const auto hud = platform::HotkeyLabel(platform::ParseHotkeys(s.hotkeys)[HotkeyHud]);
+            detail += "  -  HUD hidden" + (hud.empty() ? std::string() : " (" + hud + ")");
         }
         return {s.fullscreen ? "Fullscreen" : std::to_string(s.width) + " x " + std::to_string(s.height) + " window",
                 detail, color::info};
@@ -3810,26 +3811,33 @@ private:
             ImGui::Dummy({0, Dp(2)});
         }
         const auto hotkeys = DraftHotkeys();
-        const auto key = [&](HotkeyIndex hotkey) { return platform::KeyInputName(hotkeys[hotkey]); };
+        const auto key = [&](HotkeyIndex hotkey) { return platform::HotkeyLabel(hotkeys[hotkey]); };
 
         BeginCard("##window", "Screen", nullptr, Icon::Display);
         if (BeginRows("##window_rows"))
         {
-            const std::string native = FullscreenResolution();
-            const std::string mode_note = "Fullscreen covers the whole display at its own resolution, "
-                + (native.empty() ? std::string() : native + " here, ") + "without a mode change. "
-                + platform::kFullscreenShortcut + " switches while playing.";
+            const std::string mode_note = std::string("Fullscreen covers the whole display, at the resolution below.")
+                + (hotkeys[HotkeyFullscreen].key ? " " + key(HotkeyFullscreen) + " switches while playing."
+                                                 : std::string());
             Row("Mode", mode_note.c_str());
             int mode = draft_.fullscreen ? 1 : 0;
             if (Segmented("##mode", &mode, {"Windowed", "Fullscreen"}, ImGui::GetContentRegionAvail().x))
             { draft_.fullscreen = mode == 1; dirty_ = true; }
 
+            // One resolution row: the window's size, or the screen's in fullscreen.
             if (!draft_.fullscreen)
             {
-                Row("Window size", draft_.remember_window
-                    ? "The window opens at the size and place you leave it at."
-                    : "You can still resize the window while playing.");
+                Row("Resolution", draft_.remember_window
+                    ? "The window's size, from those your graphics card offers for this display. The game also "
+                      "keeps the size and place you leave its window at."
+                    : "The window's size, from those your graphics card offers for this display.");
                 WindowSizeControl();
+            }
+            else
+            {
+                Row("Resolution", "The screen's resolution. Desktop keeps the display's own; another switches the "
+                    "display to it while the game runs.");
+                FullscreenResolutionControl();
             }
 
             if (displays_.size() > 1 || draft_.monitor > 0)
@@ -3846,7 +3854,7 @@ private:
         {
             const std::string aspect_note = "16:9 is the game's widescreen layout and 4:3 its original one; both keep "
                 "their shape. Stretch fills the whole screen."
-                + (hotkeys[HotkeyStretch] ? " " + key(HotkeyStretch) + " switches while playing." : std::string());
+                + (hotkeys[HotkeyStretch].key ? " " + key(HotkeyStretch) + " switches while playing." : std::string());
             Row("Aspect ratio", aspect_note.c_str());
             const char* values[] = {"16:9", "4:3", "stretch"};
             int aspect = -1;
@@ -3854,19 +3862,25 @@ private:
             if (Segmented("##aspect", &aspect, {"16:9", "4:3", "Stretch"}, ImGui::GetContentRegionAvail().x))
             { draft_.aspect = values[aspect]; dirty_ = true; }
             AspectNote(aspect < 0);
+            if (draft_.aspect == "16:9")
+            {
+                Row("Wider view", "In matches on a screen wider or taller than 16:9, shows more of the stadium "
+                    "instead of bars, with the HUD in the 16:9 middle. Menus keep their 16:9 picture.");
+                if (Toggle("##wider_view", &draft_.wider_view)) dirty_ = true;
+            }
 
-            std::string resolution_note = "Window draws the game at the size of its picture in the window, the "
-                "sharpest. Native is the Wii's 640 x 448; 2x-4x are its multiples, for slower graphics cards.";
-            if (hotkeys[HotkeyResolutionUp] || hotkeys[HotkeyResolutionDown])
-                resolution_note += " " + key(hotkeys[HotkeyResolutionUp] ? HotkeyResolutionUp : HotkeyResolutionDown)
-                    + (hotkeys[HotkeyResolutionUp] && hotkeys[HotkeyResolutionDown]
+            std::string resolution_note = "Full draws the game at the resolution above, the sharpest. Native is the "
+                "Wii's 640 x 448; 2x-4x are its multiples, for slower graphics cards.";
+            if (hotkeys[HotkeyResolutionUp].key || hotkeys[HotkeyResolutionDown].key)
+                resolution_note += " " + key(hotkeys[HotkeyResolutionUp].key ? HotkeyResolutionUp : HotkeyResolutionDown)
+                    + (hotkeys[HotkeyResolutionUp].key && hotkeys[HotkeyResolutionDown].key
                            ? " and " + key(HotkeyResolutionDown) + " change it" : std::string(" changes it"))
                     + " while playing.";
             Row("3D resolution", resolution_note.c_str());
             const char* resolutions[] = {"window", "native", "2x", "3x", "4x"};
             int resolution = 0;
             for (int i = 0; i < 5; ++i) if (draft_.resolution == resolutions[i]) resolution = i;
-            if (Segmented("##resolution", &resolution, {"Window", "Native", "2x", "3x", "4x"},
+            if (Segmented("##resolution", &resolution, {"Full", "Native", "2x", "3x", "4x"},
                           ImGui::GetContentRegionAvail().x))
             { draft_.resolution = resolutions[resolution]; dirty_ = true; }
             ResolutionNote();
@@ -3893,7 +3907,7 @@ private:
             else if (draft_.resolution != "window")
             {
                 BeginSubRows();
-                Row("Upscaling", "How a 3D resolution other than Window reaches the window's size. Sharp keeps "
+                Row("Upscaling", "How a 3D resolution other than Full reaches the resolution above. Sharp keeps "
                     "pixels square.");
                 int sharp = draft_.picture == "clean" ? 0 : 1;
                 if (Segmented("##upscaling", &sharp, {"Smooth", "Sharp"}, ImGui::GetContentRegionAvail().x))
@@ -3930,11 +3944,19 @@ private:
         EndCard();
     }
 
+    // Whether the game's picture fills its window or display: stretched, or
+    // with the wider view.
+    bool PictureFills() const
+    {
+        return draft_.aspect == "stretch" || (draft_.aspect == "16:9" && draft_.wider_view);
+    }
+
     // The screen the game's picture fills: the display (fullscreen) or the
     // window, in pixels of its shape; {} when unknown.
     ShapeSize PictureScreen() const
     {
         if (!draft_.fullscreen) return {draft_.width, draft_.height};
+        if (const auto chosen = ParseResolution(draft_.fullscreen_resolution); chosen.width) return chosen;
         const SDL_DisplayMode* mode = StartDisplayMode();
         if (!mode || mode->w <= 0 || mode->h <= 0) return {};
         const float density = mode->pixel_density > 0 ? mode->pixel_density : 1.0f;
@@ -3970,6 +3992,15 @@ private:
                     + std::to_string(std::abs(percent)) + "% " + (percent > 0 ? "wider" : "narrower") + " than "
                     + shape + ".";
         }
+        else if (PictureFills() && !draft_.fullscreen)
+            note = "The window can take any shape: in matches the wider view fills it with more of the stadium.";
+        else if (PictureFills())
+        {
+            const auto bars = BarsAround(screen.width, screen.height, aw, ah);
+            note = bars.size <= 1 || screen.width <= 0 ? "Fills the display."
+                : "In matches, fills this " + size + " display with more of the stadium "
+                    + (bars.sides ? "at the sides." : "above and below.") + " Menus keep 16:9.";
+        }
         else if (!draft_.fullscreen)
             note = "The window keeps the " + shape + " shape when you resize it, so the picture fills it. "
                 "Maximized on a screen of another shape, it shows bars.";
@@ -3978,7 +4009,8 @@ private:
             const auto bars = BarsAround(screen.width, screen.height, aw, ah);
             note = bars.size <= 1 ? "Fills this " + size + " display exactly."
                 : "On this " + size + " display: bars of " + std::to_string(bars.size) + " pixels "
-                    + (bars.sides ? "left and right." : "above and below.") + " Stretch fills it.";
+                    + (bars.sides ? "left and right." : "above and below.")
+                    + (wide ? " Stretch or the wider view fills it." : " Stretch fills it.");
         }
         if (!note.empty())
             TextWrappedColored(CurrentFonts().caption, unknown ? color::warning : color::muted, note.c_str());
@@ -3990,11 +4022,10 @@ private:
         const auto screen = PictureScreen();
         if (screen.width <= 0 || screen.height <= 0) return;
         const bool wide = WidescreenLayout(draft_.aspect, screen.width, screen.height);
-        const auto picture = PictureSize(screen.width, screen.height, wide ? 16 : 4, wide ? 9 : 3,
-                                         draft_.aspect == "stretch");
+        const auto picture = PictureSize(screen.width, screen.height, wide ? 16 : 4, wide ? 9 : 3, PictureFills());
         const int width = RenderWidth(draft_.resolution, picture.width);
         const int height = RenderHeight(draft_.resolution, picture.height);
-        const std::string where = draft_.fullscreen ? "this display" : "this window";
+        const std::string where = draft_.fullscreen ? "this screen" : "this window";
         std::string note = std::string(RenderResolutionLabel(draft_.resolution)) + ": " + std::to_string(width) + " x "
             + std::to_string(height);
         if (RenderScale(draft_.resolution) == 0.0f) note += " on " + where + ".";
@@ -4254,19 +4285,17 @@ private:
 
     void WindowSizeControl()
     {
-        // Sizes are logical units like the game window's (points on a Retina
-        // Mac), so only those that fit the chosen display are offered. A
-        // window keeping the picture's shape takes that shape, so the list
-        // offers that shape's sizes; a stretched picture fits any shape.
-        struct Group { const char* title; std::vector<std::array<int, 2>> sizes; };
-        static const Group wide{"16:9", {{1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}}};
-        static const Group wider{"16:10", {{1280, 800}, {1440, 900}, {1680, 1050}, {1920, 1200}, {2560, 1600}}};
-        static const Group standard{"4:3", {{800, 600}, {1024, 768}, {1440, 1080}, {1600, 1200}, {1920, 1440}}};
-        const bool stretch = draft_.aspect == "stretch";
+        // The sizes the graphics card offers for the chosen display (its
+        // display modes, as games list them), up to its largest: while the
+        // window keeps the picture's shape, those of that shape (a picture
+        // filling the window, stretched or the wider view, fits any). A size
+        // larger than the display's usable area opens as the largest window
+        // that fits. Sizes are logical units like the game window's (points
+        // on a Retina Mac). A size the game kept from a resized window stays
+        // listed as the current one.
+        const bool any_shape = PictureFills();
         const bool four_three = draft_.aspect == "4:3";
-        std::vector<const Group*> groups;
-        if (stretch) groups = {&wide, &wider, &standard};
-        else groups = {four_three ? &standard : &wide};
+        const int shape_w = four_three ? 4 : 16, shape_h = four_three ? 3 : 9;
         SDL_DisplayID display = SDL_GetPrimaryDisplay();
         if (draft_.monitor > 0 && draft_.monitor <= int(display_ids_.size())) display = display_ids_[size_t(draft_.monitor - 1)];
         SDL_Rect usable{};
@@ -4276,66 +4305,59 @@ private:
             const auto fit = platform::FitWindowSize(w, h, usable.w, usable.h);
             return fit.width == w && fit.height == h;
         };
-        // The largest window of the picture's shape (any shape when stretched).
-        const auto largest = !known ? platform::WindowSize{1280, 720}
-            : stretch ? platform::FitWindowSize(usable.w * 4, usable.h * 4, usable.w, usable.h)
-                      : platform::FitWindowSize(16000, four_three ? 12000 : 9000, usable.w, usable.h);
-        auto aspect = [](int w, int h) {
-            const double ratio = double(w) / h;
-            return std::abs(ratio - 16.0 / 9) < 0.01 ? "   (16:9)" : std::abs(ratio - 16.0 / 10) < 0.01 ? "   (16:10)"
-                 : std::abs(ratio - 4.0 / 3) < 0.01 ? "   (4:3)" : "";
+        auto offered = [&](int w, int h) {
+            return w > 0 && h > 0 && (any_shape || std::abs(double(w) * shape_h / (double(h) * shape_w) - 1.0) < 0.01);
         };
-        auto selected = [&](int w, int h) { return draft_.width == w && draft_.height == h; };
-
-        const float width = ImGui::GetContentRegionAvail().x;
-        bool custom = !selected(largest.width, largest.height);
-        for (const auto* group : groups)
-            for (const auto& size : group->sizes) if (selected(size[0], size[1])) custom = false;
-        std::string preview = std::to_string(draft_.width) + " x " + std::to_string(draft_.height)
-            + aspect(draft_.width, draft_.height) + (custom ? "  (custom)" : "");
-        ImGui::SetNextItemWidth(width);
+        std::vector<std::array<int, 2>> sizes;
+        auto offer = [&](int w, int h) {
+            const std::array<int, 2> size{w, h};
+            if (offered(w, h) && std::find(sizes.begin(), sizes.end(), size) == sizes.end()) sizes.push_back(size);
+        };
+        int count = 0;
+        if (SDL_DisplayMode** modes = display ? SDL_GetFullscreenDisplayModes(display, &count) : nullptr)
+        {
+            for (int i = 0; i < count; ++i) offer(modes[i]->w, modes[i]->h);
+            SDL_free(modes);
+        }
+        // A display that reports no mode of the shape (a Wayland compositor
+        // without scaling): the common sizes up to the display's own.
+        if (sizes.empty())
+        {
+            static const std::array<int, 2> common[] = {{3840, 2160}, {2560, 1600}, {2560, 1440}, {1920, 1440},
+                {1920, 1200}, {1920, 1080}, {1680, 1050}, {1600, 1200}, {1600, 900}, {1440, 1080}, {1440, 900},
+                {1280, 800}, {1280, 720}, {1024, 768}, {800, 600}};
+            SDL_Rect bounds{};
+            const bool bounded = display && SDL_GetDisplayBounds(display, &bounds);
+            for (const auto& size : common)
+                if (!bounded || (size[0] <= bounds.w && size[1] <= bounds.h)) offer(size[0], size[1]);
+        }
+        std::sort(sizes.begin(), sizes.end(), [](const auto& a, const auto& b) {
+            return a[0] != b[0] ? a[0] > b[0] : a[1] > b[1];
+        });
+        auto label = [&](int w, int h) { return SizeLabel(w, h, any_shape); };
+        const std::array<int, 2> current{draft_.width, draft_.height};
+        const bool listed = std::find(sizes.begin(), sizes.end(), current) != sizes.end();
+        const std::string preview = label(draft_.width, draft_.height) + (listed ? "" : "  (current)");
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         if (ImGui::BeginCombo("##size", preview.c_str(), ImGuiComboFlags_HeightLarge))
         {
-            const std::string fill = "Largest that fits: " + std::to_string(largest.width) + " x "
-                + std::to_string(largest.height);
-            if (ImGui::Selectable(fill.c_str(), selected(largest.width, largest.height)))
-            { draft_.width = largest.width; draft_.height = largest.height; dirty_ = true; }
-            for (const auto* group : groups)
-            {
-                bool any = false;
-                for (const auto& size : group->sizes) any |= fits(size[0], size[1]);
-                if (!any) continue;
-                ImGui::SeparatorText(group->title);
-                for (const auto& size : group->sizes)
-                {
-                    if (!fits(size[0], size[1])) continue;
-                    const std::string label = std::to_string(size[0]) + " x " + std::to_string(size[1])
-                        + aspect(size[0], size[1]) + "##" + group->title;
-                    if (ImGui::Selectable(label.c_str(), selected(size[0], size[1])))
-                    { draft_.width = size[0]; draft_.height = size[1]; dirty_ = true; }
-                }
-            }
+            if (!listed) ImGui::Selectable(preview.c_str(), true);
+            for (const auto& size : sizes)
+                if (ImGui::Selectable(label(size[0], size[1]).c_str(), size == current))
+                { draft_.width = size[0]; draft_.height = size[1]; dirty_ = true; }
             ImGui::EndCombo();
-        }
-        int dimensions[] = {draft_.width, draft_.height};
-        ImGui::SetNextItemWidth(width);
-        if (ImGui::InputInt2("##custom_size", dimensions))
-        {
-            draft_.width = std::clamp(dimensions[0], 320, 16384);
-            draft_.height = std::clamp(dimensions[1], 240, 16384);
-            dirty_ = true;
         }
         if (!fits(draft_.width, draft_.height))
         {
             const auto shrunk = platform::FitWindowSize(draft_.width, draft_.height, usable.w, usable.h);
-            const std::string note = "Larger than this display; the game opens it at " + std::to_string(shrunk.width)
-                + " x " + std::to_string(shrunk.height) + ".";
-            TextWrappedColored(CurrentFonts().caption, color::warning, note.c_str());
+            const std::string note = "More than a window can take on this display: the game opens it at "
+                + std::to_string(shrunk.width) + " x " + std::to_string(shrunk.height) + ", the largest that fits.";
+            TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
         }
-        else if (!stretch)
+        else if (!any_shape)
         {
             // The game gives the window the picture's shape: the same width.
-            const auto shaped = SnapToShape(draft_.width, draft_.height, four_three ? 4 : 16, four_three ? 3 : 9);
+            const auto shaped = SnapToShape(draft_.width, draft_.height, shape_w, shape_h);
             if (shaped.height != draft_.height)
             {
                 const std::string note = "Not " + std::string(four_three ? "4:3" : "16:9") + ": the game opens it at "
@@ -4345,14 +4367,72 @@ private:
         }
     }
 
-    // Pixel size of the display the game opens on, as fullscreen uses it
-    // (the default display when none is chosen); empty if unknown.
-    std::string FullscreenResolution() const
+    // "1280 x 720", with its shape ("   (16:9)") when `with_shape`.
+    static std::string SizeLabel(int w, int h, bool with_shape)
     {
-        const SDL_DisplayMode* mode = StartDisplayMode();
-        if (!mode || mode->w <= 0 || mode->h <= 0) return {};
-        const float density = mode->pixel_density > 0 ? mode->pixel_density : 1.0f;
-        return std::to_string(std::lround(mode->w * density)) + " x " + std::to_string(std::lround(mode->h * density));
+        std::string text = std::to_string(w) + " x " + std::to_string(h);
+        if (!with_shape || w <= 0 || h <= 0) return text;
+        static const struct { double ratio; const char* name; } shapes[] = {{16.0 / 9, "16:9"},
+            {16.0 / 10, "16:10"}, {4.0 / 3, "4:3"}, {5.0 / 4, "5:4"}, {3.0 / 2, "3:2"}, {32.0 / 9, "32:9"}};
+        const double ratio = double(w) / h;
+        for (const auto& shape : shapes)
+            if (std::abs(ratio / shape.ratio - 1.0) < 0.01) return text + "   (" + shape.name + ")";
+        // Ultrawide displays (2560 x 1080, 3440 x 1440, 3840 x 1600) are all sold as 21:9.
+        return ratio > 2.3 && ratio < 2.42 ? text + "   (21:9)" : text;
+    }
+
+    // display.fullscreen_resolution: Desktop (the display's own resolution, no
+    // mode change), or one of the display's other modes, largest first; the
+    // picture keeps or fills it as the aspect ratio says.
+    void FullscreenResolutionControl()
+    {
+        SDL_DisplayID display = SDL_GetPrimaryDisplay();
+        if (draft_.monitor > 0 && draft_.monitor <= int(display_ids_.size())) display = display_ids_[size_t(draft_.monitor - 1)];
+        const SDL_DisplayMode* desktop = display ? SDL_GetDesktopDisplayMode(display) : nullptr;
+        std::vector<std::array<int, 2>> sizes;
+        int count = 0;
+        if (SDL_DisplayMode** modes = display ? SDL_GetFullscreenDisplayModes(display, &count) : nullptr)
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                const std::array<int, 2> size{modes[i]->w, modes[i]->h};
+                if (size[0] > 0 && size[1] > 0 && !(desktop && size[0] == desktop->w && size[1] == desktop->h)
+                    && std::find(sizes.begin(), sizes.end(), size) == sizes.end())
+                    sizes.push_back(size);
+            }
+            SDL_free(modes);
+        }
+        std::sort(sizes.begin(), sizes.end(), [](const auto& a, const auto& b) {
+            return a[0] != b[0] ? a[0] > b[0] : a[1] > b[1];
+        });
+        const std::string desktop_label = "Desktop" + (desktop ? "   (" + SizeLabel(desktop->w, desktop->h, false) + ")"
+                                                               : std::string());
+        const auto chosen = ParseResolution(draft_.fullscreen_resolution);
+        const std::array<int, 2> current{chosen.width, chosen.height};
+        const bool listed = chosen.width == 0 || std::find(sizes.begin(), sizes.end(), current) != sizes.end();
+        const std::string preview = chosen.width == 0 ? desktop_label
+            : SizeLabel(chosen.width, chosen.height, true) + (listed ? "" : "  (not on this display)");
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        if (ImGui::BeginCombo("##fullscreen_resolution", preview.c_str(), ImGuiComboFlags_HeightLarge))
+        {
+            if (ImGui::Selectable(desktop_label.c_str(), chosen.width == 0))
+            { draft_.fullscreen_resolution = std::string(kDesktopResolution); dirty_ = true; }
+            if (!listed) ImGui::Selectable(preview.c_str(), true);
+            for (const auto& size : sizes)
+                if (ImGui::Selectable(SizeLabel(size[0], size[1], true).c_str(), size == current))
+                { draft_.fullscreen_resolution = FormatResolution(size[0], size[1]); dirty_ = true; }
+            ImGui::EndCombo();
+        }
+        if (!listed)
+            TextWrappedColored(CurrentFonts().caption, color::warning,
+                               "This display has no such mode, so fullscreen keeps the display's own resolution.");
+        else if (chosen.width && desktop && desktop->w > 0 && desktop->h > 0
+                 && std::abs(double(chosen.width) * desktop->h / (double(chosen.height) * desktop->w) - 1.0) > 0.01)
+        {
+            const std::string note = "Another shape than this " + SizeLabel(desktop->w, desktop->h, false)
+                + " display: some displays stretch it; others show bars.";
+            TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
+        }
     }
 
     void DisplayChoice()
@@ -4908,11 +4988,12 @@ private:
         auto names = Settings::DefaultHotkeys();
         for (std::size_t n = 0; n < HotkeyCount; ++n)
         {
-            const platform::KeyInput key = SDL_GetScancodeFromName(kHotkeys[n].defaults);
+            const auto hotkey = platform::ParseHotkey(kHotkeys[n].defaults);
+            if (hotkey.modifiers != SDL_KMOD_NONE) continue;
             for (const auto& text : draft_.keys)
             {
                 const auto binding = platform::ParseKeyBinding(text);
-                if (key != platform::kKeyNone && (binding[0] == key || binding[1] == key)) names[n] = kNoHotkey;
+                if (binding[0] == hotkey.key || binding[1] == hotkey.key) names[n] = kNoHotkey;
             }
         }
         return names;
@@ -4966,79 +5047,105 @@ private:
                NoticeKind::Info);
     }
 
-    // A key pressed while a hotkey's keycap waits (hotkey_capture_: its
-    // HotkeyIndex). Another hotkey's key, a modifier or a keyboard & mouse key
-    // is refused.
-    void CaptureHotkey(platform::KeyInput code)
+    // A key pressed while a hotkey's keycaps wait (hotkey_capture_: its
+    // HotkeyIndex), with the Ctrl, Shift and Alt held (`mod`): Escape stops
+    // waiting, Backspace or Delete leaves the hotkey unused, a modifier waits
+    // for the key it goes with. The same keys as another hotkey, the Windows
+    // or Command key, or a keyboard & mouse key pressed alone are refused.
+    void CaptureHotkey(SDL_Scancode code, SDL_Keymod mod)
     {
         const int which = hotkey_capture_;
+        if (which < 0 || which >= int(HotkeyCount)) return;
+        if (code >= SDL_SCANCODE_LCTRL && code <= SDL_SCANCODE_RGUI) return;
         hotkey_capture_ = -1;
-        const std::string name = platform::KeyInputName(code);
-        if (which < 0 || which >= int(HotkeyCount) || name.empty()) return;
-        if (!platform::HotkeyAllowed(code))
+        const char* label = kHotkeys[std::size_t(which)].label;
+        const platform::Hotkey hotkey{code, platform::HotkeyModifiers(mod)};
+        if (hotkey.modifiers == SDL_KMOD_NONE && !(mod & SDL_KMOD_GUI))
         {
-            Notice(name + " cannot be a hotkey: Shift, Ctrl, Alt and the system key stay free for shortcuts.",
-                   NoticeKind::Warning);
-            return;
-        }
-        const auto taken = DraftHotkeys().Find(code);
-        if (taken == HotkeyIndex(which)) return;
-        if (taken != HotkeyCount)
-        {
-            Notice(name + " is already the hotkey " + kHotkeys[taken].label + ".", NoticeKind::Warning);
-            return;
-        }
-        const auto bindings = DraftBindings();
-        for (std::size_t action = 0; action < KeyActionCount; ++action)
-            if (bindings[action][0] == code || bindings[action][1] == code)
+            if (code == SDL_SCANCODE_ESCAPE) return;
+            if (code == SDL_SCANCODE_BACKSPACE || code == SDL_SCANCODE_DELETE)
             {
-                Notice(name + " presses " + kKeyActions[action].label
-                           + " for keyboard & mouse. Give that action another key first.",
-                       NoticeKind::Warning);
+                if (draft_.hotkeys[std::size_t(which)] == kNoHotkey) return;
+                draft_.hotkeys[std::size_t(which)] = kNoHotkey;
+                dirty_ = true;
+                Notice(std::string(label) + " has no hotkey now.", NoticeKind::Info);
                 return;
             }
-        draft_.hotkeys[std::size_t(which)] = name;
+        }
+        if (mod & SDL_KMOD_GUI)
+        {
+            Notice("Combinations with the Windows or Command key stay with the system.", NoticeKind::Warning);
+            return;
+        }
+        const std::string name = platform::HotkeyLabel(hotkey);
+        if (!platform::HotkeyAllowed(hotkey) || name.empty()) return;
+        const auto hotkeys = DraftHotkeys();
+        for (std::size_t other = 0; other < HotkeyCount; ++other)
+            if (hotkeys.keys[other] == hotkey)
+            {
+                if (int(other) != which)
+                    Notice(name + " is already the hotkey " + kHotkeys[other].label + ".", NoticeKind::Warning);
+                return;
+            }
+        // A key pressed alone would also press its keyboard & mouse action.
+        if (hotkey.modifiers == SDL_KMOD_NONE)
+        {
+            const auto bindings = DraftBindings();
+            for (std::size_t action = 0; action < KeyActionCount; ++action)
+                if (bindings[action][0] == code || bindings[action][1] == code)
+                {
+                    Notice(name + " presses " + kKeyActions[action].label + " for keyboard & mouse. Give that action "
+                               "another key first, or hold Ctrl, Shift or Alt with it.",
+                           NoticeKind::Warning);
+                    return;
+                }
+        }
+        draft_.hotkeys[std::size_t(which)] = platform::HotkeyName(hotkey);
         dirty_ = true;
-        Notice(name + " is now the hotkey " + kHotkeys[std::size_t(which)].label + ".", NoticeKind::Info);
+        Notice(name + " is now the hotkey " + label + ".", NoticeKind::Info);
     }
 
-    // [hotkeys]: keys of the game window, whoever plays. Each key can be
-    // changed; Alt+Enter cannot. No HUD sits with its key.
+    // [hotkeys]: keys of the game window, whoever plays, each a key alone or
+    // with Ctrl, Shift or Alt. No HUD sits with its key.
     void HotkeysCard()
     {
-        BeginCard("##hotkeys", "Hotkeys", "Keys of the game window, whoever plays. Click a key, then press the new one.",
+        BeginCard("##hotkeys", "Hotkeys", "Keys of the game window, whoever plays. Click a hotkey, then press the new "
+                  "key, alone or with Ctrl, Shift or Alt. Escape cancels; Backspace or Delete leaves it unused.",
                   Icon::Keyboard);
         const auto hotkeys = DraftHotkeys();
         bool clicked = false;
         const auto hotkey = [&](HotkeyIndex which) {
             Row(kHotkeys[which].label, kHotkeys[which].note);
             const bool waiting = hotkey_capture_ == int(which);
-            const std::string name = waiting ? std::string("Press a key...")
-                : hotkeys[which] ? platform::KeyInputName(hotkeys[which]) : std::string("Not set");
+            std::vector<std::string> keys;
+            if (waiting)
+            {
+                // The modifiers held so far, then the key still to come.
+                const SDL_Keymod held = platform::HotkeyModifiers(SDL_GetModState());
+                keys = platform::HotkeyKeys({SDL_SCANCODE_A, held});
+                keys.back() = keys.size() > 1 ? "..." : "Press keys...";
+            }
+            else if (hotkeys[which].key) keys = platform::HotkeyKeys(hotkeys[which]);
+            else keys = {"Not set"};
             ImGui::PushID(int(which));
-            if (KeyCapButton("##hotkey", name.c_str(), waiting))
+            if (KeyComboButton("##hotkey", keys, waiting))
             {
                 clicked = true;
                 hotkey_capture_ = waiting ? -1 : int(which);
             }
-            if (ImGui::IsItemHovered() && !waiting) ImGui::SetTooltip("Click, then press the new key");
+            if (ImGui::IsItemHovered() && !waiting) ImGui::SetTooltip("Click, then press the new keys");
             ImGui::PopID();
         };
         if (BeginRows("##hotkey_rows"))
         {
             hotkey(HotkeyScreenshot);
-            Row("Fullscreen or window", "For this run.");
-#if defined(__APPLE__)
-            KeyCaps({"Option", "Return"}, true);
-#else
-            KeyCaps({"Alt", "Enter"}, true);
-#endif
+            hotkey(HotkeyFullscreen);
             hotkey(HotkeyStretch);
             hotkey(HotkeyResolutionUp);
             hotkey(HotkeyResolutionDown);
             hotkey(HotkeyHud);
-            const std::string key = hotkeys[HotkeyHud] ? platform::KeyInputName(hotkeys[HotkeyHud])
-                                                       : std::string("its hotkey");
+            const std::string key = hotkeys[HotkeyHud].key ? platform::HotkeyLabel(hotkeys[HotkeyHud])
+                                                           : std::string("its hotkey");
             const std::string note = "The scoreboard, player markers and captions. Off starts matches without them, "
                 "for clean recordings; " + key + " shows them. The Mega Strike meter and its defence always stay.";
             Row("Show the HUD when a match starts", note.c_str());
@@ -5053,7 +5160,7 @@ private:
             dirty_ = true;
         }
         EndCard();
-        // A click anywhere else stops waiting for a key.
+        // A click anywhere else stops waiting for keys.
         if (hotkey_capture_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) hotkey_capture_ = -1;
     }
 

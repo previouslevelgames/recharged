@@ -40,6 +40,10 @@ struct Settings
     int width = 1280;
     int height = 720;
     bool fullscreen = false;
+    // display.fullscreen_resolution: the display mode fullscreen switches the
+    // display to while the game runs ("1280x720"), or desktop (the default):
+    // the display keeps its own resolution.
+    std::string fullscreen_resolution = "desktop";
     bool vsync = true;
     // display.frame_rate: original, display, unlimited or 30-1000 frames per
     // second (bootstrap/frame_rate.h). Above the original the host paces and
@@ -59,6 +63,10 @@ struct Settings
     // display.tv_border: soft shows the TV signal's blank border around the
     // picture, as a Wii sends it; off shows only the picture, as a TV does.
     bool tv_border = false;
+    // display.wider_view: with the 16:9 layout, a screen of another shape
+    // shows more of the stadium in matches instead of bars, the HUD in its
+    // 16:9 middle; menus keep 16:9 (a game-module option, off by default).
+    bool wider_view = false;
     // display.remember_window: the window reopens at the size and position it
     // was left at (display.width, display.height, display.position).
     bool remember_window = true;
@@ -96,10 +104,12 @@ struct Settings
         return keys;
     }
     // [hotkeys]: keys of the game window, whoever plays, one SDL key name each
-    // or none (no modifier; no [keyboard] action takes them; kHotkeys order):
-    // a screenshot, the match HUD, the stretched picture and the 3D resolution
-    // up and down. hotkeys.show_hud = false starts every match with the HUD
-    // hidden (No HUD, issue #58; formerly gameplay.no_hud = true).
+    // after the Ctrl+, Shift+ and Alt+ it is pressed with, or none (no
+    // [keyboard] action takes a hotkey's key pressed alone; kHotkeys order): a
+    // screenshot, the match HUD, the stretched picture, the 3D resolution up
+    // and down, and fullscreen or a window. hotkeys.show_hud = false starts
+    // every match with the HUD hidden (No HUD, issue #58; formerly
+    // gameplay.no_hud = true).
     std::array<std::string, HotkeyCount> hotkeys = DefaultHotkeys();
     static std::array<std::string, HotkeyCount> DefaultHotkeys()
     {

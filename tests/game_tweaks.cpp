@@ -13,6 +13,8 @@
 
 extern "C" void charged_configure_tweaks(unsigned mask);
 extern "C" void charged_configure_performance_mode(bool enabled);
+extern "C" void charged_set_view_shape(float shape);
+extern "C" bool charged_take_match_view(void);
 extern "C" void charged_configure_frame_pacing(void (*swap)());
 extern "C" void charged_configure_rev1_data(bool enabled);
 extern "C" void charged_configure_sound_volumes(const int* volumes, int count);
@@ -38,6 +40,22 @@ void Check(bool value, const char* message)
 // Every hook's answer when it must leave the original behaviour alone.
 void CheckOriginal(const char* what)
 {
+    // Wider view at the shape 1: every value as the game made it.
+    float fov = 0.7f, aspect = 1.6666f, width = 854.0f, height = 480.0f, x = 100.0f, y = 50.0f;
+    mscharged_tweak_view_perspective(&fov, &aspect);
+    mscharged_tweak_view_extend(&width, &height);
+    mscharged_tweak_view_middle(&x, &y, 640.0f, 480.0f);
+    Check(fov == 0.7f && aspect == 1.6666f && width == 854.0f && height == 480.0f && x == 100.0f && y == 50.0f, what);
+    float screenX = -0.6875f, screenY = 0.3f;
+    mscharged_tweak_view_to_wide(&screenX, &screenY);
+    mscharged_tweak_view_to_original(&screenX, &screenY);
+    Check(screenX == -0.6875f && screenY == 0.3f, what);
+    float uv[8] = { 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f };
+    mscharged_tweak_view_cover_uv(uv);
+    Check(uv[1] == 0.0f && uv[3] == 1.0f && uv[4] == 1.0f && uv[0] == 0.0f, what);
+    int position = 420, length = 300;
+    mscharged_tweak_view_middle_span(1, 1, &position, &length, 640);
+    Check(position == 420 && length == 300, what);
     const int task = 0, other = 0, slide = 0;
     mscharged_tweak_set_transition_task(&task);
     for (bool menus : {false, true})
@@ -140,6 +158,65 @@ unsigned long OriginalFramesOver(double seconds, float frame, int swapMode = 1)
     Check(mscharged_tweak_frame_number(0) - first == begun, "Original frame count and flags disagree");
     return begun;
 }
+
+// Wider view (issue #91) on a window of `shape` against 16:9: the extended 3D
+// view shows what the game's own view shows at the same place in the picture's
+// middle (to_wide) and the same size, and the 2D layouts agree with it.
+void CheckWiderView(float shape)
+{
+    charged_set_view_shape(shape);
+    const float wide = shape > 1.0f ? shape : 1.0f, tall = shape < 1.0f ? 1.0f / shape : 1.0f;
+    const float fov = 0.7f, aspect = 1.6666f;
+    float wideFov = fov, wideAspect = aspect;
+    mscharged_tweak_view_perspective(&wideFov, &wideAspect);
+    const auto project = [](float fieldOfView, float shapeAspect, const float* point, float* screenX, float* screenY)
+    {
+        const float focal = 1.0f / std::tan(0.5f * fieldOfView);
+        *screenX = point[0] / -point[2] * focal / shapeAspect;
+        *screenY = point[1] / -point[2] * focal;
+    };
+    const float points[2][3] = { { 3.0f, 1.2f, -20.0f }, { -11.0f, -4.0f, -9.0f } };
+    for (const auto& point : points)
+    {
+        float originalX, originalY, wideX, wideY;
+        project(fov, aspect, point, &originalX, &originalY);
+        project(wideFov, wideAspect, point, &wideX, &wideY);
+        mscharged_tweak_view_to_original(&wideX, &wideY);
+        Check(std::fabs(wideX - originalX) < 1e-5f && std::fabs(wideY - originalY) < 1e-5f,
+            "The wider view moved or resized what the game's view shows");
+        mscharged_tweak_view_to_wide(&originalX, &originalY);
+        project(wideFov, wideAspect, point, &wideX, &wideY);
+        Check(std::fabs(wideX - originalX) < 1e-5f && std::fabs(wideY - originalY) < 1e-5f,
+            "Screen positions did not follow the wider view");
+    }
+    // A layout of the whole picture extends by the shape; one moved into the
+    // middle lands where the extended view shows the game's own spot.
+    float width = 854.0f, height = 480.0f;
+    mscharged_tweak_view_extend(&width, &height);
+    Check(std::fabs(width - 854.0f * wide) < 1e-3f && std::fabs(height - 480.0f * tall) < 1e-3f,
+        "The 2D layout did not extend to the picture");
+    float x = 100.0f, y = 50.0f, screenX = 2.0f * x / 640.0f - 1.0f, screenY = 1.0f - 2.0f * y / 480.0f;
+    mscharged_tweak_view_middle(&x, &y, 640.0f, 480.0f);
+    mscharged_tweak_view_to_wide(&screenX, &screenY);
+    Check(std::fabs(2.0f * x / 640.0f - 1.0f - screenX) < 1e-5f
+            && std::fabs(1.0f - 2.0f * y / 480.0f - screenY) < 1e-5f,
+        "The 16:9 middle and the wider view disagree");
+    // A full-screen picture keeps its shape: what it shows is as much wider
+    // than tall as the window's picture against 16:9.
+    float uv[8] = { 0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f };
+    mscharged_tweak_view_cover_uv(uv);
+    Check(std::fabs((uv[4] - uv[0]) / (uv[3] - uv[1]) - shape) < 1e-5f && uv[0] >= 0.0f && uv[1] >= 0.0f
+            && uv[4] <= 1.0f && uv[3] <= 1.0f,
+        "A full-screen picture lost its shape");
+    int position = 420, length = 300;
+    mscharged_tweak_view_middle_span(1, 1, &position, &length, 640);
+    Check(position == int(320.0f + 100.0f / wide) && length == int(300.0f / wide), "A clip box left the middle");
+    position = 420;
+    length = 300;
+    mscharged_tweak_view_middle_span(0, 0, &position, &length, 448);
+    Check(position == 420 && length == int(300.0f / tall), "A clip box moved or kept its height");
+    charged_set_view_shape(1.0f);
+}
 }
 
 int main()
@@ -176,6 +253,24 @@ int main()
         Check(!mscharged_tweak_performance_mode() && !mscharged_tweak_performance_match(),
             "Performance mode could not be disabled");
         g_pGame = nullptr;
+        // Wider view (issue #91): the game's own 16:9 view until the host sets
+        // a window shape; nonsense shapes keep it.
+        Check(mscharged_tweak_view_shape() == 1.0f, "The wider view did not default to the game's view");
+        charged_set_view_shape(1.3f);
+        Check(mscharged_tweak_view_shape() == 1.3f, "The wider view did not take the window's shape");
+        for (const float shape : {0.0f, -2.0f, std::nanf(""), INFINITY})
+        {
+            charged_set_view_shape(shape);
+            Check(mscharged_tweak_view_shape() == 1.0f, "A nonsense window shape changed the game's view");
+        }
+        // 21:9, 32:9, 16:10 and a portrait window.
+        for (const float shape : {1.3125f, 2.0f, 0.9f, 0.3164f})
+            CheckWiderView(shape);
+        // The host fills the window only while the match's stadium is drawn:
+        // each report counts once.
+        Check(!charged_take_match_view(), "A match view was reported before any match");
+        mscharged_tweak_report_match_view();
+        Check(charged_take_match_view() && !charged_take_match_view(), "The match view report did not count once");
         CheckOriginal("Tweaks off changed the original game");
         for (int tweak = -1; tweak < 33; ++tweak)
             Check(!mscharged_tweak_enabled(tweak), "A tweak is enabled while all are off");

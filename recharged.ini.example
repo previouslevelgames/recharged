@@ -26,14 +26,18 @@ save_folder = ""
 gamecube_disc = ""
 
 [display]
-# Window size; the game keeps the size and place you leave the window at
-# (remember_window = false turns that off). position: where it was, X,Y on the
-# desktop, empty to centre it; Wayland desktops place windows themselves.
+# Resolution in a window: its size; the game keeps the size and place you
+# leave the window at (remember_window = false turns that off). position: where
+# it was, X,Y on the desktop, empty to centre it; Wayland desktops place windows
+# themselves.
 width = 1280
 height = 720
 remember_window = true
 position =
 fullscreen = false
+# Resolution in fullscreen: desktop keeps the display's own; a mode of the
+# display (1280x720) switches the display to it while the game runs.
+fullscreen_resolution = desktop
 vsync = true
 # Frame rate: original (the console's 60 FPS), display (your display's refresh
 # rate), unlimited, or a cap from 30 to 1000 FPS. Higher rates draw more frames
@@ -52,9 +56,12 @@ gpu = auto
 # shape (a window keeps it when resized; other displays show bars), stretch
 # (fills the window or display with the 16:9 layout, or 4:3 on screens closer
 # to that shape) or auto (16:9 or 4:3 by the screen's shape, keeping it).
+# wider_view: with 16:9, a screen of another shape shows more of the stadium
+# in matches instead of bars, the HUD in the 16:9 middle; menus keep 16:9.
 aspect = 16:9
+wider_view = false
 # Picture: sharp or clean (Modern: the game's picture drawn straight into the
-# window; a 3D resolution other than window reaches the window's size with
+# window; a 3D resolution other than window reaches the screen's size with
 # square pixels or smoothly), or soft (Original TV: the Wii's flicker filter and
 # a TV's softness). tv_border: soft shows the empty border a Wii sends around
 # its picture, which a TV hides.
@@ -69,9 +76,10 @@ performance_mode = false
 # (multisampling, the edges of 3D shapes); 4x_fxaa (both); or 4x_ssaa
 # (supersampling, also the edges inside textures; the most GPU time).
 antialiasing = 4x
-# 3D render size: window (one pixel per window pixel of the picture, default),
-# native (the Wii's 640x448) or 2x, 3x, 4x of it. The game's view stays the
-# same. The 3D resolution hotkeys change it while playing.
+# 3D render size: window (Full in the launcher: one pixel per pixel of the
+# picture on the screen, default), native (the Wii's 640x448) or 2x, 3x, 4x of
+# it. The game's view stays the same. The 3D resolution hotkeys change it while
+# playing.
 resolution = window
 # Performance overlay: FPS | GPU % | CPU % | LAT N/A, also in fullscreen.
 # GPU/CPU are total system usage; unavailable driver counters show N/A.
@@ -160,15 +168,17 @@ shake_remote = E
 shake_nunchuk = Q
 
 [hotkeys]
-# Keys of the game window, whoever plays: one SDL key name each, not Shift,
-# Ctrl, Alt or the system key, or none to leave it unused. No [keyboard] action
-# takes them. Alt+Enter (Option+Return on a Mac) switches between fullscreen
-# and a window and cannot be changed.
+# Keys of the game window, whoever plays: one SDL key name each, after the
+# Ctrl+, Shift+ and Alt+ it is pressed with (Ctrl+Shift+F12), or none to leave
+# it unused. A hotkey's key never reaches the game, so a key pressed alone
+# cannot also be a [keyboard] key. The Windows and Command keys stay the
+# system's.
 # screenshot: saves the picture in the screenshots folder.
 # hud: shows or hides the scoreboard, player markers and captions in a match.
 # stretch: stretches the picture over the window, or gives it back its 16:9 or
 # 4:3 shape; resolution_up and resolution_down: a higher or lower 3D
-# resolution. These three last for the run.
+# resolution; fullscreen: fullscreen or a window (Alt+Return; Option+Return on
+# a Mac). These four last for the run.
 # show_hud = false: matches start with them hidden, for clean recordings; the
 # Mega Strike meter and its defence stay.
 screenshot = P
@@ -176,6 +186,7 @@ hud = H
 stretch = F
 resolution_up = PageUp
 resolution_down = PageDown
+fullscreen = Alt+Return
 show_hud = true
 
 # Gamepad profiles ([gamepad_profile1] to [gamepad_profile16]), made on the

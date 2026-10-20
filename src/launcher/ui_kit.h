@@ -138,6 +138,9 @@ void BatteryIcon(int percent);
 void KeyCap(const char* key);
 // Clickable keycap; `waiting` shows it pulsing while it waits for a key press.
 bool KeyCapButton(const char* id, const char* key, bool waiting);
+// Clickable keycaps of keys pressed together ("Ctrl + Shift + F12"), one
+// button; `waiting` shows them pulsing while they wait for key presses.
+bool KeyComboButton(const char* id, const std::vector<std::string>& keys, bool waiting);
 // Keycap with a drawn arrow: 0 up, 1 down, 2 left, 3 right (no font glyphs needed).
 void KeyCapArrow(int direction);
 void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color);

@@ -1,0 +1,266 @@
+Subject: Wider view: more of the stadium on wide and tall screens (issue #91)
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+[display] wider_view is a host display setting outside the tweak mask. While
+a match's stadium is drawn (GameRenderTask runs in its intros, play, pause and
+replays only, and reports each frame), the host fills a window of another shape
+than 16:9 with the picture and passes that shape against 16:9; the menus keep
+the game's own 16:9 picture, as their screens are drawn for it. The 3D view
+extends to the shape: more to the sides on a wider window, more above and below
+on a taller one, everything the game's own view shows at its own size. The
+HUD and the match's front-end overlays (centred layout), its 640 x 480 layer
+(Mega Strike targets and pointer, score numbers), the scrolling text clip and
+the picture in picture keep their 16:9 layout in the picture's middle; the
+player markers and the Mega Strike meter follow the players across the whole
+picture; full-screen layers (fades, bloom, depth of field, transitions) cover
+it all, and the Mega Strike background keeps its shape, cropped.
+
+Gameplay is unchanged: the AI's on-screen flags (IsInsideScreenMargin, sent to
+every machine) use the game's own view, and the Mega Strike balls fly to the
+targets where they show. At the shape 1 (the setting off, a 16:9 window, the
+4:3 layout, the menus) every hook leaves the original values unchanged.
+
+diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
+index 749a11b..2931a79 100644
+--- a/src/Game/AI/GoalieActions.cpp
++++ b/src/Game/AI/GoalieActions.cpp
+@@ -71,6 +71,7 @@
+ // Header inlines reached here instantiate the original callable templates.
+ #include "NL/nlFunction.inl"
+ #endif
++#include "mscharged_tweaks.h"
+ 
+ static const nlVector3 v3Zero = { 0.0f, 0.0f, 0.0f };
+ static int gOffplayDejected[5] = { 0x99, 0x9A, 0x9B, 0x9C, 0x9D };
+@@ -1197,6 +1198,11 @@ void Goalie::UpdateMegaStrikeBallLaunches(float fDeltaT)
+                 = (2.0f * fX - 640.0f) / 640.0f;
+             float fScreenY
+                 = (480.0f - 2.0f * fY) / 480.0f;
++#if defined(MSCHARGED_TWEAKS)
++            // Wider view (issue #91): the targets keep their place in the
++            // picture's 16:9 middle, so the balls fly to where they show.
++            mscharged_tweak_view_to_wide(&fScreenX, &fScreenY);
++#endif
+ 
+             const nlVector3& v3CameraPosition
+                 = cCameraManager::PeekCamera()->GetCameraPosition();
+@@ -1676,6 +1682,10 @@ void Goalie::ActionMegaStrike(float deltaTime)
+                             float y = target->mY;
+                             float screenX = (2.0f * x - 640.0f) / 640.0f;
+                             float screenY = (480.0f - 2.0f * y) / 480.0f;
++#if defined(MSCHARGED_TWEAKS)
++                            // Wider view: where the extended view shows the target.
++                            mscharged_tweak_view_to_wide(&screenX, &screenY);
++#endif
+                             const nlVector3& cameraPosition = cCameraManager::PeekCamera()->GetCameraPosition();
+                             float distance = 0.5f + nlSqrt(CalculateDistanceSquared(mv3NavTarget, cameraPosition), true);
+                             nlVector3 position;
+diff --git a/src/Game/FE/feScrollText.cpp b/src/Game/FE/feScrollText.cpp
+index e93e9f3..bffe9a3 100644
+--- a/src/Game/FE/feScrollText.cpp
++++ b/src/Game/FE/feScrollText.cpp
+@@ -9,6 +9,7 @@
+ #include "NL/nlLocalizationLookup.h"
+ #include "NL/gl/glStruct.h"
+ #include "NL/nlLexicalCast.h"
++#include "mscharged_tweaks.h"
+ 
+ static float sScrollWindowTraversalSeconds = 4.5f;
+ static float sScrollTextBoxWidth = 8000.0f;
+@@ -361,6 +362,11 @@ void FEScrollText::SetMetrics(int pos)
+         boxWidth = (int)(boxWidth * scale);
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Wider view (issue #91): the front end sits in the picture's 16:9 middle.
++    mscharged_tweak_view_middle_span(m_scrollAxis == SCROLL_HORIZONTAL, pos != -9999, &boxPos, &boxWidth,
++        m_scrollAxis == SCROLL_HORIZONTAL ? screenInfo->ScreenWidth : screenHeight);
++#endif
+     if (boxPos < 0)
+         boxPos = 0;
+     if (m_scrollAxis == SCROLL_HORIZONTAL && boxWidth + boxPos >= screenInfo->ScreenWidth)
+diff --git a/src/Game/Render/Indicators.cpp b/src/Game/Render/Indicators.cpp
+index 275a4d8..c570c01 100644
+--- a/src/Game/Render/Indicators.cpp
++++ b/src/Game/Render/Indicators.cpp
+@@ -340,6 +340,13 @@ static void UpdateAndRenderOffScreenIndicators(float dt)
+         nlVector3 projectedPos;
+         glViewProjectPoint(GetLayerView(eCLV_Unshadowed), worldPos, projectedPos);
+         ((cPlayer*)g_pCharacters[i])->m_v3ScreenPosition = projectedPos;
++#if defined(MSCHARGED_TWEAKS)
++        // Wider view (issue #91): the markers follow the wider view; the AI's
++        // on-screen flags (sent from IsInsideScreenMargin) the game's own.
++        bool insideWiderView = ((cPlayer*)g_pCharacters[i])->IsInsideScreenMargin();
++        mscharged_tweak_view_to_original(&((cPlayer*)g_pCharacters[i])->m_v3ScreenPosition.x,
++            &((cPlayer*)g_pCharacters[i])->m_v3ScreenPosition.y);
++#endif
+ 
+         bool sameMachine = false;
+         if (GetIndicatorControllerIndex((cPlayer*)g_pCharacters[i], &sameMachine) == -1)
+@@ -347,7 +354,11 @@ static void UpdateAndRenderOffScreenIndicators(float dt)
+             continue;
+         }
+ 
+-        if (((cPlayer*)g_pCharacters[i])->IsInsideScreenMargin() || !g_pGame->IsGameplayOrOvertime())
++        if (((cPlayer*)g_pCharacters[i])->IsInsideScreenMargin() || !g_pGame->IsGameplayOrOvertime()
++#if defined(MSCHARGED_TWEAKS)
++            || insideWiderView
++#endif
++        )
+         {
+             indicatorInfo[i].IncrementOnscreenTimer(dt);
+         }
+diff --git a/src/Game/Render/MegastrikeBackgroundOverlay.cpp b/src/Game/Render/MegastrikeBackgroundOverlay.cpp
+index ac6143c..376e311 100644
+--- a/src/Game/Render/MegastrikeBackgroundOverlay.cpp
++++ b/src/Game/Render/MegastrikeBackgroundOverlay.cpp
+@@ -10,6 +10,7 @@
+ #include "NL/gl/glState.h"
+ #include "NL/gl/glTexture.h"
+ #include "NL/nlPrint.h"
++#include "mscharged_tweaks.h"
+ 
+ static int sBackgroundIntensity = 104;
+ 
+@@ -86,5 +87,10 @@ void MegastrikeBackgroundOverlay::UpdateAndRender(float deltaTime)
+ 
+     nlColourSet(colour, 0xFF, 0xFF, 0xFF, (int)(255.0f * mAlpha));
+     poly.FullCoverage(colour, 0.0f);
++#if defined(MSCHARGED_TWEAKS)
++    // Wider view (issue #91): the captain's picture covers the wider screen
++    // in its own shape.
++    mscharged_tweak_view_cover_uv(poly.m_uv[0].e);
++#endif
+     poly.Attach(GetLayerView(eCLV_MegastrikeBackground), 0, 0);
+ }
+diff --git a/src/Game/Render/NisPlayerOverlay.cpp b/src/Game/Render/NisPlayerOverlay.cpp
+index 3098b1e..b016a35 100644
+--- a/src/Game/Render/NisPlayerOverlay.cpp
++++ b/src/Game/Render/NisPlayerOverlay.cpp
+@@ -10,6 +10,7 @@
+ #include "NL/gl/glState.h"
+ #include "NL/nlColour.h"
+ #include "NL/nlString.h"
++#include "mscharged_tweaks.h"
+ #include "NL/platvmath.h"
+ 
+ #include "Game/SharedStaticStorage.h"
+@@ -85,6 +86,14 @@ void NisPlayerPIPOverlay::Render()
+ 
+     glPoly2 poly;
+     poly.SetupRectangle(360.0f, 270.0f, 240.0f, 150.0f, 0.0f);
++#if defined(MSCHARGED_TWEAKS)
++    // Wider view (issue #91): the picture in picture keeps its place and
++    // shape in the picture's 16:9 middle.
++    for (int corner = 0; corner < 4; ++corner)
++    {
++        mscharged_tweak_view_middle(&poly.m_pos[corner].x, &poly.m_pos[corner].y, 640.0f, 480.0f);
++    }
++#endif
+ 
+     nlColour colour;
+     nlColourSet(colour, 0xFF, 0xFF, 0xFF, 0xFF);
+@@ -267,6 +276,13 @@ void NisPlayerPIPExpandOverlay::Render()
+     glPoly2 poly;
+     poly.SetupRectangle(360.0f * u, 270.0f * u, 640.0f * t + 240.0f * u,
+         480.0f * t + 150.0f * u, 0.0f);
++#if defined(MSCHARGED_TWEAKS)
++    // Wider view: it grows to the picture's 16:9 middle.
++    for (int corner = 0; corner < 4; ++corner)
++    {
++        mscharged_tweak_view_middle(&poly.m_pos[corner].x, &poly.m_pos[corner].y, 640.0f, 480.0f);
++    }
++#endif
+ 
+     nlColour colour;
+     nlColourSet(colour, 0xFF, 0xFF, 0xFF, 0xFF);
+diff --git a/src/Game/Render/RLViewLayers.cpp b/src/Game/Render/RLViewLayers.cpp
+index bfcf256..7a3b7e0 100644
+--- a/src/Game/Render/RLViewLayers.cpp
++++ b/src/Game/Render/RLViewLayers.cpp
+@@ -21,6 +21,7 @@
+ 
+ #include "Game/Render/ShadowVolume.h"
+ #include "Game/SharedStaticStorage.h"
++#include "mscharged_tweaks.h"
+ 
+ struct RLViewLayerDesc
+ {
+@@ -108,6 +109,10 @@ RLViewCamera sAnark3DCamera;
+ RLViewOrthoCamera sOrthoCamera;
+ RLViewOrthoCamera sOrthoCenteredCamera;
+ RLViewOrthoCamera sOrtho640Camera;
++#if defined(MSCHARGED_TWEAKS)
++// Wider view (issue #91): the 640 x 480 HUD layer's camera.
++RLViewOrthoCamera sOrthoMiddleCamera;
++#endif
+ 
+ GLRenderPair sWarbleColourTarget;
+ GLRenderPair sWarbleOffsetTarget;
+@@ -492,6 +497,12 @@ void SetupViews()
+     CreateLayerViews(&sPipCamera, sPipLayers, 2);
+ 
+     CreateLayerViews(&sOrthoCamera, sOrthoLayers, 12);
++#if defined(MSCHARGED_TWEAKS)
++    // Wider view (issue #91): the HUD drawn in this 640 x 480 layer (Mega
++    // Strike targets and pointer, score numbers) keeps its 16:9 layout in the
++    // picture's middle; the other layers of this camera cover it all.
++    sLayerViews[eCLV_UnsortedOrtho640]->m_Interface = &sOrthoMiddleCamera;
++#endif
+ 
+     CreateLayerViews(&sOrtho640Camera, sSquareOrthoLayers, 2);
+ 
+@@ -553,6 +564,16 @@ void UpdateLayerCameras(const nlMatrix4& view, const nlMatrix4& pipView, float a
+ {
+     nlMatrix4 projection;
+     glMatrixPerspective(projection, fov, aspect, 0.25f, 4096.0f);
++#if defined(MSCHARGED_TWEAKS)
++    // Wider view (issue #91): the 3D view extends to the picture's shape.
++    if (mscharged_tweak_view_shape() != 1.0f)
++    {
++        float wideFov = fov;
++        float wideAspect = aspect;
++        mscharged_tweak_view_perspective(&wideFov, &wideAspect);
++        glMatrixPerspective(projection, wideFov, wideAspect, 0.25f, 4096.0f);
++    }
++#endif
+ 
+     nlMatrix4 rotation = view;
+     rotation.m41 = 0.0f;
+@@ -573,6 +594,20 @@ void UpdateLayerCameras(const nlMatrix4& view, const nlMatrix4& pipView, float a
+ 
+     glMatrixOrthographic(sOrtho640Camera.mMatrix, (float)(sWidescreen ? 854 : 640), 480.0f);
+     glMatrixOrthographicCentered(sOrthoCenteredCamera.mMatrix, (float)(sWidescreen ? 854 : 640), 480.0f, 0.0f, 5000.0f);
++#if defined(MSCHARGED_TWEAKS)
++    // Wider view: the front end (centred) keeps its layout in the picture's
++    // middle; the square layout of the markers and the Mega Strike meter,
++    // placed where the 3D view shows a player, spans the whole picture.
++    float layoutWidth = (float)(sWidescreen ? 854 : 640);
++    float layoutHeight = 480.0f;
++    mscharged_tweak_view_extend(&layoutWidth, &layoutHeight);
++    glMatrixOrthographic(sOrtho640Camera.mMatrix, layoutWidth, layoutHeight);
++    glMatrixOrthographicCentered(sOrthoCenteredCamera.mMatrix, layoutWidth, layoutHeight, 0.0f, 5000.0f);
++    // The 640 x 480 HUD layer: sOrthoCamera's view moved into the middle.
++    glMatrixOrthographic(sOrthoMiddleCamera.mMatrix, 640.0f, 480.0f);
++    mscharged_tweak_view_to_wide(&sOrthoMiddleCamera.mMatrix.m11, &sOrthoMiddleCamera.mMatrix.m22);
++    mscharged_tweak_view_to_wide(&sOrthoMiddleCamera.mMatrix.m14, &sOrthoMiddleCamera.mMatrix.m24);
++#endif
+ 
+     glMatrixPerspective(sAnark3DCamera.mProjection, 0.4712389f, aspect, 0.25f, 4096.0f);
+     sTransitions3DCamera.mProjection = sAnark3DCamera.mProjection;
+diff --git a/src/Game/Task/GameRenderTask.cpp b/src/Game/Task/GameRenderTask.cpp
+index 5a03a53..bb4fe2a 100644
+--- a/src/Game/Task/GameRenderTask.cpp
++++ b/src/Game/Task/GameRenderTask.cpp
+@@ -207,6 +207,11 @@ void GameRenderTask::Run(float fDeltaT)
+     {
+         return;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Wider view (issue #91): the match's stadium is drawn this frame (this
++    // task runs in its intros, play, pause and replays only).
++    mscharged_tweak_report_match_view();
++#endif
+ 
+     glx_Fog(true);
+     ImpostorManager::GetInstance()->InvalidateCapture();

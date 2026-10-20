@@ -1,4 +1,5 @@
 #include "config.h"
+#include "display_shape.h"
 #include "graphics_card.h"
 #include "platform/path.h"
 #include "platform/wiimote_ids.h"
@@ -58,9 +59,11 @@ Values Encode(const Settings& s)
             {"game.language", s.language}, {"gameplay.super_team_side", s.super_team_side},
             {"display.width", std::to_string(s.width)}, {"display.height", std::to_string(s.height)},
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
+            {"display.fullscreen_resolution", s.fullscreen_resolution},
             {"display.vsync", s.vsync ? "true" : "false"}, {"display.frame_rate", s.frame_rate},
             {"display.backend", s.backend}, {"display.gpu", s.gpu}, {"display.aspect", s.aspect},
             {"display.picture", s.picture}, {"display.tv_border", s.tv_border ? "true" : "false"},
+            {"display.wider_view", s.wider_view ? "true" : "false"},
             {"display.remember_window", s.remember_window ? "true" : "false"}, {"display.position", s.position},
             {"display.performance_mode", s.performance_mode ? "true" : "false"},
             {"display.antialiasing", s.antialiasing}, {"display.resolution", s.resolution},
@@ -172,6 +175,13 @@ Settings Decode(const Values& values)
     number("display.width", s.width, 1, 16384);
     number("display.height", s.height, 1, 16384);
     boolean("display.fullscreen", s.fullscreen);
+    if (const auto it = values.find("display.fullscreen_resolution"); it != values.end())
+    {
+        if (it->second != kDesktopResolution && ParseResolution(it->second).width == 0)
+            throw std::runtime_error("Invalid configuration: display.fullscreen_resolution must be desktop or "
+                                     "WIDTHxHEIGHT, such as 1920x1080");
+        s.fullscreen_resolution = it->second;
+    }
     boolean("display.vsync", s.vsync);
     if (const auto it = values.find("display.frame_rate"); it != values.end())
     {
@@ -198,6 +208,7 @@ Settings Decode(const Values& values)
     choice("display.aspect", s.aspect, {"auto", "4:3", "16:9", "stretch", "16:10", "21:9"});
     choice("display.picture", s.picture, {"soft", "clean", "sharp"});
     boolean("display.tv_border", s.tv_border);
+    boolean("display.wider_view", s.wider_view);
     boolean("display.remember_window", s.remember_window);
     if (const auto it = values.find("display.position"); it != values.end())
     {
@@ -241,8 +252,9 @@ Settings Decode(const Values& values)
     };
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         names(std::string("keyboard.") + kKeyActions[n].key, s.keys[n], "key names");
-    // [hotkeys]: one key name each, or none. A hotkey an older INI does not
-    // name yet stays unused when a [keyboard] action has its default key.
+    // [hotkeys]: one key name each, after the Ctrl+, Shift+ and Alt+ it is
+    // pressed with, or none. A hotkey an older INI does not name yet stays
+    // unused when a [keyboard] action has its default key.
     for (std::size_t n = 0; n < HotkeyCount; ++n)
     {
         const auto key = std::string("hotkeys.") + kHotkeys[n].key;
@@ -254,7 +266,8 @@ Settings Decode(const Values& values)
             continue;
         }
         if (it->second.empty() || it->second.find('|') != std::string::npos)
-            throw std::runtime_error("Invalid configuration: " + key + " must be one key name or none");
+            throw std::runtime_error("Invalid configuration: " + key
+                + " must be one key name, after Ctrl+, Shift+ or Alt+ if needed, or none");
         s.hotkeys[n] = it->second;
     }
     // No HUD was the [gameplay] tweak no_hud until it moved beside its key.

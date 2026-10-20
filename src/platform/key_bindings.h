@@ -2,12 +2,14 @@
 
 #include "bootstrap/key_actions.h"
 
+#include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_scancode.h>
 #include <SDL3/SDL_stdinc.h>
 
 #include <array>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace mscharged::platform {
 // A keyboard & mouse input: an SDL scancode, or one of the mouse buttons an
@@ -34,27 +36,49 @@ using KeyBindings = std::array<KeyBinding, KeyActionCount>;
 KeyBinding ParseKeyBinding(std::string_view text);
 std::string FormatKeyBinding(const KeyBinding& binding);
 
+// A hotkey of the game window: a key, pressed with exactly the Ctrl, Shift and
+// Alt (Option on a Mac) in `modifiers` (SDL_KMOD_CTRL, SDL_KMOD_SHIFT,
+// SDL_KMOD_ALT; either side counts). The Windows and Command keys stay the
+// system's. SDL_SCANCODE_UNKNOWN leaves it unused.
+struct Hotkey {
+    SDL_Scancode key = SDL_SCANCODE_UNKNOWN;
+    SDL_Keymod modifiers = SDL_KMOD_NONE;
+    bool operator==(const Hotkey& other) const { return key == other.key && modifiers == other.modifiers; }
+    bool operator!=(const Hotkey& other) const { return !(*this == other); }
+};
+// The Ctrl, Shift and Alt held in `mod`, as a Hotkey names them.
+SDL_Keymod HotkeyModifiers(SDL_Keymod mod);
+
 // The host's hotkeys ([hotkeys], kHotkeys order): a screenshot, the match HUD
 // (No HUD, issue #58), the stretched picture and the 3D resolution up and down
-// (issue #91). They work whoever plays, and no keyboard & mouse action takes
-// them. SDL_SCANCODE_UNKNOWN (kKeyNone) leaves one unused.
+// (issue #91), and fullscreen or a window (issue #77). They work whoever
+// plays; no keyboard & mouse action takes a hotkey's key pressed alone.
 struct Hotkeys {
-    std::array<SDL_Scancode, HotkeyCount> keys{SDL_SCANCODE_P, SDL_SCANCODE_H, SDL_SCANCODE_F, SDL_SCANCODE_PAGEUP,
-                                               SDL_SCANCODE_PAGEDOWN};
-    SDL_Scancode operator[](HotkeyIndex hotkey) const { return keys[hotkey]; }
-    SDL_Scancode& operator[](HotkeyIndex hotkey) { return keys[hotkey]; }
-    // The hotkey that `input` presses, or HotkeyCount.
+    std::array<Hotkey, HotkeyCount> keys{{{SDL_SCANCODE_P}, {SDL_SCANCODE_H}, {SDL_SCANCODE_F}, {SDL_SCANCODE_PAGEUP},
+                                          {SDL_SCANCODE_PAGEDOWN}, {SDL_SCANCODE_RETURN, SDL_KMOD_ALT}}};
+    const Hotkey& operator[](HotkeyIndex hotkey) const { return keys[hotkey]; }
+    Hotkey& operator[](HotkeyIndex hotkey) { return keys[hotkey]; }
+    // The hotkey that `input` pressed alone is, or HotkeyCount.
     HotkeyIndex Find(KeyInput input) const;
+    // The hotkey that pressing `key` with `mod` held presses, or HotkeyCount;
+    // the keypad's Enter presses one on Return. Never with Windows or Command.
+    HotkeyIndex Match(SDL_Scancode key, SDL_Keymod mod) const;
 };
-// Whether `input` can be a hotkey: a named key, not a mouse button and not a
-// modifier (shortcuts such as Alt+Enter need those).
-bool HotkeyAllowed(KeyInput input);
-// [hotkeys] names: "none" leaves a hotkey unused; a key that cannot be a
-// hotkey keeps its default, and two hotkeys naming the same key both keep
-// their defaults.
+// Whether `hotkey` can be one: a named key, not a mouse button or a modifier.
+bool HotkeyAllowed(const Hotkey& hotkey);
+// A [hotkeys] text: "Ctrl+Shift+F12", "Alt+Return", "P" (Control, Option and
+// Enter also work); anything else is an unused hotkey.
+Hotkey ParseHotkey(std::string_view text);
+// [hotkeys] texts: "none" leaves a hotkey unused; one that cannot be a hotkey
+// keeps its default, and two hotkeys on the same keys both keep their defaults.
 Hotkeys ParseHotkeys(const std::array<std::string, HotkeyCount>& names);
-// The [hotkeys] name of a key: its SDL name, or "none".
-std::string HotkeyName(SDL_Scancode key);
+// The [hotkeys] text of a hotkey ("Alt+Return"), or "none".
+std::string HotkeyName(const Hotkey& hotkey);
+// The keys of a hotkey as a keyboard shows them, in the order they are held:
+// "Alt", "Enter" ("Option", "Return" on a Mac); none when it is unused.
+std::vector<std::string> HotkeyKeys(const Hotkey& hotkey);
+// The same joined for text ("Alt+Enter"), or "" when it is unused.
+std::string HotkeyLabel(const Hotkey& hotkey);
 
 // The actions' keys without the hotkeys; an action left without a key keeps
 // its default keys (also without the hotkeys).

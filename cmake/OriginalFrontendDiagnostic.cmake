@@ -76,6 +76,12 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
             "mscharged_original_game_focus_${suffix}")
         set_property(TARGET ${target} PROPERTY LINK_LIBRARIES "${_libraries}")
     endif()
+    # [gameplay] tweaks: the hooks of patches/mscharged-decomp-tweaks are
+    # compiled into this game module only; every other target that builds the
+    # same original sources keeps their original code unchanged. Defined before
+    # the selections: the object libraries some of them make for this module
+    # (world views, Credits) copy its definitions when they are made.
+    target_compile_definitions(${target} PRIVATE MSCHARGED_TWEAKS=1)
     # Flow omissions are scoped to this diagnostic module only.
     set(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE ON)
     set(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE ON)
@@ -133,10 +139,8 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     target_sources(${target} PRIVATE src/platform/debug_layer_toggles.cpp)
     # The Discord status (issue #71): what the game is doing, read by the host after a frame.
     target_sources(${target} PRIVATE src/platform/presence_snapshot.cpp)
-    # [gameplay] tweaks: the hooks of patches/mscharged-decomp-tweaks are
-    # compiled into this game module only; every other target that builds the
-    # same original sources keeps their original code unchanged.
-    target_compile_definitions(${target} PRIVATE MSCHARGED_TWEAKS=1)
+    # [gameplay] tweaks: the hooks of patches/mscharged-decomp-tweaks (their
+    # MSCHARGED_TWEAKS definition is set above, before the selections).
     target_sources(${target} PRIVATE src/platform/game_tweaks.cpp src/platform/gx_texture.cpp src/platform/away_kits.cpp)
     # Robot goalies: the disc's unused robot goalie texture on Charged's goalie (tweak patch 0025).
     target_sources(${target} PRIVATE src/platform/robot_goalie.cpp src/platform/robot_goalie_hook.cpp)
