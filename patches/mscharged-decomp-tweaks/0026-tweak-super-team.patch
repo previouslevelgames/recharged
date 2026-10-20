@@ -15,11 +15,35 @@ the other one. The electrocution and shadow models, skeleton, animations and
 play stay the character's. Bowser, Petey Piranha and Boo keep their look; their
 bodies fit no humanoid robot.
 
+The robot textures and models load into the match's resource pool, next to
+everything the original game loads there. Its budget has no room for them: a
+heavy match (robot captain and three robot sidekick classes) ran out of it and
+stopped. The pool gets room for this match's robots on top of the original
+budget, and a robot loads only while it still fits that room; otherwise the
+character keeps its look.
+
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index e639924..9c0012b 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -1986,6 +1986,12 @@ void InitializeGameState1(AsyncLoadingManager* manager)
+     requirements[1].mSize = mscharged_tweak_rev1_ingame_texture_budget(requirements[1].mSize);
+ #endif
+     requirements[2].mSize = 0x580000;
++#if defined(MSCHARGED_TWEAKS)
++    // Super Team: this match's robot textures and models load into this pool
++    // too, beyond the original budget (CharacterLoader.cpp).
++    requirements[0].mSize += mscharged_tweak_super_team_pool_room(0);
++    requirements[2].mSize += mscharged_tweak_super_team_pool_room(1);
++#endif
+     glSetCurrentResourcePool(glCreateResourcePool(requirements, 3, "InGame"));
+     manager->mPoolResourceMark = (void*)glGetCurrentResourcePool()->MarkResource();
+     CreatePadBackends();
 diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
-index 00c8116..e1b3e0c 100644
+index 00c8116..28a3f55 100644
 --- a/src/Game/CharacterLoader.cpp
 +++ b/src/Game/CharacterLoader.cpp
-@@ -229,6 +229,93 @@ static void RobotGoalieTextures(void* data, unsigned long size)
+@@ -229,6 +229,124 @@ static void RobotGoalieTextures(void* data, unsigned long size)
  }
  #endif
  
@@ -45,6 +69,19 @@ index 00c8116..e1b3e0c 100644
 +    return false;
 +}
 +
++// What the pool has in use of its header memory (0) and its vertex and texture
++// memory (1).
++static void SuperTeamPoolUse(GLResourcePool* pool, unsigned long* used)
++{
++    for (unsigned long i = 0; i < 2; i++)
++    {
++        const char* name = 0;
++        unsigned long total = 0, free = 0, peak = 0;
++        pool->GetPoolMemoryInfo(i, &name, &total, &free, &peak, 0);
++        used[i] = total - free;
++    }
++}
++
 +static void SuperTeamModel(const CharacterLoader* loader, void* data, unsigned long size)
 +{
 +    if (!SuperTeamClass(loader, loader->mCurrent->cc))
@@ -60,7 +97,16 @@ index 00c8116..e1b3e0c 100644
 +        {
 +            return;
 +        }
++        if (!mscharged_tweak_super_team_fits(texturesSize))
++        {
++            mscharged_tweak_super_team_free(textures);
++            return;
++        }
++        unsigned long before[2], after[2];
++        SuperTeamPoolUse(pool, before);
 +        glEndLoadTextureBundle(textures, texturesSize, pool, 0);
++        SuperTeamPoolUse(pool, after);
++        mscharged_tweak_super_team_spent(after[0] - before[0], after[1] - before[1]);
 +        mscharged_tweak_super_team_free(textures);
 +    }
 +    unsigned long skeletonSize = 0;
@@ -78,8 +124,17 @@ index 00c8116..e1b3e0c 100644
 +        nlPrintf("Super Team: %s keeps its look\n", loader->mTemplateInfo->szModelFilename);
 +        return;
 +    }
++    if (!mscharged_tweak_super_team_fits(madeSize))
++    {
++        mscharged_tweak_super_team_free(made);
++        return;
++    }
++    unsigned long before[2], after[2];
++    SuperTeamPoolUse(pool, before);
 +    unsigned long numModels = 0;
 +    glEndLoadModel(made, madeSize, &numModels, pool);
++    SuperTeamPoolUse(pool, after);
++    mscharged_tweak_super_team_spent(after[0] - before[0], after[1] - before[1]);
 +    mscharged_tweak_super_team_free(made);
 +}
 +
@@ -113,7 +168,7 @@ index 00c8116..e1b3e0c 100644
  CharacterLoader::~CharacterLoader()
  {
  }
-@@ -707,6 +794,12 @@ bool CharacterLoader::FinalizeLoadingCharacterModel(int nModel)
+@@ -707,6 +825,12 @@ bool CharacterLoader::FinalizeLoadingCharacterModel(int nModel)
      }
  
      unsigned long numModels = 0;
@@ -126,7 +181,7 @@ index 00c8116..e1b3e0c 100644
      glModel* pModel = glEndLoadModel(mModelData[nModel],
          mModelSize[nModel], &numModels, glGetCurrentResourcePool());
      nlFree(mModelData[nModel]);
-@@ -1218,11 +1311,22 @@ void CharacterLoader::CreateCharacterInstance()
+@@ -1218,11 +1342,22 @@ void CharacterLoader::CreateCharacterInstance()
      }
      else
      {

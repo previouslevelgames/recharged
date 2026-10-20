@@ -678,7 +678,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // Texture packs: Mirror match's recoloured textures in HD.
             if(auto* configureRecolour=reinterpret_cast<void(*)(ChargedRecolouredTextureHook)>(
                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_hd_recolour")))
-                configureRecolour(mscharged::TexturePackRecolourHook());
+                configureRecolour(mscharged::TexturePackRecolourHook(reinterpret_cast<ChargedPresenceSnapshotFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_presence_snapshot"))));
             // No HUD (issue #58): the HUD key shows or hides the match HUD, whatever show_hud says.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_hud")));

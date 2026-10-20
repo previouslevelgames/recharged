@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..0469830
+index 0000000..4b56606
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,186 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -188,6 +188,14 @@ index 0000000..0469830
 +    unsigned long skeletonSize, unsigned long* madeSize);
 +void* mscharged_tweak_super_team_textures(unsigned long* madeSize);
 +void mscharged_tweak_super_team_free(void* data);
++// The match's resource pool holds the robots too (AsyncLoading.cpp): the room
++// the robots of this match need in pool 0 (headers) or 1 (vertex and texture
++// data) on top of the original budget, 0 without robots; whether a robot item
++// of `size` bytes (a made model or bundle) still fits in it; and what an item
++// took of pools 0 and 1 once loaded.
++unsigned long mscharged_tweak_super_team_pool_room(int pool);
++int mscharged_tweak_super_team_fits(unsigned long size);
++void mscharged_tweak_super_team_spent(unsigned long header, unsigned long data);
 +
 +#ifdef __cplusplus
 +}

@@ -450,8 +450,9 @@ public:
         const bool headless = video && (std::string(video) == "dummy" || std::string(video) == "offscreen");
         if (!capture_ || (!options_.screenshot.empty() && !headless)) SDL_ShowWindow(window_);
 #ifdef _WIN32
-        // Reopened by a game that closed (launcher.reopen_after_game): come to
-        // the front, which the game allowed, rather than behind other windows.
+        // Reopened by a game that closed (launcher.reopen_after_game) or
+        // restarted after an update: come to the front, which the previous
+        // process allowed, rather than behind other windows.
         if (!capture_) SDL_RaiseWindow(window_);
 #endif
         if (config_ok_ && !EffectiveLaunch().disc_path.empty() && !options_.smoke_test) CheckDisc();

@@ -698,6 +698,10 @@ std::string RestartLauncher(const fs::path& executable, int argc, char** argv)
     if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup,
                         &process))
         return std::system_category().message(int(GetLastError()));
+    // This process has the user's last input (the update or switch click):
+    // Windows lets only it hand the foreground on, so the new launcher can
+    // come to the front instead of opening behind other windows.
+    AllowSetForegroundWindow(process.dwProcessId);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
     return {};

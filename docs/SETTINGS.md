@@ -308,7 +308,9 @@ show its original look for a moment before its replacement appears. Packs with
 `.png` ones. The images match the game's textures by their contents, so
 textures with text need images for each language. Mirror match's away kits
 recolour the pack's image of the home kit (in a picture the pack drew anew, its
-kit is found by colour); the Super Team keeps its own look.
+kit is found by colour); the Super Team keeps its own look. Outside matches a
+recoloured image shows only once it is ready, so the game can stop for a moment
+the first time one appears; during a match they load in the background too.
 
 **Dump textures** (`[mods] dump_textures`) is for pack makers: each
 texture no pack replaces is saved to `data/texture_dumps` as a `.dds` file

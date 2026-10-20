@@ -1,0 +1,80 @@
+From: mscharged-port
+Subject: Load made replacements before their first draw
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+A replacement the host makes right before the game shows its texture (the
+HD version of a recoloured picture) streamed in like a pack's: the first
+draws showed the original texture or a 64-pixel thumbnail until a worker
+loaded it and the next frame published it. ReplacementOptions gains
+`synchronous`: such an entry gets no thumbnail and is loaded on the
+synchronous path (as raw entries already are) when a texture first needs
+it, so that draw waits for it instead.
+
+diff --git a/include/aurora/texture.hpp b/include/aurora/texture.hpp
+index 6c68778..1538b1a 100644
+--- a/include/aurora/texture.hpp
++++ b/include/aurora/texture.hpp
+@@ -45,6 +45,10 @@ struct RawTextureReplacement {
+ 
+ struct ReplacementOptions {
+   int32_t priority = 0;
++  /// Load the image when a texture first needs it, before that draw, instead of streaming it in
++  /// (no low-resolution thumbnail, no frames with the original texture): for images made right
++  /// before they are shown. The draw waits for the file source's read.
++  bool synchronous = false;
+ };
+ 
+ struct ReplacementRegistration {
+diff --git a/lib/gfx/texture_replacement.cpp b/lib/gfx/texture_replacement.cpp
+index 03dda46..14629c0 100644
+--- a/lib/gfx/texture_replacement.cpp
++++ b/lib/gfx/texture_replacement.cpp
+@@ -76,6 +76,7 @@ struct ReplacementEntry {
+   std::shared_ptr<VirtualReadState> virtualReadState;
+   std::optional<gfx::ConvertedTexture> thumbnail;
+   bool thumbnailIncludesBase = false;
++  bool synchronous = false;
+ };
+ 
+ enum class Tier {
+@@ -1161,8 +1162,8 @@ find_replacement_for_key_locked(const ReplacementKey& key) noexcept {
+ 
+   erase_cache_locked(key);
+   if constexpr (gx::texture::AsyncTextureReplacements) {
+-    // Raw entry data is borrowed, so they must take the synchronous path.
+-    if (entry->kind != EntryKind::Raw) {
++    // Raw entry data is borrowed, so they must take the synchronous path, as do entries that asked for it.
++    if (entry->kind != EntryKind::Raw && !entry->synchronous) {
+       gfx::TextureHandle thumbnailHandle;
+       Tier tier = Tier::Thumbnail;
+       if (entry->thumbnail.has_value() && !is_unsupported_texture_format(entry->thumbnail->format) &&
+@@ -1367,10 +1368,13 @@ ReplacementRegistration register_file_replacement(TextureSourceKey key, std::fil
+       .kind = EntryKind::File,
+       .label = fmt::format("TextureReplacement {}", io::fs_path_to_string(path.filename())),
+       .path = std::move(path),
++      .synchronous = options.synchronous,
+   });
+   ++s_sourceEntryCount;
+   const auto snapshot = snapshot_entry(replacementKey, entries.back());
+-  queue_thumbnail_load(snapshot);
++  if (!options.synchronous) {
++    queue_thumbnail_load(snapshot);
++  }
+   erase_cache_locked(replacementKey);
+   gx::clear_static_texture_cache();
+   return registration;
+@@ -1609,10 +1613,13 @@ ReplacementRegistration register_virtual_replacement(std::string_view path, Virt
+       .virtualPath = std::string{path},
+       .source = source,
+       .virtualReadState = std::make_shared<VirtualReadState>(),
++      .synchronous = options.synchronous,
+   });
+   ++s_sourceEntryCount;
+   const auto snapshot = snapshot_entry(replacementKey, entries.back());
+-  queue_thumbnail_load(snapshot);
++  if (!options.synchronous) {
++    queue_thumbnail_load(snapshot);
++  }
+   erase_cache_locked(replacementKey);
+   gx::clear_static_texture_cache();
+   return registration;
