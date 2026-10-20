@@ -3,6 +3,7 @@
 #include "platform/screenshot_hotkey.h"
 #endif
 #include "platform/alarms.h"
+#include "platform/fullscreen_hotkey.h"
 #include "platform/interrupts.h"
 #include "platform/stm_device.h"
 #include "platform/ios_device.h"
@@ -118,9 +119,10 @@ void Service() {
     if (!exclusion) return;
     mscharged::platform::ServiceNativeAlarms();
     const auto now = std::chrono::steady_clock::now();
-    // Desktop devices and real remotes are serviced every 10 ms.
+    // Desktop devices and real remotes are serviced every 5 ms, so each
+    // report reaches the game in its own service, 200 a second.
     if ((!state.desktop_cadence && !mscharged::platform::WiimoteHidHasDevices()) || now >= state.next_input) {
-        state.next_input = now + std::chrono::milliseconds(10);
+        state.next_input = now + std::chrono::milliseconds(5);
         SDL_PumpEvents();
         mscharged::platform::ServiceWiimoteHid();
         mscharged::platform::ServiceDesktopWpad();
@@ -232,6 +234,8 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
     for (auto it = players.remotes.begin(); it != players.remotes.end();)
         it = it->second < 0 ? players.remotes.erase(it) : std::next(it);
     WiimoteHidSettings hid{settings.dpd_sensitivity};
+    hid.speaker = settings.remote_speaker;
+    hid.speaker_reg01 = settings.remote_speaker_reg01;
     hid.fixed_players = players.fixed;
     hid.channels = players.remotes;
     const bool remotes_play = !players.fixed || !players.remotes.empty();
@@ -350,6 +354,8 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
 #if defined(MSCHARGED_HOST_SCREENSHOTS)
     InitializeScreenshotHotkey(window);
 #endif
+    // Alt+Enter: fullscreen or a window (issue #77); its Enter never reaches the keyboard player.
+    InitializeFullscreenHotkey(window);
 }
 
 void ServiceNativeHardwareInput() { Service(); }
@@ -415,6 +421,7 @@ void ShutdownNativeHardwareInput() {
 #if defined(MSCHARGED_HOST_SCREENSHOTS)
     ShutdownScreenshotHotkey();
 #endif
+    ShutdownFullscreenHotkey();
     ShutdownNativeAlarms();
     ShutdownWiimoteHid();
     ShutdownDesktopWpad();

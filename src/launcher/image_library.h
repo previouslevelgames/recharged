@@ -104,6 +104,7 @@ struct LibraryScan
     std::vector<LibraryImage> images;     // folder by folder, by name
     std::vector<bool> available;          // for each folder: it exists and can be read
     std::size_t other_games = 0;          // images of other games, not listed
+    std::vector<std::filesystem::path> strikers; // of those, Super Mario Strikers (GameCube): the Super Team's disc
     bool limited = false;                 // more than kLibraryImageLimit images
     bool cancelled = false;
     ImageCache cache;                     // the cache, updated with this scan

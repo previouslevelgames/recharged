@@ -42,16 +42,20 @@ int main()
         settings.master_volume = 65;
         settings.sound_volumes = {20, 80, 35, 50, 70, 0, 60};
         settings.players = {"remote2", "keyboard", "remote1", "off"};
-        settings.deadzone = 20;
         settings.rumble = false;
+        settings.rumble_strength = 40;
+        settings.ir_sensitivity = 5;
+        settings.speaker_volume = 0;
         settings.backend = "d3d12";
         SaveConfig(file, settings);
         const auto reloaded = LoadConfig(path);
         Require(reloaded.settings.width == 1920 && reloaded.settings.height == 1080
             && reloaded.settings.fullscreen && reloaded.settings.master_volume == 65
             && reloaded.settings.sound_volumes == settings.sound_volumes
-            && reloaded.settings.players == settings.players && reloaded.settings.deadzone == 20
-            && !reloaded.settings.rumble && reloaded.settings.backend == "d3d12", "Settings round trip");
+            && reloaded.settings.players == settings.players
+            && !reloaded.settings.rumble && reloaded.settings.rumble_strength == 40
+            && reloaded.settings.ir_sensitivity == 5 && reloaded.settings.speaker_volume == 0
+            && reloaded.settings.backend == "d3d12", "Settings round trip");
         Require(reloaded.contents.find("; keep my comment\r\n") != std::string::npos
             && reloaded.contents.find("option = keep me\r\n") != std::string::npos
             && reloaded.contents.compare(0, 3, "\xEF\xBB\xBF") == 0, "Preserve comments, unknown keys, BOM and CRLF");
@@ -103,6 +107,17 @@ int main()
         Require(LoadConfig(path).settings.players[0] == "gamepad1", "Gamepad player loads");
         std::ofstream(path) << "[controls]\nplayer1 = gamepad1\nplayer2 = gamepad1\n";
         Reject([&] { LoadConfig(path); });
+        // Wii Remote settings: the Wii's defaults (sensitivity 3, speaker 70 %).
+        Require(Settings{}.ir_sensitivity == 3 && Settings{}.speaker_volume == 70 && Settings{}.rumble_strength == 100,
+                "Wii Remote defaults");
+        std::ofstream(path) << "[controls]\nir_sensitivity = 0\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[controls]\nir_sensitivity = 6\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[controls]\nspeaker_volume = 101\n";
+        Reject([&] { LoadConfig(path); });
+        std::ofstream(path) << "[controls]\nrumble_strength = -1\n";
+        Reject([&] { LoadConfig(path); });
         Require(Settings{}.mouse_pointer, "Mouse pointer default");
         std::ofstream(path) << "[controls]\nmouse_pointer = false\n";
         Require(!LoadConfig(path).settings.mouse_pointer, "Mouse pointer off loads");
@@ -121,6 +136,8 @@ int main()
                 "Gamepads play with the built-in Default profile");
         std::ofstream(path) << "; my pads\n[controls]\ngamepad2_profile = kyle\ngamepad3_profile = Gone\n"
                                "[gamepad_profile1]\n; Kyle's layout\nname = Kyle\na = b | start\nswap_sticks = true\n"
+                               "inner_deadzone = 22\nouter_deadzone = 90\ntrigger_press = 30\n"
+                               "gyro_pointer = true\ngyro_speed = 150\nrecenter_pointer = leftstick\n"
                                "[gamepad_profile2]\nname = Spare\nb = x\ncontroller = gamecube\n";
         {
             auto file = LoadConfig(path);
@@ -131,6 +148,17 @@ int main()
                         && loaded.pad_profiles[0].swap_sticks && loaded.pad_profiles[0].controller == "xbox"
                         && loaded.pad_profiles[1].controller == "gamecube",
                     "Gamepad profiles load, with their controller kind");
+            Require(loaded.pad_profiles[0].inner_deadzone == 22 && loaded.pad_profiles[0].outer_deadzone == 90
+                        && loaded.pad_profiles[0].trigger_press == 30 && loaded.pad_profiles[1].inner_deadzone == 15
+                        && loaded.pad_profiles[1].outer_deadzone == 71 && loaded.pad_profiles[1].trigger_press == 50
+                        && Settings{}.PadProfileOf(0).outer_deadzone == 71,
+                    "Gamepad profiles keep their dead zones; missing ones are the Wii Nunchuk's");
+            Require(loaded.pad_profiles[0].gyro_pointer && loaded.pad_profiles[0].gyro_speed == 150
+                        && loaded.pad_profiles[0].inputs[mscharged::GamepadActionRecenterPointer] == "leftstick"
+                        && !loaded.pad_profiles[1].gyro_pointer && loaded.pad_profiles[1].gyro_speed == 100
+                        && loaded.pad_profiles[1].inputs[mscharged::GamepadActionRecenterPointer] == "rightstick"
+                        && !Settings{}.PadProfileOf(0).gyro_pointer,
+                    "Gamepad profiles keep their gyro pointer; it is off unless asked for");
             Require(loaded.PadProfileIndex(1) == 0 && loaded.pad_profile_names[1] == "Kyle",
                     "A gamepad finds its profile by name, ignoring case");
             Require(loaded.PadProfileIndex(2) == -1 && loaded.pad_profile_names[2] == "Default",
@@ -140,12 +168,22 @@ int main()
             changed.pad_profiles.erase(changed.pad_profiles.begin());
             changed.pad_profile_names[1] = "Default";
             changed.pad_profile_names[3] = "Spare";
+            changed.pad_profiles[0].inner_deadzone = 0;
+            changed.pad_profiles[0].outer_deadzone = 100;
+            changed.pad_profiles[0].trigger_press = 90;
+            changed.pad_profiles[0].gyro_pointer = true;
+            changed.pad_profiles[0].gyro_speed = 25;
             SaveConfig(file, changed);
             const auto saved = LoadConfig(path);
             Require(saved.settings.pad_profiles.size() == 1 && saved.settings.pad_profiles[0].name == "Spare"
                         && saved.settings.pad_profiles[0].inputs[mscharged::GamepadActionB] == "x"
                         && !saved.settings.pad_profiles[0].swap_sticks
                         && saved.settings.pad_profiles[0].controller == "gamecube"
+                        && saved.settings.pad_profiles[0].inner_deadzone == 0
+                        && saved.settings.pad_profiles[0].outer_deadzone == 100
+                        && saved.settings.pad_profiles[0].trigger_press == 90
+                        && saved.settings.pad_profiles[0].gyro_pointer
+                        && saved.settings.pad_profiles[0].gyro_speed == 25
                         && saved.settings.PadProfileIndex(3) == 0
                         && saved.settings.PadProfileIndex(1) == -1,
                     "A deleted gamepad profile stays deleted");
@@ -176,6 +214,13 @@ int main()
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[gamepad_profile1]\nname = Pad\na = a | b | x\n";
         Reject([&] { LoadConfig(path); });
+        for (const char* range : {"inner_deadzone = 31", "inner_deadzone = -1", "outer_deadzone = 69",
+                                  "outer_deadzone = 101", "trigger_press = 9", "trigger_press = 91",
+                                  "gyro_speed = 24", "gyro_speed = 301", "gyro_pointer = maybe"})
+        {
+            std::ofstream(path) << "[gamepad_profile1]\nname = Pad\n" << range << "\n";
+            Reject([&] { LoadConfig(path); });
+        }
         Require(mscharged::ValidPadProfileName("Kyle's pad") && !mscharged::ValidPadProfileName(" Kyle")
                     && !mscharged::ValidPadProfileName("a|b") && !mscharged::ValidPadProfileName("")
                     && !mscharged::ValidPadProfileName("DEFAULT"),
@@ -248,6 +293,31 @@ int main()
                     && ResolveSaveFolder(changed, path, executable) == directory / "absolute saves",
                     "An absolute save folder round trips");
         }
+        // The Super Team's GameCube disc and robot side.
+        {
+            Require(Settings{}.gamecube_disc.empty() && ResolveGameCubeDiscPath(Settings{}, path).empty()
+                    && Settings{}.super_team_side == "away", "Super Team defaults");
+            std::ofstream(path) << "[game]\ngamecube_disc = \"game/Strikers.rvz\"\n[gameplay]\nsuper_team = true\n"
+                                   "super_team_side = both\n";
+            auto loaded = LoadConfig(path);
+            Require(loaded.settings.gamecube_disc == "game/Strikers.rvz"
+                    && ResolveGameCubeDiscPath(loaded.settings, path) == path.parent_path() / "game/Strikers.rvz"
+                    && loaded.settings.super_team_side == "both"
+                    && loaded.settings.tweaks[mscharged::GameTweakIndex(mscharged::GameTweak::SuperTeam)],
+                    "The Super Team settings load");
+            auto changed = loaded.settings;
+            changed.super_team_side = "home";
+            changed.gamecube_disc = "other.iso";
+            SaveConfig(loaded, changed);
+            const auto saved = LoadConfig(path);
+            Require(saved.settings.super_team_side == "home" && saved.settings.gamecube_disc == "other.iso"
+                    && saved.contents.find("gamecube_disc = \"other.iso\"") != std::string::npos,
+                    "The Super Team settings round trip");
+            std::ofstream(path) << "[gameplay]\nsuper_team_side = left\n";
+            bool rejected = false;
+            try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
+            Require(rejected, "An unknown Super Team side is rejected");
+        }
         // The game folder (#65): game beside the settings file by default, in
         // quotes, with its subfolders; the first builds' [library] list moves to it.
         {
@@ -289,6 +359,7 @@ int main()
             && defaults.monitor == 0 && !defaults.graphics_validation
             && defaults.log_level == "info" && !defaults.verbose_console && !defaults.frame_logging && !defaults.log_window
             && defaults.ui_scale == "auto" && defaults.check_updates && defaults.update_channel == "auto"
+            && defaults.test_build == 0 && !defaults.reopen_after_game && defaults.gpu == "auto"
             && !defaults.performance_mode,
             "Host setting defaults");
         const auto host = directory / "host.ini";
@@ -306,6 +377,9 @@ int main()
         hostSettings.ui_scale = "150";
         hostSettings.check_updates = false;
         hostSettings.update_channel = "test";
+        hostSettings.test_build = 72;
+        hostSettings.reopen_after_game = true;
+        hostSettings.gpu = "10de:1f99";
         SaveConfig(hostFile, hostSettings);
         const auto hostReloaded = LoadConfig(host).settings;
         Require(hostReloaded.fps_overlay && hostReloaded.fps_overlay_corner == "bottom-left"
@@ -313,7 +387,8 @@ int main()
             && hostReloaded.monitor == 2 && hostReloaded.graphics_validation
             && hostReloaded.log_level == "warning" && hostReloaded.verbose_console && hostReloaded.frame_logging
             && hostReloaded.log_window
-            && hostReloaded.ui_scale == "150" && !hostReloaded.check_updates && hostReloaded.update_channel == "test",
+            && hostReloaded.ui_scale == "150" && !hostReloaded.check_updates && hostReloaded.update_channel == "test"
+                && hostReloaded.test_build == 72 && hostReloaded.reopen_after_game && hostReloaded.gpu == "10de:1f99",
             "Host settings round trip");
         const auto hostText = LoadConfig(host).contents;
         Require(hostText.find("[advanced]") != std::string::npos && hostText.find("[launcher]") != std::string::npos
@@ -326,6 +401,55 @@ int main()
         hostSettings.frame_logging = false;
         SaveConfig(hostFile, hostSettings);
         Require(!LoadConfig(host).settings.frame_logging, "Frame logging can be disabled after enabling");
+        // [discord]: the status is on by default and round trips; an
+        // application ID in the INI (testing) is read but never written.
+        Require(defaults.discord_status && defaults.discord_application_id.empty(), "Discord defaults");
+        std::ofstream(path) << "[discord]\nrich_presence = false\napplication_id = 123456789012345678\n";
+        auto discordFile = LoadConfig(path);
+        Require(!discordFile.settings.discord_status
+                && discordFile.settings.discord_application_id == "123456789012345678", "Discord settings read");
+        auto discordSettings = discordFile.settings;
+        discordSettings.discord_status = true;
+        discordSettings.discord_application_id.clear();
+        SaveConfig(discordFile, discordSettings);
+        const auto discordReloaded = LoadConfig(path);
+        Require(discordReloaded.settings.discord_status
+                && discordReloaded.contents.find("rich_presence = true") != std::string::npos
+                && discordReloaded.settings.discord_application_id == "123456789012345678",
+                "Saving changed or dropped the Discord application ID");
+        hostFile = LoadConfig(host);
+        Require(hostFile.contents.find("application_id") == std::string::npos
+                && hostFile.contents.find("[discord]") != std::string::npos, "Saving wrote a Discord application ID");
+        // [mods]: texture packs on, their folder beside the settings file, no
+        // order or switched-off packs and no texture dumps by default; each
+        // round trips, and the folder is written in quotes.
+        Require(defaults.texture_packs && defaults.texture_folder == "texture_packs" && defaults.texture_pack_order.empty()
+                && defaults.texture_packs_off.empty() && !defaults.dump_textures, "Texture pack defaults");
+        Require(ResolveTextureFolder(defaults, directory / "recharged.ini") == directory / "texture_packs",
+                "The texture packs folder counts from the settings file");
+        std::ofstream(path) << "[mods]\ntexture_packs = false\ntexture_folder = \"../packs\"\n"
+                               "texture_pack_order = R4Q.zip | HD Pack\ntexture_packs_off = Old Pack\ndump_textures = true\n";
+        auto modsFile = LoadConfig(path);
+        const auto& mods = modsFile.settings;
+        Require(!mods.texture_packs && mods.texture_folder == "../packs" && mods.texture_pack_order == "R4Q.zip | HD Pack"
+                && mods.texture_packs_off == "Old Pack" && mods.dump_textures, "Texture pack settings read");
+        Require(ResolveTextureFolder(mods, directory / "recharged.ini") == directory / "../packs",
+                "A relative texture packs folder");
+        auto modsSettings = mods;
+        modsSettings.texture_packs = true;
+        modsSettings.texture_folder = "/srv/packs";
+        modsSettings.texture_pack_order.clear();
+        modsSettings.texture_packs_off = "R4Q.zip";
+        modsSettings.dump_textures = false;
+        SaveConfig(modsFile, modsSettings);
+        const auto modsReloaded = LoadConfig(path);
+        Require(modsReloaded.settings.texture_packs && modsReloaded.settings.texture_folder == "/srv/packs"
+                && modsReloaded.settings.texture_pack_order.empty() && modsReloaded.settings.texture_packs_off == "R4Q.zip"
+                && !modsReloaded.settings.dump_textures
+                && modsReloaded.contents.find("texture_folder = \"/srv/packs\"") != std::string::npos,
+                "Texture pack settings round trip");
+        std::ofstream(path) << "[mods]\ntexture_folder =\n";
+        Require(LoadConfig(path).settings.texture_folder == "texture_packs", "An empty texture packs folder is the default");
         // Old title-bar settings are accepted, ignored and retired on explicit save.
         std::ofstream(path) << "[display]\nshow_fps = true\nfps_overlay = false\ncustom = preserved\n";
         auto legacyFps = LoadConfig(path);
@@ -333,13 +457,32 @@ int main()
         SaveConfig(legacyFps, legacyFps.settings);
         Require(legacyFps.contents.find("show_fps") == std::string::npos
             && legacyFps.contents.find("custom = preserved") != std::string::npos, "Retired title key is removed alone");
+        // The old controls.deadzone was never read; gamepad profiles have their own (#62).
+        std::ofstream(path) << "[controls]\ndeadzone = 40\nrumble = false\n";
+        auto legacyDeadzone = LoadConfig(path);
+        SaveConfig(legacyDeadzone, legacyDeadzone.settings);
+        Require(legacyDeadzone.contents.find("deadzone") == std::string::npos
+            && legacyDeadzone.contents.find("rumble = false") != std::string::npos, "Retired dead zone key is removed");
+        // A 1.0.12 test build sent the Wii Remote speaker PCM on request (#60).
+        std::ofstream(path) << "[controls]\nspeaker_format = pcm\nrumble = false\n";
+        auto legacySpeaker = LoadConfig(path);
+        SaveConfig(legacySpeaker, legacySpeaker.settings);
+        Require(legacySpeaker.contents.find("speaker_format") == std::string::npos
+            && legacySpeaker.contents.find("rumble = false") != std::string::npos, "Retired speaker format key is removed");
         for (const char* invalid : {"[display]\nmonitor = 16\n",
                                     "[display]\nfps_overlay = maybe\n", "[display]\nfps_overlay_corner = center\n",
                                     "[display]\nperformance_mode = maybe\n",
                                     "[advanced]\nlog_level = verbose\n", "[launcher]\nui_scale = 110\n",
                                     "[advanced]\ngraphics_validation = 2\n", "[advanced]\nverbose_console = yes\n",
                                     "[advanced]\nframe_logging = maybe\n", "[advanced]\nlog_window = on\n", "[launcher]\ncheck_updates = sometimes\n",
-                                    "[launcher]\nupdate_channel = nightly\n"})
+                                    "[launcher]\nupdate_channel = nightly\n", "[launcher]\ntest_build = -1\n",
+                                    "[launcher]\nreopen_after_game = later\n",
+                                    "[display]\ngpu = nvidia\n", "[display]\ngpu = 10de-1f99\n",
+                                    "[display]\ngpu = 0000:1f99\n", "[display]\ngpu = 10de:1f9\n",
+                                    "[launcher]\ntest_build = pr72\n", "[discord]\nrich_presence = maybe\n",
+                                    "[discord]\napplication_id = 1234\n",
+                                    "[discord]\napplication_id = 12345678901234567x8\n",
+                                    "[mods]\ntexture_packs = maybe\n", "[mods]\ndump_textures = 2\n"})
         {
             std::ofstream(path) << invalid;
             Reject([&] { LoadConfig(path); });
@@ -367,6 +510,40 @@ int main()
             Require(reloaded.contents.find(std::string("[gameplay]")) != std::string::npos
                 && reloaded.contents.find(std::string(kGameTweaks[n].key) + " = true") != std::string::npos,
                 "Tweak saved in [gameplay]");
+        }
+        // [hotkeys]: the screenshot and HUD keys and No HUD's start state,
+        // which an old [gameplay] no_hud still sets until the next save.
+        {
+            Require(defaults.screenshot_key == "P" && defaults.hud_key == "H" && defaults.show_hud
+                    && defaults.ModuleTweakMask() == defaults.GameTweakMask(), "Hotkey defaults");
+            Require(GameTweakIndex(GameTweak::NoHud) == kGameTweaks.size(), "No HUD is listed as a tweak");
+            std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nno_hud = true\nskip_intro = true\n";
+            auto old = LoadConfig(path);
+            const unsigned tweaks = recommended | GameTweakBit(GameTweak::SkipIntro);
+            Require(!old.settings.show_hud && old.settings.GameTweakMask() == tweaks
+                    && old.settings.ModuleTweakMask() == (tweaks | GameTweakBit(GameTweak::NoHud)),
+                    "gameplay.no_hud did not hide the HUD");
+            auto changed = old.settings;
+            changed.screenshot_key = "F12";
+            changed.hud_key = "G";
+            SaveConfig(old, changed);
+            const auto saved = LoadConfig(path);
+            Require(!saved.settings.show_hud && saved.settings.screenshot_key == "F12" && saved.settings.hud_key == "G"
+                    && saved.contents.find("no_hud") == std::string::npos
+                    && saved.contents.find("[hotkeys]") != std::string::npos
+                    && saved.contents.find("show_hud = false") != std::string::npos
+                    && saved.contents.find("skip_intro = true") != std::string::npos,
+                    "The hotkeys did not round trip, or no_hud stayed");
+            std::ofstream(path) << "[gameplay]\nno_hud = true\n[hotkeys]\nshow_hud = true\n";
+            Require(LoadConfig(path).settings.show_hud, "gameplay.no_hud overrode hotkeys.show_hud");
+            std::ofstream(path) << "[gameplay]\nno_hud = false\n";
+            Require(LoadConfig(path).settings.show_hud, "gameplay.no_hud = false hid the HUD");
+            for (const char* invalid : {"[hotkeys]\nscreenshot = P | O\n", "[hotkeys]\nhud =\n",
+                                        "[hotkeys]\nshow_hud = maybe\n", "[gameplay]\nno_hud = 2\n"})
+            {
+                std::ofstream(path) << invalid;
+                Reject([&] { LoadConfig(path); });
+            }
         }
         Require(DescribeGameTweaks(0) == "none"
             && DescribeGameTweaks(GameTweakBit(GameTweak::SkipIntro) | GameTweakBit(GameTweak::UnlockAll))

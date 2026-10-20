@@ -41,4 +41,24 @@ inline const GraphicsBackendChoice& ResolveGraphicsBackend(std::string_view sett
     throw std::invalid_argument("Graphics backend '" + std::string(setting)
         + "' is unavailable on this platform. Set display.backend = auto in the INI to use this platform's default.");
 }
+
+// auto only: the platform's next API, tried when the default cannot start (on
+// Windows, DirectX 12 when the driver offers no usable Vulkan GPU).
+inline const GraphicsBackendChoice* GraphicsBackendFallback(std::string_view setting)
+{
+    if (setting != "auto" || kGraphicsBackends.size() < 2) return nullptr;
+    return kGraphicsBackends.data() + 1;
+}
+
+// What the player reads when no graphics API could start.
+inline std::string GraphicsStartFailure(const GraphicsBackendChoice& chosen, const GraphicsBackendChoice* fallback)
+{
+    if (fallback)
+        return std::string("Neither ") + chosen.label + " nor " + fallback->label
+            + " could start on this PC. Updating the graphics driver may help.";
+    const std::string failed = std::string(chosen.label) + " could not start on this PC.";
+    if (kGraphicsBackends.size() > 1)
+        return failed + " Choose another graphics API on the launcher's Advanced page, or update the graphics driver.";
+    return failed + " Updating the graphics driver may help.";
+}
 }

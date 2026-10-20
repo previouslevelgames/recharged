@@ -100,7 +100,7 @@ void UpdateService::Start(std::shared_ptr<platform::HttpCancel> cancel, const st
     worker_ = std::thread(std::move(task));
 }
 
-void UpdateService::Check(UpdateChannel channel)
+void UpdateService::Check(UpdateChannel channel, int chosen)
 {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -112,15 +112,17 @@ void UpdateService::Check(UpdateChannel channel)
     auto cancel = std::make_shared<platform::HttpCancel>();
     Start(
         cancel,
-        [channel](Status& status) {
+        [channel, chosen](Status& status) {
             status.state = State::Checking;
             status.channel = channel;
             status.error.clear();
             status.offer.reset();
             status.pull.reset();
             status.install_blocker.clear();
+            // test_builds and track stay until the check replaces them.
+            status.chosen = chosen;
         },
-        [this, channel, cancel] { RunCheck(channel, cancel); });
+        [this, channel, chosen, cancel] { RunCheck(channel, chosen, cancel); });
 }
 
 void UpdateService::Install()
@@ -144,7 +146,7 @@ void UpdateService::Install()
         [this, offer = *offer, cancel] { RunInstall(offer, cancel); });
 }
 
-void UpdateService::RunCheck(UpdateChannel channel, std::shared_ptr<platform::HttpCancel> cancel)
+void UpdateService::RunCheck(UpdateChannel channel, int chosen, std::shared_ptr<platform::HttpCancel> cancel)
 {
     try
     {
@@ -163,12 +165,21 @@ void UpdateService::RunCheck(UpdateChannel channel, std::shared_ptr<platform::Ht
         const auto answer = platform::HttpGet(GitHubRequest(ReleasesApiUrl(build.repository), build, cancel));
         if (answer.status != 200) throw std::runtime_error(GitHubFailure(answer.status));
         const auto published = ParseReleases(platform::ParseJson(answer.body));
-        const PublishedBuild* found = FindUpdate(build, channel, published);
+        std::vector<PublishedBuild> test_builds;
+        int track = 0;
+        if (channel == UpdateChannel::Test)
+        {
+            for (const PublishedBuild* test : TestBuilds(build, published)) test_builds.push_back(*test);
+            track = FollowedPullRequest(build, chosen, published);
+        }
+        const PublishedBuild* found = FindUpdate(build, channel, published, chosen);
         if (!found)
         {
-            Set([](Status& status) {
+            Set([&](Status& status) {
                 status.state = State::UpToDate;
                 status.checked = std::time(nullptr);
+                status.test_builds = std::move(test_builds);
+                status.track = track;
             });
             return;
         }
@@ -196,6 +207,8 @@ void UpdateService::RunCheck(UpdateChannel channel, std::shared_ptr<platform::Ht
             status.pull = std::move(pull);
             status.install_blocker = blocker;
             status.checked = std::time(nullptr);
+            status.test_builds = std::move(test_builds);
+            status.track = track;
         });
     }
     catch (const platform::HttpError& error)
@@ -309,6 +322,65 @@ bool UpdateService::Preview(std::string_view state)
         status.offer = made_up(false, 0, older, VersionNumber(older) + " \xE2\x80\x93 The current release",
                                release_notes);
         status.state = State::Available;
+    }
+    else if (state == "choose" || state == "tracks" || state == "switch")
+    {
+        // Three release pull requests open at once, each with its test build.
+        struct Track
+        {
+            int pull_request;
+            const char *version, *commit, *title;
+            int hours_ago;
+        };
+        const Track tracks[] = {
+            {74, "1.2.0", "e4b1c0d9a7f3", "Release 1.2.0 \xE2\x80\x93 Mods", 50},
+            {72, "1.1.0", "9a3f5b7c1e2d", "Release 1.1.0 \xE2\x80\x93 NetCode!", 2},
+            {69, "1.0.11", "4d5a65b360a5", "Release 1.0.11 \xE2\x80\x93 Wii Remote speaker, gyro pointer and a HUD fix", 26},
+        };
+        for (const auto& track : tracks)
+        {
+            PortVersion version = ParsePortVersion(track.version);
+            version.commit = track.commit;
+            PublishedBuild offer = made_up(true, track.pull_request, version,
+                                           std::string("Test build: ") + track.title + " (#"
+                                               + std::to_string(track.pull_request) + ")",
+                                           pull_notes);
+            offer.published = std::time(nullptr) - std::int64_t(track.hours_ago) * 3600;
+            status.test_builds.push_back(std::move(offer));
+        }
+        status.channel = UpdateChannel::Test;
+        status.state = State::UpToDate;
+        if (state == "choose")
+        {
+            build.origin = BuildOrigin::Release;
+            build.version = "1.0.10+gc215f76f1c91";
+        }
+        else
+        {
+            build.origin = BuildOrigin::Test;
+            build.pull_request = 69;
+            build.version = "1.0.11+g4d5a65b360a5";
+            build.built = status.test_builds[2].published;
+            status.track = 69;
+        }
+        if (state == "switch")
+        {
+            const std::string netcode_notes =
+                "Version 1.1.0 brings online matches against other Recharged players.\n\n"
+                "## Online\n- **Online play (#2):** Domination matches over the port's own service.\n\n"
+                "## To try\n- Choose **Online** in the main menu and invite a friend.";
+            status.chosen = status.track = 72;
+            status.offer = status.test_builds[1];
+            status.offer->notes = netcode_notes;
+            PullRequestInfo pull;
+            pull.number = 72;
+            pull.title = "Release 1.1.0 \xE2\x80\x93 NetCode!";
+            pull.body = netcode_notes;
+            pull.page = status.offer->page;
+            pull.open = true;
+            status.pull = pull;
+            status.state = State::Available;
+        }
     }
     else return false;
     std::lock_guard<std::mutex> lock(mutex_);

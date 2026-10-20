@@ -1,0 +1,105 @@
+Subject: Tweak: robot goalies
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Super Mario Strikers (GameCube) has a hidden robot team, the Super Team, whose
+goalie is a Kritter in a robot skin. Charged's disc still holds that skin's
+texture, art/characters/superteamgoalie/superteamgoalie.rlt, but no code loads
+it: the goalie skin table has the twelve teams only, and the texture is laid
+out for the GameCube Kritter, whose model Charged replaced.
+
+With "Robot goalies" enabled, both goalies wear it. CharacterLoader passes each
+goalie texture bundle as it loads (a team's kit, an away kit, also one Mirror
+match made, and the shared bundle with the eye and shine mask) to the port,
+which lays the robot texture onto Charged's goalie textures in place
+(src/platform/robot_goalie.cpp, with the map of assets/gameplay). Only the look
+changes; the goalie's model, animations and play are the game's.
+
+diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
+index 5ee1bf5..00c8116 100644
+--- a/src/Game/CharacterLoader.cpp
++++ b/src/Game/CharacterLoader.cpp
+@@ -204,6 +204,31 @@ static bool BluePeachTeam(eCharacterClass captain0, eCharacterClass captain1, in
+ }
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Robot goalies": both goalies wear the robot goalie skin of the
++// Super Team from Super Mario Strikers. The disc still has its texture, unused
++// and laid out for that game's goalie; the port lays it onto every goalie
++// texture of a bundle as it loads (src/platform/robot_goalie.cpp).
++static void RobotGoalieTextures(void* data, unsigned long size)
++{
++    if (!mscharged_tweak_enabled(MSCHARGED_TWEAK_ROBOT_GOALIES) || data == 0)
++    {
++        return;
++    }
++    const char* szRobot = "art/characters/superteamgoalie/superteamgoalie.rlt";
++    unsigned long robotSize = 0;
++    void* robot = nlFileExists(szRobot) ? nlLoadEntireFile(szRobot, &robotSize, 32, AllocateStart, 0, 0, 0) : 0;
++    if (robot == 0 || mscharged_tweak_robot_goalie_textures(data, size, robot, robotSize) == 0)
++    {
++        nlPrintf("Robot goalies: a goalie texture bundle keeps its look\n");
++    }
++    if (robot != 0)
++    {
++        nlFree(robot);
++    }
++}
++#endif
++
+ CharacterLoader::~CharacterLoader()
+ {
+ }
+@@ -403,6 +428,13 @@ bool CharacterLoader::FinalizeLoadingCharacterTextures()
+         oldCallback = glx_SetLoadCallback(SidekickTexture_cb);
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Robot goalies": a goalie's team kit (Mario's comes with the eye and shine mask).
++    if (pEntry->bGoalie)
++    {
++        RobotGoalieTextures(mTextureData, mTextureSize);
++    }
++#endif
+     glEndLoadTextureBundle(mTextureData, mTextureSize, glGetCurrentResourcePool(), true);
+ 
+     if (mCurrent->bSidekick)
+@@ -470,6 +502,10 @@ bool CharacterLoader::FinalizeLoadingSharedTextures()
+         return false;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Robot goalies": the goalie's eye and shine mask.
++    RobotGoalieTextures(mTextureData, mTextureSize);
++#endif
+     skiptexture = glGetTexture("mariogoalie/mariogoalie");
+     glxTextureLoadCallback_t oldCallback = glx_SetLoadCallback(SidekickTexture_cb);
+     glEndLoadTextureBundle(mTextureData, mTextureSize, glGetCurrentResourcePool(), false);
+@@ -1343,6 +1379,13 @@ bool CharacterLoader::FinalizeLoadingCaptainOrGoalieAlternateSwapTexture()
+         unsigned long target = glGetTexture(szAwayTexture);
+         MirrorMatchMakeAwayKit(mCaptain[1], mCurrent->bCaptain ? MIRROR_MATCH_KIT : MIRROR_MATCH_GOALIE, 0, 0,
+             mAltTextureData, mAltTextureSize, source, target);
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Robot goalies": the robot's kit replaces a made away goalie kit.
++        if (mCurrent->bGoalie)
++        {
++            RobotGoalieTextures(mAltTextureData, mAltTextureSize);
++        }
++#endif
+         glEndLoadTextureBundle(mAltTextureData, mAltTextureSize, glGetCurrentResourcePool(), false);
+         cCharacter* pKitChar = g_pCharacters[mCurrent->nCharIdx];
+         pKitChar->SetNormalTexture(mCurrent->bGoalie ? glGetTexture("mariogoalie/mariogoalie") : source);
+@@ -1353,6 +1396,13 @@ bool CharacterLoader::FinalizeLoadingCaptainOrGoalieAlternateSwapTexture()
+     }
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Robot goalies": a goalie's away kit.
++    if (mCurrent->bGoalie)
++    {
++        RobotGoalieTextures(mAltTextureData, mAltTextureSize);
++    }
++#endif
+     glEndLoadTextureBundle(mAltTextureData, mAltTextureSize, glGetCurrentResourcePool(), false);
+ 
+     const char* szName = GetCharacterInfo(mCurrent->cc).mName;

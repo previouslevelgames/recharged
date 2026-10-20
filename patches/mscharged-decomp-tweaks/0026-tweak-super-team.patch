@@ -1,0 +1,151 @@
+Subject: Tweak: Super Team
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Super Mario Strikers (GameCube) has a hidden robot team, the Super Team. Charged
+has no such model, but the GameCube game's robot (art/characters/SuperTeam)
+uses the same skeleton as Charged's characters. With "Super Team" enabled, the
+captain and sidekicks of the chosen team look like those robots.
+
+The port makes, from the player's Super Mario Strikers disc, a robot version of
+each character model of a robot class as it loads: the robot fitted to that
+character's bones and size, in the character's own material with the robot's
+textures (src/platform/super_team.cpp). It has its own model id, and only the
+robot players get those ids: a character on both teams keeps its own look on
+the other one. The electrocution and shadow models, skeleton, animations and
+play stay the character's. Bowser, Petey Piranha and Boo keep their look; their
+bodies fit no humanoid robot.
+
+diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
+index 00c8116..e1b3e0c 100644
+--- a/src/Game/CharacterLoader.cpp
++++ b/src/Game/CharacterLoader.cpp
+@@ -229,6 +229,93 @@ static void RobotGoalieTextures(void* data, unsigned long size)
+ }
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/GL/GLInventory.h"
++
++// Port tweak "Super Team": the captain and sidekicks of the chosen team look
++// like the robots of the Super Team from Super Mario Strikers. Each character
++// model of a robot class also gets a robot version under its own model id,
++// made from the player's GameCube disc (src/platform/super_team.cpp), and only
++// the robot players get those ids: a character on both teams keeps its look on
++// the other one. The character's skeleton, animations and play are unchanged.
++static bool SuperTeamClass(const CharacterLoader* loader, eCharacterClass cc)
++{
++    for (int i = 0; i < 10; i++)
++    {
++        const CharacterLoader::Entry& entry = loader->mEntries[i];
++        if (!entry.bGoalie && entry.cc == cc && mscharged_tweak_super_team(entry.nTeamID, entry.cc))
++        {
++            return true;
++        }
++    }
++    return false;
++}
++
++static void SuperTeamModel(const CharacterLoader* loader, void* data, unsigned long size)
++{
++    if (!SuperTeamClass(loader, loader->mCurrent->cc))
++    {
++        return;
++    }
++    GLResourcePool* pool = glGetCurrentResourcePool();
++    if (pool->m_inventory->GetTexture(mscharged_tweak_super_team_texture()) == 0)
++    {
++        unsigned long texturesSize = 0;
++        void* textures = mscharged_tweak_super_team_textures(&texturesSize);
++        if (textures == 0)
++        {
++            return;
++        }
++        glEndLoadTextureBundle(textures, texturesSize, pool, 0);
++        mscharged_tweak_super_team_free(textures);
++    }
++    unsigned long skeletonSize = 0;
++    void* skeleton = nlLoadEntireFile(loader->mTemplateInfo->szHierarchyFilename, &skeletonSize, 32,
++        AllocateStart, 0, 0, 0);
++    if (skeleton == 0)
++    {
++        return;
++    }
++    unsigned long madeSize = 0;
++    void* made = mscharged_tweak_super_team_model(data, size, skeleton, skeletonSize, &madeSize);
++    nlFree(skeleton);
++    if (made == 0)
++    {
++        nlPrintf("Super Team: %s keeps its look\n", loader->mTemplateInfo->szModelFilename);
++        return;
++    }
++    unsigned long numModels = 0;
++    glEndLoadModel(made, madeSize, &numModels, pool);
++    mscharged_tweak_super_team_free(made);
++}
++
++// A robot player's model ids (normal and low poly; the electrocution and shadow
++// models stay the character's). False, ids unchanged, for any other player.
++static bool SuperTeamModelIDs(const CharacterLoader::Entry* entry, int* ids)
++{
++    if (entry->bGoalie || !mscharged_tweak_super_team(entry->nTeamID, entry->cc))
++    {
++        return false;
++    }
++    GLInventory* inventory = glGetCurrentResourcePool()->m_inventory;
++    bool changed = false;
++    for (int i = 0; i < 4; i++)
++    {
++        if ((i != CHAR_MODEL_NORMAL && i != CHAR_MODEL_LOW_POLY) || ids[i] == 0)
++        {
++            continue;
++        }
++        unsigned long robot = mscharged_tweak_super_team_model_id((unsigned long)ids[i]);
++        if (inventory->GetModel(robot) != 0)
++        {
++            ids[i] = (int)robot;
++            changed = true;
++        }
++    }
++    return changed;
++}
++#endif
++
+ CharacterLoader::~CharacterLoader()
+ {
+ }
+@@ -707,6 +794,12 @@ bool CharacterLoader::FinalizeLoadingCharacterModel(int nModel)
+     }
+ 
+     unsigned long numModels = 0;
++#if defined(MSCHARGED_TWEAKS)
++    if (nModel == CHAR_MODEL_NORMAL || nModel == CHAR_MODEL_LOW_POLY)
++    {
++        SuperTeamModel(this, mModelData[nModel], mModelSize[nModel]);
++    }
++#endif
+     glModel* pModel = glEndLoadModel(mModelData[nModel],
+         mModelSize[nModel], &numModels, glGetCurrentResourcePool());
+     nlFree(mModelData[nModel]);
+@@ -1218,11 +1311,22 @@ void CharacterLoader::CreateCharacterInstance()
+     }
+     else
+     {
++#if defined(MSCHARGED_TWEAKS)
++        int superTeamIDs[4];
++        memcpy(superTeamIDs, pTemplate->nCharacterModelID, sizeof(superTeamIDs));
++        bool superTeam = SuperTeamModelIDs(mCurrent, pTemplate->nCharacterModelID);
++#endif
+         cFielder* pFielder = new (nlMalloc(sizeof(cFielder), 8, false)) cFielder(
+             mCurrent->nPlayerID, mCurrent->nTeamID, mCurrent->cc, (const int*)pTemplate,
+             pHierarchy, pTemplate->pAnimInventory, pTemplate->pPhysicsData,
+             pTemplate->pPlayerTweaks, pTemplate->pSuperPlayerTweaks, pAnimRetargetList,
+             mCurrent->nCharIdx);
++#if defined(MSCHARGED_TWEAKS)
++        if (superTeam)
++        {
++            memcpy(pTemplate->nCharacterModelID, superTeamIDs, sizeof(superTeamIDs));
++        }
++#endif
+         pFielder->m_szEffectsName = pInfo->szEffectsName;
+ 
+         g_pCharacters[mCurrent->nCharIdx] = pFielder;

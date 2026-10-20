@@ -68,7 +68,7 @@ The patches fall into two series:
   keeps the game's algorithms, timing, bugs and quirks as they are.
 - **The tweak series** (`patches/mscharged-decomp-tweaks/`) holds every
   intended change: the optional gameplay tweaks, the frame-rate option,
-  three fixes of bugs in the original game, and the adapters that let the
+  four fixes of bugs in the original game, and the adapters that let the
   first European revision's data run on the second revision's code. Each
   change is compiled only into the game module, and the optional tweaks take
   the original path unless turned on.

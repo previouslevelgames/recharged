@@ -341,6 +341,30 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->PathArcTo(p(0.0f, 0.42f), 0.38f * s, 3.14159f, 6.28318f);
         draw->PathFillConvex(color);
         break;
+    case Icon::Archive:
+    {
+        // A zip file: a page with a zipper down its middle.
+        draw->AddRect(p(-0.32f, -0.42f), p(0.32f, 0.42f), color, s * 0.08f, 0, t);
+        for (int i = 0; i < 4; ++i)
+        {
+            const float y = -0.34f + 0.13f * float(i);
+            const float x = i % 2 ? 0.0f : -0.08f;
+            draw->AddRectFilled(p(x, y), p(x + 0.08f, y + 0.07f), color);
+        }
+        draw->AddRect(p(-0.09f, 0.14f), p(0.09f, 0.32f), color, 0.0f, 0, t);
+        break;
+    }
+    case Icon::More:
+        for (int i = -1; i <= 1; ++i) draw->AddCircleFilled(p(0.28f * float(i), 0.0f), s * 0.075f, color);
+        break;
+    case Icon::Up:
+    case Icon::Down:
+    {
+        const float y = icon == Icon::Up ? 1.0f : -1.0f;
+        const ImVec2 points[] = {p(-0.3f, 0.15f * y), p(0.0f, -0.15f * y), p(0.3f, 0.15f * y)};
+        draw->AddPolyline(points, 3, color, 0, t * 1.3f);
+        break;
+    }
     }
 }
 
@@ -828,8 +852,10 @@ bool Segmented(const char* id, int* selected, const std::vector<const char*>& it
     return changed;
 }
 
-bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass)
+bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass,
+                    int* pressed)
 {
+    if (pressed) *pressed = -1;
     ImGui::PushID(id);
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     const int count = int(items.size());
@@ -864,21 +890,29 @@ bool SegmentedIcons(const char* id, int* selected, std::initializer_list<Segment
         const SegmentItem& item = items_begin[index];
         ImGui::SetCursorScreenPos({pos.x + segment * float(index), pos.y});
         ImGui::PushID(index);
-        if (ImGui::InvisibleButton("##segment", {segment, size.y}) && *selected != index)
+        if (ImGui::InvisibleButton("##segment", {segment, size.y}))
         {
-            *selected = index;
-            changed = true;
+            if (pressed) *pressed = index;
+            if (*selected != index)
+            {
+                *selected = index;
+                changed = true;
+            }
         }
         const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered() && enabled, 12.0f);
         const bool active = index == *selected;
         const ImVec2 text = TextSize(fonts.body, item.label);
-        const float left = pos.x + segment * float(index) + (segment - (icon_size + gap + text.x)) * 0.5f;
+        const float chevron = item.menu ? Dp(14) : 0.0f;
+        const float left = pos.x + segment * float(index) + (segment - (icon_size + gap + text.x + chevron)) * 0.5f;
         const float middle = pos.y + size.y * 0.5f;
         const ImVec4 ink = active ? color::text : Mix(color::muted, color::text, hover * 0.7f);
         DrawIcon(draw, item.icon, {left + icon_size * 0.5f, middle}, icon_size,
                  Col(active ? item.tint : Mix(color::dim, color::muted, 0.5f + 0.5f * hover), enabled ? 1.0f : 0.6f));
         DrawLabel(draw, fonts.body, {left + icon_size + gap, middle - text.y * 0.5f}, Col(ink, enabled ? 1.0f : 0.6f),
                   item.label);
+        if (item.menu)
+            DrawChevronDown(draw, {left + icon_size + gap + text.x + Dp(9), middle + Dp(1)}, Dp(10),
+                            Col(active ? Mix(item.tint, color::text, 0.3f) : color::muted, enabled ? 1.0f : 0.6f));
         ImGui::PopID();
     }
     ImGui::SetCursorScreenPos(pos);
@@ -887,7 +921,7 @@ bool SegmentedIcons(const char* id, int* selected, std::initializer_list<Segment
     return changed;
 }
 
-bool PercentSlider(const char* id, int* value, float width)
+bool PercentSlider(const char* id, int* value, float width, const char* zero_label, int minimum, int maximum)
 {
     ImGui::PushID(id);
     const auto& fonts = CurrentFonts();
@@ -905,7 +939,7 @@ bool PercentSlider(const char* id, int* value, float width)
     ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4{0, 0, 0, 0});
     ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, knob);
     ImGui::SetNextItemWidth(track_width);
-    const bool changed = ImGui::SliderInt("##slider", value, 0, 100, "", ImGuiSliderFlags_AlwaysClamp);
+    const bool changed = ImGui::SliderInt("##slider", value, minimum, maximum, "", ImGuiSliderFlags_AlwaysClamp);
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(5);
     const bool active = ImGui::IsItemActive();
@@ -915,7 +949,8 @@ bool PercentSlider(const char* id, int* value, float width)
     auto* draw = ImGui::GetWindowDrawList();
     const float alpha = ImGui::GetStyle().Alpha; // dimmed while disabled (Mute)
     const float left = pos.x + 2.0f + knob * 0.5f, right = pos.x + track_width - 2.0f - knob * 0.5f;
-    const float x = left + (right - left) * std::clamp(float(*value) / 100.0f, 0.0f, 1.0f);
+    const float x = left + (right - left)
+        * std::clamp(float(*value - minimum) / float(std::max(1, maximum - minimum)), 0.0f, 1.0f);
     const float y = pos.y + height * 0.5f, half = Dp(2);
     draw->AddRectFilled({left, y - half}, {right, y + half}, Col(color::text, 0.12f * alpha), half);
     if (x > left + 0.5f)
@@ -926,7 +961,7 @@ bool PercentSlider(const char* id, int* value, float width)
     draw->AddCircleFilled({x, y + Dp(1)}, radius, Col(ImVec4{0, 0, 0, 1}, 0.35f * alpha));
     draw->AddCircleFilled({x, y}, radius, Col(active ? color::accent_hi : color::text, alpha));
 
-    const std::string text = std::to_string(*value) + "%";
+    const std::string text = *value == 0 && zero_label ? zero_label : std::to_string(*value) + "%";
     const ImVec2 size = TextSize(fonts.body, text.c_str());
     DrawLabel(draw, fonts.body, {pos.x + width - size.x, y - size.y * 0.5f}, Col(color::text, 0.85f * alpha), text.c_str());
     ImGui::PopID();
@@ -1038,6 +1073,13 @@ void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color)
     draw->AddPolyline(points, 3, color, 0, std::max(1.5f, size * 0.14f));
 }
 
+void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color)
+{
+    const ImVec2 points[] = {{center.x - size * 0.4f, center.y - size * 0.2f}, {center.x, center.y + size * 0.2f},
+                             {center.x + size * 0.4f, center.y - size * 0.2f}};
+    draw->AddPolyline(points, 3, color, 0, std::max(1.5f, size * 0.14f));
+}
+
 void BeginCard(const char* id, const char* title, const char* subtitle, Icon icon, float width)
 {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, color::card);
@@ -1050,16 +1092,25 @@ void BeginCard(const char* id, const char* title, const char* subtitle, Icon ico
     if (title)
     {
         const ImVec2 pos = ImGui::GetCursorScreenPos();
-        float indent = 0.0f;
+        const float box = icon != Icon::None ? Dp(34) : 0.0f;
+        const float indent = icon != Icon::None ? box + Dp(14) : 0.0f;
+        // The icon and the title (with its subtitle) are centred on each
+        // other, whichever is taller.
+        float block = FontSize(fonts.heading);
+        if (subtitle)
+        {
+            const float wrap = ImGui::GetContentRegionAvail().x - indent;
+            block += ImGui::GetStyle().ItemSpacing.y - Dp(6)
+                + fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, subtitle).y;
+        }
         if (icon != Icon::None)
         {
             auto* draw = ImGui::GetWindowDrawList();
-            const float box = Dp(34);
-            draw->AddRectFilled(pos, {pos.x + box, pos.y + box}, Col(color::accent, 0.12f), Dp(10));
-            DrawIcon(draw, icon, {pos.x + box * 0.5f, pos.y + box * 0.5f}, Dp(18), Col(color::accent));
-            indent = box + Dp(14);
+            const ImVec2 at{pos.x, pos.y + std::max(0.0f, (block - box) * 0.5f)};
+            draw->AddRectFilled(at, {at.x + box, at.y + box}, Col(color::accent, 0.12f), Dp(10));
+            DrawIcon(draw, icon, {at.x + box * 0.5f, at.y + box * 0.5f}, Dp(18), Col(color::accent));
         }
-        ImGui::SetCursorScreenPos({pos.x + indent, pos.y + (subtitle ? 0.0f : Dp(4))});
+        ImGui::SetCursorScreenPos({pos.x + indent, pos.y + std::max(0.0f, (box - block) * 0.5f)});
         ImGui::BeginGroup();
         TextColored(fonts.heading, color::text, title);
         if (subtitle)
@@ -1068,6 +1119,7 @@ void BeginCard(const char* id, const char* title, const char* subtitle, Icon ico
             TextWrappedColored(fonts.caption, color::muted, subtitle);
         }
         ImGui::EndGroup();
+        ImGui::SetCursorScreenPos({pos.x, std::max(ImGui::GetCursorScreenPos().y, pos.y + box + ImGui::GetStyle().ItemSpacing.y)});
         ImGui::Dummy({0, Dp(6)});
     }
 }
@@ -1079,6 +1131,18 @@ void EndCard()
     ImGui::PopStyleColor(2);
     ImGui::Dummy({0, Dp(8)});
 }
+
+namespace
+{
+// The sub-rows being drawn, between BeginSubRows and EndSubRows.
+struct SubRows
+{
+    ImGuiTable* table = nullptr;
+    float parent_top = 0.0f; // the parent row's top
+    float top = -1.0f;       // the first sub-row's top, once it has begun
+};
+SubRows g_sub_rows;
+} // namespace
 
 bool BeginRows(const char* id)
 {
@@ -1099,7 +1163,10 @@ void Row(const char* label, const char* description)
 {
     const auto& fonts = CurrentFonts();
     ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
+    const bool sub = g_sub_rows.table && g_sub_rows.table == ImGui::GetCurrentTable();
+    if (sub && g_sub_rows.top < 0.0f) g_sub_rows.top = g_sub_rows.table->RowPosY1;
     ImGui::TableSetColumnIndex(0);
+    if (sub) ImGui::Indent(Dp(16));
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - Dp(24));
     TextColored(fonts.label, color::text, label);
     if (description)
@@ -1112,7 +1179,41 @@ void Row(const char* label, const char* description)
         ImGui::PopFont();
     }
     ImGui::PopTextWrapPos();
+    if (sub) ImGui::Unindent(Dp(16));
     ImGui::TableSetColumnIndex(1);
+}
+
+void BeginSubRows()
+{
+    ImGuiTable* table = ImGui::GetCurrentTable();
+    IM_ASSERT(table && table->IsInsideRow && !g_sub_rows.table);
+    g_sub_rows = {table, table->RowPosY1, -1.0f};
+}
+
+void EndSubRows()
+{
+    ImGuiTable* table = g_sub_rows.table;
+    IM_ASSERT(table && table == ImGui::GetCurrentTable() && g_sub_rows.top >= 0.0f);
+    // Ends the last sub-row now, so its height is known.
+    ImGui::TableEndRow(table);
+    // Drawn on the table's background channel, behind every cell, and clipped
+    // to the card, so the panel and the line reach a little into its padding.
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const int channel = table->DrawSplitter->_Current;
+    table->DrawSplitter->SetCurrentChannel(draw, 0);
+    const ImRect clip = table->Bg0ClipRectForDrawCmd;
+    draw->PushClipRect(clip.Min, clip.Max, false);
+    const float left = table->WorkRect.Min.x;
+    const ImVec2 min{left, g_sub_rows.top + Dp(3)};
+    const ImVec2 max{std::min(table->WorkRect.Max.x + Dp(12), clip.Max.x - 1.0f), table->RowPosY2 - Dp(3)};
+    draw->AddRectFilled(min, max, Col(color::field), Dp(12));
+    draw->AddRect(min, max, Col(color::border, 0.7f), Dp(12));
+    const float rail = std::max(left - Dp(9), clip.Min.x + 1.0f);
+    draw->AddRectFilled({rail, g_sub_rows.parent_top + Dp(10)}, {rail + Dp(3), max.y}, Col(color::accent, 0.9f),
+                        Dp(1.5f));
+    draw->PopClipRect();
+    table->DrawSplitter->SetCurrentChannel(draw, channel);
+    g_sub_rows = {};
 }
 
 void EndRows()

@@ -15,7 +15,8 @@
 namespace mscharged
 {
 // Bit numbers; they match the hooks' tweak IDs (include/mscharged_tweaks.h in
-// the tweak series). Append only.
+// the tweak series). Append only. NoHud is no [gameplay] tweak: its bit is
+// set by [hotkeys] show_hud = false (Settings::ModuleTweakMask).
 enum class GameTweak : unsigned
 {
     SkipIntro = 0,
@@ -29,6 +30,8 @@ enum class GameTweak : unsigned
     BluePeach = 8,
     NoHud = 9,
     FairBallContests = 10,
+    RobotGoalies = 11,
+    SuperTeam = 12,
 };
 
 struct GameTweakInfo
@@ -40,7 +43,7 @@ struct GameTweakInfo
     bool on_by_default = false; // recommended to every player: on without its [gameplay] key
 };
 
-inline constexpr std::array<GameTweakInfo, 11> kGameTweaks{{
+inline constexpr std::array<GameTweakInfo, 12> kGameTweaks{{
     {GameTweak::SkipIntro, "skip_intro", "Skip intro",
      "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
@@ -69,16 +72,29 @@ inline constexpr std::array<GameTweakInfo, 11> kGameTweaks{{
     {GameTweak::BluePeach, "blue_peach", "Blue Peach",
      "Peach's team wears her unused blue and yellow kit on the field: Peach, her sidekicks and her goalie. The game "
      "has no blue menu pictures, Mega Strike hand, banners or crowd for it, so those stay pink."},
-    {GameTweak::NoHud, "no_hud", "No HUD",
-     "Matches start without the scoreboard, player markers and captions (replay label, goal banner, super ability "
-     "card), for clean recordings. Press H in a match to show or hide them. The Mega Strike meter and its defence "
-     "targets stay."},
     {GameTweak::FairBallContests, "fair_ball_contests", "Fair ball contests",
      "When players of both teams reach a loose ball at once, neither team wins more often. The game updates the "
-     "players in an order it shuffles at kickoff, slightly in the home team's favour; this shuffles it fairly, and "
-     "again every step. On by default; online matches always play with it.",
+     "players in an order it shuffles at kickoff, slightly in the home team's favour, and settles one-timers, "
+     "first-time shots off rebounds and pass receptions with the home team always first; this shuffles the order "
+     "fairly, again every step, and uses it for those too. On by default; online matches always play with it.",
      true},
+    {GameTweak::RobotGoalies, "robot_goalies", "Robot goalies",
+     "Both goalies wear the robot Kritter skin of the Super Team from Super Mario Strikers, which the game's disc "
+     "still holds unused: red lens eyes, metal plating and the robot jersey. Only the look changes."},
+    {GameTweak::SuperTeam, "super_team", "Super Team (Work in Progress)",
+     "A team's captain and sidekicks become the robots of the Super Team from Super Mario Strikers, fitted to each "
+     "character's size. Needs a Super Mario Strikers (GameCube) disc image. Bowser, Petey Piranha and Boo keep "
+     "their own look; only the look changes."},
 }};
+
+// The position of `tweak` in kGameTweaks and Settings::tweaks (kGameTweaks.size()
+// for NoHud, which is not listed).
+inline constexpr std::size_t GameTweakIndex(GameTweak tweak)
+{
+    for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
+        if (kGameTweaks[n].tweak == tweak) return n;
+    return kGameTweaks.size();
+}
 
 // The tweaks on without a [gameplay] key.
 inline constexpr std::array<bool, kGameTweaks.size()> DefaultGameTweaks()

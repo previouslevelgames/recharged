@@ -44,6 +44,8 @@ class PackageBuildTests(unittest.TestCase):
         path = self.write(self.source, "assets/graphics/pipelines.json", json.dumps(catalog).encode())
         generate(self.build / "assets/graphics/initial_pipeline_cache.db", PACKAGER.catalog_rows(path))
         self.write(self.source, "assets/graphics/README.md", b"pipeline descriptions only")
+        self.write(self.source, "assets/gameplay/robot_goalie.map", b"RGM1 synthetic map")
+        self.write(self.source, "assets/gameplay/README.md", b"texture coordinates only")
         for public in PACKAGER.PUBLIC_FILES:
             self.write(self.source, public, b"public text")
         self.write(self.build, "generated/mscharged/build_version.h",
@@ -191,6 +193,8 @@ checksum = "{self.checksum}"
             self.assertEqual(manifest["files"]["recharged"]["mode"], "0o755")
             self.assertIn("assets/graphics/initial_pipeline_cache.db", manifest["files"])
             self.assertIn("assets/graphics/README.md", manifest["files"])
+            self.assertIn("assets/gameplay/robot_goalie.map", manifest["files"])
+            self.assertIn("assets/gameplay/README.md", manifest["files"])
             self.assertFalse(any("MUST NOT BE PACKAGED" in archive.extractfile(member).read().decode(errors="ignore")
                                  for member in members if member.isfile()))
             extraction = self.root / "extracted"

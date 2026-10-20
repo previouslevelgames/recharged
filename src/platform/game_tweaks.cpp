@@ -86,6 +86,9 @@ enum
 };
 float sSoundDecibels[kSoundGroupCount];
 bool sSoundMixed; // a group below 100 %
+// The sound being set (SoundPlaybackEvent): its group's level in tenths of a
+// decibel, the MIX fader MIXSetInput gives its voices.
+int sSoundFader;
 float sMovieGain = 1.0f;
 // The game's mix categories, the calculation sliders of audio/nlxgs.bun
 // (UserOptions.cpp names them): global 0, default 1, music 2, dialogue 3,
@@ -236,6 +239,22 @@ float mscharged_tweak_sound_volume(const char* bank, unsigned category)
 float mscharged_tweak_movie_volume(void)
 {
     return sMovieGain;
+}
+
+void mscharged_tweak_set_sound_level(const char* bank, unsigned category)
+{
+    // Whole tenths, as the game's own (int)(10 * dB) for MIXSetInput.
+    sSoundFader = int(10.0f * mscharged_tweak_sound_volume(bank, category));
+}
+
+void mscharged_tweak_clear_sound_level(void)
+{
+    sSoundFader = 0;
+}
+
+int mscharged_tweak_sound_fader(void)
+{
+    return sSoundFader;
 }
 
 bool mscharged_tweak_performance_mode(void)

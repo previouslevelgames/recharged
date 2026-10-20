@@ -1,11 +1,17 @@
+#include "platform/desktop_dpd.h"
 #include "platform/desktop_wpad.h"
+#include "platform/fullscreen_hotkey.h"
+#include "platform/gyro_pointer.h"
 #include "platform/wpad_sdl.h"
 #include "platform/interrupts.h"
 #include <SDL3/SDL.h>
 #include <revolution/wpad/WPAD.h>
 #include <dolphin/os.h>
 
+#include <array>
 #include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -164,10 +170,38 @@ void CustomKeysCycle() {
     mscharged::platform::ConfigureWpadSDL({0,3,false,false});
     mscharged::platform::DesktopWpadSettings settings{};
     settings.keyboard = true;
+    // The hotkeys ([hotkeys]) are no action's keys: P and H unless rebound.
+    {
+        using mscharged::platform::Hotkeys;
+        using mscharged::platform::KeyBinding;
+        using mscharged::platform::ParseHotkeys;
+        std::array<std::string, mscharged::KeyActionCount> texts{};
+        texts[mscharged::KeyActionB] = "Return | P";
+        texts[mscharged::KeyActionOne] = "H";
+        auto bindings = mscharged::platform::ParseKeyBindings(texts, Hotkeys{});
+        Check(bindings[mscharged::KeyActionB] == KeyBinding{SDL_SCANCODE_RETURN, SDL_SCANCODE_UNKNOWN},
+              "The screenshot key was bound to an action");
+        Check(bindings[mscharged::KeyActionOne] == KeyBinding{SDL_SCANCODE_Z, SDL_SCANCODE_UNKNOWN},
+              "An action left with only the HUD key did not keep its default");
+        bindings = mscharged::platform::ParseKeyBindings(texts, Hotkeys{SDL_SCANCODE_F5, SDL_SCANCODE_Z});
+        Check(bindings[mscharged::KeyActionB] == KeyBinding{SDL_SCANCODE_RETURN, SDL_SCANCODE_P}
+                  && bindings[mscharged::KeyActionOne] == KeyBinding{SDL_SCANCODE_H, SDL_SCANCODE_UNKNOWN},
+              "Rebound hotkeys did not free P and H");
+        texts[mscharged::KeyActionOne] = "";
+        Check(mscharged::platform::ParseKeyBindings(texts, Hotkeys{SDL_SCANCODE_F5, SDL_SCANCODE_Z})
+                      [mscharged::KeyActionOne][0] == SDL_SCANCODE_UNKNOWN,
+              "A default key taken by a hotkey stayed bound");
+        const auto keys = [](const Hotkeys& hotkeys, SDL_Scancode screenshot, SDL_Scancode hud) {
+            return hotkeys.screenshot == screenshot && hotkeys.hud == hud;
+        };
+        Check(keys(ParseHotkeys("F12", "G"), SDL_SCANCODE_F12, SDL_SCANCODE_G), "Hotkeys did not parse");
+        Check(keys(ParseHotkeys("Left Alt", "Mouse 4"), SDL_SCANCODE_P, SDL_SCANCODE_H)
+                  && keys(ParseHotkeys("", "Nonsense"), SDL_SCANCODE_P, SDL_SCANCODE_H),
+              "A modifier, mouse button or unknown name became a hotkey");
+        Check(keys(ParseHotkeys("G", "G"), SDL_SCANCODE_P, SDL_SCANCODE_H), "Both hotkeys took the same key");
+    }
     settings.keys[mscharged::KeyActionA] = mscharged::platform::ParseKeyBinding("F1");
-    settings.keys[mscharged::KeyActionB] = mscharged::platform::ParseKeyBinding("Return | P");
-    Check(settings.keys[mscharged::KeyActionB][1] == SDL_SCANCODE_UNKNOWN, "The screenshot key was bound to an action");
-    Check(mscharged::platform::ParseKeyBinding("H")[0] == SDL_SCANCODE_UNKNOWN, "The HUD key was bound to an action");
+    settings.keys[mscharged::KeyActionB] = mscharged::platform::ParseKeyBinding("Return");
     mscharged::platform::InitializeDesktopWpad(window, settings);
     WPADInit();
     Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
@@ -271,7 +305,7 @@ void GamepadPlayerCycle() {
     Until([&] { return report().button == WPAD_BUTTON_A; }, "Gamepad south did not press A");
     SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
-    Until([&] { auto r = report(); return r.fsStickX == 100 && r.fsStickY == 0 && r.button == 0; },
+    Until([&] { auto r = report(); return r.fsStickX == 71 && r.fsStickY == 0 && r.button == 0; },
           "Left stick did not move the Nunchuk stick right");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32767);
@@ -283,6 +317,56 @@ void GamepadPlayerCycle() {
     Until([&] { return report().button == 0; }, "Gamepad release kept a button");
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
+}
+// The game's own processing of the Nunchuk stick (original ClampWiiStick),
+// written out again: 15 counts dropped per axis, full push 56 counts further.
+std::array<int, 2> GameStick(int x, int y) {
+    const auto axis = [](int v) { return v < 15 && v > -15 ? 0 : v > 0 ? v - 15 : v + 15; };
+    x = axis(x);
+    y = axis(y);
+    if (x * x + y * y > 56 * 56) {
+        const float scale = 56.0f / std::sqrt(float(x * x + y * y));
+        x = int(x * scale);
+        y = int(y * scale);
+    }
+    return {x, y};
+}
+// Issue #62: round dead zones, and Nunchuk counts the game turns back into
+// exactly the tilt the dead zones give.
+void StickDeadzoneChecks() {
+    using namespace mscharged::platform;
+    const auto near = [](float a, float b) { return std::fabs(a - b) < 1e-4f; };
+    Check(ApplyStickDeadzones(0.15f, 0, 15, 71).x == 0 && ApplyStickDeadzones(0.1f, -0.1f, 15, 71).y == 0,
+          "The stick moved inside the inner dead zone");
+    Check(near(ApplyStickDeadzones(0.43f, 0, 15, 71).x, 0.5f), "Tilt between the dead zones is not linear");
+    Check(near(ApplyStickDeadzones(0, -0.71f, 15, 71).y, -1) && near(ApplyStickDeadzones(1, 0, 15, 71).x, 1),
+          "The stick is not fully pushed from the outer dead zone on");
+    const auto diagonal = ApplyStickDeadzones(1, 1, 15, 71);
+    Check(near(diagonal.x, std::sqrt(0.5f)) && near(diagonal.y, std::sqrt(0.5f)),
+          "A full diagonal left the round gate");
+    Check(near(ApplyStickDeadzones(0.05f, 0, 0, 100).x, 0.05f), "No dead zone changed the tilt");
+    float previous = 0;
+    for (int n = 0; n <= 1000; ++n) {
+        const auto tilt = ApplyStickDeadzones(n / 1000.0f * 0.6f, n / 1000.0f * 0.8f, 20, 90);
+        const float length = std::hypot(tilt.x, tilt.y);
+        Check(length + 1e-6f >= previous && length <= 1.0f + 1e-6f, "Dead zones are not monotonic");
+        previous = length;
+    }
+    Check(NunchukStickCounts({}) == std::array<std::int8_t, 2>{0, 0}
+              && NunchukStickCounts({1, 0}) == std::array<std::int8_t, 2>{71, 0}
+              && NunchukStickCounts({0, -1}) == std::array<std::int8_t, 2>{0, -71},
+          "Nunchuk counts at rest or fully pushed");
+    for (int a = 0; a < 360; a += 3)
+        for (int r = 0; r <= 100; ++r) {
+            const float x = std::cos(a * 3.14159265f / 180) * r / 100, y = std::sin(a * 3.14159265f / 180) * r / 100;
+            const auto counts = NunchukStickCounts({x, y});
+            const auto game = GameStick(counts[0], counts[1]);
+            Check(std::abs(game[0] - int(std::lround(x * 56))) <= 1 && std::abs(game[1] - int(std::lround(y * 56))) <= 1,
+                  "The game does not read the tilt the dead zones gave");
+        }
+    Check(GamepadTriggerThreshold(50) == kGamepadTriggerPressed && GamepadTriggerThreshold(10) == 3276
+              && GamepadTriggerThreshold(100) == 32767,
+          "Trigger press points");
 }
 // [gamepadN]: a gamepad's own layout reaches WPAD as configured.
 void CustomGamepadCycle() {
@@ -306,7 +390,7 @@ void CustomGamepadCycle() {
     DesktopWpadSettings settings{};
     settings.gamepads = settings.gamepad_players = true;
     settings.gamepad_channels = {1, -1, -1, -1};
-    settings.gamepad_profiles[0] = {bindings, true};
+    settings.gamepad_profiles[0] = {bindings, true, false, 20, 80, 30};
     GenericPad pad;
     InitializeDesktopWpad(window, settings);
     WPADInit();
@@ -328,15 +412,28 @@ void CustomGamepadCycle() {
     Until([&] { return report().button == WPAD_BUTTON_B; }, "Own layout: south did not press B");
     SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, 32767);
-    Until([&] { auto r = report(); return r.fsStickX == 100 && r.button == 0; },
+    Until([&] { auto r = report(); return r.fsStickX == 71 && r.button == 0; },
           "Swapped sticks: the right stick did not move the Nunchuk stick");
+    // Dead zones 20-80 %: half the way between them is half pushed.
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, Sint16(0.5f * 32767));
+    Until([&] { auto r = report(); return GameStick(r.fsStickX, r.fsStickY)[0] == 28; },
+          "Tilt between the dead zones did not reach the game half pushed");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, Sint16(-0.19f * 32767));
+    Until([&] { return report().fsStickX == 0; }, "The stick moved inside the inner dead zone");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, Sint16(-0.85f * 32767));
+    Until([&] { return report().fsStickX == -71; }, "The stick was not fully pushed past the outer dead zone");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
     Until([&] { return report().fsStickX == 0; }, "Swapped sticks: the left stick still moved the Nunchuk stick");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
-    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32767);
+    // Press point 30 %: a trigger 40 % in presses its button. A virtual pad's
+    // trigger travels over the whole raw axis, resting at its minimum.
+    const auto trigger = [](float travel) { return Sint16(std::lround(travel * 65535 - 32768)); };
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, trigger(0.4f));
     Until([&] { return report().button == WPAD_BUTTON_FS_C; }, "Own layout: left trigger did not press C");
-    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 0);
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, trigger(0.25f));
+    Until([&] { return report().button == 0; }, "The trigger pressed C before its press point");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, trigger(0));
     SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true);
     Until([&] { return report().button == WPAD_BUTTON_FS_Z; }, "Own layout: left bumper did not press Z");
     SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false);
@@ -457,6 +554,42 @@ void MousePlayerCycle() {
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
 }
+// Middle and side mouse buttons press the keyboard actions bound to them (#62);
+// left and right click stay A and B.
+void MouseKeysCycle() {
+    using namespace mscharged::platform;
+    Check(ParseKeyBinding("mouse 4 | Return") == KeyBinding{kMouseKeyBase + SDL_BUTTON_X1, SDL_SCANCODE_RETURN}
+              && FormatKeyBinding(ParseKeyBinding("Mouse Middle|mouse 5")) == "Mouse Middle | Mouse 5"
+              && MouseKeyInput(SDL_BUTTON_LEFT) == kKeyNone && MouseButtonOf(SDL_SCANCODE_A) == 0,
+          "Mouse button names");
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.keyboard = settings.mouse = true;
+    settings.pointer_projection = WholeWindow;
+    settings.keys[mscharged::KeyActionOne] = ParseKeyBinding("Mouse 4");
+    settings.keys[mscharged::KeyActionB] = ParseKeyBinding("Escape | Mouse 5");
+    settings.keys[mscharged::KeyActionUp] = ParseKeyBinding("Mouse Middle");
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard & mouse did not connect");
+    MouseButton(SDL_BUTTON_X1, true);
+    Until([&] { return Report().button == WPAD_BUTTON_1; }, "Mouse 4 bound to 1 did not press 1");
+    MouseButton(SDL_BUTTON_X1, false);
+    MouseButton(SDL_BUTTON_X2, true);
+    Until([&] { return Report().button == WPAD_BUTTON_B; }, "Mouse 5 as B's second input did not press B");
+    MouseButton(SDL_BUTTON_X2, false);
+    MouseButton(SDL_BUTTON_MIDDLE, true);
+    Until([&] { return Report().button == WPAD_BUTTON_UP; }, "Middle click bound to up did not press up");
+    MouseButton(SDL_BUTTON_MIDDLE, false);
+    MouseButton(SDL_BUTTON_LEFT, true);
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "Left click stopped pressing A");
+    MouseButton(SDL_BUTTON_LEFT, false);
+    Until([&] { return Report().button == 0; }, "A mouse button release kept a press");
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
 void NunchukCycle() {
     connects = samples = extension_count = 0;
     mscharged::platform::ConfigureWpadSDL({0,3,false,false});
@@ -560,6 +693,375 @@ void NunchukCycle() {
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
 }
+// Stick directions as buttons (issue #14): the right stick presses the D-pad.
+void StickDirectionCycle() {
+    using namespace mscharged::platform;
+    Check(ParseGamepadBinding("dpup | rightstick_up") ==
+              GamepadBinding{SDL_GAMEPAD_BUTTON_DPAD_UP, kGamepadStickBase + RightStickUp}
+              && ParseGamepadInput("leftstick_left") == kGamepadStickBase + LeftStickLeft
+              && ParseGamepadInput("rightstick") == SDL_GAMEPAD_BUTTON_RIGHT_STICK
+              && FormatGamepadBinding(ParseGamepadBinding("dpright|rightstick_right")) == "dpright | rightstick_right",
+          "Stick direction names did not parse or format");
+    std::array<std::string, mscharged::GamepadActionCount> texts{};
+    texts[mscharged::GamepadActionUp] = "dpup | rightstick_up";
+    texts[mscharged::GamepadActionDown] = "dpdown | rightstick_down";
+    texts[mscharged::GamepadActionLeft] = "dpleft | rightstick_left";
+    texts[mscharged::GamepadActionRight] = "dpright | rightstick_right";
+    connects = samples = extension_count = 0;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {1, -1, -1, -1};
+    settings.gamepad_profiles[0] = GamepadProfile{ParseGamepadBindings(texts)};
+    GenericPad pad;
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    for (int n = 0; n != 4; ++n) WPADSetConnectCallback(n, Connect);
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(1, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Stick-direction gamepad did not connect as player 2");
+    Check(WPADSetDataFormat(1, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    const auto report = [] {
+        WPADFSStatus status{};
+        WPADRead(1, reinterpret_cast<WPADStatus*>(&status));
+        return status;
+    };
+    const auto stick = [&](float x, float y) {
+        SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, Sint16(std::lround(x * 32767)));
+        SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTY, Sint16(std::lround(y * 32767)));
+    };
+    const auto settle = [] { for (int n = 0; n < 10; ++n) { Service(); SDL_Delay(2); } };
+    stick(0, -1);
+    Until([&] { return report().button == WPAD_BUTTON_UP; }, "Right stick up did not press D-pad up");
+    stick(0, -0.45f);
+    settle();
+    Check(report().button == WPAD_BUTTON_UP, "Up was let go above 40 % of the stick's travel");
+    stick(0, -0.35f);
+    Until([&] { return report().button == 0; }, "Up stayed pressed below 40 % of the stick's travel");
+    stick(0, -0.45f);
+    settle();
+    Check(report().button == 0, "Up was pressed below half the stick's travel");
+    stick(0.8f, -0.8f);
+    Until([&] { return report().button == (WPAD_BUTTON_UP | WPAD_BUTTON_RIGHT); },
+          "Right stick up-right did not press up and right");
+    stick(-1, 0);
+    Until([&] { return report().button == WPAD_BUTTON_LEFT; }, "Right stick left did not press D-pad left");
+    stick(0, 1);
+    Until([&] { return report().button == WPAD_BUTTON_DOWN; }, "Right stick down did not press D-pad down");
+    stick(0, 0);
+    Until([&] { return report().button == 0; }, "The resting stick kept a D-pad direction");
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_DPAD_UP, true);
+    Until([&] { return report().button == WPAD_BUTTON_UP; }, "The D-pad stopped pressing up beside the stick");
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_DPAD_UP, false);
+    Until([&] { return report().button == 0; }, "D-pad release kept a button");
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
+// The gyro pointer's own sums (issue #14): readings 10 ms apart, SDL's axes.
+void GyroPointerChecks() {
+    using namespace mscharged::platform;
+    constexpr float degree = 3.14159265f / 180.0f;
+    const std::array<float, 3> flat{0.0f, 9.80665f, 0.0f};
+    std::uint64_t ns = 1'000'000'000;
+    const auto feed = [&](GyroMotion& motion, std::array<float, 3> rate, float seconds,
+                          const std::array<float, 3>* accel) {
+        for (int n = 0; n < int(std::lround(seconds * 100)); ++n) {
+            ns += 10'000'000;
+            if (accel) AddAccelReading(motion, accel->data(), ns);
+            AddGyroReading(motion, rate.data(), ns);
+        }
+    };
+    // Everything a motion has left to show, taken 10 ms at a time.
+    const auto shown = [](GyroMotion& motion) {
+        GyroTurn sum;
+        for (int n = 0; n < 300; ++n) {
+            const auto turn = TakeGyroTurn(motion, 0.01f);
+            sum.yaw += turn.yaw;
+            sum.pitch += turn.pitch;
+        }
+        return sum;
+    };
+    const auto start = [&](const std::array<float, 3>* accel = nullptr) {
+        GyroMotion motion;
+        feed(motion, {}, 0.01f, accel);
+        (void)shown(motion);
+        return motion;
+    };
+    // Turning right 5 degrees moves the pointer a fifth of the way across (25 per picture).
+    auto motion = start(&flat);
+    feed(motion, {0, -5 * degree, 0}, 1.0f, &flat);
+    float x = 0.5f, y = 0.5f;
+    MoveGyroPointer(x, y, shown(motion), 100, 0.5625f);
+    Check(std::fabs(x - 0.7f) < 0.002f && std::fabs(y - 0.5f) < 1e-5f,
+          "A 5 degree turn right did not move the pointer a fifth of the picture right");
+    // Up and down take the same angle per distance: 2.5 degrees up at 200 %
+    // on a 16:9 picture is 2.5 / (12.5 * 0.5625) of its height.
+    feed(motion, {5 * degree, 0, 0}, 0.5f, &flat);
+    x = y = 0.5f;
+    MoveGyroPointer(x, y, shown(motion), 200, 0.5625f);
+    Check(std::fabs(y - (0.5f - 2.5f / (12.5f * 0.5625f))) < 0.002f && std::fabs(x - 0.5f) < 1e-5f,
+          "Tilting up did not move the pointer up by the same angle per distance");
+    // Rolling a flat controller does not move the pointer.
+    feed(motion, {0, 0, 10 * degree}, 1.0f, &flat);
+    const auto rolled = shown(motion);
+    Check(std::fabs(rolled.yaw) < 1e-5f && std::fabs(rolled.pitch) < 1e-5f, "Rolling a flat controller pointed");
+    // Held with its front 45 degrees up, a turn about the room's vertical
+    // still moves the pointer the whole amount.
+    const float c = std::sqrt(0.5f);
+    const std::array<float, 3> tilted{0.0f, 9.80665f * c, -9.80665f * c};
+    auto held = start(&tilted);
+    feed(held, {0, -5 * degree * c, 5 * degree * c}, 1.0f, &tilted);
+    x = y = 0.5f;
+    MoveGyroPointer(x, y, shown(held), 100, 0.5625f);
+    Check(std::fabs(x - 0.7f) < 0.002f && std::fabs(y - 0.5f) < 1e-5f,
+          "A tilted controller turning about the vertical did not point the whole amount");
+    // A gyro that reads 1 degree a second at rest: after a while still, its
+    // offset is taken off and the pointer stops creeping.
+    auto resting = start(&flat);
+    feed(resting, {0, 1 * degree, 0}, 5.0f, &flat);
+    (void)shown(resting);
+    feed(resting, {0, 1 * degree, 0}, 5.0f, &flat);
+    x = y = 0.5f;
+    MoveGyroPointer(x, y, shown(resting), 100, 0.5625f);
+    Check(std::fabs(x - 0.5f) < 0.01f && std::fabs(resting.bias[1] - 1 * degree) < 0.2f * degree,
+          "The gyro's offset at rest was not taken off");
+    // Moving faster than 2 degrees a second is never taken for an offset.
+    auto moving = start(&flat);
+    feed(moving, {0, -3 * degree, 0}, 5.0f, &flat);
+    Check(moving.bias[1] == 0.0f && std::fabs(shown(moving).yaw + 15 * degree) < 0.1f * degree,
+          "A slow steady turn was taken for the gyro's offset");
+    // Readings after a gap (a pause, a reconnect) add no turn.
+    ns += 500'000'000;
+    const float fast[3]{0, 90 * degree, 0};
+    AddGyroReading(moving, fast, ns);
+    Check(std::fabs(shown(moving).yaw) < 1e-6f, "A reading after a gap added a turn");
+    // The pointer stops at the edges; speeds stay within 25-300 %.
+    x = y = 0.5f;
+    MoveGyroPointer(x, y, {-90 * degree, -90 * degree}, 100, 0.5625f);
+    Check(x == 1.0f && y == 1.0f, "The pointer left the picture");
+    float a = 0.5f, b = 0.5f, ay = 0.5f, by = 0.5f;
+    MoveGyroPointer(a, ay, {1 * degree, 0}, 1000, 0.75f);
+    MoveGyroPointer(b, by, {1 * degree, 0}, 300, 0.75f);
+    Check(a == b, "Gyro speed was not kept within its range");
+    // Readings 4 ms apart handed over in bunches of 20 ms every other 10 ms
+    // still move the pointer evenly, at the turning speed, and in the end
+    // exactly as far as the controller turned. It stops with the controller.
+    auto even = start(&flat);
+    const float right[3]{0, -30 * degree, 0}, still[3]{};
+    float total = 0, least = 1, most = 0;
+    for (int take = 0; take < 100; ++take) {
+        if (take % 2 == 0)
+            for (int n = 0; n < 5; ++n) {
+                ns += 4'000'000;
+                AddAccelReading(even, flat.data(), ns);
+                AddGyroReading(even, right, ns);
+            }
+        const float yaw = -TakeGyroTurn(even, 0.01f).yaw;
+        total += yaw;
+        if (take >= 10) least = std::min(least, yaw), most = std::max(most, yaw);
+    }
+    Check(least > 0.27f * degree && most < 0.33f * degree, "Readings in bunches moved the gyro pointer unevenly");
+    float after = 0;
+    for (int take = 0; take < 30; ++take) {
+        for (int n = 0; n < 2; ++n) {
+            ns += 5'000'000;
+            AddAccelReading(even, flat.data(), ns);
+            AddGyroReading(even, still, ns);
+        }
+        const float yaw = -TakeGyroTurn(even, 0.01f).yaw;
+        if (take >= 2) after = std::max(after, std::fabs(yaw));
+        total += yaw;
+    }
+    Check(after < 0.03f * degree, "The gyro pointer kept moving after the controller stopped");
+    Check(std::fabs(total - 30 * degree) < 0.01f * degree, "Turns shown evenly did not add up to the turn");
+    // Going back to the middle forgets the turn not shown yet.
+    auto cleared = start(&flat);
+    feed(cleared, {0, -30 * degree, 0}, 0.5f, &flat);
+    (void)TakeGyroTurn(cleared, 0.01f);
+    ClearGyroTurn(cleared);
+    feed(cleared, {}, 0.1f, &flat);
+    Check(std::fabs(shown(cleared).yaw) < 0.05f * degree, "Centring the pointer kept the turn not shown yet");
+}
+// A gamepad with a gyro and an accelerometer, like a PlayStation controller.
+struct GyroPad {
+    SDL_JoystickID id{};
+    SDL_Joystick* joystick{};
+    std::uint64_t ns = 1'000'000'000;
+    GyroPad() {
+        static const SDL_VirtualJoystickSensorDesc sensors[2]{{SDL_SENSOR_GYRO, 100.0f}, {SDL_SENSOR_ACCEL, 100.0f}};
+        SDL_VirtualJoystickDesc d; SDL_INIT_INTERFACE(&d);
+        d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+        d.vendor_id = 0x1234; d.product_id = 0x4322;
+        d.name = "Generated gyro controller for raw profile gate";
+        d.naxes = SDL_GAMEPAD_AXIS_COUNT; d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+        d.button_mask = (1u << SDL_GAMEPAD_BUTTON_COUNT) - 1;
+        d.axis_mask = (1u << SDL_GAMEPAD_AXIS_COUNT) - 1;
+        d.nsensors = 2; d.sensors = sensors;
+        id = SDL_AttachVirtualJoystick(&d);
+        Check(id != 0, "Real SDL gyro fixture attach failed");
+        joystick = SDL_OpenJoystick(id);
+        Check(joystick, "Real SDL gyro fixture handle failed");
+    }
+    ~GyroPad() {
+        if (joystick) SDL_CloseJoystick(joystick);
+        if (id) SDL_DetachVirtualJoystick(id);
+    }
+    // One reading 10 ms after the last: turning at `yaw` rad/s, lying flat.
+    void Turn(float yaw) {
+        ns += 10'000'000;
+        const float rate[3]{0, yaw, 0}, accel[3]{0, 9.80665f, 0};
+        SDL_SendJoystickVirtualSensorData(joystick, SDL_SENSOR_ACCEL, ns, accel, 3);
+        SDL_SendJoystickVirtualSensorData(joystick, SDL_SENSOR_GYRO, ns, rate, 3);
+    }
+};
+// Gamepad player 2 pointing with the gyro: the pointer camera's raw objects
+// follow the turns, the recentre button and the game turning the camera on
+// centre it, and the right stick no longer points. Without a gyro the
+// stick points as before.
+void GyroPadCycle(bool has_gyro) {
+    using namespace mscharged::platform;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {1, -1, -1, -1};
+    settings.pointer_projection = WholeWindow;
+    settings.gamepad_profiles[0] = GamepadProfile{DefaultGamepadBindings()};
+    settings.gamepad_profiles[0].gyro_pointer = true;
+    std::unique_ptr<GyroPad> gyro_pad;
+    std::unique_ptr<GenericPad> plain_pad;
+    if (has_gyro) gyro_pad = std::make_unique<GyroPad>();
+    else plain_pad = std::make_unique<GenericPad>();
+    SDL_Joystick* joystick = has_gyro ? gyro_pad->joystick : plain_pad->joystick;
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    for (int n = 0; n != 4; ++n) WPADSetConnectCallback(n, Connect);
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(1, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Gyro gamepad did not connect as player 2");
+    Check(WPADSetDataFormat(1, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    const auto camera = [] {
+        WPADFSStatus status{};
+        WPADRead(1, reinterpret_cast<WPADStatus*>(&status));
+        return status.obj[0];
+    };
+    const auto centre = MakeDesktopDpdObservation(0.5f, 0.5f, 0, true)[0];
+    const auto right = MakeDesktopDpdObservation(0.6f, 0.5f, 0, true)[0];
+    const int toward = right.x > centre.x ? 1 : -1;
+    const auto moved_right = [&] { return (camera().x - centre.x) * toward >= (right.x - centre.x) * toward; };
+    const auto centred = [&] { auto o = camera(); return o.x == centre.x && o.y == centre.y; };
+    const auto camera_on = [&](bool on) {
+        Check(WPADControlDpd(1, on ? WPAD_DPD_STANDARD : WPAD_DPD_DISABLE, nullptr) == WPAD_ERR_OK,
+              "Pointer camera request was rejected");
+        Until([&] { return bool(WPADIsDpdEnabled(1)) == on; }, "Pointer camera did not change");
+    };
+    camera_on(true);
+    Until(centred, "The pointer did not start in the middle");
+    if (has_gyro) {
+        // 20 degrees a second to the right: a tenth of the picture in 0.125 s of readings.
+        Until([&] { gyro_pad->Turn(-20.0f * 3.14159265f / 180.0f); return moved_right(); },
+              "Turning the controller right did not move the pointer right");
+        SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_RIGHT_STICK, true);
+        Until(centred, "The recentre button did not centre the gyro pointer");
+        SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_RIGHT_STICK, false);
+        SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 32767);
+        for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+        Check(centred(), "The right stick still moved the gyro pointer");
+        SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
+        Until([&] { gyro_pad->Turn(-20.0f * 3.14159265f / 180.0f); return moved_right(); },
+              "The gyro pointer stopped moving");
+        // The game turning the camera off and on (a goalie's Mega Strike defence) centres it.
+        camera_on(false);
+        camera_on(true);
+        Until(centred, "Turning the pointer camera on did not centre the gyro pointer");
+    } else {
+        SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 32767);
+        Until(moved_right, "Without a gyro the right stick did not move the pointer");
+        SDL_SetJoystickVirtualAxis(joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
+    }
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
+// A key event with modifiers; false when an event filter took it out.
+bool Key(Uint32 type, SDL_Scancode key, SDL_Keymod mod, bool repeat = false, SDL_WindowID target = 0) {
+    SDL_Event e{}; e.type = type;
+    e.key.windowID = target ? target : SDL_GetWindowID(window);
+    e.key.scancode = key;
+    e.key.mod = mod;
+    e.key.down = type == SDL_EVENT_KEY_DOWN;
+    e.key.repeat = repeat;
+    return SDL_PushEvent(&e);
+}
+// Alt+Enter (Option+Return on a Mac) switches the window between fullscreen
+// and a window (issue #77); its Enter never presses the keyboard's A.
+void FullscreenShortcutCycle() {
+    using mscharged::platform::FullscreenSwitch;
+    using mscharged::platform::IsFullscreenShortcut;
+    using mscharged::platform::ServiceFullscreenHotkey;
+    Check(IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT) &&
+          IsFullscreenShortcut(SDL_SCANCODE_KP_ENTER, SDL_KMOD_RALT) &&
+          IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LSHIFT), "Alt+Enter is not the shortcut");
+    Check(!IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_NONE) &&
+          !IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LCTRL) &&
+          !IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LGUI) &&
+          !IsFullscreenShortcut(SDL_SCANCODE_SPACE, SDL_KMOD_LALT), "Another key or modifier made the shortcut");
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.keyboard = true;
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    mscharged::platform::InitializeFullscreenHotkey(window);
+    WPADInit();
+    Check(SDL_ShowWindow(window), "Actual SDL fixture window did not show");
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard remote did not connect");
+    const auto fullscreen = [] { return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0; };
+    Check(!fullscreen() && ServiceFullscreenHotkey() == FullscreenSwitch::None, "The window switched without a press");
+
+    // The window goes fullscreen; Enter's press, repeats and release stay out of the game.
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_LALT, SDL_KMOD_LALT), "Alt was taken out");
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT), "Alt+Enter reached the game");
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT, true), "Alt+Enter's repeat reached the game");
+    Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_LALT, SDL_KMOD_NONE), "Alt's release was taken out");
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_NONE, true),
+          "The shortcut's Enter repeated into the game after Alt's release");
+    Check(!Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN, SDL_KMOD_NONE), "The shortcut's Enter release reached the game");
+    for (int n = 0; n != 10; ++n) { Service(); SDL_Delay(2); }
+    Check(Report().button == 0, "Alt+Enter pressed A");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::Fullscreen && fullscreen(), "Alt+Enter did not go fullscreen");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::None, "One press switched twice");
+
+    // Enter alone, and Enter with Ctrl+Alt, stay A.
+    for (const SDL_Keymod mod : {SDL_Keymod(SDL_KMOD_NONE), SDL_Keymod(SDL_KMOD_LALT | SDL_KMOD_LCTRL)}) {
+        Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, mod), "Enter without the shortcut was taken out");
+        Until([&] { return Report().button == WPAD_BUTTON_A; }, "Enter without the shortcut did not press A");
+        Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN, mod), "Enter's release was taken out");
+        Until([&] { return Report().button == 0; }, "Enter's release kept A");
+    }
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::None && fullscreen(), "Enter without the shortcut switched");
+
+    // The keypad's Enter goes back to a window. A release lost with the focus
+    // does not take the next press, and another window's shortcut is not ours.
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_KP_ENTER, SDL_KMOD_RALT), "Alt+keypad Enter reached the game");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::Windowed && !fullscreen(), "Alt+keypad Enter did not leave fullscreen");
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_KP_ENTER, SDL_KMOD_NONE), "A new keypad Enter press was taken out");
+    Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_KP_ENTER, SDL_KMOD_NONE), "A new keypad Enter release was taken out");
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT, false, SDL_GetWindowID(window) + 1000),
+          "Another window's Alt+Enter was taken out");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::None && !fullscreen(), "Another window's Alt+Enter switched");
+
+    // After shutdown Alt+Enter is A again.
+    mscharged::platform::ShutdownFullscreenHotkey();
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT), "Alt+Enter was taken out after shutdown");
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "Alt+Enter after shutdown did not press A");
+    Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN, SDL_KMOD_NONE), "Enter's release was taken out after shutdown");
+    Until([&] { return Report().button == 0; }, "Enter's release kept A after shutdown");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::None, "The shortcut switched after shutdown");
+    Check(SDL_HideWindow(window), "Actual SDL fixture window did not hide");
+    mscharged::platform::ShutdownDesktopWpad();
+    WPADShutdown();
+}
 }
 int main() {
     try {
@@ -577,14 +1079,22 @@ int main() {
         }
         // With the generic pad above gone, this test's pad is gamepad 1.
         GamepadPlayerCycle();
+        StickDeadzoneChecks();
         CustomGamepadCycle();
         ControllerFamilyCycle();
         MousePlayerCycle();
+        MouseKeysCycle();
+        StickDirectionCycle();
+        GyroPointerChecks();
+        GyroPadCycle(true);
+        GyroPadCycle(false);
+        FullscreenShortcutCycle();
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, controller-family defaults, mouse beside a controller and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys, stick directions as buttons, the gyro pointer, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
+        mscharged::platform::ShutdownFullscreenHotkey();
         try { mscharged::platform::ShutdownDesktopWpad(); } catch (...) {}
         try { WPADShutdown(); } catch (...) {}
         if (window) SDL_DestroyWindow(window);

@@ -20,10 +20,21 @@ struct WpadSDLSettings {
     bool motor_enabled = true;
     // Staged BT.SPKV preference. The original SC getter uses 89 when the
     // record is absent; WPAD clamps this byte to 127 at initialization.
-    // This preference does not provide a physical speaker output endpoint.
+    // Only Wii Remotes of the native HID driver have a speaker
+    // (WiimoteHidSettings::speaker).
     std::uint8_t speaker_volume = 89;
+    // Wii Remotes play the game's speaker sounds (controls.speaker_volume
+    // above 0).
+    bool remote_speaker = false;
+    // The running game's WPAD byte for speaker register 0xa20001
+    // (WiimoteHidSettings::speaker_reg01).
+    std::uint8_t remote_speaker_reg01 = 0x08;
 };
 void ConfigureWpadSDL(WpadSDLSettings settings);
+// The Wii Remote HID driver sent a speaker command WiimoteHidControlSpeaker
+// queued for this joystick (in order). The caller's callback follows on the
+// next service, as original WPAD completes its command queue.
+void CompleteNativeWpadSpeaker(std::uint32_t joystick_id, bool ok);
 
 // Call from the SDL owner while servicing host events. Bare Wii Remote and
 // explicitly registered desktop virtual-device reports use this raw provider.

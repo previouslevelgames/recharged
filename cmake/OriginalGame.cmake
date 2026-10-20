@@ -333,6 +333,7 @@ target_link_libraries(mscharged_original_game_vi PRIVATE aurora::vi)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SystemUsage.cmake")
 add_library(charged_original_game_host OBJECT
     src/runtime/original_game.cpp src/runtime/frame_timing_log.cpp src/runtime/fps_overlay.cpp
+    src/runtime/texture_pack_loading.cpp src/platform/hd_recolour.cpp
     src/runtime/host_frame_pacing.cpp
     src/runtime/pipeline_warmup.cpp src/runtime/pipeline_demand_log.cpp src/runtime/graphics_loading_view.cpp
     src/platform/console.cpp
@@ -358,7 +359,7 @@ target_link_libraries(charged_original_game_host PRIVATE
     charged_native_system_settings charged_native_video_device charged_movie_hardware
     charged_native_hardware_owner
     charged_native_video_output_device charged_native_filesystem_boot
-    charged_native_ipc_boot_buffer charged_original_rtc ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
+    charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_texture_packs ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
 
 function(mscharged_link_original_game target)
     mscharged_link_original_hbm_debug_host("${target}")

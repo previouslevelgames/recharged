@@ -7,6 +7,7 @@
 #include "imgui_impl_sdlrenderer3.h"
 #include "imgui_stdlib.h"
 
+#include "bootstrap/antialiasing.h"
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
 #include "launcher/disc_search.h"
@@ -35,9 +36,14 @@
 #include "platform/mii_maker.h"
 #include "platform/save_import.h"
 #include "platform/shader_cache.h"
+#include "platform/texture_packs.h"
 #include "platform/session_log.h"
 #include "platform/gamepad_bindings.h"
+#include "platform/graphics_cards.h"
+#include "platform/fullscreen_hotkey.h"
+#include "platform/gyro_pointer.h"
 #include "platform/key_bindings.h"
+#include "platform/launcher_reopen.h"
 #include "platform/wiimote_bluetooth.h"
 #include "platform/wiimote_hid.h"
 #ifdef MSCHARGED_HAS_GAME_STARTUP
@@ -304,7 +310,7 @@ bool SafeGameId(const std::string& id)
 }
 
 enum class NoticeKind { Info, Success, Warning, Error };
-enum class FolderPurpose { SaveFolder, DolphinSave, DolphinMiis, GameFolder };
+enum class FolderPurpose { SaveFolder, DolphinSave, DolphinMiis, GameFolder, TextureFolder };
 // What the import prompt copies from Dolphin.
 enum class ImportKind { Save, Miis };
 
@@ -390,6 +396,11 @@ public:
         page_ = options_.page;
         capture_ = options_.smoke_test || !options_.screenshot.empty();
         StartUpdates();
+#if !defined(__APPLE__)
+        // The PC's graphics cards, for Advanced -> Graphics card and the log.
+        graphics_cards_scan_ = std::async(std::launch::async, platform::ListGraphicsCards);
+        graphics_cards_listing_ = true;
+#endif
 
         // Created at the design size, then fitted once the window knows its
         // display's pixel density and content scale.
@@ -444,6 +455,11 @@ public:
         const char* video = SDL_GetCurrentVideoDriver();
         const bool headless = video && (std::string(video) == "dummy" || std::string(video) == "offscreen");
         if (!capture_ || (!options_.screenshot.empty() && !headless)) SDL_ShowWindow(window_);
+#ifdef _WIN32
+        // Reopened by a game that closed (launcher.reopen_after_game): come to
+        // the front, which the game allowed, rather than behind other windows.
+        if (!capture_) SDL_RaiseWindow(window_);
+#endif
         if (config_ok_ && !EffectiveLaunch().disc_path.empty() && !options_.smoke_test) CheckDisc();
         StartDiscSearch();
 
@@ -464,12 +480,25 @@ public:
                     RefreshGamepad();
                 if (event.type == SDL_EVENT_DISPLAY_ADDED || event.type == SDL_EVENT_DISPLAY_REMOVED)
                     RefreshDisplays();
-                if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
+                // On the Gameplay page a dropped texture pack is added; anything
+                // else is a game image or folder, as on the other pages.
+                if (event.type == SDL_EVENT_DROP_FILE && event.drop.data
+                    && !(page_ == PageGameplay && config_ok_ && AddTexturePack(PathFromUtf8(event.drop.data))))
                     SelectDisc(event.drop.data);
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && capture_action_ >= 0)
                     CaptureKey(event.key.scancode);
+                if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && hotkey_capture_ >= 0)
+                    CaptureHotkey(event.key.scancode);
+                // Middle and side mouse buttons can take a key's place (#62).
+                if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && capture_action_ >= 0
+                    && platform::MouseKeyInput(event.button.button) != platform::kKeyNone)
+                    CaptureKey(platform::MouseKeyInput(event.button.button));
                 GamepadCaptureEvent(event);
+                GyroPreviewEvent(event);
             }
+            // The gyro preview takes readings only while it is on screen.
+            if (!gyro_preview_drawn_) StopGyroPreview();
+            gyro_preview_drawn_ = false;
             // While an input waits for a gamepad press, and until the press
             // that set it is released, the gamepad does not drive the launcher.
             auto& io = ImGui::GetIO();
@@ -505,7 +534,8 @@ public:
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
             const bool update_settled = update_preview_ || (!UpdateBusy() && !(update_capture_install_ && update_.offer));
             if (!options_.screenshot.empty() && frame >= 12
-                && ((!pending_ && !searching_ && !library_scanning_ && !candidate_pending_ && update_settled)
+                && ((!pending_ && !searching_ && !library_scanning_ && !candidate_pending_ && !texture_scanning_
+                     && update_settled)
                     || frame > 600))
             {
                 SDL_SetRenderScale(renderer_, 1.0f, 1.0f);
@@ -642,18 +672,30 @@ private:
         if (capture_ && !(capture_updates && *capture_updates)) return;
         if (capture_)
         {
-            // "preview-<state>[-dialog]" shows a made-up state offline (UpdateService::Preview).
+            // "preview-<state>[-dialog|-menu]" shows a made-up state offline
+            // (UpdateService::Preview), optionally with the update dialog or
+            // the Test menu open.
             std::string mode = capture_updates;
             if (mode.rfind("preview-", 0) == 0)
             {
                 mode.erase(0, 8);
-                const bool dialog = mode.size() > 7 && mode.compare(mode.size() - 7, 7, "-dialog") == 0;
-                if (dialog) mode.resize(mode.size() - 7);
+                auto suffix = [&mode](const std::string& text) {
+                    const bool found = mode.size() > text.size()
+                        && mode.compare(mode.size() - text.size(), text.size(), text) == 0;
+                    if (found) mode.resize(mode.size() - text.size());
+                    return found;
+                };
+                const bool dialog = suffix("-dialog"), menu = !dialog && suffix("-menu");
                 update_preview_ = updates_->Preview(mode);
                 update_dialog_ = update_preview_ && dialog;
-                // The switch shows the previewed channel (not saved).
+                test_menu_ = update_preview_ && menu;
+                // The switch shows the previewed channel and choice (not saved).
                 if (update_preview_)
-                    draft_.update_channel = updates_->Snapshot().channel == UpdateChannel::Test ? "test" : "release";
+                {
+                    const auto preview = updates_->Snapshot();
+                    draft_.update_channel = preview.channel == UpdateChannel::Test ? "test" : "release";
+                    draft_.test_build = preview.chosen;
+                }
                 return;
             }
             update_capture_dialog_ = mode == "dialog";
@@ -676,13 +718,14 @@ private:
 
     // The update dialog opens by itself when a check finds a build: after the
     // start only for a newer one; after the Release / Test switch or a click on
-    // the status also for the way back to the release.
-    enum class UpdatePrompt { None, Newer, Any };
+    // the status also for the way back to the release. After the switch to
+    // Test with several test builds and none followed, the Test menu opens.
+    enum class UpdatePrompt { None, Newer, Any, Switch };
 
     void CheckForUpdates(UpdatePrompt prompt, UpdateChannel channel)
     {
         update_prompt_ = capture_ ? UpdatePrompt::None : prompt;
-        updates_->Check(channel);
+        updates_->Check(channel, draft_.test_build);
     }
 
     bool UpdateBusy() const
@@ -697,23 +740,84 @@ private:
         return ResolveChannel(draft_.update_channel, updates_ ? updates_->Build() : CurrentBuild());
     }
 
-    // The Play page's Release / Test switch is saved at once, without other
-    // unsaved changes, so it never holds an update back.
+    // The Play page's Release / Test switch and the Test menu's choice are
+    // saved at once, without other unsaved changes, so they never hold an
+    // update back.
+    void SaveUpdateChoice(const std::string& channel, int test_build)
+    {
+        draft_.update_channel = channel;
+        draft_.test_build = test_build;
+        if (!config_ok_) return;
+        try
+        {
+            Settings saved = file_.settings;
+            saved.update_channel = channel;
+            saved.test_build = test_build;
+            SaveConfig(file_, saved);
+        }
+        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+    }
+
+    // Release leaves the test builds; Test asks which one when several are open.
     void SelectUpdateChannel(UpdateChannel channel)
     {
-        const std::string value = channel == UpdateChannel::Test ? "test" : "release";
-        draft_.update_channel = value;
-        if (config_ok_)
-        {
-            try
-            {
-                Settings saved = file_.settings;
-                saved.update_channel = value;
-                SaveConfig(file_, saved);
-            }
-            catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
-        }
-        CheckForUpdates(UpdatePrompt::Any, channel);
+        BeginSwitch();
+        const bool test = channel == UpdateChannel::Test;
+        SaveUpdateChoice(test ? "test" : "release", test ? draft_.test_build : 0);
+        CheckForUpdates(test ? UpdatePrompt::Switch : UpdatePrompt::Any, channel);
+    }
+
+    // A test build chosen in the Test menu: followed from now on, offered
+    // with its notes when it is not the running build.
+    void SelectTestBuild(int pull_request)
+    {
+        BeginSwitch();
+        SaveUpdateChoice("test", pull_request);
+        CheckForUpdates(UpdatePrompt::Any, UpdateChannel::Test);
+    }
+
+    // A switch (Release / Test, or a test build from the menu) holds only
+    // when something gets installed: Later in the update dialog, or closing
+    // the menu without a choice, brings the previous choice back, since
+    // nothing changed. Without anything to install (no test builds, no
+    // network) the new choice stays.
+    void BeginSwitch()
+    {
+        if (!switch_from_) switch_from_ = UpdateChoice{draft_.update_channel, draft_.test_build};
+    }
+
+    void CancelSwitch()
+    {
+        if (!switch_from_) return;
+        const UpdateChoice previous = *switch_from_;
+        switch_from_.reset();
+        SaveUpdateChoice(previous.channel, previous.test_build);
+        CheckForUpdates(UpdatePrompt::None, UpdateChannelSetting());
+    }
+
+    // Later (or Escape / B) in the update dialog.
+    void DismissUpdateDialog()
+    {
+        ImGui::CloseCurrentPopup();
+        CancelSwitch();
+    }
+
+    // On the test channel, test builds are published but none is followed
+    // (several pull requests are open, or the one followed has closed).
+    bool ChooseTestBuild() const
+    {
+        return update_.channel == UpdateChannel::Test && update_.state == UpdateService::State::UpToDate
+            && !update_.track && !update_.test_builds.empty();
+    }
+
+    // Test gets its menu when there is a choice to make.
+    bool TestMenuAvailable() const
+    {
+        using State = UpdateService::State;
+        if (update_.channel != UpdateChannel::Test || update_.state == State::Downloading
+            || update_.state == State::Installing || update_.state == State::Installed)
+            return false;
+        return update_.test_builds.size() >= 2 || ChooseTestBuild();
     }
 
     // The update status: a glass pill over the artwork, tinted with the
@@ -767,11 +871,25 @@ private:
             break;
         case State::Checking: look = {Icon::None, true, "Checking for updates...", "", color::info}; break;
         case State::UpToDate:
-            // Switched to Test on a build that is no test build: say why nothing changes.
-            if (test && updates_->Build().origin != BuildOrigin::Test)
-                look = {Icon::Check, false, "No new test builds",
-                        "No test build is newer than this build right now. Test builds are published while "
-                        "pull requests are open."
+            if (ChooseTestBuild())
+            {
+                // Test builds to choose from: the click opens the Test menu.
+                const auto count = update_.test_builds.size();
+                look = {Icon::Flask, false, count == 1 ? "Test build available" : "Choose a test build",
+                        (count == 1 ? std::string("A test build is published.")
+                                    : std::to_string(count) + " test builds are published, one for each change "
+                                                              "being tested.")
+                            + "\nClick to choose which one to follow.",
+                        color::warning};
+                look.filled = true;
+                look.action = PillAction::Open;
+                return look;
+            }
+            // Switched to Test while no test build is published: say why nothing changes.
+            if (test && update_.test_builds.empty() && updates_->Build().origin != BuildOrigin::Test)
+                look = {Icon::Check, false, "No test builds",
+                        "No test build is published right now. Test builds are published while pull requests "
+                        "are open."
                             + checked + again,
                         color::warning};
             else
@@ -908,27 +1026,172 @@ private:
         int channel = UpdateChannelSetting() == UpdateChannel::Test ? 1 : 0;
         const bool busy = update_.state == State::Downloading || update_.state == State::Installing
             || update_.state == State::Installed;
+        const bool menu = TestMenuAvailable();
+        int pressed = -1;
         ImGui::BeginDisabled(busy || !config_ok_);
         if (SegmentedIcons("##update_channel", &channel,
-                           {{"Release", Icon::Tag, color::accent}, {"Test", Icon::Flask, color::warning}},
-                           {switch_width, height}, true))
+                           {{"Release", Icon::Tag, color::accent}, {"Test", Icon::Flask, color::warning, menu}},
+                           {switch_width, height}, true, &pressed))
             SelectUpdateChannel(channel ? UpdateChannel::Test : UpdateChannel::Release);
+        // Test again, with a choice: the menu, unless this mouse click closed it.
+        else if (pressed == 1 && menu
+                 && !(ImGui::GetIO().MouseReleased[0] && test_menu_closed_ >= ImGui::GetIO().MouseClickedTime[0]))
+            test_menu_ = true;
         ImGui::EndDisabled();
+        const ImVec2 menu_anchor{ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y + Dp(8)};
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Release: official releases.\n"
-                              "Test: also the test builds of pull requests, to try changes before they are released.\n"
-                              "Nothing is installed without asking.");
+            ImGui::SetTooltip(menu ? "Release: official releases.\n"
+                                     "Test: test builds of changes before they are released; click Test again to "
+                                     "choose which one.\n"
+                                     "Nothing is installed without asking."
+                                   : "Release: official releases.\n"
+                                     "Test: also the test builds of pull requests, to try changes before they are "
+                                     "released.\n"
+                                     "Nothing is installed without asking.");
         const float pill_width = PillWidth(look);
         x -= Dp(10) + pill_width;
         ImGui::SetCursorScreenPos({x, y});
         if (DrawUpdatePill(look, {pill_width, height}))
         {
-            if (update_.state == State::Idle || update_.state == State::UpToDate || update_.state == State::CheckFailed)
+            if (ChooseTestBuild()) test_menu_ = true;
+            else if (update_.state == State::Idle || update_.state == State::UpToDate
+                     || update_.state == State::CheckFailed)
                 CheckForUpdates(UpdatePrompt::Any, UpdateChannelSetting());
             else if (update_.offer)
                 update_dialog_ = true;
         }
         if (!look.tooltip.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", look.tooltip.c_str());
+        DrawTestBuildMenu(menu_anchor);
+    }
+
+    // What a test build's title says besides its version: CI names them
+    // "Test build: <pull request title> (#N)", release pull requests are
+    // titled "Release 1.1.0 – NetCode!".
+    static std::string TestBuildSubtitle(const PublishedBuild& build)
+    {
+        std::string title = build.title;
+        const std::string prefix = "Test build: ", suffix = " (#" + std::to_string(build.pull_request) + ")";
+        if (title.rfind(prefix, 0) == 0) title.erase(0, prefix.size());
+        if (title.size() > suffix.size() && title.compare(title.size() - suffix.size(), suffix.size(), suffix) == 0)
+            title.resize(title.size() - suffix.size());
+        if (title.rfind("Release ", 0) == 0) title.erase(0, 8);
+        return ReleaseSubtitle(title, build.version);
+    }
+
+    // `text` cut to `width` with an ellipsis, at a UTF-8 character boundary.
+    static std::string Elide(ImFont* font, std::string text, float width)
+    {
+        if (TextSize(font, text.c_str()).x <= width) return text;
+        const std::string ellipsis = "\xE2\x80\xA6";
+        while (!text.empty() && TextSize(font, (text + ellipsis).c_str()).x > width)
+        {
+            do text.pop_back();
+            while (!text.empty() && (static_cast<unsigned char>(text.back()) & 0xC0) == 0x80);
+            while (!text.empty() && text.back() == ' ') text.pop_back();
+        }
+        return text + ellipsis;
+    }
+
+    // The Test menu below the switch: the newest test build of each open
+    // pull request. A click follows that one and offers it in the update
+    // dialog; the running build's own is marked as installed.
+    void DrawTestBuildMenu(ImVec2 anchor)
+    {
+        if (test_menu_)
+        {
+            test_menu_ = false;
+            if (!update_.test_builds.empty()) ImGui::OpenPopup("##test_builds");
+        }
+        const auto& fonts = CurrentFonts();
+        const float width = Dp(392);
+        ImGui::SetNextWindowPos(anchor, ImGuiCond_Always, {1.0f, 0.0f});
+        ImGui::SetNextWindowSize({width, 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(10, 14));
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4{0, 0, 0, 0});
+        const bool open = ImGui::BeginPopup("##test_builds", ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+        if (!open)
+        {
+            if (test_menu_open_)
+            {
+                test_menu_closed_ = ImGui::GetTime();
+                // Closed without a choice: a switch to Test that waited for one is undone.
+                if (!test_menu_chose_) CancelSwitch();
+            }
+            test_menu_open_ = test_menu_chose_ = false;
+            return;
+        }
+        test_menu_open_ = true;
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
+        DrawDialogCard(color::warning, Dp(14), Dp(6));
+        auto* draw = ImGui::GetWindowDrawList();
+        const float left = ImGui::GetCursorScreenPos().x;
+        DrawTracked(draw, fonts.caption, {left + Dp(8), ImGui::GetCursorScreenPos().y}, Col(color::dim), "TEST BUILDS",
+                    Dp(1.2f));
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(10)});
+        const BuildIdentity self = updates_->Build();
+        const PortVersion mine = ParsePortVersion(self.version);
+        const float row_width = width - Dp(20), row_height = Dp(56);
+        int choice = 0;
+        for (const auto& build : update_.test_builds)
+        {
+            const bool followed = build.pull_request == update_.track;
+            const bool running = self.origin == BuildOrigin::Test && build.pull_request == self.pull_request;
+            const bool current = running && !mine.commit.empty() && build.version.commit.rfind(mine.commit, 0) == 0;
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            ImGui::PushID(build.pull_request);
+            if (ImGui::InvisibleButton("##test_build", {row_width, row_height})) choice = build.pull_request;
+            if (followed) ImGui::SetItemDefaultFocus();
+            const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered() || ImGui::IsItemFocused(), 14.0f);
+            ImGui::PopID();
+            const ImVec2 max{pos.x + row_width, pos.y + row_height};
+            if (followed || hover > 0.01f)
+                draw->AddRectFilled(pos, max,
+                                    Col(Mix(DialogFill(), color::warning, followed ? 0.10f + 0.06f * hover : 0.07f),
+                                        followed ? 1.0f : hover),
+                                    Dp(10));
+            // A flask in a soft disc, then the version and title over the pull request and date.
+            const ImVec2 icon{pos.x + Dp(26), pos.y + row_height * 0.5f};
+            draw->AddCircleFilled(icon, Dp(15), Col(Mix(DialogFill(), color::warning, followed ? 0.24f : 0.13f)));
+            DrawIcon(draw, Icon::Flask, icon, Dp(15), Col(color::warning, followed ? 1.0f : 0.8f));
+            const float text_left = pos.x + Dp(52), text_right = max.x - Dp(36);
+            const std::string number = VersionNumber(build.version);
+            const float line1 = pos.y + Dp(9);
+            DrawLabel(draw, fonts.label, {text_left, line1}, Col(color::text), number.c_str());
+            const float title_left = text_left + TextSize(fonts.label, number.c_str()).x + Dp(9);
+            const std::string subtitle = Elide(fonts.body, TestBuildSubtitle(build), text_right - title_left);
+            DrawLabel(draw, fonts.body,
+                      {title_left, line1 + (FontSize(fonts.label) - FontSize(fonts.body)) * 0.5f + Dp(1)},
+                      Col(Mix(color::muted, color::text, 0.55f + 0.45f * hover)), subtitle.c_str());
+            std::string detail = "Test build #" + std::to_string(build.pull_request);
+            if (build.published) detail += "  \xC2\xB7  " + LocalTime(build.published);
+            const float line2 = pos.y + row_height - Dp(9) - FontSize(fonts.caption);
+            DrawLabel(draw, fonts.caption, {text_left, line2}, Col(color::dim), detail.c_str());
+            // Installed, or the running build's pull request has a newer build.
+            if (running)
+            {
+                const char* tag = current ? "INSTALLED" : "UPDATE";
+                const ImVec4 tint = current ? color::muted : color::accent;
+                const float tag_x = text_left + TextSize(fonts.caption, detail.c_str()).x + Dp(10);
+                DrawTracked(draw, fonts.caption, {tag_x, line2}, Col(tint), tag, Dp(0.8f));
+            }
+            if (followed) DrawIcon(draw, Icon::Check, {max.x - Dp(18), pos.y + row_height * 0.5f}, Dp(15), Col(color::warning));
+            ImGui::Dummy({0, Dp(2)});
+        }
+        ImGui::Dummy({0, Dp(8)});
+        TextWrappedColored(fonts.caption, color::dim, "Updates come from the test build you choose. Release takes you "
+                                                      "back to the official release.");
+        ImGui::PopStyleVar();
+        if (choice)
+        {
+            ImGui::CloseCurrentPopup();
+            test_menu_chose_ = true;
+            SelectTestBuild(choice);
+        }
+        else if (CancelPressed()) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
 
     // One line on the Advanced page: what the last check found.
@@ -940,7 +1203,9 @@ private:
         {
         case State::Idle: return "Not checked yet.";
         case State::Checking: return "Checking...";
-        case State::UpToDate: return "This build is up to date." + checked;
+        case State::UpToDate:
+            if (ChooseTestBuild()) return "Test builds are available; choose one with Test on the Play page." + checked;
+            return "This build is up to date." + checked;
         case State::CheckFailed: return "Couldn't check: " + update_.error;
         case State::Available:
             switch (ClassifyOffer(updates_->Build(), *update_.offer))
@@ -998,17 +1263,16 @@ private:
     // The dialog's card: a soft shadow, a fill a shade lighter than the
     // launcher's cards, a hairline edge, and the offer's colour as a fine line
     // along the top that fades out to both sides.
-    static void DrawDialogCard(const ImVec4& tint)
+    static void DrawDialogCard(const ImVec4& tint, float rounding = Dp(18), float drop = Dp(14))
     {
         auto* draw = ImGui::GetWindowDrawList();
         const ImVec2 min = ImGui::GetWindowPos();
         const ImVec2 max{min.x + ImGui::GetWindowWidth(), min.y + ImGui::GetWindowHeight()};
-        const float rounding = Dp(18);
         draw->PushClipRectFullScreen();
         for (int i = 0; i < 8; ++i)
         {
             const float grow = Dp(2.0f + 3.0f * float(i));
-            draw->AddRectFilled({min.x - grow, min.y - grow + Dp(14)}, {max.x + grow, max.y + grow + Dp(14)},
+            draw->AddRectFilled({min.x - grow, min.y - grow + drop}, {max.x + grow, max.y + grow + drop},
                                 Col(ImVec4{0, 0, 0, 1}, 0.075f - 0.008f * float(i)), rounding + grow);
         }
         draw->AddRectFilled(min, max, Col(DialogFill()), rounding);
@@ -1171,11 +1435,18 @@ private:
         bool callout = false;
         if (kind != OfferKind::Update)
         {
-            std::string meaning = kind == OfferKind::TestBuild
-                ? "Test builds have changes that are not released yet, to try them early; they can have new "
-                  "problems. Release on the Play page takes you back."
-                : "This replaces your test build by the official release: changes that are not released yet "
-                  "go away. Your settings and saves stay.";
+            std::string meaning;
+            if (kind == OfferKind::TestBuild && self.origin == BuildOrigin::Test)
+                meaning = "This replaces test build #" + std::to_string(self.pull_request) + " by test build #"
+                    + std::to_string(offer.pull_request)
+                    + ", whose updates you then get. Test on the Play page switches between test builds, Release "
+                      "takes you back to the official release.";
+            else if (kind == OfferKind::TestBuild)
+                meaning = "Test builds have changes that are not released yet, to try them early; they can have new "
+                          "problems. Release on the Play page takes you back.";
+            else
+                meaning = "This replaces your test build by the official release: changes that are not released yet "
+                          "go away. Your settings and saves stay.";
             if (kind == OfferKind::BackToRelease && !UpdatesItself(offer.version))
                 meaning += " Version " + VersionNumber(offer.version)
                     + " cannot update itself; newer versions are downloaded from the releases page.";
@@ -1326,13 +1597,19 @@ private:
             const float action_width = action ? PrimaryWidth(action, Icon::Download) : 0.0f;
             align_right(later_width + (action ? Dp(10) + action_width : 0.0f));
             if (GhostButton("update_later", later, {later_width, height}) || CancelPressed())
-                ImGui::CloseCurrentPopup();
+                DismissUpdateDialog();
             if (action)
             {
                 ImGui::SameLine(0, Dp(10));
                 if (PrimaryButton("update_now", action, {action_width, height}, true, Icon::Download))
                 {
-                    if (status.install_blocker.empty()) updates_->Install();
+                    if (status.install_blocker.empty())
+                    {
+                        // Its pull request is followed from now on, also after it is released.
+                        if (offer.test && draft_.test_build != offer.pull_request)
+                            SaveUpdateChoice(draft_.update_channel, offer.pull_request);
+                        updates_->Install();
+                    }
                     else SDL_OpenURL(asset->url.c_str());
                 }
                 if (ImGui::IsItemHovered() && status.install_blocker.empty())
@@ -1622,6 +1899,8 @@ private:
             library_available_ = std::move(scan.available);
             library_folders_ = library_scan_folders_;
             library_other_games_ = scan.other_games;
+            library_strikers_ = std::move(scan.strikers);
+            PrefillGameCubeDisc();
             library_limited_ = scan.limited;
             for (auto& [id, rgba] : scan.banners) StoreBanner(id, rgba);
             banner_failures_.insert(scan.banner_failures.begin(), scan.banner_failures.end());
@@ -1777,15 +2056,29 @@ private:
 
     void PollResults()
     {
+        if (graphics_cards_listing_ && graphics_cards_scan_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            graphics_cards_listing_ = false;
+            graphics_cards_ = graphics_cards_scan_.get();
+            platform::SessionLogLine(platform::DescribeGraphicsCards(graphics_cards_));
+        }
         if (updates_)
         {
             update_ = updates_->Snapshot();
             if (update_prompt_ != UpdatePrompt::None && update_.state != UpdateService::State::Checking)
             {
-                if (update_.state == UpdateService::State::Available && update_.offer
-                    && (update_prompt_ == UpdatePrompt::Any
-                        || ClassifyOffer(updates_->Build(), *update_.offer) != OfferKind::BackToRelease))
-                    update_dialog_ = true;
+                if (update_.state == UpdateService::State::Available && update_.offer)
+                {
+                    // After the start only newer builds: an update or a newer test build.
+                    const OfferKind kind = ClassifyOffer(updates_->Build(), *update_.offer);
+                    if (update_prompt_ != UpdatePrompt::Newer || kind == OfferKind::Update
+                        || (kind == OfferKind::TestBuild && IsNewer(updates_->Build(), *update_.offer)))
+                        update_dialog_ = true;
+                }
+                else if (update_prompt_ == UpdatePrompt::Switch && ChooseTestBuild())
+                    test_menu_ = true;
+                // Nothing to install or choose: the switch stands.
+                if (!update_dialog_ && !test_menu_) switch_from_.reset();
                 update_prompt_ = UpdatePrompt::None;
             }
             if (update_.state == UpdateService::State::Available && update_capture_dialog_)
@@ -1816,6 +2109,15 @@ private:
                 folder_dialog_->ready = false;
                 if (!folder_dialog_->error.empty()) Notice(folder_dialog_->error, NoticeKind::Error);
                 else if (!folder_dialog_->path.empty()) FolderChosen(folder_dialog_->path);
+            }
+        }
+        {
+            std::lock_guard<std::mutex> lock(gamecube_dialog_->mutex);
+            if (gamecube_dialog_->ready)
+            {
+                gamecube_dialog_->ready = false;
+                if (!gamecube_dialog_->error.empty()) Notice(gamecube_dialog_->error, NoticeKind::Error);
+                else if (!gamecube_dialog_->path.empty()) GameCubeDiscChosen(PathFromUtf8(gamecube_dialog_->path));
             }
         }
         if (pending_ && future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
@@ -1849,16 +2151,57 @@ private:
         }
     }
 
+    // Advanced -> Graphics card (display.gpu): Automatic or one of the PC's cards.
+    void GraphicsCardRow()
+    {
+#if defined(_WIN32)
+        Row("Graphics card", "Automatic uses the fastest. A card switched off (in Device Manager or by a laptop's GPU "
+                             "mode) is not listed. Used the next time you start the game.");
+#else
+        Row("Graphics card", "Automatic uses the fastest; cards with a Vulkan driver are listed. Used the next time "
+                             "you start the game.");
+#endif
+        std::optional<GraphicsCardId> chosen;
+        try { chosen = ParseGraphicsCard(draft_.gpu); }
+        catch (const std::invalid_argument&) {}
+        std::string preview = "Automatic (fastest)";
+        if (chosen)
+        {
+            preview = graphics_cards_listing_ ? draft_.gpu : "Not found: " + draft_.gpu;
+            for (const auto& card : graphics_cards_)
+                if (card.id == *chosen) preview = card.name;
+        }
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo("##graphics_card", preview.c_str()))
+        {
+            if (ImGui::Selectable("Automatic (fastest)", !chosen)) { draft_.gpu = "auto"; dirty_ = true; }
+            for (const auto& card : graphics_cards_)
+            {
+                // Two cards of one name (some laptops list the same model twice) show their IDs.
+                bool twin = false;
+                for (const auto& other : graphics_cards_) twin = twin || (other.id != card.id && other.name == card.name);
+                const std::string label = card.name + (twin ? " (" + GraphicsCardSetting(card.id) + ")" : "")
+                    + "##" + GraphicsCardSetting(card.id);
+                if (ImGui::Selectable(label.c_str(), chosen && *chosen == card.id))
+                { draft_.gpu = GraphicsCardSetting(card.id); dirty_ = true; }
+            }
+            if (graphics_cards_listing_) ImGui::TextDisabled("Looking for graphics cards...");
+            ImGui::EndCombo();
+        }
+    }
+
     // Standard gamepads in the order the game numbers them (gamepad1-4);
     // Wii Remotes have their own driver and are left out.
     void RefreshGamepad()
     {
         // Every pad stays open: the gamepad setup takes presses from any of them.
+        StopGyroPreview();
         for (auto* pad : pads_) SDL_CloseGamepad(pad);
         pads_.clear();
         gamepad_ = nullptr;
         gamepad_names_.clear();
         trigger_held_.clear();
+        stick_held_.clear();
         int count = 0;
         auto* ids = SDL_GetGamepads(&count);
         for (int n = 0; ids && n < count; ++n)
@@ -2072,6 +2415,7 @@ private:
     {
         if (page_ != PageControls && keyboard_view_) CloseKeyboardView();
         if (page_ != PageControls && gamepad_view_) CloseGamepadView();
+        if (page_ != PageGameplay) texture_page_open_ = false;
         // Bluetooth inquiries can disturb other Bluetooth devices: search only
         // while the Controls page is open (never in development captures).
         bluetooth_search_.SetActive(page_ == PageControls && config_ok_ && draft_.bluetooth_search && !capture_);
@@ -2384,6 +2728,11 @@ private:
         std::string detail = aspect + (s.vsync ? "  -  VSync on" : "  -  VSync off");
         if (s.frame_rate != "original") detail += "  -  " + FrameRateLabel(s.frame_rate);
         if (s.performance_mode) detail += "  -  Performance mode";
+        if (!s.show_hud)
+        {
+            const auto hud = platform::ParseHotkeys(s.screenshot_key, s.hud_key).hud;
+            detail += "  -  HUD hidden (" + platform::KeyInputName(hud) + ")";
+        }
         return {s.fullscreen ? "Fullscreen" : std::to_string(s.width) + " x " + std::to_string(s.height) + " window",
                 detail, color::info};
     }
@@ -2614,7 +2963,7 @@ private:
     // -------------------------------------------------------------- pages
     void GamePage()
     {
-        PageHeader("Game", "Your Mario Strikers Charged images, the game's language and your saves.");
+        PageHeader("Game", "Your Mario Strikers Charged images, the game's language, the Discord status and your saves.");
         if (options_.launch.disc || options_.launch.size || options_.launch.fullscreen || options_.launch.aspect
             || options_.launch.frame_rate)
         {
@@ -2634,7 +2983,29 @@ private:
         }
         EndCard();
 
+        DiscordCard();
         SaveDataCard();
+    }
+
+    // The Discord status (issue #71): on unless switched off; builds without
+    // a Discord application (forks, local builds) cannot show one.
+    void DiscordCard()
+    {
+        BeginCard("##discord", "Discord", "Show what you play on your Discord profile.", Icon::Link);
+        if (BeginRows("##discord_rows"))
+        {
+            const bool available = *mscharged::build::discord_application_id != '\0'
+                || !draft_.discord_application_id.empty();
+            Row("Discord status", available
+                ? "Your profile shows the menu or match you are in, with the score and match time, while the "
+                  "Discord app runs on this computer."
+                : "This build has no Discord application, so it cannot show a Discord status.");
+            ImGui::BeginDisabled(!available);
+            if (Toggle("##discord_status", &draft_.discord_status)) dirty_ = true;
+            ImGui::EndDisabled();
+            EndRows();
+        }
+        EndCard();
     }
 
     // Where the game keeps its Wii storage, and importing a save from Dolphin.
@@ -2893,6 +3264,12 @@ private:
             const auto database = mscharged::platform::ResolveDolphinMiiDatabase(PathFromUtf8(chosen));
             if (database.empty()) Notice("No Mii database (RFL_DB.dat) found in " + chosen + ".", NoticeKind::Warning);
             else AskImport(database, ImportKind::Miis);
+            return;
+        }
+        if (folder_purpose_ == FolderPurpose::TextureFolder)
+        {
+            draft_.texture_folder = SettingsPath(PathFromUtf8(chosen));
+            dirty_ = true;
             return;
         }
         const auto save = mscharged::platform::ResolveDolphinSave(PathFromUtf8(chosen), Release().title_id,
@@ -3506,10 +3883,10 @@ private:
         if (BeginRows("##window_rows"))
         {
             const std::string native = FullscreenResolution();
-            Row("Mode", native.empty()
-                    ? "Fullscreen covers the whole display at its own resolution, without a mode change."
-                    : ("Fullscreen covers the whole display at its own resolution, " + native
-                       + " here, without a mode change.").c_str());
+            const std::string mode_note = "Fullscreen covers the whole display at its own resolution, "
+                + (native.empty() ? std::string() : native + " here, ") + "without a mode change. "
+                + platform::kFullscreenShortcut + " switches while playing.";
+            Row("Mode", mode_note.c_str());
             int mode = draft_.fullscreen ? 1 : 0;
             if (Segmented("##mode", &mode, {"Windowed", "Fullscreen"}, ImGui::GetContentRegionAvail().x))
             { draft_.fullscreen = mode == 1; dirty_ = true; }
@@ -3555,13 +3932,8 @@ private:
                           ImGui::GetContentRegionAvail().x))
             { draft_.resolution = resolutions[resolution]; dirty_ = true; }
 
-            Row("Antialiasing", "Smooths the jagged edges of 3D shapes (4x multisampling). Costs some GPU time.");
-            bool antialiasing = draft_.antialiasing == "4x";
-            if (Toggle("##antialiasing", &antialiasing))
-            {
-                draft_.antialiasing = antialiasing ? "4x" : "off";
-                dirty_ = true;
-            }
+            Row("Antialiasing", "Smooths jagged edges. The stronger kinds cost more GPU time.");
+            AntialiasingKindChoice();
 
             Row("VSync", "Synchronizes frames with your display to prevent tearing.");
             if (Toggle("##vsync", &draft_.vsync)) dirty_ = true;
@@ -3637,6 +4009,25 @@ private:
         if (!note.empty()) TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
     }
 
+    void AntialiasingKindChoice()
+    {
+        const mscharged::AntialiasingChoice* selected = nullptr;
+        for (const auto& choice : kAntialiasingChoices)
+            if (draft_.antialiasing == choice.value) selected = &choice;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        if (ImGui::BeginCombo("##antialiasing", selected ? selected->label : draft_.antialiasing.c_str()))
+        {
+            for (const auto& choice : kAntialiasingChoices)
+                if (ImGui::Selectable(choice.label, selected == &choice))
+                { draft_.antialiasing = choice.value; dirty_ = true; }
+            ImGui::EndCombo();
+        }
+        // The chosen kind's note; the launcher reads only known values.
+        for (const auto& choice : kAntialiasingChoices)
+            if (draft_.antialiasing == choice.value)
+                TextWrappedColored(CurrentFonts().caption, color::muted, choice.description);
+    }
+
     void FpsCornerChoice()
     {
         static constexpr std::pair<const char*, const char*> corners[] = {
@@ -3702,10 +4093,21 @@ private:
             });
             table("NUNCHUK & MOTION", "##pad_sticks", [&] {
                 row(swap ? "Right stick" : "Left stick", "Nunchuk stick");
-                for (std::size_t n = GamepadActionC; n < GamepadActionCount; ++n)
+                for (std::size_t n = GamepadActionC; n < GamepadActionRecenterPointer; ++n)
                     row(PadBindingLabel(bindings[n], type), kGamepadActions[n].label);
-                row(swap ? "Left stick" : "Right stick", "Pointer");
+                row(profile.gyro_pointer ? "Gyro" : swap ? "Left stick" : "Right stick", "Pointer");
+                if (profile.gyro_pointer)
+                    row(PadBindingLabel(bindings[GamepadActionRecenterPointer], type),
+                        kGamepadActions[GamepadActionRecenterPointer].label);
             });
+            ImGui::Dummy({0, Dp(6)});
+            TextColored(fonts.caption, color::muted,
+                        ("Stick dead zones " + std::to_string(profile.inner_deadzone) + "-"
+                         + std::to_string(profile.outer_deadzone) + "%, triggers press at "
+                         + std::to_string(profile.trigger_press) + "%"
+                         + (profile.gyro_pointer ? ", gyro speed " + std::to_string(profile.gyro_speed) + "%"
+                                                 : std::string()))
+                            .c_str());
             ImGui::EndTooltip();
         }
         ImGui::PopStyleVar();
@@ -3734,6 +4136,14 @@ private:
         };
         if (input == platform::kGamepadTriggerBase + SDL_GAMEPAD_AXIS_LEFT_TRIGGER) return pick("LT", "L2", "ZL", "L");
         if (input == platform::kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) return pick("RT", "R2", "ZR", "R");
+        if (platform::IsGamepadStickDirection(input))
+        {
+            static const char* const ways[] = {" up", " down", " left", " right"};
+            const int direction = input - platform::kGamepadStickBase;
+            return (direction >= platform::RightStickUp ? pick("Right stick", "Right stick", "Right stick", "C-stick")
+                                                        : std::string("Left stick"))
+                + ways[direction % 4];
+        }
         if (input < 0 || input >= SDL_GAMEPAD_BUTTON_COUNT) return "Not set";
         const auto button = SDL_GamepadButton(input);
         if (button <= SDL_GAMEPAD_BUTTON_NORTH)
@@ -3914,7 +4324,7 @@ private:
 
         // [audio] <group>_volume: applied by the game module when the game starts.
         BeginCard("##sound_levels", "Sound levels",
-                  "Each kind of sound as a share of the level the game gives it. Applies when the game starts.",
+                  "Each kind of sound as a share of the level the game gives it, on the PC only. Applies when the game starts.",
                   Icon::Sliders);
         if (BeginRows("##sound_level_rows"))
         {
@@ -3940,8 +4350,29 @@ private:
         EndCard();
     }
 
+    // Keycaps side by side. `together`: the keys are pressed at once
+    // ("Alt + Enter"), not alternatives.
+    static void KeyCaps(std::initializer_list<const char*> keys, bool together)
+    {
+        bool first = true;
+        for (const char* key : keys)
+        {
+            if (!first) ImGui::SameLine(0, Dp(6));
+            if (!first && together)
+            {
+                // Centred on the 28 dp keycaps.
+                const float height = TextSize(CurrentFonts().label, "+").y;
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (Dp(28) - height) * 0.5f);
+                TextColored(CurrentFonts().label, color::muted, "+");
+                ImGui::SameLine(0, Dp(6));
+            }
+            KeyCap(key);
+            first = false;
+        }
+    }
+
     void KeyRow(const char* button, std::initializer_list<const char*> keys, const char* alternative = nullptr,
-                const char* note = nullptr)
+                const char* note = nullptr, bool together = false)
     {
         ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
         ImGui::TableSetColumnIndex(0);
@@ -3952,13 +4383,7 @@ private:
             TextColored(CurrentFonts().caption, color::muted, note);
         }
         ImGui::TableSetColumnIndex(1);
-        bool first = true;
-        for (const char* key : keys)
-        {
-            if (!first) ImGui::SameLine(0, Dp(6));
-            KeyCap(key);
-            first = false;
-        }
+        KeyCaps(keys, together);
         if (alternative)
         {
             ImGui::SameLine(0, Dp(10));
@@ -4259,8 +4684,27 @@ private:
 #endif
             EndRows();
         }
-        // From the settings, not from what is connected right now: the row stays.
-        if ((RemotePlayer() || draft_.sensor_bar != "bottom") && BeginRows("##sensor_rows"))
+        EndCard();
+    }
+
+    bool GamepadPlayer() const
+    {
+        return std::any_of(draft_.players.begin(), draft_.players.end(),
+                           [](const std::string& device) { return device.rfind("gamepad", 0) == 0; });
+    }
+
+    // The Wii's Sensor Bar and Wii Remote settings. Shown from the settings,
+    // not from what is connected right now: the card stays while remotes come
+    // and go, and while a setting differs from the Wii's default.
+    void WiiRemoteCard()
+    {
+        const Settings defaults;
+        if (!RemotePlayer() && draft_.sensor_bar == defaults.sensor_bar &&
+            draft_.ir_sensitivity == defaults.ir_sensitivity && draft_.speaker_volume == defaults.speaker_volume)
+            return;
+        BeginCard("##wii_remote", "Wii Remote", "As in the Wii's own settings. Changes apply when the game starts.",
+                  Icon::Target);
+        if (BeginRows("##wii_remote_rows"))
         {
             Row("Sensor bar", "Where your sensor bar or DolphinBar sits. The game aims the Wii Remote pointer from it.");
             int position = draft_.sensor_bar == "top" ? 0 : 1;
@@ -4269,6 +4713,47 @@ private:
             {
                 draft_.sensor_bar = position == 0 ? "top" : "bottom";
                 dirty_ = true;
+            }
+            Row("Sensitivity", "How readily the Remote's camera sees the sensor bar (3 is the Wii's default). Raise it "
+                "when the pointer drops out far from the bar, lower it when lamps or windows disturb it.");
+            int level = std::clamp(draft_.ir_sensitivity, 1, 5) - 1;
+            if (Segmented("##ir_sensitivity", &level, {"1", "2", "3", "4", "5"}, ImGui::GetContentRegionAvail().x))
+            {
+                draft_.ir_sensitivity = level + 1;
+                dirty_ = true;
+            }
+            Row("Speaker volume", "Sounds the game plays on each player's Wii Remote; they play on the TV as well. "
+                "Off sends no sound to the Remotes.");
+            if (PercentSlider("##speaker_volume", &draft_.speaker_volume, ImGui::GetContentRegionAvail().x, "Off"))
+                dirty_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Speaker sound depends on the Bluetooth link: if it crackles, turn it down or off.");
+            EndRows();
+        }
+        EndCard();
+    }
+
+    // controls.rumble for every controller, controls.rumble_strength for
+    // gamepads (a Wii Remote's motor is on or off).
+    void RumbleCard()
+    {
+        const Settings defaults;
+        const bool controller = std::any_of(draft_.players.begin(), draft_.players.end(),
+            [](const std::string& device) { return device != "keyboard" && device != "off"; });
+        if (!controller && draft_.rumble == defaults.rumble && draft_.rumble_strength == defaults.rumble_strength)
+            return;
+        BeginCard("##rumble", "Rumble", nullptr, Icon::Gamepad);
+        if (BeginRows("##rumble_rows"))
+        {
+            Row("Rumble", "The game's rumble on Wii Remotes and gamepads, like the Wii's rumble setting.");
+            if (Toggle("##rumble", &draft_.rumble)) dirty_ = true;
+            if (GamepadPlayer() || draft_.rumble_strength != defaults.rumble_strength)
+            {
+                Row("Gamepad strength", "How strongly gamepads rumble. A Wii Remote's motor is either on or off.");
+                ImGui::BeginDisabled(!draft_.rumble);
+                if (PercentSlider("##rumble_strength", &draft_.rumble_strength, ImGui::GetContentRegionAvail().x, "Off"))
+                    dirty_ = true;
+                ImGui::EndDisabled();
             }
             EndRows();
         }
@@ -4292,7 +4777,7 @@ private:
     void OpenKeyboardView()
     {
         keyboard_view_ = true;
-        capture_action_ = capture_slot_ = -1;
+        capture_action_ = capture_slot_ = hotkey_capture_ = -1;
     }
 
     void CloseKeyboardView()
@@ -4302,24 +4787,24 @@ private:
         if (dirty_ && config_ok_) Save();
     }
 
-    platform::KeyBindings DraftBindings() const { return platform::ParseKeyBindings(draft_.keys); }
+    platform::Hotkeys DraftHotkeys() const { return platform::ParseHotkeys(draft_.screenshot_key, draft_.hud_key); }
+    platform::KeyBindings DraftBindings() const { return platform::ParseKeyBindings(draft_.keys, DraftHotkeys()); }
 
-    // A key pressed while a keycap waits: it takes that slot, moving it from
-    // another action unless it is that action's only key.
-    void CaptureKey(SDL_Scancode code)
+    // A key or mouse button pressed while a keycap waits: it takes that slot,
+    // moving it from another action unless it is that action's only key.
+    void CaptureKey(platform::KeyInput code)
     {
         const int action = capture_action_, slot = capture_slot_;
         capture_action_ = capture_slot_ = -1;
         if (action < 0) return;
-        const std::string name = SDL_GetScancodeName(code);
-        if (code == platform::kScreenshotKey)
+        const std::string name = platform::KeyInputName(code);
+        if (name.empty()) return;
+        const auto hotkeys = DraftHotkeys();
+        if (code == hotkeys.screenshot || code == hotkeys.hud)
         {
-            Notice(name + " takes screenshots and cannot be assigned.", NoticeKind::Warning);
-            return;
-        }
-        if (code == platform::kHudKey)
-        {
-            Notice(name + " shows or hides the HUD in a match and cannot be assigned.", NoticeKind::Warning);
+            Notice(name + (code == hotkeys.screenshot ? " takes screenshots" : " shows or hides the HUD")
+                       + " (Hotkeys on the Controls page) and cannot be assigned.",
+                   NoticeKind::Warning);
             return;
         }
         auto bindings = DraftBindings();
@@ -4333,18 +4818,18 @@ private:
             for (int k = 0; k < 2; ++k)
             {
                 if (binding[k] != code) continue;
-                if (binding[1 - k] == SDL_SCANCODE_UNKNOWN)
+                if (binding[1 - k] == platform::kKeyNone)
                 {
                     Notice(name + " is the only key of " + kKeyActions[other].label
                                + ". Give that action another key first.", NoticeKind::Warning);
                     return;
                 }
-                binding = {binding[1 - k], SDL_SCANCODE_UNKNOWN};
+                binding = {binding[1 - k], platform::kKeyNone};
                 moved = int(other);
             }
         }
         mine[slot] = code;
-        if (mine[0] == SDL_SCANCODE_UNKNOWN) mine = {mine[1], SDL_SCANCODE_UNKNOWN};
+        if (mine[0] == platform::kKeyNone) mine = {mine[1], platform::kKeyNone};
         draft_.keys[action] = platform::FormatKeyBinding(mine);
         if (moved >= 0) draft_.keys[moved] = platform::FormatKeyBinding(bindings[moved]);
         dirty_ = true;
@@ -4353,12 +4838,101 @@ private:
                NoticeKind::Info);
     }
 
+    // A key pressed while a hotkey's keycap waits (0 screenshot, 1 HUD).
+    // Another hotkey's key, a modifier or a keyboard & mouse key is refused.
+    void CaptureHotkey(platform::KeyInput code)
+    {
+        const int which = hotkey_capture_;
+        hotkey_capture_ = -1;
+        const std::string name = platform::KeyInputName(code);
+        if (which < 0 || name.empty()) return;
+        if (!platform::HotkeyAllowed(code))
+        {
+            Notice(name + " cannot be a hotkey: Shift, Ctrl, Alt and the system key stay free for shortcuts.",
+                   NoticeKind::Warning);
+            return;
+        }
+        const auto hotkeys = DraftHotkeys();
+        if (code == (which == 0 ? hotkeys.screenshot : hotkeys.hud)) return;
+        if (code == (which == 0 ? hotkeys.hud : hotkeys.screenshot))
+        {
+            Notice(name + (which == 0 ? " already shows or hides the HUD." : " already takes screenshots."),
+                   NoticeKind::Warning);
+            return;
+        }
+        const auto bindings = DraftBindings();
+        for (std::size_t action = 0; action < KeyActionCount; ++action)
+            if (bindings[action][0] == code || bindings[action][1] == code)
+            {
+                Notice(name + " presses " + kKeyActions[action].label
+                           + " for keyboard & mouse. Give that action another key first.",
+                       NoticeKind::Warning);
+                return;
+            }
+        (which == 0 ? draft_.screenshot_key : draft_.hud_key) = name;
+        dirty_ = true;
+        Notice(name + (which == 0 ? " now takes screenshots." : " now shows or hides the HUD."), NoticeKind::Info);
+    }
+
+    // [hotkeys]: keys of the game window, whoever plays. The screenshot and
+    // HUD keys can be changed; Alt+Enter cannot. No HUD sits with its key.
+    void HotkeysCard()
+    {
+        BeginCard("##hotkeys", "Hotkeys", "Keys of the game window, whoever plays. Click a key, then press the new one.",
+                  Icon::Keyboard);
+        const auto hotkeys = DraftHotkeys();
+        bool clicked = false;
+        const auto hotkey = [&](int which, const char* label, const char* note, SDL_Scancode key) {
+            Row(label, note);
+            const bool waiting = hotkey_capture_ == which;
+            const std::string name = waiting ? std::string("Press a key...") : platform::KeyInputName(key);
+            ImGui::PushID(which);
+            if (KeyCapButton("##hotkey", name.c_str(), waiting))
+            {
+                clicked = true;
+                hotkey_capture_ = waiting ? -1 : which;
+            }
+            if (ImGui::IsItemHovered() && !waiting) ImGui::SetTooltip("Click, then press the new key");
+            ImGui::PopID();
+        };
+        if (BeginRows("##hotkey_rows"))
+        {
+            hotkey(0, "Screenshot", "Saved in the screenshots folder.", hotkeys.screenshot);
+            Row("Fullscreen or window", "For this run.");
+#if defined(__APPLE__)
+            KeyCaps({"Option", "Return"}, true);
+#else
+            KeyCaps({"Alt", "Enter"}, true);
+#endif
+            hotkey(1, "Show or hide the HUD", "In a match.", hotkeys.hud);
+            const std::string note = "The scoreboard, player markers and captions. Off starts matches without them, "
+                "for clean recordings; " + platform::KeyInputName(hotkeys.hud)
+                + " shows them. The Mega Strike meter and its defence always stay.";
+            Row("Show the HUD when a match starts", note.c_str());
+            if (Toggle("##show_hud", &draft_.show_hud)) dirty_ = true;
+            EndRows();
+        }
+        static const Settings defaults;
+        if (SecondaryButton("##reset_hotkeys", "Reset keys", Dp(140, 36),
+                            draft_.screenshot_key != defaults.screenshot_key || draft_.hud_key != defaults.hud_key,
+                            Icon::Refresh))
+        {
+            draft_.screenshot_key = defaults.screenshot_key;
+            draft_.hud_key = defaults.hud_key;
+            hotkey_capture_ = -1;
+            dirty_ = true;
+        }
+        EndCard();
+        // A click anywhere else stops waiting for a key.
+        if (hotkey_capture_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) hotkey_capture_ = -1;
+    }
+
     void KeyboardView()
     {
         if (SecondaryButton("##back", "Players", Dp(124, 36), true, Icon::Back)) { CloseKeyboardView(); return; }
         ImGui::Dummy(Dp(0, 6));
-        PageHeader("Keyboard & mouse", "Click a key to change it; each action takes up to two keys. "
-                   "Changes are saved when you go back.");
+        PageHeader("Keyboard & mouse", "Click a key, then press the new key or a middle or side mouse button "
+                   "(Mouse 4, Mouse 5). Each action takes up to two. Changes are saved when you go back.");
         const auto bindings = DraftBindings();
         bool clicked = false;
         const auto rows = [&](std::size_t first, std::size_t last) {
@@ -4381,30 +4955,30 @@ private:
                     ImGui::TableSetColumnIndex(1);
                     for (int slot = 0; slot < 2; ++slot)
                     {
-                        const SDL_Scancode code = bindings[n][slot];
-                        if (slot == 1 && code == SDL_SCANCODE_UNKNOWN && bindings[n][0] == SDL_SCANCODE_UNKNOWN) break;
+                        const platform::KeyInput code = bindings[n][slot];
+                        if (slot == 1 && code == platform::kKeyNone && bindings[n][0] == platform::kKeyNone) break;
                         const bool waiting = capture_action_ == int(n) && capture_slot_ == slot;
-                        const char* label = waiting ? "Press a key..." : code != SDL_SCANCODE_UNKNOWN
-                            ? SDL_GetScancodeName(code) : "+";
+                        const std::string label = waiting ? "Press a key..." : code != platform::kKeyNone
+                            ? platform::KeyInputName(code) : "+";
                         if (slot) ImGui::SameLine(0, Dp(6));
                         ImGui::PushID(slot);
-                        if (KeyCapButton("##key", label, waiting))
+                        if (KeyCapButton("##key", label.c_str(), waiting))
                         {
                             clicked = true;
                             capture_action_ = waiting ? -1 : int(n);
                             capture_slot_ = waiting ? -1 : slot;
                         }
                         if (ImGui::IsItemHovered() && !waiting)
-                            ImGui::SetTooltip(code != SDL_SCANCODE_UNKNOWN ? "Click, then press the new key"
-                                                                           : "Add a second key");
+                            ImGui::SetTooltip(code != platform::kKeyNone ? "Click, then press the new key or mouse button"
+                                                                         : "Add a second key or mouse button");
                         ImGui::PopID();
                     }
-                    if (bindings[n][1] != SDL_SCANCODE_UNKNOWN)
+                    if (bindings[n][1] != platform::kKeyNone)
                     {
                         ImGui::SameLine(0, Dp(6));
                         if (SecondaryButton("##remove", "", Dp(30, 30), true, Icon::Error))
                         {
-                            draft_.keys[n] = platform::FormatKeyBinding({bindings[n][0], SDL_SCANCODE_UNKNOWN});
+                            draft_.keys[n] = platform::FormatKeyBinding({bindings[n][0], platform::kKeyNone});
                             dirty_ = true;
                         }
                         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove the second key");
@@ -4421,15 +4995,14 @@ private:
         BeginCard("##nunchuk_keys", "Nunchuk & motion", "The Nunchuk stick and buttons, and the shakes.", Icon::Gamepad);
         rows(KeyActionStickUp, KeyActionCount);
         EndCard();
-        BeginCard("##mouse_keys", "Mouse & more", nullptr, Icon::Mouse);
+        BeginCard("##mouse_keys", "Mouse",
+                  "The screenshot, HUD and fullscreen keys are under Hotkeys on the Controls page.", Icon::Mouse);
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
         if (ImGui::BeginTable("##fixed_keys", 2))
         {
             ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
             ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch);
             KeyRow("Pointer", {"Mouse"}, "left click is A, right click is B", "Point at menu items");
-            KeyRow("Screenshot", {"P"}, nullptr, "Saved in the screenshots folder");
-            KeyRow("Show or hide the HUD", {"H"}, nullptr, "In a match");
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
@@ -4557,10 +5130,26 @@ private:
         return chosen;
     }
 
-    // Gamepad presses while an input waits for one: a button, or a trigger
-    // pressed past half its travel. Escape stops waiting.
+    // Gamepad presses while an input waits for one: a button, a trigger
+    // pressed past half its travel or a stick pushed one way past half its
+    // travel. Escape stops waiting.
     void GamepadCaptureEvent(const SDL_Event& event)
     {
+        if (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && event.gaxis.axis <= SDL_GAMEPAD_AXIS_RIGHTY)
+            if (SDL_Gamepad* pad = SDL_GetGamepadFromID(event.gaxis.which))
+            {
+                const int first = event.gaxis.axis >= SDL_GAMEPAD_AXIS_RIGHTX ? platform::RightStickUp
+                                                                              : platform::LeftStickUp;
+                auto& held = stick_held_[event.gaxis.which];
+                for (int direction = first; direction < first + 4; ++direction)
+                {
+                    const auto input = platform::kGamepadStickBase + direction;
+                    const bool pressed = platform::GamepadStickDirectionHeld(pad, input, held[direction]);
+                    if (pressed && !held[direction] && pad_capture_action_ >= 0) CaptureGamepadInput(input);
+                    held[direction] = pressed;
+                    TrackPadInput(event.gaxis.which, input, pressed);
+                }
+            }
         if (event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION && (event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER
                                                             || event.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER))
         {
@@ -4850,7 +5439,7 @@ private:
                         }
                         if (ImGui::IsItemHovered() && !waiting)
                             ImGui::SetTooltip(input != platform::kGamepadNone
-                                                  ? "Select, then press the new button on the controller"
+                                                  ? "Select, then press the new button or push a stick on the controller"
                                                   : slot == 0 ? "No button presses this. Select, then press one."
                                                               : "Add a second button");
                         ImGui::PopID();
@@ -4882,16 +5471,19 @@ private:
         rows(GamepadActionA, GamepadActionC);
         EndCard();
         BeginCard("##pad_nunchuk", "Nunchuk & motion",
-                  "The Nunchuk stick and pointer on the controller's sticks, the Nunchuk buttons and the shakes.",
+                  "The Nunchuk stick and pointer on the controller's sticks or gyro, the Nunchuk buttons and "
+                  "the shakes.",
                   Icon::Gamepad);
         const bool swap = profile.swap_sticks;
+        const bool gyro = profile.gyro_pointer;
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
         if (ImGui::BeginTable("##pad_sticks", 2))
         {
             ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
             ImGui::TableSetupColumn("inputs", ImGuiTableColumnFlags_WidthStretch);
             KeyRow("Nunchuk stick", {swap ? "Right stick" : "Left stick"}, nullptr, "Move, aim");
-            KeyRow("Pointer", {swap ? "Left stick" : "Right stick"}, nullptr, "Point at menu items");
+            KeyRow("Pointer", {gyro ? "Gyro" : swap ? "Left stick" : "Right stick"}, nullptr,
+                   "Point at menu items and Mega Strike shots");
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
@@ -4905,30 +5497,353 @@ private:
                     target->swap_sticks = swapped;
                     dirty_ = true;
                 }
+            // Gyro pointer (issue #14).
+            Row("Gyro pointer", "Point by turning the controller, like a Wii Remote, instead of with the stick. "
+                "For controllers with a gyro, such as PlayStation and Switch Pro controllers.");
+            bool gyro_on = gyro;
+            if (Toggle("##gyro_pointer", &gyro_on))
+                if (auto* target = editable())
+                {
+                    target->gyro_pointer = gyro_on;
+                    dirty_ = true;
+                }
+            if (gyro)
+            {
+                BeginSubRows();
+                Row("Gyro speed", "At 100%, turning the controller about 25 degrees moves the pointer across "
+                    "the picture.");
+                int speed = profile.gyro_speed;
+                if (PercentSlider("##gyro_speed", &speed, ImGui::GetContentRegionAvail().x, nullptr, kMinGyroSpeed,
+                                  kMaxGyroSpeed)
+                    && speed != profile.gyro_speed)
+                    if (auto* target = editable())
+                    {
+                        target->gyro_speed = speed;
+                        dirty_ = true;
+                    }
+                // The stick the gyro frees can press the D-pad.
+                const int free_stick = swap ? platform::LeftStickUp : platform::RightStickUp;
+                bool stick_dpad = true;
+                for (int n = 0; n < 4; ++n)
+                {
+                    const auto& binding = bindings[GamepadActionUp + std::size_t(n)];
+                    const auto input = platform::kGamepadStickBase + free_stick + n;
+                    stick_dpad = stick_dpad && (binding[0] == input || binding[1] == input);
+                }
+                const std::string stick_dpad_label = std::string(swap ? "Left" : "Right") + " stick as D-pad";
+                Row(stick_dpad_label.c_str(), "Push it to press the D-pad: in a match, a deke with the ball and a "
+                    "slide tackle without it.");
+                if (Toggle("##stick_dpad", &stick_dpad))
+                    if (auto* target = editable())
+                    {
+                        SetStickDpad(*target, free_stick, stick_dpad);
+                        dirty_ = true;
+                    }
+                EndSubRows();
+            }
             EndRows();
         }
-        rows(GamepadActionC, GamepadActionCount);
+        if (gyro)
+        {
+            rows(GamepadActionRecenterPointer, GamepadActionCount);
+            GyroPreview(profile, bindings);
+        }
+        rows(GamepadActionC, GamepadActionRecenterPointer);
+        // A stick's directions bound to buttons while it also moves the
+        // Nunchuk stick or the pointer do both at once.
+        const auto stick_bound = [&](int first) {
+            for (const auto& binding : bindings)
+                for (const auto input : binding)
+                    if (input >= platform::kGamepadStickBase + first && input < platform::kGamepadStickBase + first + 4)
+                        return true;
+            return false;
+        };
+        const int nunchuk_stick = swap ? platform::RightStickUp : platform::LeftStickUp;
+        const int pointer_stick = swap ? platform::LeftStickUp : platform::RightStickUp;
+        std::string stick_note;
+        if (stick_bound(nunchuk_stick))
+            stick_note = std::string(swap ? "The right" : "The left")
+                + " stick moves the Nunchuk stick and presses buttons too: pushing it does both.";
+        else if (!gyro && stick_bound(pointer_stick))
+            stick_note = std::string(swap ? "The left" : "The right")
+                + " stick moves the pointer and presses buttons too: pushing it does both. "
+                  "With the gyro pointer on, it only presses the buttons.";
+        if (!stick_note.empty()) TextWrappedColored(CurrentFonts().caption, color::warning, stick_note.c_str());
+        EndCard();
+
+        // Dead zones and trigger press point (issue #62), tried live on the
+        // page's gamepad.
+        BeginCard("##pad_deadzones", "Dead zones & triggers",
+                  "How far a stick or trigger must move before it counts. Try it on the controller below.",
+                  Icon::Sliders);
+        if (BeginRows("##pad_deadzone_rows"))
+        {
+            const auto slider = [&](const char* label, const char* description, const char* id, int value,
+                                    int minimum, int maximum, int Settings::PadProfile::*field) {
+                Row(label, description);
+                if (PercentSlider(id, &value, ImGui::GetContentRegionAvail().x, nullptr, minimum, maximum)
+                    && value != profile.*field)
+                    if (auto* target = editable())
+                    {
+                        target->*field = value;
+                        dirty_ = true;
+                    }
+            };
+            slider("Inner dead zone", "The stick rests until it is tilted this far. Raise it if a worn stick drifts.",
+                   "##inner_deadzone", profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone,
+                   &Settings::PadProfile::inner_deadzone);
+            slider("Outer dead zone", "From this tilt on the stick is pushed all the way. 71% plays like a Nunchuk "
+                   "on the Wii; higher leaves more room for fine moves and slow pointing.",
+                   "##outer_deadzone", profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone,
+                   &Settings::PadProfile::outer_deadzone);
+            slider("Trigger press point", "A trigger presses its button past this much of its travel.",
+                   "##trigger_press", profile.trigger_press, kMinTriggerPress, kMaxTriggerPress,
+                   &Settings::PadProfile::trigger_press);
+            EndRows();
+        }
+        DeadzonePreview(profile);
         // Defaults of the controller shown above.
         const auto defaults = platform::DefaultGamepadInputs(PageFamily());
+        const Settings::PadProfile default_profile;
         const bool changed = platform::ParseGamepadBindings(profile.inputs) != platform::ParseGamepadBindings(defaults)
-            || swap;
+            || swap || profile.inner_deadzone != default_profile.inner_deadzone
+            || profile.outer_deadzone != default_profile.outer_deadzone
+            || profile.trigger_press != default_profile.trigger_press
+            || profile.gyro_pointer != default_profile.gyro_pointer || profile.gyro_speed != default_profile.gyro_speed;
+        ImGui::Dummy(Dp(0, 4));
         if (SecondaryButton("##reset_pad", "Reset to defaults", Dp(180, 36), changed, Icon::Refresh))
         {
             profile.inputs = defaults;
             profile.swap_sticks = false;
+            profile.inner_deadzone = default_profile.inner_deadzone;
+            profile.outer_deadzone = default_profile.outer_deadzone;
+            profile.trigger_press = default_profile.trigger_press;
+            profile.gyro_pointer = default_profile.gyro_pointer;
+            profile.gyro_speed = default_profile.gyro_speed;
             pad_capture_action_ = pad_capture_slot_ = -1;
             dirty_ = true;
         }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Buttons, sticks, gyro, dead zones and triggers as in Default");
         EndCard();
         // A click anywhere else stops waiting for a press.
         if (pad_capture_action_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             pad_capture_action_ = pad_capture_slot_ = -1;
     }
 
+    // Adds a stick's four directions to the D-pad's inputs, after the D-pad's
+    // own (a direction bound elsewhere moves here), or takes them away again;
+    // a D-pad action left without input gets its default back.
+    void SetStickDpad(Settings::PadProfile& profile, int first_direction, bool on)
+    {
+        const auto before = platform::ParseGamepadBindings(profile.inputs);
+        const auto defaults = platform::ParseGamepadBindings(platform::DefaultGamepadInputs(PageFamily()));
+        auto bindings = before;
+        for (int n = 0; n < 4; ++n)
+        {
+            const auto input = platform::kGamepadStickBase + first_direction + n;
+            for (auto& binding : bindings)
+            {
+                if (binding[1] == input) binding[1] = platform::kGamepadNone;
+                if (binding[0] == input) binding = {binding[1], platform::kGamepadNone};
+            }
+            const std::size_t action = GamepadActionUp + std::size_t(n);
+            auto& dpad = bindings[action];
+            if (on) dpad = dpad[0] != platform::kGamepadNone ? platform::GamepadBinding{dpad[0], input}
+                                                             : platform::GamepadBinding{input, platform::kGamepadNone};
+            else if (dpad[0] == platform::kGamepadNone) dpad = defaults[action];
+        }
+        for (std::size_t action = 0; action < GamepadActionCount; ++action)
+            if (bindings[action] != before[action]) profile.inputs[action] = platform::FormatGamepadBinding(bindings[action]);
+    }
+
+    // The page's gamepad turning a pointer over a picture-shaped box at the
+    // profile's gyro speed, as in the game; its recentre button or a click
+    // centres it. Without a gyro the stick points, as in the game.
+    void GyroPreview(const Settings::PadProfile& profile, const platform::GamepadBindings& bindings)
+    {
+        gyro_preview_drawn_ = true;
+        const auto& fonts = CurrentFonts();
+        SDL_Gamepad* pad = pad_slot_ < pads_.size() ? pads_[pad_slot_] : nullptr;
+        if (!pad)
+        {
+            TextWrappedColored(fonts.caption, color::muted,
+                               ("Connect gamepad " + std::to_string(pad_slot_ + 1) + " to try the gyro here.").c_str());
+            return;
+        }
+        const std::string name = pad_slot_ < gamepad_names_.size() ? gamepad_names_[pad_slot_] : "This controller";
+        if (!SDL_GamepadHasSensor(pad, SDL_SENSOR_GYRO))
+        {
+            TextWrappedColored(fonts.caption, color::warning,
+                               (name + " has no gyro: its " + (profile.swap_sticks ? "left" : "right")
+                                + " stick moves the pointer instead.")
+                                   .c_str());
+            return;
+        }
+        if (gyro_preview_pad_ != pad)
+        {
+            StopGyroPreview();
+            SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_GYRO, true);
+            if (SDL_GamepadHasSensor(pad, SDL_SENSOR_ACCEL)) SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_ACCEL, true);
+            gyro_preview_pad_ = pad;
+        }
+        const auto& recenter_binding = bindings[GamepadActionRecenterPointer];
+        const bool recenter = platform::GamepadBindingHeld(pad, recenter_binding, profile.trigger_press);
+        const Uint64 now = SDL_GetTicksNS();
+        const float seconds = gyro_preview_ns_ ? float(double(now - gyro_preview_ns_) * 1e-9) : 0.0f;
+        gyro_preview_ns_ = now;
+        const auto turn = platform::TakeGyroTurn(gyro_preview_motion_, seconds);
+        if (recenter && !gyro_preview_recenter_held_) CentreGyroPreview();
+        else platform::MoveGyroPointer(gyro_preview_x_, gyro_preview_y_, turn, profile.gyro_speed, 9.0f / 16.0f);
+        gyro_preview_recenter_held_ = recenter;
+        ImGui::Dummy(Dp(0, 8));
+        const float width = std::min(ImGui::GetContentRegionAvail().x, Dp(320)), height = width * 9.0f / 16.0f;
+        const ImVec2 origin = ImGui::GetCursorScreenPos(), end{origin.x + width, origin.y + height};
+        if (ImGui::InvisibleButton("##gyro_preview", {width, height})) CentreGyroPreview();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click to centre the pointer");
+        auto* draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(origin, end, Col(color::field), Dp(8));
+        // Hairlines as thin rectangles: SDL's software renderer drops parts of long lines.
+        const float hair = std::max(1.0f, Dp(1)), cx = origin.x + width * 0.5f, cy = origin.y + height * 0.5f;
+        draw->AddRectFilled({cx - hair * 0.5f, origin.y}, {cx + hair * 0.5f, end.y}, Col(color::border));
+        draw->AddRectFilled({origin.x, cy - hair * 0.5f}, {end.x, cy + hair * 0.5f}, Col(color::border));
+        draw->AddRect(origin, end, Col(color::border), Dp(8), 0, Dp(1.5f));
+        const ImVec2 dot{origin.x + gyro_preview_x_ * width, origin.y + gyro_preview_y_ * height};
+        draw->AddCircle(dot, Dp(11), Col(color::accent, 0.45f), 24, Dp(1.5f));
+        draw->AddCircleFilled(dot, Dp(6), Col(color::accent_hi));
+        const std::string centre = recenter_binding[0] != platform::kGamepadNone
+            ? PadInputLabel(recenter_binding[0], SDL_GetGamepadType(pad)) + " or a click centres it."
+            : "A click centres it.";
+        TextWrappedColored(fonts.caption, color::muted, ("Turn " + name + " to move the pointer. " + centre).c_str());
+    }
+
+    // Readings of the gamepad whose gyro the preview shows.
+    void GyroPreviewEvent(const SDL_Event& event)
+    {
+        if (event.type != SDL_EVENT_GAMEPAD_SENSOR_UPDATE || !gyro_preview_pad_
+            || event.gsensor.which != SDL_GetGamepadID(gyro_preview_pad_))
+            return;
+        if (event.gsensor.sensor == SDL_SENSOR_GYRO)
+            platform::AddGyroReading(gyro_preview_motion_, event.gsensor.data, event.gsensor.sensor_timestamp);
+        else if (event.gsensor.sensor == SDL_SENSOR_ACCEL)
+            platform::AddAccelReading(gyro_preview_motion_, event.gsensor.data, event.gsensor.sensor_timestamp);
+    }
+
+    // Turns the preview's sensors off; it starts again centred.
+    void StopGyroPreview()
+    {
+        if (gyro_preview_pad_)
+        {
+            SDL_SetGamepadSensorEnabled(gyro_preview_pad_, SDL_SENSOR_GYRO, false);
+            SDL_SetGamepadSensorEnabled(gyro_preview_pad_, SDL_SENSOR_ACCEL, false);
+        }
+        gyro_preview_pad_ = nullptr;
+        gyro_preview_motion_ = {};
+        gyro_preview_ns_ = 0;
+        gyro_preview_x_ = gyro_preview_y_ = 0.5f;
+        gyro_preview_recenter_held_ = false;
+    }
+
+    // Puts the preview's pointer back in the middle.
+    void CentreGyroPreview()
+    {
+        gyro_preview_x_ = gyro_preview_y_ = 0.5f;
+        platform::ClearGyroTurn(gyro_preview_motion_);
+    }
+
+    // Both sticks and triggers of the page's gamepad, live, with `profile`'s
+    // dead zones and press point: the shaded centre is the inner dead zone,
+    // the ring the outer one; the figure is how far the game sees the stick
+    // pushed.
+    void DeadzonePreview(const Settings::PadProfile& profile)
+    {
+        const auto bindings = platform::ParseGamepadBindings(profile.inputs);
+        SDL_Gamepad* pad = pad_slot_ < pads_.size() ? pads_[pad_slot_] : nullptr;
+        if (!pad)
+        {
+            TextWrappedColored(CurrentFonts().caption, color::muted,
+                               ("Connect gamepad " + std::to_string(pad_slot_ + 1) + " to try these here.").c_str());
+            return;
+        }
+        ImGui::Dummy(Dp(0, 8));
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const float radius = Dp(52), bar_w = Dp(26), caption = Dp(40), gap = Dp(28);
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        const auto axis = [&](SDL_GamepadAxis which) {
+            return std::clamp(float(SDL_GetGamepadAxis(pad, which)) / 32767.0f, -1.0f, 1.0f);
+        };
+        const auto centred = [&](float centre_x, float y, ImFont* font, const ImVec4& tint, const std::string& text) {
+            const ImVec2 size = TextSize(font, text.c_str());
+            DrawLabel(draw, font, {centre_x - size.x * 0.5f, y}, Col(tint), text.c_str());
+        };
+        const auto stick = [&](float left, bool left_stick, bool nunchuk) {
+            const ImVec2 c{left + radius, origin.y + radius};
+            const auto x_axis = left_stick ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX;
+            const auto y_axis = left_stick ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY;
+            const auto tilt = platform::GamepadStickTilt(pad, x_axis, y_axis, profile.inner_deadzone,
+                                                         profile.outer_deadzone);
+            const float pushed = std::min(1.0f, std::hypot(tilt.x, tilt.y));
+            draw->AddCircleFilled(c, radius, Col(color::field), 48);
+            draw->AddCircleFilled(c, radius, Col(color::accent, 0.10f), 48);
+            draw->AddCircleFilled(c, radius * profile.outer_deadzone / 100.0f, Col(color::field), 48);
+            draw->AddCircle(c, radius * profile.outer_deadzone / 100.0f, Col(color::accent, 0.55f), 48, Dp(1.5f));
+            // Hairlines as thin rectangles: SDL's software renderer drops parts of long lines.
+            const float hair = std::max(1.0f, Dp(1));
+            draw->AddRectFilled({c.x - radius, c.y - hair * 0.5f}, {c.x + radius, c.y + hair * 0.5f}, Col(color::border));
+            draw->AddRectFilled({c.x - hair * 0.5f, c.y - radius}, {c.x + hair * 0.5f, c.y + radius}, Col(color::border));
+            if (profile.inner_deadzone > 0)
+                draw->AddCircleFilled(c, radius * profile.inner_deadzone / 100.0f, Col(color::dim, 0.45f), 32);
+            draw->AddCircle(c, radius, Col(color::border), 48, Dp(1.5f));
+            float x = axis(x_axis), y = axis(y_axis);
+            if (const float length = std::hypot(x, y); length > 1.0f) { x /= length; y /= length; }
+            const ImVec4 dot = pushed <= 0.0f ? color::muted : pushed >= 1.0f ? color::accent_hi : color::accent;
+            draw->AddCircleFilled({c.x + x * radius, c.y + y * radius}, Dp(6), Col(dot));
+            bool buttons = false;
+            for (const auto& binding : bindings)
+                for (const auto input : binding)
+                    buttons = buttons
+                        || (platform::IsGamepadStickDirection(input)
+                            && (input - platform::kGamepadStickBase >= platform::RightStickUp) != left_stick);
+            const std::string name = std::string(left_stick ? "Left stick" : "Right stick") + ": "
+                + (nunchuk ? "Nunchuk" : !profile.gyro_pointer ? "pointer" : buttons ? "buttons" : "not used");
+            centred(c.x, origin.y + radius * 2 + Dp(6), fonts.caption, color::muted, name);
+            centred(c.x, origin.y + radius * 2 + Dp(22), fonts.caption, pushed > 0 ? color::text : color::dim,
+                    std::to_string(int(std::lround(pushed * 100))) + "% pushed");
+        };
+        const auto trigger = [&](float left, SDL_GamepadAxis which) {
+            const float top = origin.y, bottom = origin.y + radius * 2;
+            const float value = std::clamp(float(SDL_GetGamepadAxis(pad, which)) / 32767.0f, 0.0f, 1.0f);
+            const bool pressed = SDL_GetGamepadAxis(pad, which) > platform::GamepadTriggerThreshold(profile.trigger_press);
+            draw->AddRectFilled({left, top}, {left + bar_w, bottom}, Col(color::field), Dp(6));
+            if (value > 0)
+                draw->AddRectFilled({left, bottom - (bottom - top) * value}, {left + bar_w, bottom},
+                                    Col(pressed ? color::accent : color::muted, pressed ? 0.85f : 0.45f), Dp(6));
+            const float mark = bottom - (bottom - top) * profile.trigger_press / 100.0f;
+            draw->AddRectFilled({left - Dp(4), mark - Dp(1)}, {left + bar_w + Dp(4), mark + Dp(1)}, Col(color::accent_hi));
+            draw->AddRect({left, top}, {left + bar_w, bottom}, Col(color::border), Dp(6), 0, Dp(1.5f));
+            const auto name = PadInputLabel(platform::kGamepadTriggerBase + which, SDL_GetGamepadType(pad));
+            centred(left + bar_w * 0.5f, origin.y + radius * 2 + Dp(6), fonts.caption, color::muted, name);
+            centred(left + bar_w * 0.5f, origin.y + radius * 2 + Dp(22), fonts.caption,
+                    pressed ? color::accent : color::dim, pressed ? "on" : "off");
+        };
+        float left = origin.x + Dp(4);
+        stick(left, true, !profile.swap_sticks);
+        left += radius * 2 + gap;
+        stick(left, false, profile.swap_sticks);
+        left += radius * 2 + gap;
+        trigger(left, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+        left += bar_w + gap;
+        trigger(left, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+        ImGui::Dummy({left + bar_w - origin.x, radius * 2 + caption});
+    }
+
     void ControlsMain()
     {
         PageHeader("Controls", "Play with keyboard and mouse, an Xbox, PlayStation or other gamepad, or a Wii Remote with Nunchuk. Keep the game window focused.");
         PlayersCard();
+        WiiRemoteCard();
+        RumbleCard();
+        HotkeysCard();
 
         BeginCard("##controller", "Controller test", "Check a gamepad's buttons and sticks. Assign gamepads to players above.", Icon::Gamepad);
         if (!gamepad_)
@@ -4954,9 +5869,94 @@ private:
         EndCard();
     }
 
+    // The Super Team needs a Super Mario Strikers (GameCube) image: one of the
+    // game folder is taken when none is set; turning the tweak on without one
+    // asks for it.
+    void PrefillGameCubeDisc()
+    {
+        if (!draft_.gamecube_disc.empty() || library_strikers_.empty()) return;
+        const bool clean = !dirty_;
+        draft_.gamecube_disc = SettingsPath(library_strikers_.front());
+        dirty_ = true;
+        if (clean) Save();
+        if (draft_.tweaks[GameTweakIndex(GameTweak::SuperTeam)])
+            Notice("The Super Team uses " + PathUtf8(library_strikers_.front().filename()) + " from your game folder.",
+                   NoticeKind::Success);
+    }
+
+    void BrowseGameCubeDisc()
+    {
+        static const SDL_DialogFileFilter filters[] = {
+            {"GameCube disc images (ISO / RVZ / GCM)", "iso;rvz;gcm;ISO;RVZ;GCM"}, {"All files", "*"}};
+        {
+            std::lock_guard<std::mutex> lock(gamecube_dialog_->mutex);
+            gamecube_dialog_->active = true;
+        }
+        const fs::path current = draft_.gamecube_disc.empty() ? fs::path()
+                                                              : ResolveGameCubeDiscPath(draft_, file_.path);
+        const fs::path start = !current.empty() ? current.parent_path() : ResolveGameFolder(draft_, file_.path);
+        const std::string location = PathUtf8(start);
+        SDL_ShowOpenFileDialog(DiscChosen, new std::shared_ptr<DialogResult>(gamecube_dialog_), window_, filters,
+                               int(std::size(filters)), location.empty() ? nullptr : location.c_str(), false);
+    }
+
+    void GameCubeDiscChosen(const fs::path& path)
+    {
+        const DiscProbe probe = ProbeDisc(path);
+        if (probe.kind != DiscProbe::Kind::OtherGame || !IsStrikersGameId(probe.info.game_id))
+        {
+            Notice(PathUtf8(path.filename()) + " is not a Super Mario Strikers (GameCube) image.", NoticeKind::Error);
+            return;
+        }
+        draft_.gamecube_disc = SettingsPath(path);
+        dirty_ = true;
+        Notice("The Super Team uses " + PathUtf8(path.filename()) + ".", NoticeKind::Success);
+    }
+
+    void SuperTeamRows()
+    {
+        const auto index = GameTweakIndex(GameTweak::SuperTeam);
+        const auto& info = kGameTweaks[index];
+        Row(info.name, info.description);
+        if (Toggle("##tweak_super_team", &draft_.tweaks[index]))
+        {
+            dirty_ = true;
+            if (draft_.tweaks[index] && draft_.gamecube_disc.empty()) BrowseGameCubeDisc();
+        }
+        if (!draft_.tweaks[index]) return;
+        BeginSubRows();
+        Row("Side", "The team whose captain and sidekicks are robots.");
+        const char* sides[] = {"away", "home", "both"};
+        int side = 0;
+        for (int i = 0; i < 3; ++i)
+            if (draft_.super_team_side == sides[i]) side = i;
+        if (Segmented("##super_team_side", &side, {"Away team", "Home team", "Both teams"},
+                      ImGui::GetContentRegionAvail().x))
+        {
+            draft_.super_team_side = sides[side];
+            dirty_ = true;
+        }
+        bool browsing;
+        {
+            std::lock_guard<std::mutex> lock(gamecube_dialog_->mutex);
+            browsing = gamecube_dialog_->active;
+        }
+        const std::string path = draft_.gamecube_disc.empty()
+            ? std::string("None found in your game folder. Choose your Super Mario Strikers image.")
+            : PathUtf8(ResolveGameCubeDiscPath(draft_, file_.path));
+        Row("GameCube disc", path.c_str());
+        const std::string label = draft_.gamecube_disc.empty()
+            ? std::string("Choose image...")
+            : PathUtf8(PathFromUtf8(draft_.gamecube_disc).filename());
+        if (SecondaryButton("gamecube_disc", label.c_str(), {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()},
+                            !browsing && config_ok_, Icon::Disc))
+            BrowseGameCubeDisc();
+        EndSubRows();
+    }
+
     void TweakRow(GameTweak tweak)
     {
-        const auto index = std::size_t(tweak);
+        const auto index = GameTweakIndex(tweak);
         const auto& info = kGameTweaks[index];
         Row(info.name, info.description);
         const std::string id = std::string("##tweak_") + info.key;
@@ -5000,7 +6000,8 @@ private:
             TweakRow(GameTweak::CpuVsCpu);
             TweakRow(GameTweak::MirrorMatch);
             TweakRow(GameTweak::BluePeach);
-            TweakRow(GameTweak::NoHud);
+            TweakRow(GameTweak::RobotGoalies);
+            SuperTeamRows();
             TweakRow(GameTweak::UnlockAll);
             EndRows();
         }
@@ -5017,14 +6018,476 @@ private:
         }
         EndCard();
 
-        BeginCard("##mods", "Mods", "Coming later", Icon::Sliders);
-        TextWrappedColored(CurrentFonts().body, color::text,
-            "Texture packs and script mods will be managed here.");
+        ModsCard();
+    }
+
+    // ------------------------------------------------------- texture packs
+    // The packs in the texture packs folder, read in the background when the
+    // Gameplay page opens, the folder changes, a pack is added or Refresh is chosen.
+    void PollTexturePacks()
+    {
+        if (texture_scanning_ && texture_scan_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            texture_packs_ = texture_scan_.get();
+            texture_scanning_ = false;
+        }
+        if (pack_copy_.valid() && pack_copy_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            const std::string error = pack_copy_.get();
+            if (error.empty()) Notice(pack_copy_name_ + " was added to your texture packs.", NoticeKind::Success);
+            else Notice(error, NoticeKind::Error);
+            pack_copy_name_.clear();
+            texture_rescan_ = true;
+        }
+        const bool opened = !texture_page_open_;
+        texture_page_open_ = true;
+        const auto folder = TextureFolder();
+        if (opened || PathUtf8(folder) != texture_scanned_folder_) texture_rescan_ = true;
+        if (texture_rescan_ && !texture_scanning_)
+        {
+            texture_rescan_ = false;
+            texture_scanned_folder_ = PathUtf8(folder);
+            texture_scanning_ = true;
+            texture_scan_ = std::async(std::launch::async, [folder] { return platform::FindTexturePacks(folder); });
+        }
+    }
+
+    fs::path TextureFolder() const { return ResolveTextureFolder(draft_, file_.path).lexically_normal(); }
+
+    // The packs in the player's order (mods.texture_pack_order).
+    std::vector<platform::TexturePack> OrderedTexturePacks() const
+    {
+        return platform::OrderTexturePacks(texture_packs_, platform::SplitPackNames(draft_.texture_pack_order));
+    }
+
+    void MoveTexturePack(std::vector<platform::TexturePack> packs, std::size_t from, std::size_t to)
+    {
+        if (from >= packs.size() || to >= packs.size() || from == to) return;
+        auto pack = std::move(packs[from]);
+        packs.erase(packs.begin() + std::ptrdiff_t(from));
+        packs.insert(packs.begin() + std::ptrdiff_t(to), std::move(pack));
+        std::vector<std::string> names;
+        for (const auto& item : packs) names.push_back(item.name);
+        draft_.texture_pack_order = platform::JoinPackNames(names);
+        dirty_ = true;
+    }
+
+    void SetTexturePackOn(const std::string& name, bool on)
+    {
+        auto off = platform::SplitPackNames(draft_.texture_packs_off);
+        off.erase(std::remove(off.begin(), off.end(), name), off.end());
+        if (!on) off.push_back(name);
+        draft_.texture_packs_off = platform::JoinPackNames(off);
+        dirty_ = true;
+    }
+
+    // A folder or .zip file dropped onto the Gameplay page: a pack is copied
+    // into the texture packs folder in the background. False when it is none.
+    bool AddTexturePack(const fs::path& source)
+    {
+        const auto pack = platform::ProbeTexturePack(source);
+        if (!pack) return false;
+        const fs::path folder = TextureFolder();
+        std::error_code error;
+        if (fs::equivalent(source.parent_path(), folder, error))
+            Notice(pack->name + " is already in your texture packs folder.", NoticeKind::Info);
+        else if (pack_copy_.valid())
+            Notice("Wait until " + pack_copy_name_ + " is added.", NoticeKind::Warning);
+        else if (fs::exists(folder / source.filename(), error))
+            Notice("Your texture packs folder already has a " + pack->name + ".", NoticeKind::Warning);
+        else
+        {
+            pack_copy_name_ = pack->name;
+            pack_copy_textures_ = pack->textures;
+            pack_copy_ = std::async(std::launch::async, [source, folder] { return CopyTexturePack(source, folder); });
+        }
+        return true;
+    }
+
+    // Copies under a hidden name first, so the folder never lists half a pack.
+    static std::string CopyTexturePack(const fs::path& source, const fs::path& folder)
+    {
+        std::error_code error;
+        fs::create_directories(folder, error);
+        if (error) return "Cannot create " + PathUtf8(folder) + ": " + error.message();
+        const auto name = source.filename();
+        const auto temporary = folder / PathFromUtf8("." + PathUtf8(name) + ".adding");
+        fs::remove_all(temporary, error);
+        error.clear();
+        if (fs::is_directory(source, error))
+            fs::copy(source, temporary, fs::copy_options::recursive, error);
+        else if (!error)
+            fs::copy_file(source, temporary, error);
+        if (!error) fs::rename(temporary, folder / name, error);
+        if (!error) return {};
+        std::error_code ignored;
+        fs::remove_all(temporary, ignored);
+        return "Cannot add " + PathUtf8(name) + ": " + error.message();
+    }
+
+    void ModsCard()
+    {
+        const auto& fonts = CurrentFonts();
+        PollTexturePacks();
+        BeginCard("##mods", "Mods", "Texture packs replace the game's textures with sharper ones. They change only "
+                                    "how the game looks.", Icon::Sliders);
+        if (BeginRows("##mods_rows"))
+        {
+            Row("Texture packs", "Texture packs made for Dolphin, from the folder below. Drop a pack's folder or .zip "
+                                 "file onto this page to add it.");
+            if (Toggle("##texture_packs", &draft_.texture_packs)) dirty_ = true;
+            EndRows();
+        }
+        ImGui::BeginDisabled(!draft_.texture_packs);
+        TextureFolderPicker();
+        ImGui::Dummy({0, Dp(4)});
+        if (!pack_copy_name_.empty()) PackCopyLine();
+        const auto packs = OrderedTexturePacks();
+        if (!packs.empty())
+        {
+            TexturePackTable(packs);
+            if (packs.size() > 1)
+                TextWrappedColored(fonts.caption, color::dim,
+                                   "Drag a pack to change the order: where two packs replace the same texture, the "
+                                   "higher one wins.");
+        }
+        else if (pack_copy_name_.empty())
+            PackDropZone();
+        ImGui::EndDisabled();
+
+        ImGui::Dummy({0, Dp(6)});
+        if (BeginRows("##dump_rows"))
+        {
+            Row("Dump textures", "For pack makers: each texture no pack replaces is saved to data/texture_dumps, "
+                                 "named as texture packs need it. Takes disk space and can make the game stutter.");
+            if (Toggle("##dump_textures", &draft_.dump_textures)) dirty_ = true;
+            const fs::path dumps = DataFolder(base_) / "texture_dumps";
+            std::error_code error;
+            ImGui::SameLine(0, Dp(12));
+            if (GhostButton("open_dumps", "Open", {GhostWidth("Open", Icon::Folder), Dp(30)},
+                            fs::is_directory(dumps, error), Icon::Folder))
+                OpenPath(dumps);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", fs::is_directory(dumps, error) ? PathUtf8(dumps).c_str()
+                                                                       : "Made when the game first dumps a texture.");
+            EndRows();
+        }
         ImGui::Dummy({0, Dp(2)});
-        TextWrappedColored(CurrentFonts().caption, color::muted,
-            "Tweaks apply when the game starts. For a bug report, try again with them off (or start the game "
-            "with --no-tweaks) to check whether a tweak is involved.");
+        TextWrappedColored(fonts.caption, color::muted,
+            "Tweaks and texture packs apply when the game starts. For a bug report, try again with the tweaks off "
+            "(or start the game with --no-tweaks) and without texture packs to check whether one of them is "
+            "involved.");
         EndCard();
+    }
+
+    // The texture packs folder as one picker, like the game folder's: click it
+    // (or Change...) to select another; Open shows it (and makes it).
+    void TextureFolderPicker()
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(60);
+        const ImVec2 max{pos.x + width, pos.y + height};
+        const float center = pos.y + height * 0.5f;
+        bool browsing;
+        { std::lock_guard<std::mutex> lock(folder_dialog_->mutex); browsing = folder_dialog_->active; }
+        const bool can_select = !browsing && config_ok_ && draft_.texture_packs;
+
+        const char* change = "Change...";
+        const char* open = "Open";
+        const float change_w = TextSize(fonts.body, change).x + Dp(32);
+        const float open_w = GhostWidth(open, Icon::Folder);
+        const float change_x = max.x - Dp(12) - change_w;
+        const float open_x = change_x - Dp(8) - open_w;
+        const float refresh_x = open_x - Dp(4) - Dp(34);
+
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::BeginDisabled(!can_select);
+        const bool picked = ImGui::InvisibleButton("##texture_folder", {refresh_x - Dp(10) - pos.x, height});
+        ImGui::EndDisabled();
+        const float hover = Animate(ImGui::GetID("##texture_folder_hover"), ImGui::IsItemHovered() && can_select, 12.0f);
+        draw->AddRectFilled(pos, max, Col(Mix(Mix(color::field, color::card, 0.45f), color::field, hover)), Dp(12));
+        draw->AddRect(pos, max, Col(Mix(color::border, color::accent, 0.45f * hover)), Dp(12), 0, Dp(1));
+        const ImVec2 box{pos.x + Dp(12), center - Dp(18)};
+        draw->AddRectFilled(box, {box.x + Dp(36), box.y + Dp(36)}, Col(color::accent, 0.12f + 0.06f * hover), Dp(10));
+        DrawIcon(draw, Icon::Folder, {box.x + Dp(18), box.y + Dp(18)}, Dp(18), Col(color::accent));
+
+        const fs::path path = TextureFolder();
+        std::error_code error;
+        std::string status;
+        ImVec4 tint = color::muted;
+        if (texture_scanning_ && texture_packs_.empty())
+        {
+            status = "Looking for texture packs...";
+            tint = color::info;
+        }
+        else if (!fs::is_directory(path, error))
+            status = "Not there yet: Open makes it, and a dropped pack goes into it";
+        else
+        {
+            const auto off = platform::SplitPackNames(draft_.texture_packs_off);
+            std::size_t used = 0, textures = 0;
+            for (const auto& pack : texture_packs_)
+                if (pack.error.empty() && std::find(off.begin(), off.end(), pack.name) == off.end())
+                {
+                    ++used;
+                    textures += pack.textures;
+                }
+            const auto count = texture_packs_.size();
+            status = count == 0 ? "No texture packs"
+                : std::to_string(count) + (count == 1 ? " pack" : " packs") + ", " + std::to_string(used) + " in use ("
+                    + std::to_string(textures) + " textures)";
+        }
+        const float text_x = box.x + Dp(36 + 14), text_w = std::max(Dp(80), refresh_x - Dp(14) - text_x);
+        const float lines = FontSize(fonts.label) + Dp(3) + FontSize(fonts.caption);
+        const float top = center - lines * 0.5f;
+        DrawPath(draw, fonts.label, {text_x, top}, text_w, color::text, PathUtf8(path));
+        DrawClipped(draw, fonts.caption, {text_x, top + FontSize(fonts.label) + Dp(3)}, text_w, tint, status);
+        if (picked) BrowseFolder(FolderPurpose::TextureFolder, path);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\nClick to select another texture packs folder.",
+                                                      PathUtf8(path).c_str());
+
+        ImGui::SetCursorScreenPos({refresh_x, center - Dp(17)});
+        if (GhostButton("refresh_texture_packs", "", Dp(34, 34), config_ok_ && !texture_scanning_, Icon::Refresh))
+            texture_rescan_ = true;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Look for texture packs again.");
+        ImGui::SetCursorScreenPos({open_x, center - Dp(17)});
+        if (GhostButton("open_texture_folder", open, {open_w, Dp(34)}, config_ok_, Icon::Folder))
+        {
+            fs::create_directories(path, error);
+            if (error) Notice("Cannot create " + PathUtf8(path) + ": " + error.message(), NoticeKind::Error);
+            else
+            {
+                OpenPath(path);
+                texture_rescan_ = true;
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show the folder (it is made when missing).");
+        ImGui::SetCursorScreenPos({change_x, center - Dp(17)});
+        if (SecondaryButton("change_texture_folder", change, {change_w, Dp(34)}, can_select))
+            BrowseFolder(FolderPurpose::TextureFolder, path);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select another texture packs folder.");
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::Dummy({width, height});
+    }
+
+    // A pack being copied in (dropped onto the page).
+    void PackCopyLine()
+    {
+        const auto& fonts = CurrentFonts();
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float line = Dp(44);
+        Spinner({at.x + Dp(22), at.y + line * 0.5f}, Dp(7), Col(color::info));
+        const std::string text = "Adding " + pack_copy_name_ + " (" + std::to_string(pack_copy_textures_) + " textures)...";
+        DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x + Dp(44), at.y + (line - FontSize(fonts.body)) * 0.5f},
+                  Col(color::muted), text.c_str());
+        ImGui::Dummy({ImGui::GetContentRegionAvail().x, line});
+    }
+
+    // No packs yet: a dashed area that says where they come from.
+    void PackDropZone()
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(104);
+        const ImVec2 max{pos.x + width, pos.y + height};
+        draw->AddRectFilled(pos, max, Col(color::field, 0.35f), Dp(14));
+        // Dashes along the edges, drawn as small rectangles (the software
+        // renderer garbles long thin lines).
+        const float dash = Dp(8), gap = Dp(6), thick = Dp(1.2f), inset = Dp(14);
+        const ImU32 ink = Col(color::border, 1.0f);
+        for (float x = pos.x + inset; x + dash <= max.x - inset; x += dash + gap)
+        {
+            draw->AddRectFilled({x, pos.y}, {x + dash, pos.y + thick}, ink);
+            draw->AddRectFilled({x, max.y - thick}, {x + dash, max.y}, ink);
+        }
+        for (float y = pos.y + inset; y + dash <= max.y - inset; y += dash + gap)
+        {
+            draw->AddRectFilled({pos.x, y}, {pos.x + thick, y + dash}, ink);
+            draw->AddRectFilled({max.x - thick, y}, {max.x, y + dash}, ink);
+        }
+        const float cx = pos.x + width * 0.5f;
+        draw->AddCircleFilled({cx, pos.y + Dp(30)}, Dp(17), Col(color::accent, 0.12f));
+        DrawIcon(draw, Icon::Download, {cx, pos.y + Dp(30)}, Dp(18), Col(color::accent));
+        const char* title = "Drop a texture pack here";
+        const char* detail = "A pack's folder (such as R4Q) or its .zip file: it is copied into the folder above.";
+        DrawLabel(draw, fonts.label, {cx - TextSize(fonts.label, title).x * 0.5f, pos.y + Dp(54)}, Col(color::text), title);
+        DrawLabel(draw, fonts.caption, {cx - TextSize(fonts.caption, detail).x * 0.5f, pos.y + Dp(54) + FontSize(fonts.label) + Dp(4)},
+                  Col(color::muted), detail);
+        ImGui::Dummy({width, height});
+    }
+
+    void TexturePackTable(const std::vector<platform::TexturePack>& packs)
+    {
+        const auto& fonts = CurrentFonts();
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(7, 0));
+        ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, ImVec4{0, 0, 0, 0});
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4{0, 0, 0, 0});
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4{0, 0, 0, 0});
+        if (ImGui::BeginTable("##texture_packs_table", 5,
+                              ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_NoClip))
+        {
+            const auto fixed = ImGuiTableColumnFlags_WidthFixed;
+            ImGui::TableSetupColumn("ORDER", fixed, Dp(58));
+            ImGui::TableSetupColumn("PACK", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("TEXTURES", fixed, Dp(84));
+            ImGui::TableSetupColumn("IN USE", fixed, Dp(64));
+            ImGui::TableSetupColumn("##menu", fixed, Dp(34));
+            ImGui::TableNextRow(ImGuiTableRowFlags_Headers, Dp(24));
+            ImGui::PushFont(fonts.caption);
+            ImGui::PushStyleColor(ImGuiCol_Text, color::dim);
+            for (int column = 0; column < ImGui::TableGetColumnCount(); ++column)
+            {
+                ImGui::TableSetColumnIndex(column);
+                ImGui::TableHeader(ImGui::TableGetColumnName(column));
+            }
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+            if (const ImGuiTable* table = ImGui::GetCurrentTable())
+            {
+                const float y = ImGui::GetItemRectMax().y + Dp(3);
+                ImGui::GetWindowDrawList()->AddRectFilled({table->WorkRect.Min.x, y}, {table->WorkRect.Max.x, y + Dp(1)},
+                                                          Col(color::border));
+            }
+            const auto off = platform::SplitPackNames(draft_.texture_packs_off);
+            for (std::size_t n = 0; n < packs.size(); ++n) TexturePackRow(packs, n, off);
+            ImGui::EndTable();
+        }
+        ImGui::PopStyleColor(3);
+        ImGui::PopStyleVar();
+    }
+
+    void TexturePackRow(const std::vector<platform::TexturePack>& packs, std::size_t n,
+                        const std::vector<std::string>& off)
+    {
+        const auto& fonts = CurrentFonts();
+        const auto& pack = packs[n];
+        const bool storable = platform::StorablePackName(pack.name);
+        const bool readable = pack.error.empty();
+        const bool reorder = storable && packs.size() > 1;
+        bool on = readable && std::find(off.begin(), off.end(), pack.name) == off.end();
+        const float height = Dp(58);
+        ImGui::PushID(pack.name.c_str());
+        ImGui::TableNextRow(ImGuiTableRowFlags_None, height);
+        ImGui::TableSetColumnIndex(0);
+        const ImVec2 cell = ImGui::GetCursorScreenPos();
+        ImGui::Selectable("##row", false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap,
+                          {0, height});
+        const bool hovered = ImGui::IsItemHovered();
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImGuiTable* table = ImGui::GetCurrentTable();
+        const float left = table ? table->WorkRect.Min.x : cell.x;
+        const float right = table ? table->WorkRect.Max.x : cell.x + ImGui::GetContentRegionAvail().x;
+        const ImVec2 box_min{left, cell.y + Dp(3)}, box_max{right, cell.y + height - Dp(3)};
+        constexpr const char* kPayload = "RECHARGED_TEXTURE_PACK";
+        const ImGuiPayload* dragging = ImGui::GetDragDropPayload();
+        const bool moving = dragging && dragging->IsDataType(kPayload) && *static_cast<const int*>(dragging->Data) == int(n);
+        if (reorder && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceNoPreviewTooltip))
+        {
+            const int index = int(n);
+            ImGui::SetDragDropPayload(kPayload, &index, sizeof index);
+            ImGui::EndDragDropSource();
+        }
+        if (reorder && ImGui::BeginDragDropTarget())
+        {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(
+                    kPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
+            {
+                const std::size_t from = std::size_t(*static_cast<const int*>(payload->Data));
+                if (from != n)
+                {
+                    // Where it lands: above this row moving up, below it moving down.
+                    const float y = from > n ? box_min.y - Dp(2) : box_max.y + Dp(1);
+                    draw->AddRectFilled({left + Dp(6), y}, {right - Dp(6), y + Dp(2)}, Col(color::accent), Dp(1));
+                }
+                if (payload->IsDelivery()) MoveTexturePack(packs, from, n);
+            }
+            ImGui::EndDragDropTarget();
+        }
+        const float hover = Animate(ImGui::GetID("##hover"), hovered || moving, 14.0f);
+        if (moving)
+            draw->AddRect(box_min, box_max, Col(color::accent, 0.6f), Dp(12), 0, Dp(1.2f));
+        if (hover > 0.0f) draw->AddRectFilled(box_min, box_max, Col(color::text, 0.05f * hover), Dp(12));
+        if (hovered && !dragging)
+            ImGui::SetTooltip("%s%s", PathUtf8(pack.path).c_str(), reorder ? "\nDrag to change the order." : "");
+        const float fade = on ? 1.0f : 0.55f;
+        const float center = cell.y + height * 0.5f;
+
+        // Order: a grip to drag it by, and its place.
+        const ImU32 grip = Col(color::dim, hovered && reorder ? 1.0f : 0.6f);
+        for (int row = -1; row <= 1; ++row)
+            for (int column = 0; column < 2; ++column)
+                draw->AddCircleFilled({cell.x + Dp(6 + 5.0f * float(column)), center + Dp(5.0f * float(row))}, Dp(1.5f),
+                                      grip);
+        const ImVec2 badge{cell.x + Dp(34), center};
+        draw->AddCircleFilled(badge, Dp(12), Col(n == 0 && on ? color::accent : color::border, n == 0 && on ? 0.18f : 0.7f));
+        const std::string place = std::to_string(n + 1);
+        const ImVec2 place_size = TextSize(fonts.caption, place.c_str());
+        DrawLabel(draw, fonts.caption, {badge.x - place_size.x * 0.5f, badge.y - place_size.y * 0.5f},
+                  Col(n == 0 && on ? color::accent : color::text), place.c_str());
+
+        // The pack: what it is, its name and its state.
+        ImGui::TableSetColumnIndex(1);
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float column = ImGui::GetContentRegionAvail().x;
+        const ImVec4 tint = readable ? color::accent : color::danger;
+        const ImVec2 icon{at.x, center - Dp(17)};
+        draw->AddRectFilled(icon, {icon.x + Dp(34), icon.y + Dp(34)}, Col(tint, 0.12f * fade), Dp(9));
+        DrawIcon(draw, pack.archive ? Icon::Archive : Icon::Folder, {icon.x + Dp(17), icon.y + Dp(17)}, Dp(17),
+                 Col(tint, fade));
+        const float text_x = at.x + Dp(46), text_w = column - Dp(48);
+        const float lines = FontSize(fonts.label) + Dp(3) + FontSize(fonts.caption);
+        const float top = center - lines * 0.5f;
+        DrawClipped(draw, fonts.label, {text_x, top}, text_w, Mix(color::muted, color::text, fade), pack.name);
+        std::string detail = pack.archive ? "Zip file" : "Folder";
+        ImVec4 detail_tint = color::muted;
+        if (!readable)
+        {
+            detail = "Cannot be read: " + pack.error;
+            detail_tint = color::danger;
+        }
+        else if (!on)
+            detail += ", not in use";
+        DrawClipped(draw, fonts.caption, {text_x, top + FontSize(fonts.label) + Dp(3)}, text_w, detail_tint, detail);
+
+        // Textures, and whether it is in use.
+        ImGui::TableSetColumnIndex(2);
+        const std::string textures = std::to_string(pack.textures);
+        DrawLabel(draw, fonts.body, {ImGui::GetCursorScreenPos().x, center - FontSize(fonts.body) * 0.5f},
+                  Col(Mix(color::dim, color::text, fade)), textures.c_str());
+        ImGui::TableSetColumnIndex(3);
+        ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, center - Dp(14)});
+        ImGui::BeginDisabled(!storable || !readable);
+        if (Toggle("##on", &on)) SetTexturePackOn(pack.name, on);
+        ImGui::EndDisabled();
+
+        // Its menu: the same moves without dragging (keyboard, gamepad), and its place on disk.
+        ImGui::TableSetColumnIndex(4);
+        ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, center - Dp(16)});
+        if (GhostButton("menu", "", Dp(32, 32), true, Icon::More)) ImGui::OpenPopup("pack_menu");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("More");
+        const float width = Dp(220);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(6, 6));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, Dp(10));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
+        if (ImGui::BeginPopup("pack_menu"))
+        {
+            ImGui::BeginDisabled(!reorder || n == 0);
+            if (MenuAction("up", "Move up", width)) MoveTexturePack(packs, n, n - 1);
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!reorder || n + 1 >= packs.size());
+            if (MenuAction("down", "Move down", width)) MoveTexturePack(packs, n, n + 1);
+            ImGui::EndDisabled();
+            MenuSeparator(width);
+            if (MenuAction("show", "Show in folder", width)) OpenPath(pack.path.parent_path());
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(3);
+        ImGui::PopID();
     }
 
     void AdvancedPage()
@@ -5045,6 +6508,8 @@ private:
                     if (ImGui::Selectable(names[i], draft_.ui_scale == values[i])) { draft_.ui_scale = values[i]; dirty_ = true; }
                 ImGui::EndCombo();
             }
+            Row("Reopen after the game", "Opens the launcher again when you close the game.");
+            if (Toggle("##reopen_after_game", &draft_.reopen_after_game)) dirty_ = true;
             EndRows();
         }
         EndCard();
@@ -5067,23 +6532,29 @@ private:
         BeginCard("##graphics", "Graphics", nullptr, Icon::Display);
         if (BeginRows("##graphics_rows"))
         {
-            Row("Graphics API", "Used the next time you start the game.");
 #if defined(_WIN32)
-            const std::string selected = draft_.backend == "auto" ? kGraphicsBackends.front().value : draft_.backend;
-            const char* preview = "Choose a graphics API";
+            // Automatic is its own choice: only it may switch to DirectX 12.
+            Row("Graphics API", "Automatic uses Vulkan, or DirectX 12 when Vulkan cannot start. Used the next time you start the game.");
+            const char* preview = draft_.backend == "auto" ? "Automatic" : "Choose a graphics API";
             for (const auto& choice : kGraphicsBackends)
-                if (selected == choice.value) preview = choice.label;
+                if (draft_.backend == choice.value) preview = choice.label;
             ImGui::SetNextItemWidth(-1);
             if (ImGui::BeginCombo("##graphics_api", preview))
             {
+                if (ImGui::Selectable("Automatic", draft_.backend == "auto"))
+                { draft_.backend = "auto"; dirty_ = true; }
                 for (const auto& choice : kGraphicsBackends)
-                    if (ImGui::Selectable(choice.label, selected == choice.value))
+                    if (ImGui::Selectable(choice.label, draft_.backend == choice.value))
                     { draft_.backend = choice.value; dirty_ = true; }
                 ImGui::EndCombo();
             }
 #else
+            Row("Graphics API", "Used the next time you start the game.");
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(4));
             Chip(kGraphicsBackends.front().label, color::info);
+#endif
+#if !defined(__APPLE__)
+            GraphicsCardRow();
 #endif
             EndRows();
         }
@@ -5294,8 +6765,10 @@ private:
     std::vector<SDL_Gamepad*> pads_;
     SDL_Gamepad* gamepad_ = nullptr;
     std::vector<std::string> gamepad_names_;
-    // Triggers past half travel per pad, so a held trigger is not a new press.
+    // Triggers past half travel per pad, so a held trigger is not a new press;
+    // the same for stick directions.
     std::map<SDL_JoystickID, std::array<bool, 2>> trigger_held_;
+    std::map<SDL_JoystickID, std::array<bool, platform::GamepadStickDirectionCount>> stick_held_;
     std::set<std::pair<SDL_JoystickID, platform::GamepadInput>> pad_inputs_held_;
     bool pad_capture_release_ = false;
     // Wii Remote / DolphinBar detection for the Controls and Play pages (non-blocking).
@@ -5307,6 +6780,7 @@ private:
     // Controls: keyboard & mouse keys view, and the keycap waiting for a key.
     bool keyboard_view_ = false;
     int capture_action_ = -1, capture_slot_ = -1;
+    int hotkey_capture_ = -1; // Hotkeys card: 0 screenshot, 1 HUD, waiting for a key
     // Gamepad profiles view: the profile being edited, its rename field and
     // the input waiting for a gamepad press.
     bool gamepad_view_ = false;
@@ -5315,6 +6789,13 @@ private:
     bool renaming_ = false, rename_focus_ = false, confirm_delete_ = false;
     std::string rename_buffer_;
     int pad_capture_action_ = -1, pad_capture_slot_ = -1;
+    // Gyro pointer preview on the profile page: the pad whose gyro it shows,
+    // its readings and the preview pointer (0..1 of the box).
+    SDL_Gamepad* gyro_preview_pad_ = nullptr;
+    platform::GyroMotion gyro_preview_motion_;
+    Uint64 gyro_preview_ns_ = 0;
+    float gyro_preview_x_ = 0.5f, gyro_preview_y_ = 0.5f;
+    bool gyro_preview_recenter_held_ = false, gyro_preview_drawn_ = false;
     bool wii_known_ = false;
     Uint64 wii_next_probe_ns_ = 0;
     float header_width_ = 1920;
@@ -5350,6 +6831,7 @@ private:
     std::vector<LibraryFolder> library_folders_, library_scan_folders_;
     std::vector<bool> library_available_;
     std::size_t library_other_games_ = 0;
+    std::vector<fs::path> library_strikers_; // Super Mario Strikers images of the game folder
     bool library_limited_ = false;
     std::string scanned_folder_; // the game folder setting of the last scan
     bool scanned_subfolders_ = true;
@@ -5365,13 +6847,27 @@ private:
     std::set<std::string> banner_failures_, banner_missing_;
     // The background search for a disc image when none is chosen.
     std::future<launcher::DiscSearchResult> search_;
+    // The PC's graphics cards (Advanced -> Graphics card), listed once at start.
+    std::future<std::vector<platform::GraphicsCard>> graphics_cards_scan_;
+    std::vector<platform::GraphicsCard> graphics_cards_;
+    bool graphics_cards_listing_ = false;
     bool searching_ = false;
     std::string search_from_;
     std::vector<std::string> displays_;
     std::vector<SDL_DisplayID> display_ids_;
     std::shared_ptr<DialogResult> dialog_ = std::make_shared<DialogResult>();
     std::shared_ptr<DialogResult> folder_dialog_ = std::make_shared<DialogResult>();
+    std::shared_ptr<DialogResult> gamecube_dialog_ = std::make_shared<DialogResult>();
     FolderPurpose folder_purpose_ = FolderPurpose::SaveFolder;
+    // The texture packs folder's packs (Gameplay -> Mods), read in the background.
+    std::future<std::vector<platform::TexturePack>> texture_scan_;
+    std::vector<platform::TexturePack> texture_packs_;
+    std::string texture_scanned_folder_;
+    bool texture_scanning_ = false, texture_rescan_ = false, texture_page_open_ = false;
+    // A pack dropped onto the page, being copied into the folder: an error, or empty.
+    std::future<std::string> pack_copy_;
+    std::string pack_copy_name_;
+    std::size_t pack_copy_textures_ = 0;
     fs::path import_source_;
     ImportKind import_kind_ = ImportKind::Save;
     bool import_prompt_ = false;
@@ -5386,6 +6882,17 @@ private:
     bool update_dialog_ = false, update_capture_dialog_ = false, update_capture_install_ = false, restart_ = false;
     bool update_preview_ = false;
     UpdatePrompt update_prompt_ = UpdatePrompt::None;
+    // The Test menu: open it next frame; whether it was open, closed with a
+    // choice, and when it closed.
+    bool test_menu_ = false, test_menu_open_ = false, test_menu_chose_ = false;
+    double test_menu_closed_ = -1.0;
+    // The update choice before a switch that is not settled yet (BeginSwitch).
+    struct UpdateChoice
+    {
+        std::string channel;
+        int test_build = 0;
+    };
+    std::optional<UpdateChoice> switch_from_;
     std::string notes_source_;
     std::vector<NoteBlock> notes_;
 };
@@ -5693,12 +7200,13 @@ int main(int argc, char** argv)
         }
         std::optional<ResolvedLaunch> frontend_launch;
         int result;
-        fs::path restart;
+        fs::path restart, reopen;
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
             frontend_launch = launcher.FrontendLaunch();
             if (launcher.RestartRequested()) restart = launcher.RestartExecutable();
+            else if (frontend_launch && frontend_launch->settings.reopen_after_game) reopen = launcher.RestartExecutable();
         } // Destroy the launcher/ImGui/SDL session before Aurora initializes.
         if (!restart.empty())
         {
@@ -5712,6 +7220,8 @@ int main(int argc, char** argv)
         }
         SetAppName();
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+        // [launcher] reopen_after_game: closing the game starts this launcher again.
+        if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(reopen, argc, argv);
         if (frontend_launch) return RunOriginalGame(argc, argv, &*frontend_launch, true,
             OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #endif

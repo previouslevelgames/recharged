@@ -13,6 +13,7 @@ from disc_fixture import write_disc
 LANGUAGES = ("eng", "fre", "deu", "spa", "ita", "jpn", "uke")
 TYPES = ("FatalErrorImage", "NoDiskImage", "WrongDiskImage", "RetryImage", "Loading")
 TABLE = 0x80300010
+USA_TABLE = 0x804E70E0  # the USA release's table: a modified main.dol keeps it there
 
 
 def pack(raw):
@@ -32,7 +33,7 @@ def pack(raw):
     return bytes(packed)
 
 
-def make_dol():
+def make_dol(table_address=TABLE):
     images = []
     for index in range(35):
         width, height = 8 * (1 + index % 3), 2 + index % 4
@@ -49,7 +50,7 @@ def make_dol():
     text = b"\x60\x00\x00\x00" * 8
     dol = bytearray(0x100)
     sections = ((0, 0x100, 0x80004000, text), (7, 0x100 + len(text), 0x80100000, blob),
-                (8, 0x100 + len(text) + len(blob), 0x80300000, table))
+                (8, 0x100 + len(text) + len(blob), table_address - 16, table))
     for index, offset, address, payload in sections:
         struct.pack_into(">I", dol, index * 4, offset)
         struct.pack_into(">I", dol, 0x48 + index * 4, address)
@@ -88,11 +89,27 @@ def run(executable):
             assert result.returncode != 0 and message in result.stderr, (arguments, result.stderr)
             checks += 1
 
-        # The stub main.dol of the plain fixture is no release's.
+        # A modified main.dol (a Wiimmfi-patched image, say) with the images
+        # where the release keeps them: they are used.
+        dol, images = make_dol(USA_TABLE)
+        write_disc(image, dol=dol)
+        result = subprocess.run([executable, "--disc", str(image), "--release", "R4QE01", "1"],
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.splitlines()
+        assert lines[1] == "modified main.dol" and len(lines) == 37, result.stdout
+        for index, ((width, height, data), line) in enumerate(zip(images, lines[2:])):
+            assert line.endswith(f" {width}x{height} {len(data)} {hashlib.sha1(data).hexdigest()}"), line
+        checks += 1
+
+        # The plain fixture's stub main.dol has no images: none, not an error.
         write_disc(image)
         result = subprocess.run([executable, "--disc", str(image), "--release", "R4QE01", "1"],
                                 capture_output=True, text=True, timeout=30)
-        assert result.returncode != 0 and "not the unmodified USA one" in result.stderr, result.stderr
+        assert result.returncode == 0, result.stderr
+        lines = result.stdout.splitlines()
+        assert lines[1:] == ["modified main.dol", "no images: The disc-message table 0x804E70E0 is not in a data section"], \
+            result.stdout
         checks += 1
     print(f"disc_message_images_disc: {checks} checks through nod")
 

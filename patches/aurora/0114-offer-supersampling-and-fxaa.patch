@@ -1,0 +1,371 @@
+From: mscharged-port
+Subject: Offer supersampling and FXAA beside multisampling
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+Antialiasing was only multisampling, which smooths the edges of shapes but
+not edges inside textures or alpha-tested surfaces. Two more kinds:
+AuroraConfig.sampleShading interpolates every GX vertex output per sample
+on multisampled targets, so the fragment shader runs once per sample
+(supersampling); AuroraVIOutputConfig.fxaa runs fast approximate
+antialiasing over the finished desktop picture before the window copy, so
+screenshots show it too. Both are off by default.
+
+diff --git a/include/aurora/aurora.h b/include/aurora/aurora.h
+index 30338f7..8a0e6c4 100644
+--- a/include/aurora/aurora.h
++++ b/include/aurora/aurora.h
+@@ -86,6 +86,12 @@ typedef struct {
+   const char* resourcesPath;
+   AuroraBackend desiredBackend;
+   uint32_t msaa;
++  /**
++   * With msaa above 1, shade each sample on its own instead of each pixel
++   * (supersampling): edges inside textures and alpha-tested surfaces are
++   * smoothed as well, at up to msaa times the fragment shading cost.
++   */
++  bool sampleShading;
+   uint16_t maxTextureAnisotropy;
+   bool vsync;
+   bool startFullscreen;
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+index 5b4b090..6dba27a 100644
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -75,7 +75,8 @@ void aurora_attach_video_output_device(const AuroraVIOutputDevice* device);
+ // stretches the VI's active signal into the window like a TV; SMOOTH and
+ // SHARP draw the XFB into the window in one pass (SHARP keeps each source
+ // pixel flat and blends only across its edges) and skip the display copy's
+-// vertical flicker filter.
++// vertical flicker filter. fxaa smooths the edges of the finished desktop
++// picture (fast approximate antialiasing) before it reaches the window.
+ typedef enum {
+   AURORA_DESKTOP_SIGNAL = 0,
+   AURORA_DESKTOP_SMOOTH = 1,
+@@ -84,6 +85,7 @@ typedef enum {
+ typedef struct {
+   bool widescreen;
+   uint8_t desktop_picture; // AuroraDesktopPicture
++  bool fxaa;
+ } AuroraVIOutputConfig;
+ void aurora_configure_video_output_hardware(const AuroraVIOutputConfig* config);
+ typedef struct {
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index b01b61e..da25df6 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -156,6 +156,84 @@ struct Uniforms { signal: vec4u, display: vec4u, source_geometry: vec4u, output:
+   return vec4f(mix(upper,lower,weight.y),1.0);
+ }
+ )";
++// Fast approximate antialiasing of the desktop picture: find the luma edge
++// through each pixel, walk along it to both ends and blend the pixel with its
++// neighbour across the edge by how close it lies to the edge's nearer end.
++// Pixels inside low contrast areas keep their colour.
++constexpr auto FxaaShader = R"(
++@group(0) @binding(0) var picture: texture_2d<f32>;
++@group(0) @binding(1) var bilinear: sampler;
++@vertex fn vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
++  switch index {
++    case 0u: { return vec4f(-1.0,-1.0,0.0,1.0); }
++    case 1u: { return vec4f(3.0,-1.0,0.0,1.0); }
++    default: { return vec4f(-1.0,3.0,0.0,1.0); }
++  }
++}
++const EDGE_RELATIVE: f32 = 0.125;
++const EDGE_MINIMUM: f32 = 0.0312;
++const SUBPIXEL: f32 = 0.75;
++var<private> search: array<f32, 10> = array<f32, 10>(1.0, 1.5, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 4.0, 8.0);
++fn luma_at(uv: vec2f) -> f32 {
++  return dot(textureSampleLevel(picture, bilinear, uv, 0.0).rgb, vec3f(0.299, 0.587, 0.114));
++}
++@fragment fn fragment_fxaa(@builtin(position) position: vec4f) -> @location(0) vec4f {
++  let texel = 1.0 / vec2f(textureDimensions(picture));
++  let uv = position.xy * texel;
++  let centre = textureSampleLevel(picture, bilinear, uv, 0.0).rgb;
++  let m = dot(centre, vec3f(0.299, 0.587, 0.114));
++  let n = luma_at(uv + vec2f(0.0, -texel.y));
++  let s = luma_at(uv + vec2f(0.0, texel.y));
++  let w = luma_at(uv + vec2f(-texel.x, 0.0));
++  let e = luma_at(uv + vec2f(texel.x, 0.0));
++  let low = min(m, min(min(n, s), min(w, e)));
++  let high = max(m, max(max(n, s), max(w, e)));
++  let range = high - low;
++  if range < max(EDGE_MINIMUM, high * EDGE_RELATIVE) { return vec4f(centre, 1.0); }
++  let nw = luma_at(uv - texel);
++  let se = luma_at(uv + texel);
++  let ne = luma_at(uv + vec2f(texel.x, -texel.y));
++  let sw = luma_at(uv + vec2f(-texel.x, texel.y));
++  // A horizontal edge changes luma from row to row, a vertical one from column to column.
++  let across_rows = abs(nw + sw - 2.0 * w) + 2.0 * abs(n + s - 2.0 * m) + abs(ne + se - 2.0 * e);
++  let across_columns = abs(nw + ne - 2.0 * n) + 2.0 * abs(w + e - 2.0 * m) + abs(sw + se - 2.0 * s);
++  let horizontal = across_rows >= across_columns;
++  // The neighbour across the edge with the steeper change is the other side.
++  let before = select(w, n, horizontal);
++  let after = select(e, s, horizontal);
++  let towards_before = abs(before - m) >= abs(after - m);
++  let gradient = 0.25 * max(abs(before - m), abs(after - m));
++  var offset_step = select(texel.x, texel.y, horizontal);
++  var edge_luma = 0.5 * (after + m);
++  if towards_before { offset_step = -offset_step; edge_luma = 0.5 * (before + m); }
++  // Walk along the edge, between this pixel and the other side, to both ends.
++  let along = select(vec2f(0.0, texel.y), vec2f(texel.x, 0.0), horizontal);
++  let start = uv + select(vec2f(offset_step * 0.5, 0.0), vec2f(0.0, offset_step * 0.5), horizontal);
++  var uv1 = start - along;
++  var uv2 = start + along;
++  var end1 = luma_at(uv1) - edge_luma;
++  var end2 = luma_at(uv2) - edge_luma;
++  var done1 = abs(end1) >= gradient;
++  var done2 = abs(end2) >= gradient;
++  for (var i = 1u; i < 10u && !(done1 && done2); i++) {
++    if !done1 { uv1 -= along * search[i]; end1 = luma_at(uv1) - edge_luma; done1 = abs(end1) >= gradient; }
++    if !done2 { uv2 += along * search[i]; end2 = luma_at(uv2) - edge_luma; done2 = abs(end2) >= gradient; }
++  }
++  let distance1 = select(uv.y - uv1.y, uv.x - uv1.x, horizontal);
++  let distance2 = select(uv2.y - uv.y, uv2.x - uv.x, horizontal);
++  let nearer_first = distance1 < distance2;
++  var offset = 0.5 - min(distance1, distance2) / (distance1 + distance2);
++  // Only blend when the nearer end turns the way this pixel differs from the edge.
++  if (select(end2, end1, nearer_first) < 0.0) == (m < edge_luma) { offset = 0.0; }
++  // Single-pixel details (a lone bright texel) blend by their local contrast.
++  let average = (2.0 * (n + s + w + e) + nw + ne + sw + se) / 12.0;
++  let contrast = clamp(abs(average - m) / range, 0.0, 1.0);
++  let smooth_contrast = (3.0 - 2.0 * contrast) * contrast * contrast;
++  offset = max(offset, smooth_contrast * smooth_contrast * SUBPIXEL);
++  let shifted = uv + select(vec2f(offset * offset_step, 0.0), vec2f(0.0, offset * offset_step), horizontal);
++  return vec4f(textureSampleLevel(picture, bilinear, shifted, 0.0).rgb, 1.0);
++}
++)";
+ struct Output {
+   std::mutex mutex;
+   std::mutex display_gate;
+@@ -173,11 +251,17 @@ struct Output {
+   TextureHandle signal, desktop;
+   wgpu::BindGroupLayout layout;
+   wgpu::RenderPipeline pipeline, desktop_pipeline, scaled_pipeline;
++  // FXAA (configured with fxaa): the desktop picture's antialiased copy.
++  wgpu::RenderPipeline fxaa_pipeline;
++  TextureHandle antialiased;
+   // Only the serialized output work mutates these handles. Shutdown drains
+   // that work before retirement. Retain the exact bound view, not its size.
+   wgpu::Sampler copy_sampler;
+   wgpu::TextureView copy_view;
+   wgpu::BindGroup copy_group;
++  wgpu::Sampler fxaa_sampler;
++  wgpu::TextureView fxaa_view;
++  wgpu::BindGroup fxaa_group;
+ };
+ Output& State() { static Output state; return state; }
+ // Host screenshot, not a Wii hardware feature. Any thread may request one; the
+@@ -392,8 +476,9 @@ void set_host_pacing(void*, bool paced) {
+ }
+ void service(void*) {
+   auto& state = State(); AuroraVIScanout scanout;
+-  std::shared_ptr<const xfb::Snapshot> snapshot; TextureHandle signal, desktop;
+-  wgpu::BindGroupLayout layout; wgpu::RenderPipeline pipeline, desktopPipeline, scaledPipeline; bool widescreen;
++  std::shared_ptr<const xfb::Snapshot> snapshot; TextureHandle signal, desktop, antialiased;
++  wgpu::BindGroupLayout layout; wgpu::RenderPipeline pipeline, desktopPipeline, scaledPipeline, fxaaPipeline;
++  bool widescreen;
+   uint8_t picture;
+   {
+     std::lock_guard lock(state.mutex); RequireOwner(state);
+@@ -403,7 +488,7 @@ void service(void*) {
+     snapshot = state.display_enabled ? state.committed_snapshot : nullptr; widescreen = state.widescreen;
+     picture = state.desktop_picture;
+     layout = state.layout; pipeline = state.pipeline; desktopPipeline = state.desktop_pipeline;
+-    scaledPipeline = state.scaled_pipeline; signal = state.signal;
++    scaledPipeline = state.scaled_pipeline; fxaaPipeline = state.fxaa_pipeline; signal = state.signal;
+     if (!signal || signal->size.width != scanout.active_width || signal->size.height != scanout.active_height)
+       state.signal = signal = new_signal(scanout.active_width, scanout.active_height);
+     // Keep physical sampling untouched in both interlaced and progressive modes.
+@@ -440,6 +525,13 @@ void service(void*) {
+       state.desktop = new_signal(width, height);
+     desktop = state.desktop;
+   }
++  if (fxaaPipeline) {
++    std::lock_guard lock(state.mutex);
++    if (!state.antialiased || state.antialiased->size.width != desktop->size.width ||
++        state.antialiased->size.height != desktop->size.height)
++      state.antialiased = new_signal(desktop->size.width, desktop->size.height);
++    antialiased = state.antialiased;
++  }
+   // Capture SDL event-coordinate identity on the owner before worker dispatch.
+   // Surface dimensions below come from the actually acquired texture.
+   const auto windowSize = window::get_window_size();
+@@ -448,9 +540,9 @@ void service(void*) {
+   const auto screenshot = take_screenshot_request();
+   auto overlay = imgui::overlay();
+   render_worker::enqueue_work([&state, scanout, snapshot = std::move(snapshot), signal = std::move(signal),
+-                              layout, pipeline, desktopPipeline, scaledPipeline, viewport, windowSize, windowId,
+-                              windowIncarnation,
+-                              desktop = std::move(desktop), screenshot, picture, overlay = std::move(overlay)] {
++                              layout, pipeline, desktopPipeline, scaledPipeline, fxaaPipeline, viewport, windowSize,
++                              windowId, windowIncarnation, desktop = std::move(desktop),
++                              antialiased = std::move(antialiased), screenshot, picture, overlay = std::move(overlay)] {
+     struct Finished {
+       Output& state;
+       ~Finished() { std::lock_guard lock(state.mutex); state.servicing = false; }
+@@ -465,6 +557,30 @@ void service(void*) {
+     encode_signal(encoder, signal, effective, snapshot, layout, pipeline, true);
+     encode_signal(encoder, desktop, desktop_view(effective, picture), snapshot, layout, desktopPipeline, false, picture,
+         &scaledPipeline);
++    // FXAA: the window and screenshots show the antialiased copy.
++    auto shown = desktop;
++    if (fxaaPipeline && !effective.black) {
++      if (!state.fxaa_sampler) {
++        const wgpu::SamplerDescriptor samplerDesc{.magFilter = wgpu::FilterMode::Linear, .minFilter = wgpu::FilterMode::Linear};
++        state.fxaa_sampler = webgpu::g_device.CreateSampler(&samplerDesc);
++      }
++      if (!state.fxaa_group || state.fxaa_view.Get() != desktop->sampleTextureView.Get()) {
++        const std::array entries{wgpu::BindGroupEntry{.binding = 0, .textureView = desktop->sampleTextureView},
++            wgpu::BindGroupEntry{.binding = 1, .sampler = state.fxaa_sampler}};
++        const wgpu::BindGroupDescriptor groupDesc{.layout = fxaaPipeline.GetBindGroupLayout(0),
++            .entryCount = entries.size(), .entries = entries.data()};
++        state.fxaa_group = webgpu::g_device.CreateBindGroup(&groupDesc);
++        state.fxaa_view = desktop->sampleTextureView;
++      }
++      const wgpu::RenderPassColorAttachment color{.view = antialiased->attachmentTextureView,
++          .loadOp = wgpu::LoadOp::Clear, .storeOp = wgpu::StoreOp::Store, .clearValue = {0.0, 0.0, 0.0, 1.0}};
++      const wgpu::RenderPassDescriptor passDesc{.label = "FXAA desktop picture", .colorAttachmentCount = 1,
++          .colorAttachments = &color};
++      const auto pass = encoder.BeginRenderPass(&passDesc);
++      pass.SetPipeline(fxaaPipeline); pass.SetBindGroup(0, state.fxaa_group); pass.Draw(3);
++      pass.End();
++      shown = antialiased;
++    }
+     wgpu::Texture target; auto status = wgpu::SurfaceGetCurrentTextureStatus::Error;
+     {
+       window::SurfaceLock lock;
+@@ -497,12 +613,12 @@ void service(void*) {
+           const wgpu::SamplerDescriptor samplerDesc{.magFilter = wgpu::FilterMode::Linear, .minFilter = wgpu::FilterMode::Linear};
+           state.copy_sampler = webgpu::g_device.CreateSampler(&samplerDesc);
+         }
+-        if (!state.copy_group || state.copy_view.Get() != desktop->sampleTextureView.Get()) {
+-          const webgpu::TextureWithSampler source{.texture = desktop->texture, .view = desktop->sampleTextureView,
+-              .size = desktop->size, .format = wgpu::TextureFormat::RGBA8Unorm,
++        if (!state.copy_group || state.copy_view.Get() != shown->sampleTextureView.Get()) {
++          const webgpu::TextureWithSampler source{.texture = shown->texture, .view = shown->sampleTextureView,
++              .size = shown->size, .format = wgpu::TextureFormat::RGBA8Unorm,
+               .sampler = state.copy_sampler};
+           const auto group = webgpu::create_copy_bind_group(source);
+-          state.copy_group = group; state.copy_view = desktop->sampleTextureView;
++          state.copy_group = group; state.copy_view = shown->sampleTextureView;
+         }
+         surfacePass.SetPipeline(webgpu::g_CopyPipeline); surfacePass.SetBindGroup(0, state.copy_group);
+         surfacePass.SetViewport(viewport.left, viewport.top, viewport.width, viewport.height, 0.0, 1.0);
+@@ -588,6 +704,7 @@ void shutdown(void*) {
+   auto& state = State(); std::lock_guard lock(state.mutex); RequireOwner(state);
+   if (state.servicing) throw std::logic_error("Cannot retire active native VI output");
+   state.copy_group = {}; state.copy_view = {}; state.copy_sampler = {};
++  state.fxaa_group = {}; state.fxaa_view = {}; state.fxaa_sampler = {}; state.fxaa_pipeline = {}; state.antialiased = {};
+   state.prepared_snapshot.reset(); state.committed_snapshot.reset(); state.presented_snapshot.reset(); state.signal = {}; state.desktop = {}; state.pipeline = {}; state.desktop_pipeline = {}; state.scaled_pipeline = {}; state.layout = {};
+   state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = state.presented = {}; state.presentations = 0;
+   state.host_paced = false;
+@@ -636,10 +753,23 @@ void configure(const AuroraVIOutputConfig* config) {
+   scaledPipelineDesc.label = "Full-detail VI desktop signal of a scaled EFB";
+   scaledPipelineDesc.fragment = &scaledFragment;
+   const auto scaledPipeline = webgpu::g_device.CreateRenderPipeline(&scaledPipelineDesc);
++  wgpu::RenderPipeline fxaaPipeline;
++  if (config->fxaa) {
++    const wgpu::ShaderSourceWGSL fxaaWgsl{wgpu::ShaderSourceWGSL::Init{.code = FxaaShader}};
++    const wgpu::ShaderModuleDescriptor fxaaModuleDesc{.nextInChain = &fxaaWgsl};
++    const auto fxaaModule = webgpu::g_device.CreateShaderModule(&fxaaModuleDesc);
++    auto fxaaFragment = fragment;
++    fxaaFragment.module = fxaaModule; fxaaFragment.entryPoint = "fragment_fxaa";
++    const wgpu::RenderPipelineDescriptor fxaaPipelineDesc{.label = "FXAA desktop picture",
++        .vertex = {.module = fxaaModule, .entryPoint = "vertex"},
++        .primitive = {.topology = wgpu::PrimitiveTopology::TriangleList}, .fragment = &fxaaFragment};
++    fxaaPipeline = webgpu::g_device.CreateRenderPipeline(&fxaaPipelineDesc);
++  }
+   const AuroraVIOutputDevice endpoint{nullptr, prepare, commit, service, shutdown, set_display_enabled, set_host_pacing};
+   aurora_attach_video_output_device(&endpoint);
+   state.layout = layout; state.pipeline = pipeline; state.desktop_pipeline = desktopPipeline;
+-  state.scaled_pipeline = scaledPipeline; state.configured = true; state.widescreen = config->widescreen;
++  state.scaled_pipeline = scaledPipeline; state.fxaa_pipeline = fxaaPipeline;
++  state.configured = true; state.widescreen = config->widescreen;
+   state.desktop_picture = config->desktop_picture;
+   // Smooth and sharp desktop pictures skip the display copy's flicker filter.
+   xfb::set_flicker_filter(config->desktop_picture == AURORA_DESKTOP_SIGNAL);
+diff --git a/lib/gx/gx.hpp b/lib/gx/gx.hpp
+index 64a5417..833058a 100644
+--- a/lib/gx/gx.hpp
++++ b/lib/gx/gx.hpp
+@@ -591,8 +591,10 @@ void build_pipeline_async(const PipelineConfig& config, const gfx::RenderTargetL
+                           const PipelineOptions& options, ArrayRef<wgpu::VertexBufferLayout> vtxBuffers,
+                           wgpu::ShaderModule shader, const char* label,
+                           std::function<void(wgpu::RenderPipeline)> done) noexcept;
++// sampleShading interpolates every vertex output at each sample, so a
++// multisampled target runs the fragment shader once per sample.
+ std::string build_shader_source(const ShaderConfig& config, DstAlphaMode dstAlphaMode,
+-                                uint32_t normalAttachment = UINT32_MAX) noexcept;
++                                uint32_t normalAttachment = UINT32_MAX, bool sampleShading = false) noexcept;
+ wgpu::ShaderModule build_shader(const ShaderConfig& config, const gfx::RenderTargetLayout& layout,
+                                 DstAlphaMode dstAlphaMode) noexcept;
+ GXBindGroups build_bind_groups(const ShaderInfo& info) noexcept;
+diff --git a/lib/gx/shader.cpp b/lib/gx/shader.cpp
+index 802b4b0..e0229af 100644
+--- a/lib/gx/shader.cpp
++++ b/lib/gx/shader.cpp
+@@ -883,7 +883,7 @@ absl::flat_hash_set<gfx::ShaderRef> s_seenShaders;
+ } // namespace
+ 
+ std::string build_shader_source(const ShaderConfig& config, DstAlphaMode dstAlphaMode,
+-                                uint32_t normalAttachment) noexcept {
++                                uint32_t normalAttachment, bool sampleShading) noexcept {
+   ZoneScoped;
+   const auto hash = xxh3_hash(dstAlphaMode, xxh3_hash(normalAttachment, xxh3_hash(config)));
+   const auto info = build_shader_info(config);
+@@ -1696,6 +1696,16 @@ std::string build_shader_source(const ShaderConfig& config, DstAlphaMode dstAlph
+     }
+   }
+ 
++  if (sampleShading) {
++    // Supersampling: texture lookups, alpha tests and lighting run at each
++    // sample's own position instead of once at the pixel centre.
++    for (auto at = vtxOutAttrs.find("@location("); at != std::string::npos;
++         at = vtxOutAttrs.find("@location(", at)) {
++      at = vtxOutAttrs.find(')', at) + 1;
++      vtxOutAttrs.insert(at, " @interpolate(perspective, sample)");
++    }
++  }
++
+   auto shaderSource =
+       fmt::format(R"""(
+ fn bswap32(v: u32, le: bool) -> u32 {{
+@@ -2086,8 +2096,10 @@ wgpu::ShaderModule build_shader(const ShaderConfig& config, const gfx::RenderTar
+       normalAttachment = i;
+     }
+   }
+-  const auto shaderSource = build_shader_source(config, dstAlphaMode, normalAttachment);
+-  const auto hash = xxh3_hash(dstAlphaMode, xxh3_hash(normalAttachment, xxh3_hash(config)));
++  const bool sampleShading = webgpu::g_graphicsConfig.sampleShading && layout.sampleCount > 1;
++  const auto shaderSource = build_shader_source(config, dstAlphaMode, normalAttachment, sampleShading);
++  const auto hash =
++      xxh3_hash(sampleShading, xxh3_hash(dstAlphaMode, xxh3_hash(normalAttachment, xxh3_hash(config))));
+   wgpu::ShaderSourceWGSL wgslDescriptor{};
+   wgslDescriptor.code = shaderSource.c_str();
+   // Metal compiles fast math unless a module asks for strict math; with it the
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index 7643276..bec508f 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -1089,6 +1089,7 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+           },
+       .depthFormat = wgpu::TextureFormat::Depth32Float,
+       .msaaSamples = g_config.msaa,
++      .sampleShading = g_config.sampleShading && g_config.msaa > 1,
+       .textureAnisotropy = g_config.maxTextureAnisotropy,
+   };
+   create_copy_pipeline();
+diff --git a/lib/webgpu/gpu.hpp b/lib/webgpu/gpu.hpp
+index 4b3cac2..3f97604 100644
+--- a/lib/webgpu/gpu.hpp
++++ b/lib/webgpu/gpu.hpp
+@@ -17,6 +17,8 @@ struct GraphicsConfig {
+   wgpu::SurfaceConfiguration surfaceConfiguration;
+   wgpu::TextureFormat depthFormat;
+   uint32_t msaaSamples;
++  // Multisampled GX draws interpolate and shade per sample (supersampling).
++  bool sampleShading = false;
+   uint16_t textureAnisotropy;
+   bool normalBuffer = false;
+ };

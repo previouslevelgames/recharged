@@ -61,7 +61,7 @@ void ApplyTheme(float ui);
 enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
-    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear, Close, Person
+    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear, Close, Up, Down, Archive, More, Person
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -120,9 +120,16 @@ struct SegmentItem
     const char* label;
     Icon icon;
     ImVec4 tint;
+    bool menu = false; // a small down chevron after the label: the segment opens a menu
 };
-bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass);
-bool PercentSlider(const char* id, int* value, float width);
+// Returns true when the selection changed; `pressed` (optional) receives the
+// segment clicked this frame, also the selected one, else -1.
+bool SegmentedIcons(const char* id, int* selected, std::initializer_list<SegmentItem> items, ImVec2 size, bool glass,
+                    int* pressed = nullptr);
+// `zero_label` replaces "0%" (for example "Off"); the value stays within
+// `minimum`..`maximum`.
+bool PercentSlider(const char* id, int* value, float width, const char* zero_label = nullptr, int minimum = 0,
+                   int maximum = 100);
 void Chip(const char* text, const ImVec4& color, Icon icon = Icon::None);
 // Small battery gauge (0-100%), coloured by charge, with the percentage after it.
 void BatteryIcon(int percent);
@@ -132,6 +139,7 @@ bool KeyCapButton(const char* id, const char* key, bool waiting);
 // Keycap with a drawn arrow: 0 up, 1 down, 2 left, 3 right (no font glyphs needed).
 void KeyCapArrow(int direction);
 void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
+void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
 // A small flag of a disc region (the disc ID's fourth letter: E USA, P Europe,
 // J Japan, K Korea; grey for others), `height` tall and 1.5 times as wide.
 // Always shown with the region's name: the flag alone tells nothing to some.
@@ -143,6 +151,12 @@ void EndCard();
 // Two-column setting rows inside a card: label/description, then control.
 bool BeginRows(const char* id);
 void Row(const char* label, const char* description = nullptr);
+// Rows that belong to the row above them, such as the options its switch
+// shows: BeginSubRows after the parent row's control, then a Row for each.
+// They sit indented on an inset panel, with an accent line from the parent's
+// label down beside them.
+void BeginSubRows();
+void EndSubRows();
 void EndRows();
 void PageHeader(const char* title, const char* description);
 void Spinner(ImVec2 center, float radius, ImU32 color);

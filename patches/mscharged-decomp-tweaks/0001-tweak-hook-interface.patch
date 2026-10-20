@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..84ba3f5
+index 0000000..0469830
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,178 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -44,6 +44,8 @@ index 0000000..84ba3f5
 +    MSCHARGED_TWEAK_BLUE_PEACH = 8,
 +    MSCHARGED_TWEAK_NO_HUD = 9,
 +    MSCHARGED_TWEAK_FAIR_BALL_CONTESTS = 10,
++    MSCHARGED_TWEAK_ROBOT_GOALIES = 11,
++    MSCHARGED_TWEAK_SUPER_TEAM = 12,
 +};
 +
 +bool mscharged_tweak_enabled(int tweak);
@@ -145,6 +147,13 @@ index 0000000..84ba3f5
 +// every group is at 100 %; and the gain (0-1) of the movies' audio samples.
 +float mscharged_tweak_sound_volume(const char* bank, unsigned category);
 +float mscharged_tweak_movie_volume(void);
++// The sound being set (SoundPlaybackEvent): its group's level becomes the MIX
++// fader of the voices MIXSetInput sets until it is cleared, so it lowers what
++// the sound plays on the PC and not what the Wii Remote speaker plays. The
++// fader is in tenths of a decibel, 0 outside such a sound.
++void mscharged_tweak_set_sound_level(const char* bank, unsigned category);
++void mscharged_tweak_clear_sound_level(void);
++int mscharged_tweak_sound_fader(void);
 +
 +// No HUD: whether the match's HUD, player markers and captions are hidden.
 +// Each match starts with the tweak's choice; the host's H key shows or hides
@@ -158,6 +167,27 @@ index 0000000..84ba3f5
 +// read from the disc (Wii FENL bytes), or a rewritten copy of it (its size in
 +// *size), valid until the next call.
 +void* mscharged_tweak_frontend_package(void* data, unsigned long* size);
++
++// Robot goalies: lays the robot goalie texture of a bundle `robot` (the disc's
++// unused art/characters/superteamgoalie) onto every goalie texture of a loaded
++// bundle, in place: the teams' kits and away kits, the eye and the shine mask.
++// Returns how many textures it rewrote.
++int mscharged_tweak_robot_goalie_textures(void* bundle, unsigned long size, const void* robot,
++    unsigned long robotSize);
++
++// "Super Team": whether the player of `characterClass` on `team` (0 home, 1 away)
++// is a robot of the Super Team; the robot model id of a character model; the
++// robot's body texture (present once the robot textures are loaded); the robot
++// version of a character model (.rlg data with the character's .shier) and the
++// robot textures (a .rlt bundle), in the game heap for
++// mscharged_tweak_super_team_free, or 0 (src/platform/super_team.cpp).
++int mscharged_tweak_super_team(int team, int characterClass);
++unsigned long mscharged_tweak_super_team_model_id(unsigned long id);
++unsigned long mscharged_tweak_super_team_texture(void);
++void* mscharged_tweak_super_team_model(const void* model, unsigned long size, const void* skeleton,
++    unsigned long skeletonSize, unsigned long* madeSize);
++void* mscharged_tweak_super_team_textures(unsigned long* madeSize);
++void mscharged_tweak_super_team_free(void* data);
 +
 +#ifdef __cplusplus
 +}

@@ -397,6 +397,9 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
             copy(build, Path("assets/launcher") / asset)
         copy(build, "assets/graphics/initial_pipeline_cache.db")
         copy(source, "assets/graphics/README.md")
+        # The robot goalie map of the tweak "Robot goalies" (texture coordinates only).
+        copy(source, "assets/gameplay/robot_goalie.map")
+        copy(source, "assets/gameplay/README.md")
         for public in PUBLIC_FILES:
             copy(source, public)
 

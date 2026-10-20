@@ -10,7 +10,8 @@ namespace mscharged
 // one or two inputs, written as SDL gamepad names separated by " | ":
 // buttons (a, b, x, y = south, east, west, north; start, back, guide,
 // leftshoulder, leftstick, dpup, ...) or the triggers lefttrigger/righttrigger.
-// The Nunchuk stick and the pointer are the two analog sticks.
+// The Nunchuk stick and the pointer are the two analog sticks; with
+// gyro_pointer the controller's gyro points instead (issue #14).
 struct GamepadAction
 {
     const char* key;      // INI key
@@ -19,12 +20,14 @@ struct GamepadAction
     const char* defaults; // default inputs
 };
 
-// The first eleven follow the Wii Remote button order of KeyActionIndex.
+// The first eleven follow the Wii Remote button order of KeyActionIndex. The
+// last one is no Wii input: it centres the gyro pointer.
 enum GamepadActionIndex : std::size_t
 {
     GamepadActionA, GamepadActionB, GamepadActionOne, GamepadActionTwo, GamepadActionPlus, GamepadActionMinus,
     GamepadActionHome, GamepadActionUp, GamepadActionDown, GamepadActionLeft, GamepadActionRight,
     GamepadActionC, GamepadActionZ, GamepadActionShakeRemote, GamepadActionShakeNunchuk,
+    GamepadActionRecenterPointer,
     GamepadActionCount
 };
 
@@ -44,7 +47,20 @@ inline constexpr std::array<GamepadAction, GamepadActionCount> kGamepadActions{{
     {"z", "Z", "Nunchuk button", "lefttrigger"},
     {"shake_remote", "Shake Remote", "Hit an opponent", "righttrigger"},
     {"shake_nunchuk", "Shake Nunchuk", "Switch items", "rightshoulder"},
+    {"recenter_pointer", "Recenter pointer", "Back to the middle", "rightstick"},
 }};
+
+// Stick dead zones and trigger press point of a gamepad profile, in percent
+// of travel (issue #62). Inside the inner dead zone the stick rests; from the
+// outer one on it is pushed all the way. The defaults are a real Nunchuk's on
+// the Wii: the game drops its first 15 counts and is fully pushed at 71 of the
+// stick's 100. A trigger presses its button past the press point.
+inline constexpr int kDefaultInnerDeadzone = 15, kMinInnerDeadzone = 0, kMaxInnerDeadzone = 30;
+inline constexpr int kDefaultOuterDeadzone = 71, kMinOuterDeadzone = 70, kMaxOuterDeadzone = 100;
+inline constexpr int kDefaultTriggerPress = 50, kMinTriggerPress = 10, kMaxTriggerPress = 90;
+// Gyro pointer speed in percent: at 100 % turning the controller about 25
+// degrees moves the pointer across the picture (see platform/gyro_pointer.h).
+inline constexpr int kDefaultGyroSpeed = 100, kMinGyroSpeed = 25, kMaxGyroSpeed = 300;
 
 inline constexpr std::size_t kGamepadSlots = 4;
 // Named gamepad profiles kept in recharged.ini, beside the built-in "Default"

@@ -1,4 +1,5 @@
 #include "config.h"
+#include "graphics_card.h"
 #include "platform/path.h"
 #include "platform/wiimote_ids.h"
 
@@ -36,19 +37,23 @@ Values Encode(const Settings& s)
 {
     Values values{{"game.disc", s.disc}, {"game.folder", s.folder},
             {"game.folder_subfolders", s.folder_subfolders ? "true" : "false"},
-            {"game.save_folder", s.save_folder}, {"game.language", s.language},
+            {"game.save_folder", s.save_folder}, {"game.gamecube_disc", s.gamecube_disc},
+            {"game.language", s.language}, {"gameplay.super_team_side", s.super_team_side},
             {"display.width", std::to_string(s.width)}, {"display.height", std::to_string(s.height)},
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.vsync", s.vsync ? "true" : "false"}, {"display.frame_rate", s.frame_rate},
-            {"display.backend", s.backend}, {"display.aspect", s.aspect}, {"display.picture", s.picture},
+            {"display.backend", s.backend}, {"display.gpu", s.gpu}, {"display.aspect", s.aspect},
+            {"display.picture", s.picture},
             {"display.performance_mode", s.performance_mode ? "true" : "false"},
             {"display.antialiasing", s.antialiasing}, {"display.resolution", s.resolution},
             {"audio.master_volume", std::to_string(s.master_volume)},
             {"audio.mute", s.mute ? "true" : "false"},
             {"controls.player1", s.players[0]}, {"controls.player2", s.players[1]},
             {"controls.player3", s.players[2]}, {"controls.player4", s.players[3]},
-            {"controls.deadzone", std::to_string(s.deadzone)},
             {"controls.rumble", s.rumble ? "true" : "false"},
+            {"controls.rumble_strength", std::to_string(s.rumble_strength)},
+            {"controls.ir_sensitivity", std::to_string(s.ir_sensitivity)},
+            {"controls.speaker_volume", std::to_string(s.speaker_volume)},
             {"controls.mouse_pointer", s.mouse_pointer ? "true" : "false"},
             {"controls.bluetooth_search", s.bluetooth_search ? "true" : "false"},
             {"controls.sensor_bar", s.sensor_bar},
@@ -62,10 +67,19 @@ Values Encode(const Settings& s)
             {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
+            {"online.server", s.online_server},
+            {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
-            {"online.server", s.online_server}};
+            {"launcher.test_build", std::to_string(s.test_build)},
+            {"discord.rich_presence", s.discord_status ? "true" : "false"},
+            {"mods.texture_packs", s.texture_packs ? "true" : "false"}, {"mods.texture_folder", s.texture_folder},
+            {"mods.texture_pack_order", s.texture_pack_order}, {"mods.texture_packs_off", s.texture_packs_off},
+            {"mods.dump_textures", s.dump_textures ? "true" : "false"}};
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         values.emplace(std::string("keyboard.") + kKeyActions[n].key, s.keys[n]);
+    values.emplace("hotkeys.screenshot", s.screenshot_key);
+    values.emplace("hotkeys.hud", s.hud_key);
+    values.emplace("hotkeys.show_hud", s.show_hud ? "true" : "false");
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
         values.emplace(std::string("gameplay.") + kGameTweaks[n].key, s.tweaks[n] ? "true" : "false");
     for (std::size_t n = 0; n < kSoundGroups.size(); ++n)
@@ -78,6 +92,11 @@ Values Encode(const Settings& s)
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
             values.emplace(section + kGamepadActions[action].key, profile.inputs[action]);
         values.emplace(section + "swap_sticks", profile.swap_sticks ? "true" : "false");
+        values.emplace(section + "inner_deadzone", std::to_string(profile.inner_deadzone));
+        values.emplace(section + "outer_deadzone", std::to_string(profile.outer_deadzone));
+        values.emplace(section + "trigger_press", std::to_string(profile.trigger_press));
+        values.emplace(section + "gyro_pointer", profile.gyro_pointer ? "true" : "false");
+        values.emplace(section + "gyro_speed", std::to_string(profile.gyro_speed));
         values.emplace(section + "controller", profile.controller);
     }
     for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
@@ -129,6 +148,9 @@ Settings Decode(const Values& values)
     if (const auto it = values.find("game.save_folder"); it != values.end()) s.save_folder = it->second;
     if (s.save_folder.find_first_of("\r\n") != std::string::npos || s.save_folder.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: the save folder contains a line break or NUL");
+    if (const auto it = values.find("game.gamecube_disc"); it != values.end()) s.gamecube_disc = it->second;
+    if (s.gamecube_disc.find_first_of("\r\n") != std::string::npos || s.gamecube_disc.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: the GameCube disc path contains a line break or NUL");
     choice("game.language", s.language, {"auto", "english", "french", "spanish", "german", "italian", "japanese"});
     number("display.width", s.width, 1, 16384);
     number("display.height", s.height, 1, 16384);
@@ -143,10 +165,23 @@ Settings Decode(const Values& values)
         s.frame_rate = it->second;
     }
     choice("display.backend", s.backend, {"auto", "vulkan", "metal", "d3d12"});
+    if (const auto it = values.find("display.gpu"); it != values.end())
+    {
+        try
+        {
+            ParseGraphicsCard(it->second);
+        }
+        catch (const std::invalid_argument&)
+        {
+            throw std::runtime_error("Invalid configuration: display.gpu must be auto or a graphics card's PCI ID "
+                                     "such as 10de:1f99");
+        }
+        s.gpu = it->second;
+    }
     choice("display.aspect", s.aspect, {"auto", "4:3", "16:9", "16:10", "21:9"});
     choice("display.picture", s.picture, {"soft", "clean", "sharp"});
     boolean("display.performance_mode", s.performance_mode);
-    choice("display.antialiasing", s.antialiasing, {"off", "4x"});
+    choice("display.antialiasing", s.antialiasing, {"off", "fxaa", "4x", "4x_fxaa", "4x_ssaa"});
     choice("display.resolution", s.resolution, {"window", "native", "2x", "3x", "4x"});
     number("audio.master_volume", s.master_volume, 0, 100);
     for (std::size_t n = 0; n < kSoundGroups.size(); ++n)
@@ -180,6 +215,23 @@ Settings Decode(const Values& values)
     };
     for (std::size_t n = 0; n < KeyActionCount; ++n)
         names(std::string("keyboard.") + kKeyActions[n].key, s.keys[n], "key names");
+    // [hotkeys]: one key name each.
+    for (const auto& [key, value] : {std::pair{"hotkeys.screenshot", &s.screenshot_key},
+                                     std::pair{"hotkeys.hud", &s.hud_key}})
+    {
+        const auto it = values.find(key);
+        if (it == values.end()) continue;
+        if (it->second.empty() || it->second.find('|') != std::string::npos)
+            throw std::runtime_error(std::string("Invalid configuration: ") + key + " must be one key name");
+        *value = it->second;
+    }
+    // No HUD was the [gameplay] tweak no_hud until it moved beside its key.
+    if (values.count("hotkeys.show_hud")) boolean("hotkeys.show_hud", s.show_hud);
+    else if (bool no_hud = false; values.count("gameplay.no_hud"))
+    {
+        boolean("gameplay.no_hud", no_hud);
+        s.show_hud = !no_hud;
+    }
     // [gamepad_profileN]: numbered from 1, each with a unique name.
     for (auto it = values.lower_bound("gamepad_profile"); it != values.end() && it->first.rfind("gamepad_profile", 0) == 0;
          ++it)
@@ -194,9 +246,9 @@ Settings Decode(const Values& values)
                 + std::to_string(kMaxGamepadProfiles) + "], not [" + section + "]");
     }
     std::vector<Settings::PadProfile> profiles;
-    for (std::size_t number = 1; number <= kMaxGamepadProfiles; ++number)
+    for (std::size_t index = 1; index <= kMaxGamepadProfiles; ++index)
     {
-        const auto section = "gamepad_profile" + std::to_string(number) + ".";
+        const auto section = "gamepad_profile" + std::to_string(index) + ".";
         const auto first = values.lower_bound(section);
         if (first == values.end() || first->first.rfind(section, 0) != 0) continue;
         const auto name = values.find(section + "name");
@@ -211,6 +263,11 @@ Settings Decode(const Values& values)
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
             names(section + kGamepadActions[action].key, profile.inputs[action], "gamepad inputs");
         boolean((section + "swap_sticks").c_str(), profile.swap_sticks);
+        number((section + "inner_deadzone").c_str(), profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone);
+        number((section + "outer_deadzone").c_str(), profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone);
+        number((section + "trigger_press").c_str(), profile.trigger_press, kMinTriggerPress, kMaxTriggerPress);
+        boolean((section + "gyro_pointer").c_str(), profile.gyro_pointer);
+        number((section + "gyro_speed").c_str(), profile.gyro_speed, kMinGyroSpeed, kMaxGyroSpeed);
         choice((section + "controller").c_str(), profile.controller, {"xbox", "nintendo", "gamecube"});
         profiles.push_back(std::move(profile));
     }
@@ -235,8 +292,10 @@ Settings Decode(const Values& values)
             if (s.players[n] == s.players[m])
                 throw std::runtime_error("Invalid configuration: " + s.players[n] + " is assigned to two players");
     }
-    number("controls.deadzone", s.deadzone, 0, 50);
     boolean("controls.rumble", s.rumble);
+    number("controls.rumble_strength", s.rumble_strength, 0, 100);
+    number("controls.ir_sensitivity", s.ir_sensitivity, 1, 5);
+    number("controls.speaker_volume", s.speaker_volume, 0, 100);
     boolean("controls.mouse_pointer", s.mouse_pointer);
     boolean("controls.bluetooth_search", s.bluetooth_search);
     choice("controls.sensor_bar", s.sensor_bar, {"bottom", "top"});
@@ -250,17 +309,38 @@ Settings Decode(const Values& values)
     boolean("advanced.log_window", s.log_window);
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
     boolean("launcher.check_updates", s.check_updates);
+    boolean("launcher.reopen_after_game", s.reopen_after_game);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
+    number("launcher.test_build", s.test_build, 0, 999999999);
+    boolean("discord.rich_presence", s.discord_status);
+    if (const auto it = values.find("discord.application_id"); it != values.end() && !it->second.empty())
+    {
+        const auto& id = it->second;
+        if (id.size() < 17 || id.size() > 20 || id.find_first_not_of("0123456789") != std::string::npos)
+            throw std::runtime_error("Invalid configuration: discord.application_id must be a Discord application ID "
+                "(17 to 20 digits)");
+        s.discord_application_id = id;
+    }
+    boolean("mods.texture_packs", s.texture_packs);
+    if (const auto it = values.find("mods.texture_folder"); it != values.end() && !it->second.empty())
+        s.texture_folder = it->second;
+    if (const auto it = values.find("mods.texture_pack_order"); it != values.end()) s.texture_pack_order = it->second;
+    if (const auto it = values.find("mods.texture_packs_off"); it != values.end()) s.texture_packs_off = it->second;
+    for (const auto* text : {&s.texture_folder, &s.texture_pack_order, &s.texture_packs_off})
+        if (text->find_first_of("\r\n") != std::string::npos || text->find('\0') != std::string::npos)
+            throw std::runtime_error("Invalid configuration: a [mods] setting contains a line break or NUL");
+    boolean("mods.dump_textures", s.dump_textures);
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
     {
         bool value = kGameTweaks[n].on_by_default;
         boolean((std::string("gameplay.") + kGameTweaks[n].key).c_str(), value);
         s.tweaks[n] = value;
     }
-
     if (const auto it = values.find("online.server"); it != values.end()) s.online_server = it->second;
     if (s.online_server.find_first_of("\r\n") != std::string::npos || s.online_server.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: the online server redirect contains a line break or NUL");
+
+    choice("gameplay.super_team_side", s.super_team_side, {"away", "home", "both"});
     return s;
 }
 
@@ -278,7 +358,11 @@ bool OwnedSection(const std::string& section)
 }
 
 // Paths are written in quotes.
-bool QuotedKey(const std::string& key) { return key == "game.disc" || key == "game.folder" || key == "game.save_folder"; }
+bool QuotedKey(const std::string& key)
+{
+    return key == "game.disc" || key == "game.folder" || key == "game.save_folder" || key == "game.gamecube_disc"
+        || key == "mods.texture_folder";
+}
 
 Values Parse(const std::string& contents, std::string* updated = nullptr, Values replacements = {})
 {
@@ -320,8 +404,13 @@ Values Parse(const std::string& contents, std::string* updated = nullptr, Values
                 if (!values.emplace(full_key, value).second)
                     throw std::runtime_error("Invalid configuration: duplicate " + full_key);
                 key_line = true;
+                // Retired keys, accepted in old INIs: the title-bar counter, a
+                // dead zone nothing read (gamepad profiles have their own, #62),
+                // a 1.0.12 test build's Wii Remote speaker format (#60) and No
+                // HUD's tweak key, now hotkeys.show_hud.
                 drop = updated && ((OwnedSection(section) && !kept.count(full_key))
-                    || full_key == "display.show_fps"); // Retired title-bar counter; accept old INIs.
+                    || full_key == "display.show_fps" || full_key == "controls.deadzone"
+                    || full_key == "controls.speaker_format" || full_key == "gameplay.no_hud");
                 if (const auto it = replacements.find(full_key); it != replacements.end())
                 {
                     if (it->second != value)
@@ -501,6 +590,13 @@ std::filesystem::path DefaultSaveFolder(const std::filesystem::path& executable_
     return DataFolder(executable_directory) / "nand";
 }
 
+std::filesystem::path ResolveGameCubeDiscPath(const Settings& settings, const std::filesystem::path& config)
+{
+    if (settings.gamecube_disc.empty()) return {};
+    const auto path = PathFromUtf8(settings.gamecube_disc);
+    return path.is_absolute() ? path : config.parent_path() / path;
+}
+
 std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::filesystem::path& config,
                                         const std::filesystem::path& executable_directory)
 {
@@ -512,6 +608,12 @@ std::filesystem::path ResolveSaveFolder(const Settings& settings, const std::fil
 std::filesystem::path ResolveGameFolder(const Settings& settings, const std::filesystem::path& config)
 {
     const auto path = PathFromUtf8(settings.folder.empty() ? "game" : settings.folder);
+    return path.is_absolute() ? path : config.parent_path() / path;
+}
+
+std::filesystem::path ResolveTextureFolder(const Settings& settings, const std::filesystem::path& config)
+{
+    const auto path = PathFromUtf8(settings.texture_folder.empty() ? "texture_packs" : settings.texture_folder);
     return path.is_absolute() ? path : config.parent_path() / path;
 }
 

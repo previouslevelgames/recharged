@@ -37,6 +37,10 @@ set(MSCHARGED_BUILD_REPOSITORY previouslevelgames/recharged CACHE STRING
 set(MSCHARGED_BUILD_PULL_REQUEST 0 CACHE STRING "Pull request of a test build")
 set(MSCHARGED_BUILD_RUN 0 CACHE STRING "CI run that made the build (0: none)")
 set(MSCHARGED_BUILD_TIME 0 CACHE STRING "Build time in seconds since 1970, UTC (0: unknown)")
+# The Discord application the game's Discord status shows under (issue #71).
+# Its ID is public, not a secret; CI passes it from a repository variable so
+# it stays out of the source. Empty: no status unless recharged.ini names one.
+set(MSCHARGED_DISCORD_APPLICATION_ID "" CACHE STRING "Discord application ID for the Discord status (empty: none)")
 if(NOT MSCHARGED_BUILD_CHANNEL MATCHES "^(release|test|dev)$")
     message(FATAL_ERROR "MSCHARGED_BUILD_CHANNEL must be release, test or dev")
 endif()
@@ -48,6 +52,11 @@ foreach(number IN ITEMS MSCHARGED_BUILD_PULL_REQUEST MSCHARGED_BUILD_RUN MSCHARG
         message(FATAL_ERROR "${number} must be a whole number")
     endif()
 endforeach()
+string(LENGTH "${MSCHARGED_DISCORD_APPLICATION_ID}" _discord_id_length)
+if(NOT MSCHARGED_DISCORD_APPLICATION_ID MATCHES "^[0-9]*$"
+   OR (_discord_id_length GREATER 0 AND (_discord_id_length LESS 17 OR _discord_id_length GREATER 20)))
+    message(FATAL_ERROR "MSCHARGED_DISCORD_APPLICATION_ID must be a Discord application ID (17 to 20 digits) or empty")
+endif()
 if(MSCHARGED_BUILD_CHANNEL STREQUAL "test" AND MSCHARGED_BUILD_PULL_REQUEST STREQUAL "0")
     message(FATAL_ERROR "A test build needs MSCHARGED_BUILD_PULL_REQUEST")
 endif()
@@ -261,6 +270,7 @@ add_custom_target(update_build_version
             "-DBUILD_PULL_REQUEST:STRING=${MSCHARGED_BUILD_PULL_REQUEST}"
             "-DBUILD_RUN:STRING=${MSCHARGED_BUILD_RUN}"
             "-DBUILD_TIME:STRING=${MSCHARGED_BUILD_TIME}"
+            "-DDISCORD_APPLICATION_ID:STRING=${MSCHARGED_DISCORD_APPLICATION_ID}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/WriteBuildVersion.cmake"
     BYPRODUCTS "${MSCHARGED_VERSION_DIR}/build_version.h"
     COMMENT "Record the port version and current source revision"
@@ -281,6 +291,10 @@ endif()
 if(MSCHARGED_BUILD_AURORA_HOST)
     include(cmake/AuroraHost.cmake)
 endif()
+# HD texture packs: the launcher lists them, the game host loads them.
+if(MSCHARGED_BUILD_LAUNCHER OR MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC OR BUILD_TESTING)
+    include(cmake/TexturePacks.cmake)
+endif()
 if(MSCHARGED_BUILD_LAUNCHER)
     include(cmake/Launcher.cmake)
 endif()
@@ -299,6 +313,9 @@ endif()
 if(BUILD_TESTING OR MSCHARGED_BUILD_SCENE_PREVIEW OR MSCHARGED_BUILD_GAME_STARTUP)
     include(cmake/WorldObjects.cmake)
 endif()
+
+# The Discord status (issue #71); the game host links it.
+include(cmake/Discord.cmake)
 
 if(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC)
     # The game runtime: the host enters original main in a game module.
@@ -399,10 +416,27 @@ if(BUILD_TESTING)
     target_compile_features(game_tweaks_tests PRIVATE cxx_std_17)
     add_test(NAME game_tweaks COMMAND game_tweaks_tests)
     # Mirror match away kits made from the home kit's textures.
-    add_executable(away_kits_tests tests/away_kits.cpp src/platform/away_kits.cpp src/platform/host_metadata.cpp)
+    add_executable(away_kits_tests tests/away_kits.cpp src/platform/away_kits.cpp src/platform/gx_texture.cpp
+        src/platform/host_metadata.cpp)
     target_include_directories(away_kits_tests PRIVATE src)
     target_compile_features(away_kits_tests PRIVATE cxx_std_20)
     add_test(NAME away_kits COMMAND away_kits_tests)
+    # Their HD versions from texture packs.
+    add_executable(hd_recolour_tests tests/hd_recolour.cpp src/platform/hd_recolour.cpp)
+    target_include_directories(hd_recolour_tests PRIVATE src)
+    target_compile_features(hd_recolour_tests PRIVATE cxx_std_17)
+    add_test(NAME hd_recolour COMMAND hd_recolour_tests)
+    add_executable(robot_goalie_tests tests/robot_goalie.cpp src/platform/robot_goalie.cpp src/platform/gx_texture.cpp
+        src/platform/host_metadata.cpp)
+    target_include_directories(robot_goalie_tests PRIVATE src)
+    target_compile_features(robot_goalie_tests PRIVATE cxx_std_20)
+    add_test(NAME robot_goalie COMMAND robot_goalie_tests "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/robot_goalie.map")
+    # Super Team: the robot model and textures made from the GameCube robot.
+    add_executable(super_team_tests tests/super_team.cpp src/platform/super_team.cpp src/platform/gx_texture.cpp
+        src/platform/host_metadata.cpp)
+    target_include_directories(super_team_tests PRIVATE src)
+    target_compile_features(super_team_tests PRIVATE cxx_std_20)
+    add_test(NAME super_team COMMAND super_team_tests)
     # The logo reads RECHARGED: the rewrite of the front end's scene files.
     add_executable(recharged_logo_tests tests/recharged_logo.cpp src/platform/recharged_logo.cpp
         src/platform/host_metadata.cpp src/resources/frontend_scene.cpp)

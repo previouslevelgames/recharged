@@ -1,12 +1,16 @@
 #include "platform/graphics_stats.h"
 #include "platform/app_icon.h"
+#include "platform/fullscreen_hotkey.h"
 #include "platform/screenshot_hotkey.h"
 #include "platform/window_fit.h"
 #include "runtime/original_game.h"
+#include "runtime/texture_pack_loading.h"
 #include "platform/graphics_backend.h"
 #include "runtime/original_sh_menu_diagnostic.h"
 #include <aurora/aurora.h>
 #include <aurora/hardware.h>
+#include "bootstrap/antialiasing.h"
+#include "bootstrap/graphics_card.h"
 #include "bootstrap/launch_options.h"
 #include "platform/path.h"
 #include "platform/disc.h"
@@ -24,6 +28,8 @@
 #include <array>
 #include <algorithm>
 #include <vector>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <optional>
 #include <chrono>
@@ -41,6 +47,10 @@
 #include "platform/console.h"
 #include "platform/log_window.h"
 #include "platform/session_log.h"
+#include "platform/launcher_reopen.h"
+#include "platform/discord_presence.h"
+#include "platform/game_presence.h"
+#include "platform/presence_snapshot.h"
 #include "platform/shader_cache.h"
 #include "platform/process_exit.h"
 #include "platform/native_ax_module_memory.h"
@@ -358,8 +368,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         config.userPath=config.cachePath=dataPath.c_str();
         const auto graphicsResourcesPath=mscharged::PathUtf8(executableDirectory/"assets"/"graphics");
         config.resourcesPath=graphicsResourcesPath.c_str();
-        const auto& graphics=mscharged::ResolveGraphicsBackend(launch.settings.backend);
-        config.desiredBackend=mscharged::platform::AuroraGraphicsBackend(graphics.backend);
+        // display.backend: only auto names a second API for Aurora to try.
+        const auto* graphics=&mscharged::ResolveGraphicsBackend(launch.settings.backend);
+        const auto* graphicsFallback=mscharged::GraphicsBackendFallback(launch.settings.backend);
+        config.desiredBackend=mscharged::platform::AuroraGraphicsBackend(graphics->backend);
+        if(graphicsFallback)
+            config.fallbackBackend=mscharged::platform::AuroraGraphicsBackend(graphicsFallback->backend);
+        // display.gpu: a chosen card; Aurora keeps the fastest when the API does not offer it.
+        if(const auto card=mscharged::ParseGraphicsCard(launch.settings.gpu)) {
+            config.adapterVendorId=card->vendor;
+            config.adapterDeviceId=card->device;
+        }
         config.windowWidth=windowWidth;config.windowHeight=windowHeight;
         config.windowPosX=config.windowPosY=-1;
         config.mem1Size=MEM1_DEFAULT_SIZE;
@@ -371,8 +390,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         config.logCallback=mscharged::platform::ConsoleLog;
         config.enableBackendValidation=launch.settings.graphics_validation;
         config.vsync=launch.settings.vsync;
-        // display.antialiasing: Aurora multisampling of the original frame.
-        config.msaa=launch.settings.antialiasing=="4x"?4:1;
+        // display.antialiasing: Aurora multisampling of the original frame,
+        // optionally shaded per sample; FXAA is the scanout's (below).
+        const auto& antialiasing=mscharged::FindAntialiasing(launch.settings.antialiasing);
+        config.msaa=antialiasing.samples;
+        config.sampleShading=antialiasing.sample_shading;
+        // mods.dump_textures: Aurora saves each game texture no pack replaces
+        // to data/texture_dumps, named for texture packs.
+        config.allowTextureDumps=launch.settings.dump_textures;
         // The native Wii Remote driver (platform/wiimote_hid) owns physical
         // remotes, including DolphinBar mode 4 and its IR sensor bar; SDL's
         // own Wii HID driver must not open the same devices.
@@ -383,17 +408,25 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             +" "+std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", aspect "+shown.aspect
             +", 3D resolution "+shown.resolution+", antialiasing "+shown.antialiasing+", picture "+shown.picture
             +", vsync "+(shown.vsync?"on":"off")+", display "+std::to_string(shown.monitor)
+            +", graphics card "+shown.gpu
             +", performance overlay "+(shown.fps_overlay?shown.fps_overlay_corner:std::string("off"))
             +", graphics validation "+(shown.graphics_validation?"on":"off"));
         mscharged::platform::SessionLogLine(std::string("Startup: initializing ")
-            +graphics.label+" graphics and the window");
+            +graphics->label+" graphics and the window");
         shaderCacheUse.emplace(mscharged::platform::ShaderCacheDirectory(executableDirectory));
         const auto host=aurora_initialize(argc,argv,&config);
-        if(!host.window||host.backend!=config.desiredBackend)
-            throw std::runtime_error(std::string(graphics.label)
-                +" is unavailable. Select a different graphics API in the launcher.");
+        if(!host.window)
+            throw std::runtime_error(mscharged::GraphicsStartFailure(*graphics,graphicsFallback));
+        if(host.backend!=config.desiredBackend) {
+            Check(graphicsFallback && host.backend==config.fallbackBackend,"Aurora started an unrequested graphics API");
+            mscharged::platform::SessionLogLine(std::string("Startup: ")+graphics->label+" could not start; using "
+                +graphicsFallback->label);
+            graphics=graphicsFallback;
+        }
         mscharged::platform::SetApplicationIcon(host.window);
         mscharged::platform::SessionLogLine("Startup: graphics ready");
+        // [mods]: HD texture packs, swapped in by Aurora (host graphics only).
+        mscharged::LoadTexturePacks(launch.settings,launch.config.path,release->game_id);
         mscharged::platform::LogSessionDisplays(host.window);
         if(launch.settings.monitor>0) {
             // Start on the selected display; fullscreen then uses that display.
@@ -460,7 +493,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         }
         if(!graphicsPrepared) {
             aurora_shutdown();
-            mscharged::platform::SessionLogLine("=== Session ended during graphics preparation ===");
+            // [launcher] reopen_after_game: the launcher comes back instead (POSIX: in this process).
+            if(!mscharged::platform::ReopenLauncher("closed during graphics preparation, reopening the launcher"))
+                mscharged::platform::SessionLogLine("=== Session ended during graphics preparation ===");
             return 0;
         }
         bool retainedWindowClose=false;
@@ -499,11 +534,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::ConfigureNativeSystemIdleMode(nullptr,0);
         mscharged::platform::ConfigureNativeVideoHardware(eurgb60?VI_TVMODE_EURGB60_INT:VI_TVMODE_NTSC_INT,false);
         if(nativeSend) {
-            // display.picture: host desktop presentation of the original XFB.
+            // display.picture: host desktop presentation of the original XFB,
+            // with display.antialiasing's FXAA.
             mscharged::platform::ConfigureNativeVideoOutputHardware(settings,
                 launch.settings.picture=="sharp" ? mscharged::platform::NativeDesktopPicture::Sharp
                 : launch.settings.picture=="clean" ? mscharged::platform::NativeDesktopPicture::Clean
-                                                   : mscharged::platform::NativeDesktopPicture::Signal);
+                                                   : mscharged::platform::NativeDesktopPicture::Signal,
+                mscharged::FindAntialiasing(launch.settings.antialiasing).fxaa);
             // Arm source-owned recording before original constructors/commands.
             // This mode never uses diagnostic aurora_begin/end_frame.
             aurora_configure_native_gx_hardware();
@@ -535,9 +572,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // require of every playing controller; the mouse is its pointer.
         // Physical Wii Remotes (platform/wiimote_hid) bring their own IR
         // camera and Nunchuk. controls.rumble is the system rumble setting
-        // original Options reads; controls.sensor_bar the sensor-bar position
-        // (bottom/top) original KPAD aims the pointer from. controls.player1-4
-        // fix who plays as which player.
+        // the game reads (the HOME Menu's); controls.sensor_bar the sensor-bar
+        // position (bottom/top) original KPAD aims the pointer from and
+        // controls.ir_sensitivity the Wii's sensitivity (1-5);
+        // controls.speaker_volume the Remotes' speaker volume (BT.SPKV, 0-127
+        // as the HOME Menu's 10 steps of 12.7; 0 sends no speaker sound).
+        // controls.player1-4 fix who plays as which player.
         mscharged::platform::NativePlayers players{};
         players.fixed = true;
         players.keyboard = -1;
@@ -548,18 +588,50 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             else if (device.rfind("gamepad", 0) == 0) players.gamepads[device.back() - '1'] = player;
             else if (device != "off") players.remotes[device] = player;
         }
+        // [hotkeys]: the screenshot and HUD keys, which the keyboard player never presses.
+        const auto hotkeys=mscharged::platform::ParseHotkeys(launch.settings.screenshot_key,launch.settings.hud_key);
+        mscharged::platform::SetHotkeys(hotkeys);
         mscharged::platform::DesktopWpadSettings desktop{true,false,true,mscharged::platform::QueryPresentedDesktopDpd,
-            nullptr,true,true,-1,mscharged::platform::ParseKeyBindings(launch.settings.keys)};
+            nullptr,true,true,-1,mscharged::platform::ParseKeyBindings(launch.settings.keys,hotkeys)};
         desktop.kpad_sensor_height=release->code==mscharged::GameCode::Usa;
+        desktop.rumble_strength=launch.settings.rumble_strength;
         // Each gamepad's profile (controls.gamepadN_profile).
         for (std::size_t pad = 0; pad < desktop.gamepad_profiles.size(); ++pad) {
             const auto& profile = launch.settings.PadProfileOf(pad);
             desktop.gamepad_profiles[pad] = {mscharged::platform::ParseGamepadBindings(profile.inputs),
-                                             profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0};
+                                             profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0,
+                                             profile.inner_deadzone, profile.outer_deadzone, profile.trigger_press,
+                                             profile.gyro_pointer, profile.gyro_speed};
         }
-        mscharged::platform::InitializeNativeHardwareInput(host.window,
-            {static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),3,true,launch.settings.rumble},
+        mscharged::platform::WpadSDLSettings wpad{static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),
+            static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
+        wpad.speaker_volume=static_cast<std::uint8_t>((launch.settings.speaker_volume*127+50)/100);
+        wpad.remote_speaker=launch.settings.speaker_volume>0;
+        // Original WPADControlSpeaker ON: 0x80 in the American game, 0x08 in the European one.
+        wpad.remote_speaker_reg01=release->code==mscharged::GameCode::Usa ? 0x80 : 0x08;
+        mscharged::platform::InitializeNativeHardwareInput(host.window,wpad,
             mscharged::platform::GetNativeSTMInput(), desktop, players);
+        {
+            const auto& s=launch.settings;
+            const std::string line="Wii Remote settings: sensor bar "+s.sensor_bar+", sensitivity "
+                +std::to_string(s.ir_sensitivity)+", speaker "+(s.speaker_volume ? std::to_string(s.speaker_volume)+"%" : "off")
+                +", rumble "+(s.rumble ? "on (gamepads "+std::to_string(s.rumble_strength)+"%)" : "off");
+            mscharged::platform::SessionLogLine(line);
+            mscharged::platform::SessionLogLine("Hotkeys: screenshot "+mscharged::platform::KeyInputName(hotkeys.screenshot)
+                +", HUD "+mscharged::platform::KeyInputName(hotkeys.hud)+" (matches start with the HUD "
+                +(s.show_hud ? "shown)" : "hidden)"));
+            for (const auto& device : s.players) {
+                if (device.rfind("gamepad", 0) != 0) continue;
+                const std::size_t pad = std::size_t(device.back() - '1');
+                const auto& profile = s.PadProfileOf(pad);
+                mscharged::platform::SessionLogLine("Gamepad " + std::to_string(pad + 1) + ": profile " + profile.name
+                    + ", stick dead zones " + std::to_string(profile.inner_deadzone) + "-"
+                    + std::to_string(profile.outer_deadzone) + "%, trigger press point "
+                    + std::to_string(profile.trigger_press) + "%, pointer "
+                    + (profile.gyro_pointer ? "gyro (speed " + std::to_string(profile.gyro_speed) + "%)"
+                                            : std::string(profile.swap_sticks ? "left stick" : "right stick")));
+            }
+        }
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
             mscharged::diagnostic::InitializeOriginalGameAudioHardware(
@@ -598,19 +670,83 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_debug_layers")),
                 reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_cycle_debug_layer")));
         }
-        // [gameplay] tweaks: the enabled set, before original main.
+        // [gameplay] tweaks: the enabled set, before original main, with
+        // the No HUD bit of [hotkeys] show_hud = false.
         {
             const unsigned tweaks=launch.settings.GameTweakMask();
             auto* configureTweaks=reinterpret_cast<void(*)(unsigned)>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tweaks"));
-            if(configureTweaks) configureTweaks(tweaks);
+            if(configureTweaks) configureTweaks(launch.settings.ModuleTweakMask());
             const auto line="Tweaks: "+(configureTweaks || !tweaks ? mscharged::DescribeGameTweaks(tweaks)
                 : "none (this build's game module has no tweaks)");
             mscharged::platform::SessionLogLine(line.c_str());
             std::fprintf(stderr,"%s\n",line.c_str());
-            // No HUD (issue #58): H shows or hides the match HUD, whatever the tweak set.
+            // Texture packs: Mirror match's recoloured textures in HD.
+            if(auto* configureRecolour=reinterpret_cast<void(*)(ChargedRecolouredTextureHook)>(
+                   mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_hd_recolour")))
+                configureRecolour(mscharged::TexturePackRecolourHook());
+            // No HUD (issue #58): the HUD key shows or hides the match HUD, whatever show_hud says.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_hud")));
+            // Robot goalies: the map that lays the disc's unused robot goalie
+            // texture onto Charged's goalie. The module keeps a view of it.
+            if(tweaks & mscharged::GameTweakBit(mscharged::GameTweak::RobotGoalies)) {
+                static std::vector<unsigned char> robotGoalieMap;
+                const auto path=executableDirectory/"assets"/"gameplay"/"robot_goalie.map";
+                std::error_code error;
+                const auto size=std::filesystem::file_size(path,error);
+                if(!error && size>0 && size<=(16u<<20)) {
+                    robotGoalieMap.resize(size_t(size));
+                    std::ifstream file(path,std::ios::binary);
+                    if(!file.read(reinterpret_cast<char*>(robotGoalieMap.data()),std::streamsize(size)))
+                        robotGoalieMap.clear();
+                }
+                auto* configureRobotGoalie=reinterpret_cast<bool(*)(const void*,unsigned long)>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_robot_goalie"));
+                const bool ready=configureRobotGoalie && !robotGoalieMap.empty()
+                    && configureRobotGoalie(robotGoalieMap.data(),(unsigned long)robotGoalieMap.size());
+                const std::string robotLine=std::string("Robot goalies: ")+(ready ? "on"
+                    : !configureRobotGoalie ? "off (this build's game module has no robot goalies)"
+                    : "off (assets/gameplay/robot_goalie.map is missing or not valid)");
+                mscharged::platform::SessionLogLine(robotLine.c_str());
+                std::fprintf(stderr,"%s\n",robotLine.c_str());
+            }
+            // Super Team: the GameCube robot's model, skeleton and textures from
+            // the player's Super Mario Strikers disc. The module keeps a view of them.
+            if(tweaks & mscharged::GameTweakBit(mscharged::GameTweak::SuperTeam)) {
+                static std::vector<std::vector<std::uint8_t>> superTeamFiles;
+                std::string why;
+                const auto gamecube=mscharged::ResolveGameCubeDiscPath(launch.settings,launch.config.path);
+                if(gamecube.empty())
+                    why="no Super Mario Strikers (GameCube) disc is set ([game] gamecube_disc)";
+                else {
+                    try {
+                        superTeamFiles=mscharged::ReadStrikersFiles(gamecube,
+                            {"art/characters/SuperTeam/SuperTeam.glg","art/animation/SuperTeam.shier",
+                             "art/characters/SuperTeam/SuperTeam.glt"},16u<<20);
+                    } catch(const std::exception& error) {
+                        why=error.what();
+                        superTeamFiles.clear();
+                    }
+                }
+                auto* configureSuperTeam=reinterpret_cast<bool(*)(const void*,unsigned long,const void*,unsigned long,
+                    const void*,unsigned long,int)>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_super_team"));
+                const std::string& side=launch.settings.super_team_side;
+                const int sides=side=="home" ? 1 : side=="both" ? 3 : 2;
+                bool ready=false;
+                if(!configureSuperTeam) why="this build's game module has no Super Team";
+                else if(superTeamFiles.size()==3) {
+                    const auto& f=superTeamFiles;
+                    ready=configureSuperTeam(f[0].data(),(unsigned long)f[0].size(),f[1].data(),(unsigned long)f[1].size(),
+                        f[2].data(),(unsigned long)f[2].size(),sides);
+                    if(!ready) why="the GameCube disc's Super Team files are not the expected ones";
+                }
+                const std::string superTeamLine=std::string("Super Team: ")
+                    +(ready ? "on ("+side+(side=="both" ? " teams)" : " team)") : "off ("+why+")");
+                mscharged::platform::SessionLogLine(superTeamLine.c_str());
+                std::fprintf(stderr,"%s\n",superTeamLine.c_str());
+            }
         }
         // European revision 1 disc: its data runs on the revision 2 code
         // through the tweak series' adapters, whatever the tweak set.
@@ -682,6 +818,45 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }
+        // The Discord status (issue #71): the game module reports what the
+        // game is doing; the host shows it on this computer's Discord app.
+        // A host setting like the sound levels, whatever the tweak set.
+        auto presenceSnapshot=reinterpret_cast<ChargedPresenceSnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_presence_snapshot"));
+        std::optional<mscharged::platform::DiscordPresence> discordPresence;
+        std::optional<mscharged::platform::GamePresence> gamePresence;
+        {
+            const bool ownApplication=!launch.settings.discord_application_id.empty();
+            const std::string application=ownApplication ? launch.settings.discord_application_id
+                : std::string(mscharged::build::discord_application_id);
+            std::string line="Discord status: ";
+            if(!launch.settings.discord_status)
+                line+="off";
+            else if(application.empty())
+                line+="off (this build has no Discord application)";
+            else if(!presenceSnapshot)
+                line+="off (this build's game module reports no game state)";
+            else {
+                mscharged::platform::DiscordPresence::Options options;
+                options.application_id=application;
+                options.log=[](const std::string& text) {
+                    mscharged::platform::SessionLogLine(text);
+                    std::fprintf(stderr,"%s\n",text.c_str());
+                };
+                options.shown=[](const std::optional<mscharged::platform::discord::Activity>& activity) {
+                    if(activity)
+                        mscharged::platform::Trace("Discord: showing \"%s\" / \"%s\"%s.\n",activity->details.c_str(),
+                            activity->state.c_str(),activity->start ? " with a timer" : "");
+                };
+                discordPresence.emplace(std::move(options));
+                const auto started=std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                gamePresence.emplace(release->title,release->region,release->game_id,started);
+                line+=std::string("on")+(ownApplication ? " (application from recharged.ini)" : "");
+            }
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
@@ -690,17 +865,16 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // Disc-message images (the loading message and the DVD error screens):
         // the game module only reserves their arrays and the player's own
         // main.dol fills them, as the port ships no game data. Modules without
-        // this export still embed their images.
+        // this export still embed their images. A modified main.dol (a
+        // Wiimmfi-patched image) is fine: the game never runs it.
         if(auto* discMessages=reinterpret_cast<mscharged::DiscMessageImageStorage>(
-               mscharged::platform::FindNativeModuleSymbol(module,"charged_disc_message_image"))) {
-            mscharged::InstallDiscMessageImages(mscharged::ReadDiscMessageImages(launch.disc_path,*release),discMessages);
-            mscharged::platform::SessionLogLine("Disc messages: "+std::to_string(mscharged::kDiscMessageImageCount)
-                +" images from the disc's main.dol");
-        }
+               mscharged::platform::FindNativeModuleSymbol(module,"charged_disc_message_image")))
+            mscharged::platform::SessionLogLine(mscharged::InstallDiscMessages(
+                mscharged::ReadDiscMessages(launch.disc_path,*release),discMessages));
         auto entry=reinterpret_cast<int(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_original_entry"));
         if(!entry)throw std::runtime_error("Original source main export unavailable");
         mscharged::platform::Trace("Entering actual source main with real Aurora %s/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n",
-                     graphics.label);
+                     graphics->label);
         mscharged::platform::SessionLogLine("Startup: game module loaded, entering the game");
         std::fflush(nullptr);
         const int result=entry();
@@ -739,8 +913,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 mscharged::runtime::FrameTimingLog::FinishForProcessExit();
                 mscharged::runtime::LogGraphicsPipelineStats();
                 // The power-off path ends with TerminateProcessNow: hand the last lines to the log and console.
-                mscharged::platform::SessionLogLine("=== Session ended (original power off) ===");
-                mscharged::platform::FlushSessionLog();
+                // [launcher] reopen_after_game starts the launcher first (POSIX: in this process).
+                if(!mscharged::platform::ReopenLauncher("original power off, reopening the launcher")) {
+                    mscharged::platform::SessionLogLine("=== Session ended (original power off) ===");
+                    mscharged::platform::FlushSessionLog();
+                }
             };
             mscharged::platform::ConfigureNativeSTMPowerRemoval(removal);
             // The actual source entry/audio predicates and terminal policy now
@@ -820,6 +997,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 std::fflush(stdout);optionsBoundsReported=true;
             }
         };
+        // Once a second, after a game frame: the game's state for the Discord status.
+        std::chrono::steady_clock::time_point lastPresence{};
+        auto observePresence = [&] {
+            if(!discordPresence)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-lastPresence<std::chrono::seconds(1))return;
+            lastPresence=now;
+            ChargedPresenceSnapshot snapshot{};
+            if(!presenceSnapshot(&snapshot,sizeof snapshot))return;
+            const auto unixNow=std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            discordPresence->Show(gamePresence->Describe(snapshot,unixNow));
+        };
         // Existing actual source GX/state/material/font/view initialization is
         // retained. No host GXInit, source pool restart or fixture font setup.
         AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
@@ -846,7 +1036,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         if(frameTiming)
             frameTiming->SetContext(std::string("Session: version ")+mscharged::build::version+" ("
                 +mscharged::build::channel+")\nSettings: "+(shown.fullscreen?"fullscreen":"windowed")+" "
-                +std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", graphics "+graphics.label
+                +std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", graphics "+graphics->label
                 +", 3D resolution "+shown.resolution+", antialiasing "+shown.antialiasing
                 +", frame rate "+shown.frame_rate+", vsync "+(shown.vsync?"on":"off")
                 +", performance mode "+(shown.performance_mode?"on":"off")+"\n");
@@ -865,6 +1055,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 exit=true;
             }
             if(exit)break;
+            // Alt+Enter (Option+Return on a Mac): fullscreen or a window, for this run (issue #77).
+            switch(mscharged::platform::ServiceFullscreenHotkey()) {
+            case mscharged::platform::FullscreenSwitch::Fullscreen:
+                mscharged::platform::SessionLogLine(std::string("Display: fullscreen (")
+                    +mscharged::platform::kFullscreenShortcut+")"); break;
+            case mscharged::platform::FullscreenSwitch::Windowed:
+                mscharged::platform::SessionLogLine(std::string("Display: windowed (")
+                    +mscharged::platform::kFullscreenShortcut+")"); break;
+            case mscharged::platform::FullscreenSwitch::Failed:
+                mscharged::platform::SessionLogLine(std::string("Display: ")+mscharged::platform::kFullscreenShortcut
+                    +" could not switch: "+SDL_GetError()); break;
+            case mscharged::platform::FullscreenSwitch::None: break;
+            }
             mscharged::diagnostic::ServiceMovieHardware();
             if(requestSH) {
                 const auto status=requestSH();
@@ -898,7 +1101,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -987,7 +1190,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}
@@ -1115,11 +1318,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::SessionLogLine("=== Session ended ===");
         std::fflush(nullptr);mscharged::platform::TerminateProcessNow(0);
         } catch(const std::exception& e) {
-            mscharged::platform::ReportFatalError(std::string("Actual source diagnostic stopped with live owners: ")+e.what());
+            // The player's box shows only the reason; the log keeps the context.
+            mscharged::platform::SessionLogLine("The game stopped with its source owners still live.");
+            mscharged::platform::ReportFatalError(e.what());
             mscharged::platform::TerminateProcessNow(1);
         }
     }catch(const std::exception& e){
-        mscharged::platform::ReportFatalError(std::string("Actual source diagnostic stopped: ")+e.what());
+        mscharged::platform::ReportFatalError(e.what());
         mscharged::platform::TerminateProcessNow(1);
     }
 }

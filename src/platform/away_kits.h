@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <span>
 
+#include "platform/gx_texture.h"
+
 // Away kits made for the tweak "Mirror match" (one captain on both teams).
 // The game has a whole away kit only for the captains it dresses in one
 // against a captain of their colours. Mario, Luigi, Wario and Waluigi have
@@ -41,7 +43,4 @@ enum class AwayKitTexture
 // format). False when the format is another or the references do not match.
 bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uint8_t> texture,
     std::span<const std::uint8_t> reference0 = {}, std::span<const std::uint8_t> reference1 = {});
-
-// The texture `hash` of a texture bundle (.rlt), or empty.
-std::span<const std::uint8_t> FindBundleTexture(std::span<const std::uint8_t> bundle, std::uint32_t hash);
 }

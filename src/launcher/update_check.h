@@ -90,15 +90,33 @@ struct PullRequestInfo
 };
 PullRequestInfo ParsePullRequest(const platform::JsonValue& pull);
 
-// The newest build the channel offers that has a package for this build
-// and is newer than it, or null. A test build of a pull request follows that
-// pull request's test builds while there are any; a build is newer with a
-// higher version or, for release and test builds, a later build of the same
-// version (such as the release of a tested version). Local builds are only
-// offered higher versions. On the release channel a test build is offered
-// the newest release even when that is older: the way back from test builds.
+// The newest test build of each pull request that has a package for this
+// build: highest version first, then the latest published. Several release
+// pull requests can be open at once (say 1.0.11 and 1.1.0), each with its
+// own test builds.
+std::vector<const PublishedBuild*> TestBuilds(const BuildIdentity& build,
+                                              const std::vector<PublishedBuild>& published);
+
+// The pull request whose test builds the test channel follows: `chosen`
+// (launcher.test_build) while it has test builds, else the running test
+// build's own while that has any; 0 for none.
+int FollowedPullRequest(const BuildIdentity& build, int chosen, const std::vector<PublishedBuild>& published);
+
+// The build the channel offers, with a package for this build, or null.
+// Release channel: the newest release when it is newer; a test build is
+// offered it even when older, the way back from test builds. Test channel:
+// - following a test build's own pull request, the newest of its test builds
+//   and the releases when newer (so a tested version moves on to its release);
+// - following another pull request (chosen), its newest test build, whatever
+//   its version: a switch;
+// - following none, a newer release; a build that never followed a test
+//   build is also offered the test build of the only open pull request.
+//   Another pull request's test build is never offered by itself.
+// A build is newer with a higher version or, for release and test builds, a
+// later build of the same version. Local builds are only offered higher
+// versions; the very same build (same commit) is never offered.
 const PublishedBuild* FindUpdate(const BuildIdentity& build, UpdateChannel channel,
-                                 const std::vector<PublishedBuild>& published);
+                                 const std::vector<PublishedBuild>& published, int chosen = 0);
 
 // Whether `offer` is newer than the running build, by FindUpdate's rule.
 bool IsNewer(const BuildIdentity& build, const PublishedBuild& offer);

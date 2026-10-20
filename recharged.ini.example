@@ -20,6 +20,11 @@ language = auto
 # A different folder starts without saves.
 save_folder = ""
 
+# Super Mario Strikers (GameCube) image, for the Super Team tweak (its robots
+# come from that disc). Empty: the launcher fills in one it finds in the game
+# folder.
+gamecube_disc = ""
+
 [display]
 width = 1280
 height = 720
@@ -31,20 +36,27 @@ vsync = true
 # the display's.
 frame_rate = original
 # Windows: vulkan or d3d12. macOS: metal. Linux: vulkan.
-# auto preserves the platform default (Vulkan on Windows/Linux, Metal on macOS).
+# auto preserves the platform default (Vulkan on Windows/Linux, Metal on macOS);
+# on Windows it switches to DirectX 12 when Vulkan cannot start.
 backend = auto
+# Graphics card (Windows and Linux): auto (the fastest) or a card's PCI ID,
+# such as 10de:1f99 (Advanced -> Graphics card lists the PC's cards). A card
+# the graphics API does not offer falls back to auto.
+gpu = auto
 # Game layout: auto (by window shape), 4:3 or 16:9.
 aspect = 16:9
 # Picture: soft (the original TV signal, with its empty border), clean (the
 # game's picture drawn straight into the window, without the TV flicker filter
 # and the border) or sharp (clean with square pixels).
 picture = sharp
-# Performance mode (gear menu on the Play button): lighter matches without 4x
+# Performance mode (gear menu on the Play button): lighter matches without
 # antialiasing, the crowd, background NPCs, ambient stadium effects, bloom,
 # heat distortion, depth of field and stadium shadows. The 3D render size,
 # gameplay, hazards and weather effects are unchanged.
 performance_mode = false
-# Antialiasing of the game's 3D edges: off or 4x (more GPU time).
+# Antialiasing: off; fxaa (smooths the finished picture, nearly free); 4x
+# (multisampling, the edges of 3D shapes); 4x_fxaa (both); or 4x_ssaa
+# (supersampling, also the edges inside textures; the most GPU time).
 antialiasing = 4x
 # 3D render size: window (one pixel per window pixel, default), native (the
 # Wii's 640x448) or 2x, 3x, 4x of it. The game's view stays the same.
@@ -92,10 +104,15 @@ mouse_pointer = true
 # Windows: while the launcher's Controls page is open it connects Wii Remotes
 # over Bluetooth when you press 1+2 or the SYNC button on them.
 bluetooth_search = true
-deadzone = 15
+# Rumble on Wii Remotes and gamepads; how strongly gamepads rumble (0-100).
 rumble = true
+rumble_strength = 100
 # Where the sensor bar or DolphinBar sits: bottom or top of the screen.
 sensor_bar = bottom
+# The Wii's sensor bar sensitivity (1-5) and Wii Remote speaker volume
+# (0-100, 0 = no sound on the Remotes).
+ir_sensitivity = 3
+speaker_volume = 70
 # Button profile of each gamepad: Default (built in; each controller family
 # gets its own layout) or the name of a [gamepad_profileN] below. A missing
 # profile plays as Default.
@@ -106,7 +123,8 @@ gamepad4_profile = Default
 
 [keyboard]
 # Keys of the keyboard & mouse Wii Remote: one or two SDL key names per
-# action, separated by |. Change them on the launcher's Controls page.
+# action, separated by |; Mouse Middle, Mouse 4 and Mouse 5 (the side
+# buttons) can take a key's place. Change them on the launcher's Controls page.
 a = Return | Space
 b = Escape | Backspace
 one = Z
@@ -127,14 +145,36 @@ z = V
 shake_remote = E
 shake_nunchuk = Q
 
+[hotkeys]
+# Keys of the game window, whoever plays: one SDL key name each, not Shift,
+# Ctrl, Alt or the system key. No [keyboard] action takes them. Alt+Enter
+# (Option+Return on a Mac) switches between fullscreen and a window and cannot
+# be changed.
+# screenshot: saves the picture in the screenshots folder.
+# hud: shows or hides the scoreboard, player markers and captions in a match.
+# show_hud = false: matches start with them hidden, for clean recordings; the
+# Mega Strike meter and its defence stay.
+screenshot = P
+hud = H
+show_hud = true
+
 # Gamepad profiles ([gamepad_profile1] to [gamepad_profile16]), made on the
 # launcher's Controls page: a unique name (not Default) and one or two SDL
 # gamepad inputs per action, separated by |: a, b, x, y (bottom, right, left,
 # top face button), start, back, guide, leftshoulder, rightshoulder,
 # leftstick, rightstick, dpup, dpdown, dpleft, dpright, lefttrigger,
-# righttrigger, or none for no button. Actions left out keep the Default
+# righttrigger, a stick pushed one way (leftstick_up, leftstick_down,
+# leftstick_left, leftstick_right, rightstick_up ... rightstick_right; past
+# half its travel), or none for no button. Actions left out keep the Default
 # (Xbox) input. swap_sticks = true
 # moves the Nunchuk stick to the right stick and the pointer to the left.
+# inner_deadzone (0-30 %) and outer_deadzone (70-100 %): both sticks rest up to
+# the inner one and are pushed all the way from the outer one on; the defaults,
+# 15 and 71, play like a Nunchuk on the Wii. trigger_press (10-90 %, default
+# 50): a trigger presses its button past this much of its travel.
+# gyro_pointer = true: a controller with a gyro points by turning it instead of
+# with the stick; gyro_speed (25-300 %, default 100: about 25 degrees across
+# the picture). recenter_pointer: the input that centres the gyro pointer.
 # controller: the controllers the profile is made for, xbox (Xbox and
 # PlayStation, whose buttons sit in the same places), nintendo or gamecube;
 # the launcher offers a gamepad the profiles of its kind.
@@ -155,7 +195,13 @@ shake_nunchuk = Q
 # z = lefttrigger
 # shake_remote = righttrigger
 # shake_nunchuk = rightshoulder
+# recenter_pointer = rightstick
 # swap_sticks = true
+# inner_deadzone = 15
+# outer_deadzone = 71
+# trigger_press = 50
+# gyro_pointer = false
+# gyro_speed = 100
 # controller = xbox
 
 [gameplay]
@@ -181,12 +227,16 @@ shake_nunchuk = Q
 # knocked players are electrocuted instead of falling off. Online unchanged.
 # blue_peach: Peach's team wears her unused blue kit on the field (Peach,
 # sidekicks, goalie); menus, Mega Strike hand, banners and crowd stay pink.
-# no_hud: matches start without the scoreboard, player markers and captions
-# (H shows or hides them in a match); the Mega Strike meter and its defence
-# stay.
+# robot_goalies: both goalies wear the Super Team's robot goalie skin from
+# Super Mario Strikers, which the disc still holds unused. Only the look.
+# super_team: the captain and sidekicks of super_team_side (away, home or both)
+# become the robots of the Super Team from Super Mario Strikers, fitted to each
+# character. Needs [game] gamecube_disc. Bowser, Petey and Boo keep their look.
 # fair_ball_contests: when players of both teams reach a loose ball at once,
 # neither team wins it more often (the game's player order slightly favours
-# the home team). On by default; online matches always play with it.
+# the home team, and one-timers, first-time shots off rebounds and pass
+# receptions always favour it). On by default; online matches always play
+# with it.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
@@ -196,8 +246,24 @@ fast_terrain = false
 mirror_match = false
 thunder_island_walls = false
 blue_peach = false
-no_hud = false
+robot_goalies = false
+super_team = false
+super_team_side = away
 fair_ball_contests = true
+
+[mods]
+# Texture packs made for Dolphin (folders or .zip files with tex1_*.png or
+# .dds images) replace the game's textures. They change only how it looks.
+texture_packs = true
+# The folder holding the packs; a relative path counts from this file.
+texture_folder = "texture_packs"
+# Pack names (file or folder names), first to last: where two packs replace
+# the same texture, the earlier one wins. Packs not listed follow by name.
+texture_pack_order =
+# Packs that stay unused, separated by |.
+texture_packs_off =
+# For pack makers: save each texture no pack replaces to data/texture_dumps.
+dump_textures = false
 
 [advanced]
 # Backend graphics debug layers (slower; turn on for bug reports). WebGPU
@@ -219,6 +285,19 @@ log_window = false
 ui_scale = auto
 # Look for a newer build on GitHub each time the launcher starts.
 check_updates = true
+# Open the launcher again when you close a game started from it.
+reopen_after_game = false
 # Which builds to update to: release (official releases), test (also test
 # builds of open pull requests) or auto (releases, or test builds for a test build).
 update_channel = auto
+# Test channel: the pull request whose test builds to follow (Test on the
+# Play page chooses it when several are open); 0 for this test build's own.
+test_build = 0
+
+[discord]
+# Show the menu or match you are in as your Discord status, while the Discord
+# app runs on this computer.
+rich_presence = true
+# For testing only: the Discord application to show it under instead of this
+# build's own (its ID from the Discord Developer Portal; public, not a secret).
+# application_id =
