@@ -178,6 +178,12 @@ jobs:
               lipo -archs "$binary"
               test "$(lipo -archs "$binary")" = "$MACOS_ARCH"
             done
+            # A copy of std::exception's type info in the program stops its
+            # catch (const std::exception&) from catching the system's (#93).
+            if nm -U build/release/recharged | grep ' __ZTISt9exception$'; then
+              echo "recharged defines its own std::exception type info" >&2
+              exit 1
+            fi
           fi
           ./build/release/recharged --version | tee build/release/ci-version.txt
           grep -F 'original frontend runtime' build/release/ci-version.txt
