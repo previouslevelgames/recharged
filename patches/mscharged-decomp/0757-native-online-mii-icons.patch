@@ -1,0 +1,42 @@
+From: mscharged-port
+Subject: Draw the Mii icons of the online scenes
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native admission; the icons draw as on the console.
+
+Patch 0740 admitted the online scenes with MiiManager::CreateIcon returning
+false before RFLMakeIcon, so the Mii selection, the hub and the lobby rows
+showed empty slots. The online module now compiles RFL_Icon.c and, through
+mscharged_add_original_rfl_shape, RFL_MakeTex.c with the transports of the
+Mii model's and face texture's Wii-serialized data, so both overloads draw
+the icon as the console does: the face texture and model into the EFB, then
+GXCopyTex into the icon's own 128x128 RGB5A3 buffer, which Aurora binds when
+the icon texture's GXInitTexObj names that buffer.
+
+diff --git a/src/Game/MiiManager.cpp b/src/Game/MiiManager.cpp
+index 16c11cc..d02b010 100644
+--- a/src/Game/MiiManager.cpp
++++ b/src/Game/MiiManager.cpp
+@@ -105,11 +105,6 @@ void MiiManager::LoadResources()
+ 
+ bool MiiManager::CreateIcon(int officialIndex, int iconSlot, RFLExpression expression)
+ {
+-#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)
+-    // RFLMakeIcon's GX drawing is not admitted natively yet. Without an icon
+-    // the online Mii selection still lists and selects every Mii.
+-    return false;
+-#endif
+     if (officialIndex < 0)
+     {
+         return false;
+@@ -139,11 +134,6 @@ bool MiiManager::CreateIcon(int officialIndex, int iconSlot, RFLExpression expre
+ 
+ bool MiiManager::CreateIcon(const RFLStoreData* data, int iconSlot, RFLExpression expression)
+ {
+-#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)
+-    // RFLMakeIcon's GX drawing is not admitted natively yet. Without an icon
+-    // the online Mii selection still lists and selects every Mii.
+-    return false;
+-#endif
+     RFLUpdateMiddleDBAsync(&mMiddleDB);
+     if (RFLAddMiddleDBStoreData(&mMiddleDB, data) == RFLErrcode_Success)
+     {

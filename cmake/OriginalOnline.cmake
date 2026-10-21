@@ -135,7 +135,9 @@ function(mscharged_select_original_frontend_online target)
         "${MSCHARGED_PREPARED}/src/RVL_SDK/os/OSMutex.c"
         # RFLGetFavoriteColor for the Mii selection; the Mii resources admission
         # does not compile the model unit.
-        "${MSCHARGED_PREPARED}/src/RVL_SDK/rfl/RFL_Model.c")
+        "${MSCHARGED_PREPARED}/src/RVL_SDK/rfl/RFL_Model.c"
+        # The Mii icons of the online scenes (MiiManager::CreateIcon).
+        "${MSCHARGED_PREPARED}/src/RVL_SDK/rfl/RFL_Icon.c")
     # Sources already in the module (OSMutex through the Mii resources) keep
     # their existing owner and options.
     _mscharged_world_owned_sources("${target}" _online_known)
@@ -162,6 +164,9 @@ function(mscharged_select_original_frontend_online target)
         INCLUDE_DIRECTORIES "${MSCHARGED_PREPARED}/src/RVL_SDK"
         "${MSCHARGED_PREPARED}/src/RVL_SDK/gamespy/GP")
     target_compile_definitions("${target}" PRIVATE MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE=1)
+    # The icons draw the Mii's model and face texture: RFL_MakeTex.c and the
+    # transports of their Wii-serialized resource data.
+    mscharged_add_original_rfl_shape("${target}")
 
     # The retail online scenes, from the Mii selection to the drafts. The LAN
     # admission compiles the lobby and draft scenes only when it is selected.
