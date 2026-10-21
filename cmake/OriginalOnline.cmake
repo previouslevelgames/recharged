@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/FriendCodeKeys.cmake)
 include(cmake/Network.cmake)
 include(cmake/OriginalModuleLinkage.cmake)
 include(cmake/OriginalWorldOwners.cmake)
@@ -206,7 +207,7 @@ function(mscharged_select_original_frontend_online target)
     endif()
 
     target_link_libraries(charged_original_game_host PRIVATE
-        charged_network charged_native_system_settings)
+        charged_network charged_native_system_settings charged_friend_code_keys)
     # Native services the SDK imports that no other admission already pulls
     # into the host.
     foreach(_symbol IN ITEMS
@@ -218,6 +219,8 @@ function(mscharged_select_original_frontend_online target)
             NCDiGetEnabledConfigList)
         mscharged_require_original_host_symbol(charged_original_game_host INTERFACE "${_symbol}")
     endforeach()
+    # The friend code entry's number keys (patch 0756).
+    mscharged_require_original_host_symbol(charged_original_game_host INTERFACE MSChargedTakeFriendCodeKey)
     target_compile_definitions(charged_original_game_host PRIVATE
         MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE=1)
 endfunction()

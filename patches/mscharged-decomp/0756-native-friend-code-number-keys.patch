@@ -1,0 +1,45 @@
+From: mscharged-port
+Subject: Type the friend code with the number keys
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native desktop convenience; the keypad behaves as before.
+
+SHOnlineFriendCodeEntry enters a friend code with an on-screen keypad that
+the Wii Remote's pointer presses. Natively the number keys of the top row
+and the numeric keypad press the same buttons: every frame the screen takes
+input, Update asks the host for the keys pressed since
+(MSChargedTakeFriendCodeKey, src/platform/friend_code_keys.cpp) and passes
+each to OnKeypadPointerPress for the pointer's player, so a key fills the
+selected box and moves to the next one with the keypad's sound, as a press
+of its button does. While the screen takes no input (its transitions, a
+save, a popup) it does not ask, and the host drops keys once it has not asked
+for a quarter of a second. Backspace and Enter keep their menu meanings, Back
+and A. Console builds are unchanged.
+
+diff --git a/src/Game/SH/SHOnlineFriendCodeEntry.cpp b/src/Game/SH/SHOnlineFriendCodeEntry.cpp
+index 14d16d1..bb00694 100644
+--- a/src/Game/SH/SHOnlineFriendCodeEntry.cpp
++++ b/src/Game/SH/SHOnlineFriendCodeEntry.cpp
+@@ -4,6 +4,8 @@
+ #include <cstdint>
+ // Pointer-button callback contexts carry small button/item indices.
+ #define MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++// The host's number keys for the keypad (src/platform/friend_code_keys.h).
++extern "C" int MSChargedTakeFriendCodeKey(void);
+ #else
+ #define MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(type, context) (type)context
+ #endif
+@@ -265,6 +267,14 @@ void SHOnlineFriendCodeEntry::Update(float fDeltaT)
+         return;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // The number keys press the keypad's digits as the pointer would.
++    for (int item = MSChargedTakeFriendCodeKey(); item >= 0; item = MSChargedTakeFriendCodeKey())
++    {
++        OnKeypadPointerPress(gFEControllerIndex, reinterpret_cast<void*>(static_cast<std::intptr_t>(item)));
++    }
++#endif
++
+     for (int pad = 0; pad < 4; ++pad)
+     {
+         TLComponentInstance* controller = GetPointerInstance(pad);

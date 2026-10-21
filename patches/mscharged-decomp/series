@@ -552,3 +552,4 @@
 0753-fix-dwc-nastime-gcc-nativepointer-fix.patch
 0754-native-wii-qsort.patch
 0755-native-ai-question-cache-keys.patch
+0756-native-friend-code-number-keys.patch
