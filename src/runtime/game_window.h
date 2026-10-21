@@ -12,13 +12,16 @@ namespace mscharged::runtime {
 
 // While the picture keeps its 16:9 or 4:3 shape in a window, resizing the
 // window keeps that shape too, so the picture fills it without bars. Off in
-// fullscreen and while the picture is stretched (lock false).
+// fullscreen and while the picture is stretched (lock false). On macOS a
+// fullscreen window at a chosen resolution is left as it is (issue #99).
 void LockWindowShape(SDL_Window* window, bool lock, unsigned aspect_width, unsigned aspect_height);
 
 // display.fullscreen_resolution on macOS: SDL places a fullscreen window at a
-// chosen resolution with the screen's size from before the switch. Once macOS
-// has reported the new mode, asking again places it over the whole screen
-// (issue #99). Does nothing elsewhere, in a window and at the desktop's mode.
+// chosen resolution with the screen's size from before the switch, and gives
+// it its windowed size again with each size limit set later. Once macOS has
+// reported the new mode, asking again places it over the whole screen (issue
+// #99): call it after the window's size limits. Does nothing elsewhere, in a
+// window and at the desktop's mode.
 void PlaceFullscreenWindow(SDL_Window* window);
 
 // display.position "X,Y": moves the window there when its centre then lies on

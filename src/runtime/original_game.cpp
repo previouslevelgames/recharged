@@ -461,10 +461,16 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // game runs; desktop keeps the display's own resolution. A Retina
             // screen keeps its sharpness: the size at the highest pixel density
             // the display offers for it (issue #99).
+#if defined(__APPLE__)
+            constexpr bool highDensityModes=true;
+#else
+            constexpr bool highDensityModes=false;
+#endif
             SDL_DisplayMode fullscreenMode{};
             if(const auto wanted=mscharged::ParseResolution(launch.settings.fullscreen_resolution); wanted.width) {
                 const std::string name=mscharged::FormatResolution(wanted.width,wanted.height);
-                if(display && SDL_GetClosestFullscreenDisplayMode(display,wanted.width,wanted.height,0.0f,true,&fullscreenMode)
+                if(display && SDL_GetClosestFullscreenDisplayMode(display,wanted.width,wanted.height,0.0f,
+                       highDensityModes,&fullscreenMode)
                    && fullscreenMode.w==wanted.width && fullscreenMode.h==wanted.height
                    && SDL_SetWindowFullscreenMode(host.window,&fullscreenMode))
                     mscharged::platform::SessionLogLine("Startup: fullscreen resolution "+name);
@@ -518,15 +524,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::SessionLogLine(launch.settings.fullscreen ? "Startup: switching to fullscreen"
                                                                         : "Startup: setting the window size");
         Check(SDL_SetWindowFullscreen(host.window,launch.settings.fullscreen), "Requested launch window mode rejected");
-        if(launch.settings.fullscreen) mscharged::runtime::PlaceFullscreenWindow(host.window);
         if(nativeSend) {
             // Existing Aurora policy fixes the internal source EFB at 1x.
             // Original SC/VI signal aspect controls independent desktop output.
             Check(SDL_SetWindowMinimumSize(host.window,1,1), "SDL window minimum rejected");
-            // Fullscreen keeps the window's created size for the fullscreen
-            // hotkey: macOS shows a fullscreen window at a chosen resolution as
-            // a borderless window, which a resize would shrink (issue #99).
-            if(!launch.settings.fullscreen)
+            // On macOS fullscreen keeps the window's created size for the
+            // fullscreen hotkey: a fullscreen window at a chosen resolution is
+            // a borderless window there, which a resize would shrink (issue #99).
+#if defined(__APPLE__)
+            const bool setWindowSize=!launch.settings.fullscreen;
+#else
+            const bool setWindowSize=true;
+#endif
+            if(setWindowSize)
                 Check(SDL_SetWindowSize(host.window,static_cast<int>(windowWidth),static_cast<int>(windowHeight)),
                       "Requested window size rejected");
             // display.remember_window: the window opens where it was left.
@@ -545,6 +555,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             VISetFrameBufferScale(efbScale);
             AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
         }
+        // After the window's size limits: on macOS the minimum size above gives
+        // a fullscreen window at a chosen resolution its windowed size (issue #99).
+        if(launch.settings.fullscreen) mscharged::runtime::PlaceFullscreenWindow(host.window);
         // Warm the actual selected GPU/backend before any original module
         // constructors, clocks or input/audio owners. The helper pumps resize
         // events before preparing the final targets and keeps the window live.

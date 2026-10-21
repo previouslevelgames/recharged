@@ -20,6 +20,12 @@ constexpr auto kSettleTime = std::chrono::seconds(1);
 void LockWindowShape(SDL_Window* window, bool lock, unsigned aspect_width, unsigned aspect_height)
 {
     if (!window) return;
+#if defined(__APPLE__)
+    // SDL sets the window's size with its shape, and macOS gives a fullscreen
+    // window at a chosen resolution its windowed size (issue #99). Such a
+    // window cannot be resized; leaving fullscreen sets the shape again.
+    if ((SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) && SDL_GetWindowFullscreenMode(window)) return;
+#endif
     const float aspect = lock && aspect_height ? float(aspect_width) / float(aspect_height) : 0.0f;
     if (!SDL_SetWindowAspectRatio(window, aspect, aspect))
         platform::SessionLogLine(std::string("Display: the window cannot keep the picture's shape: ") + SDL_GetError());
