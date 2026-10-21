@@ -79,6 +79,28 @@ int main(int argc, char** argv) {
                 nullptr, OPEN_EXISTING, 0, nullptr);
             Check(writer == INVALID_HANDLE_VALUE && GetLastError() == ERROR_SHARING_VIOLATION,
                   "Real image file lease must reject modification before DLL loading");
+            // The fixture links like the game modules: a fixed base with its
+            // relocations kept, held free until LoadNativeModule maps it (#98).
+            std::uintptr_t imageBase{};
+            {
+                IMAGE_DOS_HEADER dos{};
+                IMAGE_NT_HEADERS64 nt{};
+                std::ifstream image(selected.Path(), std::ios::binary);
+                image.read(reinterpret_cast<char*>(&dos), sizeof(dos));
+                image.seekg(dos.e_lfanew);
+                image.read(reinterpret_cast<char*>(&nt), sizeof(nt));
+                Check(image && dos.e_magic == IMAGE_DOS_SIGNATURE && nt.Signature == IMAGE_NT_SIGNATURE,
+                      "Fixture must be a 64-bit PE image");
+                Check(!(nt.OptionalHeader.DllCharacteristics & IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE) &&
+                      nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size,
+                      "Game module link options must give a fixed base that can still be relocated");
+                imageBase = static_cast<std::uintptr_t>(nt.OptionalHeader.ImageBase);
+                Check(HoldNativeModuleBase(imageBase, nt.OptionalHeader.SizeOfImage) &&
+                      !HoldNativeModuleBase(imageBase, nt.OptionalHeader.SizeOfImage),
+                      "A free module base must be held once");
+            }
+            Check(!VirtualAlloc(reinterpret_cast<void*>(imageBase), 4096, MEM_RESERVE, PAGE_NOACCESS),
+                  "A held module base must stay unavailable to other allocations");
 #endif
             armedFile = &selected;
             auto* initial = LoadNativeModule(selected.Path());
@@ -88,6 +110,9 @@ int main(int argc, char** argv) {
             NativeModuleImage loaded;
             Check(QueryNativeModuleHandle(initial, loaded) && loaded.base == constructorImage.base && selected.OwnsImage(loaded),
                   "Actual loader handle and constructor must refer to the same mapped image");
+#if defined(_WIN32)
+            Check(loaded.base == imageBase, "The module must load at its held base");
+#endif
             auto entry = reinterpret_cast<int(*)()>(FindNativeModuleSymbol(initial, "charged_original_entry"));
             Check(entry && entry() == 42, "GetProcAddress/dlsym must invoke the actual exported entry");
             Check(!FindNativeModuleSymbol(initial, "absent_original_provider") && !FindNativeModuleSymbol(nullptr, "entry"),

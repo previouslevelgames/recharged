@@ -53,6 +53,9 @@
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
 #include "runtime/original_game.h"
 #endif
+#ifdef MSCHARGED_WINDOWS_GAME_MODULE_BASE
+#include "platform/native_module_loader.h"
+#endif
 #include <charconv>
 #include <cmath>
 
@@ -7506,6 +7509,12 @@ int main(int argc, char** argv)
 {
     // The log window's own process (Advanced > Log window).
     if (mscharged::platform::IsLogWindowProcess(argc, argv)) return mscharged::platform::RunLogWindow(argc, argv);
+#ifdef MSCHARGED_WINDOWS_GAME_MODULE_BASE
+    // The game module's place below 2 GB, before the launcher's and the game's
+    // graphics allocate into the low addresses (#98). 32 MiB is several times
+    // the modules' image size.
+    mscharged::platform::HoldNativeModuleBase(MSCHARGED_WINDOWS_GAME_MODULE_BASE, 32u << 20);
+#endif
     mscharged::platform::ConnectStandardStreams();
     Options options;
     SetAppName();

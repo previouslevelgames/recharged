@@ -304,7 +304,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto launch=suppliedLaunch ? *suppliedLaunch :
             mscharged::LoadLaunch(launchOptions,executableDirectory);
         mscharged::ApplyGameModeDisplay(launch,mscharged::UnderGamescope());
-        disc=mscharged::PathUtf8(launch.disc_path);
+        disc=launch.disc_path;
         windowWidth=launch.settings.width;windowHeight=launch.settings.height;
         const auto& aspect = launch.settings.aspect;
         Check(aspect=="auto" || aspect=="4:3" || aspect=="16:9" || aspect=="stretch",
@@ -367,7 +367,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         const auto dataDirectory = std::filesystem::absolute(mscharged::DataFolder(executableDirectory));
         mscharged::platform::SessionLogLine("Data: "+mscharged::PathUtf8(dataDirectory));
         std::filesystem::create_directories(dataDirectory);
-        const auto dataPath = dataDirectory.string();
+        // Aurora reads its paths as UTF-8; string() would give Windows' ANSI code page (#97).
+        const auto dataPath = mscharged::PathUtf8(dataDirectory);
         AuroraConfig config{};
         // Window title: the port's name and build, then the diagnostic scene.
         const std::string appTitle=title ? title : "Recharged";
@@ -953,7 +954,16 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         if(!entry)throw std::runtime_error("Original source main export unavailable");
         mscharged::platform::Trace("Entering actual source main with real Aurora %s/FIFO owner and native PI_VI under temporary MAIN_BOOTSTRAP; flow remains incomplete.\n",
                      graphics->label);
+#if defined(_WIN32)
+        // Its own base unless something had taken that place (#98).
+        char moduleBase[24];
+        std::snprintf(moduleBase,sizeof(moduleBase),"0x%llx",
+                      static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(module)));
+        mscharged::platform::SessionLogLine(std::string("Startup: game module loaded at ")+moduleBase
+            +", entering the game");
+#else
         mscharged::platform::SessionLogLine("Startup: game module loaded, entering the game");
+#endif
         std::fflush(nullptr);
         const int result=entry();
         Check(result==85, "Original main selected scene did not complete checkpoint 85");
