@@ -623,9 +623,10 @@ void LogSessionDisplays(SDL_Window* window)
     SDL_free(displays);
     if (window)
     {
-        int w = 0, h = 0, pw = 0, ph = 0;
+        int w = 0, h = 0, pw = 0, ph = 0, x = 0, y = 0;
         SDL_GetWindowSize(window, &w, &h);
         SDL_GetWindowSizeInPixels(window, &pw, &ph);
+        SDL_GetWindowPosition(window, &x, &y);
         const auto flags = SDL_GetWindowFlags(window);
         int display = 0;
         if (const SDL_DisplayID id = SDL_GetDisplayForWindow(window))
@@ -635,7 +636,7 @@ void LogSessionDisplays(SDL_Window* window)
                 if (all[n] == id) display = n + 1;
             SDL_free(all);
         }
-        text += Line("Window: %dx%d (%dx%d pixels) on display %d, %s\n", w, h, pw, ph, display,
+        text += Line("Window: %dx%d (%dx%d pixels) at %d,%d on display %d, %s\n", w, h, pw, ph, x, y, display,
                      flags & SDL_WINDOW_FULLSCREEN ? "fullscreen" : "windowed");
     }
     SessionLogLine(text.substr(0, text.size() - 1));

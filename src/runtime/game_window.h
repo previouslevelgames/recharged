@@ -15,6 +15,12 @@ namespace mscharged::runtime {
 // fullscreen and while the picture is stretched (lock false).
 void LockWindowShape(SDL_Window* window, bool lock, unsigned aspect_width, unsigned aspect_height);
 
+// display.fullscreen_resolution on macOS: SDL places a fullscreen window at a
+// chosen resolution with the screen's size from before the switch. Once macOS
+// has reported the new mode, asking again places it over the whole screen
+// (issue #99). Does nothing elsewhere, in a window and at the desktop's mode.
+void PlaceFullscreenWindow(SDL_Window* window);
+
 // display.position "X,Y": moves the window there when its centre then lies on
 // a connected display, and on the chosen one (display.monitor, 1-based; 0 =
 // any). Returns whether it moved. Never on Wayland, which places windows

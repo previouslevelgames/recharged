@@ -25,6 +25,26 @@ void LockWindowShape(SDL_Window* window, bool lock, unsigned aspect_width, unsig
         platform::SessionLogLine(std::string("Display: the window cannot keep the picture's shape: ") + SDL_GetError());
 }
 
+void PlaceFullscreenWindow(SDL_Window* window)
+{
+#if defined(__APPLE__)
+    if (!window || !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) || !SDL_GetWindowFullscreenMode(window)) return;
+    // The display change notices arrive through the event loop.
+    const Uint64 until = SDL_GetTicks() + 250;
+    while (SDL_GetTicks() < until)
+    {
+        SDL_PumpEvents();
+        SDL_Delay(10);
+    }
+    // The mode is already set: SDL only places the window again.
+    if (!SDL_SetWindowFullscreen(window, true))
+        platform::SessionLogLine(std::string("Display: the fullscreen window could not be placed again: ")
+                                 + SDL_GetError());
+#else
+    (void)window;
+#endif
+}
+
 bool WindowPositionsAvailable()
 {
     const char* driver = SDL_GetCurrentVideoDriver();
