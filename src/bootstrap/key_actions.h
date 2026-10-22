@@ -45,4 +45,25 @@ inline constexpr std::array<KeyAction, KeyActionCount> kKeyActions{{
     {"shake_remote", "Shake Remote", "Hit an opponent", "E"},
     {"shake_nunchuk", "Shake Nunchuk", "Switch items", "Q"},
 }};
+
+// Hotkeys of the game window, whoever plays ([hotkeys]): an SDL key name each,
+// after the Ctrl+, Shift+ and Alt+ the hotkey is pressed with ("Alt+Return"),
+// or "none". No keyboard & mouse action takes a hotkey's key pressed alone.
+enum HotkeyIndex : std::size_t
+{
+    HotkeyScreenshot, HotkeyHud, HotkeyStretch, HotkeyResolutionUp, HotkeyResolutionDown, HotkeyFullscreen,
+    HotkeyCount
+};
+
+inline constexpr std::array<KeyAction, HotkeyCount> kHotkeys{{
+    {"screenshot", "Screenshot", "Saved in the screenshots folder.", "P"},
+    {"hud", "Show or hide the HUD", "In a match.", "H"},
+    {"stretch", "Stretch the picture",
+     "Fills the window (stretched, or the wider view in matches), or keeps the 16:9 or 4:3 shape. For this run.", "F"},
+    {"resolution_up", "Higher 3D resolution", "Sharper, for this run.", "PageUp"},
+    {"resolution_down", "Lower 3D resolution", "Faster, for this run.", "PageDown"},
+    {"fullscreen", "Fullscreen or window", "For this run.", "Alt+Return"},
+}};
+// The value that leaves a hotkey without a key.
+inline constexpr const char* kNoHotkey = "none";
 } // namespace mscharged

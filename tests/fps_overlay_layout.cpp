@@ -62,8 +62,18 @@ int main()
                 Check(layout.left == widest.left && layout.right == widest.right
                     && layout.label_x == widest.label_x && layout.separator_x == widest.separator_x,
                     "Changing digit counts or N/A never shifts columns");
+                // A hotkey's message: top-left, below the performance overlay
+                // when that takes the same corner.
+                const bool shared = corner == OverlayCorner::TopLeft;
+                const float words = 180 * scale;
+                const auto message = LayoutOverlayMessage(size[0], size[1], font, words, shared ? &layout : nullptr);
+                Check(message.left == margin && (shared ? message.top > layout.bottom : message.top == margin),
+                      "Message corner");
+                Check(message.text_x > message.left && message.right >= message.text_x + words
+                    && message.text_y > message.top && message.text_y + font < message.bottom
+                    && message.text_y == std::round(message.text_y), "Message text inside its panel");
             }
-        std::cout << checks << " performance overlay checks passed\n";
+        std::cout << checks << " host overlay layout checks passed\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';

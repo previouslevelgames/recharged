@@ -51,6 +51,7 @@ def main():
     version = ".".join(map(str, new))
     cmake.write_text(PROJECT.sub(lambda m: f"{m.group(1)}{version}{m.group(5)}", cmake_text, count=1))
     print(f"{'.'.join(map(str, old))} -> {version}")
+    print("Refresh the issue reporters on the About page: python3 tools/update_issue_reporters.py")
     print(f"Commit, open the main -> stable pull request and merge it; then publish the drafted release v{version}")
 
 

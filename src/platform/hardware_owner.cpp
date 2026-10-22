@@ -3,7 +3,7 @@
 #include "platform/screenshot_hotkey.h"
 #endif
 #include "platform/alarms.h"
-#include "platform/fullscreen_hotkey.h"
+#include "platform/hotkey_filter.h"
 #include "platform/interrupts.h"
 #include "platform/stm_device.h"
 #include "platform/ios_device.h"
@@ -236,6 +236,8 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
     WiimoteHidSettings hid{settings.dpd_sensitivity};
     hid.speaker = settings.remote_speaker;
     hid.speaker_reg01 = settings.remote_speaker_reg01;
+    hid.bluetooth_search = settings.bluetooth_search;
+    hid.bind_rumble = settings.motor_enabled;
     hid.fixed_players = players.fixed;
     hid.channels = players.remotes;
     const bool remotes_play = !players.fixed || !players.remotes.empty();
@@ -354,8 +356,9 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
 #if defined(MSCHARGED_HOST_SCREENSHOTS)
     InitializeScreenshotHotkey(window);
 #endif
-    // Alt+Enter: fullscreen or a window (issue #77); its Enter never reaches the keyboard player.
-    InitializeFullscreenHotkey(window);
+    // The hotkeys ([hotkeys]); a hotkey's key never reaches the keyboard player
+    // (Alt+Return switches to fullscreen while Return stays A).
+    InitializeHotkeys(window);
 }
 
 void ServiceNativeHardwareInput() { Service(); }
@@ -421,7 +424,7 @@ void ShutdownNativeHardwareInput() {
 #if defined(MSCHARGED_HOST_SCREENSHOTS)
     ShutdownScreenshotHotkey();
 #endif
-    ShutdownFullscreenHotkey();
+    ShutdownHotkeys();
     ShutdownNativeAlarms();
     ShutdownWiimoteHid();
     ShutdownDesktopWpad();

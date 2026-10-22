@@ -33,8 +33,10 @@ struct KitRecolour
 // unchanged, `why` set) when it does not fit: another shape, a picture that
 // differs from the game's, or a kit area without the kit's colour (a
 // greyscale image). A picture whose kit lies elsewhere (drawn anew) is
-// recoloured by the kit's colour alone; `why` then says so.
-bool RecolourHdImage(const KitRecolour& kit, RgbaImage& image, std::string* why = nullptr);
+// recoloured by the kit's colour alone; `why` then says so. Up to `threads`
+// threads work on it (the calling one among them), with 0 as many as the
+// machine has; the result is the same.
+bool RecolourHdImage(const KitRecolour& kit, RgbaImage& image, std::string* why = nullptr, unsigned threads = 1);
 
 // A DDS file of the image (uncompressed RGBA8), with its full mip chain made
 // by box filtering when `mips` is set.

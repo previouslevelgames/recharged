@@ -2,6 +2,7 @@
 
 #include "platform/hd_recolour.h"
 #include "platform/path.h"
+#include "platform/presence_snapshot.h"
 #include "platform/session_log.h"
 #include "platform/texture_packs.h"
 
@@ -12,6 +13,7 @@
 #include <xxhash.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cinttypes>
 #include <condition_variable>
 #include <deque>
@@ -49,43 +51,44 @@ struct PackImage
     std::string path;
 };
 
-// A texture the game recoloured whose original a pack replaces: Aurora's
-// texture workers ask for its HD image, made from the pack's (ReadRecoloured).
+// A texture the game recoloured whose original a pack replaces: Aurora asks
+// for its HD image, made from the pack's (ReadRecoloured).
 struct RecolourJob
 {
     std::string name; // the replacement's file name (the recoloured texture's key)
     PackImage source;
     platform::KitRecolour kit;
     bool mips = false;
+    bool synchronous = false; // its first draw waits for it (else Aurora's workers stream it in)
     std::mutex mutex;
     std::condition_variable done;
     std::shared_ptr<const std::vector<std::uint8_t>> made; // kept while within kMadeBudget
-    bool making = false, failed = false;
+    int makers = 0;          // threads making it now
+    bool drawMaking = false; // one of them for a draw
+    bool failed = false;
 };
 
 std::mutex gMutex;
+ChargedPresenceSnapshotFunction gPresence = nullptr;             // what the game is doing
 std::map<KeyFields, PackImage>* gImages = nullptr;               // the packs' images, never freed
 std::map<KeyFields, std::unique_ptr<RecolourJob>>* gJobs = nullptr; // never freed: Aurora's workers read them
-// Made images kept for Aurora's next read (a thumbnail read, then the full one;
-// again after Aurora evicted it), oldest first.
+// Made images kept for Aurora's next read (again after Aurora evicted it),
+// oldest first.
 constexpr std::size_t kMadeBudget = 256u << 20;
 std::list<RecolourJob*> gMadeOrder;
 std::size_t gMadeBytes = 0;
 
+// With gMutex and the job's mutex held.
 void KeepMade(RecolourJob* job, std::shared_ptr<const std::vector<std::uint8_t>> made)
 {
-    std::lock_guard lock(gMutex);
     gMadeOrder.remove(job);
     gMadeOrder.push_back(job);
     gMadeBytes += made->size();
-    {
-        std::lock_guard jobLock(job->mutex);
-        if (job->made) gMadeBytes -= job->made->size();
-        job->made = std::move(made);
-    }
+    if (job->made) gMadeBytes -= job->made->size();
+    job->made = std::move(made);
     while (gMadeBytes > kMadeBudget && gMadeOrder.size() > 1)
     {
-        RecolourJob* oldest = gMadeOrder.front();
+        RecolourJob* oldest = gMadeOrder.front(); // not `job`, the newest
         gMadeOrder.pop_front();
         std::lock_guard jobLock(oldest->mutex);
         if (oldest->made) gMadeBytes -= oldest->made->size();
@@ -133,58 +136,72 @@ bool DecodePackImage(const PackImage& source, platform::RgbaImage& image, std::s
 }
 
 // The HD image of a recoloured texture, made once (again after it left the
-// kept images); a second caller waits for the first. Null when it cannot be made.
-std::shared_ptr<const std::vector<std::uint8_t>> Make(RecolourJob* job)
+// kept images), or null when it cannot be made. For a draw, which waits for
+// it, it is made on every core, even while the background thread is at it on
+// one: the first to finish gives the image (both make the same).
+std::shared_ptr<const std::vector<std::uint8_t>> Make(RecolourJob* job, bool draw)
 {
     {
         std::unique_lock lock(job->mutex);
-        job->done.wait(lock, [&] { return !job->making; });
+        // A draw makes its own unless another draw is at it; others wait for whoever is.
+        job->done.wait(lock, [&] { return draw ? !job->drawMaking : !job->makers; });
         if (job->failed) return nullptr;
         if (job->made) return job->made;
-        job->making = true;
+        ++job->makers;
+        if (draw) job->drawMaking = true;
     }
     platform::RgbaImage image;
     std::string why;
     std::shared_ptr<const std::vector<std::uint8_t>> made;
-    if (DecodePackImage(job->source, image, why) && platform::RecolourHdImage(job->kit, image, &why))
+    if (DecodePackImage(job->source, image, why) && platform::RecolourHdImage(job->kit, image, &why, draw ? 0 : 1))
         made = std::make_shared<const std::vector<std::uint8_t>>(platform::EncodeDds(image, job->mips));
-    if (made)
+    bool first;
     {
-        KeepMade(job, made);
-        if (!why.empty()) platform::SessionLogLine("Texture packs: " + job->source.path + " recoloured in HD " + why);
-    }
-    else
-        platform::SessionLogLine("Texture packs: " + job->source.path + " is not recoloured in HD (" + why
-            + "); the game's own recolour is shown");
-    {
-        std::lock_guard lock(job->mutex);
-        job->failed = !made;
-        job->making = false;
+        std::lock_guard lock(gMutex);
+        std::lock_guard jobLock(job->mutex);
+        --job->makers;
+        if (draw) job->drawMaking = false;
+        first = !job->made && !job->failed;
+        if (first)
+        {
+            job->failed = !made;
+            if (made) KeepMade(job, made);
+        }
+        made = job->made;
     }
     job->done.notify_all();
+    if (first && made && !why.empty())
+        platform::SessionLogLine("Texture packs: " + job->source.path + " recoloured in HD " + why);
+    else if (first && !made)
+        platform::SessionLogLine("Texture packs: " + job->source.path + " is not recoloured in HD (" + why
+            + "); the game's own recolour is shown");
     return made;
 }
 
-// Aurora's texture workers ask for the HD image when the texture is drawn.
+// Aurora asks for the HD image: when the texture is first drawn, which waits
+// for it (the game's low-resolution recolour is never shown), or on its
+// workers while a match is played.
 bool ReadRecoloured(void* user, const char* path, std::vector<std::uint8_t>& out)
 {
     auto* job = static_cast<RecolourJob*>(user);
     if (job->name != path) return false; // the mip levels are inside the image
-    const auto made = Make(job);
+    const auto made = Make(job, job->synchronous);
     if (!made) return false;
     out = *made;
     return true;
 }
 
-// Images are made as soon as the game recolours, on a thread of their own:
-// Aurora's workers are busy with the packs' other images while a match loads,
-// and the recoloured picture (a loading screen's) may show only briefly. The
-// thread and its queue live until the process ends.
+// Images are made soon after the game recolours, on a thread of their own and
+// one core (beside the game), so a later first draw finds them made. A draw
+// that follows at once (the picture of a menu or loading screen) comes before
+// kMakeDelay and makes its image alone, on every core (one streamed in starts
+// at once). The thread and its queue live until the process ends.
+constexpr auto kMakeDelay = std::chrono::milliseconds(100);
 struct MakeQueue
 {
     std::mutex mutex;
     std::condition_variable ready;
-    std::deque<RecolourJob*> jobs;
+    std::deque<std::pair<RecolourJob*, std::chrono::steady_clock::time_point>> jobs;
     bool started = false;
 };
 
@@ -192,27 +209,43 @@ void MakeSoon(RecolourJob* job)
 {
     static auto* queue = new MakeQueue;
     std::lock_guard lock(queue->mutex);
-    queue->jobs.push_back(job);
+    auto start = std::chrono::steady_clock::now();
+    if (job->synchronous) start += kMakeDelay;
+    queue->jobs.emplace_back(job, start);
     queue->ready.notify_one();
     if (queue->started) return;
     queue->started = true;
     std::thread([] {
         for (;;)
         {
-            RecolourJob* next;
+            std::pair<RecolourJob*, std::chrono::steady_clock::time_point> next;
             {
                 std::unique_lock lock(queue->mutex);
                 queue->ready.wait(lock, [] { return !queue->jobs.empty(); });
                 next = queue->jobs.front();
                 queue->jobs.pop_front();
             }
-            Make(next);
+            std::this_thread::sleep_until(next.second);
+            Make(next.first, false);
         }
     }).detach();
 }
 
+// Whether a match is being played (from its kickoff to its end): textures it
+// recolours then (a goal banner, a super ability picture) stream in, as the
+// packs' images do, rather than stopping play while they are made.
+bool MatchPlayed()
+{
+    ChargedPresenceSnapshot snapshot{};
+    if (!gPresence || !gPresence(&snapshot, sizeof snapshot)) return false;
+    // cGame eGameState: kickoff, after a goal, play, overtime.
+    return snapshot.game_state == 1 || snapshot.game_state == 2 || snapshot.game_state == 5
+        || snapshot.game_state == 6;
+}
+
 // The game module recoloured a texture (Mirror match): where a pack replaces
 // its original, the pack's image is recoloured alike for the recoloured one.
+// Called on the game's thread.
 void OnRecoloured(const ChargedRecolouredTexture* texture)
 {
     if (!texture || !texture->original || !texture->recoloured || !texture->mask || !texture->original_rgba
@@ -243,12 +276,13 @@ void OnRecoloured(const ChargedRecolouredTexture* texture)
         made->kit.rgba.assign(texture->original_rgba, texture->original_rgba + texels * 4);
         std::copy(texture->to, texture->to + 3, made->kit.to);
         made->mips = texture->levels > 1;
+        made->synchronous = !MatchPlayed();
         job = made.get();
         gJobs->emplace(recoloured, std::move(made));
     }
     // Above every pack: no pack has an image of a texture the port makes.
     const auto registration = aurora::texture::register_virtual_replacement(
-        job->name, {.read = ReadRecoloured, .userData = job}, {.priority = INT32_MAX});
+        job->name, {.read = ReadRecoloured, .userData = job}, {.priority = INT32_MAX, .synchronous = job->synchronous});
     if (!registration.id) return;
     platform::SessionLogLine("Texture packs: " + job->source.path + " recoloured for Mirror match");
     MakeSoon(job);
@@ -345,9 +379,10 @@ void LoadTexturePacks(const Settings& settings, const std::filesystem::path& con
     }
 }
 
-ChargedRecolouredTextureHook TexturePackRecolourHook()
+ChargedRecolouredTextureHook TexturePackRecolourHook(ChargedPresenceSnapshotFunction presence)
 {
     std::lock_guard lock(gMutex);
+    gPresence = presence;
     return gImages ? OnRecoloured : nullptr;
 }
 }

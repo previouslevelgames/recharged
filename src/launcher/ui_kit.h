@@ -27,6 +27,7 @@ inline constexpr ImVec4 accent_dark{0.039f, 0.196f, 0.086f, 1.0f};
 inline constexpr ImVec4 info{0.227f, 0.690f, 1.000f, 1.0f};        // #3AB0FF
 inline constexpr ImVec4 warning{1.000f, 0.706f, 0.263f, 1.0f};     // #FFB443
 inline constexpr ImVec4 danger{1.000f, 0.353f, 0.416f, 1.0f};      // #FF5A6A
+inline constexpr ImVec4 discord{0.345f, 0.396f, 0.949f, 1.0f};     // #5865F2, Discord's blurple
 } // namespace color
 
 ImU32 Col(const ImVec4& color, float alpha = 1.0f);
@@ -61,7 +62,8 @@ void ApplyTheme(float ui);
 enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
-    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear, Close, Up, Down, Archive, More, Person
+    Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear, Close, Up, Down, Archive, More,
+    Heart, Bug, Layers, Bulb, Code, Person
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -136,10 +138,18 @@ void BatteryIcon(int percent);
 void KeyCap(const char* key);
 // Clickable keycap; `waiting` shows it pulsing while it waits for a key press.
 bool KeyCapButton(const char* id, const char* key, bool waiting);
+// Clickable keycaps of keys pressed together ("Ctrl + Shift + F12"), one
+// button; `waiting` shows them pulsing while they wait for key presses.
+bool KeyComboButton(const char* id, const std::vector<std::string>& keys, bool waiting);
 // Keycap with a drawn arrow: 0 up, 1 down, 2 left, 3 right (no font glyphs needed).
 void KeyCapArrow(int direction);
 void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
 void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
+// The Discord logo, `width` wide (three quarters as tall), its eyes in `eyes`:
+// the colour it sits on.
+void DrawDiscordMark(ImDrawList* draw, ImVec2 center, float width, ImU32 color, ImU32 eyes);
+// A button in Discord's colour with its logo, for a link to a Discord server.
+bool DiscordButton(const char* id, const char* label, ImVec2 size);
 // A small flag of a disc region (the disc ID's fourth letter: E USA, P Europe,
 // J Japan, K Korea; grey for others), `height` tall and 1.5 times as wide.
 // Always shown with the region's name: the flag alone tells nothing to some.

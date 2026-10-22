@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bootstrap/config.h"
+#include "platform/presence_snapshot.h"
 #include "platform/recoloured_texture.h"
 
 #include <filesystem>
@@ -16,6 +17,8 @@ namespace mscharged
 void LoadTexturePacks(const Settings& settings, const std::filesystem::path& config_path, std::string_view game_id);
 
 // For the game module (charged_configure_hd_recolour): textures Mirror match
-// recolours get the packs' HD images recoloured alike. Null without packs.
-ChargedRecolouredTextureHook TexturePackRecolourHook();
+// recolours get the packs' HD images recoloured alike, which their first draw
+// waits for; `presence` (the module's charged_presence_snapshot, may be null)
+// tells when a match is played, when they stream in instead. Null without packs.
+ChargedRecolouredTextureHook TexturePackRecolourHook(ChargedPresenceSnapshotFunction presence);
 }

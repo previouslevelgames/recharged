@@ -7,6 +7,8 @@
 #define _WIN32_WINNT 0x0602
 #endif
 #include "platform/native_module_loader.h"
+#include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -43,6 +45,33 @@ bool ContainsExtent(std::uintptr_t begin, std::uint64_t size,
     return offset < size && bytes <= size - offset;
 }
 #if defined(_WIN32)
+// HoldNativeModuleBase's reservation, freed by the next LoadNativeModule.
+std::atomic<void*> g_held_base{};
+// What fills the low 2 GB when a module could not be placed there.
+std::string DescribeLowAddressSpace() {
+    unsigned long long free{}, largest{}, largestAt{}, images{}, mapped{}, owned{};
+    MEMORY_BASIC_INFORMATION region{};
+    for (std::uintptr_t address = 0x10000; address < 0x80000000u;) {
+        if (VirtualQuery(reinterpret_cast<const void*>(address), &region, sizeof(region)) != sizeof(region) ||
+            !region.RegionSize) break;
+        const auto begin = reinterpret_cast<std::uintptr_t>(region.BaseAddress);
+        const auto end = std::min<std::uintptr_t>(begin + region.RegionSize, 0x80000000u);
+        const auto size = end - std::max(begin, address);
+        if (region.State == MEM_FREE) {
+            free += size;
+            if (size > largest) { largest = size; largestAt = std::max(begin, address); }
+        } else if (region.Type == MEM_IMAGE) images += size;
+        else if (region.Type == MEM_MAPPED) mapped += size;
+        else owned += size;
+        address = end;
+    }
+    constexpr unsigned long long MiB = 1024 * 1024;
+    char text[256];
+    std::snprintf(text, sizeof(text), "below 2 GB %llu MiB are free (largest block %llu MiB at 0x%llx); "
+        "in use: %llu MiB images, %llu MiB mapped, %llu MiB private", free / MiB, largest / MiB, largestAt,
+        images / MiB, mapped / MiB, owned / MiB);
+    return text;
+}
 std::runtime_error WindowsError(const char* operation) {
     const auto error = GetLastError();
     return std::runtime_error(std::string(operation) + " failed (Win32 " + std::to_string(error) + ")");
@@ -118,6 +147,9 @@ bool SameFile(const struct stat& a, const struct stat& b) noexcept {
 void* LoadNativeModule(const std::filesystem::path& path) {
 #if defined(_WIN32)
     const auto absolute = std::filesystem::canonical(path);
+    // The held range is this module's own base (HoldNativeModuleBase).
+    void* held = g_held_base.exchange(nullptr);
+    if (held) VirtualFree(held, 0, MEM_RELEASE);
     // Normal executable loading: never DATAFILE/DONT_RESOLVE_DLL_REFERENCES.
     // Exact image directory plus default OS/application dependency directories;
     // no dependence on an unrelated process current working directory.
@@ -126,7 +158,15 @@ void* LoadNativeModule(const std::filesystem::path& path) {
     if (!module) throw WindowsError("LoadLibraryExW");
     // The game keeps addresses in 32-bit unsigned long carriers on LLP64, so its
     // DLL (like its arenas) must sit below 2 GB.
-    if (reinterpret_cast<std::uintptr_t>(module) >= 0x80000000u) {
+    const auto base = reinterpret_cast<std::uintptr_t>(module);
+    if (base >= 0x80000000u) {
+        // The log gets where it went and what filled the low addresses; the
+        // player's box only the reason.
+        char hold[48] = "nothing was held for it";
+        if (held) std::snprintf(hold, sizeof(hold), "0x%llx was held for it",
+                                static_cast<unsigned long long>(reinterpret_cast<std::uintptr_t>(held)));
+        std::fprintf(stderr, "Game module loaded at 0x%llx (%s); %s\n", static_cast<unsigned long long>(base),
+                     hold, DescribeLowAddressSpace().c_str());
         FreeLibrary(module);
         throw std::runtime_error("Game module loaded above 2 GB; its 32-bit address carriers would break");
     }
@@ -135,6 +175,22 @@ void* LoadNativeModule(const std::filesystem::path& path) {
     auto module = dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);
     if (!module) throw std::runtime_error(dlerror());
     return module;
+#endif
+}
+bool HoldNativeModuleBase(std::uintptr_t base, std::size_t size) noexcept {
+#if defined(_WIN32)
+    if (!base || !size) return false;
+    void* held = VirtualAlloc(reinterpret_cast<void*>(base), size, MEM_RESERVE, PAGE_NOACCESS);
+    void* none = nullptr;
+    if (held != reinterpret_cast<void*>(base) || !g_held_base.compare_exchange_strong(none, held)) {
+        if (held) VirtualFree(held, 0, MEM_RELEASE);
+        return false;
+    }
+    return true;
+#else
+    (void)base;
+    (void)size;
+    return false;
 #endif
 }
 void* FindNativeModuleSymbol(void* handle, const char* name) noexcept {

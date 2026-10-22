@@ -29,6 +29,9 @@ struct WpadSDLSettings {
     // The running game's WPAD byte for speaker register 0xa20001
     // (WiimoteHidSettings::speaker_reg01).
     std::uint8_t remote_speaker_reg01 = 0x08;
+    // Continuous scanning for the players' Wii Remotes over Bluetooth
+    // (WiimoteHidSettings::bluetooth_search).
+    bool bluetooth_search = false;
 };
 void ConfigureWpadSDL(WpadSDLSettings settings);
 // The Wii Remote HID driver sent a speaker command WiimoteHidControlSpeaker

@@ -24,10 +24,9 @@ struct LchStats
 inline float ToLinear(float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); }
 inline float ToSrgb(float c) { return c <= 0.0031308f ? 12.92f * c : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f; }
 
-// OKLab (Björn Ottosson's published matrices).
-template<class C> Lab ToLab(C c)
+// OKLab (Björn Ottosson's published matrices) of a linear sRGB colour.
+inline Lab LinearToLab(float r, float g, float b)
 {
-    float r = ToLinear(c.r), g = ToLinear(c.g), b = ToLinear(c.b);
     float l = std::cbrt(0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b);
     float m = std::cbrt(0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b);
     float s = std::cbrt(0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b);
@@ -35,6 +34,8 @@ template<class C> Lab ToLab(C c)
         1.9779984951f * l - 2.4285922050f * m + 0.4505937099f * s,
         0.0259040371f * l + 0.7827717662f * m - 0.8086757660f * s};
 }
+
+template<class C> Lab ToLab(C c) { return LinearToLab(ToLinear(c.r), ToLinear(c.g), ToLinear(c.b)); }
 
 // Linear sRGB; may lie outside 0..1.
 inline void LabToLinear(Lab c, float out[3])
@@ -90,10 +91,9 @@ template<class C> void ToHsv(C c, float& h, float& s, float& v)
         h = 60.0f * ((c.r - c.g) / d + 4.0f);
 }
 
-// A kit colour as the away colour: the kit's median `from` becomes `to`.
-template<class C> C Recolour(C colour, const LchStats& from, const LchStats& to)
+// A kit colour (in OKLab) as the away colour: the kit's median `from` becomes `to`.
+template<class C> C RecolourLab(Lab c, const LchStats& from, const LchStats& to)
 {
-    Lab c = ToLab(colour);
     float chroma = std::sqrt(c.a * c.a + c.b * c.b);
     // Shading darker than the kit's own colour scales towards black, so
     // shadows next to black lines stay dark; highlights share what lightness
@@ -105,6 +105,11 @@ template<class C> C Recolour(C colour, const LchStats& from, const LchStats& to)
         L = to.L + (c.L - from.L) * (1.0f - to.L) / std::max(1.0f - from.L, 0.05f);
     float scaled = from.C > 0.01f ? chroma * (to.C / from.C) : to.C;
     return FromLch<C>(L, std::max(scaled, 0.0f), to.h);
+}
+
+template<class C> C Recolour(C colour, const LchStats& from, const LchStats& to)
+{
+    return RecolourLab<C>(ToLab(colour), from, to);
 }
 
 // The away colour (0xRRGGBB) in OKLCh.

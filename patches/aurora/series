@@ -109,3 +109,6 @@
 0113-fall-back-to-a-second-graphics-backend.patch
 0114-offer-supersampling-and-fxaa.patch
 0115-use-a-chosen-graphics-card.patch
+0116-load-made-replacements-before-their-first-draw.patch
+0117-present-the-picture-at-its-exact-shape-or-stretched.patch
+0118-build-the-dawn-platform-without-exceptions.patch

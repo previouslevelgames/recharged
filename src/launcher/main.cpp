@@ -8,10 +8,12 @@
 #include "imgui_stdlib.h"
 
 #include "bootstrap/antialiasing.h"
+#include "bootstrap/display_shape.h"
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
 #include "launcher/disc_search.h"
 #include "launcher/image_library.h"
+#include "launcher/issue_reporters.h"
 #include "launcher/player_lineup.h"
 #include "launcher/release_banner.h"
 #include "launcher/release_notes.h"
@@ -40,7 +42,6 @@
 #include "platform/session_log.h"
 #include "platform/gamepad_bindings.h"
 #include "platform/graphics_cards.h"
-#include "platform/fullscreen_hotkey.h"
 #include "platform/gyro_pointer.h"
 #include "platform/key_bindings.h"
 #include "platform/launcher_reopen.h"
@@ -52,6 +53,9 @@
 #include "runtime/scene.h"
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
 #include "runtime/original_game.h"
+#endif
+#ifdef MSCHARGED_WINDOWS_GAME_MODULE_BASE
+#include "platform/native_module_loader.h"
 #endif
 #include <charconv>
 #include <cmath>
@@ -365,6 +369,7 @@ public:
     ~Launcher()
     {
         wii_probe_.Close();
+        remote_lights_.reset(); // a remote that still rumbles stops first
         if (renderer_ui_ready_) ImGui_ImplSDLRenderer3_Shutdown();
         if (window_ui_ready_) ImGui_ImplSDL3_Shutdown();
         if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
@@ -456,8 +461,9 @@ public:
         const bool headless = video && (std::string(video) == "dummy" || std::string(video) == "offscreen");
         if (!capture_ || (!options_.screenshot.empty() && !headless)) SDL_ShowWindow(window_);
 #ifdef _WIN32
-        // Reopened by a game that closed (launcher.reopen_after_game): come to
-        // the front, which the game allowed, rather than behind other windows.
+        // Reopened by a game that closed (launcher.reopen_after_game) or
+        // restarted after an update: come to the front, which the previous
+        // process allowed, rather than behind other windows.
         if (!capture_) SDL_RaiseWindow(window_);
 #endif
         if (config_ok_ && !EffectiveLaunch().disc_path.empty() && !options_.smoke_test) CheckDisc();
@@ -472,7 +478,9 @@ public:
             SDL_Event event;
             while (SDL_PollEvent(&event))
             {
-                ImGui_ImplSDL3_ProcessEvent(&event);
+                const bool capturing = capture_action_ >= 0 || hotkey_capture_ >= 0;
+                if (!capturing || (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_TEXT_INPUT))
+                    ImGui_ImplSDL3_ProcessEvent(&event);
                 if (event.type == SDL_EVENT_QUIT || (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED
                     && event.window.windowID == SDL_GetWindowID(window_)))
                     close_requested_ = true;
@@ -488,7 +496,7 @@ public:
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && capture_action_ >= 0)
                     CaptureKey(event.key.scancode);
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && hotkey_capture_ >= 0)
-                    CaptureHotkey(event.key.scancode);
+                    CaptureHotkey(event.key.scancode, event.key.mod);
                 // Middle and side mouse buttons can take a key's place (#62).
                 if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && capture_action_ >= 0
                     && platform::MouseKeyInput(event.button.button) != platform::kKeyNone)
@@ -2517,9 +2525,7 @@ private:
         if (play.segment_hovered && !menu_open) ImGui::SetTooltip("Play options");
         if (play.segment) ImGui::OpenPopup("play_options_menu");
         DrawPlayOptionsMenu({origin.x + pad + Dp(230), button_y});
-        const float status_x = origin.x + pad + Dp(230 + 58 + 24);
-        ImGui::SetCursorScreenPos({status_x, button_y + Dp(8)});
-        DrawPlayStatus(blocker);
+        DrawPlayStatus(blocker, {origin.x + pad + Dp(230 + 58 + 24), button_y + Dp(31)});
 
         // Summary cards.
         const float cards_y = button_y + Dp(62) + Dp(30);
@@ -2564,13 +2570,66 @@ private:
         ImGui::PopStyleVar(3);
     }
 
-    void DrawPlayStatus(const std::string& blocker)
+    // Something to know before playing, under the Play status: a small glass
+    // pill that opens the page where it is changed.
+    struct StatusNote
+    {
+        Icon icon;
+        ImVec4 tint;
+        bool alert;            // the text takes the tint too
+        std::string text;      // what is so
+        std::string secondary; // what follows from it; left out when the pill would be too wide
+        std::string tooltip;
+        int page;
+    };
+
+    // At most `max_width` wide; true when clicked.
+    bool StatusPill(const char* id, const StatusNote& note, float max_width)
     {
         const auto& fonts = CurrentFonts();
+        const float height = Dp(28), left = Dp(30), right = Dp(26);
+        const float room = std::max(Dp(40), max_width - left - right);
+        const std::string secondary = note.secondary.empty() ? std::string() : "  \xC2\xB7  " + note.secondary;
+        const bool both = !secondary.empty() && TextSize(fonts.caption, (note.text + secondary).c_str()).x <= room;
+        const std::string text = Elide(fonts.caption, note.text, room);
+        const ImVec2 label = TextSize(fonts.caption, text.c_str());
+        const float extra = both ? TextSize(fonts.caption, secondary.c_str()).x : 0.0f;
         const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const ImVec2 size{left + label.x + extra + right, height};
+        const bool pressed = ImGui::InvisibleButton(id, size);
+        const bool hovered = ImGui::IsItemHovered();
+        const float hover = Animate(ImGui::GetItemID(), hovered, 12.0f);
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 max{pos.x + size.x, pos.y + size.y};
+        const float rounding = height * 0.5f, middle = pos.y + height * 0.5f;
+        // Glass over the artwork, as the update status, washed with the note's colour.
+        draw->AddRectFilled(pos, max,
+                            Col(Mix(Mix(color::window, color::card_hover, 0.45f + 0.55f * hover), note.tint, 0.07f), 0.9f),
+                            rounding);
+        draw->AddRect(pos, max, Col(Mix(color::border, note.tint, 0.30f + 0.35f * hover), 0.95f), rounding, 0, Dp(1));
+        DrawIcon(draw, note.icon, {pos.x + Dp(16), middle}, Dp(14), Col(note.tint));
+        const ImVec4 ink = note.alert ? Mix(color::text, note.tint, 0.55f - 0.25f * hover)
+                                      : Mix(color::muted, color::text, 0.7f + 0.3f * hover);
+        DrawLabel(draw, fonts.caption, {pos.x + left, middle - label.y * 0.5f}, Col(ink), text.c_str());
+        if (both)
+            DrawLabel(draw, fonts.caption, {pos.x + left + label.x, middle - label.y * 0.5f}, Col(color::muted),
+                      secondary.c_str());
+        DrawChevron(draw, {max.x - Dp(14) + Dp(2) * hover, middle}, Dp(10), Col(Mix(color::dim, color::text, hover)));
+        if (hovered) ImGui::SetTooltip("%s", note.tooltip.c_str());
+        return pressed;
+    }
+
+    // Right of the Play button, centred on it (`anchor`: the left edge at the
+    // button's middle): whether the game can start and, under that, what to
+    // know first, each opening its page: a controller that is not connected
+    // and who plays instead, the gameplay tweaks that are on.
+    void DrawPlayStatus(const std::string& blocker, ImVec2 anchor)
+    {
+        const auto& fonts = CurrentFonts();
         auto* draw = ImGui::GetWindowDrawList();
         ImVec4 tint = color::accent;
         Icon icon = Icon::Check;
+        bool spinner = false;
         std::string headline = "Ready to play";
         std::string detail;
         const bool missing = !PinnedMissing().empty() && !pending_ && !searching_;
@@ -2578,9 +2637,9 @@ private:
         {
             tint = color::info;
             icon = Icon::None;
+            spinner = true;
             headline = searching_ ? "Looking for your game image" : "Checking your game image";
             detail = searching_ ? "In the game folder and the usual places..." : "Reading the game partition...";
-            Spinner({pos.x + Dp(11), pos.y + Dp(12)}, Dp(8), Col(tint));
         }
         else if (missing)
         {
@@ -2604,41 +2663,67 @@ private:
         else if (check_.info)
             detail = ReleaseTitle(*check_.info) + "  \xC2\xB7  " + RegionRevision(*check_.info) + "  \xC2\xB7  "
                 + check_.info->game_id;
-        // A player's controller that is not connected: say what the game does
-        // instead (the disc line moves out of the way; the disc card has it).
-        std::string controllers;
-        if (!pending_ && blocker.empty())
-            controllers = MissingControllersNote(draft_.players, StartLineup());
-        if (!controllers.empty())
+        std::vector<StatusNote> notes;
+        if (blocker.empty())
         {
-            tint = color::warning;
-            icon = Icon::Warning;
-            detail.clear();
+            // A player's controller that is not connected, and who plays instead.
+            const auto lineup = StartLineup();
+            const auto brief = MissingControllersBrief(draft_.players, lineup);
+            if (!brief.missing.empty())
+            {
+                const bool several = std::count(lineup.missing.begin(), lineup.missing.end(), true) > 1;
+                notes.push_back({Icon::Gamepad, color::warning, true, brief.missing, brief.instead,
+                                 MissingControllersNote(draft_.players, lineup) + "\nConnect "
+                                     + (several ? "them" : "it") + " or choose who plays on the Controls page.",
+                                 PageControls});
+            }
+            // Gameplay tweaks change the original game: never silently.
+            std::string names;
+            int count = 0;
+            for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
+                if (draft_.tweaks[n])
+                {
+                    names += std::string("\n\xE2\x80\xA2 ") + kGameTweaks[n].name;
+                    ++count;
+                }
+            if (count)
+                notes.push_back({Icon::Target, color::accent, false,
+                                 std::to_string(count) + (count == 1 ? " gameplay tweak on" : " gameplay tweaks on"), "",
+                                 "Gameplay tweaks on:" + names, PageGameplay});
         }
-        // Gameplay tweaks change the original game: never silently.
-        if (!pending_ && blocker.empty() && draft_.GameTweakMask() != 0)
-        {
-            tint = color::warning;
-            headline = "Ready to play, with tweaks";
-            detail = "Tweaks: " + DescribeGameTweaks(draft_.GameTweakMask());
-        }
-        if (icon != Icon::None) DrawIcon(draw, icon, {pos.x + Dp(11), pos.y + Dp(12)}, Dp(20), Col(tint));
-        DrawLabel(draw, fonts.label, {pos.x + Dp(30), pos.y + Dp(1)}, Col(color::text), headline.c_str());
+        // The notes take the disc line's place (the Game image card has it).
+        if (!notes.empty()) detail.clear();
+
         const float limit = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - Dp(28);
-        const float wrap = std::max(Dp(120), limit - pos.x - Dp(30));
+        const float text_x = anchor.x + Dp(30);
+        const float wrap = std::max(Dp(120), limit - text_x);
+        const float caption = FontSize(fonts.caption);
+        const float detail_height =
+            detail.empty() ? 0.0f : fonts.caption->CalcTextSizeA(caption, FLT_MAX, wrap, detail.c_str()).y;
+        const float pill = Dp(28), pill_gap = Dp(6);
+        float height = Dp(26) + detail_height;
+        if (!notes.empty()) height += Dp(4) + float(notes.size()) * (pill + pill_gap) - pill_gap;
+        if (missing) height += Dp(4) + Dp(32);
+        const ImVec2 pos{anchor.x, std::floor(anchor.y - height * 0.5f)};
+
+        if (spinner) Spinner({pos.x + Dp(11), pos.y + Dp(12)}, Dp(8), Col(tint));
+        else if (icon != Icon::None) DrawIcon(draw, icon, {pos.x + Dp(11), pos.y + Dp(12)}, Dp(20), Col(tint));
+        DrawLabel(draw, fonts.label, {text_x, pos.y + Dp(1)}, Col(color::text), headline.c_str());
         float y = pos.y + Dp(26);
-        if (!controllers.empty())
-        {
-            draw->AddText(fonts.caption, FontSize(fonts.caption), {pos.x + Dp(30), y}, Col(color::warning),
-                          controllers.c_str(), nullptr, wrap);
-            y += fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, controllers.c_str()).y + Dp(2);
-        }
         if (!detail.empty())
         {
-            draw->AddText(fonts.caption, FontSize(fonts.caption), {pos.x + Dp(30), y}, Col(color::muted),
-                          detail.c_str(), nullptr, wrap);
-            y += fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, detail.c_str()).y;
+            draw->AddText(fonts.caption, caption, {text_x, y}, Col(color::muted), detail.c_str(), nullptr, wrap);
+            y += detail_height;
         }
+        ImGui::PushID("play_status");
+        for (std::size_t i = 0; i < notes.size(); ++i)
+        {
+            ImGui::SetCursorScreenPos({pos.x + Dp(22), y + Dp(4) + float(i) * (pill + pill_gap)});
+            ImGui::PushID(int(i));
+            if (StatusPill("##note", notes[i], limit - pos.x - Dp(22))) page_ = notes[i].page;
+            ImGui::PopID();
+        }
+        ImGui::PopID();
         if (missing)
         {
             ImGui::SetCursorScreenPos({pos.x + Dp(22), y + Dp(4)});
@@ -2724,14 +2809,14 @@ private:
     Summary DisplaySummary() const
     {
         const auto s = EffectiveLaunch().settings;
-        std::string aspect = s.aspect == "auto" ? "Automatic aspect" : s.aspect;
+        std::string aspect = s.aspect == "auto" ? "Automatic aspect" : s.aspect == "stretch" ? "Stretched" : s.aspect;
         std::string detail = aspect + (s.vsync ? "  -  VSync on" : "  -  VSync off");
         if (s.frame_rate != "original") detail += "  -  " + FrameRateLabel(s.frame_rate);
         if (s.performance_mode) detail += "  -  Performance mode";
         if (!s.show_hud)
         {
-            const auto hud = platform::ParseHotkeys(s.screenshot_key, s.hud_key).hud;
-            detail += "  -  HUD hidden (" + platform::KeyInputName(hud) + ")";
+            const auto hud = platform::HotkeyLabel(platform::ParseHotkeys(s.hotkeys)[HotkeyHud]);
+            detail += "  -  HUD hidden" + (hud.empty() ? std::string() : " (" + hud + ")");
         }
         return {s.fullscreen ? "Fullscreen" : std::to_string(s.width) + " x " + std::to_string(s.height) + " window",
                 detail, color::info};
@@ -3863,7 +3948,7 @@ private:
 
     void DisplayPage()
     {
-        PageHeader("Display", "How the game window opens and how sharply the game is drawn.");
+        PageHeader("Display", "How the game window opens and how its picture is drawn.");
         if (draft_.performance_mode)
         {
             Chip("Performance mode is on, so antialiasing stays off.", color::info, Icon::Display);
@@ -3878,25 +3963,41 @@ private:
             Chip(text.c_str(), color::info, Icon::Info);
             ImGui::Dummy({0, Dp(2)});
         }
+        const auto hotkeys = DraftHotkeys();
+        const auto key = [&](HotkeyIndex hotkey) { return platform::HotkeyLabel(hotkeys[hotkey]); };
 
-        BeginCard("##window", "Window", nullptr, Icon::Display);
+        BeginCard("##window", "Screen", nullptr, Icon::Display);
         if (BeginRows("##window_rows"))
         {
-            const std::string native = FullscreenResolution();
-            const std::string mode_note = "Fullscreen covers the whole display at its own resolution, "
-                + (native.empty() ? std::string() : native + " here, ") + "without a mode change. "
-                + platform::kFullscreenShortcut + " switches while playing.";
+            const std::string mode_note = std::string("Fullscreen covers the whole display, at the resolution below.")
+                + (hotkeys[HotkeyFullscreen].key ? " " + key(HotkeyFullscreen) + " switches while playing."
+                                                 : std::string());
             Row("Mode", mode_note.c_str());
             int mode = draft_.fullscreen ? 1 : 0;
             if (Segmented("##mode", &mode, {"Windowed", "Fullscreen"}, ImGui::GetContentRegionAvail().x))
             { draft_.fullscreen = mode == 1; dirty_ = true; }
 
-            Row("Window size", "Used in windowed mode. You can still resize the window while playing.");
-            WindowSizeControl();
+            // One resolution row: the window's size, or the screen's in fullscreen.
+            if (!draft_.fullscreen)
+            {
+                Row("Resolution", draft_.remember_window
+                    ? "The window's size, from those your graphics card offers for this display. The game also "
+                      "keeps the size and place you leave its window at."
+                    : "The window's size, from those your graphics card offers for this display.");
+                WindowSizeControl();
+            }
+            else
+            {
+                Row("Resolution", "The screen's resolution. Desktop keeps the display's own; another switches the "
+                    "display to it while the game runs.");
+                FullscreenResolutionControl();
+            }
 
-            Row("Start on display", displays_.size() > 1 ? "Where the game window opens."
-                                                          : "Only one display is connected.");
-            DisplayChoice();
+            if (displays_.size() > 1 || draft_.monitor > 0)
+            {
+                Row("Display", "Where the game window opens.");
+                DisplayChoice();
+            }
             EndRows();
         }
         EndCard();
@@ -3904,37 +4005,75 @@ private:
         BeginCard("##picture", "Picture", nullptr, Icon::Sliders);
         if (BeginRows("##picture_rows"))
         {
-            Row("Aspect ratio", "16:9 uses the game's widescreen mode, 4:3 its original layout. Automatic picks by window shape at start.");
-            const char* values[] = {"auto", "4:3", "16:9"};
+            const std::string aspect_note = "16:9 is the game's widescreen layout and 4:3 its original one; both keep "
+                "their shape. Stretch fills the whole screen."
+                + (hotkeys[HotkeyStretch].key ? " " + key(HotkeyStretch) + " switches while playing." : std::string());
+            Row("Aspect ratio", aspect_note.c_str());
+            const char* values[] = {"16:9", "4:3", "stretch"};
             int aspect = -1;
             for (int i = 0; i < 3; ++i) if (draft_.aspect == values[i]) aspect = i;
-            if (Segmented("##aspect", &aspect, {"Automatic", "4:3", "16:9"}, ImGui::GetContentRegionAvail().x))
+            if (Segmented("##aspect", &aspect, {"16:9", "4:3", "Stretch"}, ImGui::GetContentRegionAvail().x))
             { draft_.aspect = values[aspect]; dirty_ = true; }
-            if (aspect < 0)
-                TextWrappedColored(CurrentFonts().caption, color::warning,
-                                   ("Saved value " + draft_.aspect + " is not supported by the game. Choose one above.").c_str());
+            AspectNote(aspect < 0);
+            if (draft_.aspect == "16:9")
+            {
+                Row("Wider view", "In matches on a screen wider or taller than 16:9, shows more of the stadium "
+                    "instead of bars, with the HUD in the 16:9 middle. Menus keep their 16:9 picture.");
+                if (Toggle("##wider_view", &draft_.wider_view)) dirty_ = true;
+            }
 
-            Row("Sharpness", "Clean and Sharp draw the game's picture straight into the window, without the TV "
-                "flicker filter and the TV signal's empty border; Sharp keeps pixels square. Soft is the "
-                "original TV picture.");
-            const char* pictures[] = {"soft", "clean", "sharp"};
-            int picture = 2;
-            for (int i = 0; i < 3; ++i) if (draft_.picture == pictures[i]) picture = i;
-            if (Segmented("##sharpness", &picture, {"Soft (TV)", "Clean", "Sharp"}, ImGui::GetContentRegionAvail().x))
-            { draft_.picture = pictures[picture]; dirty_ = true; }
-
-            Row("3D resolution", "Window renders the game at your window's own resolution, the sharpest picture. "
-                "Native is the Wii's 640 x 448; 2x-4x are fixed multiples for slower graphics cards.");
+            std::string resolution_note = "Full draws the game at the resolution above, the sharpest. Native is the "
+                "Wii's 640 x 448; 2x-4x are its multiples, for slower graphics cards.";
+            if (hotkeys[HotkeyResolutionUp].key || hotkeys[HotkeyResolutionDown].key)
+                resolution_note += " " + key(hotkeys[HotkeyResolutionUp].key ? HotkeyResolutionUp : HotkeyResolutionDown)
+                    + (hotkeys[HotkeyResolutionUp].key && hotkeys[HotkeyResolutionDown].key
+                           ? " and " + key(HotkeyResolutionDown) + " change it" : std::string(" changes it"))
+                    + " while playing.";
+            Row("3D resolution", resolution_note.c_str());
             const char* resolutions[] = {"window", "native", "2x", "3x", "4x"};
             int resolution = 0;
             for (int i = 0; i < 5; ++i) if (draft_.resolution == resolutions[i]) resolution = i;
-            if (Segmented("##resolution", &resolution, {"Window", "Native", "2x", "3x", "4x"},
+            if (Segmented("##resolution", &resolution, {"Full", "Native", "2x", "3x", "4x"},
                           ImGui::GetContentRegionAvail().x))
             { draft_.resolution = resolutions[resolution]; dirty_ = true; }
+            ResolutionNote();
 
             Row("Antialiasing", "Smooths jagged edges. The stronger kinds cost more GPU time.");
             AntialiasingKindChoice();
 
+            Row("Picture style", "Modern draws the game's picture crisp, straight into the window. Original TV adds "
+                "the Wii's flicker filter and a TV's softness.");
+            int style = draft_.picture == "soft" ? 1 : 0;
+            if (Segmented("##style", &style, {"Modern", "Original TV"}, ImGui::GetContentRegionAvail().x))
+            {
+                if (style == 1 && draft_.picture != "soft") modern_picture_ = draft_.picture;
+                draft_.picture = style == 1 ? "soft" : modern_picture_;
+                dirty_ = true;
+            }
+            if (draft_.picture == "soft")
+            {
+                BeginSubRows();
+                Row("TV border", "The empty border a Wii sends around its picture, which a TV hides.");
+                if (Toggle("##tv_border", &draft_.tv_border)) dirty_ = true;
+                EndSubRows();
+            }
+            else if (draft_.resolution != "window")
+            {
+                BeginSubRows();
+                Row("Upscaling", "How a 3D resolution other than Full reaches the resolution above. Sharp keeps "
+                    "pixels square.");
+                int sharp = draft_.picture == "clean" ? 0 : 1;
+                if (Segmented("##upscaling", &sharp, {"Smooth", "Sharp"}, ImGui::GetContentRegionAvail().x))
+                { draft_.picture = sharp ? "sharp" : "clean"; dirty_ = true; }
+                EndSubRows();
+            }
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##motion", "Motion", nullptr, Icon::Play);
+        if (BeginRows("##motion_rows"))
+        {
             Row("VSync", "Synchronizes frames with your display to prevent tearing.");
             if (Toggle("##vsync", &draft_.vsync)) dirty_ = true;
 
@@ -3958,14 +4097,116 @@ private:
         EndCard();
     }
 
-    // The refresh rate of the display the game opens on (display.monitor), 0
-    // when unknown.
-    double StartDisplayRefresh() const
+    // Whether the game's picture fills its window or display: stretched, or
+    // with the wider view.
+    bool PictureFills() const
+    {
+        return draft_.aspect == "stretch" || (draft_.aspect == "16:9" && draft_.wider_view);
+    }
+
+    // The screen the game's picture fills: the display (fullscreen) or the
+    // window, in pixels of its shape; {} when unknown.
+    ShapeSize PictureScreen() const
+    {
+        if (!draft_.fullscreen) return {draft_.width, draft_.height};
+        if (const auto chosen = ParseResolution(draft_.fullscreen_resolution); chosen.width) return chosen;
+        const SDL_DisplayMode* mode = StartDisplayMode();
+        if (!mode || mode->w <= 0 || mode->h <= 0) return {};
+        const float density = mode->pixel_density > 0 ? mode->pixel_density : 1.0f;
+        return {int(std::lround(mode->w * density)), int(std::lround(mode->h * density))};
+    }
+
+    // What the aspect ratio does on the display the game opens on.
+    void AspectNote(bool unknown)
+    {
+        std::string note;
+        const auto screen = PictureScreen();
+        const bool wide = WidescreenLayout(draft_.aspect, screen.width, screen.height);
+        const int aw = wide ? 16 : 4, ah = wide ? 9 : 3;
+        const std::string shape = wide ? "16:9" : "4:3";
+        const std::string size = std::to_string(screen.width) + " x " + std::to_string(screen.height);
+        if (unknown)
+            note = draft_.aspect == "auto"
+                ? "Saved value auto: 16:9 or 4:3, whichever is closer to the screen's shape (" + shape
+                    + " here). Choose one above to change it."
+                : "Saved value " + draft_.aspect + " is not supported by the game. Choose one above.";
+        else if (draft_.aspect == "stretch")
+        {
+            const int percent = StretchPercent(screen.width, screen.height, aw, ah);
+            if (!draft_.fullscreen)
+                note = "Uses the " + shape + " layout and fills the window at any size, stretching the picture with "
+                    "it.";
+            else if (screen.width <= 0)
+                note = "Uses the " + shape + " layout and fills the whole display.";
+            else if (std::abs(percent) < 1)
+                note = "Uses the " + shape + " layout, which fills this " + size + " display exactly.";
+            else
+                note = "Uses the " + shape + " layout and fills this " + size + " display; the picture is "
+                    + std::to_string(std::abs(percent)) + "% " + (percent > 0 ? "wider" : "narrower") + " than "
+                    + shape + ".";
+        }
+        else if (PictureFills() && !draft_.fullscreen)
+            note = "The window can take any shape: in matches the wider view fills it with more of the stadium.";
+        else if (PictureFills())
+        {
+            const auto bars = BarsAround(screen.width, screen.height, aw, ah);
+            note = bars.size <= 1 || screen.width <= 0 ? "Fills the display."
+                : "In matches, fills this " + size + " display with more of the stadium "
+                    + (bars.sides ? "at the sides." : "above and below.") + " Menus keep 16:9.";
+        }
+        else if (!draft_.fullscreen)
+            note = "The window keeps the " + shape + " shape when you resize it, so the picture fills it. "
+                "Maximized on a screen of another shape, it shows bars.";
+        else if (screen.width > 0)
+        {
+            const auto bars = BarsAround(screen.width, screen.height, aw, ah);
+            note = bars.size <= 1 ? "Fills this " + size + " display exactly."
+                : "On this " + size + " display: bars of " + std::to_string(bars.size) + " pixels "
+                    + (bars.sides ? "left and right." : "above and below.")
+                    + (wide ? " Stretch or the wider view fills it." : " Stretch fills it.");
+        }
+        if (!note.empty())
+            TextWrappedColored(CurrentFonts().caption, unknown ? color::warning : color::muted, note.c_str());
+    }
+
+    // The 3D resolution's size where the game opens.
+    void ResolutionNote()
+    {
+        const auto screen = PictureScreen();
+        if (screen.width <= 0 || screen.height <= 0) return;
+        const bool wide = WidescreenLayout(draft_.aspect, screen.width, screen.height);
+        const auto picture = PictureSize(screen.width, screen.height, wide ? 16 : 4, wide ? 9 : 3, PictureFills());
+        const int width = RenderWidth(draft_.resolution, picture.width);
+        const int height = RenderHeight(draft_.resolution, picture.height);
+        const std::string where = draft_.fullscreen ? "this screen" : "this window";
+        std::string note = std::string(RenderResolutionLabel(draft_.resolution)) + ": " + std::to_string(width) + " x "
+            + std::to_string(height);
+        if (RenderScale(draft_.resolution) == 0.0f) note += " on " + where + ".";
+        else
+        {
+            const long long pixels = 1LL * picture.width * picture.height, drawn = 1LL * width * height;
+            note += std::string(", ") + (drawn < pixels * 9 / 10 ? "fewer pixels than"
+                                         : drawn > pixels * 11 / 10 ? "more pixels than" : "about as many pixels as")
+                + " the picture on " + where + ".";
+        }
+        TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
+    }
+
+    // The desktop mode of the display the game opens on (display.monitor; the
+    // default display when none is chosen), or null.
+    const SDL_DisplayMode* StartDisplayMode() const
     {
         SDL_DisplayID display = SDL_GetPrimaryDisplay();
         if (draft_.monitor > 0 && draft_.monitor <= int(display_ids_.size()))
             display = display_ids_[std::size_t(draft_.monitor - 1)];
-        const SDL_DisplayMode* mode = display ? SDL_GetDesktopDisplayMode(display) : nullptr;
+        return display ? SDL_GetDesktopDisplayMode(display) : nullptr;
+    }
+
+    // The refresh rate of the display the game opens on (display.monitor), 0
+    // when unknown.
+    double StartDisplayRefresh() const
+    {
+        const SDL_DisplayMode* mode = StartDisplayMode();
         if (!mode) return 0.0;
         if (mode->refresh_rate_numerator > 0 && mode->refresh_rate_denominator > 0)
             return double(mode->refresh_rate_numerator) / double(mode->refresh_rate_denominator);
@@ -4197,17 +4438,17 @@ private:
 
     void WindowSizeControl()
     {
-        // Sizes are logical units like the game window's (points on a Retina
-        // Mac), so only those that fit the chosen display are offered.
-        struct Group { const char* title; std::vector<std::array<int, 2>> sizes; };
-        static const std::array<Group, 4> groups{{
-            // The Wii picture is 640 x 448 (480p); at 3D resolution Native,
-            // whole multiples of it stay sharpest.
-            {"Wii output (480p and multiples)", {{640, 480}, {854, 480}, {1280, 960}, {1708, 960}, {1920, 1440}, {2562, 1440}}},
-            {"16:9", {{1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}}},
-            {"16:10", {{1280, 800}, {1440, 900}, {1680, 1050}, {1920, 1200}, {2560, 1600}}},
-            {"4:3", {{800, 600}, {1024, 768}, {1440, 1080}, {1600, 1200}}},
-        }};
+        // The sizes the graphics card offers for the chosen display (its
+        // display modes, as games list them), up to its largest: while the
+        // window keeps the picture's shape, those of that shape (a picture
+        // filling the window, stretched or the wider view, fits any). A size
+        // larger than the display's usable area opens as the largest window
+        // that fits. Sizes are logical units like the game window's (points
+        // on a Retina Mac). A size the game kept from a resized window stays
+        // listed as the current one.
+        const bool any_shape = PictureFills();
+        const bool four_three = draft_.aspect == "4:3";
+        const int shape_w = four_three ? 4 : 16, shape_h = four_three ? 3 : 9;
         SDL_DisplayID display = SDL_GetPrimaryDisplay();
         if (draft_.monitor > 0 && draft_.monitor <= int(display_ids_.size())) display = display_ids_[size_t(draft_.monitor - 1)];
         SDL_Rect usable{};
@@ -4217,72 +4458,134 @@ private:
             const auto fit = platform::FitWindowSize(w, h, usable.w, usable.h);
             return fit.width == w && fit.height == h;
         };
-        const auto largest = known ? platform::FitWindowSize(16000, 9000, usable.w, usable.h)
-                                   : platform::WindowSize{1280, 720};
-        auto aspect = [](int w, int h) {
-            const double ratio = double(w) / h;
-            return std::abs(ratio - 16.0 / 9) < 0.01 ? "   (16:9)" : std::abs(ratio - 16.0 / 10) < 0.01 ? "   (16:10)"
-                 : std::abs(ratio - 4.0 / 3) < 0.01 ? "   (4:3)" : "";
+        auto offered = [&](int w, int h) {
+            return w > 0 && h > 0 && (any_shape || std::abs(double(w) * shape_h / (double(h) * shape_w) - 1.0) < 0.01);
         };
-        auto selected = [&](int w, int h) { return draft_.width == w && draft_.height == h; };
-
-        const float width = ImGui::GetContentRegionAvail().x;
-        bool custom = !selected(largest.width, largest.height);
-        for (const auto& group : groups)
-            for (const auto& size : group.sizes) if (selected(size[0], size[1])) custom = false;
-        std::string preview = std::to_string(draft_.width) + " x " + std::to_string(draft_.height)
-            + aspect(draft_.width, draft_.height) + (custom ? "  (custom)" : "");
-        ImGui::SetNextItemWidth(width);
+        std::vector<std::array<int, 2>> sizes;
+        auto offer = [&](int w, int h) {
+            const std::array<int, 2> size{w, h};
+            if (offered(w, h) && std::find(sizes.begin(), sizes.end(), size) == sizes.end()) sizes.push_back(size);
+        };
+        int count = 0;
+        if (SDL_DisplayMode** modes = display ? SDL_GetFullscreenDisplayModes(display, &count) : nullptr)
+        {
+            for (int i = 0; i < count; ++i) offer(modes[i]->w, modes[i]->h);
+            SDL_free(modes);
+        }
+        // A display that reports no mode of the shape (a Wayland compositor
+        // without scaling): the common sizes up to the display's own.
+        if (sizes.empty())
+        {
+            static const std::array<int, 2> common[] = {{3840, 2160}, {2560, 1600}, {2560, 1440}, {1920, 1440},
+                {1920, 1200}, {1920, 1080}, {1680, 1050}, {1600, 1200}, {1600, 900}, {1440, 1080}, {1440, 900},
+                {1280, 800}, {1280, 720}, {1024, 768}, {800, 600}};
+            SDL_Rect bounds{};
+            const bool bounded = display && SDL_GetDisplayBounds(display, &bounds);
+            for (const auto& size : common)
+                if (!bounded || (size[0] <= bounds.w && size[1] <= bounds.h)) offer(size[0], size[1]);
+        }
+        std::sort(sizes.begin(), sizes.end(), [](const auto& a, const auto& b) {
+            return a[0] != b[0] ? a[0] > b[0] : a[1] > b[1];
+        });
+        auto label = [&](int w, int h) { return SizeLabel(w, h, any_shape); };
+        const std::array<int, 2> current{draft_.width, draft_.height};
+        const bool listed = std::find(sizes.begin(), sizes.end(), current) != sizes.end();
+        const std::string preview = label(draft_.width, draft_.height) + (listed ? "" : "  (current)");
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         if (ImGui::BeginCombo("##size", preview.c_str(), ImGuiComboFlags_HeightLarge))
         {
-            const std::string fill = "Largest that fits: " + std::to_string(largest.width) + " x "
-                + std::to_string(largest.height);
-            if (ImGui::Selectable(fill.c_str(), selected(largest.width, largest.height)))
-            { draft_.width = largest.width; draft_.height = largest.height; dirty_ = true; }
-            for (const auto& group : groups)
-            {
-                bool any = false;
-                for (const auto& size : group.sizes) any |= fits(size[0], size[1]);
-                if (!any) continue;
-                ImGui::SeparatorText(group.title);
-                for (const auto& size : group.sizes)
-                {
-                    if (!fits(size[0], size[1])) continue;
-                    const std::string label = std::to_string(size[0]) + " x " + std::to_string(size[1])
-                        + aspect(size[0], size[1]) + "##" + group.title;
-                    if (ImGui::Selectable(label.c_str(), selected(size[0], size[1])))
-                    { draft_.width = size[0]; draft_.height = size[1]; dirty_ = true; }
-                }
-            }
+            if (!listed) ImGui::Selectable(preview.c_str(), true);
+            for (const auto& size : sizes)
+                if (ImGui::Selectable(label(size[0], size[1]).c_str(), size == current))
+                { draft_.width = size[0]; draft_.height = size[1]; dirty_ = true; }
             ImGui::EndCombo();
-        }
-        int dimensions[] = {draft_.width, draft_.height};
-        ImGui::SetNextItemWidth(width);
-        if (ImGui::InputInt2("##custom_size", dimensions))
-        {
-            draft_.width = std::clamp(dimensions[0], 320, 16384);
-            draft_.height = std::clamp(dimensions[1], 240, 16384);
-            dirty_ = true;
         }
         if (!fits(draft_.width, draft_.height))
         {
             const auto shrunk = platform::FitWindowSize(draft_.width, draft_.height, usable.w, usable.h);
-            const std::string note = "Larger than this display; the game opens it at " + std::to_string(shrunk.width)
-                + " x " + std::to_string(shrunk.height) + ".";
-            TextWrappedColored(CurrentFonts().caption, color::warning, note.c_str());
+            const std::string note = "More than a window can take on this display: the game opens it at "
+                + std::to_string(shrunk.width) + " x " + std::to_string(shrunk.height) + ", the largest that fits.";
+            TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
+        }
+        else if (!any_shape)
+        {
+            // The game gives the window the picture's shape: the same width.
+            const auto shaped = SnapToShape(draft_.width, draft_.height, shape_w, shape_h);
+            if (shaped.height != draft_.height)
+            {
+                const std::string note = "Not " + std::string(four_three ? "4:3" : "16:9") + ": the game opens it at "
+                    + std::to_string(shaped.width) + " x " + std::to_string(shaped.height) + ", the picture's shape.";
+                TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
+            }
         }
     }
 
-    // Pixel size of the display the game opens on, as fullscreen uses it
-    // (the default display when none is chosen); empty if unknown.
-    std::string FullscreenResolution() const
+    // "1280 x 720", with its shape ("   (16:9)") when `with_shape`.
+    static std::string SizeLabel(int w, int h, bool with_shape)
+    {
+        std::string text = std::to_string(w) + " x " + std::to_string(h);
+        if (!with_shape || w <= 0 || h <= 0) return text;
+        static const struct { double ratio; const char* name; } shapes[] = {{16.0 / 9, "16:9"},
+            {16.0 / 10, "16:10"}, {4.0 / 3, "4:3"}, {5.0 / 4, "5:4"}, {3.0 / 2, "3:2"}, {32.0 / 9, "32:9"}};
+        const double ratio = double(w) / h;
+        for (const auto& shape : shapes)
+            if (std::abs(ratio / shape.ratio - 1.0) < 0.01) return text + "   (" + shape.name + ")";
+        // Ultrawide displays (2560 x 1080, 3440 x 1440, 3840 x 1600) are all sold as 21:9.
+        return ratio > 2.3 && ratio < 2.42 ? text + "   (21:9)" : text;
+    }
+
+    // display.fullscreen_resolution: Desktop (the display's own resolution, no
+    // mode change), or one of the display's other modes, largest first; the
+    // picture keeps or fills it as the aspect ratio says.
+    void FullscreenResolutionControl()
     {
         SDL_DisplayID display = SDL_GetPrimaryDisplay();
         if (draft_.monitor > 0 && draft_.monitor <= int(display_ids_.size())) display = display_ids_[size_t(draft_.monitor - 1)];
-        const SDL_DisplayMode* mode = display ? SDL_GetDesktopDisplayMode(display) : nullptr;
-        if (!mode || mode->w <= 0 || mode->h <= 0) return {};
-        const float density = mode->pixel_density > 0 ? mode->pixel_density : 1.0f;
-        return std::to_string(std::lround(mode->w * density)) + " x " + std::to_string(std::lround(mode->h * density));
+        const SDL_DisplayMode* desktop = display ? SDL_GetDesktopDisplayMode(display) : nullptr;
+        std::vector<std::array<int, 2>> sizes;
+        int count = 0;
+        if (SDL_DisplayMode** modes = display ? SDL_GetFullscreenDisplayModes(display, &count) : nullptr)
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                const std::array<int, 2> size{modes[i]->w, modes[i]->h};
+                if (size[0] > 0 && size[1] > 0 && !(desktop && size[0] == desktop->w && size[1] == desktop->h)
+                    && std::find(sizes.begin(), sizes.end(), size) == sizes.end())
+                    sizes.push_back(size);
+            }
+            SDL_free(modes);
+        }
+        std::sort(sizes.begin(), sizes.end(), [](const auto& a, const auto& b) {
+            return a[0] != b[0] ? a[0] > b[0] : a[1] > b[1];
+        });
+        const std::string desktop_label = "Desktop" + (desktop ? "   (" + SizeLabel(desktop->w, desktop->h, false) + ")"
+                                                               : std::string());
+        const auto chosen = ParseResolution(draft_.fullscreen_resolution);
+        const std::array<int, 2> current{chosen.width, chosen.height};
+        const bool listed = chosen.width == 0 || std::find(sizes.begin(), sizes.end(), current) != sizes.end();
+        const std::string preview = chosen.width == 0 ? desktop_label
+            : SizeLabel(chosen.width, chosen.height, true) + (listed ? "" : "  (not on this display)");
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        if (ImGui::BeginCombo("##fullscreen_resolution", preview.c_str(), ImGuiComboFlags_HeightLarge))
+        {
+            if (ImGui::Selectable(desktop_label.c_str(), chosen.width == 0))
+            { draft_.fullscreen_resolution = std::string(kDesktopResolution); dirty_ = true; }
+            if (!listed) ImGui::Selectable(preview.c_str(), true);
+            for (const auto& size : sizes)
+                if (ImGui::Selectable(SizeLabel(size[0], size[1], true).c_str(), size == current))
+                { draft_.fullscreen_resolution = FormatResolution(size[0], size[1]); dirty_ = true; }
+            ImGui::EndCombo();
+        }
+        if (!listed)
+            TextWrappedColored(CurrentFonts().caption, color::warning,
+                               "This display has no such mode, so fullscreen keeps the display's own resolution.");
+        else if (chosen.width && desktop && desktop->w > 0 && desktop->h > 0
+                 && std::abs(double(chosen.width) * desktop->h / (double(chosen.height) * desktop->w) - 1.0) > 0.01)
+        {
+            const std::string note = "Another shape than this " + SizeLabel(desktop->w, desktop->h, false)
+                + " display: some displays stretch it; others show bars.";
+            TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
+        }
     }
 
     void DisplayChoice()
@@ -4423,6 +4726,29 @@ private:
         }
         platform::SortWiimoteRemotes(status.remotes);
         wii_status_ = std::move(status);
+        UpdateRemoteLights();
+    }
+
+    // Each connected Wii Remote shows on its lights which player it is if the
+    // game starts now, lights off when it does not play, as the game does; it
+    // rumbles briefly when it becomes a player (with rumble on).
+    void UpdateRemoteLights()
+    {
+        const auto lineup = StartLineup();
+        std::map<std::string, int> shown;
+        for (const auto& remote : wii_status_.remotes)
+        {
+            const auto it = std::find(lineup.playing.begin(), lineup.playing.end(), remote.id);
+            const int player = it == lineup.playing.end() ? -1 : int(it - lineup.playing.begin());
+            const auto before = remote_players_.find(remote.id);
+            if (before == remote_players_.end() || before->second != player)
+            {
+                if (!remote_lights_) remote_lights_ = std::make_unique<platform::WiimotePlayerLights>();
+                remote_lights_->Show(remote.path, player, player >= 0 && draft_.rumble);
+            }
+            shown[remote.id] = player;
+        }
+        remote_players_ = std::move(shown);
     }
 
     bool RemotePlayer() const
@@ -4459,21 +4785,41 @@ private:
         return model + " (Bluetooth " + (address.size() > 8 ? address.substr(address.size() - 8) : address) + ")";
     }
 
-    // Windows: connect Wii Remotes over Bluetooth with 1+2 or SYNC.
-    void BluetoothSearchRow()
+    // Windows: connect and pair Wii Remotes over Bluetooth (wiimote_bluetooth.h).
+    void BluetoothRows()
     {
         const auto search = bluetooth_search_.Status();
-        if (!search.supported || !BeginRows("##bluetooth_search_rows")) return;
-        std::string description = !draft_.bluetooth_search
-            ? "Off: pair Wii Remotes in the Windows Bluetooth settings instead."
-            : !search.adapter ? "No Bluetooth adapter found."
-            : "Press 1+2 / SYNC on a Wii Remote to connect it.";
-        if (draft_.bluetooth_search && !search.last.empty()) description += " Last: " + search.last + ".";
-        Row("Connect Wii Remotes", description.c_str());
+        if (!search.supported || !BeginRows("##bluetooth_rows")) return;
+        Row("Continuous scanning", !search.adapter ? "No Bluetooth adapter found."
+                                   : draft_.bluetooth_search
+                                       ? "Press 1+2 on a Wii Remote to connect it, here and when a player's Remote "
+                                         "drops out of a game."
+                                       : "Off: after 1+2 press Refresh, or pair the Remote with Sync.");
         if (Toggle("##bluetooth_search", &draft_.bluetooth_search)) dirty_ = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Searching can briefly disturb other Bluetooth devices, such as headphones.\n"
-                              "Wii Remotes Windows remembers but can't reconnect are removed, so 1+2 works again.");
+                              "In a game it searches only while a player's Wii Remote is missing.");
+        std::string text = search.syncing ? "Syncing: press the red SYNC button under the Remote's battery cover now."
+                           : search.resetting ? "Forgetting the paired Wii Remotes..."
+                           : "Sync pairs a Remote for good: press Sync, then the red SYNC button under its battery "
+                             "cover. It then connects with any button.";
+        if (!search.syncing && !search.resetting && !search.last.empty()) text += " Last: " + search.last + ".";
+        Row("Bluetooth pairing", text.c_str());
+        const bool idle = !search.syncing && !search.resetting;
+        const float gap = Dp(8), width = (ImGui::GetContentRegionAvail().x - 2 * gap) / 3;
+        if (SecondaryButton("##bluetooth_refresh", "Refresh", {width, Dp(36)}, idle)) bluetooth_search_.Refresh();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Search once (4 s): press 1+2 on the Remote first.");
+        ImGui::SameLine(0, gap);
+        if (SecondaryButton("##bluetooth_sync", search.syncing ? "Syncing..." : "Sync", {width, Dp(36)}, idle))
+            bluetooth_search_.Sync();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Pair Wii Remotes for good (about 12 s), as on a Wii.\n"
+                              "A paired Remote connects with any button, also in a game.");
+        ImGui::SameLine(0, gap);
+        if (SecondaryButton("##bluetooth_reset", "Reset", {width, Dp(36)}, idle)) bluetooth_search_.Reset();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Forget every Wii Remote Windows remembers, for one that no longer connects\n"
+                              "(for example after it was synced with a Wii again). Sync it again afterwards.");
         EndRows();
     }
 
@@ -4666,7 +5012,7 @@ private:
             if (Toggle("##mouse_pointer", &draft_.mouse_pointer)) dirty_ = true;
             EndRows();
         }
-        BluetoothSearchRow();
+        BluetoothRows();
         if (status.no_permission && BeginRows("##wiimote_access_rows"))
         {
 #if defined(__linux__)
@@ -4787,7 +5133,24 @@ private:
         if (dirty_ && config_ok_) Save();
     }
 
-    platform::Hotkeys DraftHotkeys() const { return platform::ParseHotkeys(draft_.screenshot_key, draft_.hud_key); }
+    platform::Hotkeys DraftHotkeys() const { return platform::ParseHotkeys(draft_.hotkeys); }
+    // The hotkeys' default keys; one stays unused while a keyboard & mouse
+    // action has its default key, as in a settings file from before it.
+    std::array<std::string, HotkeyCount> DefaultHotkeyNames() const
+    {
+        auto names = Settings::DefaultHotkeys();
+        for (std::size_t n = 0; n < HotkeyCount; ++n)
+        {
+            const auto hotkey = platform::ParseHotkey(kHotkeys[n].defaults);
+            if (hotkey.modifiers != SDL_KMOD_NONE) continue;
+            for (const auto& text : draft_.keys)
+            {
+                const auto binding = platform::ParseKeyBinding(text);
+                if (binding[0] == hotkey.key || binding[1] == hotkey.key) names[n] = kNoHotkey;
+            }
+        }
+        return names;
+    }
     platform::KeyBindings DraftBindings() const { return platform::ParseKeyBindings(draft_.keys, DraftHotkeys()); }
 
     // A key or mouse button pressed while a keycap waits: it takes that slot,
@@ -4799,10 +5162,9 @@ private:
         if (action < 0) return;
         const std::string name = platform::KeyInputName(code);
         if (name.empty()) return;
-        const auto hotkeys = DraftHotkeys();
-        if (code == hotkeys.screenshot || code == hotkeys.hud)
+        if (const auto hotkey = DraftHotkeys().Find(code); hotkey != HotkeyCount)
         {
-            Notice(name + (code == hotkeys.screenshot ? " takes screenshots" : " shows or hides the HUD")
+            Notice(name + " is the hotkey " + kHotkeys[hotkey].label
                        + " (Hotkeys on the Controls page) and cannot be assigned.",
                    NoticeKind::Warning);
             return;
@@ -4838,92 +5200,120 @@ private:
                NoticeKind::Info);
     }
 
-    // A key pressed while a hotkey's keycap waits (0 screenshot, 1 HUD).
-    // Another hotkey's key, a modifier or a keyboard & mouse key is refused.
-    void CaptureHotkey(platform::KeyInput code)
+    // A key pressed while a hotkey's keycaps wait (hotkey_capture_: its
+    // HotkeyIndex), with the Ctrl, Shift and Alt held (`mod`): Escape stops
+    // waiting, Backspace or Delete leaves the hotkey unused, a modifier waits
+    // for the key it goes with. The same keys as another hotkey, the Windows
+    // or Command key, or a keyboard & mouse key pressed alone are refused.
+    void CaptureHotkey(SDL_Scancode code, SDL_Keymod mod)
     {
         const int which = hotkey_capture_;
+        if (which < 0 || which >= int(HotkeyCount)) return;
+        if (code >= SDL_SCANCODE_LCTRL && code <= SDL_SCANCODE_RGUI) return;
         hotkey_capture_ = -1;
-        const std::string name = platform::KeyInputName(code);
-        if (which < 0 || name.empty()) return;
-        if (!platform::HotkeyAllowed(code))
+        const char* label = kHotkeys[std::size_t(which)].label;
+        const platform::Hotkey hotkey{code, platform::HotkeyModifiers(mod)};
+        if (hotkey.modifiers == SDL_KMOD_NONE && !(mod & SDL_KMOD_GUI))
         {
-            Notice(name + " cannot be a hotkey: Shift, Ctrl, Alt and the system key stay free for shortcuts.",
-                   NoticeKind::Warning);
-            return;
-        }
-        const auto hotkeys = DraftHotkeys();
-        if (code == (which == 0 ? hotkeys.screenshot : hotkeys.hud)) return;
-        if (code == (which == 0 ? hotkeys.hud : hotkeys.screenshot))
-        {
-            Notice(name + (which == 0 ? " already shows or hides the HUD." : " already takes screenshots."),
-                   NoticeKind::Warning);
-            return;
-        }
-        const auto bindings = DraftBindings();
-        for (std::size_t action = 0; action < KeyActionCount; ++action)
-            if (bindings[action][0] == code || bindings[action][1] == code)
+            if (code == SDL_SCANCODE_ESCAPE) return;
+            if (code == SDL_SCANCODE_BACKSPACE || code == SDL_SCANCODE_DELETE)
             {
-                Notice(name + " presses " + kKeyActions[action].label
-                           + " for keyboard & mouse. Give that action another key first.",
-                       NoticeKind::Warning);
+                if (draft_.hotkeys[std::size_t(which)] == kNoHotkey) return;
+                draft_.hotkeys[std::size_t(which)] = kNoHotkey;
+                dirty_ = true;
+                Notice(std::string(label) + " has no hotkey now.", NoticeKind::Info);
                 return;
             }
-        (which == 0 ? draft_.screenshot_key : draft_.hud_key) = name;
+        }
+        if (mod & SDL_KMOD_GUI)
+        {
+            Notice("Combinations with the Windows or Command key stay with the system.", NoticeKind::Warning);
+            return;
+        }
+        const std::string name = platform::HotkeyLabel(hotkey);
+        if (!platform::HotkeyAllowed(hotkey) || name.empty()) return;
+        const auto hotkeys = DraftHotkeys();
+        for (std::size_t other = 0; other < HotkeyCount; ++other)
+            if (hotkeys.keys[other] == hotkey)
+            {
+                if (int(other) != which)
+                    Notice(name + " is already the hotkey " + kHotkeys[other].label + ".", NoticeKind::Warning);
+                return;
+            }
+        // A key pressed alone would also press its keyboard & mouse action.
+        if (hotkey.modifiers == SDL_KMOD_NONE)
+        {
+            const auto bindings = DraftBindings();
+            for (std::size_t action = 0; action < KeyActionCount; ++action)
+                if (bindings[action][0] == code || bindings[action][1] == code)
+                {
+                    Notice(name + " presses " + kKeyActions[action].label + " for keyboard & mouse. Give that action "
+                               "another key first, or hold Ctrl, Shift or Alt with it.",
+                           NoticeKind::Warning);
+                    return;
+                }
+        }
+        draft_.hotkeys[std::size_t(which)] = platform::HotkeyName(hotkey);
         dirty_ = true;
-        Notice(name + (which == 0 ? " now takes screenshots." : " now shows or hides the HUD."), NoticeKind::Info);
+        Notice(name + " is now the hotkey " + label + ".", NoticeKind::Info);
     }
 
-    // [hotkeys]: keys of the game window, whoever plays. The screenshot and
-    // HUD keys can be changed; Alt+Enter cannot. No HUD sits with its key.
+    // [hotkeys]: keys of the game window, whoever plays, each a key alone or
+    // with Ctrl, Shift or Alt. No HUD sits with its key.
     void HotkeysCard()
     {
-        BeginCard("##hotkeys", "Hotkeys", "Keys of the game window, whoever plays. Click a key, then press the new one.",
+        BeginCard("##hotkeys", "Hotkeys", "Keys of the game window, whoever plays. Click a hotkey, then press the new "
+                  "key, alone or with Ctrl, Shift or Alt. Escape cancels; Backspace or Delete leaves it unused.",
                   Icon::Keyboard);
         const auto hotkeys = DraftHotkeys();
         bool clicked = false;
-        const auto hotkey = [&](int which, const char* label, const char* note, SDL_Scancode key) {
-            Row(label, note);
-            const bool waiting = hotkey_capture_ == which;
-            const std::string name = waiting ? std::string("Press a key...") : platform::KeyInputName(key);
-            ImGui::PushID(which);
-            if (KeyCapButton("##hotkey", name.c_str(), waiting))
+        const auto hotkey = [&](HotkeyIndex which) {
+            Row(kHotkeys[which].label, kHotkeys[which].note);
+            const bool waiting = hotkey_capture_ == int(which);
+            std::vector<std::string> keys;
+            if (waiting)
+            {
+                // The modifiers held so far, then the key still to come.
+                const SDL_Keymod held = platform::HotkeyModifiers(SDL_GetModState());
+                keys = platform::HotkeyKeys({SDL_SCANCODE_A, held});
+                keys.back() = keys.size() > 1 ? "..." : "Press keys...";
+            }
+            else if (hotkeys[which].key) keys = platform::HotkeyKeys(hotkeys[which]);
+            else keys = {"Not set"};
+            ImGui::PushID(int(which));
+            if (KeyComboButton("##hotkey", keys, waiting))
             {
                 clicked = true;
-                hotkey_capture_ = waiting ? -1 : which;
+                hotkey_capture_ = waiting ? -1 : int(which);
             }
-            if (ImGui::IsItemHovered() && !waiting) ImGui::SetTooltip("Click, then press the new key");
+            if (ImGui::IsItemHovered() && !waiting) ImGui::SetTooltip("Click, then press the new keys");
             ImGui::PopID();
         };
         if (BeginRows("##hotkey_rows"))
         {
-            hotkey(0, "Screenshot", "Saved in the screenshots folder.", hotkeys.screenshot);
-            Row("Fullscreen or window", "For this run.");
-#if defined(__APPLE__)
-            KeyCaps({"Option", "Return"}, true);
-#else
-            KeyCaps({"Alt", "Enter"}, true);
-#endif
-            hotkey(1, "Show or hide the HUD", "In a match.", hotkeys.hud);
+            hotkey(HotkeyScreenshot);
+            hotkey(HotkeyFullscreen);
+            hotkey(HotkeyStretch);
+            hotkey(HotkeyResolutionUp);
+            hotkey(HotkeyResolutionDown);
+            hotkey(HotkeyHud);
+            const std::string key = hotkeys[HotkeyHud].key ? platform::HotkeyLabel(hotkeys[HotkeyHud])
+                                                           : std::string("its hotkey");
             const std::string note = "The scoreboard, player markers and captions. Off starts matches without them, "
-                "for clean recordings; " + platform::KeyInputName(hotkeys.hud)
-                + " shows them. The Mega Strike meter and its defence always stay.";
+                "for clean recordings; " + key + " shows them. The Mega Strike meter and its defence always stay.";
             Row("Show the HUD when a match starts", note.c_str());
             if (Toggle("##show_hud", &draft_.show_hud)) dirty_ = true;
             EndRows();
         }
-        static const Settings defaults;
-        if (SecondaryButton("##reset_hotkeys", "Reset keys", Dp(140, 36),
-                            draft_.screenshot_key != defaults.screenshot_key || draft_.hud_key != defaults.hud_key,
+        if (SecondaryButton("##reset_hotkeys", "Reset keys", Dp(140, 36), draft_.hotkeys != DefaultHotkeyNames(),
                             Icon::Refresh))
         {
-            draft_.screenshot_key = defaults.screenshot_key;
-            draft_.hud_key = defaults.hud_key;
+            draft_.hotkeys = DefaultHotkeyNames();
             hotkey_capture_ = -1;
             dirty_ = true;
         }
         EndCard();
-        // A click anywhere else stops waiting for a key.
+        // A click anywhere else stops waiting for keys.
         if (hotkey_capture_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) hotkey_capture_ = -1;
     }
 
@@ -6654,99 +7044,467 @@ private:
 
     void AboutPage()
     {
-        PageHeader("About", "Recharged - native PC port of Mario Strikers Charged.");
-        BeginCard("##build", "This build", nullptr, Icon::Info);
-        if (BeginRows("##build_rows"))
+        AboutBanner();
+        AboutDevelopers();
+        AboutThanks();
+        AboutCommunity();
+        AboutFoundations();
+        AboutBuild();
+    }
+
+    // The page's banner: the name and what it is (the version is in the sidebar).
+    void AboutBanner()
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float pad = Dp(30);
+        const float wordmark = Dp(50); // the hero font, drawn smaller
+        const float height = pad + FontSize(fonts.caption) + Dp(6) + wordmark + Dp(6) + FontSize(fonts.heading) + pad;
+        const ImVec2 max{pos.x + width, pos.y + height};
+        const float rounding = Dp(16);
+
+        // A dark green wash and, on the right, a lightning bolt in a soft glow.
+        FillGradient(draw, pos, max, Col(Mix(color::card, color::accent_dark, 0.9f)), Col(color::card), rounding, true);
+        draw->PushClipRect(pos, max, true);
+        const ImVec2 glow{max.x - std::min(Dp(140), width * 0.2f), pos.y + height * 0.5f};
+        for (int i = 24; i >= 1; --i)
+            draw->AddCircleFilled(glow, height * 0.035f * float(i), Col(color::accent, 0.007f), 64);
+        if (width >= Dp(520))
         {
-            auto value = [&](const char* label, const std::string& text) {
-                Row(label);
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(2));
-                TextWrappedColored(CurrentFonts().body, color::muted, text.c_str());
-            };
-            value("Version", build::version);
-            const BuildIdentity identity = updates_ ? updates_->Build() : CurrentBuild();
-            value("Origin", DescribeOrigin(identity));
-            if (identity.built) value("Built", LocalTime(identity.built));
-            else if (identity.commit_time) value("Commit time", LocalTime(identity.commit_time));
-            value("Commit", identity.commit.substr(0, 12));
-            Row(identity.origin == BuildOrigin::Test ? "Pull request" : "Release notes");
-            const char* notes = identity.origin == BuildOrigin::Test ? "Open the pull request"
-                              : identity.origin == BuildOrigin::Release ? "Open the release notes"
-                                                                       : "All releases";
-            if (SecondaryButton("build_notes", notes, {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::GitHub))
-                SDL_OpenURL(BuildNotesUrl(identity).c_str());
-            value("Configuration", MSCHARGED_BUILD_CONFIG);
-            const int sdl = SDL_GetVersion();
-            value("Platform", std::string(SDL_GetPlatform()) + "  -  SDL " + std::to_string(SDL_VERSIONNUM_MAJOR(sdl)) + "."
-                + std::to_string(SDL_VERSIONNUM_MINOR(sdl)) + "." + std::to_string(SDL_VERSIONNUM_MICRO(sdl)));
-            const char* renderer = SDL_GetRendererName(renderer_);
-            char scale[96];
-            std::snprintf(scale, sizeof scale, "%s  -  interface x%.2f  -  pixel density x%.2f",
-                          renderer ? renderer : "unknown renderer", metrics_.ui, metrics_.density);
-            value("Launcher display", scale);
-#ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
-            value("Game runtime", "Included: original game code compiled for this system.");
-#else
-            value("Game runtime", "Not included in this launcher-only build.");
-#endif
-            EndRows();
+            const float s = height * 0.72f;
+            auto at = [&](float x, float y) { return ImVec2{glow.x + x * s, glow.y + y * s}; };
+            const ImVec2 bolt[] = {at(-0.05f, -0.50f), at(0.25f, -0.50f), at(0.06f, -0.10f), at(0.30f, -0.10f),
+                                   at(-0.18f, 0.50f),  at(-0.02f, 0.04f), at(-0.27f, 0.04f)};
+            draw->AddConcavePolyFilled(bolt, 7, Col(color::accent, 0.08f));
+            draw->AddPolyline(bolt, 7, Col(color::accent_hi, 0.30f), ImDrawFlags_Closed, Dp(1.5f));
         }
-        EndCard();
+        draw->PopClipRect();
+        draw->AddRect(pos, max, Col(color::border), rounding, 0, Dp(1));
+        // A highlight along the top edge, fading out to both sides.
+        const float middle = pos.x + width * 0.5f;
+        const ImU32 clear = Col(color::accent_hi, 0.0f), bright = Col(color::accent_hi, 0.45f);
+        draw->AddRectFilledMultiColor({pos.x + width * 0.12f, pos.y}, {middle, pos.y + Dp(1)}, clear, bright, bright, clear);
+        draw->AddRectFilledMultiColor({middle, pos.y}, {max.x - width * 0.12f, pos.y + Dp(1)}, bright, clear, clear, bright);
 
-        BeginCard("##project", "Mario Strikers Charged Decompilation Project", nullptr, Icon::Disc);
-        TextWrappedColored(CurrentFonts().body, color::text,
-            "Recharged compiles the reconstructed C/C++ source of Mario Strikers Charged to native code. "
-            "The original game logic runs unchanged; Recharged provides the platform underneath it: graphics, audio, "
-            "input, files and timing.");
-        ImGui::Dummy({0, Dp(2)});
-        TextWrappedColored(CurrentFonts().caption, color::muted,
-            "You need your own copy of the game. Unofficial project, not affiliated with Nintendo or Next Level Games.");
-        ImGui::Dummy({0, Dp(4)});
-        if (SecondaryButton("decomp_link", "Decompilation project", Dp(230, 40), true, Icon::GitHub))
-            SDL_OpenURL("https://github.com/yannicksuter/mscharged-decomp");
-        EndCard();
+        float y = pos.y + pad;
+        const float x = pos.x + pad;
+        DrawTracked(draw, fonts.caption, {x, y}, Col(color::accent, 0.95f), "ABOUT", Dp(2.6f));
+        y += FontSize(fonts.caption) + Dp(6);
+        // "RECHARGED" as on the Play page: a soft glow and a lime-to-green gradient.
+        for (int i = 3; i >= 1; --i)
+            draw->AddText(fonts.hero, wordmark, {x, y + Dp(float(i))}, Col(color::accent, 0.07f * float(i)), "RECHARGED");
+        const int start = draw->VtxBuffer.Size;
+        draw->AddText(fonts.hero, wordmark, {x, y}, IM_COL32_WHITE, "RECHARGED");
+        ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, {x, y}, {x, y + wordmark},
+                                                     Col(color::accent_hi), Col(color::accent));
+        y += wordmark + Dp(6);
+        const char* game = "Mario Strikers Charged";
+        DrawLabel(draw, fonts.heading, {x, y}, Col(color::text), game);
+        DrawLabel(draw, fonts.heading, {x + TextSize(fonts.heading, game).x, y}, Col(color::text, 0.72f),
+                  ", natively on your PC");
 
-        BeginCard("##aurora", "Powered by Aurora", nullptr, Icon::Display);
-        if (aurora_logo_)
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::Dummy({width, height});
+        ImGui::Dummy({0, Dp(8)});
+    }
+
+    // A small tracked heading inside a card.
+    void AboutOverline(const char* text)
+    {
+        DrawTracked(ImGui::GetWindowDrawList(), CurrentFonts().caption, ImGui::GetCursorScreenPos(),
+                    Col(color::accent, 0.95f), text, Dp(1.8f));
+        ImGui::Dummy({0, FontSize(CurrentFonts().caption) + Dp(4)});
+    }
+
+    void AboutDivider()
+    {
+        ImGui::Dummy({0, Dp(10)});
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        // A filled rectangle: thin lines break up in the software renderer.
+        ImGui::GetWindowDrawList()->AddRectFilled(pos, {pos.x + ImGui::GetContentRegionAvail().x, pos.y + Dp(1)},
+                                                  Col(color::border, 0.8f));
+        ImGui::Dummy({0, Dp(14)});
+    }
+
+    // Lays out buttons left to right, moving to the next line when one does not fit.
+    void FlowNext(bool first, float width)
+    {
+        const float gap = Dp(10);
+        if (!first && ImGui::GetItemRectMax().x + gap + width <= ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x)
+            ImGui::SameLine(0, gap);
+    }
+
+    struct Person
+    {
+        const char* name;
+        const char* line; // under the name: what they do
+        ImVec4 tint;
+    };
+
+    // A person: a round badge with the name's first letter, the name and a line under it.
+    void PersonTile(const Person& person, float width)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const ImVec4& tint = person.tint;
+        const char letter[] = {char(std::toupper(static_cast<unsigned char>(person.name[0]))), '\0'};
+        const float badge = Dp(46);
+        const float text_x = Dp(18) + badge + Dp(14);
+        const float wrap = width - text_x - Dp(16);
+        const float line_height = fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, person.line).y;
+        const float height = std::max(badge + Dp(28), FontSize(fonts.label) + Dp(2) + line_height + Dp(28));
+        const ImVec2 max{pos.x + width, pos.y + height};
+        draw->AddRectFilled(pos, max, Col(color::field), Dp(14));
+        draw->AddRect(pos, max, Col(tint, 0.28f), Dp(14), 0, Dp(1));
+        const ImVec2 center{pos.x + Dp(18) + badge * 0.5f, pos.y + height * 0.5f};
+        draw->AddCircleFilled(center, badge * 0.5f + Dp(4), Col(tint, 0.12f), 40);
+        const int start = draw->VtxBuffer.Size;
+        draw->AddCircleFilled(center, badge * 0.5f, IM_COL32_WHITE, 40);
+        ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size,
+                                                     {center.x, center.y - badge * 0.5f},
+                                                     {center.x, center.y + badge * 0.5f},
+                                                     Col(Mix(tint, color::text, 0.35f)), Col(tint));
+        const ImVec2 size = TextSize(fonts.title, letter);
+        DrawLabel(draw, fonts.title, {center.x - size.x * 0.5f, center.y - size.y * 0.5f},
+                  Col(Mix(tint, color::window, 0.85f)), letter);
+        const float text_y = pos.y + (height - (FontSize(fonts.label) + Dp(2) + line_height)) * 0.5f;
+        DrawLabel(draw, fonts.label, {pos.x + text_x, text_y}, Col(color::text), person.name);
+        // Drawn here, wrapped in the tile (TextWrappedColored wraps at the window's edge).
+        draw->AddText(fonts.caption, FontSize(fonts.caption), {pos.x + text_x, text_y + FontSize(fonts.label) + Dp(2)},
+                      Col(color::muted), person.line, nullptr, wrap);
+        ImGui::Dummy({width, height});
+    }
+
+    // Two people side by side when they fit, else one under the other.
+    void PeopleTiles(const Person& first, const Person& second)
+    {
+        const float gap = Dp(12);
+        const float available = ImGui::GetContentRegionAvail().x;
+        const bool side_by_side = available >= Dp(460);
+        const float width = side_by_side ? (available - gap) * 0.5f : available;
+        PersonTile(first, width);
+        if (side_by_side) ImGui::SameLine(0, gap);
+        else ImGui::Dummy({0, gap - ImGui::GetStyle().ItemSpacing.y});
+        PersonTile(second, width);
+    }
+
+    // Names as pills, flowing over as many lines as they need. With `links`
+    // each opens the person's GitHub page.
+    void NamePills(const char* id, const char* const* names, std::size_t count, bool links)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        ImGui::PushID(id);
+        const float left = ImGui::GetCursorScreenPos().x;
+        const float right = left + ImGui::GetContentRegionAvail().x;
+        const float gap = Dp(8);
+        const float height = Dp(32);
+        ImVec2 at = ImGui::GetCursorScreenPos();
+        for (std::size_t i = 0; i < count; ++i)
         {
-            const float width = Dp(180);
-            ImGui::Image(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(aurora_logo_)),
-                         {width, width * aurora_logo_height_ / aurora_logo_width_});
-            ImGui::Dummy({0, Dp(4)});
-        }
-        TextWrappedColored(CurrentFonts().body, color::text,
-            "Aurora by Luke Street provides the GameCube/Wii platform layer the game runs on: GX graphics on "
-            "modern GPUs, plus windowing, input and system services.");
-        ImGui::Dummy({0, Dp(4)});
-        if (SecondaryButton("aurora_link", "Aurora on GitHub", Dp(230, 40), true, Icon::GitHub))
-            SDL_OpenURL("https://github.com/encounter/aurora");
-        EndCard();
-
-        BeginCard("##thanks", "Special thanks", nullptr, Icon::Check);
-        TextWrappedColored(CurrentFonts().body, color::text,
-            "To the contributors of the decompilation, who helped bring it over the last miles:");
-        ImGui::Dummy({0, Dp(2)});
-        {
-            // GitHub accounts; each button opens the profile.
-            const char* contributors[] = {"Jasu14", "vZylev", "GoldenPalazzo"};
-            for (int i = 0; i < 3; ++i)
+            const ImVec2 label = TextSize(fonts.body, names[i]);
+            const float icon = links ? Dp(12) + Dp(8) : 0.0f;
+            const ImVec2 size{Dp(16) + label.x + icon + Dp(16), height};
+            if (i && at.x + size.x > right)
+                at = {left, at.y + height + gap};
+            ImGui::SetCursorScreenPos(at);
+            ImGui::PushID(int(i));
+            float hover = 0.0f;
+            if (links)
             {
-                if (i) ImGui::SameLine(0, Dp(8));
-                const std::string url = std::string("https://github.com/") + contributors[i];
-                ImGui::PushID(i);
-                if (SecondaryButton("##contributor", contributors[i], Dp(170, 36), true, Icon::Link))
-                    SDL_OpenURL(url.c_str());
+                const bool pressed = ImGui::InvisibleButton("##pill", size);
+                hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+                const std::string url = std::string("https://github.com/") + names[i];
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", url.c_str());
-                ImGui::PopID();
+                if (pressed) SDL_OpenURL(url.c_str());
             }
+            else ImGui::Dummy(size);
+            ImGui::PopID();
+            const ImVec2 max{at.x + size.x, at.y + size.y};
+            draw->AddRectFilled(at, max, Col(Mix(color::field, color::border, 0.5f * hover)), height * 0.5f);
+            draw->AddRect(at, max, Col(Mix(color::border, color::accent, 0.5f * hover)), height * 0.5f, 0, Dp(1));
+            const ImU32 ink = Col(Mix(color::text, color::accent_hi, 0.4f * hover));
+            DrawLabel(draw, fonts.body, {at.x + Dp(16), at.y + (height - label.y) * 0.5f}, ink, names[i]);
+            if (links)
+                DrawIcon(draw, Icon::Link, {max.x - Dp(16) - Dp(6), at.y + height * 0.5f}, Dp(12),
+                         Col(Mix(color::muted, color::accent_hi, hover)));
+            at.x += size.x + gap;
         }
-        EndCard();
+        ImGui::SetCursorScreenPos({left, at.y + height});
+        ImGui::Dummy({0, 0});
+        ImGui::PopID();
+    }
 
-        BeginCard("##licenses", "Credits & licenses", nullptr, Icon::Check);
-        TextWrappedColored(CurrentFonts().caption, color::muted,
-            "Recharged's original code, tools and documentation: CC0 1.0. Header artwork: SteamGridDB hero 8926 by Jiquita. "
-            "Font: Roboto (Apache 2.0). Built with SDL3 (zlib), Dear ImGui (MIT), Aurora (MIT), Dawn (BSD), "
+    // Who writes Recharged, as the commits show. tools/update_issue_reporters.py
+    // leaves the developers and the special thanks out of the issue reporters.
+    void AboutDevelopers()
+    {
+        BeginCard("##developers", "Developers", "The people who build Recharged.", Icon::Code);
+        PeopleTiles({"Yannick Suter", "Decompilation, native port and launcher", color::accent_hi},
+                    {"GoldenPalazzo", "Networking and gameplay fixes", color::info});
+        EndCard();
+    }
+
+    void AboutThanks()
+    {
+        const auto& fonts = CurrentFonts();
+        BeginCard("##thanks", "Thank you", "Recharged is shaped by the people who play it.", Icon::Heart);
+
+        AboutOverline("SPECIAL THANKS");
+        TextWrappedColored(fonts.body, color::text, "For intense testing, build after build.");
+        ImGui::Dummy({0, Dp(4)});
+        PeopleTiles({"einBirnenbaum", "Tester", color::accent}, {"GoldCobra", "Tester", color::warning});
+
+        AboutDivider();
+        AboutOverline("ISSUE REPORTERS");
+        TextWrappedColored(fonts.body, color::text,
+            "Everyone who reported a problem or asked for a feature on GitHub. Every issue makes Recharged better: "
+            "this is how we roll!");
+        ImGui::Dummy({0, Dp(4)});
+        NamePills("##reporters", kIssueReporters, std::size(kIssueReporters), false);
+        ImGui::Dummy({0, Dp(6)});
+        const BuildIdentity identity = updates_ ? updates_->Build() : CurrentBuild();
+        const std::string issues = "https://github.com/" + identity.repository + "/issues/new";
+        const ImVec2 button = Dp(200, 40);
+        FlowNext(true, button.x);
+        if (SecondaryButton("report_problem", "Report a problem", button, true, Icon::Bug))
+            SDL_OpenURL((issues + "/choose").c_str());
+        FlowNext(false, button.x);
+        if (SecondaryButton("suggest_feature", "Suggest a feature", button, true, Icon::Bulb))
+            SDL_OpenURL((issues + "?template=feature_request.yml").c_str());
+
+        AboutDivider();
+        AboutOverline("DECOMPILATION");
+        TextWrappedColored(fonts.body, color::text,
+            "To the contributors of the decompilation, who helped bring it over the last miles.");
+        ImGui::Dummy({0, Dp(4)});
+        static constexpr const char* contributors[] = {"Jasu14", "vZylev", "GoldenPalazzo"};
+        NamePills("##contributors", contributors, std::size(contributors), true);
+        EndCard();
+    }
+
+    // The Mario Strikers community's Discord server: what it is, a thank you
+    // and the way in. Drawn like a card, with Discord's colour.
+    void AboutCommunity()
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const char* invite = "https://discord.gg/de2YaWg";
+        const char* about = "The central hub of Mario Strikers players: tournaments, matchmaking and league play "
+                            "across the series, with fans, competitors and creators from around the world.";
+        const char* thanks = "Thank you for the matches, the feedback and all the enthusiasm!";
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float pad = Dp(22), badge = Dp(52), button_height = Dp(40);
+        const float text_x = pos.x + pad + badge + Dp(18);
+        const float wrap = std::max(Dp(120), pos.x + width - pad - text_x);
+        const auto text_height = [&](const char* text) {
+            return fonts.body->CalcTextSizeA(FontSize(fonts.body), FLT_MAX, wrap, text).y;
+        };
+        const float height = pad + FontSize(fonts.caption) + Dp(4) + FontSize(fonts.heading) + Dp(8)
+            + text_height(about) + Dp(4) + text_height(thanks) + Dp(16) + button_height + pad;
+        const ImVec2 max{pos.x + width, pos.y + height};
+        const float rounding = Dp(16);
+        FillGradient(draw, pos, max, Col(Mix(color::card, color::discord, 0.20f)), Col(color::card), rounding, true);
+        draw->AddRect(pos, max, Col(Mix(color::border, color::discord, 0.45f)), rounding, 0, Dp(1));
+        // The badge: Discord's logo on a round blurple badge with a halo.
+        const ImVec2 center{pos.x + pad + badge * 0.5f, pos.y + pad + badge * 0.5f};
+        draw->AddCircleFilled(center, badge * 0.5f + Dp(5), Col(color::discord, 0.16f), 48);
+        const ImVec4 lighter = Mix(color::discord, color::text, 0.25f);
+        const int start = draw->VtxBuffer.Size;
+        draw->AddCircleFilled(center, badge * 0.5f, IM_COL32_WHITE, 48);
+        ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size,
+                                                     {center.x, center.y - badge * 0.5f},
+                                                     {center.x, center.y + badge * 0.5f}, Col(lighter),
+                                                     Col(color::discord));
+        DrawDiscordMark(draw, center, badge * 0.56f, IM_COL32_WHITE, Col(Mix(lighter, color::discord, 0.5f)));
+
+        float y = pos.y + pad;
+        DrawTracked(draw, fonts.caption, {text_x, y}, Col(Mix(color::discord, color::text, 0.45f)), "COMMUNITY", Dp(1.8f));
+        y += FontSize(fonts.caption) + Dp(4);
+        DrawLabel(draw, fonts.heading, {text_x, y}, Col(color::text), "Mario Strikers on Discord");
+        y += FontSize(fonts.heading) + Dp(8);
+        draw->AddText(fonts.body, FontSize(fonts.body), {text_x, y}, Col(color::muted), about, nullptr, wrap);
+        y += text_height(about) + Dp(4);
+        draw->AddText(fonts.body, FontSize(fonts.body), {text_x, y}, Col(color::text), thanks, nullptr, wrap);
+        y += text_height(thanks) + Dp(16);
+        ImGui::SetCursorScreenPos({text_x, y});
+        if (DiscordButton("join_discord", "Join on Discord", {Dp(200), button_height})) SDL_OpenURL(invite);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", invite);
+
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::Dummy({width, height});
+        ImGui::Dummy({0, Dp(8)});
+    }
+
+    // What Recharged is built on: the decompilation and Aurora, side by side when they fit.
+    void AboutFoundations()
+    {
+        const auto& fonts = CurrentFonts();
+        BeginCard("##foundations", "Built on", nullptr, Icon::Layers);
+        const float title = Dp(30);
+        auto decomp_heading = [&] {
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            auto* draw = ImGui::GetWindowDrawList();
+            draw->AddRectFilled(pos, {pos.x + title, pos.y + title}, Col(color::accent, 0.12f), Dp(8));
+            DrawIcon(draw, Icon::Disc, {pos.x + title * 0.5f, pos.y + title * 0.5f}, Dp(16), Col(color::accent));
+            DrawLabel(draw, fonts.label, {pos.x + title + Dp(12), pos.y + (title - FontSize(fonts.label)) * 0.5f},
+                      Col(color::text), "The decompilation");
+            ImGui::Dummy({title, title + Dp(4)});
+        };
+        auto aurora_heading = [&] {
+            if (!aurora_logo_)
+            {
+                TextColored(fonts.label, color::text, "Aurora");
+                return;
+            }
+            const float height = Dp(22);
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            ImGui::SetCursorScreenPos({pos.x, pos.y + (title - height) * 0.5f});
+            ImGui::Image(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(aurora_logo_)),
+                         {height * aurora_logo_width_ / aurora_logo_height_, height});
+            ImGui::SetCursorScreenPos(pos);
+            ImGui::Dummy({0, title + Dp(4)});
+        };
+        const char* decomp_text =
+            "Recharged compiles the reconstructed C/C++ source of Mario Strikers Charged to native code. The "
+            "original game logic runs unchanged; Recharged provides the platform underneath it: graphics, audio, "
+            "input, files and timing.";
+        const char* aurora_text =
+            "Aurora by Luke Street provides the GameCube/Wii platform layer the game runs on: GX graphics on "
+            "modern GPUs, plus windowing, input and system services.";
+        auto text = [&](const char* body) {
+            TextWrappedColored(fonts.body, color::muted, body);
+            ImGui::Dummy({0, Dp(6)});
+        };
+        auto link = [&](const char* id, const char* label, const char* url) {
+            if (SecondaryButton(id, label, {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::GitHub))
+                SDL_OpenURL(url);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", url);
+        };
+        const char* decomp_url = "https://github.com/yannicksuter/mscharged-decomp";
+        const char* aurora_url = "https://github.com/encounter/aurora";
+        if (ImGui::GetContentRegionAvail().x < Dp(600))
+        {
+            decomp_heading();
+            text(decomp_text);
+            link("decomp_link", "Decompilation on GitHub", decomp_url);
+            ImGui::Dummy({0, Dp(14)});
+            aurora_heading();
+            text(aurora_text);
+            link("aurora_link", "Aurora on GitHub", aurora_url);
+        }
+        else
+        {
+            // Side by side, one table row per part, so the texts and the buttons line up.
+            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 0));
+            if (ImGui::BeginTable("##foundation_table", 3, ImGuiTableFlags_None))
+            {
+                ImGui::TableSetupColumn("decomp", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableSetupColumn("gap", ImGuiTableColumnFlags_WidthFixed, Dp(28));
+                ImGui::TableSetupColumn("aurora", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                decomp_heading();
+                ImGui::TableSetColumnIndex(2);
+                aurora_heading();
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                text(decomp_text);
+                ImGui::TableSetColumnIndex(2);
+                text(aurora_text);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                link("decomp_link", "Decompilation on GitHub", decomp_url);
+                ImGui::TableSetColumnIndex(2);
+                link("aurora_link", "Aurora on GitHub", aurora_url);
+                ImGui::EndTable();
+            }
+            ImGui::PopStyleVar();
+        }
+        AboutDivider();
+        TextWrappedColored(fonts.caption, color::muted,
+            "Unofficial project, not affiliated with Nintendo or Next Level Games. You need your own copy of the game.");
+        ImGui::Dummy({0, Dp(2)});
+        TextWrappedColored(fonts.caption, color::dim,
+            "Recharged's original code, tools and documentation: CC0 1.0. Header artwork: SteamGridDB hero 8926 by "
+            "Jiquita. Font: Roboto (Apache 2.0). Built with SDL3 (zlib), Dear ImGui (MIT), Aurora (MIT), Dawn (BSD), "
             "nod and its Rust dependencies, and other libraries listed in LICENSES. Each keeps its own license.");
+        EndCard();
+    }
+
+    // Facts about this build in a grid, and what a bug report needs: a copy of
+    // them and the log.
+    void AboutBuild()
+    {
+        const auto& fonts = CurrentFonts();
+        const BuildIdentity identity = updates_ ? updates_->Build() : CurrentBuild();
+        std::vector<std::pair<const char*, std::string>> facts;
+        facts.emplace_back("Version", build::version);
+        facts.emplace_back("Origin", DescribeOrigin(identity));
+        if (identity.built) facts.emplace_back("Built", LocalTime(identity.built));
+        else if (identity.commit_time) facts.emplace_back("Commit time", LocalTime(identity.commit_time));
+        facts.emplace_back("Commit", identity.commit.substr(0, 12));
+        const int sdl = SDL_GetVersion();
+        facts.emplace_back("Platform", std::string(SDL_GetPlatform()) + ", SDL " + std::to_string(SDL_VERSIONNUM_MAJOR(sdl))
+            + "." + std::to_string(SDL_VERSIONNUM_MINOR(sdl)) + "." + std::to_string(SDL_VERSIONNUM_MICRO(sdl)));
+        const char* renderer = SDL_GetRendererName(renderer_);
+        char display[96];
+        std::snprintf(display, sizeof display, "%s, interface x%.2f, pixel density x%.2f",
+                      renderer ? renderer : "unknown renderer", metrics_.ui, metrics_.density);
+        facts.emplace_back("Launcher display", display);
+#ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
+        facts.emplace_back("Game runtime", "Included");
+#else
+        facts.emplace_back("Game runtime", "Not included (launcher-only build)");
+#endif
+        facts.emplace_back("Configuration", MSCHARGED_BUILD_CONFIG);
+
+        BeginCard("##build", "This build", "For a bug report: copy these details and attach the log.", Icon::Info);
+        const int columns = ImGui::GetContentRegionAvail().x >= Dp(600) ? 3 : 2;
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 7));
+        if (ImGui::BeginTable("##build_facts", columns, ImGuiTableFlags_SizingStretchSame))
+        {
+            for (const auto& [label, value] : facts)
+            {
+                ImGui::TableNextColumn();
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - Dp(16));
+                TextColored(fonts.caption, color::dim, label);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(4));
+                TextWrappedColored(fonts.body, color::text, value.c_str());
+                ImGui::PopTextWrapPos();
+            }
+            ImGui::EndTable();
+        }
+        ImGui::PopStyleVar();
+        ImGui::Dummy({0, Dp(4)});
+
+        const ImVec2 button = Dp(200, 40);
+        FlowNext(true, button.x);
+        if (SecondaryButton("copy_build", "Copy build details", button, true, Icon::Copy))
+        {
+            std::string text = "Recharged\n";
+            for (const auto& [label, value] : facts) text += std::string(label) + ": " + value + "\n";
+            if (SDL_SetClipboardText(text.c_str())) Notice("Build details copied to the clipboard.", NoticeKind::Success);
+        }
+        FlowNext(false, button.x);
+        if (SecondaryButton("open_logs", "Open logs folder", button, true, Icon::Folder))
+        {
+            const fs::path log = platform::SessionLogPath();
+            const fs::path folder = log.empty() ? base_ / "logs" : log.parent_path();
+            std::error_code error;
+            fs::create_directories(folder, error);
+            OpenPath(folder);
+        }
+        FlowNext(false, button.x);
+        const char* notes = identity.origin == BuildOrigin::Test ? "Pull request"
+                          : identity.origin == BuildOrigin::Release ? "Release notes"
+                                                                   : "All releases";
+        if (SecondaryButton("build_notes", notes, button, true, Icon::GitHub)) SDL_OpenURL(BuildNotesUrl(identity).c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", BuildNotesUrl(identity).c_str());
         EndCard();
     }
 
@@ -6773,14 +7531,19 @@ private:
     bool pad_capture_release_ = false;
     // Wii Remote / DolphinBar detection for the Controls and Play pages (non-blocking).
     platform::WiimoteHidProbe wii_probe_;
-    // Windows: connects Wii Remotes over Bluetooth while Controls is open.
+    // Windows: Bluetooth Wii Remotes; scans continuously while Controls is open.
     platform::WiimoteBluetoothSearch bluetooth_search_;
     platform::WiimoteHidStatus wii_status_{};
+    // The player each connected remote shows on its lights (-1: none).
+    std::map<std::string, int> remote_players_;
+    std::unique_ptr<platform::WiimotePlayerLights> remote_lights_;
     std::set<std::string> wii_held_; // remotes kept through one missed status answer
     // Controls: keyboard & mouse keys view, and the keycap waiting for a key.
     bool keyboard_view_ = false;
     int capture_action_ = -1, capture_slot_ = -1;
-    int hotkey_capture_ = -1; // Hotkeys card: 0 screenshot, 1 HUD, waiting for a key
+    int hotkey_capture_ = -1; // Hotkeys card: the HotkeyIndex waiting for a key
+    // Display page: the Modern picture (clean or sharp) to return to from Original TV.
+    std::string modern_picture_ = "sharp";
     // Gamepad profiles view: the profile being edited, its rename field and
     // the input waiting for a gamepad press.
     bool gamepad_view_ = false;
@@ -6902,6 +7665,12 @@ int main(int argc, char** argv)
 {
     // The log window's own process (Advanced > Log window).
     if (mscharged::platform::IsLogWindowProcess(argc, argv)) return mscharged::platform::RunLogWindow(argc, argv);
+#ifdef MSCHARGED_WINDOWS_GAME_MODULE_BASE
+    // The game module's place below 2 GB, before the launcher's and the game's
+    // graphics allocate into the low addresses (#98). 32 MiB is several times
+    // the modules' image size.
+    mscharged::platform::HoldNativeModuleBase(MSCHARGED_WINDOWS_GAME_MODULE_BASE, 32u << 20);
+#endif
     mscharged::platform::ConnectStandardStreams();
     Options options;
     SetAppName();

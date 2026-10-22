@@ -6,6 +6,9 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <exception>
+#include <system_error>
+#include <thread>
 
 namespace mscharged::platform
 {
@@ -24,6 +27,11 @@ constexpr float kMaxMeanDifference = 0.35f;
 // picture drawn anew with another framing).
 constexpr float kMinKitCoverage = 0.8f;
 constexpr float kMaxKitLeak = 0.25f;
+// A picture redrawn with the game's framing (the lightness of its texels
+// follows the game's: correlation at least this) may shade parts of its kit
+// in another colour (a stripe): this share of the kit's texels is enough then.
+constexpr float kMinFramingCorrelation = 0.75f;
+constexpr float kMinRedrawnKitCoverage = 0.6f;
 // The kit's colour: within this hue of the kit's median, with this share of
 // its chroma. Outside the kit it must match closer (a background of a
 // neighbouring hue is not the kit).
@@ -60,7 +68,17 @@ struct Rgb
     float r, g, b;
 };
 
-Rgb Pixel(const std::uint8_t* p) { return {p[0] / 255.0f, p[1] / 255.0f, p[2] / 255.0f}; }
+// A pixel's OKLab, as kit_colour::ToLab of its bytes / 255, with the sRGB
+// curve looked up for each byte value.
+Lab LabOf(const std::uint8_t* p)
+{
+    static const std::array<float, 256> linear = [] {
+        std::array<float, 256> table{};
+        for (int i = 0; i < 256; ++i) table[i] = kit_colour::ToLinear(i / 255.0f);
+        return table;
+    }();
+    return kit_colour::LinearToLab(linear[p[0]], linear[p[1]], linear[p[2]]);
+}
 
 float AngleBetween(float a, float b)
 {
@@ -90,29 +108,90 @@ float Smoothstep(float lo, float hi, float x)
 
 std::uint8_t Byte(float value) { return std::uint8_t(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f)); }
 
-// A colour's chroma and hue, and its recolour, remembered for recent colours
-// (an HD image has far fewer colours than pixels).
+// The threads that may work on an image: `threads`, or with 0 as many as the
+// machine has (at most 8).
+std::size_t Parts(unsigned threads)
+{
+    const unsigned machine = std::clamp(std::thread::hardware_concurrency(), 1u, 8u);
+    return threads ? std::min(threads, machine) : machine;
+}
+
+// Runs work(part, begin, end) over [0, count) in contiguous parts of at least
+// `grain` items, at most `most` of them, on threads of their own and the
+// calling one. Rethrows a part's exception once all are done.
+template<class Work> void InParts(std::size_t most, std::size_t count, std::size_t grain, const Work& work)
+{
+    const std::size_t parts = std::clamp<std::size_t>(count / grain, 1, most);
+    const std::size_t size = (count + parts - 1) / parts;
+    std::vector<std::exception_ptr> errors(parts);
+    auto run = [&](std::size_t part) {
+        try
+        {
+            work(part, std::min(count, part * size), std::min(count, (part + 1) * size));
+        }
+        catch (...)
+        {
+            errors[part] = std::current_exception();
+        }
+    };
+    std::vector<std::thread> helpers;
+    helpers.reserve(parts - 1);
+    std::size_t part = 0;
+    for (; part + 1 < parts; ++part)
+    {
+        try
+        {
+            helpers.emplace_back(run, part);
+        }
+        catch (const std::system_error&)
+        {
+            break; // no thread: the rest runs here
+        }
+    }
+    for (; part < parts; ++part) run(part);
+    for (auto& helper : helpers) helper.join();
+    for (const auto& error : errors)
+        if (error) std::rethrow_exception(error);
+}
+
+// Pixels of an image (or texels of a texture) per thread at least.
+constexpr std::size_t kGrain = 16384;
+
+// A colour's chroma and hue, and its recolour (made when first asked: most
+// pixels are not kit), remembered for recent colours (an HD image has far
+// fewer colours than pixels).
 class ColourCache
 {
 public:
     struct Entry
     {
-        float chroma, hue, lightness;
+        Lab lab;
+        float chroma, hue;
+        bool made;
         std::array<std::uint8_t, 3> recoloured;
     };
     ColourCache(const LchStats& from, const LchStats& to) : from_(from), to_(to), keys_(65536, kEmpty), entries_(65536) {}
-    const Entry& operator()(const std::uint8_t* p)
+    Entry& operator()(const std::uint8_t* p)
     {
         const std::uint32_t key = std::uint32_t(p[0]) << 16 | std::uint32_t(p[1]) << 8 | p[2];
         const std::uint32_t slot = (key * 2654435761u) >> 16;
         if (keys_[slot] != key)
         {
-            const Lab lab = kit_colour::ToLab(Pixel(p));
-            const Rgb c = kit_colour::Recolour(Pixel(p), from_, to_);
+            const Lab lab = LabOf(p);
             keys_[slot] = key;
-            entries_[slot] = {std::hypot(lab.a, lab.b), std::atan2(lab.b, lab.a), lab.L, {Byte(c.r), Byte(c.g), Byte(c.b)}};
+            entries_[slot] = {lab, std::hypot(lab.a, lab.b), std::atan2(lab.b, lab.a), false, {}};
         }
         return entries_[slot];
+    }
+    const std::array<std::uint8_t, 3>& Recoloured(Entry& entry)
+    {
+        if (!entry.made)
+        {
+            const Rgb c = kit_colour::RecolourLab<Rgb>(entry.lab, from_, to_);
+            entry.recoloured = {Byte(c.r), Byte(c.g), Byte(c.b)};
+            entry.made = true;
+        }
+        return entry.recoloured;
     }
 
 private:
@@ -129,24 +208,42 @@ float Saturation(float chroma, float lightness) { return chroma / std::max(light
 // the kit's colour (as the game finds a picture's kit by colour too).
 // `gameShare`: the share of the game's picture that is kit.
 bool RecolourByColour(const LchStats& original, float gameShare, const KitRecolour& kit, RgbaImage& image,
-                      std::string& why)
+                      std::size_t parts, std::string& why)
 {
     const std::size_t pixels = std::size_t(image.width) * image.height;
     const std::size_t step = std::max<std::size_t>(1, pixels / 262144);
     const float originalSaturation = Saturation(original.C, original.L);
+    const std::size_t samples = (pixels + step - 1) / step;
     // The pack's kit colour: the pixels near the game's kit colour.
+    struct Found
+    {
+        std::vector<float> L, C, a, b, S;
+        std::size_t opaque = 0;
+    };
+    std::vector<Found> found(parts);
+    InParts(parts, samples, kGrain, [&](std::size_t part, std::size_t begin, std::size_t end) {
+        Found& f = found[part];
+        for (std::size_t p = begin * step; p < end * step; p += step)
+        {
+            if (image.rgba[p * 4 + 3] < 128) continue;
+            ++f.opaque;
+            const Lab c = LabOf(&image.rgba[p * 4]);
+            const float chroma = std::hypot(c.a, c.b);
+            if (Saturation(chroma, c.L) < kColourSaturationShare * originalSaturation
+                || AngleBetween(std::atan2(c.b, c.a), original.h) > kMaxHueShift)
+                continue;
+            f.L.push_back(c.L), f.C.push_back(chroma), f.a.push_back(c.a), f.b.push_back(c.b);
+            f.S.push_back(Saturation(chroma, c.L));
+        }
+    });
     std::vector<float> L, C, a, b, S;
     std::size_t opaque = 0;
-    for (std::size_t p = 0; p < pixels; p += step)
+    for (const Found& f : found)
     {
-        if (image.rgba[p * 4 + 3] < 128) continue;
-        ++opaque;
-        const Lab c = kit_colour::ToLab(Pixel(&image.rgba[p * 4]));
-        const float chroma = std::hypot(c.a, c.b);
-        if (Saturation(chroma, c.L) < kColourSaturationShare * originalSaturation
-            || AngleBetween(std::atan2(c.b, c.a), original.h) > kMaxHueShift)
-            continue;
-        L.push_back(c.L), C.push_back(chroma), a.push_back(c.a), b.push_back(c.b), S.push_back(Saturation(chroma, c.L));
+        L.insert(L.end(), f.L.begin(), f.L.end()), C.insert(C.end(), f.C.begin(), f.C.end());
+        a.insert(a.end(), f.a.begin(), f.a.end()), b.insert(b.end(), f.b.begin(), f.b.end());
+        S.insert(S.end(), f.S.begin(), f.S.end());
+        opaque += f.opaque;
     }
     if (L.empty() || !opaque)
     {
@@ -162,13 +259,17 @@ bool RecolourByColour(const LchStats& original, float gameShare, const KitRecolo
                                        0.0f, 1.0f);
         return byHue * Smoothstep(0.45f, 0.7f, Saturation(chroma, lightness) / std::max(saturation, 0.01f));
     };
+    std::vector<std::size_t> kitCounts(found.size(), 0);
+    InParts(parts, samples, kGrain, [&](std::size_t part, std::size_t begin, std::size_t end) {
+        for (std::size_t p = begin * step; p < end * step; p += step)
+        {
+            if (image.rgba[p * 4 + 3] < 128) continue;
+            const Lab c = LabOf(&image.rgba[p * 4]);
+            kitCounts[part] += kitWeight(std::atan2(c.b, c.a), std::hypot(c.a, c.b), c.L) >= 0.5f;
+        }
+    });
     std::size_t kitPixels = 0;
-    for (std::size_t p = 0; p < pixels; p += step)
-    {
-        if (image.rgba[p * 4 + 3] < 128) continue;
-        const Lab c = kit_colour::ToLab(Pixel(&image.rgba[p * 4]));
-        kitPixels += kitWeight(std::atan2(c.b, c.a), std::hypot(c.a, c.b), c.L) >= 0.5f;
-    }
+    for (const std::size_t count : kitCounts) kitPixels += count;
     // About as much kit as the game's picture (a background of the kit's
     // colour would be much more).
     const float share = float(kitPixels) / float(opaque);
@@ -178,23 +279,27 @@ bool RecolourByColour(const LchStats& original, float gameShare, const KitRecolo
             + std::to_string(int(100.0f * gameShare)) + "%";
         return false;
     }
-    ColourCache colours(from, LchStats{kit.to[0], kit.to[1], kit.to[2]});
-    for (std::size_t p = 0; p < pixels; ++p)
-    {
-        std::uint8_t* px = &image.rgba[p * 4];
-        if (px[3] == 0) continue;
-        const auto& colour = colours(px);
-        const float weight = kitWeight(colour.hue, colour.chroma, colour.lightness);
-        if (weight <= 0.0f) continue;
-        for (int k = 0; k < 3; ++k)
-            px[k] = std::uint8_t(std::lround(px[k] + (float(colour.recoloured[k]) - px[k]) * weight));
-    }
+    InParts(parts, pixels, kGrain, [&](std::size_t, std::size_t begin, std::size_t end) {
+        ColourCache colours(from, LchStats{kit.to[0], kit.to[1], kit.to[2]});
+        for (std::size_t p = begin; p < end; ++p)
+        {
+            std::uint8_t* px = &image.rgba[p * 4];
+            if (px[3] == 0) continue;
+            auto& colour = colours(px);
+            const float weight = kitWeight(colour.hue, colour.chroma, colour.lab.L);
+            if (weight <= 0.0f) continue;
+            const auto& recoloured = colours.Recoloured(colour);
+            for (int k = 0; k < 3; ++k)
+                px[k] = std::uint8_t(std::lround(px[k] + (float(recoloured[k]) - px[k]) * weight));
+        }
+    });
     return true;
 }
 } // namespace
 
-bool RecolourHdImage(const KitRecolour& kit, RgbaImage& image, std::string* why)
+bool RecolourHdImage(const KitRecolour& kit, RgbaImage& image, std::string* why, unsigned threads)
 {
+    const std::size_t parts = Parts(threads);
     auto fail = [&](const std::string& reason) {
         if (why) *why = reason;
         return false;
@@ -211,13 +316,11 @@ bool RecolourHdImage(const KitRecolour& kit, RgbaImage& image, std::string* why)
     std::vector<float> oL, oC, oa, ob, hL, hC, ha, hb;
     std::vector<Lab> originalTexels(std::size_t(w) * h), drawnTexels(std::size_t(w) * h);
     std::vector<std::uint8_t> opaque(std::size_t(w) * h, 0);
-    double difference = 0.0;
-    std::size_t compared = 0;
-    for (std::uint32_t y = 0; y < h; ++y)
-        for (std::uint32_t x = 0; x < w; ++x)
+    InParts(parts, std::size_t(w) * h, kGrain / 4, [&](std::size_t, std::size_t begin, std::size_t end) {
+        for (std::size_t i = begin; i < end; ++i)
         {
-            const std::size_t i = std::size_t(y) * w + x;
             if (kit.rgba[i * 4 + 3] < 128) continue;
+            const auto x = std::uint32_t(i % w), y = std::uint32_t(i / w);
             const std::uint32_t x0 = std::uint32_t(x * sx), x1 = std::max(x0 + 1, std::uint32_t((x + 1) * sx));
             const std::uint32_t y0 = std::uint32_t(y * sy), y1 = std::max(y0 + 1, std::uint32_t((y + 1) * sy));
             float sum[3] = {};
@@ -225,15 +328,23 @@ bool RecolourHdImage(const KitRecolour& kit, RgbaImage& image, std::string* why)
                 for (std::uint32_t X = x0; X < x1 && X < W; ++X)
                     for (int c = 0; c < 3; ++c) sum[c] += image.rgba[(std::size_t(Y) * W + X) * 4 + c];
             const float n = float((std::min(x1, W) - x0) * (std::min(y1, H) - y0)) * 255.0f;
-            const Lab o = kit_colour::ToLab(Pixel(&kit.rgba[i * 4]));
-            const Lab d = kit_colour::ToLab(Rgb{sum[0] / n, sum[1] / n, sum[2] / n});
-            difference += std::sqrt((o.L - d.L) * (o.L - d.L) + (o.a - d.a) * (o.a - d.a) + (o.b - d.b) * (o.b - d.b));
-            ++compared;
-            originalTexels[i] = o, drawnTexels[i] = d, opaque[i] = 1;
-            if (!kit.mask[i]) continue;
-            oL.push_back(o.L), oC.push_back(std::hypot(o.a, o.b)), oa.push_back(o.a), ob.push_back(o.b);
-            hL.push_back(d.L), hC.push_back(std::hypot(d.a, d.b)), ha.push_back(d.a), hb.push_back(d.b);
+            originalTexels[i] = LabOf(&kit.rgba[i * 4]);
+            drawnTexels[i] = kit_colour::ToLab(Rgb{sum[0] / n, sum[1] / n, sum[2] / n});
+            opaque[i] = 1;
         }
+    });
+    double difference = 0.0;
+    std::size_t compared = 0;
+    for (std::size_t i = 0; i < opaque.size(); ++i)
+    {
+        if (!opaque[i]) continue;
+        const Lab o = originalTexels[i], d = drawnTexels[i];
+        difference += std::sqrt((o.L - d.L) * (o.L - d.L) + (o.a - d.a) * (o.a - d.a) + (o.b - d.b) * (o.b - d.b));
+        ++compared;
+        if (!kit.mask[i]) continue;
+        oL.push_back(o.L), oC.push_back(std::hypot(o.a, o.b)), oa.push_back(o.a), ob.push_back(o.b);
+        hL.push_back(d.L), hC.push_back(std::hypot(d.a, d.b)), ha.push_back(d.a), hb.push_back(d.b);
+    }
     if (oL.empty()) return fail("no kit texels");
     if (compared && difference / double(compared) > kMaxMeanDifference) return fail("the picture differs from the game's");
     const std::size_t gameKit = oL.size();
@@ -248,12 +359,15 @@ bool RecolourHdImage(const KitRecolour& kit, RgbaImage& image, std::string* why)
             return std::hypot(c.a, c.b) >= kKitChromaShare * colour.C
                 && AngleBetween(std::atan2(c.b, c.a), colour.h) <= kKitHue;
         };
-        std::size_t kitTexels = 0, covered = 0, leaked = 0;
+        std::size_t kitTexels = 0, covered = 0, leaked = 0, texels = 0;
+        double o1 = 0, d1 = 0, oo = 0, dd = 0, od = 0; // lightness sums
         for (std::size_t i = 0; i < opaque.size(); ++i)
         {
             if (!opaque[i]) continue;
             const bool there = kitColoured(drawnTexels[i], drawn);
             const Lab& d = drawnTexels[i];
+            const double oL = originalTexels[i].L, dL = d.L;
+            ++texels, o1 += oL, d1 += dL, oo += oL * oL, dd += dL * dL, od += oL * dL;
             const bool kitExactly = std::hypot(d.a, d.b) >= kLeakChromaShare * drawn.C
                 && AngleBetween(std::atan2(d.b, d.a), drawn.h) <= kLeakHue && std::fabs(d.L - drawn.L) <= kLeakLightness;
             if (kit.mask[i])
@@ -266,8 +380,11 @@ bool RecolourHdImage(const KitRecolour& kit, RgbaImage& image, std::string* why)
             else if (kitExactly && !kitColoured(originalTexels[i], original))
                 ++leaked;
         }
+        const double n = double(texels), oVar = oo / n - o1 / n * (o1 / n), dVar = dd / n - d1 / n * (d1 / n);
+        const bool sameFraming = oVar > 1e-9 && dVar > 1e-9
+            && (od / n - o1 / n * (d1 / n)) / std::sqrt(oVar * dVar) >= kMinFramingCorrelation;
         auto share = [&](std::size_t count) { return std::to_string(int(100.0f * float(count) / float(kitTexels))) + "%"; };
-        if (float(covered) < kMinKitCoverage * float(kitTexels))
+        if (float(covered) < (sameFraming ? kMinRedrawnKitCoverage : kMinKitCoverage) * float(kitTexels))
             misplaced = "its kit is not where the game's is (" + share(covered) + " of it)";
         else if (float(leaked) > kMaxKitLeak * float(kitTexels))
             misplaced = "it shows the kit's colour where the game's does not (" + share(leaked) + " more)";
@@ -276,7 +393,7 @@ bool RecolourHdImage(const KitRecolour& kit, RgbaImage& image, std::string* why)
     {
         if (!kit.picture || original.C <= 0.04f) return fail(misplaced);
         std::string colourWhy;
-        if (!RecolourByColour(original, float(gameKit) / float(std::max<std::size_t>(compared, 1)), kit, image,
+        if (!RecolourByColour(original, float(gameKit) / float(std::max<std::size_t>(compared, 1)), kit, image, parts,
                               colourWhy))
             return fail(misplaced + ", and by colour " + colourWhy);
         if (why) *why = "by colour: the pack's picture is drawn anew (" + misplaced + ")";
@@ -316,41 +433,57 @@ bool RecolourHdImage(const KitRecolour& kit, RgbaImage& image, std::string* why)
 
     // The HD kit's own colour (its kit-coloured pixels well inside the kit),
     // so its shading maps to the away colour as the game's texels do.
-    std::vector<float> kL, kC, ka, kb;
     const std::size_t step = std::max<std::size_t>(1, std::size_t(W) * H / 262144);
-    for (std::size_t p = 0; p < std::size_t(W) * H; p += step)
+    struct Found
     {
-        const auto X = std::uint32_t(p % W), Y = std::uint32_t(p / W);
-        if (image.rgba[p * 4 + 3] == 0 || maskAt(X, Y) < 1.0f) continue;
-        const Lab c = kit_colour::ToLab(Pixel(&image.rgba[p * 4]));
-        if (std::hypot(c.a, c.b) >= kGrey && AngleBetween(std::atan2(c.b, c.a), drawn.h) > kKitHue) continue;
-        kL.push_back(c.L), kC.push_back(std::hypot(c.a, c.b)), ka.push_back(c.a), kb.push_back(c.b);
+        std::vector<float> L, C, a, b;
+    };
+    std::vector<Found> found(parts);
+    InParts(parts, (std::size_t(W) * H + step - 1) / step, kGrain, [&](std::size_t part, std::size_t begin, std::size_t end) {
+        Found& f = found[part];
+        for (std::size_t p = begin * step; p < end * step; p += step)
+        {
+            const auto X = std::uint32_t(p % W), Y = std::uint32_t(p / W);
+            if (image.rgba[p * 4 + 3] == 0 || maskAt(X, Y) < 1.0f) continue;
+            const Lab c = LabOf(&image.rgba[p * 4]);
+            if (std::hypot(c.a, c.b) >= kGrey && AngleBetween(std::atan2(c.b, c.a), drawn.h) > kKitHue) continue;
+            f.L.push_back(c.L), f.C.push_back(std::hypot(c.a, c.b)), f.a.push_back(c.a), f.b.push_back(c.b);
+        }
+    });
+    std::vector<float> kL, kC, ka, kb;
+    for (const Found& f : found)
+    {
+        kL.insert(kL.end(), f.L.begin(), f.L.end()), kC.insert(kC.end(), f.C.begin(), f.C.end());
+        ka.insert(ka.end(), f.a.begin(), f.a.end()), kb.insert(kb.end(), f.b.begin(), f.b.end());
     }
     const LchStats from = kL.empty() ? drawn : Medians(kL, kC, ka, kb);
     const LchStats to{kit.to[0], kit.to[1], kit.to[2]};
 
-    ColourCache colours(from, to);
-    for (std::uint32_t Y = 0; Y < H; ++Y)
-        for (std::uint32_t X = 0; X < W; ++X)
-        {
-            std::uint8_t* p = &image.rgba[(std::size_t(Y) * W + X) * 4];
-            if (p[3] == 0 || sample(grown, X, Y) <= 0.0f) continue;
-            const float m = maskAt(X, Y);
-            const auto& colour = colours(p);
-            float weight;
-            if (colour.chroma < kGrey)
-                weight = Smoothstep(0.25f, 0.75f, m);
-            else
+    InParts(parts, H, std::max<std::size_t>(1, kGrain / W), [&](std::size_t, std::size_t begin, std::size_t end) {
+        ColourCache colours(from, to);
+        for (auto Y = std::uint32_t(begin); Y < end; ++Y)
+            for (std::uint32_t X = 0; X < W; ++X)
             {
-                const bool inside = m >= 0.5f;
-                const float full = inside ? kInsideHueFull : kOutsideHueFull;
-                const float none = inside ? kInsideHueNone : kOutsideHueNone;
-                weight = std::clamp((none - AngleBetween(colour.hue, from.h)) / (none - full), 0.0f, 1.0f);
+                std::uint8_t* p = &image.rgba[(std::size_t(Y) * W + X) * 4];
+                if (p[3] == 0 || sample(grown, X, Y) <= 0.0f) continue;
+                const float m = maskAt(X, Y);
+                auto& colour = colours(p);
+                float weight;
+                if (colour.chroma < kGrey)
+                    weight = Smoothstep(0.25f, 0.75f, m);
+                else
+                {
+                    const bool inside = m >= 0.5f;
+                    const float full = inside ? kInsideHueFull : kOutsideHueFull;
+                    const float none = inside ? kInsideHueNone : kOutsideHueNone;
+                    weight = std::clamp((none - AngleBetween(colour.hue, from.h)) / (none - full), 0.0f, 1.0f);
+                }
+                if (weight <= 0.0f) continue;
+                const auto& recoloured = colours.Recoloured(colour);
+                for (int k = 0; k < 3; ++k)
+                    p[k] = std::uint8_t(std::lround(p[k] + (float(recoloured[k]) - p[k]) * weight));
             }
-            if (weight <= 0.0f) continue;
-            for (int k = 0; k < 3; ++k)
-                p[k] = std::uint8_t(std::lround(p[k] + (float(colour.recoloured[k]) - p[k]) * weight));
-        }
+    });
     return true;
 }
 
@@ -365,20 +498,20 @@ std::vector<std::uint8_t> EncodeDds(const RgbaImage& image, bool mips)
         next.height = std::max(from.height / 2, 1u);
         next.rgba.resize(std::size_t(next.width) * next.height * 4);
         for (std::uint32_t y = 0; y < next.height; ++y)
+        {
+            // The 2x2 texels below (the last row or column again at an odd edge).
+            const std::uint8_t* top = &from.rgba[std::size_t(std::min(y * 2, from.height - 1)) * from.width * 4];
+            const std::uint8_t* bottom = &from.rgba[std::size_t(std::min(y * 2 + 1, from.height - 1)) * from.width * 4];
+            std::uint8_t* out = &next.rgba[std::size_t(y) * next.width * 4];
             for (std::uint32_t x = 0; x < next.width; ++x)
+            {
+                const std::size_t left = std::size_t(std::min(x * 2, from.width - 1)) * 4;
+                const std::size_t right = std::size_t(std::min(x * 2 + 1, from.width - 1)) * 4;
                 for (int c = 0; c < 4; ++c)
-                {
-                    unsigned sum = 0, n = 0;
-                    for (std::uint32_t dy = 0; dy < 2; ++dy)
-                        for (std::uint32_t dx = 0; dx < 2; ++dx)
-                        {
-                            const std::uint32_t sx = std::min(x * 2 + dx, from.width - 1);
-                            const std::uint32_t sy = std::min(y * 2 + dy, from.height - 1);
-                            sum += from.rgba[(std::size_t(sy) * from.width + sx) * 4 + c];
-                            ++n;
-                        }
-                    next.rgba[(std::size_t(y) * next.width + x) * 4 + c] = std::uint8_t((sum + n / 2) / n);
-                }
+                    out[x * 4 + c] =
+                        std::uint8_t((unsigned(top[left + c]) + top[right + c] + bottom[left + c] + bottom[right + c] + 2) / 4);
+            }
+        }
         levels.push_back(std::move(next));
     }
 
@@ -398,7 +531,10 @@ std::vector<std::uint8_t> EncodeDds(const RgbaImage& image, bool mips)
     header[25] = 0x00FF0000;
     header[26] = 0xFF000000;
     header[27] = 0x1000 | (mips ? 0x400000 | 0x8 : 0);             // texture, mipmap, complex
+    std::size_t bytes = sizeof header;
+    for (const auto& level : levels) bytes += level.rgba.size();
     std::vector<std::uint8_t> out(sizeof header);
+    out.reserve(bytes);
     for (int i = 0; i < 32; ++i)
         for (int b = 0; b < 4; ++b) out[std::size_t(i) * 4 + b] = std::uint8_t(header[i] >> (8 * b));
     for (const auto& level : levels) out.insert(out.end(), level.rgba.begin(), level.rgba.end());

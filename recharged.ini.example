@@ -26,9 +26,18 @@ save_folder = ""
 gamecube_disc = ""
 
 [display]
+# Resolution in a window: its size; the game keeps the size and place you
+# leave the window at (remember_window = false turns that off). position: where
+# it was, X,Y on the desktop, empty to centre it; Wayland desktops place windows
+# themselves.
 width = 1280
 height = 720
+remember_window = true
+position =
 fullscreen = false
+# Resolution in fullscreen: desktop keeps the display's own; a mode of the
+# display (1280x720) switches the display to it while the game runs.
+fullscreen_resolution = desktop
 vsync = true
 # Frame rate: original (the console's 60 FPS), display (your display's refresh
 # rate), unlimited, or a cap from 30 to 1000 FPS. Higher rates draw more frames
@@ -43,12 +52,21 @@ backend = auto
 # such as 10de:1f99 (Advanced -> Graphics card lists the PC's cards). A card
 # the graphics API does not offer falls back to auto.
 gpu = auto
-# Game layout: auto (by window shape), 4:3 or 16:9.
+# Aspect ratio: 16:9 (the game's widescreen layout) or 4:3, both keeping their
+# shape (a window keeps it when resized; other displays show bars), stretch
+# (fills the window or display with the 16:9 layout, or 4:3 on screens closer
+# to that shape) or auto (16:9 or 4:3 by the screen's shape, keeping it).
+# wider_view: with 16:9, a screen of another shape shows more of the stadium
+# in matches instead of bars, the HUD in the 16:9 middle; menus keep 16:9.
 aspect = 16:9
-# Picture: soft (the original TV signal, with its empty border), clean (the
-# game's picture drawn straight into the window, without the TV flicker filter
-# and the border) or sharp (clean with square pixels).
+wider_view = false
+# Picture: sharp or clean (Modern: the game's picture drawn straight into the
+# window; a 3D resolution other than window reaches the screen's size with
+# square pixels or smoothly), or soft (Original TV: the Wii's flicker filter and
+# a TV's softness). tv_border: soft shows the empty border a Wii sends around
+# its picture, which a TV hides.
 picture = sharp
+tv_border = false
 # Performance mode (gear menu on the Play button): lighter matches without
 # antialiasing, the crowd, background NPCs, ambient stadium effects, bloom,
 # heat distortion, depth of field and stadium shadows. The 3D render size,
@@ -58,8 +76,10 @@ performance_mode = false
 # (multisampling, the edges of 3D shapes); 4x_fxaa (both); or 4x_ssaa
 # (supersampling, also the edges inside textures; the most GPU time).
 antialiasing = 4x
-# 3D render size: window (one pixel per window pixel, default), native (the
-# Wii's 640x448) or 2x, 3x, 4x of it. The game's view stays the same.
+# 3D render size: window (Full in the launcher: one pixel per pixel of the
+# picture on the screen, default), native (the Wii's 640x448) or 2x, 3x, 4x of
+# it. The game's view stays the same. The 3D resolution hotkeys change it while
+# playing.
 resolution = window
 # Performance overlay: FPS | GPU % | CPU % | LAT N/A, also in fullscreen.
 # GPU/CPU are total system usage; unavailable driver counters show N/A.
@@ -101,8 +121,10 @@ player4 = off
 # When player 1 is a Wii Remote or gamepad and plays alone, the mouse also
 # points for it (left click A, right click B); the controller keeps working.
 mouse_pointer = true
-# Windows: while the launcher's Controls page is open it connects Wii Remotes
-# over Bluetooth when you press 1+2 or the SYNC button on them.
+# Windows, continuous scanning: connect a Wii Remote over Bluetooth when you
+# press 1+2 on it, while the launcher's Controls page is open and during a game
+# while a player's Remote has dropped out. (Sync on the Controls page pairs a
+# Remote for good: it then connects with any button.)
 bluetooth_search = true
 # Rumble on Wii Remotes and gamepads; how strongly gamepads rumble (0-100).
 rumble = true
@@ -146,16 +168,25 @@ shake_remote = E
 shake_nunchuk = Q
 
 [hotkeys]
-# Keys of the game window, whoever plays: one SDL key name each, not Shift,
-# Ctrl, Alt or the system key. No [keyboard] action takes them. Alt+Enter
-# (Option+Return on a Mac) switches between fullscreen and a window and cannot
-# be changed.
+# Keys of the game window, whoever plays: one SDL key name each, after the
+# Ctrl+, Shift+ and Alt+ it is pressed with (Ctrl+Shift+F12), or none to leave
+# it unused. A hotkey's key never reaches the game, so a key pressed alone
+# cannot also be a [keyboard] key. The Windows and Command keys stay the
+# system's.
 # screenshot: saves the picture in the screenshots folder.
 # hud: shows or hides the scoreboard, player markers and captions in a match.
+# stretch: stretches the picture over the window, or gives it back its 16:9 or
+# 4:3 shape; resolution_up and resolution_down: a higher or lower 3D
+# resolution; fullscreen: fullscreen or a window (Alt+Return; Option+Return on
+# a Mac). These four last for the run.
 # show_hud = false: matches start with them hidden, for clean recordings; the
 # Mega Strike meter and its defence stay.
 screenshot = P
 hud = H
+stretch = F
+resolution_up = PageUp
+resolution_down = PageDown
+fullscreen = Alt+Return
 show_hud = true
 
 # Gamepad profiles ([gamepad_profile1] to [gamepad_profile16]), made on the

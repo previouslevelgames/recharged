@@ -8,12 +8,15 @@ target_include_directories(charged_native_module_loader PUBLIC "${_module_loader
 target_compile_features(charged_native_module_loader PUBLIC cxx_std_17)
 target_link_libraries(charged_native_module_loader PRIVATE ${CMAKE_DL_LIBS})
 
-# Game modules load below 2 GB on Windows (the loader refuses others), so the
-# fixtures use the game DLLs' link options: a low image base without
-# high-entropy ASLR (see mscharged_import_original_windows_host).
+# Game modules load below 2 GB on Windows (the loader refuses others): a fixed
+# low image base, which HoldNativeModuleBase keeps free until the module loads.
+# Without dynamicbase Windows maps the module at that base instead of an ASLR
+# address the host's own allocations may already fill (#98); its relocations
+# stay for when the base is taken. The test fixtures use the same options.
 function(mscharged_low_windows_module target base)
     if(WIN32 AND TARGET "${target}")
-        target_link_options("${target}" PRIVATE -Wl,--image-base,${base} -Wl,-Xlink=-highentropyva:no)
+        target_link_options("${target}" PRIVATE -Wl,--image-base,${base}
+            -Wl,-Xlink=-dynamicbase:no -Wl,-Xlink=-highentropyva:no)
     endif()
 endfunction()
 

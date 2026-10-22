@@ -42,7 +42,7 @@ std::array<std::uint8_t,68> ReadFile(const std::filesystem::path& path) {
     return bytes;
 }
 bool Commit(const NativeRTCImage& image,bool creating=false) {
-    const auto temporary=std::filesystem::path(rtc.file.string()+".commit");
+    auto temporary=rtc.file;temporary+=".commit";
     std::error_code error;
     // Exclusive temporary-directory ownership avoids borrowing/clobbering an
     // unrelated file. A failed commit changes neither live nor source backing.

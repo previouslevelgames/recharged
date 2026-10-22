@@ -12,6 +12,9 @@ include(cmake/OriginalModuleLinkage.cmake)
 include(cmake/OriginalRetailReturnCompatibility.cmake)
 mscharged_preserve_original_return_semantics()
 include(cmake/NativeModuleLoader.cmake)
+# Windows: the game modules' fixed base below 2 GB. Only one module is loaded
+# at a time, so they share it.
+set(MSCHARGED_WINDOWS_GAME_MODULE_BASE 0x20000000)
 include(cmake/OriginalFrontendResetDiagnostic.cmake)
 include(cmake/OriginalFunctionPools.cmake)
 include(cmake/WiiStringFormat.cmake)
@@ -332,7 +335,8 @@ target_link_libraries(mscharged_original_game_vi PRIVATE aurora::vi)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SystemUsage.cmake")
 add_library(charged_original_game_host OBJECT
-    src/runtime/original_game.cpp src/runtime/frame_timing_log.cpp src/runtime/fps_overlay.cpp
+    src/runtime/original_game.cpp src/runtime/frame_timing_log.cpp src/runtime/host_overlay.cpp
+    src/runtime/game_window.cpp
     src/runtime/texture_pack_loading.cpp src/platform/hd_recolour.cpp
     src/runtime/host_frame_pacing.cpp
     src/runtime/pipeline_warmup.cpp src/runtime/pipeline_demand_log.cpp src/runtime/graphics_loading_view.cpp
@@ -389,6 +393,9 @@ function(mscharged_link_original_game target)
             # The modules carry the original zlib; the host's zlib-ng internals
             # must not be offered to them.
             -Xlinker --exclude-symbols=zcalloc,zcfree,inflate_table)
+        # main holds the game module's base from the start (#98).
+        target_compile_definitions(${target} PRIVATE
+            MSCHARGED_WINDOWS_GAME_MODULE_BASE=${MSCHARGED_WINDOWS_GAME_MODULE_BASE})
     else()
         if(MSCHARGED_DIAGNOSTIC_FRONTEND_RESET)
             set(_host_exports original_main_reset_host_exports.map)
@@ -426,10 +433,10 @@ function(mscharged_import_original_windows_host module)
     add_dependencies(${module} mscharged)
     # CMake writes the executable's import library (librecharged.dll.a); a
     # linker option rather than a file input, as that link produces it.
-    # Below 2 GB like the executable (see mscharged_link_original_game).
-    # Only one game module is loaded at a time, so they share one base.
     target_link_options(${module} PRIVATE "-L${CMAKE_BINARY_DIR}" "-l$<TARGET_FILE_BASE_NAME:mscharged>"
-        -Wl,-Xlink=-force:unresolved -Wl,--image-base,0x20000000 -Wl,-Xlink=-highentropyva:no)
+        -Wl,-Xlink=-force:unresolved)
+    # Below 2 GB like the executable (see mscharged_link_original_game).
+    mscharged_low_windows_module(${module} ${MSCHARGED_WINDOWS_GAME_MODULE_BASE})
 endfunction()
 
 include(cmake/OriginalLoadingDiagnostic.cmake)

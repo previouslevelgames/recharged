@@ -1,11 +1,12 @@
 #include "platform/screenshot_hotkey.h"
 
-#include "platform/key_bindings.h"
+#include "platform/hotkey_filter.h"
 #include "platform/screenshot_path.h"
 
 #include <SDL3/SDL.h>
 #include <aurora/video.h>
 
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <exception>
@@ -18,8 +19,8 @@ namespace
 {
 std::atomic<SDL_WindowID> sWindow{0};
 std::atomic<bool> sWatching{false};
-std::atomic<SDL_Scancode> sScreenshotKey{Hotkeys{}.screenshot};
-std::atomic<SDL_Scancode> sHudKey{Hotkeys{}.hud};
+std::atomic<int> sStretchToggles{0};
+std::atomic<int> sResolutionSteps{0};
 void (*sToggleLayers)() = nullptr;
 void (*sCycleLayer)() = nullptr;
 void (*sToggleHud)() = nullptr;
@@ -62,37 +63,44 @@ void RequestDrawDump()
     }
 }
 
+// The diagnostic keys (F8 draw dump, F9 and F10 rendering layers); a hotkey
+// set on one of them takes it.
 bool SDLCALL Watch(void*, SDL_Event* event)
 {
-    if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.scancode == sScreenshotKey.load()
-        && event->key.windowID != 0 && event->key.windowID == sWindow.load())
-        RequestScreenshot();
     if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.windowID != 0
         && event->key.windowID == sWindow.load())
     {
         if (event->key.scancode == SDL_SCANCODE_F8) RequestDrawDump();
         if (event->key.scancode == SDL_SCANCODE_F9 && sToggleLayers) sToggleLayers();
         if (event->key.scancode == SDL_SCANCODE_F10 && sCycleLayer) sCycleLayer();
-        if (event->key.scancode == sHudKey.load() && sToggleHud) sToggleHud();
     }
     return true;
+}
+
+void ToggleHud()
+{
+    if (sToggleHud) sToggleHud();
 }
 }
 
 void InitializeScreenshotHotkey(SDL_Window* window)
 {
     sWindow = window ? SDL_GetWindowID(window) : 0;
+    SetHotkeyAction(HotkeyScreenshot, RequestScreenshot);
+    SetHotkeyAction(HotkeyHud, ToggleHud);
+    SetHotkeyAction(HotkeyStretch, [] { ++sStretchToggles; });
+    SetHotkeyAction(HotkeyResolutionUp, [] { ++sResolutionSteps; });
+    SetHotkeyAction(HotkeyResolutionDown, [] { --sResolutionSteps; });
     if (!sWatching.exchange(true) && !SDL_AddEventWatch(Watch, nullptr))
     {
         sWatching = false;
-        std::fprintf(stderr, "Screenshot key unavailable: %s\n", SDL_GetError());
+        std::fprintf(stderr, "Diagnostic keys unavailable: %s\n", SDL_GetError());
     }
 }
 
-void SetHotkeys(const Hotkeys& hotkeys)
+DisplayHotkeyPresses TakeDisplayHotkeyPresses()
 {
-    sScreenshotKey = hotkeys.screenshot;
-    sHudKey = hotkeys.hud;
+    return {sStretchToggles.exchange(0), sResolutionSteps.exchange(0)};
 }
 
 void SetDebugLayerKeys(void (*toggle)(), void (*cycle)())
@@ -108,6 +116,8 @@ void SetHudKey(void (*toggle)())
 
 void ShutdownScreenshotHotkey()
 {
+    for (const auto hotkey : {HotkeyScreenshot, HotkeyHud, HotkeyStretch, HotkeyResolutionUp, HotkeyResolutionDown})
+        SetHotkeyAction(hotkey, nullptr);
     SetDebugLayerKeys(nullptr, nullptr);
     SetHudKey(nullptr);
     if (sWatching.exchange(false)) SDL_RemoveEventWatch(Watch, nullptr);

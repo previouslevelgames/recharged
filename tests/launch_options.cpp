@@ -93,6 +93,7 @@ int main()
         const auto last_aspect = Parse({"test", "--aspect", "16:9", "--aspect", "4:3"});
         Check(*last_aspect.aspect == "4:3", "Later system aspect did not win");
         Check(*Parse({"test", "--aspect", "auto"}).aspect == "auto", "Automatic initial aspect rejected");
+        Check(*Parse({"test", "--aspect=stretch"}).aspect == "stretch", "Stretched picture rejected");
         Reject([&] { Parse({"test", "--aspect", "21:9"}); });
         Reject([&] { Parse({"test", "--aspect"}); });
         LaunchOptions invalid_aspect; invalid_aspect.aspect = "invalid";

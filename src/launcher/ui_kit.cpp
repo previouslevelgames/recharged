@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <stdexcept>
 
 namespace mscharged::launcher
@@ -357,6 +358,66 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
     case Icon::More:
         for (int i = -1; i <= 1; ++i) draw->AddCircleFilled(p(0.28f * float(i), 0.0f), s * 0.075f, color);
         break;
+    case Icon::Heart:
+        // Two lobes and the point below them.
+        draw->PathLineTo(p(0.0f, 0.40f));
+        draw->PathBezierCubicCurveTo(p(-0.30f, 0.16f), p(-0.48f, 0.02f), p(-0.48f, -0.14f));
+        draw->PathBezierCubicCurveTo(p(-0.48f, -0.32f), p(-0.34f, -0.42f), p(-0.22f, -0.42f));
+        draw->PathBezierCubicCurveTo(p(-0.10f, -0.42f), p(-0.03f, -0.34f), p(0.0f, -0.24f));
+        draw->PathBezierCubicCurveTo(p(0.03f, -0.34f), p(0.10f, -0.42f), p(0.22f, -0.42f));
+        draw->PathBezierCubicCurveTo(p(0.34f, -0.42f), p(0.48f, -0.32f), p(0.48f, -0.14f));
+        draw->PathBezierCubicCurveTo(p(0.48f, 0.02f), p(0.30f, 0.16f), p(0.0f, 0.40f));
+        draw->PathFillConcave(color);
+        break;
+    case Icon::Bug:
+    {
+        // A beetle: body, head, antennae and three legs a side.
+        draw->AddEllipseFilled(p(0.0f, 0.10f), ImVec2{0.24f * s, 0.32f * s}, color);
+        draw->AddCircleFilled(p(0.0f, -0.28f), 0.13f * s, color);
+        draw->AddLine(p(-0.06f, -0.36f), p(-0.16f, -0.48f), color, t);
+        draw->AddLine(p(0.06f, -0.36f), p(0.16f, -0.48f), color, t);
+        for (int side = -1; side <= 1; side += 2)
+        {
+            const float x = float(side);
+            draw->AddLine(p(0.20f * x, -0.06f), p(0.46f * x, -0.18f), color, t);
+            draw->AddLine(p(0.22f * x, 0.10f), p(0.48f * x, 0.10f), color, t);
+            draw->AddLine(p(0.20f * x, 0.26f), p(0.44f * x, 0.40f), color, t);
+        }
+        break;
+    }
+    case Icon::Bulb:
+        // A light bulb (ideas): the glass, its neck and the screw base.
+        draw->PathArcTo(p(0.0f, -0.12f), 0.30f * s, 2.45f, 7.0f);
+        draw->PathStroke(color, 0, t);
+        draw->AddLine(p(-0.23f, 0.07f), p(-0.14f, 0.22f), color, t);
+        draw->AddLine(p(0.23f, 0.07f), p(0.14f, 0.22f), color, t);
+        draw->AddRectFilled(p(-0.15f, 0.25f), p(0.15f, 0.33f), color, 0.03f * s);
+        draw->AddRectFilled(p(-0.10f, 0.37f), p(0.10f, 0.45f), color, 0.03f * s);
+        break;
+    case Icon::Layers:
+    {
+        // Stacked tiles (what Recharged is built on): the top one, then the
+        // edges of two below it.
+        const ImVec2 top[] = {p(0.0f, -0.44f), p(0.46f, -0.20f), p(0.0f, 0.04f), p(-0.46f, -0.20f)};
+        draw->AddConvexPolyFilled(top, 4, color);
+        for (int i = 1; i <= 2; ++i)
+        {
+            const float y = -0.20f + 0.20f * float(i);
+            const ImVec2 edge[] = {p(-0.46f, y), p(0.0f, y + 0.24f), p(0.46f, y)};
+            draw->AddPolyline(edge, 3, color, 0, t);
+        }
+        break;
+    }
+    case Icon::Code:
+    {
+        // "</>" (the people who write the code).
+        const ImVec2 left[] = {p(-0.17f, -0.27f), p(-0.46f, 0.0f), p(-0.17f, 0.27f)};
+        const ImVec2 right[] = {p(0.17f, -0.27f), p(0.46f, 0.0f), p(0.17f, 0.27f)};
+        draw->AddPolyline(left, 3, color, 0, t * 1.3f);
+        draw->AddPolyline(right, 3, color, 0, t * 1.3f);
+        draw->AddLine(p(0.08f, -0.40f), p(-0.08f, 0.40f), color, t * 1.3f);
+        break;
+    }
     case Icon::Up:
     case Icon::Down:
     {
@@ -1044,6 +1105,48 @@ bool KeyCapButton(const char* id, const char* key, bool waiting)
     return pressed;
 }
 
+bool KeyComboButton(const char* id, const std::vector<std::string>& keys, bool waiting)
+{
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float gap = Dp(6);
+    const ImVec2 plus = TextSize(fonts.label, "+");
+    std::vector<float> widths;
+    float width = 0.0f;
+    for (const auto& key : keys)
+    {
+        widths.push_back(std::max(Dp(30), TextSize(fonts.caption, key.c_str()).x + Dp(18)));
+        width += widths.back() + (widths.size() > 1 ? gap * 2 + plus.x : 0.0f);
+    }
+    const float height = Dp(28);
+    const bool pressed = ImGui::InvisibleButton(id, {std::max(width, Dp(30)), height + Dp(2)});
+    const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+    const float pulse = waiting ? 0.5f + 0.5f * std::sin(float(ImGui::GetTime()) * 6.0f) : 0.0f;
+    auto* draw = ImGui::GetWindowDrawList();
+    float x = pos.x;
+    for (std::size_t n = 0; n < keys.size(); ++n)
+    {
+        if (n > 0)
+        {
+            DrawLabel(draw, fonts.label, {x + gap, pos.y + (height - plus.y) * 0.5f}, Col(color::muted), "+");
+            x += gap * 2 + plus.x;
+        }
+        const ImVec2 min{x, pos.y}, max{x + widths[n], pos.y + height};
+        draw->AddRectFilled({min.x, min.y + Dp(2)}, {max.x, max.y + Dp(2)}, Col(color::window), Dp(7));
+        draw->AddRectFilled(min, max,
+                            Col(Mix(Mix(color::field, color::border, 0.5f + 0.3f * hover), color::accent_dark, pulse)),
+                            Dp(7));
+        draw->AddRect(min, max, Col(waiting ? Mix(color::border, color::accent, 0.4f + 0.6f * pulse)
+                                            : Mix(color::border, color::accent, 0.6f * hover)),
+                      Dp(7), 0, Dp(waiting ? 1.5f : 1.0f));
+        const ImVec2 label = TextSize(fonts.caption, keys[n].c_str());
+        DrawLabel(draw, fonts.caption, {x + (widths[n] - label.x) * 0.5f, pos.y + (height - label.y) * 0.5f},
+                  Col(waiting ? color::accent : color::text), keys[n].c_str());
+        x = max.x;
+    }
+    return pressed;
+}
+
 void KeyCapArrow(int direction)
 {
     const ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -1078,6 +1181,65 @@ void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color)
     const ImVec2 points[] = {{center.x - size * 0.4f, center.y - size * 0.2f}, {center.x, center.y + size * 0.2f},
                              {center.x + size * 0.4f, center.y - size * 0.2f}};
     draw->AddPolyline(points, 3, color, 0, std::max(1.5f, size * 0.14f));
+}
+
+void DrawDiscordMark(ImDrawList* draw, ImVec2 center, float width, ImU32 color, ImU32 eyes)
+{
+    // The outline of Discord's published logo (127.14 x 96.36), sampled and
+    // scaled to a width of 1 around its centre.
+    static constexpr ImVec2 outline[] = {
+        {0.3471f, -0.3155f}, {0.2460f, -0.3540f}, {0.1408f, -0.3790f}, {0.1144f, -0.3252f},
+        {0.0573f, -0.3317f}, {-0.0001f, -0.3338f}, {-0.0575f, -0.3317f}, {-0.1146f, -0.3252f},
+        {-0.1410f, -0.3790f}, {-0.2463f, -0.3539f}, {-0.3475f, -0.3153f}, {-0.3881f, -0.2501f},
+        {-0.4261f, -0.1759f}, {-0.4524f, -0.1114f}, {-0.4749f, -0.0380f}, {-0.4900f, 0.0349f},
+        {-0.4981f, 0.1076f}, {-0.4999f, 0.1799f}, {-0.4958f, 0.2519f}, {-0.4389f, 0.2904f},
+        {-0.3791f, 0.3241f}, {-0.3167f, 0.3527f}, {-0.2427f, 0.3790f}, {-0.2138f, 0.3364f},
+        {-0.1885f, 0.2916f}, {-0.2321f, 0.2731f}, {-0.2739f, 0.2508f}, {-0.2529f, 0.2351f},
+        {-0.1889f, 0.2608f}, {-0.1320f, 0.2768f}, {-0.0738f, 0.2870f}, {-0.0049f, 0.2916f},
+        {0.0640f, 0.2882f}, {0.1320f, 0.2768f}, {0.1983f, 0.2576f}, {0.2529f, 0.2351f},
+        {0.2739f, 0.2508f}, {0.2320f, 0.2731f}, {0.1884f, 0.2916f}, {0.2136f, 0.3365f},
+        {0.2426f, 0.3790f}, {0.2965f, 0.3607f}, {0.3576f, 0.3347f}, {0.4082f, 0.3086f},
+        {0.4647f, 0.2739f}, {0.4958f, 0.2520f}, {0.4975f, 0.2313f}, {0.4988f, 0.1203f},
+        {0.4937f, 0.0619f}, {0.4846f, 0.0050f}, {0.4638f, -0.0776f}, {0.4345f, -0.1572f},
+        {0.3973f, -0.2337f}};
+    ImVec2 points[std::size(outline)];
+    for (std::size_t i = 0; i < std::size(outline); ++i)
+        points[i] = {center.x + outline[i].x * width, center.y + outline[i].y * width};
+    draw->AddConcavePolyFilled(points, int(std::size(points)), color);
+    for (const float x : {-0.1661f, 0.1661f})
+        draw->AddEllipseFilled({center.x + x * width, center.y + 0.0378f * width}, {0.0901f * width, 0.1000f * width},
+                               eyes);
+}
+
+bool DiscordButton(const char* id, const char* label, ImVec2 size)
+{
+    ImGui::PushID(id);
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton("##discord", size);
+    const bool held = ImGui::IsItemActive();
+    const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered(), 12.0f);
+    auto* draw = ImGui::GetWindowDrawList();
+    const float rounding = std::min(size.y * 0.5f, Dp(10));
+    const ImVec2 max = Add(pos, size);
+    const ImVec4 white{1, 1, 1, 1};
+    const ImVec4 fill = held ? Mix(color::discord, color::window, 0.15f) : Mix(color::discord, white, 0.10f * hover);
+    // A soft glow while hovered, as the Play button's.
+    if (hover > 0.0f)
+        for (int i = 0; i < 3; ++i)
+        {
+            const float grow = Dp(1.5f + 2.5f * float(i));
+            draw->AddRectFilled({pos.x - grow, pos.y - grow}, {max.x + grow, max.y + grow},
+                                Col(color::discord, (0.10f - 0.03f * float(i)) * hover), rounding + grow);
+        }
+    FillGradient(draw, pos, max, Col(Mix(fill, white, 0.06f)), Col(fill), rounding, false);
+    const auto& fonts = CurrentFonts();
+    const ImVec2 text = TextSize(fonts.body, label);
+    const float mark = Dp(20), gap = Dp(10);
+    const float left = pos.x + (size.x - (text.x + mark + gap)) * 0.5f;
+    DrawDiscordMark(draw, {left + mark * 0.5f, pos.y + size.y * 0.5f}, mark, IM_COL32_WHITE, Col(fill));
+    DrawLabel(draw, fonts.body, {left + mark + gap, pos.y + (size.y - text.y) * 0.5f}, IM_COL32_WHITE, label);
+    ImGui::PopID();
+    return pressed;
 }
 
 void BeginCard(const char* id, const char* title, const char* subtitle, Icon icon, float width)

@@ -52,7 +52,7 @@ void ApplyGameModeDisplay(ResolvedLaunch& launch, bool game_mode);
 std::string DescribeLaunch(const ResolvedLaunch& launch);
 const char* SettingSourceName(SettingSource source);
 inline constexpr std::string_view LaunchOptionsHelp =
-    "Launch settings: [--config FILE] [--disc FILE | --disk FILE] [--window | --fullscreen] [--size WIDTHxHEIGHT] [--aspect auto|4:3|16:9] [--frame-rate original|display|unlimited|FPS] [--no-tweaks]\n"
+    "Launch settings: [--config FILE] [--disc FILE | --disk FILE] [--window | --fullscreen] [--size WIDTHxHEIGHT] [--aspect auto|4:3|16:9|stretch] [--frame-rate original|display|unlimited|FPS] [--no-tweaks]\n"
     "Command-line settings override the INI for this run only; later options win.\n"
     "--frame-rate takes original, display, unlimited or 30 to 1000 frames per second.\n"
     "--no-tweaks turns the [gameplay] tweaks off for this run.\n"

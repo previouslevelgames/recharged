@@ -9,7 +9,9 @@
 #include <array>
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <set>
 #include <vector>
 
@@ -38,6 +40,10 @@ struct Settings
     int width = 1280;
     int height = 720;
     bool fullscreen = false;
+    // display.fullscreen_resolution: the display mode fullscreen switches the
+    // display to while the game runs ("1280x720"), or desktop (the default):
+    // the display keeps its own resolution.
+    std::string fullscreen_resolution = "desktop";
     bool vsync = true;
     // display.frame_rate: original, display, unlimited or 30-1000 frames per
     // second (bootstrap/frame_rate.h). Above the original the host paces and
@@ -46,10 +52,27 @@ struct Settings
     std::string backend = "auto";
     // display.gpu: auto (the fastest graphics card) or a card's PCI ID, such as 10de:1f99.
     std::string gpu = "auto";
+    // display.aspect: the game's layout and the picture's shape. 16:9 (its
+    // widescreen layout) or 4:3 keep that shape in any window; stretch fills
+    // the window (layout by the screen's shape); auto picks 16:9 or 4:3 by
+    // the screen's shape and keeps it.
     std::string aspect = "16:9";
     // display.picture: soft (the TV signal, as on a Wii), clean (one smooth
     // pass to the window, no TV flicker filter) or sharp (square pixels).
     std::string picture = "sharp";
+    // display.tv_border: soft shows the TV signal's blank border around the
+    // picture, as a Wii sends it; off shows only the picture, as a TV does.
+    bool tv_border = false;
+    // display.wider_view: with the 16:9 layout, a screen of another shape
+    // shows more of the stadium in matches instead of bars, the HUD in its
+    // 16:9 middle; menus keep 16:9 (a game-module option, off by default).
+    bool wider_view = false;
+    // display.remember_window: the window reopens at the size and position it
+    // was left at (display.width, display.height, display.position).
+    bool remember_window = true;
+    // display.position: the window's last position "X,Y" on the desktop,
+    // empty to centre it on its display.
+    std::string position;
     // display.performance_mode: lighter matches. Turns off multisampling, and
     // the game module skips purely decorative work (crowd, world NPCs, ambient
     // effects, bloom, heat distortion, depth of field, stadium shadow volumes);
@@ -81,12 +104,19 @@ struct Settings
         return keys;
     }
     // [hotkeys]: keys of the game window, whoever plays, one SDL key name each
-    // (no modifier; no [keyboard] action takes them): hotkeys.screenshot saves
-    // a screenshot, hotkeys.hud shows or hides the match HUD. hotkeys.show_hud
-    // = false starts every match with the HUD hidden (No HUD, issue #58;
-    // formerly gameplay.no_hud = true).
-    std::string screenshot_key = "P";
-    std::string hud_key = "H";
+    // after the Ctrl+, Shift+ and Alt+ it is pressed with, or none (no
+    // [keyboard] action takes a hotkey's key pressed alone; kHotkeys order): a
+    // screenshot, the match HUD, the stretched picture, the 3D resolution up
+    // and down, and fullscreen or a window. hotkeys.show_hud = false starts
+    // every match with the HUD hidden (No HUD, issue #58; formerly
+    // gameplay.no_hud = true).
+    std::array<std::string, HotkeyCount> hotkeys = DefaultHotkeys();
+    static std::array<std::string, HotkeyCount> DefaultHotkeys()
+    {
+        std::array<std::string, HotkeyCount> keys;
+        for (std::size_t n = 0; n < HotkeyCount; ++n) keys[n] = kHotkeys[n].defaults;
+        return keys;
+    }
     bool show_hud = true;
     // Gamepad profiles ([gamepad_profile1], [gamepad_profile2], ...): a name
     // and the inputs of each action ("a | start"); swap_sticks puts the
@@ -150,8 +180,9 @@ struct Settings
     int speaker_volume = 70;
     // The mouse also points for player 1 on a Wii Remote or gamepad playing alone.
     bool mouse_pointer = true;
-    // controls.bluetooth_search: on Windows the launcher's Controls page
-    // connects Wii Remotes over Bluetooth when 1+2 or SYNC is pressed.
+    // controls.bluetooth_search (continuous scanning): on Windows the
+    // launcher's Controls page, and a game while a player's Remote is missing,
+    // connect Wii Remotes over Bluetooth when 1+2 or SYNC is pressed.
     bool bluetooth_search = true;
     std::string sensor_bar = "bottom"; // controls.sensor_bar: bottom | top (sensor bar / DolphinBar position)
     // Host presentation and diagnostics (never game behaviour).
@@ -226,6 +257,11 @@ struct ConfigFile
     Settings settings;
     std::set<std::string> configured_keys; // Parsed INI provenance; run overrides never enter this set.
 };
+
+// display.position "X,Y": the window's position on the desktop; nullopt when
+// it is not two whole numbers from -32768 to 32767.
+std::optional<std::array<int, 2>> ParseWindowPosition(std::string_view text);
+std::string FormatWindowPosition(int x, int y);
 
 // A gamepad profile name: 1-32 characters, no surrounding spaces, quotes,
 // brackets, '=', '|' or control characters, and not "Default". Names

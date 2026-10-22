@@ -20,6 +20,12 @@ unsigned sEnabled;
 // Skip intro: the title screen is passed once per launch.
 bool sTitlePassed;
 bool sPerformanceMode;
+// Wider view (display.wider_view, issue #91): the window's picture shape
+// divided by 16:9 while the wider view fills it, 1 otherwise; and whether the
+// match's stadium was drawn since the host last asked (it fills the window
+// only then: the menus keep the game's own 16:9 picture).
+std::atomic<float> sViewShape{1.0f};
+bool sMatchView;
 int sStadium = -1; // reported by the render task during a match, taken by the host each frame
 
 // Fast menus.
@@ -136,6 +142,7 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
     sTitlePassed = false;
     sMenus = sTransition = sOnTransitionTime = false;
     sStadium = -1;
+    sMatchView = false;
     sHudFlipped = false;
     sHudHidden = mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_HUD);
 }
@@ -150,6 +157,21 @@ __attribute__((visibility("default"))) void charged_toggle_hud(void)
 __attribute__((visibility("default"))) void charged_configure_performance_mode(bool enabled)
 {
     sPerformanceMode = enabled;
+}
+
+// Host entry (wider view): the shape of the window's picture divided by 16:9,
+// from the next frame on; 1 draws the game's own 16:9 view.
+__attribute__((visibility("default"))) void charged_set_view_shape(float shape)
+{
+    sViewShape.store(shape > 0.0f && std::isfinite(shape) ? shape : 1.0f, std::memory_order_relaxed);
+}
+
+// Host entry (wider view): whether the match's stadium was drawn since the last call.
+__attribute__((visibility("default"))) bool charged_take_match_view(void)
+{
+    const bool drawn = sMatchView;
+    sMatchView = false;
+    return drawn;
 }
 
 // Host entry: the stadium of the match being rendered, -1 outside matches.
@@ -260,6 +282,82 @@ int mscharged_tweak_sound_fader(void)
 bool mscharged_tweak_performance_mode(void)
 {
     return sPerformanceMode;
+}
+
+float mscharged_tweak_view_shape(void)
+{
+    return sViewShape.load(std::memory_order_relaxed);
+}
+
+void mscharged_tweak_report_match_view(void)
+{
+    sMatchView = true;
+}
+
+namespace {
+// How much wider (wide) or taller (tall) than 16:9 the wider view is; 1 each
+// for the game's own view.
+float ViewWide()
+{
+    const float shape = mscharged_tweak_view_shape();
+    return shape > 1.0f ? shape : 1.0f;
+}
+
+float ViewTall()
+{
+    const float shape = mscharged_tweak_view_shape();
+    return shape < 1.0f ? 1.0f / shape : 1.0f;
+}
+}
+
+void mscharged_tweak_view_perspective(float* fov, float* aspect)
+{
+    // Wider: the same height, more to the sides. Taller: the same width, more
+    // above and below. Either way the game's own view keeps its size.
+    const float shape = mscharged_tweak_view_shape();
+    if (shape < 1.0f) *fov = 2.0f * std::atan(std::tan(0.5f * *fov) / shape);
+    *aspect *= shape;
+}
+
+void mscharged_tweak_view_extend(float* width, float* height)
+{
+    *width *= ViewWide();
+    *height *= ViewTall();
+}
+
+void mscharged_tweak_view_middle(float* x, float* y, float width, float height)
+{
+    *x = 0.5f * width + (*x - 0.5f * width) / ViewWide();
+    *y = 0.5f * height + (*y - 0.5f * height) / ViewTall();
+}
+
+void mscharged_tweak_view_to_wide(float* x, float* y)
+{
+    *x /= ViewWide();
+    *y /= ViewTall();
+}
+
+void mscharged_tweak_view_to_original(float* x, float* y)
+{
+    *x *= ViewWide();
+    *y *= ViewTall();
+}
+
+void mscharged_tweak_view_cover_uv(float* uv)
+{
+    // Wider: the texture keeps its width and loses some height; taller: the reverse.
+    for (int corner = 0; corner < 4; ++corner) {
+        uv[2 * corner] = 0.5f + (uv[2 * corner] - 0.5f) / ViewTall();
+        uv[2 * corner + 1] = 0.5f + (uv[2 * corner + 1] - 0.5f) / ViewWide();
+    }
+}
+
+void mscharged_tweak_view_middle_span(int horizontal, int move_position, int* position, int* length, int extent)
+{
+    const float scale = 1.0f / (horizontal ? ViewWide() : ViewTall());
+    if (scale == 1.0f) return;
+    if (move_position) *position = (int)(0.5f * extent + (*position - 0.5f * extent) * scale);
+    *length = (int)(*length * scale);
 }
 
 bool mscharged_tweak_performance_match(void)

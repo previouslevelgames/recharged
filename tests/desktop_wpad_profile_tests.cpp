@@ -1,6 +1,7 @@
 #include "platform/desktop_dpd.h"
 #include "platform/desktop_wpad.h"
-#include "platform/fullscreen_hotkey.h"
+#include "platform/hotkey_filter.h"
+#include "platform/key_bindings.h"
 #include "platform/gyro_pointer.h"
 #include "platform/wpad_sdl.h"
 #include "platform/interrupts.h"
@@ -183,22 +184,91 @@ void CustomKeysCycle() {
               "The screenshot key was bound to an action");
         Check(bindings[mscharged::KeyActionOne] == KeyBinding{SDL_SCANCODE_Z, SDL_SCANCODE_UNKNOWN},
               "An action left with only the HUD key did not keep its default");
-        bindings = mscharged::platform::ParseKeyBindings(texts, Hotkeys{SDL_SCANCODE_F5, SDL_SCANCODE_Z});
+        Hotkeys rebound;
+        rebound[mscharged::HotkeyScreenshot] = {SDL_SCANCODE_F5};
+        rebound[mscharged::HotkeyHud] = {SDL_SCANCODE_Z};
+        bindings = mscharged::platform::ParseKeyBindings(texts, rebound);
         Check(bindings[mscharged::KeyActionB] == KeyBinding{SDL_SCANCODE_RETURN, SDL_SCANCODE_P}
                   && bindings[mscharged::KeyActionOne] == KeyBinding{SDL_SCANCODE_H, SDL_SCANCODE_UNKNOWN},
               "Rebound hotkeys did not free P and H");
         texts[mscharged::KeyActionOne] = "";
-        Check(mscharged::platform::ParseKeyBindings(texts, Hotkeys{SDL_SCANCODE_F5, SDL_SCANCODE_Z})
-                      [mscharged::KeyActionOne][0] == SDL_SCANCODE_UNKNOWN,
+        Check(mscharged::platform::ParseKeyBindings(texts, rebound)[mscharged::KeyActionOne][0] == SDL_SCANCODE_UNKNOWN,
               "A default key taken by a hotkey stayed bound");
-        const auto keys = [](const Hotkeys& hotkeys, SDL_Scancode screenshot, SDL_Scancode hud) {
-            return hotkeys.screenshot == screenshot && hotkeys.hud == hud;
+        // The display hotkeys (issue #91) are no action's keys either, unless unused.
+        texts[mscharged::KeyActionC] = "F | PageUp";
+        Check(mscharged::platform::ParseKeyBindings(texts, Hotkeys{})[mscharged::KeyActionC]
+                  == KeyBinding{SDL_SCANCODE_C, SDL_SCANCODE_UNKNOWN},
+              "The stretch or 3D resolution key was bound to an action");
+        Hotkeys unused;
+        unused[mscharged::HotkeyStretch] = {};
+        Check(mscharged::platform::ParseKeyBindings(texts, unused)[mscharged::KeyActionC]
+                  == KeyBinding{SDL_SCANCODE_F, SDL_SCANCODE_UNKNOWN},
+              "An unused hotkey still took its key from an action");
+        texts[mscharged::KeyActionC] = "";
+        // A hotkey with Ctrl, Shift or Alt leaves its key to the actions.
+        rebound[mscharged::HotkeyHud] = {SDL_SCANCODE_H, SDL_KMOD_CTRL};
+        texts[mscharged::KeyActionOne] = "H";
+        Check(mscharged::platform::ParseKeyBindings(texts, rebound)[mscharged::KeyActionOne]
+                  == KeyBinding{SDL_SCANCODE_H, SDL_SCANCODE_UNKNOWN},
+              "A Ctrl hotkey took its key from an action");
+        texts[mscharged::KeyActionOne] = "";
+        using Names = std::array<std::string, mscharged::HotkeyCount>;
+        using mscharged::platform::Hotkey;
+        const auto keys = [](const Hotkeys& hotkeys, std::array<Hotkey, mscharged::HotkeyCount> expected) {
+            return hotkeys.keys == expected;
         };
-        Check(keys(ParseHotkeys("F12", "G"), SDL_SCANCODE_F12, SDL_SCANCODE_G), "Hotkeys did not parse");
-        Check(keys(ParseHotkeys("Left Alt", "Mouse 4"), SDL_SCANCODE_P, SDL_SCANCODE_H)
-                  && keys(ParseHotkeys("", "Nonsense"), SDL_SCANCODE_P, SDL_SCANCODE_H),
-              "A modifier, mouse button or unknown name became a hotkey");
-        Check(keys(ParseHotkeys("G", "G"), SDL_SCANCODE_P, SDL_SCANCODE_H), "Both hotkeys took the same key");
+        const std::array<Hotkey, mscharged::HotkeyCount> defaults = Hotkeys{}.keys;
+        Check(defaults[mscharged::HotkeyFullscreen] == Hotkey{SDL_SCANCODE_RETURN, SDL_KMOD_ALT},
+              "Fullscreen is not Alt+Return by default");
+        Check(keys(ParseHotkeys(Names{"F12", "G", "T", "F6", "F7", "F11"}),
+                   {{{SDL_SCANCODE_F12}, {SDL_SCANCODE_G}, {SDL_SCANCODE_T}, {SDL_SCANCODE_F6}, {SDL_SCANCODE_F7},
+                     {SDL_SCANCODE_F11}}}),
+              "Hotkeys did not parse");
+        Check(keys(ParseHotkeys(Names{"Ctrl+Shift+F12", "alt + h", "Control+Keypad +", "Option+Return", "Shift+PageDown",
+                                      "Ctrl+Alt+Enter"}),
+                   {{{SDL_SCANCODE_F12, SDL_KMOD_CTRL | SDL_KMOD_SHIFT}, {SDL_SCANCODE_H, SDL_KMOD_ALT},
+                     {SDL_SCANCODE_KP_PLUS, SDL_KMOD_CTRL}, {SDL_SCANCODE_RETURN, SDL_KMOD_ALT},
+                     {SDL_SCANCODE_PAGEDOWN, SDL_KMOD_SHIFT}, {SDL_SCANCODE_RETURN, SDL_KMOD_CTRL | SDL_KMOD_ALT}}}),
+              "Hotkeys with Ctrl, Shift and Alt did not parse");
+        Check(keys(ParseHotkeys(Names{"Left Alt", "Mouse 4", "", "Nonsense", "Ctrl+", "Cmd+Q"}), defaults),
+              "A modifier, mouse button, unknown name or system key became a hotkey");
+        Check(keys(ParseHotkeys(Names{"G", "G", "F", "PageUp", "PageDown", "Alt+Return"}), defaults),
+              "Two hotkeys took the same key");
+        Check(keys(ParseHotkeys(Names{"P", "H", "Alt+Return", "PageUp", "PageDown", "Alt+Return"}), defaults),
+              "Two hotkeys took the same keys");
+        Check(keys(ParseHotkeys(Names{"P", "F", "F", "PageUp", "PageDown", "Alt+Return"}), defaults),
+              "A hotkey took another one's default key");
+        Check(keys(ParseHotkeys(Names{"P", "H", "None", "none", "PageDown", "none"}),
+                   {{{SDL_SCANCODE_P}, {SDL_SCANCODE_H}, {}, {}, {SDL_SCANCODE_PAGEDOWN}, {}}}),
+              "none did not leave a hotkey unused");
+        using mscharged::platform::HotkeyName;
+        Check(HotkeyName({}) == "none" && HotkeyName({SDL_SCANCODE_PAGEUP}) == "PageUp"
+                  && HotkeyName({SDL_SCANCODE_F12, SDL_KMOD_CTRL | SDL_KMOD_SHIFT | SDL_KMOD_ALT}) == "Ctrl+Shift+Alt+F12"
+                  && ParseHotkeys(Names{"P", "H", "F", "PageUp", "PageDown", "Alt+Return"}).Find(SDL_SCANCODE_PAGEUP)
+                         == mscharged::HotkeyResolutionUp
+                  && Hotkeys{}.Find(SDL_SCANCODE_RETURN) == mscharged::HotkeyCount
+                  && Hotkeys{}.Find(SDL_SCANCODE_UNKNOWN) == mscharged::HotkeyCount,
+              "Hotkey names or lookup");
+        // A press is a hotkey with exactly its Ctrl, Shift and Alt; never with Windows or Command.
+        const Hotkeys standard;
+        Check(standard.Match(SDL_SCANCODE_RETURN, SDL_KMOD_LALT) == mscharged::HotkeyFullscreen
+                  && standard.Match(SDL_SCANCODE_KP_ENTER, SDL_KMOD_RALT) == mscharged::HotkeyFullscreen
+                  && standard.Match(SDL_SCANCODE_P, SDL_KMOD_NUM | SDL_KMOD_CAPS) == mscharged::HotkeyScreenshot,
+              "A hotkey press was not its hotkey");
+        Check(standard.Match(SDL_SCANCODE_RETURN, SDL_KMOD_NONE) == mscharged::HotkeyCount
+                  && standard.Match(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LSHIFT) == mscharged::HotkeyCount
+                  && standard.Match(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LGUI) == mscharged::HotkeyCount
+                  && standard.Match(SDL_SCANCODE_P, SDL_KMOD_LCTRL) == mscharged::HotkeyCount
+                  && standard.Match(SDL_SCANCODE_SPACE, SDL_KMOD_LALT) == mscharged::HotkeyCount,
+              "Other keys or modifiers made a hotkey");
+#if defined(__APPLE__)
+        const std::vector<std::string> fullscreen{"Option", "Return"};
+#else
+        const std::vector<std::string> fullscreen{"Alt", "Enter"};
+#endif
+        Check(mscharged::platform::HotkeyKeys(standard[mscharged::HotkeyFullscreen]) == fullscreen
+                  && mscharged::platform::HotkeyKeys({}).empty() && mscharged::platform::HotkeyLabel({}).empty(),
+              "Hotkey labels");
     }
     settings.keys[mscharged::KeyActionA] = mscharged::platform::ParseKeyBinding("F1");
     settings.keys[mscharged::KeyActionB] = mscharged::platform::ParseKeyBinding("Return");
@@ -993,24 +1063,20 @@ bool Key(Uint32 type, SDL_Scancode key, SDL_Keymod mod, bool repeat = false, SDL
     e.key.repeat = repeat;
     return SDL_PushEvent(&e);
 }
-// Alt+Enter (Option+Return on a Mac) switches the window between fullscreen
-// and a window (issue #77); its Enter never presses the keyboard's A.
+// Hotkeys pressed with Ctrl, Shift or Alt (issue #91): Alt+Enter (Option+Return
+// on a Mac) switches the window between fullscreen and a window (issue #77)
+// and its Enter never presses the keyboard's A; a hotkey set to another
+// combination does its action and keeps its key from the game too.
+int gHotkeyActions = 0;
 void FullscreenShortcutCycle() {
     using mscharged::platform::FullscreenSwitch;
-    using mscharged::platform::IsFullscreenShortcut;
     using mscharged::platform::ServiceFullscreenHotkey;
-    Check(IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT) &&
-          IsFullscreenShortcut(SDL_SCANCODE_KP_ENTER, SDL_KMOD_RALT) &&
-          IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LSHIFT), "Alt+Enter is not the shortcut");
-    Check(!IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_NONE) &&
-          !IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LCTRL) &&
-          !IsFullscreenShortcut(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LGUI) &&
-          !IsFullscreenShortcut(SDL_SCANCODE_SPACE, SDL_KMOD_LALT), "Another key or modifier made the shortcut");
     mscharged::platform::ConfigureWpadSDL({0,3,false,false});
     mscharged::platform::DesktopWpadSettings settings{};
     settings.keyboard = true;
     mscharged::platform::InitializeDesktopWpad(window, settings);
-    mscharged::platform::InitializeFullscreenHotkey(window);
+    mscharged::platform::SetHotkeys({});
+    mscharged::platform::InitializeHotkeys(window);
     WPADInit();
     Check(SDL_ShowWindow(window), "Actual SDL fixture window did not show");
     Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
@@ -1051,8 +1117,32 @@ void FullscreenShortcutCycle() {
           "Another window's Alt+Enter was taken out");
     Check(ServiceFullscreenHotkey() == FullscreenSwitch::None && !fullscreen(), "Another window's Alt+Enter switched");
 
+    // A hotkey set to Ctrl+Return does its action without pressing A; Return
+    // alone stays A, and a fullscreen hotkey set to F11 alone switches.
+    mscharged::platform::Hotkeys custom;
+    custom[mscharged::HotkeyScreenshot] = {SDL_SCANCODE_RETURN, SDL_KMOD_CTRL};
+    custom[mscharged::HotkeyFullscreen] = {SDL_SCANCODE_F11};
+    mscharged::platform::SetHotkeys(custom);
+    mscharged::platform::SetHotkeyAction(mscharged::HotkeyScreenshot, [] { ++gHotkeyActions; });
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_RCTRL), "Ctrl+Return reached the game");
+    Check(!Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN, SDL_KMOD_NONE), "Ctrl+Return's release reached the game");
+    for (int n = 0; n != 10; ++n) { Service(); SDL_Delay(2); }
+    Check(gHotkeyActions == 1 && Report().button == 0, "Ctrl+Return did not do its action alone");
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT), "The former Alt+Enter was taken out");
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "Alt+Enter no longer pressed A");
+    Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN, SDL_KMOD_NONE), "Enter's release was taken out");
+    Until([&] { return Report().button == 0; }, "Enter's release kept A");
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_F11, SDL_KMOD_NONE), "F11 reached the game");
+    Check(!Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_F11, SDL_KMOD_NONE), "F11's release reached the game");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::Fullscreen && fullscreen(), "F11 did not go fullscreen");
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_F11, SDL_KMOD_NONE), "F11 reached the game");
+    Check(ServiceFullscreenHotkey() == FullscreenSwitch::Windowed && !fullscreen(), "F11 did not leave fullscreen");
+    Check(!Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_F11, SDL_KMOD_NONE), "F11's release reached the game");
+    mscharged::platform::SetHotkeyAction(mscharged::HotkeyScreenshot, nullptr);
+    mscharged::platform::SetHotkeys({});
+
     // After shutdown Alt+Enter is A again.
-    mscharged::platform::ShutdownFullscreenHotkey();
+    mscharged::platform::ShutdownHotkeys();
     Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT), "Alt+Enter was taken out after shutdown");
     Until([&] { return Report().button == WPAD_BUTTON_A; }, "Alt+Enter after shutdown did not press A");
     Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN, SDL_KMOD_NONE), "Enter's release was taken out after shutdown");
@@ -1094,7 +1184,7 @@ int main() {
         std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys, stick directions as buttons, the gyro pointer, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
-        mscharged::platform::ShutdownFullscreenHotkey();
+        mscharged::platform::ShutdownHotkeys();
         try { mscharged::platform::ShutdownDesktopWpad(); } catch (...) {}
         try { WPADShutdown(); } catch (...) {}
         if (window) SDL_DestroyWindow(window);

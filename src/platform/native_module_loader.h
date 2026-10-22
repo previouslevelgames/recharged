@@ -10,6 +10,12 @@ namespace mscharged::platform {
 // constructor runs. ELF/Mach-O retain their current RTLD_LAZY boundary.
 // This does not supply missing source/SDK definitions or admit a game profile.
 void* LoadNativeModule(const std::filesystem::path& path);
+// Windows: keeps [base, base + size) reserved until the next LoadNativeModule,
+// which frees it for the module whose fixed image base it is. The host
+// allocates bottom-up into the same low 2 GB, and a fullscreen graphics device
+// at a high 3D resolution had taken the game module's place before the module
+// loaded (#98). False if the range was not free; elsewhere a no-op.
+bool HoldNativeModuleBase(std::uintptr_t base, std::size_t size) noexcept;
 void* FindNativeModuleSymbol(void* handle, const char* name) noexcept;
 bool ReleaseNativeModule(void* owned_reference) noexcept;
 

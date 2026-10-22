@@ -1,0 +1,34 @@
+From: mscharged-port
+Subject: Build the Dawn platform without exceptions
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host build fix (every platform; the failure shows on macOS). Apply after 0117.
+
+TracyPlatform.cpp implements Dawn's platform interfaces, so it is built
+without RTTI, as Dawn is. Since 0105 it always holds the worker pool, whose
+std::vector, std::deque and std::make_shared can throw. With RTTI off but
+exceptions on, Clang emits the type info of every exception these can throw
+(std::exception, logic_error, length_error, bad_alloc, bad_array_new_length)
+into this object. On Apple arm64 they are hidden definitions, and the static
+linker binds every reference in the program to them instead of the system's
+libc++abi: catch (const std::exception&) then no longer matches a
+std::runtime_error or std::filesystem::filesystem_error, whose type info
+comes from the system, and such an exception ended the program instead.
+
+Dawn builds its own sources with -fno-rtti -fno-exceptions; this file now
+does too, and emits no type info. It neither throws nor catches.
+
+diff --git a/cmake/aurora_core.cmake b/cmake/aurora_core.cmake
+index 4534e60..e1b076d 100644
+--- a/cmake/aurora_core.cmake
++++ b/cmake/aurora_core.cmake
+@@ -96,7 +96,9 @@ if (AURORA_ENABLE_GX)
+             lib/dawn/TracyPlatform.cpp
+     )
+     if (CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
+-        set_source_files_properties(lib/dawn/TracyPlatform.cpp PROPERTIES COMPILE_FLAGS -fno-rtti)
++        # Like Dawn itself, also without exceptions: under -fno-rtti, Clang would give the program a hidden copy
++        # of std::exception's type info, and on macOS no catch (const std::exception&) would match the system's.
++        set_source_files_properties(lib/dawn/TracyPlatform.cpp PROPERTIES COMPILE_FLAGS "-fno-rtti -fno-exceptions")
+     endif ()
+     target_link_libraries(aurora_core PRIVATE dawn::webgpu_dawn)
+     if (DAWN_ENABLE_VULKAN)

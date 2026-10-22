@@ -1,6 +1,7 @@
 #include "platform/wiimote_hid.h"
 #include "platform/desktop_dpd.h"
 #include "platform/desktop_nunchuk.h"
+#include "platform/wiimote_bluetooth.h"
 #include "platform/wpad_sdl.h"
 
 #include <SDL3/SDL.h>
@@ -77,6 +78,15 @@ constexpr int kSpeakerAttempts = 3;
 // the next sound starts in step.
 constexpr int kSpeakerMuteTail = 8;
 constexpr std::chrono::seconds kSpeakerReport{30};
+// Every report carries the rumble bit, speaker frames too. The game's rumble
+// patterns switch the motor every few dozen milliseconds, mostly together with
+// a speaker sound: while frames go out, the next one (due within 6.7 ms)
+// carries the change, and only a change no frame carried within this time gets
+// a rumble report of its own. Separate reports went out before waiting frames
+// and pushed them past the link's pace.
+constexpr std::chrono::milliseconds kRumbleRide{10};
+// A remote that becomes a player rumbles this long (WiimoteHidSettings::bind_rumble).
+constexpr std::chrono::milliseconds kBindRumble{200};
 using Frame = std::array<std::uint8_t, 22>;
 struct Writer {
     struct Report {
@@ -89,10 +99,14 @@ struct Writer {
     std::deque<Report> reports;
     std::deque<Frame> frames;
     bool frame_out = false; // a frame is being written: it counts against the queue
+    Clock::time_point last_frame{};
+    bool rumble_due = false; // a rumble change no report has carried yet
+    Clock::time_point pulse_end{}; // end of the player pulse (Remote::pulse)
     std::deque<std::pair<std::uint64_t, bool>> results; // sequence, sent
     bool stop = false, drain = false;
     // Speaker frames since the last report, under the mutex.
     unsigned sent = 0, lost = 0, retried = 0;
+    unsigned other = 0; // other reports written, rumble ones included
     std::chrono::nanoseconds write_total{}, write_max{};
     std::thread thread;
 };
@@ -110,8 +124,9 @@ struct Remote {
     bool waiting = false;
     Command current;
     Clock::time_point wait_deadline{};
-    // Read by the writer: every output report carries the rumble bit.
-    std::atomic<bool> rumble{false};
+    // Read by the writer: every output report carries the rumble bit, on
+    // while the game rumbles or the player pulse runs (StartBindRumble).
+    std::atomic<bool> rumble{false}, pulse{false};
     std::unique_ptr<Writer> writer; // while the HID device is open
     // Owner reports handed to the writer are numbered from next_write; results
     // of those before first_write belong to a remote that was lost since.
@@ -150,6 +165,10 @@ struct Driver {
     unsigned scans = 0;
     Clock::time_point next_open_retry{};
     bool reported_other_mode = false;
+    // Windows: scans over Bluetooth while a player's remote is missing.
+    std::unique_ptr<mscharged::platform::WiimoteBluetoothSearch> bluetooth;
+    bool bluetooth_active = false;
+    Clock::time_point next_bluetooth_check{};
 };
 Driver& State() { static Driver driver; return driver; }
 
@@ -161,19 +180,31 @@ std::string Describe(const Remote& remote) {
 }
 
 bool Write(const Remote& remote, SDL_hid_device* hid, std::uint8_t* report, std::size_t size) {
-    report[1] = static_cast<std::uint8_t>((report[1] & ~1u) | (remote.rumble ? 1u : 0u));
+    report[1] = static_cast<std::uint8_t>((report[1] & ~1u) | (remote.rumble || remote.pulse ? 1u : 0u));
     return mscharged::platform::WriteWiimoteReport(hid, report, size);
 }
 
 void RunWriter(Remote* remote, SDL_hid_device* hid) {
     auto& writer = *remote->writer;
     std::unique_lock lock(writer.mutex);
+    const auto busy = [&] {
+        return writer.stop || !writer.reports.empty() || !writer.frames.empty() || writer.rumble_due;
+    };
     for (;;) {
-        writer.wake.wait(lock, [&] { return writer.stop || !writer.reports.empty() || !writer.frames.empty(); });
+        // The player pulse ends here on time, however busy the owner is.
+        if (remote->pulse) writer.wake.wait_until(lock, writer.pulse_end, busy);
+        else writer.wake.wait(lock, busy);
+        if (remote->pulse && Clock::now() >= writer.pulse_end) {
+            remote->pulse = false;
+            writer.rumble_due = true;
+        }
+        if (!busy()) continue;
         if (writer.stop && (!writer.drain || writer.reports.empty())) return;
         if (!writer.reports.empty()) {
             auto report = std::move(writer.reports.front());
             writer.reports.pop_front();
+            writer.rumble_due = false;
+            ++writer.other;
             lock.unlock();
             bool sent = false;
             for (int attempt = 0; !sent && attempt < report.attempts; ++attempt) {
@@ -185,11 +216,30 @@ void RunWriter(Remote* remote, SDL_hid_device* hid) {
             continue;
         }
         if (writer.stop) return;
+        if (writer.frames.empty()) {
+            // Only a rumble change waits: frames that still flow carry it.
+            const auto ride_until = writer.last_frame + kRumbleRide;
+            if (Clock::now() < ride_until) {
+                writer.wake.wait_until(lock, ride_until, [&] {
+                    return writer.stop || !writer.reports.empty() || !writer.frames.empty();
+                });
+                continue;
+            }
+            writer.rumble_due = false;
+            ++writer.other;
+            lock.unlock();
+            std::uint8_t rumble[2]{0x10, 0x00};
+            Write(*remote, hid, rumble, sizeof rumble);
+            lock.lock();
+            continue;
+        }
         auto frame = writer.frames.front();
         writer.frames.pop_front();
         writer.frame_out = true;
-        lock.unlock();
+        writer.rumble_due = false;
         const auto start = Clock::now();
+        writer.last_frame = start;
+        lock.unlock();
         bool sent = false;
         int attempt = 0;
         while (!sent && attempt < kSpeakerAttempts) {
@@ -251,6 +301,7 @@ void ClearWriter(Remote& remote) {
     remote.writer->reports.clear();
     remote.writer->frames.clear();
     remote.writer->results.clear();
+    remote.writer->rumble_due = false;
 }
 void CompleteSpeaker(Remote& remote, bool ok) {
     if (remote.speaker_commands > 0) --remote.speaker_commands;
@@ -263,13 +314,14 @@ void ReportSpeaker(Remote& remote, Clock::time_point now) {
     const bool first = remote.next_speaker_report == Clock::time_point{};
     remote.next_speaker_report = now + kSpeakerReport;
     if (first) return;
-    unsigned sent, lost, retried;
+    unsigned sent, lost, retried, other;
     std::chrono::nanoseconds total, max;
     {
         std::lock_guard lock(remote.writer->mutex);
         sent = remote.writer->sent, lost = remote.writer->lost, retried = remote.writer->retried;
+        other = remote.writer->other;
         total = remote.writer->write_total, max = remote.writer->write_max;
-        remote.writer->sent = remote.writer->lost = remote.writer->retried = 0;
+        remote.writer->sent = remote.writer->lost = remote.writer->retried = remote.writer->other = 0;
         remote.writer->write_total = remote.writer->write_max = {};
     }
     const unsigned late = remote.speaker_late, quiet = remote.speaker_quiet;
@@ -278,8 +330,8 @@ void ReportSpeaker(Remote& remote, Clock::time_point now) {
     if (!trouble && !Verbose()) return;
     const auto ms = [](std::chrono::nanoseconds value) { return double(value.count()) / 1e6; };
     SDL_Log("Wii Remote (%s) speaker, last %d s: %u frames sent (%u after a retry), %u lost, %u too late, "
-            "%u not sent while muted; a write took %.1f ms on average, %.1f ms at most%s",
-            Describe(remote).c_str(), int(kSpeakerReport.count()), sent, retried, lost, late, quiet,
+            "%u not sent while muted, %u other reports; a frame write took %.1f ms on average, %.1f ms at most%s",
+            Describe(remote).c_str(), int(kSpeakerReport.count()), sent, retried, lost, late, quiet, other,
             sent + lost ? ms(total) / (sent + lost) : 0.0, ms(max),
             trouble ? ": the connection is too slow for clean speaker sound" : "");
 }
@@ -355,7 +407,27 @@ bool SDLCALL VirtualRumble(void* userdata, Uint16 low, Uint16 high) {
     const bool on = low || high;
     if (on == remote.rumble) return true;
     remote.rumble = on;
-    return Post(remote, {0x10, 0x00});
+    if (!remote.writer) return false;
+    {
+        std::lock_guard lock(remote.writer->mutex);
+        remote.writer->rumble_due = true;
+    }
+    remote.writer->wake.notify_one();
+    return true;
+}
+
+// A short rumble when the remote becomes a player (connects, or comes back
+// during a game), as its player light comes on; the game's own rumble keeps
+// going through it. The writer ends it.
+void StartBindRumble(Remote& remote, Clock::time_point now) {
+    if (!State().settings.bind_rumble || !remote.writer) return;
+    {
+        std::lock_guard lock(remote.writer->mutex);
+        remote.writer->pulse_end = now + kBindRumble;
+        remote.pulse = true;
+        remote.writer->rumble_due = true;
+    }
+    remote.writer->wake.notify_one();
 }
 bool SDLCALL VirtualSensors(void* userdata, bool enabled) {
     static_cast<Remote*>(userdata)->sensors = enabled;
@@ -443,6 +515,7 @@ void Lost(Remote& remote, const char* why) {
     remote.rumble = false;
     remote.speaker = remote.speaker_muted = false;
     remote.speaker_tail = remote.speaker_commands = 0;
+    remote.pulse = false;
     ClearWriter(remote);
     remote.next_probe = Clock::now() + 1s;
 }
@@ -726,13 +799,14 @@ void ReadAll(Remote& remote, Clock::time_point now) {
     }
 }
 
-void UpdateLeds(Remote& remote) {
+void UpdateLeds(Remote& remote, Clock::time_point now) {
     if (!remote.ready || !remote.virtual_id) return;
     const int channel = mscharged::platform::GetNativeWpadChannel(remote.virtual_id);
     if (channel == remote.led_channel) return;
     remote.led_channel = channel;
-    const std::uint8_t leds = channel >= 0 && channel < 4 ? std::uint8_t(0x10u << channel) : std::uint8_t(0xf0);
-    Post(remote, {0x11, leds});
+    const bool player = channel >= 0 && channel < 4;
+    Post(remote, {0x11, player ? std::uint8_t(0x10u << channel) : std::uint8_t(0xf0)});
+    if (player) StartBindRumble(remote, now);
 }
 
 bool Open(Remote& remote) {
@@ -834,8 +908,32 @@ void ServiceRemote(Remote& remote, Clock::time_point now) {
         Lost(remote, "no reports");
         return;
     }
-    UpdateLeds(remote);
+    UpdateLeds(remote, now);
     ReportSpeaker(remote, now);
+}
+
+// Continuous scanning in the game (WiimoteHidSettings::bluetooth_search):
+// scans while a player's directly connected remote is gone, so 1+2 brings it
+// back; a remote paired with Sync comes back with any button anyway. Checked
+// once a second; the scan runs on its own thread.
+void UpdateBluetoothSearch(Driver& driver, Clock::time_point now) {
+    if (!driver.settings.bluetooth_search || now < driver.next_bluetooth_check) return;
+    driver.next_bluetooth_check = now + 1s;
+    std::string missing;
+    for (const auto& [id, channel] : driver.settings.channels) {
+        if (channel < 0 || mscharged::platform::WiimoteDolphinBarSlot(id) >= 0) continue;
+        const bool ready = std::any_of(driver.remotes.begin(), driver.remotes.end(),
+                                       [&](const auto& remote) { return remote->ready && remote->id == id; });
+        if (!ready) missing += (missing.empty() ? "" : ", ") + std::to_string(channel + 1);
+    }
+    const bool search = !missing.empty();
+    if (search == driver.bluetooth_active) return;
+    if (!driver.bluetooth) driver.bluetooth = std::make_unique<mscharged::platform::WiimoteBluetoothSearch>();
+    if (!driver.bluetooth->Status().supported) return;
+    driver.bluetooth_active = search;
+    driver.bluetooth->SetActive(search);
+    if (search) SDL_Log("Wii Remote: scanning over Bluetooth for player %s (press 1+2 on the Remote)", missing.c_str());
+    else SDL_Log("Wii Remote: every player's Remote is connected; Bluetooth scanning stopped");
 }
 
 void RequireOwner() {
@@ -900,6 +998,7 @@ void ServiceWiimoteHid() {
             if (!remote->hid) Open(*remote);
     }
     for (auto& remote : driver.remotes) ServiceRemote(*remote, now);
+    UpdateBluetoothSearch(driver, now);
 }
 
 void SetWiimoteHidChannels(std::map<std::string, int> channels) {
@@ -920,12 +1019,17 @@ void ShutdownWiimoteHid() {
     RequireOwner();
     for (auto& remote : driver.remotes) {
         ClearWriter(*remote);
-        if (remote->rumble) { remote->rumble = false; Post(*remote, {0x10, 0x00}); }
+        if (remote->rumble || remote->pulse) {
+            remote->rumble = remote->pulse = false;
+            Post(*remote, {0x10, 0x00});
+        }
         DetachVirtual(*remote);
         // Only the rumble off still waits to go out.
         CloseHid(*remote, true);
     }
     driver.remotes.clear();
+    driver.bluetooth.reset();
+    driver.bluetooth_active = false;
     driver.initialized = false;
     driver.owner = {};
     SDL_hid_exit();

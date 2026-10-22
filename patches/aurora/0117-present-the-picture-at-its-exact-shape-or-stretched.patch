@@ -1,0 +1,284 @@
+From: mscharged-port
+Subject: Present the picture at its exact shape, or stretched
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host presentation (desktop output only). Apply after 0116.
+
+The clean and sharp pictures showed the game's VI picture at its share of the
+16:9 or 4:3 TV frame: Charged's 680x448 of 720x480 is 1.80:1 in 16:9, so a
+16:9 window kept thin bars above and below it (a 960x534 picture in 960x540).
+These pictures now take exactly 16:9 or 4:3, within 2 % of their own shape,
+and the window-sized EFB takes the same viewport, still one EFB pixel per
+window pixel. The soft picture shows the game's picture alone the same way,
+as a TV hides the blank border around it in its overscan; tv_frame keeps the
+whole TV frame with that border, as before.
+
+stretch fills the whole window instead, for screens of another shape;
+aurora_set_video_output_stretch switches it while the game runs, and a
+window-sized EFB then takes the window's whole shape (set_frame_buffer_fill).
+The presented geometry describes the stretched or cropped picture, so pointer
+mapping follows it. The physical VI signal, its field history and the game's
+own coordinates are unchanged.
+
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+index 6dba27a..38fa61c 100644
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -77,6 +77,10 @@ void aurora_attach_video_output_device(const AuroraVIOutputDevice* device);
+ // pixel flat and blends only across its edges) and skip the display copy's
+ // vertical flicker filter. fxaa smooths the edges of the finished desktop
+ // picture (fast approximate antialiasing) before it reaches the window.
++// The window shows the game's picture alone at exactly 16:9 or 4:3, or with
++// tv_frame (SIGNAL only) the whole TV frame with the blank border around the
++// picture. stretch fills the whole window with it instead (also
++// aurora_set_video_output_stretch).
+ typedef enum {
+   AURORA_DESKTOP_SIGNAL = 0,
+   AURORA_DESKTOP_SMOOTH = 1,
+@@ -86,8 +90,14 @@ typedef struct {
+   bool widescreen;
+   uint8_t desktop_picture; // AuroraDesktopPicture
+   bool fxaa;
++  bool tv_frame;
++  bool stretch;
+ } AuroraVIOutputConfig;
+ void aurora_configure_video_output_hardware(const AuroraVIOutputConfig* config);
++// Owner thread, after configuration: fill the window with the picture
++// (stretch) or keep its 16:9 or 4:3 shape, from the next presented frame. A
++// window-sized EFB (VILockAspectRatio) follows the picture's new shape.
++void aurora_set_video_output_stretch(bool stretch);
+ typedef struct {
+   const void* framebuffer;
+   uint64_t copy_revision, presentations;
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index da25df6..f71c1b2 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -243,6 +243,10 @@ struct Output {
+   // the retrace that latches it later must not present it a second time.
+   bool host_paced{};
+   uint8_t desktop_picture{AURORA_DESKTOP_SIGNAL};
++  // SIGNAL pictures show the whole TV frame with its blank border (tv_frame)
++  // or only the game's picture, like a TV's overscan. stretch fills the
++  // window with the picture instead of keeping its 16:9 or 4:3 shape.
++  bool tv_frame{}, stretch{};
+   AuroraVIScanout disabled_scanout{};
+   AuroraVIScanout prepared{}, committed{}, presented{};
+   std::shared_ptr<const xfb::Snapshot> prepared_snapshot, committed_snapshot, presented_snapshot;
+@@ -367,11 +371,12 @@ void require_live_device() {
+   AURORA_ASSERT(webgpu::g_instance.WaitAny(webgpu::g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
+       "Native VI presentation found a lost device");
+ }
+-// Clean and sharp desktop pictures show the game's VI picture alone: its
+-// rectangle becomes the whole desktop signal, without the blank margins the
+-// TV signal has around it. The physical signal is unchanged.
+-AuroraVIScanout desktop_view(AuroraVIScanout scanout, uint8_t picture) {
+-  if (picture != AURORA_DESKTOP_SIGNAL && scanout.vi_width && scanout.vi_height) {
++// Desktop pictures show the game's VI picture alone: its rectangle becomes the
++// whole desktop signal, without the blank margins the TV signal has around it
++// (a TV hides them in its overscan). Only a SIGNAL picture with tv_frame keeps
++// the whole frame. The physical signal is unchanged.
++AuroraVIScanout desktop_view(AuroraVIScanout scanout, uint8_t picture, bool tv_frame) {
++  if ((picture != AURORA_DESKTOP_SIGNAL || !tv_frame) && scanout.vi_width && scanout.vi_height) {
+     scanout.active_width = scanout.vi_width;
+     scanout.active_height = scanout.vi_height;
+     scanout.x_origin = scanout.y_origin = 0;
+@@ -478,24 +483,27 @@ void service(void*) {
+   auto& state = State(); AuroraVIScanout scanout;
+   std::shared_ptr<const xfb::Snapshot> snapshot; TextureHandle signal, desktop, antialiased;
+   wgpu::BindGroupLayout layout; wgpu::RenderPipeline pipeline, desktopPipeline, scaledPipeline, fxaaPipeline;
+-  bool widescreen;
++  bool widescreen, tvFrame, stretch;
+   uint8_t picture;
++  AuroraVIScanout view;
+   {
+     std::lock_guard lock(state.mutex); RequireOwner(state);
+     if (!state.pending || state.servicing) return;
+     state.servicing = true; state.pending = false;
+     scanout = state.display_enabled ? state.committed : state.disabled_scanout;
+     snapshot = state.display_enabled ? state.committed_snapshot : nullptr; widescreen = state.widescreen;
+-    picture = state.desktop_picture;
++    picture = state.desktop_picture; tvFrame = state.tv_frame; stretch = state.stretch;
++    view = desktop_view(scanout, picture, tvFrame);
+     layout = state.layout; pipeline = state.pipeline; desktopPipeline = state.desktop_pipeline;
+     scaledPipeline = state.scaled_pipeline; fxaaPipeline = state.fxaa_pipeline; signal = state.signal;
+     if (!signal || signal->size.width != scanout.active_width || signal->size.height != scanout.active_height)
+       state.signal = signal = new_signal(scanout.active_width, scanout.active_height);
+-    // Keep physical sampling untouched in both interlaced and progressive modes.
++    // Keep physical sampling untouched in both interlaced and progressive
++    // modes. A SIGNAL picture is drawn at the size of its view.
+     if (picture == AURORA_DESKTOP_SIGNAL &&
+-        (!state.desktop || state.desktop == signal || state.desktop->size.width != scanout.active_width ||
+-         state.desktop->size.height != scanout.active_height))
+-      state.desktop = new_signal(scanout.active_width, scanout.active_height);
++        (!state.desktop || state.desktop == signal || state.desktop->size.width != view.active_width ||
++         state.desktop->size.height != view.active_height))
++      state.desktop = new_signal(view.active_width, view.active_height);
+     desktop = state.desktop;
+   }
+   // The render worker owns presentation once it is queued. At most one present
+@@ -506,15 +514,17 @@ void service(void*) {
+   } active{state};
+   // Owner refresh/presentation runs outside the source VI IRQ and its locks.
+   if (window::is_presentable() && !webgpu::g_surface) webgpu::refresh_surface(true);
+-  // The displayed aspect covers the whole active signal; the desktop view's
+-  // shape is its share of that signal (the full signal for SIGNAL pictures).
+-  const auto view = desktop_view(scanout, picture);
++  // The view fills exactly 16:9 or 4:3 of the window: the TV frame is that
++  // shape, and the game's picture inside it (680x448 of 720x480 in Charged)
++  // is within 2 % of it, so it takes the whole shape rather than leaving thin
++  // bars on a screen of that shape. stretch fills the window instead.
+   const uint32_t aspectWidth = widescreen ? 16u : 4u, aspectHeight = widescreen ? 9u : 3u;
+-  const bool shaped = scanout.active_width && scanout.active_height;
+-  const auto viewport = webgpu::calculate_present_viewport(webgpu::g_graphicsConfig.surfaceConfiguration.width,
+-      webgpu::g_graphicsConfig.surfaceConfiguration.height,
+-      shaped ? aspectWidth * view.active_width * scanout.active_height : aspectWidth,
+-      shaped ? aspectHeight * view.active_height * scanout.active_width : aspectHeight);
++  const uint32_t surfaceWidth = webgpu::g_graphicsConfig.surfaceConfiguration.width;
++  const uint32_t surfaceHeight = webgpu::g_graphicsConfig.surfaceConfiguration.height;
++  const auto viewport = stretch && surfaceWidth && surfaceHeight
++      ? webgpu::Viewport{.left = 0.f, .top = 0.f, .width = static_cast<float>(surfaceWidth),
++                         .height = static_cast<float>(surfaceHeight), .znear = 0.f, .zfar = 1.f}
++      : webgpu::calculate_present_viewport(surfaceWidth, surfaceHeight, aspectWidth, aspectHeight);
+   if (picture != AURORA_DESKTOP_SIGNAL) {
+     // Smooth and sharp pictures are drawn at the window viewport's own size.
+     const auto width = std::max(1u, static_cast<uint32_t>(viewport.width));
+@@ -542,7 +552,8 @@ void service(void*) {
+   render_worker::enqueue_work([&state, scanout, snapshot = std::move(snapshot), signal = std::move(signal),
+                               layout, pipeline, desktopPipeline, scaledPipeline, fxaaPipeline, viewport, windowSize,
+                               windowId, windowIncarnation, desktop = std::move(desktop),
+-                              antialiased = std::move(antialiased), screenshot, picture, overlay = std::move(overlay)] {
++                              antialiased = std::move(antialiased), screenshot, picture, tvFrame,
++                              overlay = std::move(overlay)] {
+     struct Finished {
+       Output& state;
+       ~Finished() { std::lock_guard lock(state.mutex); state.servicing = false; }
+@@ -555,8 +566,8 @@ void service(void*) {
+     const auto encoder = webgpu::g_device.CreateCommandEncoder();
+     // Preserve the exact physical field history independently from desktop output.
+     encode_signal(encoder, signal, effective, snapshot, layout, pipeline, true);
+-    encode_signal(encoder, desktop, desktop_view(effective, picture), snapshot, layout, desktopPipeline, false, picture,
+-        &scaledPipeline);
++    encode_signal(encoder, desktop, desktop_view(effective, picture, tvFrame), snapshot, layout, desktopPipeline,
++        false, picture, &scaledPipeline);
+     // FXAA: the window and screenshots show the antialiased copy.
+     auto shown = desktop;
+     if (fxaaPipeline && !effective.black) {
+@@ -647,7 +658,8 @@ void service(void*) {
+             state.presented_snapshot ? state.presented_snapshot->revision : 0,
+             state.presentations, effective.retrace_count, effective.field, effective.black};
+         // Pointer mapping follows the presented desktop view.
+-        state.presented_geometry = detail::describe_presented_geometry(completion, desktop_view(effective, picture),
++        state.presented_geometry = detail::describe_presented_geometry(completion,
++            desktop_view(effective, picture, tvFrame),
+             windowIncarnation, windowId, windowSize.width, windowSize.height,
+             target.GetWidth(), target.GetHeight(), viewport.left, viewport.top, viewport.width, viewport.height);
+       } else { Log.warn("Native VI surface presentation failed"); }
+@@ -709,6 +721,7 @@ void shutdown(void*) {
+   state.configured = state.pending = false; state.owner = {}; state.prepared = state.committed = state.presented = {}; state.presentations = 0;
+   state.host_paced = false;
+   state.desktop_picture = AURORA_DESKTOP_SIGNAL; xfb::set_flicker_filter(true);
++  state.tv_frame = state.stretch = false;
+   state.presented_geometry = {}; state.display_enabled = true; state.disabled_scanout = {};
+ }
+ void configure(const AuroraVIOutputConfig* config) {
+@@ -771,6 +784,8 @@ void configure(const AuroraVIOutputConfig* config) {
+   state.scaled_pipeline = scaledPipeline; state.fxaa_pipeline = fxaaPipeline;
+   state.configured = true; state.widescreen = config->widescreen;
+   state.desktop_picture = config->desktop_picture;
++  state.tv_frame = config->tv_frame; state.stretch = config->stretch;
++  window::set_frame_buffer_fill(config->stretch);
+   // Smooth and sharp desktop pictures skip the display copy's flicker filter.
+   xfb::set_flicker_filter(config->desktop_picture == AURORA_DESKTOP_SIGNAL);
+   state.owner = std::this_thread::get_id(); state.pending = false; state.presentations = 0;
+@@ -815,6 +830,17 @@ bool aurora_request_video_screenshot(const char* path) {
+   return true;
+ }
+ void aurora_configure_video_output_hardware(const AuroraVIOutputConfig* config) { aurora::gfx::scanout::configure(config); }
++void aurora_set_video_output_stretch(bool stretch) {
++  auto& state = aurora::gfx::scanout::State();
++  {
++    std::lock_guard lock(state.mutex);
++    if (!state.configured) return;
++    aurora::gfx::scanout::RequireOwner(state);
++    state.stretch = stretch;
++  }
++  // The window-sized EFB follows the presented picture's new shape.
++  aurora::window::set_frame_buffer_fill(stretch);
++}
+ bool aurora_get_video_output_state(AuroraVIOutputState* result) {
+   if (!result) return false; auto& state = aurora::gfx::scanout::State(); std::lock_guard lock(state.mutex);
+   if (!state.configured) return false;
+diff --git a/lib/window.cpp b/lib/window.cpp
+index 13cda5a..1d798c0 100644
+--- a/lib/window.cpp
++++ b/lib/window.cpp
+@@ -55,6 +55,8 @@ bool g_frameBufferAspectFit = false;
+ // 0) framebuffer, 0:0 = the EFB's own shape.
+ int g_frameBufferLockedWidth = 0;
+ int g_frameBufferLockedHeight = 0;
++// A stretched picture: the locked framebuffer takes the whole window.
++bool g_frameBufferFill = false;
+ AuroraWindowSize g_windowSize;
+ std::vector<AuroraEvent> g_events;
+ std::deque<std::string> g_eventStrings;
+@@ -506,18 +508,17 @@ AuroraWindowSize get_window_size() {
+     if (baseW > 0 && baseH > 0) {
+       // An auto-sized framebuffer locked to the displayed aspect (4:3, 16:9)
+       // gets one framebuffer pixel per window pixel of the game's picture:
+-      // the same viewport the desktop picture is presented in (the picture
+-      // without the blank TV-signal margin around it), never fewer pixels
+-      // than the EFB itself.
++      // the same viewport the desktop picture is presented in (exactly that
++      // aspect, or the whole window when stretched), never fewer pixels than
++      // the EFB itself.
+       const bool locked = g_frameBufferScale == 0.f && g_frameBufferLockedWidth > 0 && g_frameBufferLockedHeight > 0;
+-      if (locked) {
+-        const auto shape = vi::picture_shape();
++      if (locked && !g_frameBufferFill) {
+         const auto picture = webgpu::calculate_present_viewport(static_cast<uint32_t>(fb_w),
+-            static_cast<uint32_t>(fb_h), static_cast<uint32_t>(g_frameBufferLockedWidth) * shape.x,
+-            static_cast<uint32_t>(g_frameBufferLockedHeight) * shape.y);
++            static_cast<uint32_t>(fb_h), static_cast<uint32_t>(g_frameBufferLockedWidth),
++            static_cast<uint32_t>(g_frameBufferLockedHeight));
+         fb_w = std::max(1, static_cast<int>(picture.width));
+         fb_h = std::max(1, static_cast<int>(picture.height));
+-      } else {
++      } else if (!locked) {
+         const auto [fitW, fitH] =
+             fit_frame_buffer_to_aspect(fb_w, fb_h, static_cast<float>(baseW) / static_cast<float>(baseH));
+         fb_w = fitW;
+@@ -660,6 +661,14 @@ void set_frame_buffer_aspect_fit(bool fit) {
+   request_frame_buffer_resize();
+ }
+ 
++void set_frame_buffer_fill(bool fill) {
++  if (g_frameBufferFill == fill) {
++    return;
++  }
++  g_frameBufferFill = fill;
++  request_frame_buffer_resize();
++}
++
+ void set_background_input(bool value) { SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, value ? "1" : "0"); }
+ 
+ } // namespace aurora::window
+diff --git a/lib/window.hpp b/lib/window.hpp
+index c74693d..44d8a47 100644
+--- a/lib/window.hpp
++++ b/lib/window.hpp
+@@ -55,9 +55,12 @@ void request_frame_buffer_resize();
+ void resize_swapchain() noexcept;
+ void set_frame_buffer_scale(float scale);
+ void set_frame_buffer_aspect_fit(bool fit);
+-// Display aspect (e.g. 16:9) of the full VI signal for the auto-sized
+-// framebuffer, which then takes the shape of the game's picture within it;
+-// 0:0 restores the EFB's own shape.
++// Display aspect (e.g. 16:9) of the picture for the auto-sized framebuffer,
++// which then takes the shape of the picture's viewport in the window; 0:0
++// restores the EFB's own shape.
+ void set_frame_buffer_locked_aspect(int width, int height);
++// A stretched picture fills the window: the auto-sized framebuffer locked to
++// an aspect then takes the window's whole shape.
++void set_frame_buffer_fill(bool fill);
+ void set_background_input(bool value);
+ }; // namespace aurora::window

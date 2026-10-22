@@ -73,6 +73,34 @@ RgbaImage Pack()
 
 const std::uint8_t* At(const RgbaImage& image, int x, int y) { return &image.rgba[(y * image.width + x) * 4]; }
 
+// The game's texture and the pack's image scaled up by `scale` (big enough to
+// be split between threads), with a gradient so the kit has many colours.
+void Scaled(int scale, KitRecolour& kit, RgbaImage& image)
+{
+    const KitRecolour small = Game();
+    kit = small;
+    kit.width = kit.height = 8 * std::uint32_t(scale);
+    kit.mask.assign(std::size_t(kit.width) * kit.height, 0);
+    kit.rgba.assign(kit.mask.size() * 4, 255);
+    for (std::uint32_t y = 0; y < kit.height; ++y)
+        for (std::uint32_t x = 0; x < kit.width; ++x)
+        {
+            const std::size_t i = std::size_t(y) * kit.width + x, from = (y / scale) * 8 + x / scale;
+            kit.mask[i] = small.mask[from];
+            for (int k = 0; k < 3; ++k) kit.rgba[i * 4 + k] = small.rgba[from * 4 + k];
+        }
+    const RgbaImage pack = Pack();
+    image.width = image.height = 32 * std::uint32_t(scale);
+    image.rgba.assign(std::size_t(image.width) * image.height * 4, 255);
+    for (std::uint32_t y = 0; y < image.height; ++y)
+        for (std::uint32_t x = 0; x < image.width; ++x)
+        {
+            const std::uint8_t* c = At(pack, int(x / scale), int(y / scale));
+            std::uint8_t* out = &image.rgba[(std::size_t(y) * image.width + x) * 4];
+            for (int k = 0; k < 3; ++k) out[k] = std::uint8_t(std::clamp(int(c[k]) + int((x + y) % 24) - 12, 0, 255));
+        }
+}
+
 float HueDegrees(const std::uint8_t* p)
 {
     const auto lab = kit_colour::ToLab(Rgb{p[0] / 255.0f, p[1] / 255.0f, p[2] / 255.0f});
@@ -143,6 +171,16 @@ int main()
                 for (int k = 0; k < 3; ++k) moved.rgba[(y * 32 + x) * 4 + k] = c[k];
             }
         Check(!RecolourHdImage(kit, moved, &why), "a kit texture with the kit elsewhere is left alone");
+        // Redrawn with the game's framing, a quarter of its kit a stripe in
+        // another colour: recoloured, the stripe kept.
+        constexpr std::uint8_t kViolet[3] = {120, 40, 190};
+        RgbaImage striped = Pack();
+        for (int y = 0; y < 32; ++y)
+            for (int x = 0; x < 4; ++x) std::copy(kViolet, kViolet + 3, striped.rgba.begin() + (y * 32 + x) * 4);
+        why.clear();
+        Check(RecolourHdImage(kit, striped, &why), "a redrawn kit with a stripe is recoloured: " + why);
+        Check(Same(At(striped, 2, 20), kViolet) && Blue(At(striped, 10, 20)) && Same(At(striped, 25, 20), kGreen),
+              "its stripe keeps its colour, the rest of its kit is blue");
         // A painted picture drawn anew: its kit is found by colour, skin and
         // other colours keep theirs.
         KitRecolour picture = kit;
@@ -165,6 +203,26 @@ int main()
         none.mask.assign(64, 0);
         Check(!RecolourHdImage(none, same, &why), "nothing to recolour");
 
+        // On every core the result is the same as on one.
+        for (const bool drawnAnew : {false, true})
+        {
+            KitRecolour big;
+            RgbaImage one;
+            Scaled(32, big, one);
+            big.picture = drawnAnew;
+            if (drawnAnew)
+                for (std::uint32_t y = 0; y < one.height; ++y) // the kit moved right by a quarter
+                    std::rotate(one.rgba.begin() + std::ptrdiff_t(y) * one.width * 4,
+                                one.rgba.begin() + std::ptrdiff_t(y + 1) * one.width * 4 - one.width,
+                                one.rgba.begin() + std::ptrdiff_t(y + 1) * one.width * 4);
+            RgbaImage all = one;
+            std::string whyOne, whyAll;
+            const bool okOne = RecolourHdImage(big, one, &whyOne, 1), okAll = RecolourHdImage(big, all, &whyAll, 0);
+            Check(okOne && okAll && (whyOne.find("by colour") != std::string::npos) == drawnAnew,
+                  std::string(drawnAnew ? "a big picture drawn anew" : "a big image") + " is recoloured: " + whyOne);
+            Check(one.rgba == all.rgba && whyOne == whyAll, "every core gives the same image as one");
+        }
+
         // DDS: header, then every level.
         const auto dds = EncodeDds(image, true);
         Check(dds.size() == 128 + (32 * 32 + 16 * 16 + 8 * 8 + 4 * 4 + 2 * 2 + 1) * 4, "DDS holds the mip chain");
@@ -172,6 +230,19 @@ int main()
         Check(std::equal(image.rgba.begin(), image.rgba.end(), dds.begin() + 128), "DDS largest level");
         const auto single = EncodeDds(image, false);
         Check(single.size() == 128 + 32 * 32 * 4 && single[28] == 1, "DDS without mips");
+        // An odd size: each smaller level averages 2x2 texels, the last row
+        // or column again at the edge.
+        RgbaImage odd;
+        odd.width = 3, odd.height = 2;
+        odd.rgba = {10, 0, 0, 255, 20, 0, 0, 255, 90, 0, 0, 255, 30, 0, 0, 255, 41, 0, 0, 255, 90, 0, 0, 255};
+        const auto oddDds = EncodeDds(odd, true);
+        Check(oddDds.size() == 128 + (6 + 1) * 4 && oddDds[128 + 24] == 25 && oddDds[128 + 27] == 255,
+              "odd-sized mip level");
+        RgbaImage tall;
+        tall.width = 1, tall.height = 3;
+        tall.rgba = {10, 0, 0, 255, 21, 0, 0, 255, 50, 0, 0, 255};
+        const auto tallDds = EncodeDds(tall, true);
+        Check(tallDds.size() == 128 + (3 + 1) * 4 && tallDds[128 + 12] == 16, "one texel wide mip level");
         std::printf("hd_recolour: %u checks passed\n", checks);
         return 0;
     }

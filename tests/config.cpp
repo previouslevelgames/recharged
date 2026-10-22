@@ -39,6 +39,8 @@ int main()
         settings.width = 1920;
         settings.height = 1080;
         settings.fullscreen = true;
+        Require(settings.fullscreen_resolution == "desktop", "Fullscreen keeps the desktop resolution by default");
+        settings.fullscreen_resolution = "1280x720";
         settings.master_volume = 65;
         settings.sound_volumes = {20, 80, 35, 50, 70, 0, 60};
         settings.players = {"remote2", "keyboard", "remote1", "off"};
@@ -50,7 +52,8 @@ int main()
         SaveConfig(file, settings);
         const auto reloaded = LoadConfig(path);
         Require(reloaded.settings.width == 1920 && reloaded.settings.height == 1080
-            && reloaded.settings.fullscreen && reloaded.settings.master_volume == 65
+            && reloaded.settings.fullscreen && reloaded.settings.fullscreen_resolution == "1280x720"
+            && reloaded.settings.master_volume == 65
             && reloaded.settings.sound_volumes == settings.sound_volumes
             && reloaded.settings.players == settings.players
             && !reloaded.settings.rumble && reloaded.settings.rumble_strength == 40
@@ -401,6 +404,39 @@ int main()
         hostSettings.frame_logging = false;
         SaveConfig(hostFile, hostSettings);
         Require(!LoadConfig(host).settings.frame_logging, "Frame logging can be disabled after enabling");
+        // [display] picture shape, TV border and the remembered window (#91).
+        {
+            Require(defaults.aspect == "16:9" && !defaults.tv_border && defaults.remember_window
+                    && defaults.position.empty(), "Display defaults");
+            std::ofstream(path) << "[display]\naspect = stretch\ntv_border = true\nremember_window = false\n"
+                                   "position = -1280, 40\n";
+            auto display = LoadConfig(path);
+            Require(display.settings.aspect == "stretch" && display.settings.tv_border
+                    && !display.settings.remember_window && display.settings.position == "-1280, 40"
+                    && ParseWindowPosition(display.settings.position) == std::array<int, 2>{-1280, 40},
+                    "Display settings read");
+            auto moved = display.settings;
+            moved.position = FormatWindowPosition(100, -20);
+            moved.width = 1500;
+            moved.height = 844;
+            SaveConfig(display, moved);
+            const auto remembered = LoadConfig(path);
+            Require(remembered.settings.position == "100,-20" && remembered.settings.width == 1500
+                    && remembered.settings.height == 844 && remembered.settings.tv_border
+                    && remembered.contents.find("position = 100,-20") != std::string::npos
+                    && remembered.contents.find("aspect = stretch") != std::string::npos,
+                    "The window's size and position did not round trip");
+            for (const char* invalid : {"[display]\nposition = 10\n", "[display]\nposition = a,b\n",
+                                        "[display]\nposition = 1,2,3\n", "[display]\nposition = 40000,0\n",
+                                        "[display]\ntv_border = maybe\n", "[display]\nremember_window = 2\n",
+                                        "[display]\naspect = wide\n"})
+            {
+                std::ofstream(path) << invalid;
+                Reject([&] { LoadConfig(path); });
+            }
+            std::ofstream(path) << "[display]\nposition =\n";
+            Require(LoadConfig(path).settings.position.empty(), "An empty position does not centre the window");
+        }
         // [discord]: the status is on by default and round trips; an
         // application ID in the INI (testing) is read but never written.
         Require(defaults.discord_status && defaults.discord_application_id.empty(), "Discord defaults");
@@ -514,8 +550,9 @@ int main()
         // [hotkeys]: the screenshot and HUD keys and No HUD's start state,
         // which an old [gameplay] no_hud still sets until the next save.
         {
-            Require(defaults.screenshot_key == "P" && defaults.hud_key == "H" && defaults.show_hud
-                    && defaults.ModuleTweakMask() == defaults.GameTweakMask(), "Hotkey defaults");
+            Require(defaults.hotkeys
+                        == std::array<std::string, HotkeyCount>{"P", "H", "F", "PageUp", "PageDown", "Alt+Return"}
+                    && defaults.show_hud && defaults.ModuleTweakMask() == defaults.GameTweakMask(), "Hotkey defaults");
             Require(GameTweakIndex(GameTweak::NoHud) == kGameTweaks.size(), "No HUD is listed as a tweak");
             std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nno_hud = true\nskip_intro = true\n";
             auto old = LoadConfig(path);
@@ -524,11 +561,15 @@ int main()
                     && old.settings.ModuleTweakMask() == (tweaks | GameTweakBit(GameTweak::NoHud)),
                     "gameplay.no_hud did not hide the HUD");
             auto changed = old.settings;
-            changed.screenshot_key = "F12";
-            changed.hud_key = "G";
+            changed.hotkeys[HotkeyScreenshot] = "F12";
+            changed.hotkeys[HotkeyHud] = "G";
+            changed.hotkeys[HotkeyFullscreen] = "Ctrl+Shift+F11";
             SaveConfig(old, changed);
             const auto saved = LoadConfig(path);
-            Require(!saved.settings.show_hud && saved.settings.screenshot_key == "F12" && saved.settings.hud_key == "G"
+            Require(!saved.settings.show_hud && saved.settings.hotkeys[HotkeyScreenshot] == "F12"
+                    && saved.settings.hotkeys[HotkeyHud] == "G" && saved.contents.find("stretch = F") != std::string::npos
+                    && saved.settings.hotkeys[HotkeyFullscreen] == "Ctrl+Shift+F11"
+                    && saved.contents.find("fullscreen = Ctrl+Shift+F11") != std::string::npos
                     && saved.contents.find("no_hud") == std::string::npos
                     && saved.contents.find("[hotkeys]") != std::string::npos
                     && saved.contents.find("show_hud = false") != std::string::npos
@@ -538,7 +579,24 @@ int main()
             Require(LoadConfig(path).settings.show_hud, "gameplay.no_hud overrode hotkeys.show_hud");
             std::ofstream(path) << "[gameplay]\nno_hud = false\n";
             Require(LoadConfig(path).settings.show_hud, "gameplay.no_hud = false hid the HUD");
-            for (const char* invalid : {"[hotkeys]\nscreenshot = P | O\n", "[hotkeys]\nhud =\n",
+            // A hotkey an older INI does not name stays unused where a
+            // [keyboard] action has its default key; one it names keeps it,
+            // and none leaves a hotkey unused.
+            std::ofstream(path) << "[keyboard]\nc = f\nz = V | PageDown\n[hotkeys]\nscreenshot = P\n";
+            const auto older = LoadConfig(path).settings;
+            Require(older.hotkeys[HotkeyStretch] == kNoHotkey && older.hotkeys[HotkeyResolutionDown] == kNoHotkey
+                    && older.hotkeys[HotkeyResolutionUp] == "PageUp" && older.hotkeys[HotkeyScreenshot] == "P"
+                    && older.hotkeys[HotkeyHud] == "H" && older.hotkeys[HotkeyFullscreen] == "Alt+Return",
+                    "A new hotkey took an older INI's keyboard key");
+            std::ofstream(path) << "[keyboard]\nc = F\n[hotkeys]\nstretch = F\nresolution_up = none\n";
+            const auto named = LoadConfig(path).settings;
+            Require(named.hotkeys[HotkeyStretch] == "F" && named.hotkeys[HotkeyResolutionUp] == kNoHotkey,
+                    "A hotkey the INI names, or none, did not stay");
+            for (const char* invalid : {"[display]\nfullscreen_resolution = big\n",
+                                        "[display]\nfullscreen_resolution = 1280 x 720\n",
+                                        "[display]\nfullscreen_resolution = 100x100\n",
+                                        "[hotkeys]\nscreenshot = P | O\n", "[hotkeys]\nhud =\n",
+                                        "[hotkeys]\nstretch = F | G\n", "[hotkeys]\nresolution_down =\n",
                                         "[hotkeys]\nshow_hud = maybe\n", "[gameplay]\nno_hud = 2\n"})
             {
                 std::ofstream(path) << invalid;

@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..0469830
+index 0000000..ee136cd
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,215 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -138,6 +138,35 @@ index 0000000..0469830
 +// random number the game or the network shares depends on what they skip.
 +bool mscharged_tweak_performance_mode(void);
 +bool mscharged_tweak_performance_match(void);
++// Wider view ([display] wider_view, issue #91, a host setting outside the
++// tweak mask): the shape of the window's picture divided by 16:9 while the
++// picture fills a window of another shape, 1 otherwise (the game's own view).
++// The host fills the window only while the match's stadium is drawn (the
++// render task reports it each frame); the menus keep the game's own picture.
++// The 3D view extends to the shape: more to the sides on a wider picture, more
++// above and below on a taller one. The HUD and the match's front-end overlays
++// keep their 16:9 layout in the picture's middle; full-screen layers cover the
++// whole picture. Every helper below leaves its values unchanged at 1.
++float mscharged_tweak_view_shape(void);
++void mscharged_tweak_report_match_view(void);
++// The vertical field of view (radians) and aspect of the extended 3D view.
++void mscharged_tweak_view_perspective(float* fov, float* aspect);
++// A 2D layout size of the 16:9 picture extended to the whole picture.
++void mscharged_tweak_view_extend(float* width, float* height);
++// Moves the point (x, y) of a width x height 2D layout of the whole picture
++// into the picture's 16:9 middle.
++void mscharged_tweak_view_middle(float* x, float* y, float width, float height);
++// Screen coordinates (-1 to 1) of the game's own view moved to where the
++// extended view shows the same point (to_wide), and back (to_original).
++void mscharged_tweak_view_to_wide(float* x, float* y);
++void mscharged_tweak_view_to_original(float* x, float* y);
++// The four texture coordinates (u, v pairs) of a texture covering the whole
++// picture: it keeps its shape, cropped to the wider or taller picture.
++void mscharged_tweak_view_cover_uv(float* uv);
++// A span (position, length) along x or y of a scissor box in EFB pixels, laid
++// out for the whole picture, moved into its 16:9 middle (a position already
++// there stays with move_position 0).
++void mscharged_tweak_view_middle_span(int horizontal, int move_position, int* position, int* length, int extent);
 +// The stadium of the match being rendered (frame recordings).
 +void mscharged_tweak_report_stadium(int stadium);
 +
@@ -188,6 +217,14 @@ index 0000000..0469830
 +    unsigned long skeletonSize, unsigned long* madeSize);
 +void* mscharged_tweak_super_team_textures(unsigned long* madeSize);
 +void mscharged_tweak_super_team_free(void* data);
++// The match's resource pool holds the robots too (AsyncLoading.cpp): the room
++// the robots of this match need in pool 0 (headers) or 1 (vertex and texture
++// data) on top of the original budget, 0 without robots; whether a robot item
++// of `size` bytes (a made model or bundle) still fits in it; and what an item
++// took of pools 0 and 1 once loaded.
++unsigned long mscharged_tweak_super_team_pool_room(int pool);
++int mscharged_tweak_super_team_fits(unsigned long size);
++void mscharged_tweak_super_team_spent(unsigned long header, unsigned long data);
 +
 +#ifdef __cplusplus
 +}

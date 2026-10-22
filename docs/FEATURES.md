@@ -71,8 +71,11 @@ come from the reconstructed source, unchanged.
 | Shake Remote / Nunchuk | E / Q | RT / RB |
 
 **Hotkeys** work whoever plays: **P** saves a screenshot, **H** shows or hides
-the HUD in a match and **Alt+Enter** (Option+Return on a Mac) switches between
-fullscreen and a window. P and H can be changed under Controls → Hotkeys.
+the HUD in a match, **F** stretches the picture over the window or gives it
+back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
+and **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
+window. Each can be changed under Controls → Hotkeys, to a key alone or with
+Ctrl, Shift or Alt.
 
 **No HUD** (Controls → Hotkeys → *Show the HUD when a match starts* off):
 matches start without the scoreboard (score, clock, items, ability meter),
@@ -86,12 +89,21 @@ play.
 - Vulkan on Linux, Vulkan or DirectX 12 on Windows (Advanced → Graphics API),
   Metal on macOS; on PCs with two GPUs, a choice of graphics card (Advanced →
   Graphics card).
-- Window or fullscreen on any monitor, freely sized, 4:3 or 16:9; Alt+Enter
-  switches while playing.
-- **3D at your window's resolution** (default) instead of the Wii's 640 x 448,
-  or fixed 2x-4x; menus and the HUD keep their original artwork.
-- Picture styles: **sharp** (default) or clean fill the window with the game's
-  picture; soft keeps the console's TV look, with the TV signal's empty border.
+- Window or fullscreen on any monitor, at a resolution your graphics card
+  offers (fullscreen keeps the display's own unless you pick another);
+  Alt+Enter switches while playing. The window reopens at the size and place
+  you left it at.
+- **16:9** (the game's widescreen layout) or **4:3**, both keeping their shape:
+  the window keeps it when resized, so the picture fills it without bars.
+  **Stretch** fills any window or display instead, and the optional **wider
+  view** fills it in matches without stretching by showing more of the
+  stadium; F switches while playing.
+- **3D at full resolution** (default) instead of the Wii's 640 x 448,
+  or fixed 2x-4x for slower graphics cards; Page Up and Page Down change it
+  while playing. Menus and the HUD keep their original artwork.
+- Picture styles: **Modern** (default) draws the game's picture crisp, straight
+  into the window; **Original TV** keeps the console's TV look, optionally with
+  the empty border a Wii sends around its picture.
 - **Antialiasing**: 4x MSAA by default, or FXAA, 4x MSAA + FXAA, or 4x SSAA,
   which also smooths the edges inside textures (Display → Antialiasing).
 - **Performance mode** (the gear on Play): lighter matches without
