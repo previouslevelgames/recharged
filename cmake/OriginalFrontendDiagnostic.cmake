@@ -176,6 +176,9 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     endif()
     if(WIN32)
         mscharged_import_original_windows_host(${target})
+    elseif(MSCHARGED_STATIC_GAME)
+        # Linked into the program (cmake/StaticGameImages.cmake), not loaded.
+        mscharged_make_static_game_image(${target} ${suffix})
     else()
         add_dependencies(charged_original_game_host ${target})
     endif()
@@ -192,6 +195,9 @@ endfunction()
 
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_us R4QE01 us)
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_eu R4QP01_REV2 eu)
+if(MSCHARGED_STATIC_GAME AND TARGET mscharged)
+    mscharged_link_static_game_images(mscharged)
+endif()
 
 if(BUILD_TESTING)
     add_test(NAME original_module_vtables

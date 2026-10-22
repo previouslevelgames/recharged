@@ -9,6 +9,7 @@ if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows)$" OR NOT CMAKE_SIZEOF_
     message(FATAL_ERROR "The original-main source diagnostic requires 64-bit Linux, macOS or Windows (LLVM-MinGW) with GCC or Clang")
 endif()
 include(cmake/OriginalModuleLinkage.cmake)
+include(cmake/StaticGameImages.cmake)
 include(cmake/OriginalRetailReturnCompatibility.cmake)
 mscharged_preserve_original_return_semantics()
 include(cmake/NativeModuleLoader.cmake)

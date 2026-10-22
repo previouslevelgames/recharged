@@ -359,7 +359,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         const char* moduleFilename=release->code==mscharged::GameCode::Europe
             ? MSCHARGED_ORIGINAL_FRONTEND_MODULE_EU_FILENAME : MSCHARGED_ORIGINAL_FRONTEND_MODULE_US_FILENAME;
         const auto modulePath=executableDirectory/moduleFilename;
-        Check(std::filesystem::is_regular_file(modulePath),"Original-main source module is missing beside the executable");
+        Check(mscharged::platform::NativeModuleAvailable(modulePath),"Original-main source module is missing beside the executable");
         // Real host window/device/FIFO owner exists before any original module
         // constructors. Original main still owns its GXInit/glStartup decisions.
         if(mscharged::MoveOldDataFolder(executableDirectory))
