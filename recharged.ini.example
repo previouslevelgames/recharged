@@ -386,3 +386,7 @@ rich_presence = true
 # rollback = true
 # rollback_test = false
 # rollback_log =
+# Competitive play: the address of a Recharged WFC server's profile service
+# (https://, or http:// for a test server on this computer or network).
+# Players sign in to it with Discord on the launcher's Competitive page.
+# profile_server =

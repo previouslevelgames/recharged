@@ -244,6 +244,11 @@ struct Settings
     // (*.nintendowifi.net) resolve. Left out or empty, the project's server:
     // earlier builds wrote an empty one into every saved file.
     std::string online_server = kDefaultOnlineServer;
+    // online.profile_server: the address of the WFC server's profile service
+    // for competitive play (https://, or http:// for a test server on this
+    // computer or network); empty: no competitive play. Players sign in to it
+    // with Discord on the launcher's Competitive page.
+    std::string profile_server;
     // [online] rollback (on by default): network matches predict the inputs
     // still on their way and roll back when they differ, instead of waiting
     // for them. Every machine in the match must have it on (the input delay

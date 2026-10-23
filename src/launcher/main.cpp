@@ -11,6 +11,7 @@
 #include "bootstrap/display_shape.h"
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
+#include "launcher/competitive_service.h"
 #include "launcher/disc_search.h"
 #include "launcher/image_library.h"
 #include "launcher/issue_reporters.h"
@@ -24,7 +25,9 @@
 #include "launcher/update_install.h"
 #include "launcher/update_service.h"
 #include "mscharged/build_version.h"
+#include "platform/competitive_rules.h"
 #include "platform/parse_float.h"
+#include "platform/profile_service.h"
 #include "platform/window_fit.h"
 #include "platform/disc.h"
 #include "platform/game_release.h"
@@ -191,14 +194,14 @@ void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_col
     DrawIcon(draw, Icon::Person, center, size * 0.62f, Col(light ? color::window : color::text));
 }
 
-enum Page { PagePlay, PageGame, PageMiis, PageSidekicks, PageRules, PageDisplay, PageAudio, PageControls, PageGameplay,
-            PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play", "Game", "Miis", "Sidekicks", "Match rules", "Display", "Audio",
-                                      "Controls", "Gameplay", "Advanced", "About"};
-constexpr const char* page_ids[] = {"play", "game", "miis", "sidekicks", "rules", "display", "audio", "controls",
-                                    "gameplay", "advanced", "about"};
-constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Pitch, Icon::Trophy, Icon::Display, Icon::Audio,
-                               Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
+enum Page { PagePlay, PageGame, PageMiis, PageSidekicks, PageRules, PageCompetitive, PageDisplay, PageAudio,
+            PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_names[] = {"Play", "Game", "Miis", "Sidekicks", "Match rules", "Competitive", "Display",
+                                      "Audio", "Controls", "Gameplay", "Advanced", "About"};
+constexpr const char* page_ids[] = {"play", "game", "miis", "sidekicks", "rules", "competitive", "display", "audio",
+                                    "controls", "gameplay", "advanced", "about"};
+constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Pitch, Icon::Trophy, Icon::Medal,
+                               Icon::Display, Icon::Audio, Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
     && std::size(page_icons) == PageCount);
 
@@ -490,6 +493,7 @@ public:
         page_ = options_.page;
         capture_ = options_.smoke_test || !options_.screenshot.empty();
         StartUpdates();
+        StartCompetitive();
 #if !defined(__APPLE__)
         // The PC's graphics cards, for Advanced -> Graphics card and the log.
         graphics_cards_scan_ = std::async(std::launch::async, platform::ListGraphicsCards);
@@ -668,7 +672,7 @@ public:
             const bool update_settled = update_preview_ || (!UpdateBusy() && !(update_capture_install_ && update_.offer));
             if (!options_.screenshot.empty() && frame >= 12
                 && ((!pending_ && !searching_ && !library_scanning_ && !candidate_pending_ && !texture_scanning_
-                     && update_settled)
+                     && update_settled && CompetitiveSettled())
                     || frame > 600))
             {
                 SDL_SetRenderScale(renderer_, 1.0f, 1.0f);
@@ -854,6 +858,7 @@ private:
         {
             file_ = LoadConfig(file_.path, true);
             draft_ = file_.settings;
+            competitive_server_ = draft_.profile_server;
             mscharged::platform::SetVerboseConsole(file_.settings.verbose_console);
             mscharged::platform::SetLogWindow(file_.settings.log_window);
             dirty_ = false;
@@ -2441,6 +2446,7 @@ private:
             graphics_cards_ = graphics_cards_scan_.get();
             platform::SessionLogLine(platform::DescribeGraphicsCards(graphics_cards_));
         }
+        UpdateCompetitive();
         if (updates_)
         {
             update_ = updates_->Snapshot();
@@ -2843,6 +2849,7 @@ private:
             case PageMiis: MiiPage(); break;
             case PageSidekicks: SidekicksPage(); break;
             case PageRules: MatchRulesPage(); break;
+            case PageCompetitive: CompetitivePage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
@@ -3695,6 +3702,277 @@ private:
             && SDL_SetClipboardText(code.c_str()))
             Notice("Friend code of " + mii.name + " copied: " + code + ".", NoticeKind::Success);
         ImGui::PopID();
+    }
+
+    // ---------------------------------------------------------- competitive
+    void StartCompetitive()
+    {
+        competitive_ = std::make_unique<CompetitiveService>(
+            platform::ProfileSessionFile(DataFolder(base_), file_.path));
+        competitive_server_ = draft_.profile_server;
+    }
+
+    // Every frame: the service follows online.profile_server; a new sign-in
+    // opens its page in the browser, and a failure on the page is told.
+    void UpdateCompetitive()
+    {
+        if (!competitive_) return;
+        competitive_->SetServer(platform::ProfileServerAddress(draft_.profile_server).value_or(std::string()));
+        competitive_status_ = competitive_->Snapshot();
+        const auto& status = competitive_status_;
+        if (status.sign_in != competitive_opened_)
+        {
+            competitive_opened_ = status.sign_in;
+            if (!status.url.empty() && !capture_) SDL_OpenURL(status.url.c_str());
+        }
+        if (status.error_serial != competitive_errors_)
+        {
+            competitive_errors_ = status.error_serial;
+            if (page_ == PageCompetitive && !status.error.empty()) Notice(status.error, NoticeKind::Error);
+        }
+    }
+
+    // Nothing on its way from the profile service (for development captures).
+    bool CompetitiveSettled() const
+    {
+        return !competitive_ || (competitive_status_.state != CompetitiveService::State::Connecting
+                                 && !competitive_status_.busy);
+    }
+
+    void CompetitivePage()
+    {
+        PageHeader("Competitive", "Matches against other Recharged players by the rules of a server. You sign in "
+                                  "with Discord, challenge a player by name, and your games meet in the game's RANKED.");
+        using State = CompetitiveService::State;
+        const auto state = competitive_status_.state;
+        const bool connected = state == State::SignedOut || state == State::SigningIn || state == State::SignedIn;
+        if (!connected) CompetitiveServerCard();
+        else
+        {
+            CompetitiveProfileCard();
+            if (state == State::SignedIn) CompetitiveMatchCard();
+            CompetitiveServerCard();
+        }
+    }
+
+    void CompetitiveServerCard()
+    {
+        using State = CompetitiveService::State;
+        const auto& status = competitive_status_;
+        const auto& fonts = CurrentFonts();
+        BeginCard("##competitive_server", "Server", "The WFC server that keeps the players, the rules and the matches.",
+                  Icon::Link);
+        if (BeginRows("##competitive_server_rows"))
+        {
+            Row("Address", "Its https:// address, from the server's admins. http:// works only for a test server on "
+                           "this computer or network.");
+            const float button = Dp(110);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - button - Dp(10));
+            const bool entered = ImGui::InputTextWithHint("##profile_server", "https://wfc.example.com",
+                                                          &competitive_server_, ImGuiInputTextFlags_EnterReturnsTrue);
+            ImGui::SameLine(0, Dp(10));
+            std::string error;
+            const auto address = platform::ProfileServerAddress(competitive_server_, &error);
+            const bool empty = competitive_server_.find_first_not_of(" \t") == std::string::npos;
+            const std::string chosen = empty ? std::string() : address.value_or(std::string());
+            const bool usable = (empty || address) && chosen != draft_.profile_server;
+            if (SecondaryButton("use_profile_server", "Use", {button, ImGui::GetFrameHeight()}, usable)
+                || (entered && usable))
+            {
+                draft_.profile_server = chosen;
+                competitive_server_ = chosen;
+                dirty_ = true;
+            }
+            if (!empty && !address) TextWrappedColored(fonts.caption, color::warning, error.c_str());
+            std::string text;
+            switch (status.state)
+            {
+            case State::NoServer: text = "Not set: competitive play is off."; break;
+            case State::Connecting: text = "Connecting..."; break;
+            case State::Unavailable:
+                text = status.error.empty() ? std::string("No answer.") : status.error;
+                if (text.back() != '.') text += '.';
+                text += " Trying again shortly.";
+                break;
+            default:
+                text = "Connected" + (status.info.version.empty() ? std::string() : " (server " + status.info.version + ")")
+                    + ".";
+                break;
+            }
+            Row("Status", text.c_str());
+            EndRows();
+        }
+        EndCard();
+    }
+
+    void CompetitiveProfileCard()
+    {
+        using State = CompetitiveService::State;
+        const auto& status = competitive_status_;
+        const auto& fonts = CurrentFonts();
+        const bool busy = status.busy;
+        BeginCard("##competitive_profile", "Your profile", "Who you play as: one Recharged player, on any computer.",
+                  Icon::Person);
+        if (status.state == State::SigningIn)
+        {
+            TextWrappedColored(fonts.body, color::muted,
+                               "Continue in your browser. Its page shows this code: go on only if it does.");
+            ImGui::Dummy({0, Dp(6)});
+            TextColored(fonts.title, color::text, status.code.c_str());
+            ImGui::Dummy({0, Dp(6)});
+            if (SecondaryButton("sign_in_again", "Open the page again", Dp(210, 40), !status.url.empty(), Icon::Link))
+                SDL_OpenURL(status.url.c_str());
+            ImGui::SameLine(0, Dp(10));
+            if (GhostButton("sign_in_stop", "Cancel", Dp(120, 40))) competitive_->StopSignIn();
+        }
+        else if (status.state == State::SignedOut && BeginRows("##competitive_sign_in"))
+        {
+            if (status.info.discord)
+            {
+                Row("Discord", "Sign in with your Discord account. Your browser opens a page with a code: it must "
+                               "match the one this launcher shows.");
+                ImGui::BeginDisabled(busy);
+                if (DiscordButton("sign_in_discord", "Sign in with Discord", {ImGui::GetContentRegionAvail().x, Dp(40)}))
+                    competitive_->SignIn();
+                ImGui::EndDisabled();
+            }
+            if (status.info.test)
+            {
+                Row("Test player", "This test server signs you in with a name alone: for a second game on this "
+                                   "computer, with its own settings file.");
+                const float button = Dp(120);
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - button - Dp(10));
+                ImGui::InputTextWithHint("##test_player", "Name", &test_player_name_);
+                ImGui::SameLine(0, Dp(10));
+                if (PrimaryButton("sign_in_test", "Sign in", {button, ImGui::GetFrameHeight()},
+                                  !busy && !test_player_name_.empty(), Icon::Person))
+                    competitive_->TestSignIn(test_player_name_);
+            }
+            if (!status.info.discord && !status.info.test)
+                Row("No sign-in", "This server offers no way to sign in yet.");
+            EndRows();
+        }
+        else if (status.state == State::SignedIn && BeginRows("##competitive_player"))
+        {
+            const auto& player = status.player;
+            std::string who = player.discord.empty() ? std::string() : "@" + player.discord;
+            if (player.test) who += who.empty() ? "Test player" : ", test player";
+            Row(player.name.c_str(), who.c_str());
+            if (SecondaryButton("sign_out", "Sign out", Dp(140, 38), !busy)) competitive_->SignOut();
+            std::string codes;
+            for (const auto& profile : player.wfc)
+                codes += (codes.empty() ? "" : "; ") + profile.friend_code + " ("
+                    + (profile.mii.empty() ? profile.game : profile.mii + ", " + profile.game) + ")";
+            Row("Friend codes", codes.empty()
+                ? "None yet. Start the game and go online once: it proves its friend code by itself."
+                : codes.c_str());
+            EndRows();
+        }
+        EndCard();
+    }
+
+    void CompetitiveMatchCard()
+    {
+        const auto& status = competitive_status_;
+        const auto& fonts = CurrentFonts();
+        const bool busy = status.busy;
+        BeginCard("##competitive_match", "Test match", "One match at a time, by one of the server's rule sets.",
+                  Icon::Trophy);
+        const auto& match = status.match;
+        const std::string opponent = match ? match->opponent.name : std::string();
+        if (match && match->state == "challenged" && match->side == "challenger")
+        {
+            if (BeginRows("##match_rows"))
+            {
+                Row(("Waiting for " + opponent).c_str(),
+                    (match->rule_set + ": " + platform::DescribeRules(match->rules)
+                     + ". A challenge without an answer ends after 10 minutes.").c_str());
+                if (SecondaryButton("withdraw", "Withdraw", Dp(140, 38), !busy)) competitive_->CancelMatch();
+                EndRows();
+            }
+        }
+        else if (match && match->state == "challenged")
+        {
+            if (BeginRows("##match_rows"))
+            {
+                Row((opponent + " challenges you").c_str(),
+                    (match->rule_set + ": " + platform::DescribeRules(match->rules) + ".").c_str());
+                const float width = (ImGui::GetContentRegionAvail().x - Dp(10)) * 0.5f;
+                if (PrimaryButton("accept", "Accept", {width, Dp(40)}, !busy, Icon::Check)) competitive_->Accept();
+                ImGui::SameLine(0, Dp(10));
+                if (SecondaryButton("decline", "Decline", {width, Dp(40)}, !busy, Icon::Close))
+                    competitive_->Decline();
+                EndRows();
+            }
+        }
+        else if (match && match->state == "accepted")
+        {
+            if (BeginRows("##match_rows"))
+            {
+                Row(("Against " + opponent).c_str(),
+                    (match->rule_set + ": " + platform::DescribeRules(match->rules) + ".").c_str());
+                if (SecondaryButton("cancel_match", "Cancel match", Dp(160, 38), !busy)) competitive_->CancelMatch();
+                EndRows();
+            }
+            Callout(match->reported
+                        ? "Your game reported the result. Waiting for " + opponent + "'s."
+                        : "Start the game, go online and choose RANKED. " + opponent
+                              + " does the same: there your games find only each other, play by these rules, and "
+                                "report the result. "
+                              + (match->paired ? "Both games are ready." : "Waiting for both games to be online."),
+                    match->paired ? color::accent : color::info, Icon::Play);
+        }
+        else
+        {
+            if (match && BeginRows("##last_match"))
+            {
+                std::string title, text = "Against " + opponent + " (" + match->rule_set + ")";
+                if (match->state == "finished")
+                    title = match->winner == "you" ? "You won" : match->winner == "opponent" ? "You lost" : "A draw";
+                else if (match->state == "disputed") title = "The reports differ";
+                else if (match->state == "declined") title = "Challenge declined";
+                else if (match->state == "expired") title = "Ended without a result";
+                else title = "Cancelled";
+                for (const auto& game : match->games)
+                    text += ". " + std::to_string(game.my_score) + "-" + std::to_string(game.opponent_score) + " "
+                        + platform::NameLabel(game.my_captain) + " vs " + platform::NameLabel(game.opponent_captain)
+                        + ", " + platform::NameLabel(game.stadium);
+                if (match->state == "disputed") text += ". The two games saw different results; nothing was counted.";
+                Row(title.c_str(), (text + ".").c_str());
+                EndRows();
+            }
+            if (BeginRows("##challenge_rows"))
+            {
+                Row("Opponent", "Their Discord username. They must have signed in here once.");
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                ImGui::InputTextWithHint("##challenge_name", "Discord username", &challenge_name_);
+                Row("Rules", "The rule sets of the server's admins.");
+                const platform::RuleSet* chosen = nullptr;
+                for (const auto& set : status.rule_sets)
+                    if (set.id == challenge_rule_set_) chosen = &set;
+                if (!chosen && !status.rule_sets.empty())
+                {
+                    chosen = &status.rule_sets.front();
+                    challenge_rule_set_ = chosen->id;
+                }
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+                if (ImGui::BeginCombo("##challenge_rules", chosen ? chosen->name.c_str() : "None on this server"))
+                {
+                    for (const auto& set : status.rule_sets)
+                        if (ImGui::Selectable(set.name.c_str(), &set == chosen)) challenge_rule_set_ = set.id;
+                    ImGui::EndCombo();
+                }
+                if (chosen)
+                    TextWrappedColored(fonts.caption, color::muted, platform::DescribeRules(chosen->rules).c_str());
+                ImGui::Dummy({0, Dp(4)});
+                const std::string name = challenge_name_.substr(0, challenge_name_.find_last_not_of(" \t") + 1);
+                if (PrimaryButton("challenge", "Challenge", {ImGui::GetContentRegionAvail().x, Dp(40)},
+                                  !busy && chosen && name.find_first_not_of(" \t") != std::string::npos, Icon::Trophy))
+                    competitive_->Challenge(name.substr(name.find_first_not_of(" \t")), challenge_rule_set_);
+                EndRows();
+            }
+        }
+        EndCard();
     }
 
     void MakeMii()
@@ -8884,6 +9162,13 @@ private:
     int preset_delete_ = -1;
     // Update check and installation (#50).
     std::unique_ptr<UpdateService> updates_;
+    // Competitive play: the service, what it showed last, the sign-in page
+    // opened last and the last failure told.
+    std::unique_ptr<CompetitiveService> competitive_;
+    CompetitiveService::Status competitive_status_;
+    std::uint64_t competitive_opened_ = 0, competitive_errors_ = 0;
+    std::string competitive_server_, test_player_name_, challenge_name_;
+    std::int64_t challenge_rule_set_ = 0;
     UpdateService::Status update_;
     bool update_dialog_ = false, update_capture_dialog_ = false, update_capture_install_ = false, restart_ = false;
     bool update_preview_ = false;
