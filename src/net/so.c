@@ -247,6 +247,13 @@ static int so_send_to(int s, const void* buf, int len, int flags, const void* so
     return so_backend_release_io(&io, sent == -1 ? so_last_error() : (int)sent);
 }
 
+// Received bytes land in this host buffer and are then copied into the game's.
+// A recvfrom straight into game memory is written by the kernel, which fails
+// (EFAULT, WSAEFAULT) instead of faulting where a rollback write-protects that
+// memory to find the pages that changed. 64 KiB holds any UDP datagram; a
+// stream receive larger than that returns part of the data, as recv may.
+static __thread unsigned char so_receive_bounce[65536];
+
 static int so_recv_from(int s, void* buf, int len, int flags, void* sockFrom)
 {
     int result = so_backend_check_active();
@@ -267,7 +274,10 @@ static int so_recv_from(int s, void* buf, int len, int flags, void* sockFrom)
     ssize_t received;
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    received = recvfrom(real_fd, buf, (so_sys_len)len, 0, (struct sockaddr *)&addr, &addrlen);
+    size_t capacity = (size_t)len < sizeof(so_receive_bounce) ? (size_t)len : sizeof(so_receive_bounce);
+    received = recvfrom(real_fd, (char*)so_receive_bounce, (so_sys_len)capacity, 0, (struct sockaddr *)&addr, &addrlen);
+    if (received > 0)
+        memcpy(buf, so_receive_bounce, (size_t)received);
     result = so_backend_release_io(&io, received == -1 ? so_last_recv_result() : (int)received);
     if (result >= 0 && sockFrom != NULL)
         from_native_sockaddr(sockFrom, &addr);
