@@ -1166,17 +1166,23 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         std::string renderResolution=launch.settings.resolution;
         // Once a second after a game frame, the network numbers: the overlay's
         // LAT in network sessions and DLY and RB in network matches with
-        // rollback.
+        // rollback; and in those matches at most 60 FPS (kRollbackFrameRate).
         auto netplaySnapshot=reinterpret_cast<ChargedNetplaySnapshotFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_netplay_snapshot"));
         std::chrono::steady_clock::time_point lastNetplay{};
         auto observeNetplay = [&] {
-            if(!hostOverlay || !netplaySnapshot)return;
+            if((!hostOverlay && !framePacing) || !netplaySnapshot)return;
             const auto now=std::chrono::steady_clock::now();
             if(now-lastNetplay<std::chrono::seconds(1))return;
             lastNetplay=now;
             ChargedNetplaySnapshot snapshot{};
             if(!netplaySnapshot(&snapshot,sizeof snapshot))return;
+            if(framePacing && framePacing->SetRollbackCap(snapshot.rollback!=0)) {
+                const auto line="Frame rate: "+framePacing->Description();
+                mscharged::platform::SessionLogLine(line);
+                std::fprintf(stderr,"%s\n",line.c_str());
+            }
+            if(!hostOverlay)return;
             mscharged::runtime::HostOverlay::Network network;
             network.session=snapshot.network!=0;
             if(snapshot.round_trip_ms>=0)network.latency_ms=snapshot.round_trip_ms;
