@@ -25,3 +25,6 @@
 0026-tweak-super-team.patch
 0027-wider-view.patch
 0028-fix-uninitialized-contact-surfaces.patch
+0029-rollback-inputs-and-replay.patch
+0030-rollback-network-prediction.patch
+0031-rollback-audio-heap.patch

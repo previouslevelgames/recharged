@@ -336,6 +336,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
         so_set_server_override(launch.settings.online_server.c_str());
 #endif
+        // [online] rollback and rollback_test: the game module's rollback reads
+        // its switches from the environment when it loads
+        // (src/platform/rollback_engine.cpp); one already set there wins.
+        if ((launch.settings.rollback || launch.settings.rollback_test)
+            && !std::getenv("RECHARGED_ROLLBACK") && !std::getenv("RECHARGED_ROLLBACK_TEST")) {
+            const char* name=launch.settings.rollback_test ? "RECHARGED_ROLLBACK_TEST" : "RECHARGED_ROLLBACK";
+            const std::string log=launch.settings.rollback_log.empty() ? "1" : launch.settings.rollback_log;
+#if defined(_WIN32)
+            _putenv_s(name,log.c_str());
+#else
+            setenv(name,log.c_str(),1);
+#endif
+        }
         std::printf("%s\n",mscharged::DescribeLaunch(launch).c_str());
         Check(!disc.empty() && std::filesystem::is_regular_file(launch.disc_path),"Supply your own game ISO/RVZ/WBFS with --disc FILE or [game] disc in the INI");
         // Validate native preferences before acquiring any hardware/module owner.

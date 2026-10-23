@@ -456,6 +456,17 @@ int main()
         hostFile = LoadConfig(host);
         Require(hostFile.contents.find("application_id") == std::string::npos
                 && hostFile.contents.find("[discord]") != std::string::npos, "Saving wrote a Discord application ID");
+        // [online] rollback: off, no log by default; read, never written. The
+        // starting input delay is no setting: an old rollback_delay is ignored.
+        Require(!defaults.rollback && !defaults.rollback_test && defaults.rollback_log.empty(), "Rollback defaults");
+        std::ofstream(path) << "[online]\nrollback = true\nrollback_test = true\nrollback_delay = 9\nrollback_log = rb.txt\n";
+        auto rollbackFile = LoadConfig(path);
+        Require(rollbackFile.settings.rollback && rollbackFile.settings.rollback_test
+                && rollbackFile.settings.rollback_log == "rb.txt", "Rollback settings read");
+        SaveConfig(rollbackFile, rollbackFile.settings);
+        Require(LoadConfig(path).contents.find("rollback_log = rb.txt") != std::string::npos,
+                "Saving dropped the rollback settings");
+        Require(LoadConfig(host).contents.find("rollback") == std::string::npos, "Saving wrote rollback settings");
         // [mods]: texture packs on, their folder beside the settings file, no
         // order or switched-off packs and no texture dumps by default; each
         // round trips, and the folder is written in quotes.

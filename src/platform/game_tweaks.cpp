@@ -8,6 +8,7 @@
 #error Game tweaks belong to the isolated original game module built with MSCHARGED_TWEAKS
 #endif
 #include "mscharged_tweaks.h"
+#include "platform/tweak_frame_state.h"
 
 #include <atomic>
 #include <cmath>
@@ -490,5 +491,18 @@ bool mscharged_tweak_original_frame(void)
 unsigned long mscharged_tweak_frame_number(unsigned long renderedFrame)
 {
     return sHostSwap ? sOriginalFrameCount : renderedFrame;
+}
+
+void mscharged_tweak_save_frame_state(MschargedTweakFrameState* state)
+{
+    *state = {sOriginalFrames, sOriginalPhase, sOriginalFrameCount, sOriginalFrame};
+}
+
+void mscharged_tweak_load_frame_state(const MschargedTweakFrameState* state)
+{
+    sOriginalFrames = state->frames;
+    sOriginalPhase = state->phase;
+    sOriginalFrameCount = state->count;
+    sOriginalFrame = state->frame;
 }
 }
