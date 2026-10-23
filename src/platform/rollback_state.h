@@ -104,6 +104,24 @@ constexpr unsigned kSettleSteps = 25;    // RECHARGED_ROLLBACK: steps after trac
 constexpr int kMaxInputDelay = 6;        // RECHARGED_ROLLBACK: steps, while predicting
 constexpr int kMaxLockstepDelay = 10;    // RECHARGED_ROLLBACK: steps, in a phase without prediction
 
+// The parts of a machine's inputs a misprediction can get wrong: the fields of
+// PackedDetInput (include/Game/PackedDetInput.h), the player states, the
+// events, and the rest (player count, remap angle).
+enum InputPart
+{
+    kButtons,
+    kTriggers,
+    kRemoteAccel,
+    kNunchukAccel,
+    kPointerTargets,
+    kPointer,
+    kSticks,
+    kPlayerState,
+    kEvents,
+    kOtherInput,
+    kInputParts
+};
+
 // What a replayed frame does with each task: run it as it ran, leave it out
 // (pads, sound, network, disc, movies, saving), or its replay part.
 enum TaskReplay
@@ -300,6 +318,7 @@ struct Netplay
     SyncPoint remote[kRemoteChecks];
     int remoteCount;
     std::uint64_t predictedSteps, lockstepWaits, windowWaits, mispredictions[kMachines], correctionRollbacks;
+    std::uint64_t mispredictedParts[kInputParts]; // mispredicted steps that got each part wrong
     std::uint64_t undone, truncated, impossible, desyncs, remoteChecks, predictedDepth[kMaxDepth + 1];
     unsigned firstDesyncFrame;
     // This match's first divergence, for the game's own sync error.

@@ -31,6 +31,12 @@ void WriteSummary()
             std::fprintf(file, " %llu", static_cast<unsigned long long>(s.net.mispredictions[m]));
         std::fprintf(file, "; rollbacks to correct them %llu\n",
                      static_cast<unsigned long long>(s.net.correctionRollbacks));
+        static const char* const kPartNames[kInputParts] = {"buttons", "triggers", "remote accel",
+            "nunchuk accel", "pointer targets", "pointer", "sticks", "player state", "events", "other"};
+        std::fprintf(file, "mispredicted steps that got wrong:");
+        for (int part = 0; part < kInputParts; ++part)
+            std::fprintf(file, " %s %llu", kPartNames[part], static_cast<unsigned long long>(s.net.mispredictedParts[part]));
+        std::fprintf(file, "\n");
         std::fprintf(file, "steps undone (a phase change on predicted inputs) %llu, replays cut at a phase change "
                            "%llu; waits for inputs: as the original router %llu, prediction window full %llu\n",
                      static_cast<unsigned long long>(s.net.undone), static_cast<unsigned long long>(s.net.truncated),

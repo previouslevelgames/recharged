@@ -151,6 +151,33 @@ bool Same(const MachineInput& a, const MachineInput& b)
     return !std::memcmp(a.events, b.events, sizeof(a.events[0]) * static_cast<std::size_t>(a.eventCount));
 }
 
+// What a misprediction got wrong, one bit per InputPart: the summary counts
+// them, to tell a pad's noise (accelerometers, pointer) from real presses.
+unsigned MispredictedParts(const MachineInput& a, const MachineInput& b)
+{
+    constexpr struct
+    {
+        InputPart part;
+        std::size_t from, to; // bytes of PackedDetInput
+    } kFields[] = {{kButtons, 0x0, 0x2},     {kTriggers, 0x2, 0x3},       {kRemoteAccel, 0x3, 0x6},
+                   {kNunchukAccel, 0x6, 0x9}, {kPointerTargets, 0x9, 0xA}, {kPointer, 0xA, 0xC},
+                   {kSticks, 0xC, 0x10}};
+    unsigned parts = 0;
+    if (a.players != b.players || a.remap != b.remap) parts |= 1u << kOtherInput;
+    for (int player = 0; player < std::min(a.players, b.players); ++player)
+    {
+        for (const auto& field : kFields)
+            if (std::memcmp(a.records[player] + field.from, b.records[player] + field.from, field.to - field.from))
+                parts |= 1u << field.part;
+        if (a.states[player] != b.states[player]) parts |= 1u << kPlayerState;
+    }
+    if (a.eventCount != b.eventCount
+        || std::memcmp(a.events, b.events,
+                       sizeof(a.events[0]) * static_cast<std::size_t>(std::min(a.eventCount, b.eventCount))))
+        parts |= 1u << kEvents;
+    return parts;
+}
+
 // What the router applies, in its order: machine by machine, its events, then
 // its players' inputs.
 void Compose(const StepInputs& step, MschargedRollbackInputs& out)
@@ -347,6 +374,9 @@ void Resolve()
             {
                 changed(frame);
                 ++s.net.mispredictions[machine];
+                const unsigned parts = MispredictedParts(step.machines[machine], input);
+                for (int part = 0; part < kInputParts; ++part)
+                    if (parts & (1u << part)) ++s.net.mispredictedParts[part];
             }
             step.machines[machine] = input;
             step.predicted[machine] = false;
