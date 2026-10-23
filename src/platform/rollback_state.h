@@ -248,6 +248,9 @@ struct Options
     bool netplay;            // RECHARGED_ROLLBACK: network matches predict
     int inputDelay;          // kStartingDelay: the starting and shortest input delay
     unsigned fakeDesyncFrom; // RECHARGED_ROLLBACK_TEST_DESYNC
+    bool poses;              // RECHARGED_ROLLBACK_POSES: the players' poses join the checksum
+    bool bodies;             // RECHARGED_ROLLBACK_BODIES: the physics world's bodies join it
+    bool contacts;           // RECHARGED_ROLLBACK_CONTACTS: the step's collisions join it
     int maxDepth;            // RECHARGED_ROLLBACK_TEST_FRAMES
     int interval;            // RECHARGED_ROLLBACK_TEST_INTERVAL
     bool merge;              // frames without steps replayed as one with the next
@@ -465,4 +468,12 @@ void WriteAudit(const char* summaryPath);
 
 // rollback_summary.cpp
 void WriteSummary();
+
+// rollback_fields.cpp
+// The step's checksum; in a network match the fields it takes are kept with
+// the step, through ConfirmFields when its inputs have all arrived, for
+// LogFields at a desync.
+unsigned RecordedChecksum(unsigned (*checksum)(), unsigned frame);
+void ConfirmFields(unsigned frame);
+void LogFields(unsigned frame);
 } // namespace mscharged::rollback

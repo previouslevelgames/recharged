@@ -194,10 +194,10 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
         mscharged_rollback_sections_launcher(${target})
     endif()
     # The rollback: RECHARGED_ROLLBACK (network matches predict) and RECHARGED_ROLLBACK_TEST
-    # (roll matches back while they are played), tweak patches 0029-0031.
+    # (roll matches back while they are played), tweak patches 0029-0032.
     target_sources(${target} PRIVATE src/platform/rollback_snapshot.cpp src/platform/rollback_engine.cpp src/platform/rollback_memory.cpp
         src/platform/rollback_netplay.cpp src/platform/rollback_compare.cpp src/platform/rollback_audio.cpp
-        src/platform/rollback_summary.cpp src/platform/rollback_platform.cpp)
+        src/platform/rollback_summary.cpp src/platform/rollback_platform.cpp src/platform/rollback_fields.cpp)
     # The performance overlay's network numbers (LAT, and DLY and RB with rollback).
     target_sources(${target} PRIVATE src/platform/netplay_snapshot.cpp)
     # Robot goalies: the disc's unused robot goalie texture on Charged's goalie (tweak patch 0025).

@@ -28,3 +28,4 @@
 0029-rollback-inputs-and-replay.patch
 0030-rollback-network-prediction.patch
 0031-rollback-audio-heap.patch
+0032-rollback-checksum-fields.patch

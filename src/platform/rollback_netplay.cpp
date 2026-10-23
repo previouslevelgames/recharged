@@ -312,7 +312,10 @@ void UpdateConfirmed()
     {
         const Step& step = s.steps[f % kRing];
         if (step.frame == f)
+        {
             s.net.history[f % kConfirmedRing] = {f, step.checksum ^ (s.options.fakeDesyncFrom && f >= s.options.fakeDesyncFrom), step.seed, -1};
+            ConfirmFields(f);
+        }
     }
     if (!s.net.haveConfirmed || through > s.net.confirmed)
     {
@@ -334,7 +337,8 @@ void UpdateConfirmed()
         if (ours.checksum != remote.checksum || ours.seed != remote.seed)
         {
             if (!s.net.desyncs) s.net.firstDesyncFrame = remote.frame;
-            if (!s.net.matchDesync)
+            const bool first = !s.net.matchDesync;
+            if (first)
             {
                 s.net.matchDesync = true;
                 s.net.matchDesyncFrame = remote.frame;
@@ -343,6 +347,13 @@ void UpdateConfirmed()
             if (s.net.desyncs++ < kListedMismatches)
                 Log("DESYNC at frame %u: checksum %08x seed %08x here, %08x %08x on machine %d\n",
                              remote.frame, ours.checksum, ours.seed, remote.checksum, remote.seed, remote.machine);
+            // The step before as well: checksums are sent every other step,
+            // so the machines may have diverged a step earlier.
+            if (first)
+            {
+                LogFields(remote.frame - 1);
+                LogFields(remote.frame);
+            }
             FlushLog();
         }
     }

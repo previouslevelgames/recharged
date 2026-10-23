@@ -225,7 +225,7 @@ bool Start(FixedUpdateTask* task, unsigned long taskBytes, unsigned (*checksum)(
     step.frame = frame;
     step.snapshot = mscharged::platform::BeginRollbackSnapshots();
     step.mark = mscharged::platform::MarkGameAllocationCheckpoint();
-    step.checksum = checksum();
+    step.checksum = RecordedChecksum(checksum, frame);
     step.seed = GetNetworkRandomSeed();
     step.hostFrame = 0;
     RecordFrame(step);
@@ -323,7 +323,7 @@ void ReplayFrames(std::uint64_t first, std::uint64_t last, int firstTask, unsign
                 RollbackRedeliverMegaStrikeMeter(step.meter, step.meterCount);
                 s.stats.meterRedelivered += step.meterCount;
                 if (replay(&step.inputs) < 0) ++s.stats.nisInReplay;
-                const unsigned now = checksum();
+                const unsigned now = RecordedChecksum(checksum, next);
                 const std::uint64_t saveStart = NowNs();
                 s.stats.stepNs += saveStart - stepStart;
                 if (s.options.netplay)
@@ -603,6 +603,9 @@ struct Install
         if (EnvInt("RECHARGED_ROLLBACK_AUDIO_AUDIT", 0, 0, 1)) StartAudioAudit();
         state->options.inputDelay = kStartingDelay;
         state->options.fakeDesyncFrom = static_cast<unsigned>(EnvInt("RECHARGED_ROLLBACK_TEST_DESYNC", 0, 0, 1 << 30));
+        state->options.poses = EnvInt("RECHARGED_ROLLBACK_POSES", 0, 0, 1) != 0;
+        state->options.bodies = EnvInt("RECHARGED_ROLLBACK_BODIES", 0, 0, 1) != 0;
+        state->options.contacts = EnvInt("RECHARGED_ROLLBACK_CONTACTS", 0, 0, 1) != 0;
         if (netplay) state->options.compareEvery = 0;
         if (state->options.compareEvery)
         {
@@ -612,8 +615,11 @@ struct Install
         }
         sState = state;
         if (netplay)
-            Log("rollback: network matches predict, input delay %d steps; summary in %s\n",
-                state->options.inputDelay, state->summaryPath);
+            Log("rollback: network matches predict, input delay %d steps; summary in %s%s%s%s\n",
+                state->options.inputDelay, state->summaryPath,
+                state->options.poses ? "; the players' poses join the checksum (RECHARGED_ROLLBACK_POSES)" : "",
+                state->options.bodies ? "; the physics bodies join the checksum (RECHARGED_ROLLBACK_BODIES)" : "",
+                state->options.contacts ? "; the collisions join the checksum (RECHARGED_ROLLBACK_CONTACTS)" : "");
         else
             Log("rollback test: up to %d steps back every %d steps; summary in %s\n", state->options.maxDepth,
                 state->options.interval, state->summaryPath);
@@ -743,7 +749,7 @@ extern "C" void mscharged_rollback_between_steps(int (*replay)(const MschargedRo
     s.receivedCount = 0;
     s.receivedOverflowed = false;
     step.hostFrame = s.hostFrame;
-    step.checksum = checksum();
+    step.checksum = RecordedChecksum(checksum, frame);
     step.seed = GetNetworkRandomSeed();
     RecordFrame(step);
     // A step that predicted must leave the match's phase alone: undone at the
