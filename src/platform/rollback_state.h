@@ -101,7 +101,8 @@ constexpr int kInputRing = 32;           // RECHARGED_ROLLBACK: steps whose inpu
 constexpr int kConfirmedRing = 64;       // RECHARGED_ROLLBACK: checksums of steps whose inputs all arrived
 constexpr int kRemoteChecks = 32;        // RECHARGED_ROLLBACK: other machines' checksums waiting for ours
 constexpr unsigned kSettleSteps = 25;    // RECHARGED_ROLLBACK: steps after tracking starts that predict nothing
-constexpr int kMaxInputDelay = 6;        // RECHARGED_ROLLBACK: steps
+constexpr int kMaxInputDelay = 6;        // RECHARGED_ROLLBACK: steps, while predicting
+constexpr int kMaxLockstepDelay = 10;    // RECHARGED_ROLLBACK: steps, in a phase without prediction
 
 // What a replayed frame does with each task: run it as it ran, leave it out
 // (pads, sound, network, disc, movies, saving), or its replay part.

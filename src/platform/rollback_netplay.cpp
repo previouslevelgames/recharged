@@ -436,14 +436,16 @@ void SyncTime()
     // A phase without prediction waits for the inputs instead: on its way in, the
     // input delay takes the steps the others predicted this machine's inputs for
     // (and one for the jitter), since the measure stops seeing them there; on its
-    // way out, it gives them back.
+    // way out, it gives them back. Up to kMaxLockstepDelay, above the delay a
+    // predicting phase may take: a steady delay there beats waiting on every step
+    // when the machines are far apart.
     if (s.net.isPrevFramePhasePredictable && !isCurrentPredictable)
     {
         float worst;
         s.net.addedStepsInLockstep = 0;
         if (WorstReportedAhead(worst))
             s.net.addedStepsInLockstep = static_cast<int>(std::ceil(-worst)) + 1;
-        s.net.addedStepsInLockstep = std::clamp(s.net.addedStepsInLockstep, 0, kMaxInputDelay - s.net.delay);
+        s.net.addedStepsInLockstep = std::clamp(s.net.addedStepsInLockstep, 0, kMaxLockstepDelay - s.net.delay);
         s.net.delayChange = s.net.addedStepsInLockstep;
     }
     else if (!s.net.isPrevFramePhasePredictable && isCurrentPredictable)
