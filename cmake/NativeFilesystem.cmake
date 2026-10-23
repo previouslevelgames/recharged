@@ -7,7 +7,7 @@ include(cmake/NativeIPCBootBuffer.cmake)
 # Actual persistent IOS FS/ES backing with POSIX and Windows physical providers.
 # Installation is explicit native boot
 # setup, before the original NAND initializer; this supplies no game save data.
-if(UNIX OR WIN32)
+if(UNIX OR WIN32 OR NINTENDO_SWITCH)
     add_library(charged_native_filesystem STATIC EXCLUDE_FROM_ALL
         src/platform/filesystem_device.cpp)
     add_dependencies(charged_native_filesystem verify_prepared)

@@ -1,0 +1,5 @@
+0001-return-the-nro-folder-as-the-base-path.patch
+0002-convert-audio-streams-as-sdl3-does.patch
+0003-map-joysticks-gamepads-and-hid.patch
+0004-map-events-hints-logging-and-locales.patch
+0005-map-display-and-window-modes.patch

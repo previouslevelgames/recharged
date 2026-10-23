@@ -20,6 +20,13 @@ RUNTIME = LAUNCHER + (
     "extern/tracy", "extern/zlib-ng", "extern/libpng", "extern/freetype",
     "extern/sqlite", "extern/zstd",
 )
+# The Nintendo Switch build: the game runtime without nod and SDL3, with
+# sdl3on2 for SDL and mesa-switch for the NVK driver (tools/switch/build-nvk.sh).
+SWITCH = (
+    "extern/mscharged-decomp", "extern/aurora", "extern/dawn", "extern/fmt", "extern/xxhash",
+    "extern/tracy", "extern/zlib-ng", "extern/libpng", "extern/freetype", "extern/sqlite",
+    "extern/zstd", "extern/imgui", "extern/sdl3on2", "extern/mesa-switch",
+)
 DAWN_COMMON = (
     "third_party/abseil-cpp", "third_party/jinja2", "third_party/markupsafe",
     "third_party/spirv-headers/src",
@@ -49,7 +56,9 @@ def git(repo: Path, *args: str) -> str:
     return result.stdout
 
 
-def plan(launcher: bool, system: str):
+def plan(launcher: bool, system: str, switch: bool = False):
+    if switch:
+        return SWITCH, (("extern/dawn", DAWN_COMMON + DAWN_VULKAN), ("extern/freetype", ("subprojects/dlg",)))
     if launcher:
         return LAUNCHER, ()
     if system not in ("Linux", "Darwin"):
@@ -135,11 +144,11 @@ def verify(repo: Path, expected: dict[str, str]) -> None:
 
 
 def setup(repo: Path, *, launcher: bool = False, system: str | None = None,
-          dry_run: bool = False, shallow: bool = False) -> None:
+          dry_run: bool = False, shallow: bool = False, switch: bool = False) -> None:
     repo = repo.resolve()
     if Path(git(repo, "rev-parse", "--show-toplevel").strip()).resolve() != repo:
         raise SetupError("Run the helper from a Git checkout of recharged")
-    direct, nested = plan(launcher, system or platform.system())
+    direct, nested = plan(launcher, system or platform.system(), switch)
     expected = pins(repo, direct)
     check_gitmodules(repo, direct)
     # Inspect every already initialized selected checkout before changing any.
@@ -162,19 +171,22 @@ def setup(repo: Path, *, launcher: bool = False, system: str | None = None,
             check_existing(child / path)
         update(child, paths, shallow)
         verify(child, expected_nested)
-    print(f"Pinned {'launcher' if launcher else 'game runtime'} dependencies are ready.")
+    build = "Switch" if switch else "launcher" if launcher else "game runtime"
+    print(f"Pinned {build} dependencies are ready.")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--launcher", action="store_true", help="Initialize only the smaller launcher build's dependencies")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--launcher", action="store_true", help="Initialize only the smaller launcher build's dependencies")
+    selection.add_argument("--switch", action="store_true", help="Initialize only the Nintendo Switch build's dependencies")
     parser.add_argument("--shallow", action="store_true",
                         help="Fetch only the pinned commits, without history (faster, for CI)")
     parser.add_argument("--dry-run", action="store_true", help="Check existing tracked edits and print the selected Git commands")
     args = parser.parse_args()
     try:
         setup(Path(__file__).resolve().parents[1], launcher=args.launcher, dry_run=args.dry_run,
-              shallow=args.shallow)
+              shallow=args.shallow, switch=args.switch)
     except (SetupError, OSError) as error:
         print(f"Dependency setup failed: {error}", file=sys.stderr)
         return 1

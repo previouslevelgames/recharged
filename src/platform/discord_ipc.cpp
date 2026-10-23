@@ -14,7 +14,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#else
+#elif !defined(__SWITCH__)
 #include <cerrno>
 #include <fcntl.h>
 #include <poll.h>
@@ -211,6 +211,14 @@ std::unique_ptr<Connection> ConnectToEndpoint(const std::string& endpoint)
 }
 
 long CurrentProcessId() { return long(GetCurrentProcessId()); }
+#elif defined(__SWITCH__)
+// The Switch has no Discord app to talk to: the status stays off, as when
+// Discord is not running.
+std::vector<std::string> EndpointCandidates() { return {}; }
+
+std::unique_ptr<Connection> ConnectToEndpoint(const std::string&) { return nullptr; }
+
+long CurrentProcessId() { return 0; }
 #else
 namespace
 {

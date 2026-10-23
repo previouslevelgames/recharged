@@ -29,8 +29,12 @@
 #else
 #include <dlfcn.h>
 #include <fcntl.h>
+#if defined(__SWITCH__)
+#include <switch.h>
+#else
 #include <sys/ioctl.h>
 #include <sys/utsname.h>
+#endif
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
@@ -168,9 +172,13 @@ void Reader(Stream* stream)
 std::size_t Pending(const Stream& stream)
 {
     if (stream.pipe_read < 0) return 0;
+#if defined(__SWITCH__)
+    return 0;
+#else
     int available = 0;
     if (ioctl(stream.pipe_read, FIONREAD, &available) != 0) return 0;
     return std::size_t(available);
+#endif
 }
 
 // Waits (up to a second) until the readers have copied what was written.
@@ -202,6 +210,11 @@ bool Redirect(int fd, Stream& stream)
     _close(ends[1]);
     SetStdHandle(fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE, HANDLE(_get_osfhandle(fd)));
     stream.wake = wake; // a Drain now waits for this stream's reader
+#elif defined(__SWITCH__)
+    // Horizon has no pipes: the output goes straight into the log file.
+    (void)ends;
+    (void)stream;
+    return g_log.file >= 0 && dup2(g_log.file, fd) >= 0;
 #else
     if (pipe(ends) != 0) return false;
     stream.console = dup(fd);
@@ -249,6 +262,10 @@ void Header(const char* version, int argc, char** argv)
     if (RegGetValueA(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", "ProcessorNameString",
                      RRF_RT_REG_SZ, nullptr, cpu, &size) == ERROR_SUCCESS)
         text += Line("CPU: %s\n", cpu);
+#elif defined(__SWITCH__)
+    const u32 horizon = hosversionGet();
+    text += Line("OS: Horizon %u.%u.%u%s\n", HOSVER_MAJOR(horizon), HOSVER_MINOR(horizon), HOSVER_MICRO(horizon),
+                 hosversionIsAtmosphere() ? " (Atmosph\xc3\xa8re)" : "");
 #else
     utsname name{};
     if (uname(&name) == 0) text += Line("OS: %s %s %s\n", name.sysname, name.release, name.machine);
@@ -441,6 +458,11 @@ void WriteNumber(char* out, std::size_t size, const char* format, unsigned long 
     std::snprintf(out, size, format, value);
 }
 
+#if defined(__SWITCH__)
+// Horizon delivers no signals for crashes: Atmosphère saves a crash report
+// (sdmc:/atmosphere/crash_reports) with the place it happened.
+void InstallCrashHandlers() {}
+#else
 void SignalHandler(int number, siginfo_t* info, void*)
 {
     if (!g_crashing.exchange(true))
@@ -488,6 +510,7 @@ void InstallCrashHandlers()
     sigemptyset(&action.sa_mask);
     for (const int number : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) sigaction(number, &action, nullptr);
 }
+#endif
 #endif
 
 void Terminate()
@@ -691,6 +714,15 @@ void ReportFatalError(const std::string& message)
     if (g_log.file >= 0)
         text += L"\n\nDetails are in:\n" + g_log.path.wstring() + L"\n\nPlease attach that file to your bug report.";
     MessageBoxW(nullptr, text.c_str(), L"Recharged", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+#elif defined(__SWITCH__)
+    // Nothing else shows on the console: its error screen does, with the
+    // message behind Details.
+    std::string details = message;
+    if (g_log.file >= 0)
+        details += "\n\nDetails are in " + g_log.path.string() + ". Please attach that file to your bug report.";
+    ErrorApplicationConfig error;
+    if (R_SUCCEEDED(errorApplicationCreate(&error, "The game stopped with an error.", details.c_str())))
+        errorApplicationShow(&error);
 #endif
 }
 } // namespace mscharged::platform

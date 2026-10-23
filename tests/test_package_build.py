@@ -486,5 +486,123 @@ checksum = "{self.checksum}"
             self.assertEqual(packages[1]["license"], "MIT")
 
 
+class SwitchPackageTests(unittest.TestCase):
+    write = staticmethod(PackageBuildTests.write)
+    hash = staticmethod(PackageBuildTests.hash)
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name)
+        self.source = self.root / "source checkout with spaces"
+        self.build = self.root / "switch build with spaces"
+        self.output = self.root / "package artifacts"
+        self.nvk = self.root / "nvk switch"
+        self.decomp_pin, self.mesa_pin = "1" * 40, "7" * 40
+        self.write(self.build, "recharged.nro", b"\0" * 16 + b"NRO0" + b"synthetic program")
+        self.write(self.build, "assets/launcher/Roboto-Medium.ttf", b"synthetic font")
+        self.write(self.build, "assets/launcher/LICENSE-APACHE", b"font license")
+        from pipeline_catalog import ABI, generate
+        catalog = {"format": 1, "schema": 1, "config_abi": ABI,
+                   "pipelines": [{"type": 0, "hash": "0000000000000001", "version": 5,
+                                  "first_frame": 0, "config": "0500000001010100",
+                                  "sha256": self.hash(bytes.fromhex("0500000001010100"))}]}
+        path = self.write(self.source, "assets/graphics/pipelines.json", json.dumps(catalog).encode())
+        generate(self.build / "assets/graphics/initial_pipeline_cache.db", PACKAGER.catalog_rows(path))
+        self.write(self.source, "assets/graphics/README.md", b"pipeline descriptions only")
+        self.write(self.source, "assets/gameplay/robot_goalie.map", b"RGM1 synthetic map")
+        self.write(self.source, "assets/gameplay/README.md", b"texture coordinates only")
+        for public in PACKAGER.SWITCH_PUBLIC_FILES:
+            self.write(self.source, public, b"public text")
+        self.write(self.build, "generated/mscharged/build_version.h",
+                   b'inline constexpr const char* version = "1.0.0+g123456789abc";\n')
+        self.write(self.build, "CMakeCache.txt",
+                   b"MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC:BOOL=ON\n"
+                   + f"MSCHARGED_SWITCH_NVK_DIR:PATH={self.nvk}\n".encode())
+        self.write(self.build, "CMakeFiles/3.31.6/CMakeSystem.cmake",
+                   b'set(CMAKE_SYSTEM_NAME "NintendoSwitch")\nset(CMAKE_SYSTEM_PROCESSOR "aarch64")\n')
+        self.write(self.nvk, "NOTICE.md", b"NVK notices")
+        self.write(self.nvk, ".stamp", f"{self.mesa_pin} {'8' * 64}\n".encode())
+        for dependency in PACKAGER.SWITCH_DEPENDENCIES:
+            content = {}
+            if dependency != "mscharged-decomp":
+                self.notice(dependency, "LICENSE", b"root license", content)
+            if dependency == "freetype":
+                self.notice(dependency, "docs/FTL.TXT", b"FTL selected", content)
+            self.write(self.build, f"prepared/{dependency}/manifest.json", json.dumps({
+                "key": "4" * 64, "content": content,
+                "inputs": {"dependency": dependency, "sources": [{"path": "", "commit": self.decomp_pin}],
+                           "patches": [{"name": "0001.patch", "sha256": "5" * 64}]},
+            }).encode())
+        self.run_mock = mock.patch.object(PACKAGER, "run", side_effect=self.git_output)
+        self.run_mock.start()
+        self.addCleanup(self.run_mock.stop)
+
+    def notice(self, dependency, relative, data, content):
+        self.write(self.build, f"prepared/{dependency}/source/{relative}", data)
+        content[relative] = {"sha256": self.hash(data), "executable": False}
+
+    def git_output(self, command):
+        self.assertEqual(command[0], "git")
+        if "rev-parse" in command:
+            return ("6" * 40 + "\n").encode()
+        if "ls-files" in command:
+            return f"160000 {self.mesa_pin} 0\textern/mesa-switch\n".encode()
+        if "ls-tree" in command:
+            if self.mesa_pin in command:
+                return b"docs/license.rst\0licenses/MIT\0"
+            self.assertIn(self.decomp_pin, command)
+            return b"LICENSE\0"
+        self.assertEqual(command[-2], "show")
+        return b"pinned notice " + command[-1].encode()
+
+    def package(self):
+        return PACKAGER.package_switch(self.build, self.output, self.source)
+
+    def test_package_is_the_sd_card_folder_without_private_files(self):
+        for root, path in ((self.source, "recharged.ini"), (self.source, "game/R4QE01.iso"),
+                           (self.source, ".private/secret.md"), (self.build, "recharged.elf"),
+                           (self.build, "recharged.nacp"), (self.build, "data/nand/save.bin")):
+            self.write(root, path, b"MUST NOT BE PACKAGED")
+        path = self.package()
+        self.assertEqual(path.name, "recharged-1.0.0+g123456789abc-switch-aarch64.zip")
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+            self.assertTrue(all(name.startswith("switch/recharged/") for name in names))
+            self.assertTrue(archive.getinfo("switch/recharged/game/").is_dir())
+            manifest = json.loads(archive.read("switch/recharged/SOURCE-MANIFEST.json"))
+            for name, item in manifest["files"].items():
+                self.assertEqual(self.hash(archive.read("switch/recharged/" + name)), item["sha256"])
+            self.assertFalse(any(b"MUST NOT BE PACKAGED" in archive.read(name)
+                                 for name in names if not name.endswith("/")))
+        self.assertEqual((manifest["platform"], manifest["architecture"]), ("switch", "aarch64"))
+        self.assertEqual(manifest["vulkan_driver"], {"mesa_switch": self.mesa_pin,
+                                                     "build_stamp": f"{self.mesa_pin} {'8' * 64}"})
+        self.assertEqual(len(manifest["prepared"]), len(PACKAGER.SWITCH_DEPENDENCIES))
+        for name in ("recharged.nro", "assets/graphics/initial_pipeline_cache.db", "LICENSES/NOTICE-NVK.md",
+                     "LICENSES/switch/nod.txt", "LICENSES/dependencies/mesa-switch/docs/license.rst",
+                     "LICENSES/dependencies/mscharged-decomp/LICENSE", "LICENSES/dependencies/freetype/docs/FTL.TXT"):
+            self.assertIn(name, manifest["files"])
+
+    def test_desktop_build_is_refused(self):
+        self.write(self.build, "CMakeFiles/3.31.6/CMakeSystem.cmake",
+                   b'set(CMAKE_SYSTEM_NAME "Linux")\nset(CMAKE_SYSTEM_PROCESSOR "aarch64")\n')
+        with self.assertRaisesRegex(PACKAGER.PackageError, "needs a Switch build"):
+            self.package()
+
+    def test_program_must_be_a_homebrew_nro(self):
+        self.write(self.build, "recharged.nro", b"\x7fELF synthetic program")
+        with self.assertRaisesRegex(PACKAGER.PackageError, "not a Switch homebrew program"):
+            self.package()
+
+    def test_driver_notice_is_required(self):
+        (self.nvk / "NOTICE.md").unlink()
+        with self.assertRaisesRegex(PACKAGER.PackageError, "NOTICE.md"):
+            self.package()
+        self.write(self.build, "CMakeCache.txt", b"MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC:BOOL=ON\n")
+        with self.assertRaisesRegex(PACKAGER.PackageError, "MSCHARGED_SWITCH_NVK_DIR"):
+            self.package()
+
+
 if __name__ == "__main__":
     unittest.main()

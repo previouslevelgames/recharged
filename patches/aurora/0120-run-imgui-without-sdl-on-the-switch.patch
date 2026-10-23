@@ -1,0 +1,172 @@
+From: mscharged-port
+Subject: Run ImGui without SDL on the Switch
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: Nintendo Switch host (Switch only). Apply after 0119.
+
+ImGui's SDL3 backends need more of SDL3 than sdl3on2 offers. As in new-coke's
+Strikers port, the overlay draws through WebGPU alone and takes no pointer or
+key input there; the frame time comes from the steady clock.
+
+diff --git a/include/aurora/imgui_config.h b/include/aurora/imgui_config.h
+index 3e62e59..5f4e660 100644
+--- a/include/aurora/imgui_config.h
++++ b/include/aurora/imgui_config.h
+@@ -2,8 +2,15 @@
+ 
+ #define IMGUI_DISABLE_DEFAULT_FILE_FUNCTIONS 1
+ 
++#ifdef __SWITCH__
++// Horizon has no fork or execvp for ImGui's URL opener.
++#define IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS 1
++// sdl3on2 names its own stream type behind the SDL_IOStream macro.
++typedef struct S3_IOStream* ImFileHandle;
++#else
+ typedef struct SDL_IOStream SDL_IOStream;
+ typedef SDL_IOStream* ImFileHandle;
++#endif
+ typedef unsigned long long ImU64;
+ 
+ ImFileHandle ImFileOpen(const char* filename, const char* mode);
+diff --git a/lib/imgui.cpp b/lib/imgui.cpp
+index 785c8de..068bfd7 100644
+--- a/lib/imgui.cpp
++++ b/lib/imgui.cpp
+@@ -22,8 +22,10 @@
+ #include "window.hpp"
+ 
+ #define IMGUI_IMPL_WEBGPU_BACKEND_DAWN
++#ifndef __SWITCH__
+ #include "backends/imgui_impl_sdl3.h"
+ #include "backends/imgui_impl_sdlrenderer3.h"
++#endif
+ #include "backends/imgui_impl_wgpu.h"
+ #include "tracy/Tracy.hpp"
+ 
+@@ -185,12 +187,19 @@ void create_context() noexcept {
+ 
+ void initialize() noexcept {
+   ZoneScoped;
++#ifdef __SWITCH__
++  // ImGui's SDL3 backends need more of SDL3 than sdl3on2 offers: the overlay
++  // draws through WebGPU and takes no pointer or key input.
++  g_useSdlRenderer = false;
++#else
+   SDL_Renderer* renderer = window::get_sdl_renderer();
+   ImGui_ImplSDL3_InitForSDLRenderer(window::get_sdl_window(), renderer);
+   g_useSdlRenderer = renderer != nullptr;
+   if (g_useSdlRenderer) {
+     ImGui_ImplSDLRenderer3_Init(renderer);
+-  } else {
++  } else
++#endif
++  {
+     ImGui_ImplWGPU_InitInfo info;
+     info.Device = webgpu::g_device.Get();
+     info.RenderTargetFormat = static_cast<WGPUTextureFormat>(webgpu::g_graphicsConfig.surfaceConfiguration.format);
+@@ -210,12 +219,17 @@ void shutdown() noexcept {
+   g_overlayFontsReady = false;
+   input::unregister_layer(g_inputLayer);
+   g_inputLayer = input::kInvalidLayerId;
++#ifndef __SWITCH__
+   if (g_useSdlRenderer) {
+     ImGui_ImplSDLRenderer3_Shutdown();
+-  } else {
++  } else
++#endif
++  {
+     ImGui_ImplWGPU_Shutdown();
+   }
++#ifndef __SWITCH__
+   ImGui_ImplSDL3_Shutdown();
++#endif
+   ImGui::DestroyContext();
+   for (const auto& texture : g_sdlTextures) {
+     SDL_DestroyTexture(texture);
+@@ -239,6 +253,9 @@ void set_cursor_managed(bool managed) noexcept {
+ }
+ 
+ void process_event(const SDL_Event& event) noexcept {
++#ifdef __SWITCH__
++  (void)event;
++#else
+   auto renderEvent = event;
+   if (g_useSdlRenderer) {
+     if (SDL_Renderer* renderer = window::get_sdl_renderer()) {
+@@ -246,6 +263,7 @@ void process_event(const SDL_Event& event) noexcept {
+     }
+   }
+   ImGui_ImplSDL3_ProcessEvent(&renderEvent);
++#endif
+ }
+ 
+ void new_frame(const AuroraWindowSize& size) noexcept {
+@@ -256,6 +274,7 @@ void new_frame(const AuroraWindowSize& size) noexcept {
+   };
+   ImVec2 displaySize{static_cast<float>(size.width), static_cast<float>(size.height)};
+ 
++#ifndef __SWITCH__
+   if (g_useSdlRenderer) {
+     if (SDL_Renderer* renderer = window::get_sdl_renderer()) {
+       float renderScaleX = 1.0f;
+@@ -275,7 +294,9 @@ void new_frame(const AuroraWindowSize& size) noexcept {
+     }
+     ImGui_ImplSDLRenderer3_NewFrame();
+     g_scale = size.scale;
+-  } else {
++  } else
++#endif
++  {
+     if (g_scale != size.scale) {
+       if (g_scale > 0.f) {
+         ImGui_ImplWGPU_CreateDeviceObjects();
+@@ -287,7 +308,17 @@ void new_frame(const AuroraWindowSize& size) noexcept {
+     }
+     ImGui_ImplWGPU_NewFrame();
+   }
++#ifdef __SWITCH__
++  // The frame time the SDL3 backend would set.
++  static std::chrono::steady_clock::time_point last{};
++  const auto now = std::chrono::steady_clock::now();
++  const float delta = last.time_since_epoch().count() == 0 ? 1.f / 60.f
++                                                           : std::chrono::duration<float>{now - last}.count();
++  last = now;
++  ImGui::GetIO().DeltaTime = delta > 0.f ? delta : 1.f / 60.f;
++#else
+   ImGui_ImplSDL3_NewFrame();
++#endif
+ 
+   ImGuiIO& io = ImGui::GetIO();
+   io.DisplayFramebufferScale = framebufferScale;
+@@ -322,12 +353,15 @@ void render(const wgpu::RenderPassEncoder& pass, const DrawData& drawData) noexc
+   if (data->CmdListsCount == 0) {
+     return;
+   }
++#ifndef __SWITCH__
+   if (g_useSdlRenderer) {
+     SDL_Renderer* renderer = window::get_sdl_renderer();
+     SDL_RenderClear(renderer);
+     ImGui_ImplSDLRenderer3_RenderDrawData(data, renderer);
+     SDL_RenderPresent(renderer);
+-  } else {
++  } else
++#endif
++  {
+     pass.PushDebugGroup("Aurora: Dear Imgui");
+     ImGui_ImplWGPU_RenderDrawData(data, pass.Get());
+     pass.PopDebugGroup();
+@@ -346,6 +380,7 @@ void end_overlay() noexcept {
+ } // namespace
+ 
+ ImTextureID add_texture(uint32_t width, uint32_t height, const uint8_t* data) noexcept {
++#ifndef __SWITCH__
+   if (SDL_Renderer* renderer = window::get_sdl_renderer()) {
+     SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, width, height);
+     SDL_UpdateTexture(texture, nullptr, data, width * 4);
+@@ -353,6 +388,7 @@ ImTextureID add_texture(uint32_t width, uint32_t height, const uint8_t* data) no
+     g_sdlTextures.push_back(texture);
+     return reinterpret_cast<ImTextureID>(texture);
+   }
++#endif
+   const wgpu::Extent3D size{
+       .width = width,
+       .height = height,

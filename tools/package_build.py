@@ -73,6 +73,16 @@ STEAMDECK_SYSTEM_LIBRARIES = frozenset((
 DEPENDENCIES = ("mscharged-decomp", "aurora", "sdl", "nod", "corrosion", "dawn",
                 "imgui", "freetype", "libpng", "zlib-ng", "zstd", "sqlite",
                 "tracy", "fmt", "xxhash")
+# Nintendo Switch: the .nro (the game modules are linked into it) and the files
+# it reads beside it, under switch/recharged/ for the SD card's root.
+SWITCH_ROOT = Path("switch/recharged")
+SWITCH_DEPENDENCIES = ("mscharged-decomp", "aurora", "sdl3on2", "dawn", "imgui", "freetype", "libpng",
+                       "zlib-ng", "zstd", "sqlite", "tracy", "fmt", "xxhash")
+SWITCH_PUBLIC_FILES = ("README.md", "LICENSE", "recharged.ini.example", "docs/SWITCH.md", "docs/FEATURES.md",
+                       "docs/SETTINGS.md", "docs/TROUBLESHOOTING.md", "LICENSES/README.md",
+                       "LICENSES/Apache-2.0.txt", "LICENSES/switch/README.md", "LICENSES/switch/libnx.txt",
+                       "LICENSES/switch/SDL2.txt", "LICENSES/switch/libdrm_nouveau.txt", "LICENSES/switch/nod.txt",
+                       "extern/README.md")
 
 
 class PackageError(ValueError):
@@ -108,7 +118,7 @@ def cache_values(build):
     return values
 
 
-def target_platform(build):
+def configured_target(build):
     # Read the configured target, not the machine running this packaging script.
     systems = sorted(build.glob("CMakeFiles/*/CMakeSystem.cmake"))
     if not systems:
@@ -120,7 +130,11 @@ def target_platform(build):
         descriptions.add((fields.get("CMAKE_SYSTEM_NAME"), fields.get("CMAKE_SYSTEM_PROCESSOR")))
     if len(descriptions) != 1:
         raise PackageError("Conflicting configured CMake target platforms; use a fresh build directory.")
-    system, arch = descriptions.pop()
+    return descriptions.pop()
+
+
+def target_platform(build):
+    system, arch = configured_target(build)
     if system not in ("Linux", "Darwin", "Windows") or not arch or not re.fullmatch(r"[A-Za-z0-9_+-]+", arch):
         raise PackageError(f"Packaging is supported for Linux, macOS and Windows builds, got {system}/{arch}.")
     return {"Darwin": "macos", "Windows": "windows"}.get(system, "linux"), arch
@@ -284,6 +298,47 @@ def cargo_packages(build, cache):
                       "edges": ["normal", "build"]}
 
 
+def stage_prepared_notices(build, source, dependencies, put, copy):
+    """Each prepared dependency's provenance, staging its notices under LICENSES/dependencies."""
+    prepared = []
+    for dependency in dependencies:
+        root = build / "prepared" / dependency
+        manifest_path = regular_file(root, "manifest.json")
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = json.loads(manifest_bytes)
+        inputs = manifest["inputs"]
+        if inputs["dependency"] != dependency or not inputs["sources"]:
+            raise PackageError(f"Invalid prepared provenance: {manifest_path}")
+        prepared.append({"dependency": dependency, "manifest_sha256": digest(manifest_bytes),
+                         "key": manifest["key"], "inputs": inputs})
+        notice_root = Path("LICENSES/dependencies") / dependency
+        if dependency == "mscharged-decomp":
+            # Its prepared export contains only include/libs/src, so obtain
+            # notices from the exact recorded Git object, not a moving checkout.
+            pin = next(item["commit"] for item in inputs["sources"] if item["path"] == "")
+            if not re.fullmatch(r"[0-9a-f]{40}", pin):
+                raise PackageError("Invalid decomp source pin.")
+            git = ["git", "-C", str(source / "extern/mscharged-decomp")]
+            paths = run(git + ["ls-tree", "-r", "--name-only", "-z", pin, "--", "LICENSE", "LICENSES"])
+            notices = [Path(path.decode()) for path in paths.split(b"\0") if path]
+            if Path("LICENSE") not in notices:
+                raise PackageError("The pinned decomp source has no root license notice.")
+            for path in notices:
+                put(notice_root / path, run(git + ["show", pin + ":" + path.as_posix()]))
+        else:
+            notices = list(notice_paths(root / "source"))
+            if not notices:
+                raise PackageError(f"No dependency license notices found: {dependency}")
+            for path in notices:
+                recorded = manifest["content"].get(path.as_posix())
+                if not recorded:
+                    raise PackageError(f"Unrecorded prepared notice: {dependency}/{path}")
+                copy(root / "source", path, notice_root / path, recorded["sha256"])
+            if dependency == "freetype" and Path("docs/FTL.TXT") not in notices:
+                raise PackageError("Missing selected FreeType License docs/FTL.TXT.")
+    return prepared
+
+
 def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=False):
     build, output, source = build.resolve(), output.resolve(), source.resolve()
     cache = cache_values(build)
@@ -403,42 +458,7 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
         for public in PUBLIC_FILES:
             copy(source, public)
 
-        prepared = []
-        for dependency in DEPENDENCIES:
-            root = build / "prepared" / dependency
-            manifest_path = regular_file(root, "manifest.json")
-            manifest_bytes = manifest_path.read_bytes()
-            manifest = json.loads(manifest_bytes)
-            inputs = manifest["inputs"]
-            if inputs["dependency"] != dependency or not inputs["sources"]:
-                raise PackageError(f"Invalid prepared provenance: {manifest_path}")
-            prepared.append({"dependency": dependency, "manifest_sha256": digest(manifest_bytes),
-                             "key": manifest["key"], "inputs": inputs})
-            notice_root = Path("LICENSES/dependencies") / dependency
-            if dependency == "mscharged-decomp":
-                # Its prepared export contains only include/libs/src, so obtain
-                # notices from the exact recorded Git object, not a moving checkout.
-                pin = next(item["commit"] for item in inputs["sources"] if item["path"] == "")
-                if not re.fullmatch(r"[0-9a-f]{40}", pin):
-                    raise PackageError("Invalid decomp source pin.")
-                git = ["git", "-C", str(source / "extern/mscharged-decomp")]
-                paths = run(git + ["ls-tree", "-r", "--name-only", "-z", pin, "--", "LICENSE", "LICENSES"])
-                notices = [Path(path.decode()) for path in paths.split(b"\0") if path]
-                if Path("LICENSE") not in notices:
-                    raise PackageError("The pinned decomp source has no root license notice.")
-                for path in notices:
-                    put(notice_root / path, run(git + ["show", pin + ":" + path.as_posix()]))
-            else:
-                notices = list(notice_paths(root / "source"))
-                if not notices:
-                    raise PackageError(f"No dependency license notices found: {dependency}")
-                for path in notices:
-                    recorded = manifest["content"].get(path.as_posix())
-                    if not recorded:
-                        raise PackageError(f"Unrecorded prepared notice: {dependency}/{path}")
-                    copy(root / "source", path, notice_root / path, recorded["sha256"])
-                if dependency == "freetype" and Path("docs/FTL.TXT") not in notices:
-                    raise PackageError("Missing selected FreeType License docs/FTL.TXT.")
+        prepared = stage_prepared_notices(build, source, DEPENDENCIES, put, copy)
 
         nod = build / "prepared/nod/source"
         lock_bytes = regular_file(nod, "Cargo.lock").read_bytes()
@@ -568,6 +588,105 @@ docs/STEAM_DECK.md has the full guide; in short:
     return destination
 
 
+def package_switch(build, output, source):
+    build, output, source = build.resolve(), output.resolve(), source.resolve()
+    cache = cache_values(build)
+    if configured_target(build) != ("NintendoSwitch", "aarch64"):
+        raise PackageError("A Switch package needs a Switch build (the switch preset).")
+    version_body = regular_file(build, "generated/mscharged/build_version.h").read_text()
+    match = re.search(r'const char\* version\s*=\s*"([A-Za-z0-9._+\-]+)"', version_body)
+    if not match:
+        raise PackageError("Missing or invalid embedded build version.")
+    version = match[1]
+    if regular_file(build, "recharged.nro").read_bytes()[0x10:0x14] != b"NRO0":
+        raise PackageError("recharged.nro is not a Switch homebrew program.")
+    catalog = regular_file(source, "assets/graphics/pipelines.json")
+    try:
+        verify_database(regular_file(build, "assets/graphics/initial_pipeline_cache.db"), catalog_rows(catalog))
+    except CatalogError as error:
+        raise PackageError(str(error)) from error
+    if not cache.get("MSCHARGED_SWITCH_NVK_DIR"):
+        raise PackageError("A Switch build needs MSCHARGED_SWITCH_NVK_DIR for the Vulkan driver's notice.")
+    nvk = Path(cache["MSCHARGED_SWITCH_NVK_DIR"]).resolve()
+    revision = run(["git", "-C", str(source), "rev-parse", "HEAD"]).decode().strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise PackageError("Invalid packaging source Git revision.")
+    rows = run(["git", "-C", str(source), "ls-files", "--stage", "--", "extern/mesa-switch"]).decode().split()
+    if len(rows) < 2 or not re.fullmatch(r"[0-9a-f]{40}", rows[1]):
+        raise PackageError("No recorded mesa-switch pin.")
+    mesa_pin = rows[1]
+    package_name = f"recharged-{version}-switch-aarch64"
+    output.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".recharged-package-", dir=output) as temporary:
+        stage = Path(temporary) / "stage"
+        files = {}
+
+        def put(relative, data, mode=0o644):
+            relative = Path(relative)
+            if relative.is_absolute() or ".." in relative.parts or relative.as_posix() in files:
+                raise PackageError(f"Invalid or duplicate package path: {relative}")
+            destination = stage / SWITCH_ROOT / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+            files[relative.as_posix()] = {"sha256": digest(data), "bytes": len(data), "mode": oct(mode)}
+
+        def copy(root, relative, destination=None, expected=None):
+            data = regular_file(root, relative).read_bytes()
+            if expected and digest(data) != expected:
+                raise PackageError(f"File differs from its recorded source: {Path(root) / relative}")
+            put(destination or relative, data)
+
+        copy(build, "recharged.nro")
+        copy(build, "assets/graphics/initial_pipeline_cache.db")
+        copy(source, "assets/graphics/README.md")
+        copy(source, "assets/gameplay/robot_goalie.map")
+        copy(source, "assets/gameplay/README.md")
+        copy(build, "assets/launcher/Roboto-Medium.ttf")
+        copy(build, "assets/launcher/LICENSE-APACHE")
+        for public in SWITCH_PUBLIC_FILES:
+            copy(source, public)
+        prepared = stage_prepared_notices(build, source, SWITCH_DEPENDENCIES, put, copy)
+        # The Vulkan driver: its own notice, and Mesa's from the pinned source.
+        copy(nvk, "NOTICE.md", "LICENSES/NOTICE-NVK.md")
+        git = ["git", "-C", str(source / "extern/mesa-switch")]
+        paths = run(git + ["ls-tree", "-r", "--name-only", "-z", mesa_pin, "--", "licenses", "docs/license.rst"])
+        notices = [Path(path.decode()) for path in paths.split(b"\0") if path]
+        if Path("docs/license.rst") not in notices:
+            raise PackageError("The pinned mesa-switch source has no license overview.")
+        for path in notices:
+            put(Path("LICENSES/dependencies/mesa-switch") / path, run(git + ["show", mesa_pin + ":" + path.as_posix()]))
+        put("PACKAGE-README.md", f"""# Recharged for the Nintendo Switch
+
+Build: {version} (switch, aarch64).
+
+Unpack this archive to the root of the SD card: it creates /switch/recharged/
+with recharged.nro. Copy your own disc image (Mario Strikers Charged, USA
+R4QE01 revision 1 or Europe R4QP01 revision 1 or 2) to /switch/recharged/game/.
+docs/SWITCH.md explains the rest. No game data is included.
+
+SOURCE-MANIFEST.json records the embedded build version, packaging source HEAD,
+prepared pins and patches, the Vulkan driver's source and the payload hashes.
+LICENSES/dependencies holds the prepared source notices, LICENSES/switch the
+notices of the devkitPro libraries linked into the program and
+LICENSES/NOTICE-NVK.md those of the Vulkan driver.
+""".encode())
+        stamp = (nvk / ".stamp").read_text().strip() if (nvk / ".stamp").exists() else None
+        manifest = {"format": 1, "version": version, "platform": "switch", "architecture": "aarch64",
+                    "packaging_source_commit": revision, "prepared": prepared,
+                    "vulkan_driver": {"mesa_switch": mesa_pin, "build_stamp": stamp}, "files": files}
+        put("SOURCE-MANIFEST.json", (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode())
+        temporary_archive = Path(temporary) / "package.zip"
+        with zipfile.ZipFile(temporary_archive, "w", zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(stage.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(stage).as_posix())
+            # Unpacked, the folder for the disc image is there to copy it into.
+            archive.writestr(zipfile.ZipInfo((SWITCH_ROOT / "game").as_posix() + "/"), b"")
+        destination = output / (package_name + ".zip")
+        os.replace(temporary_archive, destination)
+    return destination
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, required=True)
@@ -576,9 +695,14 @@ def main():
                         help="Port checkout (defaults to the script's repository).")
     parser.add_argument("--steamdeck", action="store_true",
                         help="Package a Linux x86_64 build for SteamOS 3.7+ and check its system requirements.")
+    parser.add_argument("--switch", action="store_true",
+                        help="Package a Nintendo Switch build (the switch preset) for the SD card.")
     args = parser.parse_args()
     try:
-        archive = package_build(args.build_dir, args.output_dir, args.source_dir, steamdeck=args.steamdeck)
+        if args.switch:
+            archive = package_switch(args.build_dir, args.output_dir, args.source_dir)
+        else:
+            archive = package_build(args.build_dir, args.output_dir, args.source_dir, steamdeck=args.steamdeck)
     except (OSError, ValueError, KeyError, StopIteration) as error:
         print(f"Packaging failed: {error}", file=sys.stderr)
         return 1

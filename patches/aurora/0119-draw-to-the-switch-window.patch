@@ -1,0 +1,36 @@
+From: mscharged-port
+Subject: Draw to the Switch window
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: Nintendo Switch host (Switch only). Apply after 0118.
+
+SDL2's Switch window, under sdl3on2, carries no native handle. Dawn draws to
+the console's default window, as in new-coke's Strikers port.
+
+diff --git a/lib/dawn/BackendBinding.cpp b/lib/dawn/BackendBinding.cpp
+index 447ead8..be56c65 100644
+--- a/lib/dawn/BackendBinding.cpp
++++ b/lib/dawn/BackendBinding.cpp
+@@ -4,7 +4,9 @@
+ 
+ #include <memory>
+ 
+-#if !defined(SDL_PLATFORM_MACOS) && !defined(SDL_PLATFORM_IOS) && !defined(SDL_PLATFORM_TVOS)
++#if defined(__SWITCH__)
++#include <switch.h>
++#elif !defined(SDL_PLATFORM_MACOS) && !defined(SDL_PLATFORM_IOS) && !defined(SDL_PLATFORM_TVOS)
+ #include <SDL3/SDL_video.h>
+ #endif
+ 
+@@ -16,6 +18,12 @@ std::shared_ptr<wgpu::ChainedStruct> SetupWindowAndGetSurfaceDescriptorCocoa(SDL
+ std::shared_ptr<wgpu::ChainedStruct> SetupWindowAndGetSurfaceDescriptor(SDL_Window* window) {
+ #if defined(SDL_PLATFORM_MACOS) || defined(SDL_PLATFORM_IOS) || defined(SDL_PLATFORM_TVOS)
+   return SetupWindowAndGetSurfaceDescriptorCocoa(window);
++#elif defined(__SWITCH__)
++  // SDL2's Switch window has no native handle: draw to the console's default window.
++  (void)window;
++  auto desc = std::make_shared<wgpu::SurfaceSourceSwitchNWindow>();
++  desc->window = nwindowGetDefault();
++  return std::move(desc);
+ #else
+   const auto props = SDL_GetWindowProperties(window);
+ #if defined(SDL_PLATFORM_ANDROID)

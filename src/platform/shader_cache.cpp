@@ -94,6 +94,12 @@ struct Lease {
         return result;
     }
 };
+#elif defined(__SWITCH__)
+// The Switch runs one program at a time and has no launcher to clear the
+// cache: the lease has nothing to exclude.
+struct Lease {
+    Lease(const std::filesystem::path&, bool) {}
+};
 #else
 struct Handle {
     int value = -1;
@@ -187,6 +193,18 @@ ShaderCacheClearResult ClearShaderCache(const std::filesystem::path& directory) 
         FILE_DISPOSITION_INFO disposition{TRUE};
         if (!SetFileInformationByHandle(file.value, FileDispositionInfo, &disposition, sizeof(disposition)))
             Failure("Clear shader cache file", GetLastError());
+        ++result.removed_files;
+    }
+#elif defined(__SWITCH__)
+    for (const auto* name : kCacheFiles) {
+        const auto file = directory / name;
+        std::error_code error;
+        const auto status = std::filesystem::symlink_status(file, error);
+        if (status.type() == std::filesystem::file_type::not_found) continue;
+        if (error) throw std::system_error(error, "Inspect shader cache file");
+        if (!std::filesystem::is_regular_file(status)) Unsafe();
+        result.removed_bytes += std::filesystem::file_size(file);
+        std::filesystem::remove(file);
         ++result.removed_files;
     }
 #else

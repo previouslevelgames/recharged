@@ -68,6 +68,9 @@
 #include "runtime/game_window.h"
 #include "runtime/host_overlay.h"
 #include "runtime/pipeline_warmup.h"
+#if defined(__SWITCH__)
+#include "platform/switch/nx_init.h"
+#endif
 #include "mscharged/build_version.h"
 #include "runtime/frame_rate.h"
 #include "runtime/host_frame_pacing.h"
@@ -569,6 +572,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             aurora_shutdown();
             throw;
         }
+#if defined(__SWITCH__)
+        charged_switch_end_startup_boost();
+#endif
         if(!graphicsPrepared) {
             aurora_shutdown();
             // [launcher] reopen_after_game: the launcher comes back instead (POSIX: in this process).
