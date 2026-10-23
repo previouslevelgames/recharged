@@ -50,6 +50,7 @@
 #include "platform/log_window.h"
 #include "platform/session_log.h"
 #include "platform/launcher_reopen.h"
+#include "platform/competitive_host.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
 #include "platform/netplay_snapshot.h"
@@ -1280,6 +1281,43 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto netplaySnapshot=reinterpret_cast<ChargedNetplaySnapshotFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_netplay_snapshot"));
         std::chrono::steady_clock::time_point lastNetplay{};
+        // Competitive play: with the launcher's session for these settings, the
+        // game's WFC login goes to the profile service, the accepted match's
+        // rules to the module, and its series' result back to the server.
+        auto wfcSnapshot=reinterpret_cast<ChargedWfcSnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_wfc_snapshot"));
+        auto configureCompetitive=reinterpret_cast<ChargedConfigureCompetitiveFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive"));
+        std::unique_ptr<mscharged::platform::CompetitiveHost> competitive;
+        {
+            std::string off;
+            if(wfcSnapshot && configureCompetitive)
+                competitive=mscharged::platform::CompetitiveHost::Start(launch.settings.profile_server,
+                    mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
+                    [](const std::string& text) {
+                        mscharged::platform::SessionLogLine(text);
+                        std::fprintf(stderr,"%s\n",text.c_str());
+                    },&off);
+            else off="this build's game module has no competitive play";
+            const auto line=competitive ? "Competitive: on, signed in as "+competitive->PlayerName()
+                : "Competitive: off ("+off+")";
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
+        std::chrono::steady_clock::time_point lastCompetitive{};
+        auto observeCompetitive = [&] {
+            if(!competitive)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-lastCompetitive<std::chrono::seconds(1))return;
+            lastCompetitive=now;
+            ChargedWfcSnapshot wfc{};
+            if(!wfcSnapshot(&wfc,sizeof wfc))return;
+            ChargedPresenceSnapshot game{};
+            const bool known=presenceSnapshot && presenceSnapshot(&game,sizeof game);
+            std::optional<ChargedCompetitiveRules> rules;
+            if(competitive->Observe(wfc,known ? &game : nullptr,rules))
+                configureCompetitive(rules ? &*rules : nullptr,sizeof(ChargedCompetitiveRules));
+        };
         auto observeNetplay = [&] {
             if((!hostOverlay && !framePacing) || !netplaySnapshot)return;
             const auto now=std::chrono::steady_clock::now();
@@ -1443,7 +1481,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -1532,7 +1570,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}

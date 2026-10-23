@@ -17,6 +17,7 @@ Everything stays in the program folder:
 | `data/nand/` | The game's Wii saves (or the folder set under *Game → Save data*) |
 | `data/pipeline_cache.db` | Compiled shaders for your graphics card |
 | `data/launcher/` | What the launcher found in your game images, and their banners |
+| `data/online/` | Your competitive play sign-in, one file per settings file (readable only by you) |
 | `texture_packs/` | Texture packs (or the folder set under *Gameplay → Mods*) |
 | `data/texture_dumps/` | The game's textures, when *Dump textures* is on |
 | `logs/recharged.log` | The log of the last run |
@@ -449,6 +450,25 @@ beside it. `rollback_test = true` (or `RECHARGED_ROLLBACK_TEST`) instead rolls
 every match back while it is played, offline too, and checks that the replays
 agree: a test of the rollback, not for playing. Saving the settings never
 writes `rollback_test` or `rollback_log`.
+
+## Competitive play
+
+The launcher's **Competitive** page plays matches against other Recharged
+players by the rules of a WFC server that offers them (`[online]
+profile_server`, its `https://` address from the server's admins):
+
+1. Sign in with Discord. The browser opens a page that shows a code; go on
+   only if it is the code the launcher shows.
+2. Challenge a player by their Discord username, with one of the server's rule
+   sets: skill level, game length or goal limit, the games of the series, the
+   stadium, and the *Competitive gameplay* tweaks both teams play with.
+3. Once the challenge is accepted, both start the game, go online and choose
+   **RANKED**. There the two games find only each other, play by the match's
+   rules and report the result, which the page then shows.
+
+Every other game, and RANKED without an accepted match, stays as in the
+original. The game proves its friend code to the server by itself when it goes
+online. The log's `Competitive:` lines tell what it did.
 
 ## The launcher
 
