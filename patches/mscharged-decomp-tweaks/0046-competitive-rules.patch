@@ -1,0 +1,204 @@
+Subject: Competitive play: RANKED against the opponent by the match's rules
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+A player signed in to a Recharged profile on the launcher's Competitive page
+can accept a test match with another player, by a rule set the WFC server's
+admins keep (docs/profiles.md of recharged-wfc-srv). The server pairs both
+games in RANKED, where each then finds only the other. Those games, and only
+those, play by the match's rules:
+
+- SetupGameFromConfig takes the match's skill level, time or goal limit and
+  series length instead of the ranked defaults (mDefaultSettings), and clears
+  both teams' Mega Strike flags when the rules have No Mega Strikes;
+- Fast terrain and Thunder Island walls apply online when the rules have
+  them, next to their offline tweak hooks (0012, 0016);
+- the host's GameStart carries the stadium the rules fix, after the original
+  random pick, so the network random numbers stay the same.
+
+The port decides at each match's setup, from the lobby's other machine and
+the match the launcher's session holds (src/platform/competitive_match.cpp);
+a match keeps its answer to the end. Without a session, or against anyone
+else, RANKED and every other mode stay retail.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+new file mode 100644
+index 0000000..ef60b8a
+--- /dev/null
++++ b/include/mscharged_competitive.h
+@@ -0,0 +1,42 @@
++#if defined(MSCHARGED_TWEAKS)
++#ifndef MSCHARGED_COMPETITIVE_H
++#define MSCHARGED_COMPETITIVE_H
++
++// Competitive play of the native port (src/platform/competitive_match.cpp in
++// the game module). A player signed in on the launcher's Competitive page
++// with an accepted match plays its RANKED games against that match's
++// opponent by the match's rules; every other game stays retail. Both
++// machines have the same rules (the server pairs them only once both
++// confirmed them), and a match keeps the rules it started with.
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// The gameplay settings of a competitive match (GameplaySettings' values).
++struct MschargedCompetitiveSettings
++{
++    int skill; // GameplaySettings::eSkillLevel
++    int limit; // eGameLimitType
++    int time;  // seconds
++    int goals;
++    int games; // in the series
++};
++
++// At the setup of every match (SetupGameFromConfig): the competitive
++// settings when it is a RANKED match against the opponent, otherwise null.
++// The answer holds until the next match's setup.
++const struct MschargedCompetitiveSettings* mscharged_competitive_begin(void);
++// Whether this match plays with game tweak `tweak` by its competitive rules.
++bool mscharged_competitive_tweak(int tweak);
++// The host's stadium for a RANKED match about to start: the competitive
++// match's when its rules fix one and the other machine is the opponent,
++// otherwise `stadium`.
++int mscharged_competitive_stadium(int stadium);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // MSCHARGED_COMPETITIVE_H
++#endif // MSCHARGED_TWEAKS
+diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
+index 609e515..19289cc 100644
+--- a/src/Game/GameInfo.cpp
++++ b/src/Game/GameInfo.cpp
+@@ -13,6 +13,7 @@
+ #include "mscharged_tweaks.h"
+ #if defined(MSCHARGED_TWEAKS)
+ #include "Game/Team.h"
++#include "mscharged_competitive.h"
+ #endif
+ #include "NL/nlDebug.h"
+ #include "NL/nlMemory.h"
+@@ -168,6 +169,11 @@ void GameInfoManager::SetStadium(int stadium)
+ bool ThunderIslandWalls()
+ {
+     GameInfoManager* info = GameInfoManager::Instance();
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a match's rules may fence the sides online too.
++    if (info->GetStadium() == STAD_THUNDER_ISLAND && mscharged_competitive_tweak(MSCHARGED_TWEAK_THUNDER_ISLAND_WALLS))
++        return true;
++#endif
+     return info->GetStadium() == STAD_THUNDER_ISLAND && !info->IsOnline()
+         && mscharged_tweak_enabled(MSCHARGED_TWEAK_THUNDER_ISLAND_WALLS);
+ }
+@@ -437,6 +443,24 @@ void GameInfoManager::SetupGameFromConfig()
+     }
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a RANKED match against the opponent of the player's
++    // accepted competitive match plays by that match's rules instead of the
++    // ranked defaults (mDefaultSettings), its whole series long. Without one
++    // RANKED stays retail.
++    if (const MschargedCompetitiveSettings* competitive = mscharged_competitive_begin()) {
++        mCurGameGameplayOptions.SkillLevel = (GameplaySettings::eSkillLevel)competitive->skill;
++        mCurGameGameplayOptions.GameLimitType = (eGameLimitType)competitive->limit;
++        mCurGameGameplayOptions.GameTime = competitive->time;
++        mCurGameGameplayOptions.GoalLimit = competitive->goals;
++        mCurGameGameplayOptions.NumGames = competitive->games;
++        if (mscharged_competitive_tweak(MSCHARGED_TWEAK_NO_MEGA_STRIKES)) {
++            mCurGameGameplayOptions.mHomeMegastrikeEnabled = false;
++            mCurGameGameplayOptions.mAwayMegastrikeEnabled = false;
++        }
++    }
++#endif
++
+     if (GetTweakBool("User/skipfe", false)) {
+         mCurGameGameplayOptions.NumGames = 11;
+     }
+diff --git a/src/Game/GameTweaksManager.cpp b/src/Game/GameTweaksManager.cpp
+index 2885bfc..b609692 100644
+--- a/src/Game/GameTweaksManager.cpp
++++ b/src/Game/GameTweaksManager.cpp
+@@ -6,6 +6,9 @@
+ #include "Game/SharedStaticStorage.h"
+ #include "Game/DB/StadiumInfo.h"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ #include "NL/nlConfig.h"
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
+@@ -33,6 +36,14 @@ void InitializeGameTweaks(GameTweaksManager* state)
+     {
+         terrain = 0;
+     }
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a match's rules may give every stadium the dry
++    // terrain online too.
++    if (mscharged_competitive_tweak(MSCHARGED_TWEAK_FAST_TERRAIN))
++    {
++        terrain = 0;
++    }
+ #endif
+     state->mTerrainType = terrain;
+ 
+diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
+index b23584c..b01f03d 100644
+--- a/src/Game/NetworkSession.cpp
++++ b/src/Game/NetworkSession.cpp
+@@ -12,6 +12,9 @@
+ #include <dwc/dwc_report_fwd.h>
+ #include <dwc/dwc_nastime_fwd.h>
+ #include "Game/NetworkSession.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ #include "Game/SH/SHOnlineMatchmakingDraft.h"
+ #include "Game/NetworkLobby.h"
+ #include "Game/FE/feDPD.h"
+@@ -281,6 +284,12 @@ void NetworkSession::SendGameStartToEveryone()
+                 message.mStadium = NetworkRandom() & 0xF;
+             }
+         }
++#if defined(MSCHARGED_TWEAKS)
++        // Competitive play: the stadium a match's rules fix, against its
++        // opponent. The random pick above still runs, so the network random
++        // numbers stay the same.
++        message.mStadium = mscharged_competitive_stadium(message.mStadium);
++#endif
+     }
+     else
+     {
+diff --git a/src/Game/Weather.cpp b/src/Game/Weather.cpp
+index 945f042..769c133 100644
+--- a/src/Game/Weather.cpp
++++ b/src/Game/Weather.cpp
+@@ -37,6 +37,9 @@
+ #include "Game/Game.h"
+ #include "Game/GameInfo.h"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ #include "NL/nlMath.h"
+ #include "NL/nlMemory.h"
+ #include "NL/nlFunctionMemory.h"
+@@ -1638,6 +1641,14 @@ void SandTombWeather::CreateSandPatches()
+         m_bSandPatchesCreated = true;
+         return;
+     }
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: the same by a match's rules, online too.
++    if (mscharged_competitive_tweak(MSCHARGED_TWEAK_FAST_TERRAIN))
++    {
++        m_bSandPatchesCreated = true;
++        return;
++    }
+ #endif
+     if (lbl_806E12C8)
+     {
