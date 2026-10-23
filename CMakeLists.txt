@@ -338,6 +338,8 @@ if(BUILD_TESTING OR MSCHARGED_BUILD_SCENE_PREVIEW OR MSCHARGED_BUILD_GAME_STARTU
     include(cmake/WorldObjects.cmake)
 endif()
 
+# Competitive play's profile service; the launcher and the game host link it.
+include(cmake/Competitive.cmake)
 # The Discord status (issue #71); the game host links it.
 include(cmake/Discord.cmake)
 

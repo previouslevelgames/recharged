@@ -428,6 +428,13 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(-0.28f, -0.28f), p(0.28f, 0.28f), color, t * 1.3f);
         draw->AddLine(p(0.28f, -0.28f), p(-0.28f, 0.28f), color, t * 1.3f);
         break;
+    case Icon::Medal:
+        // A medal (competitive play): the ribbon's two bands over the disc.
+        draw->AddLine(p(-0.24f, -0.44f), p(-0.04f, -0.06f), color, t * 1.6f);
+        draw->AddLine(p(0.24f, -0.44f), p(0.04f, -0.06f), color, t * 1.6f);
+        draw->AddCircle(p(0.0f, 0.18f), 0.24f * s, color, 0, t * 1.3f);
+        draw->AddCircleFilled(p(0.0f, 0.18f), 0.11f * s, color);
+        break;
     case Icon::Person:
         // A Mii: the head over rounded shoulders.
         draw->AddCircleFilled(p(0.0f, -0.20f), 0.20f * s, color);
