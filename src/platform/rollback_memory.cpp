@@ -76,6 +76,10 @@ void FindRanges(FixedUpdateTask* task, unsigned long taskBytes)
         AddRange(__rbk_data_start, __rbk_data_end - __rbk_data_start, "game data");
     if (__rbk_bss_start && +__rbk_bss_end > +__rbk_bss_start)
         AddRange(__rbk_bss_start, __rbk_bss_end - __rbk_bss_start, "game bss");
+#if defined(__APPLE__)
+    if (+__rbk_common_end > +__rbk_common_start)
+        AddRange(__rbk_common_start, __rbk_common_end - __rbk_common_start, "game common");
+#endif
     AddRange(StandardAllocator.m_memory, StandardAllocator.m_memory_size, "MEM1");
     AddRange(VirtualAllocator.m_memory, VirtualAllocator.m_memory_size, "MEM2");
     AddRange(&StandardAllocator, sizeof(StandardAllocator), "StandardAllocator");

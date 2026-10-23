@@ -47,7 +47,7 @@ include(cmake/OriginalFrontendDVDErrorsDiagnostic.cmake)
 include(cmake/NativeAXModuleMemory.cmake)
 include(cmake/OriginalOSShutdownRecords.cmake)
 
-# PE: tools/rollback_sections.py launches the compiles of the target and of
+# PE and Mach-O: tools/rollback_sections.py launches the compiles of the target and of
 # the static and object libraries in it (the script's patterns take the
 # members of archives too), once each.
 function(mscharged_rollback_sections_launcher target)
@@ -184,13 +184,13 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     target_sources(${target} PRIVATE src/platform/game_tweaks.cpp src/platform/gx_texture.cpp src/platform/away_kits.cpp)
     # The original game's globals in sections of their own (rbk_data/rbk_bss),
     # which a rollback saves with the arenas: a linker script on ELF (GNU ld,
-    # lld), and on PE a launcher that renames the same files' sections after
-    # each compile (the linker gathers them by name).
+    # lld), and on PE and Mach-O a launcher that renames the same files'
+    # sections after each compile (the linker gathers them by name).
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set(_rollback_sections "${CMAKE_CURRENT_SOURCE_DIR}/cmake/rollback_sections.ld")
         target_link_options(${target} PRIVATE "LINKER:-T,${_rollback_sections}")
         set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${_rollback_sections}")
-    elseif(WIN32)
+    elseif(WIN32 OR APPLE)
         mscharged_rollback_sections_launcher(${target})
     endif()
     # The rollback: RECHARGED_ROLLBACK (network matches predict) and RECHARGED_ROLLBACK_TEST

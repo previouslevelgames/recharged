@@ -366,6 +366,9 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME game_allocation_rollback COMMAND game_allocation_rollback_tests)
     set_tests_properties(game_allocation_rollback PROPERTIES TIMEOUT 60)
+    # The launcher that gathers the game's globals for the rollback on Mach-O.
+    add_test(NAME rollback_sections
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rollback_sections.py")
     add_test(NAME source_preparation
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_prepare_sources.py")
     if(MSCHARGED_PREPARED_FORMATTED)

@@ -54,9 +54,18 @@
 #include <mutex>
 
 // Bounds of the simulation's globals (cmake/rollback_sections.ld; on Windows,
-// tools/rollback_sections.py and rollback_platform.cpp).
+// tools/rollback_sections.py and rollback_platform.cpp; on macOS,
+// tools/rollback_sections.py and the bounds the linker defines for a section).
 #if defined(_WIN32)
 extern "C" char __rbk_data_start[], __rbk_data_end[], __rbk_bss_start[], __rbk_bss_end[];
+#elif defined(__APPLE__)
+extern "C" char __rbk_data_start[] __asm("section$start$__DATA$__rbkd");
+extern "C" char __rbk_data_end[] __asm("section$end$__DATA$__rbkd");
+extern "C" char __rbk_bss_start[] __asm("section$start$__DATA$__rbkb");
+extern "C" char __rbk_bss_end[] __asm("section$end$__DATA$__rbkb");
+// The external zeroed globals, which Mach-O keeps apart (__DATA,__common).
+extern "C" char __rbk_common_start[] __asm("section$start$__DATA$__rbkc");
+extern "C" char __rbk_common_end[] __asm("section$end$__DATA$__rbkc");
 #else
 extern "C" char __rbk_data_start[] __attribute__((weak, visibility("hidden")));
 extern "C" char __rbk_data_end[] __attribute__((weak, visibility("hidden")));

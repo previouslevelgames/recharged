@@ -20,9 +20,10 @@
    script are matched before the default script's, and INSERT keeps the
    default layout around them (GNU ld and lld).
 
-   PE linkers take no script: tools/rollback_sections.py does the same for the
-   Windows modules, with the lists of files it reads from rbk_data here (and
-   checks against rbk_bss's: keep those two the same). */
+   PE and Mach-O linkers take no script: tools/rollback_sections.py does the
+   same for the Windows and macOS modules, with the lists of files it reads
+   from rbk_data here (and checks against rbk_bss's: keep those two the
+   same). */
 
 SECTIONS
 {

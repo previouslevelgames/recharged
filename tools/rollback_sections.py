@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
-"""Compiler launcher of the Windows game modules: the rollback's sections.
+"""Compiler launcher of the Windows and macOS game modules: the rollback's sections.
 
 On ELF, cmake/rollback_sections.ld gathers the writable data of the original
 game's code in sections of their own, which a rollback saves with the arenas.
-PE linkers take no such script, but they merge the sections named "<name>$<x>"
-into one section <name>, in the order of <x>. So this launcher runs the
-compile command it is given, then, when the source is one of the original
-game's files the script gathers, renames the object's writable data and zeroed
-data sections (.data, .bss and their "$" variants: one by variable, the static
-locals' guard variables among them) to .rbkd$m and .rbkb$m.
-src/platform/rollback_platform.cpp puts the bounds, __rbk_data_start and the
-others, in the "$a" and "$z" sections around them.
+PE and Mach-O linkers take no such script. So this launcher runs the compile
+command it is given, then, when the source is one of the original game's files
+the script gathers, renames the object's writable data and zeroed data
+sections, the static locals' guard variables among them:
+
+PE: .data, .bss and their "$" variants (one by variable) to .rbkd$m and
+.rbkb$m. The linker merges the sections named "<name>$<x>" into one section
+<name>, in the order of <x>: src/platform/rollback_platform.cpp puts the
+bounds, __rbk_data_start and the others, in the "$a" and "$z" sections
+around them.
+
+Mach-O: __DATA,__data, __DATA,__bss and __DATA,__common to __DATA,__rbkd,
+__DATA,__rbkb and __DATA,__rbkc. The compiler puts the zeroed globals in
+__bss (internal ones, the guard variables among them) and __common (external
+ones): zero fill sections, not common symbols, whose flag the new names keep;
+two names, so that an object holds no two sections of one name. The linker
+gathers the sections of
+one name and defines their bounds itself, section$start$__DATA$__rbkd and the
+others (src/platform/rollback_state.h; __rbkc is a range of its own). Common symbols (C's tentative
+definitions under -fcommon) have no section to rename: an object with one is
+refused.
 
 The files are the linker script's: the launcher reads them from it.
 
@@ -49,16 +62,80 @@ def matches(path, patterns):
     return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
 
 
-def target_names(source):
-    """The new names of the data and zeroed data sections of an object, or None."""
+def gathered_source(source):
+    """Whether the linker script gathers the globals of this source file."""
     path = os.path.abspath(source).replace(os.sep, "/")
-    for files, excluded in load_rules():
-        if fnmatch.fnmatchcase(path, files) and not matches(path, excluded):
-            return b".rbkd$m", b".rbkb$m"
-    return None
+    return any(fnmatch.fnmatchcase(path, files) and not matches(path, excluded) for files, excluded in load_rules())
 
 
-def rename_sections(path, data_name, bss_name):
+MACHO_MAGIC_64 = 0xFEEDFACF
+MACHO_FAT_MAGIC = 0xCAFEBABE
+LC_SEGMENT_64 = 0x19
+LC_SYMTAB = 0x2
+MACHO_NAMES = {b"__data": b"__rbkd", b"__bss": b"__rbkb", b"__common": b"__rbkc"}
+
+
+def rename_macho(image, base, path):
+    """Renames the sections of the thin 64-bit Mach-O object at `base`; True when it changed."""
+    magic, = struct.unpack_from("<I", image, base)
+    if magic != MACHO_MAGIC_64:
+        raise SystemExit(f"rollback_sections.py: {path} is not a 64-bit little-endian Mach-O object")
+    commands, = struct.unpack_from("<I", image, base + 16)
+    at, changed = base + 32, False
+    for _ in range(commands):
+        command, size = struct.unpack_from("<II", image, at)
+        if command == LC_SEGMENT_64:
+            sections, = struct.unpack_from("<I", image, at + 64)
+            for index in range(sections):
+                section = at + 72 + index * 80
+                name = bytes(image[section:section + 16]).rstrip(b"\0")
+                segment = bytes(image[section + 16:section + 32]).rstrip(b"\0")
+                if segment == b"__DATA" and name in MACHO_NAMES:
+                    image[section:section + 16] = MACHO_NAMES[name].ljust(16, b"\0")
+                    changed = True
+        elif command == LC_SYMTAB:
+            symbols_at, symbols, strings_at, _ = struct.unpack_from("<IIII", image, at + 8)
+            for index in range(symbols):
+                strx, kind, _, _, value = struct.unpack_from("<IBBHQ", image, base + symbols_at + index * 16)
+                # External, undefined, not a debugging entry, with a size: common.
+                if kind & 0xE0 == 0 and kind & 0x0E == 0 and kind & 0x01 and value:
+                    end = image.index(b"\0", base + strings_at + strx)
+                    name = bytes(image[base + strings_at + strx:end]).decode(errors="replace")
+                    raise SystemExit(f"rollback_sections.py: {path} has the common symbol {name}, "
+                                     "which no section of the rollback holds (compile with -fno-common)")
+        at += size
+    return changed
+
+
+def rename_macho_sections(path):
+    with open(path, "r+b") as file:
+        image = bytearray(file.read())
+        magic, = struct.unpack_from(">I", image, 0)
+        if magic == MACHO_FAT_MAGIC:
+            # A universal object: every architecture's object, at its offset.
+            count, = struct.unpack_from(">I", image, 4)
+            changed = False
+            for index in range(count):
+                offset, = struct.unpack_from(">I", image, 8 + index * 20 + 8)
+                changed = rename_macho(image, offset, path) or changed
+        else:
+            changed = rename_macho(image, 0, path)
+        if changed:
+            file.seek(0)
+            file.write(image)
+
+
+def is_macho(path):
+    with open(path, "rb") as file:
+        head = file.read(4)
+    return len(head) == 4 and (struct.unpack("<I", head)[0] == MACHO_MAGIC_64
+                               or struct.unpack(">I", head)[0] == MACHO_FAT_MAGIC)
+
+
+def rename_sections(path, data_name=b".rbkd$m", bss_name=b".rbkb$m"):
+    if is_macho(path):
+        rename_macho_sections(path)
+        return
     with open(path, "r+b") as file:
         image = bytearray(file.read())
         # A big object (more than 65279 sections) has a header of its own.
@@ -104,14 +181,13 @@ def main(command):
             output = argument[2:]
         elif argument.endswith((".c", ".cc", ".cpp", ".cxx")) and not argument.startswith("-"):
             source = source or argument
-    names = target_names(source) if source else None
-    if names:
+    if source and gathered_source(source):
         # A game file whose object is not found would keep its globals out of
         # the rollback without a word.
         if not output or not os.path.isfile(output):
             print(f"rollback_sections.py: no object for {source} in the compile command", file=sys.stderr)
             return 1
-        rename_sections(output, *names)
+        rename_sections(output)
     return 0
 
 
