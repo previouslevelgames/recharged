@@ -88,7 +88,7 @@ Values Encode(const Settings& s)
             {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
-            {"online.server", s.online_server},
+            {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
             {"launcher.test_build", std::to_string(s.test_build)},
