@@ -51,6 +51,7 @@
 #include "platform/launcher_reopen.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
+#include "platform/netplay_snapshot.h"
 #include "platform/presence_snapshot.h"
 #include "platform/shader_cache.h"
 #include "platform/process_exit.h"
@@ -1163,6 +1164,29 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             windowMemory.emplace(host.window,launch.config.path);
         // The 3D resolution the hotkeys step from, for this run.
         std::string renderResolution=launch.settings.resolution;
+        // Once a second after a game frame, the network numbers: the overlay's
+        // LAT in network sessions and DLY and RB in network matches with
+        // rollback.
+        auto netplaySnapshot=reinterpret_cast<ChargedNetplaySnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_netplay_snapshot"));
+        std::chrono::steady_clock::time_point lastNetplay{};
+        auto observeNetplay = [&] {
+            if(!hostOverlay || !netplaySnapshot)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-lastNetplay<std::chrono::seconds(1))return;
+            lastNetplay=now;
+            ChargedNetplaySnapshot snapshot{};
+            if(!netplaySnapshot(&snapshot,sizeof snapshot))return;
+            mscharged::runtime::HostOverlay::Network network;
+            network.session=snapshot.network!=0;
+            if(snapshot.round_trip_ms>=0)network.latency_ms=snapshot.round_trip_ms;
+            network.rollback=snapshot.rollback!=0;
+            if(network.rollback){
+                network.delay_ms=snapshot.input_delay_ms;
+                network.rollback_frames=snapshot.predicted_steps;
+            }
+            hostOverlay->SetNetwork(network);
+        };
         // The persisted launcher toggle is authoritative; recordings live with
         // the session log (logs/ beside this executable), independently of the
         // working directory.
@@ -1303,7 +1327,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -1392,7 +1416,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}

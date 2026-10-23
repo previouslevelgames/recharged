@@ -4084,7 +4084,7 @@ private:
         }
         EndCard();
 
-        BeginCard("##frame_rate", "Performance overlay", "FPS, system GPU and CPU usage, and network latency.", Icon::Info);
+        BeginCard("##frame_rate", "Performance overlay", "FPS and system GPU and CPU usage; in network games the latency, and with rollback the input delay (DLY) and rollback frames (RB).", Icon::Info);
         if (BeginRows("##frame_rate_rows"))
         {
             Row("On screen", "A compact row in a corner, also in fullscreen. Latency shows N/A until online play is available.");

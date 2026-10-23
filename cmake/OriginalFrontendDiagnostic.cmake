@@ -198,6 +198,8 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     target_sources(${target} PRIVATE src/platform/rollback_snapshot.cpp src/platform/rollback_engine.cpp src/platform/rollback_memory.cpp
         src/platform/rollback_netplay.cpp src/platform/rollback_compare.cpp src/platform/rollback_audio.cpp
         src/platform/rollback_summary.cpp src/platform/rollback_platform.cpp)
+    # The performance overlay's network numbers (LAT, and DLY and RB with rollback).
+    target_sources(${target} PRIVATE src/platform/netplay_snapshot.cpp)
     # Robot goalies: the disc's unused robot goalie texture on Charged's goalie (tweak patch 0025).
     target_sources(${target} PRIVATE src/platform/robot_goalie.cpp src/platform/robot_goalie_hook.cpp)
     # Super Team: robot captains and sidekicks from the GameCube robot (tweak patch 0026).
