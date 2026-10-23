@@ -809,9 +809,14 @@ extern "C" void mscharged_rollback_frame_start(void)
 
 #if !defined(_WIN32)
 // Calls to __cxa_throw from the game module bind to this one (hidden), which
-// logs the throw and goes on to the C++ runtime's.
-extern "C" __attribute__((visibility("hidden"), noreturn)) void __cxa_throw(void* thrown, std::type_info* type,
-                                                                           void (*destroy)(void*))
+// logs the throw and goes on to the C++ runtime's. It has a name of its own
+// and takes __cxa_throw's symbol: GCC 15 declares __cxa_throw itself, with
+// void* for the type, and refuses another declaration.
+#define MSCHARGED_STRING(text) #text
+#define MSCHARGED_SYMBOL(prefix, name) MSCHARGED_STRING(prefix) name
+extern "C" __attribute__((visibility("hidden"), noreturn)) void LoggedThrow(void* thrown, std::type_info* type,
+    void (*destroy)(void*)) __asm__(MSCHARGED_SYMBOL(__USER_LABEL_PREFIX__, "__cxa_throw"));
+extern "C" void LoggedThrow(void* thrown, std::type_info* type, void (*destroy)(void*))
 {
     if (Running() && sState->active && sThrows++ < kListedThrows) LogThrow(type);
     using Throw = void (*)(void*, std::type_info*, void (*)(void*));
