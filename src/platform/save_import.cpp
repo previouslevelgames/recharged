@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iomanip>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
@@ -30,6 +31,18 @@ constexpr std::size_t kNameBytes = 12, kMaxFileBytes = 16u << 20, kMaxFiles = 32
 const std::string kFaceLib = "/shared2/menu/FaceLib", kMiiDatabase = kFaceLib + "/RFL_DB.dat";
 constexpr std::size_t kMiiDatabaseBytes = 0xBE6C0, kMiiCheckedBytes = 0x1F1E0, kMiiSlots = 100, kMiiBytes = 0x4A;
 constexpr std::size_t kMiiNameOffset = 0x2, kMiiNameChars = 10, kMiiCreateIdOffset = 0x18, kMiiCreateIdBytes = 8;
+
+// The game save (SaveLoad.cpp), as the Wii stores it (big-endian): the size
+// of its data and their checksum, then the data, padded to 32 bytes. The
+// data start with the user's settings (UserInfo, 0x80 bytes) and the captains'
+// lineups (mRulesTable: 12 x 3 sidekicks, 32 bits each).
+const std::string kGameSave = "Strikers2";
+constexpr std::size_t kSaveHeaderBytes = 8, kSaveAlign = 32, kLineupsOffset = kSaveHeaderBytes + 0x80;
+constexpr std::size_t kLineupsBytes = kCaptainCount * kSidekickSlots * 4;
+constexpr int kDefaultLineups[kCaptainCount][kSidekickSlots] = {
+    {1, 1, 7}, {4, 5, 5}, {6, 1, 5}, {0, 0, 0}, {7, 7, 1}, {3, 3, 0},
+    {2, 5, 2}, {3, 4, 5}, {2, 1, 5}, {5, 1, 2}, {6, 2, 6}, {6, 0, 0},
+};
 
 struct Entry {
     std::uint32_t uid{};
@@ -505,6 +518,64 @@ std::string EmptyMiiDatabase() {
     SetMiiCrc(database);
     return database;
 }
+
+std::uint32_t Big32(const std::string& bytes, std::size_t offset) {
+    std::uint32_t value = 0;
+    for (std::size_t n = 0; n < 4; ++n) value = value << 8 | static_cast<unsigned char>(bytes[offset + n]);
+    return value;
+}
+
+void PutBig32(std::string& bytes, std::size_t offset, std::uint32_t value) {
+    for (std::size_t n = 0; n < 4; ++n) bytes[offset + n] = char(value >> (24 - 8 * n));
+}
+
+// nlChecksum32 (nlMain.cpp): the usual CRC-32, over everything after the header.
+std::uint32_t SaveCrc(const std::string& save) {
+    std::uint32_t crc = ~0u;
+    for (std::size_t n = kSaveHeaderBytes; n < save.size(); ++n) {
+        crc ^= static_cast<unsigned char>(save[n]);
+        for (int bit = 0; bit < 8; ++bit) crc = crc & 1 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+    }
+    return ~crc;
+}
+
+bool ValidLineups(const SidekickLineups& lineups) {
+    for (const auto& lineup : lineups)
+        for (const int sidekick : lineup)
+            if (sidekick < 0 || sidekick >= int(kSidekickCount)) return false;
+    return true;
+}
+
+// The lineups of a game save the game accepts: its file is its data's size
+// rounded up to 32 bytes (what SaveLoad reads), the checksum matches, and
+// every sidekick is one of the eight. Empty otherwise.
+std::optional<SidekickLineups> SaveLineups(const std::string& save) {
+    if (save.size() < kLineupsOffset + kLineupsBytes || save.size() % kSaveAlign) return std::nullopt;
+    const auto size = Big32(save, 0);
+    if (size < kLineupsOffset + kLineupsBytes || (size + kSaveAlign - 1) / kSaveAlign * kSaveAlign != save.size()
+        || Big32(save, 4) != SaveCrc(save))
+        return std::nullopt;
+    SidekickLineups lineups{};
+    for (std::size_t captain = 0; captain < kCaptainCount; ++captain)
+        for (std::size_t slot = 0; slot < kSidekickSlots; ++slot)
+            lineups[captain][slot] = int(Big32(save, kLineupsOffset + (captain * kSidekickSlots + slot) * 4));
+    if (!ValidLineups(lineups)) return std::nullopt;
+    return lineups;
+}
+
+// The game save's file, or empty when the backing has none. Throws for a
+// catalog that cannot be used, or a folder in the save's place.
+fs::path GameSaveFile(const fs::path& nand_root, const SaveTitle& title) {
+    bool existing{};
+    const auto catalog = ExistingCatalog(nand_root, title, existing);
+    const auto path = Home(title.title_id) + '/' + kGameSave;
+    const auto entry = catalog.entries.find(path);
+    if (entry == catalog.entries.end()) return {};
+    if (entry->second.directory)
+        throw std::runtime_error("The save folder's catalog (metadata.txt) has a folder named " + kGameSave + ".");
+    const auto file = Physical(nand_root / "data", path);
+    return IsFile(file) ? file : fs::path{};
+}
 } // namespace
 
 MiiDatabaseStatus InstalledMiis(const fs::path& nand_root, const SaveTitle& title) {
@@ -578,5 +649,58 @@ MiiImportResult AddMii(const std::string& record, const fs::path& nand_root, con
     result.names = {MiiName(mii + kMiiNameOffset)};
     result.backup = WriteMiiDatabase(backing, title, database, backup_parent, "before-mii-create-");
     return result;
+}
+
+SidekickLineups DefaultSidekickLineups() {
+    SidekickLineups lineups{};
+    for (std::size_t captain = 0; captain < kCaptainCount; ++captain)
+        for (std::size_t slot = 0; slot < kSidekickSlots; ++slot)
+            lineups[captain][slot] = kDefaultLineups[captain][slot];
+    return lineups;
+}
+
+SidekickSaveStatus InstalledSidekicks(const fs::path& nand_root, const SaveTitle& title) {
+    SidekickSaveStatus status;
+    try {
+        const auto file = GameSaveFile(nand_root, title);
+        if (file.empty()) return status;
+        const auto lineups = SaveLineups(ReadFile(file));
+        if (!lineups) {
+            status.state = SidekickSaveState::Damaged;
+            return status;
+        }
+        status.state = SidekickSaveState::Ready;
+        status.lineups = *lineups;
+    } catch (const std::exception& error) {
+        status = {SidekickSaveState::Unusable, {}, error.what()};
+    }
+    return status;
+}
+
+fs::path WriteSidekicks(const fs::path& nand_root, const SaveTitle& title, const SidekickLineups& lineups,
+                        const fs::path& backup_parent) {
+    if (!ValidLineups(lineups)) throw std::invalid_argument("A sidekick is not one of the game's eight.");
+    const auto root = physical::PrepareRoot(nand_root);
+    const auto file = GameSaveFile(root, title);
+    if (file.empty()) throw std::runtime_error("There is no game save yet: play once, and the game makes it.");
+    auto save = ReadFile(file);
+    const auto current = SaveLineups(save);
+    if (!current) throw std::runtime_error("The game cannot read its save, so it is left as it is.");
+    if (*current == lineups) return {};
+
+    for (std::size_t captain = 0; captain < kCaptainCount; ++captain)
+        for (std::size_t slot = 0; slot < kSidekickSlots; ++slot)
+            PutBig32(save, kLineupsOffset + (captain * kSidekickSlots + slot) * 4,
+                     std::uint32_t(lineups[captain][slot]));
+    PutBig32(save, 4, SaveCrc(save));
+
+    // The catalog stays as it is: the file keeps its name, size and permissions.
+    fs::path backup;
+    if (!backup_parent.empty()) {
+        backup = NewBackupFolder(backup_parent, "before-sidekicks-");
+        WriteAtomically(backup / PathFromUtf8(kGameSave), ReadFile(file));
+    }
+    WriteAtomically(file, save);
+    return backup;
 }
 } // namespace mscharged::platform

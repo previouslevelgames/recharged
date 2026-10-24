@@ -353,6 +353,128 @@ void RunAddMii(const fs::path& root) {
           "A new Mii did not replace a lost database");
 }
 
+// The usual CRC-32, table-free (the game's nlChecksum32 uses its table).
+std::uint32_t Crc32(const std::string& bytes, std::size_t begin) {
+    std::uint32_t crc = ~0u;
+    for (std::size_t n = begin; n < bytes.size(); ++n)
+        for (int bit = 0; bit < 8; ++bit)
+            crc = ((crc ^ (static_cast<unsigned char>(bytes[n]) >> bit)) & 1) ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+    return ~crc;
+}
+void PutWord(std::string& bytes, std::size_t offset, std::uint32_t value) {
+    for (std::size_t n = 0; n < 4; ++n) bytes[offset + n] = char(value >> (24 - 8 * n));
+}
+std::uint32_t Word(const std::string& bytes, std::size_t offset) {
+    std::uint32_t value = 0;
+    for (std::size_t n = 0; n < 4; ++n) value = value << 8 | static_cast<unsigned char>(bytes[offset + n]);
+    return value;
+}
+// A game save as the game writes it: 35586 bytes of data (size and checksum
+// first) in a 35616-byte file, with these lineups after the 0x80 bytes of
+// user settings.
+std::string GameSave(const SidekickLineups& lineups) {
+    auto save = Pattern(5, 35616);
+    PutWord(save, 0, 35586);
+    for (std::size_t captain = 0; captain < kCaptainCount; ++captain)
+        for (std::size_t slot = 0; slot < kSidekickSlots; ++slot)
+            PutWord(save, 0x88 + (captain * kSidekickSlots + slot) * 4, std::uint32_t(lineups[captain][slot]));
+    PutWord(save, 4, Crc32(save, 8));
+    return save;
+}
+
+// Captains' lineups in the game save: what the launcher writes is what the
+// game's device then reads, with a checksum the game accepts and nothing
+// else changed; saves the game would reject are left alone.
+void RunSidekicks(const fs::path& root) {
+    Check(Crc32("123456789", 0) == 0xCBF43926u, "Test CRC-32 differs from the usual one");
+    const auto defaults = DefaultSidekickLineups();
+    Check(defaults[0] == SidekickLineup{1, 1, 7} && defaults[3] == SidekickLineup{0, 0, 0}
+              && defaults[11] == SidekickLineup{6, 0, 0},
+          "Default lineups differ from the game's");
+    const auto nand = root / "sidekicks", backups = root / "sidekick-backups", source = root / "sidekick-source";
+    fs::remove_all(nand);
+    Check(InstalledSidekicks(nand, kTitle).state == SidekickSaveState::Missing, "Lineups before any save");
+    Reject([&] { WriteSidekicks(nand, kTitle, defaults, backups); }, "Lineups written without a save");
+
+    const auto save = GameSave(defaults);
+    Put(source / "Strikers2", save);
+    ImportDolphinSave(source, nand, kTitle, "Strikers2", backups);
+    auto status = InstalledSidekicks(nand, kTitle);
+    Check(status.state == SidekickSaveState::Ready && status.lineups == defaults, "Lineups of the save not read");
+
+    // Mario with Boo, Toad and Dry Bones; Petey Piranha with three Shy Guys.
+    auto lineups = defaults;
+    lineups[0] = {4, 0, 5};
+    lineups[11] = {7, 7, 7};
+    const auto catalog = Bytes(nand / "metadata.txt");
+    const auto backup = WriteSidekicks(nand, kTitle, lineups, backups);
+    Check(!backup.empty() && Bytes(backup / "Strikers2") == save, "The save was not backed up");
+    Check(Bytes(nand / "metadata.txt") == catalog, "Writing lineups changed the catalog");
+    InitializeNativeFilesystem({nand, kTitle.title_id, kTitle.uid, kTitle.gid});
+    const auto written = IosRead(kHome + "/Strikers2");
+    ShutdownNativeFilesystem();
+    Check(written.size() == save.size() && Word(written, 0) == 35586 && Word(written, 4) == Crc32(written, 8),
+          "The written save fails the game's checks");
+    Check(written.compare(0x88, 12, std::string("\0\0\0\4\0\0\0\0\0\0\0\5", 12)) == 0
+              && written.compare(0x88 + 11 * 12, 12, std::string("\0\0\0\7\0\0\0\7\0\0\0\7", 12)) == 0,
+          "Lineups not stored as the game reads them");
+    auto unchanged = written;
+    unchanged.replace(4, 4, save, 4, 4);
+    unchanged.replace(0x88, 0x90, save, 0x88, 0x90);
+    Check(unchanged == save, "Writing lineups changed more than the lineups and the checksum");
+    status = InstalledSidekicks(nand, kTitle);
+    Check(status.state == SidekickSaveState::Ready && status.lineups == lineups, "Written lineups not read back");
+
+    // The same lineups again write nothing; no backup without a folder for it.
+    Check(WriteSidekicks(nand, kTitle, lineups, backups).empty(), "Unchanged lineups were written");
+    lineups[5] = {2, 2, 2};
+    Check(WriteSidekicks(nand, kTitle, lineups, {}).empty() && InstalledSidekicks(nand, kTitle).lineups == lineups,
+          "Lineups not written without a backup");
+
+    // Sidekicks that do not exist, and saves the game rejects, change nothing.
+    auto wrong = lineups;
+    wrong[2][1] = 8;
+    Reject([&] { WriteSidekicks(nand, kTitle, wrong, backups); }, "A ninth sidekick was written");
+    wrong[2][1] = -1;
+    Reject([&] { WriteSidekicks(nand, kTitle, wrong, backups); }, "A negative sidekick was written");
+    namespace physical = mscharged::platform::filesystem_detail;
+    auto stored = nand / "data";
+    for (const char* name : {"title", "00010000", "52345145", "data", "Strikers2"}) stored /= physical::Component(name);
+    const auto good = Bytes(stored);
+    auto damaged = good;
+    damaged[0x2000] ^= 1;
+    Put(stored, damaged);
+    Check(InstalledSidekicks(nand, kTitle).state == SidekickSaveState::Damaged, "A wrong checksum was not damaged");
+    Reject([&] { WriteSidekicks(nand, kTitle, defaults, backups); }, "Lineups written into a damaged save");
+    Check(Bytes(stored) == damaged, "A damaged save was changed");
+    auto resized = good;
+    PutWord(resized, 0, 35616 + 1);
+    PutWord(resized, 4, Crc32(resized, 8));
+    Put(stored, resized);
+    Check(InstalledSidekicks(nand, kTitle).state == SidekickSaveState::Damaged, "A wrong size was not damaged");
+    auto ninth = GameSave(defaults);
+    PutWord(ninth, 0x88 + 4, 8);
+    PutWord(ninth, 4, Crc32(ninth, 8));
+    Put(stored, ninth);
+    Check(InstalledSidekicks(nand, kTitle).state == SidekickSaveState::Damaged, "A ninth sidekick was read");
+    Put(stored, good);
+    Check(InstalledSidekicks(nand, {kTitle.title_id + 1, kTitle.uid, kTitle.gid}).state
+              == SidekickSaveState::Unusable,
+          "Another game's save folder was read");
+
+    // The European save sits in its own title (TitleSaveFolder's R4QP): the
+    // same layout, and the USA save stays as it is.
+    constexpr SaveTitle kEurope{0x0001000052345150ULL, 0x1001, 0x3031};
+    const auto europe = mscharged::TitleSaveFolder(nand, kEurope.title_id);
+    Check(InstalledSidekicks(europe, kEurope).state == SidekickSaveState::Missing, "European lineups before a save");
+    ImportDolphinSave(source, europe, kEurope, "Strikers2", backups);
+    auto european = defaults;
+    european[8] = {3, 3, 3};
+    WriteSidekicks(europe, kEurope, european, backups);
+    Check(InstalledSidekicks(europe, kEurope).lineups == european && InstalledSidekicks(nand, kTitle).lineups == lineups,
+          "European lineups not kept apart from the USA ones");
+}
+
 void SetEnvironment(const char* name, const fs::path& value) {
 #ifdef _WIN32
     const std::wstring wide(name, name + std::strlen(name));
@@ -422,6 +544,7 @@ int main(int argc, char** argv) {
         RunEurope(fs::path(argv[1]));
         RunMiis(fs::path(argv[1]));
         RunAddMii(fs::path(argv[1]));
+        RunSidekicks(fs::path(argv[1]));
         RunFind(fs::path(argv[1]));
         std::cout << "save_import: " << checks << " checks passed\n";
         return 0;

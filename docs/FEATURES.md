@@ -216,6 +216,12 @@ banner the game uses for its save, read from your own image. Click the one to
 play; images of versions this build cannot run yet are listed with the reason
 ([game images](SETTINGS.md#game-images)).
 
+Its **Teams** page sets the sidekicks each captain starts with, on a pitch
+laid out like the team plays: click a sidekick to put another one there. The
+game's sidekick screen then starts from that lineup, and what you choose there
+shows on the page: both are the lineups in your own game save
+([saves](SETTINGS.md#saves)).
+
 It also **updates Recharged**: when a newer release is out it shows the release
 notes and asks, then installs it in place and restarts; only the program's own
 files are replaced. **Release / Test** on the Play page switches between

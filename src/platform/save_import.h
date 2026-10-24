@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <stdexcept>
@@ -115,4 +117,46 @@ struct MiiCreateIdTaken : std::runtime_error {
 // save folder (InstalledMiis tells these beforehand); nothing is changed then.
 MiiImportResult AddMii(const std::string& record, const std::filesystem::path& nand_root, const SaveTitle& title,
                        const std::filesystem::path& backup_parent);
+
+// The sidekicks each captain starts with. The game keeps one lineup per
+// captain (GameInfoManager::mRulesTable): the sidekick screen shows it, and a
+// choice made there replaces it. It travels in the game's own save,
+// Strikers2, right after the user's settings, so the launcher changes it
+// there and the game needs nothing of its own.
+inline constexpr std::size_t kCaptainCount = 12, kSidekickCount = 8, kSidekickSlots = 3;
+// The sidekicks (eSidekickID: 0 Toad ... 7 Shy Guy) by slot, the order the
+// game fields them in.
+using SidekickLineup = std::array<int, kSidekickSlots>;
+// One lineup per captain, in eTeamID order (0 Mario ... 11 Petey Piranha).
+using SidekickLineups = std::array<SidekickLineup, kCaptainCount>;
+
+// The lineups a new save starts with (kDefaultRules, GameInfo.cpp).
+SidekickLineups DefaultSidekickLineups();
+
+enum class SidekickSaveState {
+    Missing,  // no game save yet: the game makes it when it first saves
+    Ready,    // the game loads it
+    Damaged,  // the game rejects it (size or checksum), or it holds no lineups
+    Unusable, // the save folder cannot be read: `error` says why
+};
+
+struct SidekickSaveStatus {
+    SidekickSaveState state = SidekickSaveState::Missing;
+    SidekickLineups lineups{}; // Ready only
+    std::string error;         // Unusable only
+};
+
+// The lineups in the game save of the NAND backing at `nand_root`: the save
+// the catalog has (the device opens nothing else). Reads only.
+SidekickSaveStatus InstalledSidekicks(const std::filesystem::path& nand_root, const SaveTitle& title);
+
+// Write `lineups` into the game save of the NAND backing at `nand_root` and
+// give it the checksum the game checks; nothing else in it changes. With a
+// `backup_parent`, the save is first copied to `backup_parent`/<timestamp>,
+// which is returned (empty without one, or when the save already holds these
+// lineups). Throws std::invalid_argument for a sidekick outside 0..7, and a
+// readable std::runtime_error when there is no save or the game would reject
+// it (InstalledSidekicks tells these beforehand); nothing is changed then.
+std::filesystem::path WriteSidekicks(const std::filesystem::path& nand_root, const SaveTitle& title,
+                                     const SidekickLineups& lineups, const std::filesystem::path& backup_parent);
 } // namespace mscharged::platform

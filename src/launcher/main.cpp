@@ -174,13 +174,40 @@ void Callout(const std::string& text, const ImVec4& tint, Icon icon)
     ImGui::Dummy({width, height});
 }
 
-enum Page { PagePlay, PageGame, PageMiis, PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play", "Game", "Miis", "Display", "Audio", "Controls", "Gameplay", "Advanced", "About"};
-constexpr const char* page_ids[] = {"play", "game", "miis", "display", "audio", "controls", "gameplay", "advanced", "about"};
-constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Display, Icon::Audio, Icon::Keyboard, Icon::Target,
-                               Icon::Sliders, Icon::Info};
+enum Page { PagePlay, PageGame, PageMiis, PageTeams, PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout,
+            PageCount };
+constexpr const char* page_names[] = {"Play", "Game", "Miis", "Teams", "Display", "Audio", "Controls", "Gameplay", "Advanced",
+                                      "About"};
+constexpr const char* page_ids[] = {"play", "game", "miis", "teams", "display", "audio", "controls", "gameplay", "advanced",
+                                    "about"};
+constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Pitch, Icon::Display, Icon::Audio, Icon::Keyboard,
+                               Icon::Target, Icon::Sliders, Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
     && std::size(page_icons) == PageCount);
+
+// The captains (eTeamID order) and the sidekicks (eSidekickID order), as the
+// game names them.
+constexpr const char* kCaptainNames[] = {"Mario", "Bowser", "Daisy", "Donkey Kong", "Luigi", "Peach",
+                                         "Waluigi", "Wario", "Yoshi", "Bowser Jr.", "Diddy Kong", "Petey Piranha"};
+constexpr const char* kSidekickNames[] = {"Toad", "Koopa", "Hammer Bro", "Birdo", "Boo", "Dry Bones", "Monty Mole",
+                                          "Shy Guy"};
+static_assert(std::size(kCaptainNames) == mscharged::platform::kCaptainCount
+    && std::size(kSidekickNames) == mscharged::platform::kSidekickCount);
+
+// Where the Teams page's pitch puts each player of the team, which attacks to
+// the right: x from its own goal line (0) to the other one (1), y from its
+// left touchline (0) to its right one (1). kSidekickSpots is by slot, the
+// order of the lineup in the save; which slot plays where is yet to be
+// checked in the game.
+struct PitchSpot
+{
+    const char* role;
+    float x, y;
+};
+constexpr PitchSpot kSidekickSpots[] = {{"LEFT WING", 0.44f, 0.22f}, {"RIGHT WING", 0.44f, 0.78f},
+                                        {"DEFENDER", 0.27f, 0.50f}};
+constexpr PitchSpot kCaptainSpot{"CAPTAIN", 0.76f, 0.50f}, kGoalieSpot{"GOALIE", 0.075f, 0.50f};
+static_assert(std::size(kSidekickSpots) == mscharged::platform::kSidekickSlots);
 
 #if defined(__linux__)
 // The udev rule from docs/SETTINGS.md (Wii Remotes): lets the logged-in user
@@ -2448,6 +2475,7 @@ private:
             {
             case PageGame: GamePage(); break;
             case PageMiis: MiiPage(); break;
+            case PageTeams: TeamsPage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
@@ -3269,6 +3297,292 @@ private:
             miis_ = mscharged::platform::InstalledMiis(folder, SaveTitleOf(Release()));
         }
         return miis_;
+    }
+
+    // The sidekicks each captain starts with, in the game save of the save
+    // folder in use: the game's sidekick screen shows them, and what is
+    // chosen there comes back here.
+    void TeamsPage()
+    {
+        PageHeader("Teams", "The sidekicks each captain starts with. The game's sidekick screen shows them, and what you "
+                            "choose there shows here: both live in your game save.");
+        using mscharged::platform::SidekickSaveState;
+        const auto& save = InstalledLineups();
+        if (save.state == SidekickSaveState::Missing)
+            Callout("There is no game save in the save folder in use yet. Play once: the game makes one when it first "
+                    "saves, and its lineups show here.",
+                    color::info, Icon::Info);
+        else if (save.state == SidekickSaveState::Damaged)
+            Callout("The game cannot read the save in the save folder in use, so its lineups are left as they are.",
+                    color::warning, Icon::Warning);
+        else if (save.state == SidekickSaveState::Unusable)
+            Callout(save.error, color::danger, Icon::Error);
+        const bool ready = save.state == SidekickSaveState::Ready;
+        const auto lineups = ready ? save.lineups : mscharged::platform::DefaultSidekickLineups();
+
+        ImGui::BeginDisabled(!ready);
+        BeginCard("##captains", "Captains", "Choose a captain to change the sidekicks that start with them.",
+                  Icon::Person);
+        CaptainGrid(lineups);
+        EndCard();
+
+        const auto& lineup = lineups[std::size_t(lineup_captain_)];
+        const auto standard = mscharged::platform::DefaultSidekickLineups()[std::size_t(lineup_captain_)];
+        BeginCard("##lineup", kCaptainNames[lineup_captain_],
+                  "Click a sidekick to put another one in their place. The change goes straight into the game save.",
+                  Icon::Pitch);
+        Pitch(lineups);
+        if (BeginRows("##lineup_rows"))
+        {
+            const std::string description = SidekickList(standard) + ": the lineup a new save gives "
+                + kCaptainNames[lineup_captain_] + ".";
+            Row("The game's own", description.c_str());
+            if (SecondaryButton("restore_lineup", "Restore", {ImGui::GetContentRegionAvail().x, Dp(40)},
+                                ready && lineup != standard, Icon::Refresh))
+            {
+                auto changed = lineups;
+                changed[std::size_t(lineup_captain_)] = standard;
+                SaveLineups(changed);
+            }
+            EndRows();
+        }
+        EndCard();
+        ImGui::EndDisabled();
+    }
+
+    // The twelve captains, each with the sidekicks that start with them; a
+    // dot marks a lineup that is not the game's own.
+    void CaptainGrid(const mscharged::platform::SidekickLineups& lineups)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const auto standard = mscharged::platform::DefaultSidekickLineups();
+        constexpr int columns = 4;
+        const float gap = Dp(10), width = (ImGui::GetContentRegionAvail().x - gap * (columns - 1)) / columns,
+                    height = Dp(60);
+        for (int captain = 0; captain < int(lineups.size()); ++captain)
+        {
+            if (captain % columns) ImGui::SameLine(0, gap);
+            ImGui::PushID(captain);
+            const ImVec2 min = ImGui::GetCursorScreenPos(), max{min.x + width, min.y + height};
+            if (ImGui::InvisibleButton("##captain", {width, height})) lineup_captain_ = captain;
+            const bool selected = captain == lineup_captain_;
+            const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 14.0f);
+            const float active = Animate(ImGui::GetID("##selected"), selected, 12.0f);
+            draw->AddRectFilled(min, max, Col(Mix(Mix(color::field, color::card_hover, hover), color::accent_dark, active)),
+                                Dp(10));
+            draw->AddRect(min, max, Col(Mix(color::border, color::accent, active), 0.6f + 0.4f * active), Dp(10), 0,
+                          Dp(1.0f + 0.5f * active));
+            draw->PushClipRect({min.x + Dp(12), min.y}, {max.x - Dp(16), max.y}, true);
+            DrawLabel(draw, fonts.label, {min.x + Dp(12), min.y + Dp(10)},
+                      Col(Mix(color::text, color::accent_hi, active)), kCaptainNames[captain]);
+            const auto& lineup = lineups[std::size_t(captain)];
+            std::string sidekicks;
+            for (const int sidekick : lineup) sidekicks += (sidekicks.empty() ? "" : " - ") + Initials(sidekick);
+            DrawLabel(draw, fonts.caption, {min.x + Dp(12), min.y + Dp(34)}, Col(color::muted), sidekicks.c_str());
+            draw->PopClipRect();
+            if (lineup != standard[std::size_t(captain)])
+                draw->AddCircleFilled({max.x - Dp(12), min.y + Dp(12)}, Dp(3.5f), Col(color::accent));
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", SidekickList(lineup).c_str());
+            ImGui::PopID();
+        }
+    }
+
+    // The chosen captain's team on a pitch, attacking to the right; each
+    // sidekick opens a menu of the eight.
+    void Pitch(const mscharged::platform::SidekickLineups& lineups)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x, height = std::round(width * 0.5f);
+        const ImVec2 min = ImGui::GetCursorScreenPos(), max{min.x + width, min.y + height};
+        ImGui::Dummy({width, height});
+        const ImVec2 after = ImGui::GetCursorScreenPos();
+
+        // The grass, mown in stripes, and its markings.
+        FillGradient(draw, min, max, Col(Mix(color::accent_dark, color::card, 0.25f)), Col(color::accent_dark), Dp(14),
+                     false);
+        const ImU32 line = Col(color::text, 0.24f);
+        const float thick = Dp(1.5f), inset = Dp(16);
+        const ImVec2 field_min{min.x + inset, min.y + inset}, field_max{max.x - inset, max.y - inset};
+        const float field_w = field_max.x - field_min.x, field_h = field_max.y - field_min.y;
+        for (int stripe = 1; stripe < 12; stripe += 2)
+            draw->AddRectFilled({field_min.x + field_w * float(stripe) / 12, field_min.y},
+                                {field_min.x + field_w * float(stripe + 1) / 12, field_max.y}, Col(color::text, 0.025f));
+        draw->AddRect(field_min, field_max, line, Dp(4), 0, thick);
+        const float middle = (field_min.x + field_max.x) * 0.5f, centre = (field_min.y + field_max.y) * 0.5f;
+        draw->AddLine({middle, field_min.y}, {middle, field_max.y}, line, thick);
+        // AddLine and AddRect draw half a pixel right and down (pixel centres); the circles follow them.
+        draw->AddCircle({middle + 0.5f, centre + 0.5f}, field_h * 0.17f, line, 0, thick);
+        draw->AddCircleFilled({middle + 0.5f, centre + 0.5f}, Dp(3), line);
+        const float box_w = field_w * 0.09f, box_h = field_h * 0.46f, goal_h = field_h * 0.2f, goal_d = Dp(6);
+        draw->AddRect({field_min.x, centre - box_h * 0.5f}, {field_min.x + box_w, centre + box_h * 0.5f}, line, 0, 0, thick);
+        draw->AddRect({field_max.x - box_w, centre - box_h * 0.5f}, {field_max.x, centre + box_h * 0.5f}, line, 0, 0, thick);
+        draw->AddRectFilled({field_min.x - goal_d, centre - goal_h * 0.5f}, {field_min.x, centre + goal_h * 0.5f}, line);
+        draw->AddRectFilled({field_max.x, centre - goal_h * 0.5f}, {field_max.x + goal_d, centre + goal_h * 0.5f}, line);
+        const char* attack = "ATTACK";
+        const float attack_w = TrackedWidth(fonts.caption, attack, Dp(1.6f));
+        const ImVec2 attack_at{field_max.x - box_w - Dp(34) - attack_w, field_min.y + Dp(10)};
+        DrawTracked(draw, fonts.caption, attack_at, Col(color::text, 0.4f), attack, Dp(1.6f));
+        DrawChevron(draw, {attack_at.x + attack_w + Dp(12), attack_at.y + FontSize(fonts.caption) * 0.5f}, Dp(11),
+                    Col(color::text, 0.4f));
+
+        // The players: a disc with the name's initials, the role above it and the name below.
+        const float radius = std::clamp(field_h * 0.09f, Dp(18), Dp(30));
+        auto spot = [&](const PitchSpot& at) {
+            return ImVec2{field_min.x + field_w * at.x, field_min.y + field_h * at.y};
+        };
+        auto player = [&](const PitchSpot& at, const char* name, const std::string& initials, const ImVec4& tint,
+                          float hover) {
+            const ImVec2 c = spot(at);
+            draw->AddCircleFilled(c, radius + Dp(4) * hover, Col(color::window, 0.85f));
+            draw->AddCircleFilled(c, radius, Col(Mix(color::card, tint, 0.18f + 0.14f * hover)));
+            draw->AddCircle(c, radius, Col(tint, 0.75f + 0.25f * hover), 0, Dp(2.0f + hover));
+            // Centred on the capitals' middle: the line's height also holds the room below the baseline.
+            const ImVec2 letters = TextSize(fonts.heading, initials.c_str());
+            const ImFontGlyph* capital = fonts.heading->FindGlyph('H');
+            const float middle = capital ? (capital->Y0 + capital->Y1) * 0.5f * ImGui::GetIO().FontGlobalScale
+                                         : letters.y * 0.5f;
+            DrawLabel(draw, fonts.heading, {c.x - letters.x * 0.5f, c.y - middle}, Col(color::text), initials.c_str());
+            // The role on a dark tag, readable over the pitch's markings.
+            const float role_w = TrackedWidth(fonts.caption, at.role, Dp(1.4f)), role_h = FontSize(fonts.caption);
+            const ImVec2 role{c.x - role_w * 0.5f, c.y - radius - Dp(8) - role_h};
+            draw->AddRectFilled({role.x - Dp(6), role.y - Dp(2)}, {role.x + role_w + Dp(5), role.y + role_h + Dp(2)},
+                                Col(color::window, 0.6f), Dp(4));
+            DrawTracked(draw, fonts.caption, role, Col(tint, 0.9f), at.role, Dp(1.4f));
+            const ImVec2 label = TextSize(fonts.label, name);
+            DrawLabelShadowed(draw, fonts.label, {c.x - label.x * 0.5f, c.y + radius + Dp(5)}, Col(color::text), name,
+                              Dp(1.5f));
+        };
+        player(kGoalieSpot, "Kritter", "Kr", color::muted, 0.0f);
+        const std::string captain = kCaptainNames[lineup_captain_];
+        player(kCaptainSpot, captain.c_str(), NameInitials(captain), color::accent_hi, 0.0f);
+        const auto& lineup = lineups[std::size_t(lineup_captain_)];
+        for (std::size_t slot = 0; slot < lineup.size(); ++slot)
+        {
+            const ImVec2 c = spot(kSidekickSpots[slot]);
+            ImGui::PushID(int(slot));
+            ImGui::SetCursorScreenPos({c.x - radius, c.y - radius});
+            if (ImGui::InvisibleButton("##sidekick", {radius * 2, radius * 2}))
+            {
+                lineup_slot_ = int(slot);
+                ImGui::OpenPopup("##sidekick_menu");
+            }
+            const bool hovered = ImGui::IsItemHovered();
+            const float hover = Animate(ImGui::GetItemID(), hovered || (lineup_slot_ == int(slot)
+                                        && ImGui::IsPopupOpen("##sidekick_menu")), 14.0f);
+            player(kSidekickSpots[slot], kSidekickNames[lineup[slot]], Initials(lineup[slot]), color::info, hover);
+            if (hovered) ImGui::SetTooltip("Choose another %s", Lowercase(kSidekickSpots[slot].role).c_str());
+            SidekickMenu(lineups, slot);
+            ImGui::PopID();
+        }
+        ImGui::SetCursorScreenPos(after);
+        ImGui::Dummy({0, Dp(6)});
+    }
+
+    // The eight sidekicks for one slot of the chosen captain, the one there ticked.
+    void SidekickMenu(const mscharged::platform::SidekickLineups& lineups, std::size_t slot)
+    {
+        const auto& fonts = CurrentFonts();
+        const float width = Dp(220);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(6, 6));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, Dp(10));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
+        if (ImGui::BeginPopup("##sidekick_menu"))
+        {
+            const int current = lineups[std::size_t(lineup_captain_)][slot];
+            auto* draw = ImGui::GetWindowDrawList();
+            for (int sidekick = 0; sidekick < int(std::size(kSidekickNames)); ++sidekick)
+            {
+                ImGui::PushID(sidekick);
+                const ImVec2 pos = ImGui::GetCursorScreenPos(), size{width, Dp(36)};
+                const bool pressed = ImGui::InvisibleButton("##row", size);
+                const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 14.0f);
+                if (hover > 0.0f)
+                    draw->AddRectFilled(pos, {pos.x + size.x, pos.y + size.y}, Col(color::text, 0.06f * hover), Dp(7));
+                const bool chosen = sidekick == current;
+                const ImU32 ink = Col(chosen ? color::accent : Mix(Mix(color::muted, color::text, 0.7f), color::text, hover));
+                DrawLabel(draw, fonts.label, {pos.x + Dp(12), pos.y + (size.y - FontSize(fonts.label)) * 0.5f}, ink,
+                          kSidekickNames[sidekick]);
+                if (chosen) DrawIcon(draw, Icon::Check, {pos.x + width - Dp(18), pos.y + size.y * 0.5f}, Dp(14), ink);
+                if (pressed)
+                {
+                    if (!chosen)
+                    {
+                        auto changed = lineups;
+                        changed[std::size_t(lineup_captain_)][slot] = sidekick;
+                        SaveLineups(changed);
+                    }
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(3);
+    }
+
+    // Write the lineups into the game save. The first change of a session in a
+    // save folder backs the save up first; the next ones follow it.
+    void SaveLineups(const mscharged::platform::SidekickLineups& lineups)
+    {
+        const auto& lineup = lineups[std::size_t(lineup_captain_)];
+        try
+        {
+            const auto folder = SaveFolder();
+            const bool backup = lineups_backed_up_ != folder;
+            const auto copy = mscharged::platform::WriteSidekicks(folder, SaveTitleOf(Release()), lineups,
+                                                                  backup ? folder / "backups" : fs::path());
+            if (!copy.empty()) lineups_backed_up_ = folder;
+            Notice(std::string(kCaptainNames[lineup_captain_]) + " starts with " + SidekickList(lineup) + ".",
+                   NoticeKind::Success);
+        }
+        catch (const std::exception& e) { Notice(std::string("Saving the lineup failed: ") + e.what(), NoticeKind::Error); }
+        lineups_folder_.clear(); // read the save again
+    }
+
+    // The lineups of the save folder in use, read again when it or its
+    // catalog changes (an import), or after the launcher writes them. The
+    // game changes them only while the launcher is closed.
+    const mscharged::platform::SidekickSaveStatus& InstalledLineups()
+    {
+        const auto folder = SaveFolder();
+        std::error_code error;
+        const auto changed = fs::last_write_time(folder / "metadata.txt", error);
+        const auto time = error ? fs::file_time_type{} : changed;
+        if (folder != lineups_folder_ || time != lineups_time_)
+        {
+            lineups_folder_ = folder;
+            lineups_time_ = time;
+            lineups_ = mscharged::platform::InstalledSidekicks(folder, SaveTitleOf(Release()));
+        }
+        return lineups_;
+    }
+
+    static std::string SidekickList(const mscharged::platform::SidekickLineup& lineup)
+    {
+        return std::string(kSidekickNames[lineup[0]]) + ", " + kSidekickNames[lineup[1]] + " and "
+            + kSidekickNames[lineup[2]];
+    }
+
+    // "Shy Guy" SG, "Toad" To.
+    static std::string NameInitials(const std::string& name)
+    {
+        std::string initials;
+        for (std::size_t n = 0; n < name.size(); ++n)
+            if (std::isupper(static_cast<unsigned char>(name[n])) && (n == 0 || name[n - 1] == ' ')) initials += name[n];
+        if (initials.size() == 1 && name.size() > 1) initials += name[1];
+        return initials;
+    }
+
+    static std::string Initials(int sidekick) { return NameInitials(kSidekickNames[sidekick]); }
+
+    static std::string Lowercase(std::string text)
+    {
+        for (auto& c : text) c = char(std::tolower(static_cast<unsigned char>(c)));
+        return text;
     }
 
     // The checked disc's release, or the USA one before a disc is known.
@@ -7641,6 +7955,14 @@ private:
     fs::file_time_type miis_time_;
     mscharged::platform::MiiDatabaseStatus miis_;
     std::string new_mii_name_;
+    // The Teams page: the captain shown, the slot whose menu is open, the
+    // lineups read from the save folder, and the folder backed up this session.
+    int lineup_captain_ = 0;
+    int lineup_slot_ = -1;
+    fs::path lineups_folder_;
+    fs::file_time_type lineups_time_;
+    mscharged::platform::SidekickSaveStatus lineups_;
+    fs::path lineups_backed_up_;
     // Update check and installation (#50).
     std::unique_ptr<UpdateService> updates_;
     UpdateService::Status update_;

@@ -435,6 +435,37 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->PathArcTo(p(0.0f, 0.42f), 0.38f * s, 3.14159f, 6.28318f);
         draw->PathFillConvex(color);
         break;
+    case Icon::Pitch:
+    {
+        // Outer pitch boundary.
+        draw->AddRect(
+            p(-0.46f, -0.32f),
+            p( 0.46f,  0.32f),
+            color,
+            0.06f * s,
+            0,
+            t
+        );
+
+        // Halfway line: slight left and upward correction.
+        draw->AddLine(
+            {c.x - 0.25f, c.y - 0.32f * s - 0.25f},
+            {c.x - 0.25f, c.y + 0.32f * s - 0.25f},
+            color,
+            t
+        );
+
+        // Center spot: intermediate offset, slightly higher.
+        draw->AddCircle(
+            {c.x + 0.25f, c.y + 0.25f},
+            0.13f * s,
+            color,
+            0,
+            t
+        );
+
+        break;
+    }
     case Icon::Archive:
     {
         // A zip file: a page with a zipper down its middle.

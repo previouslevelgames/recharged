@@ -344,6 +344,14 @@ user folder or that save folder. The current save is first copied to
 `backups/` in the save folder. Dolphin's encrypted `data.bin` exports are not
 supported.
 
+**Teams** changes the lineups the game keeps in `Strikers2`: the three
+sidekicks each captain starts with, which the game's sidekick screen shows and
+replaces with what you choose there. The launcher writes them into the save
+with the checksum the game checks and changes nothing else, so the save stays
+one the game, Dolphin and a Wii read. The first change of each launcher session
+copies the save to `backups/` in the save folder. Until the game has saved once
+there is no save, and so nothing to change.
+
 ## Texture packs
 
 Texture packs replace the game's textures with sharper images; they change
