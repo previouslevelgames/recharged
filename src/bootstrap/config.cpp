@@ -90,6 +90,7 @@ Values Encode(const Settings& s)
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
             {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
+            {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
             {"launcher.test_build", std::to_string(s.test_build)},
             {"discord.rich_presence", s.discord_status ? "true" : "false"},
@@ -356,6 +357,7 @@ Settings Decode(const Values& values)
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
     boolean("launcher.check_updates", s.check_updates);
     boolean("launcher.reopen_after_game", s.reopen_after_game);
+    boolean("launcher.show_welcome", s.show_welcome);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
     number("launcher.test_build", s.test_build, 0, 999999999);
     boolean("discord.rich_presence", s.discord_status);

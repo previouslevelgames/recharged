@@ -423,6 +423,10 @@ status, unless `[discord] application_id` names one.
 off by default) opens the launcher again when you close the game. A game that
 stops with an error message closes as before.
 
+The **welcome guide** opens over the launcher at its first start
+(`[launcher] show_welcome`); **Get started** closes it for good. The light bulb
+in the bar at the bottom of every page, beside **Revert**, opens it again.
+
 ## Updates
 
 At each start the launcher asks GitHub whether a newer build exists (one

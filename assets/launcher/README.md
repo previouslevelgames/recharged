@@ -61,6 +61,14 @@ the pinned Abseil source's Apache 2.0 text.
 Resources are located relative to the executable, independently of the current
 working directory. Keep `assets/launcher/` with a copied executable.
 
+## Welcome guide
+
+`welcome.md` is the guide the launcher opens at its first start, and again with
+the light bulb in the bar at the bottom of every page. It is read beside the executable like the other resources
+and drawn with the release notes' Markdown subset: headings, paragraphs, lists,
+code and **strong** text; its first `#` heading is the dialog's title. Edit it
+like any other text; it is part of the project (CC0).
+
 ## Aurora logo
 
 The About page shows Aurora's logo, `assets/aurora.png` from the pinned

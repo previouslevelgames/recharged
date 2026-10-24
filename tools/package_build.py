@@ -31,7 +31,7 @@ WINDOWS_GRAPHICS_PIN = Path(__file__).with_name("windows_graphics.json")
 
 # One game module per game version (USA, European).
 MODULES = ("recharged_game_us", "recharged_game_eu")
-ASSETS = ("header.png", "icon.png", "aurora.png", "Roboto-Medium.ttf", "README.md", "LICENSE-APACHE")
+ASSETS = ("header.png", "icon.png", "aurora.png", "Roboto-Medium.ttf", "README.md", "welcome.md", "LICENSE-APACHE")
 # LLVM-MinGW runtime DLLs a Windows build imports, and the notices that cover
 # them (LLVM: libc++/libunwind; mingw-w64: winpthreads and CRT startup code).
 WINDOWS_RUNTIME = ("libc++.dll", "libunwind.dll", "libwinpthread-1.dll")

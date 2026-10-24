@@ -204,6 +204,9 @@ struct Settings
     // launcher.reopen_after_game: open the launcher again when a game started
     // from it closes normally.
     bool reopen_after_game = false;
+    // launcher.show_welcome: the welcome guide (assets/launcher/welcome.md)
+    // opens at the next start; closing it switches this off.
+    bool show_welcome = true;
     // launcher.update_channel: release (official releases), test (also test
     // builds of pull requests) or auto (where this build comes from).
     std::string update_channel = "auto";

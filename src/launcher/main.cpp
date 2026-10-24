@@ -466,6 +466,9 @@ public:
             aurora_logo_ = SDL_CreateTextureFromSurface(renderer_, logo.get());
             if (aurora_logo_) SDL_SetTextureScaleMode(aurora_logo_, SDL_SCALEMODE_LINEAR);
         }
+        // The welcome guide opens at the first start (never in development captures).
+        LoadWelcome(resources / "welcome.md");
+        welcome_pending_ = config_ok_ && file_.settings.show_welcome && !welcome_.empty() && !capture_;
         font_path_ = PathUtf8(resources / "Roboto-Medium.ttf");
         if (!fs::exists(resources / "Roboto-Medium.ttf"))
             throw std::runtime_error("Missing launcher font; rebuild to restore resources");
@@ -1268,7 +1271,7 @@ private:
     // (Steam's Game Mode) the card keeps its size.
     void DrawUpdateDialog()
     {
-        if (update_dialog_)
+        if (update_dialog_ && !ImGui::IsPopupOpen("Welcome"))
         {
             ImGui::OpenPopup("Update");
             update_dialog_ = false;
@@ -1332,6 +1335,47 @@ private:
         draw->AddRectFilled({left + thickness, at.y}, {right - thickness, at.y + thickness}, Col(color::border, 0.8f));
         draw->PopClipRect();
         ImGui::Dummy({1.0f, thickness});
+    }
+
+    // A dialog's icon in a soft halo, `disc` wide.
+    static void DialogBadge(ImDrawList* draw, ImVec2 center, float disc, Icon icon, const ImVec4& tint)
+    {
+        for (int i = 3; i >= 1; --i)
+            draw->AddCircleFilled(center, disc * 0.5f + Dp(6.0f * float(i)), Col(tint, 0.025f));
+        draw->AddCircleFilled(center, disc * 0.5f, Col(Mix(DialogFill(), tint, 0.16f)));
+        DrawIcon(draw, icon, center, Dp(21), Col(tint));
+    }
+
+    // Notes in a dialog, at most `height` tall: no frame, the right stick
+    // scrolls them and the text fades out where it scrolls.
+    static void DrawNotesPane(const std::vector<NoteBlock>& notes, float height, const char* empty)
+    {
+        ImGui::SetNextWindowSizeConstraints({0, Dp(24)}, {FLT_MAX, height});
+        ImGui::BeginChild("##notes", {ImGui::GetContentRegionAvail().x, 0}, ImGuiChildFlags_AutoResizeY);
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
+            const float text_width = ImGui::GetContentRegionAvail().x - (ImGui::GetScrollMaxY() > 0 ? Dp(10) : 0);
+            if (notes.empty()) TextWrappedColored(CurrentFonts().body, color::muted, empty);
+            else DrawReleaseNotes(notes, text_width);
+            ImGui::PopStyleVar();
+            const float stick = ImGui::GetKeyData(ImGuiKey_GamepadRStickDown)->AnalogValue
+                - ImGui::GetKeyData(ImGuiKey_GamepadRStickUp)->AnalogValue;
+            if (std::fabs(stick) > 0.15f)
+                ImGui::SetScrollY(ImGui::GetScrollY() + stick * Dp(700) * ImGui::GetIO().DeltaTime);
+            const float scroll = ImGui::GetScrollY(), scroll_max = ImGui::GetScrollMaxY();
+            if (scroll_max > 0.0f)
+            {
+                auto* draw = ImGui::GetWindowDrawList();
+                const ImVec2 at = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
+                const float fade = Dp(30), right = at.x + size.x - ImGui::GetStyle().ScrollbarSize;
+                const ImU32 solid = Col(DialogFill()), clear = Col(DialogFill(), 0.0f);
+                if (scroll < scroll_max - 0.5f)
+                    draw->AddRectFilledMultiColor({at.x, at.y + size.y - fade}, {right, at.y + size.y}, clear, clear,
+                                                  solid, solid);
+                if (scroll > 0.5f) draw->AddRectFilledMultiColor(at, {right, at.y + fade}, solid, solid, clear, clear);
+            }
+        }
+        ImGui::EndChild();
     }
 
     // A release's title without what the headline already says: CI names
@@ -1406,10 +1450,7 @@ private:
         const ImVec2 top = ImGui::GetCursorScreenPos();
         const float disc = Dp(46);
         const ImVec2 center{top.x + disc * 0.5f, top.y + Dp(2) + disc * 0.5f};
-        for (int i = 3; i >= 1; --i)
-            draw->AddCircleFilled(center, disc * 0.5f + Dp(6.0f * float(i)), Col(tint, 0.025f));
-        draw->AddCircleFilled(center, disc * 0.5f, Col(Mix(DialogFill(), tint, 0.16f)));
-        DrawIcon(draw, OfferIcon(kind, offer), center, Dp(21), Col(tint));
+        DialogBadge(draw, center, disc, OfferIcon(kind, offer), tint);
         const float column = top.x + disc + Dp(20);
         ImGui::SetCursorScreenPos({column, top.y});
         ImGui::BeginGroup();
@@ -1505,35 +1546,7 @@ private:
         float notes_height = ImGui::GetMainViewport()->Size.y * 0.36f;
         if (callout) notes_height -= Dp(64);
         if (status.state == State::InstallFailed || !status.install_blocker.empty()) notes_height -= Dp(56);
-        ImGui::SetNextWindowSizeConstraints({0, Dp(24)}, {FLT_MAX, std::clamp(notes_height, Dp(90), Dp(340))});
-        ImGui::BeginChild("##notes", {ImGui::GetContentRegionAvail().x, 0}, ImGuiChildFlags_AutoResizeY);
-        {
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
-            const float text_width = ImGui::GetContentRegionAvail().x - (ImGui::GetScrollMaxY() > 0 ? Dp(10) : 0);
-            if (notes_.empty())
-                TextWrappedColored(fonts.body, color::muted, "No notes were published for this build.");
-            else DrawReleaseNotes(notes_, text_width);
-            ImGui::PopStyleVar();
-            // The right stick scrolls the notes.
-            const float stick = ImGui::GetKeyData(ImGuiKey_GamepadRStickDown)->AnalogValue
-                - ImGui::GetKeyData(ImGuiKey_GamepadRStickUp)->AnalogValue;
-            if (std::fabs(stick) > 0.15f)
-                ImGui::SetScrollY(ImGui::GetScrollY() + stick * Dp(700) * ImGui::GetIO().DeltaTime);
-            const float scroll = ImGui::GetScrollY(), scroll_max = ImGui::GetScrollMaxY();
-            if (scroll_max > 0.0f)
-            {
-                auto* notes_draw = ImGui::GetWindowDrawList();
-                const ImVec2 at = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
-                const float fade = Dp(30), right = at.x + size.x - ImGui::GetStyle().ScrollbarSize;
-                const ImU32 solid = Col(DialogFill()), clear = Col(DialogFill(), 0.0f);
-                if (scroll < scroll_max - 0.5f)
-                    notes_draw->AddRectFilledMultiColor({at.x, at.y + size.y - fade}, {right, at.y + size.y}, clear,
-                                                        clear, solid, solid);
-                if (scroll > 0.5f)
-                    notes_draw->AddRectFilledMultiColor(at, {right, at.y + fade}, solid, solid, clear, clear);
-            }
-        }
-        ImGui::EndChild();
+        DrawNotesPane(notes_, std::clamp(notes_height, Dp(90), Dp(340)), "No notes were published for this build.");
         ImGui::Dummy({0, Dp(18)});
 
         // Progress or problems, above the footer.
@@ -1655,6 +1668,101 @@ private:
                 ImGui::SetItemDefaultFocus();
             }
         }
+    }
+
+    // ------------------------------------------------------------- welcome
+    // The welcome guide, assets/launcher/welcome.md: its first "#" heading is
+    // the dialog's title, the rest its text. Without the file there is no guide.
+    void LoadWelcome(const fs::path& path)
+    {
+        std::size_t size = 0;
+        void* data = SDL_LoadFile(PathUtf8(path).c_str(), &size);
+        if (!data) return;
+        welcome_ = ParseReleaseNotes({static_cast<const char*>(data), size});
+        SDL_free(data);
+        if (!welcome_.empty() && welcome_.front().kind == NoteBlock::Kind::Heading && welcome_.front().level == 1)
+        {
+            for (const auto& span : welcome_.front().spans) welcome_title_ += span.text;
+            welcome_.erase(welcome_.begin());
+        }
+        if (welcome_title_.empty()) welcome_title_ = "Welcome to Recharged";
+    }
+
+    // The guide as a card over the dimmed launcher, like the update dialog. It
+    // opens when no other dialog or menu is open (an update found at the start
+    // waits for it), and opens again after one that took its place.
+    void DrawWelcome()
+    {
+        if (welcome_pending_ && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+            ImGui::OpenPopup("Welcome");
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const float width = std::min(Dp(640), viewport->Size.x - Dp(48));
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({width, 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(30, 26));
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4{0, 0, 0, 0});
+        if (ImGui::BeginPopupModal("Welcome", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
+            | ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
+            DrawWelcomeContents();
+            ImGui::PopStyleVar();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+    }
+
+    void DrawWelcomeContents()
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec4 tint = color::accent;
+        DrawDialogCard(tint);
+        const float right_edge = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+
+        // Header: the badge, then the guide's title.
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        const float disc = Dp(46);
+        DialogBadge(draw, {top.x + disc * 0.5f, top.y + Dp(2) + disc * 0.5f}, disc, Icon::Bulb, tint);
+        ImGui::SetCursorScreenPos({top.x + disc + Dp(20), top.y});
+        ImGui::BeginGroup();
+        DrawTracked(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(tint, 0.95f), "WELCOME", Dp(1.4f));
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(5)});
+        TextColored(fonts.heading, color::text, welcome_title_.c_str());
+        ImGui::EndGroup();
+        ImGui::SetCursorScreenPos({top.x, std::max(top.y + disc + Dp(4), ImGui::GetItemRectMax().y)});
+        ImGui::Dummy({0, Dp(20)});
+
+        DrawNotesPane(welcome_, std::clamp(ImGui::GetMainViewport()->Size.y * 0.5f, Dp(120), Dp(440)), "");
+        ImGui::Dummy({0, Dp(18)});
+
+        DialogDivider();
+        ImGui::Dummy({0, Dp(18)});
+        const char* start = "Get started";
+        const float start_width = PrimaryWidth(start, Icon::Check);
+        ImGui::SetCursorScreenPos({right_edge - start_width, ImGui::GetCursorScreenPos().y});
+        if (PrimaryButton("welcome_start", start, {start_width, Dp(40)}, true, Icon::Check) || CancelPressed())
+            CloseWelcome();
+        ImGui::SetItemDefaultFocus();
+    }
+
+    // Closed, the guide no longer opens by itself: saved at once, without the
+    // other changes not saved yet (as the update choice is).
+    void CloseWelcome()
+    {
+        ImGui::CloseCurrentPopup();
+        welcome_pending_ = false;
+        draft_.show_welcome = false;
+        if (!config_ok_ || !file_.settings.show_welcome) return;
+        try
+        {
+            Settings saved = file_.settings;
+            saved.show_welcome = false;
+            SaveConfig(file_, saved);
+        }
+        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
     }
 
     // A path as the settings keep it: relative inside the settings folder (it
@@ -2366,6 +2474,7 @@ private:
         DrawPlayPrompt(quit);
         DrawImportPrompt();
         DrawRegionPrompt();
+        DrawWelcome();
         DrawUpdateDialog();
         // The new files are in place: restart into them (unsaved settings are
         // saved or dropped in the update dialog first).
@@ -2944,6 +3053,14 @@ private:
         if (SecondaryButton("revert", "Revert", {Dp(104), button_h}, dirty_ || !config_ok_, Icon::Refresh)) Reload();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Reload the settings file and discard unsaved changes.");
+        // The welcome guide again, as an icon beside the settings' actions.
+        if (!welcome_.empty())
+        {
+            x -= Dp(10) + button_h;
+            ImGui::SetCursorScreenPos({x, button_y});
+            if (GhostButton("welcome", "", {button_h, button_h}, true, Icon::Bulb)) welcome_pending_ = true;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Welcome guide: what each page is for.");
+        }
         float right = x - Dp(16);
         if (dirty_)
         {
@@ -8301,6 +8418,10 @@ private:
     std::optional<UpdateChoice> switch_from_;
     std::string notes_source_;
     std::vector<NoteBlock> notes_;
+    // The welcome guide (assets/launcher/welcome.md), and whether it is to open.
+    std::string welcome_title_;
+    std::vector<NoteBlock> welcome_;
+    bool welcome_pending_ = false;
 };
 }
 
