@@ -722,12 +722,13 @@ private:
     // start only for a newer one; after the Release / Test switch or a click on
     // the status also for the way back to the release. After the switch to
     // Test with several test builds and none followed, the Test menu opens.
-    enum class UpdatePrompt { None, Newer, Any, Switch };
+    // Reveal: a Ctrl+click on Test, which then opens the menu with the hidden test builds.
+    enum class UpdatePrompt { None, Newer, Any, Switch, Reveal };
 
     void CheckForUpdates(UpdatePrompt prompt, UpdateChannel channel)
     {
         update_prompt_ = capture_ ? UpdatePrompt::None : prompt;
-        updates_->Check(channel, draft_.test_build);
+        updates_->Check(channel, draft_.test_build, show_hidden_tests_);
     }
 
     bool UpdateBusy() const
@@ -1031,10 +1032,23 @@ private:
         const bool menu = TestMenuAvailable();
         int pressed = -1;
         ImGui::BeginDisabled(busy || !config_ok_);
-        if (SegmentedIcons("##update_channel", &channel,
-                           {{"Release", Icon::Tag, color::accent}, {"Test", Icon::Flask, color::warning, menu}},
-                           {switch_width, height}, true, &pressed))
-            SelectUpdateChannel(channel ? UpdateChannel::Test : UpdateChannel::Release);
+        const bool switched = SegmentedIcons(
+            "##update_channel", &channel,
+            {{"Release", Icon::Tag, color::accent}, {"Test", Icon::Flask, color::warning, menu}},
+            {switch_width, height}, true, &pressed);
+        // Ctrl+click (Cmd+click on a Mac) on Test, a hidden switch: the test
+        // builds their pull request hides (ShownBuilds) show until the
+        // launcher closes, or hide again.
+        const bool reveal = pressed == 1 && (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeySuper);
+        if (reveal)
+        {
+            show_hidden_tests_ = !show_hidden_tests_;
+            Notice(show_hidden_tests_ ? "Hidden test builds are shown until the launcher closes."
+                                      : "Hidden test builds are hidden again.",
+                   NoticeKind::Info);
+        }
+        if (switched) SelectUpdateChannel(channel ? UpdateChannel::Test : UpdateChannel::Release);
+        else if (reveal) CheckForUpdates(UpdatePrompt::Reveal, UpdateChannel::Test);
         // Test again, with a choice: the menu, unless this mouse click closed it.
         else if (pressed == 1 && menu
                  && !(ImGui::GetIO().MouseReleased[0] && test_menu_closed_ >= ImGui::GetIO().MouseClickedTime[0]))
@@ -1169,6 +1183,7 @@ private:
                       Col(Mix(color::muted, color::text, 0.55f + 0.45f * hover)), subtitle.c_str());
             std::string detail = "Test build #" + std::to_string(build.pull_request);
             if (build.published) detail += "  \xC2\xB7  " + LocalTime(build.published);
+            if (build.hidden) detail += "  \xC2\xB7  hidden";
             const float line2 = pos.y + row_height - Dp(9) - FontSize(fonts.caption);
             DrawLabel(draw, fonts.caption, {text_left, line2}, Col(color::dim), detail.c_str());
             // Installed, or the running build's pull request has a newer build.
@@ -2069,7 +2084,12 @@ private:
             update_ = updates_->Snapshot();
             if (update_prompt_ != UpdatePrompt::None && update_.state != UpdateService::State::Checking)
             {
-                if (update_.state == UpdateService::State::Available && update_.offer)
+                // After the hidden switch: the menu, with whatever test builds there are.
+                if (update_prompt_ == UpdatePrompt::Reveal)
+                {
+                    if (!update_.test_builds.empty()) test_menu_ = true;
+                }
+                else if (update_.state == UpdateService::State::Available && update_.offer)
                 {
                     // After the start only newer builds: an update or a newer test build.
                     const OfferKind kind = ClassifyOffer(updates_->Build(), *update_.offer);
@@ -7492,6 +7512,7 @@ private:
     // The Test menu: open it next frame; whether it was open, closed with a
     // choice, and when it closed.
     bool test_menu_ = false, test_menu_open_ = false, test_menu_chose_ = false;
+    bool show_hidden_tests_ = false; // Ctrl+click on Test: also hidden test builds, this run only
     double test_menu_closed_ = -1.0;
     // The update choice before a switch that is not settled yet (BeginSwitch).
     struct UpdateChoice

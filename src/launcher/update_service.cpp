@@ -100,7 +100,7 @@ void UpdateService::Start(std::shared_ptr<platform::HttpCancel> cancel, const st
     worker_ = std::thread(std::move(task));
 }
 
-void UpdateService::Check(UpdateChannel channel, int chosen)
+void UpdateService::Check(UpdateChannel channel, int chosen, bool hidden)
 {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -122,7 +122,7 @@ void UpdateService::Check(UpdateChannel channel, int chosen)
             // test_builds and track stay until the check replaces them.
             status.chosen = chosen;
         },
-        [this, channel, chosen, cancel] { RunCheck(channel, chosen, cancel); });
+        [this, channel, chosen, hidden, cancel] { RunCheck(channel, chosen, hidden, cancel); });
 }
 
 void UpdateService::Install()
@@ -146,7 +146,8 @@ void UpdateService::Install()
         [this, offer = *offer, cancel] { RunInstall(offer, cancel); });
 }
 
-void UpdateService::RunCheck(UpdateChannel channel, int chosen, std::shared_ptr<platform::HttpCancel> cancel)
+void UpdateService::RunCheck(UpdateChannel channel, int chosen, bool hidden,
+                             std::shared_ptr<platform::HttpCancel> cancel)
 {
     try
     {
@@ -164,8 +165,9 @@ void UpdateService::RunCheck(UpdateChannel channel, int chosen, std::shared_ptr<
         }
         const auto answer = platform::HttpGet(GitHubRequest(ReleasesApiUrl(build.repository), build, cancel));
         if (answer.status != 200) throw std::runtime_error(GitHubFailure(answer.status));
-        // Test builds their pull request hides stay out (ShownBuilds).
-        const auto published = ShownBuilds(build, ParseReleases(platform::ParseJson(answer.body)), chosen);
+        // Test builds their pull request hides stay out (ShownBuilds), unless asked for.
+        auto published = ParseReleases(platform::ParseJson(answer.body));
+        if (!hidden) published = ShownBuilds(build, std::move(published), chosen);
         std::vector<PublishedBuild> test_builds;
         int track = 0;
         if (channel == UpdateChannel::Test)
