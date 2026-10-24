@@ -32,6 +32,7 @@ enum class GameTweak : unsigned
     FairBallContests = 10,
     RobotGoalies = 11,
     SuperTeam = 12,
+    SecureStadiums = 13,
 };
 
 struct GameTweakInfo
@@ -43,7 +44,7 @@ struct GameTweakInfo
     bool on_by_default = false; // recommended to every player: on without its [gameplay] key
 };
 
-inline constexpr std::array<GameTweakInfo, 12> kGameTweaks{{
+inline constexpr std::array<GameTweakInfo, 13> kGameTweaks{{
     {GameTweak::SkipIntro, "skip_intro", "Skip intro",
      "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
@@ -85,6 +86,10 @@ inline constexpr std::array<GameTweakInfo, 12> kGameTweaks{{
      "A team's captain and sidekicks become the robots of the Super Team from Super Mario Strikers, fitted to each "
      "character's size. Needs a Super Mario Strikers (GameCube) disc image. Bowser, Petey Piranha and Boo keep "
      "their own look; only the look changes."},
+    {GameTweak::SecureStadiums, "secure_stadiums", "Secure stadiums",
+     "The game's Secure Stadium cheat in every offline match: no lightning, wind, flying debris, solar flares, "
+     "bubbling lava, Storm Ship tilt, Thwomps or sand patches. The electric fences stay. Striker Challenges keep "
+     "their rules; online matches are unchanged."},
 }};
 
 // The position of `tweak` in kGameTweaks and Settings::tweaks (kGameTweaks.size()

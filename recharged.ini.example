@@ -268,6 +268,10 @@ show_hud = true
 # the home team, and one-timers, first-time shots off rebounds and pass
 # receptions always favour it). On by default; online matches always play
 # with it.
+# secure_stadiums: the game's Secure Stadium cheat in every offline match (no
+# lightning, wind, debris, solar flares, lava, Storm Ship tilt, Thwomps or
+# sand patches); the electric fences stay. Striker Challenges keep their
+# rules; online unchanged.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
@@ -281,6 +285,7 @@ robot_goalies = false
 super_team = false
 super_team_side = away
 fair_ball_contests = true
+secure_stadiums = false
 
 [mods]
 # Texture packs made for Dolphin (folders or .zip files with tex1_*.png or

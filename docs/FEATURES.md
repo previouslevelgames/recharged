@@ -155,6 +155,12 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   fence of every other stadium, invisible but with its sparks: the ball and
   items bounce off it, and players knocked into it are electrocuted instead
   of falling off the island. Online matches are unchanged.
+- **Secure stadiums**: the game's Secure Stadium cheat in every offline
+  match, not only in Domination when chosen in its cheats menu: no
+  lightning, wind or flying debris, solar flares, bubbling lava, Storm Ship
+  tilt, Thwomps or sand patches. The electric fences stay, so it combines
+  with Thunder Island walls. Striker Challenges keep their rules; online
+  matches are unchanged.
 - **Fair ball contests**: when players of both teams reach a loose ball in
   the same instant, the one the game updates first takes it. The game
   shuffles that order at every kickoff in a way that puts the home team

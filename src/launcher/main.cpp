@@ -6401,6 +6401,7 @@ private:
         if (BeginRows("##competitive_rows"))
         {
             TweakRow(GameTweak::FastTerrain);
+            TweakRow(GameTweak::SecureStadiums);
             TweakRow(GameTweak::ThunderIslandWalls);
             TweakRow(GameTweak::FairBallContests);
             TweakRow(GameTweak::NoMegaStrikes);
