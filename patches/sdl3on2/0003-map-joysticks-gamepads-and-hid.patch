@@ -1,0 +1,1214 @@
+Subject: Map joysticks, gamepad lists and the HID API
+Upstream-base: fbe120f5020f8bdcb9cbf5ae28d9859b29781119
+
+For the host's Wii Remote and WPAD code. On Switch the libnx pads gain their
+joystick view and joystick events. HID devices and virtual joysticks fail there
+with an error, as nothing on the console can provide them.
+
+diff --git a/README.md b/README.md
+index 29fb5a1..9033562 100644
+--- a/README.md
++++ b/README.md
+@@ -10,9 +10,10 @@ error. Only the library's own sources see the real SDL2 headers.
+ ## What is mapped
+ 
+ Init and quit, hints, app metadata, events, windows and renderers, surfaces and pixel formats,
+-gamepads, joysticks and haptics, keyboard and mouse, I/O streams, properties, filesystem paths,
+-audio streams, and a mixer with tracks and WAV and MP3 input. Within each area, only the functions
+-declared in `include/SDL3/s3_defs.h` and `include/SDL3_mixer/s3_mixer_defs.h` exist.
++gamepads, joysticks and haptics, HID devices, keyboard and mouse, I/O streams, properties,
++filesystem paths, audio streams, and a mixer with tracks and WAV and MP3 input. Within each area,
++only the functions declared in `include/SDL3/s3_defs.h` and `include/SDL3_mixer/s3_mixer_defs.h`
++exist.
+ 
+ ## Known differences from SDL3
+ 
+@@ -31,9 +32,14 @@ declared in `include/SDL3/s3_defs.h` and `include/SDL3_mixer/s3_mixer_defs.h` ex
+ - On Switch, gamepads come from libnx instead of SDL2's joystick driver. Each of up to eight
+   controllers is a gamepad only while it is connected, and its player index is the console's player
+   number. SDL3's sideways mapping applies to a single Joy-Con. A controller that changes style,
+-  such as a Joy-Con pair split in two, is removed and added again. Power levels are unknown, and
+-  virtual joysticks, LEDs and sensors are not supported. `SDL_SendGamepadEffect` takes a libnx
+-  `HidVibrationValue`, which plays on each of the controller's actuators until the next rumble call.
++  such as a Joy-Con pair split in two, is removed and added again. As a joystick it has the
++  gamepad's buttons up to the paddles and its six axes, the triggers spanning the joystick range.
++  Power levels are unknown, and virtual joysticks, LEDs and sensors are not supported.
++  `SDL_SendGamepadEffect` takes a libnx `HidVibrationValue`, which plays on each of the
++  controller's actuators until the next rumble call.
++- On Switch there are no HID devices to reach, so `SDL_hid_init` fails. Elsewhere the HID API is
++  SDL2's, and a device's bus type is always unknown.
++- Virtual joysticks have no sensors, so `SDL_SendJoystickVirtualSensorData` fails.
+ - On Switch, `SDL_GetBasePath` is the folder of the running `.nro`, taken from the `sdmc:/` path the
+   Homebrew Menu passes as `argv[0]`. Without such a path it is SDL2's answer, which on Switch is
+   none.
+diff --git a/include/SDL3/SDL.h b/include/SDL3/SDL.h
+index 8ffe99d..ab9bdd2 100644
+--- a/include/SDL3/SDL.h
++++ b/include/SDL3/SDL.h
+@@ -59,6 +59,8 @@ typedef struct SDL_Joystick SDL_Joystick;
+ typedef struct SDL_Gamepad SDL_Gamepad;
+ typedef struct SDL_Sensor SDL_Sensor;
+ typedef union SDL_Event SDL_Event;
++typedef struct SDL_hid_device SDL_hid_device;
++typedef struct SDL_hid_device_info SDL_hid_device_info;
+ 
+ // SDL3 renumbered scancodes 258-286, so those are absent; the rest match SDL2.
+ 
+@@ -996,15 +998,40 @@ enum {
+ #define SDL_GUIDToString S3_GUIDToString
+ #define SDL_StringToGUID S3_StringToGUID
+ #define SDL_GetJoystickGUIDInfo S3_GetJoystickGUIDInfo
++#define SDL_HAT_CENTERED S3_HAT_CENTERED
++#define SDL_HAT_UP S3_HAT_UP
++#define SDL_HAT_RIGHT S3_HAT_RIGHT
++#define SDL_HAT_DOWN S3_HAT_DOWN
++#define SDL_HAT_LEFT S3_HAT_LEFT
++#define SDL_HAT_RIGHTUP S3_HAT_RIGHTUP
++#define SDL_HAT_RIGHTDOWN S3_HAT_RIGHTDOWN
++#define SDL_HAT_LEFTUP S3_HAT_LEFTUP
++#define SDL_HAT_LEFTDOWN S3_HAT_LEFTDOWN
+ #define SDL_LockJoysticks S3_LockJoysticks
+ #define SDL_UnlockJoysticks S3_UnlockJoysticks
+ #define SDL_OpenJoystick S3_OpenJoystick
++#define SDL_CloseJoystick S3_CloseJoystick
++#define SDL_GetJoystickFromID S3_GetJoystickFromID
++#define SDL_GetJoystickNameForID S3_GetJoystickNameForID
++#define SDL_IsJoystickVirtual S3_IsJoystickVirtual
+ #define SDL_GetJoystickID S3_GetJoystickID
++#define SDL_JoystickConnected S3_JoystickConnected
++#define SDL_GetNumJoystickButtons S3_GetNumJoystickButtons
++#define SDL_GetJoystickAxis S3_GetJoystickAxis
++#define SDL_GetJoystickButton S3_GetJoystickButton
++#define SDL_UpdateJoysticks S3_UpdateJoysticks
+ #define SDL_GetJoystickPowerInfo S3_GetJoystickPowerInfo
+ #define SDL_AttachVirtualJoystick S3_AttachVirtualJoystick
++#define SDL_DetachVirtualJoystick S3_DetachVirtualJoystick
+ #define SDL_SetJoystickVirtualButton S3_SetJoystickVirtualButton
++#define SDL_SendJoystickVirtualSensorData S3_SendJoystickVirtualSensorData
++#define SDL_GetGamepads S3_GetGamepads
++#define SDL_GetGamepadVendorForID S3_GetGamepadVendorForID
++#define SDL_GetGamepadProductForID S3_GetGamepadProductForID
+ #define SDL_OpenGamepad S3_OpenGamepad
+ #define SDL_CloseGamepad S3_CloseGamepad
++#define SDL_GamepadConnected S3_GamepadConnected
++#define SDL_UpdateGamepads S3_UpdateGamepads
+ #define SDL_GetGamepadID S3_GetGamepadID
+ #define SDL_GetGamepadJoystick S3_GetGamepadJoystick
+ #define SDL_GetGamepadProperties S3_GetGamepadProperties
+@@ -1023,6 +1050,7 @@ enum {
+ #define SDL_GetGamepadAxis S3_GetGamepadAxis
+ #define SDL_GetGamepadButton S3_GetGamepadButton
+ #define SDL_GetGamepadButtonFromString S3_GetGamepadButtonFromString
++#define SDL_GetGamepadAxisFromString S3_GetGamepadAxisFromString
+ #define SDL_GetGamepadStringForButton S3_GetGamepadStringForButton
+ #define SDL_GetGamepadStringForAxis S3_GetGamepadStringForAxis
+ #define SDL_GetGamepadButtonLabel S3_GetGamepadButtonLabel
+@@ -1040,6 +1068,23 @@ enum {
+ #define SDL_CloseSensor S3_CloseSensor
+ #define SDL_UpdateSensors S3_UpdateSensors
+ 
++#define SDL_hid_bus_type S3_hid_bus_type
++#define SDL_HID_API_BUS_UNKNOWN S3_HID_API_BUS_UNKNOWN
++#define SDL_HID_API_BUS_USB S3_HID_API_BUS_USB
++#define SDL_HID_API_BUS_BLUETOOTH S3_HID_API_BUS_BLUETOOTH
++#define SDL_HID_API_BUS_I2C S3_HID_API_BUS_I2C
++#define SDL_HID_API_BUS_SPI S3_HID_API_BUS_SPI
++#define SDL_hid_init S3_hid_init
++#define SDL_hid_exit S3_hid_exit
++#define SDL_hid_device_change_count S3_hid_device_change_count
++#define SDL_hid_enumerate S3_hid_enumerate
++#define SDL_hid_free_enumeration S3_hid_free_enumeration
++#define SDL_hid_open_path S3_hid_open_path
++#define SDL_hid_write S3_hid_write
++#define SDL_hid_read_timeout S3_hid_read_timeout
++#define SDL_hid_set_nonblocking S3_hid_set_nonblocking
++#define SDL_hid_close S3_hid_close
++
+ #define SDL_EventType S3_EventType
+ #define SDL_EVENT_FIRST S3_EVENT_FIRST
+ #define SDL_EVENT_QUIT S3_EVENT_QUIT
+@@ -1074,12 +1119,19 @@ enum {
+ #define SDL_EVENT_MOUSE_BUTTON_DOWN S3_EVENT_MOUSE_BUTTON_DOWN
+ #define SDL_EVENT_MOUSE_BUTTON_UP S3_EVENT_MOUSE_BUTTON_UP
+ #define SDL_EVENT_MOUSE_WHEEL S3_EVENT_MOUSE_WHEEL
++#define SDL_EVENT_JOYSTICK_AXIS_MOTION S3_EVENT_JOYSTICK_AXIS_MOTION
++#define SDL_EVENT_JOYSTICK_HAT_MOTION S3_EVENT_JOYSTICK_HAT_MOTION
++#define SDL_EVENT_JOYSTICK_BUTTON_DOWN S3_EVENT_JOYSTICK_BUTTON_DOWN
++#define SDL_EVENT_JOYSTICK_BUTTON_UP S3_EVENT_JOYSTICK_BUTTON_UP
++#define SDL_EVENT_JOYSTICK_ADDED S3_EVENT_JOYSTICK_ADDED
++#define SDL_EVENT_JOYSTICK_REMOVED S3_EVENT_JOYSTICK_REMOVED
+ #define SDL_EVENT_GAMEPAD_AXIS_MOTION S3_EVENT_GAMEPAD_AXIS_MOTION
+ #define SDL_EVENT_GAMEPAD_BUTTON_DOWN S3_EVENT_GAMEPAD_BUTTON_DOWN
+ #define SDL_EVENT_GAMEPAD_BUTTON_UP S3_EVENT_GAMEPAD_BUTTON_UP
+ #define SDL_EVENT_GAMEPAD_ADDED S3_EVENT_GAMEPAD_ADDED
+ #define SDL_EVENT_GAMEPAD_REMOVED S3_EVENT_GAMEPAD_REMOVED
+ #define SDL_EVENT_GAMEPAD_REMAPPED S3_EVENT_GAMEPAD_REMAPPED
++#define SDL_EVENT_GAMEPAD_SENSOR_UPDATE S3_EVENT_GAMEPAD_SENSOR_UPDATE
+ #define SDL_EVENT_FINGER_DOWN S3_EVENT_FINGER_DOWN
+ #define SDL_EVENT_FINGER_UP S3_EVENT_FINGER_UP
+ #define SDL_EVENT_FINGER_MOTION S3_EVENT_FINGER_MOTION
+@@ -1102,9 +1154,14 @@ enum {
+ #define SDL_MOUSEWHEEL_FLIPPED S3_MOUSEWHEEL_FLIPPED
+ #define SDL_MouseWheelDirection S3_MouseWheelDirection
+ #define SDL_MouseWheelEvent S3_MouseWheelEvent
++#define SDL_JoyAxisEvent S3_JoyAxisEvent
++#define SDL_JoyHatEvent S3_JoyHatEvent
++#define SDL_JoyButtonEvent S3_JoyButtonEvent
++#define SDL_JoyDeviceEvent S3_JoyDeviceEvent
+ #define SDL_GamepadDeviceEvent S3_GamepadDeviceEvent
+ #define SDL_GamepadAxisEvent S3_GamepadAxisEvent
+ #define SDL_GamepadButtonEvent S3_GamepadButtonEvent
++#define SDL_GamepadSensorEvent S3_GamepadSensorEvent
+ #define SDL_TouchFingerEvent S3_TouchFingerEvent
+ #define SDL_DropEvent S3_DropEvent
+ #define SDL_QuitEvent S3_QuitEvent
+diff --git a/include/SDL3/SDL_hidapi.h b/include/SDL3/SDL_hidapi.h
+new file mode 100644
+index 0000000..f2c525f
+--- /dev/null
++++ b/include/SDL3/SDL_hidapi.h
+@@ -0,0 +1,6 @@
++#ifndef SDL3ON2_SDL_HIDAPI_H_
++#define SDL3ON2_SDL_HIDAPI_H_
++
++#include <SDL3/SDL.h>
++
++#endif
+diff --git a/include/SDL3/s3_defs.h b/include/SDL3/s3_defs.h
+index 6a66c06..32bbd74 100644
+--- a/include/SDL3/s3_defs.h
++++ b/include/SDL3/s3_defs.h
+@@ -736,16 +736,42 @@ extern void S3_GUIDToString(S3_GUID guid, char* pszGUID, int cbGUID);
+ extern S3_GUID S3_StringToGUID(const char* pchGUID);
+ extern void S3_GetJoystickGUIDInfo(S3_GUID guid, Uint16* vendor, Uint16* product, Uint16* version, Uint16* crc16);
+ 
++#define S3_HAT_CENTERED 0x00u
++#define S3_HAT_UP 0x01u
++#define S3_HAT_RIGHT 0x02u
++#define S3_HAT_DOWN 0x04u
++#define S3_HAT_LEFT 0x08u
++#define S3_HAT_RIGHTUP (S3_HAT_RIGHT | S3_HAT_UP)
++#define S3_HAT_RIGHTDOWN (S3_HAT_RIGHT | S3_HAT_DOWN)
++#define S3_HAT_LEFTUP (S3_HAT_LEFT | S3_HAT_UP)
++#define S3_HAT_LEFTDOWN (S3_HAT_LEFT | S3_HAT_DOWN)
++
+ extern void S3_LockJoysticks(void);
+ extern void S3_UnlockJoysticks(void);
+ extern S3_Joystick* S3_OpenJoystick(S3_JoystickID instance_id);
++extern void S3_CloseJoystick(S3_Joystick* joystick);
++extern S3_Joystick* S3_GetJoystickFromID(S3_JoystickID instance_id);
++extern const char* S3_GetJoystickNameForID(S3_JoystickID instance_id);
++extern bool S3_IsJoystickVirtual(S3_JoystickID instance_id);
+ extern S3_JoystickID S3_GetJoystickID(S3_Joystick* joystick);
++extern bool S3_JoystickConnected(S3_Joystick* joystick);
++extern int S3_GetNumJoystickButtons(S3_Joystick* joystick);
++extern Sint16 S3_GetJoystickAxis(S3_Joystick* joystick, int axis);
++extern bool S3_GetJoystickButton(S3_Joystick* joystick, int button);
++extern void S3_UpdateJoysticks(void);
+ extern S3_PowerState S3_GetJoystickPowerInfo(S3_Joystick* joystick, int* percent);
+ extern S3_JoystickID S3_AttachVirtualJoystick(const S3_VirtualJoystickDesc* desc);
++extern bool S3_DetachVirtualJoystick(S3_JoystickID instance_id);
+ extern bool S3_SetJoystickVirtualButton(S3_Joystick* joystick, int button, bool down);
++extern bool S3_SendJoystickVirtualSensorData(S3_Joystick* joystick, S3_SensorType type, Uint64 sensor_timestamp, const float* data, int num_values);
+ 
++extern S3_JoystickID* S3_GetGamepads(int* count);
++extern Uint16 S3_GetGamepadVendorForID(S3_JoystickID instance_id);
++extern Uint16 S3_GetGamepadProductForID(S3_JoystickID instance_id);
+ extern S3_Gamepad* S3_OpenGamepad(S3_JoystickID instance_id);
+ extern void S3_CloseGamepad(S3_Gamepad* gamepad);
++extern bool S3_GamepadConnected(S3_Gamepad* gamepad);
++extern void S3_UpdateGamepads(void);
+ extern S3_JoystickID S3_GetGamepadID(S3_Gamepad* gamepad);
+ extern S3_Joystick* S3_GetGamepadJoystick(S3_Gamepad* gamepad);
+ extern S3_PropertiesID S3_GetGamepadProperties(S3_Gamepad* gamepad);
+@@ -764,6 +790,7 @@ extern S3_PowerState S3_GetGamepadPowerInfo(S3_Gamepad* gamepad, int* percent);
+ extern Sint16 S3_GetGamepadAxis(S3_Gamepad* gamepad, S3_GamepadAxis axis);
+ extern bool S3_GetGamepadButton(S3_Gamepad* gamepad, S3_GamepadButton button);
+ extern S3_GamepadButton S3_GetGamepadButtonFromString(const char* str);
++extern S3_GamepadAxis S3_GetGamepadAxisFromString(const char* str);
+ extern const char* S3_GetGamepadStringForButton(S3_GamepadButton button);
+ extern const char* S3_GetGamepadStringForAxis(S3_GamepadAxis axis);
+ extern S3_GamepadButtonLabel S3_GetGamepadButtonLabel(S3_Gamepad* gamepad, S3_GamepadButton button);
+@@ -782,6 +809,47 @@ extern bool S3_GetSensorData(S3_Sensor* sensor, float* data, int num_values);
+ extern void S3_CloseSensor(S3_Sensor* sensor);
+ extern void S3_UpdateSensors(void);
+ 
++// SDL3's HID API; SDL3 adds the bus type to SDL2's device info.
++
++typedef struct S3_PUBLIC_TAG(SDL_hid_device, S3_hid_device) S3_hid_device;
++
++typedef enum S3_hid_bus_type {
++    S3_HID_API_BUS_UNKNOWN = 0x00,
++    S3_HID_API_BUS_USB = 0x01,
++    S3_HID_API_BUS_BLUETOOTH = 0x02,
++    S3_HID_API_BUS_I2C = 0x03,
++    S3_HID_API_BUS_SPI = 0x04,
++} S3_hid_bus_type;
++
++typedef struct S3_PUBLIC_TAG(SDL_hid_device_info, S3_hid_device_info) {
++    char* path;
++    unsigned short vendor_id;
++    unsigned short product_id;
++    wchar_t* serial_number;
++    unsigned short release_number;
++    wchar_t* manufacturer_string;
++    wchar_t* product_string;
++    unsigned short usage_page;
++    unsigned short usage;
++    int interface_number;
++    int interface_class;
++    int interface_subclass;
++    int interface_protocol;
++    S3_hid_bus_type bus_type;
++    struct S3_PUBLIC_TAG(SDL_hid_device_info, S3_hid_device_info) * next;
++} S3_hid_device_info;
++
++extern int S3_hid_init(void);
++extern int S3_hid_exit(void);
++extern Uint32 S3_hid_device_change_count(void);
++extern S3_hid_device_info* S3_hid_enumerate(unsigned short vendor_id, unsigned short product_id);
++extern void S3_hid_free_enumeration(S3_hid_device_info* devs);
++extern S3_hid_device* S3_hid_open_path(const char* path);
++extern int S3_hid_write(S3_hid_device* dev, const unsigned char* data, size_t length);
++extern int S3_hid_read_timeout(S3_hid_device* dev, unsigned char* data, size_t length, int milliseconds);
++extern int S3_hid_set_nonblocking(S3_hid_device* dev, int nonblock);
++extern int S3_hid_close(S3_hid_device* dev);
++
+ // SDL3's layout, translated from SDL2's when polled.
+ 
+ typedef Uint32 S3_EventType;
+@@ -819,12 +887,19 @@ typedef Uint32 S3_EventType;
+ #define S3_EVENT_MOUSE_BUTTON_DOWN 0x401u
+ #define S3_EVENT_MOUSE_BUTTON_UP 0x402u
+ #define S3_EVENT_MOUSE_WHEEL 0x403u
++#define S3_EVENT_JOYSTICK_AXIS_MOTION 0x600u
++#define S3_EVENT_JOYSTICK_HAT_MOTION 0x602u
++#define S3_EVENT_JOYSTICK_BUTTON_DOWN 0x603u
++#define S3_EVENT_JOYSTICK_BUTTON_UP 0x604u
++#define S3_EVENT_JOYSTICK_ADDED 0x605u
++#define S3_EVENT_JOYSTICK_REMOVED 0x606u
+ #define S3_EVENT_GAMEPAD_AXIS_MOTION 0x650u
+ #define S3_EVENT_GAMEPAD_BUTTON_DOWN 0x651u
+ #define S3_EVENT_GAMEPAD_BUTTON_UP 0x652u
+ #define S3_EVENT_GAMEPAD_ADDED 0x653u
+ #define S3_EVENT_GAMEPAD_REMOVED 0x654u
+ #define S3_EVENT_GAMEPAD_REMAPPED 0x655u
++#define S3_EVENT_GAMEPAD_SENSOR_UPDATE 0x659u
+ #define S3_EVENT_FINGER_DOWN 0x700u
+ #define S3_EVENT_FINGER_UP 0x701u
+ #define S3_EVENT_FINGER_MOTION 0x702u
+@@ -931,6 +1006,48 @@ typedef struct S3_MouseWheelEvent {
+     Sint32 integer_y;
+ } S3_MouseWheelEvent;
+ 
++typedef struct S3_JoyAxisEvent {
++    Uint32 type;
++    Uint32 reserved;
++    Uint64 timestamp;
++    S3_JoystickID which;
++    Uint8 axis;
++    Uint8 padding1;
++    Uint8 padding2;
++    Uint8 padding3;
++    Sint16 value;
++    Uint16 padding4;
++} S3_JoyAxisEvent;
++
++typedef struct S3_JoyHatEvent {
++    Uint32 type;
++    Uint32 reserved;
++    Uint64 timestamp;
++    S3_JoystickID which;
++    Uint8 hat;
++    Uint8 value;
++    Uint8 padding1;
++    Uint8 padding2;
++} S3_JoyHatEvent;
++
++typedef struct S3_JoyButtonEvent {
++    Uint32 type;
++    Uint32 reserved;
++    Uint64 timestamp;
++    S3_JoystickID which;
++    Uint8 button;
++    bool down;
++    Uint8 padding1;
++    Uint8 padding2;
++} S3_JoyButtonEvent;
++
++typedef struct S3_JoyDeviceEvent {
++    Uint32 type;
++    Uint32 reserved;
++    Uint64 timestamp;
++    S3_JoystickID which;
++} S3_JoyDeviceEvent;
++
+ typedef struct S3_GamepadDeviceEvent {
+     Uint32 type;
+     Uint32 reserved;
+@@ -962,6 +1079,16 @@ typedef struct S3_GamepadButtonEvent {
+     Uint8 padding2;
+ } S3_GamepadButtonEvent;
+ 
++typedef struct S3_GamepadSensorEvent {
++    Uint32 type;
++    Uint32 reserved;
++    Uint64 timestamp;
++    S3_JoystickID which;
++    Sint32 sensor;
++    float data[3];
++    Uint64 sensor_timestamp;
++} S3_GamepadSensorEvent;
++
+ typedef struct S3_TouchFingerEvent {
+     Uint32 type;
+     Uint32 reserved;
+@@ -1015,9 +1142,14 @@ typedef union S3_PUBLIC_TAG(SDL_Event, S3_Event) {
+     S3_MouseMotionEvent motion;
+     S3_MouseButtonEvent button;
+     S3_MouseWheelEvent wheel;
++    S3_JoyAxisEvent jaxis;
++    S3_JoyHatEvent jhat;
++    S3_JoyButtonEvent jbutton;
++    S3_JoyDeviceEvent jdevice;
+     S3_GamepadDeviceEvent gdevice;
+     S3_GamepadAxisEvent gaxis;
+     S3_GamepadButtonEvent gbutton;
++    S3_GamepadSensorEvent gsensor;
+     S3_TouchFingerEvent tfinger;
+     S3_DropEvent drop;
+     S3_QuitEvent quit;
+diff --git a/src/s3_events.c b/src/s3_events.c
+index de7e96e..ef1b82f 100644
+--- a/src/s3_events.c
++++ b/src/s3_events.c
+@@ -177,6 +177,52 @@ bool S3_TranslateEvent(const SDL_Event* native, S3_Event* event, char* text, siz
+         event->wheel.direction = native->wheel.direction;
+         break;
+ 
++    case SDL_JOYAXISMOTION:
++        event->type = S3_EVENT_JOYSTICK_AXIS_MOTION;
++        event->jaxis.which = S3_FromSDL2JoystickID(native->jaxis.which);
++        event->jaxis.axis = native->jaxis.axis;
++        event->jaxis.value = native->jaxis.value;
++        break;
++
++    case SDL_JOYHATMOTION:
++        event->type = S3_EVENT_JOYSTICK_HAT_MOTION;
++        event->jhat.which = S3_FromSDL2JoystickID(native->jhat.which);
++        event->jhat.hat = native->jhat.hat;
++        event->jhat.value = native->jhat.value;
++        break;
++
++    case SDL_JOYBUTTONDOWN:
++    case SDL_JOYBUTTONUP:
++        event->type = native->type == SDL_JOYBUTTONDOWN ? S3_EVENT_JOYSTICK_BUTTON_DOWN : S3_EVENT_JOYSTICK_BUTTON_UP;
++        event->jbutton.which = S3_FromSDL2JoystickID(native->jbutton.which);
++        event->jbutton.button = native->jbutton.button;
++        event->jbutton.down = native->jbutton.state == SDL_PRESSED;
++        break;
++
++    case SDL_JOYDEVICEADDED:
++        event->type = S3_EVENT_JOYSTICK_ADDED;
++#ifdef __SWITCH__
++        event->jdevice.which = S3_FromSDL2JoystickID(native->jdevice.which);
++#else
++        // As for gamepads, SDL2 names an added joystick by its device index.
++        event->jdevice.which = S3_FromSDL2JoystickID(SDL_JoystickGetDeviceInstanceID(native->jdevice.which));
++#endif
++        break;
++
++    case SDL_JOYDEVICEREMOVED:
++        event->type = S3_EVENT_JOYSTICK_REMOVED;
++        event->jdevice.which = S3_FromSDL2JoystickID(native->jdevice.which);
++        break;
++
++    case SDL_CONTROLLERSENSORUPDATE:
++        event->type = S3_EVENT_GAMEPAD_SENSOR_UPDATE;
++        event->gsensor.which = S3_FromSDL2JoystickID(native->csensor.which);
++        event->gsensor.sensor = native->csensor.sensor;
++        SDL_memcpy(event->gsensor.data, native->csensor.data, sizeof(event->gsensor.data));
++        // SDL2 stamps sensor readings in microseconds, SDL3 in nanoseconds.
++        event->gsensor.sensor_timestamp = native->csensor.timestamp_us * UINT64_C(1000);
++        break;
++
+     case SDL_CONTROLLERDEVICEADDED:
+         event->type = S3_EVENT_GAMEPAD_ADDED;
+ #ifdef __SWITCH__
+diff --git a/src/s3_gamepad.c b/src/s3_gamepad.c
+index ee4fca9..1269860 100644
+--- a/src/s3_gamepad.c
++++ b/src/s3_gamepad.c
+@@ -183,8 +183,13 @@ S3_PowerState S3_GetJoystickPowerInfo(S3_Joystick* joystick, int* percent)
+ 
+ typedef struct S3_VirtualJoystick {
+     S3_VirtualJoystickDesc desc;
++    S3_JoystickID instance_id;
++    struct S3_VirtualJoystick* next;
+ } S3_VirtualJoystick;
+ 
++// Attached virtual joysticks, kept to clean up after on detach.
++static S3_VirtualJoystick* s3_virtual_joysticks;
++
+ static void SDLCALL S3_VirtualUpdate(void* userdata)
+ {
+     const S3_VirtualJoystick* virt = (const S3_VirtualJoystick*)userdata;
+@@ -277,13 +282,20 @@ S3_JoystickID S3_AttachVirtualJoystick(const S3_VirtualJoystickDesc* desc)
+     native.SendEffect = desc->SendEffect != NULL ? S3_VirtualSendEffect : NULL;
+ 
+     // SDL2 answers with a device index, SDL3 with an instance id.
++    SDL_LockJoysticks();
+     index = SDL_JoystickAttachVirtualEx(&native);
+     if (index < 0) {
++        SDL_UnlockJoysticks();
+         SDL_free(virt);
+         return 0;
+     }
+ 
+-    return S3_FromSDL2JoystickID(SDL_JoystickGetDeviceInstanceID(index));
++    virt->instance_id = S3_FromSDL2JoystickID(SDL_JoystickGetDeviceInstanceID(index));
++    virt->next = s3_virtual_joysticks;
++    s3_virtual_joysticks = virt;
++    SDL_UnlockJoysticks();
++
++    return virt->instance_id;
+ }
+ 
+ bool S3_SetJoystickVirtualButton(S3_Joystick* joystick, int button, bool down)
+@@ -296,6 +308,199 @@ bool S3_SetJoystickVirtualButton(S3_Joystick* joystick, int button, bool down)
+     return SDL_JoystickSetVirtualButton(S3_UnwrapJoystick(joystick), button, down ? SDL_PRESSED : SDL_RELEASED) == 0;
+ }
+ 
++void S3_CloseJoystick(S3_Joystick* joystick)
++{
++    if (joystick != NULL) {
++        SDL_JoystickClose(S3_UnwrapJoystick(joystick));
++    }
++}
++
++S3_Joystick* S3_GetJoystickFromID(S3_JoystickID instance_id)
++{
++    // Only an open joystick has a handle, as in SDL3.
++    return (S3_Joystick*)SDL_JoystickFromInstanceID(S3_ToSDL2JoystickID(instance_id));
++}
++
++const char* S3_GetJoystickNameForID(S3_JoystickID instance_id)
++{
++    const int index = S3_JoystickDeviceIndex(instance_id);
++
++    return index >= 0 ? SDL_JoystickNameForIndex(index) : NULL;
++}
++
++bool S3_IsJoystickVirtual(S3_JoystickID instance_id)
++{
++    const int index = S3_JoystickDeviceIndex(instance_id);
++
++    return index >= 0 && SDL_JoystickIsVirtual(index) == SDL_TRUE;
++}
++
++bool S3_JoystickConnected(S3_Joystick* joystick)
++{
++    if (joystick == NULL) {
++        SDL_SetError("Parameter 'joystick' is invalid");
++        return false;
++    }
++
++    return SDL_JoystickGetAttached(S3_UnwrapJoystick(joystick)) == SDL_TRUE;
++}
++
++int S3_GetNumJoystickButtons(S3_Joystick* joystick)
++{
++    if (joystick == NULL) {
++        SDL_SetError("Parameter 'joystick' is invalid");
++        return -1;
++    }
++
++    return SDL_JoystickNumButtons(S3_UnwrapJoystick(joystick));
++}
++
++Sint16 S3_GetJoystickAxis(S3_Joystick* joystick, int axis)
++{
++    int count;
++
++    if (joystick == NULL) {
++        SDL_SetError("Parameter 'joystick' is invalid");
++        return 0;
++    }
++
++    count = SDL_JoystickNumAxes(S3_UnwrapJoystick(joystick));
++    if (axis < 0 || axis >= count) {
++        SDL_SetError("Joystick only has %d axes", count);
++        return 0;
++    }
++
++    return SDL_JoystickGetAxis(S3_UnwrapJoystick(joystick), axis);
++}
++
++bool S3_GetJoystickButton(S3_Joystick* joystick, int button)
++{
++    int count;
++
++    if (joystick == NULL) {
++        SDL_SetError("Parameter 'joystick' is invalid");
++        return false;
++    }
++
++    count = SDL_JoystickNumButtons(S3_UnwrapJoystick(joystick));
++    if (button < 0 || button >= count) {
++        SDL_SetError("Joystick only has %d buttons", count);
++        return false;
++    }
++
++    return SDL_JoystickGetButton(S3_UnwrapJoystick(joystick), button) != 0;
++}
++
++void S3_UpdateJoysticks(void)
++{
++    SDL_JoystickUpdate();
++}
++
++bool S3_DetachVirtualJoystick(S3_JoystickID instance_id)
++{
++    S3_VirtualJoystick** link;
++    S3_VirtualJoystick* virt = NULL;
++    int index;
++
++    SDL_LockJoysticks();
++    index = S3_JoystickDeviceIndex(instance_id);
++    if (index < 0 || SDL_JoystickDetachVirtual(index) != 0) {
++        SDL_UnlockJoysticks();
++        return false;
++    }
++
++    for (link = &s3_virtual_joysticks; *link != NULL; link = &(*link)->next) {
++        if ((*link)->instance_id == instance_id) {
++            virt = *link;
++            *link = virt->next;
++            break;
++        }
++    }
++    SDL_UnlockJoysticks();
++
++    // SDL3 hands the descriptor's userdata back once the joystick is gone.
++    if (virt != NULL) {
++        if (virt->desc.Cleanup != NULL) {
++            virt->desc.Cleanup(virt->desc.userdata);
++        }
++        SDL_free(virt);
++    }
++
++    return true;
++}
++
++bool S3_SendJoystickVirtualSensorData(S3_Joystick* joystick, S3_SensorType type, Uint64 sensor_timestamp, const float* data, int num_values)
++{
++    (void)type;
++    (void)sensor_timestamp;
++    (void)data;
++    (void)num_values;
++
++    if (joystick == NULL) {
++        SDL_SetError("Parameter 'joystick' is invalid");
++        return false;
++    }
++
++    // SDL2's virtual joysticks have no sensors, so none could have been attached with one.
++    SDL_SetError("Virtual joystick sensors are not supported by sdl3on2");
++
++    return false;
++}
++
++S3_JoystickID* S3_GetGamepads(int* count)
++{
++    S3_JoystickID* ids;
++    int total;
++    int index;
++    int found = 0;
++
++    if (count != NULL) {
++        *count = 0;
++    }
++
++    SDL_LockJoysticks();
++    total = SDL_NumJoysticks() > 0 ? SDL_NumJoysticks() : 0;
++    ids = (S3_JoystickID*)SDL_malloc(sizeof(*ids) * ((size_t)total + 1));
++    if (ids == NULL) {
++        SDL_UnlockJoysticks();
++        SDL_SetError("Out of memory");
++        return NULL;
++    }
++
++    for (index = 0; index < total; index++) {
++        if (SDL_IsGameController(index)) {
++            ids[found++] = S3_FromSDL2JoystickID(SDL_JoystickGetDeviceInstanceID(index));
++        }
++    }
++    ids[found] = 0;
++    SDL_UnlockJoysticks();
++
++    if (count != NULL) {
++        *count = found;
++    }
++
++    return ids;
++}
++
++Uint16 S3_GetGamepadVendorForID(S3_JoystickID instance_id)
++{
++    const int index = S3_JoystickDeviceIndex(instance_id);
++
++    return index >= 0 ? SDL_JoystickGetDeviceVendor(index) : 0;
++}
++
++Uint16 S3_GetGamepadProductForID(S3_JoystickID instance_id)
++{
++    const int index = S3_JoystickDeviceIndex(instance_id);
++
++    return index >= 0 ? SDL_JoystickGetDeviceProduct(index) : 0;
++}
++
++void S3_UpdateGamepads(void)
++{
++    SDL_GameControllerUpdate();
++}
++
+ S3_Gamepad* S3_OpenGamepad(S3_JoystickID instance_id)
+ {
+     const int index = S3_JoystickDeviceIndex(instance_id);
+@@ -343,6 +548,15 @@ void S3_CloseGamepad(S3_Gamepad* gamepad)
+     }
+ }
+ 
++bool S3_GamepadConnected(S3_Gamepad* gamepad)
++{
++    if (gamepad == NULL) {
++        return S3_InvalidGamepad();
++    }
++
++    return SDL_GameControllerGetAttached(S3_UnwrapGamepad(gamepad)) == SDL_TRUE;
++}
++
+ S3_JoystickID S3_GetGamepadID(S3_Gamepad* gamepad)
+ {
+     SDL_Joystick* joystick = gamepad != NULL ? SDL_GameControllerGetJoystick(S3_UnwrapGamepad(gamepad)) : NULL;
+@@ -649,6 +863,28 @@ S3_GamepadButton S3_GetGamepadButtonFromString(const char* str)
+     return S3_GAMEPAD_BUTTON_INVALID;
+ }
+ 
++S3_GamepadAxis S3_GetGamepadAxisFromString(const char* str)
++{
++    int index;
++
++    if (str == NULL || *str == '\0') {
++        return S3_GAMEPAD_AXIS_INVALID;
++    }
++
++    // SDL3 accepts a mapping's half-axis sign in front of the name.
++    if (*str == '+' || *str == '-') {
++        str++;
++    }
++
++    for (index = 0; index < S3_GAMEPAD_AXIS_COUNT; index++) {
++        if (SDL_strcasecmp(str, s3_gamepad_axis_names[index]) == 0) {
++            return (S3_GamepadAxis)index;
++        }
++    }
++
++    return S3_GAMEPAD_AXIS_INVALID;
++}
++
+ const char* S3_GetGamepadStringForButton(S3_GamepadButton button)
+ {
+     if (button > S3_GAMEPAD_BUTTON_INVALID && button < S3_GAMEPAD_BUTTON_COUNT) {
+diff --git a/src/s3_hid.c b/src/s3_hid.c
+new file mode 100644
+index 0000000..3f1dd28
+--- /dev/null
++++ b/src/s3_hid.c
+@@ -0,0 +1,219 @@
++// SDL3's HID API: SDL2's on most platforms; the Switch has no HID devices to reach.
++
++#include "s3_internal.h"
++
++#ifdef __SWITCH__
++
++static void S3_HidUnsupported(void)
++{
++    SDL_SetError("HID devices are not supported by sdl3on2 on Switch");
++}
++
++int S3_hid_init(void)
++{
++    S3_HidUnsupported();
++    return -1;
++}
++
++int S3_hid_exit(void)
++{
++    return 0;
++}
++
++Uint32 S3_hid_device_change_count(void)
++{
++    return 0;
++}
++
++S3_hid_device_info* S3_hid_enumerate(unsigned short vendor_id, unsigned short product_id)
++{
++    (void)vendor_id;
++    (void)product_id;
++
++    S3_HidUnsupported();
++
++    return NULL;
++}
++
++void S3_hid_free_enumeration(S3_hid_device_info* devs)
++{
++    (void)devs;
++}
++
++S3_hid_device* S3_hid_open_path(const char* path)
++{
++    (void)path;
++
++    S3_HidUnsupported();
++
++    return NULL;
++}
++
++// No device ever opens, so every handle is invalid.
++static int S3_HidInvalidDevice(void)
++{
++    SDL_SetError("Invalid device");
++    return -1;
++}
++
++int S3_hid_write(S3_hid_device* dev, const unsigned char* data, size_t length)
++{
++    (void)dev;
++    (void)data;
++    (void)length;
++
++    return S3_HidInvalidDevice();
++}
++
++int S3_hid_read_timeout(S3_hid_device* dev, unsigned char* data, size_t length, int milliseconds)
++{
++    (void)dev;
++    (void)data;
++    (void)length;
++    (void)milliseconds;
++
++    return S3_HidInvalidDevice();
++}
++
++int S3_hid_set_nonblocking(S3_hid_device* dev, int nonblock)
++{
++    (void)dev;
++    (void)nonblock;
++
++    return S3_HidInvalidDevice();
++}
++
++int S3_hid_close(S3_hid_device* dev)
++{
++    (void)dev;
++
++    return S3_HidInvalidDevice();
++}
++
++#else
++
++// SDL3's list is SDL2's with a bus type added, so it is copied; the strings stay SDL2's.
++typedef struct S3_HidEnumeration {
++    SDL_hid_device_info* native;
++} S3_HidEnumeration;
++
++static SDL_hid_device* S3_UnwrapHid(S3_hid_device* dev)
++{
++    return (SDL_hid_device*)dev;
++}
++
++int S3_hid_init(void)
++{
++    return SDL_hid_init();
++}
++
++int S3_hid_exit(void)
++{
++    return SDL_hid_exit();
++}
++
++Uint32 S3_hid_device_change_count(void)
++{
++    return SDL_hid_device_change_count();
++}
++
++S3_hid_device_info* S3_hid_enumerate(unsigned short vendor_id, unsigned short product_id)
++{
++    SDL_hid_device_info* native = SDL_hid_enumerate(vendor_id, product_id);
++    const SDL_hid_device_info* device;
++    S3_HidEnumeration* list;
++    S3_hid_device_info* copies;
++    size_t count = 0;
++    size_t index = 0;
++
++    for (device = native; device != NULL; device = device->next) {
++        count++;
++    }
++
++    // SDL3 answers an empty enumeration with NULL as well.
++    if (count == 0) {
++        SDL_hid_free_enumeration(native);
++        return NULL;
++    }
++
++    list = (S3_HidEnumeration*)SDL_malloc(sizeof(*list) + sizeof(*copies) * count);
++    if (list == NULL) {
++        SDL_hid_free_enumeration(native);
++        SDL_SetError("Out of memory");
++        return NULL;
++    }
++
++    copies = (S3_hid_device_info*)(list + 1);
++    list->native = native;
++
++    for (device = native; device != NULL; device = device->next, index++) {
++        S3_hid_device_info* copy = &copies[index];
++
++        copy->path = device->path;
++        copy->vendor_id = device->vendor_id;
++        copy->product_id = device->product_id;
++        copy->serial_number = device->serial_number;
++        copy->release_number = device->release_number;
++        copy->manufacturer_string = device->manufacturer_string;
++        copy->product_string = device->product_string;
++        copy->usage_page = device->usage_page;
++        copy->usage = device->usage;
++        copy->interface_number = device->interface_number;
++        copy->interface_class = device->interface_class;
++        copy->interface_subclass = device->interface_subclass;
++        copy->interface_protocol = device->interface_protocol;
++        // SDL2 does not say how a device is connected.
++        copy->bus_type = S3_HID_API_BUS_UNKNOWN;
++        copy->next = index + 1 < count ? &copies[index + 1] : NULL;
++    }
++
++    return copies;
++}
++
++void S3_hid_free_enumeration(S3_hid_device_info* devs)
++{
++    S3_HidEnumeration* list;
++
++    if (devs == NULL) {
++        return;
++    }
++
++    list = (S3_HidEnumeration*)devs - 1;
++    SDL_hid_free_enumeration(list->native);
++    SDL_free(list);
++}
++
++S3_hid_device* S3_hid_open_path(const char* path)
++{
++    return (S3_hid_device*)SDL_hid_open_path(path, 0);
++}
++
++int S3_hid_write(S3_hid_device* dev, const unsigned char* data, size_t length)
++{
++    return SDL_hid_write(S3_UnwrapHid(dev), data, length);
++}
++
++int S3_hid_read_timeout(S3_hid_device* dev, unsigned char* data, size_t length, int milliseconds)
++{
++    return SDL_hid_read_timeout(S3_UnwrapHid(dev), data, length, milliseconds);
++}
++
++int S3_hid_set_nonblocking(S3_hid_device* dev, int nonblock)
++{
++    return SDL_hid_set_nonblocking(S3_UnwrapHid(dev), nonblock);
++}
++
++int S3_hid_close(S3_hid_device* dev)
++{
++    if (dev == NULL) {
++        SDL_SetError("Invalid device");
++        return -1;
++    }
++
++    // SDL2's close returns nothing; SDL3's returns 0 for a valid device.
++    SDL_hid_close(S3_UnwrapHid(dev));
++
++    return 0;
++}
++
++#endif
+diff --git a/src/s3_switch_pad.c b/src/s3_switch_pad.c
+index 39bc214..413f4a3 100644
+--- a/src/s3_switch_pad.c
++++ b/src/s3_switch_pad.c
+@@ -22,6 +22,9 @@
+ 
+ static_assert(S3_GAMEPAD_BUTTON_COUNT <= 32, "one bit per button");
+ 
++// As a joystick, a pad has the gamepad's buttons up to the paddles and its six axes.
++#define S3_SWITCH_JOYSTICK_BUTTONS (S3_GAMEPAD_BUTTON_LEFT_PADDLE2 + 1)
++
+ typedef struct S3_SwitchPad {
+     // The current connection, or the last one while a handle to it is still open.
+     S3_JoystickID instance;
+@@ -266,6 +269,21 @@ static void S3_SwitchPushPadEvent(Uint32 type, const S3_SwitchPad* pad, Uint8 in
+         native.caxis.axis = index;
+         native.caxis.value = value;
+         break;
++    case SDL_JOYBUTTONDOWN:
++    case SDL_JOYBUTTONUP:
++        native.jbutton.which = which;
++        native.jbutton.button = index;
++        native.jbutton.state = type == SDL_JOYBUTTONDOWN ? SDL_PRESSED : SDL_RELEASED;
++        break;
++    case SDL_JOYAXISMOTION:
++        native.jaxis.which = which;
++        native.jaxis.axis = index;
++        native.jaxis.value = value;
++        break;
++    case SDL_JOYDEVICEADDED:
++    case SDL_JOYDEVICEREMOVED:
++        native.jdevice.which = which;
++        break;
+     default:
+         native.cdevice.which = which;
+         break;
+@@ -274,21 +292,37 @@ static void S3_SwitchPushPadEvent(Uint32 type, const S3_SwitchPad* pad, Uint8 in
+     SDL_PushEvent(&native);
+ }
+ 
++// The joystick's raw axis: triggers span the whole range, as SDL3's Switch driver reports them.
++static Sint16 S3_SwitchJoystickAxis(const Sint16* axes, int axis)
++{
++    if (axis == S3_GAMEPAD_AXIS_LEFT_TRIGGER || axis == S3_GAMEPAD_AXIS_RIGHT_TRIGGER) {
++        return (Sint16)((Sint32)axes[axis] * 65535 / 32767 - 32768);
++    }
++
++    return axes[axis];
++}
++
+ static void S3_SwitchSetState(S3_SwitchPad* pad, Uint32 buttons, const Sint16* axes)
+ {
+-    // SDL3 sends input events for open gamepads only.
++    // SDL3 sends input events for open gamepads only, the joystick's before the gamepad's.
+     if (pad->refcount > 0) {
+         const Uint32 changed = buttons ^ pad->buttons;
+         int i;
+ 
+         for (i = 0; i < S3_GAMEPAD_BUTTON_COUNT; i++) {
+             if ((changed & (1u << i)) != 0) {
+-                S3_SwitchPushPadEvent((buttons & (1u << i)) != 0 ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP, pad, (Uint8)i, 0);
++                const bool down = (buttons & (1u << i)) != 0;
++
++                if (i < S3_SWITCH_JOYSTICK_BUTTONS) {
++                    S3_SwitchPushPadEvent(down ? SDL_JOYBUTTONDOWN : SDL_JOYBUTTONUP, pad, (Uint8)i, 0);
++                }
++                S3_SwitchPushPadEvent(down ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP, pad, (Uint8)i, 0);
+             }
+         }
+ 
+         for (i = 0; i < S3_GAMEPAD_AXIS_COUNT; i++) {
+             if (axes[i] != pad->axes[i]) {
++                S3_SwitchPushPadEvent(SDL_JOYAXISMOTION, pad, (Uint8)i, S3_SwitchJoystickAxis(axes, i));
+                 S3_SwitchPushPadEvent(SDL_CONTROLLERAXISMOTION, pad, (Uint8)i, axes[i]);
+             }
+         }
+@@ -337,6 +371,7 @@ void S3_SwitchPumpPads(void)
+             if (pad->connected) {
+                 pad->connected = false;
+                 S3_SwitchPushPadEvent(SDL_CONTROLLERDEVICEREMOVED, pad, 0, 0);
++                S3_SwitchPushPadEvent(SDL_JOYDEVICEREMOVED, pad, 0, 0);
+             }
+ 
+             if (type != S3_GAMEPAD_TYPE_UNKNOWN) {
+@@ -348,6 +383,7 @@ void S3_SwitchPumpPads(void)
+                 pad->buttons = 0;
+                 SDL_zeroa(pad->axes);
+                 pad->rumble_expiry = 0;
++                S3_SwitchPushPadEvent(SDL_JOYDEVICEADDED, pad, 0, 0);
+                 S3_SwitchPushPadEvent(SDL_CONTROLLERDEVICEADDED, pad, 0, 0);
+             }
+         }
+@@ -501,6 +537,145 @@ S3_JoystickID S3_GetJoystickID(S3_Joystick* joystick)
+     return pad != NULL ? pad->instance : 0;
+ }
+ 
++void S3_CloseJoystick(S3_Joystick* joystick)
++{
++    // A pad's joystick and gamepad are one handle with one count of opens.
++    S3_CloseGamepad((S3_Gamepad*)joystick);
++}
++
++S3_Joystick* S3_GetJoystickFromID(S3_JoystickID instance_id)
++{
++    S3_SwitchPad* found = NULL;
++    int slot;
++
++    // An open pad keeps its instance after it disconnects, as an SDL3 joystick does.
++    rmutexLock(&s3_pads_lock);
++    for (slot = 0; slot < S3_SWITCH_PAD_COUNT; slot++) {
++        if (instance_id != 0 && s3_pads[slot].refcount > 0 && s3_pads[slot].instance == instance_id) {
++            found = &s3_pads[slot];
++        }
++    }
++    rmutexUnlock(&s3_pads_lock);
++
++    return (S3_Joystick*)found;
++}
++
++const char* S3_GetJoystickNameForID(S3_JoystickID instance_id)
++{
++    return S3_GetGamepadNameForID(instance_id);
++}
++
++bool S3_IsJoystickVirtual(S3_JoystickID instance_id)
++{
++    (void)instance_id;
++
++    return false;
++}
++
++bool S3_JoystickConnected(S3_Joystick* joystick)
++{
++    const S3_SwitchPad* pad = S3_SwitchPadFrom(joystick, "joystick");
++
++    return pad != NULL && pad->connected;
++}
++
++int S3_GetNumJoystickButtons(S3_Joystick* joystick)
++{
++    return S3_SwitchPadFrom(joystick, "joystick") != NULL ? S3_SWITCH_JOYSTICK_BUTTONS : -1;
++}
++
++Sint16 S3_GetJoystickAxis(S3_Joystick* joystick, int axis)
++{
++    const S3_SwitchPad* pad = S3_SwitchPadFrom(joystick, "joystick");
++
++    if (pad == NULL) {
++        return 0;
++    }
++
++    if (axis < 0 || axis >= S3_GAMEPAD_AXIS_COUNT) {
++        SDL_SetError("Joystick only has %d axes", S3_GAMEPAD_AXIS_COUNT);
++        return 0;
++    }
++
++    return pad->connected ? S3_SwitchJoystickAxis(pad->axes, axis) : 0;
++}
++
++bool S3_GetJoystickButton(S3_Joystick* joystick, int button)
++{
++    const S3_SwitchPad* pad = S3_SwitchPadFrom(joystick, "joystick");
++
++    if (pad == NULL) {
++        return false;
++    }
++
++    if (button < 0 || button >= S3_SWITCH_JOYSTICK_BUTTONS) {
++        SDL_SetError("Joystick only has %d buttons", S3_SWITCH_JOYSTICK_BUTTONS);
++        return false;
++    }
++
++    return pad->connected && (pad->buttons & (1u << button)) != 0;
++}
++
++void S3_UpdateJoysticks(void)
++{
++    S3_SwitchPumpPads();
++}
++
++void S3_UpdateGamepads(void)
++{
++    S3_SwitchPumpPads();
++}
++
++S3_JoystickID* S3_GetGamepads(int* count)
++{
++    S3_JoystickID* ids = (S3_JoystickID*)SDL_malloc(sizeof(*ids) * (S3_SWITCH_PAD_COUNT + 1));
++    int found = 0;
++    int slot;
++
++    if (count != NULL) {
++        *count = 0;
++    }
++
++    if (ids == NULL) {
++        SDL_SetError("Out of memory");
++        return NULL;
++    }
++
++    rmutexLock(&s3_pads_lock);
++    for (slot = 0; slot < S3_SWITCH_PAD_COUNT; slot++) {
++        if (s3_pads[slot].connected) {
++            ids[found++] = s3_pads[slot].instance;
++        }
++    }
++    rmutexUnlock(&s3_pads_lock);
++    ids[found] = 0;
++
++    if (count != NULL) {
++        *count = found;
++    }
++
++    return ids;
++}
++
++bool S3_GamepadConnected(S3_Gamepad* gamepad)
++{
++    const S3_SwitchPad* pad = S3_SwitchPadFrom(gamepad, "gamepad");
++
++    return pad != NULL && pad->connected;
++}
++
++Uint16 S3_GetGamepadVendorForID(S3_JoystickID instance_id)
++{
++    return S3_SwitchPadForID(instance_id) != NULL ? S3_NINTENDO_VENDOR : 0;
++}
++
++Uint16 S3_GetGamepadProductForID(S3_JoystickID instance_id)
++{
++    const S3_SwitchPad* pad = S3_SwitchPadForID(instance_id);
++
++    return pad != NULL ? S3_SwitchPadProduct(pad->type) : 0;
++}
++
+ S3_PowerState S3_GetJoystickPowerInfo(S3_Joystick* joystick, int* percent)
+ {
+     if (percent != NULL) {
+@@ -531,6 +706,28 @@ bool S3_SetJoystickVirtualButton(S3_Joystick* joystick, int button, bool down)
+     return false;
+ }
+ 
++bool S3_DetachVirtualJoystick(S3_JoystickID instance_id)
++{
++    (void)instance_id;
++
++    SDL_SetError("Virtual joysticks are not supported by sdl3on2 on Switch");
++
++    return false;
++}
++
++bool S3_SendJoystickVirtualSensorData(S3_Joystick* joystick, S3_SensorType type, Uint64 sensor_timestamp, const float* data, int num_values)
++{
++    (void)joystick;
++    (void)type;
++    (void)sensor_timestamp;
++    (void)data;
++    (void)num_values;
++
++    SDL_SetError("Virtual joysticks are not supported by sdl3on2 on Switch");
++
++    return false;
++}
++
+ S3_Gamepad* S3_OpenGamepad(S3_JoystickID instance_id)
+ {
+     return (S3_Gamepad*)S3_SwitchOpen(instance_id);

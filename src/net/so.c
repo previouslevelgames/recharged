@@ -5,6 +5,7 @@
                         // redefinitions of symbols SO_BROADCAST
 #include <unistd.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <poll.h>
 

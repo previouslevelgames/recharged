@@ -39,7 +39,11 @@ struct Settings
     std::string language = "auto";
     int width = 1280;
     int height = 720;
+#if defined(__SWITCH__)
+    bool fullscreen = true; // the console's screen
+#else
     bool fullscreen = false;
+#endif
     // display.fullscreen_resolution: the display mode fullscreen switches the
     // display to while the game runs ("1280x720"), or desktop (the default):
     // the display keeps its own resolution.
@@ -80,7 +84,11 @@ struct Settings
     bool performance_mode = false;
     // display.antialiasing: off, fxaa, 4x (multisampling of the game's frame),
     // 4x_fxaa or 4x_ssaa (supersampling); see kAntialiasingChoices.
+#if defined(__SWITCH__)
+    std::string antialiasing = "off"; // multisampling costs the console's GPU too much
+#else
     std::string antialiasing = "4x";
+#endif
     // display.resolution: the game's 3D render size. window renders one pixel
     // per window pixel of the picture; native the Wii's 640x448; 2x-4x fixed
     // multiples of it. Viewport and projection stay the game's own.
@@ -94,7 +102,12 @@ struct Settings
     // DolphinBar slot), remote-<Bluetooth address> (a Wii Remote paired over
     // Bluetooth, e.g. remote-9ce635c69076), gamepad1-gamepad4 or off.
     // Players fill in order; each device plays once.
+#if defined(__SWITCH__)
+    // The Switch has no keyboard: its controllers play, in the console's player order.
+    std::array<std::string, 4> players{"gamepad1", "gamepad2", "gamepad3", "gamepad4"};
+#else
     std::array<std::string, 4> players{"keyboard", "off", "off", "off"};
+#endif
     // [keyboard]: keys of each keyboard & mouse action ("Return | Space").
     std::array<std::string, KeyActionCount> keys = DefaultKeys();
     static std::array<std::string, KeyActionCount> DefaultKeys()

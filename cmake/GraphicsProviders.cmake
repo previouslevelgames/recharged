@@ -59,6 +59,12 @@ function(mscharged_add_graphics_providers)
         # string functions, a guarded strlen); SQLite itself is unchanged.
         target_compile_options(sqlite3 PRIVATE -Wno-discarded-qualifiers -Wno-stringop-overread)
     endif()
+    if(NINTENDO_SWITCH)
+        # Horizon has no shared memory, mmap, dynamic loading or temporary
+        # files; its file layer is src/platform/switch/sqlite_vfs.c.
+        target_compile_definitions(sqlite3 PRIVATE SQLITE_OMIT_WAL=1 SQLITE_MAX_MMAP_SIZE=0
+            SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_TEMP_STORE=3)
+    endif()
     add_library(imgui STATIC
         "${MSCHARGED_IMGUI_PREPARED}/imgui.cpp"
         "${MSCHARGED_IMGUI_PREPARED}/imgui_draw.cpp"
@@ -70,10 +76,15 @@ function(mscharged_add_graphics_providers)
     target_compile_definitions(imgui PUBLIC IMGUI_ENABLE_FREETYPE)
     target_compile_features(imgui PRIVATE cxx_std_20)
     target_link_libraries(imgui PRIVATE Freetype::Freetype)
-    add_library(imgui_backends STATIC
-        "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_sdl3.cpp"
-        "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_sdlrenderer3.cpp"
-        "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_wgpu.cpp")
+    if(NINTENDO_SWITCH)
+        # On the Switch, Aurora runs ImGui without SDL (patches/aurora 0120).
+        add_library(imgui_backends STATIC "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_wgpu.cpp")
+    else()
+        add_library(imgui_backends STATIC
+            "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_sdl3.cpp"
+            "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_sdlrenderer3.cpp"
+            "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_wgpu.cpp")
+    endif()
     target_compile_features(imgui_backends PRIVATE cxx_std_20)
     target_compile_definitions(imgui_backends PRIVATE IMGUI_IMPL_WEBGPU_BACKEND_DAWN)
     target_link_libraries(imgui_backends PRIVATE imgui SDL3::SDL3 dawn::webgpu_dawn)

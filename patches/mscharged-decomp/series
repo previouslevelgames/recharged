@@ -514,3 +514,4 @@
 0715-native-disc-message-image-storage.patch
 0716-native-eu-goalie-launch-scale.patch
 0717-native-flash-widths-and-c-library-declarations.patch
+0718-native-msl-varargs-cursor-aarch64.patch

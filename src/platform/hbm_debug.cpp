@@ -19,7 +19,9 @@
 #else
 #include <dlfcn.h>
 #include <unwind.h>
-#if defined(__APPLE__)
+#if defined(__SWITCH__)
+#include <switch.h>
+#elif defined(__APPLE__)
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
 #else
@@ -103,6 +105,12 @@ bool ReadableMapping(std::uintptr_t address) {
     std::fclose(file);
     if (error) throw std::runtime_error("Native HBM address mapping query failed");
     return found;
+#elif defined(__SWITCH__)
+    MemoryInfo info{};
+    u32 page = 0;
+    if (R_FAILED(svcQueryMemory(&info, &page, address))) return false;
+    return info.type != MemType_Unmapped && (info.perm & Perm_R) != 0 &&
+        Contains(info.addr, info.addr + info.size, address);
 #else
     throw std::runtime_error("Native HBM address mapping query is unsupported on this platform");
 #endif

@@ -1,0 +1,75 @@
+Subject: Return the folder of the running .nro as the base path on Switch
+Upstream-base: fbe120f5020f8bdcb9cbf5ae28d9859b29781119
+
+SDL2's Switch build has no base path, so SDL_GetBasePath returned NULL. The
+program keeps its settings, saves, logs and disc image beside its .nro: take
+that folder from the sdmc:/ path the Homebrew Menu passes as argv[0], and keep
+SDL2's answer without one.
+
+diff --git a/README.md b/README.md
+index 288cce3..a6c30f3 100644
+--- a/README.md
++++ b/README.md
+@@ -36,6 +36,9 @@ declared in `include/SDL3/s3_defs.h` and `include/SDL3_mixer/s3_mixer_defs.h` ex
+   such as a Joy-Con pair split in two, is removed and added again. Power levels are unknown, and
+   virtual joysticks, LEDs and sensors are not supported. `SDL_SendGamepadEffect` takes a libnx
+   `HidVibrationValue`, which plays on each of the controller's actuators until the next rumble call.
++- On Switch, `SDL_GetBasePath` is the folder of the running `.nro`, taken from the `sdmc:/` path the
++  Homebrew Menu passes as `argv[0]`. Without such a path it is SDL2's answer, which on Switch is
++  none.
+ - Window properties carry the native handles from SDL2's `SDL_GetWindowWMInfo` for Win32, X11,
+   Wayland, Android and UWP, refreshed by each `SDL_GetWindowProperties` call. Other video drivers,
+   including Cocoa, publish none.
+diff --git a/src/s3_io.c b/src/s3_io.c
+index f871562..a5c6dec 100644
+--- a/src/s3_io.c
++++ b/src/s3_io.c
+@@ -860,12 +860,48 @@ bool S3_RenamePath(const char* oldpath, const char* newpath)
+     return true;
+ }
+ 
++#ifdef __SWITCH__
++// libnx keeps the arguments it was started with; the Homebrew Menu passes the .nro's path first.
++extern int __system_argc;
++extern char** __system_argv;
++
++// SDL2's Switch build has no base path, so it is the folder of the running .nro.
++static char* S3_SwitchProgramFolder(void)
++{
++    const char* program = __system_argc > 0 && __system_argv != NULL ? __system_argv[0] : NULL;
++    size_t length;
++    char* folder;
++
++    if (program == NULL || SDL_strncmp(program, "sdmc:/", 6) != 0) {
++        return NULL;
++    }
++
++    // The prefix holds a slash, so there is always one to cut at.
++    length = (size_t)(SDL_strrchr(program, '/') - program) + 1;
++    folder = (char*)SDL_malloc(length + 1);
++    if (folder == NULL) {
++        return NULL;
++    }
++
++    SDL_memcpy(folder, program, length);
++    folder[length] = '\0';
++
++    return folder;
++}
++#endif
++
+ const char* S3_GetBasePath(void)
+ {
+     // SDL3 owns the returned string; SDL2 allocates a new one per call. Only success is cached.
+     static char* base_path;
+ 
+     if (base_path == NULL) {
++#ifdef __SWITCH__
++        base_path = S3_SwitchProgramFolder();
++        if (base_path != NULL) {
++            return base_path;
++        }
++#endif
+         base_path = SDL_GetBasePath();
+     }
+ 

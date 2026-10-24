@@ -95,6 +95,10 @@ jobs:
           # linking; the runner's newer CMake in /usr/local/bin comes first.
           cmake --version
           "g++-$GCC_VERSION" --version
+      # The Switch's link mode (static game images) on a small module and program.
+      - name: Check static game image linking
+        if: matrix.platform == 'linux-x86_64'
+        run: python -B tests/test_static_game_image.py "$CXX" ld objcopy nm readelf
       - name: Install macOS tools
         if: runner.os == 'macOS'
         env:
@@ -167,6 +171,18 @@ jobs:
         with:
           path: ${{ runner.temp }}/ccache
           key: ${{ steps.ccache.outputs.cache-primary-key }}
+      # The Switch's disc reader, in place of nod there, on generated Wii images;
+      # its copy of nod.h must match the prepared one. Its RVZ codecs are only
+      # installed here, after the build: nod's bzip2 and liblzma crates would
+      # find them with pkg-config and link the system libraries instead.
+      - name: Check the Wii disc reader
+        if: matrix.platform == 'linux-x86_64'
+        run: |
+          sudo apt-get install -y --no-install-recommends libzstd-dev libbz2-dev liblzma-dev
+          "$CXX" -std=c++17 -O2 -Isrc -Isrc/platform/wii_disc/include tests/wii_disc_reader.cpp \
+            src/platform/wii_disc/*.cpp -o build/wii_disc_reader_tests -pthread -lzstd -lbz2 -llzma
+          build/wii_disc_reader_tests build/wii-disc-reader src/platform/wii_disc/include/nod.h \
+            build/release/prepared/nod/source/nod-ffi/include/nod.h
       - name: Check executable
         env:
           MACOS_ARCH: ${{ matrix.arch }}
@@ -330,6 +346,107 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  switch:
+    # Nintendo Switch homebrew, built like new-coke's Strikers port: devkitPro
+    # in Docker (tools/switch/devkitpro.sh), the SDL3 API through sdl3on2, Dawn
+    # on the NVK driver (tools/switch/build-nvk.sh, cached by its inputs) and the
+    # game modules linked into the .nro. Packaged for the SD card (docs/SWITCH.md).
+    name: switch-aarch64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: bash
+    env:
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: 'true'
+      CCACHE_MAXSIZE: 3G
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      # Dawn, the driver's build image and Mesa need more than the runner leaves free.
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - name: Prepare pinned dependencies
+        run: python3 tools/setup_dependencies.py --switch --shallow
+      - name: Read the Vulkan driver's inputs
+        id: nvk-inputs
+        run: echo "mesa=$(git ls-files --stage extern/mesa-switch | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+      - name: Restore the Vulkan driver
+        id: nvk
+        uses: actions/cache/restore@v4
+        with:
+          path: build/nvk-switch
+          key: nvk-switch-${{ steps.nvk-inputs.outputs.mesa }}-${{ hashFiles('tools/switch/build-nvk.sh', 'tools/switch/package-nvk.sh', 'tools/switch/toolchain.env', 'patches/mesa-switch/*') }}
+      - name: Build the Vulkan driver
+        if: steps.nvk.outputs.cache-hit != 'true'
+        run: |
+          tools/switch/build-nvk.sh
+          # Its build tree and image are no longer needed.
+          rm -rf build/nvk
+          docker image prune -af
+      # Its own step, so a built driver is kept even if a later step fails.
+      - name: Save the Vulkan driver
+        if: steps.nvk.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/nvk-switch
+          key: ${{ steps.nvk.outputs.cache-primary-key }}
+      # Inside the checkout's ignored build folder: the build container sees it.
+      - name: Restore compiler cache
+        id: ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/.ccache
+          key: ccache-switch-aarch64-${{ github.sha }}
+          restore-keys: ccache-switch-aarch64-
+      - name: Configure the Switch build
+        run: >-
+          tools/switch/devkitpro.sh env CCACHE_DIR="$PWD/build/.ccache" cmake --preset switch
+          -DMSCHARGED_BUILD_CHANNEL=${{ github.event_name == 'pull_request' && 'test' || github.event_name == 'push' && 'release' || 'dev' }}
+          -DMSCHARGED_BUILD_REPOSITORY=${{ github.repository }}
+          -DMSCHARGED_BUILD_PULL_REQUEST=${{ github.event.pull_request.number || 0 }}
+          -DMSCHARGED_BUILD_RUN=${{ github.run_id }}
+          -DMSCHARGED_BUILD_TIME=$(date -u +%s)
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build the Switch program
+        run: >-
+          tools/switch/devkitpro.sh env CCACHE_DIR="$PWD/build/.ccache" CCACHE_BASEDIR="$CCACHE_BASEDIR"
+          CCACHE_NOHASHDIR="$CCACHE_NOHASHDIR" CCACHE_MAXSIZE="$CCACHE_MAXSIZE" CMAKE_BUILD_PARALLEL_LEVEL=4
+          cmake --build --preset switch
+      - name: Compiler cache statistics
+        if: always()
+        run: tools/switch/devkitpro.sh env CCACHE_DIR="$PWD/build/.ccache" ccache --show-stats || true
+      # Also after a failed or timed-out build: the next run resumes from it.
+      - name: Save compiler cache
+        if: always() && steps.ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/.ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
+      - name: Package for the SD card
+        run: tools/switch/devkitpro.sh python3 -B tools/package_build.py --switch --build-dir build/switch --output-dir build/artifacts
+      - name: Upload the package
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/artifacts/*.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
+      - name: Upload configure diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: configure-switch-aarch64-${{ github.sha }}
+          path: build/switch/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore
+          retention-days: 7
+
   windows:
     name: Windows host services
     runs-on: windows-2025
@@ -387,7 +504,7 @@ jobs:
     # released (tag v<version> on that commit); publish it after a review.
     name: draft release
     if: github.event_name == 'push' && github.ref == 'refs/heads/stable'
-    needs: [build, windows-game]
+    needs: [build, windows-game, switch]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -428,7 +545,7 @@ jobs:
         working-directory: release
         run: |
           ls -la
-          test "$(ls *.tar.gz *.zip | wc -l)" -eq 5
+          test "$(ls *.tar.gz *.zip | wc -l)" -eq 6
           sha256sum *.tar.gz *.zip > SHA256SUMS
           cat SHA256SUMS
       # Generated notes, then a short pointer for players who land on the
@@ -461,7 +578,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
-    needs: [build, windows-game]
+    needs: [build, windows-game, switch]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -483,7 +600,7 @@ jobs:
         working-directory: test-build
         run: |
           ls -la
-          test "$(ls *.tar.gz *.zip | wc -l)" -eq 5
+          test "$(ls *.tar.gz *.zip | wc -l)" -eq 6
           sha256sum *.tar.gz *.zip > SHA256SUMS
       - name: Publish the prerelease
         run: |
