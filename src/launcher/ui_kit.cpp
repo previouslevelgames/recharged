@@ -161,13 +161,58 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         break;
     }
     case Icon::Target:
-        draw->AddCircle(c, 0.30f * s, color, 0, t);
-        draw->AddLine(p(0.0f, -0.50f), p(0.0f, -0.16f), color, t);
-        draw->AddLine(p(0.0f, 0.16f), p(0.0f, 0.50f), color, t);
-        draw->AddLine(p(-0.50f, 0.0f), p(-0.16f, 0.0f), color, t);
-        draw->AddLine(p(0.16f, 0.0f), p(0.50f, 0.0f), color, t);
-        draw->AddCircleFilled(c, 0.07f * s, color);
+    {
+        // Align the circular elements with ImGui's line rasterization.
+        const ImVec2 center{c.x + 0.5f, c.y + 0.5f};
+
+        // Outer ring.
+        draw->AddCircle(
+            center,
+            0.30f * s,
+            color,
+            0,
+            t
+        );
+
+        // Top and bottom markers.
+        draw->AddLine(
+            p(0.0f, -0.50f),
+            p(0.0f, -0.36f),
+            color,
+            t
+        );
+
+        draw->AddLine(
+            p(0.0f, 0.36f),
+            p(0.0f, 0.50f),
+            color,
+            t
+        );
+
+        // Left and right markers.
+        draw->AddLine(
+            p(-0.50f, 0.0f),
+            p(-0.36f, 0.0f),
+            color,
+            t
+        );
+
+        draw->AddLine(
+            p(0.36f, 0.0f),
+            p(0.50f, 0.0f),
+            color,
+            t
+        );
+
+        // Center point.
+        draw->AddCircleFilled(
+            center,
+            0.07f * s,
+            color
+        );
+
         break;
+    }
     case Icon::Play:
         draw->AddTriangleFilled(p(-0.30f, -0.42f), p(-0.30f, 0.42f), p(0.44f, 0.0f), color);
         break;
@@ -184,13 +229,40 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         break;
     case Icon::Audio:
     {
-        const ImVec2 body[] = {p(-0.46f, -0.15f), p(-0.24f, -0.15f), p(0.0f, -0.40f), p(0.0f, 0.40f),
-                               p(-0.24f, 0.15f), p(-0.46f, 0.15f)};
-        draw->AddConvexPolyFilled(body, 6, color);
-        draw->PathArcTo(p(0.04f, 0.0f), 0.20f * s, -0.85f, 0.85f);
+        // Speaker body.
+        const ImVec2 body[] = {
+            p(-0.46f, -0.15f),
+            p(-0.24f, -0.15f),
+            p( 0.00f, -0.40f),
+            p( 0.00f,  0.40f),
+            p(-0.24f,  0.15f),
+            p(-0.46f,  0.15f)
+        };
+
+        draw->PathClear();
+
+        for (const ImVec2& point : body)
+            draw->PathLineTo(point);
+
+        draw->PathFillConcave(color);
+
+        // Sound waves.
+        draw->PathArcTo(
+            p(0.04f, 0.0f),
+            0.20f * s,
+            -0.85f,
+             0.85f
+        );
         draw->PathStroke(color, 0, t);
-        draw->PathArcTo(p(0.04f, 0.0f), 0.38f * s, -0.85f, 0.85f);
+
+        draw->PathArcTo(
+            p(0.04f, 0.0f),
+            0.38f * s,
+            -0.85f,
+             0.85f
+        );
         draw->PathStroke(color, 0, t);
+
         break;
     }
     case Icon::Keyboard:
@@ -216,10 +288,31 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         break;
     }
     case Icon::Info:
+    {
+        // Outer ring.
         draw->AddCircle(c, 0.44f * s, color, 0, t);
-        draw->AddCircleFilled(p(0.0f, -0.20f), 0.065f * s, color);
-        draw->AddLine(p(0.0f, -0.04f), p(0.0f, 0.24f), color, t * 1.2f);
+
+        // Stem.
+        const float stem_x = c.x - 0.025f * s;
+
+        draw->AddLine(
+            {stem_x, c.y - 0.04f * s},
+            {stem_x, c.y + 0.24f * s},
+            color,
+            t * 1.2f
+        );
+
+        // Dot: slightly less left-shifted than the stem.
+        const float dot_x = c.x - 0.010f * s;
+
+        draw->AddCircleFilled(
+            {dot_x, c.y - 0.20f * s},
+            0.065f * s,
+            color
+        );
+
         break;
+    }
     case Icon::Folder:
     {
         const ImVec2 outline[] = {p(-0.46f, -0.30f), p(-0.14f, -0.30f), p(-0.04f, -0.18f), p(0.46f, -0.18f),
