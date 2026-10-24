@@ -1309,27 +1309,39 @@ void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color)
 
 void DrawDiscordMark(ImDrawList* draw, ImVec2 center, float width, ImU32 color, ImU32 eyes)
 {
-    // The outline of Discord's published logo (127.14 x 96.36), sampled and
-    // scaled to a width of 1 around its centre.
-    static constexpr ImVec2 outline[] = {
+    // Discord's published logo (127.14 x 96.36), sampled and scaled to a width
+    // of 1 around its centre. Filled as one outline it lost its arms, so each
+    // arm is a polygon of its own and the body, drawn last, covers the joins.
+    static constexpr ImVec2 left_arm[] = {
+        {-0.4958f, 0.2519f}, {-0.4389f, 0.2904f}, {-0.3791f, 0.3241f}, {-0.3167f, 0.3527f},
+        {-0.2427f, 0.3790f}, {-0.2138f, 0.3364f}, {-0.1885f, 0.2916f}, {-0.2321f, 0.2731f},
+        {-0.2739f, 0.2508f}};
+    static constexpr ImVec2 right_arm[] = {
+        {0.2739f, 0.2508f}, {0.2320f, 0.2731f}, {0.1884f, 0.2916f}, {0.2136f, 0.3365f},
+        {0.2426f, 0.3790f}, {0.2965f, 0.3607f}, {0.3576f, 0.3347f}, {0.4082f, 0.3086f},
+        {0.4647f, 0.2739f}, {0.4958f, 0.2520f}};
+    // The body runs from the top right down the left side, along the mouth
+    // between the arms and up the right side.
+    static constexpr ImVec2 body[] = {
         {0.3471f, -0.3155f}, {0.2460f, -0.3540f}, {0.1408f, -0.3790f}, {0.1144f, -0.3252f},
         {0.0573f, -0.3317f}, {-0.0001f, -0.3338f}, {-0.0575f, -0.3317f}, {-0.1146f, -0.3252f},
         {-0.1410f, -0.3790f}, {-0.2463f, -0.3539f}, {-0.3475f, -0.3153f}, {-0.3881f, -0.2501f},
         {-0.4261f, -0.1759f}, {-0.4524f, -0.1114f}, {-0.4749f, -0.0380f}, {-0.4900f, 0.0349f},
-        {-0.4981f, 0.1076f}, {-0.4999f, 0.1799f}, {-0.4958f, 0.2519f}, {-0.4389f, 0.2904f},
-        {-0.3791f, 0.3241f}, {-0.3167f, 0.3527f}, {-0.2427f, 0.3790f}, {-0.2138f, 0.3364f},
-        {-0.1885f, 0.2916f}, {-0.2321f, 0.2731f}, {-0.2739f, 0.2508f}, {-0.2529f, 0.2351f},
-        {-0.1889f, 0.2608f}, {-0.1320f, 0.2768f}, {-0.0738f, 0.2870f}, {-0.0049f, 0.2916f},
-        {0.0640f, 0.2882f}, {0.1320f, 0.2768f}, {0.1983f, 0.2576f}, {0.2529f, 0.2351f},
-        {0.2739f, 0.2508f}, {0.2320f, 0.2731f}, {0.1884f, 0.2916f}, {0.2136f, 0.3365f},
-        {0.2426f, 0.3790f}, {0.2965f, 0.3607f}, {0.3576f, 0.3347f}, {0.4082f, 0.3086f},
-        {0.4647f, 0.2739f}, {0.4958f, 0.2520f}, {0.4975f, 0.2313f}, {0.4988f, 0.1203f},
+        {-0.4981f, 0.1076f}, {-0.4999f, 0.1799f}, {-0.4958f, 0.2519f}, {-0.2739f, 0.2508f},
+        {-0.2529f, 0.2351f}, {-0.1889f, 0.2608f}, {-0.1320f, 0.2768f}, {-0.0738f, 0.2870f},
+        {-0.0049f, 0.2916f}, {0.0640f, 0.2882f}, {0.1320f, 0.2768f}, {0.1983f, 0.2576f},
+        {0.2529f, 0.2351f}, {0.2739f, 0.2508f}, {0.4958f, 0.2520f}, {0.4988f, 0.1203f},
         {0.4937f, 0.0619f}, {0.4846f, 0.0050f}, {0.4638f, -0.0776f}, {0.4345f, -0.1572f},
         {0.3973f, -0.2337f}};
-    ImVec2 points[std::size(outline)];
-    for (std::size_t i = 0; i < std::size(outline); ++i)
-        points[i] = {center.x + outline[i].x * width, center.y + outline[i].y * width};
-    draw->AddConcavePolyFilled(points, int(std::size(points)), color);
+    auto fill = [&](const auto& shape) {
+        ImVec2 points[std::size(body)];
+        for (std::size_t i = 0; i < std::size(shape); ++i)
+            points[i] = {center.x + shape[i].x * width, center.y + shape[i].y * width};
+        draw->AddConcavePolyFilled(points, int(std::size(shape)), color);
+    };
+    fill(left_arm);
+    fill(right_arm);
+    fill(body);
     for (const float x : {-0.1661f, 0.1661f})
         draw->AddEllipseFilled({center.x + x * width, center.y + 0.0378f * width}, {0.0901f * width, 0.1000f * width},
                                eyes);
