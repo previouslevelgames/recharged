@@ -1524,15 +1524,26 @@ void Spinner(ImVec2 center, float radius, ImU32 color)
     draw->PathStroke(color, 0, std::max(1.5f, radius * 0.22f));
 }
 
+// Each letter is placed at its fractional position, as AddText places the
+// letters of one string (the fonts are oversampled for it): AddText per
+// letter would snap each one to the pixel and space them unevenly.
 void DrawTracked(ImDrawList* draw, ImFont* font, ImVec2 position, ImU32 color, const char* text, float tracking)
 {
-    const float size = FontSize(font);
-    char glyph[2] = {0, 0};
+    if ((color & IM_COL32_A_MASK) == 0) return;
+    const float size = FontSize(font), scale = size / font->FontSize;
+    float x = position.x;
+    const float y = std::floor(position.y); // the baseline snaps, as with AddText
     for (const char* c = text; *c; ++c)
     {
-        glyph[0] = *c;
-        draw->AddText(font, size, position, color, glyph);
-        position.x += font->CalcTextSizeA(size, FLT_MAX, 0.0f, glyph).x + tracking;
+        const ImFontGlyph* glyph = font->FindGlyph(ImWchar(static_cast<unsigned char>(*c)));
+        if (!glyph) continue;
+        if (glyph->Visible)
+        {
+            draw->PrimReserve(6, 4);
+            draw->PrimRectUV({x + glyph->X0 * scale, y + glyph->Y0 * scale}, {x + glyph->X1 * scale, y + glyph->Y1 * scale},
+                             {glyph->U0, glyph->V0}, {glyph->U1, glyph->V1}, color);
+        }
+        x += glyph->AdvanceX * scale + tracking;
     }
 }
 
