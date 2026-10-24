@@ -2760,6 +2760,12 @@ private:
         // of them is open.
         const auto setup = [](int page) { return page == PageMiis || page == PageSidekicks || page == PageRules; };
         if (setup(page_)) setup_page_ = page_;
+        // The pages above the version line: their rows get lower when the
+        // window is too low for all of them at the usual height, with room
+        // for the group's open panel (its three pages share its row).
+        const float badge = height - Dp(40);
+        const float row = std::clamp((badge - Dp(8) - y - NavGroupPagesHeight(3)) / float(PageCount - 2), Dp(34),
+                                     Dp(48));
         ImGui::SetCursorPos({Dp(12), y});
         for (int i = 0; i < PageCount; ++i)
         {
@@ -2767,19 +2773,20 @@ private:
             if (setup(i))
             {
                 if (i != PageMiis) continue;
-                const auto row = [&](int page) { return NavPage{page_names[page], page_icons[page], page_ == page}; };
+                const auto page = [&](int p) { return NavPage{page_names[p], page_icons[p], page_ == p}; };
                 const int clicked = NavGroup("Online/Match setup", Icon::Clipboard, setup(page_),
-                                             {row(PageMiis), row(PageSidekicks), row(PageRules)}, width - Dp(24));
+                                             {page(PageMiis), page(PageSidekicks), page(PageRules)}, width - Dp(24),
+                                             row - Dp(4));
                 if (clicked == 0) page_ = setup_page_;
                 if (clicked > 0) page_ = PageMiis + clicked - 1;
             }
-            else if (NavItem(page_names[i], page_icons[i], page_ == i, width - Dp(24))) page_ = i;
+            else if (NavItem(page_names[i], page_icons[i], page_ == i, width - Dp(24), row - Dp(4))) page_ = i;
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y + Dp(4));
         }
 
         // Version at the bottom of the sidebar; test builds show a badge above
         // it that opens their pull request.
-        const float badge = height - Dp(40), nav_end = ImGui::GetCursorPosY();
+        const float nav_end = ImGui::GetCursorPosY();
         if (nav_end < badge - Dp(36) && std::string_view(build::channel) == "test")
         {
             ImGui::SetCursorPos({pad - Dp(2), badge - Dp(36)});

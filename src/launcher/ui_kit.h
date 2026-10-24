@@ -86,7 +86,8 @@ ImVec2 TextSize(ImFont* font, const char* text);
 void FillGradient(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 top_left, ImU32 bottom_right,
                   float rounding, bool horizontal);
 
-bool NavItem(const char* label, Icon icon, bool selected, float width);
+// height 0: the usual row (44 dp).
+bool NavItem(const char* label, Icon icon, bool selected, float width, float height = 0.0f);
 struct NavPage
 {
     const char* label;
@@ -95,8 +96,12 @@ struct NavPage
 };
 // A sidebar group of pages, open while one of them is shown: its row, and a
 // raised panel with the pages under it. Returns 0 for a click on the group's
-// row, 1 and up for one on a page, -1 for none.
-int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavPage> pages, float width);
+// row, 1 and up for one on a page, -1 for none. row_height 0: the usual row
+// (44 dp), as NavItem.
+int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavPage> pages, float width,
+             float row_height = 0.0f);
+// The height an open NavGroup adds under its row for that many pages.
+float NavGroupPagesHeight(std::size_t pages);
 bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled, Icon icon = Icon::None,
                    bool glow = false);
 bool SecondaryButton(const char* id, const char* label, ImVec2 size, bool enabled = true,
