@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..ce72273
+index 0000000..eef34e1
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,216 @@
+@@ -0,0 +1,217 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -47,6 +47,7 @@ index 0000000..ce72273
 +    MSCHARGED_TWEAK_ROBOT_GOALIES = 11,
 +    MSCHARGED_TWEAK_SUPER_TEAM = 12,
 +    MSCHARGED_TWEAK_SECURE_STADIUMS = 13,
++    MSCHARGED_TWEAK_MATCH_POINT = 14,
 +};
 +
 +bool mscharged_tweak_enabled(int tweak);

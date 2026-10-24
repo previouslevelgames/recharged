@@ -236,7 +236,8 @@ int main()
             && unsigned(mscharged::GameTweak::FairBallContests) == MSCHARGED_TWEAK_FAIR_BALL_CONTESTS
             && unsigned(mscharged::GameTweak::RobotGoalies) == MSCHARGED_TWEAK_ROBOT_GOALIES
             && unsigned(mscharged::GameTweak::SuperTeam) == MSCHARGED_TWEAK_SUPER_TEAM
-            && unsigned(mscharged::GameTweak::SecureStadiums) == MSCHARGED_TWEAK_SECURE_STADIUMS,
+            && unsigned(mscharged::GameTweak::SecureStadiums) == MSCHARGED_TWEAK_SECURE_STADIUMS
+            && unsigned(mscharged::GameTweak::MatchPoint) == MSCHARGED_TWEAK_MATCH_POINT,
             "Host tweak bits and the game hooks' IDs must agree");
 
         // Before configuration and with an empty set: the original game.

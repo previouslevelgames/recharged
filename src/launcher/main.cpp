@@ -6405,6 +6405,7 @@ private:
             TweakRow(GameTweak::ThunderIslandWalls);
             TweakRow(GameTweak::FairBallContests);
             TweakRow(GameTweak::NoMegaStrikes);
+            TweakRow(GameTweak::MatchPoint);
             EndRows();
         }
         EndCard();

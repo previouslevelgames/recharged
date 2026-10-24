@@ -139,10 +139,10 @@ int main()
             std::ofstream(tweaked, std::ios::binary) << "[gameplay]\nskip_intro = true\nunlock_all = true\n";
             const auto tweakedFile = LoadConfig(tweaked);
             const auto played = ResolveLaunch(tweakedFile, {});
-            // The INI's tweaks, plus the recommended one it leaves at its default.
+            // The INI's tweaks, plus the recommended ones it leaves at their default.
             Check(played.settings.GameTweakMask()
                     == (GameTweakBit(GameTweak::SkipIntro) | GameTweakBit(GameTweak::UnlockAll)
-                        | GameTweakBit(GameTweak::FairBallContests))
+                        | GameTweakBit(GameTweak::FairBallContests) | GameTweakBit(GameTweak::MatchPoint))
                 && played.tweaks_source == SettingSource::Config, "INI tweaks not resolved");
             LaunchOptions retail; retail.no_tweaks = true;
             const auto original = ResolveLaunch(tweakedFile, retail);
