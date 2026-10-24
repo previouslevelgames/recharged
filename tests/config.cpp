@@ -461,6 +461,17 @@ int main()
         // never rollback_test and rollback_log. The starting input delay is no
         // setting: an old rollback_delay is ignored.
         Require(defaults.rollback && !defaults.rollback_test && defaults.rollback_log.empty(), "Rollback defaults");
+        // [online] server: the project's server when left out or empty (as
+        // earlier builds saved it); another one is kept.
+        Require(defaults.online_server == "2.31.48.136", "Online server default");
+        std::ofstream(path) << "[online]\nserver =\n";
+        auto emptyServer = LoadConfig(path);
+        Require(emptyServer.settings.online_server == "2.31.48.136", "An empty online server is the default");
+        SaveConfig(emptyServer, emptyServer.settings);
+        Require(LoadConfig(path).contents.find("server = 2.31.48.136") != std::string::npos,
+                "Saving wrote the default online server");
+        std::ofstream(path) << "[online]\nserver = example.org\n";
+        Require(LoadConfig(path).settings.online_server == "example.org", "Another online server kept");
         std::ofstream(path) << "[online]\nrollback = true\nrollback_test = true\nrollback_delay = 9\nrollback_log = rb.txt\n";
         auto rollbackFile = LoadConfig(path);
         Require(rollbackFile.settings.rollback && rollbackFile.settings.rollback_test

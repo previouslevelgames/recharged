@@ -382,7 +382,8 @@ Settings Decode(const Values& values)
         boolean((std::string("gameplay.") + kGameTweaks[n].key).c_str(), value);
         s.tweaks[n] = value;
     }
-    if (const auto it = values.find("online.server"); it != values.end()) s.online_server = it->second;
+    if (const auto it = values.find("online.server"); it != values.end() && !it->second.empty())
+        s.online_server = it->second;
     boolean("online.rollback", s.rollback);
     boolean("online.rollback_test", s.rollback_test);
     if (const auto it = values.find("online.rollback_log"); it != values.end()) s.rollback_log = it->second;

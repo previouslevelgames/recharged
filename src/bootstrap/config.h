@@ -17,6 +17,8 @@
 
 namespace mscharged
 {
+inline constexpr const char* kDefaultOnlineServer = "2.31.48.136";
+
 struct Settings
 {
     // game.disc: the image the game starts with (the launcher's pinned image).
@@ -231,7 +233,10 @@ struct Settings
     // [gameplay]: game tweaks (kGameTweaks order), off by default except the
     // recommended ones.
     std::array<bool, kGameTweaks.size()> tweaks = DefaultGameTweaks();
-    std::string online_server;
+    // [online] server: where the game's Nintendo Wi-Fi Connection names
+    // (*.nintendowifi.net) resolve. Left out or empty, the project's server:
+    // earlier builds wrote an empty one into every saved file.
+    std::string online_server = kDefaultOnlineServer;
     // [online] rollback (on by default): network matches predict the inputs
     // still on their way and roll back when they differ, instead of waiting
     // for them. Every machine in the match must have it on (the input delay
