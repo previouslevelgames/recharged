@@ -21,6 +21,7 @@
 #include <aurora/event.h>
 #include <aurora/gfx.h>
 #include <aurora/gfx.hpp>
+#include <aurora/input.hpp>
 #include "gfx/xfb.hpp"
 #include "gfx/scanout.hpp"
 #include "gx/fifo.hpp"
@@ -51,6 +52,7 @@
 #include "platform/launcher_reopen.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
+#include "platform/netplay_snapshot.h"
 #include "platform/presence_snapshot.h"
 #include "platform/shader_cache.h"
 #include "platform/process_exit.h"
@@ -89,6 +91,9 @@
 #include <stdexcept>
 #include <filesystem>
 #include <string>
+#if defined(MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE)
+#include "net/so_resolve.h"
+#endif
 namespace aurora { extern AuroraConfig g_config; }
 extern "C" bool __OSInitSTM();
 // Whole original OSRtc software/cache owner, linked once into the host.
@@ -330,6 +335,22 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::SetVerboseConsole(launch.settings.verbose_console);
         // advanced.log_window: the separate log window, when the launcher has not opened it.
         mscharged::platform::SetLogWindow(launch.settings.log_window);
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        so_set_server_override(launch.settings.online_server.c_str());
+#endif
+        // [online] rollback and rollback_test: the game module's rollback reads
+        // its switches from the environment when it loads
+        // (src/platform/rollback_engine.cpp); one already set there wins.
+        if ((launch.settings.rollback || launch.settings.rollback_test)
+            && !std::getenv("RECHARGED_ROLLBACK") && !std::getenv("RECHARGED_ROLLBACK_TEST")) {
+            const char* name=launch.settings.rollback_test ? "RECHARGED_ROLLBACK_TEST" : "RECHARGED_ROLLBACK";
+            const std::string log=launch.settings.rollback_log.empty() ? "1" : launch.settings.rollback_log;
+#if defined(_WIN32)
+            _putenv_s(name,log.c_str());
+#else
+            setenv(name,log.c_str(),1);
+#endif
+        }
         std::printf("%s\n",mscharged::DescribeLaunch(launch).c_str());
         Check(!disc.empty() && std::filesystem::is_regular_file(launch.disc_path),"Supply your own game ISO/RVZ/WBFS with --disc FILE or [game] disc in the INI");
         // Validate native preferences before acquiring any hardware/module owner.
@@ -437,6 +458,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             graphics=graphicsFallback;
         }
         mscharged::platform::SetApplicationIcon(host.window);
+        // The game draws its own pointer (the Wii Remote's hand) where a player
+        // points, the mouse included: the system cursor stays hidden over the
+        // window. A layer above that takes the mouse (ImGui) shows it again.
+        const auto cursorLayer=aurora::input::register_layer({
+            .label="recharged.cursor",
+            .priority=aurora::input::kGameLayerPriority,
+            .onEvent=[](const aurora::input::InputEvent&,void*){return aurora::input::EventResult::Pass;},
+            .pointerMode=[](void*){return aurora::input::PointerMode::Hidden;},
+        });
+        if(cursorLayer==aurora::input::kInvalidLayerId)
+            mscharged::platform::SessionLogLine("Startup: the system cursor stays visible over the game");
         mscharged::platform::SessionLogLine("Startup: graphics ready");
         // [mods]: HD texture packs, swapped in by Aurora (host graphics only).
         mscharged::LoadTexturePacks(launch.settings,launch.config.path,release->game_id);
@@ -1144,6 +1176,35 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             windowMemory.emplace(host.window,launch.config.path);
         // The 3D resolution the hotkeys step from, for this run.
         std::string renderResolution=launch.settings.resolution;
+        // Once a second after a game frame, the network numbers: the overlay's
+        // LAT in network sessions and DLY and RB in network matches with
+        // rollback; and in those matches at most 60 FPS (kRollbackFrameRate).
+        auto netplaySnapshot=reinterpret_cast<ChargedNetplaySnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_netplay_snapshot"));
+        std::chrono::steady_clock::time_point lastNetplay{};
+        auto observeNetplay = [&] {
+            if((!hostOverlay && !framePacing) || !netplaySnapshot)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-lastNetplay<std::chrono::seconds(1))return;
+            lastNetplay=now;
+            ChargedNetplaySnapshot snapshot{};
+            if(!netplaySnapshot(&snapshot,sizeof snapshot))return;
+            if(framePacing && framePacing->SetRollbackCap(snapshot.rollback!=0)) {
+                const auto line="Frame rate: "+framePacing->Description();
+                mscharged::platform::SessionLogLine(line);
+                std::fprintf(stderr,"%s\n",line.c_str());
+            }
+            if(!hostOverlay)return;
+            mscharged::runtime::HostOverlay::Network network;
+            network.session=snapshot.network!=0;
+            if(snapshot.round_trip_ms>=0)network.latency_ms=snapshot.round_trip_ms;
+            network.rollback=snapshot.rollback!=0;
+            if(network.rollback){
+                network.delay_ms=snapshot.input_delay_ms;
+                network.rollback_frames=snapshot.predicted_steps;
+            }
+            hostOverlay->SetNetwork(network);
+        };
         // The persisted launcher toggle is authoritative; recordings live with
         // the session log (logs/ beside this executable), independently of the
         // working directory.
@@ -1284,7 +1345,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -1373,7 +1434,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}

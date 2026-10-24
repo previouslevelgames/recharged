@@ -1,0 +1,86 @@
+From: mscharged-port
+Subject: Decode the online lobby's connection words before using them as connections
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+NetworkLobby keeps each peer's connection as an unsigned int word, and
+natively that word is an encoded transport connection (0476). 0743
+decoded it for the AID reads, but two places still cast the word itself
+to a TransportConnection*:
+
+- NetworkLobby::CloseConnections disconnected each peer through the
+  word. A failed online match ("Lobby Start game timed out") reaches it
+  from SHOnlineMatchmakingDraft::Update, and TransportConnection::
+  Disconnect then read a Wii cached address (0x90026d50 + 0xf08) and
+  crashed before the error popup was shown.
+- OnlineConnectionQualityScene::UpdateConnectionQuality read the round
+  trip time through the roster's GetMachineAid word, which is the same
+  encoded word in both NetworkLobby and LANLobby.
+
+As LANLobby does, both decode the word first. 0 and -1 (the local
+machine) are still skipped before decoding, so the decoder only sees
+words of live connections. DWCConnectionClosedCallback is unchanged:
+ReliableSocket::FindConnection already returns the native connection.
+
+diff --git a/src/Game/NetworkLobby.cpp b/src/Game/NetworkLobby.cpp
+index 86f7348..27a104a 100644
+--- a/src/Game/NetworkLobby.cpp
++++ b/src/Game/NetworkLobby.cpp
+@@ -12,8 +12,12 @@
+ // reads the AID from the last byte of the connection's address at 0x27.
+ #define NETWORK_LOBBY_CONNECTION_AID(word) \
+     (mscharged::platform::DecodeTransportConnectionAddress(static_cast<std::uint32_t>(word))->mAddress.bytes[3])
++// Closing a peer passes the connection itself, decoded from its word.
++#define NETWORK_LOBBY_CONNECTION_POINTER(word) \
++    mscharged::platform::DecodeTransportConnectionAddress(static_cast<std::uint32_t>(word))
+ #else
+ #define NETWORK_LOBBY_CONNECTION_AID(word) (*((u8*)(word) + 0x27))
++#define NETWORK_LOBBY_CONNECTION_POINTER(word) (TransportConnection*)(word)
+ #endif
+ #include "Game/FriendManager.h"
+ #include "Game/OnlineMatchmaking.h"
+@@ -366,7 +370,7 @@ void NetworkLobby::CloseConnections()
+         if (connection != (unsigned int)-1 && connection != 0)
+         {
+             socket->Disconnect(
+-                (TransportConnection*)connection, true);
++                NETWORK_LOBBY_CONNECTION_POINTER(connection), true);
+         }
+     }
+ 
+diff --git a/src/Game/SH/SHOnlineConnectionQuality.cpp b/src/Game/SH/SHOnlineConnectionQuality.cpp
+index 7b82616..40708f4 100644
+--- a/src/Game/SH/SHOnlineConnectionQuality.cpp
++++ b/src/Game/SH/SHOnlineConnectionQuality.cpp
+@@ -3,6 +3,11 @@
+ #include <cstdint>
+ // Pointer-button callback contexts carry small button/item indices.
+ #define MSCHARGED_ONLINE_CONNECTION_QUALITY_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#include "NL/plat/TransportConnection.h"
++#include "platform/transport_connection_address.h"
++// Roster machine AIDs are encoded transport connection words natively (0476).
++#define MSCHARGED_ONLINE_CONNECTION_QUALITY_CONNECTION(word) \
++    mscharged::platform::DecodeTransportConnectionAddress(static_cast<std::uint32_t>(word))
+ #else
+ #define MSCHARGED_ONLINE_CONNECTION_QUALITY_CONTEXT(type, context) (type)context
+ #endif
+@@ -164,10 +169,19 @@ void OnlineConnectionQualityScene::UpdateConnectionQuality()
+     unsigned int maxRoundTripTimeMS = 0;
+     for (int i = 0; i < roster->GetMachineCount(); ++i)
+     {
++#if defined(MSCHARGED_NATIVE)
++        // 0 and -1 (the local machine) are not words; decode only the others.
++        unsigned int aid = roster->GetMachineAid(i);
++        if (aid != 0 && aid != (unsigned int)-1)
++        {
++            TransportConnection* connection
++                = MSCHARGED_ONLINE_CONNECTION_QUALITY_CONNECTION(aid);
++#else
+         TransportConnection* connection
+             = (TransportConnection*)roster->GetMachineAid(i);
+         if (connection != 0 && connection != (TransportConnection*)-1)
+         {
++#endif
+             maxRoundTripTimeMS = maxRoundTripTimeMS >= connection->mRoundTripTimeMS ? maxRoundTripTimeMS : connection->mRoundTripTimeMS;
+         }
+     }

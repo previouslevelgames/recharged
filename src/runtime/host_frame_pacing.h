@@ -25,11 +25,15 @@ public:
     // display (or a changed refresh rate) and logs the new pacing.
     void Update(std::chrono::steady_clock::time_point now);
     std::string Description() const;
+    // A network match with rollback holds the rate to kRollbackFrameRate
+    // while it lasts; true when that changed the pacing.
+    bool SetRollbackCap(bool on);
 
 private:
     void Apply(double display_hz);
 
     FrameRate rate_;
+    bool rollback_cap_ = false;
     bool vsync_;
     SDL_Window* window_;
     double display_hz_ = -1.0;

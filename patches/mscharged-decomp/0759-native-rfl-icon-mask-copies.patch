@@ -1,0 +1,67 @@
+From: mscharged-port
+Subject: Forget a Mii icon's mask copies before its model buffer is freed
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native graphics ownership; the icons draw as before.
+
+RFLiMakeIcon builds a model in a temporary buffer, whose expression masks
+(the eyes, mouth and other face parts) RFLiMakeTexture draws into the EFB and
+copies into that buffer, one copy per mask resolution. Aurora keeps an EFB
+copy by its destination address and binds it to any texture later found
+there, whatever its format: once RFLiMakeIcon frees the buffer, the next
+texture the Mii library loads into the same memory, such as another Mii's
+eye texture, would have shown the old mask. Before the free, RFLiMakeIcon now
+destroys those copies (GXDestroyCopyTex), from the masks' texture objects and
+the model's resolution, in RFLiMakeTexture's order. The icon's own copy into
+the caller's buffer stays. Console builds are unchanged.
+
+diff --git a/src/RVL_SDK/rfl/RFL_Icon.c b/src/RVL_SDK/rfl/RFL_Icon.c
+index bd3cb3c..f0c4689 100644
+--- a/src/RVL_SDK/rfl/RFL_Icon.c
++++ b/src/RVL_SDK/rfl/RFL_Icon.c
+@@ -8,6 +8,36 @@
+ void RFLiMakeIcon(void* buf, const RFLiCharInfo* info, RFLExpression expression,
+                   const RFLIconSetting* setting);
+ 
++#if defined(MSCHARGED_NATIVE)
++void GXDestroyCopyTex(void* dest);
++
++/* The model's expression masks are EFB copies into its work buffer, each mask
++   resolution after the other (RFLiMakeTexture). Aurora keeps a copy by its
++   address and binds it to any texture there, so the buffer must not lend them
++   to what it holds next. */
++static void RFLiForgetMaskCopies(const RFLCharModel* model) {
++    static const RFLi_MASKRSL levels[] = {RFLi_MASKRSL_256, RFLi_MASKRSL_128,
++                                          RFLi_MASKRSL_64, RFLi_MASKRSL_32};
++    const RFLiCharModel* imodel = (const RFLiCharModel*)model;
++    int i, j;
++
++    for (i = 0; i < RFLExp_Max; i++) {
++        u8* image;
++
++        if (imodel->maskTexObj[i] == NULL) {
++            continue;
++        }
++        image = (u8*)GXGetTexObjData(imodel->maskTexObj[i]);
++        for (j = 0; j < 4; j++) {
++            if (imodel->resolution & levels[j]) {
++                GXDestroyCopyTex(image);
++                image += RFLiGetMaskSize(levels[j]);
++            }
++        }
++    }
++}
++#endif
++
+ RFLErrcode RFLMakeIcon(void* buf, RFLDataSource source, RFLMiddleDB* middleDB,
+                        u16 index, RFLExpression expression,
+                        const RFLIconSetting* setting) {
+@@ -186,6 +216,9 @@ void RFLiMakeIcon(void* buf, const RFLiCharInfo* info, RFLExpression expression,
+     GXPixModeSync();
+ #endif
+ 
++#if defined(MSCHARGED_NATIVE)
++    RFLiForgetMaskCopies(&model);
++#endif
+     RFLiFree(modelBuf);
+ 
+     GXSetViewportv(vp);

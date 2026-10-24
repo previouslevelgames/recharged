@@ -1,0 +1,39 @@
+From: mscharged-port
+Subject: Append DWC's added match filter without an overlapping snprintf
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native libc compatibility
+
+DWCi_SBUpdateAsync adds the game's filter to the default match filter
+with snprintf(filter, sizeof(filter), "%s and (%s)", filter, ...), whose
+source overlaps its destination. CodeWarrior's formatter read the source
+before overwriting it; glibc does not, so the default part was lost and
+the server browser received " and (AP = ... and CO = 0)", which the
+server rejected: "Error parsing filter: unexpected end of expression".
+
+Natively the added filter is appended after the default one, producing
+the same string, truncation included.
+
+diff --git a/src/RVL_SDK/dwc/dwc_match.c b/src/RVL_SDK/dwc/dwc_match.c
+index b8c5085..86678c6 100644
+--- a/src/RVL_SDK/dwc/dwc_match.c
++++ b/src/RVL_SDK/dwc/dwc_match.c
+@@ -2258,8 +2258,19 @@ static SBError DWCi_SBUpdateAsync(int profileID)
+ 
+             if (stpAddFilter)
+             {
++#if defined(MSCHARGED_NATIVE)
++                // The original formats filter into itself. glibc does not
++                // read an overlapping source, so the default filter was lost;
++                // append the game's filter after it instead.
++                {
++                    size_t used = strlen(filter);
++                    (void)snprintf(filter + used, sizeof(filter) - used,
++                        " and (%s)", stpAddFilter);
++                }
++#else
+                 (void)snprintf(filter, sizeof(filter), "%s and (%s)", filter,
+                     stpAddFilter);
++#endif
+             }
+             break;
+         }

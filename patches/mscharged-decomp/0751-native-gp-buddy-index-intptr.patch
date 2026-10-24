@@ -1,0 +1,34 @@
+From: mscharged-port
+Subject: Pass the GP buddy index through intptr_t
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility; no game behavior change.
+
+gpiDeleteBuddy hands the removed buddy's index to gpiFixBuddyIndices
+through gpiProfileMap's void* argument, converting it through unsigned
+long both ways. Windows is LLP64, where long is 32 bits and narrower than
+a pointer, and the native build rejects both conversions as errors.
+Like the DWC callback arguments in 0721, the index now goes through
+intptr_t; the value is the same on every target.
+
+diff --git a/src/RVL_SDK/gamespy/GP/gpiBuddy.c b/src/RVL_SDK/gamespy/GP/gpiBuddy.c
+index 3c37cf5..3062d82 100644
+--- a/src/RVL_SDK/gamespy/GP/gpiBuddy.c
++++ b/src/RVL_SDK/gamespy/GP/gpiBuddy.c
+@@ -571,7 +571,7 @@ GPResult gpiAuthBuddyRequest(GPConnection* connection, GPProfile profile) {
+ 
+ GPIBool gpiFixBuddyIndices(GPConnection* connection, GPIProfile* profile,
+                            void* data) {
+-  int baseIndex = (int)(unsigned long)data;
++  int baseIndex = (int)(intptr_t)data;
+ 
+   GSI_UNUSED(connection);
+ 
+@@ -627,7 +627,7 @@ GPResult gpiDeleteBuddy(GPConnection* connection, GPProfile profile,
+       gpiRemoveProfile(connection, pProfile);
+     iconnection->profileList.numBuddies--;
+     assert(iconnection->profileList.numBuddies >= 0);
+-    gpiProfileMap(connection, gpiFixBuddyIndices, (void*)(unsigned long)index);
++    gpiProfileMap(connection, gpiFixBuddyIndices, (void*)(intptr_t)index);
+   }
+   return GP_NO_ERROR;
+ }

@@ -1,0 +1,863 @@
+Subject: Diagnostic: rollback inputs, replay and outgoing deterministic data
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Rollback study. Under RECHARGED_ROLLBACK_TEST the port's rollback (in the
+game module) saves the match after every fixed step and goes back a few
+steps to run them again. A replayed step must get exactly the inputs the
+first run got, so the routers report what they apply before each step
+(every machine's packed player inputs and the deterministic data events
+they queue for the simulation, in their order), and ApplyRollbackInputs
+applies a report again. FixedUpdateTask passes the port a replay step:
+those inputs and the simulation, no pads, no capture, nothing sent.
+
+The rollback restores the drawing's objects with the match, so the port
+replays whole frames around the steps: their tasks run again as they did,
+each with the time step it had (the task manager reports every task's,
+mscharged_rollback_task_time), so that the drawing recomputes its state
+with the match's. A replay leaves out the pads, sound, network, disc and
+movies: BeginFrameTask serves no disc reads, FrontEndTask reads no pads
+and neither resets nor opens the HOME Button Menu. FixedUpdateTask's part
+is its work before the steps (the time scale's transition) and the
+recorded steps (RollbackReplayFixedFrame); EndFrameTask's part ends the
+frame without sending it (RollbackReplayEndFrame): the views emptied and
+the frame's memory used afresh in the same half
+(mscharged_rollback_reuse_frame_memory), as the other may still be read
+for the frame sent before. The port goes back at the start of a frame,
+before any task of it runs (nlTaskManager::RunAllTasks).
+
+Drawing has nowhere to go during a replay, whose frame was already drawn:
+GLView drops any model or packet attached meanwhile.
+
+Deterministic data the simulation queues to send (player visibility, mega
+strike results, NIS loaded) is an input of a later step on every machine:
+a replayed step queues none, its data went out when it first ran. While it
+waits in the router's queue it lives outside the game's arenas, which a
+rollback restores while the router's queue goes on.
+
+The mega strike meter's presses go from the shooter's machine to the others
+outside the inputs, in their own messages, which cGame queues for the
+shooter's fielder on the other machines. The port records the presses
+received before each step and gives them again to its replay
+(RollbackRedeliverMegaStrikeMeter); a replayed step sends none, nor the
+mega ball pointer of a captain's shot. Nor does it start rumbles: the pads
+felt them when the steps first ran, and the rumbles' state stays out of the
+rollback with the pads, which PlatPadUpdateTask drives every frame.
+
+The rollback leaves the frame memory alone: it is used afresh every frame,
+with its cursors in glxMemory's statics. mscharged_rollback_frame_memory
+returns pointers to its blocks.
+
+Matches under the rollback use the deterministic AI clocks of network
+games: offline, cGame::BeginGame otherwise gives the AI a script time budget
+of one real millisecond and skips a script whose measured time nears it at
+random. A replayed step must make the AI choices its first run made, however
+long the frame took.
+
+The port compares the game's own checksum (FixedUpdateTask's) of a
+replayed step with its first run's. Network matches' prediction (tweak patch
+0030) and the audio's own heap (tweak patch 0031) build on this patch.
+
+Add include/mscharged_rollback.h, the rollback's interface to the port.
+
+Without RECHARGED_ROLLBACK_TEST or RECHARGED_ROLLBACK nothing changes.
+
+diff --git a/include/Game/InputRouter.h b/include/Game/InputRouter.h
+index 1b67126..8b3abd2 100644
+--- a/include/Game/InputRouter.h
++++ b/include/Game/InputRouter.h
+@@ -148,5 +148,10 @@ private:
+ void InitializeInputRouters();
+ InputRouter* GetInputRouter();
+ void DispatchDetermDataEvents();
++#if defined(MSCHARGED_TWEAKS)
++struct MschargedRollbackInputs;
++// Rollback: applies recorded inputs again, as the router applied them.
++void ApplyRollbackInputs(const MschargedRollbackInputs* inputs);
++#endif
+ 
+ #endif // GAME_NETWORK_INPUT_ROUTER_H
+diff --git a/include/mscharged_rollback.h b/include/mscharged_rollback.h
+new file mode 100644
+index 0000000..d9dfa8e
+--- /dev/null
++++ b/include/mscharged_rollback.h
+@@ -0,0 +1,80 @@
++#if defined(MSCHARGED_TWEAKS)
++#ifndef MSCHARGED_ROLLBACK_H
++#define MSCHARGED_ROLLBACK_H
++
++// Rollback of the native port (src/platform/rollback_engine.cpp in the game
++// module). It does nothing unless RECHARGED_ROLLBACK_TEST (a test that rolls
++// matches back with the inputs they had) or RECHARGED_ROLLBACK (network
++// matches that predict the inputs still on their way) is set. Network
++// matches' prediction and the audio's heap have headers of their own
++// (tweak patches 0030 and 0031).
++
++#define MSCHARGED_ROLLBACK_MAX_EVENTS 16
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// What the input router applied before one fixed step: every machine's
++// players' packed inputs and the deterministic data events it queued for the
++// simulation, in the order it did both.
++struct MschargedRollbackInputs
++{
++    int machineCount;
++    signed char machines[4];         // in the order applied
++    unsigned char players[4];        // by machine
++    unsigned short remapAngles[4];   // by machine
++    unsigned char records[16][16];   // PackedDetInput, by network player id
++    unsigned char states[16];        // connection state, by network player id
++    int eventCount;
++    signed char eventMachines[MSCHARGED_ROLLBACK_MAX_EVENTS];
++    unsigned char events[MSCHARGED_ROLLBACK_MAX_EVENTS][0x24]; // DetermDataEvent
++    int overflowed;                  // more events than MSCHARGED_ROLLBACK_MAX_EVENTS
++};
++
++// Whether the rollback runs: the routers then report the inputs they apply,
++// and deterministic data on its way out stays outside the game's arenas.
++bool mscharged_rollback_active(void);
++// Whether the steps running now replay earlier ones: deterministic data they
++// queue was sent when they first ran.
++bool mscharged_rollback_resimulating(void);
++// The inputs applied for the step about to run.
++void mscharged_rollback_inputs_applied(const struct MschargedRollbackInputs* inputs);
++// Between two fixed steps of a match, where the rollback saves the match and
++// decides whether to go back: `replay` runs one step again with the inputs it
++// was given (1, or -1 when a NIS now stops the simulation), `checksum` is the
++// game's checksum, `task` and `taskBytes` the fixed update task.
++void mscharged_rollback_between_steps(int (*replay)(const struct MschargedRollbackInputs* inputs),
++                                      unsigned (*checksum)(void), void* task, unsigned long taskBytes);
++// The presses of a mega strike meter received from the shooter's machine,
++// outside the inputs: the steps that use them run again with them.
++void mscharged_rollback_meter_received(const bool* values, int count);
++// Every task the task manager runs, with its time step: a rollback replays
++// whole frames, each task with the time step it had.
++void mscharged_rollback_task_time(const void* task, float dt);
++// At the start of a frame, before any task sets up its cameras and views:
++// where the rollback goes back and replays, through the end of the last frame.
++void mscharged_rollback_frame_start(void);
++// The game's: pointers into the frame memory blocks, at most capacity;
++// returns how many.
++int mscharged_rollback_frame_memory(const void** pointers, int capacity);
++// The game's: the end of a replayed frame, whose frame memory the next one
++// uses afresh.
++void mscharged_rollback_reuse_frame_memory(void);
++
++#ifdef __cplusplus
++}
++
++// A rollback replays whole frames: their tasks run as they did (drawing with
++// nowhere to go, GLView drops it), but for the pads, sound, network, disc and
++// movies, and for these, which do a replayed frame's part of their task:
++// FixedUpdateTask's work before its steps, and EndFrameTask's end of a frame
++// without sending it.
++void RollbackReplayFixedFrame(float dt);
++void RollbackReplayEndFrame();
++// Gives the match the mega strike meter presses received before a step again.
++void RollbackRedeliverMegaStrikeMeter(const bool* values, int count);
++#endif
++
++#endif // MSCHARGED_ROLLBACK_H
++#endif // MSCHARGED_TWEAKS
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index 1a6cf4e..6ba0363 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -41,6 +41,9 @@
+ #include "Game/DB/GameProgress.inl"
+ #include "Game/Goalie.h"
+ #include "Game/Net.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ #include "Game/NetworkSession.h"
+ #include "Game/Physics/PhysicsAIBall.h"
+ #include "Game/Physics/PhysicsPatch.h"
+@@ -557,6 +560,13 @@ void cGame::SendMegaStrikeMeter(bool value)
+     {
+         message.mValues[i] = mPendingMegaStrikeMeter.Pop();
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay: these went out when the step first ran.
++    if (mscharged_rollback_resimulating())
++    {
++        return;
++    }
++#endif
+ 
+     u8 buffer[50];
+     s8 i;
+@@ -589,6 +599,13 @@ void cGame::SendRemainingMegaStrikeMeter()
+             message.mValues[i]
+                 = mPendingMegaStrikeMeter.Pop();
+         }
++#if defined(MSCHARGED_TWEAKS)
++        // A rollback's replay: these went out when the step first ran.
++        if (mscharged_rollback_resimulating())
++        {
++            continue;
++        }
++#endif
+ 
+         u8 buffer[50];
+         s8 i;
+@@ -885,6 +902,17 @@ void cGame::BeginGame(bool bRematch, bool bStraightToKickoff)
+         gAIProfilingClock = GetGameTickerMilliseconds;
+         gAIActivityClock = GetGameSimulationMilliseconds;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Under the rollback offline matches use the deterministic AI clocks of
++    // network and recorded games too: a replayed step must make the AI's
++    // choices of its first run, however long the frame took.
++    if (mscharged_rollback_active())
++    {
++        SetScriptTimeBudget(-1.0f);
++        gAIProfilingClock = GetGameSimulationMilliseconds;
++        gAIActivityClock = GetGameSimulationMilliseconds;
++    }
++#endif
+ }
+ void cGame::CheckForGoal()
+ {
+@@ -1369,6 +1397,9 @@ int cGame::ProcessMessage(NetworkMessage* message)
+         {
+             mReceivedMegaStrikeMeter.Push(pMessage->mValues[i]);
+         }
++#if defined(MSCHARGED_TWEAKS)
++        mscharged_rollback_meter_received(pMessage->mValues, pMessage->mCount);
++#endif
+         break;
+     }
+     }
+@@ -2770,3 +2801,14 @@ void cGame::QueueCharacterElectrocuted(CollisionPlayerWallData* data)
+ #include "Game/EventBase.inl"
+ 
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_TWEAKS)
++// Rollback: the presses of the mega strike meter received from the shooter's
++// machine, given again to the steps a replay runs (and to the step after).
++void RollbackRedeliverMegaStrikeMeter(const bool* values, int count)
++{
++    for (int i = 0; i < count; i++)
++    {
++        g_pGame->mReceivedMegaStrikeMeter.Push(values[i]);
++    }
++}
++#endif
+diff --git a/src/Game/InputRouter.cpp b/src/Game/InputRouter.cpp
+index 14e2acd..5ba9b4b 100644
+--- a/src/Game/InputRouter.cpp
++++ b/src/Game/InputRouter.cpp
+@@ -19,6 +19,11 @@
+ #include "NL/nlPrint.h"
+ #include "Game/TweakValue.inl"
+ #include "NL/nlFunction.inl"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#include <new>
++#include <stdlib.h>
++#endif
+ 
+ int g_TransmitSyncDataEvery = 4;
+ int g_nTicksPerPacket = 2;
+@@ -48,6 +53,83 @@ static QueuedEvent<DetermDataEvent> sDetermDataEventQueue(
+ 
+ inline void FreeDetermDataEvent(DetermDataEvent* event);
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Rollback: what the router applies before each step, reported to the port so
++// that a rollback can replay it (ApplyRollbackInputs).
++typedef char VerifyRollbackRecordSize[(sizeof(PackedDetInput) == 16) ? 1 : -1];
++typedef char VerifyRollbackEventSize[(sizeof(DetermDataEvent) == 0x24) ? 1 : -1];
++static MschargedRollbackInputs sRollbackInputs;
++
++static void BeginRollbackInputs()
++{
++    sRollbackInputs.machineCount = 0;
++    sRollbackInputs.eventCount = 0;
++    sRollbackInputs.overflowed = 0;
++}
++
++static void RecordRollbackEvent(s8 machine, const DetermDataEvent* event)
++{
++    if (sRollbackInputs.eventCount == MSCHARGED_ROLLBACK_MAX_EVENTS)
++    {
++        sRollbackInputs.overflowed = 1;
++        return;
++    }
++    sRollbackInputs.eventMachines[sRollbackInputs.eventCount] = machine;
++    memcpy(sRollbackInputs.events[sRollbackInputs.eventCount++], event, sizeof(DetermDataEvent));
++}
++
++static void RecordRollbackMachine(InputRouter* router, s8 machine, NetworkPeer* peer)
++{
++    sRollbackInputs.machines[sRollbackInputs.machineCount++] = machine;
++    sRollbackInputs.players[machine] = (u8)peer->mPlayerCount;
++    sRollbackInputs.remapAngles[machine] = router->mRemapAngles[machine];
++    for (s8 player = 0; player < (int)peer->mPlayerCount; ++player)
++    {
++        s8 playerId = GetNetworkPlayerId(player, machine);
++        memcpy(sRollbackInputs.records[playerId], &router->mInputRecords[playerId], sizeof(PackedDetInput));
++        sRollbackInputs.states[playerId] = router->mInputStates[playerId];
++    }
++}
++
++// Deterministic data on its way out lives outside the game's arenas while the
++// rollback runs: a rollback restores the arenas, not the router's queue.
++static void FreeOutgoingDetermData(DetermDataEvent* event)
++{
++    if (mscharged_rollback_active())
++    {
++        event->~DetermDataEvent();
++        free(event);
++    }
++    else
++    {
++        delete event;
++    }
++}
++
++void ApplyRollbackInputs(const MschargedRollbackInputs* inputs)
++{
++    int event = 0;
++    for (int index = 0; index < inputs->machineCount; ++index)
++    {
++        s8 machine = inputs->machines[index];
++        for (; event < inputs->eventCount && inputs->eventMachines[event] == machine; ++event)
++        {
++            DetermDataEvent* copy = new DetermDataEvent((DetermDataEvent*)inputs->events[event]);
++            Function<DetermDataEvent*> disposer(FreeDetermDataEvent);
++            sDetermDataEventQueue.Queue(copy, disposer);
++        }
++        NetworkPeer* peer = g_pNetworkSessionBase->GetPeer(machine);
++        for (s8 player = 0; player < inputs->players[machine]; ++player)
++        {
++            s8 playerId = GetNetworkPlayerId(player, machine);
++            peer->GetNetworkPeerChannel(player)->ApplyNetworkPeerChannelInput(
++                (const PackedDetInput*)inputs->records[playerId], inputs->remapAngles[machine],
++                inputs->states[playerId]);
++        }
++    }
++}
++#endif
++
+ void InitializeInputRouters()
+ {
+     gSimpleInputRouter = new SimpleInputRouter;
+@@ -93,6 +175,15 @@ void InputRouter::Reset(int)
+ 
+     mCurrentCRC = 0;
+     mLastGameFrame = -1;
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_rollback_active())
++    {
++        while (m_OutgoingCustomDetermDataQ.GetCount() > 0)
++        {
++            FreeOutgoingDetermData(m_OutgoingCustomDetermDataQ.Pop());
++        }
++    }
++#endif
+     m_OutgoingCustomDetermDataQ.mHead = 0;
+     m_OutgoingCustomDetermDataQ.mCount = 0;
+ 
+@@ -239,6 +330,28 @@ void InputRouter::MarkSyncMismatchReported()
+ 
+ void InputRouter::QueueDetermData(const void* data, u32 size)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_rollback_active())
++    {
++        // A replayed step: its data went out when the step first ran.
++        if (mscharged_rollback_resimulating())
++        {
++            return;
++        }
++        DetermDataEvent* outgoing = ::new (malloc(sizeof(DetermDataEvent))) DetermDataEvent(data, size);
++        if (!m_OutgoingCustomDetermDataQ.IsFull())
++        {
++            m_OutgoingCustomDetermDataQ.Push(outgoing);
++        }
++        else
++        {
++            FreeOutgoingDetermData(outgoing);
++            tDebugPrintManager::Print(DC_NETWORK, "m_OutgoingCustomDetermDataQ overflowed\n");
++            mQueueOverflowed = true;
++        }
++        return;
++    }
++#endif
+     DetermDataEvent* event = new DetermDataEvent(data, size);
+ 
+     if (!m_OutgoingCustomDetermDataQ.IsFull())
+@@ -295,6 +408,12 @@ void SimpleInputRouter::OnInputReady()
+     NetworkPeer* peer = mSession->GetLocalPeer();
+     s8 machine = mSession->GetLocalMachineId();
+     int playerCount = peer->mPlayerCount;
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_rollback_active())
++    {
++        BeginRollbackInputs();
++    }
++#endif
+ 
+     mRemapAngles[machine]
+         = peer->GetNetworkPeerChannel(0)->GetNetworkPeerChannelRemapAngle();
+@@ -316,6 +435,16 @@ void SimpleInputRouter::OnInputReady()
+         {
+             gNetworkInputRecording->WriteNetworkInputEvent(event);
+         }
++#if defined(MSCHARGED_TWEAKS)
++        // The simulation's queue takes an event of the arenas.
++        if (mscharged_rollback_active())
++        {
++            DetermDataEvent* copy = new DetermDataEvent(event);
++            FreeOutgoingDetermData(event);
++            event = copy;
++            RecordRollbackEvent(machine, event);
++        }
++#endif
+ 
+         Function<DetermDataEvent*> disposer(FreeDetermDataEvent);
+         sDetermDataEventQueue.Queue(event, disposer);
+@@ -339,6 +468,13 @@ void SimpleInputRouter::OnInputReady()
+                 player, input, mInputStates[playerId]);
+         }
+     }
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_rollback_active())
++    {
++        RecordRollbackMachine(this, machine, peer);
++        mscharged_rollback_inputs_applied(&sRollbackInputs);
++    }
++#endif
+ 
+     if (gNetworkInputRecording->mRecording)
+     {
+@@ -449,6 +585,13 @@ void NetworkInputRouter::OnInputCaptured()
+     {
+         DetermDataEvent* event = m_OutgoingCustomDetermDataQ.Pop();
+         mCurrentMessage.AddNetworkInputMessageEvent(event);
++#if defined(MSCHARGED_TWEAKS)
++        if (mscharged_rollback_active())
++        {
++            FreeOutgoingDetermData(event);
++            continue;
++        }
++#endif
+         delete event;
+     }
+ 
+@@ -512,6 +655,12 @@ inline void NetworkInputRouter::RecordEmptyInputHeader(s8 machine, int frame)
+ void NetworkInputRouter::OnInputReady()
+ {
+     bool congested = false;
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_rollback_active())
++    {
++        BeginRollbackInputs();
++    }
++#endif
+ 
+     if (mQueueLimit > GetQueueCursor())
+     {
+@@ -542,6 +691,12 @@ void NetworkInputRouter::OnInputReady()
+                         mInputStates[playerId]);
+                 }
+             }
++#if defined(MSCHARGED_TWEAKS)
++            if (mscharged_rollback_active())
++            {
++                RecordRollbackMachine(this, machine, peer);
++            }
++#endif
+         }
+     }
+     else
+@@ -593,6 +748,12 @@ void NetworkInputRouter::OnInputReady()
+ 
+                 Function<DetermDataEvent*> disposer(FreeDetermDataEvent);
+                 sDetermDataEventQueue.Queue(event, disposer);
++#if defined(MSCHARGED_TWEAKS)
++                if (mscharged_rollback_active())
++                {
++                    RecordRollbackEvent(machine, event);
++                }
++#endif
+             }
+ 
+             if (gNetworkInputRecording->mRecording)
+@@ -622,6 +783,12 @@ void NetworkInputRouter::OnInputReady()
+                         mInputStates[playerId]);
+                 }
+             }
++#if defined(MSCHARGED_TWEAKS)
++            if (mscharged_rollback_active())
++            {
++                RecordRollbackMachine(this, machine, peer);
++            }
++#endif
+         }
+ 
+         if (congested)
+@@ -654,6 +821,12 @@ void NetworkInputRouter::OnInputReady()
+     {
+         gNetworkInputRecording->Flush();
+     }
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_rollback_active())
++    {
++        mscharged_rollback_inputs_applied(&sRollbackInputs);
++    }
++#endif
+     CheckPeerSynchronization();
+ }
+ 
+diff --git a/src/Game/Render/MegaBallIndicators.cpp b/src/Game/Render/MegaBallIndicators.cpp
+index 298301f..a1d196e 100644
+--- a/src/Game/Render/MegaBallIndicators.cpp
++++ b/src/Game/Render/MegaBallIndicators.cpp
+@@ -24,6 +24,9 @@
+ #include "NL/plat/WiiPad.h"
+ #endif
+ #include <math.h>
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ 
+ void SendMegaBallPointerUpdate(u16 angle, u32 textureIndex, u32 status,
+     float x, float y);
+@@ -1049,6 +1052,13 @@ void UpdateAndRenderMegaBallIndicators(float fDeltaT)
+ void SendMegaBallPointerUpdate(u16 nAngle, u32 nTextureIndex,
+     u32 nStatus, float fX, float fY)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay: the pointer went out when its frame first ran.
++    if (mscharged_rollback_resimulating())
++    {
++        return;
++    }
++#endif
+     if (gSuppressMegaBallPointerPackets)
+     {
+         return;
+diff --git a/src/Game/RumbleActions.cpp b/src/Game/RumbleActions.cpp
+index b3f08c8..caa21f1 100644
+--- a/src/Game/RumbleActions.cpp
++++ b/src/Game/RumbleActions.cpp
+@@ -8,6 +8,9 @@
+ #include "NL/globalpad.h"
+ #include "NL/nlConfig.h"
+ #include "types.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ 
+ enum eRumbleOpType
+ {
+@@ -158,6 +161,14 @@ static inline void StopRumble(cGlobalPad* pad)
+ 
+ void BeginRumbleAction(eRumbleActionPreset preset, cGlobalPad* pad)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay: the pads felt it when its step first ran. The
++    // rumbles' state stays out of the rollback, with the pads.
++    if (mscharged_rollback_resimulating())
++    {
++        return;
++    }
++#endif
+     g_bRumbleOn
+         = WPADIsMotorEnabled() && preset != RUMBLE_POINTER_HOVER;
+     gRumbleEnabledOverride
+diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
+index baec505..a8cc199 100644
+--- a/src/Game/Task/BeginFrameTask.cpp
++++ b/src/Game/Task/BeginFrameTask.cpp
+@@ -28,6 +28,9 @@
+ #include "NL/glx/glxGX.h"
+ #include "NL/glx/glxSwap.h"
+ #include "NL/nlConfig.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ #include "NL/nlFileGC.h"
+ #include "NL/nlMath.h"
+ #include "NL/platvmath.h"
+@@ -462,6 +465,11 @@ void BeginFrameTask::Run(float dt)
+     HideLayerView(eCLV_ShadowVolume);
+     HideLayerView(eCLV_ShadowVolumeBlend);
+ #endif // both3D shadow views are omitted by existing Anark-only setup
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay serves no disc reads: they went on when the frame
++    // first ran, and no rollback crosses one.
++    if (!mscharged_rollback_resimulating())
++#endif
+     nlServiceFileSystem();
+ 
+     g_FrameCounter.StartTimer(0);
+diff --git a/src/Game/Task/EndFrameTask.cpp b/src/Game/Task/EndFrameTask.cpp
+index f4eabdb..4542cff 100644
+--- a/src/Game/Task/EndFrameTask.cpp
++++ b/src/Game/Task/EndFrameTask.cpp
+@@ -87,3 +87,16 @@ void EndFrameTask::Run(float)
+         }
+     }
+ }
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++
++// Run's end of a frame for a rollback's replay: nothing drawn or sent (the
++// frame was, when it first ran), the views emptied and the frame memory used
++// afresh, as glSendFrame leaves them.
++void RollbackReplayEndFrame()
++{
++    glEndFrame();
++    gl_ViewReset();
++    mscharged_rollback_reuse_frame_memory();
++}
++#endif
+diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
+index f0fbe6d..ff3be53 100644
+--- a/src/Game/Task/FixedUpdateTask.cpp
++++ b/src/Game/Task/FixedUpdateTask.cpp
+@@ -38,6 +38,9 @@
+ #include "NL/nlString.h"
+ #include "types.h"
+ #include "Game/DetInput.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ #include "Game/InputRouter.h"
+ #include "Game/NetworkInput.h"
+ #include "Game/NetworkSync.h"
+@@ -304,6 +307,47 @@ void FixedUpdateTask::DecrementFrameLock(float fDeltaT)
+     }
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++// The game's own checksum of the match.
++static unsigned MatchChecksum()
++{
++    return fixedUpdateTask.CalculateChecksum();
++}
++
++// One fixed step again for the rollback, with the inputs the router applied
++// when it first ran: no pads, no capture, nothing sent. The port replays the
++// other tasks of the frames around it.
++static int RollbackReplayStep(const MschargedRollbackInputs* inputs)
++{
++    ApplyRollbackInputs(inputs);
++    fixedUpdateTask.CallFixedUpdateTasks();
++    return IsNisLoadedOnAllMachines(GetPresentation()) ? -1 : 1;
++}
++
++// Run's work in a frame a rollback replays, before its steps: the time
++// scale's transition (the steps' own pads and inputs are the replay's).
++void RollbackReplayFixedFrame(float dt)
++{
++    FixedUpdateTask& task = fixedUpdateTask;
++    if (IsNisLoadedOnAllMachines(GetPresentation()) || !task.mSimulationStarted
++        || nlTaskManager::m_pInstance->mPendingState == TASK_NIS
++        || nlTaskManager::m_pInstance->mCurrentState != TASK_GAMEPLAY || g_pNetworkSession->GetPausedMachineMask())
++    {
++        return;
++    }
++    if (task.mTimeScaleTransitionRemaining != 0.0f)
++    {
++        task.mTimeScaleTransitionRemaining -= dt * task.mTimeScale;
++        if (task.mTimeScaleTransitionRemaining < 0.0f)
++        {
++            task.mTimeScaleTransitionRemaining = 0.0f;
++        }
++        float percent = 1.0f - task.mTimeScaleTransitionRemaining / task.mTimeScaleTransitionTime;
++        task.mTimeScale = Interpolate(task.mTimeScaleTransitionStart, task.mTargetTimeScale, percent);
++    }
++}
++#endif
++
+ void FixedUpdateTask::Run(float dt)
+ {
+     bool runFixedUpdate = true;
+@@ -384,6 +428,16 @@ void FixedUpdateTask::Run(float dt)
+                 mInterpolationDeltaT = g_fFixedUpdateTick;
+             }
+ 
++#if defined(MSCHARGED_TWEAKS)
++            if (updated && !IsNisLoadedOnAllMachines(GetPresentation())
++                && nlTaskManager::m_pInstance->mPendingState == TASK_GAMEPLAY
++                && !g_pNetworkSession->GetPausedMachineMask())
++            {
++                mscharged_rollback_between_steps(RollbackReplayStep, MatchChecksum, &fixedUpdateTask,
++                                                 sizeof(fixedUpdateTask));
++            }
++#endif
++
+             if (IsNisLoadedOnAllMachines(GetPresentation()))
+             {
+                 break;
+diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
+index e4f3dd8..2c4bf6f 100644
+--- a/src/Game/Task/FrontEndTask.cpp
++++ b/src/Game/Task/FrontEndTask.cpp
+@@ -27,6 +27,9 @@
+ #include "Game/main.h"
+ #include "NL/gl/gl.h"
+ #include "NL/gl/glMemory.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ #include "NL/globalpad.h"
+ #include "NL/glx/glxSend.h"
+ #include "NL/nlConfig.h"
+@@ -147,13 +150,23 @@ FrontEndTask::FrontEndTask()
+ void FrontEndTask::Run(float dt)
+ {
+     g_fUpTime += dt;
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay reads no pads: the frame did when it first ran.
++    if (!mscharged_rollback_resimulating())
++#endif
+     g_pFEInput->Update(dt);
+     HandleE3IdleReset(dt);
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
++#if defined(MSCHARGED_TWEAKS)
++    if (!mscharged_rollback_resimulating())
++#endif
+     HandleSoftReset(dt);
+ #endif // physical PAD reset lifecycle remains unqualified
+ 
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
++#if defined(MSCHARGED_TWEAKS)
++    if (!mscharged_rollback_resimulating())
++#endif
+     if (gpHBMManager != 0 && gpHBMManager->mReady)
+     {
+         if (!gpHBMManager->mActive
+diff --git a/src/NL/gl/glView.cpp b/src/NL/gl/glView.cpp
+index 6fc0a98..658569e 100644
+--- a/src/NL/gl/glView.cpp
++++ b/src/NL/gl/glView.cpp
+@@ -14,6 +14,9 @@
+ #include <new>
+ #include <stdexcept>
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ 
+ const nlMatrix4 gGLViewIdentityMatrix = {
+     { { { 1.0f, 0.0f, 0.0f, 0.0f },
+@@ -404,6 +407,13 @@ GLView::~GLView()
+ 
+ void GLView::AttachPacket(const glModelPacket* packet, unsigned long layer)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Drawing during a rollback's replay goes nowhere: its frame was drawn.
++    if (mscharged_rollback_resimulating())
++    {
++        return;
++    }
++#endif
+ #if defined(MSCHARGED_DIAGNOSTIC_VIEWS)
+     if (!packet || !packet->materialProgram || layer > UINT32_MAX)
+         throw std::invalid_argument("Invalid GL packet or sort layer");
+@@ -414,6 +424,12 @@ void GLView::AttachPacket(const glModelPacket* packet, unsigned long layer)
+ 
+ void GLView::AttachModel(const glModel* model, unsigned long layer)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_rollback_resimulating())
++    {
++        return;
++    }
++#endif
+ #if defined(MSCHARGED_DIAGNOSTIC_VIEWS)
+     if (!model || model->numPackets > 65535 || (model->numPackets && !model->packets) || layer > UINT32_MAX)
+         throw std::invalid_argument("Invalid GL model or sort layer");
+diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp
+index ebf1e9a..234ae9e 100644
+--- a/src/NL/glx/glxMemory.cpp
++++ b/src/NL/glx/glxMemory.cpp
+@@ -29,6 +29,9 @@
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
+ #include "platform/game_allocation_ownership.h"
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ 
+ class GLXResourcePool
+     : public GLResourcePool
+@@ -562,3 +565,34 @@ void glplatValidateMatrix(glMatrixHandle matrix)
+     throw std::invalid_argument("Matrix address is outside live GL storage");
+ }
+ #endif
++
++#if defined(MSCHARGED_TWEAKS)
++// Rollback: the frame memory, used afresh every frame with its cursors in this
++// file's statics, which a rollback leaves alone with it.
++extern "C" int mscharged_rollback_frame_memory(const void** pointers, int capacity)
++{
++    int count = 0;
++    for (int pool = 0; pool < 2 && count < capacity; ++pool)
++    {
++        pointers[count++] = (const void*)sFrameMemory[0][pool];
++    }
++    return count;
++}
++
++// The end of a frame a rollback replays: the next one uses this frame's memory
++// afresh, as glplatFrameAllocNextFrame lets a frame do, but in the same half,
++// since the other may still be read for the frame sent before.
++extern "C" void mscharged_rollback_reuse_frame_memory(void)
++{
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
++    mscharged::platform::GameGraphicsRetirementReservation nativeRetirement[2];
++#endif
++    for (int pool = 0; pool < 2; ++pool)
++    {
++        sFrameMemoryUsed[sCurrentFrame][pool] = 0;
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE) && !defined(MSCHARGED_DIAGNOSTIC_RESOURCE_POOLS)
++        nativeRetirement[pool].Commit((void*)sFrameMemory[sCurrentFrame][pool], sFrameMemorySizes[pool]);
++#endif
++    }
++}
++#endif
+diff --git a/src/NL/nlTask.cpp b/src/NL/nlTask.cpp
+index d94c8c9..25d980c 100644
+--- a/src/NL/nlTask.cpp
++++ b/src/NL/nlTask.cpp
+@@ -10,6 +10,9 @@
+ 
+ #include "Game/Sys/movie.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ 
+ float g_fTaskTimeUpperBound = 0.1f;
+ nlTaskManager* nlTaskManager::m_pInstance;
+@@ -77,6 +80,10 @@ void nlTaskManager::RunAllTasks()
+ {
+ #ifdef MSCHARGED_DIAGNOSTIC_TASKS
+     mscharged::NativeTaskFrame nativeFrame;
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // Before any task of the frame, a rollback the last step asked for.
++    mscharged_rollback_frame_start();
+ #endif
+     nlTask* currentTask = nlDLRingGetStart<nlTask>(m_pInstance->mTaskList);
+     if (currentTask != 0)
+@@ -120,6 +127,9 @@ void nlTaskManager::RunAllTasks()
+ #endif
+             }
+             m_pInstance->mCurrentTimeDelta = deltaTime;
++#if defined(MSCHARGED_TWEAKS)
++            mscharged_rollback_task_time(taskIterator, deltaTime);
++#endif
+             taskIterator->Run(deltaTime);
+             taskIterator->mExecutionTime =
+                 nlGetTickerDifference(taskIterator->mPreviousTicker, nlGetTicker());

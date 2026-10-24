@@ -28,7 +28,8 @@ come from the reconstructed source, unchanged.
 ## Controls
 
 - **Keyboard & mouse** play as a Wii Remote with Nunchuk; the mouse is the
-  pointer. Every key can be changed in the launcher, up to two per action,
+  pointer, shown by the game's own hand (the system cursor stays hidden over
+  the game). Every key can be changed in the launcher, up to two per action,
   and the middle and side mouse buttons (Mouse 4, Mouse 5) can take a key's
   place ([#62](https://github.com/previouslevelgames/recharged/issues/62)).
 - **Gamepads**: Xbox, PlayStation, Switch Pro, GameCube (USB adapter) and
@@ -122,8 +123,9 @@ play.
 
 ## Optional tweaks
 
-Off by default; with all of them off the game plays as on the Wii. Four fixes
-of the original game are always on: a goal net no longer stays dented after a
+Off by default, except Fair ball contests and Match point; with all of them
+off the game plays as on the Wii. Four fixes of the original game are always
+on: a goal net no longer stays dented after a
 goal ([#19](https://github.com/previouslevelgames/recharged/issues/19)),
 electrocuted players flash with the game's lightning texture instead of a
 debug texture ([#33](https://github.com/previouslevelgames/recharged/issues/33)),
@@ -155,6 +157,17 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   fence of every other stadium, invisible but with its sparks: the ball and
   items bounce off it, and players knocked into it are electrocuted instead
   of falling off the island. Online matches are unchanged.
+- **Secure stadiums**: the game's Secure Stadium cheat in every offline
+  match, not only in Domination when chosen in its cheats menu: no
+  lightning, wind or flying debris, solar flares, bubbling lava, Storm Ship
+  tilt, Thwomps or sand patches. The electric fences stay, so it combines
+  with Thunder Island walls. Striker Challenges keep their rules; online
+  matches are unchanged.
+- **Match point**: in a match to a number of goals, the kickoff after a team
+  gets one goal from winning plays overtime's siren and sudden death music,
+  which replaces the stadium's music until the match ends; when the other team gets there too, the
+  siren sounds again and the HUD shows SUDDEN DEATH instead of "First to".
+  Only sound and HUD change. On by default.
 - **Fair ball contests**: when players of both teams reach a loose ball in
   the same instant, the one the game updates first takes it. The game
   shuffles that order at every kickoff in a way that puts the home team
@@ -203,6 +216,20 @@ folder, with their region, revision, game ID, format and size and the small
 banner the game uses for its save, read from your own image. Click the one to
 play; images of versions this build cannot run yet are listed with the reason
 ([game images](SETTINGS.md#game-images)).
+
+Its **Teams** page sets the sidekicks each captain starts with, on a pitch
+laid out like the team plays: click a sidekick to put another one there. The
+game's sidekick screen then starts from that lineup, and what you choose there
+shows on the page: both are the lineups in your own game save
+([saves](SETTINGS.md#saves)).
+
+Its **Matches** page keeps presets of the match settings and cheats: skill,
+series, time or goals, and the stadium, player and power-up cheats, all of
+them whether your save has unlocked them or not. Use one for matches on this computer or online with
+friends, and it goes into your game save, as if chosen in the game's settings
+screen; ranked matches keep their rules. **Default** (a new save's settings)
+and **Competitive** (Superstar, best of 3, first to 10 goals, Secure Stadiums) are
+built in; the others are files of their own ([saves](SETTINGS.md#saves)).
 
 It also **updates Recharged**: when a newer release is out it shows the release
 notes and asks, then installs it in place and restarts; only the program's own

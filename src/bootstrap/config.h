@@ -17,6 +17,8 @@
 
 namespace mscharged
 {
+inline constexpr const char* kDefaultOnlineServer = "2.31.48.136";
+
 struct Settings
 {
     // game.disc: the image the game starts with (the launcher's pinned image).
@@ -202,6 +204,9 @@ struct Settings
     // launcher.reopen_after_game: open the launcher again when a game started
     // from it closes normally.
     bool reopen_after_game = false;
+    // launcher.show_welcome: the welcome guide (assets/launcher/welcome.md)
+    // opens at the next start; closing it switches this off.
+    bool show_welcome = true;
     // launcher.update_channel: release (official releases), test (also test
     // builds of pull requests) or auto (where this build comes from).
     std::string update_channel = "auto";
@@ -231,6 +236,22 @@ struct Settings
     // [gameplay]: game tweaks (kGameTweaks order), off by default except the
     // recommended ones.
     std::array<bool, kGameTweaks.size()> tweaks = DefaultGameTweaks();
+    // [online] server: where the game's Nintendo Wi-Fi Connection names
+    // (*.nintendowifi.net) resolve. Left out or empty, the project's server:
+    // earlier builds wrote an empty one into every saved file.
+    std::string online_server = kDefaultOnlineServer;
+    // [online] rollback (on by default): network matches predict the inputs
+    // still on their way and roll back when they differ, instead of waiting
+    // for them. Every machine in the match must have it on (the input delay
+    // starts at one step everywhere, and adapts). Saving writes it, so an
+    // existing file gains it. rollback_log names a log file (its counts go
+    // to <file>.summary). The environment's RECHARGED_ROLLBACK, when set, wins.
+    // rollback_test instead rolls every match back while it is played,
+    // offline too (RECHARGED_ROLLBACK_TEST, with the same log); saving never
+    // writes rollback_test and rollback_log.
+    bool rollback = true;
+    bool rollback_test = false;
+    std::string rollback_log;
     // gameplay.super_team_side: the team the Super Team tweak dresses as
     // robots: away, home or both.
     std::string super_team_side = "away";

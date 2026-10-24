@@ -238,7 +238,8 @@ show_hud = true
 [gameplay]
 # Optional tweaks that change the original game. All off plays it unchanged;
 # --no-tweaks turns them off for one run. Off unless set, except
-# fair_ball_contests, recommended to every player and on unless set to false.
+# fair_ball_contests and match_point, recommended to every player and on
+# unless set to false.
 # skip_intro: start at the main menu (no notices, logo, intro or title screen).
 # fast_menus: skip menu transitions, also in the pause menu and on the
 # screens after a match (matches, movies and credits unchanged).
@@ -268,6 +269,14 @@ show_hud = true
 # the home team, and one-timers, first-time shots off rebounds and pass
 # receptions always favour it). On by default; online matches always play
 # with it.
+# secure_stadiums: the game's Secure Stadium cheat in every offline match (no
+# lightning, wind, debris, solar flares, lava, Storm Ship tilt, Thwomps or
+# sand patches); the electric fences stay. Striker Challenges keep their
+# rules; online unchanged.
+# match_point: in a match to a number of goals, overtime's siren and sudden
+# death music (in place of the stadium's) once a team is one goal from
+# winning, and SUDDEN DEATH on the HUD once both are. Only sound and HUD.
+# On by default.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
@@ -281,6 +290,8 @@ robot_goalies = false
 super_team = false
 super_team_side = away
 fair_ball_contests = true
+secure_stadiums = false
+match_point = true
 
 [mods]
 # Texture packs made for Dolphin (folders or .zip files with tex1_*.png or
@@ -332,3 +343,15 @@ rich_presence = true
 # For testing only: the Discord application to show it under instead of this
 # build's own (its ID from the Discord Developer Portal; public, not a secret).
 # application_id =
+
+[online]
+# Network matches with rollback (on by default). A step whose inputs have not
+# arrived from the other machine runs with predicted ones and goes back when
+# they arrive and differ, instead of waiting for them. Every machine in the
+# match needs it on; the input delay adapts to the latency by itself.
+# rollback_log names a log file; its counts go to <file>.summary.
+# rollback_test = true instead rolls every match back while it is played,
+# offline too, and checks that the replays agree (to test the rollback).
+# rollback = true
+# rollback_test = false
+# rollback_log =

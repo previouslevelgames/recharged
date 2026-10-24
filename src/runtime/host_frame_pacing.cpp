@@ -45,13 +45,26 @@ void HostFramePacing::Update(std::chrono::steady_clock::time_point now)
 
 std::string HostFramePacing::Description() const
 {
-    return DescribeFramePacing(rate_, pacing_, display_hz_);
+    const FrameRate rate = rollback_cap_ ? CapFrameRate(rate_, kRollbackFrameRate, display_hz_) : rate_;
+    std::string text = DescribeFramePacing(rate, pacing_, display_hz_);
+    if (rate != rate_) text += " in this network match with rollback (" + FrameRateText(rate_) + " otherwise)";
+    return text;
+}
+
+bool HostFramePacing::SetRollbackCap(bool on)
+{
+    if (on == rollback_cap_) return false;
+    rollback_cap_ = on;
+    const FramePacing before = pacing_;
+    Apply(display_hz_);
+    return before.interval_ns != pacing_.interval_ns || before.vsync_paces != pacing_.vsync_paces;
 }
 
 void HostFramePacing::Apply(double display_hz)
 {
     display_hz_ = display_hz;
-    pacing_ = DecideFramePacing(rate_, display_hz, vsync_);
+    const FrameRate rate = rollback_cap_ ? CapFrameRate(rate_, kRollbackFrameRate, display_hz) : rate_;
+    pacing_ = DecideFramePacing(rate, display_hz, vsync_);
     const AuroraVideoPacing pacing{pacing_.interval_ns};
     aurora_configure_video_pacing(&pacing);
 }

@@ -24,3 +24,11 @@
 0025-tweak-robot-goalies.patch
 0026-tweak-super-team.patch
 0027-wider-view.patch
+0028-fix-uninitialized-contact-surfaces.patch
+0029-rollback-inputs-and-replay.patch
+0030-rollback-network-prediction.patch
+0031-rollback-audio-heap.patch
+0032-rollback-checksum-fields.patch
+0033-fix-goalie-sweep-reach.patch
+0034-tweak-secure-stadiums.patch
+0035-tweak-match-point.patch

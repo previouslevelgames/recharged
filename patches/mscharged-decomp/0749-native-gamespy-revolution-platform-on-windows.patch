@@ -1,0 +1,106 @@
+From: mscharged-port
+Subject: Keep GameSpy on its Revolution platform code in Windows builds
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native platform selection; no change on the Wii or POSIX hosts.
+
+GameSpy picks its platform code with the compiler's platform macros, and
+in several places tests _WIN32 before _REVOLUTION. The online sources
+are compiled with _REVOLUTION, as on the Wii, but a Windows compiler also
+predefines _WIN32, so these places took the Win32 branch:
+gsPlatformThread.c included win32/gsThreadWin32.c, which the decomp does
+not have, and the others would use OutputDebugString, MessageBox,
+QueryPerformanceCounter, _fstat and #pragma comment(lib) instead of the
+Revolution code the rest of GameSpy expects.
+
+Each of these _WIN32 tests now also requires that _REVOLUTION is not
+defined. _WIN32 is never defined on the Wii or on POSIX hosts, where
+nothing changes. sb_server.c's _WIN32 test is left alone: it also needs
+GM_2B, which no build defines.
+
+diff --git a/src/RVL_SDK/gamespy/GP/gpiTransfer.c b/src/RVL_SDK/gamespy/GP/gpiTransfer.c
+index 9a4b0fe..c44e748 100644
+--- a/src/RVL_SDK/gamespy/GP/gpiTransfer.c
++++ b/src/RVL_SDK/gamespy/GP/gpiTransfer.c
+@@ -14,7 +14,7 @@ Please see the GameSpy Presence SDK documentation for more information
+ // INCLUDES
+ //////////
+ #include <stdlib.h>
+-#ifdef _WIN32
++#if defined(_WIN32) && !defined(_REVOLUTION)
+ #include <sys/stat.h>
+ #endif
+ #include <string.h>
+@@ -1376,7 +1376,7 @@ GPIBool gpiGetTransferFileInfo(
+     int* size,
+     gsi_time* modTime)
+ {
+-#ifdef _WIN32
++#if defined(_WIN32) && !defined(_REVOLUTION)
+     struct _stat stats;
+ 
+     if (_fstat(_fileno(file), &stats) != 0)
+diff --git a/src/RVL_SDK/gamespy/common/gsAssert.c b/src/RVL_SDK/gamespy/common/gsAssert.c
+index 8f44414..bfaa1bb 100644
+--- a/src/RVL_SDK/gamespy/common/gsAssert.c
++++ b/src/RVL_SDK/gamespy/common/gsAssert.c
+@@ -46,7 +46,7 @@ void  gsDebugAssert				(const char *szError,const char *szText, const char *szFi
+ 		exit(0);
+ 	}
+ 
+-#elif defined _WIN32
++#elif defined(_WIN32) && !defined(_REVOLUTION)
+ 	#include <windows.h>
+ 	#pragma warning(disable: 4127) // disable warnings from "conditional expression is constant"
+ 
+diff --git a/src/RVL_SDK/gamespy/common/gsDebug.c b/src/RVL_SDK/gamespy/common/gsDebug.c
+index 390cfd1..2df3d2a 100644
+--- a/src/RVL_SDK/gamespy/common/gsDebug.c
++++ b/src/RVL_SDK/gamespy/common/gsDebug.c
+@@ -71,7 +71,7 @@ static void gsiDebugCallback(GSIDebugCategory category, GSIDebugType type,
+ 		// Output line prefix
+ 		vprintf(format, params);
+ 
+-	#elif defined(_WIN32)
++	#elif defined(_WIN32) && !defined(_REVOLUTION)
+ 		static char string[256];
+ 		vsprintf(string, format, params);
+ 		OutputDebugStringA(string);
+diff --git a/src/RVL_SDK/gamespy/common/gsPlatform.c b/src/RVL_SDK/gamespy/common/gsPlatform.c
+index e2054b5..4e0f003 100644
+--- a/src/RVL_SDK/gamespy/common/gsPlatform.c
++++ b/src/RVL_SDK/gamespy/common/gsPlatform.c
+@@ -6,7 +6,7 @@
+ ///////////////////////////////////////////////////////////////////////////////
+ ///////////////////////////////////////////////////////////////////////////////
+ // Include standard network lib
+-#if defined(_WIN32) && !defined(_XBOX)
++#if defined(_WIN32) && !defined(_XBOX) && !defined(_REVOLUTION)
+ 	#if defined(GSI_WINSOCK2)
+ 		#pragma comment(lib, "ws2_32")
+ 	#else
+diff --git a/src/RVL_SDK/gamespy/common/gsPlatformThread.c b/src/RVL_SDK/gamespy/common/gsPlatformThread.c
+index fd32935..1304ad2 100644
+--- a/src/RVL_SDK/gamespy/common/gsPlatformThread.c
++++ b/src/RVL_SDK/gamespy/common/gsPlatformThread.c
+@@ -9,7 +9,7 @@
+ 	#include "x360/gsThreadX360.c"
+ #elif defined(_XBOX)
+ 	//#include "xbox/gsThreadXBox.c"
+-#elif defined(_WIN32)
++#elif defined(_WIN32) && !defined(_REVOLUTION)
+ 	#include "win32/gsThreadWin32.c"
+ #elif defined(_MACOSX)
+ 	#include "macosx/gsThreadMacOSX.c"
+diff --git a/src/RVL_SDK/gamespy/common/gsPlatformUtil.c b/src/RVL_SDK/gamespy/common/gsPlatformUtil.c
+index 51ce074..db36859 100644
+--- a/src/RVL_SDK/gamespy/common/gsPlatformUtil.c
++++ b/src/RVL_SDK/gamespy/common/gsPlatformUtil.c
+@@ -193,7 +193,7 @@ gsi_time current_time() // returns current time in milliseconds
+ 
+ gsi_time current_time_hires() // returns current time in microseconds
+ {
+-#ifdef _WIN32
++#if defined(_WIN32) && !defined(_REVOLUTION)
+ #if (!defined(_M_IX86) ||                                                     \
+      (defined(_INTEGRAL_MAX_BITS) && _INTEGRAL_MAX_BITS >= 64))
+   static LARGE_INTEGER counterFrequency;

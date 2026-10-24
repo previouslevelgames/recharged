@@ -7,9 +7,16 @@
 #include <string.h>
 #include <sys/socket.h>
 
+static uint32_t sockaddr_ipv4(const struct sockaddr* sa)
+{
+    return sa != NULL && sa->sa_family == AF_INET
+        ? ((const struct sockaddr_in*)sa)->sin_addr.s_addr
+        : 0;
+}
+
 // RECHARGED_NET_IFACE (e.g. "enp3s0") forces one interface when several
 // qualify (Docker bridges, VPNs, wifi + ethernet)
-uint32_t so_host_find_ipv4(void)
+void so_host_find_ipv4_info(struct so_host_ipv4* out)
 {
     const char* wanted = getenv("RECHARGED_NET_IFACE");
     if (wanted == NULL)
@@ -17,7 +24,7 @@ uint32_t so_host_find_ipv4(void)
     if (wanted != NULL && wanted[0] == '\0')
         wanted = NULL;
 
-    uint32_t found = 0;
+    *out = (struct so_host_ipv4){ 0 };
     struct ifaddrs* list;
     if (getifaddrs(&list) == 0)
     {
@@ -36,13 +43,28 @@ uint32_t so_host_find_ipv4(void)
             {
                 continue;
             }
-            found = ((const struct sockaddr_in*)ifa->ifa_addr)->sin_addr.s_addr;
+            out->addr = sockaddr_ipv4(ifa->ifa_addr);
+            out->netmask = sockaddr_ipv4(ifa->ifa_netmask);
+            // Point-to-point links (VPNs) have no broadcast address there.
+            if (ifa->ifa_flags & IFF_BROADCAST)
+                out->broadcast = sockaddr_ipv4(ifa->ifa_broadaddr);
             break;
         }
         freeifaddrs(list);
     }
 
-    if (found == 0)
-        found = htonl(INADDR_LOOPBACK);
-    return found;
+    if (out->addr == 0)
+    {
+        out->addr = htonl(INADDR_LOOPBACK);
+        out->netmask = htonl(0xFF000000u);
+    }
+    if (out->broadcast == 0)
+        out->broadcast = out->addr | ~out->netmask;
+}
+
+uint32_t so_host_find_ipv4(void)
+{
+    struct so_host_ipv4 info;
+    so_host_find_ipv4_info(&info);
+    return info.addr;
 }

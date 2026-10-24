@@ -108,7 +108,8 @@ void Date(Bytes* p, bool encode) {
     }
 }
 void Transform(void* payload, std::size_t bytes, bool online, bool encode) {
-    if(online)throw std::logic_error("Original online save-slot byte transport remains unqualified");
+    // if(online)throw std::logic_error("Original online save-slot byte transport remains unqualified");
+    if(online) return; // save online file in native endianness
     if(!payload || (bytes!=OriginalNormalSavePayloadBytes
             && (encode || bytes!=35608)))
         throw std::invalid_argument("Original ordinary save payload extent is not the qualified Wii record layout");

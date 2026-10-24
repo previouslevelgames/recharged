@@ -88,7 +88,9 @@ Values Encode(const Settings& s)
             {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
+            {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
+            {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
             {"launcher.test_build", std::to_string(s.test_build)},
             {"discord.rich_presence", s.discord_status ? "true" : "false"},
@@ -355,6 +357,7 @@ Settings Decode(const Values& values)
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
     boolean("launcher.check_updates", s.check_updates);
     boolean("launcher.reopen_after_game", s.reopen_after_game);
+    boolean("launcher.show_welcome", s.show_welcome);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
     number("launcher.test_build", s.test_build, 0, 999999999);
     boolean("discord.rich_presence", s.discord_status);
@@ -381,6 +384,16 @@ Settings Decode(const Values& values)
         boolean((std::string("gameplay.") + kGameTweaks[n].key).c_str(), value);
         s.tweaks[n] = value;
     }
+    if (const auto it = values.find("online.server"); it != values.end() && !it->second.empty())
+        s.online_server = it->second;
+    boolean("online.rollback", s.rollback);
+    boolean("online.rollback_test", s.rollback_test);
+    if (const auto it = values.find("online.rollback_log"); it != values.end()) s.rollback_log = it->second;
+    if (s.rollback_log.find_first_of("\r\n") != std::string::npos || s.rollback_log.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: online.rollback_log contains a line break or NUL");
+    if (s.online_server.find_first_of("\r\n") != std::string::npos || s.online_server.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: the online server redirect contains a line break or NUL");
+
     choice("gameplay.super_team_side", s.super_team_side, {"away", "home", "both"});
     return s;
 }

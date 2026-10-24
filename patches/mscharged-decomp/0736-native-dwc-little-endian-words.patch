@@ -1,0 +1,64 @@
+From: mscharged-port
+Subject: Keep DWC's little-endian wire words natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native byte-order compatibility
+
+DWC exchanges little-endian words, the DS's order: match commands over
+the server browser, QR2 and GP, the peer transport's headers, and the
+words its CRCs cover. The Wii converts with DWCi_HtoLEl, DWCi_HtoLEs,
+DWCi_LEtoHl, DWCi_LEtoHs and DWCi_Np_ToLE, which unconditionally byte-swap
+because the Wii is big-endian. On a little-endian host they swapped the
+words out of that order. Match commands left big-endian, so the server
+misread the reservations it inspects and rewrites (it decodes them as
+little-endian for every platform); friend keys hashed the swapped words,
+so the game showed 4219-0679-5010 for profile 1000000002 where the Wii's
+DWC gives 2157-4836-4802; and the user data CRC covered swapped words.
+
+Natively those conversions keep the words as they are, guarded to
+little-endian hosts.
+
+GP buddy messages, which carry friend match commands, print each command
+word in decimal. The Wii prints the big-endian load of the word's
+little-endian bytes, a byte-swapped number; the DS, and natively this
+port, print the word's value. The port keeps that DS form: online play
+is between native builds only, and wfc-server decodes version 3
+"GPCM3vMAT" messages only in the DS form; it rejected the Wii form's
+reservation as "Invalid match command data" (error 81010 on the invited
+side). This does not interoperate with Wii clients' GP match commands.
+
+diff --git a/libs/RVL_SDK/include/dwc/dwc_nonport.h b/libs/RVL_SDK/include/dwc/dwc_nonport.h
+index 9b29003..266d6c9 100644
+--- a/libs/RVL_SDK/include/dwc/dwc_nonport.h
++++ b/libs/RVL_SDK/include/dwc/dwc_nonport.h
+@@ -64,6 +64,23 @@ static inline void DWCi_Np_CpuClear32(void* dest, u32 size)
+     memset(dest, 0, size);
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++// DWC's wire words are little-endian, which the big-endian Wii swaps into.
++// A little-endian host already holds them in that order.
++#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
++#error "DWC's native little-endian conversions assume a little-endian host"
++#endif
++
++static inline u16 DWCi_HtoLEs(u16 data)
++{
++    return data;
++}
++
++static inline u32 DWCi_HtoLEl(u32 data)
++{
++    return data;
++}
++#else
+ static inline u16 DWCi_HtoLEs(u16 data)
+ {
+     return (u16)((data >> 8) | (data << 8));
+@@ -75,6 +92,7 @@ static inline u32 DWCi_HtoLEl(u32 data)
+     tmp = ((data >> 8) & 0x00ff00ff) | ((data << 8) & 0xff00ff00);
+     return (tmp >> 16) | (tmp << 16);
+ }
++#endif
+ 
+ static inline u16 DWCi_LEtoHs(u16 data)
+ {

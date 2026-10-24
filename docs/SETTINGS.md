@@ -344,6 +344,41 @@ user folder or that save folder. The current save is first copied to
 `backups/` in the save folder. Dolphin's encrypted `data.bin` exports are not
 supported.
 
+**Teams** changes the lineups the game keeps in `Strikers2`: the three
+sidekicks each captain starts with, which the game's sidekick screen shows and
+replaces with what you choose there. The launcher writes them into the save
+with the checksum the game checks and changes nothing else, so the save stays
+one the game, Dolphin and a Wii read. The first change of each launcher session
+copies the save to `backups/` in the save folder. Until the game has saved once
+there is no save, and so nothing to change.
+
+**Matches** writes a preset into the same save: the game keeps one set of
+match settings and cheats for matches on the console and one for online
+matches with friends, and the preset replaces the one you choose (the backup
+is the same). Every cheat can be chosen, whether the save has unlocked it or
+not. Presets other than Default and Competitive are files in `match-presets/`
+beside `recharged.ini`, one per preset, named after it (`quick-3.ini`):
+
+```ini
+name = "Quick 3"
+skill = superstar          # rookie, professional, superstar, legend, megastriker
+best_of = 3                # 1, 3, 5, 7 or 9
+win_by = goals             # time or goals
+minutes = 3                # 2 to 5, with win_by = time
+goals = 3                  # 3 to 10, with win_by = goals
+stadium_cheat = secure     # none, secure, power, voltage, tilt, white_ball
+player_cheat = none        # none, devastating, safe, skill_shot, glass_jaw
+powerup_cheat = none       # none, explosives, freezing, shells, giant, accelerator,
+                           # peelin_out, heat_seekers, bombs_away, super, infinite,
+                           # butterfingers
+```
+
+Settings left out are a new save's. A file the page cannot read is listed
+under the presets, and left alone. The cheats' names here are the game's
+own enums' (`ENV_CHEAT_WHITE_BALL`, `white_ball`); the page shows the menu's
+(Always White Ball). `glass_jaw` is Classic Mode, `heat_seekers` Seek and
+Destroy, `super` Super Captains and `butterfingers` No Power-Ups.
+
 ## Texture packs
 
 Texture packs replace the game's textures with sharper images; they change
@@ -387,6 +422,10 @@ status, unless `[discord] application_id` names one.
 **Reopen after the game** (Advanced → Interface, `[launcher] reopen_after_game`,
 off by default) opens the launcher again when you close the game. A game that
 stops with an error message closes as before.
+
+The **welcome guide** opens over the launcher at its first start
+(`[launcher] show_welcome`); **Get started** closes it for good. The light bulb
+in the bar at the bottom of every page, beside **Revert**, opens it again.
 
 ## Updates
 

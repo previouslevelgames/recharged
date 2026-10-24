@@ -1,0 +1,72 @@
+From: mscharged-port
+Subject: Keep integers and null arguments apart from pointers in the online sources
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+DWC passes a friend index and a flag through GameSpy's void* callback
+arguments; on a 64-bit host the casts go through intptr_t and uintptr_t.
+Two calls pass NULL where an int (a SOCKET, an ICQ number) is expected:
+CodeWarrior's NULL was 0, the host's is a pointer, so they pass 0.
+darray.h declares ArrayInsertAt with external linkage, which CodeWarrior
+let darray.c define static inline.
+
+diff --git a/src/RVL_SDK/dwc/dwc_friend.c b/src/RVL_SDK/dwc/dwc_friend.c
+index bf62a86..7eb4f82 100644
+--- a/src/RVL_SDK/dwc/dwc_friend.c
++++ b/src/RVL_SDK/dwc/dwc_friend.c
+@@ -968,9 +968,9 @@ static void DWCi_UpdateFriendReq(DWCFriendData friendList[], int friendListLen)
+                 &friendList[stpFriendCnt->buddyUpdateIdx], userName);
+ 
+             gpProfileSearch(stpFriendCnt->pGpObj, NULL, NULL, NULL, NULL,
+-                userName, NULL, GP_NON_BLOCKING,
++                userName, 0, GP_NON_BLOCKING,
+                 (GPCallback)DWCi_GPProfileSearchCallback,
+-                (void*)stpFriendCnt->buddyUpdateIdx);
++                (void*)(uintptr_t)stpFriendCnt->buddyUpdateIdx);
+ 
+             DWC_Printf(DWC_REPORTFLAG_UPDATE_SV,
+                 "Called gpProfileSearch().\n");
+@@ -1224,7 +1224,7 @@ static void DWCi_GPProfileSearchCallback(GPConnection* connection,
+ {
+     int idx;
+     GPResult gpResult;
+-    int friendIdx = (int)param;
++    int friendIdx = (int)(intptr_t)param;
+ 
+     DWC_Printf(DWC_REPORTFLAG_DEBUG,
+         "ProfileSearch: num:%d m:%x\n", arg->numMatches, arg->more);
+@@ -1598,7 +1598,7 @@ static void DWCi_PersDataSaveCallback(int localid, int profileid,
+ #pragma unused(profileid)
+ #pragma unused(index)
+ #pragma unused(modified)
+-    u32 flag = (u32)instance;
++    u32 flag = (u32)(uintptr_t)instance;
+     BOOL isPublic;
+ 
+     DWCi_SubPersCallbackLevel();
+diff --git a/src/RVL_SDK/dwc/dwc_match.c b/src/RVL_SDK/dwc/dwc_match.c
+index 019e1ac..746d6e3 100644
+--- a/src/RVL_SDK/dwc/dwc_match.c
++++ b/src/RVL_SDK/dwc/dwc_match.c
+@@ -1424,7 +1424,7 @@ void DWCi_MatchProcess(BOOL fullSpec)
+         DWC_Printf(
+             DWC_REPORTFLAG_MATCH_NN, "Timeout : wait NN retry.\n");
+ 
+-        DWCi_NNCompletedCallback(nr_deadbeatpartner, NULL, NULL,
++        DWCi_NNCompletedCallback(nr_deadbeatpartner, 0, NULL,
+             &DWCi_GetMatchCnt()->nnInfo);
+     }
+ 
+diff --git a/src/RVL_SDK/gamespy/darray.c b/src/RVL_SDK/gamespy/darray.c
+index d27dd2e..e8cb3c8 100644
+--- a/src/RVL_SDK/gamespy/darray.c
++++ b/src/RVL_SDK/gamespy/darray.c
+@@ -155,7 +155,7 @@ void ArrayAppend(DArray array, const void* newElem) {
+     ArrayInsertAt(array, newElem, array->count);
+ }
+ 
+-static inline void ArrayInsertAt(DArray array, const void* newElem, int n) {
++void ArrayInsertAt(DArray array, const void* newElem, int n) {
+   GS_ASSERT(array)
+   GS_ASSERT((n >= 0) && (n <= array->count));
+ 

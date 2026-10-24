@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <stdexcept>
 
+using mscharged::CapFrameRate;
 using mscharged::DecideFramePacing;
 using mscharged::DescribeFramePacing;
 using mscharged::FrameRate;
@@ -81,6 +82,18 @@ int main()
         pacing = DecideFramePacing(Rate("unlimited"), 144.0, false);
         Check(pacing.host_paced && !pacing.vsync_paces && pacing.interval_ns == 0 && pacing.target_hz == 0.0,
             "Unlimited without VSync");
+
+        // Network matches with rollback: at most 60 FPS, a lower choice kept.
+        Check(CapFrameRate(Rate("144"), 60, 144.0) == Rate("60") && CapFrameRate(Rate("unlimited"), 60, 144.0) == Rate("60"),
+            "Rollback cap above 60");
+        Check(CapFrameRate(Rate("display"), 60, 143.998) == Rate("60") && CapFrameRate(Rate("display"), 60, 0.0) == Rate("60"),
+            "Rollback cap on a fast or unknown display");
+        Check(CapFrameRate(Rate("30"), 60, 144.0) == Rate("30") && CapFrameRate(Rate("60"), 60, 144.0) == Rate("60")
+                && CapFrameRate(Rate("display"), 60, 59.94) == Rate("display")
+                && CapFrameRate(FrameRate{}, 60, 144.0) == FrameRate{},
+            "Rollback cap changed a rate at or below 60");
+        pacing = DecideFramePacing(CapFrameRate(Rate("unlimited"), 60, 144.0), 144.0, true);
+        Check(!pacing.vsync_paces && pacing.interval_ns == 16666667, "Rollback cap under VSync on a 144 Hz display");
 
         // Session log descriptions.
         const auto text = [](const char* rate, double display, bool vsync) {
