@@ -118,6 +118,15 @@ struct MiiCreateIdTaken : std::runtime_error {
 MiiImportResult AddMii(const std::string& record, const std::filesystem::path& nand_root, const SaveTitle& title,
                        const std::filesystem::path& backup_parent);
 
+// The game save (Strikers2) as the launcher finds it, for the settings it
+// changes there: the captains' lineups and the match settings.
+enum class GameSaveState {
+    Missing,  // no game save yet: the game makes it when it first saves
+    Ready,    // the game loads it
+    Damaged,  // the game rejects it (size or checksum), or it holds settings the game has not
+    Unusable, // the save folder cannot be read: `error` says why
+};
+
 // The sidekicks each captain starts with. The game keeps one lineup per
 // captain (GameInfoManager::mRulesTable): the sidekick screen shows it, and a
 // choice made there replaces it. It travels in the game's own save,
@@ -133,15 +142,8 @@ using SidekickLineups = std::array<SidekickLineup, kCaptainCount>;
 // The lineups a new save starts with (kDefaultRules, GameInfo.cpp).
 SidekickLineups DefaultSidekickLineups();
 
-enum class SidekickSaveState {
-    Missing,  // no game save yet: the game makes it when it first saves
-    Ready,    // the game loads it
-    Damaged,  // the game rejects it (size or checksum), or it holds no lineups
-    Unusable, // the save folder cannot be read: `error` says why
-};
-
 struct SidekickSaveStatus {
-    SidekickSaveState state = SidekickSaveState::Missing;
+    GameSaveState state = GameSaveState::Missing;
     SidekickLineups lineups{}; // Ready only
     std::string error;         // Unusable only
 };
@@ -159,4 +161,52 @@ SidekickSaveStatus InstalledSidekicks(const std::filesystem::path& nand_root, co
 // it (InstalledSidekicks tells these beforehand); nothing is changed then.
 std::filesystem::path WriteSidekicks(const std::filesystem::path& nand_root, const SaveTitle& title,
                                      const SidekickLineups& lineups, const std::filesystem::path& backup_parent);
+
+// The match settings and cheats of the game save (UserInfo, GameInfo.h):
+// one set for matches on this console and one for online matches with
+// friends (GameInfoManager::UseAltRules); ranked matches have fixed rules.
+// The game's settings screen shows and replaces them.
+enum class MatchMode { Offline, Friends };
+inline constexpr std::size_t kMatchModeCount = 2;
+
+// What the game's settings screen (SHGameplayOptions) sets of
+// GameplaySettings, and CheatSettings; a new save's are these defaults.
+// GameplaySettings also holds power-ups, Mega Strikes and skillshots for
+// each team, which only Striker Challenges change: they are not here.
+struct MatchSettings {
+    int skill = 1;           // 1 Rookie, 2 Professional, 3 Superstar, 4 Legend, 5 Megastriker
+    bool goal_limit = false; // first to `goals`, else the clock runs `time`
+    int time = 180;          // seconds: 120, 180, 240 or 300
+    int goals = 5;           // 3 to 10
+    int best_of = 3;         // games in a series: 1, 3, 5, 7 or 9
+    int stadium_cheat = 0;   // eEnvironmentCheat: 0 none, 1 ENV_CHEAT_SECURE ... 5
+    int player_cheat = 0;    // ePlayerCheat: 0 none, 1 PLAYER_CHEAT_DEVASTATING ... 4
+    int powerup_cheat = 0;   // ePowerupCheat: 0 none, 1 POWERUP_CHEAT_EXPLOSIVES ... 11
+};
+bool operator==(const MatchSettings& a, const MatchSettings& b);
+inline bool operator!=(const MatchSettings& a, const MatchSettings& b) { return !(a == b); }
+
+// Whether every setting is one the game's settings screen offers. Cheats
+// count whether or not the save has unlocked them.
+bool ValidMatchSettings(const MatchSettings& settings);
+
+struct MatchSaveStatus {
+    GameSaveState state = GameSaveState::Missing;
+    std::array<MatchSettings, kMatchModeCount> modes{}; // Ready only, by MatchMode
+    std::string error;                                  // Unusable only
+};
+
+// The match settings in the game save of the NAND backing at `nand_root`, as
+// stored (a value the settings screen does not offer stays as it is). Reads only.
+MatchSaveStatus InstalledMatchSettings(const std::filesystem::path& nand_root, const SaveTitle& title);
+
+// Write `settings` as the game save's settings for `mode`, as WriteSidekicks
+// writes lineups: the checksum follows, the rest of the save stays (the
+// per-team switches of GameplaySettings included), the save is
+// first copied below `backup_parent` when there is one, and nothing changes
+// when the save already holds them. Throws std::invalid_argument for settings
+// ValidMatchSettings refuses.
+std::filesystem::path WriteMatchSettings(const std::filesystem::path& nand_root, const SaveTitle& title,
+                                         MatchMode mode, const MatchSettings& settings,
+                                         const std::filesystem::path& backup_parent);
 } // namespace mscharged::platform

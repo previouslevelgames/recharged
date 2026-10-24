@@ -38,6 +38,13 @@ constexpr std::size_t kMiiNameOffset = 0x2, kMiiNameChars = 10, kMiiCreateIdOffs
 // lineups (mRulesTable: 12 x 3 sidekicks, 32 bits each).
 const std::string kGameSave = "Strikers2";
 constexpr std::size_t kSaveHeaderBytes = 8, kSaveAlign = 32, kLineupsOffset = kSaveHeaderBytes + 0x80;
+// UserInfo's GameplaySettings and CheatSettings (3 x 32 bits) by MatchMode:
+// mGameplayOptions and mCheatOptions, then their Alt twins. The settings
+// screen's part of GameplaySettings is its first five 32-bit values; the
+// bytes after them (power-ups, Mega Strikes and skillshots by team, and one
+// more) are left as they are.
+constexpr std::size_t kGameplayOffsets[kMatchModeCount] = {kSaveHeaderBytes + 0x24, kSaveHeaderBytes + 0x4C};
+constexpr std::size_t kCheatOffsets[kMatchModeCount] = {kSaveHeaderBytes + 0x40, kSaveHeaderBytes + 0x68};
 constexpr std::size_t kLineupsBytes = kCaptainCount * kSidekickSlots * 4;
 constexpr int kDefaultLineups[kCaptainCount][kSidekickSlots] = {
     {1, 1, 7}, {4, 5, 5}, {6, 1, 5}, {0, 0, 0}, {7, 7, 1}, {3, 3, 0},
@@ -546,21 +553,52 @@ bool ValidLineups(const SidekickLineups& lineups) {
     return true;
 }
 
-// The lineups of a game save the game accepts: its file is its data's size
-// rounded up to 32 bytes (what SaveLoad reads), the checksum matches, and
-// every sidekick is one of the eight. Empty otherwise.
-std::optional<SidekickLineups> SaveLineups(const std::string& save) {
-    if (save.size() < kLineupsOffset + kLineupsBytes || save.size() % kSaveAlign) return std::nullopt;
+// A game save the game accepts: its file is its data's size rounded up to
+// 32 bytes (what SaveLoad reads), it holds the settings and lineups, and the
+// checksum matches.
+bool AcceptedSave(const std::string& save) {
+    if (save.size() < kLineupsOffset + kLineupsBytes || save.size() % kSaveAlign) return false;
     const auto size = Big32(save, 0);
-    if (size < kLineupsOffset + kLineupsBytes || (size + kSaveAlign - 1) / kSaveAlign * kSaveAlign != save.size()
-        || Big32(save, 4) != SaveCrc(save))
-        return std::nullopt;
+    return size >= kLineupsOffset + kLineupsBytes && (size + kSaveAlign - 1) / kSaveAlign * kSaveAlign == save.size()
+        && Big32(save, 4) == SaveCrc(save);
+}
+
+// The lineups of a game save the game accepts, when every sidekick is one of
+// the eight. Empty otherwise.
+std::optional<SidekickLineups> SaveLineups(const std::string& save) {
+    if (!AcceptedSave(save)) return std::nullopt;
     SidekickLineups lineups{};
     for (std::size_t captain = 0; captain < kCaptainCount; ++captain)
         for (std::size_t slot = 0; slot < kSidekickSlots; ++slot)
             lineups[captain][slot] = int(Big32(save, kLineupsOffset + (captain * kSidekickSlots + slot) * 4));
     if (!ValidLineups(lineups)) return std::nullopt;
     return lineups;
+}
+
+MatchSettings SaveMatch(const std::string& save, MatchMode mode) {
+    const auto gameplay = kGameplayOffsets[std::size_t(mode)], cheats = kCheatOffsets[std::size_t(mode)];
+    MatchSettings settings;
+    settings.skill = int(Big32(save, gameplay));
+    settings.goal_limit = Big32(save, gameplay + 0x4) == 1; // eGameLimitType: 0 time, 1 goals
+    settings.time = int(Big32(save, gameplay + 0x8));
+    settings.goals = int(Big32(save, gameplay + 0xC));
+    settings.best_of = int(Big32(save, gameplay + 0x10));
+    settings.powerup_cheat = int(Big32(save, cheats));
+    settings.stadium_cheat = int(Big32(save, cheats + 0x4));
+    settings.player_cheat = int(Big32(save, cheats + 0x8));
+    return settings;
+}
+
+void PutMatch(std::string& save, MatchMode mode, const MatchSettings& settings) {
+    const auto gameplay = kGameplayOffsets[std::size_t(mode)], cheats = kCheatOffsets[std::size_t(mode)];
+    PutBig32(save, gameplay, std::uint32_t(settings.skill));
+    PutBig32(save, gameplay + 0x4, settings.goal_limit ? 1u : 0u);
+    PutBig32(save, gameplay + 0x8, std::uint32_t(settings.time));
+    PutBig32(save, gameplay + 0xC, std::uint32_t(settings.goals));
+    PutBig32(save, gameplay + 0x10, std::uint32_t(settings.best_of));
+    PutBig32(save, cheats, std::uint32_t(settings.powerup_cheat));
+    PutBig32(save, cheats + 0x4, std::uint32_t(settings.stadium_cheat));
+    PutBig32(save, cheats + 0x8, std::uint32_t(settings.player_cheat));
 }
 
 // The game save's file, or empty when the backing has none. Throws for a
@@ -575,6 +613,31 @@ fs::path GameSaveFile(const fs::path& nand_root, const SaveTitle& title) {
         throw std::runtime_error("The save folder's catalog (metadata.txt) has a folder named " + kGameSave + ".");
     const auto file = Physical(nand_root / "data", path);
     return IsFile(file) ? file : fs::path{};
+}
+
+// The game save to change, read whole. Throws when there is none, or the
+// game would reject it.
+std::string SaveToChange(const fs::path& file) {
+    if (file.empty()) throw std::runtime_error("There is no game save yet: play once, and the game makes it.");
+    auto save = ReadFile(file);
+    if (!AcceptedSave(save)) throw std::runtime_error("The game cannot read its save, so it is left as it is.");
+    return save;
+}
+
+// Store a changed game save with its new checksum. With a `backup_parent`,
+// the save it replaces is first copied to `backup_parent`/<prefix><time>,
+// which is returned. The catalog stays as it is: the file keeps its name,
+// size and permissions.
+fs::path StoreGameSave(const fs::path& file, std::string save, const fs::path& backup_parent,
+                       const std::string& prefix) {
+    PutBig32(save, 4, SaveCrc(save));
+    fs::path backup;
+    if (!backup_parent.empty()) {
+        backup = NewBackupFolder(backup_parent, prefix);
+        WriteAtomically(backup / PathFromUtf8(kGameSave), ReadFile(file));
+    }
+    WriteAtomically(file, save);
+    return backup;
 }
 } // namespace
 
@@ -666,13 +729,13 @@ SidekickSaveStatus InstalledSidekicks(const fs::path& nand_root, const SaveTitle
         if (file.empty()) return status;
         const auto lineups = SaveLineups(ReadFile(file));
         if (!lineups) {
-            status.state = SidekickSaveState::Damaged;
+            status.state = GameSaveState::Damaged;
             return status;
         }
-        status.state = SidekickSaveState::Ready;
+        status.state = GameSaveState::Ready;
         status.lineups = *lineups;
     } catch (const std::exception& error) {
-        status = {SidekickSaveState::Unusable, {}, error.what()};
+        status = {GameSaveState::Unusable, {}, error.what()};
     }
     return status;
 }
@@ -680,27 +743,60 @@ SidekickSaveStatus InstalledSidekicks(const fs::path& nand_root, const SaveTitle
 fs::path WriteSidekicks(const fs::path& nand_root, const SaveTitle& title, const SidekickLineups& lineups,
                         const fs::path& backup_parent) {
     if (!ValidLineups(lineups)) throw std::invalid_argument("A sidekick is not one of the game's eight.");
-    const auto root = physical::PrepareRoot(nand_root);
-    const auto file = GameSaveFile(root, title);
-    if (file.empty()) throw std::runtime_error("There is no game save yet: play once, and the game makes it.");
-    auto save = ReadFile(file);
+    const auto file = GameSaveFile(physical::PrepareRoot(nand_root), title);
+    auto save = SaveToChange(file);
     const auto current = SaveLineups(save);
     if (!current) throw std::runtime_error("The game cannot read its save, so it is left as it is.");
     if (*current == lineups) return {};
-
     for (std::size_t captain = 0; captain < kCaptainCount; ++captain)
         for (std::size_t slot = 0; slot < kSidekickSlots; ++slot)
             PutBig32(save, kLineupsOffset + (captain * kSidekickSlots + slot) * 4,
                      std::uint32_t(lineups[captain][slot]));
-    PutBig32(save, 4, SaveCrc(save));
+    return StoreGameSave(file, std::move(save), backup_parent, "before-sidekicks-");
+}
 
-    // The catalog stays as it is: the file keeps its name, size and permissions.
-    fs::path backup;
-    if (!backup_parent.empty()) {
-        backup = NewBackupFolder(backup_parent, "before-sidekicks-");
-        WriteAtomically(backup / PathFromUtf8(kGameSave), ReadFile(file));
+bool operator==(const MatchSettings& a, const MatchSettings& b) {
+    return a.skill == b.skill && a.goal_limit == b.goal_limit && a.time == b.time && a.goals == b.goals
+        && a.best_of == b.best_of && a.stadium_cheat == b.stadium_cheat && a.player_cheat == b.player_cheat
+        && a.powerup_cheat == b.powerup_cheat;
+}
+
+bool ValidMatchSettings(const MatchSettings& s) {
+    // The choices of SHGameplayOptions (sSkillLevelOptions...) and the cheat enums (UserOptions.h).
+    const bool time = s.time == 120 || s.time == 180 || s.time == 240 || s.time == 300;
+    const bool series = s.best_of >= 1 && s.best_of <= 9 && s.best_of % 2 == 1;
+    return s.skill >= 1 && s.skill <= 5 && time && s.goals >= 3 && s.goals <= 10 && series
+        && s.stadium_cheat >= 0 && s.stadium_cheat <= 5 && s.player_cheat >= 0 && s.player_cheat <= 4
+        && s.powerup_cheat >= 0 && s.powerup_cheat <= 11;
+}
+
+MatchSaveStatus InstalledMatchSettings(const fs::path& nand_root, const SaveTitle& title) {
+    MatchSaveStatus status;
+    try {
+        const auto file = GameSaveFile(nand_root, title);
+        if (file.empty()) return status;
+        const auto save = ReadFile(file);
+        if (!AcceptedSave(save)) {
+            status.state = GameSaveState::Damaged;
+            return status;
+        }
+        status.state = GameSaveState::Ready;
+        for (std::size_t mode = 0; mode < kMatchModeCount; ++mode)
+            status.modes[mode] = SaveMatch(save, MatchMode(mode));
+    } catch (const std::exception& error) {
+        status = {GameSaveState::Unusable, {}, error.what()};
     }
-    WriteAtomically(file, save);
-    return backup;
+    return status;
+}
+
+fs::path WriteMatchSettings(const fs::path& nand_root, const SaveTitle& title, MatchMode mode,
+                            const MatchSettings& settings, const fs::path& backup_parent) {
+    if (!ValidMatchSettings(settings))
+        throw std::invalid_argument("A match setting is not one the game's settings screen offers.");
+    const auto file = GameSaveFile(physical::PrepareRoot(nand_root), title);
+    auto save = SaveToChange(file);
+    if (SaveMatch(save, mode) == settings) return {};
+    PutMatch(save, mode, settings);
+    return StoreGameSave(file, std::move(save), backup_parent, "before-match-settings-");
 }
 } // namespace mscharged::platform

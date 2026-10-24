@@ -71,6 +71,11 @@ add_library(charged_image_library STATIC src/launcher/disc_search.cpp src/launch
 target_include_directories(charged_image_library PUBLIC src)
 target_compile_features(charged_image_library PUBLIC cxx_std_17)
 target_link_libraries(charged_image_library PUBLIC charged_host charged_json)
+# Match presets: named match settings in files, written into the game save (the Matches page).
+add_library(charged_match_presets STATIC src/launcher/match_presets.cpp)
+target_include_directories(charged_match_presets PUBLIC src)
+target_compile_features(charged_match_presets PUBLIC cxx_std_17)
+target_link_libraries(charged_match_presets PUBLIC charged_host)
 # New Miis for players without any (the Miis page).
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MiiMaker.cmake")
 add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launcher/release_notes_view.cpp)
@@ -79,7 +84,7 @@ add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launc
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
     charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_graphics_cards
-    charged_texture_packs charged_mii_maker)
+    charged_texture_packs charged_mii_maker charged_match_presets)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
 mscharged_stage_pipeline_catalog(mscharged)
 if(APPLE)
@@ -158,6 +163,10 @@ if(BUILD_TESTING)
     add_executable(launcher_ui_metrics_tests tests/launcher_ui_metrics.cpp)
     target_include_directories(launcher_ui_metrics_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     add_test(NAME launcher_ui_metrics COMMAND launcher_ui_metrics_tests)
+    add_executable(launcher_match_presets_tests tests/launcher_match_presets.cpp)
+    target_link_libraries(launcher_match_presets_tests PRIVATE charged_match_presets)
+    add_test(NAME launcher_match_presets COMMAND launcher_match_presets_tests
+        "${CMAKE_CURRENT_BINARY_DIR}/launcher-match-presets-data")
     add_executable(launcher_player_lineup_tests tests/launcher_player_lineup.cpp)
     target_include_directories(launcher_player_lineup_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     add_test(NAME launcher_player_lineup COMMAND launcher_player_lineup_tests)

@@ -223,6 +223,14 @@ game's sidekick screen then starts from that lineup, and what you choose there
 shows on the page: both are the lineups in your own game save
 ([saves](SETTINGS.md#saves)).
 
+Its **Matches** page keeps presets of the match settings and cheats: skill,
+series, time or goals, and the stadium, player and power-up cheats, all of
+them whether your save has unlocked them or not. Use one for matches on this computer or online with
+friends, and it goes into your game save, as if chosen in the game's settings
+screen; ranked matches keep their rules. **Default** (a new save's settings)
+and **Competitive** (Superstar, best of 3, first to 10 goals, Secure Stadiums) are
+built in; the others are files of their own ([saves](SETTINGS.md#saves)).
+
 It also **updates Recharged**: when a newer release is out it shows the release
 notes and asks, then installs it in place and restarts; only the program's own
 files are replaced. **Release / Test** on the Play page switches between

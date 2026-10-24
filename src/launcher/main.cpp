@@ -14,6 +14,7 @@
 #include "launcher/disc_search.h"
 #include "launcher/image_library.h"
 #include "launcher/issue_reporters.h"
+#include "launcher/match_presets.h"
 #include "launcher/player_lineup.h"
 #include "launcher/release_banner.h"
 #include "launcher/release_notes.h"
@@ -174,14 +175,14 @@ void Callout(const std::string& text, const ImVec4& tint, Icon icon)
     ImGui::Dummy({width, height});
 }
 
-enum Page { PagePlay, PageGame, PageMiis, PageTeams, PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout,
-            PageCount };
-constexpr const char* page_names[] = {"Play", "Game", "Miis", "Teams", "Display", "Audio", "Controls", "Gameplay", "Advanced",
-                                      "About"};
-constexpr const char* page_ids[] = {"play", "game", "miis", "teams", "display", "audio", "controls", "gameplay", "advanced",
-                                    "about"};
-constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Pitch, Icon::Display, Icon::Audio, Icon::Keyboard,
-                               Icon::Target, Icon::Sliders, Icon::Info};
+enum Page { PagePlay, PageGame, PageMiis, PageTeams, PageMatches, PageDisplay, PageAudio, PageControls, PageGameplay,
+            PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_names[] = {"Play", "Game", "Miis", "Teams", "Matches", "Display", "Audio", "Controls", "Gameplay",
+                                      "Advanced", "About"};
+constexpr const char* page_ids[] = {"play", "game", "miis", "teams", "matches", "display", "audio", "controls", "gameplay",
+                                    "advanced", "about"};
+constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Pitch, Icon::Trophy, Icon::Display, Icon::Audio,
+                               Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
     && std::size(page_icons) == PageCount);
 
@@ -2476,6 +2477,7 @@ private:
             case PageGame: GamePage(); break;
             case PageMiis: MiiPage(); break;
             case PageTeams: TeamsPage(); break;
+            case PageMatches: MatchesPage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
@@ -3306,18 +3308,10 @@ private:
     {
         PageHeader("Teams", "The sidekicks each captain starts with. The game's sidekick screen shows them, and what you "
                             "choose there shows here: both live in your game save.");
-        using mscharged::platform::SidekickSaveState;
+        using mscharged::platform::GameSaveState;
         const auto& save = InstalledLineups();
-        if (save.state == SidekickSaveState::Missing)
-            Callout("There is no game save in the save folder in use yet. Play once: the game makes one when it first "
-                    "saves, and its lineups show here.",
-                    color::info, Icon::Info);
-        else if (save.state == SidekickSaveState::Damaged)
-            Callout("The game cannot read the save in the save folder in use, so its lineups are left as they are.",
-                    color::warning, Icon::Warning);
-        else if (save.state == SidekickSaveState::Unusable)
-            Callout(save.error, color::danger, Icon::Error);
-        const bool ready = save.state == SidekickSaveState::Ready;
+        GameSaveCallout(save.state, save.error, "its lineups");
+        const bool ready = save.state == GameSaveState::Ready;
         const auto lineups = ready ? save.lineups : mscharged::platform::DefaultSidekickLineups();
 
         ImGui::BeginDisabled(!ready);
@@ -3524,23 +3518,54 @@ private:
         ImGui::PopStyleVar(3);
     }
 
-    // Write the lineups into the game save. The first change of a session in a
-    // save folder backs the save up first; the next ones follow it.
+    // Write the lineups into the game save.
     void SaveLineups(const mscharged::platform::SidekickLineups& lineups)
     {
         const auto& lineup = lineups[std::size_t(lineup_captain_)];
+        fs::path copy;
         try
         {
-            const auto folder = SaveFolder();
-            const bool backup = lineups_backed_up_ != folder;
-            const auto copy = mscharged::platform::WriteSidekicks(folder, SaveTitleOf(Release()), lineups,
-                                                                  backup ? folder / "backups" : fs::path());
-            if (!copy.empty()) lineups_backed_up_ = folder;
+            copy = mscharged::platform::WriteSidekicks(SaveFolder(), SaveTitleOf(Release()), lineups, SaveBackupParent());
             Notice(std::string(kCaptainNames[lineup_captain_]) + " starts with " + SidekickList(lineup) + ".",
                    NoticeKind::Success);
         }
         catch (const std::exception& e) { Notice(std::string("Saving the lineup failed: ") + e.what(), NoticeKind::Error); }
-        lineups_folder_.clear(); // read the save again
+        GameSaveWritten(copy);
+    }
+
+    // What the Teams and Matches pages say when the game save cannot be changed;
+    // `what` is what they would change ("its lineups").
+    static void GameSaveCallout(mscharged::platform::GameSaveState state, const std::string& error, const char* what)
+    {
+        using mscharged::platform::GameSaveState;
+        if (state == GameSaveState::Missing)
+            Callout(std::string("There is no game save in the save folder in use yet. Play once: the game makes one when "
+                                "it first saves, and ") + what + " show here.",
+                    color::info, Icon::Info);
+        else if (state == GameSaveState::Damaged)
+            Callout(std::string("The game cannot read the save in the save folder in use, so ") + what
+                        + " are left as they are.",
+                    color::warning, Icon::Warning);
+        else if (state == GameSaveState::Unusable)
+            Callout(error, color::danger, Icon::Error);
+    }
+
+    // Where the Teams and Matches pages back the game save up before they
+    // change it: the first change of a session in a save folder copies the
+    // save to its backups/, the next ones follow it (none: empty).
+    fs::path SaveBackupParent() const
+    {
+        const auto folder = SaveFolder();
+        return save_backed_up_ == folder ? fs::path() : folder / "backups";
+    }
+
+    // After a change to the game save: `copy` is its backup, if one was made.
+    // Both pages read the save again.
+    void GameSaveWritten(const fs::path& copy)
+    {
+        if (!copy.empty()) save_backed_up_ = SaveFolder();
+        lineups_folder_.clear();
+        match_save_folder_.clear();
     }
 
     // The lineups of the save folder in use, read again when it or its
@@ -3583,6 +3608,287 @@ private:
     {
         for (auto& c : text) c = char(std::tolower(static_cast<unsigned char>(c)));
         return text;
+    }
+
+    // Match presets: named match settings and cheats, each in a file of the
+    // presets folder, written into the game save for matches on this computer
+    // or online with friends. Default and Competitive are built in.
+    void MatchesPage()
+    {
+        PageHeader("Matches", "Presets of the match settings and cheats: choose one for your matches on this computer, "
+                              "or online with friends. Ranked matches keep their own rules.");
+        using mscharged::platform::GameSaveState;
+        using mscharged::platform::MatchMode;
+        const auto& save = InstalledMatch();
+        GameSaveCallout(save.state, save.error, "its match settings");
+        const bool ready = save.state == GameSaveState::Ready;
+        const auto& list = MatchPresets();
+
+        BeginCard("##match_save", "In the game save",
+                  "The settings the game starts with. Its settings screen changes them too.", Icon::Folder);
+        if (BeginRows("##match_save_rows"))
+        {
+            for (const auto mode : {MatchMode::Offline, MatchMode::Friends})
+            {
+                const auto& settings = save.modes[std::size_t(mode)];
+                const std::string summary = ready ? launcher::MatchSummary(settings) : std::string("-");
+                Row(MatchModeName(mode), summary.c_str());
+                if (ready)
+                {
+                    const auto* preset = launcher::FindMatchPreset(list.presets, settings);
+                    Chip(preset ? preset->name.c_str() : "Your own settings", preset ? color::accent : color::muted,
+                         preset ? Icon::Check : Icon::None);
+                }
+            }
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##match_presets", "Presets",
+                  "Use one for matches on this computer or with friends: it goes straight into the game save.",
+                  Icon::Trophy);
+        for (std::size_t n = 0; n < list.presets.size(); ++n)
+        {
+            if (n)
+            {
+                ImGui::Dummy({0, Dp(4)});
+                MenuSeparator(ImGui::GetContentRegionAvail().x);
+                ImGui::Dummy({0, Dp(4)});
+            }
+            PresetRow(list.presets[n], int(n), save, ready);
+        }
+        ImGui::Dummy({0, Dp(10)});
+        if (SecondaryButton("new_match_preset", "New preset", {Dp(160), Dp(40)}, !preset_edit_, Icon::Copy))
+        {
+            launcher::MatchPreset fresh;
+            fresh.settings = ready ? save.modes[0] : launcher::BuiltInMatchPresets()[0].settings;
+            EditPreset(fresh);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("A new preset, from the settings for matches on this computer.");
+        const std::string folder = "Files in " + PathUtf8(MatchPresetsFolder()) + ".";
+        ImGui::Dummy({0, Dp(4)});
+        TextWrappedColored(CurrentFonts().caption, color::dim, folder.c_str());
+        for (const auto& skipped : list.skipped)
+            TextWrappedColored(CurrentFonts().caption, color::warning, ("Not a preset: " + skipped).c_str());
+        EndCard();
+
+        if (preset_edit_) PresetEditor();
+    }
+
+    static const char* MatchModeName(mscharged::platform::MatchMode mode)
+    {
+        return mode == mscharged::platform::MatchMode::Offline ? "On this computer" : "Online with friends";
+    }
+
+    // One preset: its name and settings, then the buttons that put it in the
+    // game save, and Edit and Delete (Copy for a built-in one).
+    void PresetRow(const launcher::MatchPreset& preset, int index, const mscharged::platform::MatchSaveStatus& save,
+                   bool ready)
+    {
+        using mscharged::platform::MatchMode;
+        const auto& fonts = CurrentFonts();
+        ImGui::PushID(index);
+        const float gap = Dp(8), use_w = Dp(150), edit_w = Dp(90), height = Dp(36);
+        TextColored(fonts.label, color::text, preset.name.c_str());
+        if (preset.built_in)
+        {
+            ImGui::SameLine(0, Dp(10));
+            Chip("Built in", color::info);
+        }
+        TextWrappedColored(fonts.caption, color::muted, launcher::MatchSummary(preset.settings).c_str());
+        ImGui::Dummy({0, Dp(2)});
+
+        for (const auto mode : {MatchMode::Offline, MatchMode::Friends})
+        {
+            const bool used = ready && save.modes[std::size_t(mode)] == preset.settings;
+            if (mode == MatchMode::Friends) ImGui::SameLine(0, gap);
+            const char* label = mode == MatchMode::Offline ? "This computer" : "With friends";
+            if (SecondaryButton(mode == MatchMode::Offline ? "use_offline" : "use_friends", label, {use_w, height},
+                                ready && !used, used ? Icon::Check : Icon::Play))
+                UsePreset(preset, mode);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(used ? "%s: the game save has these settings." : "Use for matches %s.",
+                                  used ? MatchModeName(mode) : Lowercase(MatchModeName(mode)).c_str());
+        }
+        ImGui::SameLine(0, gap * 2);
+        if (SecondaryButton("edit", preset.built_in ? "Copy" : "Edit", {edit_w, height}, !preset_edit_,
+                            preset.built_in ? Icon::Copy : Icon::Sliders))
+            EditPreset(preset.built_in ? launcher::MatchPreset{preset.name + " copy", preset.settings, false, {}}
+                                       : preset);
+        if (preset.built_in && ImGui::IsItemHovered()) ImGui::SetTooltip("Built-in presets do not change: make a copy.");
+        if (!preset.built_in)
+        {
+            ImGui::SameLine(0, gap);
+            const bool armed = preset_delete_ == index;
+            if (SecondaryButton("delete", armed ? "Confirm" : "Delete", {edit_w + Dp(6), height}, !preset_edit_,
+                                armed ? Icon::Warning : Icon::Close))
+            {
+                if (!armed) preset_delete_ = index;
+                else
+                {
+                    try
+                    {
+                        launcher::DeleteMatchPreset(preset);
+                        Notice("Preset " + preset.name + " deleted.", NoticeKind::Success);
+                    }
+                    catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); }
+                    preset_delete_ = -1;
+                    presets_loaded_ = false;
+                }
+            }
+            if (armed && ImGui::IsItemHovered()) ImGui::SetTooltip("Click again to delete its file.");
+        }
+        ImGui::PopID();
+    }
+
+    void EditPreset(const launcher::MatchPreset& preset)
+    {
+        preset_edit_ = preset;
+        preset_delete_ = -1;
+    }
+
+    // The preset being made or changed: its name, the settings of the game's
+    // settings screen and the cheats, all offered whether unlocked or not.
+    void PresetEditor()
+    {
+        auto& preset = *preset_edit_;
+        auto& s = preset.settings;
+        const auto& fonts = CurrentFonts();
+        const bool fresh = preset.file.empty();
+        BeginCard("##preset_editor", fresh ? "New preset" : "Edit preset",
+                  "Saved as a file of its own; the game save changes when you use it.", Icon::Sliders);
+        // Why the preset cannot be saved, if it cannot.
+        std::string blocked;
+        if (!launcher::ValidMatchPresetName(preset.name))
+            blocked = "A name of 1 to 32 characters, without \" [ ] = |, and neither Default nor Competitive.";
+        for (const auto& other : MatchPresets().presets)
+            if (!other.built_in && other.file != preset.file && launcher::SameMatchPresetName(other.name, preset.name))
+                blocked = "Another preset is called " + other.name + ".";
+        if (BeginRows("##preset_rows"))
+        {
+            Row("Name");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            ImGui::InputTextWithHint("##preset_name", "Preset name", &preset.name);
+            if (!blocked.empty() && !preset.name.empty())
+                TextWrappedColored(fonts.caption, color::warning, blocked.c_str());
+
+            Row("Skill", "How well the computer plays.");
+            int skill = s.skill - 1;
+            CheatCombo("##preset_skill", skill, launcher::SkillNames());
+            s.skill = skill + 1;
+
+            Row("Series", "Games in a series: best of 1 to 9.");
+            int series = (s.best_of - 1) / 2;
+            if (Segmented("##preset_series", &series, {"1", "3", "5", "7", "9"}, ImGui::GetContentRegionAvail().x))
+                s.best_of = series * 2 + 1;
+
+            Row("Win by", s.goal_limit ? "The first team to the goals wins." : "The team ahead when time runs out wins.");
+            int limit = s.goal_limit ? 1 : 0;
+            if (Segmented("##preset_limit", &limit, {"Time", "Goals"}, ImGui::GetContentRegionAvail().x))
+                s.goal_limit = limit == 1;
+            if (s.goal_limit)
+            {
+                Row("Goals");
+                int goals = s.goals - 3;
+                if (Segmented("##preset_goals", &goals, {"3", "4", "5", "6", "7", "8", "9", "10"},
+                              ImGui::GetContentRegionAvail().x))
+                    s.goals = goals + 3;
+            }
+            else
+            {
+                Row("Time");
+                int time = s.time / 60 - 2;
+                if (Segmented("##preset_time", &time, {"2 min", "3 min", "4 min", "5 min"}, ImGui::GetContentRegionAvail().x))
+                    s.time = (time + 2) * 60;
+            }
+
+            Row("Stadium cheat");
+            CheatCombo("##preset_stadium", s.stadium_cheat, launcher::StadiumCheatNames());
+            Row("Player cheat");
+            CheatCombo("##preset_player", s.player_cheat, launcher::PlayerCheatNames());
+            Row("Power-up cheat");
+            CheatCombo("##preset_powerup", s.powerup_cheat, launcher::PowerupCheatNames());
+            EndRows();
+        }
+        ImGui::Dummy({0, Dp(6)});
+        if (PrimaryButton("save_preset", "Save preset", {Dp(160), Dp(42)}, blocked.empty(), Icon::Check))
+        {
+            try
+            {
+                launcher::SaveMatchPreset(MatchPresetsFolder(), preset, MatchPresets().presets);
+                Notice("Preset " + preset.name + " saved.", NoticeKind::Success);
+                preset_edit_.reset();
+            }
+            catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); }
+            presets_loaded_ = false;
+        }
+        ImGui::SameLine(0, Dp(10));
+        if (SecondaryButton("cancel_preset", "Cancel", {Dp(110), Dp(42)})) preset_edit_.reset();
+        EndCard();
+    }
+
+    // A choice among names (a cheat, the skill) as a dropdown.
+    static void CheatCombo(const char* id, int& cheat, const std::vector<const char*>& names)
+    {
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        const char* shown = cheat >= 0 && std::size_t(cheat) < names.size() ? names[std::size_t(cheat)] : "?";
+        if (ImGui::BeginCombo(id, shown))
+        {
+            for (std::size_t n = 0; n < names.size(); ++n)
+                if (ImGui::Selectable(names[n], int(n) == cheat)) cheat = int(n);
+            ImGui::EndCombo();
+        }
+    }
+
+    void UsePreset(const launcher::MatchPreset& preset, mscharged::platform::MatchMode mode)
+    {
+        fs::path copy;
+        try
+        {
+            copy = mscharged::platform::WriteMatchSettings(SaveFolder(), SaveTitleOf(Release()), mode, preset.settings,
+                                                           SaveBackupParent());
+            Notice(preset.name + " is in use " + Lowercase(MatchModeName(mode)) + ".", NoticeKind::Success);
+        }
+        catch (const std::exception& e) { Notice(std::string("Using the preset failed: ") + e.what(), NoticeKind::Error); }
+        GameSaveWritten(copy);
+    }
+
+    // The presets folder: match-presets beside the settings file.
+    fs::path MatchPresetsFolder() const { return file_.path.parent_path() / "match-presets"; }
+
+    // The presets, read again when the folder changes (a file added, removed
+    // or replaced) or after the page changes one.
+    const launcher::MatchPresetList& MatchPresets()
+    {
+        const auto folder = MatchPresetsFolder();
+        std::error_code error;
+        const auto changed = fs::last_write_time(folder, error);
+        const auto time = error ? fs::file_time_type{} : changed;
+        if (!presets_loaded_ || folder != presets_folder_ || time != presets_time_)
+        {
+            presets_folder_ = folder;
+            presets_time_ = time;
+            presets_ = launcher::LoadMatchPresets(folder);
+            presets_loaded_ = true;
+            preset_delete_ = -1;
+        }
+        return presets_;
+    }
+
+    // The match settings of the save folder in use, read again as the lineups are.
+    const mscharged::platform::MatchSaveStatus& InstalledMatch()
+    {
+        const auto folder = SaveFolder();
+        std::error_code error;
+        const auto changed = fs::last_write_time(folder / "metadata.txt", error);
+        const auto time = error ? fs::file_time_type{} : changed;
+        if (folder != match_save_folder_ || time != match_save_time_)
+        {
+            match_save_folder_ = folder;
+            match_save_time_ = time;
+            match_save_ = mscharged::platform::InstalledMatchSettings(folder, SaveTitleOf(Release()));
+        }
+        return match_save_;
     }
 
     // The checked disc's release, or the USA one before a disc is known.
@@ -7955,14 +8261,27 @@ private:
     fs::file_time_type miis_time_;
     mscharged::platform::MiiDatabaseStatus miis_;
     std::string new_mii_name_;
-    // The Teams page: the captain shown, the slot whose menu is open, the
-    // lineups read from the save folder, and the folder backed up this session.
+    // The Teams page: the captain shown, the slot whose menu is open, and the
+    // lineups read from the save folder.
     int lineup_captain_ = 0;
     int lineup_slot_ = -1;
     fs::path lineups_folder_;
     fs::file_time_type lineups_time_;
     mscharged::platform::SidekickSaveStatus lineups_;
-    fs::path lineups_backed_up_;
+    // The save folder whose game save the Teams or Matches page backed up this session.
+    fs::path save_backed_up_;
+    // The Matches page: the presets and their folder, the match settings read
+    // from the save folder, the preset being edited and the one whose Delete
+    // asks for a second click.
+    fs::path presets_folder_;
+    fs::file_time_type presets_time_;
+    launcher::MatchPresetList presets_;
+    bool presets_loaded_ = false;
+    fs::path match_save_folder_;
+    fs::file_time_type match_save_time_;
+    mscharged::platform::MatchSaveStatus match_save_;
+    std::optional<launcher::MatchPreset> preset_edit_;
+    int preset_delete_ = -1;
     // Update check and installation (#50).
     std::unique_ptr<UpdateService> updates_;
     UpdateService::Status update_;

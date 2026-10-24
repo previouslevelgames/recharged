@@ -378,6 +378,14 @@ std::string GameSave(const SidekickLineups& lineups) {
     for (std::size_t captain = 0; captain < kCaptainCount; ++captain)
         for (std::size_t slot = 0; slot < kSidekickSlots; ++slot)
             PutWord(save, 0x88 + (captain * kSidekickSlots + slot) * 4, std::uint32_t(lineups[captain][slot]));
+    // Both modes' match settings as a new save has them; the three unknown
+    // bytes after each GameplaySettings keep the pattern.
+    for (const std::size_t at : {std::size_t(0x2C), std::size_t(0x54)}) {
+        for (const auto [offset, value] : {std::pair<std::size_t, std::uint32_t>{0, 1}, {4, 0}, {8, 180}, {12, 5}, {16, 3}})
+            PutWord(save, at + offset, value);
+        save.replace(at + 0x14, 4, std::string(4, '\1'));
+        for (std::size_t offset = 0; offset < 12; offset += 4) PutWord(save, at + 0x1C + offset, 0);
+    }
     PutWord(save, 4, Crc32(save, 8));
     return save;
 }
@@ -393,14 +401,14 @@ void RunSidekicks(const fs::path& root) {
           "Default lineups differ from the game's");
     const auto nand = root / "sidekicks", backups = root / "sidekick-backups", source = root / "sidekick-source";
     fs::remove_all(nand);
-    Check(InstalledSidekicks(nand, kTitle).state == SidekickSaveState::Missing, "Lineups before any save");
+    Check(InstalledSidekicks(nand, kTitle).state == GameSaveState::Missing, "Lineups before any save");
     Reject([&] { WriteSidekicks(nand, kTitle, defaults, backups); }, "Lineups written without a save");
 
     const auto save = GameSave(defaults);
     Put(source / "Strikers2", save);
     ImportDolphinSave(source, nand, kTitle, "Strikers2", backups);
     auto status = InstalledSidekicks(nand, kTitle);
-    Check(status.state == SidekickSaveState::Ready && status.lineups == defaults, "Lineups of the save not read");
+    Check(status.state == GameSaveState::Ready && status.lineups == defaults, "Lineups of the save not read");
 
     // Mario with Boo, Toad and Dry Bones; Petey Piranha with three Shy Guys.
     auto lineups = defaults;
@@ -423,7 +431,7 @@ void RunSidekicks(const fs::path& root) {
     unchanged.replace(0x88, 0x90, save, 0x88, 0x90);
     Check(unchanged == save, "Writing lineups changed more than the lineups and the checksum");
     status = InstalledSidekicks(nand, kTitle);
-    Check(status.state == SidekickSaveState::Ready && status.lineups == lineups, "Written lineups not read back");
+    Check(status.state == GameSaveState::Ready && status.lineups == lineups, "Written lineups not read back");
 
     // The same lineups again write nothing; no backup without a folder for it.
     Check(WriteSidekicks(nand, kTitle, lineups, backups).empty(), "Unchanged lineups were written");
@@ -444,35 +452,99 @@ void RunSidekicks(const fs::path& root) {
     auto damaged = good;
     damaged[0x2000] ^= 1;
     Put(stored, damaged);
-    Check(InstalledSidekicks(nand, kTitle).state == SidekickSaveState::Damaged, "A wrong checksum was not damaged");
+    Check(InstalledSidekicks(nand, kTitle).state == GameSaveState::Damaged, "A wrong checksum was not damaged");
     Reject([&] { WriteSidekicks(nand, kTitle, defaults, backups); }, "Lineups written into a damaged save");
     Check(Bytes(stored) == damaged, "A damaged save was changed");
     auto resized = good;
     PutWord(resized, 0, 35616 + 1);
     PutWord(resized, 4, Crc32(resized, 8));
     Put(stored, resized);
-    Check(InstalledSidekicks(nand, kTitle).state == SidekickSaveState::Damaged, "A wrong size was not damaged");
+    Check(InstalledSidekicks(nand, kTitle).state == GameSaveState::Damaged, "A wrong size was not damaged");
     auto ninth = GameSave(defaults);
     PutWord(ninth, 0x88 + 4, 8);
     PutWord(ninth, 4, Crc32(ninth, 8));
     Put(stored, ninth);
-    Check(InstalledSidekicks(nand, kTitle).state == SidekickSaveState::Damaged, "A ninth sidekick was read");
+    Check(InstalledSidekicks(nand, kTitle).state == GameSaveState::Damaged, "A ninth sidekick was read");
     Put(stored, good);
     Check(InstalledSidekicks(nand, {kTitle.title_id + 1, kTitle.uid, kTitle.gid}).state
-              == SidekickSaveState::Unusable,
+              == GameSaveState::Unusable,
           "Another game's save folder was read");
 
     // The European save sits in its own title (TitleSaveFolder's R4QP): the
     // same layout, and the USA save stays as it is.
     constexpr SaveTitle kEurope{0x0001000052345150ULL, 0x1001, 0x3031};
     const auto europe = mscharged::TitleSaveFolder(nand, kEurope.title_id);
-    Check(InstalledSidekicks(europe, kEurope).state == SidekickSaveState::Missing, "European lineups before a save");
+    Check(InstalledSidekicks(europe, kEurope).state == GameSaveState::Missing, "European lineups before a save");
     ImportDolphinSave(source, europe, kEurope, "Strikers2", backups);
     auto european = defaults;
     european[8] = {3, 3, 3};
     WriteSidekicks(europe, kEurope, european, backups);
     Check(InstalledSidekicks(europe, kEurope).lineups == european && InstalledSidekicks(nand, kTitle).lineups == lineups,
           "European lineups not kept apart from the USA ones");
+}
+
+// Match settings in the game save: each mode's own, stored as the game
+// reads them, and nothing else changes.
+void RunMatchSettings(const fs::path& root) {
+    const auto nand = root / "match-settings", backups = root / "match-backups", source = root / "match-source";
+    fs::remove_all(nand);
+    Check(InstalledMatchSettings(nand, kTitle).state == GameSaveState::Missing, "Match settings before any save");
+    Reject([&] { WriteMatchSettings(nand, kTitle, MatchMode::Offline, MatchSettings{}, backups); },
+           "Match settings written without a save");
+    const auto save = GameSave(DefaultSidekickLineups());
+    Put(source / "Strikers2", save);
+    ImportDolphinSave(source, nand, kTitle, "Strikers2", backups);
+    auto status = InstalledMatchSettings(nand, kTitle);
+    Check(status.state == GameSaveState::Ready && status.modes[0] == MatchSettings{}
+              && status.modes[1] == MatchSettings{},
+          "A new save's match settings not read");
+
+    // Competitive for online matches with friends (Superstar, best of 3,
+    // first to 10 goals, Secure) with a power-up cheat.
+    MatchSettings competitive;
+    competitive.skill = 3;
+    competitive.goal_limit = true;
+    competitive.goals = 10;
+    competitive.stadium_cheat = 1;
+    competitive.powerup_cheat = 11;
+    Check(ValidMatchSettings(competitive), "Competitive settings refused");
+    const auto backup = WriteMatchSettings(nand, kTitle, MatchMode::Friends, competitive, backups);
+    Check(!backup.empty() && Bytes(backup / "Strikers2") == save, "The save was not backed up");
+    InitializeNativeFilesystem({nand, kTitle.title_id, kTitle.uid, kTitle.gid});
+    const auto written = IosRead(kHome + "/Strikers2");
+    ShutdownNativeFilesystem();
+    Check(Word(written, 4) == Crc32(written, 8), "The written save fails the game's checksum");
+    Check(Word(written, 0x54) == 3 && Word(written, 0x58) == 1 && Word(written, 0x60) == 10 && Word(written, 0x64) == 3
+              && Word(written, 0x70) == 11
+              && Word(written, 0x74) == 1 && Word(written, 0x78) == 0,
+          "Settings not stored as the game reads them");
+    auto unchanged = written;
+    unchanged.replace(4, 4, save, 4, 4);
+    unchanged.replace(0x54, 0x14, save, 0x54, 0x14);
+    unchanged.replace(0x70, 12, save, 0x70, 12);
+    Check(unchanged == save, "Writing match settings changed more than them and the checksum (the per-team switches stay)");
+    status = InstalledMatchSettings(nand, kTitle);
+    Check(status.modes[1] == competitive && status.modes[0] == MatchSettings{},
+          "Friends' settings not read back, or the offline ones changed");
+    Check(InstalledSidekicks(nand, kTitle).lineups == DefaultSidekickLineups(), "Match settings changed the lineups");
+
+    // The same settings again write nothing; settings the screen does not offer are refused.
+    Check(WriteMatchSettings(nand, kTitle, MatchMode::Friends, competitive, backups).empty(),
+          "Unchanged match settings were written");
+    WriteMatchSettings(nand, kTitle, MatchMode::Offline, competitive, {});
+    Check(InstalledMatchSettings(nand, kTitle).modes[0] == competitive, "Offline settings not written");
+    for (const auto change : std::vector<void (*)(MatchSettings&)>{
+             [](MatchSettings& s) { s.time = 150; }, [](MatchSettings& s) { s.skill = 0; },
+             [](MatchSettings& s) { s.best_of = 2; }, [](MatchSettings& s) { s.goals = 11; },
+             [](MatchSettings& s) { s.stadium_cheat = 6; }, [](MatchSettings& s) { s.player_cheat = -1; },
+             [](MatchSettings& s) { s.powerup_cheat = 12; }}) {
+        auto wrong = competitive;
+        change(wrong);
+        Check(!ValidMatchSettings(wrong), "Settings the game does not offer were valid");
+        Reject([&] { WriteMatchSettings(nand, kTitle, MatchMode::Offline, wrong, backups); },
+               "Settings the game does not offer were written");
+    }
+    Check(InstalledMatchSettings(nand, kTitle).modes[0] == competitive, "Refused settings changed the save");
 }
 
 void SetEnvironment(const char* name, const fs::path& value) {
@@ -545,6 +617,7 @@ int main(int argc, char** argv) {
         RunMiis(fs::path(argv[1]));
         RunAddMii(fs::path(argv[1]));
         RunSidekicks(fs::path(argv[1]));
+        RunMatchSettings(fs::path(argv[1]));
         RunFind(fs::path(argv[1]));
         std::cout << "save_import: " << checks << " checks passed\n";
         return 0;
