@@ -39,6 +39,25 @@ bool ParseTestTag(std::string_view tag, int& pull_request, std::string& commit)
     return IsHex(commit);
 }
 
+// A line of the notes, trimmed, is kHideTestBuilds (in any case).
+bool HidesTestBuilds(std::string_view notes)
+{
+    while (!notes.empty())
+    {
+        const auto end = std::min(notes.find('\n'), notes.size());
+        std::string_view line = notes.substr(0, end);
+        notes.remove_prefix(std::min(end + 1, notes.size()));
+        while (!line.empty() && std::isspace(static_cast<unsigned char>(line.front()))) line.remove_prefix(1);
+        while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back()))) line.remove_suffix(1);
+        if (line.size() == kHideTestBuilds.size()
+            && std::equal(line.begin(), line.end(), kHideTestBuilds.begin(), [](char a, char b) {
+                   return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+               }))
+            return true;
+    }
+    return false;
+}
+
 // recharged-<version>-<platform>-<arch>.zip/.tar.gz: the version text.
 bool PackageVersion(std::string_view name, std::string& version)
 {
@@ -189,6 +208,7 @@ std::vector<PublishedBuild> ParseReleases(const platform::JsonValue& releases)
         build.title = item["name"].Text();
         build.page = item["html_url"].Text();
         build.notes = item["body"].Text();
+        build.hidden = build.test && HidesTestBuilds(build.notes);
         build.published = ParseUtcTime(item["published_at"].Text());
         for (const auto& entry : item["assets"].Items())
         {
@@ -208,6 +228,18 @@ std::vector<PublishedBuild> ParseReleases(const platform::JsonValue& releases)
         builds.push_back(std::move(build));
     }
     return builds;
+}
+
+std::vector<PublishedBuild> ShownBuilds(const BuildIdentity& build, std::vector<PublishedBuild> published, int chosen)
+{
+    published.erase(std::remove_if(published.begin(), published.end(),
+                                   [&](const PublishedBuild& candidate) {
+                                       const bool own = build.origin == BuildOrigin::Test
+                                           && build.pull_request == candidate.pull_request;
+                                       return candidate.hidden && !own && candidate.pull_request != chosen;
+                                   }),
+                    published.end());
+    return published;
 }
 
 PullRequestInfo ParsePullRequest(const platform::JsonValue& pull)

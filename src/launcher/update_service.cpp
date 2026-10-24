@@ -164,7 +164,8 @@ void UpdateService::RunCheck(UpdateChannel channel, int chosen, std::shared_ptr<
         }
         const auto answer = platform::HttpGet(GitHubRequest(ReleasesApiUrl(build.repository), build, cancel));
         if (answer.status != 200) throw std::runtime_error(GitHubFailure(answer.status));
-        const auto published = ParseReleases(platform::ParseJson(answer.body));
+        // Test builds their pull request hides stay out (ShownBuilds).
+        const auto published = ShownBuilds(build, ParseReleases(platform::ParseJson(answer.body)), chosen);
         std::vector<PublishedBuild> test_builds;
         int track = 0;
         if (channel == UpdateChannel::Test)

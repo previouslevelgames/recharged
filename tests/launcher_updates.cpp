@@ -222,6 +222,33 @@ void TestTracks()
     Check(update && update->tag == "v1.0.11", "The release channel ignores test builds");
 }
 
+// A pull request whose description has the hide line: its test builds stay
+// out of the launcher, but for its own testers and an explicit choice.
+void HiddenTestBuilds()
+{
+    const auto published = ParseReleases(platform::ParseJson("["
+        + Release("test-pr72-333333333333", true, "2026-10-18T09:00:00Z", "1.1.0+g333333333333") + ","
+        + Release("test-pr105-555555555555", true, "2026-10-19T09:00:00Z", "1.2.0+g555555555555",
+                  "Competitive play\\n\\n  <!-- Launcher: Hide -->  \\n\\n---\\nTest build") + ","
+        + Release("v1.0.10", false, "2026-10-17T21:00:00Z", "1.0.10+gaaaaaaaaaaaa",
+                  "<!-- launcher: hide -->") + "]"));
+    Check(published.size() == 3 && !published[0].hidden && published[1].hidden && !published[2].hidden,
+          "The hide line marks a test build, in any case and with spaces, and never a release");
+    const BuildIdentity release10 = Build(BuildOrigin::Release, "1.0.10+gaaaaaaaaaaaa", 1792200000);
+    const BuildIdentity test105 = Build(BuildOrigin::Test, "1.2.0+g444444444444", 1792300000, 105);
+    const auto shown = ShownBuilds(release10, published, 0);
+    Check(shown.size() == 2 && TestBuilds(release10, shown).size() == 1
+              && TestBuilds(release10, shown).front()->pull_request == 72,
+          "Hidden test builds are no test track");
+    const PublishedBuild* update = FindUpdate(release10, UpdateChannel::Test, shown, 105);
+    Check(!update || update->pull_request != 105, "Nor offered when an older choice named them");
+    Check(ShownBuilds(release10, published, 105).size() == 3, "launcher.test_build naming the pull request shows them");
+    const auto own = ShownBuilds(test105, published, 0);
+    update = FindUpdate(test105, UpdateChannel::Test, own);
+    Check(own.size() == 3 && update && update->tag == "test-pr105-555555555555",
+          "A test build of the hidden pull request still gets its updates");
+}
+
 void TestReleases()
 {
     const std::string list = "[" + Release("test-pr48-cccccccccccc", true, "2026-10-16T10:00:00Z", "1.0.10+gcccccccccccc")
@@ -334,6 +361,7 @@ void TestReleases()
           "An unknown own version offers nothing");
 
     TestTracks();
+    HiddenTestBuilds();
 
     Check(ResolveChannel("auto", Build(BuildOrigin::Test, "1.0.0", 0, 1)) == UpdateChannel::Test
               && ResolveChannel("auto", Build(BuildOrigin::Dev, "1.0.0", 0)) == UpdateChannel::Release
