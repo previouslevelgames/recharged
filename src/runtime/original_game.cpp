@@ -21,6 +21,7 @@
 #include <aurora/event.h>
 #include <aurora/gfx.h>
 #include <aurora/gfx.hpp>
+#include <aurora/input.hpp>
 #include "gfx/xfb.hpp"
 #include "gfx/scanout.hpp"
 #include "gx/fifo.hpp"
@@ -457,6 +458,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             graphics=graphicsFallback;
         }
         mscharged::platform::SetApplicationIcon(host.window);
+        // The game draws its own pointer (the Wii Remote's hand) where a player
+        // points, the mouse included: the system cursor stays hidden over the
+        // window. A layer above that takes the mouse (ImGui) shows it again.
+        const auto cursorLayer=aurora::input::register_layer({
+            .label="recharged.cursor",
+            .priority=aurora::input::kGameLayerPriority,
+            .onEvent=[](const aurora::input::InputEvent&,void*){return aurora::input::EventResult::Pass;},
+            .pointerMode=[](void*){return aurora::input::PointerMode::Hidden;},
+        });
+        if(cursorLayer==aurora::input::kInvalidLayerId)
+            mscharged::platform::SessionLogLine("Startup: the system cursor stays visible over the game");
         mscharged::platform::SessionLogLine("Startup: graphics ready");
         // [mods]: HD texture packs, swapped in by Aurora (host graphics only).
         mscharged::LoadTexturePacks(launch.settings,launch.config.path,release->game_id);

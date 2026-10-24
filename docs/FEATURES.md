@@ -28,7 +28,8 @@ come from the reconstructed source, unchanged.
 ## Controls
 
 - **Keyboard & mouse** play as a Wii Remote with Nunchuk; the mouse is the
-  pointer. Every key can be changed in the launcher, up to two per action,
+  pointer, shown by the game's own hand (the system cursor stays hidden over
+  the game). Every key can be changed in the launcher, up to two per action,
   and the middle and side mouse buttons (Mouse 4, Mouse 5) can take a key's
   place ([#62](https://github.com/previouslevelgames/recharged/issues/62)).
 - **Gamepads**: Xbox, PlayStation, Switch Pro, GameCube (USB adapter) and
