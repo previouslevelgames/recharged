@@ -82,7 +82,7 @@ SWITCH_PUBLIC_FILES = ("README.md", "LICENSE", "recharged.ini.example", "docs/SW
                        "docs/SETTINGS.md", "docs/TROUBLESHOOTING.md", "LICENSES/README.md",
                        "LICENSES/Apache-2.0.txt", "LICENSES/switch/README.md", "LICENSES/switch/libnx.txt",
                        "LICENSES/switch/SDL2.txt", "LICENSES/switch/libdrm_nouveau.txt", "LICENSES/switch/nod.txt",
-                       "extern/README.md")
+                       "LICENSES/switch/bzip2.txt", "LICENSES/switch/liblzma.txt", "extern/README.md")
 
 
 class PackageError(ValueError):

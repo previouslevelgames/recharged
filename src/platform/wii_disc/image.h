@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -67,29 +68,39 @@ private:
 // How a disc sector is stored in the image.
 enum class SectorKind : std::uint8_t
 {
-    Data,    // in the image
-    Zero,    // left out of a WBFS: reads as zeroes
-    Missing, // past the end of the image
+    Data,      // in the image
+    Zero,      // left out of a WBFS, or an all-zero WIA/RVZ group: reads as zeroes
+    Missing,   // past the end of the image
+    Decrypted, // WIA/RVZ partition data, decrypted without hashes: ReadDecryptedGroup
 };
 
-// A Wii disc image as disc sectors: an ISO, or a WBFS (one disc, its block map).
-// Other formats fail with ERR_FORMAT. Reads are not thread-safe.
+class RvzReader;
+
+// A Wii disc image as disc sectors: an ISO, a WBFS (one disc, its block map),
+// or a WIA or RVZ. Other formats fail with ERR_FORMAT. Reads are not thread-safe.
 class Image
 {
 public:
     explicit Image(const std::string& path);
+    ~Image();
 
     NodFormat Format() const { return format_; }
-    // The WBFS block size, 0 for an ISO.
-    std::uint32_t BlockSize() const { return block_size_; }
-    // The ISO's size; 0 for a WBFS, which does not record the disc's size.
-    std::uint64_t IsoSize() const { return format_ == NOD_FORMAT_ISO ? file_.Size() : 0; }
+    // What nod's DiscMeta says of the image's format.
+    NodDiscMeta Meta() const;
+    // The disc's size as the image records it; 0 for a WBFS, which does not.
+    std::uint64_t DiscSize() const;
+    // Sectors a WIA/RVZ decodes at once; 0 for other formats.
+    std::uint32_t GroupSectors() const;
 
     SectorKind Kind(std::uint32_t sector) const;
     // Reads `count` disc sectors into `out` (count * kSectorSize bytes) and
-    // their kinds; Zero and Missing sectors read as zeroes, and so does the
-    // part of the last ISO sector past the end of the file.
-    void ReadSectors(std::uint32_t first, std::uint32_t count, std::uint8_t* out, SectorKind* kinds) const;
+    // their kinds; Zero, Missing and Decrypted sectors read as zeroes, and so
+    // does the part of the last ISO sector past the end of the file.
+    void ReadSectors(std::uint32_t first, std::uint32_t count, std::uint8_t* out, SectorKind* kinds);
+    // The WIA/RVZ group of decrypted partition data that holds `sector`: its
+    // first sector, its sector count and its data (0x7C00 bytes a sector),
+    // valid until the next read.
+    const std::uint8_t* ReadDecryptedGroup(std::uint32_t sector, std::uint32_t& first, std::uint32_t& count);
 
 private:
     // The image offset of a Data sector.
@@ -99,5 +110,6 @@ private:
     NodFormat format_ = NOD_FORMAT_ISO;
     std::uint32_t block_size_ = 0;
     std::vector<std::uint16_t> block_map_; // WBFS: disc block -> image block (0: left out)
+    std::unique_ptr<RvzReader> rvz_;
 };
 } // namespace mscharged::platform::wii_disc

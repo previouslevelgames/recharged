@@ -1,12 +1,19 @@
 // The Wii disc reader that stands in for nod where Rust is not available (the
 // Switch): synthetic encrypted Wii discs, made here with a separate AES-128
-// encryption, as ISO and WBFS images (split ones too), read back through nod's
-// C API. Checks FST iteration and lookup, file, partition and disc reads and
-// seeks across cluster, block and file boundaries, the cache probe, metadata,
-// concurrent readers and the error paths. Contains no game data.
+// encryption, as ISO and WBFS images (split ones too) and as RVZ (every codec)
+// and WIA images, written here from the format description with junk packed
+// as generator seeds, read back through nod's C API. Checks FST iteration and
+// lookup, file, partition and disc reads and seeks across cluster, block, group
+// and file boundaries, the cache probe, metadata, concurrent readers and the
+// error paths. Contains no game data.
 #include <nod.h>
 
 #include "platform/wii_disc/aes128.h"
+#include "platform/wii_disc/lfg.h"
+
+#include <bzlib.h>
+#include <lzma.h>
+#include <zstd.h>
 
 #include <algorithm>
 #include <array>
@@ -76,6 +83,28 @@ void Put32(Bytes& bytes, std::size_t offset, std::uint32_t value)
 {
     if (bytes.size() < offset + 4) bytes.resize(offset + 4);
     for (int i = 0; i < 4; ++i) bytes[offset + i] = std::uint8_t(value >> (24 - 8 * i));
+}
+
+void Put16(Bytes& bytes, std::size_t offset, std::uint16_t value)
+{
+    if (bytes.size() < offset + 2) bytes.resize(offset + 2);
+    bytes[offset] = std::uint8_t(value >> 8);
+    bytes[offset + 1] = std::uint8_t(value);
+}
+
+void Put64(Bytes& bytes, std::size_t offset, std::uint64_t value)
+{
+    Put32(bytes, offset, std::uint32_t(value >> 32));
+    Put32(bytes, offset + 4, std::uint32_t(value));
+}
+
+void Append32(Bytes& bytes, std::uint32_t value) { Put32(bytes, bytes.size(), value); }
+
+Bytes Slice(const Bytes& bytes, std::uint64_t begin, std::uint64_t size)
+{
+    begin = std::min<std::uint64_t>(begin, bytes.size());
+    size = std::min<std::uint64_t>(size, bytes.size() - begin);
+    return Bytes(bytes.begin() + std::ptrdiff_t(begin), bytes.begin() + std::ptrdiff_t(begin + size));
 }
 
 void Put(Bytes& bytes, std::size_t offset, const Bytes& part)
@@ -220,6 +249,153 @@ void CheckAes()
     }
 }
 
+// SHA-1 for the hashes WIA and RVZ keep of their headers.
+Bytes Sha1(const Bytes& message)
+{
+    std::uint32_t h[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+    Bytes padded = message;
+    padded.push_back(0x80);
+    while (padded.size() % 64 != 56) padded.push_back(0);
+    Put64(padded, padded.size(), std::uint64_t(message.size()) * 8);
+    const auto rol = [](std::uint32_t x, int n) { return x << n | x >> (32 - n); };
+    for (std::size_t block = 0; block < padded.size(); block += 64)
+    {
+        std::uint32_t w[80];
+        for (int i = 0; i < 80; ++i)
+            w[i] = i < 16 ? std::uint32_t(padded[block + 4 * i]) << 24 | std::uint32_t(padded[block + 4 * i + 1]) << 16
+                    | std::uint32_t(padded[block + 4 * i + 2]) << 8 | padded[block + 4 * i + 3]
+                          : rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+        std::uint32_t v[5] = {h[0], h[1], h[2], h[3], h[4]};
+        for (int i = 0; i < 80; ++i)
+        {
+            const int round = i / 20;
+            const std::uint32_t f = round == 0 ? (v[1] & v[2]) | (~v[1] & v[3])
+                : round == 2              ? (v[1] & v[2]) | (v[1] & v[3]) | (v[2] & v[3])
+                                          : v[1] ^ v[2] ^ v[3];
+            const std::uint32_t k[4] = {0x5A827999, 0x6ED9EBA1, 0x8F1BBCDC, 0xCA62C1D6};
+            const std::uint32_t t = rol(v[0], 5) + f + v[4] + k[round] + w[i];
+            v[4] = v[3];
+            v[3] = v[2];
+            v[2] = rol(v[1], 30);
+            v[1] = v[0];
+            v[0] = t;
+        }
+        for (int i = 0; i < 5; ++i) h[i] += v[i];
+    }
+    Bytes digest;
+    for (const std::uint32_t word : h) Append32(digest, word);
+    return digest;
+}
+
+// The junk generator again, written as Dolphin describes it (raw words, the
+// second output byte taken from bits 18-25 when output) rather than as the
+// reader keeps it.
+std::array<std::uint32_t, 17> JunkSeed(const char* disc_id, std::uint8_t disc_num, std::uint32_t sector)
+{
+    const auto byte = [disc_id](int i) { return std::uint8_t(disc_id[i]); };
+    const std::uint32_t key = (std::uint32_t(byte(2)) << 24 | std::uint32_t(byte(1)) << 16
+                               | std::uint32_t(std::uint8_t(byte(3) + byte(2))) << 8 | std::uint8_t(byte(0) + byte(1)))
+        ^ disc_num;
+    std::uint32_t n = key * 0x260BCD5u ^ sector * 0x1EF29123u;
+    std::array<std::uint32_t, 17> seed{};
+    for (std::uint32_t& word : seed)
+        for (int bit = 0; bit < 32; ++bit)
+        {
+            n = n * 0x5D588B65u + 1;
+            word = word >> 1 | (n & 0x80000000u);
+        }
+    seed[16] ^= seed[0] >> 9 ^ seed[16] << 23;
+    return seed;
+}
+
+Bytes JunkStream(const std::array<std::uint32_t, 17>& seed, std::size_t skip, std::size_t size)
+{
+    std::vector<std::uint32_t> words(521);
+    std::copy(seed.begin(), seed.end(), words.begin());
+    for (std::size_t i = 17; i < 521; ++i) words[i] = words[i - 17] << 23 ^ words[i - 16] >> 9 ^ words[i - 1];
+    const auto step = [&words] {
+        for (std::size_t i = 0; i < 521; ++i) words[i] ^= words[i < 32 ? i + 489 : i - 32];
+    };
+    for (int i = 0; i < 4; ++i) step();
+    Bytes out;
+    for (std::size_t position = 0; out.size() < size; ++position)
+    {
+        if (position && position % 2084 == 0) step();
+        const std::uint32_t word = words[position % 2084 / 4];
+        const std::uint8_t value[4] = {std::uint8_t(word >> 24), std::uint8_t(word >> 18), std::uint8_t(word >> 8),
+                                       std::uint8_t(word)};
+        if (position >= skip) out.push_back(value[position % 4]);
+    }
+    return out;
+}
+
+// Junk as a disc has it at `offset`: restarted every 0x8000 bytes.
+Bytes Junk(const char* disc_id, std::uint8_t disc_num, std::uint64_t offset, std::size_t size)
+{
+    Bytes out;
+    while (out.size() < size)
+    {
+        const std::uint64_t at = offset + out.size();
+        const std::size_t count = std::min<std::size_t>(size - out.size(), 0x8000u - at % 0x8000u);
+        const Bytes part = JunkStream(JunkSeed(disc_id, disc_num, std::uint32_t(at / 0x8000u)), at % 0x8000u, count);
+        out.insert(out.end(), part.begin(), part.end());
+    }
+    return out;
+}
+
+void CheckSha1AndJunk()
+{
+    const auto text = [](const char* s) { return Bytes(s, s + std::strlen(s)); };
+    Require(Sha1({}) == Hex("da39a3ee5e6b4b0d3255bfef95601890afd80709") && Sha1(text("abc")) == Hex("a9993e364706816aba3e25717850c26c9cd0d89d")
+                && Sha1(text("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))
+                       == Hex("84983e441c3bd26ebaae4aa1f95129e5e54670f1"),
+            "Test SHA-1 fails its known answers");
+    // nod's own expected junk (util/lfg.rs tests), the last across a 0x8000 edge.
+    struct Answer
+    {
+        const char* id;
+        std::uint64_t offset;
+        const char* bytes;
+    };
+    for (const Answer& answer : {Answer{"GALE", 0x600000, "e94767bd41504d5d6148b199a0120cba"},
+                                 Answer{"GALE", 0x608000, "e2bbbd77dab222421c0c0bfcac06ead0"},
+                                 Answer{"GPIE", 0x322904, "97d8230b12aa2045c2bd718c3032c52f"},
+                                 Answer{"GM8E", 0x27FF0,
+                                        "ad6f21be055710edeab08efd9158a20edc0d59c00298a500395b68a65d532db6"}})
+    {
+        const Bytes expected = Hex(answer.bytes);
+        Require(Junk(answer.id, 0, answer.offset, expected.size()) == expected,
+                std::string("Test junk generator differs from nod's for ") + answer.id);
+        // The reader's generator, seeded as RVZ seeds it.
+        using mscharged::platform::wii_disc::LaggedFibonacci;
+        Bytes reader;
+        while (reader.size() < expected.size())
+        {
+            const std::uint64_t at = answer.offset + reader.size();
+            std::uint32_t seed[LaggedFibonacci::kSeedWords];
+            LaggedFibonacci::GenerateSeed(reinterpret_cast<const std::uint8_t*>(answer.id), 0,
+                                          std::uint32_t(at / 0x8000u), seed);
+            LaggedFibonacci lfg;
+            lfg.Init(seed);
+            lfg.Skip(at % 0x8000u);
+            Bytes part(std::min<std::size_t>(expected.size() - reader.size(), 0x8000u - at % 0x8000u));
+            lfg.Fill(part.data(), part.size());
+            reader.insert(reader.end(), part.begin(), part.end());
+        }
+        Require(reader == expected, std::string("Reader junk generator differs from nod's for ") + answer.id);
+    }
+    // Long runs (many generator steps) agree between the two formulations.
+    using mscharged::platform::wii_disc::LaggedFibonacci;
+    const auto seed = JunkSeed("RWDE", 1, 77);
+    LaggedFibonacci lfg;
+    lfg.Init(seed.data());
+    lfg.Skip(1234);
+    Bytes reader(0x8000u - 1234);
+    lfg.Fill(reader.data(), 3000);
+    lfg.Fill(reader.data() + 3000, reader.size() - 3000);
+    Require(reader == JunkStream(seed, 1234, reader.size()), "The two junk generators differ over a sector");
+}
+
 // ---- Synthetic discs ----
 
 // The common keys nod knows (disc/wii.rs): retail, Korean; debug.
@@ -289,12 +465,15 @@ struct BuiltPartition
     std::uint32_t clusters = 0, cluster_data = kSectorData;
     std::uint64_t data_offset = 0; // on the disc
     std::uint32_t used_clusters = 0;
+    std::uint64_t junk_begin = 0; // the unused data after the files is junk
+    Bytes title_key;
 };
 
 struct BuiltDisc
 {
     Bytes iso;
     std::vector<BuiltPartition> partitions;
+    std::uint64_t junk_tail = 0; // junk from here to the disc's end
 };
 
 void Flatten(const Tree& tree, std::uint32_t parent, const std::string& prefix, std::vector<Node>& nodes)
@@ -388,11 +567,14 @@ BuiltPartition BuildPartition(const PartitionSpec& spec, const Bytes& disc_heade
     built.clusters = built.used_clusters + spec.extra_clusters;
     const std::size_t used = data.size();
     data.resize(std::size_t(built.clusters) * built.cluster_data);
-    const Bytes junk = Random(data.size() - used, spec.seed * 19);
+    // Unused space holds junk, as on discs; RVZ stores it as generator seeds.
+    built.junk_begin = used;
+    const Bytes junk = Junk("RWDE", 0, used, data.size() - used);
     std::copy(junk.begin(), junk.end(), data.begin() + std::ptrdiff_t(used));
 
     // The partition header: ticket, then the TMD, certificates, H3 and data.
     const Bytes title_key = Random(16, spec.seed * 23), title_id = Random(8, spec.seed * 29);
+    built.title_key = title_key;
     built.header.assign(0x2C0, 0);
     Put32(built.header, 0, 0x00010001);
     std::memcpy(built.header.data() + 0x140, spec.issuer.data(), std::min<std::size_t>(spec.issuer.size(), 64));
@@ -479,6 +661,10 @@ BuiltDisc BuildDisc(const std::vector<PartitionSpec>& specs, bool encrypted = tr
         Put(iso, spec.disc_offset + 0x8000, built.h3);
         Put(iso, built.data_offset, PartitionSectors(built, encrypted, hashed));
     }
+    // Junk after the partitions, ending inside a sector.
+    disc.junk_tail = iso.size();
+    const Bytes tail = Junk("RWDE", 0, iso.size(), 3 * kSector + 0x123);
+    iso.insert(iso.end(), tail.begin(), tail.end());
     return disc;
 }
 
@@ -515,6 +701,374 @@ Bytes MakeWbfs(const Bytes& iso, unsigned block_shift, const std::set<std::uint3
                   image.begin() + std::ptrdiff_t(std::size_t(stored) * block));
     }
     return image;
+}
+
+// What nod_disc_meta and nod_disc_size must say of an image.
+struct ExpectedMeta
+{
+    NodDiscMeta meta{};
+    std::uint64_t disc_size = 0;
+};
+
+ExpectedMeta IsoMeta(const Bytes& iso)
+{
+    ExpectedMeta expected;
+    expected.meta.format = NOD_FORMAT_ISO;
+    expected.meta.lossless = true;
+    expected.meta.disc_size = expected.disc_size = iso.size();
+    return expected;
+}
+
+// As nod: the block size, no disc size, a single-layer DVD guess.
+ExpectedMeta WbfsMeta(std::uint32_t block_size)
+{
+    ExpectedMeta expected;
+    expected.meta.format = NOD_FORMAT_WBFS;
+    expected.meta.block_size = block_size;
+    expected.disc_size = 4699979776ull;
+    return expected;
+}
+
+// ---- RVZ and WIA, written here from Dolphin's format description ----
+
+enum Codec : std::uint32_t
+{
+    kNone = 0,
+    kPurge = 1,
+    kBzip2 = 2,
+    kLzma = 3,
+    kLzma2 = 4,
+    kZstd = 5,
+};
+
+// A group as written, for tests that damage one.
+struct GroupRecord
+{
+    std::uint64_t offset;
+    std::uint32_t size;
+    bool compressed;
+    std::uint32_t packed;
+    bool partition;
+};
+
+struct RvzOptions
+{
+    bool rvz = true;
+    std::uint32_t codec = kZstd;
+    int level = 1;
+    std::uint32_t chunk = 0x20000;
+    std::uint32_t first_segment = 0; // sectors of each partition's first data segment; 0: a third
+    bool nkit = false;
+    std::function<void(std::vector<GroupRecord>&)> tamper; // changes group headers before they are written
+};
+
+Bytes Compress(std::uint32_t codec, int level, const Bytes& data)
+{
+    switch (codec)
+    {
+    case kBzip2:
+    {
+        unsigned size = unsigned(data.size() + data.size() / 100 + 1024);
+        Bytes out(size);
+        Require(BZ2_bzBuffToBuffCompress(reinterpret_cast<char*>(out.data()), &size,
+                                         const_cast<char*>(reinterpret_cast<const char*>(data.data())),
+                                         unsigned(data.size()), level, 0, 30)
+                    == BZ_OK,
+                "bzip2 compression failed");
+        out.resize(size);
+        return out;
+    }
+    case kLzma:
+    case kLzma2:
+    {
+        lzma_options_lzma options{};
+        Require(!lzma_lzma_preset(&options, std::uint32_t(level)), "LZMA preset");
+        const lzma_filter filters[2] = {{codec == kLzma ? LZMA_FILTER_LZMA1 : LZMA_FILTER_LZMA2, &options},
+                                        {LZMA_VLI_UNKNOWN, nullptr}};
+        Bytes out(data.size() + data.size() / 2 + 4096);
+        std::size_t size = 0;
+        Require(lzma_raw_buffer_encode(filters, nullptr, data.data(), data.size(), out.data(), &size, out.size())
+                    == LZMA_OK,
+                "LZMA compression failed");
+        out.resize(size);
+        return out;
+    }
+    case kZstd:
+    {
+        Bytes out(ZSTD_compressBound(data.size()));
+        const std::size_t size = ZSTD_compress(out.data(), out.size(), data.data(), data.size(), level);
+        Require(!ZSTD_isError(size), "zstd compression failed");
+        out.resize(size);
+        return out;
+    }
+    default: return data;
+    }
+}
+
+// The 7-Zip property bytes of the encoder's settings, from liblzma itself.
+Bytes LzmaProperties(std::uint32_t codec, int level)
+{
+    lzma_options_lzma options{};
+    Require(!lzma_lzma_preset(&options, std::uint32_t(level)), "LZMA preset");
+    const lzma_filter filter{codec == kLzma ? LZMA_FILTER_LZMA1 : LZMA_FILTER_LZMA2, &options};
+    std::uint32_t size = 0;
+    Require(lzma_properties_size(&size, &filter) == LZMA_OK, "LZMA properties size");
+    Bytes props(size);
+    Require(lzma_properties_encode(&filter, props.data()) == LZMA_OK, "LZMA properties");
+    return props;
+}
+
+// The partitions' data sectors: a raw read there fails (WIA/RVZ store it decrypted).
+std::set<std::uint32_t> PartitionDataSectors(const BuiltDisc& disc)
+{
+    std::set<std::uint32_t> sectors;
+    for (const BuiltPartition& partition : disc.partitions)
+        for (std::uint32_t i = 0; i < partition.clusters; ++i)
+            sectors.insert(std::uint32_t(partition.data_offset / kSector) + i);
+    return sectors;
+}
+
+Bytes MakeRvz(const BuiltDisc& disc, const RvzOptions& options, std::vector<GroupRecord>* written = nullptr)
+{
+    const Bytes& iso = disc.iso;
+    const std::uint32_t chunk = options.chunk, per_group = chunk / kSector;
+    struct Stored
+    {
+        Bytes bytes;
+        bool compressed = true;
+        std::uint32_t packed = 0;
+        bool partition = false;
+    };
+    std::vector<Stored> groups;
+    std::uint64_t counter = 0;
+    // One group: exception lists for partition data (which the reader skips),
+    // then the data, with RVZ junk runs as seeds; zeroes take no data at all.
+    const auto add_group = [&](const Bytes& data, bool partition, std::uint64_t section_offset, std::uint64_t junk_begin,
+                               std::uint64_t junk_end) {
+        ++counter;
+        Bytes lists;
+        std::size_t exceptions = 0;
+        if (partition)
+            for (std::uint32_t list = 0; list < (chunk + 0x1FFFFF) / 0x200000; ++list)
+            {
+                const std::uint16_t count = std::uint16_t((counter + list) % 3);
+                Put16(lists, lists.size(), count);
+                const Bytes hashes = Random(count * 22, counter * 7 + list);
+                lists.insert(lists.end(), hashes.begin(), hashes.end());
+                exceptions += count;
+            }
+        Bytes body;
+        bool packed = false;
+        const std::uint64_t data_end = section_offset + data.size();
+        if (options.rvz && junk_begin < data_end && junk_end > section_offset)
+        {
+            packed = true;
+            std::uint64_t at = section_offset;
+            while (at < data_end)
+            {
+                const bool junk = at >= junk_begin && at < junk_end;
+                std::uint64_t end = junk ? std::min({junk_end, data_end, (at / kSector + 1) * kSector})
+                                         : std::min(data_end, at < junk_begin ? junk_begin : data_end);
+                if (junk)
+                {
+                    Append32(body, 0x80000000u | std::uint32_t(end - at));
+                    for (const std::uint32_t word : JunkSeed("RWDE", 0, std::uint32_t(at / kSector))) Append32(body, word);
+                }
+                else
+                {
+                    Append32(body, std::uint32_t(end - at));
+                    body.insert(body.end(), data.begin() + std::ptrdiff_t(at - section_offset),
+                                data.begin() + std::ptrdiff_t(end - section_offset));
+                }
+                at = end;
+            }
+        }
+        else
+            body = data;
+        Stored stored;
+        stored.packed = packed ? std::uint32_t(body.size()) : 0;
+        stored.partition = partition;
+        if (!exceptions && !packed && std::all_of(data.begin(), data.end(), [](std::uint8_t b) { return b == 0; }))
+        {
+            groups.push_back(stored); // size 0: zeroes
+            return;
+        }
+        // RVZ may keep a group as is: then (as with no codec) its lists come
+        // first, padded to four bytes.
+        const bool as_is = options.rvz && counter % 4 == 1;
+        if (options.codec == kNone || as_is)
+        {
+            stored.bytes = lists;
+            while (partition && stored.bytes.size() % 4) stored.bytes.push_back(0);
+            stored.bytes.insert(stored.bytes.end(), body.begin(), body.end());
+            stored.compressed = !as_is;
+        }
+        else
+        {
+            Bytes all = lists;
+            all.insert(all.end(), body.begin(), body.end());
+            stored.bytes = Compress(options.codec, options.level, all);
+        }
+        groups.push_back(stored);
+    };
+
+    // Partition data, in two segments each, decrypted and without hashes.
+    Bytes partition_structs;
+    for (const BuiltPartition& partition : disc.partitions)
+    {
+        const std::uint32_t first = std::uint32_t(partition.data_offset / kSector);
+        const std::uint32_t split = options.first_segment ? std::min(options.first_segment, partition.clusters)
+                                                          : std::max<std::uint32_t>(1, partition.clusters / 3);
+        Bytes entry = partition.title_key;
+        for (const auto& [begin, end] : {std::pair<std::uint32_t, std::uint32_t>{0, split}, {split, partition.clusters}})
+        {
+            const std::uint32_t group_index = std::uint32_t(groups.size());
+            for (std::uint32_t sector = begin; sector < end; sector += per_group)
+            {
+                const std::uint32_t last = std::min(end, sector + per_group);
+                const Bytes data = Slice(partition.data, std::uint64_t(sector) * kSectorData,
+                                         std::uint64_t(last - sector) * kSectorData);
+                add_group(data, true, std::uint64_t(sector) * kSectorData, partition.junk_begin,
+                          std::uint64_t(partition.clusters) * kSectorData);
+            }
+            Append32(entry, first + begin);
+            Append32(entry, end - begin);
+            Append32(entry, group_index);
+            Append32(entry, std::uint32_t(groups.size()) - group_index);
+        }
+        partition_structs.insert(partition_structs.end(), entry.begin(), entry.end());
+    }
+    // Everything else as raw data, split where partitions start.
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> raw;
+    std::uint64_t cursor = 0x80;
+    for (const BuiltPartition& partition : disc.partitions)
+    {
+        if (partition.spec.disc_offset > cursor) raw.push_back({cursor, partition.spec.disc_offset});
+        raw.push_back({partition.spec.disc_offset, partition.data_offset});
+        cursor = partition.data_offset + std::uint64_t(partition.clusters) * kSector;
+    }
+    if (iso.size() > cursor) raw.push_back({cursor, iso.size()});
+    Bytes raw_structs;
+    for (const auto& [begin, end] : raw)
+    {
+        const std::uint32_t group_index = std::uint32_t(groups.size());
+        for (std::uint64_t at = begin & ~std::uint64_t(kSector - 1); at < end; at += chunk)
+        {
+            Bytes data = Slice(iso, at, std::min<std::uint64_t>(chunk, end - at));
+            // The reader takes the first 0x80 bytes from the disc struct.
+            if (at == 0) std::fill(data.begin(), data.begin() + 0x80, 0xEE);
+            add_group(data, false, at, disc.junk_tail, iso.size());
+        }
+        Put64(raw_structs, raw_structs.size(), begin);
+        Put64(raw_structs, raw_structs.size(), end - begin);
+        Append32(raw_structs, group_index);
+        Append32(raw_structs, std::uint32_t(groups.size()) - group_index);
+    }
+
+    // Header, disc struct, an NKit header, partition structs, group data, then
+    // the compressed raw data and group headers.
+    Bytes file(0x48 + 0xDC, 0);
+    if (options.nkit)
+    {
+        Bytes nkit;
+        for (const char c : std::string("NKIT  v1")) nkit.push_back(std::uint8_t(c));
+        Append32(nkit, 0x12345678);
+        const Bytes md5 = Random(16, 61), sha1 = Random(20, 62);
+        nkit.insert(nkit.end(), md5.begin(), md5.end());
+        nkit.insert(nkit.end(), sha1.begin(), sha1.end());
+        Put64(nkit, nkit.size(), 0x1122334455667788ull);
+        file.insert(file.end(), nkit.begin(), nkit.end());
+    }
+    const std::uint64_t partitions_at = file.size();
+    file.insert(file.end(), partition_structs.begin(), partition_structs.end());
+    std::vector<GroupRecord> records;
+    for (const Stored& group : groups)
+    {
+        while (file.size() % 4) file.push_back(0);
+        records.push_back({file.size(), std::uint32_t(group.bytes.size()), group.compressed && !group.bytes.empty(),
+                           group.packed, group.partition});
+        file.insert(file.end(), group.bytes.begin(), group.bytes.end());
+    }
+    if (written) *written = records;
+    if (options.tamper) options.tamper(records);
+    Bytes group_headers;
+    for (const GroupRecord& group : records)
+    {
+        Append32(group_headers, std::uint32_t(group.offset / 4));
+        if (options.rvz)
+        {
+            Append32(group_headers, group.size | (group.compressed ? 0x80000000u : 0));
+            Append32(group_headers, group.packed);
+        }
+        else
+            Append32(group_headers, group.size);
+    }
+    const Bytes raw_stored = Compress(options.codec, options.level, raw_structs);
+    const Bytes groups_stored = Compress(options.codec, options.level, group_headers);
+    const std::uint64_t raw_at = file.size();
+    file.insert(file.end(), raw_stored.begin(), raw_stored.end());
+    const std::uint64_t groups_at = file.size();
+    file.insert(file.end(), groups_stored.begin(), groups_stored.end());
+
+    Bytes discs(0xDC, 0);
+    Put32(discs, 0, 2);
+    Put32(discs, 4, options.codec);
+    Put32(discs, 8, std::uint32_t(options.level));
+    Put32(discs, 12, chunk);
+    std::copy(iso.begin(), iso.begin() + 0x80, discs.begin() + 16);
+    Put32(discs, 0x90, std::uint32_t(disc.partitions.size()));
+    Put32(discs, 0x94, 0x30);
+    Put64(discs, 0x98, partitions_at);
+    Put(discs, 0xA0, Sha1(partition_structs));
+    Put32(discs, 0xB4, std::uint32_t(raw.size()));
+    Put64(discs, 0xB8, raw_at);
+    Put32(discs, 0xC0, std::uint32_t(raw_stored.size()));
+    Put32(discs, 0xC4, std::uint32_t(groups.size()));
+    Put64(discs, 0xC8, groups_at);
+    Put32(discs, 0xD0, std::uint32_t(groups_stored.size()));
+    if (options.codec == kLzma || options.codec == kLzma2)
+    {
+        const Bytes props = LzmaProperties(options.codec, options.level);
+        discs[0xD4] = std::uint8_t(props.size());
+        Put(discs, 0xD5, props);
+    }
+    Bytes header;
+    for (const char c : std::string(options.rvz ? "RVZ\x01" : "WIA\x01", 4)) header.push_back(std::uint8_t(c));
+    Append32(header, 0x01000000);
+    Append32(header, options.rvz ? 0x00030000 : 0x01000000);
+    Append32(header, 0xDC);
+    const Bytes disc_hash = Sha1(discs);
+    header.insert(header.end(), disc_hash.begin(), disc_hash.end());
+    Put64(header, header.size(), iso.size());
+    Put64(header, header.size(), file.size());
+    const Bytes head_hash = Sha1(header);
+    header.insert(header.end(), head_hash.begin(), head_hash.end());
+    std::copy(header.begin(), header.end(), file.begin());
+    std::copy(discs.begin(), discs.end(), file.begin() + 0x48);
+    return file;
+}
+
+ExpectedMeta RvzMeta(const Bytes& iso, const RvzOptions& options)
+{
+    ExpectedMeta expected;
+    NodDiscMeta& meta = expected.meta;
+    meta.format = options.rvz ? NOD_FORMAT_RVZ : NOD_FORMAT_WIA;
+    const NodCompressionKind kinds[] = {NOD_COMPRESSION_KIND_NONE,  NOD_COMPRESSION_KIND_NONE,
+                                        NOD_COMPRESSION_KIND_BZIP2, NOD_COMPRESSION_KIND_LZMA,
+                                        NOD_COMPRESSION_KIND_LZMA2, NOD_COMPRESSION_KIND_ZSTANDARD};
+    meta.compression = {kinds[options.codec], std::int16_t(options.codec == kNone ? 0 : options.level)};
+    meta.block_size = options.chunk;
+    meta.decrypted = meta.needs_hash_recovery = meta.lossless = true;
+    meta.disc_size = expected.disc_size = iso.size();
+    if (options.nkit)
+    {
+        meta.crc32 = 0x12345678;
+        const Bytes md5 = Random(16, 61), sha1 = Random(20, 62);
+        std::copy(md5.begin(), md5.end(), meta.md5);
+        std::copy(sha1.begin(), sha1.end(), meta.sha1);
+        meta.xxh64 = 0x1122334455667788ull;
+    }
+    return expected;
 }
 
 void WriteFile(const fs::path& path, const Bytes& bytes, std::size_t begin = 0, std::size_t end = SIZE_MAX)
@@ -586,13 +1140,6 @@ Bytes ReadAll(NodHandle* handle, std::size_t chunk)
         Require(std::size_t(got) <= chunk, "nod_read returned more than asked");
         out.insert(out.end(), buffer.begin(), buffer.begin() + got);
     }
-}
-
-Bytes Slice(const Bytes& bytes, std::uint64_t begin, std::uint64_t size)
-{
-    begin = std::min<std::uint64_t>(begin, bytes.size());
-    size = std::min<std::uint64_t>(size, bytes.size() - begin);
-    return Bytes(bytes.begin() + std::ptrdiff_t(begin), bytes.begin() + std::ptrdiff_t(begin + size));
 }
 
 struct Visit
@@ -729,8 +1276,9 @@ std::uint32_t FindIndex(const BuiltPartition& built, const std::string& path)
     throw std::runtime_error("Fixture has no " + path);
 }
 
-// On a newly opened disc, so the cache holds only what opening it read.
-void CheckSeeksAndProbes(const fs::path& path, const BuiltPartition& built)
+// On a newly opened disc, so the cache holds only what opening it read (with
+// big WIA/RVZ chunks that can include the "cold" file).
+void CheckSeeksAndProbes(const fs::path& path, const BuiltPartition& built, bool cold = true)
 {
     Owned disc = OpenDisc(path);
     Owned partition = OpenData(disc);
@@ -753,15 +1301,19 @@ void CheckSeeksAndProbes(const fs::path& path, const BuiltPartition& built)
 
     // The resident-bytes probe: a cold file misses, changing nothing.
     const std::uint32_t cold_index = FindIndex(built, "files/later.bin");
-    Owned cold = OpenFile(partition, cold_index);
+    Owned cold_file = OpenFile(partition, cold_index);
     Bytes out(256 * 1024 + 1, 0xA5);
-    nod_seek(cold.get(), 17, 0);
-    nod_seek(cold.get(), 0, 9); // leaves an error message that a probe must keep
+    nod_seek(cold_file.get(), 17, 0);
+    nod_seek(cold_file.get(), 0, 9); // leaves an error message that a probe must keep
     const std::string kept = Message();
-    Require(nod_try_read_cached_at(cold.get(), 5, out.data(), 32) == -2 && Message() == kept,
-            "A cold probe hit or changed the error message");
-    Require(nod_seek(cold.get(), 0, 1) == 17 && std::all_of(out.begin(), out.end(), [](std::uint8_t b) { return b == 0xA5; }),
-            "A missed probe moved the cursor or wrote the destination");
+    const std::int64_t cold_probe = nod_try_read_cached_at(cold_file.get(), 5, out.data(), 32);
+    Require(Message() == kept && (cold_probe == -2 || (!cold && cold_probe == 32)), "A cold probe hit or changed the error message");
+    if (cold_probe == -2)
+        Require(nod_seek(cold_file.get(), 0, 1) == 17 && std::all_of(out.begin(), out.end(), [](std::uint8_t b) { return b == 0xA5; }),
+                "A missed probe moved the cursor or wrote the destination");
+    else
+        Require(nod_seek(cold_file.get(), 0, 1) == 37 && Slice(out, 0, 32) == Slice(built.nodes[cold_index].data, 5, 32),
+                "A probe of a group decoded while opening was wrong");
     // Reading a file's start decrypts what follows: probes then hit, exactly.
     Owned warm = OpenFile(partition, index);
     Require(nod_read(warm.get(), out.data(), 100) == 100, "Warm-up read");
@@ -797,7 +1349,7 @@ void CheckSeeksAndProbes(const fs::path& path, const BuiltPartition& built)
             "Empty file");
 }
 
-void CheckDiscReads(const Owned& disc, const Bytes& iso, const BuiltDisc& built, bool wbfs,
+void CheckDiscReads(const Owned& disc, const Bytes& iso, const BuiltDisc& built, const ExpectedMeta& expected,
                     const std::set<std::uint32_t>& left_out_sectors)
 {
     NodDiscHeader header{};
@@ -808,17 +1360,15 @@ void CheckDiscReads(const Owned& disc, const Bytes& iso, const BuiltDisc& built,
             "Disc header fields");
     NodDiscMeta meta{};
     Require(nod_disc_meta(disc.get(), &meta) == NOD_RESULT_OK, "Disc meta");
-    if (wbfs)
-        Require(meta.format == NOD_FORMAT_WBFS && meta.block_size != 0 && !meta.lossless && meta.disc_size == 0
-                    && nod_disc_size(disc.get()) == 4699979776ull,
-                "WBFS meta (as nod: block size, no disc size, a single-layer DVD guess)");
-    else
-        Require(meta.format == NOD_FORMAT_ISO && meta.block_size == 0 && meta.lossless && meta.disc_size == iso.size()
-                    && nod_disc_size(disc.get()) == iso.size(),
-                "ISO meta");
-    Require(meta.compression.kind == NOD_COMPRESSION_KIND_NONE && !meta.decrypted && !meta.needs_hash_recovery
-                && meta.crc32 == 0 && meta.xxh64 == 0,
-            "Disc meta flags");
+    const NodDiscMeta& stated = expected.meta;
+    Require(meta.format == stated.format && meta.compression.kind == stated.compression.kind
+                && meta.compression.level == stated.compression.level && meta.block_size == stated.block_size
+                && meta.decrypted == stated.decrypted && meta.needs_hash_recovery == stated.needs_hash_recovery
+                && meta.lossless == stated.lossless && meta.disc_size == stated.disc_size && meta.crc32 == stated.crc32
+                && std::memcmp(meta.md5, stated.md5, 16) == 0 && std::memcmp(meta.sha1, stated.sha1, 20) == 0
+                && meta.xxh64 == stated.xxh64,
+            "Disc meta of format " + std::to_string(int(stated.format)) + " differs");
+    Require(nod_disc_size(disc.get()) == expected.disc_size, "Disc size");
     NodPartitionInfo infos[4]{};
     Require(nod_disc_partitions(disc.get(), infos, 4) == built.partitions.size(), "Partition count");
     for (std::size_t i = 0; i < built.partitions.size(); ++i)
@@ -869,13 +1419,19 @@ void CheckDiscReads(const Owned& disc, const Bytes& iso, const BuiltDisc& built,
                     && std::equal(out.begin(), out.begin() + 40, iso.begin() + std::ptrdiff_t(hole - 40)),
                 "Raw read into left-out partition data");
     }
-    if (!wbfs)
-    {
+    if (expected.meta.format == NOD_FORMAT_ISO)
         Require(nod_seek(disc.get(), 0, 0) == 0 && ReadAll(disc.get(), 1 << 20) == iso, "Whole raw ISO differs");
+    if (expected.meta.format != NOD_FORMAT_WBFS)
+    {
+        // The disc ends where the image says.
         std::uint8_t byte = 0;
         Require(nod_seek(disc.get(), std::int64_t(iso.size()), 0) == std::int64_t(iso.size())
                     && nod_read(disc.get(), &byte, 1) == 0,
-                "Raw read past the ISO's end");
+                "Raw read past the disc's end");
+        Bytes tail(50);
+        Require(nod_seek(disc.get(), std::int64_t(iso.size() - 30), 0) > 0 && nod_read(disc.get(), tail.data(), 50) == 30
+                    && std::equal(tail.begin(), tail.begin() + 30, iso.end() - 30),
+                "Raw read of the disc's last bytes");
     }
     else
     {
@@ -1000,15 +1556,14 @@ void CheckErrors(const fs::path& work, const BuiltDisc& retail)
     WriteFile(work / "noise.iso", Random(0x10000, 4));
     RequireOpenFails(work / "noise.iso", NOD_RESULT_ERR_FORMAT, "Unknown disc format");
     const std::vector<std::pair<std::string, Bytes>> formats = {
-        {"RVZ", Hex("52565a01")}, {"WIA", Hex("57494101")}, {"CISO", Hex("4349534f")},
-        {"GCZ", Hex("01c00bb1")}, {"TGC", Hex("ae0f38a2")}, {"NFS", Hex("45474753")}};
+        {"CISO", Hex("4349534f")}, {"GCZ", Hex("01c00bb1")}, {"TGC", Hex("ae0f38a2")}, {"NFS", Hex("45474753")}};
     for (const auto& [name, magic] : formats)
     {
         Bytes image(0x1000, 0);
         Put(image, 0, magic);
         WriteFile(work / ("image." + name), image);
         RequireOpenFails(work / ("image." + name), NOD_RESULT_ERR_FORMAT,
-                         name + " images are not supported on this build; use ISO or WBFS");
+                         name + " images are not supported on this build; use ISO, WBFS or RVZ");
     }
     Bytes gamecube(0x10000, 0);
     std::memcpy(gamecube.data(), "GZZE01", 6);
@@ -1125,6 +1680,172 @@ void CheckErrors(const fs::path& work, const BuiltDisc& retail)
                 std::string("find_file(") + path + ") found a node or set an error");
 }
 
+RvzOptions Rvz(bool rvz, std::uint32_t codec, int level, std::uint32_t chunk)
+{
+    RvzOptions options;
+    options.rvz = rvz;
+    options.codec = codec;
+    options.level = level;
+    options.chunk = chunk;
+    return options;
+}
+
+// Every codec, chunk sizes from RVZ's least to WIA's two exception lists a
+// group, partition data in two segments, junk packed as seeds, groups kept
+// as is, zero groups, and an RVZ split into files. WIA decodes with the same
+// codecs as RVZ: its big chunks take one slow codec only, to keep the test fast.
+void CheckRvzImages(const fs::path& work, const BuiltDisc& disc, const BuiltDisc& retail)
+{
+    struct Image
+    {
+        std::string name;
+        RvzOptions options;
+        const BuiltDisc* source;
+    };
+    std::vector<Image> images = {
+        {"zstd.rvz", Rvz(true, kZstd, 3, 0x20000), &disc},   {"none.rvz", Rvz(true, kNone, 0, 0x20000), &disc},
+        {"bzip2.rvz", Rvz(true, kBzip2, 1, 0x20000), &disc}, {"lzma.rvz", Rvz(true, kLzma, 0, 0x20000), &disc},
+        {"lzma2.rvz", Rvz(true, kLzma2, 0, 0x20000), &disc}, {"small.rvz", Rvz(true, kZstd, 1, 0x8000), &disc},
+        {"big.rvz", Rvz(true, kZstd, 1, 0x200000), &disc},   {"none.wia", Rvz(false, kNone, 0, 0x200000), &disc},
+        {"zstd.wia", Rvz(false, kZstd, 1, 0x200000), &disc}, {"lzma2.wia", Rvz(false, kLzma2, 0, 0x400000), &disc},
+        {"retail.rvz", Rvz(true, kZstd, 1, 0x20000), &retail},
+    };
+    images[0].options.nkit = true;
+    images[5].options.first_segment = 7;
+    images[6].options.first_segment = 70;
+    for (const Image& image : images)
+    {
+        const BuiltPartition& partition = image.source->partitions[1];
+        WriteFile(work / image.name, MakeRvz(*image.source, image.options));
+        {
+            Owned opened = OpenDisc(work / image.name);
+            CheckDiscReads(opened, image.source->iso, *image.source, RvzMeta(image.source->iso, image.options),
+                           PartitionDataSectors(*image.source));
+            CheckPartition(opened, partition, partition.data, image.name);
+            NodHandle* handle = nullptr;
+            Require(nod_disc_open_partition_kind(opened.get(), NOD_PARTITION_KIND_UPDATE, nullptr, &handle) == NOD_RESULT_OK,
+                    image.name + ": update partition");
+            Owned update(handle);
+            Require(ReadAll(update.get(), 1 << 20) == image.source->partitions[0].data, image.name + ": update partition data");
+        }
+        CheckSeeksAndProbes(work / image.name, partition, image.options.chunk < 0x200000);
+    }
+    {
+        Owned opened = OpenDisc(work / "retail.rvz");
+        CheckConcurrentReads(opened, retail.partitions[1]);
+    }
+    // nod's first split scheme: game.rvz, game.rvz.1 ...
+    const Bytes split = MakeRvz(disc, Rvz(true, kZstd, 1, 0x20000));
+    WriteSplit(split, {split.size() / 3 + 1, split.size() * 2 / 3 + 3}, [&](int i) {
+        return work / (i ? "split.rvz." + std::to_string(i) : std::string("split.rvz"));
+    });
+    Owned opened = OpenDisc(work / "split.rvz");
+    CheckPartition(opened, disc.partitions[1], disc.partitions[1].data, "split.rvz");
+}
+
+void CheckRvzErrors(const fs::path& work, const BuiltDisc& disc)
+{
+    const BuiltPartition& data = disc.partitions[1];
+    // Damaged headers, made consistent again where the damage is not the point.
+    const auto rehash = [](Bytes& file) {
+        Put(file, 0x10, Sha1(Slice(file, 0x48, 0xDC)));
+        Put(file, 0x34, Sha1(Slice(file, 0, 0x34)));
+    };
+    const auto write = [&](const std::string& name, Bytes file, const std::function<void(Bytes&)>& change) {
+        change(file);
+        WriteFile(work / name, file);
+        return work / name;
+    };
+    const Bytes rvz = MakeRvz(disc, Rvz(true, kZstd, 1, 0x20000));
+    const Bytes wia = MakeRvz(disc, Rvz(false, kNone, 0, 0x200000));
+    RequireOpenFails(write("head-hash.rvz", rvz, [](Bytes& f) { f[0x24] ^= 1; }), NOD_RESULT_ERR_FORMAT,
+                     "disc format error: WIA/RVZ hash mismatch: ");
+    RequireOpenFails(write("disc-hash.rvz", rvz, [](Bytes& f) { f[0x48 + 0x30] ^= 1; }), NOD_RESULT_ERR_FORMAT,
+                     "WIA/RVZ hash mismatch");
+    RequireOpenFails(write("partition-hash.rvz", rvz, [](Bytes& f) { f[0x48 + 0xDC] ^= 1; }), NOD_RESULT_ERR_FORMAT,
+                     "WIA/RVZ hash mismatch");
+    RequireOpenFails(write("version.rvz", rvz, [&](Bytes& f) { Put32(f, 8, 0x02000000); rehash(f); }),
+                     NOD_RESULT_ERR_FORMAT, "Unsupported WIA/RVZ version: 0x1000000");
+    RequireOpenFails(write("old.rvz", rvz, [&](Bytes& f) { Put32(f, 4, 0x00020000); rehash(f); }), NOD_RESULT_ERR_FORMAT,
+                     "Unsupported WIA/RVZ version: 0x20000");
+    RequireOpenFails(write("chunk.rvz", rvz, [&](Bytes& f) { Put32(f, 0x48 + 12, 0x18000); rehash(f); }),
+                     NOD_RESULT_ERR_FORMAT, "Invalid RVZ chunk size: 0x18000");
+    RequireOpenFails(write("chunk.wia", wia, [&](Bytes& f) { Put32(f, 0x48 + 12, 0x100000); rehash(f); }),
+                     NOD_RESULT_ERR_FORMAT, "Invalid WIA chunk size: 0x100000");
+    RequireOpenFails(write("huge.rvz", rvz, [&](Bytes& f) { Put32(f, 0x48 + 12, 0x4000000); rehash(f); }),
+                     NOD_RESULT_ERR_FORMAT, "WIA/RVZ chunk size 0x4000000 is larger than this build reads");
+    RequireOpenFails(write("purge.wia", wia, [&](Bytes& f) { Put32(f, 0x48 + 4, kPurge); rehash(f); }),
+                     NOD_RESULT_ERR_FORMAT, "WIA images compressed with purge are not supported on this build");
+    RequireOpenFails(write("codec.rvz", rvz, [&](Bytes& f) { Put32(f, 0x48 + 4, 9); rehash(f); }), NOD_RESULT_ERR_FORMAT,
+                     "Invalid compression type 9");
+    RequireOpenFails(write("type.rvz", rvz, [&](Bytes& f) { Put32(f, 0x48, 3); rehash(f); }), NOD_RESULT_ERR_FORMAT,
+                     "Invalid disc type 3");
+    RequireOpenFails(write("structs.rvz", rvz, [&](Bytes& f) { Put32(f, 0x48 + 0x94, 0x2C); rehash(f); }),
+                     NOD_RESULT_ERR_FORMAT, "WIA/RVZ partition type size is 44, expected 48");
+    RequireOpenFails(write("props.rvz", MakeRvz(disc, Rvz(true, kLzma, 0, 0x20000)),
+                           [&](Bytes& f) {
+                               f[0x48 + 0xD4] = 4;
+                               rehash(f);
+                           }),
+                     NOD_RESULT_ERR_FORMAT, "Invalid LZMA props length: 4");
+    RequireOpenFails(write("short.rvz", rvz, [](Bytes& f) { f.resize(0x100); }), NOD_RESULT_ERR_IO,
+                     "WIA/RVZ disc header");
+
+    // Damaged groups: the image opens, reading their data fails.
+    const auto failing_read = [&](const std::string& name, const std::string& message) {
+        Owned opened = OpenDisc(work / name);
+        Owned partition = OpenData(opened);
+        Bytes out(data.data.size());
+        std::int64_t got = 0;
+        std::size_t done = 0;
+        while ((got = nod_read(partition.get(), out.data() + done, out.size() - done)) > 0) done += std::size_t(got);
+        Require(got == -1, name + ": a damaged group read without error");
+        RequireError(message, name);
+        RequireError("Reading WIA/RVZ group", name);
+    };
+    std::vector<GroupRecord> groups;
+    Bytes damaged = MakeRvz(disc, Rvz(true, kZstd, 1, 0x20000), &groups);
+    const auto first = [&](const std::function<bool(const GroupRecord&)>& match) {
+        // Group 1 holds the data partition's boot block and FST, read while opening.
+        const auto found = std::find_if(groups.begin() + 2, groups.end(), match);
+        Require(found != groups.end(), "No group to damage");
+        return std::size_t(found - groups.begin());
+    };
+    const std::size_t compressed =
+        first([](const GroupRecord& g) { return g.partition && g.compressed && !g.packed && g.size; });
+    damaged[groups[compressed].offset] ^= 0xFF; // the zstd frame's magic
+    WriteFile(work / "frame.rvz", damaged);
+    failing_read("frame.rvz", "Invalid Zstandard frame header");
+    RvzOptions unpacked = Rvz(true, kZstd, 1, 0x20000);
+    unpacked.tamper = [&](std::vector<GroupRecord>& records) {
+        for (std::size_t i = 2; i < records.size(); ++i)
+            if (records[i].partition && records[i].packed)
+            {
+                records[i].packed = 0; // its packed data is then the wrong size
+                return;
+            }
+    };
+    WriteFile(work / "unpacked.rvz", MakeRvz(disc, unpacked));
+    failing_read("unpacked.rvz", "data size mismatch");
+    RvzOptions moved = Rvz(true, kZstd, 1, 0x20000);
+    moved.tamper = [&](std::vector<GroupRecord>& records) {
+        for (std::size_t i = 2; i < records.size(); ++i)
+            if (records[i].partition && records[i].size)
+            {
+                records[i].offset = 0x7FFFFFF0ull * 4; // past the end of the file
+                return;
+            }
+    };
+    WriteFile(work / "moved.rvz", MakeRvz(disc, moved));
+    failing_read("moved.rvz", "unexpected end of the file");
+    // As stored, partition data is hashed and encrypted: a raw read of it fails.
+    Owned opened = OpenDisc(work / "split.rvz");
+    Bytes out(16);
+    Require(nod_seek(opened.get(), std::int64_t(data.data_offset), 0) > 0 && nod_read(opened.get(), out.data(), 16) == -1,
+            "A raw read of RVZ partition data did not fail");
+    RequireError("the image stores this partition data decrypted", "Raw RVZ partition read");
+}
+
 void CheckHeaderCopy(const char* copy, const char* prepared)
 {
     const auto read = [](const char* path) {
@@ -1145,14 +1866,19 @@ int main(int argc, char** argv)
 {
     try
     {
-        if (argc != 2 && argc != 4)
+        // WORK_DIR [NOD_H_COPY PREPARED_NOD_H] [--keep]: --keep leaves the images.
+        std::vector<std::string> args(argv + 1, argv + argc);
+        const bool keep = !args.empty() && args.back() == "--keep";
+        if (keep) args.pop_back();
+        if (args.size() != 1 && args.size() != 3)
         {
-            std::cerr << "usage: wii_disc_reader_tests WORK_DIR [NOD_H_COPY PREPARED_NOD_H]\n";
+            std::cerr << "usage: wii_disc_reader_tests WORK_DIR [NOD_H_COPY PREPARED_NOD_H] [--keep]\n";
             return 2;
         }
-        if (argc == 4) CheckHeaderCopy(argv[2], argv[3]);
+        if (args.size() == 3) CheckHeaderCopy(args[1].c_str(), args[2].c_str());
         CheckAes();
-        const fs::path work = argv[1];
+        CheckSha1AndJunk();
+        const fs::path work = args[0];
         fs::remove_all(work);
         fs::create_directories(work);
 
@@ -1163,7 +1889,7 @@ int main(int argc, char** argv)
         WriteFile(work / "retail.iso", retail.iso);
         {
             Owned disc = OpenDisc(work / "retail.iso");
-            CheckDiscReads(disc, retail.iso, retail, false, {});
+            CheckDiscReads(disc, retail.iso, retail, IsoMeta(retail.iso), {});
             CheckPartition(disc, data, data.data, "ISO");
             CheckConcurrentReads(disc, data);
         }
@@ -1178,7 +1904,7 @@ int main(int argc, char** argv)
         for (const char* name : {"split.iso", "parts.part0.iso"})
         {
             Owned disc = OpenDisc(work / name);
-            CheckDiscReads(disc, retail.iso, retail, false, {});
+            CheckDiscReads(disc, retail.iso, retail, IsoMeta(retail.iso), {});
             CheckPartition(disc, data, data.data, name);
         }
 
@@ -1205,7 +1931,7 @@ int main(int argc, char** argv)
             const Bytes holed = DataWithoutBlocks(data, left_out_sectors);
             {
                 Owned disc = OpenDisc(work / (name + ".wbfs"));
-                CheckDiscReads(disc, retail.iso, retail, true, left_out_sectors);
+                CheckDiscReads(disc, retail.iso, retail, WbfsMeta(block), left_out_sectors);
                 CheckPartition(disc, data, holed, name + ".wbfs");
             }
             CheckSeeksAndProbes(work / (name + ".wbfs"), data);
@@ -1214,7 +1940,7 @@ int main(int argc, char** argv)
                 return work / (name + "-split.wbf" + (i ? std::to_string(i) : std::string("s")));
             });
             Owned disc = OpenDisc(work / (name + "-split.wbfs"));
-            CheckDiscReads(disc, retail.iso, retail, true, left_out_sectors);
+            CheckDiscReads(disc, retail.iso, retail, WbfsMeta(block), left_out_sectors);
             CheckPartition(disc, data, holed, name + "-split.wbfs");
             CheckConcurrentReads(disc, data);
         }
@@ -1255,10 +1981,14 @@ int main(int argc, char** argv)
                     "A cut ISO did not end the file at its last whole cluster");
         }
 
+        // RVZ and WIA, mostly of a disc without the large file.
+        const BuiltDisc medium = BuildDisc({UpdatePartition(), DataPartition(0x100000, false)});
+        CheckRvzImages(work, medium, retail);
+        CheckRvzErrors(work, medium);
         CheckErrors(work, retail);
-        fs::remove_all(work);
-        std::cout << "Wii disc reader: AES, ISO, split ISO, WBFS, split WBFS, decrypted images, seeks, cache "
-                     "probes, concurrent reads and error paths passed.\n";
+        if (!keep) fs::remove_all(work);
+        std::cout << "Wii disc reader: AES, SHA-1, junk, ISO, split ISO, WBFS, split WBFS, RVZ in every codec, WIA, "
+                     "decrypted images, seeks, cache probes, concurrent reads and error paths passed.\n";
         return 0;
     }
     catch (const std::exception& error)

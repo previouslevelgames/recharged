@@ -386,15 +386,7 @@ NodResult nod_disc_meta(const NodHandle* disc, NodDiscMeta* out)
     const NodHandle* handle = CheckHandle(disc);
     if (!handle) return NOD_RESULT_ERR_INVALID_HANDLE;
     if (handle->kind != NodHandle::Kind::Disc) return Fail(NOD_RESULT_ERR_INVALID_HANDLE, "handle is not a disc");
-    // What nod reports for these formats: an ISO is lossless and knows its
-    // size; a WBFS (without an NKit header) records neither.
-    NodDiscMeta meta{};
-    meta.format = handle->disc->Format();
-    meta.compression = NodCompression{NOD_COMPRESSION_KIND_NONE, 0};
-    meta.block_size = handle->disc->BlockSize();
-    meta.lossless = meta.format == NOD_FORMAT_ISO;
-    meta.disc_size = handle->disc->IsoSize();
-    *out = meta;
+    *out = handle->disc->Meta();
     return NOD_RESULT_OK;
 }
 

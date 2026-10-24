@@ -85,8 +85,7 @@ public:
     // The first 0x440 bytes: disc header, debug block, boot block.
     const std::uint8_t* Boot() const { return boot_.data(); }
     NodFormat Format() const { return image_.Format(); }
-    std::uint32_t BlockSize() const { return image_.BlockSize(); }
-    std::uint64_t IsoSize() const { return image_.IsoSize(); }
+    NodDiscMeta Meta() const { return image_.Meta(); }
     // nod's disc_size: the ISO's size, or for a WBFS the DVD size it guesses.
     std::uint64_t Size() const { return size_; }
     const std::vector<Partition>& Partitions() const { return partitions_; }
@@ -120,7 +119,12 @@ private:
     std::size_t ReadPartitionLocked(const Partition& partition, std::uint64_t offset, std::uint8_t* out,
                                     std::size_t size, bool bounded);
     int FindSlot(std::uint32_t partition, std::uint32_t cluster) const;
-    // Decrypts `cluster` and the next ones into the cache; -1 past the image.
+    // The least recently used slot. Slots filled since are newer, so one load
+    // never takes back a slot it filled.
+    int TakeSlot();
+    // Decrypts `cluster` and the next ones into the cache (a WIA/RVZ: copies
+    // in the decoded group that holds it, and the next ones up to the same
+    // read-ahead); -1 past the image.
     int LoadClusters(const Partition& partition, std::uint32_t cluster, bool bounded);
     std::uint8_t* SlotData(int slot) { return slot_data_.data() + std::size_t(slot) * kSectorSize; }
 

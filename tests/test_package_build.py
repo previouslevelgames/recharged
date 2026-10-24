@@ -580,7 +580,8 @@ class SwitchPackageTests(unittest.TestCase):
                                                      "build_stamp": f"{self.mesa_pin} {'8' * 64}"})
         self.assertEqual(len(manifest["prepared"]), len(PACKAGER.SWITCH_DEPENDENCIES))
         for name in ("recharged.nro", "assets/graphics/initial_pipeline_cache.db", "LICENSES/NOTICE-NVK.md",
-                     "LICENSES/switch/nod.txt", "LICENSES/dependencies/mesa-switch/docs/license.rst",
+                     "LICENSES/switch/nod.txt", "LICENSES/switch/bzip2.txt", "LICENSES/switch/liblzma.txt",
+                     "LICENSES/dependencies/mesa-switch/docs/license.rst",
                      "LICENSES/dependencies/mscharged-decomp/LICENSE", "LICENSES/dependencies/freetype/docs/FTL.TXT"):
             self.assertIn(name, manifest["files"])
 

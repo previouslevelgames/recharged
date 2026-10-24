@@ -172,12 +172,15 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ${{ steps.ccache.outputs.cache-primary-key }}
       # The Switch's disc reader, in place of nod there, on generated Wii images;
-      # its copy of nod.h must match the prepared one.
+      # its copy of nod.h must match the prepared one. Its RVZ codecs are only
+      # installed here, after the build: nod's bzip2 and liblzma crates would
+      # find them with pkg-config and link the system libraries instead.
       - name: Check the Wii disc reader
         if: matrix.platform == 'linux-x86_64'
         run: |
+          sudo apt-get install -y --no-install-recommends libzstd-dev libbz2-dev liblzma-dev
           "$CXX" -std=c++17 -O2 -Isrc -Isrc/platform/wii_disc/include tests/wii_disc_reader.cpp \
-            src/platform/wii_disc/*.cpp -o build/wii_disc_reader_tests -pthread
+            src/platform/wii_disc/*.cpp -o build/wii_disc_reader_tests -pthread -lzstd -lbz2 -llzma
           build/wii_disc_reader_tests build/wii-disc-reader src/platform/wii_disc/include/nod.h \
             build/release/prepared/nod/source/nod-ffi/include/nod.h
       - name: Check executable

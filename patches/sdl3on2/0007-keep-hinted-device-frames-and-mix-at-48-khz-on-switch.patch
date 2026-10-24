@@ -1,0 +1,124 @@
+Subject: Keep a device frame count the hint asks for, and mix at 48 kHz on Switch
+Upstream-base: fbe120f5020f8bdcb9cbf5ae28d9859b29781119
+
+The host's AI tests ask for 441-frame device pulls with
+SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, which SDL3 honours. A device opened with
+the hint set no longer lets SDL2 round the size to a power of two; SDL2
+rebuffers instead. On Switch the device is asked for 48000 Hz, the rate the
+console's audio renderer mixes at, so the console does not resample again.
+
+diff --git a/README.md b/README.md
+index 8f2019e..b4111ec 100644
+--- a/README.md
++++ b/README.md
+@@ -18,7 +18,10 @@ exist.
+ ## Known differences from SDL3
+ 
+ - Only the default playback device opens. As in SDL3 it is asked for at least S16, stereo and
+-  44100 Hz, and its stream converts to whatever format SDL2's driver then reports.
++  44100 Hz, and its stream converts to whatever format SDL2's driver then reports. On Switch it is
++  asked for 48000 Hz, the console's own mixing rate, which spares the console resampling a second
++  time. A frame count set with `SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES` is kept: where SDL2's driver
++  wants a power of two, SDL2 rebuffers between the two.
+ - Streams convert with SDL2's format and channel converters and the layer's own windowed-sinc
+   resampler, so samples can differ from SDL3's in their last bits. Integer input at an unchanged
+   rate and unity gain comes out unchanged, as in SDL3. A resampled stream holds back its last 8
+diff --git a/include/SDL3/SDL.h b/include/SDL3/SDL.h
+index f56889a..30fd057 100644
+--- a/include/SDL3/SDL.h
++++ b/include/SDL3/SDL.h
+@@ -637,6 +637,7 @@ enum {
+ #define SDL_HINT_JOYSTICK_HIDAPI_WII S3_HINT_JOYSTICK_HIDAPI_WII
+ #define SDL_HINT_VIDEO_WAYLAND_MODE_SCALING S3_HINT_VIDEO_WAYLAND_MODE_SCALING
+ #define SDL_HINT_PREFERRED_LOCALES S3_HINT_PREFERRED_LOCALES
++#define SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES S3_HINT_AUDIO_DEVICE_SAMPLE_FRAMES
+ #define SDL_HINT_AUTO_UPDATE_JOYSTICKS S3_HINT_AUTO_UPDATE_JOYSTICKS
+ #define SDL_HintPriority S3_HintPriority
+ #define SDL_HINT_DEFAULT S3_HINT_DEFAULT
+diff --git a/include/SDL3/s3_defs.h b/include/SDL3/s3_defs.h
+index 83217e5..d0bce5a 100644
+--- a/include/SDL3/s3_defs.h
++++ b/include/SDL3/s3_defs.h
+@@ -170,6 +170,7 @@ extern bool S3_SetAppMetadataProperty(const char* name, const char* value);
+ #define S3_HINT_JOYSTICK_HIDAPI_WII "SDL_JOYSTICK_HIDAPI_WII"
+ #define S3_HINT_VIDEO_WAYLAND_MODE_SCALING "SDL_VIDEO_WAYLAND_MODE_SCALING"
+ #define S3_HINT_PREFERRED_LOCALES "SDL_PREFERRED_LOCALES"
++#define S3_HINT_AUDIO_DEVICE_SAMPLE_FRAMES "SDL_AUDIO_DEVICE_SAMPLE_FRAMES"
+ #define S3_HINT_AUTO_UPDATE_JOYSTICKS "SDL_AUTO_UPDATE_JOYSTICKS"
+ 
+ typedef enum S3_HintPriority {
+diff --git a/src/s3_audio.c b/src/s3_audio.c
+index cdfded1..b48f6e1 100644
+--- a/src/s3_audio.c
++++ b/src/s3_audio.c
+@@ -1293,8 +1293,29 @@ bool S3_ClearAudioStream(S3_AudioStream* stream)
+     return true;
+ }
+ 
++#ifdef __SWITCH__
++// The console mixes at 48000 Hz; at SDL3's 44100 Hz it would resample a second time.
++#define S3_DEVICE_MINIMUM_FREQ 48000
++#else
++#define S3_DEVICE_MINIMUM_FREQ 44100
++#endif
++
++// The frame count SDL3's hint asks of a device, or 0; SDL2 reads the hint from the environment too.
++static int S3_HintedSampleFrames(void)
++{
++    const char* hint = SDL_GetHint(S3_HINT_AUDIO_DEVICE_SAMPLE_FRAMES);
++    const int frames = hint != NULL ? SDL_atoi(hint) : 0;
++
++    // SDL2 counts a device's frames in 16 bits.
++    return frames > 0 ? SDL_min(frames, 65535) : 0;
++}
++
+ static int S3_DefaultSampleFrames(int freq)
+ {
++    if (S3_HintedSampleFrames() > 0) {
++        return S3_HintedSampleFrames();
++    }
++
+     if (freq <= 22050) {
+         return 512;
+     }
+@@ -1362,6 +1383,7 @@ S3_AudioStream* S3_OpenAudioDeviceStream(S3_AudioDeviceID devid, const S3_AudioS
+     S3_AudioStream* stream;
+     SDL_AudioSpec desired;
+     SDL_AudioSpec obtained;
++    int allowed;
+     char* default_name = NULL;
+ 
+     if (devid != S3_AUDIO_DEVICE_DEFAULT_PLAYBACK) {
+@@ -1382,21 +1404,28 @@ S3_AudioStream* S3_OpenAudioDeviceStream(S3_AudioDeviceID devid, const S3_AudioS
+     SDL_zero(desired);
+     desired.format = AUDIO_S16SYS;
+     desired.channels = 2;
+-    desired.freq = 44100;
++    desired.freq = S3_DEVICE_MINIMUM_FREQ;
+     if (spec != NULL) {
+         desired.format = S3_AUDIO_BITSIZE(spec->format) > 16 ? (SDL_AudioFormat)spec->format : AUDIO_S16SYS;
+         desired.channels = (Uint8)SDL_max(2, spec->channels);
+-        desired.freq = SDL_max(44100, spec->freq);
++        desired.freq = SDL_max(S3_DEVICE_MINIMUM_FREQ, spec->freq);
+     }
+     desired.samples = (Uint16)S3_DefaultSampleFrames(desired.freq);
+     desired.callback = S3_AudioDeviceCallback;
+     desired.userdata = stream;
+ 
+-    stream->device = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, SDL_AUDIO_ALLOW_ANY_CHANGE);
++    // A frame count the hint asks for is kept: where SDL2's driver wants a power of two, SDL2
++    // rebuffers between the two.
++    allowed = SDL_AUDIO_ALLOW_ANY_CHANGE;
++    if (S3_HintedSampleFrames() > 0) {
++        allowed &= ~SDL_AUDIO_ALLOW_SAMPLES_CHANGE;
++    }
++
++    stream->device = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, allowed);
+     if (stream->device != 0 && !S3_IsSupportedAudioFormat(obtained.format)) {
+         // SDL3 has no unsigned 16-bit formats, so SDL2 converts to the requested one instead.
+         SDL_CloseAudioDevice(stream->device);
+-        stream->device = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, SDL_AUDIO_ALLOW_ANY_CHANGE & ~SDL_AUDIO_ALLOW_FORMAT_CHANGE);
++        stream->device = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, allowed & ~SDL_AUDIO_ALLOW_FORMAT_CHANGE);
+     }
+ 
+     if (stream->device == 0) {

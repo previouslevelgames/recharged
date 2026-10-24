@@ -17,7 +17,8 @@ constexpr std::size_t kTicketSize = 0x2A4;
 constexpr std::size_t kH3TableSize = 0x18000;
 constexpr std::size_t kDolHeaderSize = 0x100;
 // 4 MiB of decrypted clusters, filled about half a MiB per miss: sequential
-// file reads then mostly find their next bytes decrypted already.
+// file reads then mostly find their next bytes decrypted already. A WIA/RVZ
+// fills a whole group per miss; the cache keeps at least two of them.
 constexpr std::size_t kCacheSlots = 128;
 constexpr std::uint32_t kReadAhead = 16;
 // Sizes the headers give for metadata (FST, TMD ...) are trusted up to this.
@@ -151,8 +152,9 @@ bool FstView::Find(const char* path, std::uint32_t& node) const
 
 Disc::Disc(const std::string& path) : image_(path)
 {
-    slots_.resize(kCacheSlots);
-    slot_data_.resize(kCacheSlots * kSectorSize);
+    const std::size_t slots = std::max<std::size_t>(kCacheSlots, 2 * std::size_t(image_.GroupSectors()) + 32);
+    slots_.resize(slots);
+    slot_data_.resize(slots * kSectorSize);
     raw_.resize(std::size_t(kReadAhead) * kSectorSize);
     kinds_.resize(kReadAhead);
     std::lock_guard<std::mutex> lock(mutex_);
@@ -160,16 +162,12 @@ Disc::Disc(const std::string& path) : image_(path)
     if (std::memcmp(boot_.data() + 0x18, kWiiMagic, 4) != 0)
     {
         if (std::memcmp(boot_.data() + 0x1C, kGcnMagic, 4) == 0)
-            ThrowFormat("GameCube discs are not supported on this build; use a Wii disc image (ISO or WBFS)");
+            ThrowFormat("GameCube discs are not supported on this build; use a Wii disc image (ISO, WBFS or RVZ)");
         ThrowFormat("Invalid disc header");
     }
     if (boot_[0x61] == 0 && boot_[0x60] != 0) ThrowFormat("Wii disc is encrypted but has no partition hashes");
     ReadPartitions();
-    if (Format() == NOD_FORMAT_ISO)
-    {
-        size_ = IsoSize();
-        return;
-    }
+    if ((size_ = image_.DiscSize())) return;
     // nod's guess for formats that do not record the disc size.
     std::uint64_t end = partitions_.empty() ? 0x50000 : 0;
     bool data = false;
@@ -270,6 +268,7 @@ void Disc::ReadRawExact(std::uint64_t offset, std::uint8_t* out, std::size_t siz
         for (std::uint32_t i = 0; i < count && size; ++i)
         {
             if (kinds_[i] == SectorKind::Missing) ThrowIo(context, "failed to fill whole buffer");
+            if (kinds_[i] == SectorKind::Decrypted) ThrowIo(context, "the image stores these sectors as partition data");
             const std::size_t part = std::min<std::size_t>(kSectorSize - within, size);
             std::memcpy(out, raw_.data() + std::size_t(i) * kSectorSize + within, part);
             out += part;
@@ -302,8 +301,66 @@ int Disc::FindSlot(std::uint32_t partition, std::uint32_t cluster) const
     return -1;
 }
 
+int Disc::TakeSlot()
+{
+    std::size_t slot = 0;
+    for (std::size_t s = 0; s < slots_.size(); ++s)
+    {
+        if (slots_[s].partition == UINT32_MAX) return int(s);
+        if (slots_[s].used < slots_[slot].used) slot = s;
+    }
+    return int(slot);
+}
+
 int Disc::LoadClusters(const Partition& partition, std::uint32_t cluster, bool bounded)
 {
+    const std::uint32_t sector = partition.data_start_sector + cluster;
+    if (image_.Kind(sector) == SectorKind::Decrypted)
+    {
+        // A WIA/RVZ decodes whole groups: keep all of a group's clusters, and
+        // decode the following groups too until the usual read-ahead is in.
+        if (!partition.has_hashes)
+            throw Error(NOD_RESULT_ERR_FORMAT, "disc format error: WIA/RVZ partition data on a disc without partition "
+                                               "hashes is not supported");
+        const std::uint64_t end = bounded ? std::uint64_t(partition.data_start_sector) + partition.Clusters()
+                                          : std::uint64_t(UINT32_MAX) + 1;
+        int result = -1;
+        std::uint64_t next = sector;
+        do
+        {
+            std::uint32_t first = 0, count = 0;
+            const std::uint8_t* data = nullptr;
+            try
+            {
+                data = image_.ReadDecryptedGroup(std::uint32_t(next), first, count);
+            }
+            catch (const Error&)
+            {
+                // Only read-ahead failed: the error comes when that data is read.
+                if (next != sector) break;
+                throw;
+            }
+            for (std::uint32_t i = 0; i < count; ++i)
+            {
+                const std::uint64_t at = std::uint64_t(first) + i;
+                if (at < partition.data_start_sector) continue;
+                if (at >= end) break;
+                const std::uint64_t index = at - partition.data_start_sector;
+                int slot = FindSlot(partition.index, std::uint32_t(index));
+                if (slot < 0)
+                {
+                    slot = TakeSlot();
+                    slots_[std::size_t(slot)] = {partition.index, std::uint32_t(index), ++clock_};
+                    std::memcpy(SlotData(slot), data + std::size_t(i) * kSectorDataSize, kSectorDataSize);
+                }
+                if (index == cluster) result = slot;
+            }
+            next = std::uint64_t(first) + count;
+        } while (next < end && next < std::uint64_t(sector) + kReadAhead && next > sector
+                 && image_.Kind(std::uint32_t(next)) == SectorKind::Decrypted
+                 && FindSlot(partition.index, std::uint32_t(next - partition.data_start_sector)) < 0);
+        return result;
+    }
     std::uint64_t limit = std::uint64_t(UINT32_MAX) - partition.data_start_sector + 1;
     if (bounded) limit = std::min<std::uint64_t>(limit, partition.Clusters());
     std::uint32_t count = std::uint32_t(std::min<std::uint64_t>(kReadAhead, limit - cluster));
@@ -314,37 +371,27 @@ int Disc::LoadClusters(const Partition& partition, std::uint32_t cluster, bool b
             count = i;
             break;
         }
-    image_.ReadSectors(partition.data_start_sector + cluster, count, raw_.data(), kinds_.data());
+    image_.ReadSectors(sector, count, raw_.data(), kinds_.data());
     int first = -1;
     for (std::uint32_t i = 0; i < count; ++i)
     {
-        // Reads end where the image does (nod: an empty block ends the stream).
-        if (kinds_[i] == SectorKind::Missing) break;
-        // The least recently used slot; this batch's are the newest, so it
-        // never takes one of them.
-        std::size_t slot = 0;
-        for (std::size_t s = 0; s < slots_.size(); ++s)
-        {
-            if (slots_[s].partition == UINT32_MAX)
-            {
-                slot = s;
-                break;
-            }
-            if (slots_[s].used < slots_[slot].used) slot = s;
-        }
-        slots_[slot] = {partition.index, cluster + i, ++clock_};
-        std::uint8_t* data = SlotData(int(slot));
-        const std::uint8_t* sector = raw_.data() + std::size_t(i) * kSectorSize;
+        // Reads end where the image does (nod: an empty block ends the stream);
+        // decrypted WIA/RVZ data loads on its own, at the next miss.
+        if (kinds_[i] == SectorKind::Missing || kinds_[i] == SectorKind::Decrypted) break;
+        const int slot = TakeSlot();
+        slots_[std::size_t(slot)] = {partition.index, cluster + i, ++clock_};
+        std::uint8_t* data = SlotData(slot);
+        const std::uint8_t* raw = raw_.data() + std::size_t(i) * kSectorSize;
         if (kinds_[i] == SectorKind::Zero)
             std::memset(data, 0, kSectorSize); // a WBFS leaves out unused blocks; nod reads zeroes
         else if (partition.has_encryption)
             // The data's IV is the end of the still encrypted hash block.
-            partition.key.DecryptCbc(sector + 0x3D0, sector + kHashesSize, data, kSectorDataSize);
+            partition.key.DecryptCbc(raw + 0x3D0, raw + kHashesSize, data, kSectorDataSize);
         else if (partition.has_hashes)
-            std::memcpy(data, sector + kHashesSize, kSectorDataSize);
+            std::memcpy(data, raw + kHashesSize, kSectorDataSize);
         else
-            std::memcpy(data, sector, kSectorSize);
-        if (i == 0) first = int(slot);
+            std::memcpy(data, raw, kSectorSize);
+        if (i == 0) first = slot;
     }
     return first;
 }
@@ -419,6 +466,15 @@ std::size_t Disc::ReadRaw(std::uint64_t offset, std::uint8_t* out, std::size_t s
         for (std::uint32_t i = 0; i < count && done < size; ++i)
         {
             if (kinds_[i] == SectorKind::Missing) return done;
+            if (kinds_[i] == SectorKind::Decrypted)
+            {
+                // As stored on the disc, partition data is hashed and encrypted;
+                // nod rebuilds that from a WIA/RVZ, this build does not.
+                if (done) return done;
+                throw Error(NOD_RESULT_ERR_IO, "Reading disc sector " + std::to_string(sector + i)
+                                                   + ": the image stores this partition data decrypted, and this "
+                                                     "build cannot rebuild its hashes and encryption");
+            }
             if (kinds_[i] == SectorKind::Zero)
             {
                 // nod rebuilds the hashes and encryption of partition data a

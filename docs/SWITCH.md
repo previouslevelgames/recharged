@@ -4,8 +4,8 @@
 > are for its test builds.
 
 **You need:** a Switch running Atmosphère with the Homebrew Menu, and your own
-Mario Strikers Charged disc image as `.iso` or `.wbfs` (the same versions as
-on PC, see [Install](INSTALL.md)). RVZ images do not work on the Switch yet.
+Mario Strikers Charged disc image as `.rvz`, `.iso` or `.wbfs` (the same
+versions as on PC, see [Install](INSTALL.md)).
 
 ## Install
 
@@ -13,8 +13,9 @@ on PC, see [Install](INSTALL.md)). RVZ images do not work on the Switch yet.
 2. Unpack it to the root of the SD card. This creates `/switch/recharged/`
    with `recharged.nro`.
 3. Copy the disc image to `/switch/recharged/game/`. A FAT32 card holds no
-   file over 4 GB: use an exFAT card for the `.iso`, or a `.wbfs` split into
-   `.wbfs` and `.wbf1` (as Wii Backup Manager makes them).
+   file over 4 GB: an `.rvz` fits (about 1.8 GB), an `.iso` needs an exFAT
+   card, and a `.wbfs` must be split into `.wbfs` and `.wbf1` (as Wii Backup
+   Manager makes them).
 
 ## Start
 

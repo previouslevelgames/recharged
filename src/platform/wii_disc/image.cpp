@@ -1,5 +1,7 @@
 #include "image.h"
 
+#include "rvz.h"
+
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
@@ -195,10 +197,16 @@ Image::Image(const std::string& path) : file_(path)
         const char* name;
     };
     for (const Unsupported& format : {Unsupported{"CISO", "CISO"}, Unsupported{"\x01\xC0\x0B\xB1", "GCZ"},
-                                      Unsupported{"EGGS", "NFS"}, Unsupported{"\xAE\x0F\x38\xA2", "TGC"},
-                                      Unsupported{"WIA\x01", "WIA"}, Unsupported{"RVZ\x01", "RVZ"}})
+                                      Unsupported{"EGGS", "NFS"}, Unsupported{"\xAE\x0F\x38\xA2", "TGC"}})
         if (std::memcmp(start, format.magic, 4) == 0)
-            ThrowFormat(std::string(format.name) + " images are not supported on this build; use ISO or WBFS");
+            ThrowFormat(std::string(format.name) + " images are not supported on this build; use ISO, WBFS or RVZ");
+    const bool rvz = std::memcmp(start, "RVZ\x01", 4) == 0;
+    if (rvz || std::memcmp(start, "WIA\x01", 4) == 0)
+    {
+        format_ = rvz ? NOD_FORMAT_RVZ : NOD_FORMAT_WIA;
+        rvz_ = std::make_unique<RvzReader>(file_, rvz);
+        return;
+    }
     if (std::memcmp(start, "WBFS", 4) == 0)
     {
         format_ = NOD_FORMAT_WBFS;
@@ -242,8 +250,39 @@ Image::Image(const std::string& path) : file_(path)
     ThrowFormat("Unknown disc format");
 }
 
+Image::~Image() = default;
+
+NodDiscMeta Image::Meta() const
+{
+    if (rvz_) return rvz_->Meta();
+    // An ISO is lossless and knows its size; a WBFS (without an NKit header,
+    // which this reader does not read) records neither.
+    NodDiscMeta meta{};
+    meta.format = format_;
+    meta.compression = NodCompression{NOD_COMPRESSION_KIND_NONE, 0};
+    meta.block_size = block_size_;
+    meta.lossless = format_ == NOD_FORMAT_ISO;
+    meta.disc_size = DiscSize();
+    return meta;
+}
+
+std::uint64_t Image::DiscSize() const
+{
+    if (rvz_) return rvz_->DiscSize();
+    return format_ == NOD_FORMAT_ISO ? file_.Size() : 0;
+}
+
+std::uint32_t Image::GroupSectors() const { return rvz_ ? rvz_->ChunkSize() / kSectorSize : 0; }
+
+const std::uint8_t* Image::ReadDecryptedGroup(std::uint32_t sector, std::uint32_t& first, std::uint32_t& count)
+{
+    if (!rvz_) throw Error(NOD_RESULT_ERR_IO, "Disc sector " + std::to_string(sector) + " is not stored decrypted");
+    return rvz_->ReadDecryptedGroup(sector, first, count);
+}
+
 SectorKind Image::Kind(std::uint32_t sector) const
 {
+    if (rvz_) return rvz_->Kind(sector);
     const std::uint64_t offset = std::uint64_t(sector) * kSectorSize;
     if (format_ == NOD_FORMAT_ISO) return offset < file_.Size() ? SectorKind::Data : SectorKind::Missing;
     const std::uint64_t block = offset / block_size_;
@@ -258,8 +297,21 @@ std::uint64_t Image::Offset(std::uint32_t sector) const
     return std::uint64_t(block_map_[std::size_t(offset / block_size_)]) * block_size_ + offset % block_size_;
 }
 
-void Image::ReadSectors(std::uint32_t first, std::uint32_t count, std::uint8_t* out, SectorKind* kinds) const
+void Image::ReadSectors(std::uint32_t first, std::uint32_t count, std::uint8_t* out, SectorKind* kinds)
 {
+    if (rvz_)
+    {
+        for (std::uint32_t i = 0; i < count; ++i)
+        {
+            std::uint8_t* sector = out + std::size_t(i) * kSectorSize;
+            kinds[i] = rvz_->Kind(first + i);
+            if (kinds[i] == SectorKind::Data)
+                rvz_->ReadRawSector(first + i, sector);
+            else
+                std::memset(sector, 0, kSectorSize);
+        }
+        return;
+    }
     std::uint32_t i = 0;
     while (i < count)
     {
