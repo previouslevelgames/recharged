@@ -93,6 +93,20 @@ files are included, and this project cannot help you obtain them. The launcher
 lists the images in your game folder, checks each one and tells you which
 versions it runs; renaming a file does not change its version.
 
+## Roadmap
+
+- **1.0.x: stable and fast.** The whole game on PC, and a launcher that keeps
+  everything in one place, made steadier and quicker with every update.
+- **1.1.x: online again** (coming soon). The game's own online play, with
+  friend codes, invitations and rankings, through our own server and with
+  rollback netcode.
+- **1.2.x: competitive play** (in development). Tournaments and leagues with a
+  Recharged player profile you sign in to with Discord, and
+  [start.gg](https://www.start.gg) running the tournaments.
+  [More about the plan](docs/COMPETITIVE.md).
+
+Plans can still change if we find better options.
+
 ## Questions
 
 **Is this an emulator?** No. The game's original C/C++ code, reconstructed by
@@ -105,10 +119,10 @@ implements the Wii's system services natively. See
 come from the original code. Changes only happen with the optional tweaks you
 turn on, plus the three listed bug fixes.
 
-**Can I play online?** Not yet. Nintendo Wi-Fi Connection has shut down, so
-for now Recharged behaves like a Wii without internet; local multiplayer works.
-We are working hard on reworking the netcode to make online play functional
-again, and are looking into different options for matchmaking and lobbies.
+**Can I play online?** Not in 1.0. Nintendo Wi-Fi Connection has shut down,
+so Recharged behaves like a Wii without internet; local multiplayer works.
+Version 1.1 brings the game's online play back through our own server; see the
+[roadmap](#roadmap).
 
 **Can I mod the game?** The launcher already offers
 [optional gameplay tweaks](docs/FEATURES.md#optional-tweaks), and we are

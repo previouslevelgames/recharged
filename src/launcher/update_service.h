@@ -54,7 +54,8 @@ public:
 
     // `chosen`: the pull request whose test builds the test channel follows
     // (launcher.test_build), 0 for the running test build's own.
-    void Check(UpdateChannel channel, int chosen = 0);
+    // `hidden`: also the test builds their pull request hides (ShownBuilds).
+    void Check(UpdateChannel channel, int chosen = 0, bool hidden = false);
     void Install(); // the offer of the last check
     void Cancel();  // a running check or download
     Status Snapshot() const;
@@ -70,7 +71,7 @@ private:
     void Start(std::shared_ptr<platform::HttpCancel> cancel, const std::function<void(Status&)>& begin,
                std::function<void()> task);
     void Set(const std::function<void(Status&)>& change);
-    void RunCheck(UpdateChannel channel, int chosen, std::shared_ptr<platform::HttpCancel> cancel);
+    void RunCheck(UpdateChannel channel, int chosen, bool hidden, std::shared_ptr<platform::HttpCancel> cancel);
     void RunInstall(PublishedBuild offer, std::shared_ptr<platform::HttpCancel> cancel);
 
     BuildIdentity build_;

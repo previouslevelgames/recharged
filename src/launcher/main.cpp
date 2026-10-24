@@ -759,12 +759,13 @@ private:
     // start only for a newer one; after the Release / Test switch or a click on
     // the status also for the way back to the release. After the switch to
     // Test with several test builds and none followed, the Test menu opens.
-    enum class UpdatePrompt { None, Newer, Any, Switch };
+    // Reveal: a Ctrl+click on Test, which then opens the menu with the hidden test builds.
+    enum class UpdatePrompt { None, Newer, Any, Switch, Reveal };
 
     void CheckForUpdates(UpdatePrompt prompt, UpdateChannel channel)
     {
         update_prompt_ = capture_ ? UpdatePrompt::None : prompt;
-        updates_->Check(channel, draft_.test_build);
+        updates_->Check(channel, draft_.test_build, show_hidden_tests_);
     }
 
     bool UpdateBusy() const
@@ -1068,10 +1069,23 @@ private:
         const bool menu = TestMenuAvailable();
         int pressed = -1;
         ImGui::BeginDisabled(busy || !config_ok_);
-        if (SegmentedIcons("##update_channel", &channel,
-                           {{"Release", Icon::Tag, color::accent}, {"Test", Icon::Flask, color::warning, menu}},
-                           {switch_width, height}, true, &pressed))
-            SelectUpdateChannel(channel ? UpdateChannel::Test : UpdateChannel::Release);
+        const bool switched = SegmentedIcons(
+            "##update_channel", &channel,
+            {{"Release", Icon::Tag, color::accent}, {"Test", Icon::Flask, color::warning, menu}},
+            {switch_width, height}, true, &pressed);
+        // Ctrl+click (Cmd+click on a Mac) on Test, a hidden switch: the test
+        // builds their pull request hides (ShownBuilds) show until the
+        // launcher closes, or hide again.
+        const bool reveal = pressed == 1 && (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeySuper);
+        if (reveal)
+        {
+            show_hidden_tests_ = !show_hidden_tests_;
+            Notice(show_hidden_tests_ ? "Hidden test builds are shown until the launcher closes."
+                                      : "Hidden test builds are hidden again.",
+                   NoticeKind::Info);
+        }
+        if (switched) SelectUpdateChannel(channel ? UpdateChannel::Test : UpdateChannel::Release);
+        else if (reveal) CheckForUpdates(UpdatePrompt::Reveal, UpdateChannel::Test);
         // Test again, with a choice: the menu, unless this mouse click closed it.
         else if (pressed == 1 && menu
                  && !(ImGui::GetIO().MouseReleased[0] && test_menu_closed_ >= ImGui::GetIO().MouseClickedTime[0]))
@@ -1108,13 +1122,44 @@ private:
     // titled "Release 1.1.0 – NetCode!".
     static std::string TestBuildSubtitle(const PublishedBuild& build)
     {
+        std::string rest;
+        TitleVersion(build, &rest);
+        return ReleaseSubtitle(rest, build.version);
+    }
+
+    // The version a test build's title starts with ("Release 1.0.x – Nintendo
+    // Switch build" gives "1.0.x"), and the title's rest; empty when it names
+    // none. A pull request that never raised its version builds packages with
+    // the last release's number, which would pass it off as that release.
+    static std::string TitleVersion(const PublishedBuild& build, std::string* rest = nullptr)
+    {
         std::string title = build.title;
         const std::string prefix = "Test build: ", suffix = " (#" + std::to_string(build.pull_request) + ")";
         if (title.rfind(prefix, 0) == 0) title.erase(0, prefix.size());
         if (title.size() > suffix.size() && title.compare(title.size() - suffix.size(), suffix.size(), suffix) == 0)
             title.resize(title.size() - suffix.size());
         if (title.rfind("Release ", 0) == 0) title.erase(0, 8);
-        return ReleaseSubtitle(title, build.version);
+        if (rest) *rest = title;
+        // Digits, then dotted parts of digits or x, then the title's end or a separator.
+        auto part = [](char c) { return std::isdigit(static_cast<unsigned char>(c)) || c == 'x' || c == 'X'; };
+        std::size_t end = 0;
+        while (end < title.size() && std::isdigit(static_cast<unsigned char>(title[end]))) ++end;
+        bool dotted = false;
+        while (end > 0 && end + 1 < title.size() && title[end] == '.' && part(title[end + 1]))
+        {
+            for (++end; end < title.size() && part(title[end]); ++end) {}
+            dotted = true;
+        }
+        if (!dotted || (end < title.size() && title[end] != ' ' && title[end] != ':' && title[end] != '-')) return {};
+        if (rest) *rest = title.substr(end);
+        return title.substr(0, end);
+    }
+
+    // What a test build shows as its version: its title's, else its packages'.
+    static std::string TestBuildNumber(const PublishedBuild& build)
+    {
+        const std::string titled = TitleVersion(build);
+        return titled.empty() ? VersionNumber(build.version) : titled;
     }
 
     // `text` cut to `width` with an ellipsis, at a UTF-8 character boundary.
@@ -1196,7 +1241,7 @@ private:
             draw->AddCircleFilled(icon, Dp(15), Col(Mix(DialogFill(), color::warning, followed ? 0.24f : 0.13f)));
             DrawIcon(draw, Icon::Flask, icon, Dp(15), Col(color::warning, followed ? 1.0f : 0.8f));
             const float text_left = pos.x + Dp(52), text_right = max.x - Dp(36);
-            const std::string number = VersionNumber(build.version);
+            const std::string number = TestBuildNumber(build);
             const float line1 = pos.y + Dp(9);
             DrawLabel(draw, fonts.label, {text_left, line1}, Col(color::text), number.c_str());
             const float title_left = text_left + TextSize(fonts.label, number.c_str()).x + Dp(9);
@@ -1206,6 +1251,7 @@ private:
                       Col(Mix(color::muted, color::text, 0.55f + 0.45f * hover)), subtitle.c_str());
             std::string detail = "Test build #" + std::to_string(build.pull_request);
             if (build.published) detail += "  \xC2\xB7  " + LocalTime(build.published);
+            if (build.hidden) detail += "  \xC2\xB7  hidden";
             const float line2 = pos.y + row_height - Dp(9) - FontSize(fonts.caption);
             DrawLabel(draw, fonts.caption, {text_left, line2}, Col(color::dim), detail.c_str());
             // Installed, or the running build's pull request has a newer build.
@@ -1477,8 +1523,10 @@ private:
             : self.origin == BuildOrigin::Test ? "Test build #" + std::to_string(self.pull_request)
                                                : "Local build";
         const std::string from = describe(mine, mine_what);
-        const std::string to
-            = describe(offer.version, offer.test ? "Test build #" + std::to_string(offer.pull_request) : "Release");
+        const std::string titled = offer.test ? TitleVersion(offer) : std::string();
+        const std::string to = !titled.empty()
+            ? titled + "  \xC2\xB7  Test build #" + std::to_string(offer.pull_request)
+            : describe(offer.version, offer.test ? "Test build #" + std::to_string(offer.pull_request) : "Release");
         const float caption = FontSize(fonts.caption);
         TextColored(fonts.caption, color::muted, from.c_str());
         ImGui::SameLine(0, Dp(10));
@@ -2211,7 +2259,12 @@ private:
             update_ = updates_->Snapshot();
             if (update_prompt_ != UpdatePrompt::None && update_.state != UpdateService::State::Checking)
             {
-                if (update_.state == UpdateService::State::Available && update_.offer)
+                // After the hidden switch: the menu, with whatever test builds there are.
+                if (update_prompt_ == UpdatePrompt::Reveal)
+                {
+                    if (!update_.test_builds.empty()) test_menu_ = true;
+                }
+                else if (update_.state == UpdateService::State::Available && update_.offer)
                 {
                     // After the start only newer builds: an update or a newer test build.
                     const OfferKind kind = ClassifyOffer(updates_->Build(), *update_.offer);
@@ -8408,6 +8461,7 @@ private:
     // The Test menu: open it next frame; whether it was open, closed with a
     // choice, and when it closed.
     bool test_menu_ = false, test_menu_open_ = false, test_menu_chose_ = false;
+    bool show_hidden_tests_ = false; // Ctrl+click on Test: also hidden test builds, this run only
     double test_menu_closed_ = -1.0;
     // The update choice before a switch that is not settled yet (BeginSwitch).
     struct UpdateChoice

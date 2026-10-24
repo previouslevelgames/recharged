@@ -69,6 +69,9 @@ struct PublishedBuild
     std::string tag, title, page, notes;
     bool test = false;
     int pull_request = 0; // test builds
+    // A test build its pull request keeps out of the launcher: the notes (the
+    // pull request's description, copied by CI) have the line kHideTestBuilds.
+    bool hidden = false;
     PortVersion version;
     std::int64_t published = 0;
     std::vector<PackageAsset> assets;
@@ -81,6 +84,15 @@ struct PublishedBuild
 // releases and test builds; drafts, other prereleases and entries without a
 // recognizable version are left out.
 std::vector<PublishedBuild> ParseReleases(const platform::JsonValue& releases);
+
+// The line in a pull request's description that keeps its test builds out of
+// the launcher (an HTML comment: GitHub does not show it).
+inline constexpr std::string_view kHideTestBuilds = "<!-- launcher: hide -->";
+
+// The builds the launcher shows: a hidden test build only to a test build of
+// the same pull request (its updates) or when launcher.test_build chose that
+// pull request (`chosen`).
+std::vector<PublishedBuild> ShownBuilds(const BuildIdentity& build, std::vector<PublishedBuild> published, int chosen);
 
 struct PullRequestInfo
 {
