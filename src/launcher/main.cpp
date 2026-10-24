@@ -1085,13 +1085,44 @@ private:
     // titled "Release 1.1.0 – NetCode!".
     static std::string TestBuildSubtitle(const PublishedBuild& build)
     {
+        std::string rest;
+        TitleVersion(build, &rest);
+        return ReleaseSubtitle(rest, build.version);
+    }
+
+    // The version a test build's title starts with ("Release 1.0.x – Nintendo
+    // Switch build" gives "1.0.x"), and the title's rest; empty when it names
+    // none. A pull request that never raised its version builds packages with
+    // the last release's number, which would pass it off as that release.
+    static std::string TitleVersion(const PublishedBuild& build, std::string* rest = nullptr)
+    {
         std::string title = build.title;
         const std::string prefix = "Test build: ", suffix = " (#" + std::to_string(build.pull_request) + ")";
         if (title.rfind(prefix, 0) == 0) title.erase(0, prefix.size());
         if (title.size() > suffix.size() && title.compare(title.size() - suffix.size(), suffix.size(), suffix) == 0)
             title.resize(title.size() - suffix.size());
         if (title.rfind("Release ", 0) == 0) title.erase(0, 8);
-        return ReleaseSubtitle(title, build.version);
+        if (rest) *rest = title;
+        // Digits, then dotted parts of digits or x, then the title's end or a separator.
+        auto part = [](char c) { return std::isdigit(static_cast<unsigned char>(c)) || c == 'x' || c == 'X'; };
+        std::size_t end = 0;
+        while (end < title.size() && std::isdigit(static_cast<unsigned char>(title[end]))) ++end;
+        bool dotted = false;
+        while (end > 0 && end + 1 < title.size() && title[end] == '.' && part(title[end + 1]))
+        {
+            for (++end; end < title.size() && part(title[end]); ++end) {}
+            dotted = true;
+        }
+        if (!dotted || (end < title.size() && title[end] != ' ' && title[end] != ':' && title[end] != '-')) return {};
+        if (rest) *rest = title.substr(end);
+        return title.substr(0, end);
+    }
+
+    // What a test build shows as its version: its title's, else its packages'.
+    static std::string TestBuildNumber(const PublishedBuild& build)
+    {
+        const std::string titled = TitleVersion(build);
+        return titled.empty() ? VersionNumber(build.version) : titled;
     }
 
     // `text` cut to `width` with an ellipsis, at a UTF-8 character boundary.
@@ -1173,7 +1204,7 @@ private:
             draw->AddCircleFilled(icon, Dp(15), Col(Mix(DialogFill(), color::warning, followed ? 0.24f : 0.13f)));
             DrawIcon(draw, Icon::Flask, icon, Dp(15), Col(color::warning, followed ? 1.0f : 0.8f));
             const float text_left = pos.x + Dp(52), text_right = max.x - Dp(36);
-            const std::string number = VersionNumber(build.version);
+            const std::string number = TestBuildNumber(build);
             const float line1 = pos.y + Dp(9);
             DrawLabel(draw, fonts.label, {text_left, line1}, Col(color::text), number.c_str());
             const float title_left = text_left + TextSize(fonts.label, number.c_str()).x + Dp(9);
@@ -1417,8 +1448,10 @@ private:
             : self.origin == BuildOrigin::Test ? "Test build #" + std::to_string(self.pull_request)
                                                : "Local build";
         const std::string from = describe(mine, mine_what);
-        const std::string to
-            = describe(offer.version, offer.test ? "Test build #" + std::to_string(offer.pull_request) : "Release");
+        const std::string titled = offer.test ? TitleVersion(offer) : std::string();
+        const std::string to = !titled.empty()
+            ? titled + "  \xC2\xB7  Test build #" + std::to_string(offer.pull_request)
+            : describe(offer.version, offer.test ? "Test build #" + std::to_string(offer.pull_request) : "Release");
         const float caption = FontSize(fonts.caption);
         TextColored(fonts.caption, color::muted, from.c_str());
         ImGui::SameLine(0, Dp(10));
