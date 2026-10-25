@@ -129,6 +129,7 @@ add_custom_command(TARGET mscharged POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:mscharged>/assets/launcher"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/logo.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.png"
             "${MSCHARGED_IMGUI_PREPARED}/misc/fonts/Roboto-Medium.ttf"
             "${MSCHARGED_AURORA_PREPARED}/assets/aurora.png"
@@ -148,6 +149,7 @@ add_custom_command(TARGET mscharged POST_BUILD
 # Resource edits must refresh the copied files even without a C++ source edit.
 set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/logo.png"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.png"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/README.md"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/welcome.md"
