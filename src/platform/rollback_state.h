@@ -177,6 +177,7 @@ struct Step
     unsigned checksum;              // after it, as it first ran (in a network match, as it ran last)
     unsigned seed;                  // the network random seed after it
     Phases phases;                  // after it
+    float timeScale;                // the fixed update's target time scale after it (below 1: a slow motion)
     bool reading;                   // a disc read in flight after it
     std::uint64_t readsStarted;     // disc reads started until then
     std::uint64_t hostFrame;        // the frame it ran in

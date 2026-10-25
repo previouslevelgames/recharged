@@ -118,9 +118,30 @@ namespace
 void RecordFrame(Step& step)
 {
     step.phases = CurrentPhases();
+    step.timeScale = FixedUpdateTask::GetTargetTimeScale();
     const auto producers = mscharged::platform::CurrentGameByteProducers();
     step.reading = producers.pending != 0;
     step.readsStarted = producers.started;
+}
+
+// In the log, as a step first ran or replayed: a change of the target time
+// scale since the step before (a slow motion's start or end, which the game
+// sets between steps, so the step after shows it) and the deterministic data
+// events it applied, by type (cGame's, such as 222, a slow motion's end, which
+// the host sends). A replay that starts or ends a slow motion otherwise than
+// the first run did shows here.
+void LogStep(const Step& step)
+{
+    State& s = *sState;
+    if (!s.out) return;
+    const char* run = s.resimulating ? "replay" : "first run";
+    const Step& before = s.steps[(step.frame - 1) % kRing];
+    if (before.frame == step.frame - 1 && before.timeScale != step.timeScale)
+        Log("step %u (%s): time scale target %.2f -> %.2f\n", step.frame, run, before.timeScale, step.timeScale);
+    const int events = std::min(step.inputs.eventCount, MSCHARGED_ROLLBACK_MAX_EVENTS);
+    for (int i = 0; i < events; ++i)
+        Log("step %u (%s): determ data %u from machine %d\n", step.frame, run, step.inputs.events[i][4],
+            step.inputs.eventMachines[i]);
 }
 
 void Record(std::uint64_t value, std::uint64_t& total, std::uint64_t& max)
@@ -332,6 +353,7 @@ void ReplayFrames(std::uint64_t first, std::uint64_t last, int firstTask, unsign
                     step.checksum = now;
                     step.seed = GetNetworkRandomSeed();
                     RecordFrame(step);
+                    LogStep(step);
                 }
                 else if (now != step.checksum)
                 {
@@ -752,6 +774,7 @@ extern "C" void mscharged_rollback_between_steps(int (*replay)(const MschargedRo
     step.checksum = RecordedChecksum(checksum, frame);
     step.seed = GetNetworkRandomSeed();
     RecordFrame(step);
+    LogStep(step);
     // A step that predicted must leave the match's phase alone: undone at the
     // frame start, it runs again when its inputs have all arrived.
     if (s.options.netplay && AnyPredicted(InputsFor(frame)) && !s.net.undoFrom

@@ -1,0 +1,111 @@
+From: mscharged-port
+Subject: Diagnostic: the network messages a rollback replay prints and drops
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+A diagnostic for the network channel (patch 0694): while a rollback
+replays steps, what the game prints on DC_NETWORK says "[net replay] "
+instead of "[net] ", on the terminal (RECHARGED_NET_DEBUG) and in the
+online builds' debug output (OSReport) alike, so a "Received SlowDownEnd"
+of a replayed step is told from one of a step running for the first time.
+InputRouter::QueueDetermData prints every deterministic data packet the
+steps queue, by its type (the first byte, as cGame::ReceiveCustomDetermData
+reads it) and the step queuing it: "queued" when it goes out, "not sent: a
+replay" when a replayed step queues it, which the rollback drops as having
+gone out when the step first ran (tweak patch 0029). A step that first ran
+on predicted inputs may queue in its replay what it did not queue then,
+such as the host's end of a slow motion. Nothing changes but the prints,
+and those only where the channel prints.
+
+diff --git a/include/Game/Sys/debug.h b/include/Game/Sys/debug.h
+index c925dee3..5086f1ea 100644
+--- a/include/Game/Sys/debug.h
++++ b/include/Game/Sys/debug.h
+@@ -3,12 +3,16 @@
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #include <cstdarg>
+ #include <cstdio>
+ #include <cstdlib>
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++// The rollback's (mscharged_rollback.h): whether the steps running now replay earlier ones.
++extern "C" bool mscharged_rollback_resimulating(void);
++#endif
+ 
+ enum eDEBUG_CHANNEL
+ {
+     DC_STARTUP = 0,
+     DC_GL = 1,
+     DC_GLPLAT = 2,
+@@ -59,12 +63,19 @@ inline bool NetworkChannelOn()
+ inline int Print(eDEBUG_CHANNEL channel, const char* format, ...)
+ {
+ #if defined(MSCHARGED_NATIVE)
+     if (channel == DC_NETWORK && NetworkChannelOn())
+     {
+         const char* prefix = "[net] ";
++#if defined(MSCHARGED_TWEAKS)
++        // A rollback's replay runs the steps again: what they print says so.
++        if (mscharged_rollback_resimulating())
++        {
++            prefix = "[net replay] ";
++        }
++#endif
+         va_list args;
+         va_start(args, format);
+         std::fputs(prefix, stderr);
+         std::vfprintf(stderr, format, args);
+         va_end(args);
+     }
+@@ -72,12 +83,19 @@ inline int Print(eDEBUG_CHANNEL channel, const char* format, ...)
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)
+     // Online: the channel joins the game's own debug output (OSReport), which
+     // a verbose console shows: session, matchmaking and the ranking reports.
+     if (channel == DC_NETWORK)
+     {
+         const char* prefix = "[net] ";
++#if defined(MSCHARGED_TWEAKS)
++        // A rollback's replay runs the steps again: what they print says so.
++        if (mscharged_rollback_resimulating())
++        {
++            prefix = "[net replay] ";
++        }
++#endif
+         char line[512];
+         va_list args;
+         va_start(args, format);
+         std::vsnprintf(line, sizeof line, format, args);
+         va_end(args);
+         OSReport("%s%s", prefix, line);
+diff --git a/src/Game/InputRouter.cpp b/src/Game/InputRouter.cpp
+index e973c1d5..761603a0 100644
+--- a/src/Game/InputRouter.cpp
++++ b/src/Game/InputRouter.cpp
+@@ -331,21 +331,27 @@ void InputRouter::MarkSyncMismatchReported()
+ 
+ void InputRouter::QueueDetermData(const void* data, u32 size)
+ {
+ #if defined(MSCHARGED_TWEAKS)
+     if (mscharged_rollback_active())
+     {
++        // RECHARGED_NET_DEBUG: what the steps queue, sent or not, by type
++        // (its first byte) and step.
++        const unsigned type = size > 0 ? *static_cast<const u8*>(data) : 0;
++        const int frame = gInputManager != 0 ? gInputManager->mFrameProvider->GetFrame() : -1;
+         // A replayed step: its data went out when the step first ran.
+         if (mscharged_rollback_resimulating())
+         {
++            tDebugPrintManager::Print(DC_NETWORK, "Determ data %u of step %d not sent: a replay\n", type, frame);
+             return;
+         }
+         DetermDataEvent* outgoing = ::new (malloc(sizeof(DetermDataEvent))) DetermDataEvent(data, size);
+         if (!m_OutgoingCustomDetermDataQ.IsFull())
+         {
+             m_OutgoingCustomDetermDataQ.Push(outgoing);
++            tDebugPrintManager::Print(DC_NETWORK, "Determ data %u of step %d queued\n", type, frame);
+         }
+         else
+         {
+             FreeOutgoingDetermData(outgoing);
+             tDebugPrintManager::Print(DC_NETWORK, "m_OutgoingCustomDetermDataQ overflowed\n");
+             mQueueOverflowed = true;
