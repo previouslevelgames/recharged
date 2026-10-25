@@ -824,6 +824,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_hd_recolour")))
                 configureRecolour(mscharged::TexturePackRecolourHook(reinterpret_cast<ChargedPresenceSnapshotFunction>(
                     mscharged::platform::FindNativeModuleSymbol(module,"charged_presence_snapshot"))));
+            // Training: the item of the team that trains, and Start training's match.
+            if(auto* configureTraining=reinterpret_cast<void(*)(int,bool,int,int)>(
+                   mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training"))) {
+                const auto& s=launch.settings;
+                configureTraining(mscharged::TrainingIndex(mscharged::kTrainingItems,s.training_item)-1,
+                    launch.start_training,mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_captain),
+                    mscharged::TrainingIndex(mscharged::kTrainingStadiums,s.training_stadium));
+                if(launch.start_training)
+                    mscharged::platform::SessionLogLine(("Start training: "+s.training_captain+" in "
+                        +s.training_stadium).c_str());
+            }
             // No HUD (issue #58): the HUD key shows or hides the match HUD, whatever show_hud says.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_hud")));

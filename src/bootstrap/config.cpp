@@ -57,6 +57,8 @@ Values Encode(const Settings& s)
             {"game.folder_subfolders", s.folder_subfolders ? "true" : "false"},
             {"game.save_folder", s.save_folder}, {"game.gamecube_disc", s.gamecube_disc},
             {"game.language", s.language}, {"gameplay.super_team_side", s.super_team_side},
+            {"gameplay.training_item", s.training_item}, {"gameplay.training_captain", s.training_captain},
+            {"gameplay.training_stadium", s.training_stadium},
             {"display.width", std::to_string(s.width)}, {"display.height", std::to_string(s.height)},
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.fullscreen_resolution", s.fullscreen_resolution},
@@ -395,6 +397,16 @@ Settings Decode(const Values& values)
         throw std::runtime_error("Invalid configuration: the online server redirect contains a line break or NUL");
 
     choice("gameplay.super_team_side", s.super_team_side, {"away", "home", "both"});
+    auto training = [&](const char* key, std::string& value, const auto& names) {
+        const auto it = values.find(key);
+        if (it == values.end()) return;
+        if (TrainingIndex(names, it->second) < 0)
+            throw std::runtime_error(std::string("Invalid configuration: unsupported ") + key);
+        value = it->second;
+    };
+    training("gameplay.training_item", s.training_item, kTrainingItems);
+    training("gameplay.training_captain", s.training_captain, kTrainingCaptains);
+    training("gameplay.training_stadium", s.training_stadium, kTrainingStadiums);
     return s;
 }
 

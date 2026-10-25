@@ -98,6 +98,29 @@ inline constexpr std::array<GameTweakInfo, 14> kGameTweaks{{
      true},
 }};
 
+// Start training ([gameplay] training_item, training_captain, training_stadium): the
+// config's names, in the order of the game's ePowerUpType (after none, which is
+// -1), eTeamID and eStadiumID.
+inline constexpr std::array<const char*, 10> kTrainingItems{
+    "none", "green_shell", "red_shell", "spiny_shell", "freeze_shell", "banana", "bobomb", "chain_chomp", "mushroom",
+    "star"};
+inline constexpr std::array<const char*, 12> kTrainingCaptains{
+    "mario", "bowser", "daisy", "donkeykong", "luigi", "peach", "waluigi", "wario", "yoshi", "bowserjr", "diddykong",
+    "petey"};
+inline constexpr std::array<const char*, 17> kTrainingStadiums{
+    "battledome", "bowserstadium", "craterfield", "crystalcanyon", "dump", "galacticstadium", "kongacoliseum",
+    "lavapit", "pipelinecentral", "stormship", "thepalace", "thunderisland", "underground", "vice", "wastelands",
+    "sandtomb", "tutorialfield"};
+
+// The position of `name` in one of the tables above, or -1.
+template <std::size_t Size>
+inline int TrainingIndex(const std::array<const char*, Size>& names, const std::string& name)
+{
+    for (std::size_t n = 0; n < Size; ++n)
+        if (name == names[n]) return int(n);
+    return -1;
+}
+
 // The position of `tweak` in kGameTweaks and Settings::tweaks (kGameTweaks.size()
 // for NoHud, which is not listed).
 inline constexpr std::size_t GameTweakIndex(GameTweak tweak)

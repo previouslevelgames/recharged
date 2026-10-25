@@ -277,6 +277,18 @@ show_hud = true
 # death music (in place of the stadium's) once a team is one goal from
 # winning, and SUDDEN DEATH on the HUD once both are. Only sound and HUD.
 # On by default.
+# Start training on the launcher's Gameplay page (or --training) goes
+# straight into a Domination match with training_captain (mario, bowser,
+# daisy, donkeykong, luigi, peach, waluigi, wario, yoshi, bowserjr,
+# diddykong, petey) and their sidekicks from the save, in training_stadium
+# (battledome, bowserstadium, craterfield, crystalcanyon, dump,
+# galacticstadium, kongacoliseum, lavapit, pipelinecentral, stormship,
+# thepalace, thunderisland, underground, vice, wastelands, sandtomb,
+# tutorialfield). The other team's captain and sidekicks vanish at every
+# kickoff (its goalie stays), and your team starts every kickoff with
+# training_item (none, green_shell, red_shell, spiny_shell, freeze_shell,
+# banana, bobomb, chain_chomp, mushroom, star) and keeps every item it uses,
+# in a match to 10 goals that never ends on them.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
@@ -292,6 +304,9 @@ super_team_side = away
 fair_ball_contests = true
 secure_stadiums = false
 match_point = true
+training_item = green_shell
+training_captain = mario
+training_stadium = tutorialfield
 
 [mods]
 # Texture packs made for Dolphin (folders or .zip files with tex1_*.png or

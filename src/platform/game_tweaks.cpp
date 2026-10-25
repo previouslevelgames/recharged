@@ -20,6 +20,12 @@ unsigned sEnabled;
 
 // Skip intro: the title screen is passed once per launch.
 bool sTitlePassed;
+// Training: the item of the team that trains (ePowerUpType, -1 none), and the
+// launcher's Start training, taken by the title once it is passed.
+int sTrainingItem = -1;
+bool sTrainingStart;
+int sTrainingCaptain;
+int sTrainingStadium;
 bool sPerformanceMode;
 // Wider view (display.wider_view, issue #91): the window's picture shape
 // divided by 16:9 while the wider view fills it, 1 otherwise; and whether the
@@ -146,6 +152,18 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
     sMatchView = false;
     sHudFlipped = false;
     sHudHidden = mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_HUD);
+}
+
+// Host entry (Training): the item of the team that trains (ePowerUpType, -1
+// none); with `start`, the launcher's Start training: the title is passed at
+// once, as by Skip intro, into a match of `captain` (eTeamID) in `stadium`
+// (eStadiumID).
+__attribute__((visibility("default"))) void charged_configure_training(int item, bool start, int captain, int stadium)
+{
+    sTrainingItem = item;
+    sTrainingStart = start;
+    sTrainingCaptain = captain;
+    sTrainingStadium = stadium;
 }
 
 // Host entry: the H key was pressed (any thread). A match takes it in its
@@ -368,7 +386,7 @@ bool mscharged_tweak_performance_match(void)
 
 bool mscharged_tweak_take_title_press(void)
 {
-    if (sTitlePassed || !mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO)) return false;
+    if (!mscharged_tweak_title_pending()) return false;
     sTitlePassed = true;
     std::fputs("Tweak: skip intro passed the title screen\n", stderr);
     return true;
@@ -376,7 +394,22 @@ bool mscharged_tweak_take_title_press(void)
 
 bool mscharged_tweak_title_pending(void)
 {
-    return !sTitlePassed && mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO);
+    return !sTitlePassed && (sTrainingStart || mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO));
+}
+
+int mscharged_tweak_training_item(void)
+{
+    return sTrainingItem;
+}
+
+bool mscharged_tweak_take_training_start(int* captain, int* stadium)
+{
+    if (!sTrainingStart) return false;
+    sTrainingStart = false;
+    *captain = sTrainingCaptain;
+    *stadium = sTrainingStadium;
+    std::fputs("Tweak: training starts from the title screen\n", stderr);
+    return true;
 }
 
 void mscharged_tweak_frontend_frame(bool menus, bool transition)

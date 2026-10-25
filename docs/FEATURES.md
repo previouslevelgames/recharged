@@ -168,6 +168,14 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   which replaces the stadium's music until the match ends; when the other team gets there too, the
   siren sounds again and the HUD shows SUDDEN DEATH instead of "First to".
   Only sound and HUD change. On by default.
+- **Training**: **Start training** on the Gameplay page (or `--training`)
+  goes past the intro and the menus straight into a Domination match with
+  the chosen captain, the sidekicks of their lineup on the Teams page, and
+  the chosen stadium. The other team's captain and sidekicks vanish at every
+  kickoff, as in the Strikers 101 lessons; its goalie stays in goal. Your
+  team starts every kickoff with the chosen item and keeps every item it
+  uses, in a match to 10 goals that never ends on them (leave it from the
+  pause menu). Every other match is unchanged.
 - **Fair ball contests**: when players of both teams reach a loose ball in
   the same instant, the one the game updates first takes it. The game
   shuffles that order at every kickoff in a way that puts the home team

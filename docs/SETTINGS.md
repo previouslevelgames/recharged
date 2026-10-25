@@ -475,6 +475,7 @@ These options override the INI for one run, without saving:
 | `--aspect 16:9\|4:3\|stretch\|auto` | Aspect ratio (`auto`: 16:9 or 4:3, whichever is closer to the screen's shape) |
 | `--frame-rate original\|display\|unlimited\|FPS` | Frame rate |
 | `--no-tweaks` | All `[gameplay]` tweaks off (the bug fixes stay) |
+| `--training` | Start training: straight into a training match |
 | `--config FILE` | Use another INI file |
 | `--launcher` | Open the launcher even with `--disc` |
 

@@ -151,6 +151,10 @@ int main()
                 "--no-tweaks did not turn the tweaks off");
             Check(tweakedFile.settings.GameTweakMask() != 0 && Read(tweaked).find("skip_intro = true") != std::string::npos,
                 "--no-tweaks changed the INI");
+            LaunchOptions training; training.no_tweaks = true; training.training = true;
+            const auto trained = ResolveLaunch(tweakedFile, training);
+            Check(trained.start_training && trained.settings.GameTweakMask() == 0 && !played.start_training,
+                "--training did not start training, or changed the tweaks");
         }
         // --frame-rate: this run's display.frame_rate, apart from the tweaks.
         for (const char* value : {"original", "display", "unlimited", "30", "120", "144", "1000"})

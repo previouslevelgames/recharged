@@ -18,6 +18,7 @@ extern "C" bool charged_take_match_view(void);
 extern "C" void charged_configure_frame_pacing(void (*swap)());
 extern "C" void charged_configure_rev1_data(bool enabled);
 extern "C" void charged_configure_sound_volumes(const int* volumes, int count);
+extern "C" void charged_configure_training(int item, bool start, int captain, int stadium);
 extern "C" void charged_toggle_hud(void);
 
 // The native VI's TV format (VI_NTSC 0, VI_PAL 1, VI_EURGB60 5) for the
@@ -292,6 +293,17 @@ int main()
         Check(!mscharged_tweak_title_pending() && !mscharged_tweak_take_title_press(), "Skip intro: second title press");
         mscharged_tweak_frontend_frame(true, true);
         Check(!mscharged_tweak_fast_menus(), "Skip intro enabled fast menus");
+
+        // Training: Start training passes the title once, as Skip intro does,
+        // and its match is taken once.
+        charged_configure_tweaks(0);
+        charged_configure_training(4, true, 11, 7);
+        int captain = -1, stadium = -1;
+        Check(mscharged_tweak_training_item() == 4 && mscharged_tweak_title_pending()
+                && mscharged_tweak_take_title_press(), "Training: Start training did not pass the title");
+        Check(mscharged_tweak_take_training_start(&captain, &stadium) && captain == 11 && stadium == 7
+                && !mscharged_tweak_take_training_start(&captain, &stadium), "Training: start not taken once");
+        charged_configure_training(-1, false, 0, 0);
 
         // Fast menus: only in the menus, and transition time only during a
         // transition and only for the camera task; effects (issue #34), audio

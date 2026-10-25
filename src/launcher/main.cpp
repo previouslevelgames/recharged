@@ -210,6 +210,16 @@ constexpr const char* kSidekickNames[] = {"Toad", "Koopa", "Hammer Bro", "Birdo"
                                           "Shy Guy"};
 static_assert(std::size(kCaptainNames) == mscharged::platform::kCaptainCount
     && std::size(kSidekickNames) == mscharged::platform::kSidekickCount);
+// Training's choices, in the order of kTrainingItems and kTrainingStadiums.
+constexpr const char* kTrainingItemNames[] = {"None", "Green Shell", "Red Shell", "Spiny Shell", "Freeze Shell", "Banana",
+                                              "Bob-omb", "Chain Chomp", "Mushroom", "Star"};
+constexpr const char* kStadiumNames[] = {"Battle Dome", "Bowser Stadium", "Crater Field", "Crystal Canyon", "The Dump",
+                                         "Galactic Stadium", "Konga Coliseum", "The Lava Pit", "Pipeline Central",
+                                         "Stormship Stadium", "The Palace", "Thunder Island", "The Underground",
+                                         "The Vice", "The Wastelands", "The Sand Tomb", "The Classroom"};
+static_assert(std::size(kTrainingItemNames) == mscharged::kTrainingItems.size()
+    && std::size(kCaptainNames) == mscharged::kTrainingCaptains.size()
+    && std::size(kStadiumNames) == mscharged::kTrainingStadiums.size());
 
 // Where the Teams page's pitch puts each player of the team, which attacks to
 // the right: x from its own goal line (0) to the other one (1), y from its
@@ -2494,9 +2504,10 @@ private:
 #endif
     }
 
-    void Play(bool& quit)
+    void Play(bool& quit, bool training = false)
     {
         if (!PlayBlocker().empty()) return;
+        training_ = training;
         // Unsaved changes: ask whether to start with or without them.
         if (dirty_) { play_prompt_ = true; return; }
         Start(quit);
@@ -2505,6 +2516,7 @@ private:
     void Start(bool& quit)
     {
         frontend_launch_ = EffectiveLaunch();
+        frontend_launch_->start_training = training_;
         quit = true;
     }
 
@@ -2539,6 +2551,11 @@ private:
         const float sidebar = size.x < Dp(1000) ? Dp(216) : Dp(244);
         DrawSidebar(sidebar, size.y);
         DrawMain({sidebar, 0}, {size.x - sidebar, size.y}, quit);
+        if (training_requested_)
+        {
+            training_requested_ = false;
+            Play(quit, true);
+        }
         DrawClosePrompt(quit);
         DrawPlayPrompt(quit);
         DrawImportPrompt();
@@ -7189,6 +7206,74 @@ private:
         EndSubRows();
     }
 
+    // A choice from a list: a button with the chosen label that opens the
+    // list, the chosen one ticked. Whether another was chosen.
+    template <std::size_t Size>
+    bool ChoiceButton(const char* id, std::string& value, const std::array<const char*, Size>& keys,
+                      const char* const (&labels)[Size])
+    {
+        const int current = std::max(TrainingIndex(keys, value), 0);
+        ImGui::PushID(id);
+        if (SecondaryButton("##choice", labels[current], {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()}))
+            ImGui::OpenPopup("##choice_menu");
+        const auto& fonts = CurrentFonts();
+        const float width = Dp(220);
+        bool changed = false;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(6, 6));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, Dp(10));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
+        if (ImGui::BeginPopup("##choice_menu"))
+        {
+            auto* draw = ImGui::GetWindowDrawList();
+            for (int n = 0; n < int(Size); ++n)
+            {
+                ImGui::PushID(n);
+                const ImVec2 pos = ImGui::GetCursorScreenPos(), size{width, Dp(36)};
+                const bool pressed = ImGui::InvisibleButton("##row", size);
+                const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 14.0f);
+                if (hover > 0.0f)
+                    draw->AddRectFilled(pos, {pos.x + size.x, pos.y + size.y}, Col(color::text, 0.06f * hover), Dp(7));
+                const bool chosen = n == current;
+                const ImU32 ink = Col(chosen ? color::accent : Mix(Mix(color::muted, color::text, 0.7f), color::text, hover));
+                DrawLabel(draw, fonts.label, {pos.x + Dp(12), pos.y + (size.y - FontSize(fonts.label)) * 0.5f}, ink,
+                          labels[n]);
+                if (chosen) DrawIcon(draw, Icon::Check, {pos.x + width - Dp(18), pos.y + size.y * 0.5f}, Dp(14), ink);
+                if (pressed)
+                {
+                    changed = !chosen;
+                    value = keys[std::size_t(n)];
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(3);
+        ImGui::PopID();
+        return changed;
+    }
+
+    void TrainingRows()
+    {
+        Row("Item", "The item your team starts every kickoff with. It stays after you use it.");
+        if (ChoiceButton("training_item", draft_.training_item, kTrainingItems, kTrainingItemNames)) dirty_ = true;
+        Row("Captain", "Start training's captain, with their sidekicks from the Teams page.");
+        if (ChoiceButton("training_captain", draft_.training_captain, kTrainingCaptains, kCaptainNames)) dirty_ = true;
+        Row("Stadium", "Start training's stadium.");
+        if (ChoiceButton("training_stadium", draft_.training_stadium, kTrainingStadiums, kStadiumNames)) dirty_ = true;
+        const std::string blocker = PlayBlocker();
+        Row("Start training", "Starts the game straight into a match to 10 goals that never ends on them, past the "
+                              "intro and the menus. The other team's captain and sidekicks vanish at every kickoff, "
+                              "as in the Strikers 101 lessons; its goalie stays. Controller 1 plays the home team.");
+        if (SecondaryButton("start_training", "Start training", {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()},
+                            blocker.empty(), Icon::Play))
+            training_requested_ = true;
+        if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", blocker.c_str());
+    }
+
     void TweakRow(GameTweak tweak)
     {
         const auto index = GameTweakIndex(tweak);
@@ -7251,6 +7336,14 @@ private:
             TweakRow(GameTweak::FairBallContests);
             TweakRow(GameTweak::NoMegaStrikes);
             TweakRow(GameTweak::MatchPoint);
+            EndRows();
+        }
+        EndCard();
+
+        BeginCard("##training", "Training", nullptr, Icon::Pitch);
+        if (BeginRows("##training_rows"))
+        {
+            TrainingRows();
             EndRows();
         }
         EndCard();
@@ -8419,6 +8512,9 @@ private:
     bool config_ok_ = false;
     bool dirty_ = false;
     bool play_prompt_ = false;
+    // Start training: asked on the Gameplay page, and the start it makes.
+    bool training_requested_ = false;
+    bool training_ = false;
     NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
     int page_ = PagePlay;
@@ -8707,7 +8803,8 @@ int main(int argc, char** argv)
         + unsigned(options.experimental_options);
     const bool launcher_requested = options.launcher || options.smoke_test
         || !options.screenshot.empty() || options.page_selected;
-    if (!runtime_modes && options.launch.disc && !launcher_requested)
+    // --disc, or --training, starts the game without the launcher.
+    if (!runtime_modes && (options.launch.disc || options.launch.training) && !launcher_requested)
     {
         options.experimental_frontend = true;
         runtime_modes = 1;
