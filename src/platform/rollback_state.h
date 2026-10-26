@@ -370,6 +370,12 @@ struct Netplay
     std::uint64_t leadSamples;
     bool isPrevFramePhasePredictable; // the phase at the last frame start predicted
     int addedStepsInLockstep;         // input delay added for a phase without prediction, given back after it
+    // A disc read waiting for the steps predicted to get their inputs
+    // (mscharged_rollback_read_waits): no step predicts through the frame
+    // after the last one it waited in.
+    bool readWaiting;
+    std::uint64_t readWaitFrame;  // the last frame it waited in
+    std::uint64_t readWaitFrames; // frames reads waited, for the summary
 };
 
 // Exists from startup when the rollback is on, and never goes away: the

@@ -1,0 +1,73 @@
+From: mscharged-port
+Subject: Rollback: an overlay's image waits for the steps still predicted
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+A rollback cannot go back past a disc read into the match's memory: the
+read's buffer and the object waiting for it would go back with the match
+while the read goes on. When a captain uses his super ability, the step
+starts SuperAbilityOverlay, and the front end reads the captain's picture
+(fe/super_abilities/<team>_super_image in art/fe/superabilityUI.res,
+174,784 bytes) later in the same frame. The steps that ran with predicted
+inputs before it could no longer be corrected (ROLLBACK IMPOSSIBLE): a
+desync whenever one of those predictions was wrong. A replay, which runs
+the front end as well, could start the read too.
+
+In an offline match logged read by read (Wario against Bowser, five goals
+and overtime), these pictures were the only reads into the match's memory
+while it was played: the cutscenes load after a goal, when no step
+predicts, and the audio's streams read into the audio's own heap.
+
+AsyncImage::Update now issues its read only when the port lets it
+(mscharged_rollback_read_waits): not during a replay, nor while a step has
+inputs still predicted. While a read waits, no step predicts, so the steps
+predicted get their inputs within a round trip and the picture follows a
+few frames later. Without RECHARGED_ROLLBACK or RECHARGED_ROLLBACK_TEST
+nothing changes.
+
+diff --git a/include/mscharged_rollback.h b/include/mscharged_rollback.h
+index 93d0c1c..631c766 100644
+--- a/include/mscharged_rollback.h
++++ b/include/mscharged_rollback.h
+@@ -46,6 +46,13 @@ bool mscharged_rollback_resimulating(void);
+ // after it was undone. Outside tracked steps, everything goes out.
+ bool mscharged_rollback_determ_data_new(int frame, const void* data, unsigned size);
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++// Whether a disc read the front end asks for (an overlay's image) waits: a
++// rollback cannot go back past a read into the match's memory, so none
++// starts while a replay runs or a step has inputs still predicted. While one
++// waits, no step predicts, and the steps predicted get their inputs.
++bool mscharged_rollback_read_waits(void);
++#endif
+ // The inputs applied for the step about to run.
+ void mscharged_rollback_inputs_applied(const struct MschargedRollbackInputs* inputs);
+ // Between two fixed steps of a match, where the rollback saves the match and
+diff --git a/src/Game/FE/feAsyncImage.cpp b/src/Game/FE/feAsyncImage.cpp
+index a3170f0..fb960b4 100644
+--- a/src/Game/FE/feAsyncImage.cpp
++++ b/src/Game/FE/feAsyncImage.cpp
+@@ -11,6 +11,9 @@
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
+ #include "NL/nlstring_tmpl.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ 
+ 
+ inline bool AsyncImage::CanSwapTextures() const
+@@ -94,7 +97,13 @@ bool AsyncImage::Update(bool autoswap)
+     }
+ 
+     bool res = false;
+-    if (mLoadState == LS_READY_TO_LOAD)
++    if (mLoadState == LS_READY_TO_LOAD
++#if defined(MSCHARGED_TWEAKS)
++        // A rollback cannot go back past a disc read into the match's memory:
++        // the image waits while a replay runs or steps are still predicted.
++        && !mscharged_rollback_read_waits()
++#endif
++    )
+     {
+         BundleFileDirectoryEntry info;
+         mBundleFile->GetFileInfo(mLoadPath, &info, true);

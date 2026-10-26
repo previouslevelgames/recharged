@@ -38,9 +38,11 @@ void WriteSummary()
             std::fprintf(file, " %s %llu", kPartNames[part], static_cast<unsigned long long>(s.net.mispredictedParts[part]));
         std::fprintf(file, "\n");
         std::fprintf(file, "steps undone (a phase change on predicted inputs) %llu, replays cut at a phase change "
-                           "%llu; waits for inputs: as the original router %llu, prediction window full %llu\n",
+                           "%llu; waits for inputs: as the original router %llu, prediction window full %llu; "
+                           "frames a disc read waited for predicted steps %llu\n",
                      static_cast<unsigned long long>(s.net.undone), static_cast<unsigned long long>(s.net.truncated),
-                     static_cast<unsigned long long>(s.net.lockstepWaits), static_cast<unsigned long long>(s.net.windowWaits));
+                     static_cast<unsigned long long>(s.net.lockstepWaits), static_cast<unsigned long long>(s.net.windowWaits),
+                     static_cast<unsigned long long>(s.net.readWaitFrames));
         std::fprintf(file, "input delay now %d steps (from %d), lengthened %llu times, shortened %llu\n", s.net.delay,
                      s.options.inputDelay, static_cast<unsigned long long>(s.net.delayLonger),
                      static_cast<unsigned long long>(s.net.delayShorter));

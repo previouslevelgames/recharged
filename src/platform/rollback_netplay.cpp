@@ -321,11 +321,13 @@ namespace
 {
 // Whether step `frame` may run with predicted inputs: the rollback follows the
 // match and could go back before the oldest step predicted, through as many
-// frames as it keeps and without a disc read in between.
+// frames as it keeps and without a disc read in between, and no disc read
+// waits for the steps predicted to get their inputs.
 bool CanPredict(unsigned frame)
 {
     State& s = *sState;
     if (!s.active || s.latest + 1 != frame || frame <= s.net.waitThrough) return false;
+    if (s.net.readWaiting && s.hostFrame <= s.net.readWaitFrame + 1) return false;
     // Tracking starts as play does, after a goal, a NIS or a pause: the disc
     // reads the game starts then (a rollback cannot cross them) are let pass.
     if (frame <= s.trackingFrom + kSettleSteps) return false;
@@ -628,6 +630,26 @@ extern "C" bool mscharged_rollback_predicting(void)
     return g_pNetworkSessionBase->GetSessionMode() != NET_MODE_LOCAL && !gNetworkInputRecording->mPlaybackReady;
 }
 
+// Before the front end reads an image into the match's memory (a captain's
+// super ability picture): no rollback could go back past the read, so a
+// replay starts none (it runs under the hooks' lock already), nor does a
+// frame while steps have inputs still predicted. The read waits, and with it
+// the prediction (CanPredict), until those steps have their inputs.
+extern "C" bool mscharged_rollback_read_waits(void)
+{
+    if (!Running()) return false;
+    if (sState->resimulating) return true;
+    std::lock_guard lock(sMutex);
+    State& s = *sState;
+    const bool waited = s.net.readWaiting && s.hostFrame <= s.net.readWaitFrame + 1;
+    s.net.readWaiting = s.active && s.options.netplay && OldestPredicted();
+    if (!s.net.readWaiting) return false;
+    if (!waited) Log("DISC READ WAITS from frame %u: steps from %u still predicted\n", s.latest, OldestPredicted());
+    s.net.readWaitFrame = s.hostFrame;
+    ++s.net.readWaitFrames;
+    return true;
+}
+
 extern "C" int mscharged_rollback_network_reset(void)
 {
     std::lock_guard lock(sMutex);
@@ -654,6 +676,7 @@ extern "C" int mscharged_rollback_network_reset(void)
     s.net.slowing = false;
     s.net.addedStepsInLockstep = 0;
     s.net.isPrevFramePhasePredictable = true;
+    s.net.readWaiting = false;
     Log("network match: input delay %d steps\n", s.options.inputDelay);
     FlushLog();
     return s.options.inputDelay;

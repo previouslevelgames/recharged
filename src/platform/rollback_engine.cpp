@@ -278,6 +278,7 @@ void Stop(const char* why)
     s.active = false;
     s.pendingDepth = 0;
     s.net.undoFrom = 0;
+    s.net.readWaiting = false;
     if (OldestPredicted())
     {
         // Nothing can go back before them any more.
