@@ -200,6 +200,13 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
         src/platform/rollback_summary.cpp src/platform/rollback_platform.cpp src/platform/rollback_fields.cpp)
     # The performance overlay's network numbers (LAT, and DLY and RB with rollback).
     target_sources(${target} PRIVATE src/platform/netplay_snapshot.cpp)
+    # The hidden autopilot for online tests (tweak patch 0036): the bot in test
+    # and dev builds, an empty one in release builds (MSCHARGED_AUTOPILOT).
+    if(MSCHARGED_AUTOPILOT_ENABLED)
+        target_sources(${target} PRIVATE src/platform/autopilot.cpp)
+    else()
+        target_sources(${target} PRIVATE src/platform/step_pads.cpp)
+    endif()
     # Robot goalies: the disc's unused robot goalie texture on Charged's goalie (tweak patch 0025).
     target_sources(${target} PRIVATE src/platform/robot_goalie.cpp src/platform/robot_goalie_hook.cpp)
     # Super Team: robot captains and sidekicks from the GameCube robot (tweak patch 0026).

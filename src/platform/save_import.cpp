@@ -31,6 +31,9 @@ constexpr std::size_t kNameBytes = 12, kMaxFileBytes = 16u << 20, kMaxFiles = 32
 const std::string kFaceLib = "/shared2/menu/FaceLib", kMiiDatabase = kFaceLib + "/RFL_DB.dat";
 constexpr std::size_t kMiiDatabaseBytes = 0xBE6C0, kMiiCheckedBytes = 0x1F1E0, kMiiSlots = 100, kMiiBytes = 0x4A;
 constexpr std::size_t kMiiNameOffset = 0x2, kMiiNameChars = 10, kMiiCreateIdOffset = 0x18, kMiiCreateIdBytes = 8;
+// A Mii's first 16 bits (big-endian) end with its favourite colour (4 bits)
+// and whether it is a favourite (RFLiCharData).
+constexpr unsigned kMiiColorShift = 1, kMiiColorMask = 0xF, kMiiFavoriteBit = 1;
 
 // The game save (SaveLoad.cpp), as the Wii stores it (big-endian): the size
 // of its data and their checksum, then the data, padded to 32 bytes. The
@@ -50,6 +53,18 @@ constexpr int kDefaultLineups[kCaptainCount][kSidekickSlots] = {
     {1, 1, 7}, {4, 5, 5}, {6, 1, 5}, {0, 0, 0}, {7, 7, 1}, {3, 3, 0},
     {2, 5, 2}, {3, 4, 5}, {2, 1, 5}, {5, 1, 2}, {6, 2, 6}, {6, 0, 0},
 };
+
+// The online save (SaveLoad.cpp), in the data folder's nocopy folder, which
+// the Wii never copies: the same size and checksum, then ten slots of 0xB10
+// bytes (GameInfoSaveSlot), one for each Mii that went online. A slot starts
+// with the Mii's DWC user data (DWCAccUserData: its size, 64, the profile ID
+// at 0x1C, the game's code at 0x24, a CRC-32 of the rest at 0x3C) and holds
+// the Mii's create ID at 0xA80.
+const std::string kOnlineSave = "nocopy/Online";
+constexpr std::size_t kOnlineSlots = 10, kOnlineSlotBytes = 0xB10;
+constexpr std::size_t kOnlineSaveBytes = kSaveHeaderBytes + kOnlineSlots * kOnlineSlotBytes;
+constexpr std::size_t kUserDataBytes = 0x40, kProfileIdOffset = 0x1C, kGameCodeOffset = 0x24, kUserDataCrcOffset = 0x3C;
+constexpr std::size_t kSlotCreateIdOffset = 0xA80;
 
 struct Entry {
     std::uint32_t uid{};
@@ -536,14 +551,25 @@ void PutBig32(std::string& bytes, std::size_t offset, std::uint32_t value) {
     for (std::size_t n = 0; n < 4; ++n) bytes[offset + n] = char(value >> (24 - 8 * n));
 }
 
-// nlChecksum32 (nlMain.cpp): the usual CRC-32, over everything after the header.
-std::uint32_t SaveCrc(const std::string& save) {
+std::uint32_t Little32(const std::string& bytes, std::size_t offset) {
+    std::uint32_t value = 0;
+    for (std::size_t n = 4; n-- > 0;) value = value << 8 | static_cast<unsigned char>(bytes[offset + n]);
+    return value;
+}
+
+// The usual CRC-32 (nlChecksum32 in nlMain.cpp, and DWC's MATH_CalcCRC32).
+std::uint32_t Crc32(const std::string& bytes, std::size_t begin, std::size_t end) {
     std::uint32_t crc = ~0u;
-    for (std::size_t n = kSaveHeaderBytes; n < save.size(); ++n) {
-        crc ^= static_cast<unsigned char>(save[n]);
+    for (std::size_t n = begin; n < end; ++n) {
+        crc ^= static_cast<unsigned char>(bytes[n]);
         for (int bit = 0; bit < 8; ++bit) crc = crc & 1 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
     }
     return ~crc;
+}
+
+// nlChecksum32: the save's CRC-32, over everything after the header.
+std::uint32_t SaveCrc(const std::string& save) {
+    return Crc32(save, kSaveHeaderBytes, save.size());
 }
 
 bool ValidLineups(const SidekickLineups& lineups) {
@@ -639,6 +665,81 @@ fs::path StoreGameSave(const fs::path& file, std::string save, const fs::path& b
     WriteAtomically(file, save);
     return backup;
 }
+
+// A slot of the online save: the Mii it belongs to and its friend code.
+struct OnlineSlot {
+    std::array<unsigned char, kMiiCreateIdBytes> create_id{};
+    std::uint64_t friend_code = 0;
+};
+
+// The friend code of the slot at `slot` in the online save, 0 when there is
+// none: before the online server gave the Mii its profile, or when the game
+// would make new user data at its next login (DWC_CheckUserData fails). The
+// port writes the slots in the PC's byte order (save_data.cpp), the Wii in
+// its own: the size word tells which.
+std::uint64_t SlotFriendCode(const std::string& save, std::size_t slot) {
+    const bool little = Little32(save, slot) == kUserDataBytes;
+    if (!little && Big32(save, slot) != kUserDataBytes) return 0;
+    // DWC's CRC covers the user data as little-endian words.
+    std::string data(kUserDataBytes, '\0');
+    for (std::size_t n = 0; n < kUserDataBytes; n += 4) {
+        const auto word = little ? Little32(save, slot + n) : Big32(save, slot + n);
+        for (std::size_t k = 0; k < 4; ++k) data[n + k] = char(word >> (8 * k));
+    }
+    const auto profile = std::int32_t(Little32(data, kProfileIdOffset));
+    if (Crc32(data, 0, kUserDataCrcOffset) != Little32(data, kUserDataCrcOffset) || profile <= 0) return 0;
+    return FriendCode(profile, Little32(data, kGameCodeOffset));
+}
+
+// The slots of the backing's online save that hold a Mii; none when it has
+// no online save the game accepts (the game deletes a damaged one) or it
+// cannot be read: the Miis are listed without codes then.
+std::vector<OnlineSlot> OnlineSlots(const fs::path& nand_root, const Catalog& catalog, const SaveTitle& title) {
+    const auto path = Home(title.title_id) + '/' + kOnlineSave;
+    const auto entry = catalog.entries.find(path);
+    const auto file = Physical(nand_root / "data", path);
+    if (entry == catalog.entries.end() || entry->second.directory || !IsFile(file)) return {};
+    std::string save;
+    try { save = ReadFile(file); } catch (const std::exception&) { return {}; }
+    if (save.size() != (kOnlineSaveBytes + kSaveAlign - 1) / kSaveAlign * kSaveAlign
+        || Big32(save, 0) != kOnlineSaveBytes || Big32(save, 4) != SaveCrc(save))
+        return {};
+    std::vector<OnlineSlot> slots;
+    for (std::size_t n = 0; n < kOnlineSlots; ++n) {
+        const auto slot = kSaveHeaderBytes + n * kOnlineSlotBytes;
+        OnlineSlot online;
+        std::copy_n(save.begin() + std::ptrdiff_t(slot + kSlotCreateIdOffset), kMiiCreateIdBytes,
+                    online.create_id.begin());
+        if (std::all_of(online.create_id.begin(), online.create_id.end(), [](unsigned char c) { return !c; }))
+            continue;
+        online.friend_code = SlotFriendCode(save, slot);
+        slots.push_back(online);
+    }
+    return slots;
+}
+
+// The Miis of a database in the order of the game's online list
+// (SHOnlineMiiSelect::BuildMiiList), with their friend codes.
+std::vector<InstalledMii> ListedMiis(const std::string& database, const std::vector<OnlineSlot>& slots) {
+    std::vector<std::pair<int, InstalledMii>> listed;
+    for (std::size_t n = 0; n < kMiiSlots; ++n) {
+        const auto* record = MiiRecord(database, n);
+        if (!MiiUsed(record)) continue;
+        const unsigned flags = record[0] << 8 | record[1];
+        InstalledMii mii{MiiName(record + kMiiNameOffset), int(flags >> kMiiColorShift & kMiiColorMask)};
+        const auto online = std::find_if(slots.begin(), slots.end(), [&](const OnlineSlot& slot) {
+            return std::equal(slot.create_id.begin(), slot.create_id.end(), record + kMiiCreateIdOffset);
+        });
+        if (online != slots.end()) mii.friend_code = online->friend_code;
+        // The list's four passes: Miis with a slot, then without, favourites first in both.
+        const int pass = (online == slots.end() ? 2 : 0) + (flags & kMiiFavoriteBit ? 0 : 1);
+        listed.emplace_back(pass, std::move(mii));
+    }
+    std::stable_sort(listed.begin(), listed.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<InstalledMii> miis;
+    for (auto& entry : listed) miis.push_back(std::move(entry.second));
+    return miis;
+}
 } // namespace
 
 MiiDatabaseStatus InstalledMiis(const fs::path& nand_root, const SaveTitle& title) {
@@ -657,11 +758,35 @@ MiiDatabaseStatus InstalledMiis(const fs::path& nand_root, const SaveTitle& titl
             return status;
         }
         status.state = MiiDatabaseState::Ready;
-        status.names = MiiNames(database);
+        status.miis = ListedMiis(database, OnlineSlots(nand_root, catalog, title));
     } catch (const std::exception& error) {
         status = {MiiDatabaseState::Unusable, {}, error.what()};
     }
     return status;
+}
+
+std::vector<fs::path> InstalledMiiFiles(const fs::path& nand_root, const SaveTitle& title) {
+    const auto data = nand_root / "data";
+    return {nand_root / "metadata.txt", Physical(data, kMiiDatabase),
+            Physical(data, Home(title.title_id) + '/' + kOnlineSave)};
+}
+
+std::uint64_t FriendCode(std::int32_t profile_id, std::uint32_t game_code) {
+    // MATH_CalcCRC8 (polynomial 7, from 0) over both as little-endian words.
+    std::uint8_t crc = 0;
+    for (const std::uint32_t word : {std::uint32_t(profile_id), game_code})
+        for (int n = 0; n < 4; ++n) {
+            crc ^= std::uint8_t(word >> (8 * n));
+            for (int bit = 0; bit < 8; ++bit) crc = std::uint8_t(crc & 0x80 ? (crc << 1) ^ 0x07 : crc << 1);
+        }
+    return std::uint64_t(crc & 0x7F) << 32 | std::uint32_t(profile_id);
+}
+
+std::string FriendCodeText(std::uint64_t friend_code) {
+    char text[32];
+    std::snprintf(text, sizeof text, "%06llu %06llu", static_cast<unsigned long long>(friend_code / 1000000),
+                  static_cast<unsigned long long>(friend_code % 1000000));
+    return text;
 }
 
 MiiImportResult ImportDolphinMiis(const fs::path& source, const fs::path& nand_root, const SaveTitle& title,

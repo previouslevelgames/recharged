@@ -202,7 +202,9 @@ std::string MiiDatabase(const std::vector<std::pair<std::size_t, std::u16string>
 std::vector<std::string> Miis(const fs::path& nand) {
     const auto status = InstalledMiis(nand, kTitle);
     Check(status.state == MiiDatabaseState::Ready && status.error.empty(), "Mii database not ready");
-    return status.names;
+    std::vector<std::string> names;
+    for (const auto& mii : status.miis) names.push_back(mii.name);
+    return names;
 }
 
 // Dolphin's Mii database: what the game's device opens afterwards, read and
@@ -270,7 +272,7 @@ void RunMiis(const fs::path& root) {
     const auto orphan = root / "orphan-miis";
     Put(orphan / "data" / "shared2" / "menu" / "FaceLib" / "RFL_DB.dat", miis);
     const auto orphaned = InstalledMiis(orphan, kTitle);
-    Check(orphaned.state == MiiDatabaseState::Unusable && !orphaned.error.empty() && orphaned.names.empty(),
+    Check(orphaned.state == MiiDatabaseState::Unusable && !orphaned.error.empty() && orphaned.miis.empty(),
           "A save folder without a catalog was not unusable");
     const auto other = InstalledMiis(nand, {kTitle.title_id + 1, kTitle.uid, kTitle.gid});
     Check(other.state == MiiDatabaseState::Unusable, "Another game's save folder was not unusable");
@@ -547,6 +549,110 @@ void RunMatchSettings(const fs::path& root) {
     Check(InstalledMatchSettings(nand, kTitle).modes[0] == competitive, "Refused settings changed the save");
 }
 
+// A folder or file made through the IOS device as the game makes them
+// (owner read/write): CreateDir 3, CreateFile 9.
+void IosCreate(s32 command, const std::string& path) {
+    const auto device = IOS_Open("/dev/fs", IPC_OPEN_NONE);
+    Fields fields{};
+    std::memcpy(fields.path, path.c_str(), path.size());
+    fields.owner = 3;
+    Check(device >= 0 && IOS_Ioctl(device, command, &fields, sizeof fields, nullptr, 0) == 0 && IOS_Close(device) == 0,
+          "The online save's folder or file was not made through the IOS device");
+}
+
+// The friend codes of the game's online save, beside each Mii, in the order
+// of the game's online list. The expected codes are what the game's own
+// DWC_Acc_CreateFriendKey returned, called in the running game.
+void RunFriendCodes(const fs::path& root) {
+    constexpr std::uint32_t kR4QE = 0x52345145, kR4QP = 0x52345150, kR4QJ = 0x5234514A;
+    Check(FriendCode(1000000000, kR4QE) == 86899345920ULL && FriendCode(1, kR4QE) == 124554051585ULL
+              && FriendCode(123456789, kR4QP) == 227756723477ULL
+              && FriendCode(2147483647, kR4QJ) == 285615325183ULL,
+          "Friend codes differ from the game's");
+    Check(FriendCodeText(86899345920ULL) == "086899 345920" && FriendCodeText(124554051585ULL) == "124554 051585",
+          "Friend codes not written as the game writes them");
+
+    // Six Miis: their favourite colour, and whether they are favourites (bit 0).
+    auto database = MiiDatabase({{0, u"Mario"}, {1, u"Luigi"}, {2, u"Peach"}, {3, u"Toad"}, {4, u"Daisy"},
+                                 {5, u"Wario"}});
+    const unsigned flags[6] = {0 << 1, 4 << 1 | 1, 7 << 1, 5 << 1 | 1, 1 << 1, 11 << 1};
+    for (std::size_t slot = 0; slot < 6; ++slot) {
+        database[4 + slot * 0x4A] = char(flags[slot] >> 8);
+        database[5 + slot * 0x4A] = char(flags[slot]);
+    }
+    database[kMiiChecked - 2] = database[kMiiChecked - 1] = 0;
+    const auto mii_crc = MiiCrc(database);
+    database[kMiiChecked - 2] = char(mii_crc >> 8);
+    database[kMiiChecked - 1] = char(mii_crc);
+    const auto source = root / "friend-code-miis" / "RFL_DB.dat", nand = root / "friend-codes";
+    fs::remove_all(nand);
+    Put(source, database);
+    ImportDolphinMiis(source, nand, kTitle, root / "backups");
+    auto status = InstalledMiis(nand, kTitle);
+    Check(status.state == MiiDatabaseState::Ready && status.miis.size() == 6, "Miis before the online save");
+    for (const auto& mii : status.miis) Check(!mii.friend_code, "A friend code before any online save");
+
+    // The online save as the game writes it: ten slots of 0xB10 bytes after
+    // the size and checksum. Luigi has a profile, Mario too (his slot in the
+    // Wii's byte order), Daisy went online without getting one, Wario's user
+    // data are damaged (the game makes new ones), one slot's Mii is gone.
+    std::string online(28352, '\0');
+    PutWord(online, 0, 28328);
+    const auto put_slot = [&](std::size_t index, unsigned char mii, std::int32_t profile, bool big, bool damaged) {
+        std::string data(0x40, '\0');
+        const auto little = [&](std::size_t offset, std::uint32_t value) {
+            for (std::size_t n = 0; n < 4; ++n) data[offset + n] = char(value >> (8 * n));
+        };
+        little(0, 0x40);
+        little(0x1C, std::uint32_t(profile));
+        little(0x24, kR4QE);
+        little(0x3C, Crc32(data.substr(0, 0x3C), 0));
+        if (damaged) data[0x24] ^= 1;
+        const auto at = 8 + index * 0xB10;
+        for (std::size_t n = 0; n < 0x40; n += 4)
+            for (std::size_t k = 0; k < 4; ++k) online[at + n + k] = big ? data[n + 3 - k] : data[n + k];
+        online[at + 0xA80] = char(0x80 | mii);
+        online[at + 0xA87] = 0x5B;
+    };
+    put_slot(0, 1, 1000000000, false, false);
+    put_slot(1, 0, 1, true, false);
+    put_slot(2, 9, 5, false, false);
+    put_slot(3, 4, 0, false, false);
+    put_slot(4, 5, 7, false, true);
+    PutWord(online, 4, Crc32(online, 8));
+    InitializeNativeFilesystem({nand, kTitle.title_id, kTitle.uid, kTitle.gid});
+    IosCreate(3, kHome + "/nocopy");
+    IosCreate(9, kHome + "/nocopy/Online");
+    const auto fd = IOS_Open((kHome + "/nocopy/Online").c_str(), IPC_OPEN_WRITE);
+    Check(fd >= 0 && IOS_Write(fd, online.data(), s32(online.size())) == s32(online.size()) && IOS_Close(fd) == 0,
+          "The online save was not written through the IOS device");
+    ShutdownNativeFilesystem();
+    const auto files = InstalledMiiFiles(nand, kTitle);
+    Check(files.size() == 3 && Bytes(files[0]) == Bytes(nand / "metadata.txt") && Bytes(files[1]) == database
+              && Bytes(files[2]) == online,
+          "The files InstalledMiis reads are not where the device keeps them");
+
+    // Slots first (favourites first), then the rest (favourites first).
+    struct Expected { const char* name; int color; std::uint64_t code; };
+    const Expected expected[] = {{"Luigi", 4, 86899345920ULL}, {"Mario", 0, 124554051585ULL}, {"Daisy", 1, 0},
+                                 {"Wario", 11, 0}, {"Toad", 5, 0}, {"Peach", 7, 0}};
+    status = InstalledMiis(nand, kTitle);
+    Check(status.state == MiiDatabaseState::Ready && status.miis.size() == 6, "Miis beside the online save");
+    for (std::size_t n = 0; n < 6; ++n)
+        Check(status.miis[n].name == expected[n].name && status.miis[n].favorite_color == expected[n].color
+                  && status.miis[n].friend_code == expected[n].code,
+              "A Mii's place, colour or friend code differs from the game's online list");
+
+    // A damaged online save holds no codes (the game deletes it), and no slots.
+    online[0x1234] ^= 1;
+    Put(files[2], online);
+    status = InstalledMiis(nand, kTitle);
+    const char* order[] = {"Luigi", "Toad", "Mario", "Peach", "Daisy", "Wario"};
+    for (std::size_t n = 0; n < 6; ++n)
+        Check(status.miis[n].name == order[n] && !status.miis[n].friend_code,
+              "A damaged online save gave friend codes or slots");
+}
+
 void SetEnvironment(const char* name, const fs::path& value) {
 #ifdef _WIN32
     const std::wstring wide(name, name + std::strlen(name));
@@ -618,6 +724,7 @@ int main(int argc, char** argv) {
         RunAddMii(fs::path(argv[1]));
         RunSidekicks(fs::path(argv[1]));
         RunMatchSettings(fs::path(argv[1]));
+        RunFriendCodes(fs::path(argv[1]));
         RunFind(fs::path(argv[1]));
         std::cout << "save_import: " << checks << " checks passed\n";
         return 0;

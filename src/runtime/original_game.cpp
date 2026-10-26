@@ -85,6 +85,9 @@
 #include <SDL3/SDL_hints.h>
 #include <SDL3/SDL_filesystem.h>
 #include "platform/native_module_loader.h"
+#if defined(MSCHARGED_AUTOPILOT)
+#include "platform/bank_cue.h"
+#endif
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -103,6 +106,24 @@ namespace {
 // Aurora's FIFO retains every recorded command until a drain; publishing only
 // hands bytes to the worker. Bound that backlog between source frames.
 constexpr std::uint32_t kFifoDrainBytes=64u<<20;
+#if defined(MSCHARGED_AUTOPILOT)
+// Test builds' autopilot (src/platform/autopilot.cpp): C, P and U held
+// together hand the first player to a bot and back. Unannounced: no log line,
+// only the title screen's unlock-all sound when it takes over (played here:
+// the game unloads that bank for matches).
+std::atomic<int(*)(int)> sSetAutopilot{nullptr};
+std::atomic<bool> sAutopilotOn{false};
+mscharged::platform::BankCuePlayer sAutopilotSound;
+std::atomic<float> sAutopilotSoundGain{1.0f};
+void SwitchAutopilot() {
+    const auto set=sSetAutopilot.load();
+    if(!set) return;
+    const bool on=!sAutopilotOn.load();
+    sAutopilotOn=on;
+    set(on ? 1 : 0);
+    if(on) sAutopilotSound.Play(sAutopilotSoundGain);
+}
+#endif
 void Check(bool value, const char* reason) { if (!value) throw std::runtime_error(reason); }
 struct Snapshot : std::enable_shared_from_this<Snapshot> {
     aurora::gfx::ResolvedTargets target;
@@ -804,6 +825,21 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // No HUD (issue #58): the HUD key shows or hides the match HUD, whatever show_hud says.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_hud")));
+#if defined(MSCHARGED_AUTOPILOT)
+            // The autopilot: only a test build's module has one (a release's says 0).
+            if(auto* setAutopilot=reinterpret_cast<int(*)(int)>(
+                   mscharged::platform::FindNativeModuleSymbol(module,"charged_set_pad_source"));
+               setAutopilot && setAutopilot(0)==1) {
+                sSetAutopilot=setAutopilot;
+                mscharged::platform::SetAutopilotChord(SwitchAutopilot);
+                // The unlock-all cue of the title screen (SHTitleScreen.cpp), in
+                // the menus' bank, as loud as the game's menu sounds.
+                sAutopilotSound.Load(launch.disc_path, "FE_GEN_Sfx",
+                    std::strncmp(release->game_id, "R4QK", 4) == 0 ? 0xF0AFD586u : 0xCF37DAC7u);
+                sAutopilotSoundGain = launch.settings.mute ? 0.0f : float(launch.settings.master_volume) / 100.0f
+                    * float(launch.settings.sound_volumes[std::size_t(mscharged::SoundGroup::Menus)]) / 100.0f;
+            }
+#endif
             // display.wider_view: the module tells when the match's stadium is
             // drawn and draws the shape of the window's picture.
             if(widerView) {

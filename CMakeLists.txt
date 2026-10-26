@@ -60,6 +60,28 @@ endif()
 if(MSCHARGED_BUILD_CHANNEL STREQUAL "test" AND MSCHARGED_BUILD_PULL_REQUEST STREQUAL "0")
     message(FATAL_ERROR "A test build needs MSCHARGED_BUILD_PULL_REQUEST")
 endif()
+# The hidden autopilot for online tests (C, P and U together in a match hand
+# the first player to a bot, src/platform/autopilot.cpp). It plays like a
+# person, so a release must never carry it: AUTO builds it into test and dev
+# builds only, and a release build refuses ON. CI passes the repository
+# variable RECHARGED_AUTOPILOT, so OFF there also takes it out of test builds.
+set(MSCHARGED_AUTOPILOT AUTO CACHE STRING "Hidden autopilot for online tests: AUTO (test and dev builds), ON or OFF")
+set_property(CACHE MSCHARGED_AUTOPILOT PROPERTY STRINGS AUTO ON OFF)
+if(NOT MSCHARGED_AUTOPILOT MATCHES "^(AUTO|ON|OFF)$")
+    message(FATAL_ERROR "MSCHARGED_AUTOPILOT must be AUTO, ON or OFF")
+endif()
+if(MSCHARGED_AUTOPILOT STREQUAL "ON" AND MSCHARGED_BUILD_CHANNEL STREQUAL "release")
+    message(FATAL_ERROR "A release build cannot carry the autopilot (MSCHARGED_AUTOPILOT=ON)")
+endif()
+if(MSCHARGED_AUTOPILOT STREQUAL "ON"
+   OR (MSCHARGED_AUTOPILOT STREQUAL "AUTO" AND NOT MSCHARGED_BUILD_CHANNEL STREQUAL "release"))
+    set(MSCHARGED_AUTOPILOT_ENABLED ON)
+    # The host's chord exists only beside a module with the bot (cmake/OriginalFrontendDiagnostic.cmake).
+    set_property(SOURCE src/platform/hotkey_filter.cpp src/runtime/original_game.cpp tests/desktop_wpad_profile_tests.cpp
+        APPEND PROPERTY COMPILE_DEFINITIONS MSCHARGED_AUTOPILOT=1)
+else()
+    set(MSCHARGED_AUTOPILOT_ENABLED OFF)
+endif()
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "Use an out-of-source build: cmake -S . -B build -G Ninja")
@@ -440,6 +462,11 @@ if(BUILD_TESTING)
     target_compile_definitions(game_tweaks_tests PRIVATE MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 MSCHARGED_TWEAKS=1)
     target_compile_features(game_tweaks_tests PRIVATE cxx_std_17)
     add_test(NAME game_tweaks COMMAND game_tweaks_tests)
+    # The autopilot's sticks and shakes, read back the way the game reads the pad.
+    add_executable(autopilot_pad_tests tests/autopilot_pad.cpp)
+    target_include_directories(autopilot_pad_tests PRIVATE src)
+    target_compile_features(autopilot_pad_tests PRIVATE cxx_std_17)
+    add_test(NAME autopilot_pad COMMAND autopilot_pad_tests)
     # Mirror match away kits made from the home kit's textures.
     add_executable(away_kits_tests tests/away_kits.cpp src/platform/away_kits.cpp src/platform/gx_texture.cpp
         src/platform/host_metadata.cpp)

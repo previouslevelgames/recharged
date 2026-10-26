@@ -1,18 +1,23 @@
 From: mscharged-port
-Subject: Print the network debug channel under the LAN admission
+Subject: Print the network debug channel under the LAN and online admissions
 Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
 Classification: temporary explicit original-source diagnostic admission
 
 Retail compiles tDebugPrintManager::Print to nothing. Under
 MSCHARGED_DIAGNOSTIC_FRONTEND_LAN, native builds print the DC_NETWORK
 channel to stderr with a "[net] " prefix, so the original session, lobby
-and connection messages reach the terminal. Other channels stay silent.
+and connection messages reach the terminal. Under
+MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE the channel goes, with the same
+prefix, to OSReport, the game's own debug output, which only a verbose
+console (advanced.verbose_console) shows: the WFC session, matchmaking and
+the ranking reports (NetworkStatsManager) reach the session log for bug
+reports. Other channels stay silent.
 
 diff --git a/include/Game/Sys/debug.h b/include/Game/Sys/debug.h
-index 11f42ad..ffdf868 100644
+index 11f42ad..2a61790 100644
 --- a/include/Game/Sys/debug.h
 +++ b/include/Game/Sys/debug.h
-@@ -1,6 +1,11 @@
+@@ -1,6 +1,16 @@
  #ifndef _DEBUG_H_
  #define _DEBUG_H_
  
@@ -20,11 +25,16 @@ index 11f42ad..ffdf868 100644
 +#include <cstdarg>
 +#include <cstdio>
 +#endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)
++#include <cstdarg>
++#include <cstdio>
++extern "C" void OSReport(const char* message, ...);
++#endif
 +
  enum eDEBUG_CHANNEL
  {
      DC_STARTUP = 0,
-@@ -31,6 +36,16 @@ namespace tDebugPrintManager
+@@ -31,6 +41,29 @@ namespace tDebugPrintManager
  
  inline int Print(eDEBUG_CHANNEL channel, const char* format, ...)
  {
@@ -36,6 +46,19 @@ index 11f42ad..ffdf868 100644
 +        std::fputs("[net] ", stderr);
 +        std::vfprintf(stderr, format, args);
 +        va_end(args);
++    }
++#endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)
++    // Online: the channel joins the game's own debug output (OSReport), which
++    // a verbose console shows: session, matchmaking and the ranking reports.
++    if (channel == DC_NETWORK)
++    {
++        char line[512];
++        va_list args;
++        va_start(args, format);
++        std::vsnprintf(line, sizeof line, format, args);
++        va_end(args);
++        OSReport("[net] %s", line);
 +    }
 +#endif
      return channel;

@@ -77,17 +77,45 @@ enum class MiiDatabaseState {
     Unusable, // the save folder cannot take one: `error` says why
 };
 
+// A Mii of the database, as the launcher lists it.
+struct InstalledMii {
+    std::string name;       // UTF-8
+    int favorite_color = 0; // RFLFavoriteColor: 0 red, 1 orange ... 10 white, 11 black
+    // What friends add it by (DWC_CreateFriendKey). The game keeps an online
+    // save slot for each Mii that goes online, keyed by its create ID, and the
+    // online server gives the Mii its profile at its first login there: 0
+    // until then.
+    std::uint64_t friend_code = 0;
+};
+
 struct MiiDatabaseStatus {
     MiiDatabaseState state = MiiDatabaseState::Missing;
-    std::vector<std::string> names; // the Miis of a Ready database, in its order
-    std::string error;              // Unusable only
-    bool Full() const { return names.size() >= kMiiDatabaseSlots; }
+    // The Miis of a Ready database, in the order of the game's online list
+    // (SHOnlineMiiSelect::BuildMiiList): those with an online save slot
+    // first, favourites first within both, else in the database's order.
+    std::vector<InstalledMii> miis;
+    std::string error; // Unusable only
+    bool Full() const { return miis.size() >= kMiiDatabaseSlots; }
 };
 
 // What the game finds as its Mii database in the NAND backing at
-// `nand_root`: the database the catalog has (the device opens nothing else).
-// Reads only; a Missing or Ready database can take a new Mii unless Full.
+// `nand_root`: the database the catalog has (the device opens nothing else),
+// with the friend codes of the game's online save. Reads only; a Missing or
+// Ready database can take a new Mii unless Full.
 MiiDatabaseStatus InstalledMiis(const std::filesystem::path& nand_root, const SaveTitle& title);
+
+// The files InstalledMiis reads, whether or not they exist yet: a change to
+// one of them can change what it finds.
+std::vector<std::filesystem::path> InstalledMiiFiles(const std::filesystem::path& nand_root, const SaveTitle& title);
+
+// The friend code of an online profile (DWC_Acc_CreateFriendKey): the
+// profile ID, and above it 7 bits of a CRC-8 over the ID and the game's code
+// (R4QE, R4QP or R4QJ: a code works only with the same version).
+std::uint64_t FriendCode(std::int32_t profile_id, std::uint32_t game_code);
+
+// A friend code as the game writes it (FormatFriendKey): two groups of six
+// digits, such as "086899 345920".
+std::string FriendCodeText(std::uint64_t friend_code);
 
 struct MiiImportResult {
     std::vector<std::string> names;   // the imported Miis, UTF-8

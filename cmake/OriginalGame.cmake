@@ -365,6 +365,20 @@ target_link_libraries(charged_original_game_host PRIVATE
     charged_native_video_output_device charged_native_filesystem_boot
     charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_texture_packs ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
 
+# The autopilot's sound (test and dev builds): one sound of the disc's banks
+# that the host decodes and plays itself (src/platform/bank_cue.cpp).
+if(MSCHARGED_AUTOPILOT_ENABLED)
+    target_sources(charged_original_game_host PRIVATE src/platform/bank_cue.cpp)
+    if(BUILD_TESTING)
+        add_executable(bank_cue_tests tests/bank_cue.cpp src/platform/bank_cue.cpp)
+        target_link_libraries(bank_cue_tests PRIVATE charged_host SDL3::SDL3)
+        target_compile_features(bank_cue_tests PRIVATE cxx_std_17)
+        # With MSCHARGED_TEST_DISC, the sound itself is decoded from that disc.
+        add_test(NAME bank_cue COMMAND bank_cue_tests ${MSCHARGED_TEST_DISC})
+        set_tests_properties(bank_cue PROPERTIES TIMEOUT 60)
+    endif()
+endif()
+
 function(mscharged_link_original_game target)
     mscharged_link_original_hbm_debug_host("${target}")
     target_link_libraries(${target} PRIVATE charged_original_game_host

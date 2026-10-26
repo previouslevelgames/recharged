@@ -1,12 +1,19 @@
 // The rollback restores the original game's arenas and globals, as the sync
 // test saves them, except what lives on outside the simulation: the network
-// session (but its players' inputs), sockets and lobby, the input routers and
+// session (but its players' inputs), sockets and lobby, the online services
+// (DWC's memory, the stats manager, the friend roster), the input routers and
 // manager, the pads, the tasks' clocks and the fixed update task's
 // accumulated time, the frame memory (used afresh every frame), the disc
 // reads' manager and the audio. Everything else, the drawing included, goes
 // back with the match, with the native pool records the game points at (their
 // own heap) and the registry of the game's memory (its rollback checkpoint).
 #include "platform/rollback_state.h"
+
+#include "Game/FriendManager.h"
+#include "Game/NetworkStatsManager.h"
+
+// The DWC heap (NetworkSession.cpp).
+extern void* gNetworkMemoryPool;
 
 namespace mscharged::rollback
 {
@@ -120,6 +127,15 @@ void FindRanges(FixedUpdateTask* task, unsigned long taskBytes)
         ExcludeAllocation(session->mStatsReporter, 0, "NetworkStatsReporter");
         ExcludeAllocation(session->mRankingReporter, 0, "NetworkRanking");
     }
+    // Online (WFC): DWC and GameSpy keep their connections in the network
+    // memory pool (the login the server checks a ranking report against, the
+    // match's transport, the ranking requests), the stats manager queues the
+    // reports a match's end makes, and the friend roster follows DWC. They go
+    // on outside the simulation; a restore would rewind them under their
+    // sockets and their globals, which stay.
+    ExcludeAllocation(gNetworkMemoryPool, 0, "network memory pool (DWC)");
+    ExcludeAllocation(NetworkStatsManager::Instance(), 0, "NetworkStatsManager");
+    ExcludeAllocation(g_pFriendManager, 0, "FriendManager");
     // The transport's slot pools keep their free lists in its globals, left out
     // with the network, and their slots in blocks of the arenas: the blocks go too.
     for (SlotPoolBase* pool : {&gTransportPacketPool, &gNetworkMessagePool, &gTransportConnectionPool})

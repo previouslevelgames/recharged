@@ -175,6 +175,22 @@ void Callout(const std::string& text, const ImVec4& tint, Icon icon)
     ImGui::Dummy({width, height});
 }
 
+// A Mii's figure on a disc of its favourite colour (RFLGetFavoriteColor,
+// RFL_Model.c), the colour the Wii puts behind its Mii icons.
+void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_color)
+{
+    static constexpr unsigned char kFavoriteColors[12][3] = {
+        {184, 64, 48},  {240, 120, 40}, {248, 216, 32}, {128, 200, 40}, {0, 116, 40},    {32, 72, 152},
+        {64, 160, 216}, {232, 96, 120}, {112, 44, 168}, {72, 56, 24},   {224, 224, 224}, {24, 24, 20}};
+    const auto& rgb = kFavoriteColors[favorite_color >= 0 && favorite_color < 12 ? favorite_color : 0];
+    const ImVec4 fill{rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+    draw->AddCircleFilled(center, size * 0.5f, Col(fill));
+    draw->AddCircle(center, size * 0.5f, Col(color::border), 0, Dp(1));
+    // Dark ink on the light colours (white, yellow, yellow-green).
+    const bool light = 0.2126f * fill.x + 0.7152f * fill.y + 0.0722f * fill.z > 0.6f;
+    DrawIcon(draw, Icon::Person, center, size * 0.62f, Col(light ? color::window : color::text));
+}
+
 enum Page { PagePlay, PageGame, PageMiis, PageTeams, PageMatches, PageDisplay, PageAudio, PageControls, PageGameplay,
             PageAdvanced, PageAbout, PageCount };
 constexpr const char* page_names[] = {"Play", "Game", "Miis", "Teams", "Matches", "Display", "Audio", "Controls", "Gameplay",
@@ -3355,12 +3371,14 @@ private:
         EndCard();
     }
 
-    // The Miis the game finds in its Wii storage: making one, or importing Dolphin's.
+    // The Miis the game finds in its Wii storage: their friend codes, making
+    // one, or importing Dolphin's.
     void MiiPage()
     {
         PageHeader("Miis", "Online play needs a Mii. Every Wii game reads them from the same database.");
         const auto& fonts = CurrentFonts();
-        BeginCard("##miis", "Your Miis", "The Miis the game lists, in the save folder in use.", Icon::Person);
+        BeginCard("##miis", "Your Miis", "In the order of the game's online list, with each Mii's friend code.",
+                  Icon::Person);
         using mscharged::platform::MiiDatabaseState;
         const auto& miis = InstalledMiis();
         if (miis.state == MiiDatabaseState::Damaged)
@@ -3370,13 +3388,10 @@ private:
             Callout(miis.error, color::danger, Icon::Error);
         else if (BeginRows("##mii_rows"))
         {
-            std::string names;
-            for (const auto& name : miis.names) names += (names.empty() ? "" : ", ") + name;
-            const std::string count = std::to_string(miis.names.size()) + (miis.names.size() == 1 ? " Mii" : " Miis");
-            if (miis.Full()) names += ". The database is full.";
-            Row(miis.names.empty() ? "None yet" : count.c_str(),
-                miis.names.empty() ? "Make one below, or import yours from Dolphin, to play online." : names.c_str());
+            if (miis.miis.empty()) Row("None yet", "Make one below, or import yours from Dolphin, to play online.");
+            for (std::size_t n = 0; n < miis.miis.size(); ++n) MiiRow(miis.miis[n], n);
             EndRows();
+            if (miis.Full()) TextWrappedColored(fonts.caption, color::muted, "The database is full: it holds 100 Miis.");
         }
         EndCard();
 
@@ -3431,6 +3446,41 @@ private:
         EndCard();
     }
 
+    // A Mii of the list: its figure on its favourite colour (the launcher
+    // cannot draw its face), its name, and its friend code on a button that
+    // copies it.
+    void MiiRow(const mscharged::platform::InstalledMii& mii, std::size_t index)
+    {
+        const auto& fonts = CurrentFonts();
+        ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(44));
+        ImGui::TableSetColumnIndex(0);
+        const float figure = Dp(36);
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+        ImGui::SetCursorScreenPos({start.x + figure + Dp(12), start.y});
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - Dp(24));
+        ImGui::BeginGroup();
+        TextColored(fonts.label, color::text, mii.name.c_str());
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
+        TextWrappedColored(fonts.caption, color::muted, mii.friend_code
+                                                             ? "Friends add this code in the game's Friend Roster."
+                                                             : "Gets its friend code the first time it plays online.");
+        ImGui::EndGroup();
+        ImGui::PopTextWrapPos();
+        const float height = ImGui::GetItemRectSize().y;
+        DrawMiiFigure(ImGui::GetWindowDrawList(), {start.x + figure * 0.5f, start.y + std::max(height, figure) * 0.5f},
+                      figure, mii.favorite_color);
+        if (height < figure) ImGui::Dummy({0.0f, figure - height});
+
+        ImGui::TableSetColumnIndex(1);
+        if (!mii.friend_code) return;
+        const auto code = mscharged::platform::FriendCodeText(mii.friend_code);
+        ImGui::PushID(int(index));
+        if (SecondaryButton("copy_code", code.c_str(), {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Copy)
+            && SDL_SetClipboardText(code.c_str()))
+            Notice("Friend code of " + mii.name + " copied: " + code + ".", NoticeKind::Success);
+        ImGui::PopID();
+    }
+
     void MakeMii()
     {
         try
@@ -3454,18 +3504,23 @@ private:
         catch (const std::exception& e) { Notice(std::string("Making the Mii failed: ") + e.what(), NoticeKind::Error); }
     }
 
-    // The Miis of the save folder in use, read again when its catalog
-    // changes (an import, or the game writing its storage).
+    // The Miis of the save folder in use, read again when a file they come
+    // from changes (an import, a new Mii, or the game writing its storage: a
+    // Mii's first login puts its profile in the online save).
     const mscharged::platform::MiiDatabaseStatus& InstalledMiis()
     {
         const auto folder = SaveFolder();
-        std::error_code error;
-        const auto changed = fs::last_write_time(folder / "metadata.txt", error);
-        const auto time = error ? fs::file_time_type{} : changed;
-        if (folder != miis_folder_ || time != miis_time_)
+        std::vector<fs::file_time_type> times;
+        for (const auto& file : mscharged::platform::InstalledMiiFiles(folder, SaveTitleOf(Release())))
+        {
+            std::error_code error;
+            const auto changed = fs::last_write_time(file, error);
+            times.push_back(error ? fs::file_time_type{} : changed);
+        }
+        if (folder != miis_folder_ || times != miis_times_)
         {
             miis_folder_ = folder;
-            miis_time_ = time;
+            miis_times_ = std::move(times);
             miis_ = mscharged::platform::InstalledMiis(folder, SaveTitleOf(Release()));
         }
         return miis_;
@@ -8426,9 +8481,9 @@ private:
     fs::path import_source_;
     ImportKind import_kind_ = ImportKind::Save;
     bool import_prompt_ = false;
-    // The Miis of the save folder in use and the catalog time they were read at.
+    // The Miis of the save folder in use and the times of their files when read.
     fs::path miis_folder_;
-    fs::file_time_type miis_time_;
+    std::vector<fs::file_time_type> miis_times_;
     mscharged::platform::MiiDatabaseStatus miis_;
     std::string new_mii_name_;
     // The Teams page: the captain shown, the slot whose menu is open, and the

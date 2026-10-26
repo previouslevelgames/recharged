@@ -137,7 +137,9 @@ jobs:
           key: ccache-${{ matrix.platform }}-${{ github.sha }}
           restore-keys: ccache-${{ matrix.platform }}-
       # The build's origin (release, test or dev) for the launcher's update check,
-      # and the Discord status's application (a repository variable: public, not a secret).
+      # the Discord status's application (a repository variable: public, not a secret)
+      # and the hidden autopilot for online tests: never in a release; the repository
+      # variable RECHARGED_AUTOPILOT=OFF takes it out of test builds too.
       - name: Configure original runtime
         run: >-
           cmake --preset release
@@ -149,6 +151,7 @@ jobs:
           -DMSCHARGED_BUILD_RUN=${{ github.run_id }}
           -DMSCHARGED_BUILD_TIME=$(date -u +%s)
           -DMSCHARGED_DISCORD_APPLICATION_ID=${{ vars.DISCORD_APPLICATION_ID }}
+          -DMSCHARGED_AUTOPILOT=${{ github.event_name == 'push' && 'OFF' || vars.RECHARGED_AUTOPILOT || 'AUTO' }}
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ${{ matrix.cmake_args }}
@@ -287,6 +290,7 @@ jobs:
           -DMSCHARGED_BUILD_RUN=${{ github.run_id }}
           -DMSCHARGED_BUILD_TIME=$(date -u +%s)
           -DMSCHARGED_DISCORD_APPLICATION_ID=${{ vars.DISCORD_APPLICATION_ID }}
+          -DMSCHARGED_AUTOPILOT=${{ github.event_name == 'push' && 'OFF' || vars.RECHARGED_AUTOPILOT || 'AUTO' }}
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       # Only the packaged targets: some Linux-only diagnostics are not portable.

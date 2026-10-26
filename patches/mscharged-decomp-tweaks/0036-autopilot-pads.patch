@@ -1,0 +1,72 @@
+Subject: Port: the test builds' autopilot plays through the pads
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Test builds (MSCHARGED_AUTOPILOT) can hand the first local player to a bot:
+C, P and U held together in the game window. The bot is the port's
+src/platform/autopilot.cpp; release builds link an empty one.
+
+It plays the way a person does, with the player's Remote and Nunchuk. Each
+fixed step reads the pads (UpdatePlatPad) before the pads take the status
+(PadManager::Update) and the step captures its inputs; between the two, the
+bot may write that player's buttons, stick and shakes into the step's status.
+So the inputs the step captures and the network sends, what the rollback
+predicts and keeps, and the reads of the local pad itself (the Mega Strike
+meter, the goalie's pointer) are all its presses as a player's: nothing on
+either machine can tell, and no other code changes. Steps the rollback runs
+again read no pads, so the bot plays each step once.
+
+Add include/mscharged_autopilot.h, its interface to the port.
+
+diff --git a/include/mscharged_autopilot.h b/include/mscharged_autopilot.h
+new file mode 100644
+index 0000000..2721ebd
+--- /dev/null
++++ b/include/mscharged_autopilot.h
+@@ -0,0 +1,22 @@
++#if defined(MSCHARGED_TWEAKS)
++#ifndef MSCHARGED_AUTOPILOT_H
++#define MSCHARGED_AUTOPILOT_H
++
++// The test builds' autopilot (the port's src/platform/autopilot.cpp; C, P and
++// U together in the game window; release builds have an empty one).
++struct PlatPadManager;
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// After a fixed step's pad read, before the pads take it: may write the first
++// local player's Remote and Nunchuk status in `manager`.
++void mscharged_tweak_step_pads(struct PlatPadManager* manager);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // MSCHARGED_AUTOPILOT_H
++#endif // MSCHARGED_TWEAKS
+diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
+index ff3be53..34bff39 100644
+--- a/src/Game/Task/FixedUpdateTask.cpp
++++ b/src/Game/Task/FixedUpdateTask.cpp
+@@ -41,6 +41,9 @@
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_rollback.h"
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_autopilot.h"
++#endif
+ #include "Game/InputRouter.h"
+ #include "Game/NetworkInput.h"
+ #include "Game/NetworkSync.h"
+@@ -393,5 +396,10 @@ void FixedUpdateTask::Run(float dt)
+             g_pPadManager->SetActivePadSet(1);
+             simulationTick = g_fFixedUpdateTick;
+             UpdatePlatPad(g_pPlatPadManager);
++#if defined(MSCHARGED_TWEAKS)
++            // The test builds' autopilot plays the first local player through
++            // this step's pad status, before the pads (and the inputs) take it.
++            mscharged_tweak_step_pads(g_pPlatPadManager);
++#endif
+             g_pPadManager->Update(simulationTick);
+             FlickDetection::Update();
