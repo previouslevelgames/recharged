@@ -19,7 +19,7 @@ namespace
 // The input delay (ChooseDelay), in steps of how far ahead of need the others
 // get this machine's inputs, as they report it.
 constexpr float kLengthenBelow = -2.5f;  // predicted for longer than two steps and a half: a step more
-constexpr float kShortenAbove = 0.25f;   // early by more than a quarter of a step: a step less
+constexpr float kShortenAbove = 1.0f;   // early by more than a step: a step less
 constexpr unsigned kDelayEvery = 150;    // steps between changes of the input delay
 // The time sync (SyncTime), in steps.
 constexpr float kAheadSmoothing = 0.05f; // weight of each new measure of how far ahead inputs come
