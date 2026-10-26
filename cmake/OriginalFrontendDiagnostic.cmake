@@ -200,6 +200,9 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
         src/platform/rollback_summary.cpp src/platform/rollback_platform.cpp src/platform/rollback_fields.cpp)
     # The performance overlay's network numbers (LAT, and DLY and RB with rollback).
     target_sources(${target} PRIVATE src/platform/netplay_snapshot.cpp)
+    # The WFC server's match reports: each online series, game by game (tweak
+    # patch 0037), read by the host after a frame.
+    target_sources(${target} PRIVATE src/platform/online_match_snapshot.cpp)
     # The hidden autopilot for online tests (tweak patch 0036): the bot in test
     # and dev builds, an empty one in release builds (MSCHARGED_AUTOPILOT).
     if(MSCHARGED_AUTOPILOT_ENABLED)

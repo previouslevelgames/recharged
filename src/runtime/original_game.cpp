@@ -53,6 +53,8 @@
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
 #include "platform/netplay_snapshot.h"
+#include "platform/http_client.h"
+#include "platform/online_reports.h"
 #include "platform/presence_snapshot.h"
 #include "platform/shader_cache.h"
 #include "platform/process_exit.h"
@@ -1024,6 +1026,33 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        // The WFC server's match reports: the online series this computer
+        // plays go to the server the game logs in to (online.server).
+        auto onlineMatchSnapshot=reinterpret_cast<ChargedOnlineMatchSnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_online_match_snapshot"));
+        std::unique_ptr<mscharged::platform::OnlineReports> onlineReports;
+        {
+            std::string line="Match reports: ";
+            const std::string http=mscharged::platform::HttpUnavailable();
+            if(launch.settings.online_server.empty())
+                line+="off (no online server)";
+            else if(!onlineMatchSnapshot)
+                line+="off (this build's game module records no online matches)";
+            else if(!http.empty())
+                line+="off ("+http+")";
+            else {
+                onlineReports=mscharged::platform::OnlineReports::Start(launch.settings.online_server,
+                    std::string(release->game_id,4),[](const std::string& text) {
+                        mscharged::platform::SessionLogLine(text);
+                        std::fprintf(stderr,"%s\n",text.c_str());
+                    });
+                line+="to "+launch.settings.online_server;
+            }
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
+#endif
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
@@ -1185,6 +1214,20 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const auto unixNow=std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
             discordPresence->Show(gamePresence->Describe(snapshot,unixNow));
+        };
+        // Once a second, after a game frame: the online series for the match reports.
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        std::chrono::steady_clock::time_point lastOnlineMatch{};
+#endif
+        auto observeOnlineMatch = [&] {
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            if(!onlineReports)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-lastOnlineMatch<std::chrono::seconds(1))return;
+            lastOnlineMatch=now;
+            ChargedOnlineMatchSnapshot snapshot{};
+            if(onlineMatchSnapshot(&snapshot,sizeof snapshot))onlineReports->Observe(snapshot);
+#endif
         };
         // Existing actual source GX/state/material/font/view initialization is
         // retained. No host GXInit, source pool restart or fixture font setup.
@@ -1381,7 +1424,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -1470,7 +1513,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}
