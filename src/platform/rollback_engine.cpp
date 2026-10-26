@@ -13,7 +13,8 @@
 // again with the inputs they first had (tweak patch 0029). It goes back at
 // the start of the next frame, before any task sets up its cameras and views,
 // and replays through the end of the last step's frame, frames without steps
-// as one with the next (RECHARGED_ROLLBACK_TEST_MERGE=0: one by one). The
+// as one with the next and the frames' presentation once for all of them
+// (RECHARGED_ROLLBACK_TEST_MERGE=0: one by one). The
 // game's checksum after each replayed step must be the one the step first
 // gave; in a network match the machines also compare their checksums as the
 // original game does.
@@ -290,27 +291,24 @@ void Stop(const char* why)
 
 namespace
 {
-// Replays frames `first` to `last` as one, their tasks as the task manager ran
-// them, each with the frames' time added up, and the steps in them from `next`
-// (the steps with their inputs, a save after each). The first frame's tasks
-// before `firstTask` ran before the save the rollback went back to: that frame
-// adds nothing to them. Only the last frame has steps, or the first alone
-// (from its fixed update: the steps after the target in the target's frame).
-// The time scale's transition goes frame by frame: the steps read it, and it
-// changes with itself.
-void ReplayFrames(std::uint64_t first, std::uint64_t last, int firstTask, unsigned& next,
+// Replays frames `first` to `last` as one, their tasks `firstTask` to
+// `lastTask` as the task manager ran them, each with the frames' time added
+// up, and the steps in them from `next` (the steps with their inputs, a save
+// after each). Only the last frame has steps. The time scale's transition goes
+// frame by frame: the steps read it, and it changes with itself.
+void ReplayFrames(std::uint64_t first, std::uint64_t last, int firstTask, int lastTask, unsigned& next,
                   int (*replay)(const MschargedRollbackInputs*), unsigned (*checksum)(void), int depth)
 {
     State& s = *sState;
     const FrameRecord& record = Frame(last);
     nlTaskManager* manager = nlTaskManager::m_pInstance;
-    for (int i = 0; i < s.tasks.count; ++i)
+    for (int i = firstTask; i <= lastTask; ++i)
     {
         if (s.tasks.replays[i] == kSkip) continue;
         float dt = 0, real = 0;
         bool ran = false;
         for (std::uint64_t f = first; f <= last; ++f)
-            if (Frame(f).dt[i] >= 0 && (f != first || i >= firstTask))
+            if (Frame(f).dt[i] >= 0)
             {
                 dt += Frame(f).dt[i];
                 real += Frame(f).real[i];
@@ -330,9 +328,9 @@ void ReplayFrames(std::uint64_t first, std::uint64_t last, int firstTask, unsign
             break;
         case kFixed:
         {
-            for (std::uint64_t f = first; f <= last; ++f)
-                if (Frame(f).dt[i] >= 0 && (f != first || firstTask == 0)) // done before the target's frame's save
-                    RollbackReplayFixedFrame(Frame(f).dt[i]);
+            if (firstTask == 0) // done before the target's frame's save
+                for (std::uint64_t f = first; f <= last; ++f)
+                    if (Frame(f).dt[i] >= 0) RollbackReplayFixedFrame(Frame(f).dt[i]);
             s.stats.beforeStepsNs += NowNs() - taskStart;
             // The steps as in their frame.
             if (record.dt[i] >= 0)
@@ -403,8 +401,11 @@ void ReplayFrames(std::uint64_t first, std::uint64_t last, int firstTask, unsign
         }
         s.stats.taskNs[i] += NowNs() - taskStart;
     }
-    ++s.stats.framesReplayed;
-    s.stats.framesMerged += last - first;
+    if (lastTask == s.tasks.count - 1) // a frame's presentation: what the summary counts
+    {
+        ++s.stats.framesReplayed;
+        s.stats.framesMerged += last - first;
+    }
 }
 
 // Why a rollback cannot go back to `target`, or null when it can: a disc
@@ -498,12 +499,15 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     Record(NowNs() - start, s.stats.restoreNs, s.stats.maxRestoreNs);
 
     // The frames from the target step's on, the first from its fixed update,
-    // through the end of the frame that just ended. The frame rate option's
-    // state is put back for each frame's start, and after the target's start
-    // for the first. Frames without steps go as one with the next frame (up to
-    // the task manager's longest frame): above the original's frame rate, a
-    // step spans several. So does the rest of the target's frame, its tasks
-    // after the fixed update, unless more steps ran in it after the target.
+    // through the end of the frame that just ended, in two parts. Their start
+    // through the fixed update goes frame by frame, as the steps read what it
+    // sets (the cameras start the slow motions), frames without steps as one
+    // with the next frame. Their presentation, the tasks after the fixed
+    // update, goes once for all of them, the target's frame's rest included:
+    // it only follows the match. Both up to the task manager's longest frame,
+    // and every frame alone without RECHARGED_ROLLBACK_TEST_MERGE. The frame
+    // rate option's state is put back for each frame's start, and after the
+    // target's start for the first.
     MschargedTweakFrameState now{};
     mscharged_tweak_save_frame_state(&now);
     auto* fixed = static_cast<FixedUpdateTask*>(s.tasks.list[fixedIndexOf()]);
@@ -515,35 +519,37 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     s.resimulating = true;
     unsigned next = target + 1;
     const int fixedIndex = fixedIndexOf();
+    const int lastTask = s.tasks.count - 1;
     const auto frameTime = [&](std::uint64_t frame) { return std::max(Frame(frame).dt[fixedIndex], 0.0f); };
-    const bool laterSteps = next <= s.replayEnd && s.steps[next % kRing].hostFrame <= firstFrame;
-    std::uint64_t rangeFrom = firstFrame + 1;
-    int fromTask = 0;
-    float time = 0;
-    if (s.options.merge && !laterSteps && firstFrame < s.hostFrame
-        && frameTime(firstFrame) + frameTime(firstFrame + 1) <= kLongestFrame)
+    mscharged_tweak_load_frame_state(firstFrame + 1 <= s.hostFrame ? &Frame(firstFrame + 1).tweak : &now);
+    // The target's frame: the steps after the target in it, then (alone
+    // without merging) its presentation.
+    if (next <= s.replayEnd && s.steps[next % kRing].hostFrame <= firstFrame)
+        ReplayFrames(firstFrame, firstFrame, fixedIndex, fixedIndex, next, replay, checksum, depth);
+    std::uint64_t startFrom = firstFrame + 1, shownFrom = firstFrame;
+    float shownTime = frameTime(firstFrame);
+    if (!s.options.merge)
     {
-        rangeFrom = firstFrame;
-        fromTask = fixedIndex + 1;
-        time = frameTime(firstFrame);
-    }
-    else
-    {
-        mscharged_tweak_load_frame_state(firstFrame + 1 <= s.hostFrame ? &Frame(firstFrame + 1).tweak : &now);
-        ReplayFrames(firstFrame, firstFrame, fixedIndex, next, replay, checksum, depth);
+        ReplayFrames(firstFrame, firstFrame, fixedIndex + 1, lastTask, next, replay, checksum, depth);
+        shownFrom = firstFrame + 1;
+        shownTime = 0;
     }
     for (std::uint64_t frame = firstFrame + 1; frame <= s.hostFrame; ++frame)
     {
-        time += frameTime(frame);
+        shownTime += frameTime(frame);
         const bool steps = next <= s.replayEnd && s.steps[next % kRing].hostFrame <= frame;
-        if (s.options.merge && !steps && frame < s.hostFrame && time + frameTime(frame + 1) <= kLongestFrame)
-            continue;
-        mscharged_tweak_load_frame_state(&Frame(std::max(rangeFrom, firstFrame + 1)).tweak);
-        ReplayFrames(rangeFrom, frame, fromTask, next, replay, checksum, depth);
-        rangeFrom = frame + 1;
-        fromTask = 0;
-        time = 0;
+        const bool room = s.options.merge && frame < s.hostFrame && shownTime + frameTime(frame + 1) <= kLongestFrame;
+        if (!steps && room) continue;
+        mscharged_tweak_load_frame_state(&Frame(startFrom).tweak);
+        ReplayFrames(startFrom, frame, 0, fixedIndex, next, replay, checksum, depth);
+        startFrom = frame + 1;
+        if (room) continue;
+        ReplayFrames(shownFrom, frame, fixedIndex + 1, lastTask, next, replay, checksum, depth);
+        shownFrom = frame + 1;
+        shownTime = 0;
     }
+    if (shownFrom <= s.hostFrame) // the target's frame was the last
+        ReplayFrames(shownFrom, s.hostFrame, fixedIndex + 1, lastTask, next, replay, checksum, depth);
     mscharged_tweak_load_frame_state(&now);
     fixed->mAccumulatedDeltaT = accumulated;
     fixed->mInterpolationDeltaT = interpolation;
