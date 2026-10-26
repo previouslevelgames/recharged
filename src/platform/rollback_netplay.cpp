@@ -8,6 +8,7 @@
 // checksums say otherwise from step n of each match: every machine shows
 // the game's sync error.
 #include "platform/rollback_state.h"
+#include "Game/PackedDetInput.h"
 
 #include <cmath>
 
@@ -247,11 +248,52 @@ void NoteSync(int machine, const NetMessageInput& message)
     s.net.remote[s.net.remoteCount++] = {message.mFrame, message.mChecksum, message.mRandomSeed, machine};
 }
 
+MachineInput Hysteresis(MachineInput const& rawInput, MachineInput const& lastReal)
+{
+    MachineInput res = rawInput;
+    if (rawInput.players != lastReal.players)
+        return res;
+
+    for (int player=0; player<rawInput.players; player++)
+    {
+        PackedDetInput* resInput = (PackedDetInput*)&res.records[player];
+        PackedDetInput* packedInput = (PackedDetInput*)&rawInput.records[player];
+        PackedDetInput* lastPackedInput = (PackedDetInput*)&lastReal.records[player];
+        std::memcpy(resInput->mRemoteAccel, lastPackedInput->mRemoteAccel, sizeof(s8[3]));
+        std::memcpy(resInput->mFreeStyleAccel, lastPackedInput->mFreeStyleAccel, sizeof(s8[3]));
+        for (int axis=0; axis<3; axis++)
+        {
+            if (std::abs(packedInput->mRemoteAccel[axis]-lastPackedInput->mRemoteAccel[axis])>kAccelHysteresis)
+            {
+                resInput->mRemoteAccel[0] = packedInput->mRemoteAccel[0];
+                resInput->mRemoteAccel[1] = packedInput->mRemoteAccel[1];
+                resInput->mRemoteAccel[2] = packedInput->mRemoteAccel[2];
+                break;
+            }
+        }
+        for (int axis=0; axis<3; axis++)
+        {
+            if (std::abs(packedInput->mFreeStyleAccel[axis]-lastPackedInput->mFreeStyleAccel[axis])>kAccelHysteresis)
+            {
+                resInput->mFreeStyleAccel[0] = packedInput->mFreeStyleAccel[0];
+                resInput->mFreeStyleAccel[1] = packedInput->mFreeStyleAccel[1];
+                resInput->mFreeStyleAccel[2] = packedInput->mFreeStyleAccel[2];
+                break;
+            }
+        }
+    }
+    
+
+    return res;
+}
+
 MachineInput Arrived(int machine, NetMessageInput& message)
 {
     State& s = *sState;
     NoteSync(machine, message);
-    MachineInput input = FromMessage(message, s.net.lastReal[machine]);
+    MachineInput rawInput = FromMessage(message, s.net.lastRaw[machine]);
+    s.net.lastRaw[machine] = rawInput;
+    MachineInput input = Hysteresis(rawInput, s.net.lastReal[machine]);
     s.net.lastReal[machine] = input;
     Mirror(machine, input);
     return input;
@@ -653,7 +695,11 @@ extern "C" void mscharged_rollback_input_ready(void)
     const int machines = MachineCount();
     if (!s.net.haveLastReal)
     {
-        for (int machine = 0; machine < machines; ++machine) s.net.lastReal[machine] = FromRouter(machine);
+        for (int machine = 0; machine < machines; ++machine)
+        {
+            s.net.lastRaw[machine] = FromRouter(machine);
+            s.net.lastReal[machine] = FromRouter(machine);
+        }
         s.net.haveLastReal = true;
     }
     const unsigned frame = CurrentStep() + 1;

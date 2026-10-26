@@ -113,6 +113,7 @@ constexpr int kRemoteChecks = 32;        // RECHARGED_ROLLBACK: other machines' 
 constexpr unsigned kSettleSteps = 25;    // RECHARGED_ROLLBACK: steps after tracking starts that predict nothing
 constexpr int kMaxInputDelay = 6;        // RECHARGED_ROLLBACK: steps, while predicting
 constexpr int kMaxLockstepDelay = 10;    // RECHARGED_ROLLBACK: steps, in a phase without prediction
+constexpr int kAccelHysteresis = 6;
 
 // The parts of a machine's inputs a misprediction can get wrong: the fields of
 // PackedDetInput (include/Game/PackedDetInput.h), the player states, the
@@ -330,7 +331,8 @@ struct Netplay
     unsigned lastInputFrame;          // the last step whose inputs were applied
     unsigned firstPredicted[kMachines]; // by machine: its first step still predicted, 0: none
     bool haveLastReal;
-    MachineInput lastReal[kMachines]; // by machine: its last inputs that arrived
+    MachineInput lastRaw[kMachines];  // by machine: its last inputs that arrived
+    MachineInput lastReal[kMachines]; // by machine: its last inputs after post-processing
     unsigned waitThrough;             // steps through this one wait for all their inputs (they were undone)
     unsigned undoFrom;                // a predicted step changed the match's phase: undone at the frame start
     bool captured;
