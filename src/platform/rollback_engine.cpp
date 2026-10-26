@@ -528,6 +528,9 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     RollbackRedeliverMegaStrikeMeter(s.received, s.receivedCount);
     s.stats.meterRedelivered += s.receivedCount;
     s.resimulating = false;
+    // The audio transitions as the replay left the match wanting them: those a
+    // replayed step started or ended otherwise than its first run.
+    mscharged_rollback_audio_reconcile();
     s.saveFrom = 0;
     if (next != s.replayEnd + 1) Log("REPLAY MISSED STEPS %u to %u\n", next, s.replayEnd);
     if (s.options.netplay && s.replayEnd < ran)

@@ -1,0 +1,174 @@
+From: mscharged-port
+Subject: Rollback: the audio transitions follow the match as state
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+A slow motion applies the "Slow-mo_Captain_Hit" audio transition when it
+starts (cGame::StartSlowDown) and inverts it when it ends (the host's
+DETERM_SLOW_DOWN_END); a super power does the same with its own. Under the
+rollback a replayed frame applies no sound (MSCHARGED_AUDIO_ACTION, tweak
+patch 0031), and with predicted inputs a replay may start or end a slow
+motion that the step's first run did not: a captain's hit that only the
+inputs that arrived give, or the host's end that arrives for a step this
+machine already ran. The audio then stayed slowed after the match was back
+to speed, or went beyond the normal pitch when an end inverted a start the
+audio never applied, and every such slow motion added to it.
+
+Under the rollback, ApplyAudioTransition now counts what the match wants,
+by transition, in a table among the globals a rollback restores (Game.cpp),
+in replays too. The audio keeps its own count of what it applied, which no
+rollback takes back, and applies or inverts the difference outside
+replays: at once when the match applies one, and after every rollback
+(mscharged_rollback_audio_reconcile, from the port's rollback). The audio
+so ends as the match the inputs that arrived give. A transition bound to an
+owner, or past the table's 16, is applied as before. Without the rollback
+nothing changes.
+
+diff --git a/include/mscharged_rollback_audio.h b/include/mscharged_rollback_audio.h
+index 7e5da7b..10bb55a 100644
+--- a/include/mscharged_rollback_audio.h
++++ b/include/mscharged_rollback_audio.h
+@@ -22,6 +22,28 @@ void* mscharged_rollback_audio_allocator(void);
+ // as the audio's streams have); returns how many pointers, at most capacity.
+ int mscharged_rollback_async_read_state(const void** pointers, int capacity);
+ 
++#if defined(MSCHARGED_TWEAKS)
++// The audio transitions (ApplyAudioTransition) as state: what the match wants
++// applied, each transition by its name hash with how many times more it was
++// applied than inverted. The match's copy lives among the globals a rollback
++// restores (Game.cpp), so a replay that starts or ends a slow motion
++// otherwise than the step's first run leaves it as the match now is; the
++// audio's own count of what it applied does not go back. The audio applies
++// the difference outside replays: as the match applies one, and after every
++// rollback (mscharged_rollback_audio_reconcile, from the port's rollback).
++#define MSCHARGED_AUDIO_TRANSITIONS 16
++struct MschargedAudioTransitions
++{
++    unsigned hashes[MSCHARGED_AUDIO_TRANSITIONS];
++    int counts[MSCHARGED_AUDIO_TRANSITIONS];
++    int used;
++};
++extern struct MschargedAudioTransitions gMschargedWantedAudioTransitions;
++// The audio's: applies or inverts each transition until what it applied is
++// what the match wants.
++void mscharged_rollback_audio_reconcile(void);
++#endif
++
+ #ifdef __cplusplus
+ }
+ 
+diff --git a/src/Game/Audio/AudioResourceRuntime.cpp b/src/Game/Audio/AudioResourceRuntime.cpp
+index 5ac3a02..956a8f0 100644
+--- a/src/Game/Audio/AudioResourceRuntime.cpp
++++ b/src/Game/Audio/AudioResourceRuntime.cpp
+@@ -305,9 +305,87 @@ inline void AudioResourceRuntime::ApplyEffectSet(u32 bindingKey,
+  * then for every entry it lists reads "EffectSet" and "Invert" and applies that
+  * effect set to each binding the entry names.
+  */
++#if defined(MSCHARGED_TWEAKS)
++// What the audio applied of the match's transitions (mscharged_rollback_audio.h),
++// among the audio's globals, which no rollback restores.
++static MschargedAudioTransitions sAppliedAudioTransitions;
++// The reconciliation's own calls apply at once.
++static bool sReconcilingAudioTransitions;
++
++static int FindAudioTransition(MschargedAudioTransitions* transitions, u32 hash, bool add)
++{
++    for (int i = 0; i < transitions->used; ++i)
++    {
++        if (transitions->hashes[i] == hash)
++        {
++            return i;
++        }
++    }
++    if (!add || transitions->used == MSCHARGED_AUDIO_TRANSITIONS)
++    {
++        return -1;
++    }
++    transitions->hashes[transitions->used] = hash;
++    transitions->counts[transitions->used] = 0;
++    return transitions->used++;
++}
++
++extern "C" void mscharged_rollback_audio_reconcile(void)
++{
++    if (mscharged_rollback_resimulating() || sReconcilingAudioTransitions)
++    {
++        return;
++    }
++    sReconcilingAudioTransitions = true;
++    MschargedAudioTransitions* wanted = &gMschargedWantedAudioTransitions;
++    MschargedAudioTransitions* applied = &sAppliedAudioTransitions;
++    // Those the match wants, then those it no longer knows of (a rollback
++    // went back before it first wanted them).
++    for (int i = 0; i < wanted->used; ++i)
++    {
++        FindAudioTransition(applied, wanted->hashes[i], true);
++    }
++    for (int i = 0; i < applied->used; ++i)
++    {
++        const u32 hash = applied->hashes[i];
++        const int index = FindAudioTransition(wanted, hash, false);
++        const int target = index >= 0 ? wanted->counts[index] : 0;
++        while (applied->counts[i] < target)
++        {
++            ApplyAudioTransition(&hash, false, 0);
++            ++applied->counts[i];
++        }
++        while (applied->counts[i] > target)
++        {
++            ApplyAudioTransition(&hash, true, 0);
++            --applied->counts[i];
++        }
++    }
++    sReconcilingAudioTransitions = false;
++}
++#endif
++
+ bool ApplyAudioTransition(const u32* transitionHash, bool invert, void* owner)
+ {
+ #if defined(MSCHARGED_TWEAKS)
++    // Under the rollback, a match's transition is state the match wants
++    // (mscharged_rollback_audio.h), in replays too; the audio applies it
++    // outside them. One bound to an owner, or past the table's room, is
++    // applied as before, by the step's first run.
++    if (mscharged_rollback_active() && owner == 0 && !sReconcilingAudioTransitions)
++    {
++        if (FindConfigGroupEntry(nlStringLowerHash("Transitions"), *transitionHash) == 0)
++        {
++            return false;
++        }
++        const int index = FindAudioTransition(&gMschargedWantedAudioTransitions, *transitionHash, true);
++        if (index >= 0 && FindAudioTransition(&sAppliedAudioTransitions, *transitionHash, true) >= 0)
++        {
++            gMschargedWantedAudioTransitions.counts[index] += invert ? -1 : 1;
++            mscharged_rollback_audio_reconcile();
++            return true;
++        }
++    }
+     MSCHARGED_AUDIO_ACTION(false);
+ #endif
+     u32 transitionKey = nlStringLowerHash("Transitions");
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index 128ad26..3783a28 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -43,6 +43,7 @@
+ #include "Game/Net.h"
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_rollback.h"
++#include "mscharged_rollback_audio.h"
+ #endif
+ #include "Game/NetworkSession.h"
+ #include "Game/Physics/PhysicsAIBall.h"
+@@ -160,6 +161,11 @@ int gMegaStrikeMeterBatchSize = 3;
+ bool gForceWeatherTilt;
+ bool gForceScoreTilt;
+ cGame* g_pGame;
++#if defined(MSCHARGED_TWEAKS)
++// The audio transitions the match wants (mscharged_rollback_audio.h): here,
++// among the globals a rollback restores.
++MschargedAudioTransitions gMschargedWantedAudioTransitions;
++#endif
+ bool gNoGameClock;
+ 
+ static inline int GetPlayerIndex(cPlayer* pPlayer)
