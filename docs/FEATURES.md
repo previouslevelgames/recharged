@@ -32,6 +32,9 @@ come from the reconstructed source, unchanged.
   the game). Every key can be changed in the launcher, up to two per action,
   and the middle and side mouse buttons (Mouse 4, Mouse 5) can take a key's
   place ([#62](https://github.com/previouslevelgames/recharged/issues/62)).
+  On the game's friend code screen the number keys type a code, Ctrl+V
+  (Cmd+V on a Mac) pastes one, spaces and dashes included, Backspace removes
+  the last digit and Delete clears the code.
 - **Gamepads**: Xbox, PlayStation, Switch Pro, GameCube (USB adapter) and
   other standard controllers stand in for the Wii Remote with Nunchuk the game
   is played with, with rumble (its strength can be set). The right stick
