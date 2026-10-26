@@ -97,6 +97,7 @@ constexpr int kSummaryEvery = 120;       // steps (two seconds)
 constexpr int kUntrackedEvery = 600;     // steps between checks for writes behind the tracking (reads everything)
 constexpr int kListedMismatches = 20;
 constexpr int kMaxMeter = 64;            // mega strike meter presses received before one step
+constexpr int kMaxSent = 8;              // deterministic data packets one step sends
 constexpr int kMaxWatched = 256;         // ranges the comparison watches although no rollback restores them
 constexpr int kMaxPlaces = 4096;         // places the comparison tells apart
 constexpr int kDetailedCompares = 3;     // comparisons listed in full in the log
@@ -188,6 +189,15 @@ struct Step
     bool meterOverflowed;
 };
 
+// The deterministic data one step sent, in any of its runs: a later run sends
+// only what is not here (mscharged_rollback_determ_data_new).
+struct SentData
+{
+    unsigned frame; // the step; another value: nothing kept
+    int count;
+    unsigned char sizes[kMaxSent];
+    unsigned char data[kMaxSent][0x20]; // DetermDataEvent's mData
+};
 // RECHARGED_ROLLBACK: one machine's inputs for one step, as its message gave
 // them (each message holds what changed since the machine's previous one) or
 // as predicted: its last inputs that arrived, without events.
@@ -383,6 +393,9 @@ struct State
     bool received[kMaxMeter];        // meter presses received since the last step
     int receivedCount;
     bool receivedOverflowed;
+    // By step (frame % kRing): the deterministic data it sent. Outside the
+    // memory a rollback restores, as the network has those packets.
+    SentData sent[kRing];
     // The frames, as the task manager ran them.
     FrameRecord frames[kFrameRing];
     std::uint64_t hostFrame;         // frames since tracking started, the one under way

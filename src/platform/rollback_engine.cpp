@@ -250,6 +250,7 @@ bool Start(FixedUpdateTask* task, unsigned long taskBytes, unsigned (*checksum)(
     step.seed = GetNetworkRandomSeed();
     step.hostFrame = 0;
     RecordFrame(step);
+    for (SentData& sent : s.sent) sent.frame = ~0u; // another match's steps
     s.latest = frame;
     s.trackingFrom = frame;
     s.stored = 1;
@@ -683,6 +684,28 @@ extern "C" bool mscharged_rollback_active(void)
 extern "C" bool mscharged_rollback_resimulating(void)
 {
     return sState && sState->resimulating;
+}
+
+// Only the main thread queues deterministic data, from the steps and the
+// replays (which run under the hooks' lock already): no lock of its own.
+extern "C" bool mscharged_rollback_determ_data_new(int frame, const void* data, unsigned size)
+{
+    if (!Running() || !sState->active || frame < 0) return true;
+    SentData& sent = sState->sent[static_cast<unsigned>(frame) % kRing];
+    if (sent.frame != static_cast<unsigned>(frame))
+    {
+        sent.frame = static_cast<unsigned>(frame);
+        sent.count = 0;
+    }
+    size = std::min<unsigned>(size, sizeof(sent.data[0]));
+    for (int i = 0; i < sent.count; ++i)
+        if (sent.sizes[i] == size && !std::memcmp(sent.data[i], data, size)) return false;
+    if (sent.count < kMaxSent)
+    {
+        sent.sizes[sent.count] = static_cast<unsigned char>(size);
+        std::memcpy(sent.data[sent.count++], data, size);
+    }
+    return true;
 }
 
 extern "C" void mscharged_rollback_inputs_applied(const MschargedRollbackInputs* inputs)
