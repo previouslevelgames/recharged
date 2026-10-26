@@ -2,22 +2,48 @@
 
 ## Header
 
-`header.png` is the original, unmodified 1920 x 620 PNG selected for the launcher
-header. Preserve its aspect ratio when displaying it.
+`header_back.png` (1683 x 935) and `header_front.png` (1920 x 1067) are made
+from the key art of Mario Strikers Charged, the picture on its Japanese and European covers
+(`MSC_Scene.jpg`, 3500 x 4700): its lower part, Mario's volley with Boo and a
+Bob-omb, extended to the left so that Mario stands right of the launcher's
+logo. The fire and the golden ball turn the logo's electric blue and the grass
+blue, while Mario keeps his colours, and the scene darkens towards night blue
+around him. Preserve their aspect ratio when displaying them.
 
-- Source: [SteamGridDB hero 8926](https://www.steamgriddb.com/hero/8926).
-- Uploaded by [Jiquita](https://www.steamgriddb.com/profile/76561198074965726).
-- Image: [original PNG](https://cdn2.steamgriddb.com/hero/82b04cd5aa016d979fe048f3ddf0e8d3.png).
-- Downloaded: 2026-10-01.
-- SHA-256: `d1451de5493ffecd9a50541456a823e5e464edb6cae39e6a99e615afdae92617`.
+The picture is in two layers that the launcher moves against each other when
+its Play page opens. `header_front.png` is Mario and the ball he kicks, cut out
+with Meta's SAM 2.1 segmentation model and transparent elsewhere;
+`header_back.png` is the rest of the scene, painted over where they were.
+`tools/launcher_art.py header MSC_Scene.jpg FOLDER` recolours the key art and
+writes both layers to FOLDER: the front as here, the back as a draft whose
+place behind Mario is filled by OpenCV's inpainting (the back here was redone
+from the scene afterwards).
 
-This third-party artwork is outside the project's CC0 dedication. The source
-metadata does not specify a redistribution license; rights remain with the
-respective owners.
+- Source: [File:MSC_Scene.jpg](https://www.mariowiki.com/File:MSC_Scene.jpg) on the Super Mario Wiki.
+- Image: [original JPEG](https://www.mariowiki.com/images/2/29/MSC_Scene.jpg).
+- Downloaded: 2026-10-25.
+- SHA-256 of the original: `7c961f3e3d5cadab2fe68e69f0a02e355f5e082d2ccbecd17ee279f0b16edad0`.
 
-CMake copies the image into `assets/launcher/header.png` beside the `recharged`
-executable. The launcher preserves its proportions and crops vertically to fit
-the available header space. The source file is unchanged.
+This artwork is Nintendo's and outside the project's CC0 dedication. The wiki
+publishes it as fair-use artwork; no license for redistribution is given, and
+rights remain with the respective owners. (Until 2026-10-25 the header was
+[SteamGridDB hero 8926](https://www.steamgriddb.com/hero/8926) by Jiquita, a
+crop of the same key art.)
+
+CMake copies the images into `assets/launcher/` beside the `recharged`
+executable. The launcher preserves their proportions and crops them to fit the
+available header space.
+
+## Logo
+
+`logo.png` is the Recharged logo, cropped to its visible pixels and scaled to
+1280 pixels wide from the 2732 x 2048 original (SHA-256
+`61ce9890e904f4af3840482091c1504e49045f815300197e20529196e4f1ad5d`, added
+2026-10-25) by `tools/launcher_art.py logo ORIGINAL.png`. The launcher shows it
+in the sidebar, on the Play page and on the About page; for the smaller sizes it
+draws halved copies it makes at start. Its colours set the launcher's palette.
+
+The logo is outside the project's CC0 dedication; rights remain with its creator.
 
 ## Application icon
 

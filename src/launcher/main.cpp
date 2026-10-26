@@ -191,12 +191,12 @@ void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_col
     DrawIcon(draw, Icon::Person, center, size * 0.62f, Col(light ? color::window : color::text));
 }
 
-enum Page { PagePlay, PageGame, PageMiis, PageTeams, PageMatches, PageDisplay, PageAudio, PageControls, PageGameplay,
+enum Page { PagePlay, PageGame, PageMiis, PageSidekicks, PageRules, PageDisplay, PageAudio, PageControls, PageGameplay,
             PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play", "Game", "Miis", "Teams", "Matches", "Display", "Audio", "Controls", "Gameplay",
-                                      "Advanced", "About"};
-constexpr const char* page_ids[] = {"play", "game", "miis", "teams", "matches", "display", "audio", "controls", "gameplay",
-                                    "advanced", "about"};
+constexpr const char* page_names[] = {"Play", "Game", "Miis", "Sidekicks", "Match rules", "Display", "Audio",
+                                      "Controls", "Gameplay", "Advanced", "About"};
+constexpr const char* page_ids[] = {"play", "game", "miis", "sidekicks", "rules", "display", "audio", "controls",
+                                    "gameplay", "advanced", "about"};
 constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Pitch, Icon::Trophy, Icon::Display, Icon::Audio,
                                Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
@@ -409,6 +409,35 @@ std::string Quote(const std::string& text)
     return quoted + "\"";
 }
 
+using SurfacePtr = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>;
+
+// An RGBA32 image at half the size, each pixel the alpha-weighted mean of four:
+// linear filtering alone flickers when it shrinks an image several times.
+SurfacePtr HalfSize(const SDL_Surface* source)
+{
+    SurfacePtr half(SDL_CreateSurface(source->w / 2, source->h / 2, SDL_PIXELFORMAT_RGBA32), SDL_DestroySurface);
+    if (!half) return half;
+    for (int y = 0; y < half->h; ++y)
+    {
+        const auto* top = static_cast<const Uint8*>(source->pixels) + std::size_t(y) * 2 * std::size_t(source->pitch);
+        const auto* bottom = top + source->pitch;
+        auto* out = static_cast<Uint8*>(half->pixels) + std::size_t(y) * std::size_t(half->pitch);
+        for (int x = 0; x < half->w; ++x, out += 4)
+        {
+            const Uint8* p[] = {top + x * 8, top + x * 8 + 4, bottom + x * 8, bottom + x * 8 + 4};
+            const unsigned alpha = unsigned(p[0][3]) + p[1][3] + p[2][3] + p[3][3];
+            for (int c = 0; c < 3; ++c)
+            {
+                const unsigned sum = unsigned(p[0][c]) * p[0][3] + unsigned(p[1][c]) * p[1][3]
+                    + unsigned(p[2][c]) * p[2][3] + unsigned(p[3][c]) * p[3][3];
+                out[c] = Uint8(alpha ? (sum + alpha / 2) / alpha : 0);
+            }
+            out[3] = Uint8((alpha + 2) / 4);
+        }
+    }
+    return half;
+}
+
 class Launcher
 {
 public:
@@ -432,7 +461,9 @@ public:
         if (library_progress_) library_progress_->cancel = true;
         for (auto& [id, texture] : banners_)
             if (texture) SDL_DestroyTexture(texture);
-        if (header_) SDL_DestroyTexture(header_);
+        if (header_back_) SDL_DestroyTexture(header_back_);
+        if (header_front_) SDL_DestroyTexture(header_front_);
+        for (const auto& level : logo_) SDL_DestroyTexture(level.texture);
         if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
         if (renderer_) SDL_DestroyRenderer(renderer_);
         if (window_) SDL_DestroyWindow(window_);
@@ -475,14 +506,33 @@ public:
         ApplyWindowMetrics(true);
 
         const auto resources = base_ / "assets/launcher";
-        auto surface = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
-            SDL_LoadPNG(PathUtf8(resources / "header.png").c_str()), SDL_DestroySurface);
-        Require(surface != nullptr, "Cannot load launcher header; rebuild to restore resources");
-        header_width_ = float(surface->w);
-        header_height_ = float(surface->h);
-        header_ = SDL_CreateTextureFromSurface(renderer_, surface.get());
-        Require(header_ != nullptr, "Cannot create header texture");
-        SDL_SetTextureScaleMode(header_, SDL_SCALEMODE_LINEAR);
+        // The header's two layers, the same size: the scene, and Mario with the ball over it.
+        for (const auto& [texture, name] :
+             {std::pair{&header_back_, "header_back.png"}, std::pair{&header_front_, "header_front.png"}})
+        {
+            SurfacePtr surface(SDL_LoadPNG(PathUtf8(resources / name).c_str()), SDL_DestroySurface);
+            Require(surface != nullptr, "Cannot load launcher header; rebuild to restore resources");
+            header_width_ = float(surface->w);
+            header_height_ = float(surface->h);
+            *texture = SDL_CreateTextureFromSurface(renderer_, surface.get());
+            Require(*texture != nullptr, "Cannot create header texture");
+            SDL_SetTextureScaleMode(*texture, SDL_SCALEMODE_LINEAR);
+        }
+        SDL_SetTextureBlendMode(header_front_, SDL_BLENDMODE_BLEND);
+        // The Recharged logo, with halved copies down to 128 pixels wide for small sizes.
+        SurfacePtr level(SDL_LoadPNG(PathUtf8(resources / "logo.png").c_str()), SDL_DestroySurface);
+        if (level) level.reset(SDL_ConvertSurface(level.get(), SDL_PIXELFORMAT_RGBA32));
+        Require(level != nullptr, "Cannot load launcher logo; rebuild to restore resources");
+        logo_aspect_ = float(level->w) / float(level->h);
+        while (level)
+        {
+            SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, level.get());
+            Require(texture != nullptr, "Cannot create logo texture");
+            SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+            logo_.push_back({texture, float(level->w)});
+            if (level->w < 256) break;
+            level = HalfSize(level.get());
+        }
         // Aurora's logo (from its pinned source) is optional decoration.
         if (auto logo = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
                 SDL_LoadPNG(PathUtf8(resources / "aurora.png").c_str()), SDL_DestroySurface))
@@ -593,7 +643,7 @@ public:
             // pixels. Without this scale a retina display shows the UI in one
             // corner while input arrives in window units.
             SDL_SetRenderScale(renderer_, io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
-            SDL_SetRenderDrawColor(renderer_, 10, 14, 23, 255);
+            SDL_SetRenderDrawColorFloat(renderer_, color::window.x, color::window.y, color::window.z, 1.0f);
             SDL_RenderClear(renderer_);
             RenderHero();
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
@@ -663,21 +713,74 @@ private:
     {
         // The artwork is drawn through SDL (also avoiding large textured
         // triangles in the software renderer), cropped like CSS "cover";
-        // ImGui then paints its gradients and text over it.
-        if (!hero_visible_ || hero_.w <= 0 || hero_.h <= 0) return;
-        SDL_FRect source{0, 0, header_width_, header_height_};
-        const float target_ratio = hero_.w / hero_.h;
-        if (header_width_ / header_height_ > target_ratio)
+        // ImGui then paints its gradients and text over it. Each time the
+        // Play page opens, the artwork makes an entrance, the shot coming in:
+        // it fades in from the page colour while its two layers glide from
+        // the top right towards the bottom left and grow about Mario's face,
+        // Mario and the ball further than the scene, slowing down until
+        // Mario rests in that crop. He starts smaller, so his layer starts
+        // shifted up and right at least as far as keeps its top and right
+        // edges, where the art cuts his raised hand and his fist, beyond the
+        // window's (its other edges are transparent). The scene, which must
+        // cover every edge, grows from a little closer than the crop instead.
+        if (!hero_visible_ || hero_.w <= 0 || hero_.h <= 0)
         {
-            source.w = header_height_ * target_ratio;
-            source.x = (header_width_ - source.w) * 0.5f;
+            hero_shown_ = false;
+            return;
         }
-        else
+        constexpr float glide_seconds = 8.125f, fade_seconds = 0.8f;
+        const float scale = std::max(hero_.w / header_width_, hero_.h / header_height_);
+        const float width = header_width_ * scale, height = header_height_ * scale;
+        const SDL_FRect art{hero_.x + (hero_.w - width) * 0.5f, hero_.y + (hero_.h - height) * 0.40f, width, height};
+        // The entrance's own clock: a slow frame (the first ones upload the
+        // fonts) holds it back rather than skipping part of it.
+        if (capture_) hero_time_ = glide_seconds;
+        else if (!hero_shown_) hero_time_ = 0;
+        else hero_time_ += std::min(ImGui::GetIO().DeltaTime, 1.0f / 30);
+        hero_shown_ = true;
+        // The part of the glide still to come, easing out (quintic) from 1 to 0.
+        const float rest = 1 - std::min(hero_time_ / glide_seconds, 1.0f);
+        const float remaining = rest * rest * rest * rest * rest;
+        // Mario's face, 76 % across and 37 % down the artwork.
+        const float cx = art.x + art.w * 0.76f, cy = art.y + art.h * 0.37f;
+        // A layer grown by `grow` about the face and shifted `dx` right (and 0.6 dx up).
+        const auto layer = [&](SDL_Texture* texture, float grow, float dx) {
+            const SDL_FRect target{cx + (art.x - cx) * grow + dx, cy + (art.y - cy) * grow - dx * 0.6f,
+                                   art.w * grow, art.h * grow};
+            SDL_RenderTexture(renderer_, texture, nullptr, &target);
+        };
+        constexpr float front_zoom = 0.08f;
+        const float lift = std::max({0.025f * hero_.w, front_zoom * (art.x + art.w - cx),
+                                     front_zoom * (cy - art.y) / 0.6f});
+        const SDL_Rect clip{int(std::floor(hero_.x)), int(std::floor(hero_.y)), int(std::ceil(hero_.w)),
+                            int(std::ceil(hero_.h))};
+        SDL_SetRenderClipRect(renderer_, &clip);
+        layer(header_back_, 1.025f + 0.04f * (1 - remaining), 0.010f * hero_.w * remaining);
+        layer(header_front_, 1 - front_zoom * remaining, lift * remaining);
+        // The fade: the page colour over the whole picture, not each layer
+        // faded on its own, which would show the scene through Mario.
+        const float shown = std::min(hero_time_ / fade_seconds, 1.0f);
+        if (shown < 1)
         {
-            source.h = header_width_ / target_ratio;
-            source.y = (header_height_ - source.h) * 0.40f;
+            SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColorFloat(renderer_, color::window.x, color::window.y, color::window.z,
+                                        1 - shown * shown * (3 - 2 * shown));
+            SDL_RenderFillRect(renderer_, &hero_);
         }
-        SDL_RenderTexture(renderer_, header_, &source, &hero_);
+        SDL_SetRenderClipRect(renderer_, nullptr);
+    }
+
+    // The logo with its top left corner at `pos`, `height` tall; returns its width.
+    float DrawLogo(ImDrawList* draw, ImVec2 pos, float height)
+    {
+        const float width = height * logo_aspect_;
+        // The smallest copy still as wide as the pixels it covers.
+        const LogoLevel* level = &logo_.front();
+        for (const auto& candidate : logo_)
+            if (candidate.width >= width * metrics_.density) level = &candidate;
+        draw->AddImage(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(level->texture)), pos,
+                       {pos.x + width, pos.y + height});
+        return width;
     }
 
     // ------------------------------------------------------------ settings
@@ -901,7 +1004,7 @@ private:
         float progress = -1.0f; // a download's progress, 0..1
     };
 
-    // Green for updates, amber for test builds, blue for the way back to the release.
+    // Blue for updates, amber for test builds, violet for the way back to the release.
     static ImVec4 OfferTint(OfferKind kind, const PublishedBuild& offer)
     {
         if (kind == OfferKind::BackToRelease) return color::info;
@@ -962,7 +1065,7 @@ private:
                 look = {Icon::Check, false, "Up to date",
                         std::string("No newer ") + (test ? "release or test build" : "release") + " than this build."
                             + checked + again,
-                        color::accent};
+                        color::success};
             look.action = PillAction::Check;
             break;
         case State::CheckFailed:
@@ -2579,25 +2682,34 @@ private:
         draw->AddRectFilled({0, 0}, {width, height}, Col(color::sidebar));
         draw->AddLine({width - 1, 0}, {width - 1, height}, Col(color::border, 0.7f), 1.0f);
         const float pad = Dp(24);
+        // The name in plain text: the logo itself is on the Play and About pages.
         float y = Dp(30);
         DrawTracked(draw, fonts.caption, {pad, y}, Col(color::muted), "NATIVE PC PORT", Dp(2.4f));
         y += FontSize(fonts.caption) + Dp(2);
-        // "RECHARGED" with a soft glow and a vertical lime-to-green gradient.
-        for (int i = 3; i >= 1; --i)
-            DrawLabel(draw, fonts.title, {pad, y + Dp(float(i) * 0.7f)}, Col(color::accent, 0.08f * float(i)), "RECHARGED");
-        const int start = draw->VtxBuffer.Size;
         DrawLabel(draw, fonts.title, {pad, y}, IM_COL32_WHITE, "RECHARGED");
-        ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, {pad, y},
-                                                     {pad, y + FontSize(fonts.title)}, Col(color::accent_hi), Col(color::accent));
         y += FontSize(fonts.title) + Dp(4);
         DrawLabel(draw, fonts.caption, {pad, y}, Col(color::dim), "Mario Strikers Charged");
         y += FontSize(fonts.caption) + Dp(28);
 
+        // Miis, Sidekicks and Match rules are the Online/Match setup group: its
+        // row opens the last of them shown, and it shows their rows while one
+        // of them is open.
+        const auto setup = [](int page) { return page == PageMiis || page == PageSidekicks || page == PageRules; };
+        if (setup(page_)) setup_page_ = page_;
         ImGui::SetCursorPos({Dp(12), y});
         for (int i = 0; i < PageCount; ++i)
         {
             ImGui::SetCursorPosX(Dp(12));
-            if (NavItem(page_names[i], page_icons[i], page_ == i, width - Dp(24))) page_ = i;
+            if (setup(i))
+            {
+                if (i != PageMiis) continue;
+                const auto row = [&](int page) { return NavPage{page_names[page], page_icons[page], page_ == page}; };
+                const int clicked = NavGroup("Online/Match setup", Icon::Clipboard, setup(page_),
+                                             {row(PageMiis), row(PageSidekicks), row(PageRules)}, width - Dp(24));
+                if (clicked == 0) page_ = setup_page_;
+                if (clicked > 0) page_ = PageMiis + clicked - 1;
+            }
+            else if (NavItem(page_names[i], page_icons[i], page_ == i, width - Dp(24))) page_ = i;
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y + Dp(4));
         }
 
@@ -2671,8 +2783,8 @@ private:
             {
             case PageGame: GamePage(); break;
             case PageMiis: MiiPage(); break;
-            case PageTeams: TeamsPage(); break;
-            case PageMatches: MatchesPage(); break;
+            case PageSidekicks: SidekicksPage(); break;
+            case PageRules: MatchRulesPage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
@@ -2693,39 +2805,63 @@ private:
     {
         const auto& fonts = CurrentFonts();
         auto* draw = ImGui::GetWindowDrawList();
-        const float hero = std::clamp(size.y * 0.58f, Dp(250), Dp(440));
-        hero_ = {origin.x, origin.y, size.x, hero};
+        // From the bottom up: the summary cards a margin above the bottom bar (but at
+        // most 64 below the button once the title area has its full height), the
+        // Play button a gap above them. The artwork runs down behind the button and
+        // fades out at the cards.
+        const float margin = Dp(42), gap = Dp(30), button = Dp(62), card = Dp(118);
+        const float hero = std::clamp(size.y - margin - card - gap - (button - Dp(30)), Dp(250), Dp(440));
+        const float button_y = origin.y + hero - Dp(30), below = button_y + button;
+        const float cards_y = std::clamp(origin.y + size.y - margin - card, below + gap, below + Dp(64));
+        const float art = cards_y - origin.y;
+        hero_ = {origin.x, origin.y, size.x, art};
         hero_visible_ = true;
-        const ImVec2 hero_max{origin.x + size.x, origin.y + hero};
-        // Readability gradients over the artwork.
-        draw->AddRectFilledMultiColor(origin, {origin.x + size.x * 0.75f, hero_max.y}, Col(color::window, 0.94f),
-                                      Col(color::window, 0.0f), Col(color::window, 0.0f), Col(color::window, 0.94f));
-        draw->AddRectFilledMultiColor({origin.x, origin.y + hero * 0.45f}, hero_max, Col(color::window, 0.0f),
-                                      Col(color::window, 0.0f), Col(color::window, 1.0f), Col(color::window, 1.0f));
-        draw->AddRectFilledMultiColor(origin, {hero_max.x, origin.y + Dp(60)}, Col(color::window, 0.45f),
-                                      Col(color::window, 0.45f), Col(color::window, 0.0f), Col(color::window, 0.0f));
+        const ImVec2 art_max{origin.x + size.x, origin.y + art};
+        // Shades of the page colour over the artwork, eased in eight bands so that no
+        // edge shows: the logo's side dark, the lower part dissolving into the page
+        // before the cards, a little shade under the update controls.
+        const auto fade = [&](ImVec2 min, ImVec2 max, float from, float to, bool across) {
+            constexpr int bands = 8;
+            const auto ease = [](float t) { return t * t * (3.0f - 2.0f * t); };
+            for (int i = 0; i < bands; ++i)
+            {
+                const float t0 = float(i) / bands, t1 = float(i + 1) / bands;
+                const ImU32 a = Col(color::window, from + (to - from) * ease(t0));
+                const ImU32 b = Col(color::window, from + (to - from) * ease(t1));
+                if (across)
+                    draw->AddRectFilledMultiColor({min.x + (max.x - min.x) * t0, min.y},
+                                                  {min.x + (max.x - min.x) * t1, max.y}, a, b, b, a);
+                else
+                    draw->AddRectFilledMultiColor({min.x, min.y + (max.y - min.y) * t0},
+                                                  {max.x, min.y + (max.y - min.y) * t1}, a, a, b, b);
+            }
+        };
+        const float dark = origin.x + size.x * 0.18f;
+        draw->AddRectFilled(origin, {dark, art_max.y}, Col(color::window, 0.94f));
+        fade({dark, origin.y}, {origin.x + size.x * 0.66f, art_max.y}, 0.94f, 0.0f, true);
+        fade({origin.x, origin.y + art * 0.46f}, {art_max.x, art_max.y - Dp(8)}, 0.0f, 1.0f, false);
+        draw->AddRectFilled({origin.x, art_max.y - Dp(8)}, art_max, Col(color::window));
+        fade(origin, {art_max.x, origin.y + Dp(90)}, 0.35f, 0.0f, false);
 
         const float pad = Dp(44);
-        float y = origin.y + std::max(Dp(34), hero * 0.20f);
-        DrawTracked(draw, fonts.caption, {origin.x + pad, y}, Col(color::accent, 0.95f), "NATIVE PC PORT", Dp(2.6f));
-        y += FontSize(fonts.caption) + Dp(6);
-        // The title: "RECHARGED" with a soft glow and a vertical lime-to-green gradient.
-        for (int i = 4; i >= 1; --i)
-            DrawLabel(draw, fonts.hero, {origin.x + pad, y + Dp(float(i))}, Col(color::accent, 0.07f * float(i)), "RECHARGED");
-        const int start = draw->VtxBuffer.Size;
-        DrawLabel(draw, fonts.hero, {origin.x + pad, y}, IM_COL32_WHITE, "RECHARGED");
-        ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, {origin.x, y},
-                                                     {origin.x, y + FontSize(fonts.hero)}, Col(color::accent_hi),
-                                                     Col(color::accent));
-        y += FontSize(fonts.hero) + Dp(4);
-        FillGradient(draw, {origin.x + pad + Dp(2), y}, {origin.x + pad + Dp(66), y + Dp(3)}, Col(color::accent_hi),
-                     Col(color::accent, 0.0f), Dp(1.5f), true);
-        y += Dp(13);
-        // The subtitle: the game in white, the rest softer; two lines in a narrow window.
+        // The title: the logo with its lightning reaching a little into the margin,
+        // and the subtitle under it, the game in white, the rest softer, on two
+        // lines in a narrow window. Both a little below the middle between the
+        // update controls and the button, beside Mario's head and shoulders.
         const char* game = "Mario Strikers Charged";
         const char* rest = ", rebuilt to run natively on your PC.";
         const float game_width = TextSize(fonts.heading, game).x;
         const bool one_line = game_width + TextSize(fonts.heading, rest).x <= size.x * 0.75f - pad;
+        const float logo = std::clamp(hero * 0.48f, Dp(110), Dp(210));
+        const float subtitle = one_line ? FontSize(fonts.heading) : FontSize(fonts.heading) * 2 + Dp(2);
+        const float top = origin.y + Dp(40), room = button_y - Dp(34) - top;
+        float y = top + std::max(0.0f, (room - logo - Dp(10) - subtitle) * 0.6f);
+        // A soft glow from the logo's lit ball, so that the logo sits in the scene.
+        const ImVec2 ball{origin.x + pad - Dp(8) + logo * logo_aspect_ * 0.86f, y + logo * 0.23f};
+        for (int i = 20; i >= 1; --i)
+            draw->AddCircleFilled(ball, logo * 0.055f * float(i), Col(color::accent, 0.006f), 48);
+        DrawLogo(draw, {origin.x + pad - Dp(8), y}, logo);
+        y += logo + Dp(10);
         DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y}, IM_COL32_WHITE, game, 1.2f);
         if (one_line)
             DrawLabelShadowed(draw, fonts.heading, {origin.x + pad + game_width, y}, Col(color::text, 0.86f), rest, 1.2f);
@@ -2737,12 +2873,11 @@ private:
         }
         DrawUpdateBar(origin, size.x, pad);
 
-        // Play button and status, overlapping the bottom of the artwork.
+        // Play button and status, over the bottom of the artwork.
         const std::string blocker = PlayBlocker();
-        const float button_y = hero_max.y - Dp(30);
         ImGui::SetCursorScreenPos({origin.x + pad, button_y});
         const bool menu_open = ImGui::IsPopupOpen("play_options_menu");
-        const auto play = SplitPrimaryButton("play", "PLAY", Dp(230, 62),
+        const auto play = SplitPrimaryButton("play", "PLAY", {Dp(230), button},
                                              {Dp(58), Icon::Gear, menu_open, draft_.performance_mode},
                                              blocker.empty(), Icon::Play, true);
         if (play.button) Play(quit);
@@ -2753,9 +2888,7 @@ private:
         DrawPlayStatus(blocker, {origin.x + pad + Dp(230 + 58 + 24), button_y + Dp(31)});
 
         // Summary cards.
-        const float cards_y = button_y + Dp(62) + Dp(30);
-        const float footer = Dp(30);
-        if (cards_y + Dp(118) + footer + Dp(12) <= origin.y + size.y)
+        if (cards_y + card + margin <= origin.y + size.y)
         {
             const float gap = Dp(16);
             const float width = (size.x - pad * 2 - gap * 2) / 3.0f;
@@ -2852,7 +2985,7 @@ private:
     {
         const auto& fonts = CurrentFonts();
         auto* draw = ImGui::GetWindowDrawList();
-        ImVec4 tint = color::accent;
+        ImVec4 tint = color::success;
         Icon icon = Icon::Check;
         bool spinner = false;
         std::string headline = "Ready to play";
@@ -3006,13 +3139,15 @@ private:
     // (or the nearest folder above it that is still there).
     void Locate() { Browse(ExistingFolder(PathFromUtf8(DiscSelection()).parent_path())); }
 
+    // A summary card's icon takes the accent, or amber or red for a problem.
     struct Summary { std::string value; std::string detail; ImVec4 tint; };
 
-    // The pinned image: its region and revision first.
+    // The pinned image: its region and revision first, in the status colours
+    // (green when it is ready to play).
     Summary DiscSummary() const
     {
-        if (searching_) return {"Looking...", "Searching for your game image", color::info};
-        if (pending_) return {"Checking...", "Reading the image's header", color::info};
+        if (searching_) return {"Looking...", "Searching for your game image", color::accent};
+        if (pending_) return {"Checking...", "Reading the image's header", color::accent};
         if (DiscSelection().empty()) return {"No image chosen", "Choose one on the Game page", color::warning};
         const std::string name = PathUtf8(PathFromUtf8(DiscSelection()).filename());
         if (!PinnedMissing().empty())
@@ -3025,10 +3160,10 @@ private:
         {
             const auto& info = *check_.info;
             return {RegionRevision(info), info.game_id + "  \xC2\xB7  " + info.format + "  \xC2\xB7  " + name,
-                    SupportedRelease(info) ? color::accent : color::warning};
+                    SupportedRelease(info) ? color::success : color::warning};
         }
         if (!check_.error.empty()) return {"Image problem", check_.error, color::danger};
-        return {name, "Not checked yet", color::muted};
+        return {name, "Not checked yet", color::accent};
     }
 
     Summary DisplaySummary() const
@@ -3044,7 +3179,7 @@ private:
             detail += "  -  HUD hidden" + (hud.empty() ? std::string() : " (" + hud + ")");
         }
         return {s.fullscreen ? "Fullscreen" : std::to_string(s.width) + " x " + std::to_string(s.height) + " window",
-                detail, color::info};
+                detail, color::accent};
     }
 
     Summary LanguageSummary() const
@@ -3055,7 +3190,7 @@ private:
                                                       : std::string(choice.language->label);
         std::string audio = s.mute ? "Audio muted" : "Volume " + std::to_string(s.master_volume) + "%";
         if (!s.mute && s.sound_volumes != DefaultSoundVolumes()) audio += "  -  Custom sound levels";
-        return {language + " text", audio, color::info};
+        return {language + " text", audio, color::accent};
     }
 
     void SummaryCard(const char* id, const char* title, Icon icon, float width, int page, const Summary& summary)
@@ -3162,7 +3297,7 @@ private:
         Icon icon = Icon::Info;
         switch (notice_kind_)
         {
-        case NoticeKind::Success: tint = color::accent; icon = Icon::Check; break;
+        case NoticeKind::Success: tint = color::success; icon = Icon::Check; break;
         case NoticeKind::Warning: tint = color::warning; icon = Icon::Warning; break;
         case NoticeKind::Error: tint = color::danger; icon = Icon::Error; break;
         default: break;
@@ -3546,10 +3681,10 @@ private:
     // The sidekicks each captain starts with, in the game save of the save
     // folder in use: the game's sidekick screen shows them, and what is
     // chosen there comes back here.
-    void TeamsPage()
+    void SidekicksPage()
     {
-        PageHeader("Teams", "The sidekicks each captain starts with. The game's sidekick screen shows them, and what you "
-                            "choose there shows here: both live in your game save.");
+        PageHeader("Sidekicks", "The sidekicks each captain starts with. The game's sidekick screen shows them, and "
+                                "what you choose there shows here: both live in your game save.");
         using mscharged::platform::GameSaveState;
         const auto& save = InstalledLineups();
         GameSaveCallout(save.state, save.error, "its lineups");
@@ -3855,10 +3990,10 @@ private:
     // Match presets: named match settings and cheats, each in a file of the
     // presets folder, written into the game save for matches on this computer
     // or online with friends. Default and Competitive are built in.
-    void MatchesPage()
+    void MatchRulesPage()
     {
-        PageHeader("Matches", "Presets of the match settings and cheats: choose one for your matches on this computer, "
-                              "or online with friends. Ranked matches keep their own rules.");
+        PageHeader("Match rules", "Presets of the match settings and cheats: choose one for your matches on this "
+                                  "computer, or online with friends. Ranked matches keep their own rules.");
         using mscharged::platform::GameSaveState;
         using mscharged::platform::MatchMode;
         const auto& save = InstalledMatch();
@@ -5708,7 +5843,7 @@ private:
         if (bar)
         {
             next_chip();
-            Chip("DolphinBar", color::accent, Icon::Check);
+            Chip("DolphinBar", color::success, Icon::Check);
         }
         else if (status.dolphinbar_other_mode)
         {
@@ -5721,7 +5856,7 @@ private:
         {
             next_chip();
             const auto text = "Bluetooth: " + std::to_string(bluetooth) + (bluetooth == 1 ? " Wii Remote" : " Wii Remotes");
-            Chip(text.c_str(), color::accent, Icon::Check);
+            Chip(text.c_str(), color::success, Icon::Check);
         }
         if (status.no_permission)
         {
@@ -8036,12 +8171,12 @@ private:
         const ImVec2 pos = ImGui::GetCursorScreenPos();
         const float width = ImGui::GetContentRegionAvail().x;
         const float pad = Dp(30);
-        const float wordmark = Dp(50); // the hero font, drawn smaller
-        const float height = pad + FontSize(fonts.caption) + Dp(6) + wordmark + Dp(6) + FontSize(fonts.heading) + pad;
+        const float logo = Dp(88);
+        const float height = pad + FontSize(fonts.caption) + Dp(6) + logo + Dp(6) + FontSize(fonts.heading) + pad;
         const ImVec2 max{pos.x + width, pos.y + height};
         const float rounding = Dp(16);
 
-        // A dark green wash and, on the right, a lightning bolt in a soft glow.
+        // A night-blue wash and, on the right, a lightning bolt in a soft glow.
         FillGradient(draw, pos, max, Col(Mix(color::card, color::accent_dark, 0.9f)), Col(color::card), rounding, true);
         draw->PushClipRect(pos, max, true);
         const ImVec2 glow{max.x - std::min(Dp(140), width * 0.2f), pos.y + height * 0.5f};
@@ -8068,14 +8203,8 @@ private:
         const float x = pos.x + pad;
         DrawTracked(draw, fonts.caption, {x, y}, Col(color::accent, 0.95f), "ABOUT", Dp(2.6f));
         y += FontSize(fonts.caption) + Dp(6);
-        // "RECHARGED" as on the Play page: a soft glow and a lime-to-green gradient.
-        for (int i = 3; i >= 1; --i)
-            draw->AddText(fonts.hero, wordmark, {x, y + Dp(float(i))}, Col(color::accent, 0.07f * float(i)), "RECHARGED");
-        const int start = draw->VtxBuffer.Size;
-        draw->AddText(fonts.hero, wordmark, {x, y}, IM_COL32_WHITE, "RECHARGED");
-        ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, {x, y}, {x, y + wordmark},
-                                                     Col(color::accent_hi), Col(color::accent));
-        y += wordmark + Dp(6);
+        DrawLogo(draw, {x - Dp(5), y}, logo);
+        y += logo + Dp(6);
         const char* game = "Mario Strikers Charged";
         DrawLabel(draw, fonts.heading, {x, y}, Col(color::text), game);
         DrawLabel(draw, fonts.heading, {x + TextSize(fonts.heading, game).x, y}, Col(color::text, 0.72f),
@@ -8406,9 +8535,10 @@ private:
             "Unofficial project, not affiliated with Nintendo or Next Level Games. You need your own copy of the game.");
         ImGui::Dummy({0, Dp(2)});
         TextWrappedColored(fonts.caption, color::dim,
-            "Recharged's original code, tools and documentation: CC0 1.0. Header artwork: SteamGridDB hero 8926 by "
-            "Jiquita. Font: Roboto (Apache 2.0). Built with SDL3 (zlib), Dear ImGui (MIT), Aurora (MIT), Dawn (BSD), "
-            "nod and its Rust dependencies, and other libraries listed in LICENSES. Each keeps its own license.");
+            "Recharged's original code, tools and documentation: CC0 1.0. Header artwork: the game's key art "
+            "(Nintendo). Font: Roboto (Apache 2.0). Built with SDL3 (zlib), Dear ImGui (MIT), Aurora (MIT), Dawn "
+            "(BSD), nod and its Rust dependencies, and other libraries listed in LICENSES. Each keeps its own "
+            "license.");
         EndCard();
     }
 
@@ -8492,7 +8622,16 @@ private:
     std::optional<ResolvedLaunch> frontend_launch_;
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
-    SDL_Texture* header_ = nullptr;
+    SDL_Texture* header_back_ = nullptr;
+    SDL_Texture* header_front_ = nullptr;
+    // The Recharged logo, largest copy first, each half the one before.
+    struct LogoLevel
+    {
+        SDL_Texture* texture;
+        float width;
+    };
+    std::vector<LogoLevel> logo_;
+    float logo_aspect_ = 1.0f;
     SDL_Texture* aurora_logo_ = nullptr;
     float aurora_logo_width_ = 1, aurora_logo_height_ = 1;
     // Open standard gamepads (gamepad1-4 order); gamepad_ is the first.
@@ -8541,6 +8680,8 @@ private:
     float header_height_ = 620;
     SDL_FRect hero_{};
     bool hero_visible_ = false;
+    float hero_time_ = 0; // seconds into the header's entrance
+    bool hero_shown_ = false; // drawn in the frame before
     bool window_ui_ready_ = false;
     bool renderer_ui_ready_ = false;
     ConfigFile file_;
@@ -8554,6 +8695,7 @@ private:
     NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
     int page_ = PagePlay;
+    int setup_page_ = PageMiis; // the Online/Match setup page its row opens
     bool close_requested_ = false;
     bool pending_ = false;
     bool region_prompt_ = false;

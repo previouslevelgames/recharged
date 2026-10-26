@@ -142,7 +142,7 @@ std::string MatchPresetText(const MatchPreset& preset)
 {
     const auto& s = preset.settings;
     std::ostringstream text;
-    text << "# Recharged match preset, from the launcher's Matches page. Settings left out\n"
+    text << "# Recharged match preset, from the launcher's Match rules page. Settings left out\n"
          << "# are a new save's.\n"
          << "name = " << Quoted(preset.name) << '\n'
          << "skill = " << kSkillTokens.at(std::size_t(s.skill - 1)) << '\n'

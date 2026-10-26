@@ -63,7 +63,6 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
     fonts.title = add(30.0f);
     fonts.button = add(22.0f);
     fonts.overline = add(21.0f);
-    fonts.hero = add(62.0f);
     io.FontDefault = fonts.body;
     io.FontGlobalScale = 1.0f / density;
     g_fonts = fonts;
@@ -542,6 +541,13 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(0.08f, -0.40f), p(-0.08f, 0.40f), color, t * 1.3f);
         break;
     }
+    case Icon::Clipboard:
+        // A coach's clipboard: the board, its clip and two lines of notes.
+        draw->AddRect(p(-0.32f, -0.34f), p(0.32f, 0.46f), color, s * 0.08f, 0, t);
+        draw->AddRectFilled(p(-0.15f, -0.46f), p(0.15f, -0.24f), color, s * 0.05f);
+        draw->AddLine(p(-0.15f, -0.02f), p(0.15f, -0.02f), color, t);
+        draw->AddLine(p(-0.15f, 0.20f), p(0.07f, 0.20f), color, t);
+        break;
     case Icon::Up:
     case Icon::Down:
     {
@@ -707,6 +713,91 @@ bool NavItem(const char* label, Icon icon, bool selected, float width)
     return pressed;
 }
 
+int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavPage> pages, float width)
+{
+    ImGui::PushID(label);
+    auto* draw = ImGui::GetWindowDrawList();
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float row = Dp(44), page_row = Dp(36), step = Dp(38), top = Dp(4), bottom = Dp(10);
+    const float shown = Animate(ImGui::GetID("##open"), open, 11.0f);
+    const float height = row + (top + step * float(pages.size()) - (step - page_row) + bottom) * shown;
+    const ImVec2 max{pos.x + width, pos.y + height};
+    int clicked = -1;
+
+    // The open group's raised panel, lit along its top edge like the About banner.
+    if (shown > 0.0f)
+    {
+        draw->AddRectFilled(pos, max, Col(Mix(color::sidebar, color::card, 0.9f), shown), Dp(12));
+        draw->AddRect(pos, max, Col(color::border, 0.6f * shown), Dp(12), 0, Dp(1));
+        const float middle = pos.x + width * 0.5f;
+        const ImU32 clear = Col(color::accent_hi, 0.0f), bright = Col(color::accent_hi, 0.35f * shown);
+        draw->AddRectFilledMultiColor({pos.x + Dp(14), pos.y}, {middle, pos.y + Dp(1)}, clear, bright, bright, clear);
+        draw->AddRectFilledMultiColor({middle, pos.y}, {max.x - Dp(14), pos.y + Dp(1)}, bright, clear, clear, bright);
+    }
+
+    // The group's row: its icon on a badge, tinted while open, and a chevron that turns.
+    if (ImGui::InvisibleButton("##group", {width, row})) clicked = 0;
+    const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered(), 12.0f);
+    if (hover > 0.0f && shown < 1.0f)
+        draw->AddRectFilled(pos, {max.x, pos.y + row}, Col(color::field, hover * (1.0f - shown)), Dp(10));
+    const ImVec2 badge{pos.x + Dp(28), pos.y + row * 0.5f};
+    const float half = Dp(14);
+    draw->AddRectFilled({badge.x - half, badge.y - half}, {badge.x + half, badge.y + half},
+                        Col(Mix(Mix(color::field, color::border, 0.5f * hover), Mix(color::field, color::accent, 0.22f),
+                                shown)),
+                        Dp(8));
+    DrawIcon(draw, icon, badge, Dp(17), Col(Mix(Mix(color::muted, color::text, hover), color::accent, shown)));
+    DrawLabel(draw, fonts.label, {pos.x + Dp(54), pos.y + (row - FontSize(fonts.label)) * 0.5f},
+              Col(Mix(Mix(color::muted, color::text, hover), ImVec4{1, 1, 1, 1}, shown)), label);
+    {
+        const float turn = 3.14159265f * shown, c = std::cos(turn), s = std::sin(turn), size = Dp(12);
+        const ImVec2 at{max.x - Dp(20), pos.y + row * 0.5f};
+        auto point = [&](float x, float y) {
+            return ImVec2{at.x + (x * c - y * s) * size, at.y + (x * s + y * c) * size};
+        };
+        const ImVec2 chevron[] = {point(-0.32f, -0.16f), point(0.0f, 0.16f), point(0.32f, -0.16f)};
+        draw->AddPolyline(chevron, 3, Col(Mix(color::dim, color::muted, std::max(hover, shown))), 0, Dp(1.8f));
+    }
+
+    // The pages, indented under the group's name; the panel groups them.
+    if (shown > 0.01f)
+    {
+        draw->PushClipRect(pos, max, true);
+        const float first = pos.y + row + top;
+        int n = 0;
+        for (const NavPage& page : pages)
+        {
+            ++n;
+            const float y = first + step * float(n - 1), middle = y + page_row * 0.5f;
+            ImGui::SetCursorScreenPos({pos.x, y});
+            ImGui::PushID(n);
+            if (ImGui::InvisibleButton("##page", {width, page_row})) clicked = n;
+            const float over = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered() || page.selected, 12.0f);
+            const float active = Animate(ImGui::GetID("##active"), page.selected, 12.0f);
+            ImGui::PopID();
+            const ImVec2 pill{pos.x + Dp(44), y + Dp(2)}, pill_max{max.x - Dp(8), y + page_row - Dp(2)};
+            if (over > 0.0f)
+            {
+                if (page.selected)
+                    FillGradient(draw, pill, pill_max, Col(Mix(color::field, color::accent, 0.26f), over * shown),
+                                 Col(color::field, 0.3f * over * shown), Dp(9), true);
+                else
+                    draw->AddRectFilled(pill, pill_max, Col(color::field, over * shown), Dp(9));
+            }
+            DrawIcon(draw, page.icon, {pos.x + Dp(62), middle}, Dp(15),
+                     Col(Mix(Mix(color::dim, color::muted, over), color::accent, active), shown));
+            DrawLabel(draw, fonts.body, {pos.x + Dp(80), middle - FontSize(fonts.body) * 0.5f},
+                      Col(Mix(Mix(color::muted, color::text, over), ImVec4{1, 1, 1, 1}, active), shown), page.label);
+        }
+        draw->PopClipRect();
+    }
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::Dummy({width, height});
+    ImGui::PopID();
+    return clicked;
+}
+
 bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled, Icon icon, bool glow)
 {
     ImGui::PushID(id);
@@ -750,7 +841,7 @@ bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled,
     const float icon_size = icon == Icon::None ? 0.0f : FontSize(font) * 0.82f;
     const float gap = icon == Icon::None ? 0.0f : Dp(10);
     const float left = pos.x + (size.x - (text.x + icon_size + gap)) * 0.5f;
-    const ImU32 ink = enabled ? IM_COL32(6, 33, 15, 255) : Col(color::dim);
+    const ImU32 ink = enabled ? Col(color::accent_ink) : Col(color::dim);
     if (icon != Icon::None)
         DrawIcon(draw, icon, {left + icon_size * 0.5f, pos.y + size.y * 0.5f}, icon_size, ink);
     DrawLabel(draw, font, {left + icon_size + gap, pos.y + (size.y - text.y) * 0.5f}, ink, label);
@@ -828,7 +919,7 @@ SplitPress SplitPrimaryButton(const char* id, const char* label, ImVec2 size, co
     const float icon_size = icon == Icon::None ? 0.0f : FontSize(font) * 0.82f;
     const float gap = icon == Icon::None ? 0.0f : Dp(10);
     const float left = pos.x + (size.x - (text.x + icon_size + gap)) * 0.5f;
-    const ImU32 ink = enabled ? IM_COL32(6, 33, 15, 255) : Col(color::dim);
+    const ImU32 ink = enabled ? Col(color::accent_ink) : Col(color::dim);
     if (icon != Icon::None)
         DrawIcon(draw, icon, {left + icon_size * 0.5f, pos.y + size.y * 0.5f}, icon_size, ink);
     DrawLabel(draw, font, {left + icon_size + gap, pos.y + (size.y - text.y) * 0.5f}, ink, label);
@@ -1176,7 +1267,7 @@ void BatteryIcon(int percent)
     const auto& fonts = CurrentFonts();
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     const ImVec2 body{Dp(26), Dp(13)};
-    const ImVec4 tint = percent > 50 ? color::accent : percent >= 20 ? color::warning : color::danger;
+    const ImVec4 tint = percent > 50 ? color::success : percent >= 20 ? color::warning : color::danger;
     auto* draw = ImGui::GetWindowDrawList();
     const ImVec2 top{pos.x, pos.y + Dp(6)};
     draw->AddRect(top, Add(top, body), Col(color::muted), Dp(3), 0, Dp(1.5f));

@@ -279,7 +279,8 @@ target_compile_features(charged_host PUBLIC cxx_std_17)
 target_link_libraries(charged_host PRIVATE nod::nod)
 add_executable(mscharged-bootstrap src/bootstrap/main.cpp)
 target_link_libraries(mscharged-bootstrap PRIVATE charged_foundation charged_host)
-configure_file(assets/launcher/header.png assets/launcher/header.png COPYONLY)
+configure_file(assets/launcher/header_back.png assets/launcher/header_back.png COPYONLY)
+configure_file(assets/launcher/header_front.png assets/launcher/header_front.png COPYONLY)
 set(MSCHARGED_VERSION_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mscharged")
 add_custom_target(update_build_version
     COMMAND "${CMAKE_COMMAND}"
