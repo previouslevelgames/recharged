@@ -139,7 +139,7 @@ int main()
                 "Gamepads play with the built-in Default profile");
         std::ofstream(path) << "; my pads\n[controls]\ngamepad2_profile = kyle\ngamepad3_profile = Gone\n"
                                "[gamepad_profile1]\n; Kyle's layout\nname = Kyle\na = b | start\nswap_sticks = true\n"
-                               "inner_deadzone = 22\nouter_deadzone = 90\ntrigger_press = 30\n"
+                               "inner_deadzone = 22\nouter_deadzone = 90\ntrigger_press = 30\noctagon_stick = true\n"
                                "gyro_pointer = true\ngyro_speed = 150\nrecenter_pointer = leftstick\n"
                                "[gamepad_profile2]\nname = Spare\nb = x\ncontroller = gamecube\n";
         {
@@ -154,7 +154,8 @@ int main()
             Require(loaded.pad_profiles[0].inner_deadzone == 22 && loaded.pad_profiles[0].outer_deadzone == 90
                         && loaded.pad_profiles[0].trigger_press == 30 && loaded.pad_profiles[1].inner_deadzone == 15
                         && loaded.pad_profiles[1].outer_deadzone == 71 && loaded.pad_profiles[1].trigger_press == 50
-                        && Settings{}.PadProfileOf(0).outer_deadzone == 71,
+                        && Settings{}.PadProfileOf(0).outer_deadzone == 71 && loaded.pad_profiles[0].octagon_stick
+                        && !loaded.pad_profiles[1].octagon_stick,
                     "Gamepad profiles keep their dead zones; missing ones are the Wii Nunchuk's");
             Require(loaded.pad_profiles[0].gyro_pointer && loaded.pad_profiles[0].gyro_speed == 150
                         && loaded.pad_profiles[0].inputs[mscharged::GamepadActionRecenterPointer] == "leftstick"
@@ -174,6 +175,7 @@ int main()
             changed.pad_profiles[0].inner_deadzone = 0;
             changed.pad_profiles[0].outer_deadzone = 100;
             changed.pad_profiles[0].trigger_press = 90;
+            changed.pad_profiles[0].octagon_stick = true;
             changed.pad_profiles[0].gyro_pointer = true;
             changed.pad_profiles[0].gyro_speed = 25;
             SaveConfig(file, changed);
@@ -185,6 +187,7 @@ int main()
                         && saved.settings.pad_profiles[0].inner_deadzone == 0
                         && saved.settings.pad_profiles[0].outer_deadzone == 100
                         && saved.settings.pad_profiles[0].trigger_press == 90
+                        && saved.settings.pad_profiles[0].octagon_stick
                         && saved.settings.pad_profiles[0].gyro_pointer
                         && saved.settings.pad_profiles[0].gyro_speed == 25
                         && saved.settings.PadProfileIndex(3) == 0

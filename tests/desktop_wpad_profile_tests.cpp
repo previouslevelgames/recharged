@@ -434,6 +434,24 @@ void StickDeadzoneChecks() {
             Check(std::abs(game[0] - int(std::lround(x * 56))) <= 1 && std::abs(game[1] - int(std::lround(y * 56))) <= 1,
                   "The game does not read the tilt the dead zones gave");
         }
+    // A real Nunchuk: corners at the gate's reach in all eight directions, the
+    // edges between them closer in, and still fully pushed all around the rim.
+    Check(OctagonNunchukStickCounts({}) == std::array<std::int8_t, 2>{0, 0}
+              && OctagonNunchukStickCounts({1, 0}) == std::array<std::int8_t, 2>{96, 0}
+              && OctagonNunchukStickCounts({0, -2}) == std::array<std::int8_t, 2>{0, -96}
+              && OctagonNunchukStickCounts({std::sqrt(0.5f), std::sqrt(0.5f)}) == std::array<std::int8_t, 2>{68, 68},
+          "Real Nunchuk corners");
+    const float tilted = 22.5f * 3.14159265f / 180;
+    const auto edge = OctagonNunchukStickCounts({std::cos(tilted), std::sin(tilted)});
+    Check(std::abs(std::hypot(float(edge[0]), float(edge[1])) - 96 * std::cos(tilted)) < 1,
+          "The real Nunchuk's gate is not octagonal");
+    for (int a = 0; a < 360; ++a) {
+        const float x = std::cos(a * 3.14159265f / 180), y = std::sin(a * 3.14159265f / 180);
+        Check(NunchukStickPushed(OctagonNunchukStickCounts({x, y})) == 1.0f, "A real Nunchuk's rim is not fully pushed");
+    }
+    Check(NunchukStickPushed(OctagonNunchukStickCounts({0.15f, 0})) == 0
+              && OctagonNunchukStickCounts({1, 0.15f})[1] < kNunchukStickDeadCounts,
+          "The game's own dead zone along each axis");
     Check(GamepadTriggerThreshold(50) == kGamepadTriggerPressed && GamepadTriggerThreshold(10) == 3276
               && GamepadTriggerThreshold(100) == 32767,
           "Trigger press points");

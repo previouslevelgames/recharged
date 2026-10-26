@@ -138,6 +138,10 @@ struct Settings
         int inner_deadzone = kDefaultInnerDeadzone;
         int outer_deadzone = kDefaultOuterDeadzone;
         int trigger_press = kDefaultTriggerPress;
+        // octagon_stick: the Nunchuk stick plays like a real one, with its
+        // octagonal gate and the game's own dead zone; the dead zones above
+        // then shape the pointer stick only.
+        bool octagon_stick = false;
         // gyro_pointer: a controller with a gyro points by turning it, at
         // gyro_speed percent (issue #14); recenter_pointer centres it.
         bool gyro_pointer = false;
@@ -148,7 +152,7 @@ struct Settings
             return name == other.name && inputs == other.inputs && swap_sticks == other.swap_sticks
                 && controller == other.controller && inner_deadzone == other.inner_deadzone
                 && outer_deadzone == other.outer_deadzone && trigger_press == other.trigger_press
-                && gyro_pointer == other.gyro_pointer && gyro_speed == other.gyro_speed;
+                && octagon_stick == other.octagon_stick && gyro_pointer == other.gyro_pointer && gyro_speed == other.gyro_speed;
         }
         bool operator!=(const PadProfile& other) const { return !(*this == other); }
     };

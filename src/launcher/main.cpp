@@ -6830,6 +6830,16 @@ private:
                   Icon::Sliders);
         if (BeginRows("##pad_deadzone_rows"))
         {
+            Row("Real Nunchuk stick", "The Nunchuk stick plays like a real one: its octagonal edge and the game's own "
+                "dead zone, which snaps nearly straight pushes straight. The dead zones below then shape the "
+                "pointer stick only.");
+            bool octagon = profile.octagon_stick;
+            if (Toggle("##octagon_stick", &octagon))
+                if (auto* target = editable())
+                {
+                    target->octagon_stick = octagon;
+                    dirty_ = true;
+                }
             const auto slider = [&](const char* label, const char* description, const char* id, int value,
                                     int minimum, int maximum, int Settings::PadProfile::*field) {
                 Row(label, description);
@@ -6861,7 +6871,7 @@ private:
             || swap || profile.inner_deadzone != default_profile.inner_deadzone
             || profile.outer_deadzone != default_profile.outer_deadzone
             || profile.trigger_press != default_profile.trigger_press
-            || profile.gyro_pointer != default_profile.gyro_pointer || profile.gyro_speed != default_profile.gyro_speed;
+            || profile.octagon_stick != default_profile.octagon_stick || profile.gyro_pointer != default_profile.gyro_pointer || profile.gyro_speed != default_profile.gyro_speed;
         ImGui::Dummy(Dp(0, 4));
         if (SecondaryButton("##reset_pad", "Reset to defaults", Dp(180, 36), changed, Icon::Refresh))
         {
@@ -6870,6 +6880,7 @@ private:
             profile.inner_deadzone = default_profile.inner_deadzone;
             profile.outer_deadzone = default_profile.outer_deadzone;
             profile.trigger_press = default_profile.trigger_press;
+            profile.octagon_stick = default_profile.octagon_stick;
             profile.gyro_pointer = default_profile.gyro_pointer;
             profile.gyro_speed = default_profile.gyro_speed;
             pad_capture_action_ = pad_capture_slot_ = -1;
@@ -7005,7 +7016,8 @@ private:
     // Both sticks and triggers of the page's gamepad, live, with `profile`'s
     // dead zones and press point: the shaded centre is the inner dead zone,
     // the ring the outer one; the figure is how far the game sees the stick
-    // pushed.
+    // pushed. A real Nunchuk's stick (octagon_stick) shows its octagonal gate
+    // and the game's dead zone along both axes.
     void DeadzonePreview(const Settings::PadProfile& profile)
     {
         const auto bindings = platform::ParseGamepadBindings(profile.inputs);
@@ -7032,6 +7044,34 @@ private:
             const ImVec2 c{left + radius, origin.y + radius};
             const auto x_axis = left_stick ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX;
             const auto y_axis = left_stick ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY;
+            float x = axis(x_axis), y = axis(y_axis);
+            if (const float length = std::hypot(x, y); length > 1.0f) { x /= length; y /= length; }
+            // Hairlines as thin rectangles: SDL's software renderer drops parts of long lines.
+            const float hair = std::max(1.0f, Dp(1));
+            if (nunchuk && profile.octagon_stick)
+            {
+                const auto counts = platform::OctagonNunchukStickCounts({x, -y});
+                const float pushed = platform::NunchukStickPushed(counts);
+                const float unit = radius / platform::kNunchukGateCounts;
+                ImVec2 corners[8];
+                for (int n = 0; n < 8; ++n)
+                    corners[n] = {c.x + radius * std::cos(n * 0.785398163f), c.y + radius * std::sin(n * 0.785398163f)};
+                draw->AddConvexPolyFilled(corners, 8, Col(color::field));
+                // The game's dead zone along each axis, up to the gate's edge.
+                const float band = unit * platform::kNunchukStickDeadCounts, reach = radius - band * 0.4142f;
+                draw->AddRectFilled({c.x - reach, c.y - band}, {c.x + reach, c.y + band}, Col(color::dim, 0.30f));
+                draw->AddRectFilled({c.x - band, c.y - reach}, {c.x + band, c.y + reach}, Col(color::dim, 0.30f));
+                draw->AddRectFilled({c.x - reach, c.y - hair * 0.5f}, {c.x + reach, c.y + hair * 0.5f}, Col(color::border));
+                draw->AddRectFilled({c.x - hair * 0.5f, c.y - reach}, {c.x + hair * 0.5f, c.y + reach}, Col(color::border));
+                draw->AddPolyline(corners, 8, Col(color::border), ImDrawFlags_Closed, Dp(1.5f));
+                const ImVec4 dot = pushed <= 0.0f ? color::muted : pushed >= 1.0f ? color::accent_hi : color::accent;
+                draw->AddCircleFilled({c.x + counts[0] * unit, c.y - counts[1] * unit}, Dp(6), Col(dot));
+                centred(c.x, origin.y + radius * 2 + Dp(6), fonts.caption, color::muted,
+                        std::string(left_stick ? "Left stick" : "Right stick") + ": real Nunchuk");
+                centred(c.x, origin.y + radius * 2 + Dp(22), fonts.caption, pushed > 0 ? color::text : color::dim,
+                        std::to_string(int(std::lround(pushed * 100))) + "% pushed");
+                return;
+            }
             const auto tilt = platform::GamepadStickTilt(pad, x_axis, y_axis, profile.inner_deadzone,
                                                          profile.outer_deadzone);
             const float pushed = std::min(1.0f, std::hypot(tilt.x, tilt.y));
@@ -7039,15 +7079,11 @@ private:
             draw->AddCircleFilled(c, radius, Col(color::accent, 0.10f), 48);
             draw->AddCircleFilled(c, radius * profile.outer_deadzone / 100.0f, Col(color::field), 48);
             draw->AddCircle(c, radius * profile.outer_deadzone / 100.0f, Col(color::accent, 0.55f), 48, Dp(1.5f));
-            // Hairlines as thin rectangles: SDL's software renderer drops parts of long lines.
-            const float hair = std::max(1.0f, Dp(1));
             draw->AddRectFilled({c.x - radius, c.y - hair * 0.5f}, {c.x + radius, c.y + hair * 0.5f}, Col(color::border));
             draw->AddRectFilled({c.x - hair * 0.5f, c.y - radius}, {c.x + hair * 0.5f, c.y + radius}, Col(color::border));
             if (profile.inner_deadzone > 0)
                 draw->AddCircleFilled(c, radius * profile.inner_deadzone / 100.0f, Col(color::dim, 0.45f), 32);
             draw->AddCircle(c, radius, Col(color::border), 48, Dp(1.5f));
-            float x = axis(x_axis), y = axis(y_axis);
-            if (const float length = std::hypot(x, y); length > 1.0f) { x /= length; y /= length; }
             const ImVec4 dot = pushed <= 0.0f ? color::muted : pushed >= 1.0f ? color::accent_hi : color::accent;
             draw->AddCircleFilled({c.x + x * radius, c.y + y * radius}, Dp(6), Col(dot));
             bool buttons = false;

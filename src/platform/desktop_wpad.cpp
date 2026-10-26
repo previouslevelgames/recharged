@@ -476,12 +476,15 @@ void AttachGamepadPlayer(State& state, Device& pad, int index) {
         SDL_Log("Gamepad %d (%s) has no gyro: its stick moves the pointer", index + 1, name ? name : "controller");
 }
 // The Nunchuk stick (or with swapped sticks the pointer) after the profile's
-// dead zones; y down as SDL reports it.
+// dead zones; y down as SDL reports it. A real Nunchuk's stick
+// (octagon_stick) leaves its dead zones to the game.
 mscharged::platform::StickTilt PadStick(const Device& pad, bool nunchuk) {
     const bool left = nunchuk != pad.profile.swap_sticks;
+    const bool octagon = nunchuk && pad.profile.octagon_stick;
     return mscharged::platform::GamepadStickTilt(pad.input, left ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX,
                                                  left ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY,
-                                                 pad.profile.inner_deadzone, pad.profile.outer_deadzone);
+                                                 octagon ? 0 : pad.profile.inner_deadzone,
+                                                 octagon ? 100 : pad.profile.outer_deadzone);
 }
 bool PadHeld(const Device& pad, std::size_t action) {
     for (const auto input : pad.profile.bindings[action]) {
@@ -503,12 +506,14 @@ void UpdateStickDirections(Device& pad, bool focused) {
 mscharged::platform::NativeNunchukObservation GamepadNunchuk(Device& pad, bool focused) {
     // The Nunchuk stick (left by default) through the profile's dead zones, in
     // counts the original ClampWiiStick/KPAD turn back into exactly that tilt
-    // (see NunchukStickCounts). C and Z follow the profile's inputs.
+    // (see NunchukStickCounts), or a real Nunchuk's counts (octagon_stick).
+    // C and Z follow the profile's inputs.
     mscharged::platform::NativeNunchukObservation result{};
     result.acc_z = mscharged::platform::kNativeNunchukGravity;
     if (!focused) return result;
     const auto tilt = PadStick(pad, true);
-    const auto counts = mscharged::platform::NunchukStickCounts({tilt.x, -tilt.y});
+    const auto counts = pad.profile.octagon_stick ? mscharged::platform::OctagonNunchukStickCounts({tilt.x, -tilt.y})
+                                                  : mscharged::platform::NunchukStickCounts({tilt.x, -tilt.y});
     result.stick_x = counts[0];
     result.stick_y = counts[1];
     result.z = PadHeld(pad, mscharged::GamepadActionZ);

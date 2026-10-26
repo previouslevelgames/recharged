@@ -203,6 +203,9 @@ show_hud = true
 # the inner one and are pushed all the way from the outer one on; the defaults,
 # 15 and 71, play like a Nunchuk on the Wii. trigger_press (10-90 %, default
 # 50): a trigger presses its button past this much of its travel.
+# octagon_stick = true: the Nunchuk stick plays like a real one, with its
+# octagonal gate and the game's own dead zone on each axis; the two dead zones
+# then shape the pointer stick only.
 # gyro_pointer = true: a controller with a gyro points by turning it instead of
 # with the stick; gyro_speed (25-300 %, default 100: about 25 degrees across
 # the picture). recenter_pointer: the input that centres the gyro pointer.
@@ -231,6 +234,7 @@ show_hud = true
 # inner_deadzone = 15
 # outer_deadzone = 71
 # trigger_press = 50
+# octagon_stick = false
 # gyro_pointer = false
 # gyro_speed = 100
 # controller = xbox

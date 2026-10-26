@@ -267,6 +267,12 @@ A and B. A gamepad profile also sets, for both sticks:
 - **Trigger press point** (`trigger_press`, 10-90 %, default 50): a trigger
   bound to a button presses it past this much of its travel.
 
+**Real Nunchuk stick** (`octagon_stick`, off by default) makes the Nunchuk
+stick play like a real one. The controller's round travel is stretched onto
+the Nunchuk's octagonal gate, and the game applies its own dead zone of 15
+counts on each axis, so a nearly straight push reads straight. The two dead
+zones then shape the pointer stick only.
+
 **Sticks as buttons**: pushing a stick one way past half its travel can press
 any action, like a button (`rightstick_up`, `leftstick_left` and so on in the
 INI). To bind one, select the action and push the stick. With the gyro

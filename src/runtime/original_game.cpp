@@ -736,7 +736,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             desktop.gamepad_profiles[pad] = {mscharged::platform::ParseGamepadBindings(profile.inputs),
                                              profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0,
                                              profile.inner_deadzone, profile.outer_deadzone, profile.trigger_press,
-                                             profile.gyro_pointer, profile.gyro_speed};
+                                             profile.octagon_stick, profile.gyro_pointer, profile.gyro_speed};
         }
         mscharged::platform::WpadSDLSettings wpad{static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),
             static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
@@ -763,6 +763,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const std::size_t pad = std::size_t(device.back() - '1');
                 const auto& profile = s.PadProfileOf(pad);
                 mscharged::platform::SessionLogLine("Gamepad " + std::to_string(pad + 1) + ": profile " + profile.name
+                    + (profile.octagon_stick ? ", octagonal Nunchuk stick" : "")
                     + ", stick dead zones " + std::to_string(profile.inner_deadzone) + "-"
                     + std::to_string(profile.outer_deadzone) + "%, trigger press point "
                     + std::to_string(profile.trigger_press) + "%, pointer "

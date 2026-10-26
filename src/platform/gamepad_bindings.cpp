@@ -228,4 +228,23 @@ std::array<std::int8_t, 2> NunchukStickCounts(StickTilt tilt) {
     };
     return {counts(tilt.x), counts(tilt.y)};
 }
+
+std::array<std::int8_t, 2> OctagonNunchukStickCounts(StickTilt tilt) {
+    const float length = std::hypot(tilt.x, tilt.y);
+    if (!(length > 0)) return {0, 0};
+    // The gate is nearest the centre halfway between two of its corners,
+    // 22.5 degrees off the eight directions.
+    constexpr float eighth = 0.785398163f;
+    const float off = std::fmod(std::atan2(std::abs(tilt.y), std::abs(tilt.x)), eighth) - eighth / 2;
+    const float scale = std::min(length, 1.0f) * kNunchukGateCounts * std::cos(eighth / 2) / std::cos(off) / length;
+    return {std::int8_t(std::lround(tilt.x * scale)), std::int8_t(std::lround(tilt.y * scale))};
+}
+
+float NunchukStickPushed(std::array<std::int8_t, 2> counts) {
+    const auto axis = [](int value) {
+        return std::abs(value) < kNunchukStickDeadCounts ? 0 : value > 0 ? value - kNunchukStickDeadCounts
+                                                                         : value + kNunchukStickDeadCounts;
+    };
+    return std::min(1.0f, std::hypot(float(axis(counts[0])), float(axis(counts[1]))) / kNunchukStickReachCounts);
+}
 } // namespace mscharged::platform
