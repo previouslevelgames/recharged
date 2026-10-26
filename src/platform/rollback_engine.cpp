@@ -12,9 +12,10 @@
 // to RECHARGED_ROLLBACK_TEST_FRAMES steps (default 8, in turn) and runs them
 // again with the inputs they first had (tweak patch 0029). It goes back at
 // the start of the next frame, before any task sets up its cameras and views,
-// and replays through the end of the last step's frame, frames without steps
-// as one with the next and the frames' presentation once for all of them
-// (RECHARGED_ROLLBACK_TEST_MERGE=0: one by one). The
+// and replays through the end of the last step's frame, one frame at a time
+// (RECHARGED_ROLLBACK_TEST_MERGE=1: frames without steps as one with the next
+// and the frames' presentation once for all of them, off as the camera
+// stutters after rollbacks in network matches). The
 // game's checksum after each replayed step must be the one the step first
 // gave; in a network match the machines also compare their checksums as the
 // original game does.
@@ -505,7 +506,8 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     // with the next frame. Their presentation, the tasks after the fixed
     // update, goes once for all of them, the target's frame's rest included:
     // it only follows the match. Both up to the task manager's longest frame,
-    // and every frame alone without RECHARGED_ROLLBACK_TEST_MERGE. The frame
+    // and only with RECHARGED_ROLLBACK_TEST_MERGE=1: every frame alone by
+    // default, as the camera stutters after rollbacks with them merged. The frame
     // rate option's state is put back for each frame's start, and after the
     // target's start for the first.
     MschargedTweakFrameState now{};
@@ -652,7 +654,7 @@ struct Install
         state->options.maxDepth = EnvInt("RECHARGED_ROLLBACK_TEST_FRAMES", kMaxDepth, 1, kMaxDepth);
         state->options.interval = EnvInt("RECHARGED_ROLLBACK_TEST_INTERVAL", 1, 1, 1 << 20);
         state->options.compareEvery = EnvInt("RECHARGED_ROLLBACK_TEST_COMPARE", 0, 0, 1 << 20);
-        state->options.merge = EnvInt("RECHARGED_ROLLBACK_TEST_MERGE", 1, 0, 1) != 0;
+        state->options.merge = EnvInt("RECHARGED_ROLLBACK_TEST_MERGE", 0, 0, 1) != 0;
         state->options.netplay = netplay;
         if (EnvInt("RECHARGED_ROLLBACK_AUDIO_AUDIT", 0, 0, 1)) StartAudioAudit();
         state->options.inputDelay = kStartingDelay;
