@@ -175,12 +175,12 @@ void Callout(const std::string& text, const ImVec4& tint, Icon icon)
     ImGui::Dummy({width, height});
 }
 
-enum Page { PagePlay, PageGame, PageMiis, PageTeams, PageMatches, PageDisplay, PageAudio, PageControls, PageGameplay,
+enum Page { PagePlay, PageGame, PageMiis, PageSidekicks, PageRules, PageDisplay, PageAudio, PageControls, PageGameplay,
             PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play", "Game", "Miis", "Teams", "Matches", "Display", "Audio", "Controls", "Gameplay",
-                                      "Advanced", "About"};
-constexpr const char* page_ids[] = {"play", "game", "miis", "teams", "matches", "display", "audio", "controls", "gameplay",
-                                    "advanced", "about"};
+constexpr const char* page_names[] = {"Play", "Game", "Miis", "Sidekicks", "Match rules", "Display", "Audio",
+                                      "Controls", "Gameplay", "Advanced", "About"};
+constexpr const char* page_ids[] = {"play", "game", "miis", "sidekicks", "rules", "display", "audio", "controls",
+                                    "gameplay", "advanced", "about"};
 constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Pitch, Icon::Trophy, Icon::Display, Icon::Audio,
                                Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
@@ -435,7 +435,8 @@ public:
         if (library_progress_) library_progress_->cancel = true;
         for (auto& [id, texture] : banners_)
             if (texture) SDL_DestroyTexture(texture);
-        if (header_) SDL_DestroyTexture(header_);
+        if (header_back_) SDL_DestroyTexture(header_back_);
+        if (header_front_) SDL_DestroyTexture(header_front_);
         for (const auto& level : logo_) SDL_DestroyTexture(level.texture);
         if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
         if (renderer_) SDL_DestroyRenderer(renderer_);
@@ -479,14 +480,19 @@ public:
         ApplyWindowMetrics(true);
 
         const auto resources = base_ / "assets/launcher";
-        auto surface = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
-            SDL_LoadPNG(PathUtf8(resources / "header.png").c_str()), SDL_DestroySurface);
-        Require(surface != nullptr, "Cannot load launcher header; rebuild to restore resources");
-        header_width_ = float(surface->w);
-        header_height_ = float(surface->h);
-        header_ = SDL_CreateTextureFromSurface(renderer_, surface.get());
-        Require(header_ != nullptr, "Cannot create header texture");
-        SDL_SetTextureScaleMode(header_, SDL_SCALEMODE_LINEAR);
+        // The header's two layers, the same size: the scene, and Mario with the ball over it.
+        for (const auto& [texture, name] :
+             {std::pair{&header_back_, "header_back.png"}, std::pair{&header_front_, "header_front.png"}})
+        {
+            SurfacePtr surface(SDL_LoadPNG(PathUtf8(resources / name).c_str()), SDL_DestroySurface);
+            Require(surface != nullptr, "Cannot load launcher header; rebuild to restore resources");
+            header_width_ = float(surface->w);
+            header_height_ = float(surface->h);
+            *texture = SDL_CreateTextureFromSurface(renderer_, surface.get());
+            Require(*texture != nullptr, "Cannot create header texture");
+            SDL_SetTextureScaleMode(*texture, SDL_SCALEMODE_LINEAR);
+        }
+        SDL_SetTextureBlendMode(header_front_, SDL_BLENDMODE_BLEND);
         // The Recharged logo, with halved copies down to 128 pixels wide for small sizes.
         SurfacePtr level(SDL_LoadPNG(PathUtf8(resources / "logo.png").c_str()), SDL_DestroySurface);
         if (level) level.reset(SDL_ConvertSurface(level.get(), SDL_PIXELFORMAT_RGBA32));
@@ -681,21 +687,61 @@ private:
     {
         // The artwork is drawn through SDL (also avoiding large textured
         // triangles in the software renderer), cropped like CSS "cover";
-        // ImGui then paints its gradients and text over it.
-        if (!hero_visible_ || hero_.w <= 0 || hero_.h <= 0) return;
-        SDL_FRect source{0, 0, header_width_, header_height_};
-        const float target_ratio = hero_.w / hero_.h;
-        if (header_width_ / header_height_ > target_ratio)
+        // ImGui then paints its gradients and text over it. Each time the
+        // Play page opens, the artwork makes an entrance, the shot coming in:
+        // it fades in from the page colour while its two layers glide from
+        // the top right towards the bottom left and grow about Mario's face,
+        // Mario and the ball further than the scene, slowing down until
+        // Mario rests in that crop. He starts smaller, so his layer starts
+        // shifted up and right at least as far as keeps its top and right
+        // edges, where the art cuts his raised hand and his fist, beyond the
+        // window's (its other edges are transparent). The scene, which must
+        // cover every edge, grows from a little closer than the crop instead.
+        if (!hero_visible_ || hero_.w <= 0 || hero_.h <= 0)
         {
-            source.w = header_height_ * target_ratio;
-            source.x = (header_width_ - source.w) * 0.5f;
+            hero_shown_ = false;
+            return;
         }
-        else
+        constexpr float glide_seconds = 8.125f, fade_seconds = 0.8f;
+        const float scale = std::max(hero_.w / header_width_, hero_.h / header_height_);
+        const float width = header_width_ * scale, height = header_height_ * scale;
+        const SDL_FRect art{hero_.x + (hero_.w - width) * 0.5f, hero_.y + (hero_.h - height) * 0.40f, width, height};
+        // The entrance's own clock: a slow frame (the first ones upload the
+        // fonts) holds it back rather than skipping part of it.
+        if (capture_) hero_time_ = glide_seconds;
+        else if (!hero_shown_) hero_time_ = 0;
+        else hero_time_ += std::min(ImGui::GetIO().DeltaTime, 1.0f / 30);
+        hero_shown_ = true;
+        // The part of the glide still to come, easing out (quintic) from 1 to 0.
+        const float rest = 1 - std::min(hero_time_ / glide_seconds, 1.0f);
+        const float remaining = rest * rest * rest * rest * rest;
+        // Mario's face, 76 % across and 37 % down the artwork.
+        const float cx = art.x + art.w * 0.76f, cy = art.y + art.h * 0.37f;
+        // A layer grown by `grow` about the face and shifted `dx` right (and 0.6 dx up).
+        const auto layer = [&](SDL_Texture* texture, float grow, float dx) {
+            const SDL_FRect target{cx + (art.x - cx) * grow + dx, cy + (art.y - cy) * grow - dx * 0.6f,
+                                   art.w * grow, art.h * grow};
+            SDL_RenderTexture(renderer_, texture, nullptr, &target);
+        };
+        constexpr float front_zoom = 0.08f;
+        const float lift = std::max({0.025f * hero_.w, front_zoom * (art.x + art.w - cx),
+                                     front_zoom * (cy - art.y) / 0.6f});
+        const SDL_Rect clip{int(std::floor(hero_.x)), int(std::floor(hero_.y)), int(std::ceil(hero_.w)),
+                            int(std::ceil(hero_.h))};
+        SDL_SetRenderClipRect(renderer_, &clip);
+        layer(header_back_, 1.025f + 0.04f * (1 - remaining), 0.010f * hero_.w * remaining);
+        layer(header_front_, 1 - front_zoom * remaining, lift * remaining);
+        // The fade: the page colour over the whole picture, not each layer
+        // faded on its own, which would show the scene through Mario.
+        const float shown = std::min(hero_time_ / fade_seconds, 1.0f);
+        if (shown < 1)
         {
-            source.h = header_width_ / target_ratio;
-            source.y = (header_height_ - source.h) * 0.40f;
+            SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColorFloat(renderer_, color::window.x, color::window.y, color::window.z,
+                                        1 - shown * shown * (3 - 2 * shown));
+            SDL_RenderFillRect(renderer_, &hero_);
         }
-        SDL_RenderTexture(renderer_, header_, &source, &hero_);
+        SDL_SetRenderClipRect(renderer_, nullptr);
     }
 
     // The logo with its top left corner at `pos`, `height` tall; returns its width.
@@ -2612,23 +2658,22 @@ private:
         DrawLabel(draw, fonts.caption, {pad, y}, Col(color::dim), "Mario Strikers Charged");
         y += FontSize(fonts.caption) + Dp(28);
 
-        // Miis, Teams and Matches are the Online play group: its row opens the
-        // last of them shown, and it shows their rows while one of them is open.
-        const auto online = [](int page) { return page == PageMiis || page == PageTeams || page == PageMatches; };
-        if (online(page_)) online_page_ = page_;
+        // Miis, Sidekicks and Match rules are the Online/Match setup group: its
+        // row opens the last of them shown, and it shows their rows while one
+        // of them is open.
+        const auto setup = [](int page) { return page == PageMiis || page == PageSidekicks || page == PageRules; };
+        if (setup(page_)) setup_page_ = page_;
         ImGui::SetCursorPos({Dp(12), y});
         for (int i = 0; i < PageCount; ++i)
         {
             ImGui::SetCursorPosX(Dp(12));
-            if (online(i))
+            if (setup(i))
             {
                 if (i != PageMiis) continue;
-                const int clicked = NavGroup("Online play", Icon::Globe, online(page_),
-                                             {{page_names[PageMiis], page_icons[PageMiis], page_ == PageMiis},
-                                              {page_names[PageTeams], page_icons[PageTeams], page_ == PageTeams},
-                                              {page_names[PageMatches], page_icons[PageMatches], page_ == PageMatches}},
-                                             width - Dp(24));
-                if (clicked == 0) page_ = online_page_;
+                const auto row = [&](int page) { return NavPage{page_names[page], page_icons[page], page_ == page}; };
+                const int clicked = NavGroup("Online/Match setup", Icon::Clipboard, setup(page_),
+                                             {row(PageMiis), row(PageSidekicks), row(PageRules)}, width - Dp(24));
+                if (clicked == 0) page_ = setup_page_;
                 if (clicked > 0) page_ = PageMiis + clicked - 1;
             }
             else if (NavItem(page_names[i], page_icons[i], page_ == i, width - Dp(24))) page_ = i;
@@ -2705,8 +2750,8 @@ private:
             {
             case PageGame: GamePage(); break;
             case PageMiis: MiiPage(); break;
-            case PageTeams: TeamsPage(); break;
-            case PageMatches: MatchesPage(); break;
+            case PageSidekicks: SidekicksPage(); break;
+            case PageRules: MatchRulesPage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
@@ -3064,7 +3109,8 @@ private:
     // A summary card's icon takes the accent, or amber or red for a problem.
     struct Summary { std::string value; std::string detail; ImVec4 tint; };
 
-    // The pinned image: its region and revision first.
+    // The pinned image: its region and revision first, in the status colours
+    // (green when it is ready to play).
     Summary DiscSummary() const
     {
         if (searching_) return {"Looking...", "Searching for your game image", color::accent};
@@ -3081,7 +3127,7 @@ private:
         {
             const auto& info = *check_.info;
             return {RegionRevision(info), info.game_id + "  \xC2\xB7  " + info.format + "  \xC2\xB7  " + name,
-                    SupportedRelease(info) ? color::accent : color::warning};
+                    SupportedRelease(info) ? color::success : color::warning};
         }
         if (!check_.error.empty()) return {"Image problem", check_.error, color::danger};
         return {name, "Not checked yet", color::accent};
@@ -3563,10 +3609,10 @@ private:
     // The sidekicks each captain starts with, in the game save of the save
     // folder in use: the game's sidekick screen shows them, and what is
     // chosen there comes back here.
-    void TeamsPage()
+    void SidekicksPage()
     {
-        PageHeader("Teams", "The sidekicks each captain starts with. The game's sidekick screen shows them, and what you "
-                            "choose there shows here: both live in your game save.");
+        PageHeader("Sidekicks", "The sidekicks each captain starts with. The game's sidekick screen shows them, and "
+                                "what you choose there shows here: both live in your game save.");
         using mscharged::platform::GameSaveState;
         const auto& save = InstalledLineups();
         GameSaveCallout(save.state, save.error, "its lineups");
@@ -3872,10 +3918,10 @@ private:
     // Match presets: named match settings and cheats, each in a file of the
     // presets folder, written into the game save for matches on this computer
     // or online with friends. Default and Competitive are built in.
-    void MatchesPage()
+    void MatchRulesPage()
     {
-        PageHeader("Matches", "Presets of the match settings and cheats: choose one for your matches on this computer, "
-                              "or online with friends. Ranked matches keep their own rules.");
+        PageHeader("Match rules", "Presets of the match settings and cheats: choose one for your matches on this "
+                                  "computer, or online with friends. Ranked matches keep their own rules.");
         using mscharged::platform::GameSaveState;
         using mscharged::platform::MatchMode;
         const auto& save = InstalledMatch();
@@ -8392,7 +8438,8 @@ private:
     std::optional<ResolvedLaunch> frontend_launch_;
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
-    SDL_Texture* header_ = nullptr;
+    SDL_Texture* header_back_ = nullptr;
+    SDL_Texture* header_front_ = nullptr;
     // The Recharged logo, largest copy first, each half the one before.
     struct LogoLevel
     {
@@ -8449,6 +8496,8 @@ private:
     float header_height_ = 620;
     SDL_FRect hero_{};
     bool hero_visible_ = false;
+    float hero_time_ = 0; // seconds into the header's entrance
+    bool hero_shown_ = false; // drawn in the frame before
     bool window_ui_ready_ = false;
     bool renderer_ui_ready_ = false;
     ConfigFile file_;
@@ -8459,7 +8508,7 @@ private:
     NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
     int page_ = PagePlay;
-    int online_page_ = PageMiis; // the Online play page its row opens
+    int setup_page_ = PageMiis; // the Online/Match setup page its row opens
     bool close_requested_ = false;
     bool pending_ = false;
     bool region_prompt_ = false;

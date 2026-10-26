@@ -1,4 +1,4 @@
-// Match presets (the launcher's Matches page): the built-in ones, the file
+// Match presets (the launcher's Match rules page): the built-in ones, the file
 // format, and the files of the presets folder.
 #include "launcher/match_presets.h"
 

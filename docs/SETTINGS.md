@@ -344,7 +344,7 @@ user folder or that save folder. The current save is first copied to
 `backups/` in the save folder. Dolphin's encrypted `data.bin` exports are not
 supported.
 
-**Teams** changes the lineups the game keeps in `Strikers2`: the three
+**Sidekicks** changes the lineups the game keeps in `Strikers2`: the three
 sidekicks each captain starts with, which the game's sidekick screen shows and
 replaces with what you choose there. The launcher writes them into the save
 with the checksum the game checks and changes nothing else, so the save stays
@@ -352,7 +352,7 @@ one the game, Dolphin and a Wii read. The first change of each launcher session
 copies the save to `backups/` in the save folder. Until the game has saved once
 there is no save, and so nothing to change.
 
-**Matches** writes a preset into the same save: the game keeps one set of
+**Match rules** writes a preset into the same save: the game keeps one set of
 match settings and cheats for matches on the console and one for online
 matches with friends, and the preset replaces the one you choose (the backup
 is the same). Every cheat can be chosen, whether the save has unlocked it or

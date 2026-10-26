@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
-"""Make the launcher's logo and header images in assets/launcher/ from their originals.
+"""Make the launcher's logo and header layers from their originals.
 
-    launcher_art.py logo ORIGINAL.png      # logo.png: the Recharged logo, trimmed, 1280 pixels wide
-    launcher_art.py header MSC_Scene.jpg   # header.png: Mario from the game's key art, 1920 x 1067
+    launcher_art.py logo ORIGINAL.png             # assets/launcher/logo.png: the Recharged logo, 1280 wide
+    launcher_art.py header MSC_Scene.jpg FOLDER   # FOLDER/header_back.png, header_front.png: 1920 x 1067
 
 The header is the lower part of the key art (3500 x 4700): Mario's volley with
 Boo and a Bob-omb, the art extended to the left (that side lies under the
 launcher's logo) so that Mario stands to the right. The fire and the golden ball
 turn the logo's electric blue (hot yellow to icy cyan, orange to sky blue, red
 to deep blue) and the grass blue; Mario's face and reds and Boo's tongue keep
-their colours, and the scene darkens towards night blue around Mario. Needs
-Pillow and numpy. assets/launcher/README.md lists the originals.
+their colours, and the scene darkens towards night blue around Mario.
+
+The launcher moves the header's two layers against each other: the
+front one is Mario and the ball he kicks, cut out with Meta's SAM 2.1 model
+from boxes and points on his parts; the back one is the rest of the scene, the
+place behind them filled from its surroundings (OpenCV's inpainting). The
+back layer in assets/launcher/ was redone afterwards, so the layers go to a
+folder of their own. Needs Pillow and numpy; the header also OpenCV, PyTorch,
+torchvision and transformers (the model, facebook/sam2.1-hiera-large, comes
+from Hugging Face at first use). assets/launcher/README.md lists the originals.
 """
 
 import sys
@@ -21,6 +29,24 @@ from PIL import Image
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets/launcher"
 LOGO_WIDTH = 1280
+HEADER_WIDTH = 1920
+
+# Mario's parts and the ball for SAM, in the key art's pixels: a box around each
+# and points on it (1) or on things beside it that are not him (0: Boo, the
+# Bob-omb, the Koopa below the fist, the grass). One prompt for all of Mario
+# leaves holes in his streaked thigh and swinging arm; part by part he is whole.
+MARIO_PARTS = (
+    ((2380, 2145, 2890, 2805), ((2722, 2207, 1), (2600, 2345, 1), (2620, 2705, 1))),  # raised arm
+    ((2020, 2375, 2830, 3185), ((2400, 2860, 1), (2291, 2557, 1), (1509, 2476, 0))),  # head
+    ((1880, 2885, 2930, 3565), ((2345, 3204, 1), (2722, 3015, 1), (2500, 3395, 1))),  # body
+    ((1220, 2945, 2140, 3625), ((1509, 3177, 1), (1833, 3231, 1), (1348, 3123, 1))),  # kicking leg
+    ((1600, 2995, 2160, 3605), ((1750, 3395, 1), (2000, 3145, 1), (1950, 3465, 1), (1700, 3845, 0))),  # thigh
+    ((2590, 3205, 3235, 3895), ((2938, 3528, 1), (3150, 3495, 1), (3100, 2908, 0))),  # fist
+    ((2650, 3050, 3235, 3380), ((2873, 3196, 1), (2999, 3159, 1), (3100, 2908, 0))),  # the fist's arm
+    ((1750, 3195, 2650, 3905), ((2300, 3495, 1), (2450, 3345, 1), (2000, 3695, 1), (2372, 3932, 0))),  # lower arm
+    ((1790, 3395, 2250, 3895), ((1860, 3541, 1), (2372, 3932, 0))),  # lower glove
+    ((380, 2785, 1380, 4005), ((889, 3393, 1),)),  # the ball
+)
 
 
 def make_logo(source):
@@ -54,7 +80,7 @@ def to_rgb(hue, saturation, value):
     return rgb + (value - c)[..., None]
 
 
-def make_header(source):
+def make_header(source, folder):
     image = Image.open(source).convert("RGB")
     if image.size != (3500, 4700):
         raise SystemExit(f"{source}: expected the 3500 x 4700 key art, found {image.width} x {image.height}")
@@ -94,19 +120,101 @@ def make_header(source):
     # Mario in the light: the rest darkens towards the launcher's night blue.
     keep = 1 - 0.62 * smooth(0.45, 1.25, np.sqrt(((xs - 2450) / 1400) ** 2 + ((ys - 2950) / 1050) ** 2))
     out = out * keep[..., None] + np.array([0.027, 0.047, 0.098]) * (1 - keep)[..., None]
-    header = Image.fromarray((np.clip(out, 0, 1) * 255 + 0.5).astype(np.uint8))
-    header = header.resize((1920, round(1920 * height / width)), Image.LANCZOS)
-    header.save(ASSETS / "header.png", optimize=True)
-    return header.width, header.height
+    size = (HEADER_WIDTH, round(HEADER_WIDTH * height / width))
+    scene = Image.fromarray((np.clip(out, 0, 1) * 255 + 0.5).astype(np.uint8)).resize(size, Image.LANCZOS)
+    mario = np.zeros((height, width), np.uint8)
+    mario[:, -left:] = find_mario(image, (0, top, right, bottom))
+    mario = grow_into_outline(mario, value, 28)
+    # Averaged down, the cut-out's edge is smooth.
+    alpha = Image.fromarray(mario * 255).resize(size, Image.BOX)
+    save_layers(np.asarray(scene), np.asarray(alpha), folder)
+    return size
+
+
+def find_mario(art, region):
+    """Where Mario and the ball are in `region` of the key art: 1 there, 0 elsewhere."""
+    import cv2
+    import torch
+    from transformers import Sam2Model, Sam2Processor
+
+    name = "facebook/sam2.1-hiera-large"
+    model = Sam2Model.from_pretrained(name).eval()
+    processor = Sam2Processor.from_pretrained(name)
+    left, top, right, bottom = region
+    image = art.crop(region)
+    found = np.zeros((bottom - top, right - left), bool)
+    with torch.no_grad():
+        embeddings = model.get_image_embeddings(processor(images=image, return_tensors="pt")["pixel_values"])
+        for box, points in MARIO_PARTS:
+            inputs = processor(images=image, return_tensors="pt",
+                               input_boxes=[[[box[0] - left, box[1] - top, box[2] - left, box[3] - top]]],
+                               input_points=[[[[x - left, y - top] for x, y, _ in points]]],
+                               input_labels=[[[label for _, _, label in points]]])
+            result = model(image_embeddings=embeddings, input_points=inputs["input_points"],
+                           input_labels=inputs["input_labels"], input_boxes=inputs["input_boxes"],
+                           multimask_output=False)
+            logits = processor.post_process_masks(result.pred_masks, inputs["original_sizes"], binarize=False)
+            found |= logits[0][0, 0].numpy() > 0
+    mask = found.astype(np.uint8)
+    # Close the gaps between the parts' outlines, then drop specks of background.
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(1 - mask, connectivity=4)
+    for i in range(1, count):
+        x, y, w, h, area = stats[i]
+        if area < 30000 and x > 0 and y > 0 and x + w < mask.shape[1] and y + h < mask.shape[0]:
+            mask[labels == i] = 1
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    keep = stats[:, cv2.CC_STAT_AREA] >= 4000
+    keep[0] = False  # the background
+    return keep[labels].astype(np.uint8)
+
+
+def grow_into_outline(mask, value, reach):
+    """The mask grown by up to `reach` pixels into the bright outline drawn around Mario.
+
+    SAM cuts along his body; the white and cyan strokes around him belong to
+    him too, and left in the back they would smear into its fill beside him.
+    """
+    import cv2
+
+    bright = (value > 0.5).astype(np.uint8)
+    step = np.ones((3, 3), np.uint8)
+    grown = mask.copy()
+    for _ in range(reach):
+        grown = np.maximum(grown, cv2.dilate(grown, step) & bright)
+    return grown
+
+
+def save_layers(scene, alpha, folder):
+    """header_back.png without Mario, header_front.png with only him."""
+    import cv2
+
+    shape = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * 4 + 1, 2 * 4 + 1))
+    # The back: where Mario was (and the pixels his edge tints), the scene around
+    # him flows in. The launcher shows it only beside him, as far as the layers move.
+    covered = cv2.dilate((alpha > 0).astype(np.uint8), shape)
+    back = cv2.inpaint(np.ascontiguousarray(scene[..., ::-1]), covered, 9, cv2.INPAINT_TELEA)[..., ::-1]
+    Image.fromarray(back).save(folder / "header_back.png", optimize=True)
+    # The front keeps the scene's colours a little beyond its edge, so that the
+    # launcher's filtering blends none of the transparent black into it.
+    near = cv2.dilate((alpha > 0).astype(np.uint8), shape)[..., None]
+    front = np.dstack((scene * near, alpha))
+    Image.fromarray(front.astype(np.uint8), "RGBA").save(folder / "header_front.png", optimize=True)
 
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] not in ("logo", "header"):
+    if not ((len(sys.argv) == 3 and sys.argv[1] == "logo") or (len(sys.argv) == 4 and sys.argv[1] == "header")):
         print(__doc__.strip(), file=sys.stderr)
         return 2
-    make = make_logo if sys.argv[1] == "logo" else make_header
-    width, height = make(Path(sys.argv[2]))
-    print(f"{ASSETS / (sys.argv[1] + '.png')}: {width} x {height}")
+    if sys.argv[1] == "logo":
+        width, height = make_logo(Path(sys.argv[2]))
+        names = (ASSETS / "logo.png",)
+    else:
+        folder = Path(sys.argv[3])
+        folder.mkdir(parents=True, exist_ok=True)
+        width, height = make_header(Path(sys.argv[2]), folder)
+        names = (folder / "header_back.png", folder / "header_front.png")
+    for name in names:
+        print(f"{name}: {width} x {height}")
     return 0
 
 

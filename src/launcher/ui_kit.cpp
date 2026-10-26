@@ -541,11 +541,12 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(0.08f, -0.40f), p(-0.08f, 0.40f), color, t * 1.3f);
         break;
     }
-    case Icon::Globe:
-        // A globe: its outline, a meridian and the equator.
-        draw->AddCircle(c, 0.44f * s, color, 0, t);
-        draw->AddEllipse(c, ImVec2{0.19f * s, 0.44f * s}, color, 0.0f, 0, t);
-        draw->AddLine(p(-0.44f, 0.0f), p(0.44f, 0.0f), color, t);
+    case Icon::Clipboard:
+        // A coach's clipboard: the board, its clip and two lines of notes.
+        draw->AddRect(p(-0.32f, -0.34f), p(0.32f, 0.46f), color, s * 0.08f, 0, t);
+        draw->AddRectFilled(p(-0.15f, -0.46f), p(0.15f, -0.24f), color, s * 0.05f);
+        draw->AddLine(p(-0.15f, -0.02f), p(0.15f, -0.02f), color, t);
+        draw->AddLine(p(-0.15f, 0.20f), p(0.07f, 0.20f), color, t);
         break;
     case Icon::Up:
     case Icon::Down:

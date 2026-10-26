@@ -2,13 +2,22 @@
 
 ## Header
 
-`header.png` is made from the key art of Mario Strikers Charged, the picture on
-its Japanese and European covers (`MSC_Scene.jpg`, 3500 x 4700), by
-`tools/launcher_art.py header MSC_Scene.jpg`: its lower part, Mario's volley with
-Boo and a Bob-omb, extended to the left so that Mario stands right of the
-launcher's logo. The fire and the golden ball turn the logo's electric blue and
-the grass blue, while Mario keeps his colours, and the scene darkens towards
-night blue around him (1920 x 1067). Preserve its aspect ratio when displaying it.
+`header_back.png` (1683 x 935) and `header_front.png` (1920 x 1067) are made
+from the key art of Mario Strikers Charged, the picture on its Japanese and European covers
+(`MSC_Scene.jpg`, 3500 x 4700): its lower part, Mario's volley with Boo and a
+Bob-omb, extended to the left so that Mario stands right of the launcher's
+logo. The fire and the golden ball turn the logo's electric blue and the grass
+blue, while Mario keeps his colours, and the scene darkens towards night blue
+around him. Preserve their aspect ratio when displaying them.
+
+The picture is in two layers that the launcher moves against each other when
+its Play page opens. `header_front.png` is Mario and the ball he kicks, cut out
+with Meta's SAM 2.1 segmentation model and transparent elsewhere;
+`header_back.png` is the rest of the scene, painted over where they were.
+`tools/launcher_art.py header MSC_Scene.jpg FOLDER` recolours the key art and
+writes both layers to FOLDER: the front as here, the back as a draft whose
+place behind Mario is filled by OpenCV's inpainting (the back here was redone
+from the scene afterwards).
 
 - Source: [File:MSC_Scene.jpg](https://www.mariowiki.com/File:MSC_Scene.jpg) on the Super Mario Wiki.
 - Image: [original JPEG](https://www.mariowiki.com/images/2/29/MSC_Scene.jpg).
@@ -21,8 +30,8 @@ rights remain with the respective owners. (Until 2026-10-25 the header was
 [SteamGridDB hero 8926](https://www.steamgriddb.com/hero/8926) by Jiquita, a
 crop of the same key art.)
 
-CMake copies the image into `assets/launcher/header.png` beside the `recharged`
-executable. The launcher preserves its proportions and crops it to fit the
+CMake copies the images into `assets/launcher/` beside the `recharged`
+executable. The launcher preserves their proportions and crops them to fit the
 available header space.
 
 ## Logo
