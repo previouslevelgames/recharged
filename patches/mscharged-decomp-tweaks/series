@@ -38,3 +38,4 @@
 0039-rollback-network-debug.patch
 0040-rollback-audio-transitions.patch
 0041-rollback-determ-data-once-per-step.patch
+0042-rollback-replay-draws-nothing.patch
