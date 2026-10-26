@@ -301,9 +301,10 @@ struct Stats
     std::uint64_t mismatches, nisInReplay, lossyFrees, failedRestores, untracked;
     unsigned firstMismatchFrame;
     std::uint64_t rollbackNs, maxRollbackNs, restoreNs, maxRestoreNs;
-    // Where the replays' time goes: each task's, and in the fixed update's the
-    // steps' and the saves'.
-    std::uint64_t taskNs[kMaxTasks], stepNs, saveNs;
+    // Where the replays' time goes: each task's, and in the fixed update's its
+    // work before the steps (the time scale's transition), the steps' (their
+    // checksums' part apart too) and the saves'.
+    std::uint64_t taskNs[kMaxTasks], beforeStepsNs, stepNs, checksumNs, saveNs;
     std::uint64_t replayFaults, replaySavedPages, replayHotPages; // of the replayed steps and their saves
     std::uint64_t markNs; // of the replayed saves, the allocation registry's part
     std::uint64_t savesSkipped;

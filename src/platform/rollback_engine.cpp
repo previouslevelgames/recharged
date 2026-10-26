@@ -330,6 +330,7 @@ void ReplayFrames(std::uint64_t first, std::uint64_t last, int firstTask, unsign
             if (firstTask == 0) // done before the first frame's target step
                 for (std::uint64_t f = first; f <= last; ++f)
                     if (Frame(f).dt[i] >= 0) RollbackReplayFixedFrame(Frame(f).dt[i]);
+            s.stats.beforeStepsNs += NowNs() - taskStart;
             // The steps as in their frame.
             if (record.dt[i] >= 0)
             {
@@ -345,8 +346,10 @@ void ReplayFrames(std::uint64_t first, std::uint64_t last, int firstTask, unsign
                 RollbackRedeliverMegaStrikeMeter(step.meter, step.meterCount);
                 s.stats.meterRedelivered += step.meterCount;
                 if (replay(&step.inputs) < 0) ++s.stats.nisInReplay;
+                const std::uint64_t checksumStart = NowNs();
                 const unsigned now = RecordedChecksum(checksum, next);
                 const std::uint64_t saveStart = NowNs();
+                s.stats.checksumNs += saveStart - checksumStart;
                 s.stats.stepNs += saveStart - stepStart;
                 if (s.options.netplay)
                 {

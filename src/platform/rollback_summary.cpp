@@ -96,10 +96,12 @@ void WriteSummary()
                 const char* name = s.tasks.list[i]->GetName();
                 std::fprintf(file, " %s %.0f", name ? name : "?", s.stats.taskNs[i] / 1e3 / frames);
             }
+        std::fprintf(file, "; the fixed update's work before its steps %.0f", s.stats.beforeStepsNs / 1e3 / frames);
         if (s.stats.replayed)
-            std::fprintf(file, "; us per step replayed: step %.0f, save %.0f (registry %.0f); "
-                               "per step replayed: faults %.0f, pages saved %.0f of %.0f hot",
-                         s.stats.stepNs / 1e3 / s.stats.replayed, s.stats.saveNs / 1e3 / s.stats.replayed,
+            std::fprintf(file, "; %.2f steps per frame replayed, us per step replayed: step %.0f (checksum %.0f), "
+                               "save %.0f (registry %.0f); per step replayed: faults %.0f, pages saved %.0f of %.0f hot",
+                         s.stats.replayed / frames, s.stats.stepNs / 1e3 / s.stats.replayed,
+                         s.stats.checksumNs / 1e3 / s.stats.replayed, s.stats.saveNs / 1e3 / s.stats.replayed,
                          s.stats.markNs / 1e3 / s.stats.replayed,
                          static_cast<double>(s.stats.replayFaults) / s.stats.replayed,
                          static_cast<double>(s.stats.replaySavedPages) / s.stats.replayed,
