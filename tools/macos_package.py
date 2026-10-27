@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 
 from package_build import (MACOS_APP, MACOS_APP_TICKET, PackageError, digest, package_readme,
@@ -69,6 +70,18 @@ def read_package(path):
         if record["sha256"] != digest(data) or record["bytes"] != len(data) or int(record["mode"], 8) != mode:
             raise PackageError(f"{path.name}: {name} differs from its manifest")
     return manifest, files
+
+
+def retried(*args, attempts=4):
+    """A step that asks Apple's servers (the ticket, Gatekeeper): their connection
+    sometimes drops, so it runs again after a pause before it fails."""
+    for attempt in range(1, attempts + 1):
+        if subprocess.run([str(arg) for arg in args], check=False).returncode == 0:
+            return
+        if attempt < attempts:
+            print(f"{args[0]} {args[1]} failed; trying again ({attempt}/{attempts - 1}).")
+            time.sleep(15 * attempt)
+    raise SystemExit(f"{' '.join(map(str, args[:2]))} failed {attempts} times")
 
 
 def lipo(slices, output):
@@ -141,7 +154,8 @@ def read_signature(root):
     inputs = json.loads((root.parent / INPUTS).read_text())
     seals = set()
     for item in [MACOS_APP, *inputs["arm64"]["modules"]]:
-        report = subprocess.run(["codesign", "-dvv", str(root / item)], capture_output=True, text=True, check=True).stderr
+        report = subprocess.run(["codesign", "-dvv", str(root / item)], capture_output=True, text=True,
+                                check=True).stderr
         authority = re.search(r"^Authority=(.+)$", report, re.MULTILINE)
         team = re.search(r"^TeamIdentifier=([A-Z0-9]+)$", report, re.MULTILINE)
         seals.add((authority[1] if authority else "ad hoc", team[1] if team else None))
@@ -243,9 +257,8 @@ def check(paths):
             for item in [MACOS_APP, *manifest["modules"]]:
                 subprocess.run(["codesign", "--verify", "--strict", "--verbose=2", str(root / item)], check=True)
             if seal.get("notarized"):
-                subprocess.run(["xcrun", "stapler", "validate", str(root / MACOS_APP)], check=True)
-                subprocess.run(["spctl", "--assess", "--type", "execute", "--verbose=2", str(root / MACOS_APP)],
-                               check=True)
+                retried("xcrun", "stapler", "validate", root / MACOS_APP)
+                retried("spctl", "--assess", "--type", "execute", "--verbose=2", root / MACOS_APP)
             for half in sorted(halves):
                 report = subprocess.run(["arch", "-" + half, str(root / PROGRAM), "--version"], capture_output=True,
                                         text=True, check=True).stdout

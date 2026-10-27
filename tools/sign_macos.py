@@ -25,7 +25,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from macos_package import MACHO_MAGIC
+from macos_package import MACHO_MAGIC, retried
 from package_build import MACOS_APP
 
 
@@ -35,6 +35,7 @@ def run(*args, **options):
 
 def output(*args):
     return subprocess.check_output([str(arg) for arg in args], text=True)
+
 
 
 class Keychain:
@@ -93,12 +94,12 @@ def notarize(item, folder):
     if result.get("status") != "Accepted":
         subprocess.run(["xcrun", "notarytool", "log", result.get("id", ""), *map(str, credentials)])
         raise SystemExit(f"Notarization {result.get('status')}: {result.get('message', '')}")
-    run("xcrun", "stapler", "staple", staple)
-    run("xcrun", "stapler", "validate", staple)
+    retried("xcrun", "stapler", "staple", staple)
+    retried("xcrun", "stapler", "validate", staple)
     if item.is_dir():
-        run("spctl", "--assess", "--type", "execute", "--verbose=2", staple)
+        retried("spctl", "--assess", "--type", "execute", "--verbose=2", staple)
     else:
-        run("spctl", "--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", staple)
+        retried("spctl", "--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", staple)
 
 
 def modules(folder):
