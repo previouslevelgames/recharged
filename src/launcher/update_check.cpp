@@ -13,6 +13,21 @@ namespace
 constexpr std::string_view kPlatforms[] = {"windows", "linux", "steamdeck", "macos"};
 // Releases before the rename to Recharged (#64) named their packages mscharged-.
 constexpr std::string_view kPackagePrefixes[] = {"recharged-", "mscharged-"};
+constexpr std::string_view kMacUniversal = "macos-universal";
+
+// The packages that can update an installed one, best first. A Mac takes the
+// universal package (it runs on both kinds of Mac), else its own architecture's:
+// releases before the universal package had only those.
+std::vector<std::string> PackageChoices(const std::string& package)
+{
+    if (package.rfind("macos-", 0) != 0) return {package};
+    if (package != kMacUniversal) return {std::string(kMacUniversal), package};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return {std::string(kMacUniversal), "macos-arm64"};
+#else
+    return {std::string(kMacUniversal), "macos-x86_64"};
+#endif
+}
 
 bool ParseNumber(std::string_view text, int& value)
 {
@@ -173,16 +188,17 @@ UpdateChannel ResolveChannel(const std::string& setting, const BuildIdentity& bu
 const PackageAsset* PublishedBuild::PackageFor(const std::string& package) const
 {
     if (package.empty()) return nullptr;
-    for (const auto& asset : assets)
-    {
-        std::string text;
-        if (!PackageVersion(asset.name, text)) continue;
-        for (const auto prefix : kPackagePrefixes)
+    for (const auto& choice : PackageChoices(package))
+        for (const auto& asset : assets)
         {
-            const std::string stem = std::string(prefix) + text + "-" + package;
-            if (asset.name == stem + ".zip" || asset.name == stem + ".tar.gz") return &asset;
+            std::string text;
+            if (!PackageVersion(asset.name, text)) continue;
+            for (const auto prefix : kPackagePrefixes)
+            {
+                const std::string stem = std::string(prefix) + text + "-" + choice;
+                if (asset.name == stem + ".zip" || asset.name == stem + ".tar.gz") return &asset;
+            }
         }
-    }
     return nullptr;
 }
 

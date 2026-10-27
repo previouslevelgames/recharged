@@ -28,36 +28,37 @@ Get the package for your system from the
 
 <table>
 <tr>
-<td align="center" width="20%">
+<td align="center" width="25%">
 <a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%2F%2011%20%C2%B7%20x64-0078D4?logo=windows&logoColor=white"></a><br>
 <code>windows-x86_64.zip</code>
 </td>
-<td align="center" width="20%">
+<td align="center" width="25%">
 <a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64%20%C2%B7%20Vulkan-FCC624?logo=linux&logoColor=black"></a><br>
 <code>linux-x86_64.tar.gz</code>
 </td>
-<td align="center" width="20%">
+<td align="center" width="25%">
 <a href="docs/STEAM_DECK.md"><img alt="Steam Deck" src="https://img.shields.io/badge/Steam%20Deck-SteamOS%203.7%2B-1A9FFF?logo=steam&logoColor=white"></a><br>
 <code>steamdeck-x86_64.tar.gz</code><br>
 <a href="docs/STEAM_DECK.md">Steam Deck guide</a>
 </td>
-<td align="center" width="20%">
-<a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-0A84FF?logo=apple&logoColor=white"></a><br>
-<code>macos-arm64.tar.gz</code>
-</td>
-<td align="center" width="20%">
-<a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="macOS Intel" src="https://img.shields.io/badge/macOS-Intel%20%C2%B7%2015%2B-0A84FF?logo=apple&logoColor=white"></a><br>
-<code>macos-x86_64.tar.gz</code>
+<td align="center" width="25%">
+<a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon%20%26%20Intel%20%C2%B7%2015%2B-0A84FF?logo=apple&logoColor=white"></a><br>
+<code>macos-universal.dmg</code>
 </td>
 </tr>
 </table>
 
-1. Unpack the package into a folder of its own.
-2. Start `recharged` (`recharged.exe` on Windows, `Recharged.app` on macOS).
+1. Unpack the package into a folder of its own. On a Mac, open the disk image,
+   drag the **Recharged** folder to **Applications** and eject the image.
+2. Start `recharged` (`recharged.exe` on Windows). On a Mac, start it the first
+   time in Finder from *Applications → Recharged → Recharged.app*, not from
+   the disk image; later Spotlight or the Dock start it too.
 3. In the launcher, add the folder with your game image (or choose the image)
    and press **Play**.
 
-The **[install guide](docs/INSTALL.md)** covers the first-start prompts of
+The Mac app runs natively on Apple Silicon and Intel and is signed and
+notarized by Apple: no detour through Privacy & Security. The
+**[install guide](docs/INSTALL.md)** covers the first-start prompts of
 Windows and macOS. Steam Deck owners should follow the
 **[Steam Deck guide](docs/STEAM_DECK.md)**, which also adds the game to the
 Steam library. Once installed, the launcher tells you about new versions and

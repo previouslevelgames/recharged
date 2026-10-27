@@ -4,8 +4,9 @@
 Usage: launcher_update_fixture.py TEST_BINARY OUTPUT_DIR
 
 Creates an installed 1.0.9 package with user files beside it, 1.0.10 packages
-(tar.gz with a top folder for Linux and the Steam Deck, zip with files at its
-root for Windows), and damaged or hostile archives; then runs the C++ checks.
+(tar.gz with a top folder for Linux, the Steam Deck and the universal Mac
+package, zip with files at its root for Windows), an installed arm64 Mac
+folder, and damaged or hostile archives; then runs the C++ checks.
 """
 
 import hashlib
@@ -42,22 +43,22 @@ USER_FILES = {
 }
 
 
-def manifest(version, platform, files):
+def manifest(version, platform, files, architecture="x86_64"):
     return json.dumps({
-        "format": 1, "version": version, "platform": platform, "architecture": "x86_64",
+        "format": 1, "version": version, "platform": platform, "architecture": architecture,
         "files": {path: {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data), "mode": oct(mode)}
                   for path, (data, mode) in files.items()},
     }, indent=2, sort_keys=True).encode() + b"\n"
 
 
-def stage(root, version, platform, files):
+def stage(root, version, platform, files, architecture="x86_64"):
     root.mkdir(parents=True)
     for path, (data, mode) in files.items():
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
         target.chmod(mode)
-    (root / "SOURCE-MANIFEST.json").write_bytes(manifest(version, platform, files))
+    (root / "SOURCE-MANIFEST.json").write_bytes(manifest(version, platform, files, architecture))
 
 
 def write_tar(archive, stage_dir, package_name):
@@ -114,6 +115,11 @@ def main():
     name = f"recharged-{NEW_VERSION}-windows-x86_64"
     stage(work / name, NEW_VERSION, "windows", NEW_FILES)
     write_zip(output / f"{name}.zip", work / name)
+    # An Apple Silicon Mac's folder, and the universal Mac package for it.
+    stage(output / "installed-macos", OLD_VERSION, "macos", OLD_FILES, "arm64")
+    name = f"recharged-{NEW_VERSION}-macos-universal"
+    stage(work / name, NEW_VERSION, "macos", NEW_FILES, "universal")
+    write_tar(output / f"{name}.tar.gz", work / name, name)
 
     top = "recharged-1.0.10+gbbbbbbbbbbbb-linux-x86_64"
     good_manifest = manifest(NEW_VERSION, "linux", {"recharged": (b"x\n", 0o755)})
