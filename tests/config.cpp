@@ -342,6 +342,22 @@ int main()
             bool rejected = false;
             try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
             Require(rejected, "An unknown Training stadium is rejected");
+            Require(Settings{}.training_away_captain == "bowser" && Settings{}.training_away_fielders == 0
+                    && Settings{}.training_away_goalie && Settings{}.training_skip_goals
+                    && Settings{}.training_away_skill == "rookie" && Settings{}.training_side == "home",
+                    "Training opponent defaults");
+            std::ofstream(path) << "[gameplay]\ntraining_away_captain = wario\ntraining_away_fielders = 2\n"
+                                   "training_away_goalie = false\ntraining_skip_goals = true\n"
+                                   "training_away_skill = megastriker\ntraining_side = away\n";
+            const auto opponent = LoadConfig(path).settings;
+            Require(opponent.training_away_captain == "wario" && opponent.training_away_fielders == 2
+                    && !opponent.training_away_goalie && opponent.training_skip_goals
+                    && opponent.training_away_skill == "megastriker" && opponent.training_side == "away",
+                    "The Training opponent settings load");
+            std::ofstream(path) << "[gameplay]\ntraining_away_fielders = 5\n";
+            rejected = false;
+            try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
+            Require(rejected, "Too many Training opponent fielders are rejected");
         }
         // The game folder (#65): game beside the settings file by default, in
         // quotes, with its subfolders; the first builds' [library] list moves to it.

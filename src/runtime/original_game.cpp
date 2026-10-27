@@ -832,6 +832,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 configureTraining(mscharged::TrainingIndex(mscharged::kTrainingItems,s.training_item)-1,
                     launch.start_training,mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_captain),
                     mscharged::TrainingIndex(mscharged::kTrainingStadiums,s.training_stadium));
+                if(auto* configureOpponent=reinterpret_cast<void(*)(int,int,bool,bool,int,bool)>(
+                       mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_opponent")))
+                    configureOpponent(mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_away_captain),
+                        s.training_away_fielders,s.training_away_goalie,s.training_skip_goals,
+                        mscharged::TrainingIndex(mscharged::kTrainingSkills,s.training_away_skill),
+                        s.training_side=="away");
                 if(launch.start_training)
                     mscharged::platform::SessionLogLine(("Start training: "+s.training_captain+" in "
                         +s.training_stadium).c_str());

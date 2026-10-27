@@ -265,6 +265,18 @@ struct Settings
     std::string training_item = "green_shell";
     std::string training_captain = "mario";
     std::string training_stadium = "tutorialfield";
+    // gameplay.training_away_captain, training_away_fielders, training_away_goalie,
+    // training_skip_goals (Training): the other team's captain (kTrainingCaptains),
+    // how many of its four fielders play, whether its goalie plays, and whether a
+    // goal goes straight to the kickoff.
+    std::string training_away_captain = "bowser";
+    int training_away_fielders = 0;
+    bool training_away_goalie = true;
+    bool training_skip_goals = true;
+    // gameplay.training_away_skill (kTrainingSkills): the other team's skill.
+    std::string training_away_skill = "rookie";
+    // gameplay.training_side: the team the player plays, home or away.
+    std::string training_side = "home";
     unsigned GameTweakMask() const
     {
         unsigned mask = 0;
