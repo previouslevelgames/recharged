@@ -92,9 +92,9 @@ inline constexpr std::array<GameTweakInfo, 14> kGameTweaks{{
      "bubbling lava, Storm Ship tilt, Thwomps or sand patches. The electric fences stay. Striker Challenges keep "
      "their rules; online matches are unchanged."},
     {GameTweak::MatchPoint, "match_point", "Match point",
-     "In a match to a number of goals, the kickoff after a team gets one goal from winning plays overtime's siren "
-     "and sudden death music in place of the stadium's, until the match ends. With both teams one goal from winning, the HUD "
-     "shows SUDDEN DEATH instead of First to. Only sound and HUD change. On by default.",
+     "In a match to a number of goals, the kickoff that finds both teams one goal from winning plays overtime's siren "
+     "and sudden death music in place of the stadium's, until the match ends, and the HUD shows SUDDEN DEATH instead "
+     "of First to. Only sound and HUD change. On by default.",
      true},
 }};
 
