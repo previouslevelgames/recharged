@@ -100,9 +100,10 @@ versions it runs; renaming a file does not change its version.
 - **1.1.x: online again** (coming soon). The game's own online play, with
   friend codes, invitations and rankings, through our own server and with
   rollback netcode.
-- **1.2.x: competitive play** (in development). Tournaments and leagues with a
-  Recharged player profile you sign in to with Discord, and
-  [start.gg](https://www.start.gg) running the tournaments.
+- **1.2.x: competitive play** (in development). Challenge a friend or play a
+  [start.gg](https://www.start.gg) tournament: you both press Ready and the
+  game starts straight into the captain draft, with the same rules for both
+  and results that report themselves. You sign in with Discord.
   [More about the plan](docs/COMPETITIVE.md).
 
 Plans can still change if we find better options.
