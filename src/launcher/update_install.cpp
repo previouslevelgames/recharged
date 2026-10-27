@@ -482,7 +482,9 @@ void ApplyReplacement(const fs::path& base, const fs::path& staged, const fs::pa
     const fs::path installed_manifest = Exists(base / kPackageManifest) ? base / kPackageManifest
                                                                          : backup / kPackageManifest;
     const auto installed = ReadPackageManifest(installed_manifest);
-    if (incoming.Package() != installed.Package())
+    // Mac packages hold the same files: the universal one replaces an
+    // architecture's (and a release from before it the universal one).
+    if (incoming.Package() != installed.Package() && !(incoming.platform == "macos" && installed.platform == "macos"))
         Fail("The download is the " + incoming.Package() + " package; this folder holds " + installed.Package());
     std::set<std::string> paths, fresh;
     for (const auto& file : installed.files) paths.insert(file.path);

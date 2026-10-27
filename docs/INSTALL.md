@@ -20,23 +20,32 @@ and download the package for your system:
 | Windows 10/11, 64-bit | `recharged-<version>-windows-x86_64.zip` |
 | Linux, x86_64 | `recharged-<version>-linux-x86_64.tar.gz` |
 | Steam Deck, SteamOS 3.7+ | `recharged-<version>-steamdeck-x86_64.tar.gz` |
-| macOS, Apple Silicon | `recharged-<version>-macos-arm64.tar.gz` |
-| macOS 15+, Intel | `recharged-<version>-macos-x86_64.tar.gz` |
+| macOS 15+, Apple Silicon or Intel | `recharged-<version>-macos-universal.dmg` |
 
 `SHA256SUMS` on the release page lists the checksums.
 
 **Requirements:** a graphics driver with Vulkan (Windows, Linux), DirectX 12
-(Windows) or Metal (macOS). The Linux package is built on Ubuntu 26.04 and
-needs a distribution of that age. On an older one, such as Ubuntu 24.04, use
-the `steamdeck-x86_64` package: it is the same Linux build, made with older
-system libraries.
+(Windows) or Metal (macOS). The Mac disk image holds one app for Apple Silicon
+and Intel Macs, with macOS 15 Sequoia or newer. The Linux package is built on
+Ubuntu 26.04 and needs a distribution of that age. On an older one, such as
+Ubuntu 24.04, use the `steamdeck-x86_64` package: it is the same Linux build,
+made with older system libraries.
 
-## 2. Unpack
+## 2. Install
 
-Unpack it into a folder of its own that you can write to, for example
-`Games/recharged` in your home folder. Keep all files together: the program
-(`Recharged.app` on macOS), its two modules and the `assets` folder. Settings, saves and logs are stored
-in this folder too, so it can be anywhere but should stay in one place.
+- **Windows, Linux:** unpack the package into a folder of its own that you can
+  write to, for example `Games/recharged` in your home folder.
+- **macOS:** open the disk image and drag the **Recharged** folder onto
+  **Applications** (or into any other folder you can write to). Copy the whole
+  folder, not only `Recharged.app` inside it. Then eject the disk image.
+
+Keep all files together: the program (`Recharged.app` on macOS), its two
+modules and the `assets` folder. Settings, saves and logs are stored in this
+folder too, so it can be anywhere but should stay in one place.
+
+**Already playing on a Mac?** Keep your folder: the launcher updates it to the
+new app. Do not replace it with the folder from a newer disk image, as that
+would delete your settings and saves.
 
 **Coming from an older version?** It called the program `mscharged`. Unpack
 the new package over the old folder and start `recharged`: it takes over your
@@ -46,17 +55,20 @@ shortcut (on the Steam Deck: *Target*) at `recharged`.
 ## 3. Start
 
 Run **`recharged.exe`** (Windows), **`Recharged.app`** (macOS) or
-**`recharged`** (Linux). The builds are not signed, so the system asks once:
+**`recharged`** (Linux). The system asks once:
 
-- **Windows:** if SmartScreen warns, choose *More info → Run anyway*.
-- **macOS:** before the first start, run
-  `xattr -dr com.apple.quarantine <unpacked folder>` in Terminal, or allow the
-  app under *System Settings → Privacy & Security* (*Open Anyway*). If macOS
-  then starts it from a temporary copy, Recharged offers to do the `xattr`
-  step itself and start again. Gamepads and Wii Remotes also need the
-  **Input Monitoring** permission
-  ([details](TROUBLESHOOTING.md#macos-controllers-do-nothing)).
-  The `recharged` file beside the app starts it from Terminal.
+- **Windows:** the build is not signed. If SmartScreen warns, choose
+  *More info → Run anyway*.
+- **macOS:** start it the first time in Finder from the folder you copied:
+  *Applications → Recharged → Recharged.app*, not from the disk image. From then
+  on Spotlight or the Dock start it too. The app is signed and notarized by
+  Apple, so macOS only asks whether to open an app downloaded from the internet:
+  choose *Open*. Recharged may then ask once to *Allow and restart*: macOS
+  started it from a temporary read-only copy, where it cannot see its folder.
+  Recharged clears the download mark on its folder and starts again from there.
+  Gamepads and Wii Remotes also need the **Input Monitoring** permission
+  ([details](TROUBLESHOOTING.md#macos-controllers-do-nothing)). The `recharged`
+  file beside the app starts it from Terminal.
 - **Linux:** if the file will not start, mark it executable
   (`chmod +x recharged`).
 
@@ -81,7 +93,8 @@ Cmd+Q on a Mac): the game shuts down like a Wii does.
 
 - The launcher tells you when a new release is out, shows what changed and
   updates the folder in place when you agree. Your settings and saves stay
-  ([updates](SETTINGS.md#updates)).
+  ([updates](SETTINGS.md#updates)). On a Mac the disk image is only needed for
+  the first install.
 - Saves are kept in the program folder. The launcher can move them elsewhere or
   import your save from Dolphin ([saves](SETTINGS.md#saves)).
 

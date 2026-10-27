@@ -21,7 +21,9 @@ PACKAGER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACKAGER)
 
 
-class PackageBuildTests(unittest.TestCase):
+class PackageFixture(unittest.TestCase):
+    """A synthetic completed build and source checkout."""
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -161,6 +163,17 @@ checksum = "{self.checksum}"
                                       lambda build, cache: (self.packages, {"locked": True, "offline": True}),
                                       steamdeck=steamdeck)
 
+    def use_macos_build(self):
+        self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
+                   b'set(CMAKE_SYSTEM_NAME "Darwin")\nset(CMAKE_SYSTEM_PROCESSOR "arm64")\n')
+        for stem in PACKAGER.MODULES:
+            (self.build / (stem + ".so")).rename(self.build / (stem + ".dylib"))
+        for item in PACKAGER.MACOS_APP_FILES:
+            self.write(self.build, "Recharged.app/" + item, b"synthetic bundle " + item.encode(),
+                       0o755 if item.endswith("/recharged") else 0o644)
+
+
+class PackageBuildTests(PackageFixture):
     def test_allowlist_archive_manifest_and_executable_mode(self):
         for root, path in ((self.source, "recharged.ini"), (self.source, "game/R4QE01.rvz"),
                            (self.source, ".private/secret.md"), (self.build, "cache/driver.bin"),
@@ -276,15 +289,6 @@ checksum = "{self.checksum}"
         self.write(self.build, "CMakeCache.txt", b"MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC:BOOL=OFF\n")
         with self.assertRaisesRegex(PACKAGER.PackageError, "not only the launcher"):
             self.package()
-
-    def use_macos_build(self):
-        self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
-                   b'set(CMAKE_SYSTEM_NAME "Darwin")\nset(CMAKE_SYSTEM_PROCESSOR "arm64")\n')
-        for stem in PACKAGER.MODULES:
-            (self.build / (stem + ".so")).rename(self.build / (stem + ".dylib"))
-        for item in PACKAGER.MACOS_APP_FILES:
-            self.write(self.build, "Recharged.app/" + item, b"synthetic bundle " + item.encode(),
-                       0o755 if item.endswith("/recharged") else 0o644)
 
     def test_macos_uses_configured_target_and_preserves_module_name(self):
         self.use_macos_build()
@@ -484,6 +488,184 @@ checksum = "{self.checksum}"
                                                    "compress-zlib-static", "threading"])
             self.assertEqual(len(packages), 2)
             self.assertEqual(packages[1]["license"], "MIT")
+
+
+MAC_SOURCE = pathlib.Path(__file__).resolve().parents[1] / "tools/macos_package.py"
+MAC_SPEC = importlib.util.spec_from_file_location("macos_package", MAC_SOURCE)
+MAC = importlib.util.module_from_spec(MAC_SPEC)
+MAC_SPEC.loader.exec_module(MAC)
+FAT = b"\xca\xfe\xba\xbe"
+SEALED = {"identity": "Developer ID Application: Test Maker (TEAM123456)", "team": "TEAM123456",
+          "notarized": True}
+
+
+def fake_lipo(halves, output):
+    # A stand-in for lipo -create: the fat magic, then each half with its length.
+    data = FAT
+    for half in halves:
+        body = half.read_bytes()
+        data += len(body).to_bytes(4, "big") + body
+    output.write_bytes(data)
+
+
+def fake_thin(source, architecture, output):
+    data, halves = source.read_bytes()[4:], []
+    while data:
+        size = int.from_bytes(data[:4], "big")
+        halves.append(data[4:4 + size])
+        data = data[4 + size:]
+    output.write_bytes(halves[MAC.ARCHITECTURES.index(architecture)])
+
+
+class MacosPackageTests(PackageFixture):
+    """The universal and signed macOS packages (tools/macos_package.py)."""
+
+    def mac_package(self, architecture, extra=None):
+        self.use_macos_build()
+        self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
+                   f'set(CMAKE_SYSTEM_NAME "Darwin")\nset(CMAKE_SYSTEM_PROCESSOR "{architecture}")\n'.encode())
+        program = b"\xcf\xfa\xed\xfe" + architecture.encode()
+        self.write(self.build, "Recharged.app/Contents/MacOS/recharged", program + b" program", 0o755)
+        for stem in PACKAGER.MODULES:
+            self.write(self.build, stem + ".dylib", program + b" " + stem.encode(), 0o755)
+        for relative, data in (extra or {}).items():
+            self.write(self.build, relative, data)
+        path = self.package()
+        moved = self.root / "inputs" / path.name
+        moved.parent.mkdir(exist_ok=True)
+        path.rename(moved)
+        return moved
+
+    def restore_build(self):
+        for stem in PACKAGER.MODULES:
+            (self.build / (stem + ".dylib")).rename(self.build / (stem + ".so"))
+
+    def both(self, x86_64_extra=None):
+        arm64 = self.mac_package("arm64")
+        self.restore_build()
+        return arm64, self.mac_package("x86_64", x86_64_extra)
+
+    def seal(self, root):
+        """What tools/sign_macos.py leaves: a new seal and Apple's ticket; pack's signature reader."""
+        self.write(root, "Recharged.app/Contents/_CodeSignature/CodeResources", b"Developer ID seal")
+        self.write(root, MAC.TICKET, b"stapled ticket")
+        return lambda folder: SEALED
+
+    def test_universal_and_signed_halves(self):
+        arm64, x86_64 = self.both()
+        _, arm64_files = MAC.read_package(arm64)
+        _, x86_64_files = MAC.read_package(x86_64)
+        root = MAC.stage(arm64, x86_64, self.root / "universal", merge=fake_lipo)
+        self.assertEqual(root, self.root / "universal/Recharged")
+        program = (root / MAC.PROGRAM).read_bytes()
+        self.assertTrue(program.startswith(FAT) and b"arm64 program" in program and b"x86_64 program" in program)
+        self.assertEqual((root / MAC.PROGRAM).stat().st_mode & 0o777, 0o755)
+        self.assertEqual((root / "recharged").read_bytes(), PACKAGER.MACOS_START_SCRIPT)
+        archives = MAC.pack(self.root / "universal", self.output, signature=self.seal(root), thin=fake_thin)
+        self.assertEqual([path.name for path in archives],
+                         [f"recharged-1.0.0+g123456789abc-macos-{name}.tar.gz"
+                          for name in ("universal", "arm64", "x86_64")])
+        manifest, files = MAC.read_package(archives[0])
+        self.assertEqual((manifest["platform"], manifest["architecture"]), ("macos", "universal"))
+        self.assertEqual(manifest["macos_signature"], SEALED)
+        self.assertEqual(sorted(manifest["cargo"]["options"]), ["arm64", "x86_64"])
+        self.assertIn(MAC.TICKET, set(files))
+        self.assertTrue(files[MAC.PROGRAM][0].startswith(FAT))
+        readme = files["PACKAGE-README.md"][0].decode()
+        self.assertIn("(macos, universal)", readme)
+        self.assertIn("natively on Apple Silicon and Intel", readme)
+        self.assertIn("notarized by Apple", readme)
+        self.assertNotIn("not signed", readme)
+        for path, originals in zip(archives[1:], (arm64_files, x86_64_files)):
+            manifest, files = MAC.read_package(path)
+            architecture = manifest["architecture"]
+            self.assertEqual(manifest["macos_signature"], SEALED)
+            # The signed half of each program; everything else as the build packaged it.
+            for name in [MAC.PROGRAM, *manifest["modules"]]:
+                self.assertEqual(files[name], originals[name])
+                self.assertTrue(files[name][0][4:].startswith(architecture.encode()))
+            self.assertEqual(files["Recharged.app/Contents/_CodeSignature/CodeResources"][0], b"Developer ID seal")
+            self.assertEqual(files[MAC.TICKET][0], b"stapled ticket")
+            self.assertEqual(set(files) - {MAC.TICKET}, set(originals))
+            for name in set(originals) - {MAC.PROGRAM, "PACKAGE-README.md",
+                                          "Recharged.app/Contents/_CodeSignature/CodeResources",
+                                          *manifest["modules"]}:
+                self.assertEqual(files[name], originals[name], name)
+            self.assertIn(f"(macos, {architecture})", files["PACKAGE-README.md"][0].decode())
+
+    def test_ad_hoc_package_says_it_is_not_signed(self):
+        arm64, x86_64 = self.both()
+        MAC.stage(arm64, x86_64, self.root / "universal", merge=fake_lipo)
+        unsigned = {"identity": "ad hoc", "team": None, "notarized": False}
+        archives = MAC.pack(self.root / "universal", self.output, signature=lambda root: unsigned, thin=fake_thin)
+        for path in archives:
+            manifest, files = MAC.read_package(path)
+            self.assertNotIn(MAC.TICKET, set(files))
+            self.assertIn("This package is not signed", files["PACKAGE-README.md"][0].decode())
+
+    def test_rust_notices_of_one_target_join_the_universal_package(self):
+        notice = "LICENSES/rust/x86-only-1.0.0/LICENSE"
+        arm64 = self.mac_package("arm64")
+        self.restore_build()
+        x86_64 = self.mac_package("x86_64")
+        manifest, files = MAC.read_package(x86_64)
+        files[notice] = (b"x86_64 crate license", 0o644)
+        x86_64 = self.repack(x86_64, manifest, files)
+        root = MAC.stage(arm64, x86_64, self.root / "universal", merge=fake_lipo)
+        archives = MAC.pack(self.root / "universal", self.output, signature=self.seal(root), thin=fake_thin)
+        self.assertIn(notice, set(MAC.read_package(archives[0])[1]))
+        self.assertNotIn(notice, set(MAC.read_package(archives[1])[1]))
+        self.assertIn(notice, set(MAC.read_package(archives[2])[1]))
+
+    def repack(self, path, manifest, files):
+        """The package again with changed files and a manifest that matches them."""
+        stage_dir = self.root / "repack" / path.name.removesuffix(".tar.gz")
+        shutil.rmtree(stage_dir, ignore_errors=True)
+        manifest = {**manifest, "files": {}}
+        for name, (data, mode) in files.items():
+            self.write(stage_dir, name, data, mode)
+            manifest["files"][name] = {"sha256": self.hash(data), "bytes": len(data), "mode": oct(mode)}
+        self.write(stage_dir, "SOURCE-MANIFEST.json", json.dumps(manifest).encode())
+        PACKAGER.write_tarball(path, stage_dir, stage_dir.name)
+        return path
+
+    def test_joining_refuses_mismatched_packages(self):
+        arm64, x86_64 = self.both()
+        with self.assertRaisesRegex(MAC.PackageError, "arm64 and the x86_64"):
+            MAC.stage(arm64, arm64, self.root / "twice", merge=fake_lipo)
+        manifest, files = MAC.read_package(x86_64)
+        for change, message in (({"version": "1.0.1+g123456789abc"}, "different builds"),
+                                ({"platform": "linux"}, "Not a macOS package")):
+            other = self.repack(self.root / "other.tar.gz", {**manifest, **change}, files)
+            with self.assertRaisesRegex(MAC.PackageError, message):
+                MAC.stage(arm64, other, self.root / "mismatch", merge=fake_lipo)
+        for name, data, message in (("docs/INSTALL.md", b"other text", "differ in docs/INSTALL.md"),
+                                    ("docs/EXTRA.md", b"one side only", "Only one macOS package has docs/EXTRA.md"),
+                                    ("assets/plugin.dylib", b"\xcf\xfa\xed\xfe plugin", "Unexpected programs")):
+            changed = {**files, name: (data, 0o644)}
+            other = self.repack(self.root / "other.tar.gz", manifest, changed)
+            with self.assertRaisesRegex(MAC.PackageError, message):
+                MAC.stage(arm64, other, self.root / "mismatch", merge=fake_lipo)
+        self.assertFalse((self.root / "mismatch").exists())
+
+    def test_damaged_package_and_stray_files_are_refused(self):
+        arm64, x86_64 = self.both()
+        manifest, files = MAC.read_package(x86_64)
+        damaged = self.repack(self.root / "damaged.tar.gz", manifest, files)
+        manifest["files"]["docs/INSTALL.md"]["sha256"] = "0" * 64
+        stage_dir = self.root / "repack/damaged-again"
+        for name, (data, mode) in files.items():
+            self.write(stage_dir, name, data, mode)
+        self.write(stage_dir, "SOURCE-MANIFEST.json", json.dumps(manifest).encode())
+        PACKAGER.write_tarball(damaged, stage_dir, stage_dir.name)
+        with self.assertRaisesRegex(MAC.PackageError, "INSTALL.md differs from its manifest"):
+            MAC.stage(arm64, damaged, self.root / "damaged", merge=fake_lipo)
+        root = MAC.stage(arm64, x86_64, self.root / "universal", merge=fake_lipo)
+        with self.assertRaisesRegex(MAC.PackageError, "exists already"):
+            MAC.stage(arm64, x86_64, self.root / "universal", merge=fake_lipo)
+        self.write(root, ".DS_Store", b"Finder state")
+        with self.assertRaisesRegex(MAC.PackageError, r"\.DS_Store"):
+            MAC.pack(self.root / "universal", self.output, signature=self.seal(root), thin=fake_thin)
 
 
 if __name__ == "__main__":
