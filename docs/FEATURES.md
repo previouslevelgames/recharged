@@ -113,11 +113,14 @@ play.
 - **Performance mode** (the gear on Play): lighter matches without
   antialiasing, crowd, background NPCs, ambient effects, bloom or stadium
   shadows. Gameplay, hazards and their effects remain unchanged.
-- **High frame rates**: the console's 60 FPS by default, or 120, 144, your
+- **Frame rates**: the console's 60 FPS by default, or 30, 60, 120, 144, your
   display's refresh rate or unlimited (Display → Frame rate). The game keeps its
   own speed: matches still simulate at their fixed 50 Hz and every frame is
   drawn from the game's own blend of its last two steps, so the extra frames
   are real motion, not interpolation added by Recharged.
+  In online matches with rollback the rate is held to 60 FPS, as above it a
+  rollback no longer fits in a frame. Each player's rate is their own: it does
+  not have to match the opponent's.
 - V-sync and a performance overlay (FPS, CPU and GPU load) in any corner.
 - Master volume, mute and **sound levels** (Audio): music, sound effects,
   voices, the crowd, menus and HUD, cutscenes and movies each from 0 to 100 %,
@@ -259,6 +262,24 @@ Texture packs made for Dolphin replace the game's textures, from a folder or
 straight from their `.zip` file, with several packs in an order you choose
 (Gameplay → Mods, [settings](SETTINGS.md#texture-packs)).
 
+## Online play
+
+The game's own online play works again through the project's server: Nintendo
+Wi-Fi Connection has shut down, so the game's connection names resolve to our
+server instead. It is set up already; only a private instance of the server
+([recharged-wfc-srv](https://github.com/previouslevelgames/recharged-wfc-srv))
+needs `[online] server` ([settings](SETTINGS.md#online)). Friend
+codes are typed on the game's friend code screen, as described under Controls.
+
+Network matches use **rollback**, on by default. A step whose inputs have not
+arrived from the other player runs with predicted ones (the player's last
+input repeated) and is replayed when the real ones arrive and differ, instead
+of the game waiting for them. The input delay starts at one step and adapts to
+the connection by itself. Every player in the match needs rollback on. The
+performance overlay shows the connection's round trip, the input delay and how
+far the prediction went (LAT, DLY and RB). The frame rate is held to 60 FPS in
+these matches (see Picture and sound).
+
 ## Discord status
 
 While the Discord app runs on the same computer, your Discord profile shows the
@@ -269,9 +290,5 @@ and match time ([settings](SETTINGS.md#discord-status)).
 
 - **The Japanese and Korean versions.** Their decompilation is still being
   completed.
-- **Online play.** Nintendo Wi-Fi Connection has shut down, so for now
-  Recharged behaves like a Wii without internet. The netcode is being reworked
-  to make online play functional again, and options for matchmaking and
-  lobbies are being explored.
 - **Mods.** A modding framework is in the works; until then, the optional
   tweaks above change the game and texture packs change its look.

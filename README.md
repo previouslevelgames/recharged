@@ -72,7 +72,7 @@ updates Recharged in place when you agree.
   with Nunchuk, over Bluetooth or a Mayflash DolphinBar.
 - **Sharp picture.** 3D at your window's resolution, 4x antialiasing, 4:3 or
   16:9, any window size or fullscreen.
-- **High frame rates.** 120, 144, your display's refresh rate or unlimited,
+- **Frame rates.** 30, 60, 120, 144, your display's refresh rate or unlimited,
   while the game keeps its original speed.
 - **Optional tweaks**: skip the intro, fast menus, no Mega Strikes, unlock
   everything, CPU vs CPU, fast terrain, Thunder Island walls, mirror matches

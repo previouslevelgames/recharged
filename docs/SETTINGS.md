@@ -165,10 +165,13 @@ lightning, wind, debris, character and ball shadows stay, and so do the effects
 that show them. It keeps your 3D render size, leaves the menus as they are, and
 restores your antialiasing preference when turned off.
 
-**Performance overlay** (Display) shows `FPS | GPU | CPU | LAT` in a corner of
-your choice, also in fullscreen. GPU and CPU are total system usage, including
-other apps; drivers that hide the GPU counters show `N/A`. LAT stays `N/A`
-while there is no online play.
+**Performance overlay** (Display) shows `FPS | GPU | CPU` in a corner of your
+choice, also in fullscreen, and `LAT` in a network session and `DLY` and `RB`
+in a network match with rollback. GPU and CPU are total system usage, including
+other apps; drivers that hide the GPU counters show `N/A`. **LAT** is the
+slowest connection's round trip in milliseconds, measured by the game's own
+ping every two seconds. **DLY** is your input delay in milliseconds. **RB** is
+the most steps the game predicted at once since the last reading.
 
 ## Audio
 
@@ -422,6 +425,30 @@ the launcher's **Game** page (`[discord] rich_presence`); Discord's own
 activity privacy setting hides it too. Builds that do not come from the
 project's releases and test builds have no Discord application and show no
 status, unless `[discord] application_id` names one.
+
+## Online
+
+`[online]` keys in `recharged.ini`; the launcher has no page for them.
+
+**Server** (`server`) is the host name or address the game's Nintendo Wi-Fi
+Connection names resolve to, and where the series you play online are
+reported. It is already set to the project's server, so you only change it to
+play on a private instance of the server
+([recharged-wfc-srv](https://github.com/previouslevelgames/recharged-wfc-srv)).
+Left out or empty, it is the project's server too.
+
+**Rollback** (`rollback`, on by default) makes network matches predict the
+inputs still on their way and go back when they differ, instead of waiting for
+them. Every machine in the match needs it on; the input delay adapts to the
+latency by itself. The environment's `RECHARGED_ROLLBACK`, when set, wins over
+the file.
+
+`rollback_log` names a log file for rollback; its counts (rollbacks, how far
+the prediction went, desyncs, the cost of a rollback) go to `<file>.summary`
+beside it. `rollback_test = true` (or `RECHARGED_ROLLBACK_TEST`) instead rolls
+every match back while it is played, offline too, and checks that the replays
+agree: a test of the rollback, not for playing. Saving the settings never
+writes `rollback_test` or `rollback_log`.
 
 ## The launcher
 
