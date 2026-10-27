@@ -126,8 +126,8 @@ it can be added to the catalogue.
 
 | Package | Built on | Notes |
 | --- | --- | --- |
-| Linux x86_64 | Ubuntu 26.04, GCC 15 | Vulkan |
-| Steam Deck | Ubuntu 24.04, GCC 14 | Same build for older system libraries; checked against SteamOS 3.7 |
+| Linux x86_64 | Ubuntu 24.04, GCC 14 | Vulkan; checked against Ubuntu 24.04 |
+| Steam Deck | Ubuntu 24.04, GCC 14 | Same build; checked against SteamOS 3.7 |
 | Windows x64 | Ubuntu, cross-compiled with LLVM-MinGW | Vulkan or DirectX 12; ships its C++ runtime and the DirectX shader compilers |
 | macOS Apple Silicon | macOS 15, Apple Clang | Metal |
 | macOS Intel | Cross-compiled on Apple Silicon | Metal |

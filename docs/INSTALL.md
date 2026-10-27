@@ -26,10 +26,9 @@ and download the package for your system:
 
 **Requirements:** a graphics driver with Vulkan (Windows, Linux), DirectX 12
 (Windows) or Metal (macOS). The Mac disk image holds one app for Apple Silicon
-and Intel Macs, with macOS 15 Sequoia or newer. The Linux package is built on
-Ubuntu 26.04 and needs a distribution of that age. On an older one, such as
-Ubuntu 24.04, use the `steamdeck-x86_64` package: it is the same Linux build,
-made with older system libraries.
+and Intel Macs, with macOS 15 Sequoia or newer. The Linux package needs glibc
+2.39 and the GCC 14 C++ runtime or newer, as in Ubuntu 24.04, Debian 13 or
+Fedora 40 and later.
 
 ## 2. Install
 

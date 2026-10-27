@@ -25,13 +25,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Ubuntu 24.04 (glibc 2.39) with GCC 14 builds binaries that run on
+          # Ubuntu 24.04, Debian 13, Fedora 40 and newer; the packager checks
+          # every binary against Ubuntu 24.04.
           - platform: linux-x86_64
-            runner: ubuntu-26.04
+            runner: ubuntu-24.04
             jobs: 4
-            gcc: 15
+            gcc: 14
           # Steam Deck: SteamOS 3.7 has glibc 2.40 and the GCC 14 C++ runtime.
-          # Ubuntu 24.04 (glibc 2.39) with GCC 14 builds binaries that need
-          # nothing newer; the packager checks every binary against SteamOS.
+          # The same build; the packager checks every binary against SteamOS.
           - platform: steamdeck-x86_64
             runner: ubuntu-24.04
             jobs: 4
@@ -92,7 +94,7 @@ jobs:
           echo "CC=gcc-$GCC_VERSION" >> "$GITHUB_ENV"
           echo "CXX=g++-$GCC_VERSION" >> "$GITHUB_ENV"
           # Plain x86-64, like the Windows and macOS builds: ubuntu-26.04's GCC
-          # targets x86-64-v3 (AVX2, FMA), whose games desynced online against
+          # targeted x86-64-v3 (AVX2, FMA), whose games desynced online against
           # every other build and do not start on CPUs without AVX2.
           echo "CFLAGS=-march=x86-64 -mtune=generic" >> "$GITHUB_ENV"
           echo "CXXFLAGS=-march=x86-64 -mtune=generic" >> "$GITHUB_ENV"
