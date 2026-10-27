@@ -95,7 +95,7 @@ compiled. Patches are written against `patched/`.
 | **Saves** (NAND) | The Wii's flash file system is a folder on disk, so the game reads and writes its own save files. |
 | **OS** | Wii threads, alarms, message queues and interrupts run on host threads and timers, at the Wii's own clock rates. The game's MEM1 and MEM2 memory arenas keep their Wii sizes. |
 | **Movies** (THP) | The game's own THP player plays the intro, credits and other videos, with the platform providing the timing and audio output. |
-| **Network** | The socket library talks to the host's network stack, but for now online services report no connection: Recharged behaves like a Wii without internet, as Nintendo Wi-Fi Connection has shut down. Reworked online play is in progress. |
+| **Network** | The socket library (`src/net`) maps the Wii's sockets onto the host's network stack, and the Wi-Fi configuration reports the host network as a wired connection. The game's Nintendo Wi-Fi Connection names (`*.nintendowifi.net`) resolve to the project's server (`[online] server`), where the game logs in and finds its opponents, as it did on Nintendo's. Network matches run with rollback: a step whose inputs have not arrived runs with predicted ones and is replayed when they arrive and differ (`src/platform/rollback_*.cpp`), with the machines comparing checksums of the game's state. |
 
 ## Timing and frame rate
 
