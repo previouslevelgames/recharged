@@ -48,13 +48,15 @@ Get the package for your system from the
 </tr>
 </table>
 
-1. Unpack the package into a folder of its own (on a Mac: open the disk image
-   and drag the Recharged folder to Applications).
+1. Unpack the package into a folder of its own. On a Mac, open the disk image
+   and drag the **Recharged** folder to **Applications**.
 2. Start `recharged` (`recharged.exe` on Windows, `Recharged.app` on macOS).
 3. In the launcher, add the folder with your game image (or choose the image)
    and press **Play**.
 
-The **[install guide](docs/INSTALL.md)** covers the first-start prompts of
+The Mac app runs natively on Apple Silicon and Intel and is signed and
+notarized by Apple: no detour through Privacy & Security. The
+**[install guide](docs/INSTALL.md)** covers the first-start prompts of
 Windows and macOS. Steam Deck owners should follow the
 **[Steam Deck guide](docs/STEAM_DECK.md)**, which also adds the game to the
 Steam library. Once installed, the launcher tells you about new versions and

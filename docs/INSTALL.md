@@ -25,22 +25,27 @@ and download the package for your system:
 `SHA256SUMS` on the release page lists the checksums.
 
 **Requirements:** a graphics driver with Vulkan (Windows, Linux), DirectX 12
-(Windows) or Metal (macOS). The Linux package is built on Ubuntu 26.04 and
-needs a distribution of that age. On an older one, such as Ubuntu 24.04, use
-the `steamdeck-x86_64` package: it is the same Linux build, made with older
-system libraries.
+(Windows) or Metal (macOS). The Mac disk image holds one app for Apple Silicon
+and Intel Macs, with macOS 15 Sequoia or newer. The Linux package is built on
+Ubuntu 26.04 and needs a distribution of that age. On an older one, such as
+Ubuntu 24.04, use the `steamdeck-x86_64` package: it is the same Linux build,
+made with older system libraries.
 
-## 2. Unpack
+## 2. Install
 
-Unpack it into a folder of its own that you can write to, for example
-`Games/recharged` in your home folder. Keep all files together: the program
-(`Recharged.app` on macOS), its two modules and the `assets` folder. Settings, saves and logs are stored
-in this folder too, so it can be anywhere but should stay in one place.
+- **Windows, Linux:** unpack the package into a folder of its own that you can
+  write to, for example `Games/recharged` in your home folder.
+- **macOS:** open the disk image and drag the **Recharged** folder onto
+  **Applications** (or into any other folder you can write to). Copy the whole
+  folder, not only `Recharged.app` inside it.
 
-**On a Mac,** open the disk image and drag the **Recharged** folder onto
-**Applications** (or into any other folder you can write to). Once installed,
-Recharged updates itself; do not replace your folder with the one from a newer
-disk image, as it holds your settings and saves.
+Keep all files together: the program (`Recharged.app` on macOS), its two
+modules and the `assets` folder. Settings, saves and logs are stored in this
+folder too, so it can be anywhere but should stay in one place.
+
+**Already playing on a Mac?** Keep your folder: the launcher updates it to the
+new app. Do not replace it with the folder from a newer disk image, as that
+would delete your settings and saves.
 
 **Coming from an older version?** It called the program `mscharged`. Unpack
 the new package over the old folder and start `recharged`: it takes over your
@@ -55,11 +60,11 @@ Run **`recharged.exe`** (Windows), **`Recharged.app`** (macOS) or
 - **Windows:** the build is not signed. If SmartScreen warns, choose
   *More info → Run anyway*.
 - **macOS:** the app is signed and notarized by Apple, so macOS only asks
-  whether to open an app downloaded from the internet: choose *Open*. If macOS
-  then starts it from a temporary copy (it can, as the app came in a folder),
-  Recharged offers *Allow and restart*, which clears the download mark on its
-  folder and starts it again from there. Gamepads and Wii Remotes also need the
-  **Input Monitoring** permission
+  whether to open an app downloaded from the internet: choose *Open*. Recharged
+  may then ask once to *Allow and restart*: macOS started it from a temporary
+  read-only copy, where it cannot see its folder. Recharged clears the download
+  mark on its folder and starts again from there. Gamepads and Wii Remotes also
+  need the **Input Monitoring** permission
   ([details](TROUBLESHOOTING.md#macos-controllers-do-nothing)).
   The `recharged` file beside the app starts it from Terminal.
 - **Linux:** if the file will not start, mark it executable
@@ -86,7 +91,8 @@ Cmd+Q on a Mac): the game shuts down like a Wii does.
 
 - The launcher tells you when a new release is out, shows what changed and
   updates the folder in place when you agree. Your settings and saves stay
-  ([updates](SETTINGS.md#updates)).
+  ([updates](SETTINGS.md#updates)). On a Mac the disk image is only needed for
+  the first install.
 - Saves are kept in the program folder. The launcher can move them elsewhere or
   import your save from Dolphin ([saves](SETTINGS.md#saves)).
 
