@@ -91,6 +91,11 @@ jobs:
             libudev-dev libdbus-1-dev libvulkan-dev
           echo "CC=gcc-$GCC_VERSION" >> "$GITHUB_ENV"
           echo "CXX=g++-$GCC_VERSION" >> "$GITHUB_ENV"
+          # Plain x86-64, like the Windows and macOS builds: ubuntu-26.04's GCC
+          # targets x86-64-v3 (AVX2, FMA), whose games desynced online against
+          # every other build and do not start on CPUs without AVX2.
+          echo "CFLAGS=-march=x86-64 -mtune=generic" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=-march=x86-64 -mtune=generic" >> "$GITHUB_ENV"
           # ubuntu-24.04's apt CMake 3.28 repeats whole-archive libraries when
           # linking; the runner's newer CMake in /usr/local/bin comes first.
           cmake --version
@@ -187,6 +192,15 @@ jobs:
               echo "recharged defines its own std::exception type info" >&2
               exit 1
             fi
+          fi
+          # The game modules stay plain x86-64 (see Install Linux tools): online
+          # play needs the same game code on every machine.
+          if [ "$RUNNER_OS" = Linux ]; then
+            for module in build/release/recharged_game_{us,eu}.so; do
+              avx=$(objdump -d --no-show-raw-insn "$module" | awk -F '\t' 'NF >= 2 && $2 ~ /^v/' | wc -l)
+              echo "$module: $avx AVX instructions"
+              test "$avx" -eq 0
+            done
           fi
           ./build/release/recharged --version | tee build/release/ci-version.txt
           grep -F 'original frontend runtime' build/release/ci-version.txt
