@@ -10,17 +10,15 @@ PlayGoalEffects("Goal_suddendeath")), and the HUD shows SUDDEN DEATH where
 the clock is (HUDClock::Update).
 
 With "Match point" enabled, in a match to a number of goals (not in Strikers
-101 or the Striker Challenges), the kickoff after the goal that puts a team
-one goal from winning queues that same event: siren, lights and music. The
-music replaces the stadium's, as in overtime (GS_OVERTIME stops it): that
-kickoff stops the stadium's music, and GS_GAMEPLAY no longer starts or
-resumes it while a team is one goal from winning. The sudden death music
-plays on until the match ends, stopped at GS_END_GAME as after overtime.
-When the other team then reaches match point too, the kickoff gets the
-siren and lights alone, as the music already plays (a second
-PlaySuddenDeathMusic would start a second stream), and the HUD shows SUDDEN
-DEATH instead of "First to" while both teams are one goal from winning. In a
-match to one goal, both are from the first kickoff.
+101 or the Striker Challenges), the kickoff that finds both teams one goal
+from winning queues that same event: siren, lights and music. The music
+replaces the stadium's, as in overtime (GS_OVERTIME stops it): that kickoff
+stops the stadium's music, and GS_GAMEPLAY no longer starts or resumes it
+while both teams are one goal from winning. The sudden death music plays on
+until the match ends, stopped at GS_END_GAME as after overtime. The HUD
+shows SUDDEN DEATH instead of "First to" in the same case. A team alone one
+goal from winning changes nothing. In a match to one goal, both are from the
+first kickoff.
 
 None of it touches the match: the music is the audio's, which no rollback
 restores and a replayed frame does not start again, the lights draw from
@@ -86,7 +84,7 @@ index 6ba0363..2354ddf 100644
  
          if (state == GS_END_GAME)
          {
-@@ -2113,12 +2120,47 @@ void cGame::ChangeGameState(eGameState state)
+@@ -2113,12 +2120,35 @@ void cGame::ChangeGameState(eGameState state)
          InitGameState(state);
      }
  }
@@ -108,40 +106,28 @@ index 6ba0363..2354ddf 100644
          mEventQueue.mSuddenDeathEvent.Queue();
      }
 +#if defined(MSCHARGED_TWEAKS)
-+    // Port tweak "Match point": the kickoff after the goal that puts a team one
-+    // goal from winning (the first kickoff, in a match to one goal) gets the
-+    // sudden death of overtime: its siren and lights at the corners, and its
-+    // music, which replaces the stadium's, as in overtime, until the match
-+    // ends. Once the music plays, the other team reaching match point gets the
-+    // siren alone.
-+    else if (state == GS_KICKOFF && m_eGameState == GS_POST_GOAL && MatchPoint(m_nLastTeamToScore))
++    // Port tweak "Match point": the kickoff that finds both teams one goal
++    // from winning (after the goal that puts the second there; the first
++    // kickoff, in a match to one goal) gets the sudden death of overtime: its
++    // siren and lights at the corners, and its music, which replaces the
++    // stadium's, as in overtime, until the match ends.
++    else if (state == GS_KICKOFF && MatchPoint(0) && MatchPoint(1))
 +    {
-+        if (MatchPoint(1 - m_nLastTeamToScore))
-+        {
-+            GetPresentation()->PlayGoalEffects("Goal_suddendeath");
-+        }
-+        else
-+        {
-+            StopSound(GetStadiumSoundID(GameInfoManager::Instance()->GetStadium()), this);
-+            mEventQueue.mSuddenDeathEvent.Queue();
-+        }
-+    }
-+    else if (state == GS_KICKOFF && m_eGameState != GS_POST_GOAL && MatchPoint(0) && MatchPoint(1))
-+    {
++        StopSound(GetStadiumSoundID(GameInfoManager::Instance()->GetStadium()), this);
 +        mEventQueue.mSuddenDeathEvent.Queue();
 +    }
 +#endif
  
      m_eGameState = state;
      switch (state)
-@@ -2186,6 +2228,14 @@ void cGame::InitGameState(eGameState state)
+@@ -2186,6 +2216,14 @@ void cGame::InitGameState(eGameState state)
  
      case GS_GAMEPLAY:
      {
 +#if defined(MSCHARGED_TWEAKS)
-+        // Port tweak "Match point": a team one goal from winning has the
-+        // sudden death music on instead of the stadium's.
-+        if (MatchPoint(0) || MatchPoint(1))
++        // Port tweak "Match point": with both teams one goal from winning the
++        // sudden death music is on instead of the stadium's.
++        if (MatchPoint(0) && MatchPoint(1))
 +        {
 +            break;
 +        }

@@ -278,9 +278,8 @@ show_hud = true
 # sand patches); the electric fences stay. Striker Challenges keep their
 # rules; online unchanged.
 # match_point: in a match to a number of goals, overtime's siren and sudden
-# death music (in place of the stadium's) once a team is one goal from
-# winning, and SUDDEN DEATH on the HUD once both are. Only sound and HUD.
-# On by default.
+# death music (in place of the stadium's) and SUDDEN DEATH on the HUD once
+# both teams are one goal from winning. Only sound and HUD. On by default.
 # Start training on the launcher's Gameplay page (or --training) goes
 # straight into a Domination match with training_captain (mario, bowser,
 # daisy, donkeykong, luigi, peach, waluigi, wario, yoshi, bowserjr,

@@ -166,11 +166,11 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   tilt, Thwomps or sand patches. The electric fences stay, so it combines
   with Thunder Island walls. Striker Challenges keep their rules; online
   matches are unchanged.
-- **Match point**: in a match to a number of goals, the kickoff after a team
-  gets one goal from winning plays overtime's siren and sudden death music,
-  which replaces the stadium's music until the match ends; when the other team gets there too, the
-  siren sounds again and the HUD shows SUDDEN DEATH instead of "First to".
-  Only sound and HUD change. On by default.
+- **Match point**: in a match to a number of goals, the kickoff that finds
+  both teams one goal from winning plays overtime's siren and sudden death
+  music, which replaces the stadium's music until the match ends, and the HUD
+  shows SUDDEN DEATH instead of "First to". A team alone one goal from
+  winning changes nothing. Only sound and HUD change. On by default.
 - **Training**: **Start training** on the Gameplay page (or `--training`)
   goes past the intro and the menus straight into a Domination match with
   the chosen captain, the sidekicks of their lineup on the Teams page, and
