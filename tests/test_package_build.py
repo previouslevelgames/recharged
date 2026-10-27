@@ -356,6 +356,20 @@ class PackageBuildTests(PackageFixture):
                     self.package(steamdeck=True)
         self.assertEqual(list(self.output.glob("*.tar.gz")), [])
 
+    def test_linux_package_records_requirements_within_ubuntu_2404(self):
+        manifest = json.loads(self.manifest_of(self.package()))
+        requirements = manifest["linux_requirements"]
+        self.assertEqual(sorted(requirements), sorted(["recharged"] + [m + ".so" for m in PACKAGER.MODULES]))
+        self.assertEqual(requirements["recharged"]["newest"]["GLIBC"], "GLIBC_2.39")
+        self.assertNotIn("linux_requirements", json.loads(self.manifest_of(self.package(steamdeck=True))))
+
+    def test_linux_rejects_what_only_steamos_provides(self):
+        # glibc 2.40 is on SteamOS 3.7 but newer than Ubuntu 24.04.
+        self.elf = {PACKAGER.MODULES[0] + ".so": (["libc.so.6"], ["GLIBC_2.40"])}
+        self.package(steamdeck=True)
+        with self.assertRaisesRegex(PACKAGER.PackageError, r"GLIBC_2\.40, newer than Ubuntu 24\.04"):
+            self.package()
+
     def test_steamdeck_requires_a_linux_x86_64_build(self):
         self.write(self.build, "CMakeFiles/4.4.4/CMakeSystem.cmake",
                    b'set(CMAKE_SYSTEM_NAME "Linux")\nset(CMAKE_SYSTEM_PROCESSOR "aarch64")\n')
