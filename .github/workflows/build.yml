@@ -195,12 +195,22 @@ jobs:
       # Uploaded as the package file itself (no zip around it); the artifact
       # takes the file's name, e.g. recharged-<version>-<system>-<arch>.tar.gz.
       - name: Upload binaries
+        if: runner.os != 'macOS'
         uses: actions/upload-artifact@v7
         with:
           path: build/artifacts/*.tar.gz
           archive: false
           if-no-files-found: error
           retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
+      # Not a release package (recharged-*): macos-universal joins and signs the two.
+      - name: Upload the macOS half
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          name: mac-${{ matrix.arch }}
+          path: build/artifacts/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
       - name: Upload configure diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -382,12 +392,96 @@ jobs:
       # Native Windows compiler checks of individual host services; the game
       # itself is built by the windows-game job.
 
+  macos-universal:
+    # One Recharged.app for both kinds of Mac: the two builds joined (lipo),
+    # signed with the Developer ID and the hardened runtime, notarized by Apple
+    # and stapled; also as a disk image, the download for new players. The two
+    # per-architecture packages come again from the signed app: launchers up to
+    # 1.0.15 update only from those. Without the secrets (pull requests from
+    # forks) everything is signed ad hoc, as before.
+    name: macos-universal
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 150 # two notarizations, each waits up to 60 minutes
+    defaults:
+      run:
+        shell: bash
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+      MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+      MACOS_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      # Rosetta runs the x86_64 half in the package check.
+      - name: Select Xcode and Rosetta
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.app
+          if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mac-*
+          path: build/mac
+          merge-multiple: true
+      - name: Join the universal package
+        run: python tools/macos_package.py stage build/mac/*-macos-arm64.tar.gz build/mac/*-macos-x86_64.tar.gz build/universal
+      - name: Sign and notarize the app and its modules
+        run: python tools/sign_macos.py build/universal/Recharged
+      - name: Package and check both halves
+        run: |
+          python tools/macos_package.py pack build/universal build/artifacts
+          python tools/macos_package.py check build/artifacts/*.tar.gz
+      - name: Make, sign and notarize the disk image
+        run: |
+          image=$(python tools/macos_package.py dmg build/universal build/artifacts)
+          python tools/sign_macos.py "$image"
+      # One file per artifact, named like it (as the other packages).
+      - name: Upload the universal package
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/artifacts/*-macos-universal.tar.gz
+          archive: false
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
+      - name: Upload the disk image
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/artifacts/*-macos-universal.dmg
+          archive: false
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
+      - name: Upload the arm64 package
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/artifacts/*-macos-arm64.tar.gz
+          archive: false
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
+      - name: Upload the x86_64 package
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/artifacts/*-macos-x86_64.tar.gz
+          archive: false
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
+
   release:
     # Drafts the GitHub release of a stable build whose version is not yet
     # released (tag v<version> on that commit); publish it after a review.
     name: draft release
     if: github.event_name == 'push' && github.ref == 'refs/heads/stable'
-    needs: [build, windows-game]
+    needs: [build, windows-game, macos-universal]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -413,9 +507,9 @@ jobs:
           else
             echo "draft=true" >> "$GITHUB_OUTPUT"
           fi
-      # The packages of this run, uploaded unarchived by the build jobs.
-      # skip-decompress keeps the Windows .zip package as a file: the action
-      # otherwise unpacks every download served as a zip.
+      # The packages and the Mac disk image of this run, uploaded unarchived by
+      # the build jobs. skip-decompress keeps the Windows .zip package as a
+      # file: the action otherwise unpacks every download served as a zip.
       - uses: actions/download-artifact@v8
         if: steps.version.outputs.draft == 'true'
         with:
@@ -428,8 +522,9 @@ jobs:
         working-directory: release
         run: |
           ls -la
-          test "$(ls *.tar.gz *.zip | wc -l)" -eq 5
-          sha256sum *.tar.gz *.zip > SHA256SUMS
+          test "$(ls *.tar.gz *.zip | wc -l)" -eq 6
+          test "$(ls *.dmg | wc -l)" -eq 1
+          sha256sum *.tar.gz *.zip *.dmg > SHA256SUMS
           cat SHA256SUMS
       # Generated notes, then a short pointer for players who land on the
       # release page without the port (the launcher shows the notes too).
@@ -445,11 +540,11 @@ jobs:
 
           ---
 
-          **New here?** Download the package for your system below, unpack it into a folder of its own and start \`recharged\` (\`Recharged.app\` on macOS). You need your own Mario Strikers Charged disc image (USA R4QE01 revision 1, or Europe R4QP01 revision 1 or 2; ISO or RVZ); no game files are included. Guides: [install]($url/INSTALL.md), [Steam Deck]($url/STEAM_DECK.md), [troubleshooting]($url/TROUBLESHOOTING.md).
+          **New here?** Download the package for your system below, unpack it into a folder of its own and start \`recharged\`. On a Mac, open the \`macos-universal.dmg\` disk image and drag the Recharged folder to Applications. You need your own Mario Strikers Charged disc image (USA R4QE01 revision 1, or Europe R4QP01 revision 1 or 2; ISO or RVZ); no game files are included. Guides: [install]($url/INSTALL.md), [Steam Deck]($url/STEAM_DECK.md), [troubleshooting]($url/TROUBLESHOOTING.md).
           EOF
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
             --title "Recharged $VERSION" --notes-file notes.md \
-            release/*.tar.gz release/*.zip release/SHA256SUMS
+            release/*.tar.gz release/*.zip release/*.dmg release/SHA256SUMS
 
   test-build:
     # Publishes a pull request's packages as the prerelease test-pr<N>-<commit>,
@@ -461,7 +556,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request'
       && github.event.pull_request.head.repo.full_name == github.repository
-    needs: [build, windows-game]
+    needs: [build, windows-game, macos-universal]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -483,8 +578,9 @@ jobs:
         working-directory: test-build
         run: |
           ls -la
-          test "$(ls *.tar.gz *.zip | wc -l)" -eq 5
-          sha256sum *.tar.gz *.zip > SHA256SUMS
+          test "$(ls *.tar.gz *.zip | wc -l)" -eq 6
+          test "$(ls *.dmg | wc -l)" -eq 1
+          sha256sum *.tar.gz *.zip *.dmg > SHA256SUMS
       - name: Publish the prerelease
         run: |
           # A pull request closed meanwhile keeps no test build.
@@ -505,7 +601,7 @@ jobs:
           gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$HEAD_SHA" \
             --title "Test build: $PR_TITLE (#$PR_NUMBER)" --notes-file notes.md \
-            test-build/*.tar.gz test-build/*.zip test-build/SHA256SUMS
+            test-build/*.tar.gz test-build/*.zip test-build/*.dmg test-build/SHA256SUMS
           # Earlier test builds of this pull request.
           gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName --jq '.[].tagName' \
             | { grep -E "^test-pr$PR_NUMBER-[0-9a-f]+$" || true; } | { grep -vx "$tag" || true; } \

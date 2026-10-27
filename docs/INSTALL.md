@@ -20,8 +20,7 @@ and download the package for your system:
 | Windows 10/11, 64-bit | `recharged-<version>-windows-x86_64.zip` |
 | Linux, x86_64 | `recharged-<version>-linux-x86_64.tar.gz` |
 | Steam Deck, SteamOS 3.7+ | `recharged-<version>-steamdeck-x86_64.tar.gz` |
-| macOS, Apple Silicon | `recharged-<version>-macos-arm64.tar.gz` |
-| macOS 15+, Intel | `recharged-<version>-macos-x86_64.tar.gz` |
+| macOS 15+, Apple Silicon or Intel | `recharged-<version>-macos-universal.dmg` |
 
 `SHA256SUMS` on the release page lists the checksums.
 
@@ -38,6 +37,11 @@ Unpack it into a folder of its own that you can write to, for example
 (`Recharged.app` on macOS), its two modules and the `assets` folder. Settings, saves and logs are stored
 in this folder too, so it can be anywhere but should stay in one place.
 
+**On a Mac,** open the disk image and drag the **Recharged** folder onto
+**Applications** (or into any other folder you can write to). Once installed,
+Recharged updates itself; do not replace your folder with the one from a newer
+disk image, as it holds your settings and saves.
+
 **Coming from an older version?** It called the program `mscharged`. Unpack
 the new package over the old folder and start `recharged`: it takes over your
 settings and saves. Then delete the old `mscharged` program and point any
@@ -46,14 +50,15 @@ shortcut (on the Steam Deck: *Target*) at `recharged`.
 ## 3. Start
 
 Run **`recharged.exe`** (Windows), **`Recharged.app`** (macOS) or
-**`recharged`** (Linux). The builds are not signed, so the system asks once:
+**`recharged`** (Linux). The system asks once:
 
-- **Windows:** if SmartScreen warns, choose *More info → Run anyway*.
-- **macOS:** before the first start, run
-  `xattr -dr com.apple.quarantine <unpacked folder>` in Terminal, or allow the
-  app under *System Settings → Privacy & Security* (*Open Anyway*). If macOS
-  then starts it from a temporary copy, Recharged offers to do the `xattr`
-  step itself and start again. Gamepads and Wii Remotes also need the
+- **Windows:** the build is not signed. If SmartScreen warns, choose
+  *More info → Run anyway*.
+- **macOS:** the app is signed and notarized by Apple, so macOS only asks
+  whether to open an app downloaded from the internet: choose *Open*. If macOS
+  then starts it from a temporary copy (it can, as the app came in a folder),
+  Recharged offers *Allow and restart*, which clears the download mark on its
+  folder and starts it again from there. Gamepads and Wii Remotes also need the
   **Input Monitoring** permission
   ([details](TROUBLESHOOTING.md#macos-controllers-do-nothing)).
   The `recharged` file beside the app starts it from Terminal.

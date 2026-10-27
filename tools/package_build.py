@@ -51,6 +51,8 @@ WINDOWS_SYSTEM_DLLS = frozenset((
 MACOS_APP = "Recharged.app"
 MACOS_APP_FILES = ("Contents/Info.plist", "Contents/MacOS/recharged", "Contents/Resources/recharged.icns",
                    "Contents/_CodeSignature/CodeResources")
+# Apple's notarization ticket, which tools/sign_macos.py staples to the app.
+MACOS_APP_TICKET = "Contents/CodeResources"
 # Beside the app: starts its program from a terminal, with the output there.
 # Launchers from before the app restart this program after an update.
 MACOS_START_SCRIPT = b"""#!/bin/sh
@@ -284,6 +286,97 @@ def cargo_packages(build, cache):
                       "edges": ["normal", "build"]}
 
 
+def package_readme(version, system, arch, steamdeck=False, signature=None):
+    """PACKAGE-README.md. `signature`: how a Mac package is signed (macos_package.py)."""
+    windows, macos = system == "windows", system == "macos"
+    run_command = "recharged.exe" if windows else "./recharged"
+    runtime_note = ", the runtime DLLs" if windows else ""
+    start = MACOS_APP if macos else run_command.removeprefix("./")
+    beside = MACOS_APP if macos else "the executable"
+    signed = bool(signature and signature.get("team"))
+    readme = f"""# Recharged build package
+
+Build: {version} ({system}, {arch}).
+
+Extract the entire directory, then start {start} (the launcher), or
+run the game directly from a terminal:
+
+    {run_command} --disc /path/to/R4QE01.rvz --window
+
+Keep the loadable modules{runtime_note} and assets beside {beside}. Game data is not
+included; players supply their own disc image (Mario Strikers Charged, USA
+R4QE01 revision 1 or Europe R4QP01 revision 1 or 2, as ISO, RVZ or WBFS). docs/INSTALL.md covers the first start,
+docs/SETTINGS.md the settings and docs/TROUBLESHOOTING.md common problems.
+
+Host prerequisites remain system components: on Linux, the C/C++ runtimes,
+Vulkan loader/driver and desktop/input/audio services; on macOS, the system
+C/C++ runtimes and Metal, Cocoa, QuartzCore and CoreAudio frameworks; on
+Windows 10/11, the Universal C Runtime and a Vulkan or DirectX 12 driver. Select
+the Windows graphics API in the launcher's Advanced page. The LLVM-MinGW C++
+runtime and DirectX shader compiler DLLs are included on Windows (notices in
+LICENSES/toolchain, LICENSES/dxc and LICENSES/windows-sdk). This
+archive does not bundle system libraries{"" if signed else " and is not signed"}.
+
+SOURCE-MANIFEST.json records the embedded build version, packaging source HEAD,
+prepared pins/patches and payload hashes. The packaging HEAD can differ from the
+compiled revision in the embedded version. LICENSES/dependencies contains the
+prepared source notices (including build-time/nested components); LICENSES/rust
+contains Cargo.lock and notices for the resolved nod-ffi graph. This conservative
+notice inventory does not assert that every configured component is linked.
+FreeType uses the FreeType License; Zstandard uses its BSD option. Source links
+and any component-specific obligations remain in the accompanying notices.
+Launcher artwork provenance and its unspecified redistribution license are
+recorded in assets/launcher/README.md and LICENSES/README.md.
+"""
+    if macos:
+        both = "It runs natively on Apple Silicon and Intel Macs.\n" if arch == "universal" else ""
+        if not signed:
+            seal = "This package is not signed: docs/INSTALL.md explains the first start."
+        elif signature.get("notarized"):
+            seal = "Recharged.app and the modules are signed with a Developer ID and notarized by Apple."
+        else:
+            seal = "Recharged.app and the modules are signed with a Developer ID (not notarized)."
+        readme += f"""
+## macOS
+
+Recharged.app holds only the program; it finds its modules, assets, settings
+and saves in the folder around it, so keep the folder together. The recharged
+script beside it starts the same program from Terminal, with its output there.
+{both}{seal}
+"""
+    if steamdeck:
+        readme += """
+## Steam Deck
+
+This package is the Linux x86_64 build checked against SteamOS 3.7 or newer:
+it needs no newer system libraries than glibc 2.40 and the GCC 14 C++ runtime.
+docs/STEAM_DECK.md has the full guide; in short:
+
+1. In Desktop Mode, extract the directory to a folder you can write to, for
+   example ~/Games/recharged.
+2. In Steam, choose Games > Add a Non-Steam Game to My Library, browse to
+   recharged in that folder and add it. Leave Compatibility unchecked.
+3. In Gaming Mode, apply the Gamepad controller template to it and start it.
+   Choose your disc image on the launcher's Game page, set player 1 to
+   gamepad1 on the Controls page and press Play.
+"""
+    return readme
+
+
+def write_tarball(destination, stage, package_name):
+    """stage's files in one top folder, package_name: the folder first, then its contents sorted."""
+    with tarfile.open(destination, "w:gz") as archive:
+        for path in [stage] + sorted(stage.rglob("*")):
+            info = archive.gettarinfo(str(path), str(Path(package_name) / path.relative_to(stage)))
+            info.uid = info.gid = 0
+            info.uname = info.gname = ""
+            if path.is_file():
+                with path.open("rb") as stream:
+                    archive.addfile(info, stream)
+            else:
+                archive.addfile(info)
+
+
 def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=False):
     build, output, source = build.resolve(), output.resolve(), source.resolve()
     cache = cache_values(build)
@@ -466,69 +559,7 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
                 raise PackageError(f"Unexpected unpinned local Rust dependency: {key[:2]}")
             rust.append(item)
 
-        run_command = "recharged.exe" if windows else "./recharged"
-        runtime_note = ", the runtime DLLs" if windows else ""
-        start = MACOS_APP if macos else executable_name
-        beside = MACOS_APP if macos else "the executable"
-        readme = f"""# Recharged build package
-
-Build: {version} ({system}, {arch}).
-
-Extract the entire directory, then start {start} (the launcher), or
-run the game directly from a terminal:
-
-    {run_command} --disc /path/to/R4QE01.rvz --window
-
-Keep the loadable modules{runtime_note} and assets beside {beside}. Game data is not
-included; players supply their own disc image (Mario Strikers Charged, USA
-R4QE01 revision 1 or Europe R4QP01 revision 1 or 2, as ISO, RVZ or WBFS). docs/INSTALL.md covers the first start,
-docs/SETTINGS.md the settings and docs/TROUBLESHOOTING.md common problems.
-
-Host prerequisites remain system components: on Linux, the C/C++ runtimes,
-Vulkan loader/driver and desktop/input/audio services; on macOS, the system
-C/C++ runtimes and Metal, Cocoa, QuartzCore and CoreAudio frameworks; on
-Windows 10/11, the Universal C Runtime and a Vulkan or DirectX 12 driver. Select
-the Windows graphics API in the launcher's Advanced page. The LLVM-MinGW C++
-runtime and DirectX shader compiler DLLs are included on Windows (notices in
-LICENSES/toolchain, LICENSES/dxc and LICENSES/windows-sdk). This
-archive does not bundle system libraries and is not signed.
-
-SOURCE-MANIFEST.json records the embedded build version, packaging source HEAD,
-prepared pins/patches and payload hashes. The packaging HEAD can differ from the
-compiled revision in the embedded version. LICENSES/dependencies contains the
-prepared source notices (including build-time/nested components); LICENSES/rust
-contains Cargo.lock and notices for the resolved nod-ffi graph. This conservative
-notice inventory does not assert that every configured component is linked.
-FreeType uses the FreeType License; Zstandard uses its BSD option. Source links
-and any component-specific obligations remain in the accompanying notices.
-Launcher artwork provenance and its unspecified redistribution license are
-recorded in assets/launcher/README.md and LICENSES/README.md.
-"""
-        if macos:
-            readme += """
-## macOS
-
-Recharged.app holds only the program; it finds its modules, assets, settings
-and saves in the folder around it, so keep the folder together. The recharged
-script beside it starts the same program from Terminal, with its output there.
-This package is not signed: docs/INSTALL.md explains the first start.
-"""
-        if steamdeck:
-            readme += """
-## Steam Deck
-
-This package is the Linux x86_64 build checked against SteamOS 3.7 or newer:
-it needs no newer system libraries than glibc 2.40 and the GCC 14 C++ runtime.
-docs/STEAM_DECK.md has the full guide; in short:
-
-1. In Desktop Mode, extract the directory to a folder you can write to, for
-   example ~/Games/recharged.
-2. In Steam, choose Games > Add a Non-Steam Game to My Library, browse to
-   recharged in that folder and add it. Leave Compatibility unchecked.
-3. In Gaming Mode, apply the Gamepad controller template to it and start it.
-   Choose your disc image on the launcher's Game page, set player 1 to
-   gamepad1 on the Controls page and press Play.
-"""
+        readme = package_readme(version, system, arch, steamdeck)
         put("PACKAGE-README.md", readme.encode())
         manifest = {"format": 1, "version": version, "platform": "steamdeck" if steamdeck else system,
                     "architecture": arch,
@@ -553,16 +584,7 @@ docs/STEAM_DECK.md has the full guide; in short:
                     if path.is_file():
                         archive.write(path, path.relative_to(stage).as_posix())
         else:
-            with tarfile.open(temporary_archive, "w:gz") as archive:
-                for path in [stage] + sorted(stage.rglob("*")):
-                    info = archive.gettarinfo(str(path), str(Path(package_name) / path.relative_to(stage)))
-                    info.uid = info.gid = 0
-                    info.uname = info.gname = ""
-                    if path.is_file():
-                        with path.open("rb") as stream:
-                            archive.addfile(info, stream)
-                    else:
-                        archive.addfile(info)
+            write_tarball(temporary_archive, stage, package_name)
         destination = output / (package_name + extension)
         os.replace(temporary_archive, destination)
     return destination
