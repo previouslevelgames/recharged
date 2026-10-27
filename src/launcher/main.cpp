@@ -217,6 +217,8 @@ constexpr const char* kStadiumNames[] = {"Battle Dome", "Bowser Stadium", "Crate
                                          "Galactic Stadium", "Konga Coliseum", "The Lava Pit", "Pipeline Central",
                                          "Stormship Stadium", "The Palace", "Thunder Island", "The Underground",
                                          "The Vice", "The Wastelands", "The Sand Tomb", "The Classroom"};
+constexpr const char* kSkillNames[] = {"Training", "Rookie", "Professional", "Superstar", "Legend", "Megastriker"};
+static_assert(std::size(kSkillNames) == mscharged::kTrainingSkills.size());
 static_assert(std::size(kTrainingItemNames) == mscharged::kTrainingItems.size()
     && std::size(kCaptainNames) == mscharged::kTrainingCaptains.size()
     && std::size(kStadiumNames) == mscharged::kTrainingStadiums.size());
@@ -7434,10 +7436,39 @@ private:
         if (ChoiceButton("training_captain", draft_.training_captain, kTrainingCaptains, kCaptainNames)) dirty_ = true;
         Row("Stadium", "Start training's stadium.");
         if (ChoiceButton("training_stadium", draft_.training_stadium, kTrainingStadiums, kStadiumNames)) dirty_ = true;
+        Row("Your team", "The side you play: home or away. Controller 1 plays it.");
+        {
+            static constexpr std::array<const char*, 2> keys{"home", "away"};
+            static constexpr const char* labels[] = {"Home", "Away"};
+            if (ChoiceButton("training_side", draft_.training_side, keys, labels)) dirty_ = true;
+        }
+        Row("Opponent captain", "The other team's captain, with their sidekicks from the Teams page. The same as "
+                                "yours plays as Bowser, or Mario against Bowser.");
+        if (ChoiceButton("training_away_captain", draft_.training_away_captain, kTrainingCaptains, kCaptainNames))
+            dirty_ = true;
+        Row("Opponent fielders", "How many of the other team's four fielders play, the captain last to go; the rest "
+                                 "vanish at every kickoff, as in the Strikers 101 lessons.");
+        {
+            static constexpr std::array<const char*, 5> keys{"0", "1", "2", "3", "4"};
+            static constexpr const char* labels[] = {"None", "1", "2", "3", "All 4"};
+            std::string value = std::to_string(draft_.training_away_fielders);
+            if (ChoiceButton("training_away_fielders", value, keys, labels))
+            {
+                draft_.training_away_fielders = value[0] - '0';
+                dirty_ = true;
+            }
+        }
+        Row("Opponent skill", "How well the other team's players play. Training is the level of the Strikers 101 "
+                              "lessons, below Rookie.");
+        if (ChoiceButton("training_away_skill", draft_.training_away_skill, kTrainingSkills, kSkillNames)) dirty_ = true;
+        Row("Opponent goalie", "Whether the other team's goalie plays. Off, the goal is empty.");
+        if (Toggle("##training_away_goalie", &draft_.training_away_goalie)) dirty_ = true;
+        Row("Skip intro and replays", "The match starts at the kickoff, and a goal goes straight to the next one, without its "
+                                      "celebration and replay. A Mega Strike's goal keeps its own.");
+        if (Toggle("##training_skip_goals", &draft_.training_skip_goals)) dirty_ = true;
         const std::string blocker = PlayBlocker();
         Row("Start training", "Starts the game straight into a match to 10 goals that never ends on them, past the "
-                              "intro and the menus. The other team's captain and sidekicks vanish at every kickoff, "
-                              "as in the Strikers 101 lessons; its goalie stays. Controller 1 plays the home team.");
+                              "intro and the menus.");
         if (SecondaryButton("start_training", "Start training", {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()},
                             blocker.empty(), Icon::Play))
             training_requested_ = true;

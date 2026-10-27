@@ -111,6 +111,10 @@ inline constexpr std::array<const char*, 17> kTrainingStadiums{
     "battledome", "bowserstadium", "craterfield", "crystalcanyon", "dump", "galacticstadium", "kongacoliseum",
     "lavapit", "pipelinecentral", "stormship", "thepalace", "thunderisland", "underground", "vice", "wastelands",
     "sandtomb", "tutorialfield"};
+// Training's opponent skill ([gameplay] training_away_skill): the game's skill
+// levels in order, 0 (the Strikers 101 lessons') to 5, as its Gameplay options number them.
+inline constexpr std::array<const char*, 6> kTrainingSkills{
+    "training", "rookie", "professional", "superstar", "legend", "megastriker"};
 
 // The position of `name` in one of the tables above, or -1.
 template <std::size_t Size>

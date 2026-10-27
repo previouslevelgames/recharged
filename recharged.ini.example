@@ -287,8 +287,15 @@ show_hud = true
 # (battledome, bowserstadium, craterfield, crystalcanyon, dump,
 # galacticstadium, kongacoliseum, lavapit, pipelinecentral, stormship,
 # thepalace, thunderisland, underground, vice, wastelands, sandtomb,
-# tutorialfield). The other team's captain and sidekicks vanish at every
-# kickoff (its goalie stays), and your team starts every kickoff with
+# tutorialfield). The other team plays training_away_captain (same names;
+# the same as yours plays as Bowser, or Mario against Bowser) with its
+# sidekicks from the save, but only training_away_fielders (0 to 4) of its
+# fielders play, the rest vanishing at every kickoff, at training_away_skill
+# (training, rookie, professional, superstar, legend or megastriker), and its goalie only if
+# training_away_goalie is true. With training_skip_goals the match starts at the
+# kickoff and a goal goes straight to the next one, without its celebration and replay (a Mega
+# Strike's goal keeps its own). training_side (home or away) is the team
+# you play, and it starts every kickoff with
 # training_item (none, green_shell, red_shell, spiny_shell, freeze_shell,
 # banana, bobomb, chain_chomp, mushroom, star) and keeps every item it uses,
 # in a match to 10 goals that never ends on them.
@@ -310,6 +317,12 @@ match_point = true
 training_item = green_shell
 training_captain = mario
 training_stadium = tutorialfield
+training_away_captain = bowser
+training_away_fielders = 0
+training_away_goalie = true
+training_skip_goals = true
+training_away_skill = rookie
+training_side = home
 
 [mods]
 # Texture packs made for Dolphin (folders or .zip files with tex1_*.png or

@@ -174,9 +174,13 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
 - **Training**: **Start training** on the Gameplay page (or `--training`)
   goes past the intro and the menus straight into a Domination match with
   the chosen captain, the sidekicks of their lineup on the Teams page, and
-  the chosen stadium. The other team's captain and sidekicks vanish at every
-  kickoff, as in the Strikers 101 lessons; its goalie stays in goal. Your
-  team starts every kickoff with the chosen item and keeps every item it
+  the chosen stadium, on the home or the away side. The other team has the captain you choose (Bowser by
+  default), with the sidekicks of their lineup on the Teams page, but only as
+  many of its four fielders as you choose play (none by default; the rest
+  vanish at every kickoff, as in the Strikers 101 lessons), at the skill you
+  choose, and its goalie can be taken out of the goal. The match can start at the kickoff, and a
+  goal go straight to the next one, without its celebration and replay; a Mega Strike's goal keeps its own.
+  Your team starts every kickoff with the chosen item and keeps every item it
   uses, in a match to 10 goals that never ends on them (leave it from the
   pause menu). Every other match is unchanged.
 - **Fair ball contests**: when players of both teams reach a loose ball in

@@ -59,6 +59,11 @@ Values Encode(const Settings& s)
             {"game.language", s.language}, {"gameplay.super_team_side", s.super_team_side},
             {"gameplay.training_item", s.training_item}, {"gameplay.training_captain", s.training_captain},
             {"gameplay.training_stadium", s.training_stadium},
+            {"gameplay.training_away_captain", s.training_away_captain},
+            {"gameplay.training_away_fielders", std::to_string(s.training_away_fielders)},
+            {"gameplay.training_away_goalie", s.training_away_goalie ? "true" : "false"},
+            {"gameplay.training_skip_goals", s.training_skip_goals ? "true" : "false"},
+            {"gameplay.training_away_skill", s.training_away_skill}, {"gameplay.training_side", s.training_side},
             {"display.width", std::to_string(s.width)}, {"display.height", std::to_string(s.height)},
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.fullscreen_resolution", s.fullscreen_resolution},
@@ -409,6 +414,12 @@ Settings Decode(const Values& values)
     training("gameplay.training_item", s.training_item, kTrainingItems);
     training("gameplay.training_captain", s.training_captain, kTrainingCaptains);
     training("gameplay.training_stadium", s.training_stadium, kTrainingStadiums);
+    training("gameplay.training_away_captain", s.training_away_captain, kTrainingCaptains);
+    number("gameplay.training_away_fielders", s.training_away_fielders, 0, 4);
+    boolean("gameplay.training_away_goalie", s.training_away_goalie);
+    boolean("gameplay.training_skip_goals", s.training_skip_goals);
+    training("gameplay.training_away_skill", s.training_away_skill, kTrainingSkills);
+    choice("gameplay.training_side", s.training_side, {"home", "away"});
     return s;
 }
 

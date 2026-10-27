@@ -40,3 +40,4 @@
 0041-rollback-determ-data-once-per-step.patch
 0042-rollback-replay-draws-nothing.patch
 0043-rollback-image-reads-wait.patch
+0044-tweak-training-opponent.patch
