@@ -58,7 +58,7 @@ MACOS_START_SCRIPT = b"""#!/bin/sh
 exec "$(dirname "$0")/Recharged.app/Contents/MacOS/recharged" "$@"
 """
 PUBLIC_FILES = ("README.md", "LICENSE", "recharged.ini.example", "docs/INSTALL.md", "docs/STEAM_DECK.md",
-                "docs/FEATURES.md", "docs/SETTINGS.md", "docs/TROUBLESHOOTING.md", "docs/ARCHITECTURE.md",
+                "docs/SWITCH.md", "docs/FEATURES.md", "docs/SETTINGS.md", "docs/TROUBLESHOOTING.md", "docs/ARCHITECTURE.md",
                 "docs/BUILDING.md", "LICENSES/README.md", "LICENSES/Apache-2.0.txt",
                 "extern/README.md")
 # SteamOS 3.7 (Steam Deck): glibc 2.40 and the GCC 14 runtime (gcc-libs 14.2),
@@ -658,6 +658,10 @@ def package_switch(build, output, source):
         put("PACKAGE-README.md", f"""# Recharged for the Nintendo Switch
 
 Build: {version} (switch, aarch64).
+
+This is homebrew, not an official Nintendo Switch game. It runs only on a
+Switch with custom firmware (Atmosphère) and the Homebrew Menu, started in
+title mode: hold R while starting any game, then pick Recharged.
 
 Unpack this archive to the root of the SD card: it creates /switch/recharged/
 with recharged.nro. Copy your own disc image (Mario Strikers Charged, USA
