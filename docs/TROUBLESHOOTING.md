@@ -66,8 +66,10 @@ can also quarantine new unsigned programs; restore the file and allow it.
 
 ## macOS: the app cannot be opened
 
-The builds are not signed. Allow the app under *System Settings → Privacy &
-Security* (*Open Anyway*), or run in Terminal:
+The packages on the release page are signed and notarized by Apple: macOS
+only asks whether to open an app from the internet. A build from elsewhere (your
+own, or one from a fork) is not signed. Allow it under *System Settings →
+Privacy & Security* (*Open Anyway*), or run in Terminal:
 
 ```sh
 xattr -dr com.apple.quarantine <unpacked folder>

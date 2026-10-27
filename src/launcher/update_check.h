@@ -41,7 +41,8 @@ struct BuildIdentity
     std::int64_t run = 0;     // CI run, 0 for none
     std::int64_t built = 0;   // build time, seconds since 1970 (0: unknown)
     std::int64_t commit_time = 0;
-    std::string package; // linux-x86_64, steamdeck-x86_64, macos-arm64, macos-x86_64, windows-x86_64
+    // linux-x86_64, steamdeck-x86_64, windows-x86_64, macos-universal, macos-arm64, macos-x86_64
+    std::string package;
     // When the build was made: the build time, else its commit's time.
     std::int64_t Time() const { return built ? built : commit_time; }
 };
@@ -75,7 +76,8 @@ struct PublishedBuild
     PortVersion version;
     std::int64_t published = 0;
     std::vector<PackageAsset> assets;
-    // The package for a package id (e.g. windows-x86_64), or null.
+    // The package for a package id (e.g. windows-x86_64), or null. A Mac takes
+    // the universal package when there is one.
     const PackageAsset* PackageFor(const std::string& package) const;
     const PackageAsset* Checksums() const; // SHA256SUMS, or null
 };
