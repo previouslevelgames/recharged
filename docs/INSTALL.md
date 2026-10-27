@@ -37,7 +37,7 @@ made with older system libraries.
   write to, for example `Games/recharged` in your home folder.
 - **macOS:** open the disk image and drag the **Recharged** folder onto
   **Applications** (or into any other folder you can write to). Copy the whole
-  folder, not only `Recharged.app` inside it.
+  folder, not only `Recharged.app` inside it. Then eject the disk image.
 
 Keep all files together: the program (`Recharged.app` on macOS), its two
 modules and the `assets` folder. Settings, saves and logs are stored in this
@@ -59,14 +59,16 @@ Run **`recharged.exe`** (Windows), **`Recharged.app`** (macOS) or
 
 - **Windows:** the build is not signed. If SmartScreen warns, choose
   *More info → Run anyway*.
-- **macOS:** the app is signed and notarized by Apple, so macOS only asks
-  whether to open an app downloaded from the internet: choose *Open*. Recharged
-  may then ask once to *Allow and restart*: macOS started it from a temporary
-  read-only copy, where it cannot see its folder. Recharged clears the download
-  mark on its folder and starts again from there. Gamepads and Wii Remotes also
-  need the **Input Monitoring** permission
-  ([details](TROUBLESHOOTING.md#macos-controllers-do-nothing)).
-  The `recharged` file beside the app starts it from Terminal.
+- **macOS:** start it the first time in Finder from the folder you copied:
+  *Applications → Recharged → Recharged.app*, not from the disk image. From then
+  on Spotlight or the Dock start it too. The app is signed and notarized by
+  Apple, so macOS only asks whether to open an app downloaded from the internet:
+  choose *Open*. Recharged may then ask once to *Allow and restart*: macOS
+  started it from a temporary read-only copy, where it cannot see its folder.
+  Recharged clears the download mark on its folder and starts again from there.
+  Gamepads and Wii Remotes also need the **Input Monitoring** permission
+  ([details](TROUBLESHOOTING.md#macos-controllers-do-nothing)). The `recharged`
+  file beside the app starts it from Terminal.
 - **Linux:** if the file will not start, mark it executable
   (`chmod +x recharged`).
 

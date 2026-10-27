@@ -48,9 +48,11 @@ Get the package for your system from the
 </tr>
 </table>
 
-1. Unpack the package into a folder of its own. On a Mac, open the disk image
-   and drag the **Recharged** folder to **Applications**.
-2. Start `recharged` (`recharged.exe` on Windows, `Recharged.app` on macOS).
+1. Unpack the package into a folder of its own. On a Mac, open the disk image,
+   drag the **Recharged** folder to **Applications** and eject the image.
+2. Start `recharged` (`recharged.exe` on Windows). On a Mac, start it the first
+   time in Finder from *Applications → Recharged → Recharged.app*, not from
+   the disk image; later Spotlight or the Dock start it too.
 3. In the launcher, add the folder with your game image (or choose the image)
    and press **Play**.
 
