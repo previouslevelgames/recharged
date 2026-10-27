@@ -5220,10 +5220,10 @@ private:
 
     void FrameRateChoice()
     {
-        static constexpr const char* values[] = {"original", "display", "120", "144", "unlimited"};
+        static constexpr const char* values[] = {"original", "display", "30", "60", "120", "144", "unlimited"};
         int selected = -1;
-        for (int i = 0; i < 5; ++i) if (draft_.frame_rate == values[i]) selected = i;
-        if (Segmented("##frame_rate", &selected, {"Original", "Display", "120", "144", "Unlimited"},
+        for (int i = 0; i < 7; ++i) if (draft_.frame_rate == values[i]) selected = i;
+        if (Segmented("##frame_rate", &selected, {"Original", "Display", "30", "60", "120", "144", "Unlimited"},
                       ImGui::GetContentRegionAvail().x))
         { draft_.frame_rate = values[selected]; dirty_ = true; }
         const auto rate = ParseFrameRate(draft_.frame_rate);
