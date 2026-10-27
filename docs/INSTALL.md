@@ -2,7 +2,8 @@
 
 Ready-made packages for Windows, Linux, Steam Deck and macOS. You do not need
 to build anything. On a Steam Deck, follow the [Steam Deck guide](STEAM_DECK.md)
-instead.
+instead. A homebrew version for Nintendo Switch consoles with custom firmware
+is in development: see the [Switch guide](SWITCH.md).
 
 > **The packages contain no game files.** You need your own copy of
 > **Mario Strikers Charged** as an `.iso`, `.rvz` or `.wbfs` disc image: the
