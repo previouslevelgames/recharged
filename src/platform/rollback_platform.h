@@ -4,7 +4,7 @@
 #include <cstdint>
 
 // What the rollback (rollback_engine.cpp and its files) needs from the system, on Linux,
-// macOS and Windows. Nothing here allocates with the game's operator new.
+// macOS, Windows and the Nintendo Switch. Nothing here allocates with the game's operator new.
 namespace mscharged::platform
 {
 // Return addresses of the calls under way, the caller's first.

@@ -47,7 +47,7 @@
 #include "Game/Goalie.h"
 #include "platform/rollback_state.h"
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__SWITCH__)
 #include <dlfcn.h>
 #endif
 #include <cstdarg>
@@ -598,10 +598,11 @@ void Watchdog()
     }
 }
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__SWITCH__)
 // The game module's own code that throws, logged while the test runs: the
 // runtime only reports what() when the game stops. (Not on Windows, where the
-// module links the C++ runtime's __cxa_throw itself.)
+// module links the C++ runtime's __cxa_throw itself, nor on the Switch, whose
+// program has no dynamic symbols to find the runtime's in.)
 constexpr int kListedThrows = 8;
 int sThrows;
 
@@ -893,7 +894,7 @@ extern "C" void mscharged_rollback_frame_start(void)
     BeginFrameRecord();
 }
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__SWITCH__)
 // Calls to __cxa_throw from the game module bind to this one (hidden), which
 // logs the throw and goes on to the C++ runtime's. It has a name of its own
 // and takes __cxa_throw's symbol: GCC 15 declares __cxa_throw itself, with
