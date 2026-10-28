@@ -3119,9 +3119,10 @@ private:
         const float caption = FontSize(fonts.caption);
         const float detail_height =
             detail.empty() ? 0.0f : fonts.caption->CalcTextSizeA(caption, FLT_MAX, wrap, detail.c_str()).y;
-        const float pill = Dp(28), pill_gap = Dp(6);
+        // With one note the status is as tall as the button: its pill ends with it.
+        const float pill = Dp(28), pill_gap = Dp(6), pill_top = Dp(8);
         float height = Dp(26) + detail_height;
-        if (!notes.empty()) height += Dp(4) + float(notes.size()) * (pill + pill_gap) - pill_gap;
+        if (!notes.empty()) height += pill_top + float(notes.size()) * (pill + pill_gap) - pill_gap;
         if (missing) height += Dp(4) + Dp(32);
         const ImVec2 pos{anchor.x, std::floor(anchor.y - height * 0.5f)};
 
@@ -3134,18 +3135,20 @@ private:
             draw->AddText(fonts.caption, caption, {text_x, y}, Col(color::muted), detail.c_str(), nullptr, wrap);
             y += detail_height;
         }
+        // The pills (and the missing image's buttons) start at the status's left
+        // edge, under the icon, so that a pill's text lines up with the headline.
         ImGui::PushID("play_status");
         for (std::size_t i = 0; i < notes.size(); ++i)
         {
-            ImGui::SetCursorScreenPos({pos.x + Dp(22), y + Dp(4) + float(i) * (pill + pill_gap)});
+            ImGui::SetCursorScreenPos({pos.x, y + pill_top + float(i) * (pill + pill_gap)});
             ImGui::PushID(int(i));
-            if (StatusPill("##note", notes[i], limit - pos.x - Dp(22))) page_ = notes[i].page;
+            if (StatusPill("##note", notes[i], limit - pos.x)) page_ = notes[i].page;
             ImGui::PopID();
         }
         ImGui::PopID();
         if (missing)
         {
-            ImGui::SetCursorScreenPos({pos.x + Dp(22), y + Dp(4)});
+            ImGui::SetCursorScreenPos({pos.x, y + Dp(4)});
             MissingImageActions(limit);
         }
     }
