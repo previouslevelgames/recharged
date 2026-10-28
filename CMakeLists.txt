@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 1.0.16 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.1.0 LANGUAGES C CXX)
 
 # The game module replaces the global operator new/delete with allocators whose
 # scopes are global state. GCC 15 assumes replaceable new/delete leave global
@@ -59,6 +59,28 @@ if(NOT MSCHARGED_DISCORD_APPLICATION_ID MATCHES "^[0-9]*$"
 endif()
 if(MSCHARGED_BUILD_CHANNEL STREQUAL "test" AND MSCHARGED_BUILD_PULL_REQUEST STREQUAL "0")
     message(FATAL_ERROR "A test build needs MSCHARGED_BUILD_PULL_REQUEST")
+endif()
+# The hidden autopilot for online tests (C, P and U together in a match hand
+# the first player to a bot, src/platform/autopilot.cpp). It plays like a
+# person, so a release must never carry it: AUTO builds it into test and dev
+# builds only, and a release build refuses ON. CI passes the repository
+# variable RECHARGED_AUTOPILOT, so OFF there also takes it out of test builds.
+set(MSCHARGED_AUTOPILOT AUTO CACHE STRING "Hidden autopilot for online tests: AUTO (test and dev builds), ON or OFF")
+set_property(CACHE MSCHARGED_AUTOPILOT PROPERTY STRINGS AUTO ON OFF)
+if(NOT MSCHARGED_AUTOPILOT MATCHES "^(AUTO|ON|OFF)$")
+    message(FATAL_ERROR "MSCHARGED_AUTOPILOT must be AUTO, ON or OFF")
+endif()
+if(MSCHARGED_AUTOPILOT STREQUAL "ON" AND MSCHARGED_BUILD_CHANNEL STREQUAL "release")
+    message(FATAL_ERROR "A release build cannot carry the autopilot (MSCHARGED_AUTOPILOT=ON)")
+endif()
+if(MSCHARGED_AUTOPILOT STREQUAL "ON"
+   OR (MSCHARGED_AUTOPILOT STREQUAL "AUTO" AND NOT MSCHARGED_BUILD_CHANNEL STREQUAL "release"))
+    set(MSCHARGED_AUTOPILOT_ENABLED ON)
+    # The host's chord exists only beside a module with the bot (cmake/OriginalFrontendDiagnostic.cmake).
+    set_property(SOURCE src/platform/hotkey_filter.cpp src/runtime/original_game.cpp tests/desktop_wpad_profile_tests.cpp
+        APPEND PROPERTY COMPILE_DEFINITIONS MSCHARGED_AUTOPILOT=1)
+else()
+    set(MSCHARGED_AUTOPILOT_ENABLED OFF)
 endif()
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
@@ -257,7 +279,9 @@ target_compile_features(charged_host PUBLIC cxx_std_17)
 target_link_libraries(charged_host PRIVATE nod::nod)
 add_executable(mscharged-bootstrap src/bootstrap/main.cpp)
 target_link_libraries(mscharged-bootstrap PRIVATE charged_foundation charged_host)
-configure_file(assets/launcher/header.png assets/launcher/header.png COPYONLY)
+configure_file(assets/launcher/header_back.png assets/launcher/header_back.png COPYONLY)
+configure_file(assets/launcher/header_front.png assets/launcher/header_front.png COPYONLY)
+configure_file(assets/launcher/header_strokes.png assets/launcher/header_strokes.png COPYONLY)
 set(MSCHARGED_VERSION_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mscharged")
 add_custom_target(update_build_version
     COMMAND "${CMAKE_COMMAND}"
@@ -344,6 +368,31 @@ if(BUILD_TESTING)
     add_executable(foundation_tests tests/foundation.cpp)
     target_link_libraries(foundation_tests PRIVATE charged_foundation)
     add_test(NAME foundation COMMAND foundation_tests)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE OR WIN32)
+        add_executable(rollback_snapshot_tests tests/rollback_snapshot.cpp src/platform/rollback_snapshot.cpp)
+        target_compile_features(rollback_snapshot_tests PRIVATE cxx_std_20)
+        target_include_directories(rollback_snapshot_tests PRIVATE src)
+        add_test(NAME rollback_snapshot COMMAND rollback_snapshot_tests)
+        set_tests_properties(rollback_snapshot PROPERTIES TIMEOUT 60)
+    endif()
+    # The registry's rollback checkpoint on the original allocator.
+    add_executable(game_allocation_rollback_tests tests/game_allocation_rollback.cpp
+        "${MSCHARGED_PREPARED}/src/NL/MemAlloc.cpp" src/platform/game_allocation_ownership.cpp)
+    add_dependencies(game_allocation_rollback_tests verify_prepared)
+    target_compile_features(game_allocation_rollback_tests PRIVATE cxx_std_17)
+    target_include_directories(game_allocation_rollback_tests PRIVATE src "${MSCHARGED_PREPARED}/include"
+        "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+    target_compile_definitions(game_allocation_rollback_tests PRIVATE
+        MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 TARGET_PC=1)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
+        target_compile_options(game_allocation_rollback_tests PRIVATE
+            -fno-strict-aliasing -ffp-contract=off -fsigned-char -Wno-unknown-pragmas)
+    endif()
+    add_test(NAME game_allocation_rollback COMMAND game_allocation_rollback_tests)
+    set_tests_properties(game_allocation_rollback PROPERTIES TIMEOUT 60)
+    # The launcher that gathers the game's globals for the rollback on Mach-O.
+    add_test(NAME rollback_sections
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_rollback_sections.py")
     add_test(NAME source_preparation
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_prepare_sources.py")
     if(MSCHARGED_PREPARED_FORMATTED)
@@ -415,6 +464,11 @@ if(BUILD_TESTING)
     target_compile_definitions(game_tweaks_tests PRIVATE MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 MSCHARGED_TWEAKS=1)
     target_compile_features(game_tweaks_tests PRIVATE cxx_std_17)
     add_test(NAME game_tweaks COMMAND game_tweaks_tests)
+    # The autopilot's sticks and shakes, read back the way the game reads the pad.
+    add_executable(autopilot_pad_tests tests/autopilot_pad.cpp)
+    target_include_directories(autopilot_pad_tests PRIVATE src)
+    target_compile_features(autopilot_pad_tests PRIVATE cxx_std_17)
+    add_test(NAME autopilot_pad COMMAND autopilot_pad_tests)
     # Mirror match away kits made from the home kit's textures.
     add_executable(away_kits_tests tests/away_kits.cpp src/platform/away_kits.cpp src/platform/gx_texture.cpp
         src/platform/host_metadata.cpp)

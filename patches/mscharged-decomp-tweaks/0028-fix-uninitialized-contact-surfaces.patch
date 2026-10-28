@@ -1,0 +1,61 @@
+Subject: Fix: physics contacts no longer start from stack leftovers
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+A fix of the original game, always on and without a switch. It lives in the
+tweak series so the faithful series stays retail.
+
+PhysicsWorld::SpaceCollideCallback collects up to 20 contacts in an
+uninitialized stack array. dCollide fills only each contact's geometry; the
+objects' Contact() then set some surface parameters (bounce, mu, soft_cfm,
+...) but none ever assigns surface.mode: they only set or clear flags in it.
+The mode ODE applies (bounce, second friction, friction direction, slip,
+softness) and every parameter no Contact() sets therefore came from whatever
+the stack held. On the Wii the same code left the same leftovers on every
+console, so lockstep matches agreed; natively the leftovers depend on the
+compiler, the operating system and the calls made before, and the contact
+joints differed between two runs of the same step (found by the rollback
+sync test: ODE's contact joint arena and AI fuzzy variables differed after a
+replay while the game's checksum still matched). The goalie's ball contact
+in PhysicsAIBall::CheckIfBallWentThroughGoalie has the same uninitialized
+dContact.
+
+Both now start zeroed: a contact's flags and parameters are exactly those the
+game sets. Where a leftover happened to enable a flag, contacts behave
+slightly differently from the original; no single native value could
+reproduce every Wii's leftovers.
+
+diff --git a/src/Game/Physics/PhysicsWorld.cpp b/src/Game/Physics/PhysicsWorld.cpp
+index ae9f3d7..b8b340c 100644
+--- a/src/Game/Physics/PhysicsWorld.cpp
++++ b/src/Game/Physics/PhysicsWorld.cpp
+@@ -148,6 +148,14 @@ void PhysicsWorld::SpaceCollideCallback(void* data, dxGeom* geom1, dxGeom* geom2
+ 
+     dContact* contact;
+     dContact contacts[20];
++#if defined(MSCHARGED_TWEAKS)
++    // Port fix, always on: dCollide fills only each contact's geometry, and no
++    // Contact() ever assigns surface.mode (they only set or clear flags in it)
++    // nor every surface parameter. The original used whatever the stack held,
++    // so the contact flags ODE applies (bounce, second friction, slip, ...)
++    // depended on earlier calls: the same on every Wii, not on every PC.
++    memset(contacts, 0, sizeof(contacts));
++#endif
+     dBodyID body1;
+ 
+     body1 = dGeomGetBody(geom1);
+diff --git a/src/Game/PhysicsAIBall.cpp b/src/Game/PhysicsAIBall.cpp
+index bcddb6f..e96a258 100644
+--- a/src/Game/PhysicsAIBall.cpp
++++ b/src/Game/PhysicsAIBall.cpp
+@@ -419,6 +419,11 @@ void PhysicsAIBall::CheckIfBallWentThroughGoalie()
+         SetPosition(ballPosition, WORLD_COORDINATES);
+ 
+         dContact contactInfo;
++#if defined(MSCHARGED_TWEAKS)
++        // Port fix, always on: no stack leftovers in the goalie contact's
++        // unset fields (see PhysicsWorld::SpaceCollideCallback).
++        contactInfo = dContact();
++#endif
+         SetContactInfo(&contactInfo, pGoalie->m_pPhysicsCharacter, true);
+ 
+         contactInfo.geom.normal[0] = contactNormal.x;

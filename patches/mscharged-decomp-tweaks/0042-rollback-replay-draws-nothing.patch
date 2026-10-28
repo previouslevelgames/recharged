@@ -1,0 +1,165 @@
+From: mscharged-port
+Subject: Rollback: a replay draws nothing
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+A rollback replays whole frames, GameRenderTask included, so that the
+presentation it took back with the match (the darkening after a goal, the
+indicators, the blinks, the frame lock, the goal replay that
+RenderSnapshotAt starts) follows the match again. The drawing ran too and
+went nowhere, as GLView drops what a replay attaches: 1.3 ms of every
+replayed frame, a third of it.
+
+During a replay (mscharged_rollback_resimulating) the drawing task now
+skips what only draws: RenderSnapshot::Render's characters, objects,
+power-ups, ball and nets, the world NPCs, the flares, the warble, the
+darkening, the shadow volumes and the score numbers. What updates still
+runs, the calls that update and draw as one included: the hidden actors'
+timer, the camera's up vector and the goal light in RenderSnapshot::Render,
+Blend (the stadium's animation, the goal light's and the goalie nets'
+state), the warble, the darkening and every other update of
+GameRenderTask. The picture in picture is left alone: it plays in the goal
+replays, which no rollback reaches.
+
+The characters' skin meshes then keep the poses of their last drawing
+after a replay: the simulation poses the characters with their own pose
+accumulators, the skin meshes only feed the drawing, and the next drawing
+poses them again. With a rollback every step, every replayed checksum was
+the first run's; the drawing task's replay went from 1320 to 669 us a
+frame, a rollback from 13.1 to 10.7 ms on average.
+
+diff --git a/src/Game/RenderSnapshot.cpp b/src/Game/RenderSnapshot.cpp
+index b2ea226..9d5c585 100644
+--- a/src/Game/RenderSnapshot.cpp
++++ b/src/Game/RenderSnapshot.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ #include "Game/Task/GameTaskState.h"
+ #include "Game/RenderSnapshot.h"
+ 
+@@ -364,6 +367,14 @@ void RenderSnapshot::Render(float deltaTime)
+     }
+     if (!mValid)
+         return;
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay draws nothing (GameRenderTask::Run): the hidden
++    // actors' timer, the camera's up vector and the goal light still follow.
++    // The characters' skin meshes keep the poses of their last drawing, which
++    // only the drawing reads: the next one poses them again.
++    const bool draw = !mscharged_rollback_resimulating();
++    if (draw)
++#endif
+     if (!allActorsHidden)
+     {
+         mChainChomp.Render(*gNPCManager->GetChainChomp());
+@@ -414,8 +425,15 @@ void RenderSnapshot::Render(float deltaTime)
+         }
+         mBall.Render();
+     }
++#if defined(MSCHARGED_TWEAKS)
++    if (draw)
++    {
++#endif
+     mpNetMeshPositiveX->Render();
+     mpNetMeshNegativeX->Render();
++#if defined(MSCHARGED_TWEAKS)
++    }
++#endif
+     if (nlTaskManager::m_pInstance->mCurrentState == TASK_GAMEPLAY)
+         cCameraManager::m_UpVectorStack[cCameraManager::m_UpVectorStackSize] = mCameraUp;
+     static unsigned long goalLightTexture = glGetTexture("wario_stadium/goallight.ifl");
+diff --git a/src/Game/Task/GameRenderTask.cpp b/src/Game/Task/GameRenderTask.cpp
+index bb4fe2a..74fdf18 100644
+--- a/src/Game/Task/GameRenderTask.cpp
++++ b/src/Game/Task/GameRenderTask.cpp
+@@ -4,6 +4,7 @@
+ #include "Game/Task/GameRenderTask.h"
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_tweaks.h"
++#include "mscharged_rollback.h"
+ #include "Game/GameInfo.h"
+ #endif
+ 
+@@ -201,6 +202,12 @@ void InstallImageRenderCallback()
+ 
+ void GameRenderTask::Run(float fDeltaT)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay draws nothing: its frame was drawn when it first
++    // ran, and GLView drops what a replay attaches. The updates around the
++    // drawing still run, as the rollback took back what they update.
++    const bool draw = !mscharged_rollback_resimulating();
++#endif
+     mElapsedTime += fDeltaT;
+ 
+     if (gpHBMManager != 0 && gpHBMManager->mActive && gpHBMManager->mReady)
+@@ -293,6 +300,9 @@ void GameRenderTask::Run(float fDeltaT)
+     {
+         NisPlayer::Instance()->Render(0);
+         RenderFrame(fDeltaT, false);
++#if defined(MSCHARGED_TWEAKS)
++        if (draw)
++#endif
+         gpNumberDisplay->Render();
+     }
+ }
+@@ -330,6 +340,10 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
+     static unsigned int lastTick;
+     static s8 init;
+     static float prevTime;
++#if defined(MSCHARGED_TWEAKS)
++    // A replay draws nothing (see Run).
++    const bool draw = !mscharged_rollback_resimulating();
++#endif
+ 
+     glPoly2 p;
+     float w;
+@@ -402,7 +416,7 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
+         WorldNPCManager* worldNPCs = gpWorldNPCManager;
+ #if defined(MSCHARGED_TWEAKS)
+         // Performance mode: no decorative world NPCs (riot guards, flags).
+-        if (!mscharged_tweak_performance_match())
++        if (!mscharged_tweak_performance_match() && draw)
+ #endif
+         worldNPCs->Render(GetLayerView(eCLV_MoreCharacters));
+     }
+@@ -413,8 +427,14 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
+ 
+     Jumbotron::instance.Update(dt);
+     CrowdManager::instance.Update(dt);
++#if defined(MSCHARGED_TWEAKS)
++    if (draw)
++#endif
+     FlareHandler::instance.Render();
+     UpdateWarble(&gWarble, dt);
++#if defined(MSCHARGED_TWEAKS)
++    if (draw)
++#endif
+     RenderWarble(&gWarble);
+     UpdateAttackSideIndicators();
+ 
+@@ -446,6 +466,9 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
+ 
+     if (g_bRenderWorldEffects)
+     {
++#if defined(MSCHARGED_TWEAKS)
++        if (draw)
++#endif
+         RenderWorldNPCs();
+     }
+     UpdateHighRange();
+@@ -508,7 +531,13 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
+     }
+ 
+     WorldDarkening::Instance().Update(fDeltaT);
++#if defined(MSCHARGED_TWEAKS)
++    if (draw)
++#endif
+     WorldDarkening::Instance().Render();
++#if defined(MSCHARGED_TWEAKS)
++    if (draw)
++#endif
+     RenderShadowVolumeBlend(GetLayerView(eCLV_ShadowVolumeBlend));
+     DepthOfFieldManager::instance.Update();
+ 

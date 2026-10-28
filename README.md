@@ -73,7 +73,7 @@ updates Recharged in place when you agree.
   with Nunchuk, over Bluetooth or a Mayflash DolphinBar.
 - **Sharp picture.** 3D at your window's resolution, 4x antialiasing, 4:3 or
   16:9, any window size or fullscreen.
-- **High frame rates.** 120, 144, your display's refresh rate or unlimited,
+- **Frame rates.** 30, 60, 120, 144, your display's refresh rate or unlimited,
   while the game keeps its original speed.
 - **Optional tweaks**: skip the intro, fast menus, no Mega Strikes, unlock
   everything, CPU vs CPU, fast terrain, Thunder Island walls, mirror matches
@@ -101,9 +101,10 @@ versions it runs; renaming a file does not change its version.
 - **1.1.x: online again** (coming soon). The game's own online play, with
   friend codes, invitations and rankings, through our own server and with
   rollback netcode.
-- **1.2.x: competitive play** (in development). Tournaments and leagues with a
-  Recharged player profile you sign in to with Discord, and
-  [start.gg](https://www.start.gg) running the tournaments.
+- **1.2.x: competitive play** (in development). Challenge a friend or play a
+  [start.gg](https://www.start.gg) tournament: you both press Ready and the
+  game starts straight into the captain draft, with the same rules for both
+  and results that report themselves. You sign in with Discord.
   [More about the plan](docs/COMPETITIVE.md).
 
 Plans can still change if we find better options.
@@ -160,7 +161,8 @@ and attach `logs/recharged.log` from the program folder.
 - [SDL](https://libsdl.org), [Dear ImGui](https://github.com/ocornut/imgui),
   [nod](https://github.com/encounter/nod) (reads the ISO/RVZ/WBFS image) and the
   other [libraries](extern/README.md) Recharged is built with.
-- Launcher artwork from SteamGridDB: header by Jiquita, icon by roryypc.
+- Launcher artwork: the header from the game's key art (Nintendo), the icon
+  from SteamGridDB by roryypc.
 - Everyone who tested Recharged and sent in logs.
 
 ## License

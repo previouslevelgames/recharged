@@ -49,4 +49,8 @@ private:
 // Throws std::runtime_error (naming the byte offset) for malformed input,
 // nesting deeper than 64 levels or documents over 32 MiB.
 JsonValue ParseJson(std::string_view text);
+
+// Appends `text` (UTF-8) as a JSON string, quoted, with quotes, backslashes
+// and control characters escaped.
+void AppendJsonString(std::string& out, std::string_view text);
 } // namespace mscharged::platform

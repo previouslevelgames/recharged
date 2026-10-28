@@ -1,0 +1,22 @@
+From: mscharged-port
+Subject: Keep DWC_GetDateTime's server time offset in an OSTime
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility; no game behavior change.
+
+DWC_GetDateTime keeps the server time offset in an OSTime, the type
+DWCi_Auth_GetServerTimeOffsetInSeconds writes: on 64-bit Linux s64 is
+long and OSTime long long, and GCC 14 and later reject the pointer.
+
+diff --git a/src/RVL_SDK/dwc/dwc_nastime.c b/src/RVL_SDK/dwc/dwc_nastime.c
+index a91694b..f52eeb9 100644
+--- a/src/RVL_SDK/dwc/dwc_nastime.c
++++ b/src/RVL_SDK/dwc/dwc_nastime.c
+@@ -11,7 +11,7 @@ DWCIngamesnCheckResult DWC_GetIngamesnCheckResult(void)
+
+ BOOL DWC_GetDateTime(DWCDate* date, DWCTime* time)
+ {
+-    s64 diff;
++    OSTime diff;
+     s64 localsec = DWCi_Np_GetTimeInSeconds();
+     BOOL result = DWCi_Auth_GetServerTimeOffsetInSeconds(&diff);
+     struct tm* tm;

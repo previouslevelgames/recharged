@@ -32,6 +32,8 @@ enum class GameTweak : unsigned
     FairBallContests = 10,
     RobotGoalies = 11,
     SuperTeam = 12,
+    SecureStadiums = 13,
+    MatchPoint = 14,
 };
 
 struct GameTweakInfo
@@ -43,7 +45,7 @@ struct GameTweakInfo
     bool on_by_default = false; // recommended to every player: on without its [gameplay] key
 };
 
-inline constexpr std::array<GameTweakInfo, 12> kGameTweaks{{
+inline constexpr std::array<GameTweakInfo, 14> kGameTweaks{{
     {GameTweak::SkipIntro, "skip_intro", "Skip intro",
      "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
@@ -85,7 +87,43 @@ inline constexpr std::array<GameTweakInfo, 12> kGameTweaks{{
      "A team's captain and sidekicks become the robots of the Super Team from Super Mario Strikers, fitted to each "
      "character's size. Needs a Super Mario Strikers (GameCube) disc image. Bowser, Petey Piranha and Boo keep "
      "their own look; only the look changes."},
+    {GameTweak::SecureStadiums, "secure_stadiums", "Secure stadiums",
+     "The game's Secure Stadium cheat in every offline match: no lightning, wind, flying debris, solar flares, "
+     "bubbling lava, Storm Ship tilt, Thwomps or sand patches. The electric fences stay. Striker Challenges keep "
+     "their rules; online matches are unchanged."},
+    {GameTweak::MatchPoint, "match_point", "Match point",
+     "In a match to a number of goals, the kickoff that finds both teams one goal from winning plays overtime's siren "
+     "and sudden death music in place of the stadium's, until the match ends, and the HUD shows SUDDEN DEATH instead "
+     "of First to. Only sound and HUD change. On by default.",
+     true},
 }};
+
+// Start training ([gameplay] training_item, training_captain, training_stadium): the
+// config's names, in the order of the game's ePowerUpType (after none, which is
+// -1), eTeamID and eStadiumID.
+inline constexpr std::array<const char*, 10> kTrainingItems{
+    "none", "green_shell", "red_shell", "spiny_shell", "freeze_shell", "banana", "bobomb", "chain_chomp", "mushroom",
+    "star"};
+inline constexpr std::array<const char*, 12> kTrainingCaptains{
+    "mario", "bowser", "daisy", "donkeykong", "luigi", "peach", "waluigi", "wario", "yoshi", "bowserjr", "diddykong",
+    "petey"};
+inline constexpr std::array<const char*, 17> kTrainingStadiums{
+    "battledome", "bowserstadium", "craterfield", "crystalcanyon", "dump", "galacticstadium", "kongacoliseum",
+    "lavapit", "pipelinecentral", "stormship", "thepalace", "thunderisland", "underground", "vice", "wastelands",
+    "sandtomb", "tutorialfield"};
+// Training's opponent skill ([gameplay] training_away_skill): the game's skill
+// levels in order, 0 (the Strikers 101 lessons') to 5, as its Gameplay options number them.
+inline constexpr std::array<const char*, 6> kTrainingSkills{
+    "training", "rookie", "professional", "superstar", "legend", "megastriker"};
+
+// The position of `name` in one of the tables above, or -1.
+template <std::size_t Size>
+inline int TrainingIndex(const std::array<const char*, Size>& names, const std::string& name)
+{
+    for (std::size_t n = 0; n < Size; ++n)
+        if (name == names[n]) return int(n);
+    return -1;
+}
 
 // The position of `tweak` in kGameTweaks and Settings::tweaks (kGameTweaks.size()
 // for NoHud, which is not listed).

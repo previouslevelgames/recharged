@@ -21,6 +21,7 @@
 #include <aurora/event.h>
 #include <aurora/gfx.h>
 #include <aurora/gfx.hpp>
+#include <aurora/input.hpp>
 #include "gfx/xfb.hpp"
 #include "gfx/scanout.hpp"
 #include "gx/fifo.hpp"
@@ -51,6 +52,9 @@
 #include "platform/launcher_reopen.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
+#include "platform/netplay_snapshot.h"
+#include "platform/http_client.h"
+#include "platform/online_reports.h"
 #include "platform/presence_snapshot.h"
 #include "platform/shader_cache.h"
 #include "platform/process_exit.h"
@@ -83,12 +87,18 @@
 #include <SDL3/SDL_hints.h>
 #include <SDL3/SDL_filesystem.h>
 #include "platform/native_module_loader.h"
+#if defined(MSCHARGED_AUTOPILOT)
+#include "platform/bank_cue.h"
+#endif
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <filesystem>
 #include <string>
+#if defined(MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE)
+#include "net/so_resolve.h"
+#endif
 namespace aurora { extern AuroraConfig g_config; }
 extern "C" bool __OSInitSTM();
 // Whole original OSRtc software/cache owner, linked once into the host.
@@ -98,6 +108,24 @@ namespace {
 // Aurora's FIFO retains every recorded command until a drain; publishing only
 // hands bytes to the worker. Bound that backlog between source frames.
 constexpr std::uint32_t kFifoDrainBytes=64u<<20;
+#if defined(MSCHARGED_AUTOPILOT)
+// Test builds' autopilot (src/platform/autopilot.cpp): C, P and U held
+// together hand the first player to a bot and back. Unannounced: no log line,
+// only the title screen's unlock-all sound when it takes over (played here:
+// the game unloads that bank for matches).
+std::atomic<int(*)(int)> sSetAutopilot{nullptr};
+std::atomic<bool> sAutopilotOn{false};
+mscharged::platform::BankCuePlayer sAutopilotSound;
+std::atomic<float> sAutopilotSoundGain{1.0f};
+void SwitchAutopilot() {
+    const auto set=sSetAutopilot.load();
+    if(!set) return;
+    const bool on=!sAutopilotOn.load();
+    sAutopilotOn=on;
+    set(on ? 1 : 0);
+    if(on) sAutopilotSound.Play(sAutopilotSoundGain);
+}
+#endif
 void Check(bool value, const char* reason) { if (!value) throw std::runtime_error(reason); }
 struct Snapshot : std::enable_shared_from_this<Snapshot> {
     aurora::gfx::ResolvedTargets target;
@@ -330,6 +358,22 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::SetVerboseConsole(launch.settings.verbose_console);
         // advanced.log_window: the separate log window, when the launcher has not opened it.
         mscharged::platform::SetLogWindow(launch.settings.log_window);
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        so_set_server_override(launch.settings.online_server.c_str());
+#endif
+        // [online] rollback and rollback_test: the game module's rollback reads
+        // its switches from the environment when it loads
+        // (src/platform/rollback_engine.cpp); one already set there wins.
+        if ((launch.settings.rollback || launch.settings.rollback_test)
+            && !std::getenv("RECHARGED_ROLLBACK") && !std::getenv("RECHARGED_ROLLBACK_TEST")) {
+            const char* name=launch.settings.rollback_test ? "RECHARGED_ROLLBACK_TEST" : "RECHARGED_ROLLBACK";
+            const std::string log=launch.settings.rollback_log.empty() ? "1" : launch.settings.rollback_log;
+#if defined(_WIN32)
+            _putenv_s(name,log.c_str());
+#else
+            setenv(name,log.c_str(),1);
+#endif
+        }
         std::printf("%s\n",mscharged::DescribeLaunch(launch).c_str());
         Check(!disc.empty() && std::filesystem::is_regular_file(launch.disc_path),"Supply your own game ISO/RVZ/WBFS with --disc FILE or [game] disc in the INI");
         // Validate native preferences before acquiring any hardware/module owner.
@@ -437,6 +481,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             graphics=graphicsFallback;
         }
         mscharged::platform::SetApplicationIcon(host.window);
+        // The game draws its own pointer (the Wii Remote's hand) where a player
+        // points, the mouse included: the system cursor stays hidden over the
+        // window. A layer above that takes the mouse (ImGui) shows it again.
+        const auto cursorLayer=aurora::input::register_layer({
+            .label="recharged.cursor",
+            .priority=aurora::input::kGameLayerPriority,
+            .onEvent=[](const aurora::input::InputEvent&,void*){return aurora::input::EventResult::Pass;},
+            .pointerMode=[](void*){return aurora::input::PointerMode::Hidden;},
+        });
+        if(cursorLayer==aurora::input::kInvalidLayerId)
+            mscharged::platform::SessionLogLine("Startup: the system cursor stays visible over the game");
         mscharged::platform::SessionLogLine("Startup: graphics ready");
         // [mods]: HD texture packs, swapped in by Aurora (host graphics only).
         mscharged::LoadTexturePacks(launch.settings,launch.config.path,release->game_id);
@@ -681,7 +736,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             desktop.gamepad_profiles[pad] = {mscharged::platform::ParseGamepadBindings(profile.inputs),
                                              profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0,
                                              profile.inner_deadzone, profile.outer_deadzone, profile.trigger_press,
-                                             profile.gyro_pointer, profile.gyro_speed};
+                                             profile.octagon_stick, profile.gyro_pointer, profile.gyro_speed};
         }
         mscharged::platform::WpadSDLSettings wpad{static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),
             static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
@@ -708,6 +763,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const std::size_t pad = std::size_t(device.back() - '1');
                 const auto& profile = s.PadProfileOf(pad);
                 mscharged::platform::SessionLogLine("Gamepad " + std::to_string(pad + 1) + ": profile " + profile.name
+                    + (profile.octagon_stick ? ", octagonal Nunchuk stick" : "")
                     + ", stick dead zones " + std::to_string(profile.inner_deadzone) + "-"
                     + std::to_string(profile.outer_deadzone) + "%, trigger press point "
                     + std::to_string(profile.trigger_press) + "%, pointer "
@@ -769,9 +825,41 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_hd_recolour")))
                 configureRecolour(mscharged::TexturePackRecolourHook(reinterpret_cast<ChargedPresenceSnapshotFunction>(
                     mscharged::platform::FindNativeModuleSymbol(module,"charged_presence_snapshot"))));
+            // Training: the item of the team that trains, and Start training's match.
+            if(auto* configureTraining=reinterpret_cast<void(*)(int,bool,int,int)>(
+                   mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training"))) {
+                const auto& s=launch.settings;
+                configureTraining(mscharged::TrainingIndex(mscharged::kTrainingItems,s.training_item)-1,
+                    launch.start_training,mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_captain),
+                    mscharged::TrainingIndex(mscharged::kTrainingStadiums,s.training_stadium));
+                if(auto* configureOpponent=reinterpret_cast<void(*)(int,int,bool,bool,int,bool)>(
+                       mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_opponent")))
+                    configureOpponent(mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_away_captain),
+                        s.training_away_fielders,s.training_away_goalie,s.training_skip_goals,
+                        mscharged::TrainingIndex(mscharged::kTrainingSkills,s.training_away_skill),
+                        s.training_side=="away");
+                if(launch.start_training)
+                    mscharged::platform::SessionLogLine(("Start training: "+s.training_captain+" in "
+                        +s.training_stadium).c_str());
+            }
             // No HUD (issue #58): the HUD key shows or hides the match HUD, whatever show_hud says.
             mscharged::platform::SetHudKey(reinterpret_cast<void(*)()>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_hud")));
+#if defined(MSCHARGED_AUTOPILOT)
+            // The autopilot: only a test build's module has one (a release's says 0).
+            if(auto* setAutopilot=reinterpret_cast<int(*)(int)>(
+                   mscharged::platform::FindNativeModuleSymbol(module,"charged_set_pad_source"));
+               setAutopilot && setAutopilot(0)==1) {
+                sSetAutopilot=setAutopilot;
+                mscharged::platform::SetAutopilotChord(SwitchAutopilot);
+                // The unlock-all cue of the title screen (SHTitleScreen.cpp), in
+                // the menus' bank, as loud as the game's menu sounds.
+                sAutopilotSound.Load(launch.disc_path, "FE_GEN_Sfx",
+                    std::strncmp(release->game_id, "R4QK", 4) == 0 ? 0xF0AFD586u : 0xCF37DAC7u);
+                sAutopilotSoundGain = launch.settings.mute ? 0.0f : float(launch.settings.master_volume) / 100.0f
+                    * float(launch.settings.sound_volumes[std::size_t(mscharged::SoundGroup::Menus)]) / 100.0f;
+            }
+#endif
             // display.wider_view: the module tells when the match's stadium is
             // drawn and draws the shape of the window's picture.
             if(widerView) {
@@ -956,6 +1044,34 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        // The WFC server's match reports: the online series this computer
+        // plays, and the error codes its online menus show, go to the server
+        // the game logs in to (online.server).
+        auto onlineMatchSnapshot=reinterpret_cast<ChargedOnlineMatchSnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_online_match_snapshot"));
+        std::unique_ptr<mscharged::platform::OnlineReports> onlineReports;
+        {
+            std::string line="Match reports: ";
+            const std::string http=mscharged::platform::HttpUnavailable();
+            if(launch.settings.online_server.empty())
+                line+="off (no online server)";
+            else if(!onlineMatchSnapshot)
+                line+="off (this build's game module records no online matches)";
+            else if(!http.empty())
+                line+="off ("+http+")";
+            else {
+                onlineReports=mscharged::platform::OnlineReports::Start(launch.settings.online_server,
+                    std::string(release->game_id,4),mscharged::build::version,[](const std::string& text) {
+                        mscharged::platform::SessionLogLine(text);
+                        std::fprintf(stderr,"%s\n",text.c_str());
+                    });
+                line+="to "+launch.settings.online_server;
+            }
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
+#endif
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
         if(sourceAudio)
@@ -1118,6 +1234,20 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 std::chrono::system_clock::now().time_since_epoch()).count();
             discordPresence->Show(gamePresence->Describe(snapshot,unixNow));
         };
+        // Once a second, after a game frame: the online series for the match reports.
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        std::chrono::steady_clock::time_point lastOnlineMatch{};
+#endif
+        auto observeOnlineMatch = [&] {
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            if(!onlineReports)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-lastOnlineMatch<std::chrono::seconds(1))return;
+            lastOnlineMatch=now;
+            ChargedOnlineMatchSnapshot snapshot{};
+            if(onlineMatchSnapshot(&snapshot,sizeof snapshot))onlineReports->Observe(snapshot);
+#endif
+        };
         // Existing actual source GX/state/material/font/view initialization is
         // retained. No host GXInit, source pool restart or fixture font setup.
         AuroraSetViewportPolicy(AURORA_VIEWPORT_FIT);
@@ -1144,6 +1274,35 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             windowMemory.emplace(host.window,launch.config.path);
         // The 3D resolution the hotkeys step from, for this run.
         std::string renderResolution=launch.settings.resolution;
+        // Once a second after a game frame, the network numbers: the overlay's
+        // LAT in network sessions and DLY and RB in network matches with
+        // rollback; and in those matches at most 60 FPS (kRollbackFrameRate).
+        auto netplaySnapshot=reinterpret_cast<ChargedNetplaySnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_netplay_snapshot"));
+        std::chrono::steady_clock::time_point lastNetplay{};
+        auto observeNetplay = [&] {
+            if((!hostOverlay && !framePacing) || !netplaySnapshot)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-lastNetplay<std::chrono::seconds(1))return;
+            lastNetplay=now;
+            ChargedNetplaySnapshot snapshot{};
+            if(!netplaySnapshot(&snapshot,sizeof snapshot))return;
+            if(framePacing && framePacing->SetRollbackCap(snapshot.rollback!=0)) {
+                const auto line="Frame rate: "+framePacing->Description();
+                mscharged::platform::SessionLogLine(line);
+                std::fprintf(stderr,"%s\n",line.c_str());
+            }
+            if(!hostOverlay)return;
+            mscharged::runtime::HostOverlay::Network network;
+            network.session=snapshot.network!=0;
+            if(snapshot.round_trip_ms>=0)network.latency_ms=snapshot.round_trip_ms;
+            network.rollback=snapshot.rollback!=0;
+            if(network.rollback){
+                network.delay_ms=snapshot.input_delay_ms;
+                network.rollback_frames=snapshot.predicted_steps;
+            }
+            hostOverlay->SetNetwork(network);
+        };
         // The persisted launcher toggle is authoritative; recordings live with
         // the session log (logs/ beside this executable), independently of the
         // working directory.
@@ -1284,7 +1443,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -1373,7 +1532,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}

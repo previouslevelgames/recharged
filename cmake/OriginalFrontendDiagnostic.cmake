@@ -24,6 +24,7 @@ include(cmake/OriginalFrontendWorldDiagnostic.cmake)
 include(cmake/OriginalFrontendWorldDrawDiagnostic.cmake)
 include(cmake/OriginalFrontendNetworkOwnerDiagnostic.cmake)
 include(cmake/OriginalFrontendLANDiagnostic.cmake)
+include(cmake/OriginalOnline.cmake)
 include(cmake/OriginalFrontendPresentationOwnerDiagnostic.cmake)
 include(cmake/OriginalFrontendMiiResources.cmake)
 include(cmake/OriginalFrontendFinalizeDiagnostic.cmake)
@@ -45,6 +46,43 @@ include(cmake/OriginalFrontendDVDMessagesDiagnostic.cmake)
 include(cmake/OriginalFrontendDVDErrorsDiagnostic.cmake)
 include(cmake/NativeAXModuleMemory.cmake)
 include(cmake/OriginalOSShutdownRecords.cmake)
+
+# PE and Mach-O: tools/rollback_sections.py launches the compiles of the target and of
+# the static and object libraries in it (the script's patterns take the
+# members of archives too), once each.
+function(mscharged_rollback_sections_launcher target)
+    get_property(_done TARGET ${target} PROPERTY MSCHARGED_ROLLBACK_SECTIONS SET)
+    if(_done)
+        return()
+    endif()
+    set_property(TARGET ${target} PROPERTY MSCHARGED_ROLLBACK_SECTIONS ON)
+    foreach(_language IN ITEMS C CXX)
+        set(_launcher "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/rollback_sections.py")
+        if(CMAKE_${_language}_COMPILER_LAUNCHER)
+            list(APPEND _launcher ${CMAKE_${_language}_COMPILER_LAUNCHER})
+        endif()
+        set_property(TARGET ${target} PROPERTY ${_language}_COMPILER_LAUNCHER "${_launcher}")
+    endforeach()
+    get_target_property(_libraries ${target} LINK_LIBRARIES)
+    get_target_property(_interface ${target} INTERFACE_LINK_LIBRARIES)
+    # Object libraries also come in as sources ($<TARGET_OBJECTS:name>).
+    get_target_property(_sources ${target} SOURCES)
+    set(_objects)
+    foreach(_source IN LISTS _sources)
+        if(_source MATCHES "^\\$<TARGET_OBJECTS:([^>]+)>$")
+            list(APPEND _objects "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    foreach(_library IN LISTS _libraries _interface _objects)
+        if(TARGET "${_library}")
+            get_target_property(_imported "${_library}" IMPORTED)
+            get_target_property(_type "${_library}" TYPE)
+            if(NOT _imported AND _type MATCHES "^(STATIC|OBJECT)_LIBRARY$")
+                mscharged_rollback_sections_launcher("${_library}")
+            endif()
+        endif()
+    endforeach()
+endfunction()
 
 # One game module per game version, from the same prepared sources:
 # mscharged_original_frontend_module_us (R4QE01) and _eu (R4QP01_REV2, which
@@ -133,6 +171,8 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     mscharged_select_original_frontend_challenge_play(${target})
     mscharged_select_original_frontend_fe_models(${target})
     mscharged_select_original_frontend_lan(${target})
+    # After the Mii resources, which add OSMutex without checking for it.
+    mscharged_select_original_frontend_online(${target})
     # Last selection: copies the module's final settings for the original CreditScene.
     mscharged_select_original_frontend_credits(${target})
     # RECHARGED_DEBUG_LAYERS_OFF: switch the game's own rendering layers off.
@@ -142,6 +182,34 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     # [gameplay] tweaks: the hooks of patches/mscharged-decomp-tweaks (their
     # MSCHARGED_TWEAKS definition is set above, before the selections).
     target_sources(${target} PRIVATE src/platform/game_tweaks.cpp src/platform/gx_texture.cpp src/platform/away_kits.cpp)
+    # The original game's globals in sections of their own (rbk_data/rbk_bss),
+    # which a rollback saves with the arenas: a linker script on ELF (GNU ld,
+    # lld), and on PE and Mach-O a launcher that renames the same files'
+    # sections after each compile (the linker gathers them by name).
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(_rollback_sections "${CMAKE_CURRENT_SOURCE_DIR}/cmake/rollback_sections.ld")
+        target_link_options(${target} PRIVATE "LINKER:-T,${_rollback_sections}")
+        set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${_rollback_sections}")
+    elseif(WIN32 OR APPLE)
+        mscharged_rollback_sections_launcher(${target})
+    endif()
+    # The rollback: RECHARGED_ROLLBACK (network matches predict) and RECHARGED_ROLLBACK_TEST
+    # (roll matches back while they are played), tweak patches 0029-0032.
+    target_sources(${target} PRIVATE src/platform/rollback_snapshot.cpp src/platform/rollback_engine.cpp src/platform/rollback_memory.cpp
+        src/platform/rollback_netplay.cpp src/platform/rollback_compare.cpp src/platform/rollback_audio.cpp
+        src/platform/rollback_summary.cpp src/platform/rollback_platform.cpp src/platform/rollback_fields.cpp)
+    # The performance overlay's network numbers (LAT, and DLY and RB with rollback).
+    target_sources(${target} PRIVATE src/platform/netplay_snapshot.cpp)
+    # The WFC server's match reports: each online series, game by game, and the
+    # error codes shown (tweak patches 0037 and 0045), read by the host after a frame.
+    target_sources(${target} PRIVATE src/platform/online_match_snapshot.cpp)
+    # The hidden autopilot for online tests (tweak patch 0036): the bot in test
+    # and dev builds, an empty one in release builds (MSCHARGED_AUTOPILOT).
+    if(MSCHARGED_AUTOPILOT_ENABLED)
+        target_sources(${target} PRIVATE src/platform/autopilot.cpp)
+    else()
+        target_sources(${target} PRIVATE src/platform/step_pads.cpp)
+    endif()
     # Robot goalies: the disc's unused robot goalie texture on Charged's goalie (tweak patch 0025).
     target_sources(${target} PRIVATE src/platform/robot_goalie.cpp src/platform/robot_goalie_hook.cpp)
     # Super Team: robot captains and sidekicks from the GameCube robot (tweak patch 0026).

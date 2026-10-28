@@ -29,12 +29,18 @@ private:
 #endif
 };
 
-// HTTPS GET requests for the launcher's update check and downloads, through
-// what the system provides: WinHTTP on Windows, elsewhere the system's
-// libcurl, loaded at run time so that a system without it only loses updates.
+// HTTPS requests for the launcher's update check and downloads and the
+// profile service, through what the system provides: WinHTTP on Windows,
+// elsewhere the system's libcurl, loaded at run time so that a system without
+// it only loses updates and competitive play.
 struct HttpRequest
 {
-    std::string url; // https only, also for redirects
+    std::string url; // https only, also for redirects (see allow_http)
+    std::string method = "GET";
+    std::string body; // sent with any other method than GET
+    // http:// as well, for a test server on this computer or network: the
+    // caller decides which addresses may go unencrypted. Redirects stay https.
+    bool allow_http = false;
     std::string user_agent = "Recharged";
     std::vector<std::string> headers; // "Name: value"
     int connect_timeout = 15;          // seconds
@@ -67,7 +73,8 @@ private:
 std::string HttpUnavailable();
 
 // Network failures and cancellation throw HttpError; every HTTP status,
-// including errors, is returned.
+// including errors, is returned. A GET that fails before any data arrived is
+// tried once more; other methods are sent once.
 HttpResponse HttpGet(const HttpRequest& request, const HttpProgress& progress = {});
 
 // Saves the answer's body to `file` (replacing it) and returns the status. The

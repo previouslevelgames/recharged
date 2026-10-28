@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Package a completed original-game Linux/macOS/Windows build without game data.
 
---steamdeck packages a Linux x86_64 build for SteamOS (Steam Deck) instead: it
-refuses binaries that need newer system libraries than SteamOS 3.7 provides.
+A Linux x86_64 package refuses binaries that need newer system libraries than
+Ubuntu 24.04 provides. --steamdeck packages it for SteamOS (Steam Deck) instead,
+checked against SteamOS 3.7.
 
 Requires Python 3.11+, Git, and the Cargo cache used by the completed build.
 Cargo tree runs locked and offline; packaging does not compile or download.
@@ -31,7 +32,8 @@ WINDOWS_GRAPHICS_PIN = Path(__file__).with_name("windows_graphics.json")
 
 # One game module per game version (USA, European).
 MODULES = ("recharged_game_us", "recharged_game_eu")
-ASSETS = ("header.png", "icon.png", "aurora.png", "Roboto-Medium.ttf", "README.md", "LICENSE-APACHE")
+ASSETS = ("header_back.png", "header_front.png", "header_strokes.png", "logo.png", "logo_sizzle.png", "icon.png",
+          "aurora.png", "Roboto-Medium.ttf", "README.md", "welcome.md", "LICENSE-APACHE")
 # LLVM-MinGW runtime DLLs a Windows build imports, and the notices that cover
 # them (LLVM: libc++/libunwind; mingw-w64: winpthreads and CRT startup code).
 WINDOWS_RUNTIME = ("libc++.dll", "libunwind.dll", "libwinpthread-1.dll")
@@ -42,7 +44,7 @@ WINDOWS_RUNTIME_NOTICES = ("LICENSE.TXT", "x86_64-w64-mingw32/share/mingw32/COPY
 WINDOWS_SYSTEM_DLLS = frozenset((
     "advapi32.dll", "bcrypt.dll", "bcryptprimitives.dll", "cfgmgr32.dll", "comdlg32.dll",
     "crypt32.dll", "d3d11.dll", "d3d12.dll", "dbghelp.dll", "dwmapi.dll", "dxgi.dll",
-    "gdi32.dll", "imm32.dll", "kernel32.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll", "pdh.dll",
+    "gdi32.dll", "imm32.dll", "iphlpapi.dll", "kernel32.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll", "pdh.dll",
     "rpcrt4.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll", "ucrtbase.dll",
     "user32.dll", "userenv.dll", "version.dll", "winhttp.dll", "winmm.dll", "wintrust.dll", "ws2_32.dll",
 ))
@@ -63,12 +65,14 @@ PUBLIC_FILES = ("README.md", "LICENSE", "recharged.ini.example", "docs/INSTALL.m
                 "docs/FEATURES.md", "docs/SETTINGS.md", "docs/TROUBLESHOOTING.md", "docs/ARCHITECTURE.md",
                 "docs/BUILDING.md", "docs/COMPETITIVE.md", "LICENSES/README.md", "LICENSES/Apache-2.0.txt",
                 "extern/README.md")
-# SteamOS 3.7 (Steam Deck): glibc 2.40 and the GCC 14 runtime (gcc-libs 14.2),
-# from Valve's package mirror. A Steam Deck package needs no newer symbol
-# versions and links only these system libraries; SDL and Dawn load the
-# desktop, audio and Vulkan libraries at run time.
+# Ubuntu 24.04, the oldest system a Linux package supports: glibc 2.39 and the
+# GCC 14 runtime (libstdc++6 14). SteamOS 3.7 (Steam Deck): glibc 2.40 and the
+# GCC 14 runtime (gcc-libs 14.2), from Valve's package mirror. A Linux package
+# needs no newer symbol versions and links only these system libraries; SDL and
+# Dawn load the desktop, audio and Vulkan libraries at run time.
+LINUX_SYMBOL_CEILINGS = {"GLIBC": (2, 39), "GLIBCXX": (3, 4, 33), "CXXABI": (1, 3, 15), "GCC": (14, 0, 0)}
 STEAMDECK_SYMBOL_CEILINGS = {"GLIBC": (2, 40), "GLIBCXX": (3, 4, 33), "CXXABI": (1, 3, 15), "GCC": (14, 0, 0)}
-STEAMDECK_SYSTEM_LIBRARIES = frozenset((
+LINUX_SYSTEM_LIBRARIES = frozenset((
     "libc.so.6", "libm.so.6", "libdl.so.2", "libpthread.so.0", "librt.so.1",
     "libstdc++.so.6", "libgcc_s.so.1", "ld-linux-x86-64.so.2",
 ))
@@ -149,8 +153,8 @@ def verify_windows_imports(stage, toolchain):
     return imports
 
 
-def verify_steamdeck_requirements(stage, binaries):
-    """System libraries and symbol versions each binary needs, within SteamOS 3.7."""
+def verify_linux_requirements(stage, binaries, ceilings, oldest):
+    """System libraries and symbol versions each binary needs, within `oldest` (a system's name)."""
     requirements = {}
     for name in binaries:
         report = run(["readelf", "--dynamic", "--version-info", "--wide", str(stage / name)]).decode()
@@ -159,17 +163,17 @@ def verify_steamdeck_requirements(stage, binaries):
         if not needed or not versions:
             raise PackageError(f"Could not read the dynamic dependencies of {name}.")
         for library in needed:
-            if library not in STEAMDECK_SYSTEM_LIBRARIES:
-                raise PackageError(f"{name} needs {library}, which SteamOS does not provide as a system library.")
+            if library not in LINUX_SYSTEM_LIBRARIES:
+                raise PackageError(f"{name} needs {library}, which {oldest} does not provide as a system library.")
         newest = {}
         for version in versions:
             match = re.fullmatch(r"([A-Z]+)_([0-9]+(?:\.[0-9]+)*)", version)
-            if not match or match[1] not in STEAMDECK_SYMBOL_CEILINGS:
+            if not match or match[1] not in ceilings:
                 raise PackageError(f"{name} needs unsupported symbol version {version}.")
             number = tuple(int(part) for part in match[2].split("."))
-            if number > STEAMDECK_SYMBOL_CEILINGS[match[1]]:
-                limit = ".".join(map(str, STEAMDECK_SYMBOL_CEILINGS[match[1]]))
-                raise PackageError(f"{name} needs {version}, newer than SteamOS 3.7 ({match[1]} {limit}); "
+            if number > ceilings[match[1]]:
+                limit = ".".join(map(str, ceilings[match[1]]))
+                raise PackageError(f"{name} needs {version}, newer than {oldest} ({match[1]} {limit}); "
                                    "build it with an older C library and compiler runtime.")
             if number > newest.get(match[1], ((),))[0]:
                 newest[match[1]] = (number, version)
@@ -567,7 +571,11 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
                     "cargo": {"options": cargo_options, "lock_sha256": digest(lock_bytes), "packages": rust},
                     "files": files}
         if steamdeck:
-            manifest["steamdeck_requirements"] = verify_steamdeck_requirements(stage, [executable_name] + modules)
+            manifest["steamdeck_requirements"] = verify_linux_requirements(
+                stage, [executable_name] + modules, STEAMDECK_SYMBOL_CEILINGS, "SteamOS 3.7")
+        elif (system, arch) == ("linux", "x86_64"):
+            manifest["linux_requirements"] = verify_linux_requirements(
+                stage, [executable_name] + modules, LINUX_SYMBOL_CEILINGS, "Ubuntu 24.04")
         if windows:
             manifest["windows_graphics"] = graphics_pin
             manifest["windows_imports"] = verify_windows_imports(stage, runtime_root)

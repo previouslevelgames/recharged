@@ -1,0 +1,69 @@
+Subject: Port: online games' results for the WFC server's match reports
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Recharged builds report every online series they play, ranked or between
+friends, to the WFC server, which pairs both machines' reports into its
+matches (the port's src/platform/online_reports.h). Where the game settles
+a game's result, NetworkStatsManager::CalculateAndReportGameResult (a normal
+end, a sync error or a lost connection), the port's
+src/platform/online_match_snapshot.cpp records the game as this machine saw
+it, the score after the sync check, and whether the game had settled that
+game's result before (a lost connection on the screens after it calls it
+again). Nothing else changes.
+
+Add include/mscharged_online_reports.h, its interface to the port.
+
+diff --git a/include/mscharged_online_reports.h b/include/mscharged_online_reports.h
+new file mode 100644
+index 0000000..a189425
+--- /dev/null
++++ b/include/mscharged_online_reports.h
+@@ -0,0 +1,23 @@
++#if defined(MSCHARGED_TWEAKS)
++#ifndef MSCHARGED_ONLINE_REPORTS_H
++#define MSCHARGED_ONLINE_REPORTS_H
++
++// The WFC server's match reports (the port's src/platform/online_match_snapshot.cpp):
++// each online series this machine plays, game by game.
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// Where the game settles an online game's result: `result` as
++// NetworkStatsManager::CalculateAndReportGameResult has it (0 a normal end, 2
++// a sync error, 4 a lost connection), the goals of home and away, and whether
++// the game had settled this game's result before (mGameResultReported).
++void mscharged_tweak_online_game_result(int result, int homeScore, int awayScore, int reported);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // MSCHARGED_ONLINE_REPORTS_H
++#endif // MSCHARGED_TWEAKS
+diff --git a/src/Game/NetworkStatsManager.cpp b/src/Game/NetworkStatsManager.cpp
+index f164ef2..87fdcc1 100644
+--- a/src/Game/NetworkStatsManager.cpp
++++ b/src/Game/NetworkStatsManager.cpp
+@@ -21,6 +21,9 @@
+ #include "NL/nlMemory.h"
+ #include "NL/nlstring_tmpl.h"
+ #include "Game/NetworkInput.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_online_reports.h"
++#endif
+ 
+ #include <string.h>
+ 
+@@ -1264,6 +1267,10 @@ void NetworkStatsManager::CalculateAndReportGameResult(int result)
+             "Detected sync error.  Should end up with net 0 points\n");
+         result = 2;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // The port's match reports: this game's end as this machine saw it.
++    mscharged_tweak_online_game_result(result, homeScore, awayScore, mGameResultReported);
++#endif
+ 
+     NetworkStatsPlayer home;
+     NetworkStatsPlayer away;

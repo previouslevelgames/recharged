@@ -112,3 +112,4 @@
 0116-load-made-replacements-before-their-first-draw.patch
 0117-present-the-picture-at-its-exact-shape-or-stretched.patch
 0118-build-the-dawn-platform-without-exceptions.patch
+0119-scale-and-offset-the-viewport-depth.patch

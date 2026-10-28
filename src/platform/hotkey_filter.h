@@ -22,6 +22,14 @@ void SetHotkeys(const Hotkeys& hotkeys);
 // processing, on the window's thread); null leaves it doing nothing. The
 // fullscreen hotkey is ServiceFullscreenHotkey's.
 void SetHotkeyAction(HotkeyIndex hotkey, void (*action)());
+#if defined(MSCHARGED_AUTOPILOT)
+// Test builds' autopilot (src/platform/autopilot.cpp): what C, P and U held
+// together in the window do, called where the chord's last key comes down;
+// null (the default) leaves the three keys as they are. With an action, a
+// lone press of one of them reaches the game a moment late and a hotkey on
+// one acts on its release, so the chord never presses or does what they do.
+void SetAutopilotChord(void (*action)());
+#endif
 
 enum class FullscreenSwitch
 {

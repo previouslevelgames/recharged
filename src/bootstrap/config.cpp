@@ -57,6 +57,13 @@ Values Encode(const Settings& s)
             {"game.folder_subfolders", s.folder_subfolders ? "true" : "false"},
             {"game.save_folder", s.save_folder}, {"game.gamecube_disc", s.gamecube_disc},
             {"game.language", s.language}, {"gameplay.super_team_side", s.super_team_side},
+            {"gameplay.training_item", s.training_item}, {"gameplay.training_captain", s.training_captain},
+            {"gameplay.training_stadium", s.training_stadium},
+            {"gameplay.training_away_captain", s.training_away_captain},
+            {"gameplay.training_away_fielders", std::to_string(s.training_away_fielders)},
+            {"gameplay.training_away_goalie", s.training_away_goalie ? "true" : "false"},
+            {"gameplay.training_skip_goals", s.training_skip_goals ? "true" : "false"},
+            {"gameplay.training_away_skill", s.training_away_skill}, {"gameplay.training_side", s.training_side},
             {"display.width", std::to_string(s.width)}, {"display.height", std::to_string(s.height)},
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.fullscreen_resolution", s.fullscreen_resolution},
@@ -88,7 +95,9 @@ Values Encode(const Settings& s)
             {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
+            {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
+            {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
             {"launcher.test_build", std::to_string(s.test_build)},
             {"discord.rich_presence", s.discord_status ? "true" : "false"},
@@ -115,6 +124,7 @@ Values Encode(const Settings& s)
         values.emplace(section + "inner_deadzone", std::to_string(profile.inner_deadzone));
         values.emplace(section + "outer_deadzone", std::to_string(profile.outer_deadzone));
         values.emplace(section + "trigger_press", std::to_string(profile.trigger_press));
+        values.emplace(section + "octagon_stick", profile.octagon_stick ? "true" : "false");
         values.emplace(section + "gyro_pointer", profile.gyro_pointer ? "true" : "false");
         values.emplace(section + "gyro_speed", std::to_string(profile.gyro_speed));
         values.emplace(section + "controller", profile.controller);
@@ -311,6 +321,7 @@ Settings Decode(const Values& values)
         number((section + "inner_deadzone").c_str(), profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone);
         number((section + "outer_deadzone").c_str(), profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone);
         number((section + "trigger_press").c_str(), profile.trigger_press, kMinTriggerPress, kMaxTriggerPress);
+        boolean((section + "octagon_stick").c_str(), profile.octagon_stick);
         boolean((section + "gyro_pointer").c_str(), profile.gyro_pointer);
         number((section + "gyro_speed").c_str(), profile.gyro_speed, kMinGyroSpeed, kMaxGyroSpeed);
         choice((section + "controller").c_str(), profile.controller, {"xbox", "nintendo", "gamecube"});
@@ -355,6 +366,7 @@ Settings Decode(const Values& values)
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
     boolean("launcher.check_updates", s.check_updates);
     boolean("launcher.reopen_after_game", s.reopen_after_game);
+    boolean("launcher.show_welcome", s.show_welcome);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
     number("launcher.test_build", s.test_build, 0, 999999999);
     boolean("discord.rich_presence", s.discord_status);
@@ -381,7 +393,33 @@ Settings Decode(const Values& values)
         boolean((std::string("gameplay.") + kGameTweaks[n].key).c_str(), value);
         s.tweaks[n] = value;
     }
+    if (const auto it = values.find("online.server"); it != values.end() && !it->second.empty())
+        s.online_server = it->second;
+    boolean("online.rollback", s.rollback);
+    boolean("online.rollback_test", s.rollback_test);
+    if (const auto it = values.find("online.rollback_log"); it != values.end()) s.rollback_log = it->second;
+    if (s.rollback_log.find_first_of("\r\n") != std::string::npos || s.rollback_log.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: online.rollback_log contains a line break or NUL");
+    if (s.online_server.find_first_of("\r\n") != std::string::npos || s.online_server.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: the online server redirect contains a line break or NUL");
+
     choice("gameplay.super_team_side", s.super_team_side, {"away", "home", "both"});
+    auto training = [&](const char* key, std::string& value, const auto& names) {
+        const auto it = values.find(key);
+        if (it == values.end()) return;
+        if (TrainingIndex(names, it->second) < 0)
+            throw std::runtime_error(std::string("Invalid configuration: unsupported ") + key);
+        value = it->second;
+    };
+    training("gameplay.training_item", s.training_item, kTrainingItems);
+    training("gameplay.training_captain", s.training_captain, kTrainingCaptains);
+    training("gameplay.training_stadium", s.training_stadium, kTrainingStadiums);
+    training("gameplay.training_away_captain", s.training_away_captain, kTrainingCaptains);
+    number("gameplay.training_away_fielders", s.training_away_fielders, 0, 4);
+    boolean("gameplay.training_away_goalie", s.training_away_goalie);
+    boolean("gameplay.training_skip_goals", s.training_skip_goals);
+    training("gameplay.training_away_skill", s.training_away_skill, kTrainingSkills);
+    choice("gameplay.training_side", s.training_side, {"home", "away"});
     return s;
 }
 

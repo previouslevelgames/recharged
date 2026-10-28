@@ -46,11 +46,16 @@ extern "C" void ChargedCopyRFLShapeVector(void* destination,const void* source) 
     // payload bits are retained, including NaN/Inf; no policy/normalization.
     std::memcpy(destination,words,sizeof(words));
 }
-extern "C" void ChargedCopyRFLShapeBytes(void* destination,const void* source,std::size_t bytes) {
+extern "C" void ChargedCopyRFLShapeTexcoords(void* destination,const void* source,std::size_t bytes) {
     if (bytes) Serialized(source,bytes);
-    // Preserve original memcpy and Wii texcoord bytes. No MEM parent or output
-    // publication is invented; generated array ownership is a separate hold.
-    std::memcpy(destination,source,bytes);
+    // The original memcpy of big-endian s16 pairs, each converted: the model's
+    // arrays are published as native bytes (ChargedPublishRFLModelArrays).
+    const auto* p=static_cast<const unsigned char*>(source);
+    auto* out=static_cast<unsigned char*>(destination);
+    for (std::size_t i=0;i+1<bytes;i+=2) {
+        const auto word=static_cast<std::uint16_t>((std::uint16_t(p[i])<<8)|p[i+1]);
+        std::memcpy(out+i,&word,sizeof(word));
+    }
 }
 extern "C" void ChargedTransformRFLShapeCoordinate(std::int16_t* destination,const std::int16_t* source) {
     Serialized(source,6);
@@ -61,6 +66,13 @@ extern "C" void ChargedTransformRFLShapeCoordinate(std::int16_t* destination,con
         std::bit_cast<std::int16_t>(Half(p+4))};
     // Invoke the genuine unchanged original permutation/sign decisions.
     RFLiTransformCoordinate(destination,native);
+}
+extern "C" void ChargedPublishRFLModelArrays(void* res,std::size_t bytes) {
+    GameGraphicsRetirementReservation retired;
+    retired.Commit(res,bytes);
+    GameGraphicsStorageReservation storage(bytes);
+    storage.Commit(res);
+    PublishGameGraphicsNativeBytes(res,static_cast<const unsigned char*>(res)+bytes);
 }
 extern "C" void ChargedSetRFLGraphicsArray(int attribute,const void* data,std::uint8_t stride) {
     const auto span=ResolveGameGraphicsArray(data);
