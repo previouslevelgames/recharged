@@ -6,6 +6,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -101,6 +102,20 @@ extern "C" int __wrap_rename(const char* old_path, const char* new_path)
     }
     if (unlink(new_path) != 0) return -1;
     return __real_rename(old_path, new_path);
+}
+
+// The working folder is the .nro's folder on the SD card, which libnx names
+// sdmc:/switch/recharged: std::filesystem takes that for a relative path and
+// absolute() puts it in front of itself. Without the device name it is the
+// same folder on the card, the default device (linked with --wrap=getcwd).
+extern "C" char* __real_getcwd(char* buffer, std::size_t size);
+
+extern "C" char* __wrap_getcwd(char* buffer, std::size_t size)
+{
+    char* folder = __real_getcwd(buffer, size);
+    if (folder != nullptr && std::strncmp(folder, "sdmc:/", 6) == 0)
+        std::memmove(folder, folder + 5, std::strlen(folder + 5) + 1);
+    return folder;
 }
 
 // libnx's abort exits without a report; a fault makes Atmosphère write a
