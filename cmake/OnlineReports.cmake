@@ -1,6 +1,7 @@
 # The WFC server's match reports: the game module records each online series
-# this machine plays (src/platform/online_match_snapshot.cpp, tweak patch
-# 0037) and the game host sends it to the server (src/platform/online_reports.h).
+# this machine plays and the error codes its online menus show
+# (src/platform/online_match_snapshot.cpp, tweak patches 0037 and 0045), and
+# the game host sends them to the server (src/platform/online_reports.h).
 include_guard(GLOBAL)
 include("${CMAKE_CURRENT_LIST_DIR}/Http.cmake")
 find_package(Threads REQUIRED)

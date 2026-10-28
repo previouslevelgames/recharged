@@ -1046,7 +1046,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         }
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
         // The WFC server's match reports: the online series this computer
-        // plays go to the server the game logs in to (online.server).
+        // plays, and the error codes its online menus show, go to the server
+        // the game logs in to (online.server).
         auto onlineMatchSnapshot=reinterpret_cast<ChargedOnlineMatchSnapshotFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_online_match_snapshot"));
         std::unique_ptr<mscharged::platform::OnlineReports> onlineReports;
@@ -1061,7 +1062,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 line+="off ("+http+")";
             else {
                 onlineReports=mscharged::platform::OnlineReports::Start(launch.settings.online_server,
-                    std::string(release->game_id,4),[](const std::string& text) {
+                    std::string(release->game_id,4),mscharged::build::version,[](const std::string& text) {
                         mscharged::platform::SessionLogLine(text);
                         std::fprintf(stderr,"%s\n",text.c_str());
                     });

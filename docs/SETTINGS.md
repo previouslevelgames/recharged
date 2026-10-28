@@ -431,10 +431,10 @@ status, unless `[discord] application_id` names one.
 `[online]` keys in `recharged.ini`; the launcher has no page for them.
 
 **Server** (`server`) is the host name or address the game's Nintendo Wi-Fi
-Connection names resolve to, and where the series you play online are
-reported. It is already set to the project's server, so you only change it to
-play on a private instance of the server
-([recharged-wfc-srv](https://github.com/previouslevelgames/recharged-wfc-srv)).
+Connection names resolve to, and where the series you play online and the
+error codes the online menus show you are reported. It is already set to the
+project's server, so you only change it to play on a private instance of the
+server ([recharged-wfc-srv](https://github.com/previouslevelgames/recharged-wfc-srv)).
 Left out or empty, it is the project's server too.
 
 **Rollback** (`rollback`, on by default) makes network matches predict the

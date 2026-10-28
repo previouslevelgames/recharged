@@ -465,7 +465,9 @@ public:
             if (texture) SDL_DestroyTexture(texture);
         if (header_back_) SDL_DestroyTexture(header_back_);
         if (header_front_) SDL_DestroyTexture(header_front_);
+        if (header_strokes_) SDL_DestroyTexture(header_strokes_);
         for (const auto& level : logo_) SDL_DestroyTexture(level.texture);
+        for (const auto& level : logo_sizzle_) SDL_DestroyTexture(level.texture);
         if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
         if (renderer_) SDL_DestroyRenderer(renderer_);
         if (window_) SDL_DestroyWindow(window_);
@@ -508,9 +510,11 @@ public:
         ApplyWindowMetrics(true);
 
         const auto resources = base_ / "assets/launcher";
-        // The header's two layers, the same size: the scene, and Mario with the ball over it.
+        // The header's three layers, the same proportions: the scene, gold strokes
+        // bursting behind Mario, and Mario with the ball over them.
         for (const auto& [texture, name] :
-             {std::pair{&header_back_, "header_back.png"}, std::pair{&header_front_, "header_front.png"}})
+             {std::pair{&header_back_, "header_back.png"}, std::pair{&header_strokes_, "header_strokes.png"},
+              std::pair{&header_front_, "header_front.png"}})
         {
             SurfacePtr surface(SDL_LoadPNG(PathUtf8(resources / name).c_str()), SDL_DestroySurface);
             Require(surface != nullptr, "Cannot load launcher header; rebuild to restore resources");
@@ -520,20 +524,32 @@ public:
             Require(*texture != nullptr, "Cannot create header texture");
             SDL_SetTextureScaleMode(*texture, SDL_SCALEMODE_LINEAR);
         }
+        SDL_SetTextureBlendMode(header_strokes_, SDL_BLENDMODE_BLEND);
         SDL_SetTextureBlendMode(header_front_, SDL_BLENDMODE_BLEND);
-        // The Recharged logo, with halved copies down to 128 pixels wide for small sizes.
-        SurfacePtr level(SDL_LoadPNG(PathUtf8(resources / "logo.png").c_str()), SDL_DestroySurface);
-        if (level) level.reset(SDL_ConvertSurface(level.get(), SDL_PIXELFORMAT_RGBA32));
-        Require(level != nullptr, "Cannot load launcher logo; rebuild to restore resources");
-        logo_aspect_ = float(level->w) / float(level->h);
-        while (level)
+        // The Recharged logo and the same logo with sparks, which sizzles over
+        // it, each with halved copies down to 128 pixels wide for small sizes.
+        const auto load_levels = [&](const char* name, std::vector<LogoLevel>& levels) {
+            SurfacePtr level(SDL_LoadPNG(PathUtf8(resources / name).c_str()), SDL_DestroySurface);
+            if (level) level.reset(SDL_ConvertSurface(level.get(), SDL_PIXELFORMAT_RGBA32));
+            Require(level != nullptr, "Cannot load launcher logo; rebuild to restore resources");
+            while (level)
+            {
+                SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, level.get());
+                Require(texture != nullptr, "Cannot create logo texture");
+                SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+                levels.push_back({texture, float(level->w), float(level->h)});
+                if (level->w < 256) break;
+                level = HalfSize(level.get());
+            }
+        };
+        load_levels("logo.png", logo_);
+        logo_aspect_ = logo_.front().width / logo_.front().height;
+        // tools/launcher_art.py cuts both out alike; another picture is left out.
+        load_levels("logo_sizzle.png", logo_sizzle_);
+        if (logo_sizzle_.front().width != logo_.front().width || logo_sizzle_.front().height != logo_.front().height)
         {
-            SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, level.get());
-            Require(texture != nullptr, "Cannot create logo texture");
-            SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
-            logo_.push_back({texture, float(level->w)});
-            if (level->w < 256) break;
-            level = HalfSize(level.get());
+            for (const auto& level : logo_sizzle_) SDL_DestroyTexture(level.texture);
+            logo_sizzle_.clear();
         }
         // Aurora's logo (from its pinned source) is optional decoration.
         if (auto logo = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
@@ -717,9 +733,10 @@ private:
         // triangles in the software renderer), cropped like CSS "cover";
         // ImGui then paints its gradients and text over it. Each time the
         // Play page opens, the artwork makes an entrance, the shot coming in:
-        // it fades in from the page colour while its two layers glide from
+        // it fades in from the page colour while its layers glide from
         // the top right towards the bottom left and grow about Mario's face,
-        // Mario and the ball further than the scene, slowing down until
+        // Mario and the ball further than the gold strokes behind them and
+        // those further than the scene, slowing down until
         // Mario rests in that crop. He starts smaller, so his layer starts
         // shifted up and right at least as far as keeps its top and right
         // edges, where the art cuts his raised hand and his fist, beyond the
@@ -758,6 +775,10 @@ private:
                             int(std::ceil(hero_.h))};
         SDL_SetRenderClipRect(renderer_, &clip);
         layer(header_back_, 1.025f + 0.04f * (1 - remaining), 0.010f * hero_.w * remaining);
+        // The strokes, further back than Mario, glide the same way but less (both the
+        // growth and the shift, so that their top and right edges stay out too).
+        constexpr float strokes_depth = 0.6f;
+        layer(header_strokes_, 1 - front_zoom * strokes_depth * remaining, lift * strokes_depth * remaining);
         layer(header_front_, 1 - front_zoom * remaining, lift * remaining);
         // The fade: the page colour over the whole picture, not each layer
         // faded on its own, which would show the scene through Mario.
@@ -772,17 +793,52 @@ private:
         SDL_SetRenderClipRect(renderer_, nullptr);
     }
 
-    // The logo with its top left corner at `pos`, `height` tall; returns its width.
+    // The logo with its top left corner at `pos`, `height` tall, the sparked
+    // logo sizzling over it; returns its width.
     float DrawLogo(ImDrawList* draw, ImVec2 pos, float height)
     {
         const float width = height * logo_aspect_;
         // The smallest copy still as wide as the pixels it covers.
-        const LogoLevel* level = &logo_.front();
-        for (const auto& candidate : logo_)
-            if (candidate.width >= width * metrics_.density) level = &candidate;
-        draw->AddImage(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(level->texture)), pos,
-                       {pos.x + width, pos.y + height});
+        std::size_t level = 0;
+        for (std::size_t i = 0; i < logo_.size(); ++i)
+            if (logo_[i].width >= width * metrics_.density) level = i;
+        const ImVec2 max{pos.x + width, pos.y + height};
+        draw->AddImage(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(logo_[level].texture)), pos, max);
+        if (const float sizzle = Sizzle(); sizzle > 0.0f && level < logo_sizzle_.size())
+            draw->AddImage(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(logo_sizzle_[level].texture)),
+                           pos, max, {0, 0}, {1, 1}, IM_COL32(255, 255, 255, int(sizzle * 255.0f + 0.5f)));
         return width;
+    }
+
+    // How much of the sparked logo shows over the plain one now. At random
+    // moments, 1.5 to 6 seconds apart, the sparks crackle for 0.35 to 0.9
+    // seconds (now and then striking again at once), flickering to another
+    // strength every few hundredths of a second, rising fast and fading out.
+    // Nothing in screenshots, so that they stay the same.
+    float Sizzle()
+    {
+        if (capture_ || logo_sizzle_.empty()) return 0.0f;
+        const double now = ImGui::GetTime();
+        std::uniform_real_distribution<double> random(0.0, 1.0);
+        if (now >= sizzle_.next)
+        {
+            sizzle_.start = now;
+            sizzle_.length = 0.35 + 0.55 * random(sizzle_.rng);
+            const double pause = random(sizzle_.rng) < 0.3 ? 0.12 + 0.25 * random(sizzle_.rng)
+                                                             : 1.5 + 4.5 * random(sizzle_.rng);
+            sizzle_.next = now + sizzle_.length + pause;
+            sizzle_.flicker_until = now;
+        }
+        const double t = now - sizzle_.start;
+        if (t >= sizzle_.length) return 0.0f;
+        if (now >= sizzle_.flicker_until)
+        {
+            sizzle_.flicker = float(0.25 + 0.75 * random(sizzle_.rng));
+            sizzle_.flicker_until = now + 0.03 + 0.06 * random(sizzle_.rng);
+        }
+        const float u = float(t / sizzle_.length);
+        const float fall = std::clamp((u - 0.4f) / 0.6f, 0.0f, 1.0f);
+        return std::min(u / 0.12f, 1.0f) * (1 - fall * fall * (3 - 2 * fall)) * sizzle_.flicker;
     }
 
     // ------------------------------------------------------------ settings
@@ -2854,14 +2910,17 @@ private:
         const char* rest = ", rebuilt to run natively on your PC.";
         const float game_width = TextSize(fonts.heading, game).x;
         const bool one_line = game_width + TextSize(fonts.heading, rest).x <= size.x * 0.75f - pad;
-        const float logo = std::clamp(hero * 0.48f, Dp(110), Dp(210));
+        // The logo set by its width, its height following from its proportions.
+        const float logo = std::clamp(hero * 0.879f, Dp(201), Dp(385)) / logo_aspect_;
         const float subtitle = one_line ? FontSize(fonts.heading) : FontSize(fonts.heading) * 2 + Dp(2);
         const float top = origin.y + Dp(40), room = button_y - Dp(34) - top;
         float y = top + std::max(0.0f, (room - logo - Dp(10) - subtitle) * 0.6f);
-        // A soft glow from the logo's lit ball, so that the logo sits in the scene.
-        const ImVec2 ball{origin.x + pad - Dp(8) + logo * logo_aspect_ * 0.86f, y + logo * 0.23f};
+        // A soft glow from the logo's lit ball, so that the logo sits in the
+        // scene, brighter while the sparks crackle.
+        const ImVec2 ball{origin.x + pad - Dp(8) + logo * logo_aspect_ * 0.852f, y + logo * 0.232f};
+        const float glow = 0.006f * (1 + Sizzle());
         for (int i = 20; i >= 1; --i)
-            draw->AddCircleFilled(ball, logo * 0.055f * float(i), Col(color::accent, 0.006f), 48);
+            draw->AddCircleFilled(ball, logo * 0.055f * float(i), Col(color::logo, glow), 48);
         DrawLogo(draw, {origin.x + pad - Dp(8), y}, logo);
         y += logo + Dp(10);
         DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y}, IM_COL32_WHITE, game, 1.2f);
@@ -3060,9 +3119,10 @@ private:
         const float caption = FontSize(fonts.caption);
         const float detail_height =
             detail.empty() ? 0.0f : fonts.caption->CalcTextSizeA(caption, FLT_MAX, wrap, detail.c_str()).y;
-        const float pill = Dp(28), pill_gap = Dp(6);
+        // With one note the status is as tall as the button: its pill ends with it.
+        const float pill = Dp(28), pill_gap = Dp(6), pill_top = Dp(8);
         float height = Dp(26) + detail_height;
-        if (!notes.empty()) height += Dp(4) + float(notes.size()) * (pill + pill_gap) - pill_gap;
+        if (!notes.empty()) height += pill_top + float(notes.size()) * (pill + pill_gap) - pill_gap;
         if (missing) height += Dp(4) + Dp(32);
         const ImVec2 pos{anchor.x, std::floor(anchor.y - height * 0.5f)};
 
@@ -3075,18 +3135,20 @@ private:
             draw->AddText(fonts.caption, caption, {text_x, y}, Col(color::muted), detail.c_str(), nullptr, wrap);
             y += detail_height;
         }
+        // The pills (and the missing image's buttons) start at the status's left
+        // edge, under the icon, so that a pill's text lines up with the headline.
         ImGui::PushID("play_status");
         for (std::size_t i = 0; i < notes.size(); ++i)
         {
-            ImGui::SetCursorScreenPos({pos.x + Dp(22), y + Dp(4) + float(i) * (pill + pill_gap)});
+            ImGui::SetCursorScreenPos({pos.x, y + pill_top + float(i) * (pill + pill_gap)});
             ImGui::PushID(int(i));
-            if (StatusPill("##note", notes[i], limit - pos.x - Dp(22))) page_ = notes[i].page;
+            if (StatusPill("##note", notes[i], limit - pos.x)) page_ = notes[i].page;
             ImGui::PopID();
         }
         ImGui::PopID();
         if (missing)
         {
-            ImGui::SetCursorScreenPos({pos.x + Dp(22), y + Dp(4)});
+            ImGui::SetCursorScreenPos({pos.x, y + Dp(4)});
             MissingImageActions(limit);
         }
     }
@@ -8207,7 +8269,7 @@ private:
         const ImVec2 max{pos.x + width, pos.y + height};
         const float rounding = Dp(16);
 
-        // A night-blue wash and, on the right, a lightning bolt in a soft glow.
+        // An accent wash and, on the right, a lightning bolt in a soft glow.
         FillGradient(draw, pos, max, Col(Mix(color::card, color::accent_dark, 0.9f)), Col(color::card), rounding, true);
         draw->PushClipRect(pos, max, true);
         const ImVec2 glow{max.x - std::min(Dp(140), width * 0.2f), pos.y + height * 0.5f};
@@ -8655,14 +8717,22 @@ private:
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture* header_back_ = nullptr;
     SDL_Texture* header_front_ = nullptr;
+    SDL_Texture* header_strokes_ = nullptr;
     // The Recharged logo, largest copy first, each half the one before.
     struct LogoLevel
     {
         SDL_Texture* texture;
-        float width;
+        float width, height;
     };
     std::vector<LogoLevel> logo_;
+    std::vector<LogoLevel> logo_sizzle_; // the logo with sparks, the same sizes
     float logo_aspect_ = 1.0f;
+    struct SizzleState
+    {
+        std::mt19937 rng{std::random_device{}()};
+        double start = 0, length = 0, next = 1.0, flicker_until = 0;
+        float flicker = 0;
+    } sizzle_;
     SDL_Texture* aurora_logo_ = nullptr;
     float aurora_logo_width_ = 1, aurora_logo_height_ = 1;
     // Open standard gamepads (gamepad1-4 order); gamepad_ is the first.

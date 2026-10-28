@@ -1,0 +1,55 @@
+Subject: Port: online error codes for the WFC server's monitoring
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Recharged builds also tell the WFC server the error codes their players get
+outside a match, so the server can show what goes wrong online (the port's
+src/platform/online_reports.h). Every numbered error popup of the online
+login, matchmaking, friends and menus takes its number from
+GetOnlineErrorPopup (gOnlineErrorCode); there the port's
+src/platform/online_match_snapshot.cpp now records the number, with the
+session state at the time and the Mii's WFC profile. Nothing else changes.
+
+The hook joins tweak patch 0037's interface, include/mscharged_online_reports.h.
+
+diff --git a/include/mscharged_online_reports.h b/include/mscharged_online_reports.h
+index a189425..a954b0e 100644
+--- a/include/mscharged_online_reports.h
++++ b/include/mscharged_online_reports.h
+@@ -14,6 +14,12 @@ extern "C" {
+ // a sync error, 4 a lost connection), the goals of home and away, and whether
+ // the game had settled this game's result before (mGameResultReported).
+ void mscharged_tweak_online_game_result(int result, int homeScore, int awayScore, int reported);
++#if defined(MSCHARGED_TWEAKS)
++// Where the game shows an online error code (GetOnlineErrorPopup, for the
++// popups of the login, matchmaking, friends and online menus): the number the
++// popup shows (gOnlineErrorCode).
++void mscharged_tweak_online_error(int code);
++#endif
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/Game/SH/SHOnlineLogin.cpp b/src/Game/SH/SHOnlineLogin.cpp
+index 789e45b..ddc201c 100644
+--- a/src/Game/SH/SHOnlineLogin.cpp
++++ b/src/Game/SH/SHOnlineLogin.cpp
+@@ -22,6 +22,9 @@
+ #include <stdlib.h>
+ #include "Game/FE/feDPD.h"
+ #include "Game/FE/tlDefault.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_online_reports.h"
++#endif
+ 
+ SHOnlineLogin::SHOnlineLogin()
+     : mPopupActive(false)
+@@ -263,6 +266,10 @@ int GetOnlineErrorPopup(int error, bool connected, int value)
+     error = _abs(error);
+ #endif
+     gOnlineErrorCode = error;
++#if defined(MSCHARGED_TWEAKS)
++    // The port's error reports to the WFC server: the code this popup shows.
++    mscharged_tweak_online_error(error);
++#endif
+     bool found = false;
+     for (int i = 0; i < 22; ++i)
+     {

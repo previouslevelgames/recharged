@@ -2,9 +2,10 @@
 // it saw it. Tweak patch 0037 calls mscharged_tweak_online_game_result where
 // the game settles a game's result (NetworkStatsManager::
 // CalculateAndReportGameResult: a normal end, a sync error or a lost
-// connection); charged_online_match_snapshot hands the series to the host,
-// which reports it (src/platform/online_reports.h). Both run on the thread of
-// the game's tasks. Read only: the game is unchanged.
+// connection), tweak patch 0045 mscharged_tweak_online_error where it shows
+// an online error code (GetOnlineErrorPopup); charged_online_match_snapshot
+// hands both to the host, which reports them (src/platform/online_reports.h).
+// All run on the thread of the game's tasks. Read only: the game is unchanged.
 #if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_TWEAKS)
 #error The online match snapshot belongs to the isolated original game module built with MSCHARGED_TWEAKS
 #endif
@@ -18,6 +19,7 @@
 #include "Game/NetworkDraft.h"
 #include "Game/NetworkSession.h"
 #include "Game/NetworkStatsManager.h"
+#include "Game/NetworkSync.h"
 #include "Game/Sys/clock.h"
 #include "Game/Team.h"
 #include <dwc/dwc_account.h>
@@ -31,6 +33,7 @@ unsigned sSeriesCount = 0;
 // A series ended and the game that ended it may still be on screen: the next
 // series waits for another game.
 bool sAwaitingGame = false;
+ChargedOnlineError sError{}; // the last error code shown
 
 bool UnderWay() { return sSeries.series && !sSeries.ended; }
 
@@ -87,6 +90,16 @@ bool Online()
         && g_pNetworkSessionBase->GetSessionMode() == NET_MODE_ONLINE;
 }
 
+// The WFC profile of the Mii online: its DWCAccUserData in the save slot it
+// plays from. 0 before its first login, or with no Mii chosen.
+unsigned ProfileId()
+{
+    GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
+    if (!info || gNetworkSaveSlotIndex < 0 || gNetworkSaveSlotIndex >= 10) return 0;
+    const auto* user = reinterpret_cast<const DWCAccUserData*>(info->GetSaveSlot(gNetworkSaveSlotIndex));
+    return user->gs_profile_id > 0 ? unsigned(user->gs_profile_id) : 0;
+}
+
 // The drafted teams of home and away, as the game reports them
 // (CalculateAndReportGameResult): by tournament seat in an online tournament.
 NetworkDraftTeam* DraftTeam(int side)
@@ -106,11 +119,7 @@ void Begin()
     sSeries.series = ++sSeriesCount;
     sAwaitingGame = false;
     GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
-    if (info && gNetworkSaveSlotIndex >= 0 && gNetworkSaveSlotIndex < 10)
-    {
-        const auto* user = reinterpret_cast<const DWCAccUserData*>(info->GetSaveSlot(gNetworkSaveSlotIndex));
-        if (user->gs_profile_id > 0) sSeries.profile_id = unsigned(user->gs_profile_id);
-    }
+    sSeries.profile_id = ProfileId();
     sSeries.ranked = IsOnlineRankedMatch() ? 1 : 0;
     sSeries.best_of = info && info->GetCurrentSettings() ? info->GetCurrentSettings()->NumGames : 0;
     sSeries.side = GetLocalNetworkPlayingSide() == 1 ? 1 : 0;
@@ -153,10 +162,25 @@ void mscharged_tweak_online_game_result(int result, int homeScore, int awayScore
             }
         game.ending = result;
         if (g_pGame->m_pGameClock) game.seconds = g_pGame->m_pGameClock->m_fTimer;
+        // Out of sync: the check that failed has its frame already (each
+        // NetworkSyncState::On*Mismatch sets it before the sync error that
+        // brings this result); the state is reset for each game.
+        if (result == 2 && gNetworkSyncState)
+            ChargedOnlineSyncCheck(game, gNetworkSyncState->mFrameMismatchFrame,
+                                   gNetworkSyncState->mChecksumMismatchFrame,
+                                   gNetworkSyncState->mRandomSeedMismatchFrame);
     }
     const bool underWay = UnderWay();
     ChargedOnlineSeriesResult(sSeries, result, reported != 0, played ? &game : nullptr);
     if (underWay && !UnderWay()) sAwaitingGame = true;
+}
+
+void mscharged_tweak_online_error(int code)
+{
+    ++sError.shown;
+    sError.code = code;
+    sError.phase = g_pNetworkSession ? int(g_pNetworkSession->mSessionState) : -1;
+    sError.profile_id = ProfileId();
 }
 
 extern "C" __attribute__((visibility("default"))) bool charged_online_match_snapshot(
@@ -176,8 +200,10 @@ extern "C" __attribute__((visibility("default"))) bool charged_online_match_snap
     else if (UnderWay() && !online)
     {
         sSeries.ended = 2;
+        sSeries.stopped_by = 0; // with no result
         sAwaitingGame = true;
     }
     *snapshot = sSeries;
+    snapshot->error = sError;
     return true;
 }

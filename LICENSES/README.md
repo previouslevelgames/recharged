@@ -72,7 +72,9 @@ Portions of this software are copyright © 2026 The FreeType Project
 
 The launcher header (`assets/launcher/header_back.png` and `header_front.png`) is
 made from Nintendo's key art for Mario Strikers Charged, as the
-[Super Mario Wiki](https://www.mariowiki.com/File:MSC_Scene.jpg) keeps it.
+[Super Mario Wiki](https://www.mariowiki.com/File:MSC_Scene.jpg) keeps it. Its
+gold strokes (`header_strokes.png`) were supplied by the project owner; their
+creator and terms are not recorded yet, and they are outside the CC0 dedication.
 The application icon (`assets/launcher/icon.png` and its Windows `.ico`
 conversion) comes from
 [SteamGridDB icon 103028, uploaded by roryypc](https://www.steamgriddb.com/icon/103028).
