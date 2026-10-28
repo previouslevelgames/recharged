@@ -14,6 +14,11 @@ The image's code and data are gathered into charged_image_<image>_{text,rodata,d
 so the program can tell the image's memory, and its constructors into
 charged_image_<image>_init, which the program runs when it loads the image, after its
 own setup, as dlopen would run the module's.
+
+A linker script of the module's link (-T, cmake/rollback_sections.ld) adds sections
+after .data or .bss with INSERT AFTER: their contents open the image's data or zeroed
+data, so those globals stay part of the image's memory, in the order and with the
+bounds the script gives them.
 """
 
 import argparse
@@ -32,8 +37,8 @@ SECTIONS
 {{
   charged_image_{image}_text : {{ *(.text .text.* .gnu.linkonce.t.*) }}
   charged_image_{image}_rodata : {{ *(.rodata .rodata.* .gnu.linkonce.r.*) }}
-  charged_image_{image}_data : {{ *(.data .data.* .gnu.linkonce.d.*) }}
-  charged_image_{image}_bss : {{ *(.bss .bss.* .gnu.linkonce.b.* COMMON) }}
+  charged_image_{image}_data : {{ {data}*(.data .data.* .gnu.linkonce.d.*) }}
+  charged_image_{image}_bss : {{ {bss}*(.bss .bss.* .gnu.linkonce.b.* COMMON) }}
   charged_image_{image}_init : {{ KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*))) KEEP(*(.init_array)) }}
   charged_image_{image}_fini : {{ KEEP(*(SORT_BY_INIT_PRIORITY(.fini_array.*))) KEEP(*(.fini_array)) }}
   /* A relocatable link with --gc-sections drops the unwind tables otherwise. */
@@ -62,13 +67,22 @@ def run(command):
 
 
 def parse_link_command(command):
-    """The module link's output, inputs, export map and dependency file."""
+    """The module link's output, inputs, export map, dependency file and linker scripts."""
     output = version_script = dependency_file = None
     inputs = []
+    scripts = []
+    script_follows = False
 
     def linker_option(option):
-        nonlocal version_script, dependency_file
-        if option.startswith("--version-script="):
+        nonlocal version_script, dependency_file, script_follows
+        if script_follows:
+            scripts.append(option)
+            script_follows = False
+        elif option == "-T":
+            script_follows = True
+        elif option.startswith("--script="):
+            scripts.append(option.split("=", 1)[1])
+        elif option.startswith("--version-script="):
             version_script = option.split("=", 1)[1]
         elif option.startswith("--dependency-file="):
             dependency_file = option.split("=", 1)[1]
@@ -96,7 +110,34 @@ def parse_link_command(command):
             raise ImageError(f"Unexpected module link input: {argument}")
     if not output or not version_script:
         raise ImageError("The module link names no output or no export map (version script)")
-    return output, inputs, version_script, dependency_file
+    if script_follows:
+        raise ImageError("The module link's -T names no linker script")
+    return output, inputs, version_script, dependency_file, scripts
+
+
+def inserted_sections(scripts):
+    """The contents of the output sections the module's linker scripts insert after
+    .data and after .bss, for the image's data and zeroed data."""
+    parts = {".data": [], ".bss": []}
+    for path in scripts:
+        # A comment opens a token: "Audio/*" in a file pattern is no comment.
+        text = re.sub(r"(?<![^\s;{}])/\*.*?\*/", "", Path(path).read_text(), flags=re.S)
+        rest = text
+        for block in re.finditer(r"SECTIONS\s*\{((?:[^{}]|\{[^{}]*\})*)\}\s*INSERT\s+AFTER\s+(\S+?)\s*;", text):
+            after = block.group(2)
+            if after not in parts:
+                raise ImageError(f"{path}: a static game image takes sections inserted after .data "
+                                 f"or .bss, not after {after}")
+            sections = re.sub(r"[A-Za-z_][A-Za-z0-9_]*\s*(\(NOLOAD\))?\s*:\s*\{([^{}]*)\}",
+                              lambda section: parts[after].append(section.group(2).strip()) or "",
+                              block.group(1))
+            if sections.strip():
+                raise ImageError(f"{path}: more than output sections in a SECTIONS block: {sections.strip()[:60]}")
+            rest = rest.replace(block.group(0), "", 1)
+        if rest.strip():
+            raise ImageError(f"{path}: a static game image takes only SECTIONS blocks with INSERT AFTER, "
+                             f"not: {rest.strip()[:60]}")
+    return {after: "".join(part + "\n  " for part in found) for after, found in parts.items()}
 
 
 def read_exports(version_script):
@@ -142,8 +183,9 @@ def main():
     try:
         if not re.fullmatch(r"[a-z][a-z0-9]*", args.image):
             raise ImageError(f"Invalid image name: {args.image}")
-        output, inputs, version_script, dependency_file = parse_link_command(command)
+        output, inputs, version_script, dependency_file, scripts = parse_link_command(command)
         exports = read_exports(version_script)
+        inserted = inserted_sections(scripts)
         prefix = f"charged_image_{args.image}__"
         with tempfile.TemporaryDirectory(prefix="static-game-image-") as work:
             work = Path(work)
@@ -161,7 +203,7 @@ def main():
                         f"The game now defines {', '.join(own)}; remove its provider from {args.providers}")
 
             script = work / "image.ld"
-            script.write_text(LINKER_SCRIPT.format(image=args.image))
+            script.write_text(LINKER_SCRIPT.format(image=args.image, data=inserted[".data"], bss=inserted[".bss"]))
             linked = work / "linked.o"
             link = [args.ld, "-r", "--force-group-allocation", "--gc-sections", "-T", str(script)]
             for name in present:

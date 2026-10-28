@@ -59,6 +59,61 @@ int main() {
 }
 """
 
+# Globals a module's linker script gathers (cmake/rollback_sections.ld does so
+# for the rollback), with the bounds it gives them.
+GATHERED = r"""
+extern "C" char __test_data_start[], __test_data_end[], __test_bss_start[], __test_bss_end[];
+int gathered_value = 5;
+int gathered_zero[4];
+extern "C" const int* charged_gathered(const int** zero) {
+    *zero = gathered_zero;
+    const char* value = reinterpret_cast<const char*>(&gathered_value);
+    const char* zeroes = reinterpret_cast<const char*>(gathered_zero);
+    const bool bounded = value >= __test_data_start && value + sizeof gathered_value <= __test_data_end
+        && zeroes >= __test_bss_start && zeroes + sizeof gathered_zero <= __test_bss_end;
+    return bounded && gathered_value == 5 && gathered_zero[3] == 0 ? &gathered_value : nullptr;
+}
+"""
+
+GATHERING_SCRIPT = """\
+/* The test's globals in sections of their own. */
+SECTIONS
+{
+    test_data :
+    {
+        HIDDEN(__test_data_start = .);
+        *gathered.o(.data .data.*)
+        HIDDEN(__test_data_end = .);
+    }
+}
+INSERT AFTER .data;
+
+SECTIONS
+{
+    test_bss (NOLOAD) :
+    {
+        HIDDEN(__test_bss_start = .);
+        *gathered.o(.bss .bss.* COMMON)
+        HIDDEN(__test_bss_end = .);
+    }
+}
+INSERT AFTER .bss;
+"""
+
+GATHERING_PROGRAM = r"""
+extern "C" const int* charged_image_test__charged_gathered(const int** zero);
+extern "C" char __start_charged_image_test_data[], __stop_charged_image_test_data[];
+extern "C" char __start_charged_image_test_bss[], __stop_charged_image_test_bss[];
+int main() {
+    const int* zero = nullptr;
+    const char* value = reinterpret_cast<const char*>(charged_image_test__charged_gathered(&zero));
+    if (!value) return 1;
+    if (value < __start_charged_image_test_data || value >= __stop_charged_image_test_data) return 2;
+    const char* zeroes = reinterpret_cast<const char*>(zero);
+    return zeroes >= __start_charged_image_test_bss && zeroes < __stop_charged_image_test_bss ? 0 : 3;
+}
+"""
+
 
 def run(*command, cwd=None):
     return subprocess.run(command, cwd=cwd, capture_output=True, text=True)
@@ -102,6 +157,36 @@ class StaticGameImageTest(unittest.TestCase):
         result = run(CXX, "-O2", "program.cpp", "image.o", "-o", "program", cwd=self.work)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(run(str(self.work / "program")).returncode, 0)
+
+    def test_linker_script_sections_open_the_image_data(self):
+        (self.work / "gathered.cpp").write_text(GATHERED)
+        (self.work / "gathering.ld").write_text(GATHERING_SCRIPT)
+        (self.work / "gathering.map").write_text("{ global: charged_gathered; local: *; };\n")
+        (self.work / "gathering_program.cpp").write_text(GATHERING_PROGRAM)
+        result = run(CXX, "-O2", "-fPIC", "-fdata-sections", "-fvisibility=hidden", "-c", "gathered.cpp",
+                     "-o", "gathered.o", cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = run(sys.executable, "-B", str(TOOL), "--ld", LD, "--objcopy", OBJCOPY, "--nm", NM,
+                     "--readelf", READELF, "--image", "test", "--", CXX, "-fPIC", "-shared",
+                     "-Wl,--version-script=gathering.map", "-Wl,-T,gathering.ld", "-o", "image.o", "gathered.o",
+                     cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        sections = run(READELF, "-SW", "image.o", cwd=self.work).stdout.split()
+        self.assertNotIn("test_data", sections)  # its contents are in charged_image_test_data
+        self.assertNotIn("test_bss", sections)
+        self.assertNotIn("__test_data_start", run(NM, "-g", "image.o", cwd=self.work).stdout)
+        result = run(CXX, "-O2", "gathering_program.cpp", "image.o", "-o", "gathering", cwd=self.work)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(run(str(self.work / "gathering")).returncode, 0)
+
+    def test_linker_script_other_than_inserted_sections_is_refused(self):
+        (self.work / "layout.ld").write_text("SECTIONS { .text : { *(.text) } }\n")
+        result = run(sys.executable, "-B", str(TOOL), "--ld", LD, "--objcopy", OBJCOPY, "--nm", NM,
+                     "--readelf", READELF, "--image", "test", "--", CXX, "-shared",
+                     "-Wl,--version-script=exports.map", "-Wl,-T,layout.ld", "-o", "image.o", "module.o",
+                     cwd=self.work)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("only SECTIONS blocks with INSERT AFTER", result.stderr)
 
     def test_provider_the_image_defines_is_refused(self):
         (self.work / "own.cpp").write_text("CHARGED_MISSING_PROVIDER(charged_throw)\n")
