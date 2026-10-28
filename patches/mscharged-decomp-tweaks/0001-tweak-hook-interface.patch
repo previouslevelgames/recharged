@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..ee136cd
+index 0000000..fb8f8f9
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,215 @@
+@@ -0,0 +1,224 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -46,6 +46,8 @@ index 0000000..ee136cd
 +    MSCHARGED_TWEAK_FAIR_BALL_CONTESTS = 10,
 +    MSCHARGED_TWEAK_ROBOT_GOALIES = 11,
 +    MSCHARGED_TWEAK_SUPER_TEAM = 12,
++    MSCHARGED_TWEAK_SECURE_STADIUMS = 13,
++    MSCHARGED_TWEAK_MATCH_POINT = 14,
 +};
 +
 +bool mscharged_tweak_enabled(int tweak);
@@ -225,6 +227,13 @@ index 0000000..ee136cd
 +unsigned long mscharged_tweak_super_team_pool_room(int pool);
 +int mscharged_tweak_super_team_fits(unsigned long size);
 +void mscharged_tweak_super_team_spent(unsigned long header, unsigned long data);
++
++// Training: the item (ePowerUpType) the team that trains gets at every
++// kickoff, -1 for none; and, once per launch, whether the launcher's Start
++// training asked to go from the title straight into a training match, with
++// its captain (eTeamID) and stadium (eStadiumID).
++int mscharged_tweak_training_item(void);
++bool mscharged_tweak_take_training_start(int* captain, int* stadium);
 +
 +#ifdef __cplusplus
 +}

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -20,7 +21,10 @@ inline std::optional<OverlayCorner> ParseOverlayCorner(std::string_view text)
     return std::nullopt;
 }
 
-inline constexpr std::array<const char*, 4> kPerformanceLabels = {"FPS", "GPU", "CPU", "LAT"};
+// FPS, GPU and CPU always; LAT in network sessions; DLY (input delay) and RB
+// (rollback frames) in network matches with rollback.
+inline constexpr std::array<const char*, 6> kPerformanceLabels = {"FPS", "GPU", "CPU", "LAT", "DLY", "RB"};
+inline constexpr std::size_t kMaxPerformanceMetrics = kPerformanceLabels.size();
 
 inline std::optional<int> OverlayNumber(std::optional<double> value, int maximum)
 {
@@ -43,39 +47,70 @@ inline float FpsOverlayFontSize(std::uint32_t width, std::uint32_t height)
 struct FpsOverlayText {
     float label_width;
     float value_width;
-    float value_slot; // Reserve the widest value, keeping all four columns still.
+    float value_slot; // Reserve the widest value, keeping the columns still.
 };
 
 struct FpsOverlayLayout {
     float left, top, right, bottom;
     float text_y;
-    std::array<float, 4> label_x, value_x;
-    std::array<float, 3> separator_x;
+    // The first `count` entries: the metrics shown (indices into
+    // kPerformanceLabels), left to right, and the dividers between them.
+    std::size_t count;
+    std::array<std::size_t, kMaxPerformanceMetrics> metric;
+    std::array<float, kMaxPerformanceMetrics> label_x, value_x;
+    std::array<float, kMaxPerformanceMetrics - 1> separator_x;
 };
 
+// `text`: the first `count` metrics of kPerformanceLabels (1 to
+// kMaxPerformanceMetrics). All of them when they fit the window; else GPU goes,
+// then CPU (a network match's own numbers matter more there), then the last
+// ones. Which ones fit depends on the labels and the value slots only, so the
+// choice stays as the values change.
 inline FpsOverlayLayout LayoutFpsOverlay(std::uint32_t surface_width, std::uint32_t surface_height,
-    OverlayCorner corner, float font_size, const std::array<FpsOverlayText, 4>& text)
+    OverlayCorner corner, float font_size, const FpsOverlayText* text, std::size_t count)
 {
     const float gap = std::round(font_size * 0.4f);
     const float separator_gap = std::round(font_size * 0.9f);
     const float height = std::round(font_size * 1.4f);
-    float width = 6 * separator_gap;
-    for (const auto& metric : text) width += std::ceil(metric.label_width) + gap + std::ceil(metric.value_slot);
     const float margin = std::max(8.0f, std::round(FpsOverlayShortSide(surface_width, surface_height) * 0.015f));
+    FpsOverlayLayout layout{};
+    layout.count = std::clamp<std::size_t>(count, 1, kMaxPerformanceMetrics);
+    for (std::size_t n = 0; n < layout.metric.size(); ++n) layout.metric[n] = n;
+    const auto columnWidth = [&](std::size_t metric) {
+        return std::ceil(text[metric].label_width) + gap + std::ceil(text[metric].value_slot);
+    };
+    const auto shownWidth = [&] {
+        float width = 2 * float(layout.count - 1) * separator_gap;
+        for (std::size_t n = 0; n < layout.count; ++n) width += columnWidth(layout.metric[n]);
+        return width;
+    };
+    const auto fits = [&] { return shownWidth() <= float(surface_width) - 2 * margin; };
+    const auto drop = [&](std::size_t metric) {
+        const auto shown = layout.metric.begin() + layout.count;
+        const auto kept = std::remove(layout.metric.begin(), shown, metric);
+        if (kept != shown) {
+            std::fill(kept, shown, metric);
+            layout.count = std::size_t(kept - layout.metric.begin());
+        }
+    };
+    if (!fits()) drop(1); // GPU
+    if (!fits()) drop(2); // CPU
+    while (!fits() && layout.count > 1) --layout.count;
+    const float width = shownWidth();
     const bool right = corner == OverlayCorner::TopRight || corner == OverlayCorner::BottomRight;
     const bool bottom = corner == OverlayCorner::BottomLeft || corner == OverlayCorner::BottomRight;
-    FpsOverlayLayout layout{};
     layout.left = right ? std::max(0.0f, surface_width - margin - width) : margin;
     layout.top = bottom ? std::max(0.0f, surface_height - margin - height) : margin;
     layout.right = layout.left + width;
     layout.bottom = layout.top + height;
     layout.text_y = std::round(layout.top + (height - font_size) * 0.5f);
     float x = layout.left;
-    for (std::size_t n = 0; n < text.size(); ++n) {
+    for (std::size_t n = 0; n < layout.count; ++n) {
+        const std::size_t metric = layout.metric[n];
         layout.label_x[n] = x;
-        x += std::ceil(text[n].label_width) + gap + std::ceil(text[n].value_slot);
-        layout.value_x[n] = x - std::ceil(text[n].value_width);
-        if (n < layout.separator_x.size()) {
+        x += columnWidth(metric);
+        layout.value_x[n] = x - std::ceil(text[metric].value_width);
+        if (n + 1 < layout.count) {
             layout.separator_x[n] = x + separator_gap;
             x += 2 * separator_gap;
         }

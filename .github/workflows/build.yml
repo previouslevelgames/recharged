@@ -25,16 +25,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Ubuntu 24.04 (glibc 2.39) with clang and GCC 14's C++ runtime builds
+          # binaries that run on Ubuntu 24.04, Debian 13, Fedora 40 and newer;
+          # the packager checks every binary against Ubuntu 24.04.
           - platform: linux-x86_64
-            runner: ubuntu-26.04
+            runner: ubuntu-24.04
             jobs: 4
-            gcc: 15
+            llvm: 23
+            gcc: 14
           # Steam Deck: SteamOS 3.7 has glibc 2.40 and the GCC 14 C++ runtime.
-          # Ubuntu 24.04 (glibc 2.39) with GCC 14 builds binaries that need
-          # nothing newer; the packager checks every binary against SteamOS.
+          # The same build; the packager checks every binary against SteamOS.
           - platform: steamdeck-x86_64
             runner: ubuntu-24.04
             jobs: 4
+            llvm: 23
             gcc: 14
             package_args: --steamdeck
           - platform: macos-arm64
@@ -81,20 +85,36 @@ jobs:
       - name: Install Linux tools
         if: runner.os == 'Linux'
         env:
+          LLVM_VERSION: ${{ matrix.llvm }}
           GCC_VERSION: ${{ matrix.gcc }}
         run: |
+          # Clang from LLVM's repository, the major version of the Windows
+          # build's LLVM-MinGW: one compiler family on every platform. It links
+          # the C++ runtime of the newest installed GCC (14 on ubuntu-24.04).
+          sudo install -d /etc/apt/keyrings
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/keyrings/apt.llvm.org.asc > /dev/null
+          codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+          echo "deb [signed-by=/etc/apt/keyrings/apt.llvm.org.asc] https://apt.llvm.org/$codename/ llvm-toolchain-$codename-$LLVM_VERSION main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y "g++-$GCC_VERSION" cmake ninja-build make tcl pkg-config ccache \
+          sudo apt-get install -y "clang-$LLVM_VERSION" "libstdc++-$GCC_VERSION-dev" \
+            cmake ninja-build make tcl pkg-config ccache \
             libasound2-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev \
             libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libx11-xcb-dev libegl-dev \
             libwayland-dev libxkbcommon-dev wayland-protocols libdecor-0-dev \
             libudev-dev libdbus-1-dev libvulkan-dev
-          echo "CC=gcc-$GCC_VERSION" >> "$GITHUB_ENV"
-          echo "CXX=g++-$GCC_VERSION" >> "$GITHUB_ENV"
+          echo "CC=clang-$LLVM_VERSION" >> "$GITHUB_ENV"
+          echo "CXX=clang++-$LLVM_VERSION" >> "$GITHUB_ENV"
+          # Plain x86-64, like the Windows and macOS builds: ubuntu-26.04's GCC
+          # targeted x86-64-v3 (AVX2, FMA), whose games desynced online against
+          # every other build and do not start on CPUs without AVX2.
+          echo "CFLAGS=-march=x86-64 -mtune=generic" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=-march=x86-64 -mtune=generic" >> "$GITHUB_ENV"
           # ubuntu-24.04's apt CMake 3.28 repeats whole-archive libraries when
           # linking; the runner's newer CMake in /usr/local/bin comes first.
           cmake --version
-          "g++-$GCC_VERSION" --version
+          "clang++-$LLVM_VERSION" --version
       - name: Install macOS tools
         if: runner.os == 'macOS'
         env:
@@ -137,7 +157,9 @@ jobs:
           key: ccache-${{ matrix.platform }}-${{ github.sha }}
           restore-keys: ccache-${{ matrix.platform }}-
       # The build's origin (release, test or dev) for the launcher's update check,
-      # and the Discord status's application (a repository variable: public, not a secret).
+      # the Discord status's application (a repository variable: public, not a secret)
+      # and the hidden autopilot for online tests: never in a release; the repository
+      # variable RECHARGED_AUTOPILOT=OFF takes it out of test builds too.
       - name: Configure original runtime
         run: >-
           cmake --preset release
@@ -149,6 +171,7 @@ jobs:
           -DMSCHARGED_BUILD_RUN=${{ github.run_id }}
           -DMSCHARGED_BUILD_TIME=$(date -u +%s)
           -DMSCHARGED_DISCORD_APPLICATION_ID=${{ vars.DISCORD_APPLICATION_ID }}
+          -DMSCHARGED_AUTOPILOT=${{ github.event_name == 'push' && 'OFF' || vars.RECHARGED_AUTOPILOT || 'AUTO' }}
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ${{ matrix.cmake_args }}
@@ -184,6 +207,15 @@ jobs:
               echo "recharged defines its own std::exception type info" >&2
               exit 1
             fi
+          fi
+          # The game modules stay plain x86-64 (see Install Linux tools): online
+          # play needs the same game code on every machine.
+          if [ "$RUNNER_OS" = Linux ]; then
+            for module in build/release/recharged_game_{us,eu}.so; do
+              avx=$(objdump -d --no-show-raw-insn "$module" | awk -F '\t' 'NF >= 2 && $2 ~ /^v/' | wc -l)
+              echo "$module: $avx AVX instructions"
+              test "$avx" -eq 0
+            done
           fi
           ./build/release/recharged --version | tee build/release/ci-version.txt
           grep -F 'original frontend runtime' build/release/ci-version.txt
@@ -297,6 +329,7 @@ jobs:
           -DMSCHARGED_BUILD_RUN=${{ github.run_id }}
           -DMSCHARGED_BUILD_TIME=$(date -u +%s)
           -DMSCHARGED_DISCORD_APPLICATION_ID=${{ vars.DISCORD_APPLICATION_ID }}
+          -DMSCHARGED_AUTOPILOT=${{ github.event_name == 'push' && 'OFF' || vars.RECHARGED_AUTOPILOT || 'AUTO' }}
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       # Only the packaged targets: some Linux-only diagnostics are not portable.

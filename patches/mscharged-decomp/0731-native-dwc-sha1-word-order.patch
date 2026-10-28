@@ -1,0 +1,68 @@
+From: mscharged-port
+Subject: Compute DWC's SHA-1 in its big-endian word order natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native byte-order compatibility
+
+MATH_CalcSHA1 loads the message's 32-bit words and stores the digest's
+through u32 pointers, which gives SHA-1's big-endian words on the Wii.
+On a little-endian host every hash was wrong: the ranking session's
+GameStats token hash (SHA1(secret key + token)) was rejected by the
+server as "Invalid hash", and the response's HMAC check failed, so the
+game reported that it could not get its stats.
+
+Natively the message words are read and the digest written as big-endian
+bytes. Checked against a reference SHA-1 for lengths 0 to 1000, including
+every padding boundary.
+
+diff --git a/src/RVL_SDK/dwc/dwci_np_math.c b/src/RVL_SDK/dwc/dwci_np_math.c
+index f18c897..fcfe884 100644
+--- a/src/RVL_SDK/dwc/dwci_np_math.c
++++ b/src/RVL_SDK/dwc/dwci_np_math.c
+@@ -85,10 +85,20 @@ void MATH_CalcSHA1(void* Message_Digest, const void* buf, u32 size)
+         }
+ 
+         dst = w;
++#if defined(MSCHARGED_NATIVE)
++        // SHA-1 message words are big-endian, the Wii's u32 order.
++        for (i = 0; i < 16; i++)
++        {
++            const unsigned char* bytes = (const unsigned char*)(src + i);
++            *dst++ = ((unsigned int)bytes[0] << 24) | ((unsigned int)bytes[1] << 16) |
++                     ((unsigned int)bytes[2] << 8) | (unsigned int)bytes[3];
++        }
++#else
+         for (i = 0; i < 16; i++)
+         {
+             *dst++ = *src++;
+         }
++#endif
+ 
+         for (i = 16; i < 80; i++)
+         {
+@@ -759,11 +769,26 @@ void MATH_CalcSHA1(void* Message_Digest, const void* buf, u32 size)
+         len -= 64;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // The digest is the big-endian bytes of h0..h4.
++    {
++        unsigned char* digest = (unsigned char*)Message_Digest;
++        const unsigned int words[5] = { h0, h1, h2, h3, h4 };
++        for (i = 0; i < 5; i++)
++        {
++            digest[i * 4] = (unsigned char)(words[i] >> 24);
++            digest[i * 4 + 1] = (unsigned char)(words[i] >> 16);
++            digest[i * 4 + 2] = (unsigned char)(words[i] >> 8);
++            digest[i * 4 + 3] = (unsigned char)words[i];
++        }
++    }
++#else
+     ((unsigned int*)Message_Digest)[0] = h0;
+     ((unsigned int*)Message_Digest)[1] = h1;
+     ((unsigned int*)Message_Digest)[2] = h2;
+     ((unsigned int*)Message_Digest)[3] = h3;
+     ((unsigned int*)Message_Digest)[4] = h4;
++#endif
+ }
+ 
+ void MATHi_CRC8InitTable(MATHCRC8Table* table, u8 poly)

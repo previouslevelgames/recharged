@@ -139,7 +139,7 @@ int main()
                 "Gamepads play with the built-in Default profile");
         std::ofstream(path) << "; my pads\n[controls]\ngamepad2_profile = kyle\ngamepad3_profile = Gone\n"
                                "[gamepad_profile1]\n; Kyle's layout\nname = Kyle\na = b | start\nswap_sticks = true\n"
-                               "inner_deadzone = 22\nouter_deadzone = 90\ntrigger_press = 30\n"
+                               "inner_deadzone = 22\nouter_deadzone = 90\ntrigger_press = 30\noctagon_stick = true\n"
                                "gyro_pointer = true\ngyro_speed = 150\nrecenter_pointer = leftstick\n"
                                "[gamepad_profile2]\nname = Spare\nb = x\ncontroller = gamecube\n";
         {
@@ -154,7 +154,8 @@ int main()
             Require(loaded.pad_profiles[0].inner_deadzone == 22 && loaded.pad_profiles[0].outer_deadzone == 90
                         && loaded.pad_profiles[0].trigger_press == 30 && loaded.pad_profiles[1].inner_deadzone == 15
                         && loaded.pad_profiles[1].outer_deadzone == 71 && loaded.pad_profiles[1].trigger_press == 50
-                        && Settings{}.PadProfileOf(0).outer_deadzone == 71,
+                        && Settings{}.PadProfileOf(0).outer_deadzone == 71 && loaded.pad_profiles[0].octagon_stick
+                        && !loaded.pad_profiles[1].octagon_stick,
                     "Gamepad profiles keep their dead zones; missing ones are the Wii Nunchuk's");
             Require(loaded.pad_profiles[0].gyro_pointer && loaded.pad_profiles[0].gyro_speed == 150
                         && loaded.pad_profiles[0].inputs[mscharged::GamepadActionRecenterPointer] == "leftstick"
@@ -174,6 +175,7 @@ int main()
             changed.pad_profiles[0].inner_deadzone = 0;
             changed.pad_profiles[0].outer_deadzone = 100;
             changed.pad_profiles[0].trigger_press = 90;
+            changed.pad_profiles[0].octagon_stick = true;
             changed.pad_profiles[0].gyro_pointer = true;
             changed.pad_profiles[0].gyro_speed = 25;
             SaveConfig(file, changed);
@@ -185,6 +187,7 @@ int main()
                         && saved.settings.pad_profiles[0].inner_deadzone == 0
                         && saved.settings.pad_profiles[0].outer_deadzone == 100
                         && saved.settings.pad_profiles[0].trigger_press == 90
+                        && saved.settings.pad_profiles[0].octagon_stick
                         && saved.settings.pad_profiles[0].gyro_pointer
                         && saved.settings.pad_profiles[0].gyro_speed == 25
                         && saved.settings.PadProfileIndex(3) == 0
@@ -321,6 +324,41 @@ int main()
             try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
             Require(rejected, "An unknown Super Team side is rejected");
         }
+        // Training's item, captain and stadium.
+        {
+            Require(Settings{}.training_item == "green_shell" && Settings{}.training_captain == "mario"
+                    && Settings{}.training_stadium == "tutorialfield", "Training defaults");
+            std::ofstream(path) << "[gameplay]\ntraining_item = bobomb\ntraining_captain = petey\n"
+                                   "training_stadium = lavapit\n";
+            auto loaded = LoadConfig(path);
+            Require(loaded.settings.training_item == "bobomb" && loaded.settings.training_captain == "petey"
+                    && loaded.settings.training_stadium == "lavapit",
+                    "The Training settings load");
+            auto changed = loaded.settings;
+            changed.training_item = "none";
+            SaveConfig(loaded, changed);
+            Require(LoadConfig(path).settings.training_item == "none", "The Training settings round trip");
+            std::ofstream(path) << "[gameplay]\ntraining_stadium = lowpolystadium\n";
+            bool rejected = false;
+            try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
+            Require(rejected, "An unknown Training stadium is rejected");
+            Require(Settings{}.training_away_captain == "bowser" && Settings{}.training_away_fielders == 0
+                    && Settings{}.training_away_goalie && Settings{}.training_skip_goals
+                    && Settings{}.training_away_skill == "rookie" && Settings{}.training_side == "home",
+                    "Training opponent defaults");
+            std::ofstream(path) << "[gameplay]\ntraining_away_captain = wario\ntraining_away_fielders = 2\n"
+                                   "training_away_goalie = false\ntraining_skip_goals = true\n"
+                                   "training_away_skill = megastriker\ntraining_side = away\n";
+            const auto opponent = LoadConfig(path).settings;
+            Require(opponent.training_away_captain == "wario" && opponent.training_away_fielders == 2
+                    && !opponent.training_away_goalie && opponent.training_skip_goals
+                    && opponent.training_away_skill == "megastriker" && opponent.training_side == "away",
+                    "The Training opponent settings load");
+            std::ofstream(path) << "[gameplay]\ntraining_away_fielders = 5\n";
+            rejected = false;
+            try { LoadConfig(path); } catch (const std::runtime_error&) { rejected = true; }
+            Require(rejected, "Too many Training opponent fielders are rejected");
+        }
         // The game folder (#65): game beside the settings file by default, in
         // quotes, with its subfolders; the first builds' [library] list moves to it.
         {
@@ -362,7 +400,7 @@ int main()
             && defaults.monitor == 0 && !defaults.graphics_validation
             && defaults.log_level == "info" && !defaults.verbose_console && !defaults.frame_logging && !defaults.log_window
             && defaults.ui_scale == "auto" && defaults.check_updates && defaults.update_channel == "auto"
-            && defaults.test_build == 0 && !defaults.reopen_after_game && defaults.gpu == "auto"
+            && defaults.test_build == 0 && !defaults.reopen_after_game && defaults.show_welcome && defaults.gpu == "auto"
             && !defaults.performance_mode,
             "Host setting defaults");
         const auto host = directory / "host.ini";
@@ -382,6 +420,7 @@ int main()
         hostSettings.update_channel = "test";
         hostSettings.test_build = 72;
         hostSettings.reopen_after_game = true;
+        hostSettings.show_welcome = false;
         hostSettings.gpu = "10de:1f99";
         SaveConfig(hostFile, hostSettings);
         const auto hostReloaded = LoadConfig(host).settings;
@@ -391,7 +430,7 @@ int main()
             && hostReloaded.log_level == "warning" && hostReloaded.verbose_console && hostReloaded.frame_logging
             && hostReloaded.log_window
             && hostReloaded.ui_scale == "150" && !hostReloaded.check_updates && hostReloaded.update_channel == "test"
-                && hostReloaded.test_build == 72 && hostReloaded.reopen_after_game && hostReloaded.gpu == "10de:1f99",
+                && hostReloaded.test_build == 72 && hostReloaded.reopen_after_game && !hostReloaded.show_welcome && hostReloaded.gpu == "10de:1f99",
             "Host settings round trip");
         const auto hostText = LoadConfig(host).contents;
         Require(hostText.find("[advanced]") != std::string::npos && hostText.find("[launcher]") != std::string::npos
@@ -456,6 +495,39 @@ int main()
         hostFile = LoadConfig(host);
         Require(hostFile.contents.find("application_id") == std::string::npos
                 && hostFile.contents.find("[discord]") != std::string::npos, "Saving wrote a Discord application ID");
+        // [online] rollback: on, no test and no log by default; saving writes
+        // rollback (a file without it gains it, one with it off keeps it off),
+        // never rollback_test and rollback_log. The starting input delay is no
+        // setting: an old rollback_delay is ignored.
+        Require(defaults.rollback && !defaults.rollback_test && defaults.rollback_log.empty(), "Rollback defaults");
+        // [online] server: the project's server when left out or empty (as
+        // earlier builds saved it); another one is kept.
+        Require(defaults.online_server == "2.31.48.136", "Online server default");
+        std::ofstream(path) << "[online]\nserver =\n";
+        auto emptyServer = LoadConfig(path);
+        Require(emptyServer.settings.online_server == "2.31.48.136", "An empty online server is the default");
+        SaveConfig(emptyServer, emptyServer.settings);
+        Require(LoadConfig(path).contents.find("server = 2.31.48.136") != std::string::npos,
+                "Saving wrote the default online server");
+        std::ofstream(path) << "[online]\nserver = example.org\n";
+        Require(LoadConfig(path).settings.online_server == "example.org", "Another online server kept");
+        std::ofstream(path) << "[online]\nrollback = true\nrollback_test = true\nrollback_delay = 9\nrollback_log = rb.txt\n";
+        auto rollbackFile = LoadConfig(path);
+        Require(rollbackFile.settings.rollback && rollbackFile.settings.rollback_test
+                && rollbackFile.settings.rollback_log == "rb.txt", "Rollback settings read");
+        SaveConfig(rollbackFile, rollbackFile.settings);
+        Require(LoadConfig(path).contents.find("rollback_log = rb.txt") != std::string::npos,
+                "Saving dropped the rollback settings");
+        const auto hostContents = LoadConfig(host).contents;
+        Require(hostContents.find("rollback = true") != std::string::npos, "Saving did not add rollback");
+        Require(hostContents.find("rollback_test") == std::string::npos
+                && hostContents.find("rollback_log") == std::string::npos, "Saving wrote the rollback test or log");
+        std::ofstream(path) << "[online]\nrollback = false\n";
+        auto rollbackOff = LoadConfig(path);
+        Require(!rollbackOff.settings.rollback, "Rollback off read");
+        SaveConfig(rollbackOff, rollbackOff.settings);
+        Require(LoadConfig(path).contents.find("rollback = false") != std::string::npos
+                && !LoadConfig(path).settings.rollback, "Saving turned rollback back on");
         // [mods]: texture packs on, their folder beside the settings file, no
         // order or switched-off packs and no texture dumps by default; each
         // round trips, and the folder is written in quotes.
@@ -512,7 +584,7 @@ int main()
                                     "[advanced]\ngraphics_validation = 2\n", "[advanced]\nverbose_console = yes\n",
                                     "[advanced]\nframe_logging = maybe\n", "[advanced]\nlog_window = on\n", "[launcher]\ncheck_updates = sometimes\n",
                                     "[launcher]\nupdate_channel = nightly\n", "[launcher]\ntest_build = -1\n",
-                                    "[launcher]\nreopen_after_game = later\n",
+                                    "[launcher]\nreopen_after_game = later\n", "[launcher]\nshow_welcome = later\n",
                                     "[display]\ngpu = nvidia\n", "[display]\ngpu = 10de-1f99\n",
                                     "[display]\ngpu = 0000:1f99\n", "[display]\ngpu = 10de:1f9\n",
                                     "[launcher]\ntest_build = pr72\n", "[discord]\nrich_presence = maybe\n",
@@ -526,12 +598,12 @@ int main()
         // [gameplay] tweaks: only the recommended ones on by default and
         // without the section, and those turn off; each round trips on its
         // own and invalid values are rejected.
-        const unsigned recommended = GameTweakBit(GameTweak::FairBallContests);
+        const unsigned recommended = GameTweakBit(GameTweak::FairBallContests) | GameTweakBit(GameTweak::MatchPoint);
         Require(defaults.GameTweakMask() == recommended, "Only recommended tweaks are on by default");
         std::ofstream(path) << "[game]\ndisc = game.rvz\n";
         Require(LoadConfig(path).settings.GameTweakMask() == recommended,
             "No [gameplay] section means the recommended tweaks");
-        std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nfair_ball_contests = false\n";
+        std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nfair_ball_contests = false\nmatch_point = false\n";
         Require(LoadConfig(path).settings.GameTweakMask() == 0, "A recommended tweak turns off");
         for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
         {

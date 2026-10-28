@@ -1,0 +1,65 @@
+From: mscharged-port
+Subject: Type, delete and paste the friend code with the keyboard
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native desktop convenience; the keypad behaves as before.
+
+SHOnlineFriendCodeEntry enters a friend code with an on-screen keypad that
+the Wii Remote's pointer presses. Natively the keyboard presses it too: every
+frame the screen takes input, Update asks the host for the next key
+(MSChargedTakeFriendCodeKey, src/platform/friend_code_keys.cpp). The number
+keys of the top row and the numeric keypad press its digits and Backspace its
+delete button, through OnKeypadPointerPress for the pointer's player, so a
+key fills or empties the selected box with the keypad's sound, as a press of
+its button does. Delete empties the whole code (ClearDigitTexts, the first
+box selected, the delete button's sound), and a code pasted with Ctrl+V,
+Cmd+V or Shift+Insert (12 digits; spaces, dashes and dots allowed) types
+itself in, a key a frame; a paste that is no code gets the keypad's error
+sound. While the screen takes no input (its transitions, a save, a popup) it
+does not ask, and the host drops keys once it has not asked for a quarter of
+a second. While it asks, Backspace, Delete and a paste stay out of the game,
+so Backspace is not Back there; Escape still is, and Enter A. Console builds
+are unchanged.
+
+diff --git a/src/Game/SH/SHOnlineFriendCodeEntry.cpp b/src/Game/SH/SHOnlineFriendCodeEntry.cpp
+index 14d16d1..45f6802 100644
+--- a/src/Game/SH/SHOnlineFriendCodeEntry.cpp
++++ b/src/Game/SH/SHOnlineFriendCodeEntry.cpp
+@@ -4,6 +4,10 @@
+ #include <cstdint>
+ // Pointer-button callback contexts carry small button/item indices.
+ #define MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++// The host's keys for the keypad (src/platform/friend_code_keys.h): its
++// buttons 0-9 (the digits) and 11 (delete), 12 to empty the code, 13 for a
++// paste that is no code.
++extern "C" int MSChargedTakeFriendCodeKey(void);
+ #else
+ #define MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(type, context) (type)context
+ #endif
+@@ -265,6 +269,27 @@ void SHOnlineFriendCodeEntry::Update(float fDeltaT)
+         return;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // The keyboard presses the keypad as the pointer would, a key a frame (a
++    // pasted code types itself in).
++    const int key = MSChargedTakeFriendCodeKey();
++    if (key == 12)
++    {
++        ClearDigitTexts();
++        SetSelectedDigit(0);
++        UpdateConfirmButton();
++        FEAudio::PlayAnimAudioEvent(0xB4BD572B, 0, 0, 1);
++    }
++    else if (key == 13)
++    {
++        FEAudio::PlayAnimAudioEvent(0xD641865E, 0, 0, 1);
++    }
++    else if (key >= 0)
++    {
++        OnKeypadPointerPress(gFEControllerIndex, reinterpret_cast<void*>(static_cast<std::intptr_t>(key)));
++    }
++#endif
++
+     for (int pad = 0; pad < 4; ++pad)
+     {
+         TLComponentInstance* controller = GetPointerInstance(pad);

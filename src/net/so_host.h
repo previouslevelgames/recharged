@@ -11,7 +11,19 @@
 extern "C" {
 #endif
 
-// never 0: falls back to 127.0.0.1 when no interface qualifies.
+// The IPv4 configuration of the interface the backend uses, in network byte
+// order.
+struct so_host_ipv4
+{
+    uint32_t addr;
+    uint32_t netmask;
+    uint32_t broadcast;
+};
+
+// Never empty: falls back to 127.0.0.1/8 when no interface qualifies. An
+// interface without a broadcast address gets addr | ~netmask.
+void so_host_find_ipv4_info(struct so_host_ipv4* out);
+// The address alone; never 0.
 uint32_t so_host_find_ipv4(void);
 
 #ifdef __cplusplus

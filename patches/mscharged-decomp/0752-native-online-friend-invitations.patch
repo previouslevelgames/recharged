@@ -1,0 +1,61 @@
+From: mscharged-port
+Subject: Accept friend invitations natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: temporary native online behaviour
+
+Disable retail checks over legitimate Miis (length <= 10) and in-region
+friends.
+
+diff --git a/src/Game/FriendManager.cpp b/src/Game/FriendManager.cpp
+index f72a6d5..b289bcc 100644
+--- a/src/Game/FriendManager.cpp
++++ b/src/Game/FriendManager.cpp
+@@ -397,10 +397,15 @@ bool FriendManager::FindHostInvitation()
+                 ++length;
+             }
+         }
++        // Length is used to see if the friend is real. A real Mii has maximum
++        // 11 characters in its name. Not implementing get and put leaderboards
++        // makes the game only show the friend code (longer than 11 chars).
++#if !defined(MSCHARGED_NATIVE)
+         if (length > 11 || mFriendStatus[i].mNetworkVersion != GetNetworkVersionWord())
+         {
+             continue;
+-        }
++    }
++#endif
+ 
+         mHostInvitationIndex = i;
+         mFriendStatusChanged[i] = false;
+diff --git a/src/Game/SH/SHOnlineFriends.cpp b/src/Game/SH/SHOnlineFriends.cpp
+index b7cefb7..2f20fba 100644
+--- a/src/Game/SH/SHOnlineFriends.cpp
++++ b/src/Game/SH/SHOnlineFriends.cpp
+@@ -448,7 +448,9 @@ inline void SHOnlineFriends::ConfirmDeleteFriend(int index)
+ void SHOnlineFriends::OnPointerPress(int index, void* context)
+ {
+     int selected;
++#if !defined(MSCHARGED_NATIVE)
+     u8 region;
++#endif
+     int item = MSCHARGED_ONLINE_FRIENDS_CONTEXT(int, context);
+     mPressedItem = item;
+     mPressHandled = true;
+@@ -471,6 +473,9 @@ void SHOnlineFriends::OnPointerPress(int index, void* context)
+         selected = item + mScrollOffset;
+         if (!IsOnlineFriendSelectionMode())
+             --selected;
++#if defined(MSCHARGED_NATIVE)
++        change = true;
++#else
+         region = *(u8*)GameInfoManager::Instance()->GetUnknown0xA40(
+             gNetworkSaveSlotIndex, mSortedFriendRows[selected]->mFriendIndex);
+         bool differentRegion = region != GetOnlineRegion();
+@@ -478,6 +483,7 @@ void SHOnlineFriends::OnPointerPress(int index, void* context)
+             ShowDialog(POPUP_ONLINE_REGION_NOT_CONFIRMED);
+         else
+             change = true;
++#endif
+     }
+     if (change)
+     {

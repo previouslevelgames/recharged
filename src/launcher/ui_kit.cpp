@@ -63,7 +63,6 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
     fonts.title = add(30.0f);
     fonts.button = add(22.0f);
     fonts.overline = add(21.0f);
-    fonts.hero = add(62.0f);
     io.FontDefault = fonts.body;
     io.FontGlobalScale = 1.0f / density;
     g_fonts = fonts;
@@ -161,13 +160,58 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         break;
     }
     case Icon::Target:
-        draw->AddCircle(c, 0.30f * s, color, 0, t);
-        draw->AddLine(p(0.0f, -0.50f), p(0.0f, -0.16f), color, t);
-        draw->AddLine(p(0.0f, 0.16f), p(0.0f, 0.50f), color, t);
-        draw->AddLine(p(-0.50f, 0.0f), p(-0.16f, 0.0f), color, t);
-        draw->AddLine(p(0.16f, 0.0f), p(0.50f, 0.0f), color, t);
-        draw->AddCircleFilled(c, 0.07f * s, color);
+    {
+        // Align the circular elements with ImGui's line rasterization.
+        const ImVec2 center{c.x + 0.5f, c.y + 0.5f};
+
+        // Outer ring.
+        draw->AddCircle(
+            center,
+            0.30f * s,
+            color,
+            0,
+            t
+        );
+
+        // Top and bottom markers.
+        draw->AddLine(
+            p(0.0f, -0.50f),
+            p(0.0f, -0.36f),
+            color,
+            t
+        );
+
+        draw->AddLine(
+            p(0.0f, 0.36f),
+            p(0.0f, 0.50f),
+            color,
+            t
+        );
+
+        // Left and right markers.
+        draw->AddLine(
+            p(-0.50f, 0.0f),
+            p(-0.36f, 0.0f),
+            color,
+            t
+        );
+
+        draw->AddLine(
+            p(0.36f, 0.0f),
+            p(0.50f, 0.0f),
+            color,
+            t
+        );
+
+        // Center point.
+        draw->AddCircleFilled(
+            center,
+            0.07f * s,
+            color
+        );
+
         break;
+    }
     case Icon::Play:
         draw->AddTriangleFilled(p(-0.30f, -0.42f), p(-0.30f, 0.42f), p(0.44f, 0.0f), color);
         break;
@@ -184,13 +228,40 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         break;
     case Icon::Audio:
     {
-        const ImVec2 body[] = {p(-0.46f, -0.15f), p(-0.24f, -0.15f), p(0.0f, -0.40f), p(0.0f, 0.40f),
-                               p(-0.24f, 0.15f), p(-0.46f, 0.15f)};
-        draw->AddConvexPolyFilled(body, 6, color);
-        draw->PathArcTo(p(0.04f, 0.0f), 0.20f * s, -0.85f, 0.85f);
+        // Speaker body.
+        const ImVec2 body[] = {
+            p(-0.46f, -0.15f),
+            p(-0.24f, -0.15f),
+            p( 0.00f, -0.40f),
+            p( 0.00f,  0.40f),
+            p(-0.24f,  0.15f),
+            p(-0.46f,  0.15f)
+        };
+
+        draw->PathClear();
+
+        for (const ImVec2& point : body)
+            draw->PathLineTo(point);
+
+        draw->PathFillConcave(color);
+
+        // Sound waves.
+        draw->PathArcTo(
+            p(0.04f, 0.0f),
+            0.20f * s,
+            -0.85f,
+             0.85f
+        );
         draw->PathStroke(color, 0, t);
-        draw->PathArcTo(p(0.04f, 0.0f), 0.38f * s, -0.85f, 0.85f);
+
+        draw->PathArcTo(
+            p(0.04f, 0.0f),
+            0.38f * s,
+            -0.85f,
+             0.85f
+        );
         draw->PathStroke(color, 0, t);
+
         break;
     }
     case Icon::Keyboard:
@@ -216,10 +287,31 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         break;
     }
     case Icon::Info:
+    {
+        // Outer ring.
         draw->AddCircle(c, 0.44f * s, color, 0, t);
-        draw->AddCircleFilled(p(0.0f, -0.20f), 0.065f * s, color);
-        draw->AddLine(p(0.0f, -0.04f), p(0.0f, 0.24f), color, t * 1.2f);
+
+        // Stem.
+        const float stem_x = c.x - 0.025f * s;
+
+        draw->AddLine(
+            {stem_x, c.y - 0.04f * s},
+            {stem_x, c.y + 0.24f * s},
+            color,
+            t * 1.2f
+        );
+
+        // Dot: slightly less left-shifted than the stem.
+        const float dot_x = c.x - 0.010f * s;
+
+        draw->AddCircleFilled(
+            {dot_x, c.y - 0.20f * s},
+            0.065f * s,
+            color
+        );
+
         break;
+    }
     case Icon::Folder:
     {
         const ImVec2 outline[] = {p(-0.46f, -0.30f), p(-0.14f, -0.30f), p(-0.04f, -0.18f), p(0.46f, -0.18f),
@@ -336,6 +428,43 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(-0.28f, -0.28f), p(0.28f, 0.28f), color, t * 1.3f);
         draw->AddLine(p(0.28f, -0.28f), p(-0.28f, 0.28f), color, t * 1.3f);
         break;
+    case Icon::Person:
+        // A Mii: the head over rounded shoulders.
+        draw->AddCircleFilled(p(0.0f, -0.20f), 0.20f * s, color);
+        draw->PathArcTo(p(0.0f, 0.42f), 0.38f * s, 3.14159f, 6.28318f);
+        draw->PathFillConvex(color);
+        break;
+    case Icon::Pitch:
+    {
+        // Outer pitch boundary.
+        draw->AddRect(
+            p(-0.46f, -0.32f),
+            p( 0.46f,  0.32f),
+            color,
+            0.06f * s,
+            0,
+            t
+        );
+
+        // Halfway line: slight left and upward correction.
+        draw->AddLine(
+            {c.x - 0.25f, c.y - 0.32f * s - 0.25f},
+            {c.x - 0.25f, c.y + 0.32f * s - 0.25f},
+            color,
+            t
+        );
+
+        // Center spot: intermediate offset, slightly higher.
+        draw->AddCircle(
+            {c.x + 0.25f, c.y + 0.25f},
+            0.13f * s,
+            color,
+            0,
+            t
+        );
+
+        break;
+    }
     case Icon::Archive:
     {
         // A zip file: a page with a zipper down its middle.
@@ -412,6 +541,13 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(0.08f, -0.40f), p(-0.08f, 0.40f), color, t * 1.3f);
         break;
     }
+    case Icon::Clipboard:
+        // A coach's clipboard: the board, its clip and two lines of notes.
+        draw->AddRect(p(-0.32f, -0.34f), p(0.32f, 0.46f), color, s * 0.08f, 0, t);
+        draw->AddRectFilled(p(-0.15f, -0.46f), p(0.15f, -0.24f), color, s * 0.05f);
+        draw->AddLine(p(-0.15f, -0.02f), p(0.15f, -0.02f), color, t);
+        draw->AddLine(p(-0.15f, 0.20f), p(0.07f, 0.20f), color, t);
+        break;
     case Icon::Up:
     case Icon::Down:
     {
@@ -577,6 +713,91 @@ bool NavItem(const char* label, Icon icon, bool selected, float width)
     return pressed;
 }
 
+int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavPage> pages, float width)
+{
+    ImGui::PushID(label);
+    auto* draw = ImGui::GetWindowDrawList();
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float row = Dp(44), page_row = Dp(36), step = Dp(38), top = Dp(4), bottom = Dp(10);
+    const float shown = Animate(ImGui::GetID("##open"), open, 11.0f);
+    const float height = row + (top + step * float(pages.size()) - (step - page_row) + bottom) * shown;
+    const ImVec2 max{pos.x + width, pos.y + height};
+    int clicked = -1;
+
+    // The open group's raised panel, lit along its top edge like the About banner.
+    if (shown > 0.0f)
+    {
+        draw->AddRectFilled(pos, max, Col(Mix(color::sidebar, color::card, 0.9f), shown), Dp(12));
+        draw->AddRect(pos, max, Col(color::border, 0.6f * shown), Dp(12), 0, Dp(1));
+        const float middle = pos.x + width * 0.5f;
+        const ImU32 clear = Col(color::accent_hi, 0.0f), bright = Col(color::accent_hi, 0.35f * shown);
+        draw->AddRectFilledMultiColor({pos.x + Dp(14), pos.y}, {middle, pos.y + Dp(1)}, clear, bright, bright, clear);
+        draw->AddRectFilledMultiColor({middle, pos.y}, {max.x - Dp(14), pos.y + Dp(1)}, bright, clear, clear, bright);
+    }
+
+    // The group's row: its icon on a badge, tinted while open, and a chevron that turns.
+    if (ImGui::InvisibleButton("##group", {width, row})) clicked = 0;
+    const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered(), 12.0f);
+    if (hover > 0.0f && shown < 1.0f)
+        draw->AddRectFilled(pos, {max.x, pos.y + row}, Col(color::field, hover * (1.0f - shown)), Dp(10));
+    const ImVec2 badge{pos.x + Dp(28), pos.y + row * 0.5f};
+    const float half = Dp(14);
+    draw->AddRectFilled({badge.x - half, badge.y - half}, {badge.x + half, badge.y + half},
+                        Col(Mix(Mix(color::field, color::border, 0.5f * hover), Mix(color::field, color::accent, 0.22f),
+                                shown)),
+                        Dp(8));
+    DrawIcon(draw, icon, badge, Dp(17), Col(Mix(Mix(color::muted, color::text, hover), color::accent, shown)));
+    DrawLabel(draw, fonts.label, {pos.x + Dp(54), pos.y + (row - FontSize(fonts.label)) * 0.5f},
+              Col(Mix(Mix(color::muted, color::text, hover), ImVec4{1, 1, 1, 1}, shown)), label);
+    {
+        const float turn = 3.14159265f * shown, c = std::cos(turn), s = std::sin(turn), size = Dp(12);
+        const ImVec2 at{max.x - Dp(20), pos.y + row * 0.5f};
+        auto point = [&](float x, float y) {
+            return ImVec2{at.x + (x * c - y * s) * size, at.y + (x * s + y * c) * size};
+        };
+        const ImVec2 chevron[] = {point(-0.32f, -0.16f), point(0.0f, 0.16f), point(0.32f, -0.16f)};
+        draw->AddPolyline(chevron, 3, Col(Mix(color::dim, color::muted, std::max(hover, shown))), 0, Dp(1.8f));
+    }
+
+    // The pages, indented under the group's name; the panel groups them.
+    if (shown > 0.01f)
+    {
+        draw->PushClipRect(pos, max, true);
+        const float first = pos.y + row + top;
+        int n = 0;
+        for (const NavPage& page : pages)
+        {
+            ++n;
+            const float y = first + step * float(n - 1), middle = y + page_row * 0.5f;
+            ImGui::SetCursorScreenPos({pos.x, y});
+            ImGui::PushID(n);
+            if (ImGui::InvisibleButton("##page", {width, page_row})) clicked = n;
+            const float over = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered() || page.selected, 12.0f);
+            const float active = Animate(ImGui::GetID("##active"), page.selected, 12.0f);
+            ImGui::PopID();
+            const ImVec2 pill{pos.x + Dp(44), y + Dp(2)}, pill_max{max.x - Dp(8), y + page_row - Dp(2)};
+            if (over > 0.0f)
+            {
+                if (page.selected)
+                    FillGradient(draw, pill, pill_max, Col(Mix(color::field, color::accent, 0.26f), over * shown),
+                                 Col(color::field, 0.3f * over * shown), Dp(9), true);
+                else
+                    draw->AddRectFilled(pill, pill_max, Col(color::field, over * shown), Dp(9));
+            }
+            DrawIcon(draw, page.icon, {pos.x + Dp(62), middle}, Dp(15),
+                     Col(Mix(Mix(color::dim, color::muted, over), color::accent, active), shown));
+            DrawLabel(draw, fonts.body, {pos.x + Dp(80), middle - FontSize(fonts.body) * 0.5f},
+                      Col(Mix(Mix(color::muted, color::text, over), ImVec4{1, 1, 1, 1}, active), shown), page.label);
+        }
+        draw->PopClipRect();
+    }
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::Dummy({width, height});
+    ImGui::PopID();
+    return clicked;
+}
+
 bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled, Icon icon, bool glow)
 {
     ImGui::PushID(id);
@@ -620,7 +841,7 @@ bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled,
     const float icon_size = icon == Icon::None ? 0.0f : FontSize(font) * 0.82f;
     const float gap = icon == Icon::None ? 0.0f : Dp(10);
     const float left = pos.x + (size.x - (text.x + icon_size + gap)) * 0.5f;
-    const ImU32 ink = enabled ? IM_COL32(6, 33, 15, 255) : Col(color::dim);
+    const ImU32 ink = enabled ? Col(color::accent_ink) : Col(color::dim);
     if (icon != Icon::None)
         DrawIcon(draw, icon, {left + icon_size * 0.5f, pos.y + size.y * 0.5f}, icon_size, ink);
     DrawLabel(draw, font, {left + icon_size + gap, pos.y + (size.y - text.y) * 0.5f}, ink, label);
@@ -698,7 +919,7 @@ SplitPress SplitPrimaryButton(const char* id, const char* label, ImVec2 size, co
     const float icon_size = icon == Icon::None ? 0.0f : FontSize(font) * 0.82f;
     const float gap = icon == Icon::None ? 0.0f : Dp(10);
     const float left = pos.x + (size.x - (text.x + icon_size + gap)) * 0.5f;
-    const ImU32 ink = enabled ? IM_COL32(6, 33, 15, 255) : Col(color::dim);
+    const ImU32 ink = enabled ? Col(color::accent_ink) : Col(color::dim);
     if (icon != Icon::None)
         DrawIcon(draw, icon, {left + icon_size * 0.5f, pos.y + size.y * 0.5f}, icon_size, ink);
     DrawLabel(draw, font, {left + icon_size + gap, pos.y + (size.y - text.y) * 0.5f}, ink, label);
@@ -1046,7 +1267,7 @@ void BatteryIcon(int percent)
     const auto& fonts = CurrentFonts();
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     const ImVec2 body{Dp(26), Dp(13)};
-    const ImVec4 tint = percent > 50 ? color::accent : percent >= 20 ? color::warning : color::danger;
+    const ImVec4 tint = percent > 50 ? color::success : percent >= 20 ? color::warning : color::danger;
     auto* draw = ImGui::GetWindowDrawList();
     const ImVec2 top{pos.x, pos.y + Dp(6)};
     draw->AddRect(top, Add(top, body), Col(color::muted), Dp(3), 0, Dp(1.5f));
@@ -1179,27 +1400,39 @@ void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color)
 
 void DrawDiscordMark(ImDrawList* draw, ImVec2 center, float width, ImU32 color, ImU32 eyes)
 {
-    // The outline of Discord's published logo (127.14 x 96.36), sampled and
-    // scaled to a width of 1 around its centre.
-    static constexpr ImVec2 outline[] = {
+    // Discord's published logo (127.14 x 96.36), sampled and scaled to a width
+    // of 1 around its centre. Filled as one outline it lost its arms, so each
+    // arm is a polygon of its own and the body, drawn last, covers the joins.
+    static constexpr ImVec2 left_arm[] = {
+        {-0.4958f, 0.2519f}, {-0.4389f, 0.2904f}, {-0.3791f, 0.3241f}, {-0.3167f, 0.3527f},
+        {-0.2427f, 0.3790f}, {-0.2138f, 0.3364f}, {-0.1885f, 0.2916f}, {-0.2321f, 0.2731f},
+        {-0.2739f, 0.2508f}};
+    static constexpr ImVec2 right_arm[] = {
+        {0.2739f, 0.2508f}, {0.2320f, 0.2731f}, {0.1884f, 0.2916f}, {0.2136f, 0.3365f},
+        {0.2426f, 0.3790f}, {0.2965f, 0.3607f}, {0.3576f, 0.3347f}, {0.4082f, 0.3086f},
+        {0.4647f, 0.2739f}, {0.4958f, 0.2520f}};
+    // The body runs from the top right down the left side, along the mouth
+    // between the arms and up the right side.
+    static constexpr ImVec2 body[] = {
         {0.3471f, -0.3155f}, {0.2460f, -0.3540f}, {0.1408f, -0.3790f}, {0.1144f, -0.3252f},
         {0.0573f, -0.3317f}, {-0.0001f, -0.3338f}, {-0.0575f, -0.3317f}, {-0.1146f, -0.3252f},
         {-0.1410f, -0.3790f}, {-0.2463f, -0.3539f}, {-0.3475f, -0.3153f}, {-0.3881f, -0.2501f},
         {-0.4261f, -0.1759f}, {-0.4524f, -0.1114f}, {-0.4749f, -0.0380f}, {-0.4900f, 0.0349f},
-        {-0.4981f, 0.1076f}, {-0.4999f, 0.1799f}, {-0.4958f, 0.2519f}, {-0.4389f, 0.2904f},
-        {-0.3791f, 0.3241f}, {-0.3167f, 0.3527f}, {-0.2427f, 0.3790f}, {-0.2138f, 0.3364f},
-        {-0.1885f, 0.2916f}, {-0.2321f, 0.2731f}, {-0.2739f, 0.2508f}, {-0.2529f, 0.2351f},
-        {-0.1889f, 0.2608f}, {-0.1320f, 0.2768f}, {-0.0738f, 0.2870f}, {-0.0049f, 0.2916f},
-        {0.0640f, 0.2882f}, {0.1320f, 0.2768f}, {0.1983f, 0.2576f}, {0.2529f, 0.2351f},
-        {0.2739f, 0.2508f}, {0.2320f, 0.2731f}, {0.1884f, 0.2916f}, {0.2136f, 0.3365f},
-        {0.2426f, 0.3790f}, {0.2965f, 0.3607f}, {0.3576f, 0.3347f}, {0.4082f, 0.3086f},
-        {0.4647f, 0.2739f}, {0.4958f, 0.2520f}, {0.4975f, 0.2313f}, {0.4988f, 0.1203f},
+        {-0.4981f, 0.1076f}, {-0.4999f, 0.1799f}, {-0.4958f, 0.2519f}, {-0.2739f, 0.2508f},
+        {-0.2529f, 0.2351f}, {-0.1889f, 0.2608f}, {-0.1320f, 0.2768f}, {-0.0738f, 0.2870f},
+        {-0.0049f, 0.2916f}, {0.0640f, 0.2882f}, {0.1320f, 0.2768f}, {0.1983f, 0.2576f},
+        {0.2529f, 0.2351f}, {0.2739f, 0.2508f}, {0.4958f, 0.2520f}, {0.4988f, 0.1203f},
         {0.4937f, 0.0619f}, {0.4846f, 0.0050f}, {0.4638f, -0.0776f}, {0.4345f, -0.1572f},
         {0.3973f, -0.2337f}};
-    ImVec2 points[std::size(outline)];
-    for (std::size_t i = 0; i < std::size(outline); ++i)
-        points[i] = {center.x + outline[i].x * width, center.y + outline[i].y * width};
-    draw->AddConcavePolyFilled(points, int(std::size(points)), color);
+    auto fill = [&](const auto& shape) {
+        ImVec2 points[std::size(body)];
+        for (std::size_t i = 0; i < std::size(shape); ++i)
+            points[i] = {center.x + shape[i].x * width, center.y + shape[i].y * width};
+        draw->AddConcavePolyFilled(points, int(std::size(shape)), color);
+    };
+    fill(left_arm);
+    fill(right_arm);
+    fill(body);
     for (const float x : {-0.1661f, 0.1661f})
         draw->AddEllipseFilled({center.x + x * width, center.y + 0.0378f * width}, {0.0901f * width, 0.1000f * width},
                                eyes);
@@ -1394,15 +1627,26 @@ void Spinner(ImVec2 center, float radius, ImU32 color)
     draw->PathStroke(color, 0, std::max(1.5f, radius * 0.22f));
 }
 
+// Each letter is placed at its fractional position, as AddText places the
+// letters of one string (the fonts are oversampled for it): AddText per
+// letter would snap each one to the pixel and space them unevenly.
 void DrawTracked(ImDrawList* draw, ImFont* font, ImVec2 position, ImU32 color, const char* text, float tracking)
 {
-    const float size = FontSize(font);
-    char glyph[2] = {0, 0};
+    if ((color & IM_COL32_A_MASK) == 0) return;
+    const float size = FontSize(font), scale = size / font->FontSize;
+    float x = position.x;
+    const float y = std::floor(position.y); // the baseline snaps, as with AddText
     for (const char* c = text; *c; ++c)
     {
-        glyph[0] = *c;
-        draw->AddText(font, size, position, color, glyph);
-        position.x += font->CalcTextSizeA(size, FLT_MAX, 0.0f, glyph).x + tracking;
+        const ImFontGlyph* glyph = font->FindGlyph(ImWchar(static_cast<unsigned char>(*c)));
+        if (!glyph) continue;
+        if (glyph->Visible)
+        {
+            draw->PrimReserve(6, 4);
+            draw->PrimRectUV({x + glyph->X0 * scale, y + glyph->Y0 * scale}, {x + glyph->X1 * scale, y + glyph->Y1 * scale},
+                             {glyph->U0, glyph->V0}, {glyph->U1, glyph->V1}, color);
+        }
+        x += glyph->AdvanceX * scale + tracking;
     }
 }
 

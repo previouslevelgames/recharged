@@ -75,3 +75,87 @@ void ChargedDecodeRFLCharRecordBE(const void* raw, RFLiCharData* output) {
         output->creatorName[i] = ReadBE16(bytes + 54 + 2 * i);
     }
 }
+
+static void WriteBE16(u8* bytes, u16 value) {
+    bytes[0] = (u8)(value >> 8);
+    bytes[1] = (u8)value;
+}
+
+void ChargedEncodeRFLCharRecordBE(const RFLiCharData* input, void* raw) {
+    u8* bytes = (u8*)raw;
+    unsigned i;
+    /* Body octets and create-ID payload are bytes in both representations. */
+    bytes[22] = input->height;
+    bytes[23] = input->build;
+    memcpy(bytes + 24, &input->createID, sizeof(input->createID));
+    WriteBE16(bytes + 0,
+              (u16)(((u16)(input->padding0 << 15) & 0x8000u)
+                    | ((u16)(input->sex << 14) & 0x4000u)
+                    | ((u16)(input->birthMonth << 10) & 0x3c00u)
+                    | ((u16)(input->birthDay << 5) & 0x3e0u)
+                    | ((u16)(input->favoriteColor << 1) & 0x1eu)
+                    | ((u16)(input->favorite << 0) & 0x1u)));
+    WriteBE16(bytes + 32,
+              (u16)(((u16)(input->faceType << 13) & 0xe000u)
+                    | ((u16)(input->faceColor << 10) & 0x1c00u)
+                    | ((u16)(input->faceTex << 6) & 0x3c0u)
+                    | ((u16)(input->padding2 << 3) & 0x38u)
+                    | ((u16)(input->localonly << 2) & 0x4u)
+                    | ((u16)(input->type << 0) & 0x3u)));
+    WriteBE16(bytes + 34,
+              (u16)(((u16)(input->hairType << 9) & 0xfe00u)
+                    | ((u16)(input->hairColor << 6) & 0x1c0u)
+                    | ((u16)(input->hairFlip << 5) & 0x20u)
+                    | ((u16)(input->padding3 << 0) & 0x1fu)));
+    WriteBE16(bytes + 36,
+              (u16)(((u16)(input->eyebrowType << 11) & 0xf800u)
+                    | ((u16)(input->eyebrowRotate << 6) & 0x7c0u)
+                    | ((u16)(input->padding4 << 0) & 0x3fu)));
+    WriteBE16(bytes + 38,
+              (u16)(((u16)(input->eyebrowColor << 13) & 0xe000u)
+                    | ((u16)(input->eyebrowScale << 9) & 0x1e00u)
+                    | ((u16)(input->eyebrowY << 4) & 0x1f0u)
+                    | ((u16)(input->eyebrowX << 0) & 0xfu)));
+    WriteBE16(bytes + 40,
+              (u16)(((u16)(input->eyeType << 10) & 0xfc00u)
+                    | ((u16)(input->eyeRotate << 5) & 0x3e0u)
+                    | ((u16)(input->eyeY << 0) & 0x1fu)));
+    WriteBE16(bytes + 42,
+              (u16)(((u16)(input->eyeColor << 13) & 0xe000u)
+                    | ((u16)(input->eyeScale << 9) & 0x1e00u)
+                    | ((u16)(input->eyeX << 5) & 0x1e0u)
+                    | ((u16)(input->padding5 << 0) & 0x1fu)));
+    WriteBE16(bytes + 44,
+              (u16)(((u16)(input->noseType << 12) & 0xf000u)
+                    | ((u16)(input->noseScale << 8) & 0xf00u)
+                    | ((u16)(input->noseY << 3) & 0xf8u)
+                    | ((u16)(input->padding6 << 0) & 0x7u)));
+    WriteBE16(bytes + 46,
+              (u16)(((u16)(input->mouthType << 11) & 0xf800u)
+                    | ((u16)(input->mouthColor << 9) & 0x600u)
+                    | ((u16)(input->mouthScale << 5) & 0x1e0u)
+                    | ((u16)(input->mouthY << 0) & 0x1fu)));
+    WriteBE16(bytes + 48,
+              (u16)(((u16)(input->glassType << 12) & 0xf000u)
+                    | ((u16)(input->glassColor << 9) & 0xe00u)
+                    | ((u16)(input->glassScale << 5) & 0x1e0u)
+                    | ((u16)(input->glassY << 0) & 0x1fu)));
+    WriteBE16(bytes + 50,
+              (u16)(((u16)(input->mustacheType << 14) & 0xc000u)
+                    | ((u16)(input->beardType << 12) & 0x3000u)
+                    | ((u16)(input->beardColor << 9) & 0xe00u)
+                    | ((u16)(input->beardScale << 5) & 0x1e0u)
+                    | ((u16)(input->beardY << 0) & 0x1fu)));
+    WriteBE16(bytes + 52,
+              (u16)(((u16)(input->moleType << 15) & 0x8000u)
+                    | ((u16)(input->moleScale << 11) & 0x7800u)
+                    | ((u16)(input->moleY << 6) & 0x7c0u)
+                    | ((u16)(input->moleX << 1) & 0x3eu)
+                    | ((u16)(input->padding8 << 0) & 0x1u)));
+    for (i = 0; i < RFL_NAME_LEN; ++i) {
+        WriteBE16(bytes + 2 + 2 * i, input->name[i]);
+    }
+    for (i = 0; i < RFL_CREATOR_LEN; ++i) {
+        WriteBE16(bytes + 54 + 2 * i, input->creatorName[i]);
+    }
+}

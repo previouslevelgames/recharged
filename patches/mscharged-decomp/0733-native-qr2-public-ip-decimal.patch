@@ -1,0 +1,34 @@
+From: mscharged-port
+Subject: Report QR2's public IP as the Wii's decimal natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native byte-order compatibility
+
+QR2 learns its public address from the master server as hex, keeps it in
+network order through htonl, and reports it back in each heartbeat as the
+decimal of that u32. On the Wii htonl changes nothing, so the decimal is
+the address's big-endian value, which the server compares with the
+address it sees. Natively htonl swaps the bytes and the heartbeat reported
+another number: the server logged "Public IP mismatch" and dropped the
+heartbeat.
+
+Natively the heartbeat reports ntohl(publicip), the Wii's number; the
+stored address keeps network order for its other users.
+
+diff --git a/src/RVL_SDK/gamespy/qr2/qr2.c b/src/RVL_SDK/gamespy/qr2/qr2.c
+index bec1464..33eb2dd 100644
+--- a/src/RVL_SDK/gamespy/qr2/qr2.c
++++ b/src/RVL_SDK/gamespy/qr2/qr2.c
+@@ -1503,7 +1503,13 @@ static void send_heartbeat(qr2_t qrec, int statechanged) {
+   qr2_buffer_addA(&buf, qrec->gamename);
+   if (qrec->pa_callback) {
+     qr2_buffer_addA(&buf, "publicip");
++#if defined(MSCHARGED_NATIVE)
++    // publicip is in network order. The server checks the decimal of its
++    // big-endian value, which a native load gives only after ntohl.
++    qr2_buffer_add_int(&buf, (int)ntohl(qrec->publicip));
++#else
+     qr2_buffer_add_int(&buf, (int)qrec->publicip);
++#endif
+     qr2_buffer_addA(&buf, "publicport");
+     qr2_buffer_add_int(&buf, qrec->publicport);
+   }

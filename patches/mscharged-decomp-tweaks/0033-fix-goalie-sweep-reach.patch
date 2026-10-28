@@ -1,0 +1,46 @@
+Subject: Fix: the goalie's sweep test sees the ball as near on every platform
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+A fix of the original game, always on and without a switch. It lives in the
+tweak series so the faithful series stays retail.
+
+PhysicsGoalie::IsBallNearGoalie, the first part of the sweep test that
+catches a ball going through a goalie between two steps, widens the goalie's
+reach by ballMaxMotionPerTick: a global PhysicsGoalie.cpp initialises at
+startup from FixedUpdateTask::GetPhysicsUpdateTick(), that is from
+g_fSimulationTick, which FixedUpdateTask.cpp initialises at startup as well.
+The order of two files' initialisations is the linker's: with
+PhysicsGoalie.cpp first, the tick is still zero and the reach stays 0
+instead of 1.8. The Linux build initialises them in one order and the
+Windows build in the other, so a network match between them diverged as soon
+as a ball passed within 1.8 of a goalie's reach (found with the rollback's
+desync fields: the same inputs gave the test 1 on one machine, 0 on the
+other). The test now takes the fixed tick, a constant set before any
+initialisation runs: 1.8 on every platform, the value its formula means.
+
+diff --git a/src/Game/Physics/PhysicsGoalie.cpp b/src/Game/Physics/PhysicsGoalie.cpp
+index 1ce173f..f0adbb4 100644
+--- a/src/Game/Physics/PhysicsGoalie.cpp
++++ b/src/Game/Physics/PhysicsGoalie.cpp
+@@ -84,6 +84,21 @@ bool PhysicsGoalie::IsBallNearGoalie(float goalieRadius,
+ 
+     nlVector3 diff;
+     nlVec3Sub(diff, ballPrevPosition, goaliePos);
++#if defined(MSCHARGED_TWEAKS)
++    // Port fix, always on: ballMaxMotionPerTick is a global initialised at
++    // startup from g_fSimulationTick, another file's global initialised at
++    // startup too. C++ leaves the order of the two to the linker: where this
++    // file goes first it reads the tick while still zero and keeps 0 instead
++    // of 1.8 (90 m/s for 0.02 s), and the goalie's sweep test misses balls
++    // the other platforms catch. The fixed tick is a constant, set before any
++    // file's initialisation runs.
++    return (nlVec3Length(diff)
++               - (goalieRadius
++                   + (ballRadius
++                       + PhysicsBall::GetBallMaxVelocity()
++                           * g_fFixedUpdateTick)))
++        <= 0.0f;
++#endif
+     return (nlVec3Length(diff)
+                - (goalieRadius + (ballRadius + ballMaxMotionPerTick)))
+         <= 0.0f;

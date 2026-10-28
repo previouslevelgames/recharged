@@ -4,7 +4,8 @@
 patches/mscharged-decomp-tweaks may only add code guarded by MSCHARGED_TWEAKS
 (plus the include of its own header, which is empty without it). For every
 hunk, the new text with those blocks removed must have exactly the tokens of
-the old text, so builds without tweaks compile the original source unchanged.
+the old text with them removed too (earlier patches' blocks in its context),
+so builds without tweaks compile the original source unchanged.
 """
 import re
 import sys
@@ -42,7 +43,10 @@ def hunks(patch):
 
 
 def without_tweaks(lines):
-    """The lines a compiler sees without MSCHARGED_TWEAKS (guarded blocks and the header include removed)."""
+    """The lines a compiler sees without MSCHARGED_TWEAKS (guarded blocks and the header include removed).
+
+    A block still open at the end of the lines is a block of an earlier patch
+    the hunk's context cuts off: it is removed to the end."""
     kept, depth, index = [], 0, 0
     while index < len(lines):
         text = lines[index].strip()
@@ -61,8 +65,6 @@ def without_tweaks(lines):
         elif text != INCLUDE:
             kept.append(lines[index])
         index += 1
-    if depth:
-        raise AssertionError("Unclosed MSCHARGED_TWEAKS block")
     return kept
 
 
@@ -91,7 +93,7 @@ class TweakPatchTests(unittest.TestCase):
                         checked += 1
                         continue
                     self.assertTrue(path.startswith(("src/", "include/", "libs/")), path)
-                    self.assertEqual(tokens(without_tweaks(new)), tokens(old))
+                    self.assertEqual(tokens(without_tweaks(new)), tokens(without_tweaks(old)))
                     checked += 1
         self.assertGreater(checked, 0)
 
@@ -101,6 +103,16 @@ class TweakPatchTests(unittest.TestCase):
         self.assertEqual(without_tweaks(new), ["a();", "c();"])
         with self.assertRaises(AssertionError):
             without_tweaks(["#if !defined(MSCHARGED_TWEAKS)", "x();", "#endif"])
+        # A context that cuts an earlier patch's block off.
+        self.assertEqual(without_tweaks(["a();", "#if defined(MSCHARGED_TWEAKS)", "b();"]), ["a();"])
+
+    def test_blocks_next_to_earlier_ones(self):
+        """A hunk that adds a block next to an earlier patch's block passes; one that changes original code does not."""
+        earlier = ["#if defined(MSCHARGED_TWEAKS)", "x();", "#endif"]
+        old = ["a();"] + earlier + ["b();"]
+        added = ["#if defined(MSCHARGED_TWEAKS)", "y();", "#endif"]
+        self.assertEqual(tokens(without_tweaks(["a();"] + added + earlier + ["b();"])), tokens(without_tweaks(old)))
+        self.assertNotEqual(tokens(without_tweaks(["c();"] + earlier + ["b();"])), tokens(without_tweaks(old)))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,36 @@
+Subject: Tweak: secure stadiums
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+The game's Secure Stadium cheat (ENV_CHEAT_SECURE) stops every stadium's
+weather: GameInfoManager::IsRule0x4Equal1 is the one test, and with it
+Weather::Update never starts one. No lightning, no wind (nor Thunder
+Island's debris), no solar flares, no bubbling lava, no Storm Ship tilt, and
+no Thwomps or sand patches in the Sand Tomb. The electric fences stay: the
+cheat leaves the walls alone, and Thunder Island walls applies with it. The
+game honours the cheat in offline Domination, when chosen in its cheats
+menu, and in matches that carry their own rules (UseAltRules).
+
+With "Secure stadiums" enabled, the cheat holds in every offline match but
+the Striker Challenges, which keep their own rules; Strikers 101 keeps the
+game's (never). Online matches are left alone: both games would have to
+agree on it, which the tweak bits cannot say.
+
+diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
+index 963cddb..68e7031 100644
+--- a/src/Game/GameInfo.cpp
++++ b/src/Game/GameInfo.cpp
+@@ -566,6 +566,14 @@ bool GameInfoManager::IsRule0x4Equal1() const
+         return false;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Secure stadiums": the game's Secure Stadium cheat in every
++    // offline match but the Striker Challenges. Online matches are left alone.
++    if (mscharged_tweak_enabled(MSCHARGED_TWEAK_SECURE_STADIUMS) && !IsOnline() && mCurrentMode != GM_CHALLENGE) {
++        return true;
++    }
++#endif
++
+     if ((mIsOnlineMode == 0 && mCurrentMode == GM_FRIENDLY) || UseAltRules()) {
+         return GetActiveRules()->mEnvironmentCheat == ENV_CHEAT_SECURE;
+     }

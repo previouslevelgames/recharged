@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/WiiQsort.cmake)
 # Entire reconstructed render providers. This object inventory supplies no
 # replacement frame loop or platform startup and establishes no complete link.
 add_library(charged_original_frontend_render OBJECT EXCLUDE_FROM_ALL
@@ -172,7 +173,7 @@ if(BUILD_TESTING AND TARGET aurora::gx
     target_link_options(original_frontend_render_tests PRIVATE -Wl,--gc-sections)
     target_link_libraries(original_frontend_render_tests PRIVATE
         charged_original_core charged_game_print aurora::dvd aurora::core
-        aurora::gx aurora::mtx SDL3::SDL3)
+        aurora::gx aurora::mtx SDL3::SDL3 charged_wii_qsort)
     add_test(NAME original_frontend_render COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_original_frontend_render.py"
         "$<TARGET_FILE:original_frontend_render_tests>")

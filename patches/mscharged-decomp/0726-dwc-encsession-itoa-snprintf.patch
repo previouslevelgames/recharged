@@ -1,0 +1,30 @@
+From: mscharged-port
+Subject: Substitute strlen+itoa with snprintf
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Changed strlen+itoa to a safe snprintf. itoa was only present in MWCC's libc
+and isn't standard C/C++.
+
+diff --git a/src/RVL_SDK/dwc/dwc_encsession.c b/src/RVL_SDK/dwc/dwc_encsession.c
+index 8ddb13d..485a352 100644
+--- a/src/RVL_SDK/dwc/dwc_encsession.c
++++ b/src/RVL_SDK/dwc/dwc_encsession.c
+@@ -10,7 +10,9 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
++#if !defined(MSCHARGED_NATIVE)
+ #include <extras.h>
++#endif
+ 
+ const char* DWCi_ENC_URL_BASE = NULL;
+ static int s_local_seed;
+@@ -496,7 +498,7 @@ DWCiRankingSessionResult DWCi_EncSessionGetAsync(const char* url,
+             + strlen(g_session.gamename)
+             + strlen(url)
+             + strlen("?pid=")
+-            + strlen(itoa(pid, buf, 10))
++            + snprintf(buf, sizeof(buf), "%d", pid)
+             + strlen("&hash=")
+             + strlen("0000000000000000000000000000000000000000")
+             + strlen("&data=")

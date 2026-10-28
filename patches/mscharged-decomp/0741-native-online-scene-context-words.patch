@@ -1,0 +1,524 @@
+From: mscharged-port
+Subject: Narrow online scene button contexts natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+The online hub, friends, friend code entry, invitation, Mii selection,
+side choice and connection quality scenes store each pointer button's
+index in its void* context and read it back with (int)context or
+(unsigned int)context. A 64-bit host rejects those casts from a pointer
+to a smaller integer. Natively the index goes through std::intptr_t, as
+in the Cup scenes (0641); the values are unchanged.
+
+diff --git a/src/Game/SH/SHOnlineConnectionQuality.cpp b/src/Game/SH/SHOnlineConnectionQuality.cpp
+index e3b62df..7b82616 100644
+--- a/src/Game/SH/SHOnlineConnectionQuality.cpp
++++ b/src/Game/SH/SHOnlineConnectionQuality.cpp
+@@ -1,4 +1,11 @@
+ #include "Game/GameInfo.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/item indices.
++#define MSCHARGED_ONLINE_CONNECTION_QUALITY_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_ONLINE_CONNECTION_QUALITY_CONTEXT(type, context) (type)context
++#endif
+ #include "Game/FE/fePresentation.inl"
+ #include "Game/SH/SHOnlineConnectionQuality.h"
+ #include "Game/FE/FEAudio.h"
+@@ -380,7 +387,7 @@ void OnlineConnectionQualityScene::OnDecisionPointerPress(unsigned int index, vo
+         NetworkMachineRoster* roster = g_pNetworkSessionBase->GetMachineRoster();
+         bool isHost = roster->GetLocalMachineIndex() == 0;
+         bool accepted = false;
+-        switch ((int)context)
++        switch (MSCHARGED_ONLINE_CONNECTION_QUALITY_CONTEXT(int, context))
+         {
+         case ButtonAccept:
+             accepted = true;
+@@ -447,16 +454,16 @@ void OnlineConnectionQualityScene::OnConnectionDecision(NetMessageConnectionDeci
+ void OnlineConnectionQualityScene::OnDecisionPointerEnter(unsigned int index, void* context)
+ {
+     ++mPointerHoverCounts[index];
+-    mDecisionButtonInstances[(int)context]->SetActiveSlide("OVER", true, false);
+-    mDecisionButtons[(int)context].SetPointerState(POINTER_BUTTON_HOVER, index);
++    mDecisionButtonInstances[MSCHARGED_ONLINE_CONNECTION_QUALITY_CONTEXT(int, context)]->SetActiveSlide("OVER", true, false);
++    mDecisionButtons[MSCHARGED_ONLINE_CONNECTION_QUALITY_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_HOVER, index);
+     FEAudio::PlayAnimAudioEvent(0xDE912775, 0, 0, true);
+ }
+ 
+ void OnlineConnectionQualityScene::OnDecisionPointerLeave(unsigned int index, void* context)
+ {
+     --mPointerHoverCounts[index];
+-    mDecisionButtonInstances[(int)context]->SetActiveSlide("OFF", true, false);
+-    mDecisionButtons[(int)context].SetPointerState(POINTER_BUTTON_NORMAL, index);
++    mDecisionButtonInstances[MSCHARGED_ONLINE_CONNECTION_QUALITY_CONTEXT(int, context)]->SetActiveSlide("OFF", true, false);
++    mDecisionButtons[MSCHARGED_ONLINE_CONNECTION_QUALITY_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_NORMAL, index);
+ }
+ 
+ void OnlineConnectionQualityScene::CloseConnectionsAndReturn()
+diff --git a/src/Game/SH/SHOnlineFriendCodeEntry.cpp b/src/Game/SH/SHOnlineFriendCodeEntry.cpp
+index ae3282c..0abb524 100644
+--- a/src/Game/SH/SHOnlineFriendCodeEntry.cpp
++++ b/src/Game/SH/SHOnlineFriendCodeEntry.cpp
+@@ -1,5 +1,12 @@
+ // MSL math.h defines abs/labs; include it before stdlib.h.
+ #include <math.h>
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/item indices.
++#define MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(type, context) (type)context
++#endif
+ #include "Game/SH/SHOnlineFriendCodeEntry.h"
+ 
+ #include "Game/SH/SHNavigation.h"
+@@ -357,7 +364,7 @@ void SHOnlineFriendCodeEntry::InitializeButtons()
+ 
+ void SHOnlineFriendCodeEntry::OnKeypadPointerEnter(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(unsigned int, context);
+     ++mHoverCount;
+     mKeypadInstances[item]->SetActiveSlide("over", true, false);
+     mKeypadButtons[item].SetPointerState(POINTER_BUTTON_HOVER, index);
+@@ -366,7 +373,7 @@ void SHOnlineFriendCodeEntry::OnKeypadPointerEnter(int index, void* context)
+ 
+ void SHOnlineFriendCodeEntry::OnKeypadPointerLeave(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(unsigned int, context);
+     --mHoverCount;
+     mKeypadInstances[item]->SetActiveSlide("off", true, false);
+     mKeypadButtons[item].SetPointerState(POINTER_BUTTON_NORMAL, index);
+@@ -375,13 +382,13 @@ void SHOnlineFriendCodeEntry::OnKeypadPointerLeave(int index, void* context)
+ void SHOnlineFriendCodeEntry::OnDigitPointerPress(int, void* context)
+ {
+     FEAudio::PlayAnimAudioEvent(0x3021A1EE, 0, 0, 1);
+-    SetSelectedDigit((int)context);
++    SetSelectedDigit(MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(int, context));
+     --mHoverCount;
+ }
+ 
+ void SHOnlineFriendCodeEntry::OnDigitPointerEnter(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(unsigned int, context);
+     if (item != mSelectedDigit)
+     {
+         ++mHoverCount;
+@@ -393,7 +400,7 @@ void SHOnlineFriendCodeEntry::OnDigitPointerEnter(int index, void* context)
+ 
+ void SHOnlineFriendCodeEntry::OnDigitPointerLeave(int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(unsigned int, context);
+     if (item != mSelectedDigit)
+     {
+         --mHoverCount;
+@@ -481,7 +488,7 @@ inline void SHOnlineFriendCodeEntry::ShowAddFriendError(int error)
+ 
+ void SHOnlineFriendCodeEntry::OnKeypadPointerPress(int, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_FRIEND_CODE_ENTRY_CONTEXT(unsigned int, context);
+ 
+     if (item == 10)
+     {
+diff --git a/src/Game/SH/SHOnlineFriends.cpp b/src/Game/SH/SHOnlineFriends.cpp
+index c9f1843..b7cefb7 100644
+--- a/src/Game/SH/SHOnlineFriends.cpp
++++ b/src/Game/SH/SHOnlineFriends.cpp
+@@ -1,4 +1,11 @@
+ #include <dwc/dwc_account.h>
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/item indices.
++#define MSCHARGED_ONLINE_FRIENDS_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_ONLINE_FRIENDS_CONTEXT(type, context) (type)context
++#endif
+ #include <dwc/dwc_friend.h>
+ #include "Game/main.h"
+ #include "Game/SH/SHOnlineFriends.h"
+@@ -442,7 +449,7 @@ void SHOnlineFriends::OnPointerPress(int index, void* context)
+ {
+     int selected;
+     u8 region;
+-    int item = (int)context;
++    int item = MSCHARGED_ONLINE_FRIENDS_CONTEXT(int, context);
+     mPressedItem = item;
+     mPressHandled = true;
+     FEAudio::PlayAnimAudioEvent(0xF0AFD586, 0, 0, 1);
+@@ -487,7 +494,7 @@ void SHOnlineFriends::OnPointerPress(int index, void* context)
+ 
+ void SHOnlineFriends::OnPointerEnter(int index, void* context)
+ {
+-    int item = (int)context;
++    int item = MSCHARGED_ONLINE_FRIENDS_CONTEXT(int, context);
+     ++mPointerHoverCount;
+     mRowInstances[item]->SetActiveSlide("over", true, false);
+     mRowButtons[item].SetPointerState(POINTER_BUTTON_HOVER, index);
+@@ -496,7 +503,7 @@ void SHOnlineFriends::OnPointerEnter(int index, void* context)
+ 
+ void SHOnlineFriends::OnPointerLeave(int index, void* context)
+ {
+-    int item = (int)context;
++    int item = MSCHARGED_ONLINE_FRIENDS_CONTEXT(int, context);
+     --mPointerHoverCount;
+     mRowInstances[item]->SetActiveSlide("off", true, false);
+     mRowButtons[item].SetPointerState(POINTER_BUTTON_NORMAL, index);
+diff --git a/src/Game/SH/SHOnlineFriendsChooseSides.cpp b/src/Game/SH/SHOnlineFriendsChooseSides.cpp
+index 26e367a..4b9a613 100644
+--- a/src/Game/SH/SHOnlineFriendsChooseSides.cpp
++++ b/src/Game/SH/SHOnlineFriendsChooseSides.cpp
+@@ -1,4 +1,11 @@
+ #include "Game/SH/SHOnlineFriendsChooseSides.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/item indices.
++#define MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(type, context) (type)context
++#endif
+ #include "Game/FE/fePresentation.inl"
+ #include "Game/FE/feHelpFuncs_decl.h"
+ #include "Game/FE/FEAudio.h"
+@@ -455,20 +462,20 @@ void SHOnlineFriendsChooseSides::OnSidePointerEnter(unsigned int index, void* co
+     }
+     if (value == -1)
+     {
+-        int count = CountSidePlayers(index, (int)context);
++        int count = CountSidePlayers(index, MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context));
+         if (count >= mPlayerCount - 1)
+         {
+             return;
+         }
+     }
+-    if (!mSideButtons[(int)context].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
++    if (!mSideButtons[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
+     {
+-        mSideInstances[(int)context]->SetActiveSlide("over", true, false);
++        mSideInstances[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)]->SetActiveSlide("over", true, false);
+         FEAudio::PlayAnimAudioEvent(0xAA73EF33, 0, 0, 1);
+     }
+-    mSideButtons[(int)context].SetPointerState(POINTER_BUTTON_HOVER, index);
++    mSideButtons[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_HOVER, index);
+     ++mPointerHoverCounts[index];
+-    mSideButtons[(int)context].PlayHoverFeedback(index);
++    mSideButtons[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)].PlayHoverFeedback(index);
+     FEAudio::PlayAnimAudioEvent(0x19E7B6AE, 0, 0, 1);
+ }
+ 
+@@ -479,39 +486,39 @@ void SHOnlineFriendsChooseSides::OnSidePointerLeave(unsigned int index, void* co
+     {
+         return;
+     }
+-    if (!mSideButtons[(int)context].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
++    if (!mSideButtons[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
+     {
+-        mSideInstances[(int)context]->SetActiveSlide("controllers", true, false);
++        mSideInstances[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)]->SetActiveSlide("controllers", true, false);
+     }
+-    mSideButtons[(int)context].SetPointerState(POINTER_BUTTON_NORMAL, index);
++    mSideButtons[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_NORMAL, index);
+     --mPointerHoverCounts[index];
+ }
+ 
+ void SHOnlineFriendsChooseSides::OnSidePointerInside(unsigned int index, void* context)
+ {
+     int slot = GetOnlinePlayerIndex(index);
+-    if (mSideButtons[(int)context].GetPointerState(index) == POINTER_BUTTON_NORMAL)
++    if (mSideButtons[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)].GetPointerState(index) == POINTER_BUTTON_NORMAL)
+     {
+         if (mPlayerSides[slot] != -1)
+         {
+             return;
+         }
+-        int count = CountSidePlayers(index, (int)context);
++        int count = CountSidePlayers(index, MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context));
+         if (count < mPlayerCount - 1)
+         {
+             OnSidePointerEnter(index, context);
+         }
+     }
+-    else if (mSideButtons[(int)context].GetPointerState(index) == POINTER_BUTTON_HOVER && mPlayerSides[slot] == -1)
++    else if (mSideButtons[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)].GetPointerState(index) == POINTER_BUTTON_HOVER && mPlayerSides[slot] == -1)
+     {
+-        int count = CountSidePlayers(index, (int)context);
++        int count = CountSidePlayers(index, MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context));
+         if (count >= mPlayerCount - 1)
+         {
+-            if (!mSideButtons[(int)context].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
++            if (!mSideButtons[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
+             {
+-                mSideInstances[(int)context]->SetActiveSlide("controllers", true, false);
++                mSideInstances[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)]->SetActiveSlide("controllers", true, false);
+             }
+-            mSideButtons[(int)context].SetPointerState(POINTER_BUTTON_NORMAL, index);
++            mSideButtons[MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_NORMAL, index);
+             --mPointerHoverCounts[index];
+         }
+     }
+@@ -526,7 +533,7 @@ void SHOnlineFriendsChooseSides::OnSidePointerPress(unsigned int index, void* co
+     }
+     if (mPlayerSides[slot] == -1)
+     {
+-        int count = CountSidePlayers(index, (int)context);
++        int count = CountSidePlayers(index, MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context));
+         if (count >= mPlayerCount - 1)
+         {
+             return;
+@@ -535,7 +542,7 @@ void SHOnlineFriendsChooseSides::OnSidePointerPress(unsigned int index, void* co
+     int side = -1;
+     if (mPlayerSides[slot] == -1)
+     {
+-        side = (int)context;
++        side = MSCHARGED_ONLINE_FRIENDS_CHOOSE_SIDES_CONTEXT(int, context);
+     }
+     FEAudio::PlayAnimAudioEvent(0xB3586309, 0, 0, 1);
+     NetMessageSidesChanged message;
+diff --git a/src/Game/SH/SHOnlineHub.cpp b/src/Game/SH/SHOnlineHub.cpp
+index 0769364..620b748 100644
+--- a/src/Game/SH/SHOnlineHub.cpp
++++ b/src/Game/SH/SHOnlineHub.cpp
+@@ -1,4 +1,11 @@
+ #include <dwc/dwc_account.h>
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/item indices.
++#define MSCHARGED_ONLINE_HUB_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_ONLINE_HUB_CONTEXT(type, context) (type)context
++#endif
+ #include <dwc/dwc_friend.h>
+ #include <dwc/dwc_nastime.h>
+ 
+@@ -378,7 +385,7 @@ void SHOnlineHub::InitializeButtons()
+ 
+ void SHOnlineHub::OnPointerPress(unsigned int index, void* context)
+ {
+-    int item = (int)context;
++    int item = MSCHARGED_ONLINE_HUB_CONTEXT(int, context);
+     FEAudio::PlayAnimAudioEvent(0xF0AFD586, 0, 0, 1);
+     bool change = false;
+     switch (item)
+@@ -437,7 +444,7 @@ void SHOnlineHub::OnErrorDismissed()
+ 
+ void SHOnlineHub::OnPointerEnter(unsigned int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_HUB_CONTEXT(unsigned int, context);
+     ++mHoverCounts[index];
+     if (item < 4)
+     {
+@@ -458,7 +465,7 @@ void SHOnlineHub::OnPointerEnter(unsigned int index, void* context)
+ 
+ void SHOnlineHub::OnPointerLeave(unsigned int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_HUB_CONTEXT(unsigned int, context);
+     --mHoverCounts[index];
+     if (item < 4)
+     {
+diff --git a/src/Game/SH/SHOnlineInvitePlayers.cpp b/src/Game/SH/SHOnlineInvitePlayers.cpp
+index ff72adc..d8177d0 100644
+--- a/src/Game/SH/SHOnlineInvitePlayers.cpp
++++ b/src/Game/SH/SHOnlineInvitePlayers.cpp
+@@ -1,4 +1,11 @@
+ #include "NL/nlSingleton.inl"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/item indices.
++#define MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(type, context) (type)context
++#endif
+ #include "Game/SH/SHOnlineInvitePlayers.h"
+ #include "Game/FE/feOnlineError.h"
+ #include "Game/FE/feHelpFuncs_decl.h"
+@@ -589,16 +596,16 @@ inline void SHOnlineInvitePlayers::ShowLobbyError(int popup)
+ void SHOnlineInvitePlayers::OnInvitePointerEnter(int index, void* context)
+ {
+     FEAudio::PlayAnimAudioEvent(0xF6EB899E, 0, 0, 1);
+-    ++mHoverCounts[(int)context];
+-    mRowInstances[(int)context]->SetActiveSlide("over", true, false);
+-    mInviteButtons[(int)context].SetPointerState(POINTER_BUTTON_HOVER, index);
++    ++mHoverCounts[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)];
++    mRowInstances[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)]->SetActiveSlide("over", true, false);
++    mInviteButtons[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_HOVER, index);
+ }
+ 
+ void SHOnlineInvitePlayers::OnInvitePointerLeave(int index, void* context)
+ {
+-    --mHoverCounts[(int)context];
+-    mRowInstances[(int)context]->SetActiveSlide("off", true, false);
+-    mInviteButtons[(int)context].SetPointerState(POINTER_BUTTON_NORMAL, index);
++    --mHoverCounts[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)];
++    mRowInstances[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)]->SetActiveSlide("off", true, false);
++    mInviteButtons[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_NORMAL, index);
+ }
+ 
+ void SHOnlineInvitePlayers::OnInvitePointerPress(int index, void* context)
+@@ -612,16 +619,16 @@ void SHOnlineInvitePlayers::OnInvitePointerPress(int index, void* context)
+ void SHOnlineInvitePlayers::OnCancelPointerEnter(int index, void* context)
+ {
+     FEAudio::PlayAnimAudioEvent(0xAA73EF35, 0, 0, 1);
+-    ++mHoverCounts[(int)context];
+-    mCancelInstances[(int)context]->SetActiveSlide("over", true, false);
+-    mCancelButtons[(int)context].SetPointerState(POINTER_BUTTON_HOVER, index);
++    ++mHoverCounts[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)];
++    mCancelInstances[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)]->SetActiveSlide("over", true, false);
++    mCancelButtons[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_HOVER, index);
+ }
+ 
+ void SHOnlineInvitePlayers::OnCancelPointerLeave(int index, void* context)
+ {
+-    --mHoverCounts[(int)context];
+-    mCancelInstances[(int)context]->SetActiveSlide("off", true, false);
+-    mCancelButtons[(int)context].SetPointerState(POINTER_BUTTON_NORMAL, index);
++    --mHoverCounts[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)];
++    mCancelInstances[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)]->SetActiveSlide("off", true, false);
++    mCancelButtons[MSCHARGED_ONLINE_INVITE_PLAYERS_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_NORMAL, index);
+ }
+ 
+ void SHOnlineInvitePlayers::OnCancelPointerPress(int, void*)
+diff --git a/src/Game/SH/SHOnlineInviteResponse.cpp b/src/Game/SH/SHOnlineInviteResponse.cpp
+index 3634acc..53f17c5 100644
+--- a/src/Game/SH/SHOnlineInviteResponse.cpp
++++ b/src/Game/SH/SHOnlineInviteResponse.cpp
+@@ -1,4 +1,11 @@
+ #include "Game/SH/SHOnlineInviteResponse.h"
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/item indices.
++#define MSCHARGED_ONLINE_INVITE_RESPONSE_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_ONLINE_INVITE_RESPONSE_CONTEXT(type, context) (type)context
++#endif
+ #include "NL/nlFunction.inl"
+ #include "Game/SH/SHOnlineInviteStatus.h"
+ #include "Game/FE/FEAudio.h"
+@@ -134,10 +141,10 @@ void SHOnlineInviteResponse::Update(float fDeltaT)
+ void SHOnlineInviteResponse::OnPointerEnter(unsigned int index, void* context)
+ {
+     ++mHoverCounts[index];
+-    if (!mButtons[(int)context].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
++    if (!mButtons[MSCHARGED_ONLINE_INVITE_RESPONSE_CONTEXT(int, context)].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
+     {
+-        mButtons[(int)context].SetPointerState(POINTER_BUTTON_HOVER, index);
+-        mButtonInstances[(int)context]->SetActiveSlide("over", true, false);
++        mButtons[MSCHARGED_ONLINE_INVITE_RESPONSE_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_HOVER, index);
++        mButtonInstances[MSCHARGED_ONLINE_INVITE_RESPONSE_CONTEXT(int, context)]->SetActiveSlide("over", true, false);
+         FEAudio::PlayAnimAudioEvent(0xDE912775, 0, 0, 1);
+     }
+ }
+@@ -145,10 +152,10 @@ void SHOnlineInviteResponse::OnPointerEnter(unsigned int index, void* context)
+ void SHOnlineInviteResponse::OnPointerLeave(unsigned int index, void* context)
+ {
+     --mHoverCounts[index];
+-    if (!mButtons[(int)context].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
++    if (!mButtons[MSCHARGED_ONLINE_INVITE_RESPONSE_CONTEXT(int, context)].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
+     {
+-        mButtons[(int)context].SetPointerState(POINTER_BUTTON_NORMAL, index);
+-        mButtonInstances[(int)context]->SetActiveSlide("off", true, false);
++        mButtons[MSCHARGED_ONLINE_INVITE_RESPONSE_CONTEXT(int, context)].SetPointerState(POINTER_BUTTON_NORMAL, index);
++        mButtonInstances[MSCHARGED_ONLINE_INVITE_RESPONSE_CONTEXT(int, context)]->SetActiveSlide("off", true, false);
+     }
+ }
+ 
+@@ -156,7 +163,7 @@ void SHOnlineInviteResponse::OnPointerPress(unsigned int, void* context)
+ {
+     for (int i = 0; i < 4; ++i)
+         GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+-    mSelectedAction = (int)context;
++    mSelectedAction = MSCHARGED_ONLINE_INVITE_RESPONSE_CONTEXT(int, context);
+     mState = INVITE_RESPONSE_EXITING_FORWARD;
+     mPresentation->SetActiveSlide("out", true);
+     mPresentation->Update(0.0f);
+diff --git a/src/Game/SH/SHOnlineMiiSelect.cpp b/src/Game/SH/SHOnlineMiiSelect.cpp
+index 8fab343..da4e69e 100644
+--- a/src/Game/SH/SHOnlineMiiSelect.cpp
++++ b/src/Game/SH/SHOnlineMiiSelect.cpp
+@@ -1,4 +1,11 @@
+ #include <RVLFaceLib/RFL_Database.h>
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/item indices.
++#define MSCHARGED_ONLINE_MII_SELECT_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_ONLINE_MII_SELECT_CONTEXT(type, context) (type)context
++#endif
+ #include <RVLFaceLib/RFL_DataUtility.h>
+ #include "Game/FE/FEAudio.h"
+ #include <RVLFaceLib/RFL_Model.h>
+@@ -490,7 +497,7 @@ void SHOnlineMiiSelect::InitializeButtons()
+ 
+ void SHOnlineMiiSelect::OpenItem(unsigned int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_MII_SELECT_CONTEXT(unsigned int, context);
+     ++mHoverCounts[index];
+     if (!mMiiButtons[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
+     {
+@@ -502,7 +509,7 @@ void SHOnlineMiiSelect::OpenItem(unsigned int index, void* context)
+ 
+ void SHOnlineMiiSelect::CloseItem(unsigned int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_MII_SELECT_CONTEXT(unsigned int, context);
+     --mHoverCounts[index];
+     mMiiInstances[item]->SetActiveSlide("off", true, false);
+     mMiiButtons[item].SetPointerState(POINTER_BUTTON_NORMAL, index);
+@@ -520,7 +527,7 @@ void SHOnlineMiiSelect::SelectMii(unsigned int, void* context)
+ 
+     SHOnlineMiiSelectOverlay* scene = (SHOnlineMiiSelectOverlay*)GameSceneManager::Instance()->Push(
+         SCENE_ONLINE_MII_SELECT_OVERLAY, SCREEN_FORWARD, false);
+-    int item = (int)context;
++    int item = MSCHARGED_ONLINE_MII_SELECT_CONTEXT(int, context);
+     scene->mOfficialIndex = mOfficialIndices[mCurrentPage * 10 + item];
+     scene->mIconIndex = item;
+ 
+diff --git a/src/Game/SH/SHOnlineMiiSelectOverlay.cpp b/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
+index dd2111b..8166603 100644
+--- a/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
++++ b/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
+@@ -1,4 +1,11 @@
+ #include <RVLFaceLib/RFL_Database.h>
++#if defined(MSCHARGED_NATIVE)
++#include <cstdint>
++// Pointer-button callback contexts carry small button/item indices.
++#define MSCHARGED_ONLINE_MII_SELECT_OVERLAY_CONTEXT(type, context) static_cast<type>(reinterpret_cast<std::intptr_t>(context))
++#else
++#define MSCHARGED_ONLINE_MII_SELECT_OVERLAY_CONTEXT(type, context) (type)context
++#endif
+ #include "Game/FE/FEAudio.h"
+ #include <revolution/os/OSTime.h>
+ 
+@@ -211,7 +218,7 @@ void SHOnlineMiiSelectOverlay::SelectOption(unsigned int, void* context)
+         GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
+     }
+ 
+-    switch ((int)context)
++    switch (MSCHARGED_ONLINE_MII_SELECT_OVERLAY_CONTEXT(int, context))
+     {
+     case 0:
+         FEAudio::PlayAnimAudioEvent(0xF0AFD586, 0, 0, 1);
+@@ -474,7 +481,7 @@ void SHOnlineMiiSelectOverlay::Update(float fDeltaT)
+ 
+ void SHOnlineMiiSelectOverlay::OpenItem(unsigned int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_MII_SELECT_OVERLAY_CONTEXT(unsigned int, context);
+     ++mHoverCounts[index];
+     if (!mButtons[item].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
+     {
+@@ -486,7 +493,7 @@ void SHOnlineMiiSelectOverlay::OpenItem(unsigned int index, void* context)
+ 
+ void SHOnlineMiiSelectOverlay::CloseItem(unsigned int index, void* context)
+ {
+-    unsigned int item = (unsigned int)context;
++    unsigned int item = MSCHARGED_ONLINE_MII_SELECT_OVERLAY_CONTEXT(unsigned int, context);
+     --mHoverCounts[index];
+     mButtonInstances[item]->SetActiveSlide("off", true, false);
+     mButtons[item].SetPointerState(POINTER_BUTTON_NORMAL, index);

@@ -1,0 +1,83 @@
+From: mscharged-port
+Subject: Keep GameSpy's started OSThread for by-value thread IDs natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+GSIThreadID embeds the OSThread that gsiStartThread creates, but
+gsiCancelThread, gsiCleanupThread and gsiHasThreadShutdown take the ID by
+value and pass the address of their copy to OSCancelThread and
+OSIsThreadTerminated. On the Wii those only read the copy's state. The
+native kernel identifies a thread by the OSThread it started, so the
+copy was rejected as "SDK thread is not a live native caller" when
+GameSpy's asynchronous hostname lookup finished (gsiGetResolvedIP, from
+the ranking session's GHTTP request).
+
+Natively the ID also records the started OSThread's address, and those
+calls use it; the Wii layout and calls are unchanged.
+
+diff --git a/src/RVL_SDK/gamespy/common/gsPlatformThread.h b/src/RVL_SDK/gamespy/common/gsPlatformThread.h
+index 95cddcb..950c89b 100644
+--- a/src/RVL_SDK/gamespy/common/gsPlatformThread.h
++++ b/src/RVL_SDK/gamespy/common/gsPlatformThread.h
+@@ -19,7 +19,18 @@ typedef OSSemaphore GSISemaphoreID;
+ typedef struct {
+   OSThread mThread;
+   void* mStack;
++#if defined(MSCHARGED_NATIVE)
++  // GameSpy passes thread IDs by value. The native kernel identifies a thread
++  // by the OSThread that OSCreateThread started, so copies keep its address.
++  OSThread* mStartedThread;
++#endif
+ } GSIThreadID;
++
++#if defined(MSCHARGED_NATIVE)
++#define GSI_THREAD_OS(id) ((id).mStartedThread)
++#else
++#define GSI_THREAD_OS(id) (&(id).mThread)
++#endif
+ typedef void* (*GSThreadFunc)(void* arg);
+ 
+ #define GSI_INFINITE (gsi_u32)(-1)
+diff --git a/src/RVL_SDK/gamespy/common/revolution/gsThreadRevoulution.c b/src/RVL_SDK/gamespy/common/revolution/gsThreadRevoulution.c
+index 1ed52bd..4d5a318 100644
+--- a/src/RVL_SDK/gamespy/common/revolution/gsThreadRevoulution.c
++++ b/src/RVL_SDK/gamespy/common/revolution/gsThreadRevoulution.c
+@@ -49,6 +49,9 @@ int gsiStartThread(GSThreadFunc aThreadFunc, gsi_u32 theStackSize, void *arg, GS
+ 	OSCreateThread(&theThreadIdOut->mThread, aThreadFunc, arg, (void *)aStackBase,
+ 				   theStackSize, 16, OS_THREAD_ATTR_DETACH);
+ 
++#if defined(MSCHARGED_NATIVE)
++	theThreadIdOut->mStartedThread = &theThreadIdOut->mThread;
++#endif
+ 	OSResumeThread(&theThreadIdOut->mThread);
+ 
+ 	return 0;
+@@ -59,7 +62,7 @@ int gsiStartThread(GSThreadFunc aThreadFunc, gsi_u32 theStackSize, void *arg, GS
+ ///////////////////////////////////////////////////////////////////////////////
+ void gsiCancelThread(GSIThreadID theThreadID)
+ {
+-	OSCancelThread(&theThreadID.mThread);
++	OSCancelThread(GSI_THREAD_OS(theThreadID));
+ 	if(theThreadID.mStack)
+ 	{
+ 		gsifree(theThreadID.mStack);
+@@ -73,8 +76,8 @@ void gsiCancelThread(GSIThreadID theThreadID)
+ void gsiCleanupThread(GSIThreadID theThreadID)
+ {
+ 
+-	if (!OSIsThreadTerminated(&theThreadID.mThread))
+-		OSCancelThread(&theThreadID.mThread);
++	if (!OSIsThreadTerminated(GSI_THREAD_OS(theThreadID)))
++		OSCancelThread(GSI_THREAD_OS(theThreadID));
+ 	if(theThreadID.mStack)
+ 	{
+ 		gsifree(theThreadID.mStack);
+@@ -87,7 +90,7 @@ void gsiCleanupThread(GSIThreadID theThreadID)
+ ///////////////////////////////////////////////////////////////////////////////
+ gsi_u32 gsiHasThreadShutdown(GSIThreadID theThreadID)
+ {
+-	BOOL shutdown = OSIsThreadTerminated(&theThreadID.mThread);
++	BOOL shutdown = OSIsThreadTerminated(GSI_THREAD_OS(theThreadID));
+ 
+ 	if(shutdown == TRUE)
+ 		return 1;

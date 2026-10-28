@@ -8,6 +8,7 @@
 #error Game tweaks belong to the isolated original game module built with MSCHARGED_TWEAKS
 #endif
 #include "mscharged_tweaks.h"
+#include "platform/tweak_frame_state.h"
 
 #include <atomic>
 #include <cmath>
@@ -19,6 +20,18 @@ unsigned sEnabled;
 
 // Skip intro: the title screen is passed once per launch.
 bool sTitlePassed;
+// Training: the item of the team that trains (ePowerUpType, -1 none), and the
+// launcher's Start training, taken by the title once it is passed.
+int sTrainingItem = -1;
+bool sTrainingStart;
+int sTrainingCaptain;
+int sTrainingStadium;
+int sTrainingAwayCaptain = -1;
+int sTrainingAwayFielders;
+bool sTrainingAwayGoalie = true;
+bool sTrainingSkipGoal;
+int sTrainingAwaySkill = -1;
+bool sTrainingPlayAway;
 bool sPerformanceMode;
 // Wider view (display.wider_view, issue #91): the window's picture shape
 // divided by 16:9 while the wider view fills it, 1 otherwise; and whether the
@@ -145,6 +158,35 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
     sMatchView = false;
     sHudFlipped = false;
     sHudHidden = mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_HUD);
+}
+
+// Host entry (Training): the item of the team that trains (ePowerUpType, -1
+// none); with `start`, the launcher's Start training: the title is passed at
+// once, as by Skip intro, into a match of `captain` (eTeamID) in `stadium`
+// (eStadiumID).
+__attribute__((visibility("default"))) void charged_configure_training(int item, bool start, int captain, int stadium)
+{
+    sTrainingItem = item;
+    sTrainingStart = start;
+    sTrainingCaptain = captain;
+    sTrainingStadium = stadium;
+}
+
+// Host entry (Training): the opponent, the team nobody plays: its captain
+// (eTeamID, -1 for the default), how many of its four fielders play, whether
+// its goalie plays, whether a goal goes straight to the kickoff, and its skill
+// (0 training, 1 rookie to 5 mega striker, -1 for the game's own setting), and
+// whether the player plays the away team.
+__attribute__((visibility("default"))) void charged_configure_training_opponent(int captain, int fielders,
+                                                                                 bool goalie, bool skip_goal,
+                                                                                 int skill, bool play_away)
+{
+    sTrainingPlayAway = play_away;
+    sTrainingAwaySkill = skill < -1 ? -1 : skill > 5 ? 5 : skill;
+    sTrainingAwayCaptain = captain;
+    sTrainingAwayFielders = fielders < 0 ? 0 : fielders > 4 ? 4 : fielders;
+    sTrainingAwayGoalie = goalie;
+    sTrainingSkipGoal = skip_goal;
 }
 
 // Host entry: the H key was pressed (any thread). A match takes it in its
@@ -367,7 +409,7 @@ bool mscharged_tweak_performance_match(void)
 
 bool mscharged_tweak_take_title_press(void)
 {
-    if (sTitlePassed || !mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO)) return false;
+    if (!mscharged_tweak_title_pending()) return false;
     sTitlePassed = true;
     std::fputs("Tweak: skip intro passed the title screen\n", stderr);
     return true;
@@ -375,7 +417,52 @@ bool mscharged_tweak_take_title_press(void)
 
 bool mscharged_tweak_title_pending(void)
 {
-    return !sTitlePassed && mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO);
+    return !sTitlePassed && (sTrainingStart || mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO));
+}
+
+int mscharged_tweak_training_item(void)
+{
+    return sTrainingItem;
+}
+
+int mscharged_tweak_training_away_captain(void)
+{
+    return sTrainingAwayCaptain;
+}
+
+int mscharged_tweak_training_away_fielders(void)
+{
+    return sTrainingAwayFielders;
+}
+
+bool mscharged_tweak_training_away_goalie(void)
+{
+    return sTrainingAwayGoalie;
+}
+
+bool mscharged_tweak_training_play_away(void)
+{
+    return sTrainingPlayAway;
+}
+
+int mscharged_tweak_training_away_skill(void)
+{
+    return sTrainingAwaySkill;
+}
+
+bool mscharged_tweak_training_skip_goal(void)
+{
+    return sTrainingSkipGoal;
+}
+
+bool mscharged_tweak_take_training_start(int* captain, int* stadium)
+{
+    if (!sTrainingStart) return false;
+    sTrainingStart = false;
+    *captain = sTrainingCaptain;
+    *stadium = sTrainingStadium;
+    std::fputs("Tweak: training starts from the title screen\n", stderr);
+    return true;
 }
 
 void mscharged_tweak_frontend_frame(bool menus, bool transition)
@@ -490,5 +577,18 @@ bool mscharged_tweak_original_frame(void)
 unsigned long mscharged_tweak_frame_number(unsigned long renderedFrame)
 {
     return sHostSwap ? sOriginalFrameCount : renderedFrame;
+}
+
+void mscharged_tweak_save_frame_state(MschargedTweakFrameState* state)
+{
+    *state = {sOriginalFrames, sOriginalPhase, sOriginalFrameCount, sOriginalFrame};
+}
+
+void mscharged_tweak_load_frame_state(const MschargedTweakFrameState* state)
+{
+    sOriginalFrames = state->frames;
+    sOriginalPhase = state->phase;
+    sOriginalFrameCount = state->count;
+    sOriginalFrame = state->frame;
 }
 }

@@ -165,10 +165,13 @@ lightning, wind, debris, character and ball shadows stay, and so do the effects
 that show them. It keeps your 3D render size, leaves the menus as they are, and
 restores your antialiasing preference when turned off.
 
-**Performance overlay** (Display) shows `FPS | GPU | CPU | LAT` in a corner of
-your choice, also in fullscreen. GPU and CPU are total system usage, including
-other apps; drivers that hide the GPU counters show `N/A`. LAT stays `N/A`
-while there is no online play.
+**Performance overlay** (Display) shows `FPS | GPU | CPU` in a corner of your
+choice, also in fullscreen, and `LAT` in a network session and `DLY` and `RB`
+in a network match with rollback. GPU and CPU are total system usage, including
+other apps; drivers that hide the GPU counters show `N/A`. **LAT** is the
+slowest connection's round trip in milliseconds, measured by the game's own
+ping every two seconds. **DLY** is your input delay in milliseconds. **RB** is
+the most steps the game predicted at once since the last reading.
 
 ## Audio
 
@@ -267,6 +270,12 @@ A and B. A gamepad profile also sets, for both sticks:
 - **Trigger press point** (`trigger_press`, 10-90 %, default 50): a trigger
   bound to a button presses it past this much of its travel.
 
+**Real Nunchuk stick** (`octagon_stick`, off by default) makes the Nunchuk
+stick play like a real one. The controller's round travel is stretched onto
+the Nunchuk's octagonal gate, and the game applies its own dead zone of 15
+counts on each axis, so a nearly straight push reads straight. The two dead
+zones then shape the pointer stick only.
+
 **Sticks as buttons**: pushing a stick one way past half its travel can press
 any action, like a button (`rightstick_up`, `leftstick_left` and so on in the
 INI). To bind one, select the action and push the stick. With the gyro
@@ -344,6 +353,41 @@ user folder or that save folder. The current save is first copied to
 `backups/` in the save folder. Dolphin's encrypted `data.bin` exports are not
 supported.
 
+**Sidekicks** changes the lineups the game keeps in `Strikers2`: the three
+sidekicks each captain starts with, which the game's sidekick screen shows and
+replaces with what you choose there. The launcher writes them into the save
+with the checksum the game checks and changes nothing else, so the save stays
+one the game, Dolphin and a Wii read. The first change of each launcher session
+copies the save to `backups/` in the save folder. Until the game has saved once
+there is no save, and so nothing to change.
+
+**Match rules** writes a preset into the same save: the game keeps one set of
+match settings and cheats for matches on the console and one for online
+matches with friends, and the preset replaces the one you choose (the backup
+is the same). Every cheat can be chosen, whether the save has unlocked it or
+not. Presets other than Default and Competitive are files in `match-presets/`
+beside `recharged.ini`, one per preset, named after it (`quick-3.ini`):
+
+```ini
+name = "Quick 3"
+skill = superstar          # rookie, professional, superstar, legend, megastriker
+best_of = 3                # 1, 3, 5, 7 or 9
+win_by = goals             # time or goals
+minutes = 3                # 2 to 5, with win_by = time
+goals = 3                  # 3 to 10, with win_by = goals
+stadium_cheat = secure     # none, secure, power, voltage, tilt, white_ball
+player_cheat = none        # none, devastating, safe, skill_shot, glass_jaw
+powerup_cheat = none       # none, explosives, freezing, shells, giant, accelerator,
+                           # peelin_out, heat_seekers, bombs_away, super, infinite,
+                           # butterfingers
+```
+
+Settings left out are a new save's. A file the page cannot read is listed
+under the presets, and left alone. The cheats' names here are the game's
+own enums' (`ENV_CHEAT_WHITE_BALL`, `white_ball`); the page shows the menu's
+(Always White Ball). `glass_jaw` is Classic Mode, `heat_seekers` Seek and
+Destroy, `super` Super Captains and `butterfingers` No Power-Ups.
+
 ## Texture packs
 
 Texture packs replace the game's textures with sharper images; they change
@@ -382,11 +426,39 @@ activity privacy setting hides it too. Builds that do not come from the
 project's releases and test builds have no Discord application and show no
 status, unless `[discord] application_id` names one.
 
+## Online
+
+`[online]` keys in `recharged.ini`; the launcher has no page for them.
+
+**Server** (`server`) is the host name or address the game's Nintendo Wi-Fi
+Connection names resolve to, and where the series you play online and the
+error codes the online menus show you are reported. It is already set to the
+project's server, so you only change it to play on a private instance of the
+server ([recharged-wfc-srv](https://github.com/previouslevelgames/recharged-wfc-srv)).
+Left out or empty, it is the project's server too.
+
+**Rollback** (`rollback`, on by default) makes network matches predict the
+inputs still on their way and go back when they differ, instead of waiting for
+them. Every machine in the match needs it on; the input delay adapts to the
+latency by itself. The environment's `RECHARGED_ROLLBACK`, when set, wins over
+the file.
+
+`rollback_log` names a log file for rollback; its counts (rollbacks, how far
+the prediction went, desyncs, the cost of a rollback) go to `<file>.summary`
+beside it. `rollback_test = true` (or `RECHARGED_ROLLBACK_TEST`) instead rolls
+every match back while it is played, offline too, and checks that the replays
+agree: a test of the rollback, not for playing. Saving the settings never
+writes `rollback_test` or `rollback_log`.
+
 ## The launcher
 
 **Reopen after the game** (Advanced → Interface, `[launcher] reopen_after_game`,
 off by default) opens the launcher again when you close the game. A game that
 stops with an error message closes as before.
+
+The **welcome guide** opens over the launcher at its first start
+(`[launcher] show_welcome`); **Get started** closes it for good. The light bulb
+in the bar at the bottom of every page, beside **Revert**, opens it again.
 
 ## Updates
 
@@ -436,6 +508,7 @@ These options override the INI for one run, without saving:
 | `--aspect 16:9\|4:3\|stretch\|auto` | Aspect ratio (`auto`: 16:9 or 4:3, whichever is closer to the screen's shape) |
 | `--frame-rate original\|display\|unlimited\|FPS` | Frame rate |
 | `--no-tweaks` | All `[gameplay]` tweaks off (the bug fixes stay) |
+| `--training` | Start training: straight into a training match |
 | `--config FILE` | Use another INI file |
 | `--launcher` | Open the launcher even with `--disc` |
 

@@ -434,6 +434,24 @@ void StickDeadzoneChecks() {
             Check(std::abs(game[0] - int(std::lround(x * 56))) <= 1 && std::abs(game[1] - int(std::lround(y * 56))) <= 1,
                   "The game does not read the tilt the dead zones gave");
         }
+    // A real Nunchuk: corners at the gate's reach in all eight directions, the
+    // edges between them closer in, and still fully pushed all around the rim.
+    Check(OctagonNunchukStickCounts({}) == std::array<std::int8_t, 2>{0, 0}
+              && OctagonNunchukStickCounts({1, 0}) == std::array<std::int8_t, 2>{96, 0}
+              && OctagonNunchukStickCounts({0, -2}) == std::array<std::int8_t, 2>{0, -96}
+              && OctagonNunchukStickCounts({std::sqrt(0.5f), std::sqrt(0.5f)}) == std::array<std::int8_t, 2>{68, 68},
+          "Real Nunchuk corners");
+    const float tilted = 22.5f * 3.14159265f / 180;
+    const auto edge = OctagonNunchukStickCounts({std::cos(tilted), std::sin(tilted)});
+    Check(std::abs(std::hypot(float(edge[0]), float(edge[1])) - 96 * std::cos(tilted)) < 1,
+          "The real Nunchuk's gate is not octagonal");
+    for (int a = 0; a < 360; ++a) {
+        const float x = std::cos(a * 3.14159265f / 180), y = std::sin(a * 3.14159265f / 180);
+        Check(NunchukStickPushed(OctagonNunchukStickCounts({x, y})) == 1.0f, "A real Nunchuk's rim is not fully pushed");
+    }
+    Check(NunchukStickPushed(OctagonNunchukStickCounts({0.15f, 0})) == 0
+              && OctagonNunchukStickCounts({1, 0.15f})[1] < kNunchukStickDeadCounts,
+          "The game's own dead zone along each axis");
     Check(GamepadTriggerThreshold(50) == kGamepadTriggerPressed && GamepadTriggerThreshold(10) == 3276
               && GamepadTriggerThreshold(100) == 32767,
           "Trigger press points");
@@ -1153,6 +1171,100 @@ void FullscreenShortcutCycle() {
     WPADShutdown();
 }
 }
+#if defined(MSCHARGED_AUTOPILOT)
+// The autopilot's chord (test builds): C, P and U held
+// together act once, in any order, and none of them reaches the game or takes
+// a screenshot. Alone, C still presses Nunchuk C (60 ms late, a short tap too)
+// and P still takes its screenshot (at its release); a C already in the game
+// keeps its release. Without the chord the keys are as ever.
+int gChords = 0, gScreenshots = 0;
+void AutopilotChordCycle() {
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.keyboard = true;
+    settings.nunchuk = true;
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    mscharged::platform::SetHotkeys({});
+    mscharged::platform::InitializeHotkeys(window);
+    mscharged::platform::SetHotkeyAction(mscharged::HotkeyScreenshot, [] { ++gScreenshots; });
+    WPADInit();
+    Check(SDL_ShowWindow(window), "Actual SDL fixture window did not show");
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Keyboard remote and Nunchuk did not connect");
+    Check(WPADSetDataFormat(0, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    const auto c = [] { return (FreestyleReport().button & WPAD_BUTTON_FS_C) != 0; };
+    const auto none = [&] { return !c(); };
+    const auto settle = [] { for (int n = 0; n != 50; ++n) { Service(); SDL_Delay(2); } };
+    constexpr auto down = SDL_EVENT_KEY_DOWN, up = SDL_EVENT_KEY_UP;
+    constexpr auto C = SDL_SCANCODE_C, P = SDL_SCANCODE_P, U = SDL_SCANCODE_U;
+
+    // Without the chord: C at once, the screenshot at P's press.
+    Check(Key(down, C, SDL_KMOD_NONE), "C was taken out without the chord");
+    Until(c, "C did not press Nunchuk C");
+    Check(Key(up, C, SDL_KMOD_NONE), "C's release was taken out without the chord");
+    Until(none, "C's release kept Nunchuk C");
+    Check(!Key(down, P, SDL_KMOD_NONE) && gScreenshots == 1, "P did not take its screenshot at its press");
+    Check(!Key(up, P, SDL_KMOD_NONE), "P's release reached the game");
+
+    mscharged::platform::SetAutopilotChord([] { ++gChords; });
+    // C alone: held back for the chord, then in the game; its release follows at once.
+    Check(!Key(down, C, SDL_KMOD_NONE), "C reached the game before the chord's wait");
+    Service();
+    Check(!c(), "C pressed Nunchuk C during the chord's wait");
+    Until(c, "C never reached the game");
+    Check(Key(up, C, SDL_KMOD_NONE), "C's release was taken out");
+    Until(none, "C's release kept Nunchuk C");
+    // A tap shorter than the wait still presses C once.
+    Check(!Key(down, C, SDL_KMOD_NONE) && !Key(up, C, SDL_KMOD_NONE), "A short C tap reached the game at once");
+    Until(c, "A short C tap was lost");
+    Until(none, "A short C tap's release was lost");
+    // P alone: the screenshot at its release.
+    Check(!Key(down, P, SDL_KMOD_NONE) && gScreenshots == 1, "P took its screenshot at its press");
+    Check(!Key(up, P, SDL_KMOD_NONE) && gScreenshots == 2, "P did not take its screenshot at its release");
+
+    // The chord, in two orders: once each, no C, no screenshot.
+    for (const auto& keys : {std::array{C, P, U}, std::array{P, U, C}}) {
+        const int before = gChords;
+        for (const auto key : keys) Check(!Key(down, key, SDL_KMOD_NONE), "A chord key reached the game");
+        Check(!Key(down, keys[2], SDL_KMOD_NONE, true), "A chord key's repeat reached the game");
+        Check(gChords == before + 1, "The chord did not act once");
+        settle();
+        Check(!c(), "The chord pressed Nunchuk C");
+        // Its last key again, before all three were up: no second act.
+        Check(!Key(up, keys[2], SDL_KMOD_NONE) && !Key(down, keys[2], SDL_KMOD_NONE) && gChords == before + 1,
+              "The chord acted twice in one hold");
+        for (const auto key : keys) Check(!Key(up, key, SDL_KMOD_NONE), "A chord key's release reached the game");
+        settle();
+        Check(!c() && gScreenshots == 2, "The chord pressed C or took a screenshot");
+    }
+    // A slow chord: C was already in the game and keeps its release.
+    Check(!Key(down, C, SDL_KMOD_NONE), "C reached the game before the chord's wait");
+    Until(c, "C never reached the game");
+    const int before = gChords;
+    Check(!Key(down, U, SDL_KMOD_NONE) && !Key(down, P, SDL_KMOD_NONE) && gChords == before + 1,
+          "A slow chord did not act");
+    Check(Key(up, C, SDL_KMOD_NONE), "C's release stayed out of the game after a slow chord");
+    Until(none, "C stayed pressed after a slow chord");
+    Check(!Key(up, U, SDL_KMOD_NONE) && !Key(up, P, SDL_KMOD_NONE) && gScreenshots == 2,
+          "A slow chord's keys reached the game or took a screenshot");
+
+    // Without the chord again, C and P are as ever.
+    mscharged::platform::SetAutopilotChord(nullptr);
+    Check(Key(down, C, SDL_KMOD_NONE), "C was taken out after the chord went");
+    Until(c, "C did not press Nunchuk C after the chord went");
+    Check(Key(up, C, SDL_KMOD_NONE), "C's release was taken out after the chord went");
+    Until(none, "C's release kept Nunchuk C after the chord went");
+    Check(!Key(down, P, SDL_KMOD_NONE) && gScreenshots == 3, "P's screenshot did not come back to its press");
+    Check(!Key(up, P, SDL_KMOD_NONE), "P's release reached the game");
+    mscharged::platform::SetHotkeyAction(mscharged::HotkeyScreenshot, nullptr);
+    mscharged::platform::ShutdownHotkeys();
+    Check(SDL_HideWindow(window), "Actual SDL fixture window did not hide");
+    mscharged::platform::ShutdownDesktopWpad();
+    WPADShutdown();
+}
+#endif
 int main() {
     try {
         owner = std::this_thread::get_id();
@@ -1179,6 +1291,9 @@ int main() {
         GyroPadCycle(true);
         GyroPadCycle(false);
         FullscreenShortcutCycle();
+#if defined(MSCHARGED_AUTOPILOT)
+        AutopilotChordCycle();
+#endif
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
         std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys, stick directions as buttons, the gyro pointer, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);

@@ -1,0 +1,82 @@
+From: mscharged-port
+Subject: Size NHTTP's system storage for native records
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+NHTTPSysInfo reserves Wii-sized u8 arrays for its begin/end, mutex and
+thread records, whose types only NHTTP_os_RVL.c defines, and casts them
+back. Natively NHTTPMutexInfo needs 0x38 bytes instead of 0x34 and
+NHTTPThreadInfo 0x4C0 instead of 0x460, and the byte arrays lose the
+8-byte alignment of the OSThread inside: OSCreateThread rejected the
+communication thread at a misaligned address, which would otherwise
+have written 96 bytes past the end of NHTTPSysInfo.
+
+The storage sizes become macros in private/nhttp.h, with native values
+and 8-byte alignment under MSCHARGED_NATIVE. NHTTP_os_RVL.c, where the
+records are complete types, checks each one against its storage at
+compile time. The Wii layout is unchanged.
+
+diff --git a/libs/RVL_SDK/include/private/nhttp.h b/libs/RVL_SDK/include/private/nhttp.h
+index ff6fdcc..047b7de 100644
+--- a/libs/RVL_SDK/include/private/nhttp.h
++++ b/libs/RVL_SDK/include/private/nhttp.h
+@@ -181,6 +181,20 @@ BOOL NHTTP_AddHeaderField(NHTTPRequestInfo* request, NHTTPBgnEndInfo* info,
+ BOOL NHTTP_AddPostDataAscii(NHTTPRequestInfo* request, NHTTPBgnEndInfo* info,
+     const char* label, const char* value);
+ 
++/* NHTTPSysInfo reserves opaque storage for these records, which only
++ * NHTTP_os_RVL.c defines. Native pointers and OSThread outgrow the Wii sizes;
++ * NHTTP_os_RVL.c checks each record against its storage. */
++#define NHTTPi_SYSINFO_BGNEND_BYTES 0x800
++#if defined(MSCHARGED_NATIVE)
++#define NHTTPi_SYSINFO_MUTEX_BYTES 0x38
++#define NHTTPi_SYSINFO_THREAD_BYTES 0x4C0
++#define NHTTPi_SYSINFO_ALIGN _Alignas(8)
++#else
++#define NHTTPi_SYSINFO_MUTEX_BYTES 0x34
++#define NHTTPi_SYSINFO_THREAD_BYTES 0x460
++#define NHTTPi_SYSINFO_ALIGN
++#endif
++
+ void NHTTPi_InitBgnEndInfo(NHTTPBgnEndInfo* info);
+ void NHTTPi_InitListInfo(NHTTPListInfo* info);
+ void NHTTPi_InitRequestInfo(NHTTPReqInfo* info);
+diff --git a/src/RVL_SDK/nhttp/NHTTP_os_RVL.c b/src/RVL_SDK/nhttp/NHTTP_os_RVL.c
+index 830804e..369ab13 100644
+--- a/src/RVL_SDK/nhttp/NHTTP_os_RVL.c
++++ b/src/RVL_SDK/nhttp/NHTTP_os_RVL.c
+@@ -33,6 +33,15 @@ typedef struct NHTTPThreadInfo
+     char commBuf[0x100];
+ } NHTTPThreadInfo;
+ 
++#if defined(MSCHARGED_NATIVE)
++_Static_assert(sizeof(NHTTPBgnEndInfo) <= NHTTPi_SYSINFO_BGNEND_BYTES
++    && _Alignof(NHTTPBgnEndInfo) <= 8, "NHTTPSysInfo bgnEndInfo storage");
++_Static_assert(sizeof(NHTTPMutexInfo) <= NHTTPi_SYSINFO_MUTEX_BYTES
++    && _Alignof(NHTTPMutexInfo) <= 8, "NHTTPSysInfo mutexInfo storage");
++_Static_assert(sizeof(NHTTPThreadInfo) <= NHTTPi_SYSINFO_THREAD_BYTES
++    && _Alignof(NHTTPThreadInfo) <= 8, "NHTTPSysInfo threadInfo storage");
++#endif
++
+ BOOL NHTTPi_IsCreateCommThreadMessageQueue(NHTTPThreadInfo* info);
+ void NHTTPi_IsCreateCommThreadMessageQueueOn(NHTTPThreadInfo* info);
+ void NHTTPi_CommThreadProcMain(void* argument);
+diff --git a/src/RVL_SDK/nhttp/d_nhttp_common.c b/src/RVL_SDK/nhttp/d_nhttp_common.c
+index 665ce21..98c58bc 100644
+--- a/src/RVL_SDK/nhttp/d_nhttp_common.c
++++ b/src/RVL_SDK/nhttp/d_nhttp_common.c
+@@ -2,11 +2,11 @@
+ 
+ struct NHTTPSysInfo
+ {
+-    u8 bgnEndInfo[0x800];
++    NHTTPi_SYSINFO_ALIGN u8 bgnEndInfo[NHTTPi_SYSINFO_BGNEND_BYTES];
+     NHTTPListInfo listInfo;
+     NHTTPReqInfo reqInfo;
+-    u8 mutexInfo[0x34];
+-    u8 threadInfo[0x460];
++    NHTTPi_SYSINFO_ALIGN u8 mutexInfo[NHTTPi_SYSINFO_MUTEX_BYTES];
++    NHTTPi_SYSINFO_ALIGN u8 threadInfo[NHTTPi_SYSINFO_THREAD_BYTES];
+ };
+ 
+ static NHTTPConnectionInfo* sConnectionList = NULL;

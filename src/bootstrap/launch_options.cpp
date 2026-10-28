@@ -43,6 +43,7 @@ bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOpti
     if (token == "--window") { options.fullscreen = false; return true; }
     if (token == "--fullscreen") { options.fullscreen = true; return true; }
     if (token == "--no-tweaks") { options.no_tweaks = true; return true; }
+    if (token == "--training") { options.training = true; return true; }
     const auto equals = token.find('=');
     const auto argument = token.substr(0, equals);
     if (argument != "--config" && argument != "--disc" && argument != "--disk"
@@ -161,6 +162,7 @@ ResolvedLaunch ResolveLaunch(const ConfigFile& config, const LaunchOptions& opti
         result.settings.tweaks = {};
         result.tweaks_source = SettingSource::CommandLine;
     }
+    result.start_training = options.training;
     // Performance mode keeps the chosen 3D render size: 640x448 looks too coarse
     // on today's displays (issue #55 asks for lighter effects, not a lower size).
     if (result.settings.performance_mode) result.settings.antialiasing = "off";
