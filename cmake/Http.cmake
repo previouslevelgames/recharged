@@ -11,3 +11,7 @@ if(WIN32)
 else()
     target_link_libraries(charged_http PRIVATE ${CMAKE_DL_LIBS})
 endif()
+if(NINTENDO_SWITCH)
+    # No system libcurl to load: HTTPS fails as without one on Linux (src/platform/switch/include).
+    target_include_directories(charged_http SYSTEM BEFORE PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../src/platform/switch/include")
+endif()

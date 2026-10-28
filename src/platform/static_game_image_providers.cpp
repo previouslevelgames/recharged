@@ -2,8 +2,8 @@
 #error The providers belong to the program, not to a game image
 #endif
 // Functions the game calls that neither the decomp sources nor the host define
-// yet: Nintendo's online libraries and a few methods of unfinished online
-// scenes. A dynamically loaded game module leaves them unresolved until one is
+// yet: a few SDK and library functions and a method of an unfinished online
+// scene. A dynamically loaded game module leaves them unresolved until one is
 // called, and the dynamic linker then ends the game ("symbol lookup error").
 // A static game image (cmake/StaticGameImages.cmake) must link them, so each one
 // ends the game the same way, with its name. Nothing here pretends to work.
@@ -27,47 +27,22 @@ namespace {
 #define CHARGED_MISSING_PROVIDER(name) \
     extern "C" [[noreturn]] void name() { Missing(#name); }
 
-// Nintendo Wi-Fi Connection (DWC): online play, friends and rankings.
-CHARGED_MISSING_PROVIDER(DWC_Base64Decode)
-CHARGED_MISSING_PROVIDER(DWC_CheckDirtyFlag)
-CHARGED_MISSING_PROVIDER(DWC_CheckUserData)
-CHARGED_MISSING_PROVIDER(DWC_ClearDirtyFlag)
-CHARGED_MISSING_PROVIDER(DWC_ClearError)
-CHARGED_MISSING_PROVIDER(DWC_CloseAllConnectionsHard)
-CHARGED_MISSING_PROVIDER(DWC_CreateUserData)
-CHARGED_MISSING_PROVIDER(DWC_GetDateTime)
-CHARGED_MISSING_PROVIDER(DWC_GetFriendDataType)
-CHARGED_MISSING_PROVIDER(DWC_GetIngamesnCheckResult)
-CHARGED_MISSING_PROVIDER(DWC_GetLastErrorEx)
-CHARGED_MISSING_PROVIDER(DWC_GetMOMinCompState)
-CHARGED_MISSING_PROVIDER(DWC_GetMyAID)
-CHARGED_MISSING_PROVIDER(DWC_GetNumConnectionHost)
-CHARGED_MISSING_PROVIDER(DWC_Init)
-CHARGED_MISSING_PROVIDER(DWC_InitFriendsMatch)
-CHARGED_MISSING_PROVIDER(DWC_IsBuddyFriendData)
-CHARGED_MISSING_PROVIDER(DWC_IsValidFriendData)
-CHARGED_MISSING_PROVIDER(DWC_LoginAsync)
-CHARGED_MISSING_PROVIDER(DWC_ProcessFriendsMatch)
-CHARGED_MISSING_PROVIDER(DWC_ReportUserData)
-CHARGED_MISSING_PROVIDER(DWC_RnkGetScoreAsync)
-CHARGED_MISSING_PROVIDER(DWC_RnkProcess)
-CHARGED_MISSING_PROVIDER(DWC_RnkPutScoreAsync)
-CHARGED_MISSING_PROVIDER(DWC_RnkResGetRow)
-CHARGED_MISSING_PROVIDER(DWC_RnkResGetRowCount)
-CHARGED_MISSING_PROVIDER(DWC_RnkShutdown)
-CHARGED_MISSING_PROVIDER(DWC_SendUnreliable)
-CHARGED_MISSING_PROVIDER(DWC_SetBuddyFriendCallback)
-CHARGED_MISSING_PROVIDER(DWC_SetFriendStatusCallback)
-CHARGED_MISSING_PROVIDER(DWC_SetOwnStatusData)
-CHARGED_MISSING_PROVIDER(DWC_SetReportLevel)
-CHARGED_MISSING_PROVIDER(DWC_Shutdown)
-CHARGED_MISSING_PROVIDER(DWC_ShutdownFriendsMatch)
-CHARGED_MISSING_PROVIDER(DWC_UpdateServersAsync)
-// NET (message digests for online messages).
-CHARGED_MISSING_PROVIDER(NETGetMD5Interface)
-CHARGED_MISSING_PROVIDER(NETHMACGetDigest)
-CHARGED_MISSING_PROVIDER(NETHMACInit)
-CHARGED_MISSING_PROVIDER(NETHMACUpdate)
+// TLS for the online libraries' HTTP: online play reaches its server over plain
+// HTTP (decomp patch 0727), so nothing calls these.
+CHARGED_MISSING_PROVIDER(SSLConnect)
+CHARGED_MISSING_PROVIDER(SSLDoHandshake)
+CHARGED_MISSING_PROVIDER(SSLNew)
+CHARGED_MISSING_PROVIDER(SSLRead)
+CHARGED_MISSING_PROVIDER(SSLSetClientCert)
+CHARGED_MISSING_PROVIDER(SSLSetClientCertDefault)
+CHARGED_MISSING_PROVIDER(SSLSetRootCA)
+CHARGED_MISSING_PROVIDER(SSLSetRootCADefault)
+CHARGED_MISSING_PROVIDER(SSLShutdown)
+CHARGED_MISSING_PROVIDER(SSLWrite)
+// Random Mii faces of the Mii database (RFL_MakeRandomFace.c is not in the game).
+CHARGED_MISSING_PROVIDER(RFLi_MakeRandomFace)
+// MSL's case-insensitive compare (MSL/file_io.c is not in the game).
+CHARGED_MISSING_PROVIDER(__msl_strnicmp)
 // SDK functions Aurora and the native SDK do not have.
 CHARGED_MISSING_PROVIDER(GXAbortFrame)
 CHARGED_MISSING_PROVIDER(GXPeekARGB)
@@ -75,12 +50,6 @@ CHARGED_MISSING_PROVIDER(GXReadDrawSync)
 CHARGED_MISSING_PROVIDER(OSGetStackPointer)
 CHARGED_MISSING_PROVIDER(__OSReadNandbootInfo)
 CHARGED_MISSING_PROVIDER(__OSWriteNandbootInfo)
-// Methods the decomp declares but does not define yet (online scenes).
+// A method the decomp declares but does not define yet (online scenes).
 // NetworkSessionBase::~NetworkSessionBase()
 CHARGED_MISSING_PROVIDER(_ZN18NetworkSessionBaseD2Ev)
-// SHOnlineFriendsChooseSides::OnSidesChanged(NetMessageSidesChanged*)
-CHARGED_MISSING_PROVIDER(_ZN26SHOnlineFriendsChooseSides14OnSidesChangedEP22NetMessageSidesChanged)
-// OnlineConnectionQualityScene::OnCheckConnection(NetMessageCheckConnection*)
-CHARGED_MISSING_PROVIDER(_ZN28OnlineConnectionQualityScene17OnCheckConnectionEP25NetMessageCheckConnection)
-// OnlineConnectionQualityScene::OnConnectionDecision(NetMessageConnectionDecision*)
-CHARGED_MISSING_PROVIDER(_ZN28OnlineConnectionQualityScene20OnConnectionDecisionEP28NetMessageConnectionDecision)

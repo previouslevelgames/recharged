@@ -184,9 +184,10 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     target_sources(${target} PRIVATE src/platform/game_tweaks.cpp src/platform/gx_texture.cpp src/platform/away_kits.cpp)
     # The original game's globals in sections of their own (rbk_data/rbk_bss),
     # which a rollback saves with the arenas: a linker script on ELF (GNU ld,
-    # lld), and on PE and Mach-O a launcher that renames the same files'
-    # sections after each compile (the linker gathers them by name).
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # lld; a static game image takes its sections into the image's data), and
+    # on PE and Mach-O a launcher that renames the same files' sections after
+    # each compile (the linker gathers them by name).
+    if(CMAKE_SYSTEM_NAME MATCHES "^(Linux|NintendoSwitch)$")
         set(_rollback_sections "${CMAKE_CURRENT_SOURCE_DIR}/cmake/rollback_sections.ld")
         target_link_options(${target} PRIVATE "LINKER:-T,${_rollback_sections}")
         set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${_rollback_sections}")
