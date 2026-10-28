@@ -2861,7 +2861,7 @@ private:
         // A soft glow from the logo's lit ball, so that the logo sits in the scene.
         const ImVec2 ball{origin.x + pad - Dp(8) + logo * logo_aspect_ * 0.86f, y + logo * 0.23f};
         for (int i = 20; i >= 1; --i)
-            draw->AddCircleFilled(ball, logo * 0.055f * float(i), Col(color::accent, 0.006f), 48);
+            draw->AddCircleFilled(ball, logo * 0.055f * float(i), Col(color::logo, 0.006f), 48);
         DrawLogo(draw, {origin.x + pad - Dp(8), y}, logo);
         y += logo + Dp(10);
         DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y}, IM_COL32_WHITE, game, 1.2f);
@@ -8207,7 +8207,7 @@ private:
         const ImVec2 max{pos.x + width, pos.y + height};
         const float rounding = Dp(16);
 
-        // A night-blue wash and, on the right, a lightning bolt in a soft glow.
+        // An accent wash and, on the right, a lightning bolt in a soft glow.
         FillGradient(draw, pos, max, Col(Mix(color::card, color::accent_dark, 0.9f)), Col(color::card), rounding, true);
         draw->PushClipRect(pos, max, true);
         const ImVec2 glow{max.x - std::min(Dp(140), width * 0.2f), pos.y + height * 0.5f};

@@ -41,7 +41,7 @@ available header space.
 `61ce9890e904f4af3840482091c1504e49045f815300197e20529196e4f1ad5d`, added
 2026-10-25) by `tools/launcher_art.py logo ORIGINAL.png`. The launcher shows it
 in the sidebar, on the Play page and on the About page; for the smaller sizes it
-draws halved copies it makes at start. Its colours set the launcher's palette.
+draws halved copies it makes at start.
 
 The logo is outside the project's CC0 dedication; rights remain with its creator.
 
