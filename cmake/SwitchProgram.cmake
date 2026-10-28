@@ -16,9 +16,9 @@ set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged)
 target_compile_features(mscharged PRIVATE cxx_std_20)
 target_include_directories(mscharged PRIVATE src)
 target_link_libraries(mscharged PRIVATE mscharged_build_info charged_host sqlite3 charged_switch_vulkan)
-# 8 MiB stacks for threads that ask for none, and renames that replace a file
-# as on PC (src/platform/switch/nx_init.cpp).
-target_link_options(mscharged PRIVATE -Wl,--wrap=pthread_create -Wl,--wrap=rename)
+# 8 MiB stacks for threads that ask for none, renames that replace a file as on
+# PC and a working folder without the device name (src/platform/switch/nx_init.cpp).
+target_link_options(mscharged PRIVATE -Wl,--wrap=pthread_create -Wl,--wrap=rename -Wl,--wrap=getcwd)
 
 # Beside the program, as on PC: the renderer configurations prepared at start
 # and the overlay's font.
