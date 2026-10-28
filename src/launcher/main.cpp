@@ -467,6 +467,7 @@ public:
         if (header_front_) SDL_DestroyTexture(header_front_);
         if (header_strokes_) SDL_DestroyTexture(header_strokes_);
         for (const auto& level : logo_) SDL_DestroyTexture(level.texture);
+        for (const auto& level : logo_sizzle_) SDL_DestroyTexture(level.texture);
         if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
         if (renderer_) SDL_DestroyRenderer(renderer_);
         if (window_) SDL_DestroyWindow(window_);
@@ -525,19 +526,30 @@ public:
         }
         SDL_SetTextureBlendMode(header_strokes_, SDL_BLENDMODE_BLEND);
         SDL_SetTextureBlendMode(header_front_, SDL_BLENDMODE_BLEND);
-        // The Recharged logo, with halved copies down to 128 pixels wide for small sizes.
-        SurfacePtr level(SDL_LoadPNG(PathUtf8(resources / "logo.png").c_str()), SDL_DestroySurface);
-        if (level) level.reset(SDL_ConvertSurface(level.get(), SDL_PIXELFORMAT_RGBA32));
-        Require(level != nullptr, "Cannot load launcher logo; rebuild to restore resources");
-        logo_aspect_ = float(level->w) / float(level->h);
-        while (level)
+        // The Recharged logo and the same logo with sparks, which sizzles over
+        // it, each with halved copies down to 128 pixels wide for small sizes.
+        const auto load_levels = [&](const char* name, std::vector<LogoLevel>& levels) {
+            SurfacePtr level(SDL_LoadPNG(PathUtf8(resources / name).c_str()), SDL_DestroySurface);
+            if (level) level.reset(SDL_ConvertSurface(level.get(), SDL_PIXELFORMAT_RGBA32));
+            Require(level != nullptr, "Cannot load launcher logo; rebuild to restore resources");
+            while (level)
+            {
+                SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, level.get());
+                Require(texture != nullptr, "Cannot create logo texture");
+                SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+                levels.push_back({texture, float(level->w), float(level->h)});
+                if (level->w < 256) break;
+                level = HalfSize(level.get());
+            }
+        };
+        load_levels("logo.png", logo_);
+        logo_aspect_ = logo_.front().width / logo_.front().height;
+        // tools/launcher_art.py cuts both out alike; another picture is left out.
+        load_levels("logo_sizzle.png", logo_sizzle_);
+        if (logo_sizzle_.front().width != logo_.front().width || logo_sizzle_.front().height != logo_.front().height)
         {
-            SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, level.get());
-            Require(texture != nullptr, "Cannot create logo texture");
-            SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
-            logo_.push_back({texture, float(level->w)});
-            if (level->w < 256) break;
-            level = HalfSize(level.get());
+            for (const auto& level : logo_sizzle_) SDL_DestroyTexture(level.texture);
+            logo_sizzle_.clear();
         }
         // Aurora's logo (from its pinned source) is optional decoration.
         if (auto logo = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
@@ -781,17 +793,52 @@ private:
         SDL_SetRenderClipRect(renderer_, nullptr);
     }
 
-    // The logo with its top left corner at `pos`, `height` tall; returns its width.
+    // The logo with its top left corner at `pos`, `height` tall, the sparked
+    // logo sizzling over it; returns its width.
     float DrawLogo(ImDrawList* draw, ImVec2 pos, float height)
     {
         const float width = height * logo_aspect_;
         // The smallest copy still as wide as the pixels it covers.
-        const LogoLevel* level = &logo_.front();
-        for (const auto& candidate : logo_)
-            if (candidate.width >= width * metrics_.density) level = &candidate;
-        draw->AddImage(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(level->texture)), pos,
-                       {pos.x + width, pos.y + height});
+        std::size_t level = 0;
+        for (std::size_t i = 0; i < logo_.size(); ++i)
+            if (logo_[i].width >= width * metrics_.density) level = i;
+        const ImVec2 max{pos.x + width, pos.y + height};
+        draw->AddImage(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(logo_[level].texture)), pos, max);
+        if (const float sizzle = Sizzle(); sizzle > 0.0f && level < logo_sizzle_.size())
+            draw->AddImage(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(logo_sizzle_[level].texture)),
+                           pos, max, {0, 0}, {1, 1}, IM_COL32(255, 255, 255, int(sizzle * 255.0f + 0.5f)));
         return width;
+    }
+
+    // How much of the sparked logo shows over the plain one now. At random
+    // moments, 1.5 to 6 seconds apart, the sparks crackle for 0.35 to 0.9
+    // seconds (now and then striking again at once), flickering to another
+    // strength every few hundredths of a second, rising fast and fading out.
+    // Nothing in screenshots, so that they stay the same.
+    float Sizzle()
+    {
+        if (capture_ || logo_sizzle_.empty()) return 0.0f;
+        const double now = ImGui::GetTime();
+        std::uniform_real_distribution<double> random(0.0, 1.0);
+        if (now >= sizzle_.next)
+        {
+            sizzle_.start = now;
+            sizzle_.length = 0.35 + 0.55 * random(sizzle_.rng);
+            const double pause = random(sizzle_.rng) < 0.3 ? 0.12 + 0.25 * random(sizzle_.rng)
+                                                             : 1.5 + 4.5 * random(sizzle_.rng);
+            sizzle_.next = now + sizzle_.length + pause;
+            sizzle_.flicker_until = now;
+        }
+        const double t = now - sizzle_.start;
+        if (t >= sizzle_.length) return 0.0f;
+        if (now >= sizzle_.flicker_until)
+        {
+            sizzle_.flicker = float(0.25 + 0.75 * random(sizzle_.rng));
+            sizzle_.flicker_until = now + 0.03 + 0.06 * random(sizzle_.rng);
+        }
+        const float u = float(t / sizzle_.length);
+        const float fall = std::clamp((u - 0.4f) / 0.6f, 0.0f, 1.0f);
+        return std::min(u / 0.12f, 1.0f) * (1 - fall * fall * (3 - 2 * fall)) * sizzle_.flicker;
     }
 
     // ------------------------------------------------------------ settings
@@ -2863,14 +2910,17 @@ private:
         const char* rest = ", rebuilt to run natively on your PC.";
         const float game_width = TextSize(fonts.heading, game).x;
         const bool one_line = game_width + TextSize(fonts.heading, rest).x <= size.x * 0.75f - pad;
-        const float logo = std::clamp(hero * 0.48f, Dp(110), Dp(210));
+        // The logo set by its width, its height following from its proportions.
+        const float logo = std::clamp(hero * 0.879f, Dp(201), Dp(385)) / logo_aspect_;
         const float subtitle = one_line ? FontSize(fonts.heading) : FontSize(fonts.heading) * 2 + Dp(2);
         const float top = origin.y + Dp(40), room = button_y - Dp(34) - top;
         float y = top + std::max(0.0f, (room - logo - Dp(10) - subtitle) * 0.6f);
-        // A soft glow from the logo's lit ball, so that the logo sits in the scene.
-        const ImVec2 ball{origin.x + pad - Dp(8) + logo * logo_aspect_ * 0.86f, y + logo * 0.23f};
+        // A soft glow from the logo's lit ball, so that the logo sits in the
+        // scene, brighter while the sparks crackle.
+        const ImVec2 ball{origin.x + pad - Dp(8) + logo * logo_aspect_ * 0.852f, y + logo * 0.232f};
+        const float glow = 0.006f * (1 + Sizzle());
         for (int i = 20; i >= 1; --i)
-            draw->AddCircleFilled(ball, logo * 0.055f * float(i), Col(color::logo, 0.006f), 48);
+            draw->AddCircleFilled(ball, logo * 0.055f * float(i), Col(color::logo, glow), 48);
         DrawLogo(draw, {origin.x + pad - Dp(8), y}, logo);
         y += logo + Dp(10);
         DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y}, IM_COL32_WHITE, game, 1.2f);
@@ -8669,10 +8719,17 @@ private:
     struct LogoLevel
     {
         SDL_Texture* texture;
-        float width;
+        float width, height;
     };
     std::vector<LogoLevel> logo_;
+    std::vector<LogoLevel> logo_sizzle_; // the logo with sparks, the same sizes
     float logo_aspect_ = 1.0f;
+    struct SizzleState
+    {
+        std::mt19937 rng{std::random_device{}()};
+        double start = 0, length = 0, next = 1.0, flicker_until = 0;
+        float flicker = 0;
+    } sizzle_;
     SDL_Texture* aurora_logo_ = nullptr;
     float aurora_logo_width_ = 1, aurora_logo_height_ = 1;
     // Open standard gamepads (gamepad1-4 order); gamepad_ is the first.

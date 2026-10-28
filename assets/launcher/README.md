@@ -45,14 +45,20 @@ available header space.
 
 ## Logo
 
-`logo.png` is the Recharged logo, cropped to its visible pixels and scaled to
-1280 pixels wide from the 2732 x 2048 original (SHA-256
+`logo.png` is the Recharged logo, from the 2732 x 2048 original (SHA-256
 `61ce9890e904f4af3840482091c1504e49045f815300197e20529196e4f1ad5d`, added
-2026-10-25) by `tools/launcher_art.py logo ORIGINAL.png`. The launcher shows it
-in the sidebar, on the Play page and on the About page; for the smaller sizes it
+2026-10-25). `logo_sizzle.png` is the same logo with white sparks crackling
+around it, from a 2048 x 1535 original of the same proportions (SHA-256
+`ea9f94f849f68cc0eb2cfd94a190bf8abe8a88799994e3486bf35ee324e43510`, added
+2026-10-28) stretched over the logo's canvas. Both are cut out alike, to the
+visible pixels of either, and scaled to 1280 pixels wide by
+`tools/launcher_art.py logo ORIGINAL.png SIZZLE.png`. The launcher shows the
+logo on the Play page and on the About page and, at random moments, fades the
+sparked one in over it for a short, flickering crackle; for the smaller sizes it
 draws halved copies it makes at start.
 
-The logo is outside the project's CC0 dedication; rights remain with its creator.
+Both logos are outside the project's CC0 dedication; rights remain with their
+creator.
 
 ## Application icon
 

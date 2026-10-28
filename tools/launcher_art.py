@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Make the launcher's logo and header layers from their originals.
 
-    launcher_art.py logo ORIGINAL.png             # assets/launcher/logo.png: the Recharged logo, 1280 wide
+    launcher_art.py logo ORIGINAL.png [SIZZLE.png] # assets/launcher/logo.png: the Recharged logo, 1280 wide,
+                                                   # and logo_sizzle.png: SIZZLE, the logo with sparks, on it
     launcher_art.py header MSC_Scene.jpg FOLDER   # FOLDER/header_back.png, header_front.png: 1920 x 1067
 
 The header is the lower part of the key art (3500 x 4700): Mario's volley with
@@ -49,18 +50,30 @@ MARIO_PARTS = (
 )
 
 
-def make_logo(source):
-    image = Image.open(source).convert("RGBA")
-    # A few nearly invisible specks lie further out than the logo.
-    left, top, right, bottom = image.getchannel("A").point(lambda a: 255 if a > 8 else 0).getbbox()
+def make_logo(source, sizzle=None):
+    # The sizzle is the same logo with sparks, its canvas (of the same
+    # proportions) stretched over the logo's; both are cut out alike.
+    layers = [Image.open(source).convert("RGBA")]
+    if sizzle:
+        layers.append(Image.open(sizzle).convert("RGBA"))
+    canvas = layers[0].size
+    left, top, right, bottom = canvas[0], canvas[1], 0, 0
+    for layer in layers:
+        # A few nearly invisible specks lie further out than the logo.
+        box = layer.getchannel("A").point(lambda a: 255 if a > 8 else 0).getbbox()
+        sx, sy = canvas[0] / layer.width, canvas[1] / layer.height
+        left, top = min(left, box[0] * sx), min(top, box[1] * sy)
+        right, bottom = max(right, box[2] * sx), max(bottom, box[3] * sy)
     pad = 8
-    image = image.crop((max(left - pad, 0), max(top - pad, 0), min(right + pad, image.width),
-                        min(bottom + pad, image.height)))
-    height = round(image.height * LOGO_WIDTH / image.width)
-    # Premultiplied resampling: the transparent surroundings add no colour to the edges.
-    scaled = image.convert("RGBa").resize((LOGO_WIDTH, height), Image.LANCZOS).convert("RGBA")
-    visible = scaled.getchannel("A").point(lambda a: 255 if a else 0)
-    Image.composite(scaled, Image.new("RGBA", scaled.size), visible).save(ASSETS / "logo.png", optimize=True)
+    box = (max(left - pad, 0), max(top - pad, 0), min(right + pad, canvas[0]), min(bottom + pad, canvas[1]))
+    height = round((box[3] - box[1]) * LOGO_WIDTH / (box[2] - box[0]))
+    for layer, name in zip(layers, ("logo.png", "logo_sizzle.png")):
+        sx, sy = layer.width / canvas[0], layer.height / canvas[1]
+        region = (box[0] * sx, box[1] * sy, box[2] * sx, box[3] * sy)
+        # Premultiplied resampling: the transparent surroundings add no colour to the edges.
+        scaled = layer.convert("RGBa").resize((LOGO_WIDTH, height), Image.LANCZOS, box=region).convert("RGBA")
+        visible = scaled.getchannel("A").point(lambda a: 255 if a else 0)
+        Image.composite(scaled, Image.new("RGBA", scaled.size), visible).save(ASSETS / name, optimize=True)
     return LOGO_WIDTH, height
 
 
@@ -202,12 +215,13 @@ def save_layers(scene, alpha, folder):
 
 
 def main():
-    if not ((len(sys.argv) == 3 and sys.argv[1] == "logo") or (len(sys.argv) == 4 and sys.argv[1] == "header")):
+    if not ((len(sys.argv) in (3, 4) and sys.argv[1] == "logo") or (len(sys.argv) == 4 and sys.argv[1] == "header")):
         print(__doc__.strip(), file=sys.stderr)
         return 2
     if sys.argv[1] == "logo":
-        width, height = make_logo(Path(sys.argv[2]))
-        names = (ASSETS / "logo.png",)
+        sizzle = Path(sys.argv[3]) if len(sys.argv) == 4 else None
+        width, height = make_logo(Path(sys.argv[2]), sizzle)
+        names = (ASSETS / "logo.png",) + ((ASSETS / "logo_sizzle.png",) if sizzle else ())
     else:
         folder = Path(sys.argv[3])
         folder.mkdir(parents=True, exist_ok=True)
