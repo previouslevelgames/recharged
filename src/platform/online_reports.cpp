@@ -25,12 +25,29 @@ constexpr const char* kStadiums[] = {"battle_dome",      "bowser_stadium", "crat
                                      "the_dump",         "galactic_stadium", "konga_coliseum", "lava_pit",
                                      "pipeline_central", "storm_ship",     "the_palace",      "thunder_island",
                                      "the_underground",  "the_vice",       "the_wastelands",  "sand_tomb"};
+// The game's sync checks (ChargedOnlineGame::sync_check 1 to 3) and its
+// session states (eNetworkSessionState), as the server names them.
+constexpr const char* kSyncChecks[] = {"frame", "checksum", "seed"};
+constexpr const char* kPhases[] = {"none", "login", "matchmaking", "prestart", "loading", "in_game", "game_end"};
+// The server's paths: the match reports and the error codes.
+constexpr const char* kReportsPath = "/api/v1/wfc/reports";
+constexpr const char* kErrorsPath = "/api/v1/wfc/errors";
 // A report not delivered is tried this many times.
 constexpr int kAttempts = 4;
 
 template <std::size_t N> const char* Name(const char* const (&names)[N], int index)
 {
     return index >= 0 && index < int(N) ? names[index] : "unknown";
+}
+
+// The build as the server keeps it: printable, at most 64 characters.
+void AppendBuild(std::string& out, const std::string& build)
+{
+    std::string name;
+    for (const char c : build)
+        if (c >= 0x20 && c < 0x7F && name.size() < 64) name += c;
+    out += ",\"build\":";
+    AppendJsonString(out, name);
 }
 
 void Captains(std::string& out, const int (&captains)[2])
@@ -52,12 +69,27 @@ const char* Ending(int ending)
     }
 }
 
-std::string Body(const ChargedOnlineMatchSnapshot& s, const std::string& release, std::uint64_t series,
-                 const char* event, const ChargedOnlineGame* game, int number)
+// Why a series ended: decided, or what stopped it; null when the game did not
+// say.
+const char* Cause(const ChargedOnlineMatchSnapshot& s)
+{
+    if (s.ended == 1) return "decided";
+    switch (s.stopped_by)
+    {
+    case 0: return "offline";
+    case 2: return "desync";
+    case 4: return "disconnect";
+    default: return nullptr;
+    }
+}
+
+std::string Body(const ChargedOnlineMatchSnapshot& s, const std::string& release, const std::string& build,
+                 std::uint64_t series, const char* event, const ChargedOnlineGame* game, int number)
 {
     const int side = s.side == 1 ? 1 : 0;
     std::string out = "{\"profile_id\":" + std::to_string(s.profile_id) + ",\"release\":";
     AppendJsonString(out, release);
+    AppendBuild(out, build);
     out += ",\"event\":";
     AppendJsonString(out, event);
     out += ",\"series\":" + std::to_string(series);
@@ -95,7 +127,16 @@ std::string Body(const ChargedOnlineMatchSnapshot& s, const std::string& release
         out += ",\"ending\":";
         AppendJsonString(out, Ending(game->ending));
         const float seconds = game->seconds > 0.0f && game->seconds < 86400.0f ? game->seconds : 0.0f;
-        out += ",\"seconds\":" + std::to_string(int(seconds + 0.5f)) + '}';
+        out += ",\"seconds\":" + std::to_string(int(seconds + 0.5f));
+        // Out of sync: which of the game's checks failed, on which frame.
+        if (game->ending == 2 && game->sync_check >= 1 && game->sync_check <= int(std::size(kSyncChecks))
+            && game->sync_frame >= 0)
+        {
+            out += ",\"sync\":{\"check\":";
+            AppendJsonString(out, kSyncChecks[game->sync_check - 1]);
+            out += ",\"frame\":" + std::to_string(game->sync_frame) + '}';
+        }
+        out += '}';
     }
     else
         out += "null";
@@ -103,7 +144,14 @@ std::string Body(const ChargedOnlineMatchSnapshot& s, const std::string& release
     if (game || std::string_view(event) != "end")
         out += "null";
     else
+    {
         AppendJsonString(out, s.ended == 1 ? "decided" : "abandoned");
+        if (const char* cause = Cause(s))
+        {
+            out += ",\"cause\":";
+            AppendJsonString(out, cause);
+        }
+    }
     out += '}';
     return out;
 }
@@ -111,63 +159,105 @@ std::string Body(const ChargedOnlineMatchSnapshot& s, const std::string& release
 
 std::vector<std::string> OnlineMatchEvents(const ChargedOnlineMatchSnapshot* last,
                                            const ChargedOnlineMatchSnapshot& now, const std::string& release,
-                                           std::uint64_t series)
+                                           const std::string& build, std::uint64_t series)
 {
     std::vector<std::string> events;
     // No profile (the Mii never logged in): the server could not tell whose
     // report it was.
     if (!now.series || !now.profile_id) return events;
     const bool same = last && last->series == now.series;
-    if (!same) events.push_back(Body(now, release, series, "start", nullptr, 0));
+    if (!same) events.push_back(Body(now, release, build, series, "start", nullptr, 0));
     const int games = std::clamp(now.games, 0, int(std::size(now.game)));
     for (int n = same ? std::clamp(last->games, 0, games) : 0; n < games; ++n)
-        events.push_back(Body(now, release, series, "game", &now.game[n], n + 1));
-    if (now.ended && !(same && last->ended)) events.push_back(Body(now, release, series, "end", nullptr, 0));
+        events.push_back(Body(now, release, build, series, "game", &now.game[n], n + 1));
+    if (now.ended && !(same && last->ended)) events.push_back(Body(now, release, build, series, "end", nullptr, 0));
     return events;
 }
 
+std::string OnlineErrorReport(const ChargedOnlineError& error, const std::string& release, const std::string& build)
+{
+    if (error.code < 1 || error.code > 999999) return {};
+    std::string out = "{\"release\":";
+    AppendJsonString(out, release);
+    AppendBuild(out, build);
+    out += ",\"code\":" + std::to_string(error.code);
+    if (error.phase >= 0 && error.phase < int(std::size(kPhases)))
+    {
+        out += ",\"phase\":";
+        AppendJsonString(out, kPhases[error.phase]);
+    }
+    if (error.profile_id) out += ",\"profile_id\":" + std::to_string(error.profile_id);
+    out += '}';
+    return out;
+}
+
 struct OnlineReports::State {
+    // A body and the path on the server it goes to.
+    struct Post
+    {
+        const char* path;
+        std::string body;
+    };
     std::mutex mutex;
     std::condition_variable wake;
-    std::deque<std::string> queue;
+    std::deque<Post> queue;
     bool stop = false;
     std::shared_ptr<HttpCancel> cancel = std::make_shared<HttpCancel>();
 };
 
-std::unique_ptr<OnlineReports> OnlineReports::Start(const std::string& server, const std::string& release, Log log)
+std::unique_ptr<OnlineReports> OnlineReports::Start(const std::string& server, const std::string& release,
+                                                    const std::string& build, Log log)
 {
     if (server.empty()) return nullptr;
-    const std::string url = "http://" + server + "/api/v1/wfc/reports";
-    // A server without match reports (another WFC server) answers 404: no
-    // more reports this run.
-    auto unsupported = std::make_shared<std::atomic<bool>>(false);
-    Send send = [url, log, unsupported](const std::string& body, const std::shared_ptr<HttpCancel>& cancel) {
-        if (*unsupported) return true;
-        HttpRequest request;
-        request.url = url;
-        request.method = "POST";
-        request.body = body;
+    Send send = HttpSend(server, log);
+    return std::make_unique<OnlineReports>(release, build, std::move(send), std::move(log));
+}
+
+OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, Request request)
+{
+    if (!request) request = [](const HttpRequest& http) { return HttpGet(http); };
+    // A server without match reports (another WFC server) answers 404, and
+    // one from before the error codes does for those: no more of them this
+    // run.
+    struct Endpoints
+    {
+        std::atomic<bool> reports{false};
+        std::atomic<bool> errors{false};
+    };
+    auto off = std::make_shared<Endpoints>();
+    return [server, log = std::move(log), request = std::move(request), off](
+               const std::string& path, const std::string& body, const std::shared_ptr<HttpCancel>& cancel) {
+        const bool errors = path == kErrorsPath;
+        std::atomic<bool>& unsupported = errors ? off->errors : off->reports;
+        if (unsupported) return true;
+        HttpRequest http;
+        http.url = "http://" + server + path;
+        http.method = "POST";
+        http.body = body;
         // Plain http like the game's own WFC requests (its NAS login and
         // gamestats) to the same server.
-        request.allow_http = true;
-        request.headers = {"Content-Type: application/json"};
-        request.connect_timeout = 10;
-        request.stall_timeout = 15;
-        request.max_size = 64u << 10;
-        request.cancel = cancel;
+        http.allow_http = true;
+        http.headers = {"Content-Type: application/json"};
+        http.connect_timeout = 10;
+        http.stall_timeout = 15;
+        http.max_size = 64u << 10;
+        http.cancel = cancel;
         try
         {
-            const HttpResponse response = HttpGet(request);
-            if (response.status >= 500) return false;
+            const HttpResponse response = request(http);
+            // A report is worth another try once the server is back; an
+            // error code is not (the server answered).
+            if (response.status >= 500 && !errors) return false;
             if (response.status == 404 || response.status == 405)
             {
-                *unsupported = true;
+                unsupported = true;
                 if (log)
-                    log("Match reports: off, the server takes none (HTTP " + std::to_string(response.status) + ")");
+                    log(std::string("Match reports: ") + (errors ? "error codes off" : "off")
+                        + ", the server takes none (HTTP " + std::to_string(response.status) + ")");
             }
             else if (response.status != 200 && log)
-                log("Match reports: the server refused a report (HTTP " + std::to_string(response.status)
-                    + "): " + response.body.substr(0, 200));
+                log(std::string("Match reports: the server refused ") + (errors ? "an error code" : "a report")
+                    + " (HTTP " + std::to_string(response.status) + "): " + response.body.substr(0, 200));
             return true;
         }
         catch (const HttpError& error)
@@ -176,11 +266,11 @@ std::unique_ptr<OnlineReports> OnlineReports::Start(const std::string& server, c
             return false;
         }
     };
-    return std::make_unique<OnlineReports>(release, std::move(send), std::move(log));
 }
 
-OnlineReports::OnlineReports(std::string release, Send send, Log log, std::chrono::milliseconds retry)
-    : state_(std::make_shared<State>()), release_(std::move(release))
+OnlineReports::OnlineReports(std::string release, std::string build, Send send, Log log,
+                             std::chrono::milliseconds retry)
+    : state_(std::make_shared<State>()), release_(std::move(release)), build_(std::move(build))
 {
     thread_ = std::thread([state = state_, send = std::move(send), log = std::move(log), retry] {
         std::unique_lock lock(state->mutex);
@@ -188,13 +278,13 @@ OnlineReports::OnlineReports(std::string release, Send send, Log log, std::chron
         {
             state->wake.wait(lock, [&] { return state->stop || !state->queue.empty(); });
             if (state->stop) return;
-            const std::string body = state->queue.front();
+            const State::Post post = state->queue.front();
             bool delivered = false;
             for (int attempt = 0; attempt < kAttempts && !delivered; ++attempt)
             {
                 if (attempt && state->wake.wait_for(lock, retry, [&] { return state->stop; })) return;
                 lock.unlock();
-                delivered = send(body, state->cancel);
+                delivered = send(post.path, post.body, state->cancel);
                 lock.lock();
                 if (state->stop) return;
             }
@@ -226,13 +316,18 @@ void OnlineReports::Observe(const ChargedOnlineMatchSnapshot& snapshot)
                              .count();
         series_ = std::max<std::uint64_t>(std::uint64_t(std::max<long long>(now, 0)), series_ + 1);
     }
-    const auto events = OnlineMatchEvents(seen_ ? &last_ : nullptr, snapshot, release_, series_);
+    const auto events = OnlineMatchEvents(seen_ ? &last_ : nullptr, snapshot, release_, build_, series_);
+    // An error code shown since the last look (none before the first).
+    const std::string error = snapshot.error.shown != last_.error.shown
+        ? OnlineErrorReport(snapshot.error, release_, build_)
+        : std::string();
     last_ = snapshot;
     seen_ = true;
-    if (events.empty()) return;
+    if (events.empty() && error.empty()) return;
     {
         std::lock_guard lock(state_->mutex);
-        for (const auto& event : events) state_->queue.push_back(event);
+        for (const auto& event : events) state_->queue.push_back({kReportsPath, event});
+        if (!error.empty()) state_->queue.push_back({kErrorsPath, error});
     }
     state_->wake.notify_all();
 }

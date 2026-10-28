@@ -41,3 +41,4 @@
 0042-rollback-replay-draws-nothing.patch
 0043-rollback-image-reads-wait.patch
 0044-tweak-training-opponent.patch
+0045-online-error-codes.patch
