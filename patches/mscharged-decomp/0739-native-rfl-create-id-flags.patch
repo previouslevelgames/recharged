@@ -1,0 +1,72 @@
+From: mscharged-port
+Subject: Read RFL create ID flags in Wii byte order natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native byte-order compatibility
+
+RFLiIsTemporaryID and RFLiIsSpecialID test bits of the create ID's first
+word through a native u32 load, and RFLiSetTemporaryID stores that word
+natively. Create IDs are Wii bytes in RFL_DB.dat and in the online save,
+so on a little-endian host an ordinary Mii such as 81e187eb... read as
+eb87e181 and passed for temporary. RFLiIsSameID then never matched it:
+RFLSearchOfficialData lost every saved Mii, and the online Mii selection
+cleared its save slot and showed POPUP_DELETED_MII on each visit.
+
+Natively the flag word is read and written as the big-endian u32 the Wii
+sees. The equality and zero tests on the create ID words compare bytes
+the same way on both hosts and are unchanged.
+
+diff --git a/src/RVL_SDK/rfl/RFL_Database.c b/src/RVL_SDK/rfl/RFL_Database.c
+index 7b2b1d2..8726d5a 100644
+--- a/src/RVL_SDK/rfl/RFL_Database.c
++++ b/src/RVL_SDK/rfl/RFL_Database.c
+@@ -492,10 +492,24 @@ u16 RFLGetAvailableOfficialDataNum(void) {
+     return ret;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++// The create ID's flag word is the big-endian u32 of its first four bytes,
++// as the Wii reads it; createIDs stay Wii bytes in records and saves.
++static u32 RFLiGetCreateIDFlags(const RFLCreateID* id) {
++    return ((u32)id->data[0] << 24) | ((u32)id->data[1] << 16) |
++           ((u32)id->data[2] << 8) | (u32)id->data[3];
++}
++#endif
++
+ void RFLiSetTemporaryID(RFLiCharInfo* info) {
++#if defined(MSCHARGED_NATIVE)
++    memset(info->createID.data, 0, sizeof(info->createID.data));
++    info->createID.data[0] = (u8)(RFLi_CREATE_ID_MASK_TEMPORARY >> 24);
++#else
+     u32* dst = (u32*)&info->createID.data;
+     dst[0] = RFLi_CREATE_ID_MASK_TEMPORARY;
+     dst[1] = 0;
++#endif
+ }
+ 
+ BOOL RFLiIsSameID(const RFLCreateID* id1, const RFLCreateID* id2) {
+@@ -562,7 +576,12 @@ BOOL RFLiIsSpecialID(const RFLCreateID* id) {
+         return FALSE;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    (void)ptr;
++    return (RFLiGetCreateIDFlags(id) & RFLi_CREATE_ID_MASK_NOT_SPECIAL) == 0 ? TRUE : FALSE;
++#else
+     return (*ptr & RFLi_CREATE_ID_MASK_NOT_SPECIAL) == 0 ? TRUE : FALSE;
++#endif
+ }
+ 
+ BOOL RFLiIsTemporaryID(const RFLCreateID* id) {
+@@ -576,7 +595,12 @@ BOOL RFLiIsTemporaryID(const RFLCreateID* id) {
+         return FALSE;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    (void)ptr;
++    return (RFLiGetCreateIDFlags(id) & RFLi_CREATE_ID_MASK_TEMPORARY) != 0 ? TRUE : FALSE;
++#else
+     return (*ptr & RFLi_CREATE_ID_MASK_TEMPORARY) != 0 ? TRUE : FALSE;
++#endif
+ }
+ 
+ BOOL RFLSearchOfficialData(const RFLCreateID* id, u16* index) {

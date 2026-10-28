@@ -1,0 +1,117 @@
+From: mscharged-port
+Subject: Key the AI question cache the same way on every host
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+The AI scripts cache the answer to a question for the rest of the step.
+FuzzyTryCachedQuestion looks it up by a key, the question's instruction
+offset plus its argument's hash, and on a miss leaves the key in the action
+queue entry's int mQuestionHash; EndActionQueue then stores the answer under
+that key. On Linux unsigned long has 64 bits and the int is sign-extended
+back into it, so a key with its top bit set was stored as
+0xffffffff........ and never found: Linux asked those questions again where
+Windows and the Wii took the cached answer. The AI scripts of a Linux and a
+Windows machine ran other branches from the first second of a match, and
+the match fell out of sync once their choices reached the simulation (a
+goalie checking for a deke attack one step earlier). Natively the stored key
+is the 32-bit word the int holds.
+
+The key also hashed a player, team, ball or game argument as its address,
+which each host places differently, so two questions sharing a key (and an
+answer) on one machine did not on the other. Natively such an argument
+stands in as a fixed Wii-like address of its own (players by their slot in
+g_pCharacters, teams by index, the ball and the game), spaced as far apart
+as the objects are on the Wii, and the key is a 32-bit word. Every host then
+builds the same keys. The Wii build is unchanged.
+
+diff --git a/src/Game/AI/FuzzyRuntimeBase.cpp b/src/Game/AI/FuzzyRuntimeBase.cpp
+index f0411aa..0f9868a 100644
+--- a/src/Game/AI/FuzzyRuntimeBase.cpp
++++ b/src/Game/AI/FuzzyRuntimeBase.cpp
+@@ -15,6 +15,12 @@
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
+ #include "NL/nlPrint.h"
++#if defined(MSCHARGED_NATIVE)
++#include "Game/Ball.h"
++#include "Game/CharacterTemplate.h"
++#include "Game/Game.h"
++#include "Game/Team.h"
++#endif
+ 
+ 
+ struct FuzzyRuntimeList
+@@ -448,7 +454,15 @@ FuzzyRuntimeBase::EndActionQueue()
+     }
+     else if (entry->mQuestionHash != 0)
+     {
++#if defined(MSCHARGED_NATIVE)
++        // mQuestionHash is an int. Widened as the 32-bit word it holds, the
++        // key matches the one FuzzyTryCachedQuestion looks up; sign-extended
++        // into a 64-bit unsigned long (Linux) a key with its top bit set never
++        // did, so that host asked every such question again.
++        unsigned long hash = (u32)entry->mQuestionHash;
++#else
+         unsigned long hash = entry->mQuestionHash;
++#endif
+         if (g_bScriptQuestionCachingOn)
+         {
+             g_FuzzyQuestionCache.mQuestionCacheMap.Add(hash, *selected);
+@@ -478,11 +492,57 @@ static inline float GetActionFloatParameter(
+     return defaultValue;
+ }
+ 
++#if defined(MSCHARGED_NATIVE)
++// The question cache keys a question by its script offset plus its argument,
++// and an object argument hashes as its address. On the Wii every console
++// places the players, teams, ball and game alike, so two questions that
++// happen to share a key share it on every machine of a match. Native hosts
++// place them differently (and unsigned long is 64 bits on Linux), so one
++// machine took another question's cached answer where the other did not, and
++// the AI scripts and then the match went apart. Natively an object stands in
++// as a fixed Wii-like address of its own, and the key is a Wii-width word.
++static u32 StrategicQuestionArgument(const Variant& argument)
++{
++    const void* object = argument.mData.pointer;
++    switch (argument.GetType())
++    {
++    case FT_PLAYER:
++        for (int i = 0; i < 10; i++)
++        {
++            if (static_cast<const void*>(g_pCharacters[i]) == object)
++                return 0x81000000u + (u32)i * 0x10000u;
++        }
++        return 0x810F0000u;
++    case FT_TEAM:
++        for (int i = 0; i < 2; i++)
++        {
++            if (static_cast<const void*>(g_pTeams[i]) == object)
++                return 0x81100000u + (u32)i * 0x10000u;
++        }
++        return 0x811F0000u;
++    case FT_BALL:
++        return object == static_cast<const void*>(g_pBall) ? 0x81200000u : 0x812F0000u;
++    case FT_GAME:
++        return object == static_cast<const void*>(g_pGame) ? 0x81300000u : 0x813F0000u;
++    case FT_POINTER:
++        return object != 0 ? 0x814F0000u : 0;
++    default:
++        return (u32)argument.GetHash();
++    }
++}
++
++static inline unsigned long StrategicQuestionHash(
++    unsigned long functionAddress, const Variant& argument)
++{
++    return (u32)((u32)functionAddress + StrategicQuestionArgument(argument));
++}
++#else
+ static inline unsigned long StrategicQuestionHash(
+     unsigned long functionAddress, const Variant& argument)
+ {
+     return functionAddress + argument.GetHash();
+ }
++#endif
+ 
+ extern "C" bool FuzzyTryCachedQuestion(
+     FuzzyRuntimeBase* runtime, const Variant& value)

@@ -12,9 +12,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -45,6 +47,8 @@ struct Device {
     mscharged::platform::NativeNunchukSource nunchuk_source{};
     std::array<int, ShakeCount> shake_reports{};
     std::array<bool, ShakeCount> shaking{};
+    // RECHARGED_TEST_ACCEL_NOISE's draws.
+    std::minstd_rand noise{std::random_device{}()};
     // Gamepad player: right-stick pointer position (0..1 of the picture) and
     // the shake buttons' previous state, for press edges.
     float pointer_x = 0.5f, pointer_y = 0.5f;
@@ -382,6 +386,26 @@ mscharged::platform::NativeNunchukObservation KeyboardNunchuk(const KeyboardInpu
     result.acc_z = mscharged::platform::kNativeNunchukGravity;
     return result;
 }
+// RECHARGED_TEST_ACCEL_NOISE=<milli-g> (0-500), a test aid for rollback
+// network matches: every report moves the Remote's and the Nunchuk's
+// accelerometers by up to that much on each axis, at random, as a real Wii
+// Remote held in the hand does. The game's inputs then change nearly every
+// step (PackDetInput keeps about 0.02 g), and the other machine's predictions
+// miss as against a real Remote. A shake (five-sample deltas over 1.33 g on
+// the Remote, 2.5 g on the Nunchuk) stays far above it. Unset or 0: still.
+float AccelNoiseG() {
+    static const float noise = [] {
+        const char* text = std::getenv("RECHARGED_TEST_ACCEL_NOISE");
+        return text && *text ? float(std::clamp(std::atoi(text), 0, 500)) / 1000.0f : 0.0f;
+    }();
+    return noise;
+}
+// One axis's noise (in g) for this report.
+float NextNoise(Device& device) {
+    const float noise = AccelNoiseG();
+    if (noise <= 0.0f) return 0.0f;
+    return std::uniform_real_distribution<float>(-noise, noise)(device.noise);
+}
 // Flick acceleration (in g) for this report of a shake on the device.
 float NextShake(Device& device, Shake shake) {
     if (!device.shaking[shake]) return 0.0f;
@@ -405,8 +429,10 @@ void Report(Device& device, const std::array<bool, 11>& buttons, Clock::time_poi
     if (device.nunchuk_source.generation) {
         if (!nunchuk) throw std::logic_error("Nunchuk report lacks its raw observation");
         auto reported = *nunchuk;
-        reported.acc_x = static_cast<std::int16_t>(
-            std::lround(nunchuk_shake_g * mscharged::platform::kNativeNunchukGravity));
+        constexpr float gravity = mscharged::platform::kNativeNunchukGravity;
+        reported.acc_x = static_cast<std::int16_t>(std::lround((nunchuk_shake_g + NextNoise(device)) * gravity));
+        reported.acc_y = static_cast<std::int16_t>(reported.acc_y + std::lround(NextNoise(device) * gravity));
+        reported.acc_z = static_cast<std::int16_t>(reported.acc_z + std::lround(NextNoise(device) * gravity));
         mscharged::platform::SubmitNativeWpadNunchukObservation(device.nunchuk_source, reported);
     }
     for (int n = 0; n < int(buttons.size()); ++n)
@@ -416,8 +442,10 @@ void Report(Device& device, const std::array<bool, 11>& buttons, Clock::time_poi
     if (device.sensors_enabled) {
         // Explicit neutral core-Wii gravity in the existing SDL driver's SI
         // coordinate convention. Mouse IR words come from the separately
-        // declared raw camera; only a requested shake key adds an X flick.
-        const float gravity[3]{remote_shake_g * kGravityMs2, kGravityMs2, 0.0f};
+        // declared raw camera; only a requested shake key adds an X flick
+        // (and RECHARGED_TEST_ACCEL_NOISE its noise).
+        const float gravity[3]{(remote_shake_g + NextNoise(device)) * kGravityMs2,
+                               (1.0f + NextNoise(device)) * kGravityMs2, NextNoise(device) * kGravityMs2};
         Require(SDL_SendJoystickVirtualSensorData(device.virtual_joystick,
             SDL_SENSOR_ACCEL, SDL_GetTicksNS(), gravity, 3), "Publish desktop core-Wii raw report");
     }
@@ -448,12 +476,15 @@ void AttachGamepadPlayer(State& state, Device& pad, int index) {
         SDL_Log("Gamepad %d (%s) has no gyro: its stick moves the pointer", index + 1, name ? name : "controller");
 }
 // The Nunchuk stick (or with swapped sticks the pointer) after the profile's
-// dead zones; y down as SDL reports it.
+// dead zones; y down as SDL reports it. A real Nunchuk's stick
+// (octagon_stick) leaves its dead zones to the game.
 mscharged::platform::StickTilt PadStick(const Device& pad, bool nunchuk) {
     const bool left = nunchuk != pad.profile.swap_sticks;
+    const bool octagon = nunchuk && pad.profile.octagon_stick;
     return mscharged::platform::GamepadStickTilt(pad.input, left ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX,
                                                  left ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY,
-                                                 pad.profile.inner_deadzone, pad.profile.outer_deadzone);
+                                                 octagon ? 0 : pad.profile.inner_deadzone,
+                                                 octagon ? 100 : pad.profile.outer_deadzone);
 }
 bool PadHeld(const Device& pad, std::size_t action) {
     for (const auto input : pad.profile.bindings[action]) {
@@ -475,12 +506,14 @@ void UpdateStickDirections(Device& pad, bool focused) {
 mscharged::platform::NativeNunchukObservation GamepadNunchuk(Device& pad, bool focused) {
     // The Nunchuk stick (left by default) through the profile's dead zones, in
     // counts the original ClampWiiStick/KPAD turn back into exactly that tilt
-    // (see NunchukStickCounts). C and Z follow the profile's inputs.
+    // (see NunchukStickCounts), or a real Nunchuk's counts (octagon_stick).
+    // C and Z follow the profile's inputs.
     mscharged::platform::NativeNunchukObservation result{};
     result.acc_z = mscharged::platform::kNativeNunchukGravity;
     if (!focused) return result;
     const auto tilt = PadStick(pad, true);
-    const auto counts = mscharged::platform::NunchukStickCounts({tilt.x, -tilt.y});
+    const auto counts = pad.profile.octagon_stick ? mscharged::platform::OctagonNunchukStickCounts({tilt.x, -tilt.y})
+                                                  : mscharged::platform::NunchukStickCounts({tilt.x, -tilt.y});
     result.stick_x = counts[0];
     result.stick_y = counts[1];
     result.z = PadHeld(pad, mscharged::GamepadActionZ);

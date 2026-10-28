@@ -1,0 +1,59 @@
+From: mscharged-port
+Subject: Read the online lobby's connection AID through the native transport word
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+NetworkLobby reads a connection's AID as the byte at offset 0x27 of the
+connection word, the last byte of the TransportConnection's address.
+Natively connection words are encoded transport connections (0476), so
+that read used an invented address. As LANLobby does, the word is decoded
+first and the AID read from mAddress.bytes[3]; the value is unchanged.
+
+diff --git a/src/Game/NetworkLobby.cpp b/src/Game/NetworkLobby.cpp
+index f554847..ccab673 100644
+--- a/src/Game/NetworkLobby.cpp
++++ b/src/Game/NetworkLobby.cpp
+@@ -5,6 +5,16 @@
+ #include "Game/NetworkMessageRegistry.h"
+ 
+ #include "Game/NetworkLobby.h"
++#if defined(MSCHARGED_NATIVE)
++#include "NL/plat/TransportConnection.h"
++#include "platform/transport_connection_address.h"
++// Connection words are encoded transport connections natively (0476); retail
++// reads the AID from the last byte of the connection's address at 0x27.
++#define NETWORK_LOBBY_CONNECTION_AID(word) \
++    (mscharged::platform::DecodeTransportConnectionAddress(static_cast<std::uint32_t>(word))->mAddress.bytes[3])
++#else
++#define NETWORK_LOBBY_CONNECTION_AID(word) (*((u8*)(word) + 0x27))
++#endif
+ #include "Game/FriendManager.h"
+ #include "Game/OnlineMatchmaking.h"
+ #include "Game/GameInfo.h"
+@@ -166,7 +176,7 @@ int NetworkLobby::MachineIdxFromConnection(unsigned int connection)
+         return DWC_GetMyAID();
+ #endif
+     }
+-    return *((u8*)connection + 0x27);
++    return NETWORK_LOBBY_CONNECTION_AID(connection);
+ }
+ 
+ int NetworkLobby::GetTopology()
+@@ -322,7 +332,7 @@ void NetworkLobby::OnConnected(unsigned int connection, int result)
+         }
+     }
+ 
+-    u8 aid = *((u8*)connection + 0x27);
++    u8 aid = NETWORK_LOBBY_CONNECTION_AID(connection);
+     tDebugPrintManager::Print(DC_NETWORK, "Unknown connection established from %d I am %d\n", aid, DWC_GetMyAID());
+ }
+ 
+@@ -346,7 +356,7 @@ int NetworkLobby::ShouldAcceptConnection(
+ void NetworkLobby::OnConnectionClosed(
+     unsigned int connection, int reason)
+ {
+-    u8 aid = *((u8*)connection + 0x27);
++    u8 aid = NETWORK_LOBBY_CONNECTION_AID(connection);
+     tDebugPrintManager::Print(DC_NETWORK, "Connection Lost %d reason %d\n", aid, reason);
+     if (aid < mMachineCount)
+     {

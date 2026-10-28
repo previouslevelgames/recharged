@@ -1,0 +1,33 @@
+From: mscharged-port
+Subject: Parse friend code digits into a writable buffer
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler contract; no game behavior change.
+
+SHOnlineFriendCodeEntry::ParseFriendKey converts each entered digit with
+nlWcsToStr(mDigits[i], digit, 4) into digit, which pointed at the string
+literal "0". CodeWarrior placed literals in writable memory; natively
+they are in read-only .rodata, so confirming a friend code crashed in
+nlWcsToStr with a write fault. The literal also had two bytes for a
+four-byte maximum; only the two-character digit kept the copy short.
+
+Natively the digit is converted into a four-byte local buffer, matching
+the length passed to nlWcsToStr; nlWcsToStr always writes its first
+character, so the buffer needs no initializer. atoi reads the same digit
+as before. Console builds keep the original literal.
+
+diff --git a/src/Game/SH/SHOnlineFriendCodeEntry.cpp b/src/Game/SH/SHOnlineFriendCodeEntry.cpp
+index 0abb524..87a6d24 100644
+--- a/src/Game/SH/SHOnlineFriendCodeEntry.cpp
++++ b/src/Game/SH/SHOnlineFriendCodeEntry.cpp
+@@ -180,7 +180,11 @@ void SHOnlineFriendCodeEntry::SetSelectedDigit(int index)
+ unsigned long long SHOnlineFriendCodeEntry::ParseFriendKey()
+ {
+     unsigned long long friendKey = 0;
++#if defined(MSCHARGED_NATIVE)
++    char digit[4];
++#else
+     char* digit = "0";
++#endif
+     for (int i = 0; i < 12; ++i)
+     {
+         nlWcsToStr(mDigits[i], digit, 4);

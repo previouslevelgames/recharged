@@ -27,6 +27,7 @@ namespace
 using Sink = std::function<void(const char* data, std::size_t size)>;
 
 bool HttpsUrl(const std::string& url) { return url.rfind("https://", 0) == 0; }
+bool HttpUrl(const std::string& url) { return url.rfind("http://", 0) == 0; }
 
 #ifndef _WIN32
 // libcurl's stable easy interface (libcurl.so.4 / libcurl.4.dylib). The
@@ -36,8 +37,9 @@ constexpr int kCurlUrl = 10002, kCurlWriteFunction = 20011, kCurlWriteData = 100
               kCurlConnectTimeout = 78, kCurlLowSpeedLimit = 19, kCurlLowSpeedTime = 20, kCurlNoProgress = 43,
               kCurlProgressFunction = 20219, kCurlProgressData = 10057, kCurlNoSignal = 99,
               kCurlAcceptEncoding = 10102, kCurlErrorBuffer = 10010, kCurlProtocols = 10318,
-              kCurlRedirectProtocols = 10319, kCurlProtocolMask = 181, kCurlRedirectProtocolMask = 182;
-constexpr long kCurlHttpsOnly = 2; // CURLPROTO_HTTPS
+              kCurlRedirectProtocols = 10319, kCurlProtocolMask = 181, kCurlRedirectProtocolMask = 182,
+              kCurlPostFields = 10015, kCurlPostFieldSize = 60, kCurlCustomRequest = 10036;
+constexpr long kCurlHttpsOnly = 2, kCurlHttpAndHttps = 3; // CURLPROTO_HTTPS, | CURLPROTO_HTTP
 constexpr int kCurlResponseCode = 0x200002;
 constexpr int kCurlAborted = 42, kCurlWriteError = 23, kCurlTimedOut = 28;
 
@@ -153,13 +155,16 @@ public:
 
     long Run(const Sink& sink)
     {
-        if (!HttpsUrl(request_.url)) throw HttpError("Only https addresses can be requested: " + request_.url);
-        // A network failure before any data arrived is tried once more (a
-        // dropped or stale connection); a partial answer is never repeated.
+        if (!HttpsUrl(request_.url) && !(request_.allow_http && HttpUrl(request_.url)))
+            throw HttpError("Only https addresses can be requested: " + request_.url);
+        // A GET whose network failure came before any data is tried once more
+        // (a dropped or stale connection); a partial answer is never repeated,
+        // nor a request that may have changed something on the server.
         const Sink counted = [&](const char* data, std::size_t size) {
             delivered_ = true;
             sink(data, size);
         };
+        const bool repeatable = request_.method == "GET";
         for (int attempt = 0;; ++attempt)
         {
             if (Cancelled()) throw HttpError("Cancelled", true);
@@ -173,7 +178,7 @@ public:
             }
             catch (const HttpError& error)
             {
-                if (error.Cancelled() || delivered_ || attempt > 0) throw;
+                if (error.Cancelled() || delivered_ || !repeatable || attempt > 0) throw;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
         }
@@ -218,8 +223,10 @@ private:
         URL_COMPONENTS parts{};
         parts.dwStructSize = sizeof parts;
         parts.dwSchemeLength = parts.dwHostNameLength = parts.dwUrlPathLength = parts.dwExtraInfoLength = DWORD(-1);
-        if (!WinHttpCrackUrl(url.c_str(), DWORD(url.size()), 0, &parts) || parts.nScheme != INTERNET_SCHEME_HTTPS)
+        if (!WinHttpCrackUrl(url.c_str(), DWORD(url.size()), 0, &parts)
+            || !(parts.nScheme == INTERNET_SCHEME_HTTPS || (request_.allow_http && parts.nScheme == INTERNET_SCHEME_HTTP)))
             throw HttpError("Invalid address: " + request_.url);
+        const bool secure = parts.nScheme == INTERNET_SCHEME_HTTPS;
         const std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
         std::wstring path(parts.lpszUrlPath, parts.dwUrlPathLength);
         path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
@@ -240,8 +247,10 @@ private:
         InternetHandle connection;
         connection.handle = WinHttpConnect(session.handle, host.c_str(), parts.nPort, 0);
         if (!connection.handle) Fail(GetLastError());
-        HINTERNET handle = WinHttpOpenRequest(connection.handle, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
-                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+        const std::wstring method = Wide(request_.method);
+        HINTERNET handle = WinHttpOpenRequest(connection.handle, method.c_str(), path.c_str(), nullptr,
+                                              WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                              secure ? WINHTTP_FLAG_SECURE : 0);
         if (!handle) Fail(GetLastError());
         Register(handle);
         // A fresh connection per request: a kept-alive connection the server
@@ -261,19 +270,23 @@ private:
 #endif
         std::wstring headers;
         for (const auto& header : request_.headers) headers += Wide(header) + L"\r\n";
+        // A body for every method but GET, even an empty one (Content-Length: 0).
+        const bool body = request_.method != "GET";
+        void* data = body && !request_.body.empty() ? const_cast<char*>(request_.body.data()) : WINHTTP_NO_REQUEST_DATA;
+        const DWORD length = body ? DWORD(request_.body.size()) : 0;
         if (!WinHttpSendRequest(handle, headers.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : headers.c_str(),
-                                headers.empty() ? 0 : DWORD(-1), WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
+                                headers.empty() ? 0 : DWORD(-1), data, length, length, 0)
             || !WinHttpReceiveResponse(handle, nullptr))
             Fail(GetLastError());
         DWORD status = 0, size = sizeof status;
         if (!WinHttpQueryHeaders(handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                                  WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX))
             Fail(GetLastError());
-        DWORD length = 0;
-        size = sizeof length;
+        DWORD content = 0;
+        size = sizeof content;
         const std::uint64_t total = WinHttpQueryHeaders(handle, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER,
-                                                        WINHTTP_HEADER_NAME_BY_INDEX, &length, &size,
-                                                        WINHTTP_NO_HEADER_INDEX) ? length : 0;
+                                                        WINHTTP_HEADER_NAME_BY_INDEX, &content, &size,
+                                                        WINHTTP_NO_HEADER_INDEX) ? content : 0;
         std::vector<char> buffer(1 << 16);
         std::uint64_t received = 0;
         Report(0, total);
@@ -344,12 +357,20 @@ private:
         char error[256] = ""; // CURL_ERROR_SIZE
         CurlContext context{this, &sink, nullptr};
         curl.easy_setopt(handle, kCurlUrl, request_.url.c_str());
-        // HTTPS only, also for redirects; libcurl before 7.85 knows only the
-        // (since deprecated) protocol masks.
-        if (curl.easy_setopt(handle, kCurlProtocols, "https") != 0)
-            curl.easy_setopt(handle, kCurlProtocolMask, kCurlHttpsOnly);
+        // HTTPS only (HTTP too with allow_http), redirects HTTPS only; libcurl
+        // before 7.85 knows only the (since deprecated) protocol masks.
+        if (curl.easy_setopt(handle, kCurlProtocols, request_.allow_http ? "http,https" : "https") != 0)
+            curl.easy_setopt(handle, kCurlProtocolMask, request_.allow_http ? kCurlHttpAndHttps : kCurlHttpsOnly);
         if (curl.easy_setopt(handle, kCurlRedirectProtocols, "https") != 0)
             curl.easy_setopt(handle, kCurlRedirectProtocolMask, kCurlHttpsOnly);
+        if (request_.method != "GET")
+        {
+            // POSTFIELDS makes it a POST, even with an empty body; another
+            // method keeps the body and only renames the request.
+            curl.easy_setopt(handle, kCurlPostFieldSize, long(request_.body.size()));
+            curl.easy_setopt(handle, kCurlPostFields, request_.body.c_str());
+            if (request_.method != "POST") curl.easy_setopt(handle, kCurlCustomRequest, request_.method.c_str());
+        }
         curl.easy_setopt(handle, kCurlFollowLocation, 1L);
         curl.easy_setopt(handle, kCurlMaxRedirects, 10L);
         curl.easy_setopt(handle, kCurlUserAgent, request_.user_agent.c_str());

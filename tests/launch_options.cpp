@@ -139,10 +139,10 @@ int main()
             std::ofstream(tweaked, std::ios::binary) << "[gameplay]\nskip_intro = true\nunlock_all = true\n";
             const auto tweakedFile = LoadConfig(tweaked);
             const auto played = ResolveLaunch(tweakedFile, {});
-            // The INI's tweaks, plus the recommended one it leaves at its default.
+            // The INI's tweaks, plus the recommended ones it leaves at their default.
             Check(played.settings.GameTweakMask()
                     == (GameTweakBit(GameTweak::SkipIntro) | GameTweakBit(GameTweak::UnlockAll)
-                        | GameTweakBit(GameTweak::FairBallContests))
+                        | GameTweakBit(GameTweak::FairBallContests) | GameTweakBit(GameTweak::MatchPoint))
                 && played.tweaks_source == SettingSource::Config, "INI tweaks not resolved");
             LaunchOptions retail; retail.no_tweaks = true;
             const auto original = ResolveLaunch(tweakedFile, retail);
@@ -151,6 +151,10 @@ int main()
                 "--no-tweaks did not turn the tweaks off");
             Check(tweakedFile.settings.GameTweakMask() != 0 && Read(tweaked).find("skip_intro = true") != std::string::npos,
                 "--no-tweaks changed the INI");
+            LaunchOptions training; training.no_tweaks = true; training.training = true;
+            const auto trained = ResolveLaunch(tweakedFile, training);
+            Check(trained.start_training && trained.settings.GameTweakMask() == 0 && !played.start_training,
+                "--training did not start training, or changed the tweaks");
         }
         // --frame-rate: this run's display.frame_rate, apart from the tweaks.
         for (const char* value : {"original", "display", "unlimited", "30", "120", "144", "1000"})

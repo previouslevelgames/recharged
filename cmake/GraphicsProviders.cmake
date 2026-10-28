@@ -77,7 +77,7 @@ function(mscharged_add_graphics_providers)
     target_compile_features(imgui PRIVATE cxx_std_20)
     target_link_libraries(imgui PRIVATE Freetype::Freetype)
     if(NINTENDO_SWITCH)
-        # On the Switch, Aurora runs ImGui without SDL (patches/aurora 0120).
+        # On the Switch, Aurora runs ImGui without SDL (patches/aurora 0121).
         add_library(imgui_backends STATIC "${MSCHARGED_IMGUI_PREPARED}/backends/imgui_impl_wgpu.cpp")
     else()
         add_library(imgui_backends STATIC

@@ -57,3 +57,9 @@ extern "C" [[noreturn]] void OSPanic(const char* file, int line, const char* mes
     // process so the original fatal path cannot return to game execution.
     std::abort();
 }
+
+// TODO: EDIT WHEN ADDING NEW REGIONS
+extern "C" const char* OSGetAppGamename(void)
+{
+    return "R4QE";
+}

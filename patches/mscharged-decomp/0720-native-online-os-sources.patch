@@ -1,0 +1,72 @@
+From: mscharged-port
+Subject: Adapt the online SDK sources to the native OS headers
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+DWC computes its server browser timeouts from OS_BUS_CLOCK_SPEED, the Wii
+bus clock read at a fixed address; OS_TIME_SPEED is the same quarter of
+the bus clock and reads it through the host natively. NHTTP sends with
+OS_MESSAGE_NO_FLAGS, which only OSMessage.h maps to the native flag.
+GameSpy's gsiGetGmTime is compiled inside nonport.c after Aurora's OS
+header, whose OSCalendarTime names the month field mon.
+
+diff --git a/src/RVL_SDK/dwc/dwc_match.c b/src/RVL_SDK/dwc/dwc_match.c
+index 6c81944..019e1ac 100644
+--- a/src/RVL_SDK/dwc/dwc_match.c
++++ b/src/RVL_SDK/dwc/dwc_match.c
+@@ -2413,7 +2413,7 @@ static SBError DWCi_SBUpdateAsync(int profileID)
+     {
+         DWCi_GetMatchCnt()->sbUpdateRequestTick
+             = DWCi_Np_GetTick()
+-            + (u64)(OS_BUS_CLOCK_SPEED / 4 / 1000) * 30000;
++            + (u64)(OS_TIME_SPEED / 1000) * 30000;
+     }
+ 
+     return sbError;
+@@ -5520,7 +5520,7 @@ static void DWCi_SBCallback(ServerBrowser sb, SBCallbackReason reason,
+     case sbc_serveradded:
+         DWCi_SBPrintServerData(server);
+         stpMatchCnt->sbUpdateRequestTick = OSGetTime()
+-            + (u64)(OS_BUS_CLOCK_SPEED / 4 / 1000) * 30000;
++            + (u64)(OS_TIME_SPEED / 1000) * 30000;
+         break;
+ 
+     case sbc_updatecomplete:
+@@ -5685,7 +5685,7 @@ static void DWCi_SBCallback(ServerBrowser sb, SBCallbackReason reason,
+ 
+         default:
+             stpMatchCnt->sbUpdateRequestTick = OSGetTime()
+-                + (u64)(OS_BUS_CLOCK_SPEED / 4 / 1000) * 30000;
++                + (u64)(OS_TIME_SPEED / 1000) * 30000;
+             break;
+         }
+         break;
+diff --git a/src/RVL_SDK/gamespy/common/revolution/gsUtilRevolution.c b/src/RVL_SDK/gamespy/common/revolution/gsUtilRevolution.c
+index 70c935e..db39461 100644
+--- a/src/RVL_SDK/gamespy/common/revolution/gsUtilRevolution.c
++++ b/src/RVL_SDK/gamespy/common/revolution/gsUtilRevolution.c
+@@ -72,7 +72,12 @@ struct tm* gsiGetGmTime(time_t* theTime) {
+   aRetVal->tm_min = aCalTimeStruct.min;
+   aRetVal->tm_hour = aCalTimeStruct.hour;
+   aRetVal->tm_mday = aCalTimeStruct.mday;
++#ifdef MSCHARGED_NATIVE
++  // nonport.c includes Aurora's OS header first, whose calendar names it mon
++  aRetVal->tm_mon = aCalTimeStruct.mon;
++#else
+   aRetVal->tm_mon = aCalTimeStruct.month;
++#endif
+   aRetVal->tm_year = aCalTimeStruct.year - 1900;
+   aRetVal->tm_wday = aCalTimeStruct.wday;
+   aRetVal->tm_yday = 0;
+diff --git a/src/RVL_SDK/nhttp/NHTTP_os_RVL.c b/src/RVL_SDK/nhttp/NHTTP_os_RVL.c
+index fda0e4b..830804e 100644
+--- a/src/RVL_SDK/nhttp/NHTTP_os_RVL.c
++++ b/src/RVL_SDK/nhttp/NHTTP_os_RVL.c
+@@ -2,6 +2,7 @@
+ 
+ #include <revolution/ncd.h>
+ #include <revolution/os.h>
++#include <revolution/os/OSMessage.h>
+ 
+ typedef struct NHTTPMutexInfo
+ {

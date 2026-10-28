@@ -1,0 +1,243 @@
+Subject: Rollback: the fields of the match's checksum, for a desync
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+A desync says that the machines' checksums differ, not what differs. The
+match's checksum (FixedUpdateTask::CalculateChecksum) is one CRC over the
+game's, the ball's, the teams' and the players' fields, each taken by
+RunningChecksum::ChecksumData; it now reports each block to the rollback
+with the address it was called from. While the rollback takes a step's
+checksum in a network match it keeps them, and at the match's first desync
+it lists those of the step: the first field that differs between the two
+machines' logs is what diverged, and its address names the line that adds
+it.
+
+PhysicsWorld::SpaceCollideCallback reports what each collision did as well:
+the pair's contact count and both objects' Contact() results, and every
+contact joint it makes. With RECHARGED_ROLLBACK_CONTACTS they join the
+step's checksum, so a desync in a collision comes at that step and shows
+whether the contacts or their solution differ. The physics callbacks'
+DebugPrintf, empty in the original, then reports its message, the numbers
+it prints and its caller too: the branch each Contact() took, and on what;
+and so does each PhysicsObject::SetPosition of the ball, with the position
+asked for. The goalie's sweep test for a ball that went through him
+(PhysicsAIBall::CheckIfBallWentThroughGoalie) prints what it starts from,
+each bone's sweep and its result.
+
+diff --git a/include/mscharged_rollback_checksum.h b/include/mscharged_rollback_checksum.h
+new file mode 100644
+index 0000000..f304486
+--- /dev/null
++++ b/include/mscharged_rollback_checksum.h
+@@ -0,0 +1,35 @@
++#if defined(MSCHARGED_TWEAKS)
++#ifndef MSCHARGED_ROLLBACK_CHECKSUM_H
++#define MSCHARGED_ROLLBACK_CHECKSUM_H
++
++// For a desync of a network match with rollback (src/platform/rollback_fields.cpp
++// in the game module): every block of data RunningChecksum::ChecksumData
++// takes, with where it was called from. While the rollback takes a step's
++// checksum it keeps them, and it lists them at the match's first desync.
++
++#include <stdarg.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++void mscharged_rollback_checksum_field(const void* data, unsigned long size, const void* caller);
++// With RECHARGED_ROLLBACK_CONTACTS, what a step's collisions did, for the
++// checksum of the step: each pair of objects that touched (their contact
++// count and both Contact() results), and each contact joint made (a dContact).
++void mscharged_rollback_collision(int contacts, int result1, int result2);
++void mscharged_rollback_contact(const void* contact);
++// And each DebugPrintf of the physics callbacks: the message, the numbers it
++// prints (bit for bit) and where it was called from, which name the branch
++// taken.
++void mscharged_rollback_debug_print(const char* format, va_list arguments, const void* caller);
++// And each PhysicsObject::SetPosition of the ball: the position asked for
++// (three floats), its coordinates (world or the parent's) and the caller.
++void mscharged_rollback_object_position(const void* object, const float* position, int type, const void* caller);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // MSCHARGED_ROLLBACK_CHECKSUM_H
++#endif // MSCHARGED_TWEAKS
+diff --git a/src/Game/Physics/PhysicsGoalie.cpp b/src/Game/Physics/PhysicsGoalie.cpp
+index b26f5f6..1ce173f 100644
+--- a/src/Game/Physics/PhysicsGoalie.cpp
++++ b/src/Game/Physics/PhysicsGoalie.cpp
+@@ -61,6 +61,11 @@ bool PhysicsGoalie::SweepTestForBallContact(
+         }
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // For a desync: how far the goalie sweep test got, and from where.
++    DebugPrintf("Sweep tests %d goalie %f %f %f radius %f\n", testsPassed,
++        goaliePos.x, goaliePos.y, goaliePos.z, goalieRadius);
++#endif
+     return testsPassed == 3;
+ }
+ 
+@@ -127,6 +132,14 @@ bool PhysicsGoalie::SweepTestEveryBone(float ballRadius,
+         float time = SweepSpheres(ballRadius, ballPrevPosition,
+             ballCurrentPosition, physSphere->GetRadius(),
+             *bonePreviousPosition, boneCurrentPosition);
++#if defined(MSCHARGED_TWEAKS)
++        // For a desync: each bone's sweep.
++        DebugPrintf("Sweep bone prev %f %f %f now %f %f %f radius %f time %f\n",
++            bonePreviousPosition->x, bonePreviousPosition->y,
++            bonePreviousPosition->z, boneCurrentPosition.x,
++            boneCurrentPosition.y, boneCurrentPosition.z,
++            physSphere->GetRadius(), time);
++#endif
+ 
+         if ((time != CANT_COLLIDE) && (time > 0.0f) && (time < 1.0f))
+         {
+diff --git a/src/Game/Physics/PhysicsObject.cpp b/src/Game/Physics/PhysicsObject.cpp
+index a014e2e..3dd8a5a 100644
+--- a/src/Game/Physics/PhysicsObject.cpp
++++ b/src/Game/Physics/PhysicsObject.cpp
+@@ -3,6 +3,9 @@
+ #include "NL/platvmath.h"
+ #include "ode/mass.h"
+ #include "NL/nlMath.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_checksum.h"
++#endif
+ 
+ float PhysicsObject::DefaultGravity = -9.8f;
+ 
+@@ -510,6 +513,10 @@ void PhysicsObject::PostUpdate()
+ 
+ void PhysicsObject::SetPosition(const nlVector3& pos, PhysicsObject::CoordinateType type)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // For a desync: where the ball is put, and by what.
++    mscharged_rollback_object_position(this, &pos.x, (int)type, __builtin_return_address(0));
++#endif
+     nlMatrix4 rot;
+     nlMatrix4 inv_rot;
+     nlVector3 _pos;
+diff --git a/src/Game/Physics/PhysicsWorld.cpp b/src/Game/Physics/PhysicsWorld.cpp
+index b8b340c..1323617 100644
+--- a/src/Game/Physics/PhysicsWorld.cpp
++++ b/src/Game/Physics/PhysicsWorld.cpp
+@@ -4,6 +4,9 @@
+ #include "Game/Physics/CollisionSpace.h"
+ #include "Game/Physics/PhysicsObject.h"
+ #include "ode/NLGAdditions.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_checksum.h"
++#endif
+ 
+ #include <string.h>
+ 
+@@ -203,6 +206,10 @@ void PhysicsWorld::SpaceCollideCallback(void* data, dxGeom* geom1, dxGeom* geom2
+     }
+ 
+     int combinedResult = result1 & transformedResult2;
++#if defined(MSCHARGED_TWEAKS)
++    // For a desync: which objects touched and how they took it.
++    mscharged_rollback_collision(numContacts, result1, result2);
++#endif
+     if (combinedResult == 0)
+     {
+         return;
+@@ -241,6 +248,10 @@ processContact:
+         contact->surface.slip2 = contacts[0].surface.slip2;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // For a desync: the contact joint as made.
++    mscharged_rollback_contact(contact);
++#endif
+ #if defined(MSCHARGED_NATIVE)
+     world = (PhysicsWorld*)data;
+     joint = dJointCreateContact(world->m_World, world->m_ContactGroup, contact);
+diff --git a/src/Game/PhysicsAIBall.cpp b/src/Game/PhysicsAIBall.cpp
+index e96a258..19d6e92 100644
+--- a/src/Game/PhysicsAIBall.cpp
++++ b/src/Game/PhysicsAIBall.cpp
+@@ -24,6 +24,9 @@
+ 
+ #include "Game/SharedStaticStorage.h"
+ #include "Game/Physics/Physics.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_checksum.h"
++#endif
+ 
+ 
+ static unsigned short sPhysicsAIBallType = 0xFFFF;
+@@ -406,6 +409,12 @@ void PhysicsAIBall::CheckIfBallWentThroughGoalie()
+     nlVector3 contactNormal = { 0.0f, 0.0f, 0.0f };
+     bool contact = false;
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // For a desync: what the goalie sweep test starts from.
++    DebugPrintf("Sweep goalie frames %d old %f %f %f new %f %f %f\n",
++        m_goalieContactFramesAgo, oldPosition.x, oldPosition.y, oldPosition.z,
++        newPosition.x, newPosition.y, newPosition.z);
++#endif
+     if (m_goalieContactFramesAgo > 3)
+     {
+         float radius = GetRadius();
+@@ -413,6 +422,10 @@ void PhysicsAIBall::CheckIfBallWentThroughGoalie()
+             oldPosition, newPosition, GetLinearVelocity(), radius,
+             ballPosition, contactNormal);
+     }
++#if defined(MSCHARGED_TWEAKS)
++    DebugPrintf("Sweep contact %d at %f %f %f\n", (int)contact,
++        ballPosition.x, ballPosition.y, ballPosition.z);
++#endif
+ 
+     if (contact)
+     {
+@@ -658,8 +671,20 @@ bool PhysicsAIBall::IsBallOutsideNet(const nlVector3& ballPosition)
+          < cField::GetGoalLineX(1U) + radius - 0.08f;
+ }
+ 
+-void DebugPrintf(const char*, ...)
++void DebugPrintf(const char*
++#if defined(MSCHARGED_TWEAKS)
++                 format
++#endif
++                 , ...)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // For a desync: the branches the physics callbacks take, by their message
++    // and the values it prints.
++    va_list arguments;
++    va_start(arguments, format);
++    mscharged_rollback_debug_print(format, arguments, __builtin_return_address(0));
++    va_end(arguments);
++#endif
+ }
+ 
+ inline void PhysicsAIBall::RegisterDebugFields(
+diff --git a/src/NL/nlMain.cpp b/src/NL/nlMain.cpp
+index 230be0c..5f31800 100644
+--- a/src/NL/nlMain.cpp
++++ b/src/NL/nlMain.cpp
+@@ -2,6 +2,9 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <cstdint>
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_checksum.h"
++#endif
+ 
+ // CRC-32 lookup table (256 entries)
+ unsigned int crcTable[256]
+@@ -9,6 +12,10 @@ unsigned int crcTable[256]
+ 
+ void RunningChecksum::ChecksumData(const void* pData, unsigned long nDataLen)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // For a desync: every field the match's checksum takes, and where.
++    mscharged_rollback_checksum_field(pData, nDataLen, __builtin_return_address(0));
++#endif
+     const u8* pByte = (const u8*)pData;
+ #if defined(MSCHARGED_NATIVE)
+     const u32* p32;

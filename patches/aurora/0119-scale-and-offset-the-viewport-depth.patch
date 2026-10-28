@@ -1,0 +1,54 @@
+From: mscharged-port
+Subject: Scale and offset the viewport's depth (GXSetZScaleOffset)
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+
+GXSetZScaleOffset was declared but not implemented, so a game module that
+calls it ends at the dynamic linker's lazy lookup: the Mii library's face
+texture (RFLiSetup2DCameraAndParam in RFL_MakeTex.c) calls
+GXSetZScaleOffset(1.0f, 0.0f) before it draws. It now keeps the scale and
+offset, in the EFB's 24-bit depth units, and sends the viewport again with
+them: the depth range becomes scale times as long and starts offset further.
+The defaults, and (1, 0), keep the depth range as before.
+
+diff --git a/lib/dolphin/gx/GXTransform.cpp b/lib/dolphin/gx/GXTransform.cpp
+index f443204..266c6f3 100644
+--- a/lib/dolphin/gx/GXTransform.cpp
++++ b/lib/dolphin/gx/GXTransform.cpp
+@@ -120,6 +120,11 @@ void GXLoadTexMtxImm(const void* mtx_, u32 id, GXTexMtxType type) {
+   }
+ }
+ 
++// GXSetZScaleOffset's scale and offset of the viewport's depth, in the EFB's
++// 24-bit units: by default the depth range as it is.
++static float sZScale = 1.6777215e7f;
++static float sZOffset = 0.0f;
++
+ void GXSetViewport(float left, float top, float width, float height, float nearZ, float farZ) {
+   GXSetViewportJitter(left, top, width, height, nearZ, farZ, 1);
+ }
+@@ -142,10 +147,10 @@ void GXSetViewportJitter(float left, float top, float width, float height, float
+   sy = -height / 2.0f;
+   ox = 340.0f + (left + width / 2.0f);
+   oy = 340.0f + (top + height / 2.0f);
+-  zmin = 1.6777215e7f * nearZ;
+-  zmax = 1.6777215e7f * farZ;
++  zmin = sZScale * nearZ;
++  zmax = sZScale * farZ;
+   sz = zmax - zmin;
+-  oz = zmax;
++  oz = zmax + sZOffset;
+ 
+   __gx->vpLeft = left;
+   __gx->vpTop = top;
+@@ -195,5 +200,10 @@ void GXProject(f32 x, f32 y, f32 z, const f32 mtx[3][4], const f32* pm, const f3
+ // TODO GXLoadNrmMtxImm3x3
+ // TODO GXLoadNrmMtxIndx3x3
+ // TODO GXLoadTexMtxIndx
+-// TODO GXSetZScaleOffset
++
++void GXSetZScaleOffset(f32 scale, f32 offset) {
++  sZScale = 1.6777215e7f * scale;
++  sZOffset = 1.6777215e7f * offset;
++  GXSetViewportJitter(__gx->vpLeft, __gx->vpTop, __gx->vpWd, __gx->vpHt, __gx->vpNearz, __gx->vpFarz, 1);
++}
+ }

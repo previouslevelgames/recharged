@@ -42,6 +42,9 @@ struct GamepadProfile {
     int inner_deadzone = kDefaultInnerDeadzone;
     int outer_deadzone = kDefaultOuterDeadzone;
     int trigger_press = kDefaultTriggerPress;
+    // The Nunchuk stick plays like a real one (OctagonNunchukStickCounts); the
+    // dead zones then shape the pointer stick only.
+    bool octagon_stick = false;
     // The controller's gyro moves the pointer instead of the stick, when it
     // has one (issue #14); gyro_speed in percent (see gamepad_actions.h).
     bool gyro_pointer = false;
@@ -110,4 +113,13 @@ StickTilt GamepadStickTilt(SDL_Gamepad* pad, SDL_GamepadAxis x, SDL_GamepadAxis 
 inline constexpr int kNunchukStickDeadCounts = 15;
 inline constexpr int kNunchukStickReachCounts = 56;
 std::array<std::int8_t, 2> NunchukStickCounts(StickTilt tilt);
+// The counts of a real Nunchuk pushed to `tilt` (y up, length up to 1): the
+// pad's round travel is stretched onto the Nunchuk's octagonal gate, whose
+// corners in the eight directions reach about kNunchukGateCounts, and nothing
+// is added, so the game's own dead zone of 15 counts on each axis and its full
+// push at 71 (ClampWiiStick) are the ones the player feels.
+inline constexpr int kNunchukGateCounts = 96;
+std::array<std::int8_t, 2> OctagonNunchukStickCounts(StickTilt tilt);
+// How far the game reads Nunchuk `counts` pushed (ClampWiiStick), 0..1.
+float NunchukStickPushed(std::array<std::int8_t, 2> counts);
 } // namespace mscharged::platform

@@ -13,6 +13,21 @@ namespace
 constexpr std::string_view kPlatforms[] = {"windows", "linux", "steamdeck", "macos"};
 // Releases before the rename to Recharged (#64) named their packages mscharged-.
 constexpr std::string_view kPackagePrefixes[] = {"recharged-", "mscharged-"};
+constexpr std::string_view kMacUniversal = "macos-universal";
+
+// The packages that can update an installed one, best first. A Mac takes the
+// universal package (it runs on both kinds of Mac), else its own architecture's:
+// releases before the universal package had only those.
+std::vector<std::string> PackageChoices(const std::string& package)
+{
+    if (package.rfind("macos-", 0) != 0) return {package};
+    if (package != kMacUniversal) return {std::string(kMacUniversal), package};
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return {std::string(kMacUniversal), "macos-arm64"};
+#else
+    return {std::string(kMacUniversal), "macos-x86_64"};
+#endif
+}
 
 bool ParseNumber(std::string_view text, int& value)
 {
@@ -37,6 +52,25 @@ bool ParseTestTag(std::string_view tag, int& pull_request, std::string& commit)
         return false;
     commit = std::string(tag.substr(dash + 1));
     return IsHex(commit);
+}
+
+// A line of the notes, trimmed, is kHideTestBuilds (in any case).
+bool HidesTestBuilds(std::string_view notes)
+{
+    while (!notes.empty())
+    {
+        const auto end = std::min(notes.find('\n'), notes.size());
+        std::string_view line = notes.substr(0, end);
+        notes.remove_prefix(std::min(end + 1, notes.size()));
+        while (!line.empty() && std::isspace(static_cast<unsigned char>(line.front()))) line.remove_prefix(1);
+        while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back()))) line.remove_suffix(1);
+        if (line.size() == kHideTestBuilds.size()
+            && std::equal(line.begin(), line.end(), kHideTestBuilds.begin(), [](char a, char b) {
+                   return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+               }))
+            return true;
+    }
+    return false;
 }
 
 // recharged-<version>-<platform>-<arch>.zip/.tar.gz: the version text.
@@ -154,16 +188,17 @@ UpdateChannel ResolveChannel(const std::string& setting, const BuildIdentity& bu
 const PackageAsset* PublishedBuild::PackageFor(const std::string& package) const
 {
     if (package.empty()) return nullptr;
-    for (const auto& asset : assets)
-    {
-        std::string text;
-        if (!PackageVersion(asset.name, text)) continue;
-        for (const auto prefix : kPackagePrefixes)
+    for (const auto& choice : PackageChoices(package))
+        for (const auto& asset : assets)
         {
-            const std::string stem = std::string(prefix) + text + "-" + package;
-            if (asset.name == stem + ".zip" || asset.name == stem + ".tar.gz") return &asset;
+            std::string text;
+            if (!PackageVersion(asset.name, text)) continue;
+            for (const auto prefix : kPackagePrefixes)
+            {
+                const std::string stem = std::string(prefix) + text + "-" + choice;
+                if (asset.name == stem + ".zip" || asset.name == stem + ".tar.gz") return &asset;
+            }
         }
-    }
     return nullptr;
 }
 
@@ -189,6 +224,7 @@ std::vector<PublishedBuild> ParseReleases(const platform::JsonValue& releases)
         build.title = item["name"].Text();
         build.page = item["html_url"].Text();
         build.notes = item["body"].Text();
+        build.hidden = build.test && HidesTestBuilds(build.notes);
         build.published = ParseUtcTime(item["published_at"].Text());
         for (const auto& entry : item["assets"].Items())
         {
@@ -208,6 +244,18 @@ std::vector<PublishedBuild> ParseReleases(const platform::JsonValue& releases)
         builds.push_back(std::move(build));
     }
     return builds;
+}
+
+std::vector<PublishedBuild> ShownBuilds(const BuildIdentity& build, std::vector<PublishedBuild> published, int chosen)
+{
+    published.erase(std::remove_if(published.begin(), published.end(),
+                                   [&](const PublishedBuild& candidate) {
+                                       const bool own = build.origin == BuildOrigin::Test
+                                           && build.pull_request == candidate.pull_request;
+                                       return candidate.hidden && !own && candidate.pull_request != chosen;
+                                   }),
+                    published.end());
+    return published;
 }
 
 PullRequestInfo ParsePullRequest(const platform::JsonValue& pull)

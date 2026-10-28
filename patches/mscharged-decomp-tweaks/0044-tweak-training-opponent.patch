@@ -1,0 +1,268 @@
+Subject: Tweak: training opponent
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Training's opponent, the team nobody plays, no longer always vanishes but
+the launcher chooses it.
+
+Its captain is the launcher's (the title's StartTrainingMatch; Bowser, or
+Mario against Bowser, when it is the same as the trainee's or not chosen);
+its sidekicks stay those of its lineup in the save.
+
+How many of its four fielders play is the launcher's too: cTeam::ResetCharacters
+freezes all but that many in FROZEN_SHATTERED at every kickoff, the last
+ones first, so the captain is the last to go.
+
+Its goalie, a Kritter, can be taken out: Goalie::Update leaves it intangible
+to the ball and the players, invisible, without a shadow and far from the
+field, at every step, and does nothing else (a save would need the shot's
+save data, which it never gets). By default it stays.
+
+The side the player plays is the launcher's too: StartTrainingMatch puts the
+captain and the pad on the home or the away side, and the opponent on the
+other.
+
+Its skill is the launcher's too (GameInfoManager::ApplyDifficultySettings gives
+the team nobody plays the difficulty of that level of the game's skill
+setting), by default the game's own.
+
+A goal can go straight to the kickoff: Presentation::OnGoalScored takes the
+way the game's own no_presentation setting does, which skips the
+celebration and the replay. A mega strike's goal keeps its presentation. The
+goal's other listener that matters, OnCharactersGoalScored, which takes the
+players' pads away for the celebration, does the same as for that setting,
+or the players would stay without them after the kickoff.
+
+The same setting skips the match's introduction: FrontEnd::EnterStartScreen
+begins the training match straight at the kickoff, as it does for the
+Strikers 101 lessons.
+
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+index fb8f8f9..a4cccff 100644
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -215,6 +215,19 @@ void mscharged_tweak_super_team_spent(unsigned long header, unsigned long data);
+ // its captain (eTeamID) and stadium (eStadiumID).
+ int mscharged_tweak_training_item(void);
+ bool mscharged_tweak_take_training_start(int* captain, int* stadium);
++// Training's opponent: its captain (eTeamID, -1 for the default one), how many
++// of its four fielders play (0 to 4), whether its goalie plays, and whether a
++// goal goes straight to the kickoff, without its celebration.
++int mscharged_tweak_training_away_captain(void);
++int mscharged_tweak_training_away_fielders(void);
++bool mscharged_tweak_training_away_goalie(void);
++bool mscharged_tweak_training_skip_goal(void);
++// And its skill (0 training, 1 rookie to 5 mega striker, as the game's Gameplay
++// options number them; -1 for the game's own setting).
++int mscharged_tweak_training_away_skill(void);
++// Whether the pad that starts the match plays the away team (the home one
++// otherwise).
++bool mscharged_tweak_training_play_away(void);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
+index f91234f..c3dec85 100644
+--- a/src/Game/Character.cpp
++++ b/src/Game/Character.cpp
+@@ -30,6 +30,7 @@
+ #include "Game/Sys/audio.h"
+ #include "Game/TweakRegistry.h"
+ #include "Game/Team.h"
++#include "mscharged_tweaks.h"
+ #include "Game/AnimInventory.h"
+ #include "Game/CharacterTweaks.h"
+ #include "Game/Ball.h"
+@@ -1861,8 +1862,18 @@ void OnCharactersGoalScored(GoalScoredData* pEventData)
+     {
+         PlaySound(11, 0x8CEE6665UL, NULL, NULL);
+     }
+-    if (!GetTweakBool("/user/no_presentation", false)
+-        && g_pTeams[0] != NULL && g_pTeams[1] != NULL)
++    bool bPresentation = !GetTweakBool("/user/no_presentation", false);
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": a goal that goes straight to the kickoff
++    // (Presentation::OnGoalScored) leaves the players their pads, which the
++    // kickoff has just given back.
++    if (pEventData != NULL && pEventData->uGoalType != GOAL_MEGA_STRIKE && GetTrainingSide() >= 0
++        && mscharged_tweak_training_skip_goal())
++    {
++        bPresentation = false;
++    }
++#endif
++    if (bPresentation && g_pTeams[0] != NULL && g_pTeams[1] != NULL)
+     {
+         for (s32 i = 0; i < 2; i++)
+         {
+diff --git a/src/Game/FE/feManager.cpp b/src/Game/FE/feManager.cpp
+index 9d88358..3dfb84e 100644
+--- a/src/Game/FE/feManager.cpp
++++ b/src/Game/FE/feManager.cpp
+@@ -46,6 +46,8 @@
+ #include "Game/InputManager.h"
+ #include "Game/OverlayManager.h"
+ #include "Game/EventRegistry.h"
++#include "Game/Team.h"
++#include "mscharged_tweaks.h"
+ #include "NL/nlFunction.inl"
+ 
+ cAnimCamera* FrontEnd::m_pPauseMenuCamera = 0;
+@@ -119,6 +121,14 @@ void FrontEnd::EnterStartScreen(bool bStraightToKickoff)
+         isInStrikers101 = true;
+     }
+     sInitialModePauseMenuShown = 0;
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": the match goes straight to the kickoff, as the
++    // Strikers 101 lessons do, when the launcher says so.
++    if (GetTrainingSide() >= 0 && mscharged_tweak_training_skip_goal())
++    {
++        isInStrikers101 = true;
++    }
++#endif
+     g_pGame->BeginGame(false, isInStrikers101);
+     m_feStatePending = eFE_WAIT_FOR_LOAD;
+ }
+diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
+index 7f7f72a..609e515 100644
+--- a/src/Game/GameInfo.cpp
++++ b/src/Game/GameInfo.cpp
+@@ -510,6 +510,13 @@ void GameInfoManager::ApplyDifficultySettings()
+ 
+     mCurrentDifficulty[0] = DifficultyMap[skillLevel][humansOnSide[0] ? 0 : 1];
+     mCurrentDifficulty[1] = DifficultyMap[skillLevel][humansOnSide[1] ? 0 : 1];
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": the team nobody plays has the launcher's skill.
++    if (GetTrainingSide() >= 0 && mscharged_tweak_training_away_skill() >= 0)
++    {
++        mCurrentDifficulty[1 - GetTrainingSide()] = DifficultyMap[mscharged_tweak_training_away_skill()][1];
++    }
++#endif
+ }
+ 
+ bool GameInfoManager::IsRule0x8Equal4() const
+diff --git a/src/Game/Goalie.cpp b/src/Game/Goalie.cpp
+index d8b199b..3bca3db 100644
+--- a/src/Game/Goalie.cpp
++++ b/src/Game/Goalie.cpp
+@@ -54,6 +54,7 @@
+ #include "Game/SHierarchy.h"
+ #include "Game/Task/GameRenderTask.h"
+ #include "Game/Team.h"
++#include "mscharged_tweaks.h"
+ #include "NL/globalpad.h"
+ #include "NL/nlMain.h"
+ #include "NL/nlPrint.h"
+@@ -286,6 +287,29 @@ extern "C" float GetSavePlaneOffset()
+ 
+ void Goalie::Update(float dt)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": the goalie of the team nobody plays is out of the
++    // match when the launcher says so: it touches neither the ball nor the
++    // players, casts no shadow, is not drawn, and stands far from the field.
++    if (GetTrainingSide() == 1 - m_pTeam->m_nSide && !mscharged_tweak_training_away_goalie())
++    {
++        m_pPhysicsCharacter->m_CanCollideWithBall = false;
++        m_pPhysicsCharacter->m_CanCollideWithCharacters = false;
++        m_fOpacity = 0.0f;
++        m_bShadowVisible = false;
++        nlVector3 v3Away = m_DetChar.m_v3Position;
++        v3Away.y = 500.0f;
++        SetPosition(v3Away);
++        // It does nothing else: a save needs the shot's save data, which a
++        // goalie so far from it never gets.
++        if (!mbIsPosed)
++        {
++            PostPhysicsUpdate();
++            mbIsPosed = true;
++        }
++        return;
++    }
++#endif
+     SetPlayerAudioController(this);
+     bool bWallBlock = IsWallBlocked();
+     if (bWallBlock)
+diff --git a/src/Game/Render/Presentation.cpp b/src/Game/Render/Presentation.cpp
+index c27d3d1..812ebad 100644
+--- a/src/Game/Render/Presentation.cpp
++++ b/src/Game/Render/Presentation.cpp
+@@ -805,7 +805,13 @@ void Presentation::OnGoalScored(GoalScoredData* data)
+     mResumeAfterPresentation = false;
+     mDisplayLetterBox = 0.0f;
+ 
+-    if (Config::Global().Get<bool>("no_presentation", false))
++    if (Config::Global().Get<bool>("no_presentation", false)
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Training": a goal goes straight to the kickoff when the
++        // launcher says so.
++        || (GetTrainingSide() >= 0 && data->uGoalType != GOAL_MEGA_STRIKE && mscharged_tweak_training_skip_goal())
++#endif
++    )
+     {
+         g_pGame->ChangeGameState(GS_KICKOFF);
+         return;
+diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
+index f2a8b39..8773c56 100644
+--- a/src/Game/SH/SHTitleScreen.cpp
++++ b/src/Game/SH/SHTitleScreen.cpp
+@@ -159,17 +159,24 @@ static void StartTrainingMatch(int pad, int captain, int stadium)
+     gameInfo->mUserInfo.mCheatOptions.OnSettingsUpdated();
+     gameInfo->SetMode(GameInfoManager::GM_FRIENDLY, false);
+     g_bTrainingMatch = true;
+-    const int away = captain == TEAM_BOWSER ? TEAM_MARIO : TEAM_BOWSER;
++    // The away captain is the launcher's, or Bowser (Mario against Bowser).
++    int away = mscharged_tweak_training_away_captain();
++    if (away < 0 || away == captain)
++    {
++        away = captain == TEAM_BOWSER ? TEAM_MARIO : TEAM_BOWSER;
++    }
+     gameInfo->SetStadium(stadium);
+-    gameInfo->SetTeam(0, captain);
+-    gameInfo->SetTeam(1, away);
++    // The side the pad plays is the launcher's: home, or away.
++    const int side = mscharged_tweak_training_play_away() ? 1 : 0;
++    gameInfo->SetTeam(side, captain);
++    gameInfo->SetTeam(1 - side, away);
+     for (int slot = 0; slot < 3; slot++)
+     {
+-        gameInfo->SetSidekick(0, gameInfo->mRulesTable[captain].mValues[slot], slot);
+-        gameInfo->SetSidekick(1, gameInfo->mRulesTable[away].mValues[slot], slot);
++        gameInfo->SetSidekick(side, gameInfo->mRulesTable[captain].mValues[slot], slot);
++        gameInfo->SetSidekick(1 - side, gameInfo->mRulesTable[away].mValues[slot], slot);
+     }
+     gameInfo->ResetPlayingSides();
+-    gameInfo->SetPlayingSide((unsigned short)pad, 0);
++    gameInfo->SetPlayingSide((unsigned short)pad, side);
+     GameSceneManager::Instance()->PushLoadingScene(true);
+ }
+ #endif
+diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
+index 1a9e118..062182c 100644
+--- a/src/Game/Team.cpp
++++ b/src/Game/Team.cpp
+@@ -6,6 +6,7 @@
+ #include <stddef.h>
+ 
+ #include "Game/Team.h"
++#include "mscharged_tweaks.h"
+ 
+ #include "Game/AI/Fielder.h"
+ #include "Game/AI/SkillTweaks.h"
+@@ -1037,12 +1038,14 @@ void cTeam::ResetCharacters()
+         }
+     }
+ #if defined(MSCHARGED_TWEAKS)
+-    // Port tweak "Training": the team nobody plays loses its four fielders at
+-    // every kickoff, as the away team of the first Strikers 101 lesson does
+-    // (awaymissingsidekicks = 4); its goalie stays.
++    // Port tweak "Training": the team nobody plays loses fielders at every
++    // kickoff, all but the launcher's number of them, as the away team of the
++    // first Strikers 101 lesson does (awaymissingsidekicks); the captain is the
++    // last to go. Its goalie is Goalie::Update's.
+     else if (GetTrainingSide() == 1 - m_nSide)
+     {
+-        for (int i = 3; i >= 0; i--)
++        int nMissing = 4 - mscharged_tweak_training_away_fielders();
++        for (int i = 3; i >= 0 && nMissing > 0; i--, nMissing--)
+         {
+             cFielder* pFielder = GetFielder(i);
+             if (!pFielder->IsShattered())

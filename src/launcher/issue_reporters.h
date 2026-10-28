@@ -9,9 +9,14 @@ inline constexpr const char* kIssueReporters[] = {
     "abi-21",
     "Bighead-SMZ",
     "BlackAndBlue95",
+    "EduardoTorresAlamo",
+    "iraz-GG",
     "Kliff300",
+    "kyoryo22",
     "Milicksp",
     "motchete14",
+    "williamdzg",
     "WWWJannik",
+    "Xshadow39",
 };
 } // namespace mscharged::launcher

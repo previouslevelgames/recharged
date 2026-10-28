@@ -1,0 +1,197 @@
+Subject: Diagnostic: rollback network matches predict the inputs on their way
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Rollback study, after tweak patch 0029. Network matches with rollback
+(RECHARGED_ROLLBACK): the network router lets the port decide whether a step
+can run (HasInput) and apply its inputs (OnInputReady), so that a step whose
+inputs have not arrived from another machine runs with that machine's last
+inputs, and goes back when they arrive and differ. The router's queue limit
+is the port's, fixed for the match on every machine; each step's inputs
+leave as soon as they are captured (one tick per packet); a step undone and
+run again does not capture and send its inputs a second time
+(NetworkInputManager::CaptureInputs), which also leaves a capture out, or
+sends the same inputs again, when the port shortens or lengthens this
+machine's input delay by a step (the other machines apply its messages one
+per step, in order); and the sync data an input message carries is the
+checksum of the last step whose inputs had all arrived, which the port
+compares with the other machines' (the state now may rest on predicted
+inputs); every other message carries instead the frame word alone (flag 2,
+which the original never sets), with the port's measure for its time sync.
+
+Add include/mscharged_rollback_netplay.h, its interface to the port.
+
+Without RECHARGED_ROLLBACK nothing changes.
+
+diff --git a/include/mscharged_rollback_netplay.h b/include/mscharged_rollback_netplay.h
+new file mode 100644
+index 0000000..a2aaa87
+--- /dev/null
++++ b/include/mscharged_rollback_netplay.h
+@@ -0,0 +1,42 @@
++#if defined(MSCHARGED_TWEAKS)
++#ifndef MSCHARGED_ROLLBACK_NETPLAY_H
++#define MSCHARGED_ROLLBACK_NETPLAY_H
++
++// Network matches with rollback (RECHARGED_ROLLBACK; the port's
++// src/platform/rollback_netplay.cpp): the network router lets the port decide
++// whether a step can run and apply its inputs.
++#include "mscharged_rollback.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// Whether this match predicts: the inputs of machines that have not arrived
++// yet are predicted, and a later frame goes back when they differ.
++bool mscharged_rollback_predicting(void);
++// At the router's reset for a match: the steps of input delay every machine
++// uses (the router's queue limit, fixed while the match lasts).
++int mscharged_rollback_network_reset(void);
++// Whether the next step can run, in place of the router's queues.
++bool mscharged_rollback_has_input(void);
++// Applies the next step's inputs, in place of the router.
++void mscharged_rollback_input_ready(void);
++// Whether the local inputs are still to be captured and sent for this step:
++// a step undone and run again sent them the first time, and a capture left
++// out shortens this machine's input delay by a step.
++bool mscharged_rollback_can_capture(void);
++// After a capture: how many more messages to send with the same inputs, each
++// lengthening this machine's input delay by a step.
++int mscharged_rollback_extra_captures(void);
++// What an outgoing input message carries besides the inputs: 1, sync data
++// (the last step whose inputs all arrived, with its checksum and random
++// seed); 2, a frame word only (`frame`: how far ahead of this machine the
++// others' inputs come, for the time sync); 0, neither.
++int mscharged_rollback_sync_data(unsigned* checksum, unsigned* frame, unsigned* seed);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // MSCHARGED_ROLLBACK_NETPLAY_H
++#endif // MSCHARGED_TWEAKS
+diff --git a/src/Game/InputManager.cpp b/src/Game/InputManager.cpp
+index 64ada3b..b4fbc87 100644
+--- a/src/Game/InputManager.cpp
++++ b/src/Game/InputManager.cpp
+@@ -7,6 +7,9 @@
+ #include "Game/NetworkSession.h"
+ #include "NL/nlMemory.h"
+ #include "NL/nlTicker.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_netplay.h"
++#endif
+ 
+ NetworkInputManager* gInputManager;
+ 
+@@ -93,6 +96,12 @@ void NetworkInputManager::CaptureInputs()
+         {
+             return;
+         }
++#if defined(MSCHARGED_TWEAKS)
++        if (mscharged_rollback_predicting() && !mscharged_rollback_can_capture())
++        {
++            return;
++        }
++#endif
+ 
+         NetworkPeer* peer
+             = g_pNetworkSessionBase->GetLocalPeer();
+@@ -102,6 +111,17 @@ void NetworkInputManager::CaptureInputs()
+             (peer->GetNetworkPeerChannel(i))->CaptureNetworkPeerChannelInput();
+         }
+         router->OnInputCaptured();
++#if defined(MSCHARGED_TWEAKS)
++        // The rollback lengthens this machine's input delay: the other
++        // machines apply its messages one per step, in order.
++        if (mscharged_rollback_predicting())
++        {
++            for (int extra = mscharged_rollback_extra_captures(); extra > 0; --extra)
++            {
++                router->OnInputCaptured();
++            }
++        }
++#endif
+     }
+     else if (!mQueueOverflowReported)
+     {
+diff --git a/src/Game/InputRouter.cpp b/src/Game/InputRouter.cpp
+index 5ba9b4b..e973c1d 100644
+--- a/src/Game/InputRouter.cpp
++++ b/src/Game/InputRouter.cpp
+@@ -21,6 +21,7 @@
+ #include "NL/nlFunction.inl"
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_rollback.h"
++#include "mscharged_rollback_netplay.h"
+ #include <new>
+ #include <stdlib.h>
+ #endif
+@@ -503,6 +504,15 @@ void NetworkInputRouter::Reset(int resetQueues)
+     }
+     mQueueCursor = 0;
+     mQueueLimit = 4;
++#if defined(MSCHARGED_TWEAKS)
++    // A network match with rollback: a fixed input delay (the same on every
++    // machine), and each step's inputs sent as soon as they are captured.
++    if (mscharged_rollback_predicting())
++    {
++        mQueueLimit = mscharged_rollback_network_reset();
++        g_nTicksPerPacket = 1;
++    }
++#endif
+ }
+ 
+ void NetworkInputRouter::CheckCongestion()
+@@ -531,6 +541,12 @@ void NetworkInputRouter::CheckCongestion()
+ 
+ bool NetworkInputRouter::HasInput()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_rollback_predicting())
++    {
++        return mscharged_rollback_has_input();
++    }
++#endif
+     if (mQueueLimit > GetQueueCursor())
+     {
+         return true;
+@@ -580,6 +596,26 @@ void NetworkInputRouter::OnInputCaptured()
+         mCurrentMessage.SetNetworkInputMessageSyncData(
+             mCurrentCRC, frame, GetNetworkRandomSeed());
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // With rollback the state now may rest on predicted inputs: the checksum
++    // sent is that of the last step whose inputs all arrived. Other messages
++    // carry the frame word alone (flag 2), for the rollback's time sync.
++    if (mscharged_rollback_predicting())
++    {
++        u32 confirmedChecksum, confirmedFrame, confirmedSeed;
++        mCurrentMessage.mFlags &= ~6;
++        switch (mscharged_rollback_sync_data(&confirmedChecksum, &confirmedFrame, &confirmedSeed))
++        {
++        case 1:
++            mCurrentMessage.SetNetworkInputMessageSyncData(confirmedChecksum, confirmedFrame, confirmedSeed);
++            break;
++        case 2:
++            mCurrentMessage.mFrame = confirmedFrame;
++            mCurrentMessage.mFlags |= 2;
++            break;
++        }
++    }
++#endif
+ 
+     while (m_OutgoingCustomDetermDataQ.GetCount() > 0)
+     {
+@@ -656,6 +692,11 @@ void NetworkInputRouter::OnInputReady()
+ {
+     bool congested = false;
+ #if defined(MSCHARGED_TWEAKS)
++    if (mscharged_rollback_predicting())
++    {
++        mscharged_rollback_input_ready();
++        return;
++    }
+     if (mscharged_rollback_active())
+     {
+         BeginRollbackInputs();

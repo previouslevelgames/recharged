@@ -28,9 +28,13 @@ come from the reconstructed source, unchanged.
 ## Controls
 
 - **Keyboard & mouse** play as a Wii Remote with Nunchuk; the mouse is the
-  pointer. Every key can be changed in the launcher, up to two per action,
+  pointer, shown by the game's own hand (the system cursor stays hidden over
+  the game). Every key can be changed in the launcher, up to two per action,
   and the middle and side mouse buttons (Mouse 4, Mouse 5) can take a key's
   place ([#62](https://github.com/previouslevelgames/recharged/issues/62)).
+  On the game's friend code screen the number keys type a code, Ctrl+V
+  (Cmd+V on a Mac) pastes one, spaces and dashes included, Backspace removes
+  the last digit and Delete clears the code.
 - **Gamepads**: Xbox, PlayStation, Switch Pro, GameCube (USB adapter) and
   other standard controllers stand in for the Wii Remote with Nunchuk the game
   is played with, with rumble (its strength can be set). The right stick
@@ -109,11 +113,14 @@ play.
 - **Performance mode** (the gear on Play): lighter matches without
   antialiasing, crowd, background NPCs, ambient effects, bloom or stadium
   shadows. Gameplay, hazards and their effects remain unchanged.
-- **High frame rates**: the console's 60 FPS by default, or 120, 144, your
+- **Frame rates**: the console's 60 FPS by default, or 30, 60, 120, 144, your
   display's refresh rate or unlimited (Display → Frame rate). The game keeps its
   own speed: matches still simulate at their fixed 50 Hz and every frame is
   drawn from the game's own blend of its last two steps, so the extra frames
   are real motion, not interpolation added by Recharged.
+  In online matches with rollback the rate is held to 60 FPS, as above it a
+  rollback no longer fits in a frame. Each player's rate is their own: it does
+  not have to match the opponent's.
 - V-sync and a performance overlay (FPS, CPU and GPU load) in any corner.
 - Master volume, mute and **sound levels** (Audio): music, sound effects,
   voices, the crowd, menus and HUD, cutscenes and movies each from 0 to 100 %,
@@ -122,8 +129,9 @@ play.
 
 ## Optional tweaks
 
-Off by default; with all of them off the game plays as on the Wii. Four fixes
-of the original game are always on: a goal net no longer stays dented after a
+Off by default, except Fair ball contests and Match point; with all of them
+off the game plays as on the Wii. Four fixes of the original game are always
+on: a goal net no longer stays dented after a
 goal ([#19](https://github.com/previouslevelgames/recharged/issues/19)),
 electrocuted players flash with the game's lightning texture instead of a
 debug texture ([#33](https://github.com/previouslevelgames/recharged/issues/33)),
@@ -155,6 +163,29 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   fence of every other stadium, invisible but with its sparks: the ball and
   items bounce off it, and players knocked into it are electrocuted instead
   of falling off the island. Online matches are unchanged.
+- **Secure stadiums**: the game's Secure Stadium cheat in every offline
+  match, not only in Domination when chosen in its cheats menu: no
+  lightning, wind or flying debris, solar flares, bubbling lava, Storm Ship
+  tilt, Thwomps or sand patches. The electric fences stay, so it combines
+  with Thunder Island walls. Striker Challenges keep their rules; online
+  matches are unchanged.
+- **Match point**: in a match to a number of goals, the kickoff that finds
+  both teams one goal from winning plays overtime's siren and sudden death
+  music, which replaces the stadium's music until the match ends, and the HUD
+  shows SUDDEN DEATH instead of "First to". A team alone one goal from
+  winning changes nothing. Only sound and HUD change. On by default.
+- **Training**: **Start training** on the Gameplay page (or `--training`)
+  goes past the intro and the menus straight into a Domination match with
+  the chosen captain, the sidekicks of their lineup on the Teams page, and
+  the chosen stadium, on the home or the away side. The other team has the captain you choose (Bowser by
+  default), with the sidekicks of their lineup on the Teams page, but only as
+  many of its four fielders as you choose play (none by default; the rest
+  vanish at every kickoff, as in the Strikers 101 lessons), at the skill you
+  choose, and its goalie can be taken out of the goal. The match can start at the kickoff, and a
+  goal go straight to the next one, without its celebration and replay; a Mega Strike's goal keeps its own.
+  Your team starts every kickoff with the chosen item and keeps every item it
+  uses, in a match to 10 goals that never ends on them (leave it from the
+  pause menu). Every other match is unchanged.
 - **Fair ball contests**: when players of both teams reach a loose ball in
   the same instant, the one the game updates first takes it. The game
   shuffles that order at every kickoff in a way that puts the home team
@@ -204,6 +235,20 @@ banner the game uses for its save, read from your own image. Click the one to
 play; images of versions this build cannot run yet are listed with the reason
 ([game images](SETTINGS.md#game-images)).
 
+Under **Online/Match setup**, its **Sidekicks** page sets the sidekicks each
+captain starts with, on a pitch laid out like the team plays: click a sidekick
+to put another one there. The game's sidekick screen then starts from that
+lineup, and what you choose there shows on the page: both are the lineups in
+your own game save ([saves](SETTINGS.md#saves)).
+
+Its **Match rules** page keeps presets of the match settings and cheats: skill,
+series, time or goals, and the stadium, player and power-up cheats, all of
+them whether your save has unlocked them or not. Use one for matches on this computer or online with
+friends, and it goes into your game save, as if chosen in the game's settings
+screen; ranked matches keep their rules. **Default** (a new save's settings)
+and **Competitive** (Superstar, best of 3, first to 10 goals, Secure Stadiums) are
+built in; the others are files of their own ([saves](SETTINGS.md#saves)).
+
 It also **updates Recharged**: when a newer release is out it shows the release
 notes and asks, then installs it in place and restarts; only the program's own
 files are replaced. **Release / Test** on the Play page switches between
@@ -217,6 +262,24 @@ Texture packs made for Dolphin replace the game's textures, from a folder or
 straight from their `.zip` file, with several packs in an order you choose
 (Gameplay → Mods, [settings](SETTINGS.md#texture-packs)).
 
+## Online play
+
+The game's own online play works again through the project's server: Nintendo
+Wi-Fi Connection has shut down, so the game's connection names resolve to our
+server instead. It is set up already; only a private instance of the server
+([recharged-wfc-srv](https://github.com/previouslevelgames/recharged-wfc-srv))
+needs `[online] server` ([settings](SETTINGS.md#online)). Friend
+codes are typed on the game's friend code screen, as described under Controls.
+
+Network matches use **rollback**, on by default. A step whose inputs have not
+arrived from the other player runs with predicted ones (the player's last
+input repeated) and is replayed when the real ones arrive and differ, instead
+of the game waiting for them. The input delay starts at one step and adapts to
+the connection by itself. Every player in the match needs rollback on. The
+performance overlay shows the connection's round trip, the input delay and how
+far the prediction went (LAT, DLY and RB). The frame rate is held to 60 FPS in
+these matches (see Picture and sound).
+
 ## Discord status
 
 While the Discord app runs on the same computer, your Discord profile shows the
@@ -227,9 +290,5 @@ and match time ([settings](SETTINGS.md#discord-status)).
 
 - **The Japanese and Korean versions.** Their decompilation is still being
   completed.
-- **Online play.** Nintendo Wi-Fi Connection has shut down, so for now
-  Recharged behaves like a Wii without internet. The netcode is being reworked
-  to make online play functional again, and options for matchmaking and
-  lobbies are being explored.
 - **Mods.** A modding framework is in the works; until then, the optional
   tweaks above change the game and texture packs change its look.

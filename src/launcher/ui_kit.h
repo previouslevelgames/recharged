@@ -10,12 +10,15 @@
 // widgets. All sizes are design units (dp) converted with Dp().
 namespace mscharged::launcher
 {
+// The 1.0 releases' palette: blue-black surfaces, green controls with a lime
+// highlight and dark green ink on them, sky blue for information. `logo` is
+// the Recharged logo's sky blue, for the light around the flare on its ball.
 namespace color
 {
 inline constexpr ImVec4 window{0.039f, 0.055f, 0.090f, 1.0f};      // #0A0E17
 inline constexpr ImVec4 sidebar{0.051f, 0.071f, 0.118f, 1.0f};     // #0D121E
 inline constexpr ImVec4 card{0.071f, 0.098f, 0.161f, 1.0f};        // #121929
-inline constexpr ImVec4 card_hover{0.090f, 0.125f, 0.200f, 1.0f};
+inline constexpr ImVec4 card_hover{0.090f, 0.125f, 0.200f, 1.0f};  // #172033
 inline constexpr ImVec4 field{0.094f, 0.129f, 0.208f, 1.0f};       // #182135
 inline constexpr ImVec4 border{0.141f, 0.188f, 0.282f, 1.0f};      // #243048
 inline constexpr ImVec4 text{0.918f, 0.941f, 0.980f, 1.0f};        // #EAF0FA
@@ -23,8 +26,11 @@ inline constexpr ImVec4 muted{0.545f, 0.592f, 0.690f, 1.0f};       // #8B97B0
 inline constexpr ImVec4 dim{0.369f, 0.416f, 0.514f, 1.0f};         // #5E6A83
 inline constexpr ImVec4 accent{0.298f, 0.941f, 0.478f, 1.0f};      // #4CF07A
 inline constexpr ImVec4 accent_hi{0.714f, 1.000f, 0.169f, 1.0f};   // #B6FF2B
-inline constexpr ImVec4 accent_dark{0.039f, 0.196f, 0.086f, 1.0f};
+inline constexpr ImVec4 accent_dark{0.039f, 0.196f, 0.086f, 1.0f}; // #0A3216
+inline constexpr ImVec4 accent_ink{0.024f, 0.129f, 0.059f, 1.0f};  // #06210F, text on the accent
+inline constexpr ImVec4 success{0.298f, 0.941f, 0.478f, 1.0f};     // #4CF07A, the accent
 inline constexpr ImVec4 info{0.227f, 0.690f, 1.000f, 1.0f};        // #3AB0FF
+inline constexpr ImVec4 logo{0.302f, 0.741f, 1.000f, 1.0f};        // #4DBDFF
 inline constexpr ImVec4 warning{1.000f, 0.706f, 0.263f, 1.0f};     // #FFB443
 inline constexpr ImVec4 danger{1.000f, 0.353f, 0.416f, 1.0f};      // #FF5A6A
 inline constexpr ImVec4 discord{0.345f, 0.396f, 0.949f, 1.0f};     // #5865F2, Discord's blurple
@@ -48,7 +54,6 @@ struct Fonts
     ImFont* title = nullptr;    // 30 dp
     ImFont* button = nullptr;   // 22 dp
     ImFont* overline = nullptr; // 21 dp
-    ImFont* hero = nullptr;     // 62 dp
 };
 // Rasterizes Roboto at the exact framebuffer pixel size for `font_raster`
 // pixels per dp; io.FontGlobalScale maps the glyphs back to window units.
@@ -63,7 +68,7 @@ enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
     Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear, Close, Up, Down, Archive, More,
-    Heart, Bug, Layers, Bulb, Code
+    Heart, Bug, Layers, Bulb, Code, Person, Pitch, Clipboard
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -82,6 +87,16 @@ void FillGradient(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 top_left, ImU3
                   float rounding, bool horizontal);
 
 bool NavItem(const char* label, Icon icon, bool selected, float width);
+struct NavPage
+{
+    const char* label;
+    Icon icon;
+    bool selected;
+};
+// A sidebar group of pages, open while one of them is shown: its row, and a
+// raised panel with the pages under it. Returns 0 for a click on the group's
+// row, 1 and up for one on a page, -1 for none.
+int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavPage> pages, float width);
 bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled, Icon icon = Icon::None,
                    bool glow = false);
 bool SecondaryButton(const char* id, const char* label, ImVec2 size, bool enabled = true,

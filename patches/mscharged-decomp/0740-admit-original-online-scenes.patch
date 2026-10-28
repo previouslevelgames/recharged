@@ -1,0 +1,85 @@
+From: mscharged-port
+Subject: Admit the original online scenes
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: temporary explicit original-source diagnostic admission
+
+Under MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE the scene factory admits the
+retail online flow: Mii selection, DWC login, the online hub, ranked and
+unranked player count, friends, friend codes, invitations, guest
+controllers, rankings, friends' side choice and connection quality. The
+network start lobby and both drafts, already admitted for the LAN lobby,
+open for either diagnostic. Main Menu's Online item keeps its retail
+checks whenever the LAN lobby is not selected.
+
+MiiManager::CreateIcon returns no icon natively, as RFLMakeIcon's GX
+drawing is not admitted yet. The Mii selection already handles a missing
+icon: it hides that Mii's picture and still lists and selects it.
+
+diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
+index 49015f7..26dedd7 100644
+--- a/src/Game/FE/BaseGameSceneManager.cpp
++++ b/src/Game/FE/BaseGameSceneManager.cpp
+@@ -395,7 +395,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+         newHandler = new (nlMalloc(sizeof(CreditScene), 8, false)) CreditScene();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN))
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && (defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)))
+     case (SceneList)24:
+         newHandler = new (nlMalloc(sizeof(NetworkStartScene), 8, false)) NetworkStartScene();
+         break;
+@@ -459,7 +459,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+         newHandler = new (nlMalloc(sizeof(CupNewsScene), 8, false)) CupNewsScene();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE))
+     case SCENE_ONLINE_MENU:
+         newHandler = new (nlMalloc(sizeof(SHOnlineHub), 8, false)) SHOnlineHub();
+         break;
+@@ -488,7 +488,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+         newHandler = new (nlMalloc(sizeof(SHOnlineFriendCodeEntry), 8, false)) SHOnlineFriendCodeEntry();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN))
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && (defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)))
+     case SCENE_ONLINE_MATCHMAKING_DRAFT:
+         newHandler = new (nlMalloc(sizeof(SHOnlineMatchmakingDraft), 8, false)) SHOnlineMatchmakingDraft();
+         break;
+@@ -496,7 +496,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
+         newHandler = new (nlMalloc(sizeof(SHOnlineFriendsDraft), 8, false)) SHOnlineFriendsDraft();
+         break;
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE))
+     case SCENE_ONLINE_LOGIN:
+         newHandler = new (nlMalloc(sizeof(SHOnlineLogin), 8, false)) SHOnlineLogin();
+         break;
+diff --git a/src/Game/MiiManager.cpp b/src/Game/MiiManager.cpp
+index d02b010..16c11cc 100644
+--- a/src/Game/MiiManager.cpp
++++ b/src/Game/MiiManager.cpp
+@@ -105,6 +105,11 @@ void MiiManager::LoadResources()
+ 
+ bool MiiManager::CreateIcon(int officialIndex, int iconSlot, RFLExpression expression)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)
++    // RFLMakeIcon's GX drawing is not admitted natively yet. Without an icon
++    // the online Mii selection still lists and selects every Mii.
++    return false;
++#endif
+     if (officialIndex < 0)
+     {
+         return false;
+@@ -134,6 +139,11 @@ bool MiiManager::CreateIcon(int officialIndex, int iconSlot, RFLExpression expre
+ 
+ bool MiiManager::CreateIcon(const RFLStoreData* data, int iconSlot, RFLExpression expression)
+ {
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)
++    // RFLMakeIcon's GX drawing is not admitted natively yet. Without an icon
++    // the online Mii selection still lists and selects every Mii.
++    return false;
++#endif
+     RFLUpdateMiddleDBAsync(&mMiddleDB);
+     if (RFLAddMiddleDBStoreData(&mMiddleDB, data) == RFLErrcode_Success)
+     {

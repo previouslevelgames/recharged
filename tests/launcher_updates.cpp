@@ -131,6 +131,15 @@ std::string Release(const std::string& tag, bool prerelease, const std::string& 
         + tag + R"(","published_at":")" + published + R"(","body":")" + body + R"(","assets":[)" + assets + "]}";
 }
 
+// A release (as Release makes it) with one more package.
+std::string WithAsset(std::string release, const std::string& tag, const std::string& name)
+{
+    const std::string asset = R"({"name":")" + name + R"(","browser_download_url":"https://github.com/o/r/releases/download/)"
+        + tag + "/" + name + R"(","size":1234,"digest":"sha256:)" + std::string(64, 'b') + R"("},)";
+    release.insert(release.find(R"("assets":[)") + 10, asset);
+    return release;
+}
+
 BuildIdentity Build(BuildOrigin origin, const std::string& version, std::int64_t built, int pull_request = 0,
                     const std::string& package = "linux-x86_64")
 {
@@ -222,6 +231,33 @@ void TestTracks()
     Check(update && update->tag == "v1.0.11", "The release channel ignores test builds");
 }
 
+// A pull request whose description has the hide line: its test builds stay
+// out of the launcher, but for its own testers and an explicit choice.
+void HiddenTestBuilds()
+{
+    const auto published = ParseReleases(platform::ParseJson("["
+        + Release("test-pr72-333333333333", true, "2026-10-18T09:00:00Z", "1.1.0+g333333333333") + ","
+        + Release("test-pr105-555555555555", true, "2026-10-19T09:00:00Z", "1.2.0+g555555555555",
+                  "Competitive play\\n\\n  <!-- Launcher: Hide -->  \\n\\n---\\nTest build") + ","
+        + Release("v1.0.10", false, "2026-10-17T21:00:00Z", "1.0.10+gaaaaaaaaaaaa",
+                  "<!-- launcher: hide -->") + "]"));
+    Check(published.size() == 3 && !published[0].hidden && published[1].hidden && !published[2].hidden,
+          "The hide line marks a test build, in any case and with spaces, and never a release");
+    const BuildIdentity release10 = Build(BuildOrigin::Release, "1.0.10+gaaaaaaaaaaaa", 1792200000);
+    const BuildIdentity test105 = Build(BuildOrigin::Test, "1.2.0+g444444444444", 1792300000, 105);
+    const auto shown = ShownBuilds(release10, published, 0);
+    Check(shown.size() == 2 && TestBuilds(release10, shown).size() == 1
+              && TestBuilds(release10, shown).front()->pull_request == 72,
+          "Hidden test builds are no test track");
+    const PublishedBuild* update = FindUpdate(release10, UpdateChannel::Test, shown, 105);
+    Check(!update || update->pull_request != 105, "Nor offered when an older choice named them");
+    Check(ShownBuilds(release10, published, 105).size() == 3, "launcher.test_build naming the pull request shows them");
+    const auto own = ShownBuilds(test105, published, 0);
+    update = FindUpdate(test105, UpdateChannel::Test, own);
+    Check(own.size() == 3 && update && update->tag == "test-pr105-555555555555",
+          "A test build of the hidden pull request still gets its updates");
+}
+
 void TestReleases()
 {
     const std::string list = "[" + Release("test-pr48-cccccccccccc", true, "2026-10-16T10:00:00Z", "1.0.10+gcccccccccccc")
@@ -258,6 +294,33 @@ void TestReleases()
               && both[0].PackageFor("linux-x86_64")->name == "recharged-1.0.11+gffffffffffff-linux-x86_64.tar.gz"
               && both[1].PackageFor("linux-x86_64"),
           "Recharged and mscharged packages");
+    // Macs take the universal package, which runs on both kinds of Mac; for a
+    // release from before it, the universal Mac falls back to its architecture's.
+    {
+#if defined(__aarch64__) || defined(_M_ARM64)
+        const std::string native = "arm64";
+#else
+        const std::string native = "x86_64";
+#endif
+        const std::string universal = "recharged-1.0.16+g111111111111-macos-universal.tar.gz";
+        const auto mac = ParseReleases(platform::ParseJson(
+            "[" + WithAsset(Release("v1.0.16", false, "2026-10-27T10:00:00Z", "1.0.16+g111111111111"), "v1.0.16", universal)
+            + "," + WithAsset(Release("v1.0.9", false, "2026-10-15T17:22:00Z", "1.0.9+gaaaaaaaaaaaa"), "v1.0.9",
+                              "mscharged-1.0.9+gaaaaaaaaaaaa-macos-x86_64.tar.gz")
+            + "]"));
+        Check(mac.size() == 2 && mac[0].PackageFor("macos-arm64") && mac[0].PackageFor("macos-arm64")->name == universal
+                  && mac[0].PackageFor("macos-x86_64")->name == universal
+                  && mac[0].PackageFor("macos-universal")->name == universal,
+              "Every Mac takes the universal package");
+        Check(mac[0].PackageFor("linux-x86_64")->name.find("-linux-x86_64.") != std::string::npos
+                  && mac[0].PackageFor("steamdeck-x86_64")->name.find("-steamdeck-x86_64.") != std::string::npos,
+              "Other platforms keep their own package");
+        Check(mac[1].PackageFor("macos-arm64")->name.find("-macos-arm64.") != std::string::npos
+                  && mac[1].PackageFor("macos-universal")
+                  && mac[1].PackageFor("macos-universal")->name.find("-macos-" + native + ".") != std::string::npos,
+              "Before the universal package, a Mac takes its architecture's");
+    }
+
     const auto* renamed_update = FindUpdate(Build(BuildOrigin::Release, "1.0.10+gbbbbbbbbbbbb", 1792100000),
                                             UpdateChannel::Release, both);
     Check(renamed_update && renamed_update->tag == "v1.0.11", "A release finds the renamed release");
@@ -334,6 +397,7 @@ void TestReleases()
           "An unknown own version offers nothing");
 
     TestTracks();
+    HiddenTestBuilds();
 
     Check(ResolveChannel("auto", Build(BuildOrigin::Test, "1.0.0", 0, 1)) == UpdateChannel::Test
               && ResolveChannel("auto", Build(BuildOrigin::Dev, "1.0.0", 0)) == UpdateChannel::Release
@@ -544,6 +608,19 @@ void TestInstall(const fs::path& fixtures, const fs::path& work)
         for (auto it = after.begin(); it != after.end();)
             it = it->first.rfind(".update/", 0) == 0 ? after.erase(it) : std::next(it);
         Check(after == installed, "Nothing changed");
+    }
+
+    // A Mac folder of one architecture takes the universal package: Mac
+    // packages hold the same files (other platforms stay apart, above).
+    {
+        const fs::path base = Fresh(work, "mac");
+        fs::copy(fixtures / "installed-macos", base, fs::copy_options::recursive);
+        const fs::path root = UnpackPackage(fixtures / "recharged-1.0.10+gbbbbbbbbbbbb-macos-universal.tar.gz",
+                                            UpdateFolder(base) / "staged-1");
+        InstallStagedPackage(base, root, UpdateFolder(base) / "previous-1");
+        Check(ReadPackageManifest(base / kPackageManifest).Package() == "macos-universal"
+                  && Read(base / "recharged") == "new launcher\n" && !fs::exists(base / "mscharged"),
+              "An arm64 Mac folder takes the universal package");
     }
 
     // After an update the launcher restarts as recharged, or as mscharged in a

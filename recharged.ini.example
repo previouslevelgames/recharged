@@ -203,6 +203,9 @@ show_hud = true
 # the inner one and are pushed all the way from the outer one on; the defaults,
 # 15 and 71, play like a Nunchuk on the Wii. trigger_press (10-90 %, default
 # 50): a trigger presses its button past this much of its travel.
+# octagon_stick = true: the Nunchuk stick plays like a real one, with its
+# octagonal gate and the game's own dead zone on each axis; the two dead zones
+# then shape the pointer stick only.
 # gyro_pointer = true: a controller with a gyro points by turning it instead of
 # with the stick; gyro_speed (25-300 %, default 100: about 25 degrees across
 # the picture). recenter_pointer: the input that centres the gyro pointer.
@@ -231,6 +234,7 @@ show_hud = true
 # inner_deadzone = 15
 # outer_deadzone = 71
 # trigger_press = 50
+# octagon_stick = false
 # gyro_pointer = false
 # gyro_speed = 100
 # controller = xbox
@@ -238,7 +242,8 @@ show_hud = true
 [gameplay]
 # Optional tweaks that change the original game. All off plays it unchanged;
 # --no-tweaks turns them off for one run. Off unless set, except
-# fair_ball_contests, recommended to every player and on unless set to false.
+# fair_ball_contests and match_point, recommended to every player and on
+# unless set to false.
 # skip_intro: start at the main menu (no notices, logo, intro or title screen).
 # fast_menus: skip menu transitions, also in the pause menu and on the
 # screens after a match (matches, movies and credits unchanged).
@@ -268,6 +273,32 @@ show_hud = true
 # the home team, and one-timers, first-time shots off rebounds and pass
 # receptions always favour it). On by default; online matches always play
 # with it.
+# secure_stadiums: the game's Secure Stadium cheat in every offline match (no
+# lightning, wind, debris, solar flares, lava, Storm Ship tilt, Thwomps or
+# sand patches); the electric fences stay. Striker Challenges keep their
+# rules; online unchanged.
+# match_point: in a match to a number of goals, overtime's siren and sudden
+# death music (in place of the stadium's) and SUDDEN DEATH on the HUD once
+# both teams are one goal from winning. Only sound and HUD. On by default.
+# Start training on the launcher's Gameplay page (or --training) goes
+# straight into a Domination match with training_captain (mario, bowser,
+# daisy, donkeykong, luigi, peach, waluigi, wario, yoshi, bowserjr,
+# diddykong, petey) and their sidekicks from the save, in training_stadium
+# (battledome, bowserstadium, craterfield, crystalcanyon, dump,
+# galacticstadium, kongacoliseum, lavapit, pipelinecentral, stormship,
+# thepalace, thunderisland, underground, vice, wastelands, sandtomb,
+# tutorialfield). The other team plays training_away_captain (same names;
+# the same as yours plays as Bowser, or Mario against Bowser) with its
+# sidekicks from the save, but only training_away_fielders (0 to 4) of its
+# fielders play, the rest vanishing at every kickoff, at training_away_skill
+# (training, rookie, professional, superstar, legend or megastriker), and its goalie only if
+# training_away_goalie is true. With training_skip_goals the match starts at the
+# kickoff and a goal goes straight to the next one, without its celebration and replay (a Mega
+# Strike's goal keeps its own). training_side (home or away) is the team
+# you play, and it starts every kickoff with
+# training_item (none, green_shell, red_shell, spiny_shell, freeze_shell,
+# banana, bobomb, chain_chomp, mushroom, star) and keeps every item it uses,
+# in a match to 10 goals that never ends on them.
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
@@ -281,6 +312,17 @@ robot_goalies = false
 super_team = false
 super_team_side = away
 fair_ball_contests = true
+secure_stadiums = false
+match_point = true
+training_item = green_shell
+training_captain = mario
+training_stadium = tutorialfield
+training_away_captain = bowser
+training_away_fielders = 0
+training_away_goalie = true
+training_skip_goals = true
+training_away_skill = rookie
+training_side = home
 
 [mods]
 # Texture packs made for Dolphin (folders or .zip files with tex1_*.png or
@@ -332,3 +374,15 @@ rich_presence = true
 # For testing only: the Discord application to show it under instead of this
 # build's own (its ID from the Discord Developer Portal; public, not a secret).
 # application_id =
+
+[online]
+# Network matches with rollback (on by default). A step whose inputs have not
+# arrived from the other machine runs with predicted ones and goes back when
+# they arrive and differ, instead of waiting for them. Every machine in the
+# match needs it on; the input delay adapts to the latency by itself.
+# rollback_log names a log file; its counts go to <file>.summary.
+# rollback_test = true instead rolls every match back while it is played,
+# offline too, and checks that the replays agree (to test the rollback).
+# rollback = true
+# rollback_test = false
+# rollback_log =

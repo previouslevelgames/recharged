@@ -1,0 +1,47 @@
+From: mscharged-port
+Subject: Draw the Mii model from its natively written vertex arrays
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native graphics ownership; the model draws as before.
+
+RFLiInitCharModelRes builds a Mii model's vertex arrays (face, hair, cap,
+nose, beard, mask and their normals and texture coordinates) with ordinary
+stores into the RFLiCharModelRes at the start of the model's work buffer.
+Natively, RFLDrawOpa/Xlu's GXSetArray goes through ChargedSetRFLGraphicsArray,
+which resolves the address in the game allocation registry and refused those
+arrays: they had neither graphics storage nor completed bytes. Once the
+arrays are written, RFLiInitCharModel now publishes the struct as graphics
+storage of native bytes (ChargedPublishRFLModelArrays). A model built again
+in the same memory, such as the next Mii icon's work buffer, replaces the
+earlier storage.
+
+The positions and normals were already converted to native order while
+copied; the texture coordinates were copied as the Wii's big-endian s16
+pairs, which a native array would read as other coordinates (the face's
+mask texture, with the eyes and mouth, then lay outside the face). They are
+now converted too (ChargedCopyRFLShapeTexcoords). Console builds are
+unchanged.
+
+diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c
+index 2a871b2..7699ab2 100644
+--- a/src/RVL_SDK/rfl/RFL_Model.c
++++ b/src/RVL_SDK/rfl/RFL_Model.c
+@@ -13,7 +13,7 @@
+ #define RFL_SHAPE_HALF(pointer) ChargedReadRFLShapeHalf(pointer)
+ #define RFL_SHAPE_S16(value) ChargedReadRFLShapeS16(&(value))
+ #define RFL_SHAPE_VECTOR(destination, source) ChargedCopyRFLShapeVector(destination, source)
+-#define RFL_SHAPE_BYTES(destination, source, bytes) ChargedCopyRFLShapeBytes(destination, source, bytes)
++#define RFL_SHAPE_BYTES(destination, source, bytes) ChargedCopyRFLShapeTexcoords(destination, source, bytes)
+ #define RFL_TRANSFORM_RAW(destination, source) ChargedTransformRFLShapeCoordinate(destination, source)
+ #else
+ #define RFL_TEXTURE_HALF(texture, field) texture->field
+@@ -252,6 +252,10 @@ void RFLiInitCharModel(RFLCharModel* model, RFLiCharInfo* info, void* work,
+     }
+ 
+     RFLiInitCharModelRes(imodel->res, info);
++#if defined(MSCHARGED_NATIVE)
++    // The vertex arrays are written natively: RFLDrawOpa/Xlu draw from them.
++    ChargedPublishRFLModelArrays(imodel->res, sizeof(RFLiCharModelRes));
++#endif
+ 
+     setExpr = FALSE;
+     mipmap = FALSE;

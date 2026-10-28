@@ -140,6 +140,10 @@ extern "C" std::uint8_t SCGetProgressiveMode() { return ReadSettings().progressi
 extern "C" std::uint8_t SCGetEuRgb60Mode() { return ReadSettings().eurgb60_mode; }
 extern "C" std::uint8_t SCGetAspectRatio() { return ReadSettings().aspect_ratio; }
 extern "C" std::uint8_t SCGetSoundMode() { return ReadSettings().sound_mode; }
+extern "C" s8 SCGetProductArea() { return SC_AREA_USA; }
+extern "C" char* SCGetProductCode() { static char code[] = "LU"; return code; }
+extern "C" BOOL SCGetProductSN(u32* sn) { *sn = 0x26012005; return 1; }
+
 
 extern "C" std::uint32_t SCGetSimpleAddressID()
 {

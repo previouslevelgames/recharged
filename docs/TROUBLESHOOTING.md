@@ -66,8 +66,10 @@ can also quarantine new unsigned programs; restore the file and allow it.
 
 ## macOS: the app cannot be opened
 
-The builds are not signed. Allow the app under *System Settings → Privacy &
-Security* (*Open Anyway*), or run in Terminal:
+The packages on the release page are signed and notarized by Apple: macOS
+only asks whether to open an app from the internet. A build from elsewhere (your
+own, or one from a fork) is not signed. Allow it under *System Settings →
+Privacy & Security* (*Open Anyway*), or run in Terminal:
 
 ```sh
 xattr -dr com.apple.quarantine <unpacked folder>
@@ -89,11 +91,10 @@ already connected stays silent until it is opened again.
 ## Linux: the program does not start
 
 - Mark it executable: `chmod +x recharged`.
-- An error about `GLIBC_2.43`, `GLIBCXX` or `CXXABI` means your distribution
-  is older than the build machine (Ubuntu 26.04). Use the
-  `steamdeck-x86_64` package instead: the same build, made with older system
-  libraries (glibc 2.39 and the GCC 14 runtime, as in Ubuntu 24.04 or
-  SteamOS 3.7).
+- An error about `GLIBC`, `GLIBCXX` or `CXXABI` versions means your
+  distribution is older than the build machine (Ubuntu 24.04): the package
+  needs glibc 2.39 and the GCC 14 C++ runtime or newer. Build the game
+  yourself instead (docs/BUILDING.md).
 - A message about Vulkan means the graphics driver lacks Vulkan support:
   install Mesa's Vulkan driver for your GPU (`mesa-vulkan-drivers`,
   `vulkan-radeon`, `vulkan-intel` or similar) or your GPU vendor's driver.
