@@ -1,0 +1,820 @@
+Subject: Diagnostic: the audio plays on through rollbacks, in a heap of its own
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Rollback study, after tweak patch 0029. The audio plays on through
+rollbacks: its state lives in a heap of its own, which no rollback restores.
+The functions the game calls into the audio (the 45 the rest of the module
+uses, the audio system's creation in main, and the callbacks the audio hands
+the AX, alarms, the pads, disc reads and its bundles' loading) enter and
+leave it, and inside it AllocateMemory takes the port's audio allocator. A
+replayed frame starts, stops, pauses and resumes no sound: it did when it
+first ran. The audio's streams read the disc while rollbacks happen:
+mscharged_rollback_async_read_state returns the disc reads' manager, which
+the port leaves out of the rollback.
+
+Add include/mscharged_rollback_audio.h, its interface to the port.
+
+Without RECHARGED_ROLLBACK_TEST or RECHARGED_ROLLBACK nothing changes.
+
+diff --git a/include/mscharged_rollback_audio.h b/include/mscharged_rollback_audio.h
+new file mode 100644
+index 0000000..7e5da7b
+--- /dev/null
++++ b/include/mscharged_rollback_audio.h
+@@ -0,0 +1,45 @@
++#if defined(MSCHARGED_TWEAKS)
++#ifndef MSCHARGED_ROLLBACK_AUDIO_H
++#define MSCHARGED_ROLLBACK_AUDIO_H
++
++// The audio under the rollback (the port's src/platform/rollback_audio.cpp):
++// its state lives in a heap of its own, which no rollback restores, as the
++// sound it describes goes on.
++#include "mscharged_rollback.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// The functions the game calls into the audio enter and leave it
++// (MSCHARGED_AUDIO_SCOPE); inside, mscharged_rollback_audio_allocator is the
++// allocator every allocation uses, null outside or without the rollback.
++void mscharged_rollback_audio_enter(void);
++void mscharged_rollback_audio_leave(void);
++void* mscharged_rollback_audio_allocator(void);
++// The game's: the disc reads' manager and its tail buffers, which go on
++// whatever the match does (a rollback must not take back a read under way,
++// as the audio's streams have); returns how many pointers, at most capacity.
++int mscharged_rollback_async_read_state(const void** pointers, int capacity);
++
++#ifdef __cplusplus
++}
++
++struct MschargedAudioScope
++{
++    MschargedAudioScope() { mscharged_rollback_audio_enter(); }
++    ~MschargedAudioScope() { mscharged_rollback_audio_leave(); }
++};
++// At the start of an audio function the game calls: its allocations go to the
++// audio's heap.
++#define MSCHARGED_AUDIO_SCOPE() MschargedAudioScope mschargedAudioScope
++// At the start of one that starts, stops, pauses or resumes sound: a replayed
++// frame does nothing (it did it when it first ran) and returns the value given.
++#define MSCHARGED_AUDIO_ACTION(...)                                                                  \
++    if (mscharged_rollback_resimulating()) return __VA_ARGS__;                                       \
++    MSCHARGED_AUDIO_SCOPE()
++
++#endif
++
++#endif // MSCHARGED_ROLLBACK_AUDIO_H
++#endif // MSCHARGED_TWEAKS
+diff --git a/src/Game/Audio/AudioBackend.cpp b/src/Game/Audio/AudioBackend.cpp
+index 425ffe8..f5efc08 100644
+--- a/src/Game/Audio/AudioBackend.cpp
++++ b/src/Game/Audio/AudioBackend.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
+ #include "platform/native_audio_memory.h"
+ #endif
+@@ -107,6 +110,9 @@ bool AudioBackend::Initialize()
+ 
+ void AudioBackend::SuspendControllerSpeakers()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     OSCancelAlarm(&m_ControllerSpeakerAlarm);
+     for (int i = 0; i < 4; ++i)
+         m_ControllerSpeakerFlags[i] = (m_ControllerSpeakerFlags[i] & 0x7FFFFFFF) | 0x40000000;
+@@ -114,6 +120,9 @@ void AudioBackend::SuspendControllerSpeakers()
+ 
+ void AudioBackend::ResumeControllerSpeakers()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     for (int i = 0; i < 4; ++i)
+     {
+ #if defined(VERSION_R4QK01)
+@@ -131,6 +140,9 @@ void AudioBackend::ResumeControllerSpeakers()
+ 
+ void OnAudioControllerConnection(int chan, int, int state)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     AudioBackend* self = g_pAudioBackend;
+     if (state == 1 || state == 2)
+     {
+@@ -145,12 +157,18 @@ void OnAudioControllerConnection(int chan, int, int state)
+ 
+ void OnControllerSpeakerEnabled(WPADChannel chan, WPADResult result)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     if (result == WPAD_ERR_OK)
+         WPADControlSpeaker(chan, 4, OnControllerSpeakerReady);
+ }
+ 
+ void OnControllerSpeakerReady(WPADChannel chan, WPADResult result)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     AudioBackend* self = g_pAudioBackend;
+     if (result == WPAD_ERR_OK)
+     {
+@@ -226,6 +244,9 @@ void AudioBackend::ServiceReadQueue(float)
+ 
+ void UpdateAudioSources()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     AudioBackend* self = g_pAudioBackend;
+     MIXUpdateSettings();
+     if (sDoubleMixUpdate)
+@@ -352,6 +373,9 @@ void AudioBackend::InitializeAuxEffects()
+ 
+ void ServiceControllerSpeakers(OSAlarm*, OSContext*)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     AudioBackend* self = g_pAudioBackend;
+     s16 samples[40] = { 0 };
+     u8 encoded[20];
+diff --git a/src/Game/Audio/AudioBankTable.cpp b/src/Game/Audio/AudioBankTable.cpp
+index 0ece4bd..ae2ed6f 100644
+--- a/src/Game/Audio/AudioBankTable.cpp
++++ b/src/Game/Audio/AudioBankTable.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #include "NL/nlDebugString.h"
+ #include "Game/Audio/AudioBankTable.h"
+ #include "Game/Sys/debug.h"
+@@ -98,11 +101,17 @@ void AudioBankTable::Initialize()
+ 
+ void AudioBankTable::SelectGroup(u32 index)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     records_04[index].field_10 = true;
+ }
+ 
+ void AudioBankTable::ClearSelectedGroups()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     for (u32 i = 0; i < count_00; ++i)
+         records_04[i].field_10 = false;
+ }
+@@ -123,6 +132,9 @@ void AudioBankTable::LoadBank(int slotId, unsigned long cueId,
+ 
+ void AudioBankTable::UnloadBank(u32 index)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     AudioResourceSource* source = &records_0C[index];
+     source->field_14 = false;
+     source->resource = 0;
+diff --git a/src/Game/Audio/AudioBundleManager.cpp b/src/Game/Audio/AudioBundleManager.cpp
+index 75e4bf0..005f684 100644
+--- a/src/Game/Audio/AudioBundleManager.cpp
++++ b/src/Game/Audio/AudioBundleManager.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #include "revolution/types.h"
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Audio/AudioBackend.h"
+@@ -50,6 +53,9 @@ bool AudioBundleManager::Initialize()
+ void AudioBundleManager::OnBundleLoaded(
+     void* data, unsigned long, void* manager)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     nlChunk* chunk = (nlChunk*)data;
+     AudioBundleManager* self = (AudioBundleManager*)manager;
+     self->m_LoadedData = data;
+diff --git a/src/Game/Audio/AudioResourceLoadOwner.cpp b/src/Game/Audio/AudioResourceLoadOwner.cpp
+index 9287875..88eb074 100644
+--- a/src/Game/Audio/AudioResourceLoadOwner.cpp
++++ b/src/Game/Audio/AudioResourceLoadOwner.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Audio/AudioBankTable.h"
+ #include "Game/Audio/RegistryPools.h"
+@@ -28,6 +31,9 @@ static inline void PopAllocator()
+ void OnAudioResourceBundleLoaded(
+     void* data, unsigned long, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     AudioResourceLoadOwner* state = static_cast<AudioResourceLoadOwner*>(context);
+     PushAllocator(state->m_Allocator);
+     state->m_LoadedData = data;
+diff --git a/src/Game/Audio/AudioResourcePlatform.cpp b/src/Game/Audio/AudioResourcePlatform.cpp
+index db51d10..db8335c 100644
+--- a/src/Game/Audio/AudioResourcePlatform.cpp
++++ b/src/Game/Audio/AudioResourcePlatform.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
+ #include "platform/native_sp_table.h"
+ #endif
+@@ -202,6 +205,9 @@ void OnAudioBankReadComplete(
+     unsigned long userParam)
+ #endif
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     AudioMemoryLoader* loader = (AudioMemoryLoader*)userParam;
+     nlClose(file);
+     loader->m_Data = data;
+diff --git a/src/Game/Audio/AudioResourceRuntime.cpp b/src/Game/Audio/AudioResourceRuntime.cpp
+index 1614ef5..5ac3a02 100644
+--- a/src/Game/Audio/AudioResourceRuntime.cpp
++++ b/src/Game/Audio/AudioResourceRuntime.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "NL/nlFunction.inl"
+ #include "Game/Audio/AudioResourceRuntime.h"
+@@ -178,6 +181,9 @@ void NotifyAudioSoundStopped(AudioResourceRuntime* runtime, AudioInstanceKey ins
+  */
+ void SetAudioEffectContext(unsigned long* hash, int index)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     g_pAudioResourceRuntime->m_Script->SetEffectContext(*hash, index);
+ }
+ 
+@@ -199,6 +205,9 @@ bool StartAudioEffect(const unsigned long* bindingKey, const unsigned long* defi
+ #endif
+     void* parameterData, bool invert, float blendTime)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION(false);
++#endif
+     u32 key = *bindingKey;
+     u32 definition = *definitionKey;
+     return g_pAudioResourceRuntime->m_Script->StartEffect(
+@@ -298,6 +307,9 @@ inline void AudioResourceRuntime::ApplyEffectSet(u32 bindingKey,
+  */
+ bool ApplyAudioTransition(const u32* transitionHash, bool invert, void* owner)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION(false);
++#endif
+     u32 transitionKey = nlStringLowerHash("Transitions");
+     RegistryContainer* set
+         = FindConfigGroupEntry(transitionKey, *transitionHash);
+diff --git a/src/Game/Audio/AudioSource.cpp b/src/Game/Audio/AudioSource.cpp
+index 4ea3016..01f6206 100644
+--- a/src/Game/Audio/AudioSource.cpp
++++ b/src/Game/Audio/AudioSource.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
+ #include "platform/native_audio_stream.h"
+ #endif
+@@ -444,6 +447,9 @@ inline void AudioReadState::CompleteRead()
+ 
+ void OnAudioStreamReadComplete(nlFile*, void*, unsigned int, MSCHARGED_AUDIO_ASYNC_PARAM userParam)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     ((AudioStreamChannel*)userParam)->m_ReadState->CompleteRead();
+ }
+ 
+@@ -504,6 +510,9 @@ inline unsigned int AudioReadState::GetChannelDataOffset(AudioStreamChannel* cha
+ 
+ void OnAudioStreamHeaderRead(nlFile*, void* buffer, unsigned int, MSCHARGED_AUDIO_ASYNC_PARAM userParam)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     AudioReadCallbackEntry* entry = (AudioReadCallbackEntry*)userParam;
+     if (entry->m_State->m_PendingState == AUDIO_SOURCE_STOPPING)
+     {
+@@ -559,6 +568,9 @@ inline void AudioReadState::OnChannelPrepared(AudioStreamChannel* channel)
+ 
+ void OnAudioStreamPrimeRead(nlFile* file, void* buffer, unsigned int size, MSCHARGED_AUDIO_ASYNC_PARAM userParam)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     AudioReadCallbackEntry* entry = (AudioReadCallbackEntry*)userParam;
+     AudioReadState* state = entry->m_State;
+     if (state->m_PendingState == AUDIO_SOURCE_STOPPING)
+diff --git a/src/Game/Audio/AudioSystem.cpp b/src/Game/Audio/AudioSystem.cpp
+index 986fde0..8b1a35f 100644
+--- a/src/Game/Audio/AudioSystem.cpp
++++ b/src/Game/Audio/AudioSystem.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/Audio/AudioSystem.h"
+ #include "Game/TweakValue.h"
+@@ -195,6 +198,9 @@ void UpdateAudioSystem(AudioSystem* audio, float dt)
+ 
+ void FlushAudio(AudioSystem* audio, int callbackEnabled, bool force)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     nlDLListIterator<XSoundHandle*> it;
+     it = audio->m_ActiveSoundList.Begin();
+     while (it.hasNext())
+@@ -215,6 +221,9 @@ void FlushAudio(AudioSystem* audio, int callbackEnabled, bool force)
+ 
+ void PrintAudioSystem(AudioSystem* audio)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     nlDLListIterator<XSoundHandle*> it;
+     it = audio->m_ActiveSoundList.Begin();
+     while (it.hasNext())
+@@ -244,11 +253,17 @@ void DumpAudioSystem(AudioSystem* audio, const char* path)
+ 
+ Plat3dSoundSrc* CreateAudioSoundOwner(AudioSystem* audio)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     return audio->m_SoundInstancePool.AllocateAtEnd(0);
+ }
+ 
+ void ReleaseAudioSoundOwner(void* value, void* owner)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     AudioSystem* audio = (AudioSystem*)value;
+     audio->m_SoundOwnerPool.AddEnd((XSoundOwner*)owner);
+ }
+diff --git a/src/Game/Audio/GameStreams.cpp b/src/Game/Audio/GameStreams.cpp
+index 21ea381..b42be78 100644
+--- a/src/Game/Audio/GameStreams.cpp
++++ b/src/Game/Audio/GameStreams.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #include "Game/Audio/GameStreams.h"
+ #include "revolution/os/OSTime.h"
+ #include "Game/Audio/AudioGlobals.h"
+@@ -45,6 +48,9 @@ void XSoundCueHandle::Release()
+ 
+ void InitializeGameStreams()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+ }
+ 
+ static inline unsigned long GetAudioMilliseconds()
+@@ -54,6 +60,9 @@ static inline unsigned long GetAudioMilliseconds()
+ 
+ void StopCrowdReactions()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     int i = 0;
+     RestrictedStreamSlot* slot = sRestrictedStreams;
+     for (; i < 2; ++i, ++slot)
+@@ -64,6 +73,9 @@ void StopCrowdReactions()
+ 
+ void PlayCrowdReaction(unsigned long cueId)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     if (GetTweakBool(sRestrictStreamsKey, false))
+     {
+         return;
+@@ -115,6 +127,9 @@ void PlayCrowdReaction(unsigned long cueId)
+ void PlayCaptainChant(
+     int slotId, unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     sCaptainStreamActive = true;
+ 
+     int i = 0;
+@@ -129,6 +144,9 @@ void PlayCaptainChant(
+ 
+ void StopCaptainChant(unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     sCaptainStreamActive = false;
+     StopSound(cueId, context);
+ }
+@@ -136,6 +154,9 @@ void StopCaptainChant(unsigned long cueId, void* context)
+ void PlayCaptainPowerupStream(
+     int slotId, unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     sCaptainStreamActive = true;
+ 
+     int i = 0;
+@@ -150,12 +171,18 @@ void PlayCaptainPowerupStream(
+ 
+ void StopCaptainPowerupStream(unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     sCaptainStreamActive = false;
+     StopSound(cueId, context);
+ }
+ 
+ void PlaySuddenDeathMusic()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     if (!sSuddenDeathMusicPaused)
+     {
+         PlayTrackedOwnedSound(18, 0x1326CB0C, 0, sSuddenDeathMusicName,
+@@ -167,12 +194,18 @@ void PlaySuddenDeathMusic()
+ 
+ void PauseSuddenDeathMusic()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     PauseSound(0x1326CB0C, (void*)-1);
+     sSuddenDeathMusicPaused = true;
+ }
+ 
+ void ResumeSuddenDeathMusic()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     sSuddenDeathMusicPaused = false;
+     if (sSuddenDeathMusicStarted)
+     {
+@@ -189,6 +222,9 @@ void ResumeSuddenDeathMusic()
+ 
+ void StopSuddenDeathMusic()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     StopSound(0x1326CB0C, (void*)-1);
+     sSuddenDeathMusicPaused = false;
+     sSuddenDeathMusicStarted = false;
+@@ -197,6 +233,9 @@ void StopSuddenDeathMusic()
+ 
+ void SetPlayerAudioController(cPlayer* player)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     DetInput* input = 0;
+     if (player != 0)
+     {
+diff --git a/src/Game/Audio/audio.cpp b/src/Game/Audio/audio.cpp
+index d379bb7..6bc5648 100644
+--- a/src/Game/Audio/audio.cpp
++++ b/src/Game/Audio/audio.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #include "Game/Task/GameTaskState.h"
+ #include "revolution/types.h"
+ #include "NL/nlDLListContainer.inl"
+@@ -88,6 +91,9 @@ GameAudio::GameAudio()
+ 
+ bool GameAudio::Initialize()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     AllocatorStack[AllocatorStackDepth++] = &VirtualAllocator;
+     CurrentAllocator = &VirtualAllocator;
+     gAudioMemorySize = 0x800000;
+@@ -128,6 +134,9 @@ void GameAudio::Shutdown()
+ 
+ void GameAudio::Update(float deltaTime)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     bool transformValid = false;
+ 
+     if (nlTaskManager::m_pInstance->mCurrentState == TASK_GAMEPLAY
+@@ -158,6 +167,9 @@ void LoadSoundBank(GameAudio* audio, int slotId,
+     // European revision 1 data: its sound bank table has no FE_GEN_Music
+     // (0x1A), so every later bank sits one lower (tweak patch 0019).
+     slotId = mscharged_tweak_rev1_sound_bank(slotId);
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
+ #endif
+     if (!gAudioEnabled)
+     {
+@@ -186,6 +198,9 @@ void LoadSoundBank(GameAudio* audio, int slotId,
+ 
+ void UnloadSoundBanks(GameAudio* audio)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     if (gAudioEnabled
+         && audio->GetBundleManager()->GetSoundMap() != 0)
+     {
+@@ -196,6 +211,9 @@ void UnloadSoundBanks(GameAudio* audio)
+ bool PlaySound(int slotId, unsigned long cueId,
+     const void* debugName, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION(false);
++#endif
+     if (cueId == 0xFFFFFFFF)
+     {
+         return true;
+@@ -213,6 +231,9 @@ bool PlaySound(int slotId, unsigned long cueId,
+ bool PlayOwnedSound(int slotId, unsigned long cueId,
+     XSoundOwner* owner, const void* debugName, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION(false);
++#endif
+     if (cueId == 0xFFFFFFFF)
+     {
+         return true;
+@@ -289,6 +310,9 @@ XSoundHandle* CreateSoundHandle(int slotId,
+ 
+ bool IsSoundTracked(unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     XSoundHandle** slot = 0;
+     MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+     return sAudioHandles.FindGet(key, &slot);
+@@ -297,6 +321,9 @@ bool IsSoundTracked(unsigned long cueId, void* context)
+ XSoundHandle* FindSoundHandle(
+     unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     if (!gAudioEnabled)
+     {
+         return 0;
+@@ -310,6 +337,9 @@ XSoundHandle* FindSoundHandle(
+ bool PlayTrackedSound(int slotId, unsigned long cueId,
+     const void* debugName, void* context, bool resumable)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION(false);
++#endif
+     if (PlaySound(slotId, cueId, debugName, context))
+     {
+         AudioHandleState state;
+@@ -325,6 +355,9 @@ bool PlayTrackedOwnedSound(int slotId, unsigned long cueId,
+     XSoundOwner* owner, const void* debugName,
+     void* context, bool resumable)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION(false);
++#endif
+     if (PlayOwnedSound(slotId, cueId, owner, debugName, context))
+     {
+         AudioHandleState state;
+@@ -338,6 +371,9 @@ bool PlayTrackedOwnedSound(int slotId, unsigned long cueId,
+ 
+ void StopSound(unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     if (gExclusiveAudioContext == 0 && gAudioEnabled
+         && cueId != 0xFFFFFFFF)
+     {
+@@ -374,6 +410,9 @@ void StopSound(unsigned long cueId, void* context)
+ 
+ void PauseSound(unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     if (cueId != 0xFFFFFFFF)
+     {
+         MSCHARGED_AUDIO_HANDLE_KEY key = MakeAudioHandleKey(cueId, context);
+@@ -410,6 +449,9 @@ void PauseSound(unsigned long cueId, void* context)
+ 
+ void ResumeSound(unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     if (cueId == 0xFFFFFFFF)
+     {
+         return;
+@@ -448,6 +490,9 @@ void ResumeSound(unsigned long cueId, void* context)
+ 
+ void SetLastSoundParameter(unsigned long parameter, float value)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     if (g_pLastAudioHandle == 0)
+     {
+         return;
+@@ -459,6 +504,9 @@ void SetLastSoundParameter(unsigned long parameter, float value)
+ int GetSoundState(
+     unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     XSoundHandle* handle = FindSoundHandle(cueId, context);
+     return handle != 0 ? handle->m_State : SOUND_HANDLE_STOPPED;
+ }
+@@ -466,6 +514,9 @@ int GetSoundState(
+ void SetSoundCallbackEnabled(unsigned long cueId, void* context,
+     unsigned char enabled)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     XSoundHandle* handle = FindSoundHandle(cueId, context);
+     if (handle != 0)
+     {
+@@ -486,6 +537,9 @@ bool PrepareTrackedSound(int slotId, unsigned long cueId,
+     XSoundOwner* owner, const void* debugName,
+     void* context, bool resumable)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION(false);
++#endif
+     XSoundHandle* handle = CreateSoundHandle(
+         slotId, cueId, owner, debugName, context, false);
+     if (handle != 0)
+@@ -501,6 +555,9 @@ bool PrepareTrackedSound(int slotId, unsigned long cueId,
+ 
+ bool StartTrackedSound(unsigned long cueId, void* context)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION(false);
++#endif
+     XSoundHandle* handle = FindSoundHandle(cueId, context);
+     if (handle == 0)
+     {
+@@ -512,6 +569,9 @@ bool StartTrackedSound(unsigned long cueId, void* context)
+ 
+ void PauseAllAudio()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     ++sAudioPauseDepth;
+     sAudioHandles.Walk(
+         g_pAudioSystem, &AudioSystem::PauseTrackedSound);
+@@ -553,6 +613,9 @@ void PauseAllAudio()
+ 
+ void ResumeAllAudio()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_ACTION();
++#endif
+     AudioSystem* audio = g_pAudioSystem;
+     sAudioHandleStates.Walk(audio, &AudioSystem::ResumeTrackedSound);
+     --sAudioPauseDepth;
+@@ -560,6 +623,9 @@ void ResumeAllAudio()
+ 
+ int GetAudioPauseDepth()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    MSCHARGED_AUDIO_SCOPE();
++#endif
+     return sAudioPauseDepth;
+ }
+ 
+diff --git a/src/Game/main.cpp b/src/Game/main.cpp
+index 600f0db..735fbbb 100644
+--- a/src/Game/main.cpp
++++ b/src/Game/main.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #include "Game/Task/GameTaskState.h"
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/main.h"
+@@ -662,6 +665,10 @@ static void Initialize()
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_INPUT)
+     InitPlatPad();
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++    // The audio system and everything it makes live in the audio's heap.
++    mscharged_rollback_audio_enter();
++#endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_GAME_AUDIO_OWNER)
+     g_pGameAudio = new (nlMalloc(sizeof(GameAudio), 8, false))
+         GameAudio;
+@@ -669,6 +676,9 @@ static void Initialize()
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_GAME_AUDIO_INITIALIZE)
+     g_pGameAudio->Initialize();
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++    mscharged_rollback_audio_leave();
++#endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
+     gSwappablePadChanged.Add(Function<void(int)>(ConfigureTweakerButtons), 0, -1);
+     g_pPadManager->Update(0.0f);
+diff --git a/src/NL/nlFileGC.cpp b/src/NL/nlFileGC.cpp
+index 71f4b76..4dcaeb8 100644
+--- a/src/NL/nlFileGC.cpp
++++ b/src/NL/nlFileGC.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #include "revolution/dvd/dvd.h"
+ #include "revolution/os/OSInterrupt.h"
+ #include "revolution/os/OSThread.h"
+@@ -677,6 +680,19 @@ AsyncEntry* nlGetCurrentAsyncRead()
+     return s_pAsyncManager ? s_pAsyncManager->mCurrent : 0;
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++int mscharged_rollback_async_read_state(const void** pointers, int capacity)
++{
++    if (!s_pAsyncManager || capacity < 2)
++    {
++        return 0;
++    }
++    pointers[0] = s_pAsyncManager;
++    pointers[1] = s_pAsyncManager->mTailBuffers;
++    return 2;
++}
++#endif
++
+ void nlInitFileSystem()
+ {
+ #ifdef MSCHARGED_NATIVE
+diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
+index e750d03..8889f70 100644
+--- a/src/NL/nlMemory.cpp
++++ b/src/NL/nlMemory.cpp
+@@ -1,3 +1,6 @@
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback_audio.h"
++#endif
+ #include "NL/nlMemory.h"
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_GAME_MODULE)
+ #include <cstddef>
+@@ -43,6 +46,13 @@ static inline void* AllocateMemory(unsigned long size, unsigned int alignment, b
+     {
+         nlInitMemory();
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Inside the audio, with the rollback on: the audio's own heap.
++    if (void* audio = mscharged_rollback_audio_allocator())
++    {
++        return static_cast<MemoryAllocator*>(audio)->Allocate(size, alignment, fromEnd);
++    }
++#endif
+     return CurrentAllocator->Allocate(size, alignment, fromEnd);
+ }
+ 

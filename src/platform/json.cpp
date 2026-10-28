@@ -1,6 +1,7 @@
 #include "platform/json.h"
 
 #include <charconv>
+#include <cstdio>
 #include <stdexcept>
 
 namespace mscharged::platform
@@ -248,4 +249,22 @@ const JsonValue& JsonValue::operator[](std::string_view name) const
 }
 
 JsonValue ParseJson(std::string_view text) { return JsonParser(text).Document(); }
+
+void AppendJsonString(std::string& out, std::string_view text)
+{
+    out += '"';
+    for (const char c : text)
+    {
+        const auto byte = static_cast<unsigned char>(c);
+        if (c == '"' || c == '\\') { out += '\\'; out += c; }
+        else if (byte < 0x20)
+        {
+            char escaped[8];
+            std::snprintf(escaped, sizeof escaped, "\\u%04x", unsigned(byte));
+            out += escaped;
+        }
+        else out += c;
+    }
+    out += '"';
+}
 } // namespace mscharged::platform

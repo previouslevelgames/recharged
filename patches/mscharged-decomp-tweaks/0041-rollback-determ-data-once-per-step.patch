@@ -1,0 +1,73 @@
+From: mscharged-port
+Subject: Rollback: a step's deterministic data goes out once, from whichever run queues it
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Tweak patch 0029 dropped every deterministic data packet a replayed step
+queued, as having gone out when the step first ran. With predicted inputs
+the first run may not have queued it: the host's camera ends a slow motion
+(GameplayCameraEffects::Reset, cGame::SendSlowDownEnd) at a step whose
+first run, on inputs predicted wrong, had not reached that end yet, and
+reaches it in the replay. The replay dropped the end and the camera, which
+no longer owned the time scale, never sent it again: every machine stayed
+in the slow motion, together and without a desync, for the rest of the
+match.
+
+InputRouter::QueueDetermData now asks the rollback whether the step sent
+those bytes already (mscharged_rollback_determ_data_new): the rollback
+keeps, outside the memory it restores, what each step it tracks sent in
+any of its runs, and a later run, a replay or the step run again after it
+was undone, sends only what is not there. A packet a replay queues again
+stays out as before; one only the replay queues goes out, a step later
+than the original would have. The packets the host sends from predicted
+steps are state the game takes as the latest (the players' visibility,
+every ten steps) or ignores when it changes nothing (a slow motion's end
+with the time scale at 1), so one sent from a replay as well as from the
+first run is harmless. Outside tracked steps everything goes out.
+
+diff --git a/include/mscharged_rollback.h b/include/mscharged_rollback.h
+index b3488c3c..93d0c1c6 100644
+--- a/include/mscharged_rollback.h
++++ b/include/mscharged_rollback.h
+@@ -38,6 +38,14 @@ bool mscharged_rollback_active(void);
+ // Whether the steps running now replay earlier ones: deterministic data they
+ // queue was sent when they first ran.
+ bool mscharged_rollback_resimulating(void);
++#if defined(MSCHARGED_TWEAKS)
++// Whether deterministic data a step queues goes out: once for each step, by
++// its bytes. A replay sends what the step's earlier runs did not (with
++// predicted inputs, its first run may not have queued it: the host's end of
++// a slow motion), and drops what went out already; so does a step run again
++// after it was undone. Outside tracked steps, everything goes out.
++bool mscharged_rollback_determ_data_new(int frame, const void* data, unsigned size);
++#endif
+ // The inputs applied for the step about to run.
+ void mscharged_rollback_inputs_applied(const struct MschargedRollbackInputs* inputs);
+ // Between two fixed steps of a match, where the rollback saves the match and
+diff --git a/src/Game/InputRouter.cpp b/src/Game/InputRouter.cpp
+index 761603a0..1ecb100b 100644
+--- a/src/Game/InputRouter.cpp
++++ b/src/Game/InputRouter.cpp
+@@ -333,20 +333,20 @@ void InputRouter::QueueDetermData(const void* data, u32 size)
+ {
+ #if defined(MSCHARGED_TWEAKS)
+     if (mscharged_rollback_active())
+     {
+         // RECHARGED_NET_DEBUG: what the steps queue, sent or not, by type
+         // (its first byte) and step.
+         const unsigned type = size > 0 ? *static_cast<const u8*>(data) : 0;
+         const int frame = gInputManager != 0 ? gInputManager->mFrameProvider->GetFrame() : -1;
+-        // A replayed step: its data went out when the step first ran.
+-        if (mscharged_rollback_resimulating())
++        // Once for each step: what a run of it sent before stays out.
++        if (!mscharged_rollback_determ_data_new(frame, data, size))
+         {
+-            tDebugPrintManager::Print(DC_NETWORK, "Determ data %u of step %d not sent: a replay\n", type, frame);
++            tDebugPrintManager::Print(DC_NETWORK, "Determ data %u of step %d not sent: sent before\n", type, frame);
+             return;
+         }
+         DetermDataEvent* outgoing = ::new (malloc(sizeof(DetermDataEvent))) DetermDataEvent(data, size);
+         if (!m_OutgoingCustomDetermDataQ.IsFull())
+         {
+             m_OutgoingCustomDetermDataQ.Push(outgoing);
+             tDebugPrintManager::Print(DC_NETWORK, "Determ data %u of step %d queued\n", type, frame);
+         }

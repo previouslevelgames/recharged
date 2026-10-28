@@ -12,6 +12,10 @@ extern "C" {
  * This boundary does not retain input/output pointers or allocate storage. */
 void ChargedDecodeRFLCharRecordBE(const void* raw, RFLiCharData* output);
 
+/* The inverse: one native typed value into its original 74-byte Wii record,
+ * every bit placed where ChargedDecodeRFLCharRecordBE reads it. */
+void ChargedEncodeRFLCharRecordBE(const RFLiCharData* input, void* raw);
+
 #ifdef __cplusplus
 }
 #endif

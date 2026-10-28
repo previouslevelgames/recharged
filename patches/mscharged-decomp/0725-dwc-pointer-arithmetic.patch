@@ -1,0 +1,37 @@
+From: mscharged-port
+Subject: Do DWC's block and ranking address arithmetic on byte pointers
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+DWCi_GetAllocateHeader steps back from a block to the 32-byte header
+DWC puts before it through a u32, which on a 64-bit host truncates the
+address every DWC_Free and DWC_Realloc hands to the game's allocator.
+DWC_RnkResGetRow bounds a ranking row against the end of the server's
+response through u32 addresses as well. Both use u8 pointers instead.
+
+diff --git a/src/RVL_SDK/dwc/dwc_memfunc.c b/src/RVL_SDK/dwc/dwc_memfunc.c
+index c12aa32..51558c3 100644
+--- a/src/RVL_SDK/dwc/dwc_memfunc.c
++++ b/src/RVL_SDK/dwc/dwc_memfunc.c
+@@ -7,7 +7,7 @@ static DWCAllocEx s_alloc;
+ static DWCFreeEx s_free;
+ 
+ DWCi_AllocateHeader* DWCi_GetAllocateHeader(void* block) {
+-  return (DWCi_AllocateHeader*)((u32)block - sizeof(DWCi_AllocateHeader));
++  return (DWCi_AllocateHeader*)((u8*)block - sizeof(DWCi_AllocateHeader));
+ }
+ 
+ void* DWCi_SetAllocateHeader(DWCi_AllocateHeader* blockHeader, u32 size) {
+diff --git a/src/RVL_SDK/dwc/dwc_ranking.c b/src/RVL_SDK/dwc/dwc_ranking.c
+index 4a8dd4f..ee270a6 100644
+--- a/src/RVL_SDK/dwc/dwc_ranking.c
++++ b/src/RVL_SDK/dwc/dwc_ranking.c
+@@ -255,7 +255,7 @@ DWCRnkError DWC_RnkResGetRow(DWCRnkData* out, u32 index)
+     while (index-- > 0)
+         ptr = (DWCRnkData*)(((u8*)&ptr->userdata) + ptr->size);
+ 
+-    if ((u32)&ptr->userdata + ptr->size > (u32)res.header + res.size)
++    if ((u8*)&ptr->userdata + ptr->size > (u8*)res.header + res.size)
+         return DWC_RNK_ERROR_INVALID_PARAMETER;
+ 
+     *out = *ptr;

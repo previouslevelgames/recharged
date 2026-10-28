@@ -1,7 +1,7 @@
 From: mscharged-port
 Subject: Draw to the Switch window
 Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
-Classification: Nintendo Switch host (Switch only). Apply after 0118.
+Classification: Nintendo Switch host (Switch only). Apply after 0119.
 
 SDL2's Switch window, under sdl3on2, carries no native handle. Dawn draws to
 the console's default window, as in new-coke's Strikers port.

@@ -1,41 +1,91 @@
 From: mscharged-port
-Subject: Print the network debug channel under the LAN admission
+Subject: Print the network debug channel under the LAN and online admissions or RECHARGED_NET_DEBUG
 Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
-Classification: temporary explicit original-source diagnostic admission
+Classification: explicit original-source diagnostic admission
 
-Retail compiles tDebugPrintManager::Print to nothing. Under
-MSCHARGED_DIAGNOSTIC_FRONTEND_LAN, native builds print the DC_NETWORK
-channel to stderr with a "[net] " prefix, so the original session, lobby
-and connection messages reach the terminal. Other channels stay silent.
+Retail compiles tDebugPrintManager::Print to nothing. Native builds print the
+DC_NETWORK channel to stderr with a "[net] " prefix, so the original
+session, lobby, connection and deterministic data messages (the mega
+strike's, the slow motion's end) reach the terminal and the session log:
+always under MSCHARGED_DIAGNOSTIC_FRONTEND_LAN, and otherwise when the
+RECHARGED_NET_DEBUG environment variable is set to anything but 0, read
+once. Under MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE the channel also goes,
+with the same prefix, to OSReport, the game's own debug output, which only
+a verbose console (advanced.verbose_console) shows: the WFC session,
+matchmaking and the ranking reports (NetworkStatsManager) reach the
+session log for bug reports. Otherwise nothing prints, as on the Wii.
+Other channels stay silent.
 
 diff --git a/include/Game/Sys/debug.h b/include/Game/Sys/debug.h
-index 11f42ad..ffdf868 100644
+index 11f42ade..c925dee3 100644
 --- a/include/Game/Sys/debug.h
 +++ b/include/Game/Sys/debug.h
-@@ -1,6 +1,11 @@
+@@ -1,6 +1,12 @@
  #ifndef _DEBUG_H_
  #define _DEBUG_H_
  
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++#if defined(MSCHARGED_NATIVE)
 +#include <cstdarg>
 +#include <cstdio>
++#include <cstdlib>
 +#endif
 +
  enum eDEBUG_CHANNEL
  {
      DC_STARTUP = 0,
-@@ -31,6 +36,16 @@ namespace tDebugPrintManager
+@@ -26,11 +32,57 @@ enum eDEBUG_CHANNEL
+     DC_NUM_CHANNELS = 20,
+ };
  
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)
++extern "C" void OSReport(const char* message, ...);
++#endif
++
+ namespace tDebugPrintManager
+ {
+ 
++#if defined(MSCHARGED_NATIVE)
++// The network channel prints under the LAN admission, and wherever
++// RECHARGED_NET_DEBUG is set (to anything but 0), read once.
++inline bool NetworkChannelOn()
++{
++#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
++    return true;
++#else
++    static const bool on = [] {
++        const char* value = std::getenv("RECHARGED_NET_DEBUG");
++        return value && *value && *value != '0';
++    }();
++    return on;
++#endif
++}
++#endif
++
  inline int Print(eDEBUG_CHANNEL channel, const char* format, ...)
  {
-+#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
-+    if (channel == DC_NETWORK)
++#if defined(MSCHARGED_NATIVE)
++    if (channel == DC_NETWORK && NetworkChannelOn())
 +    {
++        const char* prefix = "[net] ";
 +        va_list args;
 +        va_start(args, format);
-+        std::fputs("[net] ", stderr);
++        std::fputs(prefix, stderr);
 +        std::vfprintf(stderr, format, args);
 +        va_end(args);
++    }
++#endif
++#if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE)
++    // Online: the channel joins the game's own debug output (OSReport), which
++    // a verbose console shows: session, matchmaking and the ranking reports.
++    if (channel == DC_NETWORK)
++    {
++        const char* prefix = "[net] ";
++        char line[512];
++        va_list args;
++        va_start(args, format);
++        std::vsnprintf(line, sizeof line, format, args);
++        va_end(args);
++        OSReport("%s%s", prefix, line);
 +    }
 +#endif
      return channel;

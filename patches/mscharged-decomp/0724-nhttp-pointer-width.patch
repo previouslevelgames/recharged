@@ -1,0 +1,79 @@
+From: mscharged-port
+Subject: Keep NHTTP's post-send buffer address at pointer width
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+NHTTP hands the POST body buffer from the connection callback to its
+send thread through two u32 fields, the callback parameter's _unk4 and
+the connection's postSendBuf; on a 64-bit host the address loses its
+upper half. _unk4 also carries buffer lengths for the receive events,
+so both fields become uintptr_t rather than pointers. The socket layer's
+32-byte alignment checks take the low address bits through uintptr_t.
+
+diff --git a/libs/RVL_SDK/include/private/nhttp.h b/libs/RVL_SDK/include/private/nhttp.h
+index af48c39..ff6fdcc 100644
+--- a/libs/RVL_SDK/include/private/nhttp.h
++++ b/libs/RVL_SDK/include/private/nhttp.h
+@@ -30,7 +30,8 @@ typedef s32 (*NHTTPConnectionCallback)(NHTTPConnectionInfo* connection,
+ typedef struct NHTTPConnectionCallbackParam
+ {
+     void* value;
+-    u32 _unk4;
++    // The post-send buffer for post-send events, a length otherwise
++    uintptr_t _unk4;
+     u32 _unk8;
+     u32 _unkC;
+ } NHTTPConnectionCallbackParam;
+@@ -157,7 +158,7 @@ struct NHTTPConnectionInfo
+     s32 requestId;
+     NHTTPConnectionCallback callback;
+     NHTTPConnectionInfo* next;
+-    u32 postSendBuf;
++    uintptr_t postSendBuf;
+     u32 postSendSize;
+     u32 virtualContentLength;
+     NHTTPReqCallback requestCallback;
+diff --git a/src/RVL_SDK/nhttp/NHTTP_socket_RVL.c b/src/RVL_SDK/nhttp/NHTTP_socket_RVL.c
+index 29fcf56..9449ef7 100644
+--- a/src/RVL_SDK/nhttp/NHTTP_socket_RVL.c
++++ b/src/RVL_SDK/nhttp/NHTTP_socket_RVL.c
+@@ -135,7 +135,7 @@ s32 NHTTPi_SocRecv_sub(s32 socket, char* o_buf, u32 i_bufSize, s32 flags)
+     int total_read;
+     s32 ret;
+ 
+-    align = (u32)o_buf & 31;
++    align = (u32)((uintptr_t)o_buf & 31);
+     front_bytes = align != 0 ? (32 - align) : 0;
+     rest = i_bufSize;
+     total_read = 0;
+@@ -272,7 +272,7 @@ s32 NHTTPi_SocSend_sub(s32 socket, const char* i_buf, u32 i_bufSize,
+     s32 rest;
+     int total_write;
+ 
+-    align = (u32)i_buf & 31;
++    align = (u32)((uintptr_t)i_buf & 31);
+     front_bytes = align != 0 ? (32 - align) : 0;
+     rest = i_bufSize;
+     total_write = 0;
+diff --git a/src/RVL_SDK/nhttp/d_nhttp_common.c b/src/RVL_SDK/nhttp/d_nhttp_common.c
+index 98a1f32..86e2ce8 100644
+--- a/src/RVL_SDK/nhttp/d_nhttp_common.c
++++ b/src/RVL_SDK/nhttp/d_nhttp_common.c
+@@ -167,7 +167,7 @@ s32 NHTTPi_GetConnectionListLength(void)
+ s32 NHTTPi_PostSendCallback(void* mutexInfo,
+     NHTTPConnectionInfo* connection, const char* label, u32 arg)
+ {
+-    u32 postSendBuf;
++    uintptr_t postSendBuf;
+     u32 postSendSize;
+     s32 result;
+     NHTTPResponseInfo* response;
+@@ -185,7 +185,7 @@ s32 NHTTPi_PostSendCallback(void* mutexInfo,
+             param.offset = arg;
+             result = connection->callback(connection, 1, &param);
+             postSendSize = param.size;
+-            postSendBuf = (u32)param.buf;
++            postSendBuf = (uintptr_t)param.buf;
+ 
+             connection = NHTTPi_GetConnection(mutexInfo, connection);
+             if (connection != NULL)

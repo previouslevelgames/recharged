@@ -1,0 +1,167 @@
+From: mscharged-port
+Subject: Declare the DWC API with the SDK's 32-bit widths
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility
+
+The game-facing DWC forward headers spell the SDK's u32 and s32 as
+unsigned long and long, one width on the Wii. On a 64-bit host long has
+eight bytes: the declarations no longer match the DWC definitions, and
+DWC_GetLastErrorEx would store four bytes into the game's eight-byte
+error code. The headers take the definitions' types, and NetworkSession
+keeps its DWC error code and allocator callbacks at the same widths.
+
+diff --git a/include/Game/NetworkSession.h b/include/Game/NetworkSession.h
+index 64bc48a..8f0e01d 100644
+--- a/include/Game/NetworkSession.h
++++ b/include/Game/NetworkSession.h
+@@ -638,9 +638,9 @@ public:
+     /* 0x247C */ int mGameNumber;
+     /* 0x2480 */ int mOverlayRequest;
+     /* 0x2484 */ int mPoppedOverlay;
+-    long GetDWCErrorCode() const { return mDWCErrorCode; }
++    s32 GetDWCErrorCode() const { return mDWCErrorCode; }
+ 
+-    /* 0x2488 */ long mDWCErrorCode;
++    /* 0x2488 */ s32 mDWCErrorCode;
+     /* 0x248C */ DWCErrorType mDWCErrorType;
+     /* 0x2490 */ int mDWCLastError;
+     /* 0x2494 */ u8 mFriendsMatchProcessingSuspended;
+diff --git a/libs/RVL_SDK/include/dwc/dwc_error_fwd.h b/libs/RVL_SDK/include/dwc/dwc_error_fwd.h
+index ea74f8a..2ce0a33 100644
+--- a/libs/RVL_SDK/include/dwc/dwc_error_fwd.h
++++ b/libs/RVL_SDK/include/dwc/dwc_error_fwd.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include <dwc/dwci_error.h>
++#include <revolution/types.h>
+ 
+ typedef DWCErrorType DWCError;
+ 
+@@ -10,7 +11,7 @@ extern "C"
+ #endif
+ 
+ int DWC_GetLastError(int* errorCode);
+-long DWC_GetLastErrorEx(long* errorCode, DWCErrorType* errorType);
++s32 DWC_GetLastErrorEx(s32* errorCode, DWCErrorType* errorType);
+ void DWC_ClearError();
+ 
+ #ifdef __cplusplus
+diff --git a/libs/RVL_SDK/include/dwc/dwc_init_fwd.h b/libs/RVL_SDK/include/dwc/dwc_init_fwd.h
+index f57841d..5318afb 100644
+--- a/libs/RVL_SDK/include/dwc/dwc_init_fwd.h
++++ b/libs/RVL_SDK/include/dwc/dwc_init_fwd.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include <dwc/dwc_memfunc_fwd.h>
++#include <revolution/types.h>
+ 
+ #ifdef __cplusplus
+ extern "C"
+@@ -13,7 +14,7 @@ typedef enum {
+   DWC_SVR_PROHIBITED
+ } DWC_AuthServer;
+ 
+-int DWC_Init(DWC_AuthServer authSvr, const char* gameName, unsigned long gameCode,
++int DWC_Init(DWC_AuthServer authSvr, const char* gameName, u32 gameCode,
+              DWCAllocEx allocator, DWCFreeEx freeer);
+ void DWC_Shutdown();
+ 
+diff --git a/libs/RVL_SDK/include/dwc/dwc_memfunc_fwd.h b/libs/RVL_SDK/include/dwc/dwc_memfunc_fwd.h
+index baf8ac7..3bf1bc0 100644
+--- a/libs/RVL_SDK/include/dwc/dwc_memfunc_fwd.h
++++ b/libs/RVL_SDK/include/dwc/dwc_memfunc_fwd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include <revolution/types.h>
++
+ #ifdef __cplusplus
+ extern "C"
+ {
+@@ -23,10 +25,10 @@ typedef enum {
+   DWC_ALLOCTYPE_NUM
+ } DWCAllocType;
+ 
+-typedef void* (*DWCAllocEx)(DWCAllocType name, unsigned long size, int align);
+-typedef void (*DWCFreeEx)(DWCAllocType name, void* ptr, unsigned long size);
+-typedef void* (*DWCAllocFunc)(DWCAllocType name, unsigned long size);
+-typedef void (*DWCFreeFunc)(DWCAllocType name, void* ptr, unsigned long size);
++typedef void* (*DWCAllocEx)(DWCAllocType name, u32 size, int align);
++typedef void (*DWCFreeEx)(DWCAllocType name, void* ptr, u32 size);
++typedef void* (*DWCAllocFunc)(DWCAllocType name, u32 size);
++typedef void (*DWCFreeFunc)(DWCAllocType name, void* ptr, u32 size);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/libs/RVL_SDK/include/dwc/dwc_report_fwd.h b/libs/RVL_SDK/include/dwc/dwc_report_fwd.h
+index c783ba4..34d4b93 100644
+--- a/libs/RVL_SDK/include/dwc/dwc_report_fwd.h
++++ b/libs/RVL_SDK/include/dwc/dwc_report_fwd.h
+@@ -1,12 +1,14 @@
+ #pragma once
+ 
++#include <revolution/types.h>
++
+ #ifdef __cplusplus
+ extern "C"
+ {
+ #endif
+ 
+-void DWC_SetReportLevel(unsigned long level);
+-void DWC_Printf(unsigned long level, const char* format, ...);
++void DWC_SetReportLevel(u32 level);
++void DWC_Printf(u32 level, const char* format, ...);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/libs/RVL_SDK/include/revolution/net/NETStartup.h b/libs/RVL_SDK/include/revolution/net/NETStartup.h
+index d5adc0d..8a98873 100644
+--- a/libs/RVL_SDK/include/revolution/net/NETStartup.h
++++ b/libs/RVL_SDK/include/revolution/net/NETStartup.h
+@@ -1,11 +1,13 @@
+ #ifndef RVL_SDK_NET_STARTUP_H
+ #define RVL_SDK_NET_STARTUP_H
+ 
++#include <revolution/types.h>
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+ 
+-long NETGetStartupErrorCode(long result);
++s32 NETGetStartupErrorCode(s32 result);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
+index f2b9e86..b23584c 100644
+--- a/src/Game/NetworkSession.cpp
++++ b/src/Game/NetworkSession.cpp
+@@ -649,8 +649,8 @@ void NetworkSession::Update()
+     }
+ }
+ 
+-static void* NetworkAlloc(DWCAllocType name, unsigned long size, int align);
+-static void NetworkFree(DWCAllocType name, void* ptr, unsigned long size);
++static void* NetworkAlloc(DWCAllocType name, u32 size, int align);
++static void NetworkFree(DWCAllocType name, void* ptr, u32 size);
+ 
+ void NetworkSession::InitializeLAN()
+ {
+@@ -768,12 +768,12 @@ void NetworkSession::InitializeOnline()
+     mLoginRequestStarted = StartLogin();
+ }
+ 
+-static void* NetworkAlloc(DWCAllocType name, unsigned long size, int align)
++static void* NetworkAlloc(DWCAllocType name, u32 size, int align)
+ {
+     return s_NetworkAllocator.Allocate(size, align, false);
+ }
+ 
+-static void NetworkFree(DWCAllocType name, void* ptr, unsigned long size)
++static void NetworkFree(DWCAllocType name, void* ptr, u32 size)
+ {
+     if (ptr == 0)
+     {

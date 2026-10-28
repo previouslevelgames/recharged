@@ -1,0 +1,37 @@
+From: mscharged-port
+Subject: Append NET MD5's bit length in little-endian bytes natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native byte-order compatibility
+
+NETMD5GetDigest appends the message's bit length as NETSwapBytes32 values
+stored as u32 words. On the Wii that leaves little-endian bytes, as MD5
+requires; on a little-endian host it leaves them reversed, and
+ProcessBlock, which already reads words through the native
+NETReadSwappedBytes32, saw a byte-swapped length. Every digest of a
+non-empty message was wrong, including the HMAC that signs the game's
+ranking submissions (NetworkStats).
+
+Natively the length words are written with NETWriteSwappedBytes32, the
+store ProcessBlock pairs with; on the Wii that is the same stwbrx store.
+Checked against a reference MD5 for lengths 0 to 1000.
+
+diff --git a/src/RVL_SDK/net/md5.c b/src/RVL_SDK/net/md5.c
+index 7758d43..0b352f0 100644
+--- a/src/RVL_SDK/net/md5.c
++++ b/src/RVL_SDK/net/md5.c
+@@ -209,8 +209,15 @@ void NETMD5GetDigest(NETMD5Context* context, void* digest)
+         memset(&context->buffer8[buffer_index], 0, buffer_space - 8);
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // MD5 appends the bit length as little-endian words; store their bytes
++    // as the swapped Wii stores do, which ProcessBlock reads back.
++    NETWriteSwappedBytes32(&context->buffer32[14], (u32)total_length);
++    NETWriteSwappedBytes32(&context->buffer32[15], (u32)(total_length >> 32));
++#else
+     context->buffer32[14] = NETSwapBytes32((u32)total_length);
+     context->buffer32[15] = NETSwapBytes32((u32)(total_length >> 32));
++#endif
+     ProcessBlock(context);
+ 
+     NETWriteSwappedBytes32(p, context->state[0]);

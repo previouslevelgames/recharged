@@ -1,0 +1,375 @@
+Subject: Tweak: training
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+The Strikers 101 lessons take players off the field with their own
+challenge setting, awaymissingsidekicks (and its home twin): at every
+kickoff cTeam::ResetCharacters puts that many fielders of the team in
+FROZEN_SHATTERED, the state Crystal Canyon's solar flares vaporize players
+with. They are intangible and invisible, and the AI and the pad switch pass
+them over. With 4 the captain goes too (the first lesson's Mario team);
+the goalie always stays.
+
+The launcher's Start training (or --training) goes into a training match: it
+passes the title at once, as Skip intro does, and the title's handler goes
+on into the match instead of the main menu, as the demo match starts from
+the title (which stays under the loading). The main menu reads the game
+save otherwise, so the title reads it first and starts the match once it
+is in: Domination with the host's captain and stadium, both captains'
+sidekicks from the save's lineups (mRulesTable, the Teams page's), its
+match settings, and the pad that passed the title on the home side. The
+away captain is Bowser, or Mario against Bowser. g_bTrainingMatch marks
+the match; GameInfoManager::SetMode, which the menus call for every other
+match, clears it, so no other match changes.
+
+In that match, the team nobody plays loses its four fielders at every
+kickoff, and its goalie stays in goal. The team that trains starts every
+kickoff with the host's item (one of it, cGame::ResetPowerups, after the
+game emptied the slots) and keeps every item it uses: DesireUsePowerup no
+longer clears it once thrown. The match is a single one to 10 goals
+(SetupGameFromConfig, on this match's own settings copy, which nothing
+saves) that never ends on them: the goal checks of cGame::CheckForGoal and
+FinishMegaStrike, the end of match presentations they would call
+(Presentation), the goal overlay's winner caption and Match point pass it
+over. It ends from the pause menu, into the main menu.
+
+diff --git a/include/Game/Team.h b/include/Game/Team.h
+index ddf8b5e..7942750 100644
+--- a/include/Game/Team.h
++++ b/include/Game/Team.h
+@@ -147,6 +147,14 @@ public:
+ };
+ 
+ extern cTeam* g_pTeams[];
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Training": whether the match is the launcher's Start training
++// one (the title sets it, GameInfoManager::SetMode clears it); and the side
++// (0 home, 1 away) that trains alone in it, the one players play while nobody
++// plays the other, -1 for none.
++extern bool g_bTrainingMatch;
++int GetTrainingSide();
++#endif
+ FuzzyRuntimeBase* GetTeamFuzzyRuntime(cTeam*);
+ ScriptMachine* GetTeamScriptMachine(cTeam*);
+ extern cTeam* g_pCurrentlyUpdatingTeam;
+diff --git a/src/Game/AI/DesireUsePowerup.cpp b/src/Game/AI/DesireUsePowerup.cpp
+index 24ff211..dac6436 100644
+--- a/src/Game/AI/DesireUsePowerup.cpp
++++ b/src/Game/AI/DesireUsePowerup.cpp
+@@ -308,6 +308,13 @@ void DesireUsePowerup::SetPowerup(
+         break;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": the team that trains keeps its item.
++    if (GetTrainingSide() == m_pFielder->m_pTeam->m_nSide)
++    {
++        bRetainPowerup = true;
++    }
++#endif
+     if (!bRetainPowerup)
+     {
+         m_pFielder->m_pTeam->ClearCurrentPowerUp();
+diff --git a/src/Game/FE/Overlay/OverlayHandlerGoal.cpp b/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
+index b1bda86..0422d60 100644
+--- a/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
+@@ -275,7 +275,11 @@ void GoalOverlay::UpdateGoalInfo(int homeAway, int playerIndex, bool isCaptainS2
+     }
+     int score[2] = { mCaptainGoals[0] + mSidekickGoals[0], mCaptainGoals[1] + mSidekickGoals[1] };
+     if (gameInfo->GetCurrentSettings()->GameLimitType == GAME_LIMIT_GOALS
+-        && score[homeAway] >= gameInfo->GetCurrentSettings()->GoalLimit)
++        && score[homeAway] >= gameInfo->GetCurrentSettings()->GoalLimit
++#if defined(MSCHARGED_TWEAKS)
++        && GetTrainingSide() < 0
++#endif
++    )
+     {
+         isMatchEnd = true;
+     }
+@@ -337,7 +341,11 @@ void GoalOverlay::UpdateGoalInfo(int homeAway, int playerIndex, bool isCaptainS2
+         formatted = BasicString<unsigned short, Detail::TempStringAllocator>(g_pLocalization->GetString("GOAL_MATCH_WINNER"));
+     }
+     else if (GameInfoManager::Instance()->GetCurrentSettings()->GameLimitType == GAME_LIMIT_GOALS
+-        && score[homeAway] >= GameInfoManager::Instance()->GetCurrentSettings()->GoalLimit)
++        && score[homeAway] >= GameInfoManager::Instance()->GetCurrentSettings()->GoalLimit
++#if defined(MSCHARGED_TWEAKS)
++        && GetTrainingSide() < 0
++#endif
++    )
+     {
+         formatted = BasicString<unsigned short, Detail::TempStringAllocator>(g_pLocalization->GetString("GOAL_MATCH_WINNER_GOALS"));
+     }
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index 2354ddf..128ad26 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -940,7 +940,11 @@ void cGame::CheckForGoal()
+             ChangeGameState(GS_END_GAME);
+         }
+         else if (GameInfoManager::Instance()->GetCurrentSettings()->GameLimitType == GAME_LIMIT_GOALS
+-            && g_pTeams[nSide]->GetScore() >= GameInfoManager::Instance()->GetCurrentSettings()->GoalLimit)
++            && g_pTeams[nSide]->GetScore() >= GameInfoManager::Instance()->GetCurrentSettings()->GoalLimit
++#if defined(MSCHARGED_TWEAKS)
++            && GetTrainingSide() < 0
++#endif
++        )
+         {
+             ChangeGameState(GS_END_GAME);
+         }
+@@ -1090,6 +1094,16 @@ void cGame::ResetPowerups(bool clearPowerUps)
+             g_pPowerups[i] = 0;
+         }
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": the team that trains starts every kickoff with
++    // its item, which it then keeps when using it (DesireUsePowerup).
++    const int side = GetTrainingSide();
++    const int item = mscharged_tweak_training_item();
++    if (side >= 0 && item >= 0 && g_pTeams[side]->GetCurrentPowerUp().eType == POWER_UP_NONE)
++    {
++        g_pTeams[side]->SetCurrentPowerUp((ePowerUpType)item, 1);
++    }
++#endif
+ }
+ void cGame::ResetCachedPlayerDistances()
+ {
+@@ -2123,6 +2137,13 @@ void cGame::ChangeGameState(eGameState state)
+ #if defined(MSCHARGED_TWEAKS)
+ bool cGame::MatchPoint(int side) const
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": its match to 10 goals has no match point.
++    if (GetTrainingSide() >= 0)
++    {
++        return false;
++    }
++#endif
+     GameInfoManager* info = GameInfoManager::Instance();
+     const GameplaySettings* settings = info->GetCurrentSettings();
+     return mscharged_tweak_enabled(MSCHARGED_TWEAK_MATCH_POINT) && settings->GameLimitType == GAME_LIMIT_GOALS
+@@ -2408,7 +2429,11 @@ void FinishMegaStrike(cGame* pGame)
+         }
+         else if (GameInfoManager::Instance()->GetCurrentSettings()->GameLimitType == GAME_LIMIT_GOALS
+             && (score = g_pTeams[side]->m_nScore,
+-                score >= GameInfoManager::Instance()->GetCurrentSettings()->GoalLimit))
++                score >= GameInfoManager::Instance()->GetCurrentSettings()->GoalLimit)
++#if defined(MSCHARGED_TWEAKS)
++            && GetTrainingSide() < 0
++#endif
++        )
+         {
+             pGame->ChangeGameState(GS_END_GAME);
+         }
+diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
+index 68e7031..7f7f72a 100644
+--- a/src/Game/GameInfo.cpp
++++ b/src/Game/GameInfo.cpp
+@@ -11,6 +11,9 @@
+ #include "Game/TweakRegistry.h"
+ #include "Game/main.h"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/Team.h"
++#endif
+ #include "NL/nlDebug.h"
+ #include "NL/nlMemory.h"
+ #include "NL/nlMath.h"
+@@ -194,6 +197,10 @@ void GameInfoManager::SetMode(int mode, bool online)
+     mCurrentMode = mode;
+     mIsInStrikers101Mode = 0;
+     mIsOnlineMode = online;
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": a mode chosen in the menus is not its match.
++    g_bTrainingMatch = false;
++#endif
+ }
+ 
+ unsigned long GameInfoManager::GetSettingsDataSize() const
+@@ -420,6 +427,15 @@ void GameInfoManager::SetupGameFromConfig()
+         mCurGameGameplayOptions.mAwayMegastrikeEnabled = false;
+     }
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": one match to 10 goals, which never ends on them
++    // (cGame::CheckForGoal, FinishMegaStrike, GoalOverlay).
++    if (GetTrainingSide() >= 0) {
++        mCurGameGameplayOptions.GameLimitType = GAME_LIMIT_GOALS;
++        mCurGameGameplayOptions.GoalLimit = 10;
++        mCurGameGameplayOptions.NumGames = 1;
++    }
++#endif
+ 
+     if (GetTweakBool("User/skipfe", false)) {
+         mCurGameGameplayOptions.NumGames = 11;
+diff --git a/src/Game/Render/Presentation.cpp b/src/Game/Render/Presentation.cpp
+index bdfd52d..c27d3d1 100644
+--- a/src/Game/Render/Presentation.cpp
++++ b/src/Game/Render/Presentation.cpp
+@@ -911,7 +911,11 @@ void Presentation::OnGoalScored(GoalScoredData* data)
+         if (teamScore
+             >= nlSingleton<GameInfoManager>::Instance()
+                    ->GetCurrentSettings()
+-                   ->GoalLimit)
++                   ->GoalLimit
++#if defined(MSCHARGED_TWEAKS)
++            && GetTrainingSide() < 0
++#endif
++        )
+         {
+             int awayScore = g_pTeams[1]->m_nScore;
+             int homeScore = g_pTeams[0]->m_nScore;
+@@ -1108,7 +1112,11 @@ void Presentation::HandleMegaStrikeResult(MegaStrikeEndData* __restrict data)
+             if (data->goals + teamScore
+                 >= nlSingleton<GameInfoManager>::Instance()
+                        ->GetCurrentSettings()
+-                       ->GoalLimit)
++                       ->GoalLimit
++#if defined(MSCHARGED_TWEAKS)
++                && GetTrainingSide() < 0
++#endif
++            )
+             {
+                 gameEndFunction = "GameEndMegaStrike";
+                 NisPlayer* nisPlayer = NisPlayer::Instance();
+diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
+index f942307..f2a8b39 100644
+--- a/src/Game/SH/SHTitleScreen.cpp
++++ b/src/Game/SH/SHTitleScreen.cpp
+@@ -32,6 +32,10 @@
+ #include "Game/SharedStaticStorage.h"
+ #include "Game/main.h"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/Team.h"
++#include "NL/plat/nlFlash.h"
++#endif
+ 
+ static bool sTitleDimmingTimeSet;
+ 
+@@ -136,6 +140,40 @@ inline void TitleScene::InitializePointerButtons()
+     mControllerComponent.SetPointerPressCallback(select);
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port tweak "Training": the launcher's Start training goes from the title
++// straight into an offline Domination match, as the demo match does, with the
++// pad that passed the title on the home side and the save's match settings.
++// Both captains field the sidekicks of their lineups in the save; the away
++// team, which nobody plays, vanishes (cTeam::ResetCharacters). The match
++// waits for the save, which the main menu reads otherwise: sTrainingPad is
++// the pad that asked for it, -1 for none.
++static int sTrainingPad = -1;
++static int sTrainingCaptain;
++static int sTrainingStadium;
++
++static void StartTrainingMatch(int pad, int captain, int stadium)
++{
++    GameInfoManager* gameInfo = GameInfoManager::Instance();
++    gameInfo->mUserInfo.mGameplayOptions.OnSettingsUpdated();
++    gameInfo->mUserInfo.mCheatOptions.OnSettingsUpdated();
++    gameInfo->SetMode(GameInfoManager::GM_FRIENDLY, false);
++    g_bTrainingMatch = true;
++    const int away = captain == TEAM_BOWSER ? TEAM_MARIO : TEAM_BOWSER;
++    gameInfo->SetStadium(stadium);
++    gameInfo->SetTeam(0, captain);
++    gameInfo->SetTeam(1, away);
++    for (int slot = 0; slot < 3; slot++)
++    {
++        gameInfo->SetSidekick(0, gameInfo->mRulesTable[captain].mValues[slot], slot);
++        gameInfo->SetSidekick(1, gameInfo->mRulesTable[away].mValues[slot], slot);
++    }
++    gameInfo->ResetPlayingSides();
++    gameInfo->SetPlayingSide((unsigned short)pad, 0);
++    GameSceneManager::Instance()->PushLoadingScene(true);
++}
++#endif
++
+ void TitleScene::Update(float dt)
+ {
+     BaseSceneHandler::Update(dt);
+@@ -160,6 +198,14 @@ void TitleScene::Update(float dt)
+         mInitialized = true;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    if (sTrainingPad >= 0
++        && (!SaveEnabled || (NormalSaveLoaded && !SaveLoad::CardBusy() && !nlFlashCallbackPending())))
++    {
++        StartTrainingMatch(sTrainingPad, sTrainingCaptain, sTrainingStadium);
++        sTrainingPad = -1;
++    }
++#endif
+     if (mStartedDemo)
+         return;
+ 
+@@ -396,6 +442,18 @@ void TitleScene::OnControllerPointerPress(int index, void*)
+     mControllerComponent.SetPointerState(POINTER_BUTTON_SELECTED, index);
+     FEAudio::PlayAnimAudioEvent(0x55C84A9D, 0, 0, 1);
+     SetPointerEnabled(1);
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": the title reads the save (Update starts the match
++    // then), stays under the match's loading, as under the demo match's, and
++    // takes no further press.
++    if (mscharged_tweak_take_training_start(&sTrainingCaptain, &sTrainingStadium))
++    {
++        sTrainingPad = index;
++        SaveLoad::StartLoad(false);
++        mStartedDemo = true;
++        return;
++    }
++#endif
+     GameSceneManager::Instance()->Pop();
+     GameInfoManager::Instance()->mUserInfo.mGameplayOptions.OnSettingsUpdated();
+     GameInfoManager::Instance()->mUserInfo.mCheatOptions.OnSettingsUpdated();
+diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
+index 6f89701..1a9e118 100644
+--- a/src/Game/Team.cpp
++++ b/src/Game/Team.cpp
+@@ -1036,8 +1036,47 @@ void cTeam::ResetCharacters()
+             }
+         }
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": the team nobody plays loses its four fielders at
++    // every kickoff, as the away team of the first Strikers 101 lesson does
++    // (awaymissingsidekicks = 4); its goalie stays.
++    else if (GetTrainingSide() == 1 - m_nSide)
++    {
++        for (int i = 3; i >= 0; i--)
++        {
++            cFielder* pFielder = GetFielder(i);
++            if (!pFielder->IsShattered())
++            {
++                SetFielderFrozenState(pFielder, 4, 99999.0f);
++            }
++        }
++    }
++#endif
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++bool g_bTrainingMatch;
++
++int GetTrainingSide()
++{
++    GameInfoManager* info = GameInfoManager::Instance();
++    if (!g_bTrainingMatch || info->IsOnline() || info->mCurrentMode != GameInfoManager::GM_FRIENDLY)
++    {
++        return -1;
++    }
++    bool played[2] = { false, false };
++    for (int pad = 0; pad < 16; pad++)
++    {
++        const short side = info->GetPlayingSide(pad);
++        if (side == 0 || side == 1)
++        {
++            played[side] = true;
++        }
++    }
++    return played[0] == played[1] ? -1 : played[0] ? 0 : 1;
++}
++#endif
++
+ /**
+  * Offset/Address/Size: 0x145C | 0x800A71A8 | size: 0x3DC
+  */

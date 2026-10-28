@@ -66,6 +66,29 @@ inline std::string FrameRateText(const FrameRate& rate)
     return "original";
 }
 
+// Network matches with rollback draw at most this many frames per second: a
+// rollback replays whole frames, and above 60 its cost (about 9 ms) no longer
+// fits in a frame. The simulation keeps its 50 Hz either way.
+inline constexpr int kRollbackFrameRate = 60;
+
+// `rate` held to `hz` frames per second on a display (refresh rate in Hz, 0
+// when unknown); a rate already at or below it is kept as it is.
+inline FrameRate CapFrameRate(const FrameRate& rate, int hz, double display_hz)
+{
+    switch (rate.kind)
+    {
+    case FrameRate::Kind::Original: return rate;
+    case FrameRate::Kind::Fixed:
+        if (rate.hz <= hz) return rate;
+        break;
+    case FrameRate::Kind::Display:
+        if (KnownRefreshRate(display_hz) && display_hz <= hz + 0.5) return rate;
+        break;
+    case FrameRate::Kind::Unlimited: break;
+    }
+    return FrameRate{FrameRate::Kind::Fixed, hz};
+}
+
 // What the runtime does for a frame rate on a display (refresh rate in Hz, 0
 // when unknown) with or without VSync.
 struct FramePacing

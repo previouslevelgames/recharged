@@ -1,0 +1,137 @@
+Subject: Tweak: match point
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+A match to a number of goals has nothing like overtime's sudden death: when
+time runs out with the scores level, cGame::InitGameState queues the
+"SuddenDeath" event, whose listeners play overtime's music
+(cGame::OnSuddenDeath, PlaySuddenDeathMusic) and its siren and lights at the
+four corners of the field (Presentation::OnSuddenDeath,
+PlayGoalEffects("Goal_suddendeath")), and the HUD shows SUDDEN DEATH where
+the clock is (HUDClock::Update).
+
+With "Match point" enabled, in a match to a number of goals (not in Strikers
+101 or the Striker Challenges), the kickoff that finds both teams one goal
+from winning queues that same event: siren, lights and music. The music
+replaces the stadium's, as in overtime (GS_OVERTIME stops it): that kickoff
+stops the stadium's music, and GS_GAMEPLAY no longer starts or resumes it
+while both teams are one goal from winning. The sudden death music plays on
+until the match ends, stopped at GS_END_GAME as after overtime. The HUD
+shows SUDDEN DEATH instead of "First to" in the same case. A team alone one
+goal from winning changes nothing. In a match to one goal, both are from the
+first kickoff.
+
+None of it touches the match: the music is the audio's, which no rollback
+restores and a replayed frame does not start again, the lights draw from
+the effects' own random seed (gEffectsRandomSeed), and the HUD reads the
+scores. Two games playing each other may differ in it.
+
+diff --git a/include/Game/Game.h b/include/Game/Game.h
+index 742219a..614179a 100644
+--- a/include/Game/Game.h
++++ b/include/Game/Game.h
+@@ -102,6 +102,11 @@ public:
+     // Port tweak "Fair ball contests": this step's update order, or NULL when
+     // the tweak is off or no kickoff has set the order yet.
+     cPlayer* const* FairBallContestsOrder() const;
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match point": whether team `side` is one goal from winning a
++    // match to a number of goals, always false when the tweak is off.
++    bool MatchPoint(int side) const;
+ #endif
+     void ResetCharacters();
+     void SendPlayerVisibility();
+diff --git a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
+index d1598da..cdcd9e6 100644
+--- a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
+@@ -97,6 +97,20 @@ void HUDOverlay::Update(float fDeltaT)
+     {
+         mClock.Update(fDeltaT);
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match point": with both teams one goal from winning, the
++    // clock's place shows overtime's SUDDEN DEATH instead of "First to".
++    else if (g_pGame != NULL)
++    {
++        const bool suddenDeath = g_pGame->MatchPoint(0) && g_pGame->MatchPoint(1);
++        if (suddenDeath != mClock.mSuddenDeath[0]->m_bVisible)
++        {
++            mClock.mSuddenDeath[0]->m_bVisible = suddenDeath;
++            mClock.mSuddenDeath[1]->m_bVisible = suddenDeath;
++            mClock.m_pTextInstanceGameType->m_bVisible = !suddenDeath;
++        }
++    }
++#endif
+ }
+ 
+ void HUDOverlay::SceneCreated()
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index 6ba0363..2354ddf 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -2072,6 +2072,13 @@ void cGame::ChangeGameState(eGameState state)
+         {
+             StopSuddenDeathMusic();
+         }
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Match point": its music ends with the match, as overtime's.
++        else if (state == GS_END_GAME && mscharged_tweak_enabled(MSCHARGED_TWEAK_MATCH_POINT))
++        {
++            StopSuddenDeathMusic();
++        }
++#endif
+ 
+         if (state == GS_END_GAME)
+         {
+@@ -2113,12 +2120,35 @@ void cGame::ChangeGameState(eGameState state)
+         InitGameState(state);
+     }
+ }
++#if defined(MSCHARGED_TWEAKS)
++bool cGame::MatchPoint(int side) const
++{
++    GameInfoManager* info = GameInfoManager::Instance();
++    const GameplaySettings* settings = info->GetCurrentSettings();
++    return mscharged_tweak_enabled(MSCHARGED_TWEAK_MATCH_POINT) && settings->GameLimitType == GAME_LIMIT_GOALS
++        && !info->mIsInStrikers101Mode && info->mCurrentMode != GameInfoManager::GM_CHALLENGE
++        && g_pTeams[side]->GetScore() == settings->GoalLimit - 1;
++}
++#endif
++
+ void cGame::InitGameState(eGameState state)
+ {
+     if (m_eGameState == GS_GAMEPLAY && state == GS_OVERTIME)
+     {
+         mEventQueue.mSuddenDeathEvent.Queue();
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match point": the kickoff that finds both teams one goal
++    // from winning (after the goal that puts the second there; the first
++    // kickoff, in a match to one goal) gets the sudden death of overtime: its
++    // siren and lights at the corners, and its music, which replaces the
++    // stadium's, as in overtime, until the match ends.
++    else if (state == GS_KICKOFF && MatchPoint(0) && MatchPoint(1))
++    {
++        StopSound(GetStadiumSoundID(GameInfoManager::Instance()->GetStadium()), this);
++        mEventQueue.mSuddenDeathEvent.Queue();
++    }
++#endif
+ 
+     m_eGameState = state;
+     switch (state)
+@@ -2186,6 +2216,14 @@ void cGame::InitGameState(eGameState state)
+ 
+     case GS_GAMEPLAY:
+     {
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Match point": with both teams one goal from winning the
++        // sudden death music is on instead of the stadium's.
++        if (MatchPoint(0) && MatchPoint(1))
++        {
++            break;
++        }
++#endif
+         unsigned long soundID = GetStadiumSoundID(GameInfoManager::Instance()->GetStadium());
+         if (IsSoundTracked(soundID, this))
+         {

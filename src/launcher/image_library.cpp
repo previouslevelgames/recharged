@@ -22,6 +22,8 @@ namespace mscharged::launcher
 {
 namespace
 {
+using platform::AppendJsonString;
+
 // Images (of any game) looked at in one scan.
 constexpr std::size_t kLibraryFileLimit = 2000;
 // Larger cache files are not read.
@@ -36,24 +38,6 @@ const char* KindName(DiscProbe::Kind kind)
     case DiscProbe::Kind::NotDisc: return "notdisc";
     default: return "unreadable";
     }
-}
-
-void AppendJsonString(std::string& out, std::string_view text)
-{
-    out += '"';
-    for (const char c : text)
-    {
-        const auto byte = static_cast<unsigned char>(c);
-        if (c == '"' || c == '\\') { out += '\\'; out += c; }
-        else if (byte < 0x20)
-        {
-            char escaped[8];
-            std::snprintf(escaped, sizeof escaped, "\\u%04x", unsigned(byte));
-            out += escaped;
-        }
-        else out += c;
-    }
-    out += '"';
 }
 
 std::string Lower(std::string_view text)

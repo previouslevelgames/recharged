@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/WiiQsort.cmake)
 # Complete reconstructed font and text layout units. CPU qualifiers exercise
 # descriptor parsing/metrics/layout; original manager callbacks qualify separately.
 add_library(charged_original_fonts STATIC
@@ -9,8 +10,9 @@ add_dependencies(charged_original_fonts verify_prepared)
 target_compile_features(charged_original_fonts PUBLIC cxx_std_17)
 target_include_directories(charged_original_fonts PRIVATE
     "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
+# nlFont and nlTextEscape sort with nlQSort, the Wii's qsort natively (patch 0754).
 target_link_libraries(charged_original_fonts PUBLIC
-    charged_original_core charged_game_print)
+    charged_original_core charged_game_print charged_wii_qsort)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" AND NOT MSVC)
     target_compile_options(charged_original_fonts PRIVATE
         -ffp-contract=off -fno-strict-aliasing -fsigned-char -Wno-unknown-pragmas
@@ -156,7 +158,7 @@ if(BUILD_TESTING AND TARGET aurora::gx
     target_link_options(original_font_loading_tests PRIVATE -Wl,--gc-sections)
     target_link_libraries(original_font_loading_tests PRIVATE
         charged_original_core charged_game_print aurora::dvd aurora::core
-        aurora::gx aurora::mtx SDL3::SDL3)
+        aurora::gx aurora::mtx SDL3::SDL3 charged_wii_qsort)
     add_test(NAME original_font_loading COMMAND "${Python3_EXECUTABLE}" -B
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_original_font_loading.py"
         "$<TARGET_FILE:original_font_loading_tests>")

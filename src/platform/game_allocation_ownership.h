@@ -281,4 +281,60 @@ void ValidateGameAllocationFree(MemoryAllocator& owner, const void* pointer);
 void FinishGameAllocationFree(const void* pointer);
 void DiscardGameAllocatorRecords(MemoryAllocator& owner);
 void FreeGameAllocation(void* pointer);
+
+// Diagnostic observer of every original allocation and free (null: none). It
+// runs after the registry changed, outside its lock, on the calling thread, and
+// must not allocate through the original game allocator.
+using GameAllocationObserver = void (*)(bool allocate, const void* pointer, unsigned long bytes,
+                                        const MemoryAllocator* owner);
+void SetGameAllocationObserver(GameAllocationObserver observer) noexcept;
+
+// Rollback. From Begin, the registry keeps a journal: original allocations
+// and frees, and, the first time after a mark that an allocation's facts
+// change, a copy of what its bytes hold (completed domains, unfinished
+// producers), its graphics suballocations and MEM children. After the arenas
+// were restored to a mark, RollbackTo returns the registry to it as well and
+// keeps the checkpoint open; the marks after it are gone. Rollback does the
+// same to Begin and closes the checkpoint. Addresses `keep` accepts (memory a
+// rollback does not restore) are neither copied nor rolled back. Expanded
+// native data a restored allocation's bytes no longer complete is dropped;
+// other native data, MEM headers and device leases are not journaled. Both
+// return how many frees could not be undone (records that owned native data,
+// MEM headers or a device lease). Trim forgets the journal before a mark no
+// rollback will return to. End closes the checkpoint and keeps the registry as
+// it is.
+struct GameAllocationMark
+{
+    std::size_t position; // counted from Begin, trimmed entries included
+    std::uint64_t incarnation;
+};
+// Asynchronous producers of original bytes (disc reads and the like): how many
+// are still writing, and how many ever started. A rollback cannot cross one.
+struct GameByteProducers
+{
+    std::size_t pending;
+    std::uint64_t started;
+};
+GameByteProducers CurrentGameByteProducers();
+// Producers writing into [start, start + bytes) are left out of the counts:
+// memory the rollback leaves alone (the audio's own heap).
+void IgnoreGameByteProducersIn(const void* start, std::size_t bytes);
+// Since Begin: copies of an allocation's facts journaled, journal entries held
+// now; changes the journal does not follow (native data, MEM headers, device
+// leases, allocator discards); copies that failed for lack of host memory in a
+// path that cannot throw (the rollback would then be wrong).
+struct GameAllocationCheckpointStats
+{
+    std::uint64_t copies;
+    std::size_t entries;
+    std::uint64_t untracked;
+    std::uint64_t failedCopies;
+};
+void BeginGameAllocationCheckpoint(bool (*keep)(std::uintptr_t address) = nullptr);
+std::size_t RollbackGameAllocationCheckpoint(bool (*keep)(std::uintptr_t address));
+GameAllocationMark MarkGameAllocationCheckpoint();
+std::size_t RollbackGameAllocationCheckpointTo(const GameAllocationMark& mark, bool (*keep)(std::uintptr_t address));
+void TrimGameAllocationCheckpoint(const GameAllocationMark& oldest);
+GameAllocationCheckpointStats CurrentGameAllocationCheckpointStats();
+void EndGameAllocationCheckpoint();
 }

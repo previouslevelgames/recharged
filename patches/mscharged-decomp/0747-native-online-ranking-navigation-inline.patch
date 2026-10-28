@@ -1,0 +1,31 @@
+From: mscharged-port
+Subject: Give the online ranking overlay SHNavigation's inline timer visibility
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler contract; no game behavior change.
+
+OnlineRankingOverlay::UpdateResultsDisplay calls
+SHNavigation::SetTimerVisible, whose body is the inline definition in
+SHNavigation.inl. OnlineRanking.cpp includes only SHNavigation.h, so the
+native compiler emitted an external call that no unit defines (retail
+has an out-of-line copy at 0x801CA9E0). The frontend module still links,
+as a shared object may leave symbols undefined, and the dynamic loader
+resolves it lazily: the first ranked results overlay (0746) ended the
+process with "symbol lookup error" and exit status 127.
+
+Natively the unit includes the inline header, as fePopupMenu.cpp does.
+
+diff --git a/src/Game/FE/OnlineRanking.cpp b/src/Game/FE/OnlineRanking.cpp
+index 8dbb6a2..d794e1e 100644
+--- a/src/Game/FE/OnlineRanking.cpp
++++ b/src/Game/FE/OnlineRanking.cpp
+@@ -13,6 +13,10 @@
+ #include "Game/NetworkStatsManager.h"
+ #include "Game/OverlayManager.h"
+ #include "Game/SH/SHNavigation.h"
++#if defined(MSCHARGED_NATIVE)
++// SetTimerVisible's inline body; no native unit emits it out of line.
++#include "Game/SH/SHNavigation.inl"
++#endif
+ #include "Game/SH/SHPausePostGame.h"
+ #include "NL/nlBind.h"
+ #include "NL/nlFormat.h"

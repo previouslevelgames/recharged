@@ -1,0 +1,40 @@
+From: mscharged-port
+Subject: Translate loaded Miis into native endianness at load time
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+diff --git a/src/RVL_SDK/rfl/RFL_Database.c b/src/RVL_SDK/rfl/RFL_Database.c
+index ce65374..5ff6563 100644
+--- a/src/RVL_SDK/rfl/RFL_Database.c
++++ b/src/RVL_SDK/rfl/RFL_Database.c
+@@ -1,4 +1,9 @@
++#include "RVLFaceLib/RFLi_System.h"
+ #include <RVLFaceLib/RVLFaceLibInternal.h>
++#if defined(MSCHARGED_NATIVE)
++#include <platform/rfl_character_transport.h>
++static RFLiCharData sNativeCharData[RFL_DB_CHAR_MAX];
++#endif
+ 
+ #define ASYNC_CRC_STEP 0x1400
+ 
+@@ -244,6 +249,10 @@ RFLiCharData* RFLiGetCharData(u16 index) {
+ 
+     database = mgr->database;
+     data = &database->rawData[index];
++#if defined(MSCHARGED_NATIVE)
++    ChargedDecodeRFLCharRecordBE(data, &sNativeCharData[index]);
++    data = &sNativeCharData[index];
++#endif
+ 
+     if (!RFLiIsValidID(&data->createID)) {
+         return NULL;
+@@ -846,6 +855,10 @@ RFLErrcode RFLGetStoreData(RFLStoreData* data, RFLDataSource source,
+         }
+ 
+         rawdata = RFLiGetCharData(index);
++#if defined(MSCHARGED_NATIVE)
++        if (rawdata != NULL)
++            rawdata = &RFLiGetDBManager()->database->rawData[index];
++#endif
+         break;
+     case RFLDataSource_Default:
+         if (index >= RFL_DEFAULT_DATA_MAX) {

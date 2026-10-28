@@ -1,0 +1,45 @@
+From: mscharged-port
+Subject: Round pointers through uintptr_t natively
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility; no game behavior change.
+
+PTR_ROUNDUP, behind ROUND_UP_PTR, and ROUND_DOWN_PTR align a pointer by
+converting it to unsigned long. That holds a pointer on the Wii and on
+64-bit Linux and macOS, but Windows is LLP64: long stays 32 bits, so the
+conversion truncates and the native build rejects it as an error
+(-Wpointer-to-int-cast). RFL_Model.c, compiled with the online sources,
+aligns its expression textures with ROUND_UP_PTR.
+
+Natively both macros convert through uintptr_t, the pointer-sized
+integer; on the hosts where long already holds a pointer the result is
+the same. Console builds keep unsigned long.
+
+diff --git a/include/decomp.h b/include/decomp.h
+index a8fb05e..3faec31 100644
+--- a/include/decomp.h
++++ b/include/decomp.h
+@@ -3,7 +3,12 @@
+ 
+ #define ROUNDUP(x, align) (((x) + ((align) - 1)) & ~((align) - 1))
+ #define ROUNDDOWN(x, align) ((x) & ~((align) - 1))
++#if defined(MSCHARGED_NATIVE)
++#include <stdint.h>
++#define PTR_ROUNDUP(x, align) ((void*)ROUNDUP((uintptr_t)(x), (align)))
++#else
+ #define PTR_ROUNDUP(x, align) ((void*)ROUNDUP((unsigned long)(x), (align)))
++#endif
+ 
+ #define FOURCC(a, b, c, d) \
+     ((u32)(a) << 24 | (u32)(b) << 16 | (u32)(c) << 8 | (u32)(d))
+@@ -22,7 +27,11 @@
+ #define CONCAT(x, y) __CONCAT(x, y)
+ 
+ #define ROUND_UP(x, align) ROUNDUP((x), (align))
++#if defined(MSCHARGED_NATIVE)
++#define ROUND_DOWN_PTR(x, align) ((void*)ROUNDDOWN((uintptr_t)(x), (align)))
++#else
+ #define ROUND_DOWN_PTR(x, align) ((void*)ROUNDDOWN((unsigned long)(x), (align)))
++#endif
+ #define ROUND_UP_PTR(x, align) PTR_ROUNDUP((x), (align))
+ 
+ #define ARRAY_COUNT(arr) (s32)(sizeof(arr) / sizeof(arr[0]))

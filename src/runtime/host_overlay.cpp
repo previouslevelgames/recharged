@@ -48,6 +48,8 @@ HostOverlay::~HostOverlay() { aurora_imgui_clear_overlay(); }
 
 void HostOverlay::SetRate(double rate) { value_ = OverlayNumber(rate, 999); }
 
+void HostOverlay::SetNetwork(const Network& network) { network_ = network; }
+
 void HostOverlay::ShowMessage(std::string text, Clock::time_point now)
 {
     message_ = std::move(text);
@@ -85,10 +87,15 @@ void HostOverlay::BuildFonts(float size)
 void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_height, Clock::time_point now)
 {
     if (surface_width == 0 || surface_height == 0) return;
-    std::array<std::optional<int>, 3> values{};
+    std::array<std::optional<int>, kMaxPerformanceMetrics> values{};
+    // FPS, GPU and CPU; LAT in a network session; DLY and RB with rollback.
+    std::size_t count = 0;
     if (usage_) {
         const auto usage = usage_->Latest();
-        values = {value_, OverlayNumber(usage.gpu_percent, 100), OverlayNumber(usage.cpu_percent, 100)};
+        values = {value_, OverlayNumber(usage.gpu_percent, 100), OverlayNumber(usage.cpu_percent, 100),
+                  OverlayNumber(network_.latency_ms, 999), OverlayNumber(network_.delay_ms, 999),
+                  OverlayNumber(network_.rollback_frames, 99)};
+        count = network_.session ? (network_.rollback ? 6 : 4) : 3;
     }
     // The message's opacity in steps: full, then fading out, then gone.
     int opacity = 0;
@@ -107,7 +114,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         drawn_ = false;
         return;
     }
-    if (drawn_ && values == shownValues_ && message_ == shownMessage_ && opacity == shownOpacity_
+    if (drawn_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_ && opacity == shownOpacity_
         && surface_width == shownWidth_ && surface_height == shownHeight_)
         return;
     const auto size = FpsOverlayFontSize(surface_width, surface_height);
@@ -117,26 +124,27 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     const float shadow = std::max(1.0f, std::round(size / 15.0f));
     std::optional<FpsOverlayLayout> performanceLayout;
     if (performance_) {
-        std::array<std::array<char, 8>, 4> strings{};
-        std::array<FpsOverlayText, 4> text{};
-        for (std::size_t n = 0; n < strings.size(); ++n) {
-            if (n < values.size() && values[n])
-                std::snprintf(strings[n].data(), strings[n].size(), n == 0 ? "%d" : "%d%%", *values[n]);
+        std::array<std::array<char, 8>, kMaxPerformanceMetrics> strings{};
+        std::array<FpsOverlayText, kMaxPerformanceMetrics> text{};
+        for (std::size_t n = 0; n < count; ++n) {
+            const bool percent = n == 1 || n == 2;
+            if (values[n]) std::snprintf(strings[n].data(), strings[n].size(), percent ? "%d%%" : "%d", *values[n]);
             else std::snprintf(strings[n].data(), strings[n].size(), "N/A");
             const auto measure = [&](const char* value) { return number_->CalcTextSizeA(size, FLT_MAX, 0, value).x; };
             text[n] = {label_->CalcTextSizeA(size, FLT_MAX, 0, kPerformanceLabels[n]).x, measure(strings[n].data()),
-                       std::max(measure(n == 0 ? "999" : n == 3 ? "N/A" : "100%"), measure("N/A"))};
+                       std::max(measure(percent ? "100%" : n == 5 ? "99" : "999"), measure("N/A"))};
         }
-        const auto layout = LayoutFpsOverlay(surface_width, surface_height, *performance_, size, text);
+        const auto layout = LayoutFpsOverlay(surface_width, surface_height, *performance_, size, text.data(), count);
         const auto drawText = [&](ImFont* font, float x, ImU32 color, const char* value) {
             draw->AddText(font, size, {x + shadow, layout.text_y + shadow}, kShadow, value);
             draw->AddText(font, size, {x, layout.text_y}, color, value);
         };
-        for (std::size_t n = 0; n < strings.size(); ++n) {
-            drawText(label_, layout.label_x[n], kLabel, kPerformanceLabels[n]);
-            drawText(number_, layout.value_x[n], kNumber, strings[n].data());
+        for (std::size_t n = 0; n < layout.count; ++n) {
+            drawText(label_, layout.label_x[n], kLabel, kPerformanceLabels[layout.metric[n]]);
+            drawText(number_, layout.value_x[n], kNumber, strings[layout.metric[n]].data());
         }
-        for (const float x : layout.separator_x) {
+        for (std::size_t n = 0; n + 1 < layout.count; ++n) {
+            const float x = layout.separator_x[n];
             draw->AddLine({x + shadow, layout.top + shadow}, {x + shadow, layout.bottom + shadow}, kShadow, shadow);
             draw->AddLine({x, layout.top}, {x, layout.bottom}, kDivider, shadow);
         }
@@ -156,6 +164,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     aurora_imgui_end_overlay();
     drawn_ = true;
     shownValues_ = values;
+    shownCount_ = count;
     shownMessage_ = message_;
     shownOpacity_ = opacity;
     shownWidth_ = surface_width;
