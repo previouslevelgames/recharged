@@ -42,6 +42,9 @@ Store& TheStore()
         // The host CRT, never the game's arenas (never freed).
 #if defined(_WIN32)
         void* block = _aligned_malloc(kStoreBytes, 4096);
+#elif defined(__SWITCH__)
+        // newlib declares posix_memalign but has none.
+        void* block = std::aligned_alloc(4096, kStoreBytes);
 #else
         void* block = nullptr;
         if (posix_memalign(&block, 4096, kStoreBytes) != 0) block = nullptr;
