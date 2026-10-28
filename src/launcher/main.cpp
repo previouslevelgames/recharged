@@ -465,6 +465,7 @@ public:
             if (texture) SDL_DestroyTexture(texture);
         if (header_back_) SDL_DestroyTexture(header_back_);
         if (header_front_) SDL_DestroyTexture(header_front_);
+        if (header_strokes_) SDL_DestroyTexture(header_strokes_);
         for (const auto& level : logo_) SDL_DestroyTexture(level.texture);
         if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
         if (renderer_) SDL_DestroyRenderer(renderer_);
@@ -508,9 +509,11 @@ public:
         ApplyWindowMetrics(true);
 
         const auto resources = base_ / "assets/launcher";
-        // The header's two layers, the same size: the scene, and Mario with the ball over it.
+        // The header's three layers, the same proportions: the scene, gold strokes
+        // bursting behind Mario, and Mario with the ball over them.
         for (const auto& [texture, name] :
-             {std::pair{&header_back_, "header_back.png"}, std::pair{&header_front_, "header_front.png"}})
+             {std::pair{&header_back_, "header_back.png"}, std::pair{&header_strokes_, "header_strokes.png"},
+              std::pair{&header_front_, "header_front.png"}})
         {
             SurfacePtr surface(SDL_LoadPNG(PathUtf8(resources / name).c_str()), SDL_DestroySurface);
             Require(surface != nullptr, "Cannot load launcher header; rebuild to restore resources");
@@ -520,6 +523,7 @@ public:
             Require(*texture != nullptr, "Cannot create header texture");
             SDL_SetTextureScaleMode(*texture, SDL_SCALEMODE_LINEAR);
         }
+        SDL_SetTextureBlendMode(header_strokes_, SDL_BLENDMODE_BLEND);
         SDL_SetTextureBlendMode(header_front_, SDL_BLENDMODE_BLEND);
         // The Recharged logo, with halved copies down to 128 pixels wide for small sizes.
         SurfacePtr level(SDL_LoadPNG(PathUtf8(resources / "logo.png").c_str()), SDL_DestroySurface);
@@ -717,9 +721,10 @@ private:
         // triangles in the software renderer), cropped like CSS "cover";
         // ImGui then paints its gradients and text over it. Each time the
         // Play page opens, the artwork makes an entrance, the shot coming in:
-        // it fades in from the page colour while its two layers glide from
+        // it fades in from the page colour while its layers glide from
         // the top right towards the bottom left and grow about Mario's face,
-        // Mario and the ball further than the scene, slowing down until
+        // Mario and the ball further than the gold strokes behind them and
+        // those further than the scene, slowing down until
         // Mario rests in that crop. He starts smaller, so his layer starts
         // shifted up and right at least as far as keeps its top and right
         // edges, where the art cuts his raised hand and his fist, beyond the
@@ -758,6 +763,10 @@ private:
                             int(std::ceil(hero_.h))};
         SDL_SetRenderClipRect(renderer_, &clip);
         layer(header_back_, 1.025f + 0.04f * (1 - remaining), 0.010f * hero_.w * remaining);
+        // The strokes, further back than Mario, glide the same way but less (both the
+        // growth and the shift, so that their top and right edges stay out too).
+        constexpr float strokes_depth = 0.6f;
+        layer(header_strokes_, 1 - front_zoom * strokes_depth * remaining, lift * strokes_depth * remaining);
         layer(header_front_, 1 - front_zoom * remaining, lift * remaining);
         // The fade: the page colour over the whole picture, not each layer
         // faded on its own, which would show the scene through Mario.
@@ -8655,6 +8664,7 @@ private:
     SDL_Renderer* renderer_ = nullptr;
     SDL_Texture* header_back_ = nullptr;
     SDL_Texture* header_front_ = nullptr;
+    SDL_Texture* header_strokes_ = nullptr;
     // The Recharged logo, largest copy first, each half the one before.
     struct LogoLevel
     {

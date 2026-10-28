@@ -130,6 +130,7 @@ add_custom_command(TARGET mscharged POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header_back.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header_front.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header_strokes.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/logo.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.png"
             "${MSCHARGED_IMGUI_PREPARED}/misc/fonts/Roboto-Medium.ttf"
@@ -151,6 +152,7 @@ add_custom_command(TARGET mscharged POST_BUILD
 set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header_back.png"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header_front.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header_strokes.png"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/logo.png"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.png"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/README.md"

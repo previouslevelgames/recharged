@@ -10,21 +10,30 @@ logo. The fire and the golden ball turn the logo's electric blue and the grass
 blue, while Mario keeps his colours, and the scene darkens towards night blue
 around him. Preserve their aspect ratio when displaying them.
 
-The picture is in two layers that the launcher moves against each other when
+The picture is in three layers that the launcher moves against each other when
 its Play page opens. `header_front.png` is Mario and the ball he kicks, cut out
-with Meta's SAM 2.1 segmentation model and transparent elsewhere;
-`header_back.png` is the rest of the scene, painted over where they were.
-`tools/launcher_art.py header MSC_Scene.jpg FOLDER` recolours the key art and
-writes both layers to FOLDER: the front as here, the back as a draft whose
-place behind Mario is filled by OpenCV's inpainting (the back here was redone
-from the scene afterwards).
+of the scene and transparent elsewhere (the project owner's cut-out of
+2026-10-28, SHA-256
+`494b0b2d90c5ef97e04dab28c215bb9cd48d4739aacc98c06eddf5ceed3c75f6`; the one
+before was made with Meta's SAM 2.1 segmentation model). `header_back.png` is
+the rest of the scene, painted over where they were. `header_strokes.png`
+(1920 x 1067, Mario's canvas) is a burst of gold brush strokes between them,
+transparent elsewhere, which the project owner supplied on 2026-10-28 (SHA-256
+`ec67a727c3b6fb5a5ecc608771f89c0018e69f9468bccd6b82e5b4a7fc50d336`); its
+creator and terms are not recorded yet, and until they are it is outside the
+project's CC0 dedication. `tools/launcher_art.py header MSC_Scene.jpg FOLDER`
+recolours the key art and writes the scene and Mario to FOLDER: the front made
+with SAM 2.1, the back as a draft whose place behind Mario is filled by OpenCV's
+inpainting (the back here was redone from the scene afterwards).
+
+The key art:
 
 - Source: [File:MSC_Scene.jpg](https://www.mariowiki.com/File:MSC_Scene.jpg) on the Super Mario Wiki.
 - Image: [original JPEG](https://www.mariowiki.com/images/2/29/MSC_Scene.jpg).
 - Downloaded: 2026-10-25.
 - SHA-256 of the original: `7c961f3e3d5cadab2fe68e69f0a02e355f5e082d2ccbecd17ee279f0b16edad0`.
 
-This artwork is Nintendo's and outside the project's CC0 dedication. The wiki
+The key art is Nintendo's and outside the project's CC0 dedication. The wiki
 publishes it as fair-use artwork; no license for redistribution is given, and
 rights remain with the respective owners. (Until 2026-10-25 the header was
 [SteamGridDB hero 8926](https://www.steamgriddb.com/hero/8926) by Jiquita, a
