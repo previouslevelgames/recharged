@@ -1,0 +1,329 @@
+From: mscharged-port
+Subject: Adapt the Korean SDK sources natively
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Classification: native compiler/ABI compatibility
+
+The Korean release builds some SDK files from its own copies (R4QK01/), with
+a newer KPAD and DWC. They get the native adaptations their older
+counterparts have: KPAD takes sqrt and the memory functions from the host C
+library (0209); DWC copies the in-game name as u16 and sends it big-endian
+(0729), reaches the NAS over plain HTTP, the profanity check included (0727),
+and passes 0 for the integer of the NAT negotiation result (0721); its own
+DWCi_Np_CPUCopyFast tests alignment on pointer-sized addresses.
+
+Korean branches of shared files: the error reset in OSReset.c reads OS.c's
+and OSExec.c's boot flags, which are the host's natively (a native game never
+starts from NAND or a reboot), and RFL's own copy of copyChar2Additional_
+measures the Mii name cells as RFL_WCHAR, as 0452 does for the older one.
+DECOMP_FORCEACTIVE, which only the Korean branch of d_nhttp.c uses natively,
+expands to nothing: it keeps strings in the Wii link, and its fake function's
+(...) declaration is not C17 (Clang rejects it).
+
+Korean-only units: NAND logging dates its lines with the host's
+OSCalendarTime (mon, as in 0720), and the play-time expiry, which the host's
+OSInit never arms (it does not call __OSInitPlayTime), stops natively instead
+of rebooting through the Wii's thread queue and physical memory.
+
+diff --git a/src/RVL_SDK/dwc/R4QK01/dwc_auth_interface.c b/src/RVL_SDK/dwc/R4QK01/dwc_auth_interface.c
+index 68c5427..77cfe6b 100644
+--- a/src/RVL_SDK/dwc/R4QK01/dwc_auth_interface.c
++++ b/src/RVL_SDK/dwc/R4QK01/dwc_auth_interface.c
+@@ -59,15 +59,15 @@ enum
+ static const char* s_filename = "/shared2/DWC_AUTHDATA";
+ 
+ static char* s_authserver_hosts[3] = {
+-    "https://naswii.test.nintendowifi.net/ac",
+-    "https://naswii.nintendowifi.net/ac",
+-    "https://naswii.dev.nintendowifi.net/ac",
++    "http://naswii.test.nintendowifi.net/ac",
++    "http://naswii.nintendowifi.net/ac",
++    "http://naswii.dev.nintendowifi.net/ac",
+ };
+ 
+ static char* s_profserver_hosts[3] = {
+-    "https://naswii.test.nintendowifi.net/pr",
+-    "https://naswii.nintendowifi.net/pr",
+-    "https://naswii.dev.nintendowifi.net/pr",
++    "http://naswii.test.nintendowifi.net/pr",
++    "http://naswii.nintendowifi.net/pr",
++    "http://naswii.dev.nintendowifi.net/pr",
+ };
+ 
+ static struct
+@@ -213,7 +213,23 @@ int DWCi_Auth_StartAuthentication(const u16* ingamesn, const char* gsbrcd,
+         goto fail;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // The in-game name is a u16 string; wchar_t is four bytes natively, so
++    // wcsncpy would read pairs of characters and write past ingamesn.
++    {
++        u32 i;
++        for (i = 0; i < 26 && ingamesn[i] != 0; i++)
++        {
++            s_auth_work->ingamesn[i] = ingamesn[i];
++        }
++        for (; i < 26; i++)
++        {
++            s_auth_work->ingamesn[i] = 0;
++        }
++    }
++#else
+     wcsncpy(s_auth_work->ingamesn, ingamesn, 26);
++#endif
+     strncpy(s_auth_work->gsbrcd, gsbrcd, 12);
+     s_auth_work->auth_kind = DWCi_AUTH_KIND_LOGIN;
+     memset(&s_auth_result, 0, sizeof(s_auth_result));
+@@ -740,7 +756,23 @@ static void DWCi_Auth_SendRequest(s32 action_kind, const u16* ingamesn,
+         sprintf(strbuf, "%013llu", userid);
+         NHTTPAddPostDataAscii(request, "userid", base64nize(strbuf, &b64_ptr));
+         DWC_Printf(DWC_REPORTFLAG_AUTH, " userid = 0x%016llx\n", userid);
++#if defined(MSCHARGED_NATIVE)
++        // The NAS reads ingamesn as big-endian UTF-16, the Wii's memory
++        // order; the native u16 string is measured and sent in that order.
++        {
++            u8 ingamesnBE[26 * sizeof(u16)];
++            u32 len = 0;
++            while (len < 26 && ingamesn[len] != 0)
++            {
++                ingamesnBE[len * 2] = (u8)(ingamesn[len] >> 8);
++                ingamesnBE[len * 2 + 1] = (u8)ingamesn[len];
++                len++;
++            }
++            NHTTPAddPostDataAscii(request, "ingamesn", base64nize_with_len(ingamesnBE, &b64_ptr, len * sizeof(u16)));
++        }
++#else
+         NHTTPAddPostDataAscii(request, "ingamesn", base64nize_with_len((void*)ingamesn, &b64_ptr, wcslen(ingamesn) * sizeof(u16)));
++#endif
+         break;
+ 
+     case DWCi_AUTH_KIND_SVCLOC:
+diff --git a/src/RVL_SDK/dwc/R4QK01/dwc_match.c b/src/RVL_SDK/dwc/R4QK01/dwc_match.c
+index 2f34e78..bd920c8 100644
+--- a/src/RVL_SDK/dwc/R4QK01/dwc_match.c
++++ b/src/RVL_SDK/dwc/R4QK01/dwc_match.c
+@@ -1937,7 +1937,7 @@ void DWCi_MatchProcess(BOOL fullSpec)
+         && OSTicksToMilliseconds(DWCi_Np_GetTick() - DWCi_GetMatchCnt()->nnFailedTime) > DWC_WAIT_NN_RETRY_TIMEOUT)
+     {
+         DWC_Printf(DWC_REPORTFLAG_MATCH_NN, "Timeout : wait NN retry.\n");
+-        DWCi_NNCompletedCallback(nr_deadbeatpartner, NULL, NULL, &DWCi_GetMatchCnt()->nnInfo);
++        DWCi_NNCompletedCallback(nr_deadbeatpartner, 0, NULL, &DWCi_GetMatchCnt()->nnInfo);
+     }
+ 
+     if (DWCi_GetMatchCnt()->topology == 0 && !DWCi_GetMatchCnt()->meshConnecting
+diff --git a/src/RVL_SDK/kpad/R4QK01/KPAD.c b/src/RVL_SDK/kpad/R4QK01/KPAD.c
+index a87aa4f..52b7b94 100644
+--- a/src/RVL_SDK/kpad/R4QK01/KPAD.c
++++ b/src/RVL_SDK/kpad/R4QK01/KPAD.c
+@@ -1,7 +1,16 @@
+ #include <revolution/kpad/KPADPriv.h>
+ #include <revolution/wbc/WBC.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++#include <string.h>
++#endif
++
++#if defined(MSCHARGED_NATIVE)
++// The host C library supplies sqrt, as for the older KPAD.c.
++#include <math.h>
++#else
+ #include <internal/fdlibm.h>
++#endif
+ 
+ static const char* __KPADVersion = "<< RVL_SDK - KPAD \trelease build: Jun 22 2009 18:32:13 (0x4302_145) >>";
+ 
+diff --git a/src/RVL_SDK/os/OSReset.c b/src/RVL_SDK/os/OSReset.c
+index 7e7c61a..c006e18 100644
+--- a/src/RVL_SDK/os/OSReset.c
++++ b/src/RVL_SDK/os/OSReset.c
+@@ -532,10 +532,20 @@ void __OSReturnToMenuForError(void) {
+ }
+ 
+ #if defined(VERSION_R4QK01)
++#if defined(MSCHARGED_NATIVE)
++// OS.c and OSExec.c are the host's: a native game always starts from its
++// disc, never from NAND or after OSReboot.
++#define __OSInNandBoot FALSE
++#define __OSInReboot FALSE
++#endif
+ void __OSHotResetForError(void) {
+     if (__OSInNandBoot || __OSInReboot) {
+         __OSInitSTM();
+     }
++#if defined(MSCHARGED_NATIVE)
++#undef __OSInNandBoot
++#undef __OSInReboot
++#endif
+ 
+     __OSHotReset();
+     OSPanic(__FILE__, 1034, "__OSHotReset(): Falied to reset system.\n");
+diff --git a/src/RVL_SDK/dwc/R4QK01/dwc_nonport.c b/src/RVL_SDK/dwc/R4QK01/dwc_nonport.c
+index f4bf311..1252be5 100644
+--- a/src/RVL_SDK/dwc/R4QK01/dwc_nonport.c
++++ b/src/RVL_SDK/dwc/R4QK01/dwc_nonport.c
+@@ -19,6 +19,14 @@ static struct tm aTimeStruct;
+ u64 dwci_np_consoleid;
+ u32 dwci_np_try_get_consoleid;
+ 
++#if defined(MSCHARGED_NATIVE)
++// The alignment tests read the low address bits; a host pointer is wider than u32.
++#include <stdint.h>
++#define DWC_NP_ADDRESS uintptr_t
++#else
++#define DWC_NP_ADDRESS u32
++#endif
++
+ void DWCi_Np_CPUCopyFast(void* destination, const void* source, u32 size)
+ {
+     u8* dst8 = destination;
+@@ -26,7 +34,7 @@ void DWCi_Np_CPUCopyFast(void* destination, const void* source, u32 size)
+ 
+     if (size > 32)
+     {
+-        int relativeAlignment = ((u32)destination ^ (u32)source) & 15;
++        int relativeAlignment = ((DWC_NP_ADDRESS)destination ^ (DWC_NP_ADDRESS)source) & 15;
+ 
+         if (relativeAlignment & 1)
+         {
+@@ -35,7 +43,7 @@ void DWCi_Np_CPUCopyFast(void* destination, const void* source, u32 size)
+         else if (relativeAlignment & 2)
+         {
+             // This SDK path consumes one byte for either nonzero prefix value.
+-            int prefix = 2 - ((u32)destination & 1);
++            int prefix = 2 - ((DWC_NP_ADDRESS)destination & 1);
+ 
+             if (prefix != 0)
+             {
+@@ -48,7 +56,7 @@ void DWCi_Np_CPUCopyFast(void* destination, const void* source, u32 size)
+         }
+         else if (relativeAlignment & 4)
+         {
+-            int prefix = 4 - ((u32)destination & 3);
++            int prefix = 4 - ((DWC_NP_ADDRESS)destination & 3);
+ 
+             switch (prefix)
+             {
+@@ -66,7 +74,7 @@ void DWCi_Np_CPUCopyFast(void* destination, const void* source, u32 size)
+         }
+         else
+         {
+-            int prefix = 8 - ((u32)destination & 7);
++            int prefix = 8 - ((DWC_NP_ADDRESS)destination & 7);
+ 
+             switch (prefix)
+             {
+@@ -93,15 +101,15 @@ void DWCi_Np_CPUCopyFast(void* destination, const void* source, u32 size)
+     }
+     else
+     {
+-        if (((u32)destination & 7) == 0 && ((u32)source & 7) == 0)
++        if (((DWC_NP_ADDRESS)destination & 7) == 0 && ((DWC_NP_ADDRESS)source & 7) == 0)
+         {
+             goto copyDoublewords;
+         }
+-        if (((u32)destination & 3) == 0 && ((u32)source & 3) == 0)
++        if (((DWC_NP_ADDRESS)destination & 3) == 0 && ((DWC_NP_ADDRESS)source & 3) == 0)
+         {
+             goto copyWords;
+         }
+-        if (((u32)destination & 1) == 0 && ((u32)source & 1) == 0)
++        if (((DWC_NP_ADDRESS)destination & 1) == 0 && ((DWC_NP_ADDRESS)source & 1) == 0)
+         {
+             goto copyHalfwords;
+         }
+diff --git a/src/RVL_SDK/nand/NANDLogging.c b/src/RVL_SDK/nand/NANDLogging.c
+index 0ebfaed..1f08c35 100644
+--- a/src/RVL_SDK/nand/NANDLogging.c
++++ b/src/RVL_SDK/nand/NANDLogging.c
+@@ -6,6 +6,13 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
++#if defined(MSCHARGED_NATIVE)
++// The host's OSCalendarTime names the month field mon.
++#define NAND_LOGGING_MONTH mon
++#else
++#define NAND_LOGGING_MONTH month
++#endif
++
+ static s32 s_fd = -255;
+ static int s_stage;
+ static char s_message[256] __attribute__((aligned(64)));
+@@ -165,7 +172,7 @@ static void prepareLine(char line[256], int n, const char* message) {
+     titleID[8] = '-';
+     titleID[17] = '\0';
+     end = snprintf(line, 256, "%d %04d/%02d/%02d %02d:%02d:%02d %s %s",
+-                   n % 63 + 1, calendar.year, calendar.month + 1,
++                   n % 63 + 1, calendar.year, calendar.NAND_LOGGING_MONTH + 1,
+                    calendar.mday, calendar.hour, calendar.min, calendar.sec,
+                    titleID, message);
+ 
+diff --git a/src/RVL_SDK/os/OSPlayTime.c b/src/RVL_SDK/os/OSPlayTime.c
+index 36a42e1..bb81e12 100644
+--- a/src/RVL_SDK/os/OSPlayTime.c
++++ b/src/RVL_SDK/os/OSPlayTime.c
+@@ -160,6 +160,16 @@ static void __OSPlayTimeAlarmExpired(OSAlarm* alarm, OSContext* context) {
+     if (__OSExpireCallback != NULL) {
+         __OSExpireCallback();
+     } else {
++#if defined(MSCHARGED_NATIVE)
++        // The host's OSInit never calls __OSInitPlayTime, so no play-time
++        // alarm is set natively; this reboot needs the Wii's thread queue and
++        // physical memory.
++        (void)arenaHi;
++        (void)memSize;
++        (void)thread;
++        (void)stack;
++        OSPanic(__FILE__, __LINE__, "Play-time expiry is not supported natively");
++#else
+         for (thread = OS_THREAD_QUEUE.head; thread; thread = thread->nextActive) {
+             OSSuspendThread(thread);
+         }
+@@ -176,6 +186,7 @@ static void __OSPlayTimeAlarmExpired(OSAlarm* alarm, OSContext* context) {
+             __OSHotResetForError();
+         }
+         OSResumeThread(thread);
++#endif
+     }
+ }
+ 
+diff --git a/src/RVL_SDK/rfl/RFL_DataUtility.c b/src/RVL_SDK/rfl/RFL_DataUtility.c
+index 4a2da12..31a7f4c 100644
+--- a/src/RVL_SDK/rfl/RFL_DataUtility.c
++++ b/src/RVL_SDK/rfl/RFL_DataUtility.c
+@@ -231,11 +231,11 @@ static void copyChar2Additional_(RFLAdditionalInfo* dst,
+     u8 height;
+     u8 build;
+ 
+-    memcpy(dst->name, src->personal.name, sizeof(wchar_t) * RFL_NAME_LEN);
++    memcpy(dst->name, src->personal.name, sizeof(RFL_WCHAR) * RFL_NAME_LEN);
+     dst->name[RFL_NAME_LEN] = '\0';
+ 
+     memcpy(dst->creator, src->personal.creator,
+-           sizeof(wchar_t) * RFL_CREATOR_LEN);
++           sizeof(RFL_WCHAR) * RFL_CREATOR_LEN);
+     dst->creator[RFL_CREATOR_LEN] = '\0';
+ 
+     dst->sex = src->personal.sex;
+diff --git a/include/decomp.h b/include/decomp.h
+index 3faec31..ff85fbb 100644
+--- a/include/decomp.h
++++ b/include/decomp.h
+@@ -59,12 +59,17 @@
+ #else
+ #define DECOMP_DONT_INLINE __attribute__((never_inline))
+ #endif
++#if defined(MSCHARGED_NATIVE)
++// It keeps strings in the Wii link only; its (...) declaration is not C17.
++#define DECOMP_FORCEACTIVE(module, ...)
++#else
+ #define DECOMP_FORCEACTIVE(module, ...)                       \
+     void fake_function(...);                                 \
+     void CONCAT(FORCEACTIVE##module, __LINE__)(void);         \
+     void CONCAT(FORCEACTIVE##module, __LINE__)(void) {        \
+         fake_function(__VA_ARGS__);                           \
+     }
++#endif
+ 
+ #ifdef MSCHARGED_NATIVE
+ #ifndef AT_ADDRESS

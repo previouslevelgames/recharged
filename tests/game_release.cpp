@@ -57,6 +57,7 @@ void Releases()
           "Each game code has its module's version");
     Check(usa->playable && SupportedRelease(Disc("R4QE01", 1)), "The USA release is playable");
     Check(japan->playable && SupportedRelease(Disc("R4QJ01", 0)), "The Japanese release is playable");
+    Check(korea->playable && SupportedRelease(Disc("R4QK01", 0)), "The Korean release is playable");
 
     Check(ReleaseLabel(*usa) == "USA" && ReleaseLabel(*europe2) == "Europe, revision 2"
               && ReleaseLabel(*europe1) == "Europe, revision 1" && ReleaseLabel(*japan) == "Japan"
@@ -79,13 +80,17 @@ void Releases()
     Check(UnplayableReason(Disc("R4QP01", 3), nullptr)
               == "Recharged knows the European version (R4QP01) in revision 2 and revision 1; this disc is revision 3.",
           "An unknown revision lists the known ones: " + UnplayableReason(Disc("R4QP01", 3), nullptr));
-    Check(UnplayableReason(Disc("R4QJ01", 0)).empty(), "The Japanese disc has no reason");
-    Check(UnplayableReason(Disc("R4QK01", 0)) == "This build cannot run the Korean version (R4QK01) yet.",
-          "Korea is not playable yet: " + UnplayableReason(Disc("R4QK01", 0)));
+    Check(UnplayableReason(Disc("R4QJ01", 0)).empty() && UnplayableReason(Disc("R4QK01", 0)).empty(),
+          "The Japanese and Korean discs have no reason");
+    auto blockedKorea = *korea;
+    blockedKorea.playable = false;
+    Check(UnplayableReason(Disc("R4QK01", 0), &blockedKorea) == "This build cannot run the Korean version (R4QK01) yet.",
+          "An unplayable Korean release names its version");
     Check(UnplayableReason(Disc("R4QX01", 0)) == "Mario Strikers Charged for Unknown region (R4QX01) is not supported yet.",
           "Another region is not supported");
     const auto runs = PlayableReleasesText();
-    Check(runs == "the USA (R4QE01), European (R4QP01) and Japanese (R4QJ01) versions", "Playable versions: " + runs);
+    Check(runs == "the USA (R4QE01), European (R4QP01), Japanese (R4QJ01) and Korean (R4QK01) versions",
+          "Playable versions: " + runs);
 }
 
 void Languages()

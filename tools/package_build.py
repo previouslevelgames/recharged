@@ -30,8 +30,8 @@ from pipeline_catalog import CatalogError, catalog_rows, verify_database
 
 WINDOWS_GRAPHICS_PIN = Path(__file__).with_name("windows_graphics.json")
 
-# One game module per game version (USA, European, Japanese).
-MODULES = ("recharged_game_us", "recharged_game_eu", "recharged_game_jp")
+# One game module per game version (USA, European, Japanese, Korean).
+MODULES = ("recharged_game_us", "recharged_game_eu", "recharged_game_jp", "recharged_game_kr")
 ASSETS = ("header_back.png", "header_front.png", "header_strokes.png", "logo.png", "logo_sizzle.png", "icon.png",
           "aurora.png", "Roboto-Medium.ttf", "README.md", "welcome.md", "LICENSE-APACHE")
 # LLVM-MinGW runtime DLLs a Windows build imports, and the notices that cover

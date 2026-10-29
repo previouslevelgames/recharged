@@ -404,7 +404,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         switch(release->code) {
         case mscharged::GameCode::Europe: moduleFilename=MSCHARGED_ORIGINAL_FRONTEND_MODULE_EU_FILENAME; break;
         case mscharged::GameCode::Japan: moduleFilename=MSCHARGED_ORIGINAL_FRONTEND_MODULE_JP_FILENAME; break;
-        case mscharged::GameCode::Usa: case mscharged::GameCode::Korea: break;
+        case mscharged::GameCode::Korea: moduleFilename=MSCHARGED_ORIGINAL_FRONTEND_MODULE_KR_FILENAME; break;
+        case mscharged::GameCode::Usa: break;
         }
         const auto modulePath=executableDirectory/moduleFilename;
         Check(std::filesystem::is_regular_file(modulePath),"Original-main source module is missing beside the executable");

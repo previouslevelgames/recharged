@@ -54,7 +54,7 @@ class BootstrapTests(unittest.TestCase):
         write_disc(disc, game_id=b"R4QJ01", revision=0)
         self.assertIn("Release: Mario Strikers Charged, Japan\n", self.run_port("--disc", disc))
         write_disc(disc, game_id=b"R4QK01", revision=0)
-        self.assertIn("This build cannot run the Korean version (R4QK01) yet.", self.run_port("--disc", disc))
+        self.assertIn("Release: Mario Power Soccer, Korea\n", self.run_port("--disc", disc))
         write_disc(disc, game_id=b"R4QX01", revision=0)
         self.assertIn("Mario Strikers Charged for Unknown region (R4QX01) is not supported yet.",
                       self.run_port("--disc", disc))

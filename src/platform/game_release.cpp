@@ -47,7 +47,7 @@ constexpr GameRelease kReleases[] = {
      0x000100005234514Aull, 0x3031, GameCode::Japan, false, true, 0x804E7520u,
      kJapanLanguages, std::size(kJapanLanguages)},
     {"R4QK01", 0, "c2f893aa71911c4ad4dcead1474e517e8e598fcb", "Korea", "Mario Power Soccer",
-     0x000100005234514Bull, 0x3031, GameCode::Korea, false, false, 0x804B4110u,
+     0x000100005234514Bull, 0x3031, GameCode::Korea, false, true, 0x804B4110u,
      kKoreaLanguages, std::size(kKoreaLanguages)},
 };
 
