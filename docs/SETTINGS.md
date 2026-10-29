@@ -454,16 +454,20 @@ writes `rollback_test` or `rollback_log`.
 ## Competitive play
 
 The launcher's **Competitive** page plays sets against other Recharged players
-by the rules of an online server that offers them (`[online] profile_server`,
-its `https://` address from the server's admins). A set is a series against
+by the rules of the project's online server, `https://rechargedwfc.net`. A
+private server's `https://` address (from its admins) goes in
+`[online] profile_server`; only the file changes it. The bar at the top of the
+page shows who you are signed in as, what you are doing, and whether the server
+answers. A set is a series against
 one player, by one of the server's rule sets: skill level, game length or goal
 limit, the games of the series, the stadium, and the *Competitive gameplay*
 tweaks both teams play with.
 
 1. Sign in with Discord. The browser opens a page that shows a code; go on
    only if it is the code the launcher shows.
-2. Challenge a player who has Recharged open: from **Online now** with a
-   click, or by their Discord username. They accept or decline.
+2. Challenge a player who has Recharged open: from the players online or your
+   recent opponents with a click, or by their Discord username. They accept or
+   decline.
 3. Both press **Ready to play!**. The game then starts by itself, signs in to
    the online server with your own Mii and goes straight to the captain
    draft against your opponent, where you choose your captain and sidekicks.
