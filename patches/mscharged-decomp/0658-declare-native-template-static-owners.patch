@@ -1,5 +1,5 @@
 Subject: Declare actual native singleton specializations and timeline instantiations before use
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 diff --git a/include/Game/AI/AISandbox.h b/include/Game/AI/AISandbox.h
 index 496ead4..fd72f77 100644

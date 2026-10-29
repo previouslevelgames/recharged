@@ -1,9 +1,9 @@
 From: mscharged-port
 Subject: Discover graphics pipelines from selected original resources
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 935bee0..f859bab 100644
+index 538706b..7054139 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
 @@ -1,3 +1,6 @@
@@ -13,7 +13,7 @@ index 935bee0..f859bab 100644
  #include "revolution/types.h"
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
  #include <stdexcept>
-@@ -968,6 +971,13 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -966,6 +969,13 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_OFFLINE_SCENES))
      case 91:
          SetLoadingComment("InitializeGameStateFinalizeForStadimViewer");
@@ -27,7 +27,7 @@ index 935bee0..f859bab 100644
          BeginFrameTask::s_FramerateLocked = false;
          InitializeGameObjectLighting();
          UseDefaultFreestyleButtonRemap(IsNetworkOrRecordedGame());
-@@ -1362,9 +1372,19 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
+@@ -1360,9 +1370,19 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
          result = ASYNC_LOADING_RUNNING;
          break;
      case ASYNC_LOADING_BOOT_TO_FE_RUN:
@@ -47,7 +47,7 @@ index 935bee0..f859bab 100644
              manager->mSequenceState = ASYNC_LOADING_IDLE;
              result = ASYNC_LOADING_FE_READY;
              completed = true;
-@@ -1380,9 +1400,19 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
+@@ -1378,9 +1398,19 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
          result = ASYNC_LOADING_RUNNING;
          break;
      case ASYNC_LOADING_CLEAN_BOOT_RUN:
@@ -67,7 +67,7 @@ index 935bee0..f859bab 100644
              manager->mSequenceState = ASYNC_LOADING_IDLE;
              result = ASYNC_LOADING_CLEAN_BOOT_COMPLETE;
              completed = true;
-@@ -1501,6 +1531,9 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
+@@ -1499,6 +1529,9 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
  
  static inline void BeginLoadingSequence(AsyncLoadingManager* manager, u32 state)
  {
@@ -75,9 +75,9 @@ index 935bee0..f859bab 100644
 +    mscharged::platform::ResetAutomaticGraphicsPreparation();
 +#endif
      manager->mSequenceState = state;
-     lbl_806E103C = 0;
+     sPreviousLoadingComment = 0;
      manager->mPreviousStageTick = nlGetTicker();
-@@ -1611,6 +1644,14 @@ void InitializeFrontEndState1(AsyncLoadingManager* manager)
+@@ -1609,6 +1642,14 @@ void InitializeFrontEndState1(AsyncLoadingManager* manager)
  
  void InitializeFrontEndState2(AsyncLoadingManager* manager)
  {
@@ -92,7 +92,7 @@ index 935bee0..f859bab 100644
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
      || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
      static GLMemoryRequirement requirements[] = {
-@@ -1903,6 +1944,9 @@ void DestroyFrontEndState(AsyncLoadingManager* manager)
+@@ -1901,6 +1942,9 @@ void DestroyFrontEndState(AsyncLoadingManager* manager)
  
  void InitializeGameState1(AsyncLoadingManager* manager)
  {
@@ -102,7 +102,7 @@ index 935bee0..f859bab 100644
      manager->mLoadingState = ASYNC_RESOURCES_LOADING;
      manager->SetLoadingComment("InitializeGameState1");
      OnResourceLoadBegin(1);
-@@ -2086,6 +2130,13 @@ void InitializeInGameFrontEnd(AsyncLoadingManager* manager)
+@@ -2084,6 +2128,13 @@ void InitializeInGameFrontEnd(AsyncLoadingManager* manager)
  void FinalizeGameStateLoading(AsyncLoadingManager* manager)
  {
      manager->SetLoadingComment("GameStateFinalize");
@@ -220,7 +220,7 @@ index 4ffc7ea..9bccaad 100644
 +} // namespace mscharged::platform
 +#endif
 diff --git a/src/Game/FE/feModelManager.cpp b/src/Game/FE/feModelManager.cpp
-index 3681a56..84bb924 100644
+index 7127021..8fbb7bd 100644
 --- a/src/Game/FE/feModelManager.cpp
 +++ b/src/Game/FE/feModelManager.cpp
 @@ -1,3 +1,11 @@

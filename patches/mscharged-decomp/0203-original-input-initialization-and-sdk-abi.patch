@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original input initialization and canonical IRQ declarations
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Keep original pad constructors, declarations, manager initialization and action
 table outside explicit diagnostics. Restore the original cPlatPad declaration.
@@ -70,7 +70,7 @@ index 82ba844..5bf7246 100644
  
  #endif // NL_PLATPAD_H
 diff --git a/libs/RVL_SDK/include/revolution/os/OSContext.h b/libs/RVL_SDK/include/revolution/os/OSContext.h
-index b794e99..899a385 100644
+index 2dfd532..8b539b6 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSContext.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSContext.h
 @@ -1,6 +1,18 @@
@@ -90,9 +90,9 @@ index b794e99..899a385 100644
 +#endif
 +#else
  #include <revolution/types.h>
+ #include <revolution/os/OSContext_fwd.h>
  
- #ifdef __cplusplus
-@@ -44,4 +56,6 @@ void __OSContextInit(void);
+@@ -45,4 +57,6 @@ void __OSContextInit(void);
  }
  #endif
  
@@ -100,7 +100,7 @@ index b794e99..899a385 100644
 +
  #endif  // REVOLUTION_OS_CONTEXT_H
 diff --git a/libs/RVL_SDK/include/revolution/os/OSInterrupt.h b/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
-index e98ed0c..4dd0a33 100644
+index 57d1000..ae44996 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSInterrupt.h
 @@ -1,6 +1,60 @@
@@ -162,8 +162,8 @@ index e98ed0c..4dd0a33 100644
 +#endif
 +#else
  #include <revolution/types.h>
+ #include <revolution/os/OSContext_fwd.h>
  
- typedef struct OSContext OSContext;
 @@ -75,4 +129,6 @@ void __RAS_OSDisableInterrupts_end(void);
  }
  #endif

@@ -150,7 +150,6 @@
 0173-native-temporary-string-prefix-word.patch
 0172-original-typed-function-pool-abi.patch
 0174-native-material-parameter-transport.patch
-0175-original-bind-provider-compiler.patch
 0176-original-lighting-source-abi.patch
 0178-canonical-original-gx-material-providers.patch
 0177-native-string-object-alignment.patch
@@ -556,3 +555,5 @@
 0757-native-online-mii-icons.patch
 0758-native-rfl-model-arrays.patch
 0759-native-rfl-icon-mask-copies.patch
+0760-native-nand-forward-declarations.patch
+0761-native-nhttp-host-os-first.patch

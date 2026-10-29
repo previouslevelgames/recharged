@@ -1,5 +1,5 @@
 Subject: Preserve AX native packed stores and retail u16 word fields
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Keep all original AX voice-format decisions, synchronization flags,
 depop arithmetic and studio call/update order. Native packed records
@@ -10,23 +10,21 @@ record footprints remain intact. This does not export DSP wire data,
 provide a DSP engine or satisfy original AX/THP audio initialization.
 
 diff --git a/libs/RVL_SDK/include/revolution/ax/AXSPB.h b/libs/RVL_SDK/include/revolution/ax/AXSPB.h
-index f3b80ce..59752a8 100644
+index e9cb90b..17e7960 100644
 --- a/libs/RVL_SDK/include/revolution/ax/AXSPB.h
 +++ b/libs/RVL_SDK/include/revolution/ax/AXSPB.h
-@@ -70,8 +70,13 @@ typedef struct _AXSTUDIO {
+@@ -70,7 +70,10 @@ typedef struct _AXSTUDIO {
  #pragma pack(pop)
  
  AXSTUDIO* __AXGetStudio(void);
+-#if defined(VERSION_R4QK01)
 +#ifdef MSCHARGED_NATIVE
 +void __AXDepopFadeMain(s32* all, void* value, s16* depop) DECOMP_DONT_INLINE;
 +void __AXDepopFadeRmt(s32* all, void* value, s16* depop) DECOMP_DONT_INLINE;
-+#else
- void __AXDepopFadeMain(s32* all, s32* value, s16* depop) DECOMP_DONT_INLINE;
- void __AXDepopFadeRmt(s32* all, s32* value, s16* depop) DECOMP_DONT_INLINE;
-+#endif
- void __AXPrintStudio(void);
- void __AXSPBInit(void);
- void __AXDepopVoice(AXPB* pb);
++#elif defined(VERSION_R4QK01)
+ void __AXDepopFadeMain(s32* all, s32* value, s16* depop);
+ void __AXDepopFadeRmt(s32* all, s32* value, s16* depop);
+ #else
 diff --git a/src/RVL_SDK/ax/AXSPB.c b/src/RVL_SDK/ax/AXSPB.c
 index 115806e..9c292bf 100644
 --- a/src/RVL_SDK/ax/AXSPB.c

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Rollback: the audio transitions follow the match as state
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 A slow motion applies the "Slow-mo_Captain_Hit" audio transition when it
 starts (cGame::StartSlowDown) and inverts it when it ends (the host's

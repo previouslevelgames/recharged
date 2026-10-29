@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Retain native failed reads through the original DVD-status wait
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: explicit temporary original frontend error-path admission.
 
 At the native command error boundary, admit the original Service default

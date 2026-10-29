@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Preserve original HBM task capacity with native payload and MEM layouts
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: native LP64 storage/header ABI and modern compiler compatibility only.
 
 Retain all original nested SoundArchivePlayer task declarations and methods.
@@ -36,35 +36,6 @@ index b3a9e54..a6d9806 100644
  #include "revolution/wpad.h"
  #include <stddef.h>
  
-diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h
-index 0143ff0..0c508fd 100644
---- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h
-+++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/DisposeCallback.h
-@@ -18,16 +18,24 @@ class DisposeCallback : public DisposeCallbackBase {
- public:
-     /* 0x00 */ ut::LinkListNode mDisposeLink;
- 
-+#if defined(MSCHARGED_NATIVE) && defined(MAKE_DTOR_ZERO)
-+    /* 0x08 */ virtual ~DisposeCallback() = 0;
-+#else
-     /* 0x08 */ virtual ~DisposeCallback()
- #ifdef MAKE_DTOR_ZERO
-         = 0
- #endif
-         {};
-+#endif
- 
-     /* 0x0C */ virtual void InvalidateData(const void* start, const void* end) = 0;
-     /* 0x10 */ virtual void InvalidateWaveData(const void* start, const void* end) = 0;
- };
- 
-+#if defined(MSCHARGED_NATIVE) && defined(MAKE_DTOR_ZERO)
-+inline DisposeCallback::~DisposeCallback() {}
-+#endif
-+
- } // namespace
- 
- typedef ut::LinkList<DisposeCallback, offsetof(DisposeCallback, mDisposeLink)> DisposeCallbackList;
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
 index f3146bb..44f5c21 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/FrameHeap.h
@@ -138,10 +109,10 @@ index 1702884..729e27c 100644
  namespace detail {
  class SoundArchiveFileReader;
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
-index 35e9672..d22b012 100644
+index b00b1cc..9f99d5d 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
-@@ -34,6 +34,9 @@ class SoundPlayer;
+@@ -29,6 +29,9 @@ class SoundPlayer;
  namespace detail {
  class SeqTrackAllocator;
  class SoundArchiveLoader;
@@ -151,7 +122,7 @@ index 35e9672..d22b012 100644
  } // namespace detail
  
  class SoundArchivePlayer_FileManager {
-@@ -90,9 +93,13 @@ public:
+@@ -85,9 +88,13 @@ public:
      bool LoadGroup(int id, SoundMemoryAllocatable* allocatable, u32 loadBlockSize) {
          return LoadGroup(static_cast<u32>(id), allocatable, loadBlockSize);
      }
@@ -165,7 +136,7 @@ index 35e9672..d22b012 100644
  
      u32 GetSoundPlayerCount() const { return mSoundPlayerCount; }
  
-@@ -101,6 +108,9 @@ public:
+@@ -96,6 +103,9 @@ public:
      u32 GetFreeWaveSoundCount() const { return mWaveSoundInstanceManager.GetFreeCount(); }
  
  private:
@@ -276,7 +247,7 @@ index 54ce1d3..59b7a4c 100644
  
  namespace nw4hbm {
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
-index 9ff09a0..bc4215e 100644
+index 13f9d8f..46c667a 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
 @@ -38,10 +38,17 @@ public:
@@ -404,7 +375,7 @@ index bf58667..06ea115 100644
  
  typedef enum OutputLineFlag {
 diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
-index f2d18d4..4d6c78c 100644
+index f70596a..82184d4 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
 @@ -1,10 +1,17 @@
@@ -436,19 +407,5 @@ index f2d18d4..4d6c78c 100644
      mHeapHandle = MEMCreateUnitHeap(mTaskArea, sizeof(mTaskArea), 64);
 +#endif
  
-     // clang-format off
      NW4HBMAssert_Line(MEMCountFreeBlockForUnitHeap( mHeapHandle ) >= TASK_NUM, 55);
-@@ -42,7 +54,13 @@ void* TaskManager::Alloc() {
- 
- u32 TaskManager::GetTaskBufferSize() {
-     //! TODO: fake match?
-+#ifdef MSCHARGED_NATIVE
-+    const MEMiUntHeapHead* unitHeap = static_cast<const MEMiUntHeapHead*>(
-+        AddU32ToPtr(mHeapHandle, sizeof(MEMiHeapHead)));
-+    return unitHeap->blockSize;
-+#else
-     return *((u32*)mHeapHandle + 0x10);
-+#endif
  }
- 
- void TaskManager::Free(void* ptr) {

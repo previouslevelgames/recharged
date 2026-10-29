@@ -1,6 +1,6 @@
 Subject: Read the native bus clock without absolute-address definitions
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Upstream now owns the declaration in OSHardware_fwd.h and uses
 OS_BUS_CLOCK_SPEED in both original NL time units. The native forward header
@@ -11,10 +11,10 @@ expand inside full OSHardware physical declarations or conflict with the later
 All original conversion math and clocks remain unchanged.
 
 diff --git a/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h b/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h
-index acdd78d..cbb205c 100644
+index 45a2714..e352ad9 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSHardware_fwd.h
-@@ -2,12 +2,19 @@
+@@ -2,6 +2,9 @@
  #define REVOLUTION_OS_HARDWARE_FWD_H
  
  #include <decomp.h>
@@ -24,7 +24,9 @@ index acdd78d..cbb205c 100644
  
  #ifdef __cplusplus
  extern "C" {
- #endif
+@@ -10,7 +13,11 @@ extern "C" {
+ /* Fixed Wii time-base frequency, in Hz. */
+ #define OS_TIMER_CLOCK 60750000u
  
 +#ifdef MSCHARGED_NATIVE
 +u32 ChargedGetBusClock(void);

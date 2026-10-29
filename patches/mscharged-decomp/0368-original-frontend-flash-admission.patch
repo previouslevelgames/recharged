@@ -1,6 +1,6 @@
 From: mscharged-port original-source integration
 Subject: Admit original flash initialization and task in the frontend diagnostic
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Retire three named diagnostic omissions at their literal original source
 positions: the FlashMemoryTask static, nlFlashInitialize and AddTask with
@@ -10,7 +10,7 @@ No save data, handler, user choice or readiness is substituted. Defaults
 and console source projections remain unchanged with this option absent.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index 72b79f7..7efc393 100644
+index 504d8e1..b949e44 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -1,6 +1,9 @@
@@ -23,7 +23,7 @@ index 72b79f7..7efc393 100644
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) && (!defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE))
  #error The selected source task cadence requires the native original frontend sequence module
  #endif
-@@ -239,7 +242,7 @@ static TextWindowTask textWindowTask;
+@@ -243,7 +246,7 @@ static TextWindowTask textWindowTask;
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
  static FEDPDTask feDPDTask;
  #endif
@@ -32,7 +32,7 @@ index 72b79f7..7efc393 100644
  static FlashMemoryTask flashMemoryTask;
  
  
-@@ -693,7 +696,11 @@ static void Initialize()
+@@ -708,7 +711,11 @@ static void Initialize()
          g_pStrikerChallenge = new (8, false) StrikerChallenge;
      }
  
@@ -44,10 +44,10 @@ index 72b79f7..7efc393 100644
      nlInitFileCache();
      ReplayChoreo::Instance();
      GetPresentation();
-@@ -794,7 +801,7 @@ static void AddTasks()
-     nlTaskManager::AddTask(&networkUpdateTask, 17, (u32)-1);
- #endif // unqualified unrelated task registration remains omitted
+@@ -814,7 +821,7 @@ static void AddTasks()
+ #else
      nlTaskManager::AddTask(&feDPDTask, 13, 5);
+ #endif
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH)
      nlTaskManager::AddTask(
