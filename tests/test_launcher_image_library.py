@@ -106,7 +106,7 @@ def run(executable):
         assert result.returncode == 0, result.stderr
         assert result.stdout.splitlines() == [
             "Charged (Europe) (Rev 2).iso playable R4QP01",
-            "Charged (Japan).iso unsupported R4QJ01",
+            "Charged (Japan).iso playable R4QJ01",
             "Charged (Korea).iso unsupported R4QK01",
             "Charged (USA).iso playable R4QE01",
             "Damaged.iso unreadable ",

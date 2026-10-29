@@ -17,9 +17,9 @@ graphics, sound, controllers, disc access and saves.
 > [!IMPORTANT]
 > **The downloads contain no game files.** You need your own copy of
 > **Mario Strikers Charged** as an `.iso`, `.rvz` or `.wbfs` disc image: the
-> USA version (game ID `R4QE01`, revision 1) or the European version, *Mario
-> Strikers Charged Football* (`R4QP01`, revision 1 or 2). Japanese and Korean
-> discs are not supported yet.
+> USA version (game ID `R4QE01`, revision 1), the European version, *Mario
+> Strikers Charged Football* (`R4QP01`, revision 1 or 2), or the Japanese
+> version (`R4QJ01`). Korean discs are not supported yet.
 
 ## Download
 
@@ -130,9 +130,9 @@ Version 1.1 brings the game's online play back through our own server; see the
 [optional gameplay tweaks](docs/FEATURES.md#optional-tweaks), and we are
 working on a modding framework. Stay tuned.
 
-**What about the Japanese and Korean versions?** The USA and European versions
-are supported. For the Japanese and Korean versions we are still working on
-the decompilation and on fixing all remaining differences.
+**What about the Korean version?** The USA, European and Japanese versions
+are supported. The Korean version, *Mario Power Soccer*, is built on a newer
+Wii SDK; we are still adapting it.
 
 **Something does not work.** See [troubleshooting](docs/TROUBLESHOOTING.md).
 To report a problem, open an [issue](https://github.com/previouslevelgames/recharged/issues)

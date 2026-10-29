@@ -85,13 +85,14 @@ function(mscharged_rollback_sections_launcher target)
 endfunction()
 
 # One game module per game version, from the same prepared sources:
-# mscharged_original_frontend_module_us (R4QE01) and _eu (R4QP01_REV2, which
-# also runs European revision 1 discs). The host picks one by the disc.
+# mscharged_original_frontend_module_us (R4QE01), _eu (R4QP01_REV2, which also
+# runs European revision 1 discs) and _jp (R4QJ01). The host picks one by the
+# disc.
 function(mscharged_add_original_frontend_diagnostic target version suffix)
     string(TOUPPER "${suffix}" _suffix)
     get_target_property(_sources mscharged_original_game_module_template SOURCES)
     add_library(${target} MODULE ${_sources})
-    # The shipped file: recharged_game_us/_eu beside the program.
+    # The shipped file: recharged_game_us/_eu/_jp beside the program.
     set_target_properties(${target} PROPERTIES OUTPUT_NAME recharged_game_${suffix})
     add_dependencies(${target} verify_prepared)
     mscharged_add_original_shutdown_records(${target})
@@ -260,6 +261,7 @@ endfunction()
 
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_us R4QE01 us)
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_eu R4QP01_REV2 eu)
+mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_jp R4QJ01 jp)
 
 if(BUILD_TESTING)
     add_test(NAME original_module_vtables

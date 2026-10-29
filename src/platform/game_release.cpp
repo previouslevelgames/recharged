@@ -10,7 +10,8 @@ namespace
 {
 // Wii system languages (SC_LANG_*) as original main maps them: the USA build
 // shows English, NA French or NA Spanish; the European build UK English,
-// German, French, Spanish or Italian.
+// German, French, Spanish or Italian. The Japanese and Korean builds have one
+// language each, whatever the Wii is set to.
 constexpr GameLanguage kUsaLanguages[] = {
     {"english", "English", "en", 1},
     {"french", "French", "fr", 3},
@@ -22,6 +23,12 @@ constexpr GameLanguage kEuropeLanguages[] = {
     {"french", "French", "fr", 3},
     {"spanish", "Spanish", "es", 4},
     {"italian", "Italian", "it", 5},
+};
+constexpr GameLanguage kJapanLanguages[] = {
+    {"japanese", "Japanese", "ja", 0},
+};
+constexpr GameLanguage kKoreaLanguages[] = {
+    {"korean", "Korean", "ko", 9},
 };
 
 // main.dol hashes and disc-message tables follow the decomp's
@@ -36,6 +43,12 @@ constexpr GameRelease kReleases[] = {
     {"R4QP01", 1, "0a066b755b469648a371d1cfc2d1bcad315b2b4a", "Europe", "Mario Strikers Charged Football",
      0x0001000052345150ull, 0x3031, GameCode::Europe, true, true, 0x804E6488u,
      kEuropeLanguages, std::size(kEuropeLanguages)},
+    {"R4QJ01", 0, "74be723403329158b1645d9961a3cd6be755cdb8", "Japan", "Mario Strikers Charged",
+     0x000100005234514Aull, 0x3031, GameCode::Japan, false, true, 0x804E7520u,
+     kJapanLanguages, std::size(kJapanLanguages)},
+    {"R4QK01", 0, "c2f893aa71911c4ad4dcead1474e517e8e598fcb", "Korea", "Mario Power Soccer",
+     0x000100005234514Bull, 0x3031, GameCode::Korea, false, false, 0x804B4110u,
+     kKoreaLanguages, std::size(kKoreaLanguages)},
 };
 
 // "European" for "Europe", as in "the European version".
@@ -58,7 +71,14 @@ bool SeveralRevisions(std::string_view game_id)
 
 const char* GameModuleVersion(GameCode code)
 {
-    return code == GameCode::Europe ? "R4QP01_REV2" : "R4QE01";
+    switch (code)
+    {
+    case GameCode::Europe: return "R4QP01_REV2";
+    case GameCode::Japan: return "R4QJ01";
+    case GameCode::Korea: return "R4QK01";
+    case GameCode::Usa: break;
+    }
+    return "R4QE01";
 }
 
 std::size_t ReleaseCount() { return std::size(kReleases); }

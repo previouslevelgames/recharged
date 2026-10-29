@@ -339,7 +339,8 @@ the program folder, or in the folder set under **Game → Save data**
 (`[game] save_folder`). A new folder starts without saves; the old folder
 keeps its saves. Each version has its own saves, as on the Wii: the USA
 version uses the folder itself, the European version its `R4QP` subfolder
-(shared by both European revisions).
+(shared by both European revisions), the Japanese version its `R4QJ`
+subfolder.
 
 Earlier builds called the data folder `original-main-credits-data`; the first
 start of a newer build renames it to `data`. Switched back to an earlier
@@ -347,7 +348,8 @@ build, the game starts without saves until `data` gets its old name again.
 
 **Import from Dolphin** copies the save Dolphin keeps for the game
 (`<Dolphin user folder>/Wii/title/00010000/52345145/data` for the USA version,
-`.../52345150/data` for the European one) byte for byte. The
+`.../52345150/data` for the European one, `.../5234514a/data` for the
+Japanese one) byte for byte. The
 launcher finds Dolphin's usual folders by itself; otherwise choose Dolphin's
 user folder or that save folder. The current save is first copied to
 `backups/` in the save folder. Dolphin's encrypted `data.bin` exports are not

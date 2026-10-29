@@ -31,7 +31,7 @@ flowchart TB
 
 One program, `recharged`, contains the launcher and the platform. Pressing
 **Play** closes the launcher and loads the **game module** for the disc's
-version (`recharged_game_us` or `_eu`, shared libraries
+version (`recharged_game_us`, `_eu` or `_jp`, shared libraries
 beside the program) in the same process. The platform sets up the Wii's
 memory, clocks and devices, passes the player's settings (controllers, tweaks,
 frame rate) to the module, and calls the original `main()`. From there the
@@ -54,10 +54,10 @@ it in four steps:
    behavior depends on their layout (`__LINE__`, stringified macro arguments)
    are left exactly as patched.
 4. **Compile.** The prepared game and SDK code is compiled with GCC or Clang
-   into one game module per game version. The decomp builds the USA and the
-   European release from the same source, selected by a version macro
-   (`VERSION_R4QE01`, `VERSION_R4QP01_REV2`); Recharged compiles the prepared
-   tree once for each.
+   into one game module per game version. The decomp builds the USA, European
+   and Japanese releases from the same source, selected by a version macro
+   (`VERSION_R4QE01`, `VERSION_R4QP01_REV2`, `VERSION_R4QJ01`); Recharged
+   compiles the prepared tree once for each.
 
 The patches fall into two series:
 

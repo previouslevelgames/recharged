@@ -111,11 +111,12 @@ cmake --preset release -B build/windows \
     -DLLVM_MINGW_ROOT=/path/to/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64 \
     -DBUILD_TESTING=OFF
 cmake --build build/windows --target mscharged mscharged_original_frontend_module_us \
-    mscharged_original_frontend_module_eu
+    mscharged_original_frontend_module_eu mscharged_original_frontend_module_jp
 ```
 
 The targets keep their old names; they build `recharged.exe` and the game
-modules `recharged_game_us.dll` and `recharged_game_eu.dll`.
+modules `recharged_game_us.dll`, `recharged_game_eu.dll` and
+`recharged_game_jp.dll`.
 
 The targets keep their old names; they build `recharged.exe` and the game
 modules `recharged_game_us.dll` and `recharged_game_eu.dll`.
