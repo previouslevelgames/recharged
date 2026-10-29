@@ -4202,22 +4202,148 @@ private:
         return &sets.front();
     }
 
-    // The next set: the rules every challenge from this page uses, the
-    // players who have Recharged open and the ones last played with (a click
-    // challenges them), and a challenge by Discord username.
+    // A small heading over a group of rows: tracked capitals, and a count
+    // after them.
+    void SectionHeading(const char* text, const std::string& after)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        ImGui::Dummy({0, Dp(10)});
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float tracking = Dp(1.4f);
+        DrawTracked(draw, fonts.caption, at, Col(color::dim), text, tracking);
+        if (!after.empty())
+            DrawLabel(draw, fonts.caption, {at.x + TrackedWidth(fonts.caption, text, tracking) + Dp(10), at.y},
+                      Col(color::muted), after.c_str());
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(4)});
+    }
+
+    // One player of the lists as a row: their initial on a colour of their
+    // own with a dot for whether they have Recharged open, the name, what
+    // they're doing or when they last had Recharged open, and the row's
+    // buttons. The row lights up under the pointer.
+    void PlayerRow(const platform::ProfilePlayer& player, const platform::RuleSet* rules, std::int64_t now)
+    {
+        const auto& fonts = CurrentFonts();
+        const bool busy = competitive_status_.busy;
+        ImGui::PushID(int(player.id));
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(60), bleed = Dp(10);
+        const ImVec2 end{start.x + width, start.y + height};
+        const bool inside = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)
+            && ImGui::IsMouseHoveringRect({start.x - bleed, start.y}, {end.x + bleed, end.y});
+        const float glow = Animate(ImGui::GetID("##row"), inside);
+        if (glow > 0.01f)
+            draw->AddRectFilled({start.x - bleed, start.y}, {end.x + bleed, end.y}, Col(color::card_hover, glow), Dp(12));
+        const ImVec4 surface = Mix(color::card, color::card_hover, glow);
+
+        // The avatar: a colour from the player's id, the same everywhere.
+        const float radius = Dp(20);
+        const ImVec2 center{start.x + radius, start.y + height * 0.5f};
+        ImVec4 tint{0, 0, 0, 1};
+        ImGui::ColorConvertHSVtoRGB(std::fmod(float(player.id) * 0.618034f, 1.0f), 0.55f, 0.62f, tint.x, tint.y,
+                                    tint.z);
+        if (!player.online) tint = Mix(tint, color::card, 0.45f);
+        draw->AddCircleFilled(center, radius, Col(tint));
+        std::string initial = player.name.empty() ? std::string("?") : player.name.substr(0, 1);
+        if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
+            initial = player.name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2,
+                                                                   player.name.size()));
+        else
+            initial[0] = char(std::toupper(byte));
+        const ImVec2 letter = TextSize(fonts.heading, initial.c_str());
+        DrawLabel(draw, fonts.heading, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f},
+                  Col(color::text, player.online ? 1.0f : 0.7f), initial.c_str());
+        // The presence dot, ringed in the row's colour: green with Recharged
+        // open, amber in a set, grey away.
+        const ImVec2 dot{center.x + radius * 0.74f, center.y + radius * 0.74f};
+        draw->AddCircleFilled(dot, Dp(7.5f), Col(surface));
+        draw->AddCircleFilled(dot, Dp(5),
+                              Col(!player.online ? color::dim : player.busy ? color::warning : color::success));
+
+        // The buttons, from the right: the heart, lit for a friend (a click
+        // takes them off) and grey for anyone else (a click adds them), then
+        // Challenge for a player who has Recharged open.
+        float edge = end.x;
+        const float button_height = Dp(36);
+        const auto place = [&](float button_width) {
+            edge -= button_width;
+            ImGui::SetCursorScreenPos({edge, center.y - button_height * 0.5f});
+        };
+        {
+            const float size = Dp(34);
+            edge -= size;
+            ImGui::SetCursorScreenPos({edge, center.y - size * 0.5f});
+            const bool pressed = ImGui::InvisibleButton("##friend", {size, size});
+            const bool over = ImGui::IsItemHovered();
+            const ImVec2 middle{edge + size * 0.5f, center.y};
+            const ImVec4 heart = player.is_friend ? (over ? color::danger : color::accent)
+                                                  : (over ? color::accent : color::dim);
+            if (over || player.is_friend) draw->AddCircleFilled(middle, size * 0.5f, Col(heart, over ? 0.16f : 0.10f));
+            DrawIcon(draw, Icon::Heart, middle, Dp(16), Col(heart));
+            if (over)
+                ImGui::SetTooltip(player.is_friend ? "Remove %s from your friends" : "Add %s to your friends",
+                                  player.name.c_str());
+            if (pressed && !busy)
+            {
+                if (player.is_friend) competitive_->RemoveFriend(player.id);
+                else competitive_->AddFriend(player.id);
+            }
+            edge -= Dp(10);
+        }
+        if (player.online)
+        {
+            place(Dp(132));
+            if (SecondaryButton("challenge_player", "Challenge", {Dp(132), button_height},
+                                !busy && rules && !player.busy, Icon::Trophy))
+                competitive_->ChallengePlayer(player.id, rules->id);
+        }
+
+        // The name, the Discord username after it, and the line under them.
+        const float text_left = center.x + radius + Dp(14);
+        const std::string handle = player.discord.empty() ? std::string() : "@" + player.discord;
+        std::string status;
+        ImVec4 status_tint = color::muted;
+        if (player.online && player.busy) status = "In a set", status_tint = color::warning;
+        else if (player.online) status = "Online", status_tint = color::success;
+        else status = platform::DescribeLastOnline(now, player.last_online);
+        const ImVec2 name = TextSize(fonts.label, player.name.c_str());
+        const float block = name.y + Dp(3) + FontSize(fonts.caption);
+        const float top = center.y - block * 0.5f;
+        draw->PushClipRect({text_left, start.y}, {std::max(text_left, edge - Dp(12)), end.y}, true);
+        DrawLabel(draw, fonts.label, {text_left, top}, Col(player.online ? color::text : Mix(color::text, color::muted, 0.4f)),
+                  player.name.c_str());
+        if (!handle.empty())
+            DrawLabel(draw, fonts.caption, {text_left + name.x + Dp(8), top + (name.y - FontSize(fonts.caption)) * 0.5f},
+                      Col(color::dim), handle.c_str());
+        DrawLabel(draw, fonts.caption, {text_left, top + name.y + Dp(3)}, Col(status_tint), status.c_str());
+        draw->PopClipRect();
+
+        ImGui::SetCursorScreenPos(start);
+        ImGui::Dummy({width, height});
+        ImGui::PopID();
+    }
+
+    // The players: the rules every challenge from this page uses, the
+    // player's friends (online first, then when they last had Recharged
+    // open), everyone else who has Recharged open, and adding or challenging
+    // a player by Discord username.
     void CompetitiveChallengeCard()
     {
         const auto& status = competitive_status_;
         const auto& lists = status.lists;
         const auto& fonts = CurrentFonts();
         const bool busy = status.busy;
-        BeginCard("##competitive_challenge", "Challenge a player",
-                  "Players who have Recharged open, and the ones you played last. Your challenge uses these rules.",
-                  Icon::Trophy);
+        const auto now = std::int64_t(std::time(nullptr));
+        BeginCard("##competitive_players", "Players",
+                  "Your friends follow you to every computer: everyone you challenge or play, and anyone you add.",
+                  Icon::Person);
         const platform::RuleSet* chosen = ChosenRuleSet();
         if (BeginRows("##challenge_rules_row"))
         {
-            Row("Rules", chosen ? platform::DescribeRules(chosen->rules).c_str() : "This server has no rule sets yet.");
+            Row("Rules for your challenges",
+                chosen ? platform::DescribeRules(chosen->rules).c_str() : "This server has no rule sets yet.");
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::BeginCombo("##challenge_rules", chosen ? chosen->name.c_str() : "None on this server"))
             {
@@ -4227,53 +4353,43 @@ private:
             }
             EndRows();
         }
-        const auto rows = [&](const char* heading, const char* id, const std::vector<platform::ProfilePlayer>& players) {
-            ImGui::Dummy({0, Dp(4)});
-            TextColored(fonts.caption, color::dim, heading);
-            if (!BeginRows(id)) return;
-            for (const auto& player : players)
-            {
-                ImGui::PushID(int(player.id));
-                const std::string about = player.busy      ? "In a set"
-                                          : !player.online ? "Not online"
-                                          : player.discord.empty() ? "Online"
-                                                                   : "@" + player.discord;
-                Row(player.name.c_str(), about.c_str());
-                if (SecondaryButton("challenge_player", "Challenge", Dp(140, 36),
-                                    !busy && chosen && player.online && !player.busy, Icon::Trophy))
-                    competitive_->ChallengePlayer(player.id, chosen->id);
-                ImGui::PopID();
-            }
-            EndRows();
-        };
-        if (lists.online.empty())
-        {
-            ImGui::Dummy({0, Dp(4)});
-            TextColored(fonts.caption, color::dim, "ONLINE NOW");
+
+        const auto online_friends = std::count_if(lists.friends.begin(), lists.friends.end(),
+                                                  [](const platform::ProfilePlayer& player) { return player.online; });
+        SectionHeading("FRIENDS", lists.friends.empty() ? std::string()
+                                  : std::to_string(online_friends) + " online · " + std::to_string(lists.friends.size()));
+        if (lists.friends.empty())
+            TextWrappedColored(fonts.body, color::muted,
+                               "No friends yet. Players you challenge or play show up here, and anyone you add.");
+        for (const auto& player : lists.friends) PlayerRow(player, chosen, now);
+
+        std::vector<const platform::ProfilePlayer*> others;
+        for (const auto& player : lists.online)
+            if (!player.is_friend) others.push_back(&player);
+        SectionHeading("ALSO ONLINE", others.empty() ? std::string() : std::to_string(others.size()));
+        if (others.empty())
             TextWrappedColored(fonts.body, color::muted, "Nobody else has Recharged open right now.");
-        }
-        else
-            rows("ONLINE NOW", "##online_rows", lists.online);
-        if (!lists.recent.empty()) rows("RECENT OPPONENTS", "##recent_rows", lists.recent);
-        ImGui::Dummy({0, Dp(4)});
-        if (BeginRows("##challenge_name_row"))
-        {
-            Row("By Discord username", "They must have Recharged open.");
-            const float button = Dp(140);
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - button - Dp(10));
-            const bool entered = ImGui::InputTextWithHint("##challenge_name", "Discord username", &challenge_name_,
-                                                          ImGuiInputTextFlags_EnterReturnsTrue);
-            ImGui::SameLine(0, Dp(10));
-            const auto first = challenge_name_.find_first_not_of(" \t");
-            const std::string name = first == std::string::npos
-                ? std::string()
-                : challenge_name_.substr(first, challenge_name_.find_last_not_of(" \t") + 1 - first);
-            const bool usable = !busy && chosen && !name.empty();
-            if (SecondaryButton("challenge", "Challenge", {button, ImGui::GetFrameHeight()}, usable, Icon::Trophy)
-                || (entered && usable))
-                competitive_->Challenge(name, challenge_rule_set_);
-            EndRows();
-        }
+        for (const auto* player : others) PlayerRow(*player, chosen, now);
+
+        // By Discord username: add as a friend, or challenge.
+        SectionHeading("BY DISCORD USERNAME", std::string());
+        const float button = Dp(132), gap = Dp(8);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 2 * button - 2 * gap);
+        const bool entered = ImGui::InputTextWithHint("##challenge_name", "Discord username", &challenge_name_,
+                                                      ImGuiInputTextFlags_EnterReturnsTrue);
+        const auto first = challenge_name_.find_first_not_of(" \t");
+        const std::string name = first == std::string::npos
+            ? std::string()
+            : challenge_name_.substr(first, challenge_name_.find_last_not_of(" \t") + 1 - first);
+        ImGui::SameLine(0, gap);
+        if (GhostButton("add_by_name", "Add friend", {button, ImGui::GetFrameHeight()}, !busy && !name.empty(),
+                        Icon::Heart))
+            competitive_->AddFriend(name);
+        ImGui::SameLine(0, gap);
+        const bool usable = !busy && chosen && !name.empty();
+        if (SecondaryButton("challenge", "Challenge", {button, ImGui::GetFrameHeight()}, usable, Icon::Trophy)
+            || (entered && usable))
+            competitive_->Challenge(name, challenge_rule_set_);
         EndCard();
     }
 

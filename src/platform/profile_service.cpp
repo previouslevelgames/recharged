@@ -8,6 +8,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <ctime>
 #include <fstream>
 #include <sstream>
 #include <system_error>
@@ -96,7 +97,16 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.discord_id = value["discord_id"].Text();
     player.online = value["online"].Bool();
     player.busy = value["busy"].Bool();
+    player.last_online = value["last_online"].Integer();
+    player.is_friend = value["friend"].Bool();
     return player;
+}
+
+std::vector<ProfilePlayer> ParsePlayers(const JsonValue& value)
+{
+    std::vector<ProfilePlayer> players;
+    for (const auto& player : value.Items()) players.push_back(ParsePlayer(player));
+    return players;
 }
 
 MatchRules ParseRules(const JsonValue& value)
@@ -383,9 +393,61 @@ PlayerLists ProfileService::Players()
 {
     const auto answer = Call("GET", "/api/v1/players", nullptr);
     PlayerLists lists;
-    for (const auto& player : answer.body["online"].Items()) lists.online.push_back(ParsePlayer(player));
-    for (const auto& player : answer.body["recent"].Items()) lists.recent.push_back(ParsePlayer(player));
+    lists.online = ParsePlayers(answer.body["online"]);
+    lists.recent = ParsePlayers(answer.body["recent"]);
+    lists.friends = ParsePlayers(answer.body["friends"]);
     return lists;
+}
+
+std::vector<ProfilePlayer> ProfileService::AddFriend(std::int64_t player_id)
+{
+    const std::string body = "{\"player_id\":" + Integer(player_id) + "}";
+    return ParsePlayers(Call("POST", "/api/v1/friends", &body).body["friends"]);
+}
+
+std::vector<ProfilePlayer> ProfileService::AddFriend(const std::string& name)
+{
+    std::string body = "{\"name\":";
+    AppendJsonString(body, name);
+    body += "}";
+    return ParsePlayers(Call("POST", "/api/v1/friends", &body).body["friends"]);
+}
+
+std::vector<ProfilePlayer> ProfileService::RemoveFriend(std::int64_t player_id)
+{
+    return ParsePlayers(Call("DELETE", "/api/v1/friends/" + Integer(player_id), nullptr).body["friends"]);
+}
+
+std::string DescribeLastOnline(std::int64_t now, std::optional<std::int64_t> when)
+{
+    if (!when) return "Not online yet";
+    const std::int64_t seconds = std::max<std::int64_t>(0, now - *when);
+    const auto count = [](std::int64_t value, const char* unit) {
+        return std::to_string(value) + " " + unit + (value == 1 ? "" : "s") + " ago";
+    };
+    std::string text;
+    if (seconds < 120) text = "just now";
+    else if (seconds < 3600) text = count(seconds / 60, "minute");
+    else if (seconds < 86400) text = count(seconds / 3600, "hour");
+    else if (seconds < 2 * 86400) text = "yesterday";
+    else if (seconds < 30 * 86400) text = count(seconds / 86400, "day");
+    else
+    {
+        // Longer ago: the day, and the year when it was another.
+        const std::time_t then = std::time_t(*when), today = std::time_t(now);
+        std::tm then_local{}, now_local{};
+#ifdef _WIN32
+        localtime_s(&then_local, &then);
+        localtime_s(&now_local, &today);
+#else
+        localtime_r(&then, &then_local);
+        localtime_r(&today, &now_local);
+#endif
+        char day[32];
+        std::strftime(day, sizeof day, then_local.tm_year == now_local.tm_year ? "%d %B" : "%d %B %Y", &then_local);
+        text = std::string("on ") + (day[0] == '0' ? day + 1 : day);
+    }
+    return "Last online " + text;
 }
 
 ProfileMatch ProfileService::ReadyToPlay(std::int64_t match, bool ready)

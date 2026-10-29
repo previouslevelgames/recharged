@@ -2,6 +2,8 @@
 
 #include "platform/http_client.h"
 
+#include <algorithm>
+
 namespace mscharged::launcher
 {
 using platform::ProfileError;
@@ -385,6 +387,46 @@ void CompetitiveService::ChallengePlayer(std::int64_t opponent_id, std::int64_t 
     Post([this, opponent_id, rule_set](ProfileService& api) {
         const auto match = api.ChallengePlayer(opponent_id, rule_set);
         Change([&](Status& status) { status.match = match; });
+    }, true);
+}
+
+namespace
+{
+// The friends the server answered, and every list's friend marks after them.
+void SetFriends(CompetitiveService::Status& status, std::vector<platform::ProfilePlayer> friends)
+{
+    const auto marked = [&](std::vector<platform::ProfilePlayer>& players) {
+        for (auto& player : players)
+            player.is_friend = std::any_of(friends.begin(), friends.end(),
+                                           [&](const platform::ProfilePlayer& friend_) { return friend_.id == player.id; });
+    };
+    marked(status.lists.online);
+    marked(status.lists.recent);
+    status.lists.friends = std::move(friends);
+}
+} // namespace
+
+void CompetitiveService::AddFriend(std::int64_t player_id)
+{
+    Post([this, player_id](ProfileService& api) {
+        auto friends = api.AddFriend(player_id);
+        Change([&](Status& status) { SetFriends(status, std::move(friends)); });
+    }, true);
+}
+
+void CompetitiveService::AddFriend(const std::string& name)
+{
+    Post([this, name](ProfileService& api) {
+        auto friends = api.AddFriend(name);
+        Change([&](Status& status) { SetFriends(status, std::move(friends)); });
+    }, true);
+}
+
+void CompetitiveService::RemoveFriend(std::int64_t player_id)
+{
+    Post([this, player_id](ProfileService& api) {
+        auto friends = api.RemoveFriend(player_id);
+        Change([&](Status& status) { SetFriends(status, std::move(friends)); });
     }, true);
 }
 

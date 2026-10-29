@@ -225,6 +225,23 @@ const char* kSet = R"({"id":12,"state":"accepted","side":"challenger","opponent"
 "stage":"go","reason":null,"you_ready":true,"opponent_ready":true,"opponent_online":true,"go_at":1792771200,
 "playing_at":null,"rematch_of":11})";
 
+// The friends list's wording of when a player last had Recharged open.
+void LastOnline()
+{
+    const std::int64_t now = 1793300000;
+    CHECK(DescribeLastOnline(now, std::nullopt) == "Not online yet");
+    CHECK(DescribeLastOnline(now, now - 30) == "Last online just now");
+    CHECK(DescribeLastOnline(now, now + 300) == "Last online just now");
+    CHECK(DescribeLastOnline(now, now - 60 * 60 + 1) == "Last online 59 minutes ago");
+    CHECK(DescribeLastOnline(now, now - 60 * 60) == "Last online 1 hour ago");
+    CHECK(DescribeLastOnline(now, now - 5 * 60 * 60) == "Last online 5 hours ago");
+    CHECK(DescribeLastOnline(now, now - 30 * 60 * 60) == "Last online yesterday");
+    CHECK(DescribeLastOnline(now, now - 3 * 86400) == "Last online 3 days ago");
+    const auto longer = DescribeLastOnline(now, now - 40 * 86400);
+    CHECK(longer.rfind("Last online on ", 0) == 0 && longer.find("ago") == std::string::npos);
+    CHECK(DescribeLastOnline(now, now - 400 * 86400).find("202") != std::string::npos);
+}
+
 void Requests()
 {
     if (!HttpUnavailable().empty())
@@ -243,13 +260,18 @@ void Requests()
         {"GET /api/v1/matches/current", 200, R"({"match":null})"},
         {"GET /api/v1/me", 401, R"({"error":"signed out"})"},
         {"GET /api/v1/players", 200,
-         R"({"online":[{"id":8,"name":"Sam","discord":"sam","test":false,"online":true,"busy":false}],"recent":[]})"},
+         R"({"online":[{"id":8,"name":"Sam","discord":"sam","test":false,"online":true,"busy":false,)"
+         R"("last_online":1793000000,"friend":false}],"recent":[],)"
+         R"("friends":[{"id":9,"name":"Bo","online":false,"busy":false,"last_online":null,"friend":true}]})"},
         {"POST /api/v1/matches", 201, kSet},
         {"POST /api/v1/matches/12/ready-to-play", 200, kSet},
         {"POST /api/v1/matches/12/rematch", 200, kSet},
         {"GET /api/v1/matches/current", 200, std::string(R"({"poll_interval":2,"server_time":5,"match":)") + kSet + "}"},
         {"GET /api/v1/me", 200,
          R"({"id":7,"name":"Nelly","discord":"nelly","test":false,"wfc":[],"discord_id":"80351110224678912"})"},
+        {"POST /api/v1/friends", 200, R"({"friends":[{"id":8,"name":"Sam","online":true,"friend":true}]})"},
+        {"POST /api/v1/friends", 200, R"({"friends":[{"id":8,"name":"Sam"},{"id":9,"name":"Bo"}]})"},
+        {"DELETE /api/v1/friends/8", 200, R"({"friends":[{"id":9,"name":"Bo"}]})"},
     };
     std::vector<Sent> sent;
     {
@@ -288,7 +310,9 @@ void Requests()
         }
         const auto lists = api.Players();
         CHECK(lists.online.size() == 1 && lists.online[0].id == 8 && lists.online[0].online && !lists.online[0].busy
-              && lists.recent.empty());
+              && lists.online[0].last_online == 1793000000 && !lists.online[0].is_friend && lists.recent.empty());
+        CHECK(lists.friends.size() == 1 && lists.friends[0].id == 9 && lists.friends[0].is_friend
+              && !lists.friends[0].online && !lists.friends[0].last_online);
         const auto set = api.ChallengePlayer(8, 2);
         CHECK(set.stage == "go" && set.you_ready && set.opponent_ready && set.opponent_online
               && set.go_at == 1792771200 && set.playing_at == 0 && set.rematch_of == 11 && set.reason.empty());
@@ -298,6 +322,11 @@ void Requests()
         const auto current = api.CurrentMatch(&interval);
         CHECK(current && current->stage == "go" && interval == 2);
         CHECK(api.Me().discord_id == "80351110224678912");
+        const auto added = api.AddFriend(std::int64_t(8));
+        CHECK(added.size() == 1 && added[0].id == 8 && added[0].is_friend);
+        CHECK(api.AddFriend(std::string("b\"o")).size() == 2);
+        const auto removed = api.RemoveFriend(8);
+        CHECK(removed.size() == 1 && removed[0].id == 9);
     }
     CHECK(sent.size() == exchanges.size());
     for (const auto& request : sent) CHECK(request.expected);
@@ -314,6 +343,9 @@ void Requests()
         CHECK(sent[9].body == R"({"opponent_id":8,"rule_set":2})");
         CHECK(sent[10].body == R"({"ready":true})");
         CHECK(sent[11].body == "{}");
+        CHECK(sent[14].body == R"({"player_id":8})" && sent[14].content_type == "application/json");
+        CHECK(sent[15].body == R"({"name":"b\"o"})");
+        CHECK(sent[16].authorization == "Bearer t0k3n");
     }
 
     // Unencrypted only for addresses ProfileServerAddress lets through.
@@ -337,6 +369,7 @@ int main()
     Addresses();
     Sessions();
     Rules();
+    LastOnline();
 #ifndef _WIN32
     Requests();
 #endif

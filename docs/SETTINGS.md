@@ -465,14 +465,20 @@ tweaks both teams play with.
 
 1. Sign in with Discord. The browser opens a page that shows a code; go on
    only if it is the code the launcher shows.
-2. Challenge a player who has Recharged open: from the players online or your
-   recent opponents with a click, or by their Discord username. They accept or
+2. Challenge a player who has Recharged open: from your friends or the other
+   players online with a click, or by their Discord username. They accept or
    decline.
 3. Both press **Ready to play!**. The game then starts by itself, signs in to
    the online server with your own Mii and goes straight to the captain
    draft against your opponent, where you choose your captain and sidekicks.
 4. After the series both games report the result, the game closes and the
    launcher opens again with the result, and **Rematch**.
+
+Your **friends** are kept on the server, so they follow you to every computer:
+everyone you challenge, everyone whose challenge you accept, and anyone you add
+with the heart (or by Discord username). The list shows who has Recharged open
+or is in a set, and for the others when they were last online. The heart again
+takes a player off.
 
 You need no Mii of your own: the launcher makes one from your Discord account,
 named after your Discord name, the same on every computer. It is an ordinary

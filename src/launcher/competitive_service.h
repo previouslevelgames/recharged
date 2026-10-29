@@ -46,7 +46,7 @@ public:
         platform::ProfilePlayer player;
         std::vector<platform::RuleSet> rule_sets;
         std::optional<platform::ProfileMatch> match;
-        platform::PlayerLists lists; // the lobby's: online now, recent opponents
+        platform::PlayerLists lists; // the lobby's: online now, recent opponents, friends
         bool busy = false;           // an action is running
         std::uint64_t serial = 0;    // changes with every change
     };
@@ -66,6 +66,11 @@ public:
     void SignOut();
     void Challenge(const std::string& opponent, std::int64_t rule_set);
     void ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set);
+    // The friends list: add a player (from the lists, or by Discord
+    // username) or take one off.
+    void AddFriend(std::int64_t player_id);
+    void AddFriend(const std::string& name);
+    void RemoveFriend(std::int64_t player_id);
     // The set's Ready to play! (or taking it back), and playing it again.
     void ReadyToPlay(bool ready);
     void Rematch();

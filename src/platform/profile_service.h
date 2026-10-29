@@ -44,8 +44,11 @@ struct ProfilePlayer
     // GET /api/v1/me only: the Discord account id (digits; empty for test
     // players), which never changes: the player's Mii is made from it.
     std::string discord_id;
-    // In the lobby's lists: Recharged is open, and a set to play.
+    // In the lobby's lists: Recharged is open, and a set to play; when they
+    // last had it open (Unix seconds); the player keeps them as a friend.
     bool online = false, busy = false;
+    std::optional<std::int64_t> last_online;
+    bool is_friend = false;
 };
 
 // The lobby's lists (GET /api/v1/players).
@@ -53,7 +56,14 @@ struct PlayerLists
 {
     std::vector<ProfilePlayer> online; // who has Recharged open, by name
     std::vector<ProfilePlayer> recent; // the last players a set was played with
+    // The player's friends: online first, by name, then the last online first.
+    std::vector<ProfilePlayer> friends;
 };
+
+// When a player last had Recharged open, for the friends list: "Last online 5
+// minutes ago", "... yesterday", "... on 3 October"; `now` and `when` in Unix
+// seconds.
+std::string DescribeLastOnline(std::int64_t now, std::optional<std::int64_t> when);
 
 // The rules a match is played by (docs/profiles.md, "Rules").
 struct MatchRules
@@ -185,6 +195,11 @@ public:
     ProfileMatch Challenge(const std::string& opponent, std::int64_t rule_set);
     // The same by the player's id, from the lobby's lists.
     ProfileMatch ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set);
+    // The friends after adding one (by player id or Discord username) or
+    // taking one off.
+    std::vector<ProfilePlayer> AddFriend(std::int64_t player_id);
+    std::vector<ProfilePlayer> AddFriend(const std::string& name);
+    std::vector<ProfilePlayer> RemoveFriend(std::int64_t player_id);
     // The set still to be played, or the last one that ended; `poll_interval`
     // gets how soon (seconds) the server wants to be asked again.
     std::optional<ProfileMatch> CurrentMatch(int* poll_interval = nullptr);
