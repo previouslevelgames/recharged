@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Native LLP64 bundle callback parameter and remaining context casts
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: native compiler/ABI compatibility; apply after 0646.
 
 The bundle callback is passed as a FileOpenAsyncCallback whose last parameter
@@ -30,11 +30,11 @@ index 7dcc9e8..098af1e 100644
  
  #endif // GAME_ASYNC_LOADING_H
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index d113e85..caaeb2a 100644
+index f3799a7..e966b42 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -2406,7 +2406,11 @@ void OnPermanentFrontEndBundleLoaded()
-     lbl_806E1068 = true;
+@@ -2404,7 +2404,11 @@ void OnPermanentFrontEndBundleLoaded()
+     sPermanentFrontEndBundleLoaded = true;
  }
  
 +#if defined(MSCHARGED_NATIVE)
@@ -43,10 +43,10 @@ index d113e85..caaeb2a 100644
  void OnOnDemandFrontEndBundleLoaded(void*, unsigned long, unsigned long)
 +#endif
  {
-     lbl_806E1069 = true;
+     sOnDemandFrontEndBundleLoaded = true;
  }
 diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
-index 29198d3..371aeb9 100644
+index 563406c..dbfd060 100644
 --- a/src/Game/SH/SHChooseCaptains.cpp
 +++ b/src/Game/SH/SHChooseCaptains.cpp
 @@ -877,8 +877,16 @@ void ChooseCaptainsSceneV2::OnReadyPointerPress(int index, void* context)

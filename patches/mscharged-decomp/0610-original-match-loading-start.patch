@@ -1,5 +1,5 @@
 Subject: Admit the original SuperLoadingScene and FE-to-game loading start
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: temporary explicit original-source diagnostic admission; depends on 0551-0555 and 0600.
 
 Stadium Select's PLAY NOW and tournament Choose Sides' Proceed call
@@ -42,7 +42,7 @@ and the temporary-string pool state. Without Wiper::Initialize no transition
 exists, so the goal celebration waited for a wipe forever.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
-index a1633eb..a392351 100644
+index 329da4a..b0420d0 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
 @@ -394,6 +394,8 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
@@ -226,10 +226,10 @@ index 5d8e92f..f2751dd 100644
          )
  #else
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index 5eb9850..cffdba0 100644
+index 65df571..6bb6555 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -227,7 +227,7 @@ static PlatPadUpdateTask platPadUpdateTask;
+@@ -231,7 +231,7 @@ static PlatPadUpdateTask platPadUpdateTask;
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
  static FrontEndTask frontEndTask;
  #endif
@@ -238,7 +238,7 @@ index 5eb9850..cffdba0 100644
  static WorldUpdateTask worldUpdateTask;
  static GameRenderTask gameRenderTask;
  #endif
-@@ -273,7 +273,7 @@ static GLMemoryRequirement sGlobalResourceRequirements[3] = {
+@@ -277,7 +277,7 @@ static GLMemoryRequirement sGlobalResourceRequirements[3] = {
      { GLM_Header, MB(2) + KB(256) },
  };
  
@@ -247,7 +247,7 @@ index 5eb9850..cffdba0 100644
  static TweakValueBool sAllowWarble(
      "sbAllowWarble", "/Rendering/Effects/Warble", true);
  static TweakValueBool sRenderWarbleToParticleView(
-@@ -618,7 +618,7 @@ static void Initialize()
+@@ -631,7 +631,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_DOMINATION)
      EnableAllStadiums();
  #endif
@@ -256,7 +256,7 @@ index 5eb9850..cffdba0 100644
      const char* buildInfo =
          GetTweakString("/General/Build Info/BuildNumber", 0);
      if (buildInfo != 0)
-@@ -648,7 +648,7 @@ static void Initialize()
+@@ -661,7 +661,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
      InstallImageRenderCallback();
  #endif
@@ -265,7 +265,7 @@ index 5eb9850..cffdba0 100644
      GLResourcePool* resourcePool = glGetCurrentResourcePool();
      resourcePool->MarkResource();
  #endif
-@@ -681,7 +681,7 @@ static void Initialize()
+@@ -694,7 +694,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT))
      StartupAIPads();
  #endif
@@ -274,7 +274,7 @@ index 5eb9850..cffdba0 100644
      gTransitionTask.Initialize();
  #endif // unrelated config/script/tasks/audio/world prerequisites
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
-@@ -747,7 +747,7 @@ static void Initialize()
+@@ -762,7 +762,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
      nlInitFileCache();
  #endif
@@ -283,7 +283,7 @@ index 5eb9850..cffdba0 100644
      ReplayChoreo::Instance();
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_MAIN_PRESENTATION_OWNER))
-@@ -756,7 +756,7 @@ static void Initialize()
+@@ -771,7 +771,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      FrontEndPresentation::GetInstance();
  #endif
@@ -292,7 +292,7 @@ index 5eb9850..cffdba0 100644
      ExcitementSystem::Instance();
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-@@ -765,7 +765,7 @@ static void Initialize()
+@@ -780,7 +780,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_MAIN_FRONTEND)
      SetupViews();
  #endif
@@ -301,7 +301,7 @@ index 5eb9850..cffdba0 100644
      HideLayerView(eCLV_ScreenBlur);
      HideLayerView(eCLV_ScreenBlur2);
      HideLayerView(eCLV_ShadowVolume);
-@@ -783,7 +783,7 @@ static void Initialize()
+@@ -798,7 +798,7 @@ static void Initialize()
      }
      rlSetWidescreen(widescreen);
  #endif // original system aspect selects the frontend projection and slide
@@ -310,7 +310,7 @@ index 5eb9850..cffdba0 100644
      g_ShapeRenderer.Initialize(resourcePool);
      g_ShapeRenderer.m_eView = GetLayerView(eCLV_Characters);
      InitMaxProjectedShadows();
-@@ -796,7 +796,7 @@ static void Initialize()
+@@ -811,7 +811,7 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_NIS_OWNER)
      NisPlayer::Instance();
  #endif
@@ -319,7 +319,7 @@ index 5eb9850..cffdba0 100644
      ReplayManager::Instance();
      Wiper::Instance().Initialize();
      DepthOfFieldManager::instance.Initialize();
-@@ -818,7 +818,7 @@ static void AddTasks()
+@@ -833,7 +833,7 @@ static void AddTasks()
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&beginFrameTask, 4, (u32)-1);
      nlTaskManager::AddTask(&sLoadingTask, 2, 0x01F80000);
@@ -328,7 +328,7 @@ index 5eb9850..cffdba0 100644
      nlTaskManager::AddTask(gDispatchEventsTask, 0x18, 0xFE07FFFF);
  #endif // unqualified unrelated task registration remains omitted
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_PLAT_PAD_TASK))
-@@ -827,10 +827,10 @@ static void AddTasks()
+@@ -842,10 +842,10 @@ static void AddTasks()
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FIXED_INPUT))
      nlTaskManager::AddTask(GetFixedUpdateTask(), 8, 0xFE07FFDF);
  #endif // original fixed task priority/mask; unrelated task registrations remain held
@@ -341,7 +341,7 @@ index 5eb9850..cffdba0 100644
      nlTaskManager::AddTask(&gameRenderTask, 11, 0x0002001B);
  #endif // unqualified unrelated task registration remains omitted
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) \
-@@ -845,10 +845,10 @@ static void AddTasks()
+@@ -860,10 +860,10 @@ static void AddTasks()
      nlTaskManager::AddTask(&audioUpdateTask, 15, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&endFrameTask, 16, (u32)-1);
@@ -353,8 +353,8 @@ index 5eb9850..cffdba0 100644
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING)
      nlTaskManager::AddTask(&networkUpdateTask, 17, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
-     nlTaskManager::AddTask(&feDPDTask, 13, 5);
-@@ -859,13 +859,13 @@ static void AddTasks()
+ #if defined(VERSION_R4QK01)
+@@ -879,13 +879,13 @@ static void AddTasks()
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
      nlTaskManager::AddTask(nlGetFileCache(), 3, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Drive selected authored Boot script0 through original main/loading endpoints
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Named default-OFF BOOT_SCRIPT integration restores the actual LoadingTask
 bytecode request/callback, original CallFunctionAt(0)/Run and source-owned

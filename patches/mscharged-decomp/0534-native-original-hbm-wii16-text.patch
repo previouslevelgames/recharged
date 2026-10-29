@@ -1,6 +1,6 @@
 From: native port preparation
 Subject: [PATCH] Preserve original HBM Wii16 text ABI and owned BE16 ingress
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/TextWriterBase.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/ut/TextWriterBase.h
 index e799c79..759ff19 100644
@@ -41,7 +41,7 @@ index e799c79..759ff19 100644
  
      f32 CalcLineWidth(const T* str, int length);
 diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
-index 75b7498..306be0d 100644
+index 21ce616..39da675 100644
 --- a/src/RVL_SDK/hbm/HBMBase.cpp
 +++ b/src/RVL_SDK/hbm/HBMBase.cpp
 @@ -1,5 +1,9 @@
@@ -69,12 +69,12 @@ index 75b7498..306be0d 100644
      {
          if (message[i] == L'\"')
 diff --git a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_textBox.cpp b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_textBox.cpp
-index 168cef0..2da044e 100644
+index f41e7b7..cd317b1 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_textBox.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/lyt/lyt_textBox.cpp
-@@ -8,7 +8,11 @@
+@@ -9,7 +9,11 @@
+ #include "revolution/hbm/nw4hbm/lyt/material.h"
  #include "revolution/hbm/nw4hbm/lyt/pane.h"
- #include "revolution/hbm/nw4hbm/lyt/textBox.h"
  
 +#if defined(MSCHARGED_NATIVE)
 +#include <new>
@@ -84,7 +84,7 @@ index 168cef0..2da044e 100644
  
  namespace nw4hbm {
  namespace lyt {
-@@ -433,7 +437,11 @@ void TextBox::FreeStringBuffer() {
+@@ -434,7 +438,11 @@ void TextBox::FreeStringBuffer() {
      }
  }
  

@@ -241,8 +241,7 @@ void CheckScan(const fs::path& root)
     {
         const auto name = PathUtf8(image.path.filename());
         const auto state = StateOf(image);
-        if (name == "jp.rvz" || name == "deep.rvz") Require(state == ImageState::Unsupported, name + " unsupported");
-        else if (name == "broken.rvz") Require(state == ImageState::Unreadable, "broken.rvz unreadable");
+        if (name == "broken.rvz") Require(state == ImageState::Unreadable, "broken.rvz unreadable");
         else Require(state == ImageState::Playable, name + " playable");
         if (name == "eu2.rvz") Require(ImageTitle(image) == "Mario Strikers Charged Football", "European title");
         if (name == "broken.rvz") Require(ImageTitle(image) == "broken.rvz", "Unreadable images show their name");

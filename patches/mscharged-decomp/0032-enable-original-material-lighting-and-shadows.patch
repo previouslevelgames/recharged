@@ -1,5 +1,5 @@
 Subject: Enable original material light modes and projected-shadow stages through Aurora
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 The selected ScrollingDiffuse and MaskedSpecularFresnel programs can now use the
 original vertex, doubled, ramp and projected-shadow branches with validated

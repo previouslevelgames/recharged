@@ -1,5 +1,5 @@
 Subject: Tweak: skip the intro
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 With "Skip intro" enabled the game starts at the main menu, once per launch:
 
@@ -13,7 +13,7 @@ With "Skip intro" enabled the game starts at the main menu, once per launch:
   of A through its own handler. Back on the title later, it waits for A.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index f859bab..d1bfd4d 100644
+index 7054139..78c155b 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
 @@ -143,6 +143,7 @@
@@ -24,23 +24,23 @@ index f859bab..d1bfd4d 100644
  #else
  #define OS_BUS_CLOCK_SPEED           (*(volatile u32*)0x800000F8)
  #define OS_TIME_SPEED                (OS_BUS_CLOCK_SPEED / 4)
-@@ -443,6 +444,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -441,6 +442,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 13:
-         if (!lbl_806E1044)
+         if (!sIntroMovieStarted)
          {
 +#if defined(MSCHARGED_TWEAKS) \
 +    && (!defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
 +        || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_SCRIPT)))
 +            // Port tweak "Skip intro": the studio logo ends unplayed, so its
 +            // bank is unloaded once it has loaded, as the logo's end would.
-+            if (lbl_806E106A && mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO))
++            if (sLoadingSoundBankLoaded && mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO))
 +            {
 +                g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x17);
 +            }
 +#endif
-             FinishLoadingStepOrUndo(this, lbl_806E106A);
+             FinishLoadingStepOrUndo(this, sLoadingSoundBankLoaded);
          }
-         else if (lbl_806E106A)
+         else if (sLoadingSoundBankLoaded)
 diff --git a/src/Game/SH/SHBootLoading.cpp b/src/Game/SH/SHBootLoading.cpp
 index 2773638..6fc0f45 100644
 --- a/src/Game/SH/SHBootLoading.cpp

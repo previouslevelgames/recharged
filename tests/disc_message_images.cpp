@@ -403,11 +403,19 @@ void TestNames()
     catch (const std::out_of_range&)
     {
     }
+    // The Korean table: one language without the no-disc image.
+    Require(kKoreanDiscMessages.Count() == 4, "Four Korean images");
+    Require(DiscMessageImageName(0, kKoreanDiscMessages) == "HEADER_FatalErrorImage_kor", "Korean first name");
+    Require(DiscMessageImageName(1, kKoreanDiscMessages) == "HEADER_WrongDiskImage_kor", "No Korean no-disc image");
+    Require(DiscMessageImageName(3, kKoreanDiscMessages) == "HEADER_Loading_kor", "Korean last name");
     for (std::size_t i = 0; i < ReleaseCount(); ++i)
     {
         const auto& release = ReleaseAt(i);
         Require(std::strlen(release.dol_sha1) == 40, std::string("Release hash of ") + release.game_id);
         Require(release.disc_message_table >= 0x80000000u, std::string("Release table of ") + release.game_id);
+        Require(&DiscMessageLayoutOf(release) == (release.code == GameCode::Korea ? &kKoreanDiscMessages
+                                                                                   : &kStandardDiscMessages),
+                std::string("Table layout of ") + release.game_id);
     }
 }
 

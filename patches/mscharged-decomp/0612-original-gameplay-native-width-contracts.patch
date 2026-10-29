@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Compile the original gameplay providers with native width contracts
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Temporary E13 compiler/ABI adaptations for the original match providers.
 Game behavior, requests and timing are unchanged.
@@ -86,7 +86,7 @@ index cafa094..f559c65 100644
 +
  #endif // GAME_AI_DESIRE_H
 diff --git a/include/Game/AI/DesireUpdate.h b/include/Game/AI/DesireUpdate.h
-index d71e593..73d478f 100644
+index 6599f55..93cdfb8 100644
 --- a/include/Game/AI/DesireUpdate.h
 +++ b/include/Game/AI/DesireUpdate.h
 @@ -293,4 +293,10 @@ inline DesireUpdate& DesireUpdate::operator=(
@@ -101,7 +101,7 @@ index d71e593..73d478f 100644
 +
  #endif // GAME_AI_DESIREUPDATE_H
 diff --git a/include/Game/AI/Fielder.h b/include/Game/AI/Fielder.h
-index f386be6..8b70dcc 100644
+index 02bedbb..f7d7644 100644
 --- a/include/Game/AI/Fielder.h
 +++ b/include/Game/AI/Fielder.h
 @@ -5,6 +5,7 @@
@@ -155,7 +155,7 @@ index 40f6a42..5ff44ee 100644
          }
          if (bits + mBitCount < 32)
 diff --git a/include/Game/Character.h b/include/Game/Character.h
-index acf9b0c..af36873 100644
+index 37bf057..60e4c50 100644
 --- a/include/Game/Character.h
 +++ b/include/Game/Character.h
 @@ -6,6 +6,7 @@
@@ -317,7 +317,7 @@ index c34dade..6e73127 100644
      /* 0x246D */ u8 mPausedMachineMask;
      /* 0x246E */ u8 mMachineLoadedGame[4];
 diff --git a/include/Game/Player.h b/include/Game/Player.h
-index 5342058..72d413d 100644
+index 632662f..e41d28e 100644
 --- a/include/Game/Player.h
 +++ b/include/Game/Player.h
 @@ -185,7 +185,7 @@ public:
@@ -330,7 +330,7 @@ index 5342058..72d413d 100644
          float fInitialWeight);
  
 diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
-index e8c24ce..2a24f37 100644
+index 850822f..74f6154 100644
 --- a/include/Game/SAnim.h
 +++ b/include/Game/SAnim.h
 @@ -8,6 +8,7 @@
@@ -341,7 +341,7 @@ index e8c24ce..2a24f37 100644
  
  class cPoseAccumulator;
  class cSAnim;
-@@ -23,8 +24,8 @@ class cSAnimCallback
+@@ -25,8 +26,8 @@ class cSAnimCallback
  {
  public:
      float m_fTime;
@@ -352,7 +352,7 @@ index e8c24ce..2a24f37 100644
      cSAnimCallback* next;
  };
  
-@@ -94,11 +95,11 @@ public:
+@@ -98,11 +99,11 @@ public:
      void GetRootTrans(float time, nlVector3* rootTranslation) const;
      bool GetChannelWeight(int channel, float time, float* weight) const;
  #ifdef MSCHARGED_DIAGNOSTIC_SKELETON
@@ -612,7 +612,7 @@ index c10fa99..fb879d2 100644
  DesireUpdate EvaluateFielderFuzzyFunction(void*, cFielder*, const char*);
  
 diff --git a/src/Game/AI/DesireMegaStrike.cpp b/src/Game/AI/DesireMegaStrike.cpp
-index b2dcd50..2aa7942 100644
+index 9753433..3433b86 100644
 --- a/src/Game/AI/DesireMegaStrike.cpp
 +++ b/src/Game/AI/DesireMegaStrike.cpp
 @@ -17,6 +17,13 @@
@@ -660,7 +660,7 @@ index 456c91c..66b3124 100644
  static float sWindupShotTimeLimitMargin = 0.5f;
  static unsigned short sDesireWindupShotType = 0xFFFF;
 diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
-index 06c7793..6cde434 100644
+index ecea776..62cae5f 100644
 --- a/src/Game/AI/DesireSuperPower.cpp
 +++ b/src/Game/AI/DesireSuperPower.cpp
 @@ -48,6 +48,10 @@
@@ -675,7 +675,7 @@ index 06c7793..6cde434 100644
  int ChooseRunDirection(cFielder*, const unsigned short*, int,
      const nlVector2*, float*);
 diff --git a/src/Game/AI/DesireUsePowerup.cpp b/src/Game/AI/DesireUsePowerup.cpp
-index 4c78dc3..8073f5c 100644
+index 2998539..69d162b 100644
 --- a/src/Game/AI/DesireUsePowerup.cpp
 +++ b/src/Game/AI/DesireUsePowerup.cpp
 @@ -19,6 +19,10 @@
@@ -690,7 +690,7 @@ index 4c78dc3..8073f5c 100644
  static unsigned short sDesireUsePowerupType = 0xFFFF;
  #pragma explicit_zero_data on
 diff --git a/src/Game/AI/Fielder.cpp b/src/Game/AI/Fielder.cpp
-index 79176bc..330be45 100644
+index ae8d55e..31a8ad5 100644
 --- a/src/Game/AI/Fielder.cpp
 +++ b/src/Game/AI/Fielder.cpp
 @@ -4715,7 +4715,7 @@ void cFielder::SetIdleWBAnimState()
@@ -719,7 +719,7 @@ index 90193b2..53a6c00 100644
  }
  
 diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
-index afc0114..8cd3173 100644
+index ec384c0..be2e9e9 100644
 --- a/src/Game/AI/GoalieActions.cpp
 +++ b/src/Game/AI/GoalieActions.cpp
 @@ -67,6 +67,10 @@
@@ -852,7 +852,7 @@ index 49dc2ee..b19116b 100644
          pSaveData->mfMilestonePercent[2] = fTime;
          pSaveData->mfDuration = fDuration;
 diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
-index b87e97f..648055e 100644
+index 4460a72..59092c6 100644
 --- a/src/Game/AI/Powerups.cpp
 +++ b/src/Game/AI/Powerups.cpp
 @@ -38,6 +38,9 @@
@@ -895,7 +895,7 @@ index b87e97f..648055e 100644
      {
 @@ -1442,9 +1455,13 @@ int PowerupBase::AwardPowerup(cTeam* pTeam, cFielder* pFielder, bool)
  
-     if (GameInfoManager::Instance()->GetRule0x0() == 9)
+     if (GameInfoManager::Instance()->GetCustomPowerups() == 9)
      {
 +#if defined(MSCHARGED_NATIVE)
 +        if (powerUpType != (ePowerUpType)pTeam->GetCaptain()->m_pCharacterInfo->mCaptainPowerup)
@@ -921,7 +921,7 @@ index b87e97f..648055e 100644
      }
  
 diff --git a/src/Game/AI/TeamPlayMachine.cpp b/src/Game/AI/TeamPlayMachine.cpp
-index 220ce17..2023c2e 100644
+index 5b40a82..28b1220 100644
 --- a/src/Game/AI/TeamPlayMachine.cpp
 +++ b/src/Game/AI/TeamPlayMachine.cpp
 @@ -64,6 +64,10 @@ void TeamPlayMachine::SelectState()
@@ -936,7 +936,7 @@ index 220ce17..2023c2e 100644
  {
  }
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
-index bbea176..5781d3a 100644
+index 70b0a87..f6f6661 100644
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
 @@ -706,7 +706,7 @@ void cCharacter::InitMovementStrafing(float fDirectionSeekSpeed,
@@ -965,7 +965,7 @@ index bbea176..5781d3a 100644
      if (m_pAnimInventory->GetMatchCharacterSpeed(animID))
      {
 diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
-index cb8aaab..d02c168 100644
+index 69e72d6..1914caf 100644
 --- a/src/Game/CharacterTriggers.cpp
 +++ b/src/Game/CharacterTriggers.cpp
 @@ -157,7 +157,7 @@ EmissionController* EmitGeneric(cCharacter* pCharacter, const char* baseName,
@@ -1039,7 +1039,7 @@ index 62d77e8..65c8c84 100644
  
  static const nlVector3 v3Zero = { 0.0f, 0.0f, 0.0f };
 diff --git a/src/Game/Goalie.cpp b/src/Game/Goalie.cpp
-index 7d79f3b..8ff4bfc 100644
+index 65a469c..5355433 100644
 --- a/src/Game/Goalie.cpp
 +++ b/src/Game/Goalie.cpp
 @@ -65,6 +65,10 @@
@@ -1114,7 +1114,7 @@ index 7d79f3b..8ff4bfc 100644
              = mBlendInfo.mfMilestoneScale[index2][nMilestone];
          if (fStartPercent[index2] > 0.0f)
 diff --git a/src/Game/Physics/PhysicsCharacter.cpp b/src/Game/Physics/PhysicsCharacter.cpp
-index 483d6e8..4efaa42 100644
+index 5770e43..98fb1ef 100644
 --- a/src/Game/Physics/PhysicsCharacter.cpp
 +++ b/src/Game/Physics/PhysicsCharacter.cpp
 @@ -26,7 +26,11 @@
@@ -1197,7 +1197,7 @@ index 6896eeb..ae9f3d7 100644
      contact++;
      i++;
 diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
-index 04c26bf..c5230fd 100644
+index ca96f83..99ba938 100644
 --- a/src/Game/Player.cpp
 +++ b/src/Game/Player.cpp
 @@ -1009,7 +1009,7 @@ cPN_SingleAxisBlender* cPlayer::CreateSingleAxisBlender(
@@ -1228,24 +1228,10 @@ index 04c26bf..c5230fd 100644
  
      return pSAB;
 diff --git a/src/Game/Render/MegaBallIndicators.cpp b/src/Game/Render/MegaBallIndicators.cpp
-index 967054f..298301f 100644
+index 125957e..5815b7a 100644
 --- a/src/Game/Render/MegaBallIndicators.cpp
 +++ b/src/Game/Render/MegaBallIndicators.cpp
-@@ -16,7 +16,13 @@
- #include "NL/nlString.h"
- #include "NL/nlTicker.h"
- #include "NL/plat/DPDData.h"
-+#if defined(MSCHARGED_NATIVE)
- #include "NL/plat/WiiPad.h"
-+#include "NL/plat/WiiFreestylePad.h"
-+#include "NL/plat/WiiRemotePad.h"
-+#else
-+#include "NL/plat/WiiPad.h"
-+#endif
- #include <math.h>
- 
- void SendMegaBallPointerUpdate(u16 angle, u32 textureIndex, u32 status,
-@@ -579,6 +585,9 @@ void UpdateAndRenderMegaBallPointer(float fDeltaT)
+@@ -582,6 +582,9 @@ void UpdateAndRenderMegaBallPointer(float fDeltaT)
      unsigned int nClosest;
      PadBackend* pPlatform;
      cGlobalPad* pController = gMegaBallController;
@@ -1255,7 +1241,7 @@ index 967054f..298301f 100644
      if (pController == 0)
      {
          goto no_controller_data;
-@@ -588,18 +597,32 @@ void UpdateAndRenderMegaBallPointer(float fDeltaT)
+@@ -591,7 +594,11 @@ void UpdateAndRenderMegaBallPointer(float fDeltaT)
      {
          goto no_controller_data;
      }
@@ -1266,30 +1252,9 @@ index 967054f..298301f 100644
 +#endif
      if (nClassID == gWiiRemotePadClassID)
      {
-+#if defined(MSCHARGED_NATIVE)
-+        // Wii offset 0x1B0 is WiiRemotePad::mDPDData.
-+        pData = &static_cast<WiiRemotePad*>(pController->mBackend)->mDPDData;
-+#else
-         pData = reinterpret_cast<DPDData*>(
-             (u8*)pController->mBackend + 0x1B0);
-+#endif
-         goto have_controller_data;
-     }
-     nClassID = pPlatform->GetClassID();
-     if (nClassID == gWiiFreestylePadClassID)
-     {
-+#if defined(MSCHARGED_NATIVE)
-+        // Wii offset 0x1D0 is WiiFreestylePad::mDPDData.
-+        pData = &static_cast<WiiFreestylePad*>(pController->mBackend)->mDPDData;
-+#else
-         pData = reinterpret_cast<DPDData*>(
-             (u8*)pController->mBackend + 0x1D0);
-+#endif
-         goto have_controller_data;
-     }
- 
+         pData = &static_cast<WiiRemotePad*>(
 diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
-index 1c330e0..2e4a8d8 100644
+index 476d191..0b5c9b2 100644
 --- a/src/Game/SAnim.cpp
 +++ b/src/Game/SAnim.cpp
 @@ -283,8 +283,8 @@ bool cSAnim::GetChannelWeight(int channel, float time, float* weight) const
@@ -1302,7 +1267,7 @@ index 1c330e0..2e4a8d8 100644
 +    void (*funcCallback)(cSAnim*, PoseCallbackAddressWord))
  {
      cSAnimCallback* pCallback = 0;
-     lbl_805840D8.Allocate(pCallback);
+     gSAnimCallbackPool.Allocate(pCallback);
 @@ -923,8 +923,8 @@ bool cSAnim::GetChannelWeight(int channel, float time, float* weight) const
  }
  
@@ -1313,7 +1278,7 @@ index 1c330e0..2e4a8d8 100644
 +    void (*funcCallback)(cSAnim*, PoseCallbackAddressWord))
  {
      cSAnimCallback* pCallback = 0;
-     lbl_805840D8.Allocate(pCallback);
+     gSAnimCallbackPool.Allocate(pCallback);
 diff --git a/src/Game/SAnim/pnFeather.cpp b/src/Game/SAnim/pnFeather.cpp
 index 7140e33..ab4757a 100644
 --- a/src/Game/SAnim/pnFeather.cpp
@@ -1360,7 +1325,7 @@ index 8c0ec93..b947cb4 100644
  {
      m_fSmoothedWeight = 0.0f;
 diff --git a/src/Game/SH/SHPause.cpp b/src/Game/SH/SHPause.cpp
-index 605e5a3..84d6028 100644
+index 1bc79ec..c89bd98 100644
 --- a/src/Game/SH/SHPause.cpp
 +++ b/src/Game/SH/SHPause.cpp
 @@ -29,6 +29,9 @@
@@ -1373,7 +1338,7 @@ index 605e5a3..84d6028 100644
  
  
  static const char* MENU_NAMES[7] = {
-@@ -384,7 +387,11 @@ void PauseMenuScene::InitializePointerButtons()
+@@ -388,7 +391,11 @@ void PauseMenuScene::InitializePointerButtons()
   */
  void PauseMenuScene::OnOptionPointerEnter(unsigned int index, void* context)
  {
@@ -1385,7 +1350,7 @@ index 605e5a3..84d6028 100644
      ++mHoverCounts[index];
      if (!mOptionButtons[which].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
      {
-@@ -399,7 +406,11 @@ void PauseMenuScene::OnOptionPointerEnter(unsigned int index, void* context)
+@@ -403,7 +410,11 @@ void PauseMenuScene::OnOptionPointerEnter(unsigned int index, void* context)
   */
  void PauseMenuScene::OnOptionPointerLeave(unsigned int index, void* context)
  {
@@ -1397,7 +1362,7 @@ index 605e5a3..84d6028 100644
      --mHoverCounts[index];
      if (!mOptionButtons[which].HasOtherPointerState(POINTER_BUTTON_HOVER, index))
          mOptionInstances[which]->SetActiveSlide("off", true, false);
-@@ -417,7 +428,11 @@ void PauseMenuScene::OnOptionPointerPress(unsigned int index, void* context)
+@@ -421,7 +432,11 @@ void PauseMenuScene::OnOptionPointerPress(unsigned int index, void* context)
      mSelectionMade = true;
  #endif
      FEAudio::PlayAnimAudioEvent(0xF0AFD586, 0, 0, 1);
@@ -1410,7 +1375,7 @@ index 605e5a3..84d6028 100644
      case PAUSE_RESUME:
          OnSelectRESUME(0);
 diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
-index 3102f7d..8130845 100644
+index 5be9414..a225895 100644
 --- a/src/Game/Team.cpp
 +++ b/src/Game/Team.cpp
 @@ -619,7 +619,13 @@ void cTeam::UpdateTeamAI(float fDeltaT)

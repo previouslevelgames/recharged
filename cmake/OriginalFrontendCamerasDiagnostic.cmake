@@ -47,7 +47,7 @@ function(mscharged_select_original_frontend_cameras target)
         src/Game/AI/FuzzyVariant.cpp
         src/Game/AI/Variant.cpp
         src/Game/AI/Powerups.cpp
-        src/Game/AI/tu_8030EDB0.cpp
+        src/Game/AI/FuzzyVariantCollection.cpp
         src/Game/AI/Fielder.cpp
         src/Game/EventDataTypes.cpp
         src/Game/Field.cpp

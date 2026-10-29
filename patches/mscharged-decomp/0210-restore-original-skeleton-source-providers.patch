@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original SAnim and hierarchy providers outside diagnostics
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Compile literal reconstructed animation/hierarchy algorithms in original modules.
 Isolate deleted methods, source extractions and sample validation to explicit
@@ -12,7 +12,7 @@ LP64 records. Native object/pointer-array data expansion and ownership remain
 prerequisites before invoking Initialize on Wii bytes.
 
 diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
-index a8c0ea7..e8c24ce 100644
+index bcad402..850822f 100644
 --- a/include/Game/SAnim.h
 +++ b/include/Game/SAnim.h
 @@ -1,6 +1,10 @@
@@ -26,7 +26,7 @@ index a8c0ea7..e8c24ce 100644
  #include "NL/nlMath.h"
  #include "NL/nlChunk.h"
  #include "types.h"
-@@ -61,7 +65,7 @@ class cSAnim : public cIdentifier
+@@ -65,7 +69,7 @@ class cSAnim : public cIdentifier
  public:
      typedef char* MemType;
  
@@ -35,7 +35,7 @@ index a8c0ea7..e8c24ce 100644
      static cSAnim* Initialize(nlChunk* pChunk) = delete;
  #else
      static cSAnim* Initialize(nlChunk* pChunk);
-@@ -72,7 +76,7 @@ public:
+@@ -76,7 +80,7 @@ public:
      }
  
      void Destroy();
@@ -44,7 +44,7 @@ index a8c0ea7..e8c24ce 100644
      void InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex) = delete;
  #else
      void InitializeNodeKeys(nlChunk* nodeChunk, int nodeIndex);
-@@ -89,7 +93,7 @@ public:
+@@ -93,7 +97,7 @@ public:
      void GetRootRot(float time, u16* rootRotation) const;
      void GetRootTrans(float time, nlVector3* rootTranslation) const;
      bool GetChannelWeight(int channel, float time, float* weight) const;
@@ -92,7 +92,7 @@ index 1812b1f..d830edd 100644
  #else
      static cSHierarchy* Initialize(nlChunk* pChunk);
 diff --git a/src/Game/SAnim.cpp b/src/Game/SAnim.cpp
-index d51c001..f629acc 100644
+index 567ca77..0221021 100644
 --- a/src/Game/SAnim.cpp
 +++ b/src/Game/SAnim.cpp
 @@ -1,3 +1,4 @@
@@ -113,7 +113,7 @@ index d51c001..f629acc 100644
 +#include "Game/SHierarchy.h"
 +#include "NL/nlSlotPool.h"
 +
-+SlotPool<cSAnimCallback> lbl_805840D8(16, 16);
++SlotPool<cSAnimCallback> gSAnimCallbackPool(16, 16);
 +
 +cSAnim* cSAnim::Initialize(nlChunk* pChunk)
 +{
@@ -518,7 +518,7 @@ index d51c001..f629acc 100644
 +    while ((pCallback = m_pCallbackList) != 0)
 +    {
 +        pNext = pCallback->next;
-+        lbl_805840D8.Free(pCallback);
++        gSAnimCallbackPool.Free(pCallback);
 +        m_pCallbackList = pNext;
 +    }
 +    m_pCallbackList = 0;
@@ -598,7 +598,7 @@ index d51c001..f629acc 100644
 +    void (*funcCallback)(cSAnim*, unsigned int))
 +{
 +    cSAnimCallback* pCallback = 0;
-+    lbl_805840D8.Allocate(pCallback);
++    gSAnimCallbackPool.Allocate(pCallback);
 +
 +    if (pCallback != 0)
 +    {

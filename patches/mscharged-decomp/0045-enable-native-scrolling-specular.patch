@@ -1,5 +1,5 @@
 Subject: Select original scrolling specular material for native static models
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Retain the original scrolling, specular, diffuse-lighting modes and shadow TEV
 recipes. Use bounded native arrays and typed FIFO calls, explicit preview view

@@ -1,13 +1,13 @@
 Subject: [PATCH] transport original STM hardware register requests
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Retain whole original Wii STM registration/callback/reset-pulse logic. Replace
 only MMIO reset input and VI output-disable requests at native hardware seams.
 Native IOS device services provide actual owner-delivered platform events.
 
 diff --git a/libs/RVL_SDK/include/revolution/ipc.h b/libs/RVL_SDK/include/revolution/ipc.h
-index 6f8bc2d..955cc87 100644
+index 1b20619..b1090c9 100644
 --- a/libs/RVL_SDK/include/revolution/ipc.h
 +++ b/libs/RVL_SDK/include/revolution/ipc.h
 @@ -1,7 +1,11 @@
@@ -23,7 +23,7 @@ index 6f8bc2d..955cc87 100644
  
  #ifdef __cplusplus
 diff --git a/src/RVL_SDK/os/OSStateTM.c b/src/RVL_SDK/os/OSStateTM.c
-index 9a6efe5..f047590 100644
+index a47d6f4..b80c653 100644
 --- a/src/RVL_SDK/os/OSStateTM.c
 +++ b/src/RVL_SDK/os/OSStateTM.c
 @@ -1,6 +1,9 @@
@@ -36,7 +36,7 @@ index 9a6efe5..f047590 100644
  
  typedef enum OSStateTMIoctl
  {
-@@ -154,7 +157,11 @@ void __OSShutdownToSBY(void)
+@@ -171,7 +174,11 @@ void __OSShutdownToSBY(void)
  {
  #define in_args ((u32*)StmImInBuf)
  
@@ -46,9 +46,9 @@ index 9a6efe5..f047590 100644
      VI_HW_REGS[VI_DCR] = 0;
 +#endif
  
-     OSAssert("OSStateTM.c", 276, StmReady, "Error: The firmware doesn't support shutdown feature.\n");
- 
-@@ -167,7 +174,11 @@ void __OSShutdownToSBY(void)
+ #if defined(VERSION_R4QK01)
+     OSAssert("OSStateTM.c", 348, StmReady, "Error: The firmware doesn't support shutdown feature.\n");
+@@ -188,7 +195,11 @@ void __OSShutdownToSBY(void)
  
  void __OSHotReset(void)
  {
@@ -58,9 +58,9 @@ index 9a6efe5..f047590 100644
      VI_HW_REGS[VI_DCR] = 0;
 +#endif
  
-     OSAssert("OSStateTM.c", 340, StmReady, "Error: The firmware doesn't support reboot feature.\n");
- 
-@@ -177,7 +188,11 @@ void __OSHotReset(void)
+ #if defined(VERSION_R4QK01)
+     OSAssert("OSStateTM.c", 412, StmReady, "Error: The firmware doesn't support reboot feature.\n");
+@@ -202,7 +213,11 @@ void __OSHotReset(void)
  
  static inline bool __OSGetResetButtonStateRaw(void)
  {

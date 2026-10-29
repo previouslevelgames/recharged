@@ -1,6 +1,6 @@
 Subject: Share original frontend image quad and UV equations
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Share the original fixed quad positions, V orientation and half-texel equations
 with checked native static image layout. Console callback and ordinary paths
