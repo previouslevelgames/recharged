@@ -24,9 +24,10 @@ come from the reconstructed source, unchanged.
   and Korean with the Japanese and Korean ones.
 - **Movies, music and sound** as on the console.
 - **The logo reads Mario Strikers RECHARGED** on the title screen, in the main
-  menu and on the captain select, with every release: the game's own animated
-  letters, with an R and an E in front of CHARGED
-  ([#63](https://github.com/previouslevelgames/recharged/issues/63)).
+  menu and on the captain select of the USA, European and Japanese releases:
+  the game's own animated letters, with an R and an E in front of CHARGED
+  ([#63](https://github.com/previouslevelgames/recharged/issues/63)). The
+  Korean release keeps its own *Mario Power Soccer* logo.
 
 ## Controls
 

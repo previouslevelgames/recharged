@@ -68,6 +68,8 @@ updates Recharged in place when you agree.
 
 - **The whole game.** Domination, the Road to the Striker Cup, Strikers 101,
   the Hall of Fame, cheats, movies, music and sound, with saves like on the Wii.
+- **Every release**: the USA, European, Japanese and Korean versions, each in
+  its own languages and with its own saves.
 - **Up to four players** in any mix of keyboard & mouse, gamepads (Xbox,
   PlayStation, Switch Pro, GameCube adapter and more) and **real Wii Remotes**
   with Nunchuk, over Bluetooth or a Mayflash DolphinBar.

@@ -119,9 +119,6 @@ The targets keep their old names; they build `recharged.exe` and the game
 modules `recharged_game_us.dll`, `recharged_game_eu.dll`,
 `recharged_game_jp.dll` and `recharged_game_kr.dll`.
 
-The targets keep their old names; they build `recharged.exe` and the game
-modules `recharged_game_us.dll` and `recharged_game_eu.dll`.
-
 `setup_windows_graphics.py` downloads the checksum-pinned Microsoft DirectX
 shader compilers and their notices into `build/windows-graphics`; the build
 verifies them offline and the packager includes them.
