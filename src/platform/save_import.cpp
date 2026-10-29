@@ -839,6 +839,32 @@ MiiImportResult AddMii(const std::string& record, const fs::path& nand_root, con
     return result;
 }
 
+MiiEnsured EnsureMii(const std::string& record, const fs::path& nand_root, const SaveTitle& title,
+                     const fs::path& backup_parent) {
+    const auto* mii = reinterpret_cast<const unsigned char*>(record.data());
+    if (record.size() != kMiiBytes || !MiiUsed(mii) || (!mii[kMiiNameOffset] && !mii[kMiiNameOffset + 1]))
+        throw std::invalid_argument("Not a Mii record with a name and a create ID.");
+    auto backing = OpenMiiBacking(nand_root, title);
+    if (!backing.database.empty() && !ValidMiiDatabase(backing.database))
+        throw std::runtime_error("The game's Mii database is damaged. Import the Miis from Dolphin instead.");
+    for (std::size_t slot = 0; slot < kMiiSlots && !backing.database.empty(); ++slot) {
+        const auto* other = MiiRecord(backing.database, slot);
+        if (!MiiUsed(other)
+            || !std::equal(other + kMiiCreateIdOffset, other + kMiiCreateIdOffset + kMiiCreateIdBytes,
+                           mii + kMiiCreateIdOffset))
+            continue;
+        const std::size_t name = 4 + slot * kMiiBytes + kMiiNameOffset, bytes = kMiiNameChars * 2;
+        if (backing.database.compare(name, bytes, record, kMiiNameOffset, bytes) == 0) return MiiEnsured::Unchanged;
+        auto database = backing.database;
+        database.replace(name, bytes, record, kMiiNameOffset, bytes);
+        SetMiiCrc(database);
+        WriteMiiDatabase(backing, title, database, backup_parent, "before-mii-rename-");
+        return MiiEnsured::Renamed;
+    }
+    AddMii(record, nand_root, title, backup_parent);
+    return MiiEnsured::Added;
+}
+
 SidekickLineups DefaultSidekickLineups() {
     SidekickLineups lineups{};
     for (std::size_t captain = 0; captain < kCaptainCount; ++captain)

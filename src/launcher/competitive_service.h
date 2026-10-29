@@ -46,6 +46,7 @@ public:
         platform::ProfilePlayer player;
         std::vector<platform::RuleSet> rule_sets;
         std::optional<platform::ProfileMatch> match;
+        platform::PlayerLists lists; // the lobby's: online now, recent opponents
         bool busy = false;           // an action is running
         std::uint64_t serial = 0;    // changes with every change
     };
@@ -64,6 +65,10 @@ public:
     void StopSignIn();
     void SignOut();
     void Challenge(const std::string& opponent, std::int64_t rule_set);
+    void ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set);
+    // The set's Ready to play! (or taking it back), and playing it again.
+    void ReadyToPlay(bool ready);
+    void Rematch();
     void Accept();
     void Decline();
     void CancelMatch();
@@ -100,7 +105,7 @@ private:
     std::string sign_in_id_;       // the sign-in being waited for
     int poll_interval_ = 2;        // seconds between asks while signing in
     std::chrono::steady_clock::time_point next_poll_{};
-    std::chrono::steady_clock::time_point next_me_{};
+    std::chrono::steady_clock::time_point next_me_{}, next_lists_{};
     std::shared_ptr<platform::HttpCancel> cancel_; // the running call's
     bool stop_ = false;
     std::thread worker_;

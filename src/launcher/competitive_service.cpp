@@ -12,10 +12,13 @@ using namespace std::chrono_literals;
 
 namespace
 {
-// How often the page asks for news: the current match (a challenge, the
-// other player's answer, the result), the player (friend codes the game
-// proved), and the server while it does not answer.
+// How often the page asks for news: the current set (a challenge, the other
+// player's answer and readiness, the result; as often as the server says,
+// this by default), the lobby's lists, the player (friend codes the game
+// proved), and the server while it does not answer. Every call is also the
+// player's heartbeat: a set lasts while both have Recharged open.
 constexpr auto kMatchPoll = 4s;
+constexpr auto kListsPoll = 5s;
 constexpr auto kPlayerPoll = 60s;
 constexpr auto kRetry = 15s;
 } // namespace
@@ -212,7 +215,18 @@ void CompetitiveService::Signed(ProfileService& api, const std::string& token, c
     // Everything the page shows signed in, before it shows it.
     api.SetToken(token);
     const auto sets = api.RuleSets();
-    const auto match = api.CurrentMatch();
+    int interval = 0;
+    const auto match = api.CurrentMatch(&interval);
+    platform::PlayerLists lists;
+    try
+    {
+        lists = api.Players();
+    }
+    catch (const ProfileError& e)
+    {
+        // A server before sets has no lists.
+        if (e.Status() != 404) throw;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (running_ != generation_) return;
     platform::SaveProfileSession(session_file_, {api.Server(), token, player.name});
@@ -222,24 +236,27 @@ void CompetitiveService::Signed(ProfileService& api, const std::string& token, c
     status_.player = player;
     status_.rule_sets = sets;
     status_.match = match;
+    status_.lists = lists;
     status_.code.clear();
     status_.url.clear();
     status_.error.clear();
     ++status_.serial;
     next_me_ = Clock::now() + kPlayerPoll;
-    next_poll_ = Clock::now() + kMatchPoll;
+    next_lists_ = Clock::now() + kListsPoll;
+    next_poll_ = Clock::now() + (interval ? std::chrono::seconds(interval) : kMatchPoll);
 }
 
 void CompetitiveService::Poll(ProfileService& api)
 {
     State state;
     std::string id;
-    bool me;
+    bool me, lists;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         state = status_.state;
         id = sign_in_id_;
         me = Clock::now() >= next_me_;
+        lists = Clock::now() >= next_lists_;
         next_poll_ = Clock::now() + (state == State::SigningIn ? std::chrono::seconds(poll_interval_) : kMatchPoll);
     }
     if (state == State::Unavailable)
@@ -273,19 +290,33 @@ void CompetitiveService::Poll(ProfileService& api)
         return;
     }
     if (state != State::SignedIn) return;
-    const auto match = api.CurrentMatch();
+    int interval = 0;
+    const auto match = api.CurrentMatch(&interval);
     std::optional<platform::ProfilePlayer> player;
     if (me) player = api.Me();
+    std::optional<platform::PlayerLists> found;
+    if (lists)
+    {
+        try
+        {
+            found = api.Players();
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Status() != 404) throw;
+            found = platform::PlayerLists{};
+        }
+    }
     Change([&](Status& status) {
         status.match = match;
         if (player) status.player = *player;
+        if (found) status.lists = *found;
         status.error.clear();
     });
-    if (me)
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        next_me_ = Clock::now() + kPlayerPoll;
-    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (me) next_me_ = Clock::now() + kPlayerPoll;
+    if (lists) next_lists_ = Clock::now() + kListsPoll;
+    if (interval) next_poll_ = Clock::now() + std::chrono::seconds(interval);
 }
 
 void CompetitiveService::SignIn()
@@ -345,6 +376,34 @@ void CompetitiveService::Challenge(const std::string& opponent, std::int64_t rul
 {
     Post([this, opponent, rule_set](ProfileService& api) {
         const auto match = api.Challenge(opponent, rule_set);
+        Change([&](Status& status) { status.match = match; });
+    }, true);
+}
+
+void CompetitiveService::ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set)
+{
+    Post([this, opponent_id, rule_set](ProfileService& api) {
+        const auto match = api.ChallengePlayer(opponent_id, rule_set);
+        Change([&](Status& status) { status.match = match; });
+    }, true);
+}
+
+void CompetitiveService::ReadyToPlay(bool ready)
+{
+    Post([this, ready](ProfileService& api) {
+        const auto current = Snapshot().match;
+        if (!current) return;
+        const auto match = api.ReadyToPlay(current->id, ready);
+        Change([&](Status& status) { status.match = match; });
+    }, true);
+}
+
+void CompetitiveService::Rematch()
+{
+    Post([this](ProfileService& api) {
+        const auto current = Snapshot().match;
+        if (!current) return;
+        const auto match = api.Rematch(current->id);
         Change([&](Status& status) { status.match = match; });
     }, true);
 }

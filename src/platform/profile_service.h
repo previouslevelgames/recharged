@@ -41,6 +41,18 @@ struct ProfilePlayer
     std::string avatar_url;
     bool test = false; // a test server's player, signed in by name
     std::vector<WfcProfile> wfc; // the latest first
+    // GET /api/v1/me only: the Discord account id (digits; empty for test
+    // players), which never changes: the player's Mii is made from it.
+    std::string discord_id;
+    // In the lobby's lists: Recharged is open, and a set to play.
+    bool online = false, busy = false;
+};
+
+// The lobby's lists (GET /api/v1/players).
+struct PlayerLists
+{
+    std::vector<ProfilePlayer> online; // who has Recharged open, by name
+    std::vector<ProfilePlayer> recent; // the last players a set was played with
 };
 
 // The rules a match is played by (docs/profiles.md, "Rules").
@@ -89,6 +101,14 @@ struct ProfileMatch
     std::string winner;    // you, opponent or draw once finished
     std::vector<MatchGame> games; // this player's report
     std::int64_t created_at = 0;
+    // Where the set is (docs/profiles.md of recharged-wfc-srv, "Sets"):
+    // invited, open, go, playing, finished, disputed or dissolved (then
+    // `reason` is the state). Empty from servers before sets.
+    std::string stage, reason;
+    bool you_ready = false, opponent_ready = false; // Ready to play!
+    bool opponent_online = false; // the opponent has Recharged open
+    std::int64_t go_at = 0, playing_at = 0; // unix seconds, 0: not yet
+    std::int64_t rematch_of = 0; // the set this one plays again
 
     // Still to be played: challenged or accepted.
     bool Open() const { return state == "challenged" || state == "accepted"; }
@@ -163,7 +183,16 @@ public:
     ProfilePlayer Me();
     void SignOut();
     ProfileMatch Challenge(const std::string& opponent, std::int64_t rule_set);
-    std::optional<ProfileMatch> CurrentMatch();
+    // The same by the player's id, from the lobby's lists.
+    ProfileMatch ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set);
+    // The set still to be played, or the last one that ended; `poll_interval`
+    // gets how soon (seconds) the server wants to be asked again.
+    std::optional<ProfileMatch> CurrentMatch(int* poll_interval = nullptr);
+    PlayerLists Players();
+    // The launcher's Ready to play! (or taking it back).
+    ProfileMatch ReadyToPlay(std::int64_t match, bool ready);
+    // The ended set again: the same opponent and rules.
+    ProfileMatch Rematch(std::int64_t match);
     ProfileMatch Accept(std::int64_t match);
     ProfileMatch Decline(std::int64_t match);
     ProfileMatch Cancel(std::int64_t match);

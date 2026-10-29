@@ -218,6 +218,12 @@ const char* kMatch = R"({"id":12,"state":"accepted","side":"challenger","opponen
 "discord":"sam","wfc":[{"profile_id":1000000001,"game":"R4QE","friend_code":"0868-9934-5920","mii":"Sam"}]},
 "rule_set":"Competitive","rules":{"tweaks":["no_mega_strikes"],"skill":"rookie","limit":"time","time":180,"goals":5,
 "games":3,"stadium":"random"},"rules_hash":"abc","paired":false,"reported":false,"winner":null,"games":[],"created_at":1})";
+// The same set on a server with sets: both ready, go.
+const char* kSet = R"({"id":12,"state":"accepted","side":"challenger","opponent":{"id":8,"name":"Sam","discord":"sam"},
+"rule_set":"Competitive","rules":{"tweaks":[],"skill":"rookie","limit":"time","time":180,"goals":5,"games":3,
+"stadium":"random"},"rules_hash":"abc","paired":false,"reported":false,"winner":null,"games":[],"created_at":1,
+"stage":"go","reason":null,"you_ready":true,"opponent_ready":true,"opponent_online":true,"go_at":1792771200,
+"playing_at":null,"rematch_of":11})";
 
 void Requests()
 {
@@ -236,6 +242,14 @@ void Requests()
         {"POST /api/v1/matches/12/accept", 409, R"({"error":"the match is accepted already"})"},
         {"GET /api/v1/matches/current", 200, R"({"match":null})"},
         {"GET /api/v1/me", 401, R"({"error":"signed out"})"},
+        {"GET /api/v1/players", 200,
+         R"({"online":[{"id":8,"name":"Sam","discord":"sam","test":false,"online":true,"busy":false}],"recent":[]})"},
+        {"POST /api/v1/matches", 201, kSet},
+        {"POST /api/v1/matches/12/ready-to-play", 200, kSet},
+        {"POST /api/v1/matches/12/rematch", 200, kSet},
+        {"GET /api/v1/matches/current", 200, std::string(R"({"poll_interval":2,"server_time":5,"match":)") + kSet + "}"},
+        {"GET /api/v1/me", 200,
+         R"({"id":7,"name":"Nelly","discord":"nelly","test":false,"wfc":[],"discord_id":"80351110224678912"})"},
     };
     std::vector<Sent> sent;
     {
@@ -272,6 +286,18 @@ void Requests()
         {
             CHECK(e.SignedOut());
         }
+        const auto lists = api.Players();
+        CHECK(lists.online.size() == 1 && lists.online[0].id == 8 && lists.online[0].online && !lists.online[0].busy
+              && lists.recent.empty());
+        const auto set = api.ChallengePlayer(8, 2);
+        CHECK(set.stage == "go" && set.you_ready && set.opponent_ready && set.opponent_online
+              && set.go_at == 1792771200 && set.playing_at == 0 && set.rematch_of == 11 && set.reason.empty());
+        api.ReadyToPlay(12, true);
+        api.Rematch(12);
+        int interval = 0;
+        const auto current = api.CurrentMatch(&interval);
+        CHECK(current && current->stage == "go" && interval == 2);
+        CHECK(api.Me().discord_id == "80351110224678912");
     }
     CHECK(sent.size() == exchanges.size());
     for (const auto& request : sent) CHECK(request.expected);
@@ -285,6 +311,9 @@ void Requests()
                               R"("opponent_captain":"bowser","stadium":"the_palace"}]})");
         CHECK(sent[5].body == "{}");
         CHECK(sent[6].body.empty() && sent[6].content_type.empty());
+        CHECK(sent[9].body == R"({"opponent_id":8,"rule_set":2})");
+        CHECK(sent[10].body == R"({"ready":true})");
+        CHECK(sent[11].body == "{}");
     }
 
     // Unencrypted only for addresses ProfileServerAddress lets through.

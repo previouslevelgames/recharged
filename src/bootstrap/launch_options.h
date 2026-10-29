@@ -1,6 +1,8 @@
 #pragma once
 
 #include "bootstrap/config.h"
+#include <array>
+#include <cstdint>
 #include <optional>
 #include <string_view>
 
@@ -38,6 +40,13 @@ struct ResolvedLaunch
     // Start training (--training or the launcher's button): the game goes from
     // the title straight into a training match.
     bool start_training = false;
+    // A competitive set's go (the launcher's lobby, both pressed Ready to
+    // play!): the game goes from the title through the online login with the
+    // player's own Mii (its create ID) straight into RANKED against the set's
+    // opponent, and the launcher opens again afterwards.
+    bool start_competitive = false;
+    std::int64_t competitive_set = 0;
+    std::array<unsigned char, 8> competitive_mii{};
 };
 
 // Consume a shared option at argv[index], including its value where required.

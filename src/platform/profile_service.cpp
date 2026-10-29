@@ -93,6 +93,9 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.avatar_url = value["avatar_url"].Text();
     player.test = value["test"].Bool();
     for (const auto& profile : value["wfc"].Items()) player.wfc.push_back(ParseWfc(profile));
+    player.discord_id = value["discord_id"].Text();
+    player.online = value["online"].Bool();
+    player.busy = value["busy"].Bool();
     return player;
 }
 
@@ -135,6 +138,14 @@ ProfileMatch ParseMatch(const JsonValue& value)
     match.winner = value["winner"].Text();
     for (const auto& game : value["games"].Items()) match.games.push_back(ParseGame(game));
     match.created_at = value["created_at"].Integer().value_or(0);
+    match.stage = value["stage"].Text();
+    match.reason = value["reason"].Text();
+    match.you_ready = value["you_ready"].Bool();
+    match.opponent_ready = value["opponent_ready"].Bool();
+    match.opponent_online = value["opponent_online"].Bool();
+    match.go_at = value["go_at"].Integer().value_or(0);
+    match.playing_at = value["playing_at"].Integer().value_or(0);
+    match.rematch_of = value["rematch_of"].Integer().value_or(0);
     return match;
 }
 
@@ -351,12 +362,42 @@ ProfileMatch ProfileService::Challenge(const std::string& opponent, std::int64_t
     return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
 }
 
-std::optional<ProfileMatch> ProfileService::CurrentMatch()
+ProfileMatch ProfileService::ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set)
+{
+    const std::string body = "{\"opponent_id\":" + Integer(opponent_id) + ",\"rule_set\":" + Integer(rule_set) + "}";
+    return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
+}
+
+std::optional<ProfileMatch> ProfileService::CurrentMatch(int* poll_interval)
 {
     const auto answer = Call("GET", "/api/v1/matches/current", nullptr);
+    if (poll_interval)
+        if (const auto interval = answer.body["poll_interval"].Integer(); interval && *interval >= 1 && *interval <= 60)
+            *poll_interval = int(*interval);
     const auto& match = answer.body["match"];
     if (!match.IsObject()) return std::nullopt;
     return ParseMatch(match);
+}
+
+PlayerLists ProfileService::Players()
+{
+    const auto answer = Call("GET", "/api/v1/players", nullptr);
+    PlayerLists lists;
+    for (const auto& player : answer.body["online"].Items()) lists.online.push_back(ParsePlayer(player));
+    for (const auto& player : answer.body["recent"].Items()) lists.recent.push_back(ParsePlayer(player));
+    return lists;
+}
+
+ProfileMatch ProfileService::ReadyToPlay(std::int64_t match, bool ready)
+{
+    const std::string body = ready ? "{\"ready\":true}" : "{\"ready\":false}";
+    return ParseMatch(Call("POST", "/api/v1/matches/" + Integer(match) + "/ready-to-play", &body).body);
+}
+
+ProfileMatch ProfileService::Rematch(std::int64_t match)
+{
+    const std::string empty = "{}";
+    return ParseMatch(Call("POST", "/api/v1/matches/" + Integer(match) + "/rematch", &empty).body);
 }
 
 ProfileMatch ProfileService::Accept(std::int64_t match)
