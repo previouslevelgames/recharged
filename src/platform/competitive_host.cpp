@@ -17,6 +17,8 @@ constexpr auto kMatchEvery = 10s;
 constexpr auto kRetry = 15s;
 // cGame's eGameState.
 constexpr int kGamePreGame = 0, kGameKickoff = 1, kGameEnd = 3, kGamePlay = 5;
+// A set's game waits this long for its last report before it closes anyway.
+constexpr auto kCloseWait = 20s;
 
 bool SameRules(const std::optional<ChargedCompetitiveRules>& a, const std::optional<ChargedCompetitiveRules>& b)
 {
@@ -125,6 +127,7 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
                 if (won >= needed || lost >= needed || int(series_.size()) >= series_games_)
                 {
                     reports_.push_back({series_match_, series_});
+                    ++unsent_;
                     series_done_ = true;
                     wake = true;
                 }
@@ -136,7 +139,11 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
     else if (!series_done_ && !(presence && presence->in_match))
     {
         // Left before the series ended: what was played, if anything.
-        if (!series_.empty()) reports_.push_back({series_match_, series_});
+        if (!series_.empty())
+        {
+            reports_.push_back({series_match_, series_});
+            ++unsent_;
+        }
         series_done_ = true;
         wake = true;
     }
@@ -147,9 +154,56 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
         rules_seen_ = rules_version_;
         rules = rules_;
     }
+
+    // A set's game: done once over, failed or called off.
+    if (set_)
+    {
+        if (wfc.set_stage != set_stage_)
+        {
+            set_stage_ = wfc.set_stage;
+            set_popup_ = wfc.set_popup;
+            wake = true;
+        }
+        const bool done = set_stage_ == CHARGED_SET_OVER || set_stage_ == CHARGED_SET_FAILED || set_called_off_;
+        if (done && set_done_ == Clock::time_point{})
+        {
+            set_done_ = Clock::now();
+            wake = true;
+        }
+    }
     lock.unlock();
     if (wake) wake_.notify_all();
     return changed;
+}
+
+void CompetitiveHost::PlaySet(std::int64_t set)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        set_ = set;
+        next_match_ = {};
+    }
+    wake_.notify_all();
+    Said("set " + std::to_string(set) + ": the game goes straight to RANKED against the set's opponent");
+}
+
+bool CompetitiveHost::CloseNow()
+{
+    std::string why;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!set_ || set_closed_ || set_done_ == Clock::time_point{}) return false;
+        // The last report out, and a set left without one waiting again.
+        const bool reported = unsent_ == 0 && reports_.empty();
+        const bool settled = set_stage_ == CHARGED_SET_OVER ? reported : set_unready_ || set_stage_ == CHARGED_SET_OVER;
+        if (!settled && Clock::now() - set_done_ < kCloseWait) return false;
+        set_closed_ = true;
+        why = set_stage_ == CHARGED_SET_OVER   ? "the series is over"
+            : set_stage_ == CHARGED_SET_FAILED ? "it stopped at popup " + std::to_string(set_popup_)
+                                               : "the set was called off";
+    }
+    Said("set " + std::to_string(set_) + ": the game closes, " + why);
+    return true;
 }
 
 void CompetitiveHost::Run()
@@ -245,6 +299,36 @@ void CompetitiveHost::Work(ProfileService& api)
                  + current->rule_set + "): " + DescribeRules(current->rules));
         else if (news)
             Said("no accepted match: RANKED stays retail");
+        // A set's game whose set no longer waits for it (the opponent took
+        // Ready to play! back, the games never met, the set ended) before
+        // the games met.
+        std::lock_guard<std::mutex> relock(mutex_);
+        if (set_ && set_stage_ < CHARGED_SET_PLAYING
+            && (!current || current->id != set_ || current->stage == "open" || current->stage == "invited"))
+            set_called_off_ = true;
+    }
+
+    // A set's game that stopped or was called off before a result: the
+    // player's Ready to play! is taken back, so the set waits for both again.
+    std::int64_t unready = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (set_ && !set_unready_ && (set_stage_ == CHARGED_SET_FAILED || set_called_off_) && unsent_ == 0)
+            unready = set_;
+    }
+    if (unready)
+    {
+        try
+        {
+            api.ReadyToPlay(unready, false);
+        }
+        catch (const ProfileError& e)
+        {
+            // A set that ended or is playing: nothing to take back.
+            if (e.Status() == 0) throw;
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        set_unready_ = true;
     }
 
     // The game's WFC login: the proof makes its friend code the player's.
@@ -329,6 +413,7 @@ void CompetitiveHost::Work(ProfileService& api)
             Said(std::string("the result was not taken: ") + e.what());
         }
         std::lock_guard<std::mutex> lock(mutex_);
+        if (unsent_ > 0) --unsent_;
         next_match_ = {};
     }
 }

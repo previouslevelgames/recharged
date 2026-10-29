@@ -453,22 +453,31 @@ writes `rollback_test` or `rollback_log`.
 
 ## Competitive play
 
-The launcher's **Competitive** page plays matches against other Recharged
-players by the rules of a WFC server that offers them (`[online]
-profile_server`, its `https://` address from the server's admins):
+The launcher's **Competitive** page plays sets against other Recharged players
+by the rules of an online server that offers them (`[online] profile_server`,
+its `https://` address from the server's admins). A set is a series against
+one player, by one of the server's rule sets: skill level, game length or goal
+limit, the games of the series, the stadium, and the *Competitive gameplay*
+tweaks both teams play with.
 
 1. Sign in with Discord. The browser opens a page that shows a code; go on
    only if it is the code the launcher shows.
-2. Challenge a player by their Discord username, with one of the server's rule
-   sets: skill level, game length or goal limit, the games of the series, the
-   stadium, and the *Competitive gameplay* tweaks both teams play with.
-3. Once the challenge is accepted, both start the game, go online and choose
-   **RANKED**. There the two games find only each other, play by the match's
-   rules and report the result, which the page then shows.
+2. Challenge a player who has Recharged open: from **Online now** with a
+   click, or by their Discord username. They accept or decline.
+3. Both press **Ready to play!**. The game then starts by itself, signs in to
+   the online server with your own Mii and goes straight to the captain
+   draft against your opponent, where you choose your captain and sidekicks.
+4. After the series both games report the result, the game closes and the
+   launcher opens again with the result, and **Rematch**.
 
-Every other game, and RANKED without an accepted match, stays as in the
-original. The game proves its friend code to the server by itself when it goes
-online. The log's `Competitive:` lines tell what it did.
+You need no Mii of your own: the launcher makes one from your Discord account,
+named after your Discord name, the same on every computer. It is an ordinary
+Mii: it shows on the Miis page and in the game's online Mii list, and you can
+play the game's own online modes with it too.
+
+A set lasts while both have Recharged open; closing it ends your sets that
+have no result yet. Every other game, and the game's own online menu, stay as
+in the original. The log's `Competitive:` lines tell what it did.
 
 ## The launcher
 

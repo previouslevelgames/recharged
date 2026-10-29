@@ -46,6 +46,15 @@ public:
     bool Observe(const ChargedWfcSnapshot& wfc, const ChargedPresenceSnapshot* presence,
                  std::optional<ChargedCompetitiveRules>& rules);
 
+    // This game is set `set`'s (the launcher's Ready to play!): it starts
+    // itself into the set's RANKED search (the module's set stages). A set it
+    // leaves without a result goes back to waiting for Ready to play!.
+    void PlaySet(std::int64_t set);
+    // On the game's thread after Observe: the set's game is done (the series
+    // is over and reported, the set failed, or the server called it off).
+    // The caller closes the game; true once.
+    bool CloseNow();
+
 private:
     CompetitiveHost(std::string server, std::string token, std::string player, Log log);
     void Run();
@@ -77,6 +86,16 @@ private:
     std::vector<Report> reports_; // series played, to report
     std::string last_said_;
     std::chrono::steady_clock::time_point next_match_{}, next_ready_{};
+
+    // A set's game: the set, the module's stage of it (ChargedSetStage), the
+    // series reports not out yet, whether the set was called off or its
+    // Ready to play! taken back, and since when it is done.
+    std::int64_t set_ = 0;
+    int set_stage_ = 0;
+    int set_popup_ = -1;
+    int unsent_ = 0;
+    bool set_called_off_ = false, set_unready_ = false, set_closed_ = false;
+    std::chrono::steady_clock::time_point set_done_{};
 
     // The game's thread only.
     std::uint64_t rules_seen_ = 0;
