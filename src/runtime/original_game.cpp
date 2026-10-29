@@ -1304,6 +1304,22 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }
+        // A set's game (the launcher's Ready to play!): it starts itself into
+        // the set's RANKED search with the player's own Mii, and closes once
+        // the set is done; the launcher then opens again.
+        if(launch.start_competitive) {
+            auto configureStart=reinterpret_cast<ChargedConfigureCompetitiveStartFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive_start"));
+            if(competitive && configureStart
+               && configureStart(launch.competitive_mii.data(),unsigned(launch.competitive_mii.size())))
+                competitive->PlaySet(launch.competitive_set);
+            else {
+                const std::string line="Competitive: set "+std::to_string(launch.competitive_set)
+                    +" cannot start ("+(competitive ? "this build's game module has no sets" : "competitive play is off")+")";
+                mscharged::platform::SessionLogLine(line);
+                std::fprintf(stderr,"%s\n",line.c_str());
+            }
+        }
         std::chrono::steady_clock::time_point lastCompetitive{};
         auto observeCompetitive = [&] {
             if(!competitive)return;
@@ -1317,6 +1333,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             std::optional<ChargedCompetitiveRules> rules;
             if(competitive->Observe(wfc,known ? &game : nullptr,rules))
                 configureCompetitive(rules ? &*rules : nullptr,sizeof(ChargedCompetitiveRules));
+            // The set's game is done: closed as by the window's close button.
+            if(competitive->CloseNow()) {
+                SDL_Event quit{};
+                quit.type=SDL_EVENT_QUIT;
+                SDL_PushEvent(&quit);
+            }
         };
         auto observeNetplay = [&] {
             if((!hostOverlay && !framePacing) || !netplaySnapshot)return;

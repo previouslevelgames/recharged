@@ -32,6 +32,10 @@ struct ChargedWfcSnapshot
     // did so since the game started (a new value: another match), and the
     // games of its series.
     int competitive;
+    // A set's game (charged_configure_competitive_start): where its start is
+    // (ChargedSetStage), and the popup that ended it (ePopupMenu, -1 none).
+    int set_stage;
+    int set_popup;
     unsigned competitive_setups;
     int competitive_games;
     // This machine's team in the online match: 0 home, 1 away, -1 unknown.
@@ -40,9 +44,28 @@ struct ChargedWfcSnapshot
     int local_side;
 };
 
+// How far a set's game got: booting (title, main menu), choosing the Mii and
+// logging in, searching RANKED for the opponent, playing; over (back from the
+// game) or failed (a popup that is not harmless; set_popup says which).
+enum ChargedSetStage
+{
+    CHARGED_SET_NONE,
+    CHARGED_SET_BOOT,
+    CHARGED_SET_MII,
+    CHARGED_SET_OVERLAY,
+    CHARGED_SET_LOGIN,
+    CHARGED_SET_SEARCH,
+    CHARGED_SET_PLAYING,
+    CHARGED_SET_OVER,
+    CHARGED_SET_FAILED,
+};
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+// Game module entry, before original main: this game is a set's, with the
+// player's own Mii (`mii`: its 8-byte create ID; false when `size` is not 8).
+typedef bool (*ChargedConfigureCompetitiveStartFunction)(const unsigned char* mii, unsigned size);
 // Game module entry: fills `snapshot` when `size` matches this build's
 // struct; false otherwise.
 typedef bool (*ChargedWfcSnapshotFunction)(ChargedWfcSnapshot* snapshot, unsigned size);

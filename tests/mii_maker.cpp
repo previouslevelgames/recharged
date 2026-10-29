@@ -96,6 +96,43 @@ void Faces() {
     }
     Check(faces.size() > 4000, "Random faces repeat");
 }
+// A player's competitive Mii: the same for the same key everywhere, with a
+// create ID pinned here (an independent computation of the key's bits), and
+// another for another key.
+void KeyedMiis() {
+    const std::string key = "discord:80351110224678912";
+    const auto id = KeyedMiiCreateId(key);
+    Check(std::memcmp(id.data(), "\x80\xAE\x6A\xFC\x55\x51\xB3\x21", 8) == 0, "Pinned keyed create ID");
+    const auto other = KeyedMiiCreateId("discord:1");
+    Check(std::memcmp(other.data(), "\x8B\xAB\x24\xB3\xED\xB0\xF0\x1F", 8) == 0, "Second keyed create ID");
+    const auto nelly = MakeKeyedMii("Nelly", key);
+    Check(nelly == MakeKeyedMii("Nelly", key), "The same key made another Mii");
+    Check(nelly.compare(24, 8, std::string(reinterpret_cast<const char*>(id.data()), 8)) == 0,
+          "Keyed Mii's create ID");
+    // The name doesn't change the face; another key does.
+    Check(MakeKeyedMii("Nel", key).substr(24) == nelly.substr(24), "A new name changed the face");
+    Check(MakeKeyedMii("Nelly", "discord:1").substr(32, 22) != nelly.substr(32, 22), "Two keys, one face");
+    std::set<std::string> ids;
+    for (int n = 0; n < 2000; ++n) {
+        const auto record = MakeKeyedMii("Mii", "discord:" + std::to_string(n));
+        Check(ValidForGame(Decode(record)), "A keyed Mii the game rejects");
+        Check((std::uint8_t(record[24]) & 0xF0) == 0x80, "Keyed create ID flags");
+        ids.insert(record.substr(24, 8));
+    }
+    Check(ids.size() == 2000, "Keyed create IDs repeat");
+}
+
+void FittedNames() {
+    Check(FitMiiName("Nelly") == "Nelly", "Plain name");
+    Check(FitMiiName("  Super   Mario  Bros  ") == "Super Mari", "Spaces and cut");
+    Check(FitMiiName("Nel\xF0\x9F\x98\x80ly\xE2\x80\x8B") == "Nelly", "Emoji and zero-width space");
+    Check(FitMiiName("\xC3\xA9t\xC3\xA9 \xE2\x98\x86") == "\xC3\xA9t\xC3\xA9 \xE2\x98\x86", "Accents and symbols kept");
+    Check(FitMiiName("\xF0\x9F\x98\x80\xF0\x9F\x98\x80", "nelly_99") == "nelly_99", "Fallback");
+    Check(FitMiiName("\xF0\x9F\x98\x80", "\x01") == "Player", "Last resort");
+    Check(FitMiiName("\xC3", "x") == "x", "Invalid UTF-8");
+    for (const char* name : {"0123456789AB", "a\tb", " x ", "\xE3\x80\x80Ab\xEF\xBB\xBF"})
+        Check(ValidMiiName(FitMiiName(name)), std::string("Fitted name refused: ") + name);
+}
 } // namespace
 
 int main() {
@@ -103,6 +140,8 @@ int main() {
         Names();
         RoundTrip();
         Faces();
+        KeyedMiis();
+        FittedNames();
         std::cout << "mii_maker: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& e) {

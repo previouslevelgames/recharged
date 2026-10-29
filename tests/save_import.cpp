@@ -355,6 +355,31 @@ void RunAddMii(const fs::path& root) {
           "A new Mii did not replace a lost database");
 }
 
+// A player's competitive Mii: added once, renamed with the Discord name,
+// untouched (no write, no backup) when it is current.
+void RunEnsureMii(const fs::path& root) {
+    const auto saves = root / "ensure-mii", backups = root / "ensure-backups";
+    AddMii(MakeRandomMii("Toad", 9, 1760000000), saves, kTitle, backups);
+    const auto nelly = MakeKeyedMii("Nelly", "discord:7");
+    Check(EnsureMii(nelly, saves, kTitle, backups) == MiiEnsured::Added
+              && Miis(saves) == std::vector<std::string>{"Toad", "Nelly"},
+          "Competitive Mii added beside the player's own");
+    const auto metadata = Bytes(saves / "metadata.txt");
+    const auto count = std::distance(fs::directory_iterator(backups), fs::directory_iterator());
+    Check(EnsureMii(nelly, saves, kTitle, backups) == MiiEnsured::Unchanged
+              && Bytes(saves / "metadata.txt") == metadata
+              && std::distance(fs::directory_iterator(backups), fs::directory_iterator()) == count,
+          "A current competitive Mii was written again");
+    Check(EnsureMii(MakeKeyedMii("Nel", "discord:7"), saves, kTitle, backups) == MiiEnsured::Renamed
+              && Miis(saves) == std::vector<std::string>{"Toad", "Nel"},
+          "Competitive Mii not renamed in its slot");
+    InitializeNativeFilesystem({saves, kTitle.title_id, kTitle.uid, kTitle.gid});
+    const auto database = IosRead(kMiiPath, kMiiDatabaseBytes + 1);
+    ShutdownNativeFilesystem();
+    Check(MiiCrc(database) == 0 && database.compare(4 + 74 + 24, 50, nelly, 24, 50) == 0,
+          "Renamed Mii's face, create ID or CRC");
+}
+
 // The usual CRC-32, table-free (the game's nlChecksum32 uses its table).
 std::uint32_t Crc32(const std::string& bytes, std::size_t begin) {
     std::uint32_t crc = ~0u;
@@ -722,6 +747,7 @@ int main(int argc, char** argv) {
         RunEurope(fs::path(argv[1]));
         RunMiis(fs::path(argv[1]));
         RunAddMii(fs::path(argv[1]));
+        RunEnsureMii(fs::path(argv[1]));
         RunSidekicks(fs::path(argv[1]));
         RunMatchSettings(fs::path(argv[1]));
         RunFriendCodes(fs::path(argv[1]));
