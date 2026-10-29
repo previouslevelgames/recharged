@@ -1,5 +1,5 @@
 Subject: Preserve native compiler interfaces for the original Game source
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Use authoritative audio header linkage, an explicit full-width encoded Terrain
 index cast, and emit available original nlStrNCat<char> for native linking.
@@ -8,7 +8,7 @@ Upstream now uses matched float and string literals directly; no temporary nativ
 data provider is added. Complete original game linking/startup remain separate gates.
 
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
-index b32dd4b..7423ec6 100644
+index 99b0f85..f735578 100644
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
 @@ -1,6 +1,9 @@
@@ -23,7 +23,7 @@ index b32dd4b..7423ec6 100644
  #include "Game/Weather.h"
 @@ -279,7 +282,11 @@ void CreateGame(void* terrainIndex, int weatherType, bool startCrowdRiot)
  {
-     ++lbl_806E2130;
+     ++gGameplayContextDepth;
  
 +#if defined(MSCHARGED_NATIVE)
 +    cGame* game = new (nlMalloc(sizeof(cGame), alignof(cGame), false)) cGame(terrainIndex, weatherType, startCrowdRiot);

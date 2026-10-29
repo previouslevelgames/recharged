@@ -1,5 +1,5 @@
 Subject: Tweak: fast terrain
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Each stadium names one of six terrain profiles (StadiumInfo, read by
 InitializeGameTweaks once per match): ini/Terrain/DryTerrain.ini,
@@ -22,7 +22,7 @@ lava, lightning), tilt and wind, and the muck holes of Petey's Super
 Ability are left alone.
 
 diff --git a/src/Game/GameTweaksManager.cpp b/src/Game/GameTweaksManager.cpp
-index 842ab79..2885bfc 100644
+index fad5caa..06e891d 100644
 --- a/src/Game/GameTweaksManager.cpp
 +++ b/src/Game/GameTweaksManager.cpp
 @@ -5,6 +5,7 @@
@@ -36,7 +36,7 @@ index 842ab79..2885bfc 100644
 @@ -24,6 +25,15 @@ void InitializeGameTweaks(GameTweaksManager* state)
  
      int stadium = GameInfoManager::Instance()->GetStadium();
-     int terrain = GetStadiumUnknown0x08(stadium);
+     int terrain = GetStadiumTerrainType(stadium);
 +#if defined(MSCHARGED_TWEAKS)
 +    // Port tweak "Fast terrain": every stadium gets the dry terrain profile
 +    // (ini/Terrain/DryTerrain.ini, as in Bowser Stadium): its field speed,
@@ -50,7 +50,7 @@ index 842ab79..2885bfc 100644
  
      char terrainName[100];
 diff --git a/src/Game/Weather.cpp b/src/Game/Weather.cpp
-index 632c9e8..945f042 100644
+index 0bcf550..5c5e28b 100644
 --- a/src/Game/Weather.cpp
 +++ b/src/Game/Weather.cpp
 @@ -36,6 +36,7 @@
@@ -74,6 +74,6 @@ index 632c9e8..945f042 100644
 +        return;
 +    }
 +#endif
-     if (lbl_806E12C8)
+     if (g_pPhysicsPatchManager)
      {
          for (int i = 0; i < 60; i++)

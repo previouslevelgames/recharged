@@ -1,6 +1,6 @@
 From: mscharged-port maintainers
 Subject: [PATCH] Preserve original stream cached words through native DSP memory
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Original stream state keeps a Wii32 cached address used by unchanged AX nibble
 arithmetic. Translate actual native backing through the checked SDK physical

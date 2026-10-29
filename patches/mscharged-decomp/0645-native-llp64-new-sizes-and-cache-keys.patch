@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Native LLP64 widths for operator new sizes and pointer cache keys
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: native compiler/ABI compatibility; apply after 0644.
 
 64-bit Windows is LLP64: unsigned long stays 32-bit while size_t and pointers

@@ -29,22 +29,39 @@ void Releases()
     const auto* usa = FindRelease("R4QE01", 1);
     const auto* europe2 = FindRelease("R4QP01", 2);
     const auto* europe1 = FindRelease("R4QP01", 1);
-    Check(usa && europe2 && europe1 && ReleaseCount() == 3, "USA and both European revisions are known");
+    const auto* japan = FindRelease("R4QJ01", 0);
+    const auto* korea = FindRelease("R4QK01", 0);
+    Check(usa && europe2 && europe1 && japan && korea && ReleaseCount() == 5,
+          "USA, both European revisions, Japan and Korea are known");
     Check(&DefaultRelease() == usa, "The USA release is the default");
-    Check(!FindRelease("R4QE01", 0) && !FindRelease("R4QP01", 0) && !FindRelease("R4QJ01", 0),
+    Check(!FindRelease("R4QE01", 0) && !FindRelease("R4QP01", 0) && !FindRelease("R4QJ01", 1)
+              && !FindRelease("R4QX01", 0),
           "Unknown revisions and regions are not releases");
     Check(usa->title_id == 0x0001000052345145ull && europe2->title_id == 0x0001000052345150ull
-              && europe1->title_id == europe2->title_id,
+              && europe1->title_id == europe2->title_id && japan->title_id == 0x000100005234514Aull
+              && korea->title_id == 0x000100005234514Bull,
           "Both European revisions share their Wii title");
-    Check(usa->title_group == 0x3031 && europe1->title_group == 0x3031 && europe2->title_group == 0x3031,
+    Check(usa->title_group == 0x3031 && europe1->title_group == 0x3031 && europe2->title_group == 0x3031
+              && japan->title_group == 0x3031 && korea->title_group == 0x3031,
           "Every release has the TMD group 0x3031");
     Check(usa->code == GameCode::Usa && europe2->code == GameCode::Europe && europe1->code == GameCode::Europe
               && europe1->rev1_data && !europe2->rev1_data && !usa->rev1_data,
           "European revision 1 runs on the revision 2 code with its data adapters");
+    Check(japan->code == GameCode::Japan && korea->code == GameCode::Korea && !japan->rev1_data
+              && !korea->rev1_data && std::string(korea->title) == "Mario Power Soccer",
+          "Japan and Korea run their own game code");
+    Check(std::string(GameModuleVersion(GameCode::Usa)) == "R4QE01"
+              && std::string(GameModuleVersion(GameCode::Europe)) == "R4QP01_REV2"
+              && std::string(GameModuleVersion(GameCode::Japan)) == "R4QJ01"
+              && std::string(GameModuleVersion(GameCode::Korea)) == "R4QK01",
+          "Each game code has its module's version");
     Check(usa->playable && SupportedRelease(Disc("R4QE01", 1)), "The USA release is playable");
+    Check(japan->playable && SupportedRelease(Disc("R4QJ01", 0)), "The Japanese release is playable");
+    Check(korea->playable && SupportedRelease(Disc("R4QK01", 0)), "The Korean release is playable");
 
     Check(ReleaseLabel(*usa) == "USA" && ReleaseLabel(*europe2) == "Europe, revision 2"
-              && ReleaseLabel(*europe1) == "Europe, revision 1",
+              && ReleaseLabel(*europe1) == "Europe, revision 1" && ReleaseLabel(*japan) == "Japan"
+              && ReleaseLabel(*korea) == "Korea",
           "Labels name the revision only where a region has several");
     Check(ReleaseNote(*europe1) == "Plays with the game code of revision 2." && ReleaseNote(*europe2).empty()
               && ReleaseNote(*usa).empty(),
@@ -63,11 +80,16 @@ void Releases()
     Check(UnplayableReason(Disc("R4QP01", 3), nullptr)
               == "Recharged knows the European version (R4QP01) in revision 2 and revision 1; this disc is revision 3.",
           "An unknown revision lists the known ones: " + UnplayableReason(Disc("R4QP01", 3), nullptr));
-    Check(UnplayableReason(Disc("R4QJ01", 0)) == "Mario Strikers Charged for Japan (R4QJ01) is not supported yet."
-              && UnplayableReason(Disc("R4QK01", 0)) == "Mario Strikers Charged for Korea (R4QK01) is not supported yet.",
-          "Japan and Korea are not supported yet");
+    Check(UnplayableReason(Disc("R4QJ01", 0)).empty() && UnplayableReason(Disc("R4QK01", 0)).empty(),
+          "The Japanese and Korean discs have no reason");
+    auto blockedKorea = *korea;
+    blockedKorea.playable = false;
+    Check(UnplayableReason(Disc("R4QK01", 0), &blockedKorea) == "This build cannot run the Korean version (R4QK01) yet.",
+          "An unplayable Korean release names its version");
+    Check(UnplayableReason(Disc("R4QX01", 0)) == "Mario Strikers Charged for Unknown region (R4QX01) is not supported yet.",
+          "Another region is not supported");
     const auto runs = PlayableReleasesText();
-    Check(runs == "the USA version (R4QE01)" || runs == "the USA (R4QE01) and European (R4QP01) versions",
+    Check(runs == "the USA (R4QE01), European (R4QP01), Japanese (R4QJ01) and Korean (R4QK01) versions",
           "Playable versions: " + runs);
 }
 
@@ -75,13 +97,17 @@ void Languages()
 {
     const auto& usa = *FindRelease("R4QE01", 1);
     const auto& europe = *FindRelease("R4QP01", 2);
+    const auto& japan = *FindRelease("R4QJ01", 0);
+    const auto& korea = *FindRelease("R4QK01", 0);
     Check(usa.language_count == 3 && std::string(usa.languages[0].value) == "english", "USA: English first");
     Check(europe.language_count == 5 && std::string(europe.languages[0].value) == "english",
           "Europe: English and four more");
+    Check(japan.language_count == 1 && korea.language_count == 1, "Japan and Korea: one language each");
     struct Expect { const GameRelease* release; const char* value; std::uint8_t sc; };
     for (const auto& e : {Expect{&usa, "english", 1}, Expect{&usa, "french", 3}, Expect{&usa, "spanish", 4},
                           Expect{&europe, "english", 1}, Expect{&europe, "german", 2}, Expect{&europe, "french", 3},
-                          Expect{&europe, "spanish", 4}, Expect{&europe, "italian", 5}})
+                          Expect{&europe, "spanish", 4}, Expect{&europe, "italian", 5},
+                          Expect{&japan, "japanese", 0}, Expect{&korea, "korean", 9}})
     {
         const auto* language = FindLanguage(*e.release, e.value);
         Check(language && language->sc_language == e.sc, std::string("Wii language of ") + e.value);
@@ -111,6 +137,12 @@ void Languages()
     choice = ChooseLanguage(europe, "japanese", {});
     Check(choice.unavailable && std::string(choice.language->value) == "english",
           "An unavailable language without PC match falls back to English");
+    choice = ChooseLanguage(japan, "english", {"en"});
+    Check(choice.unavailable && std::string(choice.language->value) == "japanese",
+          "The Japanese disc always shows Japanese");
+    choice = ChooseLanguage(korea, "auto", {"ko"});
+    Check(choice.automatic && !choice.unavailable && std::string(choice.language->value) == "korean",
+          "A Korean PC gets Korean on the Korean disc");
 }
 
 void SaveFolders()
@@ -119,6 +151,7 @@ void SaveFolders()
     Check(TitleSaveFolder(folder, 0x0001000052345145ull) == folder, "The USA title keeps the save folder");
     Check(TitleSaveFolder(folder, 0x0001000052345150ull) == folder / "R4QP", "Europe: the R4QP subfolder");
     Check(TitleSaveFolder(folder, 0x000100005234514Aull) == folder / "R4QJ", "Other titles: their game code");
+    Check(TitleSaveFolder(folder, 0x000100005234514Bull) == folder / "R4QK", "Korea: the R4QK subfolder");
     Check(TitleSaveFolder(folder, 0x0123456789ABCDEFull) == folder / "0123456789abcdef",
           "A title without a printable code: its hex ID");
 }

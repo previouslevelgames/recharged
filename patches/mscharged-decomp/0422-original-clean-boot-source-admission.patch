@@ -1,13 +1,13 @@
 Purpose: admit the literal source transition into CleanBoot and its original FE pool/bank endpoints.
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Predecessor: exact actual prepared313, fa1e053, SDK46.
 Scope: native selected diagnostic only; world/Mii/later frontend services remain explicitly held.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 79225a2..7c4f86b 100644
+index 8198397..5011d5d 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -379,6 +379,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -377,6 +377,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
              StopWithUndo();
          }
          break;
@@ -16,8 +16,8 @@ index 79225a2..7c4f86b 100644
 +    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CLEAN_BOOT))
      case 10:
          g_pAudioSystem->GetBundleManager()->GetSoundMap()->SelectGroup(1);
-         lbl_806E1058 += gAudioEnabled ? 2 : 0;
-@@ -894,9 +897,14 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         sPendingSoundBankLoads += gAudioEnabled ? 2 : 0;
+@@ -892,9 +895,14 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          }
          mLoadingState = ASYNC_RESOURCES_LOADED;
          break;

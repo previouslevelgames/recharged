@@ -18,6 +18,8 @@ enum class GameCode : std::uint8_t
 {
     Usa,
     Europe,
+    Japan,
+    Korea,
 };
 
 // A game text language: the [game] language value, its launcher label, the
@@ -36,7 +38,7 @@ struct GameRelease
     const char* game_id;           // disc ID, e.g. "R4QE01"
     std::uint8_t revision;         // revision byte of the disc header
     const char* dol_sha1;          // SHA-1 of sys/main.dol (lower-case hex)
-    const char* region;            // "USA", "Europe"
+    const char* region;            // "USA", "Europe", "Japan", "Korea"
     const char* title;             // title as printed on the box
     std::uint64_t title_id;        // Wii title: saves and the NAND home
     std::uint16_t title_group;     // group ID of the disc's TMD
@@ -45,11 +47,12 @@ struct GameRelease
     bool playable;                 // this build has the game module for it
     std::uint32_t disc_message_table; // sDiscMessageImages in main.dol
     const GameLanguage* languages; // game text languages, without Automatic;
-    std::size_t language_count;    // the first one is the fallback (English)
+    std::size_t language_count;    // the first one is the fallback (English, or the only one)
 };
 
 // The decomp game version a game module is built from: "R4QE01" for the USA
-// code, "R4QP01_REV2" for the European code.
+// code, "R4QP01_REV2" for the European code, "R4QJ01" and "R4QK01" for the
+// Japanese and Korean code.
 const char* GameModuleVersion(GameCode code);
 
 // Every release this port knows, playable or not.

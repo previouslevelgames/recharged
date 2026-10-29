@@ -99,9 +99,11 @@ if(BUILD_TESTING)
     add_test(NAME desktop_dpd_projection COMMAND desktop_dpd_projection_tests)
 
     # Whole original KPAD + DPDData arithmetic, not a host pointer manager:
-    # the USA build's KPAD and the European build's (desktop_dpd_eu), which
-    # does not calibrate the pointer for the sensor bar.
-    foreach(_variant IN ITEMS desktop_dpd:R4QE01 desktop_dpd_eu:R4QP01_REV2)
+    # the USA build's KPAD, the European build's (desktop_dpd_eu), which
+    # does not calibrate the pointer for the sensor bar, and the Korean
+    # build's newer one (desktop_dpd_kr).
+    include(cmake/GameVersion.cmake)
+    foreach(_variant IN ITEMS desktop_dpd:R4QE01 desktop_dpd_eu:R4QP01_REV2 desktop_dpd_kr:R4QK01)
         string(REPLACE ":" ";" _variant "${_variant}")
         list(GET _variant 0 _name)
         list(GET _variant 1 _version)
@@ -119,6 +121,7 @@ if(BUILD_TESTING)
             "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
         target_compile_options(${_name}_tests PRIVATE -ffp-contract=off -fno-strict-aliasing)
         target_link_libraries(${_name}_tests PRIVATE charged_native_hardware_owner aurora::mtx)
+        mscharged_use_version_sources(${_name}_tests ${_version})
         add_test(NAME ${_name} COMMAND ${_name}_tests)
         set_tests_properties(${_name} PROPERTIES TIMEOUT 15
             ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")
@@ -126,8 +129,10 @@ if(BUILD_TESTING)
 
     # Focus, leave/enter, repeat, shared-mapping and reattach lifecycle through
     # the same whole original KPAD consumer, one latest sample per update: the
-    # USA build's KPAD and the European build's (desktop_input_lifecycle_eu).
-    foreach(_variant IN ITEMS desktop_input_lifecycle:R4QE01 desktop_input_lifecycle_eu:R4QP01_REV2)
+    # USA build's KPAD, the European build's (desktop_input_lifecycle_eu) and
+    # the Korean build's (desktop_input_lifecycle_kr).
+    foreach(_variant IN ITEMS desktop_input_lifecycle:R4QE01 desktop_input_lifecycle_eu:R4QP01_REV2
+            desktop_input_lifecycle_kr:R4QK01)
         string(REPLACE ":" ";" _variant "${_variant}")
         list(GET _variant 0 _name)
         list(GET _variant 1 _version)
@@ -144,6 +149,7 @@ if(BUILD_TESTING)
             "${MSCHARGED_PREPARED}/include" "${MSCHARGED_PREPARED}/libs/RVL_SDK/include")
         target_compile_options(${_name}_tests PRIVATE -ffp-contract=off -fno-strict-aliasing)
         target_link_libraries(${_name}_tests PRIVATE charged_native_hardware_owner aurora::mtx)
+        mscharged_use_version_sources(${_name}_tests ${_version})
         add_test(NAME ${_name} COMMAND ${_name}_tests)
         set_tests_properties(${_name} PROPERTIES TIMEOUT 30
             ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;${MSCHARGED_NO_REAL_REMOTES}")

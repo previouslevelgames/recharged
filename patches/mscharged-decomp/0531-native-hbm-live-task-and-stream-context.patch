@@ -51,10 +51,10 @@ index f739391..841428c 100644
  
  } // namespace detail
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
-index d22b012..6facf87 100644
+index 9f99d5d..ac1f39b 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SoundArchivePlayer.h
-@@ -116,8 +116,8 @@ private:
+@@ -111,8 +111,8 @@ private:
          SeqLoadCallback(const SoundArchivePlayer& player);
  
          virtual Result LoadData(detail::SeqSound::NotifyAsyncEndCallback callback, void* callbackArg,
@@ -65,7 +65,7 @@ index d22b012..6facf87 100644
  
      private:
          /* 0x04 */ const SoundArchivePlayer& mSoundArchivePlayer;
-@@ -141,11 +141,11 @@ private:
+@@ -136,11 +136,11 @@ private:
          StrmCallback(const SoundArchivePlayer& player);
  
          virtual Result LoadHeader(detail::StrmPlayer::NotifyLoadHeaderAsyncEndCallback callback, void* callbackData,
@@ -80,7 +80,7 @@ index d22b012..6facf87 100644
  
      private:
          /* 0x04 */ const SoundArchivePlayer& mSoundArchivePlayer;
-@@ -168,7 +168,7 @@ private:
+@@ -163,7 +163,7 @@ private:
      class SeqLoadTask : public detail::Task {
      public:
          SeqLoadTask(detail::SeqSound::NotifyAsyncEndCallback callback, void* callbackArg, const SoundArchive& arc,
@@ -89,7 +89,7 @@ index d22b012..6facf87 100644
  
          virtual void Execute();
          virtual void Cancel();
-@@ -187,7 +187,7 @@ private:
+@@ -182,7 +182,7 @@ private:
      class StrmHeaderLoadTask : public detail::Task {
      public:
          StrmHeaderLoadTask(detail::StrmPlayer::NotifyLoadHeaderAsyncEndCallback callback, void* callbackData,
@@ -98,7 +98,7 @@ index d22b012..6facf87 100644
  
          virtual void Execute();
          virtual void Cancel();
-@@ -205,7 +205,7 @@ private:
+@@ -200,7 +200,7 @@ private:
      public:
          StrmDataLoadTask(void* addr, u32 size, s32 offset, int numChannels, u32 blockSize, s32 blockHeaderOffset,
                           bool needUpdateAdpcmLoop, detail::StrmPlayer::LoadCommand& callback, const SoundArchive& arc,
@@ -108,7 +108,7 @@ index d22b012..6facf87 100644
          virtual void Cancel();
  
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmPlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmPlayer.h
-index 08d26a8..ab7815c 100644
+index 67d02d5..a608d79 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmPlayer.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/StrmPlayer.h
 @@ -2,6 +2,13 @@
@@ -125,7 +125,7 @@ index 08d26a8..ab7815c 100644
  
  #include "revolution/hbm/nw4hbm/snd/AxVoice.h"
  
-@@ -75,13 +82,13 @@ public:
+@@ -72,13 +79,13 @@ public:
  
          virtual ~StrmCallback() {}
  
@@ -185,12 +185,12 @@ index fae6482..ae3f89b 100644
  
  typedef ut::LinkList<Task, offsetof(Task, mTaskLink)> TaskList;
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
-index bc4215e..0353ea7 100644
+index 46c667a..4c5061e 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/TaskManager.h
 @@ -32,7 +32,7 @@ public:
      void Execute();
-     bool ExecuteSingle() DECOMP_DONT_INLINE;
+     bool ExecuteSingle();
  
 -    void CancelByTaskId(u32 taskId);
 +    void CancelByTaskId(NW4HBM_TASK_ID taskId);
@@ -325,10 +325,10 @@ index 9bbbceb..dcc5da9 100644
      {
          ut::AutoInterruptLock lock;
 diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
-index 4d6c78c..cfdd15d 100644
+index 82184d4..f69fafc 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_TaskManager.cpp
-@@ -109,7 +109,7 @@ bool TaskManager::ExecuteSingle() {
+@@ -103,7 +103,7 @@ bool TaskManager::ExecuteSingle() {
      return true;
  }
  

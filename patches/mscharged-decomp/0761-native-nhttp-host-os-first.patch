@@ -1,0 +1,26 @@
+From: mscharged-port
+Subject: Include the host os.h before the NHTTP configuration types
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+private/nhttp.h includes revolution/ncd.h before revolution/os.h. Natively
+os.h is the host SDK's (Aurora's dolphin/os.h), and ncd.h's forward time
+header declares OSTime and OSCalendarTime itself when that header has not been
+read yet, so the host declarations that follow conflict. The native branch
+reads os.h first; the console include order is unchanged.
+
+diff --git a/libs/RVL_SDK/include/private/nhttp.h b/libs/RVL_SDK/include/private/nhttp.h
+index 8765f32..24978ed 100644
+--- a/libs/RVL_SDK/include/private/nhttp.h
++++ b/libs/RVL_SDK/include/private/nhttp.h
+@@ -2,6 +2,11 @@
+ #define PRIVATE_NHTTP_H
+ 
+ #include <revolution/nhttp.h>
++#if defined(MSCHARGED_NATIVE)
++// Natively os.h is the host SDK's: it must come before ncd.h's forward
++// time declarations (revolution/os/OSTime_fwd.h).
++#include <revolution/os.h>
++#endif
+ #include <revolution/ncd.h>
+ #include <revolution/os.h>
+ #include <revolution/ssl.h>

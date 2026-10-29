@@ -1,5 +1,5 @@
 Subject: [PATCH] native: lower source shadow view pointers through the owning view carrier
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 diff --git a/src/Game/Render/RenderShadow.cpp b/src/Game/Render/RenderShadow.cpp
 index ad7bb14..dfbb1bc 100644

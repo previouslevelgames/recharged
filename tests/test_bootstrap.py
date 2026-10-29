@@ -52,7 +52,12 @@ class BootstrapTests(unittest.TestCase):
         write_disc(disc, game_id=b"R4QP01", revision=3)
         self.assertIn("in revision 2 and revision 1; this disc is revision 3.", self.run_port("--disc", disc))
         write_disc(disc, game_id=b"R4QJ01", revision=0)
-        self.assertIn("Mario Strikers Charged for Japan (R4QJ01) is not supported yet.", self.run_port("--disc", disc))
+        self.assertIn("Release: Mario Strikers Charged, Japan\n", self.run_port("--disc", disc))
+        write_disc(disc, game_id=b"R4QK01", revision=0)
+        self.assertIn("Release: Mario Power Soccer, Korea\n", self.run_port("--disc", disc))
+        write_disc(disc, game_id=b"R4QX01", revision=0)
+        self.assertIn("Mario Strikers Charged for Unknown region (R4QX01) is not supported yet.",
+                      self.run_port("--disc", disc))
 
     def test_default_configuration(self):
         write_disc(self.root / "test.iso")

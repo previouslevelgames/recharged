@@ -93,7 +93,7 @@ struct Progress {
     int state,final[4],previous[2];bool in_progress,highest;unsigned char reserved[2];CupProgressRecord record;int mode;
 };
 static_assert(sizeof(Progress)==928&&offsetof(Progress,record)==32&&offsetof(Progress,mode)==924);
-void Verify(const unsigned char* p,const UserInfo& user,const GameRules* rules,
+void Verify(const unsigned char* p,const UserInfo& user,const CupSidekicks* rules,
         const Cup<4,8>& fire,const Cup<6,12>& crystal,const Cup<10,11>& striker,
         const Progress& progress,const StrikerChallenge& challenge) {
     Scalars(p,&user,0,7,4);Scalars(p,&user,0x20,1,4);Scalars(p,&user,0x24,5,4);
@@ -137,7 +137,7 @@ extern "C" __attribute__((visibility("default"))) void SaveGateRun(SaveGateObser
     Check(save&&native_copy&&std::uintptr_t(save)>UINT32_MAX,"Original save-byte allocator backing was not real native width");
     UserInfo user;user.mSaveID=0x12345678;user.mVisualOptions.mCameraZoomLevel=1.375f;
     user.mNumGamesPlayed=0x1234;user.mNumGoalsScored=0xABCD;user.mNumSTSAttempts=0x4567;user.mNumPerfectPasses=0xF010;user.mNumHits=0x2468;
-    GameRules rules[12];for(unsigned n=0;n<12;++n)for(unsigned k=0;k<3;++k)rules[n].mValues[k]=eSidekickID(n*19+k*7);
+    CupSidekicks rules[12];for(unsigned n=0;n<12;++n)for(unsigned k=0;k<3;++k)rules[n].mValues[k]=eSidekickID(n*19+k*7);
     Cup<4,8> fire;Cup<6,12> crystal;Cup<10,11> striker;Fill(fire,11);Fill(crystal,79);Fill(striker,151);
     Check(fire.GetSaveDataSize()==5322&&crystal.GetSaveDataSize()==11466&&striker.GetSaveDataSize()==17538,
         "Original whole Cup template save sizes no longer match Wii storage");

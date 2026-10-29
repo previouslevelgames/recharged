@@ -14,16 +14,20 @@ come from the reconstructed source, unchanged.
   gamepads and Wii Remotes.
 - **Saves** like on the Wii: progress, unlocks, trophies and options are
   stored in Recharged's own data folder.
-- **The USA and European releases.** The European version, *Mario Strikers
-  Charged Football*, runs in its 60 Hz mode and keeps its own saves; its first
-  revision plays with the code of the second.
+- **The USA, European, Japanese and Korean releases.** The European version,
+  *Mario Strikers Charged Football*, runs in its 60 Hz mode and keeps its own
+  saves; its first revision plays with the code of the second. The Japanese
+  and Korean versions (the Korean one is *Mario Power Soccer*) keep their own
+  saves too.
 - **Languages** of the disc: English, French and Spanish with the USA release;
-  English, German, French, Spanish and Italian with the European one.
+  English, German, French, Spanish and Italian with the European one; Japanese
+  and Korean with the Japanese and Korean ones.
 - **Movies, music and sound** as on the console.
 - **The logo reads Mario Strikers RECHARGED** on the title screen, in the main
-  menu and on the captain select, with every release: the game's own animated
-  letters, with an R and an E in front of CHARGED
-  ([#63](https://github.com/previouslevelgames/recharged/issues/63)).
+  menu and on the captain select of the USA, European and Japanese releases:
+  the game's own animated letters, with an R and an E in front of CHARGED
+  ([#63](https://github.com/previouslevelgames/recharged/issues/63)). The
+  Korean release keeps its own *Mario Power Soccer* logo.
 
 ## Controls
 
@@ -288,7 +292,5 @@ and match time ([settings](SETTINGS.md#discord-status)).
 
 ## Not supported (yet)
 
-- **The Japanese and Korean versions.** Their decompilation is still being
-  completed.
 - **Mods.** A modding framework is in the works; until then, the optional
   tweaks above change the game and texture packs change its look.

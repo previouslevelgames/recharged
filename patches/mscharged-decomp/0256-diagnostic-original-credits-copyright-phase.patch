@@ -1,21 +1,21 @@
 From: mscharged-port source integration
 Subject: [PATCH] Admit original Credits COPYRIGHTS in the named scene diagnostic
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: temporary named diagnostic selection; normal native/console tokens unchanged.
 Preserve original source decisions, callback/parser/input/movie ordering and recorded quirks.
 
 diff --git a/src/Game/SH/SHCredits.cpp b/src/Game/SH/SHCredits.cpp
-index eb1cd29..5e974b2 100644
+index 694118c..bdee2c3 100644
 --- a/src/Game/SH/SHCredits.cpp
 +++ b/src/Game/SH/SHCredits.cpp
-@@ -115,13 +115,17 @@ void CreditScene::SetupForPhase()
+@@ -119,12 +119,16 @@ void CreditScene::SetupForPhase()
      mTimeElapsed = 0.0f;
  
  #if defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
 -    if (mPhase != 2)
-+    if (mPhase != 2
-+#if defined(MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS)
-+        && mPhase != 3
++    if (mPhase != CREDITS_SCROLL
++#if defined(MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS) && !defined(VERSION_R4QK01)
++        && mPhase != CREDITS_COPYRIGHT
 +#endif
 +       )
          throw std::logic_error("Credits diagnostic reached an excluded phase transition");
@@ -24,41 +24,37 @@ index eb1cd29..5e974b2 100644
 +#endif
      switch (mPhase)
      {
--    case CREDITS_NLG_INTRO:
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
-+    case 1:
+     case CREDITS_NLG_INTRO:
          if (IsWidescreen())
          {
-             mPresentation->SetActiveSlide("NLG", true);
-@@ -149,16 +153,24 @@ void CreditScene::SetupForPhase()
+@@ -153,17 +157,25 @@ void CreditScene::SetupForPhase()
          FEAudio::PlayAnimAudioEvent(0xF394C076, 0, 0, 1);
          BasicStadium::GetCurrentStadium()->m_bRenderingEnabled = false;
          break;
--    case CREDITS_SCROLL:
 +#endif
-+    case 2:
+     case CREDITS_SCROLL:
          SetupForCredits();
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
          BasicStadium::GetCurrentStadium()->m_bRenderingEnabled = false;
 +#endif
          break;
--    case CREDITS_COPYRIGHT:
+ #if !defined(VERSION_R4QK01)
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE) || defined(MSCHARGED_DIAGNOSTIC_CREDITS_COPYRIGHTS)
-+    case 3:
+     case CREDITS_COPYRIGHT:
          mPresentation->SetActiveSlide("COPYRIGHTS", true);
          mPresentation->m_currentSlide->Update(0.0f);
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
          BasicStadium::GetCurrentStadium()->m_bRenderingEnabled = false;
 +#endif
          break;
--    case CREDITS_FINISHED:
+ #endif
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_CREDITS_SCENE)
-+    case 4:
+     case CREDITS_FINISHED:
          FEAudio::PlayAnimAudioEvent(0xBB142B94, 0, 0, 1);
          GameSceneManager::Instance()->Push(mNextScene, SCREEN_NOTHING, true);
-         if (mNextScene == SCENE_OPTIONS)
-@@ -181,8 +193,8 @@ void CreditScene::SetupForPhase()
+@@ -187,8 +199,8 @@ void CreditScene::SetupForPhase()
              pStadium->m_bRenderingEnabled = true;
          }
          break;
@@ -68,7 +64,7 @@ index eb1cd29..5e974b2 100644
  }
  
  void CreditScene::OnMoviePlaybackEnded()
-@@ -383,7 +395,7 @@ void CreditScene::UpdateForCredits(float fDeltaT)
+@@ -389,7 +401,7 @@ void CreditScene::UpdateForCredits(float fDeltaT)
                  quitcredits = true;
              }
          }
@@ -77,7 +73,7 @@ index eb1cd29..5e974b2 100644
          else if (g_pFEInput->JustPressed(FE_ALL_PADS, 0x20, true, 0)
                   || g_pFEInput->JustPressed(FE_ALL_PADS, 0x1E, true, 0))
          {
-@@ -409,7 +421,7 @@ void CreditScene::UpdateForCredits(float fDeltaT)
+@@ -415,7 +427,7 @@ void CreditScene::UpdateForCredits(float fDeltaT)
          }
          ++mPhase;
          SetupForPhase();

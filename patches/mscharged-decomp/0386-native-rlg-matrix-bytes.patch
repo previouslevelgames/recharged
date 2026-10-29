@@ -1,5 +1,5 @@
 Subject: [PATCH] Decode original RLG matrix float bits at the native byte boundary
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Original LoadMatrices retains its 64-byte size mask, GLM_Matrix request and
 reader order. Native CPU GLMatrix reads require numeric BE32 float-bit conversion

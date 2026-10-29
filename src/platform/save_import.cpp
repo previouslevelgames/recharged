@@ -38,7 +38,7 @@ constexpr unsigned kMiiColorShift = 1, kMiiColorMask = 0xF, kMiiFavoriteBit = 1;
 // The game save (SaveLoad.cpp), as the Wii stores it (big-endian): the size
 // of its data and their checksum, then the data, padded to 32 bytes. The
 // data start with the user's settings (UserInfo, 0x80 bytes) and the captains'
-// lineups (mRulesTable: 12 x 3 sidekicks, 32 bits each).
+// lineups (mSidekickChoices: 12 x 3 sidekicks, 32 bits each).
 const std::string kGameSave = "Strikers2";
 constexpr std::size_t kSaveHeaderBytes = 8, kSaveAlign = 32, kLineupsOffset = kSaveHeaderBytes + 0x80;
 // UserInfo's GameplaySettings and CheatSettings (3 x 32 bits) by MatchMode:

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Admit original authored Boot script0 services and logo cue in a named diagnostic
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Restore unchanged original services2/11/33/15/16 alongside qualified412
 services12/13, plus the genuine Boot handler cue/unload, only under an
@@ -11,10 +11,10 @@ Normal BootLoadingToFE/script6 and CleanBootShutdown/script13/7 remain
 separate prerequisites; this is selected function0 integration only.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 23be75d..3274018 100644
+index 3155643..ea9103b 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -279,7 +279,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -277,7 +277,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
  {
  #if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) && !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS) \
      && !(defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HBM)) \
@@ -24,7 +24,7 @@ index 23be75d..3274018 100644
      (void)functionIndex;
      throw std::logic_error("Frontend endpoint diagnostic does not execute the unqualified full Async dispatcher");
  #else
-@@ -305,9 +306,14 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -303,9 +304,14 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          gNPCManager->CreateNPCTemplate(name, persistent);
          break;
      }
@@ -39,7 +39,7 @@ index 23be75d..3274018 100644
      case 3:
          CreateFEResourcePool();
          break;
-@@ -381,6 +387,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -379,6 +385,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FEAudio::SetSoundCategory(0x15);
          FEMusic::SetInGame(false);
          break;
@@ -49,7 +49,7 @@ index 23be75d..3274018 100644
      case 11:
          SetLoadingComment("AsyncFELocalizationBegin");
          if (FontManager::Instance() == 0)
-@@ -443,6 +452,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -441,6 +450,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          StopSound(0x6AF33AC2, this);
          g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x12);
          break;
@@ -59,16 +59,16 @@ index 23be75d..3274018 100644
      case 15:
          BeginAsyncFrontEndResourceLoad(this);
          break;
-@@ -476,6 +488,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -474,6 +486,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          }
          break;
      }
 +#endif
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 17:
-         lbl_806E1058 += gAudioEnabled ? 1 : 0;
-         lbl_806E1048 = nlGetTicker();
-@@ -579,10 +593,15 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         sPendingSoundBankLoads += gAudioEnabled ? 1 : 0;
+         sFrontEndBankLoadStartTick = nlGetTicker();
+@@ -577,10 +591,15 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 32:
          CharacterLoader::sInstance.StartLoadingSidekickAudio();
          break;

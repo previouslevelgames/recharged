@@ -1,5 +1,5 @@
 Subject: Tweak: fair ball contests
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 cGame::Update updates the ten players one at a time in the order of
 m_pRandomPlayersArray, and when two of them can take the ball in the same
@@ -51,7 +51,7 @@ index 62c5df0..742219a 100644
      void SendPlayerVisibility();
      void UpdateCachedGameData(float fDeltaT);
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
-index 36d981f..1a6cf4e 100644
+index 1158b43..1ced38f 100644
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
 @@ -48,6 +48,7 @@
@@ -151,7 +151,7 @@ index 36d981f..1a6cf4e 100644
      {
          g_pCurrentlyUpdatingCharacter = m_pRandomPlayersArray[i];
 diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
-index 5ccf801..f0fbe6d 100644
+index 060061c..580a4be 100644
 --- a/src/Game/Task/FixedUpdateTask.cpp
 +++ b/src/Game/Task/FixedUpdateTask.cpp
 @@ -419,6 +419,22 @@ static void PrePhysicsAITask(float fDeltaT)
@@ -168,7 +168,7 @@ index 5ccf801..f0fbe6d 100644
 +    {
 +        for (i = 0; i < 10; i++)
 +        {
-+            order[i]->PrePhysicsUpdate();
++            order[i]->EndPhysicsStep();
 +        }
 +        g_pBall->PostPhysicsUpdate(fDeltaT);
 +        return;
@@ -176,4 +176,4 @@ index 5ccf801..f0fbe6d 100644
 +#endif
      for (i = 0; i < 10; i++)
      {
-         g_pCharacters[i]->PrePhysicsUpdate();
+         g_pCharacters[i]->EndPhysicsStep();

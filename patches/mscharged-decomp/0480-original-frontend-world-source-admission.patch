@@ -1,12 +1,12 @@
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Purpose: Admit original frontend world loading and its Boot scene wait in the selected native diagnostic.
 Scope: Original cases44/45 and143 only; all requests, waits and results remain source-owned.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 7c4f86b..5bcc7b2 100644
+index 5011d5d..e5557d0 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -683,6 +683,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -681,6 +681,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          InitializeGameTweaks(&gGameTweaks);
          FinishLoadingStep(this);
          break;
@@ -16,7 +16,7 @@ index 7c4f86b..5bcc7b2 100644
      case 44:
          SetLoadingComment("AsyncStartupFEWorldBegin");
          BeginLoadFEWorld();
-@@ -692,6 +695,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -690,6 +693,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          SetLoadingComment("AsyncStartupFEWorldFinalize");
          FinishLoadingStepOrUndo(this, FinishLoadFEWorld());
          break;
@@ -25,8 +25,8 @@ index 7c4f86b..5bcc7b2 100644
      case 46:
          StopSound(0x7FC13AA3, this);
          break;
-@@ -1203,6 +1208,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
-         lbl_806E1050->BeginModelLoading();
+@@ -1201,6 +1206,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         sWorldNPCManager->BeginModelLoading();
          FinishLoadingStep(this);
          break;
 +#endif

@@ -181,7 +181,7 @@ Settings Decode(const Values& values)
     if (const auto it = values.find("game.gamecube_disc"); it != values.end()) s.gamecube_disc = it->second;
     if (s.gamecube_disc.find_first_of("\r\n") != std::string::npos || s.gamecube_disc.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: the GameCube disc path contains a line break or NUL");
-    choice("game.language", s.language, {"auto", "english", "french", "spanish", "german", "italian", "japanese"});
+    choice("game.language", s.language, {"auto", "english", "french", "spanish", "german", "italian", "japanese", "korean"});
     number("display.width", s.width, 1, 16384);
     number("display.height", s.height, 1, 16384);
     boolean("display.fullscreen", s.fullscreen);

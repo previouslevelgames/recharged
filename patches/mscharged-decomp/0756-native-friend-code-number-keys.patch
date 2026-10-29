@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Type, delete and paste the friend code with the keyboard
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: native desktop convenience; the keypad behaves as before.
 
 SHOnlineFriendCodeEntry enters a friend code with an on-screen keypad that

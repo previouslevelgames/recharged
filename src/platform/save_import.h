@@ -156,7 +156,7 @@ enum class GameSaveState {
 };
 
 // The sidekicks each captain starts with. The game keeps one lineup per
-// captain (GameInfoManager::mRulesTable): the sidekick screen shows it, and a
+// captain (GameInfoManager::mSidekickChoices): the sidekick screen shows it, and a
 // choice made there replaces it. It travels in the game's own save,
 // Strikers2, right after the user's settings, so the launcher changes it
 // there and the game needs nothing of its own.
@@ -167,7 +167,7 @@ using SidekickLineup = std::array<int, kSidekickSlots>;
 // One lineup per captain, in eTeamID order (0 Mario ... 11 Petey Piranha).
 using SidekickLineups = std::array<SidekickLineup, kCaptainCount>;
 
-// The lineups a new save starts with (kDefaultRules, GameInfo.cpp).
+// The lineups a new save starts with (kDefaultSidekickChoices, GameInfo.cpp).
 SidekickLineups DefaultSidekickLineups();
 
 struct SidekickSaveStatus {

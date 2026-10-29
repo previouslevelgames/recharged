@@ -1,5 +1,5 @@
 Subject: Read the captain chant's bus clock through the host
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 UpdateTeamCaptainChant converts OSGetTime to milliseconds by reading the Wii OS
 global bus clock at its fixed console address 0x800000F8. That address is not

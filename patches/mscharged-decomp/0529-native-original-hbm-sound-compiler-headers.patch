@@ -18,39 +18,8 @@ index 3d469f8..24108a1 100644
  
  #include "revolution/hbm/HBMCommon.h"
  
-diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicPlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicPlayer.h
-index 152eccf..b934bb9 100644
---- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicPlayer.h
-+++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/BasicPlayer.h
-@@ -15,11 +15,15 @@ public:
-     BasicPlayer() :
-         mId(-1) {}
- 
-+#if defined(MSCHARGED_NATIVE) && defined(MAKE_DTOR_ZERO)
-+    /* 0x08 */ virtual ~BasicPlayer() = 0;
-+#else
-     /* 0x08 */ virtual ~BasicPlayer()
- #ifdef MAKE_DTOR_ZERO
-         = 0
- #endif
-         {};
-+#endif
- 
-     /* 0x0C */ virtual bool Start() = 0;
-     /* 0x10 */ virtual void Stop() = 0;
-@@ -64,6 +68,10 @@ private:
-     /* 0x04 */ u32 mId;
- };
- 
-+#if defined(MSCHARGED_NATIVE) && defined(MAKE_DTOR_ZERO)
-+inline BasicPlayer::~BasicPlayer() {}
-+#endif
-+
- } // namespace
- 
- } // namespace detail
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqPlayer.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqPlayer.h
-index db21dd7..5e19aff 100644
+index 8f594c5..f08adbb 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqPlayer.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/snd/SeqPlayer.h
 @@ -2,6 +2,9 @@
@@ -169,7 +138,7 @@ index 763cfcc..f7eda8e 100644
  
  #include "revolution/ax.h"
 diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_DisposeCallbackManager.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_DisposeCallbackManager.cpp
-index e80dbd5..97c29dc 100644
+index 8d9d9ed..e928a61 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_DisposeCallbackManager.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_DisposeCallbackManager.cpp
 @@ -1,6 +1,11 @@
@@ -344,7 +313,7 @@ index 37eebc5..4441ba7 100644
  namespace nw4hbm {
  namespace snd {
 diff --git a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdPlayer.cpp b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdPlayer.cpp
-index a0709c6..94cf717 100644
+index 9915c0c..8264ade 100644
 --- a/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdPlayer.cpp
 +++ b/src/RVL_SDK/hbm/nw4hbm/snd/snd_WsdPlayer.cpp
 @@ -6,7 +6,12 @@

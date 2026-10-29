@@ -1,6 +1,6 @@
 Subject: [PATCH] Restore whole original async-loading source ownership
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Prepared-preimage: exact reviewed strict-source199
 
 Restore the complete matching AsyncLoading TU and original stage/sequence
@@ -34,7 +34,7 @@ index 9cdefe5..cc54826 100644
  bool ApplyAudioTransition(const u32* transitionHash, bool invert, void* owner);
  
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 482429f..95b6573 100644
+index d59b95a..779f135 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
 @@ -135,9 +135,13 @@
@@ -51,7 +51,7 @@ index 482429f..95b6573 100644
  
  bool IsNetworkOrRecordedGame();
  
-@@ -149,10 +153,8 @@ extern SlotPool<cSAnimCallback> lbl_805840D8;
+@@ -147,10 +151,8 @@ void DestroyCharacters();
  
  bool g_VerboseAudio;
  bool g_bDumpMemoryStatsOnLoad;
@@ -60,9 +60,9 @@ index 482429f..95b6573 100644
  float g_fYieldScriptBlockingTimeMS = 45.0f;
 -#endif
  
- static const char* lbl_806E103C;
- static BaseSceneHandler* lbl_806E1040;
-@@ -192,7 +194,12 @@ static inline void ReleaseEventConnection(EventConnection** owner)
+ static const char* sPreviousLoadingComment;
+ static BaseSceneHandler* sLoadingScene;
+@@ -190,7 +192,12 @@ static inline void ReleaseEventConnection(EventConnection** owner)
      }
  }
  
@@ -76,7 +76,7 @@ index 482429f..95b6573 100644
  
  static inline bool IsTeamInCurrentGame(int team)
  {
-@@ -222,15 +229,24 @@ static inline bool IsSidekickInCurrentGame(eSidekickID sidekick)
+@@ -220,15 +227,24 @@ static inline bool IsSidekickInCurrentGame(eSidekickID sidekick)
  
  static inline void FinishLoadingStep(AsyncLoadingManager* manager)
  {
@@ -105,7 +105,7 @@ index 482429f..95b6573 100644
  }
  
  void OnAsyncSoundBankLoaded(AudioResourceLoadOwner*, void* context)
-@@ -1168,7 +1184,117 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
+@@ -1166,7 +1182,117 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
      manager->SetLoadingComment("No Loading Comment");
  
      bool completed = false;
@@ -224,7 +224,7 @@ index 482429f..95b6573 100644
  
      if (result == ASYNC_LOADING_NO_TRANSITION)
      {
-@@ -1640,7 +1766,11 @@ void InitializeGameState2(AsyncLoadingManager* manager)
+@@ -1638,7 +1764,11 @@ void InitializeGameState2(AsyncLoadingManager* manager)
      RegisterCharacterEventCallbacks();
      RegisterBallEventCallbacks();
      GameplayCameraEffects::Instance()->RegisterEventListeners();
@@ -236,7 +236,7 @@ index 482429f..95b6573 100644
      GLResourcePool* pool = glGetCurrentResourcePool();
      Jumbotron::instance.Initialize(pool);
      CrowdManager::instance.Initialize(pool);
-@@ -2152,8 +2282,6 @@ GlobalEventConnectionOwner::~GlobalEventConnectionOwner()
+@@ -2150,8 +2280,6 @@ GlobalEventConnectionOwner::~GlobalEventConnectionOwner()
      }
  }
  

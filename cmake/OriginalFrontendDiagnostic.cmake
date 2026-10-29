@@ -2,6 +2,7 @@ include_guard(GLOBAL)
 
 # The game modules: the shared template's sources and settings plus the
 # frontend selections below. The host loads one of them for a given run.
+include(cmake/GameVersion.cmake)
 include(cmake/OriginalFrontendSequenceDiagnostic.cmake)
 include(cmake/OriginalFrontendTaskCadenceDiagnostic.cmake)
 include(cmake/OriginalFrontendTitleDiagnostic.cmake)
@@ -85,16 +86,17 @@ function(mscharged_rollback_sections_launcher target)
 endfunction()
 
 # One game module per game version, from the same prepared sources:
-# mscharged_original_frontend_module_us (R4QE01) and _eu (R4QP01_REV2, which
-# also runs European revision 1 discs). The host picks one by the disc.
+# mscharged_original_frontend_module_us (R4QE01), _eu (R4QP01_REV2, which also
+# runs European revision 1 discs), _jp (R4QJ01) and _kr (R4QK01). The host
+# picks one by the disc.
 function(mscharged_add_original_frontend_diagnostic target version suffix)
     string(TOUPPER "${suffix}" _suffix)
     get_target_property(_sources mscharged_original_game_module_template SOURCES)
     add_library(${target} MODULE ${_sources})
-    # The shipped file: recharged_game_us/_eu beside the program.
+    # The shipped file: recharged_game_us/_eu/_jp/_kr beside the program.
     set_target_properties(${target} PROPERTIES OUTPUT_NAME recharged_game_${suffix})
     add_dependencies(${target} verify_prepared)
-    mscharged_add_original_shutdown_records(${target})
+    mscharged_add_original_shutdown_records(${target} ${version})
     foreach(_property IN ITEMS
             COMPILE_FEATURES COMPILE_DEFINITIONS COMPILE_OPTIONS INCLUDE_DIRECTORIES
             LINK_LIBRARIES LINK_OPTIONS LINK_DEPENDS MSCHARGED_ORIGINAL_EXPORT_MAP)
@@ -218,6 +220,13 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     target_sources(${target} PRIVATE src/platform/recharged_logo.cpp src/platform/recharged_logo_hook.cpp)
     # The release this module's decomp sources resolve to (checked by the host).
     target_sources(${target} PRIVATE src/platform/game_version.cpp)
+    # The Korean release's own copies of SDK files, in this module and in the
+    # libraries made for it.
+    foreach(_part IN ITEMS ${target} mscharged_original_game_focus_${suffix} ${target}_world_views ${target}_credits)
+        if(TARGET ${_part})
+            mscharged_use_version_sources(${_part} ${version})
+        endif()
+    endforeach()
     # Graphics preparation happens only before the game starts (all known
     # pipelines, runtime/pipeline_warmup.cpp). The resource-driven variant
     # (MSCHARGED_AUTOMATIC_PREWARM, src/platform/automatic_pipeline_*.cpp,
@@ -260,6 +269,8 @@ endfunction()
 
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_us R4QE01 us)
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_eu R4QP01_REV2 eu)
+mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_jp R4QJ01 jp)
+mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_kr R4QK01 kr)
 
 if(BUILD_TESTING)
     add_test(NAME original_module_vtables

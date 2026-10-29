@@ -1,6 +1,6 @@
 Subject: Preserve original HBM UI requests under native compiler and pointer widths
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Lower PPC fsel/fabs through their binary32 selection/sign contract and the
 existing canonical OS fast-cast header. Keep original byte offsets full-width,
@@ -10,10 +10,10 @@ request widths, choices and console bodies remain unchanged. No HBM admission,
 raw resource/BE text readiness or physical speaker support follows this patch.
 
 diff --git a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp
-index cdfbdb2..e8834ae 100644
+index 2d90996..964fb41 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp
 +++ b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMBase.hpp
-@@ -16,7 +16,11 @@
+@@ -20,7 +20,11 @@
  #include "revolution/hbm/nw4hbm/snd/SoundSystem.h"
  #include "revolution/wpad/WPAD.h"
  
@@ -26,7 +26,7 @@ index cdfbdb2..e8834ae 100644
  
  namespace homebutton {
 diff --git a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp
-index 6788cd6..dcb0833 100644
+index 0dd2a89..545ce88 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp
 +++ b/libs/RVL_SDK/include/revolution/hbm/homebutton/HBMController.hpp
 @@ -7,7 +7,11 @@
@@ -58,7 +58,7 @@ index 0183f43..8da9b7a 100644
  #include <stdarg.h>
  
 diff --git a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h
-index a69e7c3..dc4b1f6 100644
+index 2be1538..610a9a7 100644
 --- a/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h
 +++ b/libs/RVL_SDK/include/revolution/hbm/nw4hbm/lyt/types.h
 @@ -93,11 +93,19 @@ enum {
@@ -136,7 +136,7 @@ index 91479bb..25f4049 100644
      u16 rval;
  
 diff --git a/src/RVL_SDK/hbm/HBMBase.cpp b/src/RVL_SDK/hbm/HBMBase.cpp
-index dbad6a3..75b7498 100644
+index 5a1fb77..21ce616 100644
 --- a/src/RVL_SDK/hbm/HBMBase.cpp
 +++ b/src/RVL_SDK/hbm/HBMBase.cpp
 @@ -9,6 +9,11 @@
@@ -230,7 +230,7 @@ index dbad6a3..75b7498 100644
  
      if (type == 0)
 diff --git a/src/RVL_SDK/hbm/HBMController.cpp b/src/RVL_SDK/hbm/HBMController.cpp
-index 8e1fb8d..76887b5 100644
+index 8938809..4e67307 100644
 --- a/src/RVL_SDK/hbm/HBMController.cpp
 +++ b/src/RVL_SDK/hbm/HBMController.cpp
 @@ -1,5 +1,9 @@
@@ -243,7 +243,7 @@ index 8e1fb8d..76887b5 100644
  namespace homebutton {
  
  bool Controller::sBatteryFlag[WPAD_MAX_CONTROLLERS];
-@@ -45,7 +49,11 @@ void Controller::wpadExtensionCallback(WPADChannel chan, s32 result) {
+@@ -55,7 +59,11 @@ void Controller::wpadExtensionCallback(WPADChannel chan, s32 result) {
  }
  
  void Controller::soundOnCallback(OSAlarm* alm, OSContext*) {
@@ -256,7 +256,7 @@ index 8e1fb8d..76887b5 100644
  }
  
 diff --git a/src/RVL_SDK/hbm/HBMGUIManager.cpp b/src/RVL_SDK/hbm/HBMGUIManager.cpp
-index 7b4f633..c7fb332 100644
+index d350e78..a7bf23e 100644
 --- a/src/RVL_SDK/hbm/HBMGUIManager.cpp
 +++ b/src/RVL_SDK/hbm/HBMGUIManager.cpp
 @@ -5,7 +5,11 @@
@@ -284,7 +284,7 @@ index 7b4f633..c7fb332 100644
      GXBegin(GX_LINES, GX_VTXFMT0, 2);
      GXPosition3f32(x0, y0, z);
 diff --git a/src/RVL_SDK/hbm/HBMRemoteSpk.cpp b/src/RVL_SDK/hbm/HBMRemoteSpk.cpp
-index c03691a..a7e8cfd 100644
+index b397e73..421bc22 100644
 --- a/src/RVL_SDK/hbm/HBMRemoteSpk.cpp
 +++ b/src/RVL_SDK/hbm/HBMRemoteSpk.cpp
 @@ -1,5 +1,9 @@
@@ -297,8 +297,8 @@ index c03691a..a7e8cfd 100644
  #include "string.h"
  
  namespace homebutton {
-@@ -130,7 +134,11 @@ void RemoteSpk::Start(void) {
- void RemoteSpk::Stop(void) { OSCancelAlarm(&speakerAlarm); }
+@@ -153,7 +157,11 @@ void RemoteSpk::Stop(void) {
+ }
  
  void RemoteSpk::DelaySpeakerOnCallback(OSAlarm* alarm, OSContext*) {
 +    #if defined(MSCHARGED_NATIVE)
@@ -309,7 +309,7 @@ index c03691a..a7e8cfd 100644
      WPADResult result = WPADControlSpeaker(chan, WPAD_SPEAKER_ON, &SpeakerOnCallback);
  }
  
-@@ -155,7 +163,11 @@ void RemoteSpk::SpeakerOnCallback(WPADChannel chan, WPADResult result) {
+@@ -184,7 +192,11 @@ void RemoteSpk::SpeakerOnCallback(WPADChannel chan, WPADResult result) {
  }
  
  void RemoteSpk::DelaySpeakerPlayCallback(OSAlarm* alarm, OSContext*) {

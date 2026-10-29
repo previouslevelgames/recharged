@@ -1,7 +1,7 @@
 From: original source diagnostic integration
 Subject: [PATCH] Preserve original movie world visibility in the primary world diagnostic
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Temporary WORLD_DRAW admission restores three literal original IntroMovieScene
 world hide/show writes under their existing source positions. Default console,

@@ -1,6 +1,6 @@
 Subject: Share Aurora DVD declarations with the original NL file layer
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Use the actual native DVD API and its field names while retaining the console
 header branch. Canonical fixed-width 64-bit types permit both SDK headers on
@@ -8,7 +8,7 @@ LP64 hosts. State aliases name Aurora equivalents; they do not implement absent
 Wii services.
 
 diff --git a/libs/RVL_SDK/include/revolution/dvd/dvd.h b/libs/RVL_SDK/include/revolution/dvd/dvd.h
-index 4aad3f2..f68c3a3 100644
+index eed4ad2..8eeb8bd 100644
 --- a/libs/RVL_SDK/include/revolution/dvd/dvd.h
 +++ b/libs/RVL_SDK/include/revolution/dvd/dvd.h
 @@ -1,5 +1,14 @@
@@ -24,19 +24,19 @@ index 4aad3f2..f68c3a3 100644
 +#define DVD_STATE_DISK_ERROR DVD_STATE_RETRY
 +#else
  #include <revolution/types.h>
- #ifdef __cplusplus
- extern "C" {
-@@ -122,4 +131,5 @@ void __DVDRestartMotor(void);
+ #include <revolution/os/OSAlarm_fwd.h>
+ #include <revolution/dvd/DVDTypes_fwd.h>
+@@ -120,4 +129,5 @@ BOOL __DVDCheckDevice(void);
  #ifdef __cplusplus
  }
  #endif
 +#endif // MSCHARGED_NATIVE
  #endif
 diff --git a/libs/RVL_SDK/include/revolution/types.h b/libs/RVL_SDK/include/revolution/types.h
-index 794b1d9..05b3212 100644
+index 5fa52d2..cfd4b1d 100644
 --- a/libs/RVL_SDK/include/revolution/types.h
 +++ b/libs/RVL_SDK/include/revolution/types.h
-@@ -7,11 +7,11 @@
+@@ -8,11 +8,11 @@
  typedef signed char s8;
  typedef signed short s16;
  typedef int32_t s32;

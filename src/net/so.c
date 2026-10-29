@@ -263,6 +263,13 @@ int SOSocket2(int pf, int type, int protocol)
     return so_backend_open(pf, type, protocol);
 }
 
+// The Korean release's newer SO: SOSocket registers the library version and
+// opens the socket as SOSocket2.
+int SOSocket(int pf, int type, int protocol)
+{
+    return SOSocket2(pf, type, protocol);
+}
+
 int SOClose(int s)
 {
     so_backend_lock();

@@ -56,7 +56,7 @@
 
 // The game's own flag (Ball.cpp): false while a mega strike freezes everyone
 // but its shooter, from its result through the goalie's part.
-extern bool lbl_806DB5A8;
+extern bool gHeaderTargetEnabled;
 
 namespace mscharged::rollback
 {
@@ -85,7 +85,7 @@ namespace
 // predicted, runs again with the inputs that arrive, as a phase change does).
 bool MegaStrikeUnderway()
 {
-    if (!lbl_806DB5A8) return true;
+    if (!gHeaderTargetEnabled) return true;
     for (int i = 0; i < 2; ++i)
     {
         cTeam* team = g_pTeams[i];

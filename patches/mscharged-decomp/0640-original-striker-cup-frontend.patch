@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the original Road to Striker Cup setup, hub and detail pages
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: temporary explicit original-source diagnostic admission; depends on 0505, 0571 and 0600.
 
 Main Menu's cup item (SHMainMenu item 2) starts a new cup through StartNewCup
@@ -24,7 +24,7 @@ callback context word; natively it is a pointer-width value narrowed through
 std::uintptr_t. Console builds keep the literal casts.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
-index 4f56d7b..923e118 100644
+index 9a3ef3e..f62b020 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
 @@ -362,7 +362,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
@@ -124,7 +124,7 @@ index 10ffa22..8a45bf1 100644
          ShowCupGoldenBootNews();
          break;
 diff --git a/src/Game/SH/SHCupHub.cpp b/src/Game/SH/SHCupHub.cpp
-index 6a97a25..e926a53 100644
+index 8c2bbb0..16193c1 100644
 --- a/src/Game/SH/SHCupHub.cpp
 +++ b/src/Game/SH/SHCupHub.cpp
 @@ -1,4 +1,11 @@
@@ -139,7 +139,7 @@ index 6a97a25..e926a53 100644
  #include "Game/SH/SHCupHub.h"
  #include "Game/FE/FEAudio.h"
  
-@@ -406,7 +413,7 @@ void CupHubScene::InitializePointerButtons()
+@@ -417,7 +424,7 @@ void CupHubScene::InitializePointerButtons()
  
  void CupHubScene::OnMatchupPointerPress(unsigned int index, void* context)
  {
@@ -148,7 +148,7 @@ index 6a97a25..e926a53 100644
      int round = mMatchupStates[mScrollOffset + row][0];
      int matchup = mMatchupStates[mScrollOffset + row][1];
      if (matchup != -1)
-@@ -430,7 +437,7 @@ void CupHubScene::OnMatchupPointerPress(unsigned int index, void* context)
+@@ -441,7 +448,7 @@ void CupHubScene::OnMatchupPointerPress(unsigned int index, void* context)
  
  void CupHubScene::OnMatchupPointerEnter(unsigned int index, void* context)
  {
@@ -157,7 +157,7 @@ index 6a97a25..e926a53 100644
      if (mMatchupStates[mScrollOffset + row][1] == -1)
      {
          mMovingHighlight->m_bVisible = false;
-@@ -453,7 +460,7 @@ void CupHubScene::OnMatchupPointerEnter(unsigned int index, void* context)
+@@ -464,7 +471,7 @@ void CupHubScene::OnMatchupPointerEnter(unsigned int index, void* context)
  
  void CupHubScene::OnMatchupPointerLeave(unsigned int index, void* context)
  {
@@ -166,7 +166,7 @@ index 6a97a25..e926a53 100644
      if (mMatchupStates[mScrollOffset + row][1] != -1)
      {
          --mHoverCounts[index];
-@@ -466,15 +473,15 @@ void CupHubScene::OnMatchupPointerLeave(unsigned int index, void* context)
+@@ -477,15 +484,15 @@ void CupHubScene::OnMatchupPointerLeave(unsigned int index, void* context)
  
  void CupHubScene::OnMatchupPointerInside(unsigned int index, void* context)
  {
@@ -189,7 +189,7 @@ index 6a97a25..e926a53 100644
      }
      else if (state == POINTER_BUTTON_NORMAL && matchup != -1)
      {
-@@ -509,7 +516,7 @@ void CupHubScene::OnRulesPointerPress(unsigned int, void* context)
+@@ -520,7 +527,7 @@ void CupHubScene::OnRulesPointerPress(unsigned int, void* context)
          GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
      }
  
@@ -197,7 +197,7 @@ index 6a97a25..e926a53 100644
 +    switch (MSCHARGED_CUP_HUB_CONTEXT(context))
      {
      case 0:
-         FEAudio::PlayAnimAudioEvent(0x6E5C794C, 0, 0, 1);
+ #if defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
 diff --git a/src/Game/SH/SHCupNews.cpp b/src/Game/SH/SHCupNews.cpp
 index 2dacd91..aea6ae1 100644
 --- a/src/Game/SH/SHCupNews.cpp
@@ -247,7 +247,7 @@ index 92281e9..51f243d 100644
      {
          FEAudio::PlayAnimAudioEvent(0xF0AFD586, 0, 0, 1);
 diff --git a/src/Game/SH/SHStrikerCupAwards.cpp b/src/Game/SH/SHStrikerCupAwards.cpp
-index 56453a1..10933ce 100644
+index 2dbf1a2..0f8661c 100644
 --- a/src/Game/SH/SHStrikerCupAwards.cpp
 +++ b/src/Game/SH/SHStrikerCupAwards.cpp
 @@ -1,4 +1,7 @@
@@ -258,7 +258,7 @@ index 56453a1..10933ce 100644
  #include "NL/nlFunction.inl"
  #include "Game/FE/feHelpFuncs_decl.h"
  #include "Game/SH/SHNavigation.h"
-@@ -430,7 +433,11 @@ void StrikerCupAwardsScene::OnButtonPointerPress(unsigned int, void* context)
+@@ -440,7 +443,11 @@ void StrikerCupAwardsScene::OnButtonPointerPress(unsigned int, void* context)
          GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
      }
  
@@ -269,8 +269,8 @@ index 56453a1..10933ce 100644
 +#endif
      {
      case 0:
-         FEAudio::PlayAnimAudioEvent(0x6E5C794C, 0, 0, 1);
-@@ -450,13 +457,21 @@ void StrikerCupAwardsScene::OnButtonPointerPress(unsigned int, void* context)
+ #if defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+@@ -465,13 +472,21 @@ void StrikerCupAwardsScene::OnButtonPointerPress(unsigned int, void* context)
  
  void StrikerCupAwardsScene::OnTeamPointerEnter(unsigned int index, void* context)
  {
@@ -295,7 +295,7 @@ index 56453a1..10933ce 100644
      PopulateTeamRow(item, item + mScrollOffset);
  }
 diff --git a/src/Game/SH/SHStrikerCupStandings.cpp b/src/Game/SH/SHStrikerCupStandings.cpp
-index 142ccb1..ddb0b50 100644
+index 322bd1d..a0a932e 100644
 --- a/src/Game/SH/SHStrikerCupStandings.cpp
 +++ b/src/Game/SH/SHStrikerCupStandings.cpp
 @@ -1,4 +1,7 @@
@@ -306,7 +306,7 @@ index 142ccb1..ddb0b50 100644
  #include "NL/nlFunction.inl"
  #include "Game/FE/feHelpFuncs_decl.h"
  #include "Game/SH/SHStrikerCupStandings.h"
-@@ -512,7 +515,11 @@ void StrikerCupStandingsScene::OnButtonPointerPress(unsigned int, void* context)
+@@ -522,7 +525,11 @@ void StrikerCupStandingsScene::OnButtonPointerPress(unsigned int, void* context)
          GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
      }
  
@@ -318,7 +318,7 @@ index 142ccb1..ddb0b50 100644
      {
      case CUP_STANDINGS_BUTTON_BRACKET:
      {
-@@ -545,12 +552,20 @@ void StrikerCupStandingsScene::OnButtonPointerPress(unsigned int, void* context)
+@@ -560,12 +567,20 @@ void StrikerCupStandingsScene::OnButtonPointerPress(unsigned int, void* context)
  
  void StrikerCupStandingsScene::OnTeamPointerEnter(unsigned int index, void* context)
  {

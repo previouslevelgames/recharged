@@ -1,5 +1,5 @@
 Subject: Select temporary original Boot/Nav/Intro diagnostic endpoints
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Named diagnostic-only omissions retain default native and console game flow.
 Full Async/camera/world/AX services remain unqualified.
@@ -8,7 +8,7 @@ Refreshed for decomp 9046e67a: the endpoint predicate follows the original
 case 16 of each version; the European versions have no boot-screen check.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 3726253..34cf201 100644
+index 7ac7ee0..7d22150 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
 @@ -1,4 +1,7 @@
@@ -19,7 +19,7 @@ index 3726253..34cf201 100644
  #include "NL/nlDLListContainer.inl"
  #include "Game/Font/FontLoading.h"
  #include "Game/MiiManager.h"
-@@ -274,6 +277,10 @@ static inline void CreateInstance(T*& instance)
+@@ -272,6 +275,10 @@ static inline void CreateInstance(T*& instance)
  
  void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
  {
@@ -30,7 +30,7 @@ index 3726253..34cf201 100644
      switch (functionIndex)
      {
      case 0:
-@@ -1132,6 +1139,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -1130,6 +1137,7 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          nlBreak();
          break;
      }
@@ -38,7 +38,7 @@ index 3726253..34cf201 100644
  }
  
  AsyncLoadingManager::AsyncLoadingManager()
-@@ -1445,6 +1453,7 @@ void InitializeFrontEndState1(AsyncLoadingManager* manager)
+@@ -1443,6 +1451,7 @@ void InitializeFrontEndState1(AsyncLoadingManager* manager)
  
  void InitializeFrontEndState2(AsyncLoadingManager* manager)
  {
@@ -46,7 +46,7 @@ index 3726253..34cf201 100644
      static GLMemoryRequirement requirements[] = {
          { GLM_Header, 0x400 },
          { GLM_VertexData, 0x800 },
-@@ -1452,22 +1461,32 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
+@@ -1450,11 +1459,16 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
      GLView* view = GetLayerView(eCLV_ImpostorTexture);
      ImpostorManager::GetInstance()->Initialize(view, 30, requirements, 2, true);
      ImpostorManager::GetInstance()->SetEnabled(true);
@@ -54,22 +54,19 @@ index 3726253..34cf201 100644
      manager->SetLoadingComment("InitializeFEState2");
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      ParticleUpdateTask* particleTask = ParticleUpdateTask::sInstance;
--    particleTask->Initialize(GetLayerView(eCLV_Particles), 0x5F6, 0x2FB);
-+    particleTask->Initialize(GetLayerView((eCLV)0x19), 0x5F6, 0x2FB);
+     particleTask->Initialize(GetLayerView(eCLV_Particles), 0x5F6, 0x2FB);
 +#endif // unqualified effects initialization is omitted in this diagnostic
-     GameInfoManager::Instance()->ResetUnknown0xA0();
+     GameInfoManager::Instance()->ClearGameSettingsOverride();
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      FEMusic::StopStream();
--    BaseSceneHandler* scene = GameSceneManager::Instance()->Push(SCENE_NAVIGATION, SCREEN_NOTHING, false);
 +#endif // normal AX frontend music is omitted in this diagnostic
-+    BaseSceneHandler* scene = GameSceneManager::Instance()->Push((SceneList)0x1D, SCREEN_NOTHING, false);
+     BaseSceneHandler* scene = GameSceneManager::Instance()->Push(SCENE_NAVIGATION, SCREEN_NOTHING, false);
      FESceneManager::Instance()->SetTopMostScene(scene);
      SetPointerEnabled(false);
-     if (!lbl_806E1044)
+@@ -1462,10 +1476,15 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
      {
-         lbl_806E1044 = true;
--        GameSceneManager::Instance()->Push(SCENE_INTRO_MOVIE, SCREEN_NOTHING, false);
-+        GameSceneManager::Instance()->Push((SceneList)0x16, SCREEN_NOTHING, false);
+         sIntroMovieStarted = true;
+         GameSceneManager::Instance()->Push(SCENE_INTRO_MOVIE, SCREEN_NOTHING, false);
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
          FrontEndPresentation::GetInstance()->Call("StartTitleScreenSequence");
 +#endif // unqualified3D title-camera initialization omitted; actual Intro/Title camera waits stay held
@@ -82,7 +79,7 @@ index 3726253..34cf201 100644
          SetPointerEnabled(true);
          if (g_e3_Build)
          {
-@@ -1553,7 +1572,10 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
+@@ -1551,7 +1570,10 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
                  FrontEndPresentation::GetInstance()->Call("StartMainMenuSequence");
              }
          }
@@ -94,15 +91,15 @@ index 3726253..34cf201 100644
      StopSound(0x7FC13AA3, manager);
      g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x12);
      {
-@@ -1597,6 +1619,7 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
+@@ -1595,6 +1617,7 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
          StartAudioEffect(&binding, &definition, parameter, false, 0.0f);
      }
  
 +#endif // normal AX controller-speaker effects omitted in this diagnostic
-     GameInfoManager::Instance()->unknown_0x71C8 = 0;
+     GameInfoManager::Instance()->mFrontEndReturnMode = 0;
      manager->mLoadingState = ASYNC_RESOURCES_LOADED;
-     lbl_806E1040->SetVisible(false);
-@@ -2289,3 +2312,26 @@ GlobalEventConnectionOwner::~GlobalEventConnectionOwner()
+     sLoadingScene->SetVisible(false);
+@@ -2287,3 +2310,26 @@ GlobalEventConnectionOwner::~GlobalEventConnectionOwner()
  PersistentResourceRequirements gPersistentResourceRequirements = {
      { { GLM_Header, 0x3C00 }, { GLM_TextureData, 0x390800 } },
  };
@@ -114,14 +111,14 @@ index 3726253..34cf201 100644
 +// selection once all normal loading providers are qualified.
 +extern "C" void ChargedDiagnosticAdvanceFrontendOwner()
 +{
-+    if (lbl_806E1044)
++    if (sIntroMovieStarted)
 +        return;
 +    BootLoadingScene* scene = static_cast<BootLoadingScene*>(
 +        GameSceneManager::Instance()->GetScene(
 +            g_pLocalization->m_CurrentLanguage == nlLocalization::LangJapanese
 +                ? SCENE_BOOT_LOADING_JPN : SCENE_BOOT_LOADING));
 +    // The European versions have no boot-screen check (original case 16).
-+    if (lbl_806E1068 && lbl_806E1069 && scene != 0 && scene->mPhase == 4
++    if (sPermanentFrontEndBundleLoaded && sOnDemandFrontEndBundleLoaded && scene != 0 && scene->mPhase == 4
 +#if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
 +        && !scene->IsBootScreenPending()
 +#endif
@@ -130,7 +127,7 @@ index 3726253..34cf201 100644
 +}
 +#endif
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
-index 4551312..fabf0a4 100644
+index effa5e5..341e0f8 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
 @@ -1,5 +1,8 @@
@@ -205,11 +202,11 @@ index 4551312..fabf0a4 100644
  
      FESceneManager::Instance()->QueueScenePush(newHandler, filename, &VirtualAllocator);
 diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
-index 94ae69c..d61992c 100644
+index 7b56bda..ecd7411 100644
 --- a/src/Game/GameInfo.cpp
 +++ b/src/Game/GameInfo.cpp
 @@ -429,7 +429,9 @@ void GameInfoManager::SetupGameFromConfig()
- void GameInfoManager::ResetUnknown0xA0()
+ void GameInfoManager::ClearGameSettingsOverride()
  {
      mUseCurGameSettings = 0;
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
@@ -689,7 +686,7 @@ index e023826..3a8d01f 100644
  #include "Game/DB/CharacterInfo.h"
  #include "Game/FE/feFinder.h"
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index f2a9750..c02aad3 100644
+index 1bd16f1..722def4 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
 @@ -8,6 +8,11 @@
@@ -704,7 +701,7 @@ index f2a9750..c02aad3 100644
  #if defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
  #include "Game/Sys/movie.h"
  #endif
-@@ -215,7 +220,11 @@ static ProfilerTask profilerTask;
+@@ -219,7 +224,11 @@ static ProfilerTask profilerTask;
  static ResetTask resetTask;
  static MemCheckTask memCheckTask;
  static TextWindowTask textWindowTask;
@@ -716,7 +713,7 @@ index f2a9750..c02aad3 100644
  static FlashMemoryTask flashMemoryTask;
  
  
-@@ -571,7 +580,11 @@ static void Initialize()
+@@ -584,7 +593,11 @@ static void Initialize()
  
      glxSetDrawSyncTimeout(1000.0f);
      InitializeDispatchEventsTask();
@@ -728,9 +725,9 @@ index f2a9750..c02aad3 100644
      sLoadingTask.Start();
      GetEmissionManager();
      EmissionManager::SetResourceBudget(1, 250);
-@@ -642,10 +655,14 @@ static void Initialize()
-     }
+@@ -657,10 +670,14 @@ static void Initialize()
      tDebugPrintManager::Print(DC_NETWORK, "CountryCode = %d\n", countryCode);
+ #endif
  
 +#endif // country-code logging remains omitted in the bootstrap
 +#if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
@@ -743,7 +740,7 @@ index f2a9750..c02aad3 100644
      if (CupManager::s_pInstance == 0)
      {
          CupManager::s_pInstance = new (8, false) CupManager;
-@@ -663,7 +680,11 @@ static void Initialize()
+@@ -678,7 +695,11 @@ static void Initialize()
      nlInitFileCache();
      ReplayChoreo::Instance();
      GetPresentation();
@@ -755,7 +752,7 @@ index f2a9750..c02aad3 100644
      ExcitementSystem::Instance();
      AddTasks();
  #endif // unrelated country/game/save/replay/task prerequisites
-@@ -900,6 +921,28 @@ int main()
+@@ -920,6 +941,28 @@ int main()
      // The original loading bytecode and GameSceneManager dispatch are omitted
      // by this temporary diagnostic. Retain the same source-owned managers,
      // pools, fonts and graphics established above; never initialize them twice.
@@ -784,7 +781,7 @@ index f2a9750..c02aad3 100644
      FEResourceManager* resources = FEResourceManager::Instance();
      resources->LoadPermanentResourceBundle("art/fe/MainUI.Dmn", DiagnosticPermanentComplete);
  #if defined(MSCHARGED_DIAGNOSTIC_MAIN_INPUT)
-@@ -934,6 +977,7 @@ int main()
+@@ -954,6 +997,7 @@ int main()
      // SceneCreated/credits.txt/resource completion owns all scene readiness.
      nlPrintf("Original main selected Credits ready: state%d, phase%d.\n", credits->mFEScene->mState, credits->mPhase);
      return 85;
@@ -792,7 +789,7 @@ index f2a9750..c02aad3 100644
  #else
      return 83;
  #endif
-@@ -980,6 +1024,9 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_fr
+@@ -1000,6 +1044,9 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_fr
      g_pFEInput->Update(delta);
  #endif
      FEResourceManager::Instance()->Run(delta);
@@ -802,7 +799,7 @@ index f2a9750..c02aad3 100644
      FESceneManager::Instance()->Update(delta);
      FESceneManager::Instance()->RenderActiveScenes();
  #if defined(MSCHARGED_DIAGNOSTIC_CREDITS_MOVIE)
-@@ -1009,6 +1056,9 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_na
+@@ -1029,6 +1076,9 @@ extern "C" __attribute__((visibility("default"))) void charged_original_scene_na
      g_pFEInput->Update(delta);
  #endif
      FEResourceManager::Instance()->Run(delta);

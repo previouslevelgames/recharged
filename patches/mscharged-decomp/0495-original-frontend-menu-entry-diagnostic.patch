@@ -6,10 +6,10 @@
 # Original source chooses states, masks, movie ticks and loading outcomes.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 8cdeed9..45580ae 100644
+index 95fc4c7..d14d902 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -458,7 +458,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -456,7 +456,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          }
          break;
  #endif
@@ -19,7 +19,7 @@ index 8cdeed9..45580ae 100644
      case 14:
          StopSound(0x6AF33AC2, this);
          g_pAudioSystem->GetBundleManager()->GetSoundMap()->UnloadBank(0x12);
-@@ -701,6 +702,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -699,6 +700,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 46:
          StopSound(0x7FC13AA3, this);
          break;
@@ -29,8 +29,8 @@ index 8cdeed9..45580ae 100644
      case 47:
          SetLoadingComment("AsyncWaitForAllScenesValid");
          if (!FESceneManager::Instance()->AreAllScenesValid())
-@@ -714,6 +718,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
-             FinishLoadingStepOrUndo(this, lbl_806E1058 == 0);
+@@ -712,6 +716,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+             FinishLoadingStepOrUndo(this, sPendingSoundBankLoads == 0);
          }
          break;
 +#endif
@@ -53,10 +53,10 @@ index 5b2a406..5d8e92f 100644
  #else
      if (from != 0x00010000 || to != 0x00100000)
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index ab8b999..15ec9cc 100644
+index 3b2eb0d..c5656c0 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -230,6 +230,9 @@ static FrontEndTask frontEndTask;
+@@ -234,6 +234,9 @@ static FrontEndTask frontEndTask;
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP)
  static WorldUpdateTask worldUpdateTask;
  static GameRenderTask gameRenderTask;
@@ -66,7 +66,7 @@ index ab8b999..15ec9cc 100644
  static MovieRenderTask movieRenderTask;
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_BOOT_TO_FE))
-@@ -815,7 +818,8 @@ static void AddTasks()
+@@ -830,7 +833,8 @@ static void AddTasks()
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
      nlTaskManager::AddTask(&gameRenderTask, 11, 0x0002001B);
  #endif // unqualified unrelated task registration remains omitted

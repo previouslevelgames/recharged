@@ -1,6 +1,6 @@
 Subject: [PATCH] preserve original emission source and native borrowed address words
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Restore literal controller/manager decisions, preserve retail numeric word
 overflow, and transport genuine native pointer/callback bits without truncation.
@@ -100,7 +100,7 @@ index 70333c8..3daf91e 100644
  #endif
          ;
 diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
-index 55ab0d3..06c7793 100644
+index f7d6acc..ecea776 100644
 --- a/src/Game/AI/DesireSuperPower.cpp
 +++ b/src/Game/AI/DesireSuperPower.cpp
 @@ -619,7 +619,11 @@ void EmitBowserJrShriek(DesireSuperPower* self)
@@ -128,7 +128,7 @@ index 55ab0d3..06c7793 100644
                          emitter->SetVelocity(m_pFielder->m_DetChar.m_v3Velocity);
                          emitter->SetUpdateCallback(UpdateEmitterFromCharacterBackward);
 diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
-index 10839f2..afc0114 100644
+index 1d66c04..ec384c0 100644
 --- a/src/Game/AI/GoalieActions.cpp
 +++ b/src/Game/AI/GoalieActions.cpp
 @@ -1625,7 +1625,11 @@ void Goalie::ActionMegaStrike(float deltaTime)
@@ -144,7 +144,7 @@ index 10839f2..afc0114 100644
          nlVec3Set(position, 0.0f, 0.0f, gfMegaBallSpawnHeight);
          nlVector3 velocity = { 0.0f, 0.0f, 1.0f };
 diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
-index f919c2b..d0271ab 100644
+index 673ffc4..cdc5c65 100644
 --- a/src/Game/AI/Powerups.cpp
 +++ b/src/Game/AI/Powerups.cpp
 @@ -1722,7 +1722,11 @@ void PowerupBase::CollisionCallback(PhysicsObject* pObjA,
@@ -172,11 +172,11 @@ index f919c2b..d0271ab 100644
          Function1<void, EmissionController&>(UpdateBobombEmitter));
  
 diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
-index 0ec0b73..73195e8 100644
+index a384794..010c351 100644
 --- a/src/Game/Ball.cpp
 +++ b/src/Game/Ball.cpp
 @@ -1695,7 +1695,10 @@ void ChangeBallState(cBall* pBall, int nBallState)
-                 = pBall->m_pPhysicsBall->GetDefaultBallAirResistance() * lbl_806DB574;
+                 = pBall->m_pPhysicsBall->GetDefaultBallAirResistance() * gClearBallAirResistanceScale;
          }
          break;
 -    case BALL_STATE_SHOT:
@@ -212,7 +212,7 @@ index 0ec0b73..73195e8 100644
          Function1<void, EmissionController&>(UpdateEmitterFromBallTrail));
  
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
-index 100bc8a..5eaf14d 100644
+index 0b14e86..569c03b 100644
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
 @@ -432,7 +432,11 @@ void cCharacter::InvalidateSkinMeshPoses()
@@ -228,7 +228,7 @@ index 100bc8a..5eaf14d 100644
      pEmissionController->SetAnimController(*m_pCurrentAnimController);
      pEmissionController->m_aFacing = m_DetChar.m_aActualFacingDirection;
 diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
-index 1b2c631..d447bed 100644
+index f63e5a7..6961663 100644
 --- a/src/Game/CharacterTriggers.cpp
 +++ b/src/Game/CharacterTriggers.cpp
 @@ -108,7 +108,11 @@ static inline EmissionController* CreateBallEffect(
@@ -611,7 +611,7 @@ index 3b62065..322cd4e 100644
                  if (bestAge < current->m_Age
                      && (prevBestAge == currentBestAge
 diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.cpp
-index 04d4bbd..84f1f62 100644
+index fa357a6..7eef372 100644
 --- a/src/Game/Physics/PhysicsPatch.cpp
 +++ b/src/Game/Physics/PhysicsPatch.cpp
 @@ -152,7 +152,11 @@ void PhysicsPatch::InitType(const int* type)
@@ -675,7 +675,7 @@ index ac1bb92..09cbd99 100644
  
      EmitShyGuyBulletStart(fielder);
 diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
-index 8a74981..658c2ae 100644
+index ec8f9f1..613d7d8 100644
 --- a/src/Game/Render/ChainChomp.cpp
 +++ b/src/Game/Render/ChainChomp.cpp
 @@ -492,7 +492,11 @@ void ChainChomp::EmitTrail()
