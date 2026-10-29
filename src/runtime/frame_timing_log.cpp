@@ -13,6 +13,9 @@
 #include <windows.h>
 #else
 #include <unistd.h>
+#if defined(__SWITCH__)
+#include <switch.h>
+#endif
 #endif
 
 namespace mscharged::runtime {
@@ -46,6 +49,18 @@ std::int64_t ProcessCpuNs()
     if (!GetProcessTimes(GetCurrentProcess(), &creation, &exit, &kernel, &user)) return 0;
     return FileTimeNs(kernel) + FileTimeNs(user);
 }
+#elif defined(__SWITCH__)
+// Horizon counts each thread's time in system ticks; it keeps no process total.
+std::int64_t ThreadCpuNs()
+{
+    u64 ticks = 0;
+    if (R_FAILED(svcGetInfo(&ticks, hosversionAtLeast(13, 0, 0) ? InfoType_ThreadTickCount
+                                : InfoType_ThreadTickCountDeprecated, CUR_THREAD_HANDLE, TickCountInfo_Total)))
+        return 0;
+    return static_cast<std::int64_t>(armTicksToNs(ticks));
+}
+
+std::int64_t ProcessCpuNs() { return 0; }
 #else
 std::int64_t ClockNs(clockid_t clock)
 {

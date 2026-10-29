@@ -7,6 +7,11 @@ add_library(charged_native_module_loader STATIC "${_module_loader_root}/src/plat
 target_include_directories(charged_native_module_loader PUBLIC "${_module_loader_root}/src")
 target_compile_features(charged_native_module_loader PUBLIC cxx_std_17)
 target_link_libraries(charged_native_module_loader PRIVATE ${CMAKE_DL_LIBS})
+if(NINTENDO_SWITCH)
+    # No dynamic loader: only the static game images load (src/platform/switch/include).
+    target_include_directories(charged_native_module_loader SYSTEM BEFORE PRIVATE
+        "${_module_loader_root}/src/platform/switch/include")
+endif()
 
 # Game modules load below 2 GB on Windows (the loader refuses others): a fixed
 # low image base, which HoldNativeModuleBase keeps free until the module loads.

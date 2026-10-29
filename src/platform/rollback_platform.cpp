@@ -4,6 +4,12 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#elif defined(__SWITCH__)
+#include <cstdlib>
+#include <cstring>
+#include <pthread.h>
+#include <time.h>
+#include <unwind.h>
 #else
 #include <dlfcn.h>
 #include <execinfo.h>
@@ -102,6 +108,90 @@ bool RollbackStartThread(void (*body)())
 void RollbackSleepMs(unsigned milliseconds)
 {
     Sleep(milliseconds);
+}
+#elif defined(__SWITCH__)
+// Horizon: one program image (the game modules are linked in as static game
+// images), no dynamic loader, no mmap.
+extern "C" char __start__[], __end__[]; // the program's bounds (libnx's linker script)
+
+namespace
+{
+struct Trace
+{
+    void** frames;
+    int capacity, count;
+    bool own; // the first frame, this function's own, is left out
+};
+
+_Unwind_Reason_Code AddFrame(_Unwind_Context* context, void* data)
+{
+    auto& trace = *static_cast<Trace*>(data);
+    if (trace.own)
+    {
+        trace.own = false;
+        return _URC_NO_REASON;
+    }
+    if (trace.count >= trace.capacity) return _URC_END_OF_STACK;
+    trace.frames[trace.count++] = reinterpret_cast<void*>(_Unwind_GetIP(context));
+    return _URC_NO_REASON;
+}
+} // namespace
+
+int RollbackCallStack(void** frames, int capacity)
+{
+    Trace trace{frames, std::max(capacity, 0), 0, true};
+    _Unwind_Backtrace(AddFrame, &trace);
+    return trace.count;
+}
+
+std::uintptr_t RollbackModuleBase(const void* address)
+{
+    const auto* at = static_cast<const char*>(address);
+    return at >= __start__ && at < __end__ ? reinterpret_cast<std::uintptr_t>(__start__) : 0;
+}
+
+// Not yet (the module globals' comparison of RECHARGED_ROLLBACK_TEST_COMPARE):
+// the program's writable data holds the host's globals as well as the game's.
+int RollbackWritableSegments(std::uintptr_t, std::uintptr_t (*)[2], int)
+{
+    return 0;
+}
+
+// The C library's heap: the game's operator new is the game image's own.
+void* RollbackMapPages(std::size_t bytes)
+{
+    constexpr std::size_t kPage = 0x1000;
+    void* pages = std::aligned_alloc(kPage, (bytes + kPage - 1) / kPage * kPage);
+    if (pages) std::memset(pages, 0, bytes);
+    return pages;
+}
+
+void RollbackUnmapPages(void* pages, std::size_t)
+{
+    std::free(pages);
+}
+
+namespace
+{
+void* RunThread(void* body)
+{
+    reinterpret_cast<void (*)()>(body)();
+    return nullptr;
+}
+} // namespace
+
+bool RollbackStartThread(void (*body)())
+{
+    pthread_t thread;
+    if (pthread_create(&thread, nullptr, RunThread, reinterpret_cast<void*>(body)) != 0) return false;
+    pthread_detach(thread);
+    return true;
+}
+
+void RollbackSleepMs(unsigned milliseconds)
+{
+    timespec pause{static_cast<time_t>(milliseconds / 1000), static_cast<long>(milliseconds % 1000) * 1'000'000};
+    nanosleep(&pause, nullptr);
 }
 #else
 int RollbackCallStack(void** frames, int capacity)

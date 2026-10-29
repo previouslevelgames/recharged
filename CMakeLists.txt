@@ -65,6 +65,7 @@ endif()
 # person, so a release must never carry it: AUTO builds it into test and dev
 # builds only, and a release build refuses ON. CI passes the repository
 # variable RECHARGED_AUTOPILOT, so OFF there also takes it out of test builds.
+# Not on the Switch: no keyboard for the chord, whose wait needs SDL timers.
 set(MSCHARGED_AUTOPILOT AUTO CACHE STRING "Hidden autopilot for online tests: AUTO (test and dev builds), ON or OFF")
 set_property(CACHE MSCHARGED_AUTOPILOT PROPERTY STRINGS AUTO ON OFF)
 if(NOT MSCHARGED_AUTOPILOT MATCHES "^(AUTO|ON|OFF)$")
@@ -73,8 +74,11 @@ endif()
 if(MSCHARGED_AUTOPILOT STREQUAL "ON" AND MSCHARGED_BUILD_CHANNEL STREQUAL "release")
     message(FATAL_ERROR "A release build cannot carry the autopilot (MSCHARGED_AUTOPILOT=ON)")
 endif()
+if(MSCHARGED_AUTOPILOT STREQUAL "ON" AND NINTENDO_SWITCH)
+    message(FATAL_ERROR "The Switch build cannot carry the autopilot (MSCHARGED_AUTOPILOT=ON)")
+endif()
 if(MSCHARGED_AUTOPILOT STREQUAL "ON"
-   OR (MSCHARGED_AUTOPILOT STREQUAL "AUTO" AND NOT MSCHARGED_BUILD_CHANNEL STREQUAL "release"))
+   OR (MSCHARGED_AUTOPILOT STREQUAL "AUTO" AND NOT MSCHARGED_BUILD_CHANNEL STREQUAL "release" AND NOT NINTENDO_SWITCH))
     set(MSCHARGED_AUTOPILOT_ENABLED ON)
     # The host's chord exists only beside a module with the bot (cmake/OriginalFrontendDiagnostic.cmake).
     set_property(SOURCE src/platform/hotkey_filter.cpp src/runtime/original_game.cpp tests/desktop_wpad_profile_tests.cpp
@@ -109,8 +113,8 @@ if(MSCHARGED_BUILD_SCENE_PREVIEW)
 endif()
 if(MSCHARGED_BUILD_GX_CHECK)
     if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"
-            AND NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
-        message(FATAL_ERROR "The GX runtime selects Linux/Vulkan, macOS/Metal or Windows/Vulkan")
+            AND NOT CMAKE_SYSTEM_NAME STREQUAL "Windows" AND NOT NINTENDO_SWITCH)
+        message(FATAL_ERROR "The GX runtime selects Linux/Vulkan, macOS/Metal, Windows/Vulkan or Switch/Vulkan")
     endif()
     if(MSCHARGED_BUILD_THP_AUDIO_DIAGNOSTIC AND NOT MSCHARGED_BUILD_GAME_STARTUP)
     message(FATAL_ERROR "Use the startup preset for the temporary original movie audio diagnostic")
@@ -229,8 +233,11 @@ function(mscharged_prepare_dependency name output)
 endfunction()
 
 mscharged_prepare_dependency(mscharged-decomp MSCHARGED_PREPARED)
-mscharged_prepare_dependency(nod MSCHARGED_NOD_PREPARED)
-mscharged_prepare_dependency(corrosion MSCHARGED_CORROSION_PREPARED)
+# nod is Rust, which has no standard library for the Switch.
+if(NOT NINTENDO_SWITCH)
+    mscharged_prepare_dependency(nod MSCHARGED_NOD_PREPARED)
+    mscharged_prepare_dependency(corrosion MSCHARGED_CORROSION_PREPARED)
+endif()
 file(READ "${MSCHARGED_PATCHES}/base" MSCHARGED_DECOMP_REVISION)
 string(STRIP "${MSCHARGED_DECOMP_REVISION}" MSCHARGED_DECOMP_REVISION)
 
@@ -245,9 +252,11 @@ function(mscharged_add_nod)
     include(cmake/MacOSLinkLibraries.cmake)
     mscharged_remove_macos_implicit_system_library(nod-static)
 endfunction()
-mscharged_add_nod()
-add_dependencies(_cargo-build_nod verify_prepared)
-include(cmake/NodLifecycle.cmake)
+if(NOT NINTENDO_SWITCH)
+    mscharged_add_nod()
+    add_dependencies(_cargo-build_nod verify_prepared)
+    include(cmake/NodLifecycle.cmake)
+endif()
 
 # This list deliberately covers only currently available, independently linked
 # source. The incomplete decomp is not yet a complete native game target.
@@ -308,6 +317,9 @@ target_compile_definitions(mscharged_build_info INTERFACE
     MSCHARGED_DECOMP_REVISION="${MSCHARGED_DECOMP_REVISION}")
 target_link_libraries(mscharged-bootstrap PRIVATE mscharged_build_info)
 
+if(NINTENDO_SWITCH)
+    include(cmake/Switch.cmake)
+endif()
 if(MSCHARGED_BUILD_LAUNCHER OR MSCHARGED_BUILD_AURORA_HOST)
     include(cmake/SDL.cmake)
     include(cmake/AppIcon.cmake)
@@ -321,6 +333,8 @@ if(MSCHARGED_BUILD_LAUNCHER OR MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC OR B
 endif()
 if(MSCHARGED_BUILD_LAUNCHER)
     include(cmake/Launcher.cmake)
+elseif(NINTENDO_SWITCH)
+    include(cmake/SwitchProgram.cmake)
 endif()
 if(MSCHARGED_BUILD_GAME_STARTUP)
     include(cmake/GameStartup.cmake)
@@ -348,6 +362,7 @@ endif()
 
 if(BUILD_TESTING)
     include(cmake/Network.cmake)
+    include(cmake/WiiDisc.cmake)
 endif()
 
 if(BUILD_TESTING)

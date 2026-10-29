@@ -7,11 +7,14 @@
 #define _WIN32_WINNT 0x0602
 #endif
 #include "platform/native_module_loader.h"
+#include "platform/static_game_image.h"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -35,6 +38,12 @@
 #endif
 #endif
 
+#if defined(MSCHARGED_STATIC_GAME_IMAGES)
+// The program's static game images (cmake/StaticGameImages.cmake writes this
+// table). Weak: the loader's tests link no game images.
+extern "C" const ChargedStaticGameImage* const* charged_static_game_images() __attribute__((weak));
+#endif
+
 namespace mscharged::platform {
 namespace {
 bool ContainsExtent(std::uintptr_t begin, std::uint64_t size,
@@ -43,6 +52,83 @@ bool ContainsExtent(std::uintptr_t begin, std::uint64_t size,
         return false;
     const auto offset = address - begin;
     return offset < size && bytes <= size - offset;
+}
+
+// A static game image stands in for a loaded module: its handle is its entry
+// here, its base its code's start and its path the module file name. Loading
+// runs its constructors once, as dlopen runs a module's; it is never unloaded.
+struct StaticImage {
+    const ChargedStaticGameImage* image{};
+    std::size_t references{};
+    bool constructed{}, failed{};
+};
+std::array<StaticImage, 8> g_static_images{};
+// Recursive: an image's constructors may retain the image itself, as a
+// module's may dlopen(RTLD_NOLOAD) itself while dlopen runs them.
+std::recursive_mutex& StaticImageMutex() { static std::recursive_mutex mutex; return mutex; }
+std::size_t StaticImageCount() noexcept {
+#if defined(MSCHARGED_STATIC_GAME_IMAGES)
+    static const std::size_t count = [] {
+        std::size_t n = 0;
+        if (charged_static_game_images)
+            for (auto* const* image = charged_static_game_images(); *image && n < g_static_images.size(); ++image)
+                g_static_images[n++].image = *image;
+        return n;
+    }();
+    return count;
+#else
+    return 0;
+#endif
+}
+std::uintptr_t StaticImageBase(const StaticImage& state) noexcept {
+    return reinterpret_cast<std::uintptr_t>(state.image->ranges[0].begin);
+}
+StaticImage* StaticImageNamed(const std::filesystem::path& path) noexcept {
+    const auto name = path.filename();
+    for (std::size_t i = 0; i != StaticImageCount(); ++i)
+        if (name == g_static_images[i].image->file_name) return &g_static_images[i];
+    return nullptr;
+}
+StaticImage* StaticImageOfHandle(void* handle) noexcept {
+    for (std::size_t i = 0; i != StaticImageCount(); ++i)
+        if (handle == &g_static_images[i]) return &g_static_images[i];
+    return nullptr;
+}
+StaticImage* StaticImageOfBase(std::uintptr_t base) noexcept {
+    for (std::size_t i = 0; i != StaticImageCount(); ++i)
+        if (base && StaticImageBase(g_static_images[i]) == base) return &g_static_images[i];
+    return nullptr;
+}
+bool StaticImageContains(const StaticImage& state, std::uintptr_t address, std::size_t bytes) noexcept {
+    for (const auto& range : state.image->ranges) {
+        const auto begin = reinterpret_cast<std::uintptr_t>(range.begin);
+        const auto end = reinterpret_cast<std::uintptr_t>(range.end);
+        if (begin && end > begin && ContainsExtent(begin, end - begin, address, bytes)) return true;
+    }
+    return false;
+}
+StaticImage* StaticImageContaining(std::uintptr_t address, std::size_t bytes) noexcept {
+    for (std::size_t i = 0; i != StaticImageCount(); ++i)
+        if (StaticImageContains(g_static_images[i], address, bytes)) return &g_static_images[i];
+    return nullptr;
+}
+void* LoadStaticImage(StaticImage& state) {
+    std::lock_guard lock(StaticImageMutex());
+    if (state.failed)
+        throw std::runtime_error(std::string("Static game image ") + state.image->name +
+                                 " failed in its constructors earlier");
+    if (!state.constructed) {
+        state.constructed = true;
+        try {
+            for (auto* constructor = state.image->init_begin; constructor != state.image->init_end; ++constructor)
+                (*constructor)();
+        } catch (...) {
+            state.failed = true;
+            throw;
+        }
+    }
+    ++state.references;
+    return &state;
 }
 #if defined(_WIN32)
 // HoldNativeModuleBase's reservation, freed by the next LoadNativeModule.
@@ -144,7 +230,11 @@ bool SameFile(const struct stat& a, const struct stat& b) noexcept {
 #endif
 }
 
+bool NativeModuleAvailable(const std::filesystem::path& path) {
+    return StaticImageNamed(path) || std::filesystem::is_regular_file(path);
+}
 void* LoadNativeModule(const std::filesystem::path& path) {
+    if (auto* image = StaticImageNamed(path)) return LoadStaticImage(*image);
 #if defined(_WIN32)
     const auto absolute = std::filesystem::canonical(path);
     // The held range is this module's own base (HoldNativeModuleBase).
@@ -195,6 +285,12 @@ bool HoldNativeModuleBase(std::uintptr_t base, std::size_t size) noexcept {
 }
 void* FindNativeModuleSymbol(void* handle, const char* name) noexcept {
     if (!handle || !name || !*name) return nullptr;
+    if (auto* state = StaticImageOfHandle(handle)) {
+        const auto& image = *state->image;
+        for (std::size_t i = 0; i != image.export_count; ++i)
+            if (!std::strcmp(image.exports[i].name, name)) return image.exports[i].address;
+        return nullptr;
+    }
 #if defined(_WIN32)
     return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle), name));
 #else
@@ -203,6 +299,12 @@ void* FindNativeModuleSymbol(void* handle, const char* name) noexcept {
 }
 bool ReleaseNativeModule(void* reference) noexcept {
     if (!reference) return false;
+    if (auto* state = StaticImageOfHandle(reference)) {
+        std::lock_guard lock(StaticImageMutex());
+        if (!state->references) return false;
+        --state->references;
+        return true;
+    }
 #if defined(_WIN32)
     return FreeLibrary(static_cast<HMODULE>(reference)) != 0;
 #else
@@ -212,6 +314,10 @@ bool ReleaseNativeModule(void* reference) noexcept {
 bool QueryNativeModuleImage(const void* address, NativeModuleImage& image) noexcept {
     if (!address) return false;
     try {
+        if (auto* state = StaticImageContaining(reinterpret_cast<std::uintptr_t>(address), 1)) {
+            image = {StaticImageBase(*state), state->image->file_name};
+            return true;
+        }
 #if defined(_WIN32)
         MEMORY_BASIC_INFORMATION region{};
         if (!VirtualQuery(address, &region, sizeof(region)) || region.Type != MEM_IMAGE ||
@@ -230,6 +336,10 @@ bool QueryNativeModuleImage(const void* address, NativeModuleImage& image) noexc
 bool QueryNativeModuleHandle(void* handle, NativeModuleImage& image) noexcept {
     if (!handle) return false;
     try {
+        if (auto* state = StaticImageOfHandle(handle)) {
+            image = {StaticImageBase(*state), state->image->file_name};
+            return true;
+        }
 #if defined(_WIN32)
         return QueryNativeModuleImage(handle, image) && image.base == reinterpret_cast<std::uintptr_t>(handle);
 #elif defined(__APPLE__)
@@ -245,6 +355,13 @@ bool QueryNativeModuleHandle(void* handle, NativeModuleImage& image) noexcept {
 }
 void* RetainNativeModuleImage(const std::filesystem::path& path, std::uintptr_t base) noexcept {
     if (!base) return nullptr;
+    if (auto* state = StaticImageNamed(path)) {
+        // Only a loaded (or loading) image, like dlopen(RTLD_NOLOAD).
+        std::lock_guard lock(StaticImageMutex());
+        if (StaticImageBase(*state) != base || !state->constructed || state->failed) return nullptr;
+        ++state->references;
+        return state;
+    }
 #if defined(_WIN32)
     // FROM_ADDRESS identifies the actual loaded image, not a reusable basename.
     // No PIN flag: every acquired reference has an explicit drained release.
@@ -274,6 +391,7 @@ bool NativeModuleOwnsReadableExtent(std::uintptr_t image, const void* pointer,
     if (!image || !pointer || !bytes) return false;
     const auto address = reinterpret_cast<std::uintptr_t>(pointer);
     if (bytes > std::numeric_limits<std::uintptr_t>::max() - address) return false;
+    if (auto* state = StaticImageOfBase(image)) return StaticImageContains(*state, address, bytes);
 #if defined(_WIN32)
     if (!ReadableMappedExtent(image, image, sizeof(IMAGE_DOS_HEADER))) return false;
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(image);
@@ -366,6 +484,8 @@ bool NativeModuleOwnsReadableExtent(std::uintptr_t image, const void* pointer,
 struct NativeModuleFile::State {
     std::filesystem::path path;
     std::string identity;
+    // A static game image is part of the program file: nothing to reopen.
+    const StaticImage* static_image{};
 #if defined(_WIN32)
     HANDLE file{INVALID_HANDLE_VALUE};
     BY_HANDLE_FILE_INFORMATION info{};
@@ -379,6 +499,11 @@ struct NativeModuleFile::State {
 NativeModuleFile::NativeModuleFile(const std::filesystem::path& path) : state_(new State) {
     auto& s = *state_;
     if (path.empty()) throw std::invalid_argument("Native module requires its actual image path");
+    if ((s.static_image = StaticImageNamed(path))) {
+        s.path = path;
+        s.identity = std::string("static game image ") + s.static_image->image->file_name;
+        return;
+    }
     s.path = std::filesystem::canonical(path);
     std::uint64_t fingerprint = 14695981039346656037ull;
     unsigned char bytes[4096];
@@ -422,6 +547,7 @@ const std::filesystem::path& NativeModuleFile::Path() const noexcept { return st
 const std::string& NativeModuleFile::Identity() const noexcept { return state_->identity; }
 void NativeModuleFile::RequireUnchanged() const {
     const auto& s = *state_;
+    if (s.static_image) return;
 #if defined(_WIN32)
     BY_HANDLE_FILE_INFORMATION now{}, named{};
     const auto handle = OpenImageFile(s.path);
@@ -439,6 +565,8 @@ void NativeModuleFile::RequireUnchanged() const {
 bool NativeModuleFile::OwnsImage(const NativeModuleImage& image) const {
     RequireUnchanged();
     if (!image.base || image.path.empty()) return false;
+    if (const auto* own = state_->static_image)
+        return image.base == StaticImageBase(*own) && image.path == own->image->file_name;
 #if defined(_WIN32)
     BY_HANDLE_FILE_INFORMATION loaded{};
     const auto handle = OpenImageFile(image.path);

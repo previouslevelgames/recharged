@@ -1,3 +1,22 @@
+if(NINTENDO_SWITCH)
+    # devkitPro has SDL2 only (switch-sdl2): sdl3on2 offers the SDL3 API on it,
+    # as in new-coke's Strikers port.
+    mscharged_prepare_dependency(sdl3on2 MSCHARGED_SDL3ON2_PREPARED)
+    function(mscharged_add_sdl)
+        set(NX ON)
+        set(portlibs "$ENV{DEVKITPRO}/portlibs/switch/lib")
+        # SDL2's own link order.
+        set(SDL2_LIBRARIES "${portlibs}/libSDL2.a" "${portlibs}/libEGL.a" "${portlibs}/libglapi.a"
+            "${portlibs}/libdrm_nouveau.a" "${portlibs}/libGLESv2.a" nx stdc++ m)
+        add_subdirectory("${MSCHARGED_SDL3ON2_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/extern/sdl3on2" EXCLUDE_FROM_ALL)
+    endfunction()
+    mscharged_add_sdl()
+    add_dependencies(sdl3on2 verify_prepared)
+    add_library(SDL3::SDL3-static ALIAS sdl3on2)
+    add_library(SDL3::SDL3 ALIAS sdl3on2)
+    return()
+endif()
+
 mscharged_prepare_dependency(sdl MSCHARGED_SDL_PREPARED)
 
 function(mscharged_add_sdl)

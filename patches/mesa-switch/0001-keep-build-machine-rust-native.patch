@@ -1,0 +1,24 @@
+Subject: Keep build-machine Rust native when cross-building
+
+Upstream-base: 0ff52079ca9e9e837ed27eb95a8d239f439a1864
+
+MESA_SWITCH_RUST_TARGET lets an x86_64 host build NVK for the Switch, but the
+wrapper also gave that target to procedural macros and their crates, which
+rustc loads on the build machine. Apply it only to code linked with devkitA64.
+
+--- a/rustc-switch-wrapper.sh
++++ b/rustc-switch-wrapper.sh
+@@ -36,6 +36,13 @@
+     esac
+ done
+ 
++# Only Switch code links with devkitA64. Procedural macros and the crates they
++# use run inside rustc on the build machine, so they keep its own target.
++case "$*" in
++    *aarch64-none-elf-*) ;;
++    *) RUST_TARGET= ;;
++esac
++
+ if [ -n "$RUST_TARGET" ]; then
+     exec "$RUSTC_BIN" --target="$RUST_TARGET" "$@"
+ fi

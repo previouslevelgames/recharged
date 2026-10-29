@@ -4,3 +4,4 @@
 0004-respect-disabled-vulkan-robustness.patch
 0005-use-packaged-windows-shader-compilers.patch
 0006-complete-mingw-direct3d-declarations.patch
+0007-build-for-the-switch.patch

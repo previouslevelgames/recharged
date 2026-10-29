@@ -1,0 +1,42 @@
+From: mscharged-port
+Subject: Address the MSL format cursor where va_list is a struct (AArch64)
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Classification: native compiler/ABI compatibility.
+
+0678 passes parse_format the address of __wpformatter's va_list cursor: the
+parameter itself on x86-64 (array va_list) and its address on Apple arm64
+(pointer va_list). On AArch64 Linux and the Nintendo Switch va_list is a
+struct, and the branch that casts the parameter to a pointer no longer
+compiles, as both branches of a non-template if constexpr are checked. A
+template lambda compiles only the branch the native va_list takes: the same
+two expressions on x86-64 and Apple arm64, the parameter's address on AArch64.
+
+diff --git a/src/MSL/wprintf.c b/src/MSL/wprintf.c
+index 2b63501..f2312ad 100644
+--- a/src/MSL/wprintf.c
++++ b/src/MSL/wprintf.c
+@@ -1040,13 +1040,17 @@ int __wpformatter(void* (*WriteProc)(void*, const wchar_t*, size_t), void* Write
+ 
+         format_ptr = curr_format;
+ #if defined(MSCHARGED_NATIVE) && defined(__cplusplus)
+-        // Pointer-shaped va_list addresses the local cursor. An array-shaped
+-        // function parameter already carries the underlying cursor by address.
+-        if constexpr (__is_same(va_list, decltype(arg))) {
+-            format_ptr = parse_format(format_ptr, (va_list*)&arg, &format);
+-        } else {
+-            format_ptr = parse_format(format_ptr, (va_list*)arg, &format);
+-        }
++        // Pointer-shaped (Apple arm64) and struct-shaped (AArch64 AAPCS)
++        // va_list address the local cursor. An array-shaped function parameter
++        // (x86-64) already carries the underlying cursor by address. A template
++        // compiles only the branch the native va_list takes.
++        format_ptr = parse_format(format_ptr, []<class Cursor>(Cursor& cursor) -> va_list* {
++            if constexpr (__is_same(Cursor, va_list)) {
++                return &cursor;
++            } else {
++                return (va_list*)cursor;
++            }
++        }(arg), &format);
+ #else
+         format_ptr = parse_format(format_ptr, (va_list*)arg, &format);
+ #endif

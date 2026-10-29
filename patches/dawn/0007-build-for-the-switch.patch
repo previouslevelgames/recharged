@@ -1,0 +1,393 @@
+Subject: Build for the Switch with the NVK driver
+
+Upstream-base: 1155e0ed531126f33a1279afa029349651ca1c93
+
+new-coke/dawn-switch 8d6453c8 ("Build fixes and NVK workarounds") without its
+dependency fetcher change, and with Dawn's Abseil patch (patches/abseil-cpp.patch)
+and dawn-switch's addition to it applied to Abseil here: with DAWN_PLATFORM_SWITCH,
+Dawn would otherwise patch the prepared Abseil while configuring, and it only
+checks a patch already applied. All changes are limited to the Switch.
+
+diff --git a/src/dawn/common/CMakeLists.txt b/src/dawn/common/CMakeLists.txt
+index 8090299..8ef9a93 100644
+--- a/src/dawn/common/CMakeLists.txt
++++ b/src/dawn/common/CMakeLists.txt
+@@ -161,8 +161,10 @@ if (DAWN_ENABLE_VULKAN)
+         Vulkan::Headers)
+ endif ()
+ 
+-list(APPEND conditional_private_depends
+-    ${CMAKE_DL_LIBS})
++if (CMAKE_DL_LIBS AND NOT DAWN_PLATFORM_SWITCH)
++    list(APPEND conditional_private_depends
++        ${CMAKE_DL_LIBS})
++endif()
+ 
+ dawn_add_library(
+     dawn_common
+diff --git a/src/dawn/native/CMakeLists.txt b/src/dawn/native/CMakeLists.txt
+index ff399ed..bf64fef 100644
+--- a/src/dawn/native/CMakeLists.txt
++++ b/src/dawn/native/CMakeLists.txt
+@@ -298,8 +298,11 @@ endif()
+ find_package(Threads REQUIRED)
+ list(APPEND conditional_private_platform_depends
+     Threads::Threads
+-    ${CMAKE_DL_LIBS}
+ )
++if (CMAKE_DL_LIBS AND NOT DAWN_PLATFORM_SWITCH)
++    list(APPEND conditional_private_platform_depends
++        ${CMAKE_DL_LIBS})
++endif()
+ 
+ # Only win32 app needs to link with user32.lib and onecore_apiset.lib
+ # In UWP, all availiable APIs are defined in WindowsApp.lib
+diff --git a/src/dawn/native/SystemEvent.cpp b/src/dawn/native/SystemEvent.cpp
+index a604cf8..953e342 100644
+--- a/src/dawn/native/SystemEvent.cpp
++++ b/src/dawn/native/SystemEvent.cpp
+@@ -117,7 +117,10 @@ std::pair<SystemEventPipeSender, SystemEventReceiver> CreateSystemEventPipe() {
+     sender.mPrimitive = std::move(eventDup);
+ 
+     return std::make_pair(std::move(sender), std::move(receiver));
+-#elif DAWN_PLATFORM_IS(POSIX) || DAWN_PLATFORM_IS(SWITCH)
++#elif DAWN_PLATFORM_IS(SWITCH)
++    // Horizon has no pipe(); only the D3D queues and WaitListEvent::WaitAsync ask for one.
++    DAWN_UNREACHABLE();
++#elif DAWN_PLATFORM_IS(POSIX)
+     int pipeFds[2];
+     int status = pipe(pipeFds);
+     DAWN_CHECK(status >= 0);
+diff --git a/src/dawn/native/utils/RenderDoc.cpp b/src/dawn/native/utils/RenderDoc.cpp
+index 649f0ca..bb00381 100644
+--- a/src/dawn/native/utils/RenderDoc.cpp
++++ b/src/dawn/native/utils/RenderDoc.cpp
+@@ -27,7 +27,7 @@
+ 
+ #include "src/dawn/native/utils/RenderDoc.h"
+ 
+-#if defined(DAWN_ENABLE_RENDERDOC)
++#if defined(DAWN_ENABLE_RENDERDOC) && !DAWN_PLATFORM_IS(SWITCH)
+ 
+ #include <string>
+ 
+@@ -75,4 +75,4 @@ RenderDocApiType* GetRenderDocApi(DeviceBase* device) {
+ 
+ }  // namespace dawn::native::utils
+ 
+-#endif  // defined(DAWN_ENABLE_RENDERDOC)
++#endif  // defined(DAWN_ENABLE_RENDERDOC) && !DAWN_PLATFORM_IS(SWITCH)
+diff --git a/src/dawn/native/utils/RenderDoc.h b/src/dawn/native/utils/RenderDoc.h
+index c49cd47..e8f0175 100644
+--- a/src/dawn/native/utils/RenderDoc.h
++++ b/src/dawn/native/utils/RenderDoc.h
+@@ -28,7 +28,9 @@
+ #ifndef SRC_DAWN_NATIVE_UTILS_RENDERDOC_H_
+ #define SRC_DAWN_NATIVE_UTILS_RENDERDOC_H_
+ 
+-#if defined(DAWN_ENABLE_RENDERDOC)
++#include "src/utils/platform.h"
++
++#if defined(DAWN_ENABLE_RENDERDOC) && !DAWN_PLATFORM_IS(SWITCH)
+ 
+ #include "renderdoc/api/app/renderdoc_app.h"
+ #include "src/dawn/native/Device.h"
+@@ -43,6 +45,6 @@ RenderDocApiType* GetRenderDocApi(DeviceBase* device);
+ 
+ }  // namespace dawn::native::utils
+ 
+-#endif  // defined(DAWN_ENABLE_RENDERDOC)
++#endif  // defined(DAWN_ENABLE_RENDERDOC) && !DAWN_PLATFORM_IS(SWITCH)
+ 
+ #endif  // SRC_DAWN_NATIVE_UTILS_RENDERDOC_H_
+diff --git a/src/dawn/native/utils/WGPUHelpers.cpp b/src/dawn/native/utils/WGPUHelpers.cpp
+index 0a0ac96..0566a97 100644
+--- a/src/dawn/native/utils/WGPUHelpers.cpp
++++ b/src/dawn/native/utils/WGPUHelpers.cpp
+@@ -244,6 +244,11 @@ std::string_view NormalizeMessageString(StringView in) {
+     if (in.IsUndefined()) {
+         return {};
+     }
++#if DAWN_PLATFORM_IS(SWITCH)
++    if (in.data == nullptr) {
++        return {};
++    }
++#endif
+     return std::string_view(in.data, DAWN_UNSAFE_TODO(BoundedStrlen(in.data, in.length)));
+ }
+ 
+diff --git a/src/dawn/native/vulkan/BufferVk.cpp b/src/dawn/native/vulkan/BufferVk.cpp
+index 7e1aee0..aa08173 100644
+--- a/src/dawn/native/vulkan/BufferVk.cpp
++++ b/src/dawn/native/vulkan/BufferVk.cpp
+@@ -263,6 +263,15 @@ MaybeError Buffer::Initialize(bool mappedAtCreation) {
+     }
+     mAllocatedSize = Align(size, kAlignment);
+ 
++#if DAWN_PLATFORM_IS(SWITCH)
++    // NVK on Switch wants page-aligned VkBuffer sizes; the vertex/index pad byte breaks that.
++    constexpr uint64_t kSwitchPageSize = 4096u;
++    if (size > std::numeric_limits<uint64_t>::max() - kSwitchPageSize) {
++        return DAWN_OUT_OF_MEMORY_ERROR("Buffer allocation is too large");
++    }
++    mAllocatedSize = Align(size, kSwitchPageSize);
++#endif
++
+     // Round uniform buffer sizes up to a multiple of 16 bytes since Tint will polyfill them as
+     // array<vec4u, ...>.
+     if (GetUsage() & wgpu::BufferUsage::Uniform) {
+@@ -649,6 +658,11 @@ MaybeError Buffer::UploadData(uint64_t bufferOffset, Span<const std::byte> data)
+         return {};
+     }
+ 
++#if DAWN_PLATFORM_IS(SWITCH)
++    // NVK on Switch can fault when the direct-map fast path writes small host-visible buffers.
++    return BufferBase::UploadData(bufferOffset, data);
++#endif
++
+     Device* device = ToBackend(GetDevice());
+ 
+     const bool isInUse = GetLastUsageSerial() > device->GetQueue()->GetCompletedCommandSerial();
+diff --git a/src/dawn/native/vulkan/MemoryTypeSelector.cpp b/src/dawn/native/vulkan/MemoryTypeSelector.cpp
+index 2f9af32..a5a50a0 100644
+--- a/src/dawn/native/vulkan/MemoryTypeSelector.cpp
++++ b/src/dawn/native/vulkan/MemoryTypeSelector.cpp
+@@ -30,6 +30,7 @@
+ #include <utility>
+ 
+ #include "src/utils/numeric.h"
++#include "src/utils/platform.h"
+ 
+ namespace dawn::native::vulkan {
+ namespace {
+@@ -72,6 +73,12 @@ MemoryTypeSelector::MemoryTypeSelector(std::vector<VkMemoryType> memoryTypes,
+ uint32_t MemoryTypeSelector::FindBestTypeIndex(VkMemoryRequirements requirements, MemoryKind kind) {
+     bool mappable = IsMemoryKindMappable(kind);
+     VkMemoryPropertyFlags vkRequiredFlags = GetRequiredMemoryPropertyFlags(kind);
++#if DAWN_PLATFORM_IS(SWITCH)
++    // Tegra X1 memory is unified: when the driver marks no type device-local, every type is the GPU's.
++    if (!HasMemoryTypeWithFlags(mMemoryTypes, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
++        vkRequiredFlags &= ~VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
++    }
++#endif  // DAWN_PLATFORM_IS(SWITCH)
+ 
+     // Find a suitable memory type for this allocation
+     uint32_t bestType = kInvalidMemoryTypeIndex;
+diff --git a/src/dawn/native/vulkan/TextureVk.cpp b/src/dawn/native/vulkan/TextureVk.cpp
+index 9728f6e..bb5fc06 100644
+--- a/src/dawn/native/vulkan/TextureVk.cpp
++++ b/src/dawn/native/vulkan/TextureVk.cpp
+@@ -906,7 +906,7 @@ void Texture::NotifySwapChainPresent() {
+         return;
+     }
+ 
+-#if defined(DAWN_ENABLE_RENDERDOC)
++#if defined(DAWN_ENABLE_RENDERDOC) && !DAWN_PLATFORM_IS(SWITCH)
+     Device* device = ToBackend(GetDevice());
+ 
+     // For RenderDoc, we expect the user to enable and use process injection to inject RenderDoc
+@@ -920,7 +920,7 @@ void Texture::NotifySwapChainPresent() {
+         renderDocApi->EndFrameCapture(renderDocDevicePtr, nullptr);
+         renderDocApi->StartFrameCapture(renderDocDevicePtr, nullptr);
+     }
+-#endif
++#endif  // defined(DAWN_ENABLE_RENDERDOC) && !DAWN_PLATFORM_IS(SWITCH)
+ }
+ 
+ void Texture::SetIsExternalSwapchainTexture(bool isSwapChainTexture) {
+diff --git a/src/dawn/native/vulkan/VulkanFunctions.cpp b/src/dawn/native/vulkan/VulkanFunctions.cpp
+index 1dba519..7f152b7 100644
+--- a/src/dawn/native/vulkan/VulkanFunctions.cpp
++++ b/src/dawn/native/vulkan/VulkanFunctions.cpp
+@@ -38,6 +38,16 @@ namespace dawn::native::vulkan {
+ #if DAWN_PLATFORM_IS(SWITCH)
+ extern "C" {
+ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char* pName);
++// Weak: used when the driver exports it, else lookups go through vk_icdGetInstanceProcAddr.
++VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance, const char* pName)
++    __attribute__((weak));
++}
++
++// With no loader there are no instance layers.
++VKAPI_ATTR ::VkResult VKAPI_CALL SwitchEnumerateNoInstanceLayers(uint32_t* pPropertyCount,
++                                                               VkLayerProperties*) {
++    *pPropertyCount = 0;
++    return ::VK_SUCCESS;
+ }
+ #endif  // DAWN_PLATFORM_IS(SWITCH)
+ 
+@@ -97,8 +107,12 @@ F AsVkFn(void(VKAPI_PTR* addr)()) {
+ MaybeError VulkanFunctions::LoadGlobalProcs(const DynamicLib& vulkanLib) {
+ #if DAWN_PLATFORM_IS(SWITCH)
+     (void)vulkanLib;
+-    GetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+-        vk_icdGetInstanceProcAddr(VK_NULL_HANDLE, "vkGetInstanceProcAddr"));
++    if (&vkGetInstanceProcAddr != nullptr) {
++        GetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(&vkGetInstanceProcAddr);
++    } else {
++        GetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
++            vk_icdGetInstanceProcAddr(VK_NULL_HANDLE, "vkGetInstanceProcAddr"));
++    }
+     if (GetInstanceProcAddr == nullptr) {
+         GetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(&vk_icdGetInstanceProcAddr);
+     }
+@@ -110,7 +124,15 @@ MaybeError VulkanFunctions::LoadGlobalProcs(const DynamicLib& vulkanLib) {
+ 
+     GET_GLOBAL_PROC(CreateInstance);
+     GET_GLOBAL_PROC(EnumerateInstanceExtensionProperties);
++#if DAWN_PLATFORM_IS(SWITCH)
++    EnumerateInstanceLayerProperties = AsVkFn<PFN_vkEnumerateInstanceLayerProperties>(
++        GetInstanceProcAddr(nullptr, "vkEnumerateInstanceLayerProperties"));
++    if (EnumerateInstanceLayerProperties == nullptr) {
++        EnumerateInstanceLayerProperties = &SwitchEnumerateNoInstanceLayers;
++    }
++#else
+     GET_GLOBAL_PROC(EnumerateInstanceLayerProperties);
++#endif  // DAWN_PLATFORM_IS(SWITCH)
+ 
+     // Is not available in Vulkan 1.0, so allow nullptr
+     EnumerateInstanceVersion = AsVkFn<PFN_vkEnumerateInstanceVersion>(
+diff --git a/src/dawn/platform/WorkerThread.cpp b/src/dawn/platform/WorkerThread.cpp
+index ed31457..19a02de 100644
+--- a/src/dawn/platform/WorkerThread.cpp
++++ b/src/dawn/platform/WorkerThread.cpp
+@@ -33,9 +33,30 @@
+ 
+ #include "src/utils/assert.h"
+ 
++#if defined(__SWITCH__)
++#include <switch.h>
++#endif
++
+ namespace dawn::platform {
+ 
+ namespace {
++#if defined(__SWITCH__)
++// Cores 0-2 belong to applications; core 3 is reserved for the system.
++constexpr uint32_t kSwitchApplicationCoreMask = 0x7;
++
++void SetSwitchWorkerThreadAffinity() {
++    uint64_t processMask = 0;
++    uint32_t allowedMask = kSwitchApplicationCoreMask;
++    if (R_SUCCEEDED(svcGetInfo(&processMask, InfoType_CoreMask, CUR_PROCESS_HANDLE, 0))) {
++        allowedMask = static_cast<uint32_t>(processMask) & kSwitchApplicationCoreMask;
++        if (allowedMask == 0) {
++            allowedMask = 1u;
++        }
++    }
++    svcSetThreadCoreMask(CUR_THREAD_HANDLE, -1, allowedMask);
++}
++#endif
++
+ class AsyncWaitableEvent final : public WaitableEvent {
+   public:
+     explicit AsyncWaitableEvent(Ref<AsyncTaskHandleImpl> impl) : mImpl(std::move(impl)) {}
+@@ -103,6 +124,9 @@ void AsyncJobHandleImpl::Join() {
+ }
+ 
+ void AsyncJobHandleImpl::JobThreadLoop(PostWorkerJobCallback cb, void* userdata) {
++#if defined(__SWITCH__)
++    SetSwitchWorkerThreadAffinity();
++#endif
+     JobStatus status = JobStatus::Continue;
+     while (!mCancelled && status == JobStatus::Continue) {
+         status = cb(userdata);
+diff --git a/third_party/abseil-cpp/absl/base/internal/sysinfo.cc b/third_party/abseil-cpp/absl/base/internal/sysinfo.cc
+index b103f49..7288613 100644
+--- a/third_party/abseil-cpp/absl/base/internal/sysinfo.cc
++++ b/third_party/abseil-cpp/absl/base/internal/sysinfo.cc
+@@ -472,6 +472,13 @@ pid_t GetTID() {
+   return static_cast<pid_t>(zx_thread_self());
+ }
+ 
++#elif defined(__SWITCH__)
++
++pid_t GetTID() {
++  const auto self = reinterpret_cast<uintptr_t>(pthread_self());
++  return static_cast<pid_t>(self ^ (self >> 32));
++}
++
+ #else
+ 
+ // Fallback implementation of `GetTID` using `pthread_self`.
+diff --git a/third_party/abseil-cpp/absl/base/internal/thread_identity.cc b/third_party/abseil-cpp/absl/base/internal/thread_identity.cc
+index 0471a25..de24750 100644
+--- a/third_party/abseil-cpp/absl/base/internal/thread_identity.cc
++++ b/third_party/abseil-cpp/absl/base/internal/thread_identity.cc
+@@ -85,8 +85,8 @@ void SetCurrentThreadIdentity(ThreadIdentity* identity,
+                   reclaimer);
+ 
+ #if defined(__wasi__) || defined(__EMSCRIPTEN__) || defined(__MINGW32__) || \
+-    defined(__hexagon__)
+-  // Emscripten, WASI and MinGW pthread implementations does not support
++    defined(__hexagon__) || defined(__SWITCH__)
++  // Emscripten, WASI, MinGW, and libnx pthread implementations do not support
+   // signals. See
+   // https://kripken.github.io/emscripten-site/docs/porting/pthreads.html for
+   // more information.
+diff --git a/third_party/abseil-cpp/absl/container/internal/raw_hash_set.cc b/third_party/abseil-cpp/absl/container/internal/raw_hash_set.cc
+index d37c781..35647bc 100644
+--- a/third_party/abseil-cpp/absl/container/internal/raw_hash_set.cc
++++ b/third_party/abseil-cpp/absl/container/internal/raw_hash_set.cc
+@@ -80,14 +80,14 @@ void ValidateMaxCapacity(size_t capacity, size_t key_size, size_t slot_size) {
+ // Returns "random" seed.
+ inline size_t RandomSeed() {
+   constexpr size_t kIncrement = 0xad53;
+-#ifdef ABSL_HAVE_THREAD_LOCAL
++#if defined(ABSL_HAVE_THREAD_LOCAL) && !defined(__SWITCH__)
+   static thread_local size_t counter = 0;
+   counter += kIncrement;
+   size_t value = counter;
+-#else   // ABSL_HAVE_THREAD_LOCAL
++#else   // ABSL_HAVE_THREAD_LOCAL && !__SWITCH__
+   static std::atomic<size_t> counter(0);
+-  size_t value = counter.fetch_add(kIncrement, std::memory_order_relaxed);
+-#endif  // ABSL_HAVE_THREAD_LOCAL
++  size_t value = counter.fetch_add(kIncrement, std::memory_order_relaxed) + kIncrement;
++#endif  // ABSL_HAVE_THREAD_LOCAL && !__SWITCH__
+   return value ^ static_cast<size_t>(reinterpret_cast<uintptr_t>(&counter));
+ }
+ 
+diff --git a/third_party/abseil-cpp/absl/debugging/internal/elf_mem_image.h b/third_party/abseil-cpp/absl/debugging/internal/elf_mem_image.h
+index c8a1036..21e080c 100644
+--- a/third_party/abseil-cpp/absl/debugging/internal/elf_mem_image.h
++++ b/third_party/abseil-cpp/absl/debugging/internal/elf_mem_image.h
+@@ -35,7 +35,7 @@
+ #if defined(__ELF__) && !defined(__OpenBSD__) && !defined(__QNX__) &&    \
+     !defined(__asmjs__) && !defined(__wasm__) && !defined(__HAIKU__) &&  \
+     !defined(__sun) && !defined(__VXWORKS__) && !defined(__hexagon__) && \
+-    !defined(__XTENSA__)
++    !defined(__XTENSA__) && !defined(__SWITCH__)
+ #define ABSL_HAVE_ELF_MEM_IMAGE 1
+ #endif
+ 
+diff --git a/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_info.cc b/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_info.cc
+index f7ed379..0e1783c 100644
+--- a/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_info.cc
++++ b/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_info.cc
+@@ -61,6 +61,11 @@
+ #include "absl/time/internal/cctz/src/time_zone_posix.h"
+ #include "absl/time/internal/cctz/src/tzfile.h"
+ 
++#if defined(__SWITCH__)
++// newlib declares fdopen only outside strict ISO C++ mode.
++extern "C" FILE* fdopen(int, const char*);
++#endif
++
+ namespace absl {
+ ABSL_NAMESPACE_BEGIN
+ namespace time_internal {
+diff --git a/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_libc.cc b/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_libc.cc
+index 362da1a..423b900 100644
+--- a/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_libc.cc
++++ b/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_libc.cc
+@@ -81,6 +81,9 @@ auto tm_zone(const std::tm& tm) -> decltype(tzname[0]) {
+   const bool is_dst = tm.tm_isdst > 0;
+   return tzname[is_dst];
+ }
++#elif defined(__SWITCH__)
++auto tm_gmtoff(const std::tm&) -> long { return 0; }
++auto tm_zone(const std::tm&) -> const char* { return "UTC"; }
+ #else
+ // Adapt to different spellings of the struct std::tm extension fields.
+ #if defined(tm_gmtoff)

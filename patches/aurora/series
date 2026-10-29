@@ -113,3 +113,5 @@
 0117-present-the-picture-at-its-exact-shape-or-stretched.patch
 0118-build-the-dawn-platform-without-exceptions.patch
 0119-scale-and-offset-the-viewport-depth.patch
+0120-draw-to-the-switch-window.patch
+0121-run-imgui-without-sdl-on-the-switch.patch

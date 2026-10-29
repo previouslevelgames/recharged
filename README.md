@@ -134,6 +134,11 @@ working on a modding framework. Stay tuned.
 are supported. For the Japanese and Korean versions we are still working on
 the decompilation and on fixing all remaining differences.
 
+**Does it run on a Nintendo Switch?** Only as **homebrew**. A homebrew
+version is in development for Switch consoles with custom firmware
+(Atmosphère). It is not an official Switch game and not on the eShop, and an
+unmodified Switch cannot start it. See the [Switch guide](docs/SWITCH.md).
+
 **Something does not work.** See [troubleshooting](docs/TROUBLESHOOTING.md).
 To report a problem, open an [issue](https://github.com/previouslevelgames/recharged/issues)
 and attach `logs/recharged.log` from the program folder.
@@ -144,8 +149,9 @@ and attach `logs/recharged.log` from the program folder.
 | --- | --- |
 | [Install guide](docs/INSTALL.md) | [Architecture](docs/ARCHITECTURE.md): how Recharged works |
 | [Steam Deck guide](docs/STEAM_DECK.md) | [Building from source](docs/BUILDING.md) |
-| [Features and controls](docs/FEATURES.md) | [Dependencies](extern/README.md) |
-| [Settings](docs/SETTINGS.md): Wii Remotes, saves, updates, options | [Licenses](LICENSES/README.md) |
+| [Nintendo Switch guide](docs/SWITCH.md) (homebrew) | [Dependencies](extern/README.md) |
+| [Features and controls](docs/FEATURES.md) | [Licenses](LICENSES/README.md) |
+| [Settings](docs/SETTINGS.md): Wii Remotes, saves, updates, options | |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | |
 
 ## Credits

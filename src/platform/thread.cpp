@@ -24,6 +24,8 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#elif defined(__SWITCH__)
+#include <switch.h>
 #elif defined(__linux__) || defined(__APPLE__)
 #include <pthread.h>
 #endif
@@ -69,6 +71,24 @@ ThreadStackLimits CurrentThreadStackLimits()
     if (!low || high <= low) throw std::runtime_error("Invalid native thread stack limits");
     cached = {low, high};
     return cached;
+#elif defined(__SWITCH__)
+    // libnx runs each thread on a mapped mirror of its stack. The main thread's
+    // is the memory region around its frame.
+    const Thread* self = threadGetSelf();
+    const auto frame = reinterpret_cast<std::uintptr_t>(__builtin_frame_address(0));
+    if (self && self->stack_sz)
+    {
+        low = reinterpret_cast<std::uintptr_t>(self->stack_mirror ? self->stack_mirror : self->stack_mem);
+        high = low + self->stack_sz;
+    }
+    if (frame < low || frame >= high)
+    {
+        MemoryInfo info{};
+        u32 page = 0;
+        if (R_FAILED(svcQueryMemory(&info, &page, frame))) throw std::runtime_error("Query the current thread stack");
+        low = info.addr;
+        high = info.addr + info.size;
+    }
 #else
     throw std::runtime_error("Current thread stack limits are unavailable on this platform");
 #endif

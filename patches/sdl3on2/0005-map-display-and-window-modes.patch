@@ -1,0 +1,652 @@
+Subject: Map display names, fullscreen modes and window shape
+Upstream-base: fbe120f5020f8bdcb9cbf5ae28d9859b29781119
+
+For the host's window placement and session log. The Switch has one display
+and one fixed window, so its answers come from the console's output.
+
+diff --git a/README.md b/README.md
+index e205268..7ffb894 100644
+--- a/README.md
++++ b/README.md
+@@ -35,6 +35,8 @@ exist.
+ - `SDL_LogTrace` logs at SDL2's lowest priority, so an output function sees it as
+   `SDL_LOG_PRIORITY_VERBOSE`.
+ - `SDL_SetWindowRelativeMouseMode` sets SDL2's relative mode, which applies to every window.
++- `SDL_SetWindowAspectRatio` fits the sizes the program sets, as in SDL3, but SDL2 cannot hold the
++  user's resizing to it. On Switch it succeeds only when the console window's shape is in range.
+ - On Switch, gamepads come from libnx instead of SDL2's joystick driver. Each of up to eight
+   controllers is a gamepad only while it is connected, and its player index is the console's player
+   number. SDL3's sideways mapping applies to a single Joy-Con. A controller that changes style,
+diff --git a/include/SDL3/SDL.h b/include/SDL3/SDL.h
+index 64f62a7..42659d9 100644
+--- a/include/SDL3/SDL.h
++++ b/include/SDL3/SDL.h
+@@ -664,6 +664,8 @@ enum {
+ #define SDL_GetPreferredLocales S3_GetPreferredLocales
+ 
+ #define SDL_Rect S3_Rect
++#define SDL_Point S3_Point
++#define SDL_PointInRect S3_PointInRect
+ #define SDL_FPoint S3_FPoint
+ #define SDL_FRect S3_FRect
+ #define SDL_Color S3_Color
+@@ -868,11 +870,14 @@ enum {
+ #define SDL_GetDisplays S3_GetDisplays
+ #define SDL_GetPrimaryDisplay S3_GetPrimaryDisplay
+ #define SDL_GetDisplayForWindow S3_GetDisplayForWindow
++#define SDL_GetDisplayForRect S3_GetDisplayForRect
++#define SDL_GetDisplayName S3_GetDisplayName
+ #define SDL_GetDisplayContentScale S3_GetDisplayContentScale
+ #define SDL_GetDisplayBounds S3_GetDisplayBounds
+ #define SDL_GetDisplayUsableBounds S3_GetDisplayUsableBounds
+ #define SDL_GetCurrentDisplayMode S3_GetCurrentDisplayMode
+ #define SDL_GetDesktopDisplayMode S3_GetDesktopDisplayMode
++#define SDL_GetClosestFullscreenDisplayMode S3_GetClosestFullscreenDisplayMode
+ #define SDL_GetNaturalDisplayOrientation S3_GetNaturalDisplayOrientation
+ #define SDL_GetCurrentDisplayOrientation S3_GetCurrentDisplayOrientation
+ #define SDL_GetCurrentVideoDriver S3_GetCurrentVideoDriver
+@@ -893,9 +898,13 @@ enum {
+ #define SDL_SetWindowTitle S3_SetWindowTitle
+ #define SDL_SetWindowIcon S3_SetWindowIcon
+ #define SDL_SetWindowPosition S3_SetWindowPosition
++#define SDL_GetWindowPosition S3_GetWindowPosition
+ #define SDL_SetWindowSize S3_SetWindowSize
+ #define SDL_SetWindowMinimumSize S3_SetWindowMinimumSize
++#define SDL_SetWindowAspectRatio S3_SetWindowAspectRatio
+ #define SDL_SetWindowFullscreen S3_SetWindowFullscreen
++#define SDL_SetWindowFullscreenMode S3_SetWindowFullscreenMode
++#define SDL_GetWindowFullscreenMode S3_GetWindowFullscreenMode
+ #define SDL_ShowWindow S3_ShowWindow
+ #define SDL_HideWindow S3_HideWindow
+ #define SDL_RaiseWindow S3_RaiseWindow
+diff --git a/include/SDL3/s3_defs.h b/include/SDL3/s3_defs.h
+index f51e0ca..f075114 100644
+--- a/include/SDL3/s3_defs.h
++++ b/include/SDL3/s3_defs.h
+@@ -215,6 +215,11 @@ typedef struct S3_Rect {
+     int h;
+ } S3_Rect;
+ 
++typedef struct S3_Point {
++    int x;
++    int y;
++} S3_Point;
++
+ typedef struct S3_FPoint {
+     float x;
+     float y;
+@@ -227,6 +232,8 @@ typedef struct S3_FRect {
+     float h;
+ } S3_FRect;
+ 
++extern bool S3_PointInRect(const S3_Point* p, const S3_Rect* r);
++
+ typedef struct S3_Color {
+     Uint8 r;
+     Uint8 g;
+@@ -538,11 +545,14 @@ typedef struct S3_DisplayMode {
+ extern S3_DisplayID* S3_GetDisplays(int* count);
+ extern S3_DisplayID S3_GetPrimaryDisplay(void);
+ extern S3_DisplayID S3_GetDisplayForWindow(S3_Window* window);
++extern S3_DisplayID S3_GetDisplayForRect(const S3_Rect* rect);
++extern const char* S3_GetDisplayName(S3_DisplayID display_id);
+ extern float S3_GetDisplayContentScale(S3_DisplayID display_id);
+ extern bool S3_GetDisplayBounds(S3_DisplayID display_id, S3_Rect* rect);
+ extern bool S3_GetDisplayUsableBounds(S3_DisplayID display_id, S3_Rect* rect);
+ extern const S3_DisplayMode* S3_GetCurrentDisplayMode(S3_DisplayID display_id);
+ extern const S3_DisplayMode* S3_GetDesktopDisplayMode(S3_DisplayID display_id);
++extern bool S3_GetClosestFullscreenDisplayMode(S3_DisplayID display_id, int w, int h, float refresh_rate, bool include_high_density_modes, S3_DisplayMode* closest);
+ extern S3_DisplayOrientation S3_GetNaturalDisplayOrientation(S3_DisplayID display_id);
+ extern S3_DisplayOrientation S3_GetCurrentDisplayOrientation(S3_DisplayID display_id);
+ extern const char* S3_GetCurrentVideoDriver(void);
+@@ -564,9 +574,13 @@ extern float S3_GetWindowDisplayScale(S3_Window* window);
+ extern bool S3_SetWindowTitle(S3_Window* window, const char* title);
+ extern bool S3_SetWindowIcon(S3_Window* window, S3_Surface* icon);
+ extern bool S3_SetWindowPosition(S3_Window* window, int x, int y);
++extern bool S3_GetWindowPosition(S3_Window* window, int* x, int* y);
+ extern bool S3_SetWindowSize(S3_Window* window, int w, int h);
+ extern bool S3_SetWindowMinimumSize(S3_Window* window, int min_w, int min_h);
++extern bool S3_SetWindowAspectRatio(S3_Window* window, float min_aspect, float max_aspect);
+ extern bool S3_SetWindowFullscreen(S3_Window* window, bool fullscreen);
++extern bool S3_SetWindowFullscreenMode(S3_Window* window, const S3_DisplayMode* mode);
++extern const S3_DisplayMode* S3_GetWindowFullscreenMode(S3_Window* window);
+ extern bool S3_ShowWindow(S3_Window* window);
+ extern bool S3_HideWindow(S3_Window* window);
+ extern bool S3_RaiseWindow(S3_Window* window);
+diff --git a/src/s3_switch.c b/src/s3_switch.c
+index 4a4eb20..82f39ee 100644
+--- a/src/s3_switch.c
++++ b/src/s3_switch.c
+@@ -17,6 +17,8 @@ typedef struct S3_SwitchWindow {
+     S3_PropertiesID props;
+     int w;
+     int h;
++    S3_DisplayMode fullscreen_mode;
++    bool has_fullscreen_mode;
+ } S3_SwitchWindow;
+ 
+ static int s3_video_refcount;
+@@ -176,6 +178,23 @@ S3_DisplayID S3_GetDisplayForWindow(S3_Window* window)
+     return S3_SwitchWindowFrom(window) != NULL ? S3_SWITCH_DISPLAY_ID : 0;
+ }
+ 
++S3_DisplayID S3_GetDisplayForRect(const S3_Rect* rect)
++{
++    if (rect == NULL) {
++        SDL_SetError("Parameter 'rect' is invalid");
++        return 0;
++    }
++
++    // Every rect is nearest to the one display.
++    return S3_ValidDisplay(S3_SWITCH_DISPLAY_ID) ? S3_SWITCH_DISPLAY_ID : 0;
++}
++
++const char* S3_GetDisplayName(S3_DisplayID display_id)
++{
++    // SDL3 names a display the system leaves unnamed by its id.
++    return S3_ValidDisplay(display_id) ? "1" : NULL;
++}
++
+ float S3_GetDisplayContentScale(S3_DisplayID display_id)
+ {
+     return S3_ValidDisplay(display_id) ? 1.0f : 0.0f;
+@@ -229,6 +248,36 @@ const S3_DisplayMode* S3_GetDesktopDisplayMode(S3_DisplayID display_id)
+     return S3_GetCurrentDisplayMode(display_id);
+ }
+ 
++bool S3_GetClosestFullscreenDisplayMode(S3_DisplayID display_id, int w, int h, float refresh_rate, bool include_high_density_modes, S3_DisplayMode* closest)
++{
++    const S3_DisplayMode* mode;
++
++    (void)refresh_rate;
++    (void)include_high_density_modes;
++
++    if (closest == NULL) {
++        SDL_SetError("Parameter 'closest' is invalid");
++        return false;
++    }
++
++    SDL_zerop(closest);
++
++    // The console's output is the display's only mode.
++    mode = S3_GetCurrentDisplayMode(display_id);
++    if (mode == NULL) {
++        return false;
++    }
++
++    if (mode->w < w || mode->h < h) {
++        SDL_SetError("Couldn't find any matching video modes");
++        return false;
++    }
++
++    *closest = *mode;
++
++    return true;
++}
++
+ S3_DisplayOrientation S3_GetNaturalDisplayOrientation(S3_DisplayID display_id)
+ {
+     return S3_ValidDisplay(display_id) ? S3_ORIENTATION_LANDSCAPE : S3_ORIENTATION_UNKNOWN;
+@@ -405,6 +454,76 @@ bool S3_SetWindowPosition(S3_Window* window, int x, int y)
+     return S3_SwitchWindowFrom(window) != NULL;
+ }
+ 
++bool S3_GetWindowPosition(S3_Window* window, int* x, int* y)
++{
++    if (S3_SwitchWindowFrom(window) == NULL) {
++        return false;
++    }
++
++    if (x != NULL) {
++        *x = 0;
++    }
++
++    if (y != NULL) {
++        *y = 0;
++    }
++
++    return true;
++}
++
++bool S3_SetWindowAspectRatio(S3_Window* window, float min_aspect, float max_aspect)
++{
++    const S3_SwitchWindow* state = S3_SwitchWindowFrom(window);
++    float aspect;
++
++    if (state == NULL) {
++        return false;
++    }
++
++    // The console window cannot change shape, so limits only hold if its own shape meets them.
++    aspect = (float)state->w / (float)state->h;
++    if ((max_aspect > 0.0f && aspect > max_aspect + 0.001f) || (min_aspect > 0.0f && aspect < min_aspect - 0.001f)) {
++        SDL_SetError("The Switch window cannot change its shape");
++        return false;
++    }
++
++    return true;
++}
++
++bool S3_SetWindowFullscreenMode(S3_Window* window, const S3_DisplayMode* mode)
++{
++    S3_SwitchWindow* state = S3_SwitchWindowFrom(window);
++    const S3_DisplayMode* current;
++
++    if (state == NULL) {
++        return false;
++    }
++
++    if (mode == NULL) {
++        state->has_fullscreen_mode = false;
++        return true;
++    }
++
++    // SDL3 takes only the display's own modes, and the console has the one it outputs.
++    current = S3_GetCurrentDisplayMode(S3_SWITCH_DISPLAY_ID);
++    if (current == NULL || mode->w != current->w || mode->h != current->h) {
++        SDL_SetError("Invalid fullscreen display mode");
++        return false;
++    }
++
++    state->fullscreen_mode = *current;
++    state->has_fullscreen_mode = true;
++
++    return true;
++}
++
++const S3_DisplayMode* S3_GetWindowFullscreenMode(S3_Window* window)
++{
++    const S3_SwitchWindow* state = S3_SwitchWindowFrom(window);
++
++    return state != NULL && state->has_fullscreen_mode ? &state->fullscreen_mode : NULL;
++}
++
+ bool S3_SetWindowSize(S3_Window* window, int w, int h)
+ {
+     (void)w;
+diff --git a/src/s3_video.c b/src/s3_video.c
+index fe6c6be..ed9de37 100644
+--- a/src/s3_video.c
++++ b/src/s3_video.c
+@@ -9,6 +9,9 @@ static_assert(offsetof(S3_Rect, y) == offsetof(SDL_Rect, y), "S3_Rect::y");
+ static_assert(offsetof(S3_Rect, w) == offsetof(SDL_Rect, w), "S3_Rect::w");
+ static_assert(offsetof(S3_Rect, h) == offsetof(SDL_Rect, h), "S3_Rect::h");
+ 
++static_assert(sizeof(S3_Point) == sizeof(SDL_Point), "S3_Point size");
++static_assert(offsetof(S3_Point, y) == offsetof(SDL_Point, y), "S3_Point::y");
++
+ static_assert(sizeof(S3_FRect) == sizeof(SDL_FRect), "S3_FRect size");
+ static_assert(offsetof(S3_FRect, x) == offsetof(SDL_FRect, x), "S3_FRect::x");
+ static_assert(offsetof(S3_FRect, y) == offsetof(SDL_FRect, y), "S3_FRect::y");
+@@ -341,6 +344,11 @@ S3_PixelFormat S3_GetPixelFormatForMasks(int bpp, Uint32 Rmask, Uint32 Gmask, Ui
+     return (S3_PixelFormat)SDL_MasksToPixelFormatEnum(bpp, Rmask, Gmask, Bmask, Amask);
+ }
+ 
++bool S3_PointInRect(const S3_Point* p, const S3_Rect* r)
++{
++    return p != NULL && r != NULL && p->x >= r->x && p->x < r->x + r->w && p->y >= r->y && p->y < r->y + r->h;
++}
++
+ bool S3_HideCursor(void)
+ {
+     return SDL_ShowCursor(SDL_DISABLE) >= 0;
+@@ -463,6 +471,19 @@ bool S3_GetDisplayUsableBounds(S3_DisplayID display_id, S3_Rect* rect)
+ static S3_DisplayMode s3_current_modes[S3_DISPLAY_MODE_CACHE_SIZE];
+ static S3_DisplayMode s3_desktop_modes[S3_DISPLAY_MODE_CACHE_SIZE];
+ 
++static void S3_FromSDL2DisplayMode(S3_DisplayID display_id, const SDL_DisplayMode* native, S3_DisplayMode* mode)
++{
++    SDL_zerop(mode);
++    mode->displayID = display_id;
++    mode->format = (S3_PixelFormat)native->format;
++    mode->w = native->w;
++    mode->h = native->h;
++    mode->pixel_density = 1.0f;
++    mode->refresh_rate = (float)native->refresh_rate;
++    mode->refresh_rate_numerator = native->refresh_rate;
++    mode->refresh_rate_denominator = native->refresh_rate != 0 ? 1 : 0;
++}
++
+ static const S3_DisplayMode* S3_FillDisplayMode(S3_DisplayID display_id, bool desktop)
+ {
+     const int index = S3_DisplayIndex(display_id);
+@@ -483,19 +504,127 @@ static const S3_DisplayMode* S3_FillDisplayMode(S3_DisplayID display_id, bool de
+     }
+ 
+     mode = desktop ? &s3_desktop_modes[index] : &s3_current_modes[index];
+-    SDL_zerop(mode);
+-    mode->displayID = display_id;
+-    mode->format = (S3_PixelFormat)native.format;
+-    mode->w = native.w;
+-    mode->h = native.h;
+-    mode->pixel_density = 1.0f;
+-    mode->refresh_rate = (float)native.refresh_rate;
+-    mode->refresh_rate_numerator = native.refresh_rate;
+-    mode->refresh_rate_denominator = native.refresh_rate != 0 ? 1 : 0;
++    S3_FromSDL2DisplayMode(display_id, &native, mode);
+ 
+     return mode;
+ }
+ 
++const char* S3_GetDisplayName(S3_DisplayID display_id)
++{
++    static char unnamed[S3_DISPLAY_MODE_CACHE_SIZE][12];
++    const int index = S3_DisplayIndex(display_id);
++    const char* name;
++    char fallback[12];
++
++    if (index < 0) {
++        return NULL;
++    }
++
++    // SDL2 names a display the system leaves unnamed by its index, SDL3 by its id.
++    name = SDL_GetDisplayName(index);
++    SDL_snprintf(fallback, sizeof(fallback), "%d", index);
++    if (name != NULL && SDL_strcmp(name, fallback) != 0) {
++        return name;
++    }
++
++    if (index >= S3_DISPLAY_MODE_CACHE_SIZE) {
++        SDL_SetError("Too many displays");
++        return NULL;
++    }
++
++    SDL_snprintf(unnamed[index], sizeof(unnamed[index]), "%u", (unsigned int)display_id);
++
++    return unnamed[index];
++}
++
++S3_DisplayID S3_GetDisplayForRect(const S3_Rect* rect)
++{
++    int index;
++
++    if (rect == NULL) {
++        SDL_SetError("Parameter 'rect' is invalid");
++        return 0;
++    }
++
++    // Both pick the display under the rect's centre, or the one nearest to it.
++    index = SDL_GetRectDisplayIndex((const SDL_Rect*)rect);
++
++    return index < 0 ? 0 : (S3_DisplayID)index + 1;
++}
++
++bool S3_GetClosestFullscreenDisplayMode(S3_DisplayID display_id, int w, int h, float refresh_rate, bool include_high_density_modes, S3_DisplayMode* closest)
++{
++    const int index = S3_DisplayIndex(display_id);
++    const float aspect = h > 0 ? (float)w / (float)h : 1.0f;
++    SDL_DisplayMode best;
++    SDL_DisplayMode native;
++    bool found = false;
++    int count;
++    int mode;
++
++    // SDL2's modes all have a pixel density of 1.
++    (void)include_high_density_modes;
++
++    if (closest == NULL) {
++        SDL_SetError("Parameter 'closest' is invalid");
++        return false;
++    }
++
++    SDL_zerop(closest);
++
++    if (index < 0) {
++        return false;
++    }
++
++    if (refresh_rate <= 0.0f && SDL_GetCurrentDisplayMode(index, &native) == 0) {
++        refresh_rate = (float)native.refresh_rate;
++    }
++
++    // SDL2 lists modes widest first, as SDL3 searches them: the first large enough mode with the
++    // nearest shape, then the nearest refresh rate among equal sizes.
++    SDL_zero(best);
++    count = SDL_GetNumDisplayModes(index);
++    for (mode = 0; mode < count; mode++) {
++        if (SDL_GetDisplayMode(index, mode, &native) != 0) {
++            continue;
++        }
++
++        if (native.w < w) {
++            break;
++        }
++
++        if (native.h < h) {
++            continue;
++        }
++
++        if (found) {
++            const float mode_aspect = (float)native.w / (float)native.h;
++            const float best_aspect = (float)best.w / (float)best.h;
++
++            if (SDL_fabsf(aspect - best_aspect) < SDL_fabsf(aspect - mode_aspect)) {
++                continue;
++            }
++
++            if (native.w == best.w && native.h == best.h
++                && SDL_fabsf((float)best.refresh_rate - refresh_rate) < SDL_fabsf((float)native.refresh_rate - refresh_rate)) {
++                continue;
++            }
++        }
++
++        best = native;
++        found = true;
++    }
++
++    if (!found) {
++        SDL_SetError("Couldn't find any matching video modes");
++        return false;
++    }
++
++    S3_FromSDL2DisplayMode(display_id, &best, closest);
++
++    return true;
++}
++
+ const S3_DisplayMode* S3_GetCurrentDisplayMode(S3_DisplayID display_id)
+ {
+     return S3_FillDisplayMode(display_id, false);
+@@ -626,6 +755,50 @@ static Uint32 S3_ToSDL2WindowFlags(S3_WindowFlags flags)
+     return native;
+ }
+ 
++// What SDL3 keeps for a window that SDL2 has no place for.
++typedef struct S3_WindowExtras {
++    S3_DisplayMode fullscreen_mode;
++    bool has_fullscreen_mode;
++    float min_aspect;
++    float max_aspect;
++} S3_WindowExtras;
++
++#define S3_WINDOW_EXTRAS "sdl3on2.window"
++
++static S3_WindowExtras* S3_GetWindowExtras(SDL_Window* window, bool create)
++{
++    S3_WindowExtras* extras = (S3_WindowExtras*)SDL_GetWindowData(window, S3_WINDOW_EXTRAS);
++
++    if (extras == NULL && create) {
++        extras = (S3_WindowExtras*)SDL_calloc(1, sizeof(*extras));
++        if (extras == NULL) {
++            SDL_SetError("Out of memory");
++            return NULL;
++        }
++        SDL_SetWindowData(window, S3_WINDOW_EXTRAS, extras);
++    }
++
++    return extras;
++}
++
++// SDL3 fits a size it sets to the window's aspect limits.
++static void S3_ApplyAspectLimits(SDL_Window* window, int* w, int* h)
++{
++    const S3_WindowExtras* extras = S3_GetWindowExtras(window, false);
++    float aspect;
++
++    if (extras == NULL || *h <= 0) {
++        return;
++    }
++
++    aspect = (float)*w / (float)*h;
++    if (extras->max_aspect > 0.0f && aspect > extras->max_aspect) {
++        *w = (int)SDL_roundf((float)*h * extras->max_aspect);
++    } else if (extras->min_aspect > 0.0f && aspect < extras->min_aspect) {
++        *h = (int)SDL_roundf((float)*w / extras->min_aspect);
++    }
++}
++
+ static bool s3_text_input_defaulted;
+ 
+ static void S3_DefaultTextInputOff(void)
+@@ -672,6 +845,7 @@ void S3_DestroyWindow(S3_Window* window)
+     // SDL3 announces the window while it can still be looked up.
+     S3_PushWindowEvent(S3_SDL2_WINDOWEVENT_DESTROYED, SDL_GetWindowID(window), 0, 0);
+     S3_ReleaseObjectProperties(window);
++    SDL_free(SDL_SetWindowData(window, S3_WINDOW_EXTRAS, NULL));
+     SDL_DestroyWindow(window);
+ }
+ 
+@@ -817,6 +991,18 @@ bool S3_SetWindowPosition(S3_Window* window, int x, int y)
+     return true;
+ }
+ 
++bool S3_GetWindowPosition(S3_Window* window, int* x, int* y)
++{
++    if (window == NULL) {
++        SDL_SetError("Invalid window");
++        return false;
++    }
++
++    SDL_GetWindowPosition(window, x, y);
++
++    return true;
++}
++
+ bool S3_SetWindowSize(S3_Window* window, int w, int h)
+ {
+     if (window == NULL) {
+@@ -824,11 +1010,111 @@ bool S3_SetWindowSize(S3_Window* window, int w, int h)
+         return false;
+     }
+ 
++    S3_ApplyAspectLimits(window, &w, &h);
+     SDL_SetWindowSize(window, w, h);
+ 
+     return true;
+ }
+ 
++bool S3_SetWindowAspectRatio(S3_Window* window, float min_aspect, float max_aspect)
++{
++    S3_WindowExtras* extras;
++    int w = 0;
++    int h = 0;
++
++    if (window == NULL) {
++        SDL_SetError("Invalid window");
++        return false;
++    }
++
++    extras = S3_GetWindowExtras(window, true);
++    if (extras == NULL) {
++        return false;
++    }
++
++    extras->min_aspect = min_aspect;
++    extras->max_aspect = max_aspect;
++
++    // As in SDL3 the windowed size follows at once; SDL2 cannot hold the user's resizing to it.
++    if ((SDL_GetWindowFlags(window) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MAXIMIZED)) == 0) {
++        SDL_GetWindowSize(window, &w, &h);
++        return S3_SetWindowSize(window, w, h);
++    }
++
++    return true;
++}
++
++// The display's own mode a requested one names, as SDL3 accepts no other.
++static bool S3_FindDisplayMode(SDL_Window* window, const S3_DisplayMode* mode, SDL_DisplayMode* native)
++{
++    const int index = mode->displayID != 0 ? (int)mode->displayID - 1 : SDL_GetWindowDisplayIndex(window);
++    const int count = index >= 0 ? SDL_GetNumDisplayModes(index) : 0;
++    int candidate;
++
++    for (candidate = 0; candidate < count; candidate++) {
++        if (SDL_GetDisplayMode(index, candidate, native) == 0 && native->w == mode->w && native->h == mode->h
++            && (mode->refresh_rate <= 0.0f || native->refresh_rate == (int)SDL_roundf(mode->refresh_rate))
++            && (mode->format == S3_PIXELFORMAT_UNKNOWN || native->format == (Uint32)mode->format)) {
++            return true;
++        }
++    }
++
++    return false;
++}
++
++bool S3_SetWindowFullscreenMode(S3_Window* window, const S3_DisplayMode* mode)
++{
++    S3_WindowExtras* extras;
++    SDL_DisplayMode native;
++
++    if (window == NULL) {
++        SDL_SetError("Invalid window");
++        return false;
++    }
++
++    extras = S3_GetWindowExtras(window, true);
++    if (extras == NULL) {
++        return false;
++    }
++
++    if (mode != NULL) {
++        if (!S3_FindDisplayMode(window, mode, &native)) {
++            SDL_SetError("Invalid fullscreen display mode");
++            return false;
++        }
++
++        if (SDL_SetWindowDisplayMode(window, &native) != 0) {
++            return false;
++        }
++
++        extras->fullscreen_mode = *mode;
++        extras->has_fullscreen_mode = true;
++    } else {
++        extras->has_fullscreen_mode = false;
++    }
++
++    // A window already fullscreen takes the new mode at once, the desktop's when there is none.
++    if ((SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0) {
++        return SDL_SetWindowFullscreen(window, extras->has_fullscreen_mode ? SDL_WINDOW_FULLSCREEN : SDL_WINDOW_FULLSCREEN_DESKTOP) == 0;
++    }
++
++    return true;
++}
++
++const S3_DisplayMode* S3_GetWindowFullscreenMode(S3_Window* window)
++{
++    const S3_WindowExtras* extras;
++
++    if (window == NULL) {
++        SDL_SetError("Invalid window");
++        return NULL;
++    }
++
++    extras = S3_GetWindowExtras(window, false);
++
++    return extras != NULL && extras->has_fullscreen_mode ? &extras->fullscreen_mode : NULL;
++}
++
+ bool S3_SetWindowMinimumSize(S3_Window* window, int min_w, int min_h)
+ {
+     if (window == NULL) {
+@@ -843,7 +1129,11 @@ bool S3_SetWindowMinimumSize(S3_Window* window, int min_w, int min_h)
+ 
+ bool S3_SetWindowFullscreen(S3_Window* window, bool fullscreen)
+ {
+-    return SDL_SetWindowFullscreen(window, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0) == 0;
++    // SDL3's fullscreen is exclusive with a fullscreen mode set, and the desktop's otherwise.
++    const S3_WindowExtras* extras = window != NULL ? S3_GetWindowExtras(window, false) : NULL;
++    const Uint32 flag = extras != NULL && extras->has_fullscreen_mode ? SDL_WINDOW_FULLSCREEN : SDL_WINDOW_FULLSCREEN_DESKTOP;
++
++    return SDL_SetWindowFullscreen(window, fullscreen ? flag : 0) == 0;
+ }
+ 
+ bool S3_ShowWindow(S3_Window* window)
