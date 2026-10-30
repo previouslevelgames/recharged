@@ -298,6 +298,55 @@ The profile page shows both sticks and triggers live with these settings, and
 the gyro pointer when it is on.
 The built-in Default always uses the defaults; changing it makes your own copy.
 
+**GameCube controls** (`gamecube_controls`, GameCube profiles only, on for the
+Default): a GameCube controller plays with Super Mario Strikers' controls,
+where a button's job depends on what you are doing. With it on, the button
+cards below it are greyed out. Turn it off to choose the buttons yourself.
+
+| Button | With the ball | Without the ball |
+| --- | --- | --- |
+| A | Pass (with L: a lob pass) | Switch player |
+| B | Shoot, hold to charge (captains: Mega Strike) | Slide tackle |
+| Y | Deke | Big hit |
+| C-stick | Deke that way | |
+| X | Use item | Use item |
+| Z | Cycle items | Cycle items |
+| R | Special move | Special move |
+| L | Lob modifier | |
+| D-pad | Charged's D-pad moves | Charged's D-pad moves |
+
+In menus A selects, L and R turn pages, the C-stick points and START pauses.
+With **Controller menus** (Gameplay) the D-pad and the sticks move between a
+menu's buttons instead, and B goes back.
+Defending a Mega Strike needs a Wii Remote's pointer, so a match of GameCube
+players plays best with **No Mega Strikes** (Gameplay). A GameCube profile
+saved by an older version, without `gamecube_controls`, keeps its own buttons.
+
+**GameCube controller adapter.** Recharged reads the official adapter
+(WUP-028) the way Dolphin and Slippi do, so it needs the same one-time setup.
+If the adapter already works in Dolphin or Slippi on this computer, skip this.
+A third-party adapter with a mode switch must be in Wii U mode.
+
+- **Windows**: give the adapter the WinUSB driver with
+  [Zadig](https://zadig.akeo.ie/). Choose **Options > List All Devices**,
+  select **WUP-028** (USB ID 057E 0337), pick **WinUSB** and click **Replace
+  Driver**. If WUP-028 is not listed, plug the adapter's black plug into
+  another USB port.
+- **Linux**: add Dolphin's udev rule, then reconnect the adapter:
+
+```sh
+echo 'SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{idVendor}=="057e", ATTRS{idProduct}=="0337", TAG+="uaccess"' \
+	| sudo tee /etc/udev/rules.d/51-gcadapter.rules
+sudo udevadm control --reload-rules
+```
+
+- **macOS**: the system claims the adapter for itself. Install
+  GCAdapterDriver as
+  [Dolphin's adapter guide](https://dolphin-emu.org/docs/guides/how-use-official-gc-controller-adapter-wii-u/)
+  describes.
+
+The black plug carries the controllers, and the grey plug powers rumble.
+
 **Hotkeys** (Controls → Hotkeys, `[hotkeys]`) work in the game window whoever
 plays: **P** saves a screenshot (`screenshot`), **H** shows or hides the HUD in
 a match (`hud`), **F** stretches the picture over the window or gives it back

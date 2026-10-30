@@ -213,6 +213,10 @@ show_hud = true
 # controller: the controllers the profile is made for, xbox (Xbox and
 # PlayStation, whose buttons sit in the same places), nintendo or gamecube;
 # the launcher offers a gamepad the profiles of its kind.
+# gamecube_controls (gamecube profiles only): true plays matches with Super
+# Mario Strikers' GameCube controls, which depend on who has the ball, and
+# ignores the inputs above. false, also when left out, uses them. The built-in
+# Default plays a GameCube controller with GameCube controls.
 # [gamepad_profile1]
 # name = Southpaw
 # a = a
@@ -269,6 +273,9 @@ show_hud = true
 # super_team: the captain and sidekicks of super_team_side (away, home or both)
 # become the robots of the Super Team from Super Mario Strikers, fitted to each
 # character. Needs [game] gamecube_disc. Bowser, Petey and Boo keep their look.
+# controller_menus: a gamepad moves between menu buttons with the D-pad or a
+# stick instead of pointing; A selects, B goes back, the triggers turn pages.
+# Turns no_mega_strikes on with it. Wii Remotes and the mouse still point.
 # fair_ball_contests: when players of both teams reach a loose ball at once,
 # neither team wins it more often (the game's player order slightly favours
 # the home team, and one-timers, first-time shots off rebounds and pass
@@ -315,6 +322,7 @@ super_team_side = away
 fair_ball_contests = true
 secure_stadiums = false
 match_point = true
+controller_menus = false
 training_item = green_shell
 training_captain = mario
 training_stadium = tutorialfield

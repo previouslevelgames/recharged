@@ -149,13 +149,17 @@ std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily f
         inputs[GamepadActionTwo] = "y";
     } else if (family == GamepadFamily::GameCube) {
         // GameCube (USB adapter): A bottom, B left, X right, Y top; L/R are
-        // the analog triggers and Z the right shoulder button. It has no
-        // buttons left for 1, - and HOME, and no stick buttons (nor a gyro).
+        // the analog triggers and Z the right shoulder button. START is 1, the
+        // game's pause button. L and R also turn pages as - and +: matches
+        // leave them alone (only the game's developer replay switch and the
+        // HOME Button Menu's volume read them otherwise). It has no button
+        // left for HOME, and no stick buttons (nor a gyro).
         inputs[GamepadActionA] = "a";
         inputs[GamepadActionB] = "x";
-        inputs[GamepadActionOne] = "none";
+        inputs[GamepadActionOne] = "start";
         inputs[GamepadActionTwo] = "y";
-        inputs[GamepadActionMinus] = "none";
+        inputs[GamepadActionPlus] = "righttrigger";
+        inputs[GamepadActionMinus] = "lefttrigger";
         inputs[GamepadActionHome] = "none";
         inputs[GamepadActionC] = "lefttrigger";
         inputs[GamepadActionZ] = "rightshoulder";

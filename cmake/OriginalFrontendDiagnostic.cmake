@@ -108,14 +108,15 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     set_target_properties(${target} PROPERTIES
         PREFIX "" POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN ON MSCHARGED_GAME_VERSION ${version})
-    # The input sources (KPAD, pads, FE input) differ by version as well.
-    if(NOT version STREQUAL "R4QE01")
-        mscharged_add_original_game_focus(mscharged_original_game_focus_${suffix} ${version})
-        get_target_property(_libraries ${target} LINK_LIBRARIES)
-        list(TRANSFORM _libraries REPLACE "^mscharged_original_game_focus$"
-            "mscharged_original_game_focus_${suffix}")
-        set_property(TARGET ${target} PROPERTY LINK_LIBRARIES "${_libraries}")
-    endif()
+    # The input sources (KPAD, pads, FE input) differ by version as well, and
+    # carry a tweak hook (controller menus, in PlatPadManager.cpp): each game
+    # module gets its own copy with this module's MSCHARGED_TWEAKS.
+    mscharged_add_original_game_focus(mscharged_original_game_focus_${suffix} ${version})
+    target_compile_definitions(mscharged_original_game_focus_${suffix} PRIVATE MSCHARGED_TWEAKS=1)
+    get_target_property(_libraries ${target} LINK_LIBRARIES)
+    list(TRANSFORM _libraries REPLACE "^mscharged_original_game_focus$"
+        "mscharged_original_game_focus_${suffix}")
+    set_property(TARGET ${target} PROPERTY LINK_LIBRARIES "${_libraries}")
     # [gameplay] tweaks: the hooks of patches/mscharged-decomp-tweaks are
     # compiled into this game module only; every other target that builds the
     # same original sources keeps their original code unchanged. Defined before
@@ -214,6 +215,8 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     endif()
     # Robot goalies: the disc's unused robot goalie texture on Charged's goalie (tweak patch 0025).
     target_sources(${target} PRIVATE src/platform/robot_goalie.cpp src/platform/robot_goalie_hook.cpp)
+    # Controller menus: the D-pad and sticks move between menu buttons (tweak patch 0047).
+    target_sources(${target} PRIVATE src/platform/controller_menus.cpp)
     # Super Team: robot captains and sidekicks from the GameCube robot (tweak patch 0026).
     target_sources(${target} PRIVATE src/platform/super_team.cpp src/platform/super_team_hook.cpp)
     # The logo reads RECHARGED (issue #63, tweak patch 0022, always on).

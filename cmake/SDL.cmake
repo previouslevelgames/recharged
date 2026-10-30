@@ -1,4 +1,5 @@
 mscharged_prepare_dependency(sdl MSCHARGED_SDL_PREPARED)
+include(cmake/LibUSB.cmake)
 
 function(mscharged_add_sdl)
     # This SDL pin deliberately adds extra escapes for legacy macro evaluation.
@@ -12,6 +13,10 @@ function(mscharged_add_sdl)
     set(SDL_TESTS OFF)
     set(SDL_EXAMPLES OFF)
     set(SDL_INSTALL OFF)
+    if(MSCHARGED_SDL_LIBUSB_STATIC)
+        set(SDL_HIDAPI_LIBUSB ON)
+        set(SDL_HIDAPI_LIBUSB_SHARED OFF)
+    endif()
     add_subdirectory("${MSCHARGED_SDL_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/extern/sdl" EXCLUDE_FROM_ALL)
 endfunction()
 mscharged_add_sdl()

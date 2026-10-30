@@ -1,0 +1,392 @@
+Subject: Controller menus: the D-pad and sticks move between menu buttons
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+The game's menus are pointer-only. With controller menus on (a [gameplay]
+tweak), a gamepad player moves between a menu's buttons with the D-pad and the
+sticks instead, as in the Strikers WiiCompiled port: the pointer snaps onto
+the next button that way, so the game's own hand marks the selection and its
+hover and press logic run unchanged. B goes to the screen's back button and
+presses it, and the triggers turn pages. The port decides where the pointer
+goes (src/platform/controller_menus.cpp, mscharged_tweak_navigate_menu).
+
+PlatPadManager::UpdateChannel calls FENavigateMenus (feDPD.cpp) for each
+Nunchuk remote it reads. For a channel the port navigates, it gathers the
+menu's live buttons: the registered pointer listeners, enabled and not locked
+out, whose last event for that channel is at its pointer. Scenes pass pointer
+events only to the screens they show, so the buttons of registered but hidden
+screens drop out; the character grids of the captain and sidekick scenes stay
+live while hidden and are left out by hand. It then writes the pointer the
+port asks for into the reading (KPAD's position, GetPointerPosition's mapping
+the other way round), adds its presses (A, 1, + and -) to the remote's buttons
+and hides or shows the hand. Hiding gives the hand's instances a transparent
+colour override and puts their own back after.
+
+Two helpers have no original counterpart: FEPointerRegion's turn and pivot
+are read for a turned button's middle, and back buttons are counted as they
+are made and destroyed (FEIsBackButton), as the build has no RTTI.
+
+diff --git a/include/Game/FE/feBackButton.h b/include/Game/FE/feBackButton.h
+index 49c906c..c852024 100644
+--- a/include/Game/FE/feBackButton.h
++++ b/include/Game/FE/feBackButton.h
+@@ -36,4 +36,11 @@ public:
+     /* 0x0D2 */ bool mPointerInside[4];
+ }; // size 0xD8
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port: controller menus press a screen's back button for B. Whether
++// `listener` is a back button: there is no RTTI, so back buttons are counted
++// as they are made and destroyed.
++bool FEIsBackButton(const FEPointerListener* listener);
++#endif
++
+ #endif // GAME_FE_FEBACKBUTTON_H
+diff --git a/include/Game/FE/fePointer.h b/include/Game/FE/fePointer.h
+index 989bd7a..d70a264 100644
+--- a/include/Game/FE/fePointer.h
++++ b/include/Game/FE/fePointer.h
+@@ -83,6 +83,11 @@ public:
+     virtual float GetMaxX() const;
+     virtual float GetMaxY() const;
+     virtual float GetMinY() const;
++#if defined(MSCHARGED_TWEAKS)
++    // Port: controller menus find a turned button's middle.
++    float GetRotation() const { return mRotation; }
++    nlVector2 GetPivot() const { return mPivot; }
++#endif
+ 
+ private:
+     /* 0x84 */ float mMinX;
+diff --git a/src/Game/FE/feBackButton.cpp b/src/Game/FE/feBackButton.cpp
+index 4e8de4b..6339dec 100644
+--- a/src/Game/FE/feBackButton.cpp
++++ b/src/Game/FE/feBackButton.cpp
+@@ -15,6 +15,36 @@
+ 
+ 
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port: the live back buttons (FEIsBackButton). Screens keep a few; one past
++// the last slot stays unknown, and B then has no back button to press.
++static const FEBackButton* sBackButtons[64];
++
++bool FEIsBackButton(const FEPointerListener* listener)
++{
++    for (int i = 0; i < 64; ++i)
++    {
++        if (sBackButtons[i] != 0 && static_cast<const FEPointerListener*>(sBackButtons[i]) == listener)
++        {
++            return true;
++        }
++    }
++    return false;
++}
++
++static void TrackBackButton(const FEBackButton* added, const FEBackButton* removed)
++{
++    for (int i = 0; i < 64; ++i)
++    {
++        if (sBackButtons[i] == removed)
++        {
++            sBackButtons[i] = added;
++            return;
++        }
++    }
++}
++#endif
++
+ /**
+  * Offset/Address/Size: 0x0 | 0x8022EF84 | size: 0x84
+  */
+@@ -34,6 +64,9 @@ FEBackButton::FEBackButton()
+     mPointerInside[1] = false;
+     mPointerInside[2] = false;
+     mPointerInside[3] = false;
++#if defined(MSCHARGED_TWEAKS)
++    TrackBackButton(this, 0);
++#endif
+ }
+ 
+ /**
+@@ -41,6 +74,9 @@ FEBackButton::FEBackButton()
+  */
+ FEBackButton::~FEBackButton()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    TrackBackButton(0, this);
++#endif
+ }
+ 
+ /**
+diff --git a/src/Game/FE/feDPD.cpp b/src/Game/FE/feDPD.cpp
+index 2aabf51..93cd883 100644
+--- a/src/Game/FE/feDPD.cpp
++++ b/src/Game/FE/feDPD.cpp
+@@ -20,6 +20,17 @@
+ #include "NL/plat/DPDData.h"
+ #include "decomp.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_tweaks.h"
++#include <math.h>
++#include "Game/FE/feBackButton.h"
++#include "Game/FE/fePointer.h"
++#include "Game/FE/tlComponentInstance.h"
++#include "Game/GameSceneManager.h"
++#include "Game/Task/GameTaskState.h"
++#include "Game/SH/SHChooseCaptains.h"
++#include "Game/SH/SHChooseSidekicks.h"
++#endif
+ 
+ TLComponentInstance* gFEPointerInstances[4];
+ nlVector2 gFEPointerPositions[4];
+@@ -167,3 +178,220 @@ bool IsFreeStylePad(int index)
+     int type = device->GetClassID();
+     return type == gWiiFreestylePadClassID;
+ }
++
++#if defined(MSCHARGED_TWEAKS)
++// Port: controller menus. The game's menus are pointer-only; for a gamepad
++// player the D-pad and the sticks move between their buttons instead
++// (src/platform/controller_menus.cpp decides where). This hook runs as the
++// channel's remote is read (PlatPadManager::UpdateChannel): it gathers the
++// menu's live buttons, then puts the pointer where the navigation asks, adds
++// its presses to the remote's buttons and hides or shows the hand.
++static const int kMenuCapacity = 64;
++
++// A hidden hand: its instances' colour overrides from before, to put back.
++struct HiddenHand
++{
++    TLInstance* hand;
++    int count;
++    TLInstance* instances[kMenuCapacity];
++    u32 flags[kMenuCapacity];
++    nlColour colours[kMenuCapacity];
++};
++static HiddenHand sHiddenHands[4];
++
++static void CollectHandInstances(TLInstance* instance, TLInstance** out, int& count)
++{
++    for (int guard = 0; instance != 0 && guard < kMenuCapacity && count < kMenuCapacity; ++guard)
++    {
++        for (int i = 0; i < count; ++i)
++        {
++            if (out[i] == instance)
++                return;
++        }
++        out[count++] = instance;
++        CollectHandInstances(instance->pChildren, out, count);
++        instance = instance->m_next;
++    }
++}
++
++// Scenes show the hand again every frame but leave its colour alone, so the
++// hand and its child graphics hide behind a transparent colour override.
++static void SetHandVisible(int channel, bool visible)
++{
++    HiddenHand& hidden = sHiddenHands[channel];
++    TLInstance* hand = gFEPointerInstances[channel];
++    if (hand != hidden.hand)
++    {
++        // Another scene's hand: the old one's instances may be gone.
++        hidden.hand = hand;
++        hidden.count = 0;
++    }
++    if (hand == 0)
++        return;
++    if (visible)
++    {
++        for (int i = 0; i < hidden.count; ++i)
++        {
++            hidden.instances[i]->m_overloadFlags = hidden.flags[i];
++            hidden.instances[i]->m_overloadedAttributes.colour = hidden.colours[i];
++        }
++        hidden.count = 0;
++        return;
++    }
++    TLInstance* tree[kMenuCapacity];
++    int count = 0;
++    tree[count++] = hand;
++    CollectHandInstances(hand->pChildren, tree, count);
++    for (int t = 0; t < count; ++t)
++    {
++        TLInstance* instance = tree[t];
++        bool saved = false;
++        for (int i = 0; i < hidden.count && !saved; ++i)
++            saved = hidden.instances[i] == instance;
++        if (!saved)
++        {
++            if (hidden.count == kMenuCapacity)
++                continue;
++            hidden.instances[hidden.count] = instance;
++            hidden.flags[hidden.count] = instance->m_overloadFlags;
++            hidden.colours[hidden.count] = instance->m_overloadedAttributes.colour;
++            ++hidden.count;
++        }
++        nlColour colour = instance->GetColour();
++        colour.c[3] = 0;
++        instance->m_overloadFlags |= 0x10;
++        instance->m_overloadedAttributes.colour = colour;
++    }
++}
++
++// The pointer buttons of a character grid while its scene hides the grid: the
++// scene keeps them live underneath.
++static void HiddenGrid(BaseSceneHandler* scene, int type, const void*& from, const void*& to)
++{
++    from = to = 0;
++    if (scene == 0)
++        return;
++    if (type == SCENE_CHOOSE_CAPTAINS_DOMINATION || type == SCENE_CHOOSE_CAPTAINS_STRIKER_CUP)
++    {
++        ChooseCaptainsSceneV2* captains = static_cast<ChooseCaptainsSceneV2*>(scene);
++        if (!captains->mCaptainsShown)
++        {
++            from = &captains->mCaptainButtons[0];
++            to = &captains->mCaptainButtons[12];
++        }
++    }
++    else if (type == SCENE_CHOOSE_SIDEKICKS_DOMINATION || type == SCENE_CHOOSE_SIDEKICKS_STRIKER_CUP)
++    {
++        ChooseSidekicksSceneV2* sidekicks = static_cast<ChooseSidekicksSceneV2*>(scene);
++        if (!sidekicks->mSidekicksShown)
++        {
++            from = &sidekicks->mSidekickButtons[0];
++            to = &sidekicks->mSidekickButtons[8];
++        }
++    }
++}
++
++void FENavigateMenus(int channel, WPADFSStatus* wpad, KPADStatus* kpad)
++{
++    if (channel < 0 || channel >= 4)
++        return;
++    // The HOME Button Menu points with this same reading; the menu below it
++    // keeps its selection for when it closes.
++    nlTaskManager* tasks = nlTaskManager::m_pInstance;
++    const bool home = tasks != 0
++        && (tasks->mCurrentState == TASK_HOME_BUTTON_MENU || tasks->mPendingState == TASK_HOME_BUTTON_MENU);
++    if (home || !mscharged_tweak_controller_menus(channel) || g_pFEPointerManager == 0)
++    {
++        SetHandVisible(channel, true);
++        return;
++    }
++
++    mscharged_menu_frame frame;
++    frame.scene = 0;
++    frame.scene_type = SCENE_INVALID;
++    GameSceneManager* manager = GameSceneManager::Instance();
++    BaseSceneHandler* scene = manager != 0 ? manager->GetCurrentScene() : 0;
++    if (scene != 0)
++    {
++        frame.scene = scene;
++        frame.scene_type = manager->m_sceneStack[manager->mCurrentStackDepth - 1];
++    }
++    frame.overlay = 0;
++    frame.overlay_type = SCENE_INVALID;
++    BaseSceneHandler* overlay = g_pOverlayManager != 0 ? g_pOverlayManager->GetCurrentScene() : 0;
++    if (overlay != 0)
++    {
++        frame.overlay = overlay;
++        frame.overlay_type = g_pOverlayManager->m_sceneStack[g_pOverlayManager->mCurrentStackDepth - 1];
++    }
++    gl_ScreenInfo* screenInfo = glGetScreenInfo();
++    frame.half_width = (IsWidescreen() ? 854 : screenInfo->ScreenWidth) * 0.5f;
++    frame.half_height = screenInfo->ScreenHeight * 0.5f;
++    const nlVector2 at = gFEPointerPositions[channel];
++    frame.pointer_x = at.x;
++    frame.pointer_y = at.y;
++    frame.buttons = wpad->button;
++    frame.stick_x = kpad->ex_status.fs.stick.x;
++    frame.stick_y = kpad->ex_status.fs.stick.y;
++
++    // The live buttons. Scenes pass pointer events only to their own buttons,
++    // so a button of a screen that is registered but not shown never sees one:
++    // a button is live only if its last event for this channel is at the
++    // pointer's current position.
++    mscharged_menu_button buttons[kMenuCapacity];
++    int count = 0;
++    const void* hiddenFrom;
++    const void* hiddenTo;
++    HiddenGrid(scene, frame.scene_type, hiddenFrom, hiddenTo);
++    const bool locked = g_pFEInput != 0 && g_pFEInput->m_InputLockDepth != 0;
++    for (ListEntry<FEPointerListener*>* entry = g_pFEPointerManager->mListeners.m_Head;
++         entry != 0 && count < kMenuCapacity; entry = entry->next)
++    {
++        FEPointerListener* listener = entry->entry;
++        const void* address = listener;
++        if (listener == 0 || (address >= hiddenFrom && address < hiddenTo))
++            continue;
++        if (listener->mDisabled || (locked && !listener->mIgnoreInputLock))
++            continue;
++        const FEPointerEvent& last = listener->mPreviousEvents[channel];
++        if (last.mIndex != channel || fabs(last.mPosition.x - at.x) > 1.0f
++            || fabs(last.mPosition.y - at.y) > 1.0f)
++            continue;
++        // FEPointerRegion is the only listener that tests a point.
++        const FEPointerRegion* region = static_cast<const FEPointerRegion*>(listener);
++        mscharged_menu_button& button = buttons[count];
++        button.min_x = region->GetMinX();
++        button.max_x = region->GetMaxX();
++        button.min_y = region->GetMinY();
++        button.max_y = region->GetMaxY();
++        // Regions as large as the screen catch presses anywhere: no buttons.
++        if (!(button.max_x > button.min_x && button.max_y > button.min_y) || button.max_x - button.min_x > 600.0f
++            || button.max_y - button.min_y > 420.0f)
++            continue;
++        button.rotation = region->GetRotation();
++        const nlVector2 pivot = region->GetPivot();
++        button.pivot_x = pivot.x;
++        button.pivot_y = pivot.y;
++        button.back = FEIsBackButton(listener);
++        button.pointed = region->ContainsPoint(at);
++        button.id = listener;
++        ++count;
++    }
++    frame.regions = buttons;
++    frame.count = count;
++
++    mscharged_menu_result result;
++    mscharged_tweak_navigate_menu(channel, &frame, &result);
++    SetHandVisible(channel, !result.hide_hand);
++    if (!result.menu)
++        return;
++    // GetPointerPosition's mapping, the other way round.
++    const float x = result.pointer_x / frame.half_width;
++    const float y = -result.pointer_y / frame.half_height;
++    kpad->pos.x = x < -1.0f ? -1.0f : x > 1.0f ? 1.0f : x;
++    kpad->pos.y = y < -1.0f ? -1.0f : y > 1.0f ? 1.0f : y;
++    kpad->dpd_valid_fg = 2;
++    wpad->button |= result.press;
++    kpad->hold |= result.press;
++}
++#endif
+diff --git a/src/NL/plat/PlatPadManager.cpp b/src/NL/plat/PlatPadManager.cpp
+index 4db4108..a0a4b33 100644
+--- a/src/NL/plat/PlatPadManager.cpp
++++ b/src/NL/plat/PlatPadManager.cpp
+@@ -7,6 +7,11 @@
+ 
+ PlatPadManager* g_pPlatPadManager;
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port: controller menus, in the front end (feDPD.cpp).
++void FENavigateMenus(int channel, WPADFSStatus* wpad, KPADStatus* kpad);
++#endif
++
+ static void PadExtensionChanged(WPADChannel channel, s32)
+ {
+     g_pPlatPadManager->dpdActive[channel] = false;
+@@ -171,6 +176,12 @@ void PlatPadManager::UpdateChannel(int channel)
+                         status[channel].freestyle.kpad
+                             = kpadStatus[0];
+                     }
++#if defined(MSCHARGED_TWEAKS)
++                    // Port: controller menus (feDPD.cpp) move this pointer
++                    // between a menu's buttons and press for the player.
++                    FENavigateMenus(channel, &status[channel].freestyle.wpad,
++                        &status[channel].freestyle.kpad);
++#endif
+                 }
+                 break;
+             case WPAD_DEV_CLASSIC:

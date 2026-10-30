@@ -103,7 +103,7 @@ jobs:
             libasound2-dev libpulse-dev libx11-dev libxext-dev libxrandr-dev \
             libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libx11-xcb-dev libegl-dev \
             libwayland-dev libxkbcommon-dev wayland-protocols libdecor-0-dev \
-            libudev-dev libdbus-1-dev libvulkan-dev
+            libudev-dev libdbus-1-dev libvulkan-dev libusb-1.0-0-dev
           echo "CC=clang-$LLVM_VERSION" >> "$GITHUB_ENV"
           echo "CXX=clang++-$LLVM_VERSION" >> "$GITHUB_ENV"
           # Plain x86-64, like the Windows and macOS builds: ubuntu-26.04's GCC

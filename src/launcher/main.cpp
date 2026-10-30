@@ -3105,7 +3105,7 @@ private:
             std::string names;
             int count = 0;
             for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
-                if (draft_.tweaks[n])
+                if (draft_.tweaks[n] || GameTweakForced(kGameTweaks[n].tweak, draft_.tweaks))
                 {
                     names += std::string("\n\xE2\x80\xA2 ") + kGameTweaks[n].name;
                     ++count;
@@ -6841,6 +6841,56 @@ private:
         EndCard();
     }
 
+    // GameCube controls (GameCube controllers): matches play with Super Mario
+    // Strikers' controls, which depend on who has the ball, instead of the
+    // profile's buttons. A change to Default goes into a copy, as elsewhere.
+    void GameCubeControlsCard()
+    {
+        const bool on = ProfileAt(edit_profile_).gamecube_controls;
+        BeginCard("##gamecube_controls", "GameCube controls",
+                  "Super Mario Strikers' controls, which the game still has underneath.", Icon::Gamepad);
+        if (BeginRows("##gamecube_rows"))
+        {
+            Row("Play with GameCube controls", "What a button does depends on what you are doing, as in Super Mario "
+                "Strikers. Turn it off to choose the buttons yourself below.");
+            bool value = on;
+            if (Toggle("##gamecube_toggle", &value))
+                if (auto* target = edit_profile_ < 0 ? OwnCopyForChange()
+                                                     : &draft_.pad_profiles[std::size_t(edit_profile_)])
+                {
+                    target->gamecube_controls = value;
+                    pad_capture_action_ = pad_capture_slot_ = -1;
+                    dirty_ = true;
+                }
+            EndRows();
+        }
+        if (on)
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
+            if (ImGui::BeginTable("##gamecube_scheme", 2))
+            {
+                ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
+                ImGui::TableSetupColumn("buttons", ImGuiTableColumnFlags_WidthStretch);
+                KeyRow("Pass", {"A"}, "with L: a lob pass", "Without the ball: switch player");
+                KeyRow("Shoot", {"B"}, "hold to charge; captains: Mega Strike", "Without the ball: slide tackle");
+                KeyRow("Deke", {"Y"}, "or the C-stick, that way", "Without the ball: big hit");
+                KeyRow("Use item", {"X"});
+                KeyRow("Cycle items", {"Z"});
+                KeyRow("Special move", {"R"});
+                KeyRow("Lob modifier", {"L"});
+                KeyRow("Charged's D-pad moves", {"D-pad"});
+                ImGui::EndTable();
+            }
+            ImGui::PopStyleVar();
+            TextWrappedColored(CurrentFonts().caption, color::muted,
+                               "In menus A selects, L and R turn pages, the C-stick points and START pauses. With "
+                               "Controller menus (Gameplay) the D-pad and sticks move between buttons and B goes back. "
+                               "Defending a Mega Strike needs a Wii Remote's pointer; No Mega Strikes (Gameplay) "
+                               "turns them off.");
+        }
+        EndCard();
+    }
+
     void GamepadView()
     {
         if (SecondaryButton("##back", "Players", Dp(124, 36), true, Icon::Back)) { CloseGamepadView(); return; }
@@ -6850,14 +6900,24 @@ private:
                    "Pick a profile per gamepad, here or on the Players list. To change a button, select it below "
                    "and press the new one on the controller. Changes are saved when you go back.");
         if (edit_profile_ >= int(draft_.pad_profiles.size())) edit_profile_ = -1;
+        // GameCube controls belong to Default and the GameCube profiles.
+        const auto gamecube_profile = [&] {
+            return PageKind() == "gamecube" && (edit_profile_ < 0 || ProfileAt(edit_profile_).controller == "gamecube");
+        };
+        if (gamecube_profile()) GameCubeControlsCard();
         ProfileCard();
+        const bool gamecube_page = gamecube_profile();
         // The built-in Default never changes: its first change makes an own copy.
         const bool builtin = edit_profile_ < 0;
         Settings::PadProfile scratch = ShownProfile(edit_profile_);
         auto& profile = builtin ? scratch : draft_.pad_profiles[std::size_t(edit_profile_)];
         const auto editable = [&]() -> Settings::PadProfile* { return builtin ? OwnCopyForChange() : &profile; };
         const auto type = PageType();
-        const auto bindings = platform::ParseGamepadBindings(profile.inputs);
+        // With GameCube controls the controller keeps GameCube's own layout in
+        // menus and nothing below it can be remapped.
+        const bool gamecube = gamecube_page && profile.gamecube_controls;
+        const auto bindings = platform::ParseGamepadBindings(
+            gamecube ? platform::DefaultGamepadInputs(platform::GamepadFamily::GameCube) : profile.inputs);
         bool clicked = false;
         const auto rows = [&](std::size_t first, std::size_t last) {
             ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
@@ -6922,16 +6982,19 @@ private:
             ImGui::PopStyleVar();
         };
         const std::string remote_title = "Wii Remote buttons: " + profile.name;
+        ImGui::BeginDisabled(gamecube);
         BeginCard("##pad_remote", remote_title.c_str(),
-                  "Each Wii Remote button, and the controller button that presses it.", Icon::Gamepad);
+                  gamecube ? "GameCube controls keep GameCube's layout in menus. Turn them off above to remap it."
+                           : "Each Wii Remote button, and the controller button that presses it.",
+                  Icon::Gamepad);
         rows(GamepadActionA, GamepadActionC);
         EndCard();
         BeginCard("##pad_nunchuk", "Nunchuk & motion",
                   "The Nunchuk stick and pointer on the controller's sticks or gyro, the Nunchuk buttons and "
                   "the shakes.",
                   Icon::Gamepad);
-        const bool swap = profile.swap_sticks;
-        const bool gyro = profile.gyro_pointer;
+        const bool swap = profile.swap_sticks && !gamecube;
+        const bool gyro = profile.gyro_pointer && !gamecube;
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
         if (ImGui::BeginTable("##pad_sticks", 2))
         {
@@ -7026,6 +7089,7 @@ private:
                   "With the gyro pointer on, it only presses the buttons.";
         if (!stick_note.empty()) TextWrappedColored(CurrentFonts().caption, color::warning, stick_note.c_str());
         EndCard();
+        ImGui::EndDisabled();
 
         // Dead zones and trigger press point (issue #62), tried live on the
         // page's gamepad.
@@ -7072,10 +7136,12 @@ private:
         const auto defaults = platform::DefaultGamepadInputs(PageFamily());
         const Settings::PadProfile default_profile;
         const bool changed = platform::ParseGamepadBindings(profile.inputs) != platform::ParseGamepadBindings(defaults)
-            || swap || profile.inner_deadzone != default_profile.inner_deadzone
+            || profile.swap_sticks || profile.inner_deadzone != default_profile.inner_deadzone
             || profile.outer_deadzone != default_profile.outer_deadzone
             || profile.trigger_press != default_profile.trigger_press
-            || profile.octagon_stick != default_profile.octagon_stick || profile.gyro_pointer != default_profile.gyro_pointer || profile.gyro_speed != default_profile.gyro_speed;
+            || profile.octagon_stick != default_profile.octagon_stick
+            || profile.gyro_pointer != default_profile.gyro_pointer || profile.gyro_speed != default_profile.gyro_speed
+            || (gamecube_page && profile.gamecube_controls != default_profile.gamecube_controls);
         ImGui::Dummy(Dp(0, 4));
         if (SecondaryButton("##reset_pad", "Reset to defaults", Dp(180, 36), changed, Icon::Refresh))
         {
@@ -7087,10 +7153,13 @@ private:
             profile.octagon_stick = default_profile.octagon_stick;
             profile.gyro_pointer = default_profile.gyro_pointer;
             profile.gyro_speed = default_profile.gyro_speed;
+            profile.gamecube_controls = default_profile.gamecube_controls;
             pad_capture_action_ = pad_capture_slot_ = -1;
             dirty_ = true;
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Buttons, sticks, gyro, dead zones and triggers as in Default");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(gamecube_page ? "GameCube controls, buttons, sticks, dead zones and triggers as in Default"
+                                            : "Buttons, sticks, gyro, dead zones and triggers as in Default");
         EndCard();
         // A click anywhere else stops waiting for a press.
         if (pad_capture_action_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
@@ -7547,9 +7616,17 @@ private:
     {
         const auto index = GameTweakIndex(tweak);
         const auto& info = kGameTweaks[index];
-        Row(info.name, info.description);
+        // A tweak another one needs shows on and cannot be turned off; its own
+        // setting comes back when that one is off.
+        const bool forced = GameTweakForced(tweak, draft_.tweaks);
+        const std::string description = forced ? std::string(info.description) + " Controller menus keep it on."
+                                               : std::string(info.description);
+        Row(info.name, description.c_str());
         const std::string id = std::string("##tweak_") + info.key;
-        if (Toggle(id.c_str(), &draft_.tweaks[index])) dirty_ = true;
+        bool on = true;
+        ImGui::BeginDisabled(forced);
+        if (Toggle(id.c_str(), forced ? &on : &draft_.tweaks[index]) && !forced) dirty_ = true;
+        ImGui::EndDisabled();
     }
 
     void GameplayPage()
@@ -7579,6 +7656,7 @@ private:
         {
             TweakRow(GameTweak::SkipIntro);
             TweakRow(GameTweak::FastMenus);
+            TweakRow(GameTweak::ControllerMenus);
             EndRows();
         }
         EndCard();

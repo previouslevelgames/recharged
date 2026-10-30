@@ -16,6 +16,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -58,6 +59,8 @@ struct Device {
     // and the game's pointer camera's previous state, for edges.
     int channel = -1;
     bool gyro = false, recenter_held = false, pointer_camera = false;
+    // A GameCube controller playing with GameCube controls (ReadDesktopGameCubePad).
+    bool gamecube = false;
     // Stick directions bound like buttons, pressed as of this service.
     std::array<bool, mscharged::platform::GamepadStickDirectionCount> stick_held{};
     Clock::time_point last_service{};
@@ -92,6 +95,33 @@ struct State {
     std::string background_hint;
 };
 State& Get() { static State state; return state; }
+// GameCube controls: each WPAD channel's controller while a player plays with
+// them there. The game module reads it from the game's thread.
+struct GameCubePads {
+    std::mutex mutex;
+    std::array<std::optional<ChargedGameCubePad>, WPAD_MAX_CONTROLLERS> channels;
+};
+GameCubePads& GameCube() { static GameCubePads pads; return pads; }
+void PublishGameCubePad(int channel, const std::optional<ChargedGameCubePad>& pad) {
+    if (channel < 0 || channel >= WPAD_MAX_CONTROLLERS) return;
+    auto& pads = GameCube();
+    std::lock_guard lock(pads.mutex);
+    pads.channels[std::size_t(channel)] = pad;
+}
+// Controller menus: each WPAD channel's gamepad player as the menus read it,
+// while no mouse points for that player. The game module reads it from the
+// game's thread.
+struct MenuPads {
+    std::mutex mutex;
+    std::array<std::optional<ChargedMenuPad>, WPAD_MAX_CONTROLLERS> channels;
+};
+MenuPads& Menus() { static MenuPads pads; return pads; }
+void PublishMenuPad(int channel, const std::optional<ChargedMenuPad>& pad) {
+    if (channel < 0 || channel >= WPAD_MAX_CONTROLLERS) return;
+    auto& pads = Menus();
+    std::lock_guard lock(pads.mutex);
+    pads.channels[std::size_t(channel)] = pad;
+}
 void Require(bool result, const char* operation);
 void ClearKeyboard(State& state) {
     state.keyboard_keys.clear();
@@ -204,6 +234,8 @@ void Retire(std::unique_ptr<Device>& device) {
         std::lock_guard lock(Get().mutex);
         Get().gyro_motion.erase(device->input_id);
     }
+    if (device->gamecube) PublishGameCubePad(device->channel, std::nullopt);
+    if (device->input) PublishMenuPad(device->channel, std::nullopt);
     const auto id = device->virtual_id;
     mscharged::platform::SetNativeWpadFixedChannel(id, -1);
     SDL_CloseJoystick(device->virtual_joystick);
@@ -572,6 +604,66 @@ mscharged::platform::NativeDpdObservation GamepadPointer(State& state, Device& p
     return mscharged::platform::MakeDesktopDpdObservation(pad.pointer_x, pad.pointer_y, WPADGetSensorBarPosition(),
                                                           focused && state.ready, state.settings.kpad_sensor_height);
 }
+// A GameCube player's controller as PADStatus reports it (revolution/pad.h
+// bits). SDL names the adapter's buttons by position: south A, west B, east X,
+// north Y, the right shoulder Z, misc3 and misc4 the clicks of L and R at the
+// end of their travel, which are SDL's two triggers. Without focus nothing is
+// pressed.
+ChargedGameCubePad GameCubePadOf(const Device& pad, bool focused) {
+    constexpr unsigned short kLeft = 0x0001, kRight = 0x0002, kDown = 0x0004, kUp = 0x0008, kZ = 0x0010,
+                             kR = 0x0020, kL = 0x0040, kA = 0x0100, kB = 0x0200, kX = 0x0400, kY = 0x0800,
+                             kStart = 0x1000;
+    ChargedGameCubePad result{};
+    if (!focused) return result;
+    const auto held = [&](SDL_GamepadButton button) { return SDL_GetGamepadButton(pad.input, button); };
+    const auto set = [&](SDL_GamepadButton button, unsigned short bit) {
+        if (held(button)) result.buttons |= bit;
+    };
+    set(SDL_GAMEPAD_BUTTON_SOUTH, kA);
+    set(SDL_GAMEPAD_BUTTON_WEST, kB);
+    set(SDL_GAMEPAD_BUTTON_EAST, kX);
+    set(SDL_GAMEPAD_BUTTON_NORTH, kY);
+    set(SDL_GAMEPAD_BUTTON_START, kStart);
+    set(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, kZ);
+    set(SDL_GAMEPAD_BUTTON_DPAD_UP, kUp);
+    set(SDL_GAMEPAD_BUTTON_DPAD_DOWN, kDown);
+    set(SDL_GAMEPAD_BUTTON_DPAD_LEFT, kLeft);
+    set(SDL_GAMEPAD_BUTTON_DPAD_RIGHT, kRight);
+    // A controller without the clicks presses L and R past the profile's trigger press point.
+    const auto click = [&](SDL_GamepadButton button, SDL_GamepadAxis axis) {
+        return SDL_GamepadHasButton(pad.input, button)
+            ? held(button)
+            : SDL_GetGamepadAxis(pad.input, axis) > mscharged::platform::GamepadTriggerThreshold(pad.profile.trigger_press);
+    };
+    if (click(SDL_GAMEPAD_BUTTON_MISC3, SDL_GAMEPAD_AXIS_LEFT_TRIGGER)) result.buttons |= kL;
+    if (click(SDL_GAMEPAD_BUTTON_MISC4, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER)) result.buttons |= kR;
+    const auto trigger = [&](SDL_GamepadAxis axis) {
+        return static_cast<unsigned char>(std::clamp(int(SDL_GetGamepadAxis(pad.input, axis)), 0, 32767) * 255 / 32767);
+    };
+    result.trigger_left = trigger(SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+    result.trigger_right = trigger(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+    // The C-stick, through the profile's dead zones like the stick; y up.
+    const auto tilt = mscharged::platform::GamepadStickTilt(pad.input, SDL_GAMEPAD_AXIS_RIGHTX, SDL_GAMEPAD_AXIS_RIGHTY,
+                                                            pad.profile.inner_deadzone, pad.profile.outer_deadzone);
+    result.substick_x = tilt.x;
+    result.substick_y = -tilt.y;
+    return result;
+}
+// A gamepad player's menu input: the pointer stick (the right one unless the
+// profile swaps them), y up, and the triggers past the profile's press point.
+// Without focus nothing is pressed.
+ChargedMenuPad MenuPadOf(const Device& pad, bool focused) {
+    ChargedMenuPad result{};
+    if (!focused) return result;
+    const auto tilt = PadStick(pad, false);
+    result.stick_x = tilt.x;
+    result.stick_y = -tilt.y;
+    const auto threshold = mscharged::platform::GamepadTriggerThreshold(pad.profile.trigger_press);
+    const bool left = SDL_GetGamepadAxis(pad.input, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > threshold;
+    const bool right = SDL_GetGamepadAxis(pad.input, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > threshold;
+    result.page = static_cast<signed char>(int(right) - int(left));
+    return result;
+}
 } // namespace
 
 namespace mscharged::platform {
@@ -667,13 +759,26 @@ void ServiceDesktopWpad() {
             if (!slot) { SDL_CloseGamepad(input); break; }
             try {
                 *slot = MakeDevice(input);
-                (*slot)->profile = state.settings.gamepad_profiles[index];
+                auto& profile = (*slot)->profile;
+                profile = state.settings.gamepad_profiles[index];
+                const auto family = mscharged::platform::GamepadFamilyOf(SDL_GetGamepadType(input));
                 // The built-in Default takes this controller's own default layout.
-                if ((*slot)->profile.follow_controller)
-                    (*slot)->profile = {mscharged::platform::DefaultGamepadBindings(
-                                            mscharged::platform::GamepadFamilyOf(SDL_GetGamepadType(input))),
-                                        false, true};
+                if (profile.follow_controller)
+                    profile = {mscharged::platform::DefaultGamepadBindings(family), false, true};
+                // GameCube controls: in menus the controller presses GameCube's
+                // default Wii buttons, its stick is the Nunchuk stick and its
+                // C-stick the pointer; matches read the controller itself.
+                (*slot)->gamecube = state.settings.gamepad_players && profile.gamecube_controls
+                    && family == mscharged::platform::GamepadFamily::GameCube;
+                if ((*slot)->gamecube) {
+                    profile.bindings = mscharged::platform::DefaultGamepadBindings(family);
+                    profile.swap_sticks = profile.gyro_pointer = false;
+                }
                 if (state.settings.gamepad_players) AttachGamepadPlayer(state, **slot, index);
+                if ((*slot)->gamecube) {
+                    const char* name = SDL_GetGamepadName(input);
+                    SDL_Log("Gamepad %d (%s): GameCube controls", index + 1, name ? name : "controller");
+                }
             }
             catch (...) {
                 if (*slot) Retire(*slot);
@@ -733,11 +838,14 @@ void ServiceDesktopWpad() {
             projection.width > 0 && projection.height > 0)
             state.picture_aspect = projection.height / projection.width;
     }
+    // The channel the mouse points for now, or -1.
+    int mouse_channel = -1;
     if (state.settings.mouse_player_channel >= 0) {
         // The mouse points while it is in use; otherwise the controller does.
         const bool held = focused && (mouse_buttons & (SDL_BUTTON_LMASK | SDL_BUTTON_RMASK));
         const bool active = held || (focused && mouse_used != Clock::time_point{} &&
                                      now - mouse_used < std::chrono::seconds(3));
+        if (active) mouse_channel = state.settings.mouse_player_channel;
         SetNativeWpadMousePlayer(state.settings.mouse_player_channel, active ? &observation : nullptr,
                                  focused && (mouse_buttons & SDL_BUTTON_LMASK),
                                  focused && (mouse_buttons & SDL_BUTTON_RMASK));
@@ -778,7 +886,28 @@ void ServiceDesktopWpad() {
         UpdateGamepadShakes(*pad, focused);
         const auto pointer = GamepadPointer(state, *pad, focused, now);
         Report(*pad, buttons, now, pad->dpd_source.generation ? &pointer : nullptr, &nunchuk);
+        if (pad->gamecube) PublishGameCubePad(pad->channel, GameCubePadOf(*pad, focused));
+        PublishMenuPad(pad->channel, pad->channel == mouse_channel ? std::nullopt
+                                                                   : std::optional(MenuPadOf(*pad, focused)));
     }
+}
+bool ReadDesktopGameCubePad(int channel, ChargedGameCubePad* pad) {
+    if (channel < 0 || channel >= WPAD_MAX_CONTROLLERS || !pad) return false;
+    auto& pads = GameCube();
+    std::lock_guard lock(pads.mutex);
+    const auto& state = pads.channels[std::size_t(channel)];
+    if (!state) return false;
+    *pad = *state;
+    return true;
+}
+bool ReadDesktopMenuPad(int channel, ChargedMenuPad* pad) {
+    if (channel < 0 || channel >= WPAD_MAX_CONTROLLERS || !pad) return false;
+    auto& pads = Menus();
+    std::lock_guard lock(pads.mutex);
+    const auto& state = pads.channels[std::size_t(channel)];
+    if (!state) return false;
+    *pad = *state;
+    return true;
 }
 void ShutdownDesktopWpad() {
     auto& state = Get();

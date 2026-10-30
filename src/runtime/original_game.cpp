@@ -742,7 +742,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             desktop.gamepad_profiles[pad] = {mscharged::platform::ParseGamepadBindings(profile.inputs),
                                              profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0,
                                              profile.inner_deadzone, profile.outer_deadzone, profile.trigger_press,
-                                             profile.octagon_stick, profile.gyro_pointer, profile.gyro_speed};
+                                             profile.octagon_stick, profile.gyro_pointer, profile.gyro_speed,
+                                             profile.gamecube_controls};
         }
         mscharged::platform::WpadSDLSettings wpad{static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),
             static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
@@ -816,9 +817,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 reinterpret_cast<void(*)()>(mscharged::platform::FindNativeModuleSymbol(module,"charged_cycle_debug_layer")));
         }
         // [gameplay] tweaks: the enabled set, before original main, with
-        // the No HUD bit of [hotkeys] show_hud = false.
+        // the tweaks another one needs and the No HUD bit of [hotkeys]
+        // show_hud = false.
         {
-            const unsigned tweaks=launch.settings.GameTweakMask();
+            const unsigned tweaks=launch.settings.ModuleTweakMask();
             auto* configureTweaks=reinterpret_cast<void(*)(unsigned)>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tweaks"));
             if(configureTweaks) configureTweaks(launch.settings.ModuleTweakMask());
@@ -961,6 +963,18 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine(line.c_str());
             std::fprintf(stderr,"%s\n",line.c_str());
         }
+        // GameCube controls: the module reads the controllers of the GameCube
+        // players whose profile plays with them as each match takes its input.
+        if(auto* configureGameCube=reinterpret_cast<void(*)(ChargedGameCubePadReader)>(
+               mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_gamecube_controls")))
+            configureGameCube(mscharged::platform::ReadDesktopGameCubePad);
+        else
+            mscharged::platform::SessionLogLine("GameCube controls: off (this build's game module has none)");
+        // Controller menus: the module reads the gamepad players' second
+        // stick and triggers as it moves them through the menus.
+        if(auto* configureMenus=reinterpret_cast<void(*)(ChargedMenuPadReader)>(
+               mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_controller_menus")))
+            configureMenus(mscharged::platform::ReadDesktopMenuPad);
         // [audio] sound levels: like the master volume a host setting,
         // whatever the tweak set; the game module's hooks apply them.
         {

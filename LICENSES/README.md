@@ -50,6 +50,7 @@ table names the principal ones.
 | Aurora | MIT, copyright Luke Street |
 | Dawn | BSD-style terms; nested sources keep their own notices |
 | SDL | zlib; bundled third-party code keeps the notices in its source files |
+| libusb | LGPL 2.1 or later. Windows and macOS packages link it statically. Linux packages load the system libusb. |
 | Dear ImGui | MIT |
 | nod | MIT or Apache 2.0; its Rust crates have their own terms |
 | Corrosion | MIT |

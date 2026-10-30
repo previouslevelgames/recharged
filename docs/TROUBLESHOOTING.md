@@ -110,6 +110,18 @@ already connected stays silent until it is opened again.
 - On a Steam Deck, or with Steam running, Steam Input must present the
   controller as a gamepad.
 
+## A GameCube controller adapter is not found
+
+- The adapter needs the same one-time setup as for Dolphin and Slippi: the
+  WinUSB driver from Zadig on Windows, a udev rule on Linux, or
+  GCAdapterDriver on macOS. [Wii Remotes](SETTINGS.md#wii-remotes) in the
+  settings guide has the steps, under **GameCube controller adapter**.
+- Plug in the adapter's black USB plug: it carries the controllers. The grey
+  plug only powers rumble.
+- A third-party adapter with a mode switch must be in Wii U mode, not PC mode.
+- Only one program can use the adapter at a time. Close Dolphin or Slippi
+  first.
+
 ## A Wii Remote is not found
 
 See [Wii Remotes](SETTINGS.md#wii-remotes): the DolphinBar must be in mode 4,

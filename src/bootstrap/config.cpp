@@ -128,6 +128,8 @@ Values Encode(const Settings& s)
         values.emplace(section + "gyro_pointer", profile.gyro_pointer ? "true" : "false");
         values.emplace(section + "gyro_speed", std::to_string(profile.gyro_speed));
         values.emplace(section + "controller", profile.controller);
+        if (profile.controller == "gamecube")
+            values.emplace(section + "gamecube_controls", profile.gamecube_controls ? "true" : "false");
     }
     for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
         values.emplace("controls.gamepad" + std::to_string(slot + 1) + "_profile", s.pad_profile_names[slot]);
@@ -325,6 +327,13 @@ Settings Decode(const Values& values)
         boolean((section + "gyro_pointer").c_str(), profile.gyro_pointer);
         number((section + "gyro_speed").c_str(), profile.gyro_speed, kMinGyroSpeed, kMaxGyroSpeed);
         choice((section + "controller").c_str(), profile.controller, {"xbox", "nintendo", "gamecube"});
+        // GameCube profiles made before GameCube controls remap their buttons.
+        // Other profiles never save the key and keep the default.
+        if (profile.controller == "gamecube")
+        {
+            profile.gamecube_controls = false;
+            boolean((section + "gamecube_controls").c_str(), profile.gamecube_controls);
+        }
         profiles.push_back(std::move(profile));
     }
     s.pad_profiles = std::move(profiles);

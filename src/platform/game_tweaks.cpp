@@ -8,6 +8,7 @@
 #error Game tweaks belong to the isolated original game module built with MSCHARGED_TWEAKS
 #endif
 #include "mscharged_tweaks.h"
+#include "platform/gamecube_controls.h"
 #include "platform/tweak_frame_state.h"
 
 #include <atomic>
@@ -33,6 +34,8 @@ bool sTrainingSkipGoal;
 int sTrainingAwaySkill = -1;
 bool sTrainingPlayAway;
 bool sPerformanceMode;
+// GameCube controls: the host's state of its GameCube players' controllers.
+ChargedGameCubePadReader sGameCubePads;
 // Wider view (display.wider_view, issue #91): the window's picture shape
 // divided by 16:9 while the wider view fills it, 1 otherwise; and whether the
 // match's stadium was drawn since the host last asked (it fills the window
@@ -201,6 +204,13 @@ __attribute__((visibility("default"))) void charged_configure_performance_mode(b
     sPerformanceMode = enabled;
 }
 
+// Host entry (GameCube controls): where the game reads the controllers of
+// the players who play with them; null for none.
+__attribute__((visibility("default"))) void charged_configure_gamecube_controls(ChargedGameCubePadReader reader)
+{
+    sGameCubePads = reader;
+}
+
 // Host entry (wider view): the shape of the window's picture divided by 16:9,
 // from the next frame on; 1 draws the game's own 16:9 view.
 __attribute__((visibility("default"))) void charged_set_view_shape(float shape)
@@ -324,6 +334,18 @@ int mscharged_tweak_sound_fader(void)
 bool mscharged_tweak_performance_mode(void)
 {
     return sPerformanceMode;
+}
+
+bool mscharged_tweak_gamecube_pad(int channel, struct mscharged_gamecube_pad* pad)
+{
+    ChargedGameCubePad state{};
+    if (!sGameCubePads || !pad || !sGameCubePads(channel, &state)) return false;
+    pad->buttons = state.buttons;
+    pad->trigger_left = state.trigger_left;
+    pad->trigger_right = state.trigger_right;
+    pad->substick_x = state.substick_x;
+    pad->substick_y = state.substick_y;
+    return true;
 }
 
 float mscharged_tweak_view_shape(void)

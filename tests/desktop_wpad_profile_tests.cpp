@@ -538,7 +538,7 @@ void ControllerFamilyCycle() {
               && DefaultGamepadBindings(GamepadFamily::Nintendo)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_SOUTH,
           "Nintendo default does not follow its labels");
     Check(DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_WEST
-              && DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionOne][0] == kGamepadNone,
+              && DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionOne][0] == SDL_GAMEPAD_BUTTON_START,
           "GameCube default layout");
     Check(DefaultGamepadBindings(GamepadFamily::PlayStation) == DefaultGamepadBindings(),
           "PlayStation default differs from the positional default");

@@ -62,3 +62,7 @@
 	path = extern/corrosion
 	url = https://github.com/corrosion-rs/corrosion.git
 	shallow = true
+[submodule "extern/libusb"]
+	path = extern/libusb
+	url = https://github.com/libusb/libusb.git
+	shallow = true

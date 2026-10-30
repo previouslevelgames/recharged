@@ -1,0 +1,227 @@
+Subject: GameCube controls for GameCube controllers
+Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+
+Charged's engine is Super Mario Strikers': DetInput keeps its GameCube kind
+(DET_CONTROLLER_GAMECUBE), which remaps every game action through the
+GameCube table (gGameCubeButtonRemap). Retail Charged never creates a
+GameCubePad, so its players are all Wii Remotes with Nunchuks.
+
+A GameCube controller whose gamepad profile plays with GameCube controls
+(the launcher's choice, a host setting outside the tweak mask) becomes that
+kind again. DetInput::ReadFromPad takes the controller's own buttons, analog
+L/R and C-stick from the host (mscharged_tweak_gamecube_pad) instead of the
+Nunchuk's, with no motion and no pointer; the left stick stays the Nunchuk
+stick, which the host moves with the controller's stick. Pass, shoot and
+charge, the lob modifier, switching players and using an item then come out
+on Super Mario Strikers' buttons by themselves.
+
+Charged turned four of SMS's button actions into Wii gestures, read in four
+functions. For a GameCube DetInput they read SMS's buttons again, decided as
+SMS does from who has the ball:
+
+- cAIPad::DetectRightShake (big hit): Y, without the ball.
+- cAIPad::DetectLeftShake (cycle the item): Z.
+- cFielder::GetDekePadDirection and IsDekePadPressed (deke, slide tackle and
+  the special move, on the D-pad in Charged): with the ball the C-stick dekes
+  toward itself and Y toward the stick; without it, B slide-tackles while the
+  other team has the ball. R does the special move. The D-pad keeps working
+  as in Charged.
+
+The conversion happens where the local input is captured, so the packed
+record (buttons, 4-bit triggers, sticks) and its connection kind carry it to
+the match, replays and other peers, whose hooks read the same kind. A
+GameCube player gives the goalie's Mega Strike defence no pointer: as with
+any player that is not a Wii controller, a teammate on one defends it or
+nobody does (GoalieActions.cpp). The pause menu resets the input as before.
+
+These are the controls of the Strikers WiiCompiled port's GameCube support
+(its runtime's msc_game.cpp), here on the decompiled sources.
+
+diff --git a/src/Game/AI/Fielder.cpp b/src/Game/AI/Fielder.cpp
+index 66b3552..9d6b463 100644
+--- a/src/Game/AI/Fielder.cpp
++++ b/src/Game/AI/Fielder.cpp
+@@ -3324,8 +3324,63 @@ bool cFielder::IsReceivePassDekeRequested(unsigned short* direction)
+     return false;
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port: GameCube controls (DetInput.cpp). Charged moved Super Mario Strikers'
++// deke and slide tackle onto the D-pad; a GameCube player has them on SMS's
++// buttons again, decided as SMS does from who has the ball: with it, the
++// C-stick dekes toward itself and Y (action 29) toward the stick; without it,
++// B (action 25) slide-tackles while the other team has the ball. R does what
++// the D-pad does in Charged (the special move). The angle is in screen space
++// like the D-pad's: the left stick's way, or with the stick centred the way
++// the player faces. Afterwards the D-pad works as in Charged.
++static bool GameCubeDekeDirection(cFielder* fielder, unsigned short* direction)
++{
++    DetInput* input = fielder->GetGlobalPad();
++    if (input == 0 || input->GetControllerType() != DET_CONTROLLER_GAMECUBE)
++        return false;
++    // The game's fast square root gives NaN for a centred stick.
++    const float left = input->m_PolarAnalogLeft.r;
++    const unsigned short move = left == left && left > 0.3f
++        ? input->m_PolarAnalogLeft.a
++        : (unsigned short)(fielder->GetActualFacing() - input->m_aRemapAngle);
++    if (fielder->HasBall())
++    {
++        const float cStick = input->m_PolarAnalogRight.r;
++        if (cStick == cStick && cStick > 0.3f)
++        {
++            *direction = input->m_PolarAnalogRight.a;
++            return true;
++        }
++        if (input->IsPressed(29, true))
++        {
++            *direction = move;
++            return true;
++        }
++    }
++    else
++    {
++        cPlayer* owner = g_pBall != 0 ? g_pBall->GetOwner() : 0;
++        if (owner != 0 && owner->GetTeam() != fielder->GetTeam() && input->IsPressed(25, true))
++        {
++            *direction = move;
++            return true;
++        }
++    }
++    if (input->m_ButtonBitfield & 0x0020) // PAD_TRIGGER_R
++    {
++        *direction = move;
++        return true;
++    }
++    return false;
++}
++#endif
++
+ bool cFielder::GetDekePadDirection(unsigned short* direction)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    if (GameCubeDekeDirection(this, direction))
++        return true;
++#endif
+     bool pressed = false;
+     unsigned short angle = 0;
+     if (m_pController->m_pGlobalPad->IsPressed(11, true))
+@@ -3371,6 +3426,11 @@ bool cFielder::GetDekePadDirection(unsigned short* direction)
+ 
+ bool cFielder::IsDekePadPressed()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    unsigned short gamecube = 0;
++    if (GameCubeDekeDirection(this, &gamecube))
++        return true;
++#endif
+     bool pressed = false;
+     if (GetGlobalPad()->IsPressed(11, true))
+         pressed = true;
+diff --git a/src/Game/AIPad.cpp b/src/Game/AIPad.cpp
+index fbb6b0d..3ea392b 100644
+--- a/src/Game/AIPad.cpp
++++ b/src/Game/AIPad.cpp
+@@ -4,6 +4,10 @@
+ #include "Game/TweakValueFloat.h"
+ #include "Game/NetworkInput.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/Ball.h"
++#include "Game/Player.h"
++#endif
+ 
+ static float g_fMovementDeadZone = 0.3f;
+ static float g_fCStickDeadZone = 0.5f;
+@@ -77,8 +81,33 @@ static float GetAccelerationHistoryLimit()
+     return 999.0f;
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port: GameCube controls (DetInput.cpp). Charged turned two of Super Mario
++// Strikers' button actions into shakes. A GameCube player presses SMS's
++// buttons for them again, through the GameCube table (gGameCubeButtonRemap):
++// action 22 cycles the item (Z) and action 24 is the big hit (Y), which SMS
++// gives only to a player without the ball (with it, Y dekes).
++static bool GameCubeShake(DetInput* input, int action, bool withoutBall)
++{
++    if (withoutBall)
++    {
++        cPlayer* owner = g_pBall != 0 ? g_pBall->GetOwner() : 0;
++        if (owner != 0 && owner->GetGlobalPad() == input)
++            return false;
++    }
++    return input->JustPressed(action, true);
++}
++#endif
++
+ bool cAIPad::DetectLeftShake(u16* direction)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    if (m_pGlobalPad != 0 && m_pGlobalPad->GetControllerType() == DET_CONTROLLER_GAMECUBE)
++    {
++        *direction = 0;
++        return GameCubeShake(m_pGlobalPad, 22, false);
++    }
++#endif
+     float thresholdSq
+         = sLeftShakeThreshold.value * sLeftShakeThreshold.value;
+     nlVector3 acceleration;
+@@ -105,6 +134,13 @@ bool cAIPad::DetectLeftShake(u16* direction)
+ 
+ bool cAIPad::DetectRightShake(u16* direction)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    if (m_pGlobalPad != 0 && m_pGlobalPad->GetControllerType() == DET_CONTROLLER_GAMECUBE)
++    {
++        *direction = 0;
++        return GameCubeShake(m_pGlobalPad, 24, true);
++    }
++#endif
+     float thresholdSq
+         = sRightShakeThreshold.value * sRightShakeThreshold.value;
+     nlVector3 acceleration;
+diff --git a/src/Game/DetInput.cpp b/src/Game/DetInput.cpp
+index 36746e9..5899017 100644
+--- a/src/Game/DetInput.cpp
++++ b/src/Game/DetInput.cpp
+@@ -9,6 +9,7 @@
+ #include "NL/plat/WiiFreestylePad.h"
+ #include "NL/plat/GameCubePad.h"
+ #include "Game/NetworkPeer.h"
++#include "mscharged_tweaks.h"
+ 
+ static u8 PadPressureToByte(float pressure)
+ {
+@@ -390,6 +391,32 @@ void DetInput::ReadFromPad(cGlobalPad* pad)
+                 m_nRevDPDNumTargets = kpad->dpd_valid_fg;
+                 m_v2RevDPDCoord.x = kpad->pos.x;
+                 m_v2RevDPDCoord.y = kpad->pos.y;
++#if defined(MSCHARGED_TWEAKS)
++                // Port: GameCube controls. The player's input becomes the
++                // engine's GameCube kind, as GameCubePad reads it: the
++                // controller's own buttons, L/R and C-stick, no motion and no
++                // pointer. The left stick stays the Nunchuk's, which the host
++                // moves with that stick.
++                mscharged_gamecube_pad gamecube;
++                if (mscharged_tweak_gamecube_pad(nunchuk->m_padIndex, &gamecube))
++                {
++                    m_nConnected = DET_CONTROLLER_GAMECUBE;
++                    m_ButtonBitfield = gamecube.buttons;
++                    m_LeftTrigger = gamecube.trigger_left;
++                    m_RightTrigger = gamecube.trigger_right;
++                    m_AnalogRightX = gamecube.substick_x;
++                    m_AnalogRightY = gamecube.substick_y;
++                    m_v3RevRemoteAccel.x = 0.0f;
++                    m_v3RevRemoteAccel.y = 0.0f;
++                    m_v3RevRemoteAccel.z = 0.0f;
++                    m_v3RevFreeStyleAccel.x = 0.0f;
++                    m_v3RevFreeStyleAccel.y = 0.0f;
++                    m_v3RevFreeStyleAccel.z = 0.0f;
++                    m_nRevDPDNumTargets = 0;
++                    m_v2RevDPDCoord.x = 0.0f;
++                    m_v2RevDPDCoord.y = 0.0f;
++                }
++#endif
+             }
+             else
+             {

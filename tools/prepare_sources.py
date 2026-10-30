@@ -271,7 +271,10 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
     first = build.relative_to(root).parts[0]
     if not (first in ("build", "out") or first.startswith(("build-", "cmake-build-"))):
         raise PreparationError("Build directory must be under build/, build-*/, cmake-build-*/, or out/")
-    export_roots = ("include", "libs", "src") if name == "mscharged-decomp" else None
+    # libusb exports no root README.md: it is a symlink, which Windows creates
+    # only with the symlink privilege.
+    export_roots = {"mscharged-decomp": ("include", "libs", "src"),
+                    "libusb": ("libusb", "AUTHORS", "COPYING")}.get(name)
     sources = submodule_inputs(root, name, export_roots=export_roots,
                               nested_submodules=nested_submodules)
     patches, series_sha = patch_inputs(root, name, sources[0]["commit"])

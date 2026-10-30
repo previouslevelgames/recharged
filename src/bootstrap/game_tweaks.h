@@ -34,6 +34,7 @@ enum class GameTweak : unsigned
     SuperTeam = 12,
     SecureStadiums = 13,
     MatchPoint = 14,
+    ControllerMenus = 15,
 };
 
 struct GameTweakInfo
@@ -45,7 +46,7 @@ struct GameTweakInfo
     bool on_by_default = false; // recommended to every player: on without its [gameplay] key
 };
 
-inline constexpr std::array<GameTweakInfo, 14> kGameTweaks{{
+inline constexpr std::array<GameTweakInfo, 15> kGameTweaks{{
     {GameTweak::SkipIntro, "skip_intro", "Skip intro",
      "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
@@ -96,6 +97,10 @@ inline constexpr std::array<GameTweakInfo, 14> kGameTweaks{{
      "and sudden death music in place of the stadium's, until the match ends, and the HUD shows SUDDEN DEATH instead "
      "of First to. Only sound and HUD change. On by default.",
      true},
+    {GameTweak::ControllerMenus, "controller_menus", "Controller menus",
+     "A gamepad moves between a menu's buttons with the D-pad or a stick instead of pointing: A selects, B goes "
+     "back and the triggers turn pages. It is made for playing without a pointer, which defending a Mega Strike "
+     "needs, so No Mega Strikes is on with it. Wii Remotes and the mouse still point."},
 }};
 
 // Start training ([gameplay] training_item, training_captain, training_stadium): the
@@ -132,6 +137,13 @@ inline constexpr std::size_t GameTweakIndex(GameTweak tweak)
     for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
         if (kGameTweaks[n].tweak == tweak) return n;
     return kGameTweaks.size();
+}
+
+// Whether `tweak` is on because another tweak needs it, whatever its own
+// setting: No Mega Strikes with controller menus.
+inline constexpr bool GameTweakForced(GameTweak tweak, const std::array<bool, kGameTweaks.size()>& tweaks)
+{
+    return tweak == GameTweak::NoMegaStrikes && tweaks[GameTweakIndex(GameTweak::ControllerMenus)];
 }
 
 // The tweaks on without a [gameplay] key.

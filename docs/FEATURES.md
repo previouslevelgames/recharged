@@ -57,6 +57,13 @@ come from the reconstructed source, unchanged.
   profile belongs to one kind of controller (Xbox and PlayStation share
   profiles), so each gamepad is offered the profiles that fit it; they are
   kept for the next session.
+- **GameCube controls**: a GameCube controller in the official adapter
+  (WUP-028) plays with Super Mario Strikers' controls by default. The adapter
+  needs the same one-time driver setup as for Dolphin and Slippi. What a button does depends on what you are doing: B shoots with the
+  ball and slide-tackles without it, Y dekes with the ball and big-hits without
+  it, the C-stick dekes that way, R is the special move and Z cycles items.
+  Turn **Play with GameCube controls** off on the GameCube profile page to
+  choose the buttons yourself.
 - **Real Wii Remotes with Nunchuk**, paired over **Bluetooth** or through a
   **Mayflash DolphinBar** (mode 4): pointer, rumble, the Remote speaker and
   battery level, with the sensor bar above or below the screen and the Wii's
@@ -154,6 +161,13 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   screens after a match (matches, movies and credits unchanged).
 - **No Mega Strikes** for both teams, the usual competitive rule. Skillshots
   stay, and Strikers 101 lessons keep their own rules.
+- **Controller menus**: a gamepad moves between a menu's buttons with the
+  D-pad or a stick instead of pointing, as in Strikers WiiCompiled. A selects,
+  B goes back (on the pause menu: back to the match) and the triggers turn
+  pages. A menu opens on its first button, or on the one you last chose there,
+  and on the main menu's ring the stick picks the button it points at. It is
+  made for playing without a pointer, which defending a Mega Strike needs, so
+  No Mega Strikes is on with it. Wii Remotes and the mouse still point.
 - **Unlock everything**: all characters, stadiums and cheats, through the
   game's own unlock switch; the save is not changed.
 - **CPU vs CPU**: in Domination, press Done on Choose Sides without picking a

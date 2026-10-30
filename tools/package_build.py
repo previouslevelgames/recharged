@@ -76,7 +76,7 @@ LINUX_SYSTEM_LIBRARIES = frozenset((
     "libc.so.6", "libm.so.6", "libdl.so.2", "libpthread.so.0", "librt.so.1",
     "libstdc++.so.6", "libgcc_s.so.1", "ld-linux-x86-64.so.2",
 ))
-DEPENDENCIES = ("mscharged-decomp", "aurora", "sdl", "nod", "corrosion", "dawn",
+DEPENDENCIES = ("mscharged-decomp", "aurora", "sdl", "libusb", "nod", "corrosion", "dawn",
                 "imgui", "freetype", "libpng", "zlib-ng", "zstd", "sqlite",
                 "tracy", "fmt", "xxhash")
 

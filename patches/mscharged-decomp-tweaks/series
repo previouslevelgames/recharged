@@ -42,3 +42,5 @@
 0043-rollback-image-reads-wait.patch
 0044-tweak-training-opponent.patch
 0045-online-error-codes.patch
+0046-gamecube-controls.patch
+0047-tweak-controller-menus.patch

@@ -13,7 +13,7 @@ import time
 
 LAUNCHER = (
     "extern/mscharged-decomp", "extern/nod", "extern/corrosion",
-    "extern/sdl", "extern/imgui",
+    "extern/sdl", "extern/libusb", "extern/imgui",
 )
 RUNTIME = LAUNCHER + (
     "extern/aurora", "extern/dawn", "extern/fmt", "extern/xxhash",

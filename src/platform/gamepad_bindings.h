@@ -49,6 +49,10 @@ struct GamepadProfile {
     // has one (issue #14); gyro_speed in percent (see gamepad_actions.h).
     bool gyro_pointer = false;
     int gyro_speed = kDefaultGyroSpeed;
+    // A GameCube controller plays matches with Super Mario Strikers' GameCube
+    // controls, which depend on who has the ball, instead of the bindings (see
+    // platform/gamecube_controls.h). Other controllers ignore it.
+    bool gamecube_controls = true;
 };
 
 // Controller families with their own default layout and button names.

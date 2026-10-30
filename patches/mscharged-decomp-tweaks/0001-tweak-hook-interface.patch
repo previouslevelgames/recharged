@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..fb8f8f9
+index 0000000..4b1a1e9
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,224 @@
+@@ -0,0 +1,283 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -48,6 +48,7 @@ index 0000000..fb8f8f9
 +    MSCHARGED_TWEAK_SUPER_TEAM = 12,
 +    MSCHARGED_TWEAK_SECURE_STADIUMS = 13,
 +    MSCHARGED_TWEAK_MATCH_POINT = 14,
++    MSCHARGED_TWEAK_CONTROLLER_MENUS = 15,
 +};
 +
 +bool mscharged_tweak_enabled(int tweak);
@@ -227,6 +228,64 @@ index 0000000..fb8f8f9
 +unsigned long mscharged_tweak_super_team_pool_room(int pool);
 +int mscharged_tweak_super_team_fits(unsigned long size);
 +void mscharged_tweak_super_team_spent(unsigned long header, unsigned long data);
++
++// GameCube controls (a GameCube controller's gamepad profile, a host setting
++// outside the tweak mask): the controller of WPAD channel `channel` as
++// PADStatus would report it, its buttons (PAD_BUTTON_* bits), analog L and R
++// (0-255) and C-stick (-1 to 1, y up); false when that channel's player does
++// not play with GameCube controls.
++struct mscharged_gamecube_pad
++{
++    unsigned short buttons;
++    unsigned char trigger_left, trigger_right;
++    float substick_x, substick_y;
++};
++bool mscharged_tweak_gamecube_pad(int channel, struct mscharged_gamecube_pad* pad);
++
++// Controller menus: a gamepad player moves between a menu's buttons with the
++// D-pad and the sticks instead of pointing, B goes back and the triggers turn
++// pages. Whether channel `channel` navigates now: the tweak is on and a
++// gamepad player plays there without the mouse pointing for it.
++bool mscharged_tweak_controller_menus(int channel);
++// A pointer button of the menu, in the pointer's screen space (centre origin,
++// y up), turned by `rotation` radians about the pivot; whether it is the
++// screen's back button and whether the pointer is on it (the game's own test).
++// `id` tells a button apart from frame to frame.
++struct mscharged_menu_button
++{
++    float min_x, max_x, min_y, max_y, rotation, pivot_x, pivot_y;
++    bool back, pointed;
++    const void* id;
++};
++// One frame of a navigating channel, from the front end: the top scene and
++// the top overlay (the pause menu and its pages, pop-ups; each its handler and
++// SceneList value, or none), the pointer's screen (half its width and
++// height), the channel's pointer, the remote's buttons (WPAD_BUTTON_*), the
++// Nunchuk stick (-1 to 1, y up) and the menu's live buttons.
++struct mscharged_menu_frame
++{
++    const void* scene;
++    int scene_type;
++    const void* overlay;
++    int overlay_type;
++    float half_width, half_height;
++    float pointer_x, pointer_y;
++    unsigned short buttons;
++    float stick_x, stick_y;
++    const struct mscharged_menu_button* regions;
++    int count;
++};
++// What the front end does with it. With `menu` the pointer goes to
++// (pointer_x, pointer_y) and the remote also presses `press`
++// (WPAD_BUTTON_* bits); `hide_hand` hides the channel's hand.
++struct mscharged_menu_result
++{
++    bool menu, hide_hand;
++    float pointer_x, pointer_y;
++    unsigned short press;
++};
++void mscharged_tweak_navigate_menu(int channel, const struct mscharged_menu_frame* frame,
++    struct mscharged_menu_result* result);
 +
 +// Training: the item (ePowerUpType) the team that trains gets at every
 +// kickoff, -1 for none; and, once per launch, whether the launcher's Start

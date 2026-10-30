@@ -146,13 +146,19 @@ struct Settings
         // gyro_speed percent (issue #14); recenter_pointer centres it.
         bool gyro_pointer = false;
         int gyro_speed = kDefaultGyroSpeed;
+        // gamecube_controls (GameCube profiles only): a GameCube controller
+        // plays matches with Super Mario Strikers' GameCube controls instead
+        // of the inputs above. On for the built-in Default; a profile saved
+        // without the key remaps its buttons.
+        bool gamecube_controls = true;
         // Spelled out: charged_host is C++17.
         bool operator==(const PadProfile& other) const
         {
             return name == other.name && inputs == other.inputs && swap_sticks == other.swap_sticks
                 && controller == other.controller && inner_deadzone == other.inner_deadzone
                 && outer_deadzone == other.outer_deadzone && trigger_press == other.trigger_press
-                && octagon_stick == other.octagon_stick && gyro_pointer == other.gyro_pointer && gyro_speed == other.gyro_speed;
+                && octagon_stick == other.octagon_stick && gyro_pointer == other.gyro_pointer
+                && gyro_speed == other.gyro_speed && gamecube_controls == other.gamecube_controls;
         }
         bool operator!=(const PadProfile& other) const { return !(*this == other); }
     };
@@ -284,10 +290,14 @@ struct Settings
             if (tweaks[n]) mask |= GameTweakBit(kGameTweaks[n].tweak);
         return mask;
     }
-    // What the game module receives: the tweaks and the HUD's start state.
+    // What the game module receives: the tweaks, those another tweak needs
+    // (GameTweakForced) and the HUD's start state.
     unsigned ModuleTweakMask() const
     {
-        return GameTweakMask() | (show_hud ? 0u : GameTweakBit(GameTweak::NoHud));
+        unsigned mask = GameTweakMask() | (show_hud ? 0u : GameTweakBit(GameTweak::NoHud));
+        for (std::size_t n = 0; n < tweaks.size(); ++n)
+            if (GameTweakForced(kGameTweaks[n].tweak, tweaks)) mask |= GameTweakBit(kGameTweaks[n].tweak);
+        return mask;
     }
 };
 

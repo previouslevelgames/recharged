@@ -17,6 +17,7 @@ launcher-only build). The build then prepares patched copies of them under
 | [Aurora](https://github.com/encounter/aurora) | development snapshot | GameCube/Wii platform layer: GX graphics, video, DVD | MIT |
 | [Dawn](https://github.com/encounter/dawn) | Aurora's pin | WebGPU on Vulkan, DirectX 12 and Metal | BSD |
 | [SDL](https://github.com/libsdl-org/SDL) | 3.4.10 | Window, audio output, gamepads, launcher rendering | zlib |
+| [libusb](https://github.com/libusb/libusb) | 1.0.30 | SDL's access to the GameCube controller adapter on Windows and macOS | LGPL 2.1 or later |
 | [Dear ImGui](https://github.com/ocornut/imgui) | 1.91.9b docking | Launcher interface (its Roboto font is Apache 2.0) | MIT |
 | [nod](https://github.com/encounter/nod) | 2.0.0-alpha.12 | Reading ISO and RVZ disc images | MIT or Apache 2.0 |
 | [Corrosion](https://github.com/corrosion-rs/corrosion) | 0.6.1 | Building nod's Rust code from CMake | MIT |
@@ -40,6 +41,9 @@ launcher-only build). The build then prepares patched copies of them under
   `spirv-tools` (shader tooling), and on Linux and Windows `vulkan-headers` and
   `vulkan-utility-libraries`.
 - **FreeType** also needs its recorded `subprojects/dlg` checkout.
+- **libusb** has no CMake build: `cmake/LibUSB.cmake` compiles its sources
+  with the settings in `cmake/libusb/config.h`. Linux builds skip it and use
+  the system libusb instead (the libusb development package at build time).
 - **SQLite** is generated from its Git source by `tools/prepare_sqlite.py`
   (with Make, Tcl and a C compiler); the result is verified before building.
 - **nod**'s Rust dependencies are pinned by its `Cargo.lock`; the first build

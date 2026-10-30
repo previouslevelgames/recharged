@@ -17,6 +17,8 @@ revision 1 or 2): no game files are included. How the build turns the decomp int
 - Linux: a Vulkan driver and loader, `pkg-config`, and the X11/Wayland
   development packages listed in
   [SDL's Linux notes](https://github.com/libsdl-org/SDL/blob/main/docs/README-linux.md).
+  Add the libusb development package (`libusb-1.0-0-dev` on Debian and
+  Ubuntu) so that SDL can use a GameCube controller adapter.
 
 The first build downloads the locked Rust dependencies. Every other dependency
 is built from its pinned submodule.
