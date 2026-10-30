@@ -97,6 +97,7 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.discord_id = value["discord_id"].Text();
     player.online = value["online"].Bool();
     player.busy = value["busy"].Bool();
+    player.activity = value["activity"].Text();
     player.last_online = value["last_online"].Integer();
     player.is_friend = value["friend"].Bool();
     return player;
@@ -241,6 +242,7 @@ ProfileService::Answer ProfileService::Call(const char* method, const std::strin
         request.headers.push_back("Content-Type: application/json");
     }
     if (!token_.empty()) request.headers.push_back("Authorization: Bearer " + token_);
+    if (!activity_.empty()) request.headers.push_back("Recharged-Activity: " + activity_);
     request.connect_timeout = 10;
     request.stall_timeout = 20;
     request.max_size = 1u << 20;

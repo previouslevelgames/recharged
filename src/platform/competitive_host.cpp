@@ -17,6 +17,8 @@ constexpr auto kMatchEvery = 10s;
 constexpr auto kRetry = 15s;
 // cGame's eGameState.
 constexpr int kGamePreGame = 0, kGameKickoff = 1, kGameEnd = 3, kGamePlay = 5;
+// GameInfoManager::eGameMode: the title screen's demo match.
+constexpr int kModeDemo = 2;
 // A set's game waits this long for its last report before it closes anyway.
 constexpr auto kCloseWait = 20s;
 
@@ -148,6 +150,19 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
         wake = true;
     }
 
+    // A match (not the title screen's demo) keeps challenges away: the
+    // server hears of it at once.
+    if (presence)
+    {
+        const char* activity = presence->in_match && presence->mode != kModeDemo ? "match" : "game";
+        if (activity_ != activity)
+        {
+            activity_ = activity;
+            next_match_ = {};
+            wake = true;
+        }
+    }
+
     const bool changed = rules_version_ != rules_seen_;
     if (changed)
     {
@@ -262,6 +277,7 @@ void CompetitiveHost::Work(ProfileService& api)
     std::string ticket;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        api.SetActivity(activity_);
         fetch = now >= next_match_;
         report = !reports_.empty();
         profile = login_profile_;

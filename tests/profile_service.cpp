@@ -137,7 +137,7 @@ struct Exchange
 // What the client sent.
 struct Sent
 {
-    std::string body, authorization, content_type;
+    std::string body, authorization, content_type, activity;
     bool expected = false;
 };
 
@@ -197,6 +197,7 @@ private:
             sent.body = headers == std::string::npos ? std::string() : text.substr(headers + 4);
             sent.authorization = header("Authorization: ");
             sent.content_type = header("Content-Type: ");
+            sent.activity = header("Recharged-Activity: ");
             sent.expected = line == exchange.request;
             const std::string answer = sent.expected ? exchange.answer : "{\"error\":\"unexpected " + line + "\"}";
             const std::string reply = "HTTP/1.1 " + std::to_string(sent.expected ? exchange.status : 599)
@@ -261,7 +262,7 @@ void Requests()
         {"GET /api/v1/me", 401, R"({"error":"signed out"})"},
         {"GET /api/v1/players", 200,
          R"({"online":[{"id":8,"name":"Sam","discord":"sam","test":false,"online":true,"busy":false,)"
-         R"("last_online":1793000000,"friend":false}],"recent":[],)"
+         R"("activity":"match","last_online":1793000000,"friend":false}],"recent":[],)"
          R"("friends":[{"id":9,"name":"Bo","online":false,"busy":false,"last_online":null,"friend":true}]})"},
         {"POST /api/v1/matches", 201, kSet},
         {"POST /api/v1/matches/12/ready-to-play", 200, kSet},
@@ -310,9 +311,10 @@ void Requests()
         }
         const auto lists = api.Players();
         CHECK(lists.online.size() == 1 && lists.online[0].id == 8 && lists.online[0].online && !lists.online[0].busy
-              && lists.online[0].last_online == 1793000000 && !lists.online[0].is_friend && lists.recent.empty());
+              && lists.online[0].activity == "match" && lists.online[0].last_online == 1793000000
+              && !lists.online[0].is_friend && lists.recent.empty());
         CHECK(lists.friends.size() == 1 && lists.friends[0].id == 9 && lists.friends[0].is_friend
-              && !lists.friends[0].online && !lists.friends[0].last_online);
+              && !lists.friends[0].online && lists.friends[0].activity.empty() && !lists.friends[0].last_online);
         const auto set = api.ChallengePlayer(8, 2);
         CHECK(set.stage == "go" && set.you_ready && set.opponent_ready && set.opponent_online
               && set.go_at == 1792771200 && set.playing_at == 0 && set.rematch_of == 11 && set.reason.empty());
@@ -325,6 +327,7 @@ void Requests()
         const auto added = api.AddFriend(std::int64_t(8));
         CHECK(added.size() == 1 && added[0].id == 8 && added[0].is_friend);
         CHECK(api.AddFriend(std::string("b\"o")).size() == 2);
+        api.SetActivity("game");
         const auto removed = api.RemoveFriend(8);
         CHECK(removed.size() == 1 && removed[0].id == 9);
     }
@@ -345,7 +348,7 @@ void Requests()
         CHECK(sent[11].body == "{}");
         CHECK(sent[14].body == R"({"player_id":8})" && sent[14].content_type == "application/json");
         CHECK(sent[15].body == R"({"name":"b\"o"})");
-        CHECK(sent[16].authorization == "Bearer t0k3n");
+        CHECK(sent[16].authorization == "Bearer t0k3n" && sent[16].activity == "game" && sent[15].activity.empty());
     }
 
     // Unencrypted only for addresses ProfileServerAddress lets through.

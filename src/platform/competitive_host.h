@@ -78,6 +78,9 @@ private:
     unsigned proven_profile_ = 0; // the login the server took as proof
     std::string proven_ticket_, refused_ticket_;
     bool paired_ = false;
+    // What the game is doing, for the server's lists: "game", or "match"
+    // from a match's loading until it is unloaded (no challenges then).
+    std::string activity_ = "game";
     struct Report
     {
         std::int64_t match = 0;

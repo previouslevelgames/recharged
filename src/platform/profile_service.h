@@ -47,6 +47,10 @@ struct ProfilePlayer
     // In the lobby's lists: Recharged is open, and a set to play; when they
     // last had it open (Unix seconds); the player keeps them as a friend.
     bool online = false, busy = false;
+    // While online, what their Recharged is doing: "launcher", "game" (the
+    // game, outside a match) or "match" (a match in the game: nobody can
+    // challenge them); empty from servers before 1.2.0.
+    std::string activity;
     std::optional<std::int64_t> last_online;
     bool is_friend = false;
 };
@@ -181,6 +185,9 @@ public:
     void SetToken(std::string token) { token_ = std::move(token); }
     // Lets another thread stop the running call.
     void SetCancel(std::shared_ptr<HttpCancel> cancel) { cancel_ = std::move(cancel); }
+    // The game's requests say what it is doing ("game" or "match", the
+    // Recharged-Activity header); the launcher's say nothing.
+    void SetActivity(std::string activity) { activity_ = std::move(activity); }
 
     // Without a session.
     ProfileServerInfo Info();
@@ -222,6 +229,7 @@ private:
 
     std::string server_;
     std::string token_;
+    std::string activity_;
     std::shared_ptr<HttpCancel> cancel_;
 };
 

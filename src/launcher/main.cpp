@@ -4256,11 +4256,12 @@ private:
         DrawLabel(draw, fonts.heading, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f},
                   Col(color::text, player.online ? 1.0f : 0.7f), initial.c_str());
         // The presence dot, ringed in the row's colour: green with Recharged
-        // open, amber in a set, grey away.
+        // open, amber in a set or a match (no challenges then), grey away.
+        const bool playing = player.online && player.activity == "match";
+        const bool taken = player.busy || playing;
         const ImVec2 dot{center.x + radius * 0.74f, center.y + radius * 0.74f};
         draw->AddCircleFilled(dot, Dp(7.5f), Col(surface));
-        draw->AddCircleFilled(dot, Dp(5),
-                              Col(!player.online ? color::dim : player.busy ? color::warning : color::success));
+        draw->AddCircleFilled(dot, Dp(5), Col(!player.online ? color::dim : taken ? color::warning : color::success));
 
         // The buttons, from the right: the heart, lit for a friend (a click
         // takes them off) and grey for anyone else (a click adds them), then
@@ -4296,7 +4297,7 @@ private:
         {
             place(Dp(132));
             if (SecondaryButton("challenge_player", "Challenge", {Dp(132), button_height},
-                                !busy && rules && !player.busy, Icon::Trophy))
+                                !busy && rules && !taken, Icon::Trophy))
                 competitive_->ChallengePlayer(player.id, rules->id);
         }
 
@@ -4306,6 +4307,8 @@ private:
         std::string status;
         ImVec4 status_tint = color::muted;
         if (player.online && player.busy) status = "In a set", status_tint = color::warning;
+        else if (playing) status = "Playing a match", status_tint = color::warning;
+        else if (player.online && player.activity == "game") status = "In the game", status_tint = color::success;
         else if (player.online) status = "Online", status_tint = color::success;
         else status = platform::DescribeLastOnline(now, player.last_online);
         const ImVec2 name = TextSize(fonts.label, player.name.c_str());
