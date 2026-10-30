@@ -136,3 +136,19 @@ cmake --workflow --preset launcher
 
 `ctest --preset debug` runs the tests of a debug build. Packages are made with
 `tools/package_build.py`.
+
+## Discord friends
+
+The launcher's Discord friends use the Discord Social SDK, Discord's closed
+library. Its terms let Recharged ship it inside its own packages but not pass
+it on by itself, so it is not part of this repository and official builds
+fetch it in CI. To build with it, download the SDK from the
+[Discord Developer Portal](https://discord.com/developers/) (an application
+with the Social SDK enabled) and name its folder:
+
+```sh
+cmake --preset release -DMSCHARGED_DISCORD_SOCIAL_SDK=/path/to/discord_social_sdk
+```
+
+The build copies the library and its notices beside the program. Without it,
+the launcher simply has no Discord friends.
