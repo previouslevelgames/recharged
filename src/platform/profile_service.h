@@ -157,6 +157,19 @@ struct ProfileServerInfo
     std::string version;
     bool discord = false; // Discord sign-in
     bool test = false;    // sign-in by name (test servers)
+    // The Discord application the server signs in to (digits): the one the
+    // launcher's Discord Social SDK uses. Empty without Discord sign-in, and
+    // from servers before 1.2.0.
+    std::string discord_application;
+};
+
+// The Discord Social SDK's tokens, which the server trades for the launcher
+// (docs/COMPETITIVE.md, "Discord friends").
+struct DiscordTokens
+{
+    std::string access_token;
+    std::string refresh_token;
+    std::int64_t expires_in = 0; // seconds
 };
 
 struct SignInStart
@@ -248,6 +261,15 @@ public:
     ProfileMatch Cancel(std::int64_t match);
     // The game's proof that it is logged in to WFC as `profile_id`.
     WfcProfile ProveWfcLogin(std::int64_t profile_id, const std::string& login_ticket);
+    // The Discord Social SDK's tokens for the code of its authorization, or
+    // for the refresh token of earlier ones. A ProfileError with Status() 400
+    // means Discord refused: the link has to be made again.
+    DiscordTokens DiscordToken(const std::string& code, const std::string& verifier, const std::string& redirect_uri);
+    DiscordTokens RefreshDiscordToken(const std::string& refresh_token);
+    // Which of these Discord accounts (the player's Discord friends) have
+    // signed in to Recharged, as the lists show players, each with its
+    // discord_id; at most 200 at once.
+    std::vector<ProfilePlayer> PlayersByDiscord(const std::vector<std::string>& discord_ids);
     ReadyAnswer Ready(std::int64_t match, std::int64_t profile_id, const std::string& rules_hash);
     ProfileMatch Report(std::int64_t match, const std::vector<MatchGame>& games);
 
@@ -278,4 +300,19 @@ std::optional<SavedProfileSession> LoadProfileSession(const std::filesystem::pat
 // Readable by this user only, where the system has such permissions.
 void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSession& session);
 void ForgetProfileSession(const std::filesystem::path& file);
+
+// The Discord friends' link of a settings file, kept between runs like the
+// session: the server that traded the Discord Social SDK's tokens and the
+// refresh token, which gets the next ones.
+struct SavedDiscordLink
+{
+    std::string server;
+    std::string refresh_token;
+};
+
+// <data folder>/online/<settings file name>.discord
+std::filesystem::path DiscordLinkFile(const std::filesystem::path& data_folder, const std::filesystem::path& config);
+std::optional<SavedDiscordLink> LoadDiscordLink(const std::filesystem::path& file);
+// Readable by this user only, as the session; ForgetProfileSession removes it.
+void SaveDiscordLink(const std::filesystem::path& file, const SavedDiscordLink& link);
 } // namespace mscharged::platform

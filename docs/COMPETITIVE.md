@@ -34,8 +34,28 @@ with the score.
 - Anyone who is signed in and has Recharged open can be challenged, unless
   they are playing a match. The lobby shows who is online and what they do.
 - Friends who keep each other as friends can chat in the launcher.
+- Connect Discord in the launcher to see which of your Discord friends play
+  Recharged, and challenge them from there too (see below).
 - A challenge lasts only as long as Recharged is open: close Recharged and
   your open challenges are gone, with nothing to clean up.
+
+## Discord friends
+
+Recharged's own friends list follows you everywhere, but your friends are
+probably on Discord already. Press **Connect Discord** in the lobby's Players
+card, once per computer, and agree in the Discord app or your browser. The
+lobby then lists your Discord friends who have signed in to Recharged, with
+what they are doing and a Challenge button, and how many of your Discord
+friends are online.
+
+- Your Discord friends list goes from Discord straight to Recharged on your
+  computer. Our server only learns which of the accounts in it have a
+  Recharged profile; it keeps neither the list nor Discord's keys.
+- Connect the Discord account you signed in with. **Disconnect Discord** in
+  the same card ends it on this computer; Discord's settings (Authorized Apps)
+  end it everywhere.
+- Builds made from source go without Discord friends: they need Discord's
+  library, which only the official packages include.
 
 ## Tournaments on start.gg
 
@@ -67,7 +87,8 @@ this is needed: the meeting, the rules and the report happen automatically.
 - Your name in Recharged is your Discord name.
 - The profile is you, not your PC: sign in on any computer you play on.
 - From Discord, Recharged gets only your account's ID, name and picture:
-  nothing about your messages, friends or servers.
+  nothing about your messages, friends or servers. Only if you connect
+  Discord friends does the launcher read your friends list (see above).
 
 ## The same rules for both players
 

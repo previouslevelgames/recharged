@@ -302,6 +302,7 @@ ProfileServerInfo ProfileService::Info()
         info.version = answer.body["version"].Text();
         info.discord = answer.body["sign_in"]["discord"].Bool();
         info.test = answer.body["sign_in"]["test"].Bool();
+        info.discord_application = answer.body["discord_application"].Text();
         return info;
     }
     catch (const ProfileError& e)
@@ -430,6 +431,53 @@ std::vector<ProfilePlayer> ProfileService::AddFriend(const std::string& name)
 std::vector<ProfilePlayer> ProfileService::RemoveFriend(std::int64_t player_id)
 {
     return ParsePlayers(Call("DELETE", "/api/v1/friends/" + Integer(player_id), nullptr).body["friends"]);
+}
+
+namespace
+{
+DiscordTokens ParseDiscordTokens(const JsonValue& value)
+{
+    DiscordTokens tokens;
+    tokens.access_token = value["access_token"].Text();
+    tokens.refresh_token = value["refresh_token"].Text();
+    tokens.expires_in = value["expires_in"].Integer().value_or(0);
+    if (tokens.access_token.empty() || tokens.refresh_token.empty())
+        throw ProfileError("The server's Discord tokens are incomplete", 0);
+    return tokens;
+}
+} // namespace
+
+DiscordTokens ProfileService::DiscordToken(const std::string& code, const std::string& verifier,
+                                           const std::string& redirect_uri)
+{
+    std::string body = "{\"code\":";
+    AppendJsonString(body, code);
+    body += ",\"code_verifier\":";
+    AppendJsonString(body, verifier);
+    body += ",\"redirect_uri\":";
+    AppendJsonString(body, redirect_uri);
+    body += "}";
+    return ParseDiscordTokens(Call("POST", "/api/v1/discord/token", &body).body);
+}
+
+DiscordTokens ProfileService::RefreshDiscordToken(const std::string& refresh_token)
+{
+    std::string body = "{\"refresh_token\":";
+    AppendJsonString(body, refresh_token);
+    body += "}";
+    return ParseDiscordTokens(Call("POST", "/api/v1/discord/token", &body).body);
+}
+
+std::vector<ProfilePlayer> ProfileService::PlayersByDiscord(const std::vector<std::string>& discord_ids)
+{
+    std::string body = "{\"ids\":[";
+    for (std::size_t i = 0; i < discord_ids.size(); ++i)
+    {
+        if (i) body += ',';
+        AppendJsonString(body, discord_ids[i]);
+    }
+    body += "]}";
+    return ParsePlayers(Call("POST", "/api/v1/players/discord", &body).body["players"]);
 }
 
 ChatPage ProfileService::Chat(std::int64_t player_id, std::int64_t after)
@@ -582,37 +630,12 @@ std::filesystem::path ProfileSessionFile(const std::filesystem::path& data_folde
     return data_folder / "online" / name.concat(".session");
 }
 
-std::optional<SavedProfileSession> LoadProfileSession(const std::filesystem::path& file)
+namespace
 {
-    std::ifstream stream(file, std::ios::binary);
-    if (!stream) return std::nullopt;
-    std::ostringstream text;
-    text << stream.rdbuf();
-    try
-    {
-        const auto document = ParseJson(text.str());
-        SavedProfileSession session;
-        session.server = document["server"].Text();
-        session.token = document["token"].Text();
-        session.player_name = document["player"].Text();
-        if (session.server.empty() || session.token.empty()) return std::nullopt;
-        return session;
-    }
-    catch (const std::exception&)
-    {
-        return std::nullopt;
-    }
-}
-
-void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSession& session)
+// Writes `text` to `file` through a new file that only this user can read
+// (it holds a token) and a rename.
+void WritePrivateFile(const std::filesystem::path& file, const std::string& text)
 {
-    std::string text = "{\"server\":";
-    AppendJsonString(text, session.server);
-    text += ",\"token\":";
-    AppendJsonString(text, session.token);
-    text += ",\"player\":";
-    AppendJsonString(text, session.player_name);
-    text += "}\n";
     std::filesystem::create_directories(file.parent_path());
     auto temporary = file;
     temporary += ".new";
@@ -636,6 +659,75 @@ void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSes
     }
 #endif
     std::filesystem::rename(temporary, file);
+}
+
+std::optional<JsonValue> ReadJsonFile(const std::filesystem::path& file)
+{
+    std::ifstream stream(file, std::ios::binary);
+    if (!stream) return std::nullopt;
+    std::ostringstream text;
+    text << stream.rdbuf();
+    try
+    {
+        return ParseJson(text.str());
+    }
+    catch (const std::exception&)
+    {
+        return std::nullopt;
+    }
+}
+} // namespace
+
+std::optional<SavedProfileSession> LoadProfileSession(const std::filesystem::path& file)
+{
+    const auto document = ReadJsonFile(file);
+    if (!document) return std::nullopt;
+    SavedProfileSession session;
+    session.server = (*document)["server"].Text();
+    session.token = (*document)["token"].Text();
+    session.player_name = (*document)["player"].Text();
+    if (session.server.empty() || session.token.empty()) return std::nullopt;
+    return session;
+}
+
+
+void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSession& session)
+{
+    std::string text = "{\"server\":";
+    AppendJsonString(text, session.server);
+    text += ",\"token\":";
+    AppendJsonString(text, session.token);
+    text += ",\"player\":";
+    AppendJsonString(text, session.player_name);
+    text += "}\n";
+    WritePrivateFile(file, text);
+}
+
+std::filesystem::path DiscordLinkFile(const std::filesystem::path& data_folder, const std::filesystem::path& config)
+{
+    auto file = ProfileSessionFile(data_folder, config);
+    return file.replace_extension(".discord");
+}
+
+std::optional<SavedDiscordLink> LoadDiscordLink(const std::filesystem::path& file)
+{
+    const auto document = ReadJsonFile(file);
+    if (!document) return std::nullopt;
+    SavedDiscordLink link;
+    link.server = (*document)["server"].Text();
+    link.refresh_token = (*document)["refresh_token"].Text();
+    if (link.server.empty() || link.refresh_token.empty()) return std::nullopt;
+    return link;
+}
+
+void SaveDiscordLink(const std::filesystem::path& file, const SavedDiscordLink& link)
+{
+    std::string text = "{\"server\":";
+    AppendJsonString(text, link.server);
+    text += ",\"refresh_token\":";
+    AppendJsonString(text, link.refresh_token);
+    text += "}\n";
+    WritePrivateFile(file, text);
 }
 
 void ForgetProfileSession(const std::filesystem::path& file)

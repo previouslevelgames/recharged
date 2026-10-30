@@ -47,6 +47,9 @@ public:
         std::vector<platform::RuleSet> rule_sets;
         std::optional<platform::ProfileMatch> match;
         platform::PlayerLists lists; // the lobby's: online now, recent opponents, friends
+        // The Discord friends (SetDiscordFriends) who have signed in to
+        // Recharged, as the lists show players, by name.
+        std::vector<platform::ProfilePlayer> discord_players;
         // The conversation open in the chat panel (OpenChat): with whom (0:
         // none), the messages so far (oldest first), whether the first fetch
         // came, whether the two can write, and a message on its way.
@@ -85,6 +88,17 @@ public:
     void OpenChat(std::int64_t player_id);
     void CloseChat();
     void SendChat(const std::string& body);
+    // The player's Discord friends (DiscordFriends): who of them plays
+    // Recharged is looked up with the lists.
+    void SetDiscordFriends(std::vector<std::string> discord_ids);
+    // Trades the Discord Social SDK's code (with its verifier and redirect)
+    // or refresh token for its tokens; `done` gets them on the worker, or
+    // the failure's words and whether Discord refused (the link has to be
+    // made again). Dropped with a change of server or signing out.
+    using DiscordTraded =
+        std::function<void(const platform::DiscordTokens& tokens, const std::string& error, bool refused)>;
+    void TradeDiscordToken(std::string code, std::string verifier, std::string redirect_uri,
+                           std::string refresh_token, DiscordTraded done);
     // The set's Ready to play! (or taking it back), and playing it again.
     void ReadyToPlay(bool ready);
     void Rematch();
@@ -126,6 +140,7 @@ private:
     std::chrono::steady_clock::time_point next_poll_{};
     std::chrono::steady_clock::time_point next_me_{}, next_lists_{}, next_chat_{};
     std::int64_t chat_seen_ = 0; // the last message a fetch of the open conversation had
+    std::vector<std::string> discord_ids_; // SetDiscordFriends
     std::shared_ptr<platform::HttpCancel> cancel_; // the running call's
     bool stop_ = false;
     std::thread worker_;

@@ -12,6 +12,7 @@
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
 #include "launcher/competitive_service.h"
+#include "launcher/discord_friends.h"
 #include "launcher/disc_search.h"
 #include "launcher/image_library.h"
 #include "launcher/issue_reporters.h"
@@ -3742,6 +3743,19 @@ private:
     {
         competitive_ = std::make_unique<CompetitiveService>(
             platform::ProfileSessionFile(DataFolder(base_), file_.path));
+        // The profile server trades the Discord SDK's tokens.
+        discord_friends_ = std::make_unique<DiscordFriends>(
+            base_, platform::DiscordLinkFile(DataFolder(base_), file_.path),
+            [service = competitive_.get()](DiscordFriends::TradeRequest request,
+                                           std::function<void(DiscordFriends::TradeResult)> done) {
+                service->TradeDiscordToken(
+                    std::move(request.code), std::move(request.verifier), std::move(request.redirect_uri),
+                    std::move(request.refresh_token),
+                    [done = std::move(done)](const platform::DiscordTokens& tokens, const std::string& error,
+                                             bool refused) {
+                        done({tokens.access_token, tokens.refresh_token, error, refused});
+                    });
+            });
     }
 
     // Every frame: the service follows online.profile_server (the settings
@@ -3777,11 +3791,45 @@ private:
             }
             if (!status.lists.friends.empty()) chat_unread_known_ = true;
         }
+        UpdateDiscordFriends();
         // Both pressed Ready to play!: this launcher starts the set's game.
         if (status.match && status.match->stage == "go" && status.match->id != competitive_started_set_ && !capture_)
         {
             competitive_started_set_ = status.match->id;
             competitive_go_ = true;
+        }
+    }
+
+    // The Discord friends follow the sign-in and the server's Discord
+    // application; their accounts go to the service, which finds those who
+    // play Recharged.
+    void UpdateDiscordFriends()
+    {
+        if (!discord_friends_) return;
+        const auto& status = competitive_status_;
+        DiscordFriends::Account account;
+        if (status.state == CompetitiveService::State::SignedIn && !status.info.discord_application.empty())
+        {
+            account.server = status.server;
+            account.application = std::strtoull(status.info.discord_application.c_str(), nullptr, 10);
+        }
+        discord_friends_->SetAccount(account);
+        discord_status_ = discord_friends_->Snapshot();
+        std::vector<std::string> ids;
+        if (discord_status_.state == DiscordFriends::State::Ready)
+            for (const auto& entry : discord_status_.friends) ids.push_back(entry.id);
+        if (ids != discord_asked_)
+        {
+            discord_asked_ = ids;
+            competitive_->SetDiscordFriends(std::move(ids));
+        }
+        if (discord_status_.error_serial != discord_errors_)
+        {
+            discord_errors_ = discord_status_.error_serial;
+            if (page_ == PageCompetitive && !discord_status_.error.empty())
+                Notice(discord_status_.error, discord_status_.state == DiscordFriends::State::NotLinked
+                                                  ? NoticeKind::Info
+                                                  : NoticeKind::Error);
         }
     }
 
@@ -3825,11 +3873,18 @@ private:
         quit = true;
     }
 
-    // Nothing on its way from the profile service (for development captures).
+    // Nothing on its way from the profile service or Discord (for
+    // development captures).
     bool CompetitiveSettled() const
     {
-        return !competitive_ || (competitive_status_.state != CompetitiveService::State::Connecting
-                                 && !competitive_status_.busy);
+        if (!competitive_) return true;
+        const auto& status = competitive_status_;
+        const bool discord_due = status.state == CompetitiveService::State::SignedIn
+            && !status.info.discord_application.empty();
+        const auto discord = discord_status_.state;
+        const bool discord_settled = !discord_friends_ || discord == DiscordFriends::State::Missing
+            || (discord != DiscordFriends::State::Connecting && (discord != DiscordFriends::State::Off || !discord_due));
+        return status.state != CompetitiveService::State::Connecting && !status.busy && discord_settled;
     }
 
     void CompetitivePage()
@@ -4589,6 +4644,70 @@ private:
         if (CancelPressed()) CloseChat();
     }
 
+    // The player's Discord friends who play Recharged, once the player
+    // connects Discord (nothing in a build without the Discord Social SDK):
+    // those not among the friends already, as rows. Returns the players
+    // shown.
+    std::set<std::int64_t> DiscordFriendsSection(const platform::RuleSet* rules, std::int64_t now)
+    {
+        using State = DiscordFriends::State;
+        std::set<std::int64_t> shown;
+        const auto& discord = discord_status_;
+        if (!discord_friends_ || discord.state == State::Missing || discord.state == State::Off) return shown;
+        const auto& fonts = CurrentFonts();
+        const auto& players = competitive_status_.discord_players;
+        std::string after;
+        if (discord.state == State::Ready)
+        {
+            const auto online = std::count_if(discord.friends.begin(), discord.friends.end(), [](const auto& entry) {
+                return entry.presence != DiscordFriends::Presence::Offline;
+            });
+            after = std::to_string(players.size()) + " in Recharged · " + std::to_string(online) + " online on Discord";
+        }
+        SectionHeading("DISCORD FRIENDS", after);
+        const ImVec2 button{Dp(190), Dp(36)};
+        switch (discord.state)
+        {
+        case State::NotLinked:
+        case State::Failed:
+            TextWrappedColored(fonts.body, discord.state == State::Failed ? color::warning : color::muted,
+                               discord.state == State::Failed && !discord.error.empty()
+                                   ? discord.error.c_str()
+                                   : "Connect Discord to see which of your Discord friends play Recharged and "
+                                     "challenge them from here. Your friends list stays between Discord and this "
+                                     "computer.");
+            ImGui::Dummy({0, Dp(6)});
+            if (SecondaryButton("discord_connect", discord.state == State::Failed ? "Try again" : "Connect Discord",
+                                button, true, Icon::Link))
+                discord_friends_->Connect();
+            break;
+        case State::Linking:
+            TextWrappedColored(fonts.body, color::muted,
+                               "Confirm in Discord: it opened in the Discord app or in your browser.");
+            ImGui::Dummy({0, Dp(6)});
+            if (GhostButton("discord_cancel", "Cancel", button, true, Icon::Close)) discord_friends_->Cancel();
+            break;
+        case State::Connecting: TextWrappedColored(fonts.body, color::muted, "Connecting to Discord..."); break;
+        case State::Ready:
+            for (const auto& player : players)
+                if (!player.is_friend)
+                {
+                    shown.insert(player.id);
+                    PlayerRow(player, rules, now);
+                }
+            if (shown.empty())
+                TextWrappedColored(fonts.body, color::muted,
+                                   players.empty() ? "None of your Discord friends has signed in to Recharged yet."
+                                                   : "Those who play Recharged are among your friends above.");
+            ImGui::Dummy({0, Dp(6)});
+            if (GhostButton("discord_disconnect", "Disconnect Discord", button, true, Icon::Close))
+                discord_friends_->Disconnect();
+            break;
+        default: break;
+        }
+        return shown;
+    }
+
     // The players: the rules every challenge from this page uses, the
     // player's friends (online first, then when they last had Recharged
     // open), everyone else who has Recharged open, and adding or challenging
@@ -4627,9 +4746,10 @@ private:
                                "No friends yet. Players you challenge or play show up here, and anyone you add.");
         for (const auto& player : lists.friends) PlayerRow(player, chosen, now);
 
+        const auto discord_shown = DiscordFriendsSection(chosen, now);
         std::vector<const platform::ProfilePlayer*> others;
         for (const auto& player : lists.online)
-            if (!player.is_friend) others.push_back(&player);
+            if (!player.is_friend && !discord_shown.count(player.id)) others.push_back(&player);
         SectionHeading("ALSO ONLINE", others.empty() ? std::string() : std::to_string(others.size()));
         if (others.empty())
             TextWrappedColored(fonts.body, color::muted, "Nobody else has Recharged open right now.");
@@ -9862,6 +9982,13 @@ private:
     std::unique_ptr<CompetitiveService> competitive_;
     CompetitiveService::Status competitive_status_;
     std::uint64_t competitive_opened_ = 0, competitive_errors_ = 0;
+    // The Discord friends (after the service: it goes first), what they
+    // showed last, the friends whose players were asked for and the last
+    // failure told.
+    std::unique_ptr<DiscordFriends> discord_friends_;
+    DiscordFriends::Status discord_status_;
+    std::vector<std::string> discord_asked_;
+    std::uint64_t discord_errors_ = 0;
     std::string test_player_name_, challenge_name_;
     std::int64_t challenge_rule_set_ = 0;
     UpdateService::Status update_;

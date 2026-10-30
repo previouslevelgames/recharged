@@ -17,7 +17,7 @@ Everything stays in the program folder:
 | `data/nand/` | The game's Wii saves (or the folder set under *Game → Save data*) |
 | `data/pipeline_cache.db` | Compiled shaders for your graphics card |
 | `data/launcher/` | What the launcher found in your game images, and their banners |
-| `data/online/` | Your competitive play sign-in, one file per settings file (readable only by you) |
+| `data/online/` | Your competitive play sign-in and your Discord friends' link, one file each per settings file (readable only by you) |
 | `texture_packs/` | Texture packs (or the folder set under *Gameplay → Mods*) |
 | `data/texture_dumps/` | The game's textures, when *Dump textures* is on |
 | `logs/recharged.log` | The log of the last run |

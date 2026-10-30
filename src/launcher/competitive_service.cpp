@@ -33,6 +33,10 @@ void AddMessage(std::vector<platform::ChatMessage>& messages, platform::ChatMess
 }
 constexpr auto kPlayerPoll = 60s;
 constexpr auto kRetry = 15s;
+// The Discord friends looked up with the lists, at most this many, as many
+// at once as the server takes.
+constexpr std::size_t kDiscordFriends = 1000;
+constexpr std::size_t kDiscordLookup = 200;
 } // namespace
 
 CompetitiveService::CompetitiveService(std::filesystem::path session_file) : session_file_(std::move(session_file))
@@ -319,6 +323,7 @@ void CompetitiveService::Poll(ProfileService& api)
     std::optional<platform::ChatPage> page;
     if (chat_with) page = api.Chat(chat_with, chat_after);
     std::optional<platform::PlayerLists> found;
+    std::optional<std::vector<platform::ProfilePlayer>> discord;
     if (lists)
     {
         try
@@ -330,11 +335,36 @@ void CompetitiveService::Poll(ProfileService& api)
             if (e.Status() != 404) throw;
             found = platform::PlayerLists{};
         }
+        std::vector<std::string> ids;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            ids = discord_ids_;
+        }
+        discord.emplace();
+        try
+        {
+            for (std::size_t first = 0; first < ids.size(); first += kDiscordLookup)
+            {
+                const std::vector<std::string> part(ids.begin() + std::ptrdiff_t(first),
+                                                    ids.begin() + std::ptrdiff_t(std::min(ids.size(), first + kDiscordLookup)));
+                for (auto& player : api.PlayersByDiscord(part)) discord->push_back(std::move(player));
+            }
+        }
+        catch (const ProfileError& e)
+        {
+            // A server before 1.2.0 can't tell.
+            if (e.Status() != 404) throw;
+        }
+        std::sort(discord->begin(), discord->end(), [](const auto& a, const auto& b) {
+            if (a.online != b.online) return a.online;
+            return a.name < b.name;
+        });
     }
     Change([&](Status& status) {
         status.match = match;
         if (player) status.player = *player;
         if (found) status.lists = *found;
+        if (discord) status.discord_players = std::move(*discord);
         if (page && status.chat.with == chat_with)
         {
             for (auto& message : page->messages)
@@ -353,6 +383,45 @@ void CompetitiveService::Poll(ProfileService& api)
     if (interval) next_poll_ = Clock::now() + std::chrono::seconds(interval);
     if (chat_with) next_chat_ = Clock::now() + kChatPoll;
     if (status_.chat.with) next_poll_ = std::min(next_poll_, next_chat_);
+}
+
+void CompetitiveService::SetDiscordFriends(std::vector<std::string> discord_ids)
+{
+    if (discord_ids.size() > kDiscordFriends) discord_ids.resize(kDiscordFriends);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (discord_ids == discord_ids_) return;
+        // A first list, or another one: looked up at once.
+        discord_ids_ = std::move(discord_ids);
+        if (discord_ids_.empty()) status_.discord_players.clear();
+        else next_poll_ = next_lists_ = Clock::now();
+        ++status_.serial;
+    }
+    wake_.notify_all();
+}
+
+void CompetitiveService::TradeDiscordToken(std::string code, std::string verifier, std::string redirect_uri,
+                                           std::string refresh_token, DiscordTraded done)
+{
+    Post(
+        [=](ProfileService& api) {
+            try
+            {
+                done(refresh_token.empty() ? api.DiscordToken(code, verifier, redirect_uri)
+                                           : api.RefreshDiscordToken(refresh_token),
+                     std::string(), false);
+            }
+            catch (const ProfileError& e)
+            {
+                done({}, e.what(), e.Status() == 400);
+                if (e.SignedOut()) throw;
+            }
+            catch (const std::exception& e)
+            {
+                done({}, e.what(), false);
+            }
+        },
+        false);
 }
 
 void CompetitiveService::SignIn()

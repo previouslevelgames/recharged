@@ -85,6 +85,21 @@ void Sessions()
     CHECK(!LoadProfileSession(file));
     ForgetProfileSession(file);
     CHECK(!std::filesystem::exists(file));
+
+    // The Discord friends' link, beside the session.
+    const auto link = DiscordLinkFile(folder, "/games/recharged/second.ini");
+    CHECK(link == folder / "online" / "second.discord");
+    CHECK(!LoadDiscordLink(link));
+    SaveDiscordLink(link, {"https://wfc.example.com", "refresh \"token\""});
+    const auto saved = LoadDiscordLink(link);
+    CHECK(saved && saved->server == "https://wfc.example.com" && saved->refresh_token == "refresh \"token\"");
+#ifndef _WIN32
+    CHECK(::stat(link.c_str(), &info) == 0 && (info.st_mode & 0777) == 0600);
+#endif
+    SaveDiscordLink(link, {"https://wfc.example.com", ""});
+    CHECK(!LoadDiscordLink(link));
+    ForgetProfileSession(link);
+    CHECK(!std::filesystem::exists(link));
     std::filesystem::remove_all(folder);
 }
 
@@ -259,7 +274,8 @@ void Requests()
         return;
     }
     const std::vector<Exchange> exchanges{
-        {"GET /api/v1/server", 200, R"({"version":"1.0.4","sign_in":{"discord":true,"test":false}})"},
+        {"GET /api/v1/server", 200,
+         R"({"version":"1.0.4","sign_in":{"discord":true,"test":false},"discord_application":"1561321462327943259"})"},
         {"POST /api/v1/sign-in/test", 200,
          R"({"status":"signed_in","token":"t0k3n","player":{"id":7,"name":"Nelly","discord":"nelly","test":true,"wfc":[]}})"},
         {"POST /api/v1/matches", 201, kMatch},
@@ -284,13 +300,19 @@ void Requests()
         {"GET /api/v1/chat/9?after=5", 200,
          R"({"messages":[{"id":6,"mine":false,"body":"hi","sent_at":1793000100}],"can_send":true})"},
         {"POST /api/v1/chat/9", 201, R"({"id":7,"mine":true,"body":"yo \"x\"","sent_at":1793000200})"},
+        {"POST /api/v1/discord/token", 200,
+         R"({"access_token":"a","refresh_token":"r","expires_in":604800,"scope":"openid sdk.social_layer_presence"})"},
+        {"POST /api/v1/discord/token", 400, R"({"error":"Discord refused: connect Discord again"})"},
+        {"POST /api/v1/players/discord", 200,
+         R"({"players":[{"id":8,"name":"Sam","online":true,"discord_id":"41771983423143937"}]})"},
     };
     std::vector<Sent> sent;
     {
         Server server(exchanges, sent);
         ProfileService api(server.Url());
         const auto info = api.Info();
-        CHECK(info.version == "1.0.4" && info.discord && !info.test);
+        CHECK(info.version == "1.0.4" && info.discord && !info.test
+              && info.discord_application == "1561321462327943259");
         const auto signed_in = api.TestSignIn("Nel\"ly");
         CHECK(signed_in.status == SignInResult::Status::SignedIn && signed_in.token == "t0k3n"
               && signed_in.player.name == "Nelly" && signed_in.player.test);
@@ -346,6 +368,19 @@ void Requests()
               && page.messages[0].body == "hi" && page.messages[0].sent_at == 1793000100);
         const auto written = api.SendChat(9, "yo \"x\"");
         CHECK(written.id == 7 && written.mine && written.body == "yo \"x\"");
+        const auto tokens = api.DiscordToken("c0de", "v", "http://127.0.0.1:5000/callback");
+        CHECK(tokens.access_token == "a" && tokens.refresh_token == "r" && tokens.expires_in == 604800);
+        try
+        {
+            api.RefreshDiscordToken("old");
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 400 && !e.SignedOut());
+        }
+        const auto found = api.PlayersByDiscord({"41771983423143937", "123"});
+        CHECK(found.size() == 1 && found[0].id == 8 && found[0].online && found[0].discord_id == "41771983423143937");
     }
     CHECK(sent.size() == exchanges.size());
     for (const auto& request : sent) CHECK(request.expected);
@@ -366,6 +401,9 @@ void Requests()
         CHECK(sent[15].body == R"({"name":"b\"o"})");
         CHECK(sent[16].authorization == "Bearer t0k3n" && sent[16].activity == "game" && sent[15].activity.empty());
         CHECK(sent[18].body == R"({"body":"yo \"x\""})");
+        CHECK(sent[19].body == R"({"code":"c0de","code_verifier":"v","redirect_uri":"http://127.0.0.1:5000/callback"})");
+        CHECK(sent[20].body == R"({"refresh_token":"old"})");
+        CHECK(sent[21].body == R"({"ids":["41771983423143937","123"]})");
     }
 
     // Unencrypted only for addresses ProfileServerAddress lets through.
