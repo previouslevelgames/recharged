@@ -53,6 +53,26 @@ struct ProfilePlayer
     std::string activity;
     std::optional<std::int64_t> last_online;
     bool is_friend = false;
+    // Both keep each other as friends: they can write each other; their
+    // messages not read yet. With chat, discord_id is theirs (empty for test
+    // players).
+    bool chat = false;
+    int unread = 0;
+};
+
+// A message between two friends (GET /api/v1/chat/<id>).
+struct ChatMessage
+{
+    std::int64_t id = 0;
+    bool mine = false; // sent by this player
+    std::string body;
+    std::int64_t sent_at = 0; // Unix seconds
+};
+
+struct ChatPage
+{
+    std::vector<ChatMessage> messages; // oldest first
+    bool can_send = false;
 };
 
 // The lobby's lists (GET /api/v1/players).
@@ -68,6 +88,10 @@ struct PlayerLists
 // minutes ago", "... yesterday", "... on 3 October"; `now` and `when` in Unix
 // seconds.
 std::string DescribeLastOnline(std::int64_t now, std::optional<std::int64_t> when);
+
+// When a chat message was sent, in local time: "14:05" today, "Yesterday
+// 14:05", "3 October, 14:05", or with the year when it was another.
+std::string DescribeChatTime(std::int64_t now, std::int64_t when);
 
 // The rules a match is played by (docs/profiles.md, "Rules").
 struct MatchRules
@@ -207,6 +231,10 @@ public:
     std::vector<ProfilePlayer> AddFriend(std::int64_t player_id);
     std::vector<ProfilePlayer> AddFriend(const std::string& name);
     std::vector<ProfilePlayer> RemoveFriend(std::int64_t player_id);
+    // The messages with `player_id`, those after message `after` (0: the
+    // latest 50); a message to them.
+    ChatPage Chat(std::int64_t player_id, std::int64_t after);
+    ChatMessage SendChat(std::int64_t player_id, const std::string& body);
     // The set still to be played, or the last one that ended; `poll_interval`
     // gets how soon (seconds) the server wants to be asked again.
     std::optional<ProfileMatch> CurrentMatch(int* poll_interval = nullptr);

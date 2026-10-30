@@ -100,7 +100,19 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.activity = value["activity"].Text();
     player.last_online = value["last_online"].Integer();
     player.is_friend = value["friend"].Bool();
+    player.chat = value["chat"].Bool();
+    player.unread = int(value["unread"].Integer().value_or(0));
     return player;
+}
+
+ChatMessage ParseChatMessage(const JsonValue& value)
+{
+    ChatMessage message;
+    message.id = value["id"].Integer().value_or(0);
+    message.mine = value["mine"].Bool();
+    message.body = value["body"].Text();
+    message.sent_at = value["sent_at"].Integer().value_or(0);
+    return message;
 }
 
 std::vector<ProfilePlayer> ParsePlayers(const JsonValue& value)
@@ -420,6 +432,25 @@ std::vector<ProfilePlayer> ProfileService::RemoveFriend(std::int64_t player_id)
     return ParsePlayers(Call("DELETE", "/api/v1/friends/" + Integer(player_id), nullptr).body["friends"]);
 }
 
+ChatPage ProfileService::Chat(std::int64_t player_id, std::int64_t after)
+{
+    std::string path = "/api/v1/chat/" + Integer(player_id);
+    if (after > 0) path += "?after=" + Integer(after);
+    const auto answer = Call("GET", path, nullptr);
+    ChatPage page;
+    for (const auto& message : answer.body["messages"].Items()) page.messages.push_back(ParseChatMessage(message));
+    page.can_send = answer.body["can_send"].Bool();
+    return page;
+}
+
+ChatMessage ProfileService::SendChat(std::int64_t player_id, const std::string& body)
+{
+    std::string request = "{\"body\":";
+    AppendJsonString(request, body);
+    request += "}";
+    return ParseChatMessage(Call("POST", "/api/v1/chat/" + Integer(player_id), &request).body);
+}
+
 std::string DescribeLastOnline(std::int64_t now, std::optional<std::int64_t> when)
 {
     if (!when) return "Not online yet";
@@ -450,6 +481,28 @@ std::string DescribeLastOnline(std::int64_t now, std::optional<std::int64_t> whe
         text = std::string("on ") + (day[0] == '0' ? day + 1 : day);
     }
     return "Last online " + text;
+}
+
+std::string DescribeChatTime(std::int64_t now, std::int64_t when)
+{
+    const auto local = [](std::int64_t seconds) {
+        const std::time_t time = std::time_t(seconds);
+        std::tm value{};
+#ifdef _WIN32
+        localtime_s(&value, &time);
+#else
+        localtime_r(&time, &value);
+#endif
+        return value;
+    };
+    const std::tm then = local(when), today = local(now), yesterday = local(now - 86400);
+    char clock[16], day[40];
+    std::strftime(clock, sizeof clock, "%H:%M", &then);
+    const auto same_day = [&](const std::tm& a) { return a.tm_year == then.tm_year && a.tm_yday == then.tm_yday; };
+    if (same_day(today)) return clock;
+    if (same_day(yesterday)) return std::string("Yesterday ") + clock;
+    std::strftime(day, sizeof day, then.tm_year == today.tm_year ? "%d %B" : "%d %B %Y", &then);
+    return std::string(day[0] == '0' ? day + 1 : day) + ", " + clock;
 }
 
 ProfileMatch ProfileService::ReadyToPlay(std::int64_t match, bool ready)

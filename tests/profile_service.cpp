@@ -241,6 +241,14 @@ void LastOnline()
     const auto longer = DescribeLastOnline(now, now - 40 * 86400);
     CHECK(longer.rfind("Last online on ", 0) == 0 && longer.find("ago") == std::string::npos);
     CHECK(DescribeLastOnline(now, now - 400 * 86400).find("202") != std::string::npos);
+
+    // Chat times: the clock today, then "Yesterday", then the day.
+    const auto today = DescribeChatTime(now, now);
+    CHECK(today.size() == 5 && today[2] == ':');
+    CHECK(DescribeChatTime(now, now - 86400).rfind("Yesterday ", 0) == 0);
+    const auto earlier = DescribeChatTime(now, now - 40 * 86400);
+    CHECK(earlier.find(", ") != std::string::npos && earlier.find("202") == std::string::npos);
+    CHECK(DescribeChatTime(now, now - 400 * 86400).find("202") != std::string::npos);
 }
 
 void Requests()
@@ -272,7 +280,10 @@ void Requests()
          R"({"id":7,"name":"Nelly","discord":"nelly","test":false,"wfc":[],"discord_id":"80351110224678912"})"},
         {"POST /api/v1/friends", 200, R"({"friends":[{"id":8,"name":"Sam","online":true,"friend":true}]})"},
         {"POST /api/v1/friends", 200, R"({"friends":[{"id":8,"name":"Sam"},{"id":9,"name":"Bo"}]})"},
-        {"DELETE /api/v1/friends/8", 200, R"({"friends":[{"id":9,"name":"Bo"}]})"},
+        {"DELETE /api/v1/friends/8", 200, R"({"friends":[{"id":9,"name":"Bo","chat":true,"unread":2}]})"},
+        {"GET /api/v1/chat/9?after=5", 200,
+         R"({"messages":[{"id":6,"mine":false,"body":"hi","sent_at":1793000100}],"can_send":true})"},
+        {"POST /api/v1/chat/9", 201, R"({"id":7,"mine":true,"body":"yo \"x\"","sent_at":1793000200})"},
     };
     std::vector<Sent> sent;
     {
@@ -329,7 +340,12 @@ void Requests()
         CHECK(api.AddFriend(std::string("b\"o")).size() == 2);
         api.SetActivity("game");
         const auto removed = api.RemoveFriend(8);
-        CHECK(removed.size() == 1 && removed[0].id == 9);
+        CHECK(removed.size() == 1 && removed[0].id == 9 && removed[0].chat && removed[0].unread == 2);
+        const auto page = api.Chat(9, 5);
+        CHECK(page.can_send && page.messages.size() == 1 && page.messages[0].id == 6 && !page.messages[0].mine
+              && page.messages[0].body == "hi" && page.messages[0].sent_at == 1793000100);
+        const auto written = api.SendChat(9, "yo \"x\"");
+        CHECK(written.id == 7 && written.mine && written.body == "yo \"x\"");
     }
     CHECK(sent.size() == exchanges.size());
     for (const auto& request : sent) CHECK(request.expected);
@@ -349,6 +365,7 @@ void Requests()
         CHECK(sent[14].body == R"({"player_id":8})" && sent[14].content_type == "application/json");
         CHECK(sent[15].body == R"({"name":"b\"o"})");
         CHECK(sent[16].authorization == "Bearer t0k3n" && sent[16].activity == "game" && sent[15].activity.empty());
+        CHECK(sent[18].body == R"({"body":"yo \"x\""})");
     }
 
     // Unencrypted only for addresses ProfileServerAddress lets through.

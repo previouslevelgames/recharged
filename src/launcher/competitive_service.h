@@ -47,6 +47,15 @@ public:
         std::vector<platform::RuleSet> rule_sets;
         std::optional<platform::ProfileMatch> match;
         platform::PlayerLists lists; // the lobby's: online now, recent opponents, friends
+        // The conversation open in the chat panel (OpenChat): with whom (0:
+        // none), the messages so far (oldest first), whether the first fetch
+        // came, whether the two can write, and a message on its way.
+        struct Chat
+        {
+            std::int64_t with = 0;
+            std::vector<platform::ChatMessage> messages;
+            bool loaded = false, can_send = false, sending = false;
+        } chat;
         bool busy = false;           // an action is running
         std::uint64_t serial = 0;    // changes with every change
     };
@@ -71,6 +80,11 @@ public:
     void AddFriend(std::int64_t player_id);
     void AddFriend(const std::string& name);
     void RemoveFriend(std::int64_t player_id);
+    // The chat panel: the conversation with a friend, followed every two
+    // seconds while open, and a message to them.
+    void OpenChat(std::int64_t player_id);
+    void CloseChat();
+    void SendChat(const std::string& body);
     // The set's Ready to play! (or taking it back), and playing it again.
     void ReadyToPlay(bool ready);
     void Rematch();
@@ -110,7 +124,8 @@ private:
     std::string sign_in_id_;       // the sign-in being waited for
     int poll_interval_ = 2;        // seconds between asks while signing in
     std::chrono::steady_clock::time_point next_poll_{};
-    std::chrono::steady_clock::time_point next_me_{}, next_lists_{};
+    std::chrono::steady_clock::time_point next_me_{}, next_lists_{}, next_chat_{};
+    std::int64_t chat_seen_ = 0; // the last message a fetch of the open conversation had
     std::shared_ptr<platform::HttpCancel> cancel_; // the running call's
     bool stop_ = false;
     std::thread worker_;

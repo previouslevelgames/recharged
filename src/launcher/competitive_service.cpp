@@ -21,6 +21,16 @@ namespace
 // player's heartbeat: a set lasts while both have Recharged open.
 constexpr auto kMatchPoll = 4s;
 constexpr auto kListsPoll = 5s;
+// An open conversation is followed closely.
+constexpr auto kChatPoll = 2s;
+
+// A message in id order, once: the next fetch brings this launcher's own again.
+void AddMessage(std::vector<platform::ChatMessage>& messages, platform::ChatMessage message)
+{
+    const auto at = std::lower_bound(messages.begin(), messages.end(), message.id,
+                                     [](const platform::ChatMessage& kept, std::int64_t id) { return kept.id < id; });
+    if (at == messages.end() || at->id != message.id) messages.insert(at, std::move(message));
+}
 constexpr auto kPlayerPoll = 60s;
 constexpr auto kRetry = 15s;
 } // namespace
@@ -296,6 +306,18 @@ void CompetitiveService::Poll(ProfileService& api)
     const auto match = api.CurrentMatch(&interval);
     std::optional<platform::ProfilePlayer> player;
     if (me) player = api.Me();
+    // The open conversation: its new messages.
+    std::int64_t chat_with = 0, chat_after = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (status_.chat.with && Clock::now() >= next_chat_)
+        {
+            chat_with = status_.chat.with;
+            chat_after = chat_seen_;
+        }
+    }
+    std::optional<platform::ChatPage> page;
+    if (chat_with) page = api.Chat(chat_with, chat_after);
     std::optional<platform::PlayerLists> found;
     if (lists)
     {
@@ -313,12 +335,24 @@ void CompetitiveService::Poll(ProfileService& api)
         status.match = match;
         if (player) status.player = *player;
         if (found) status.lists = *found;
+        if (page && status.chat.with == chat_with)
+        {
+            for (auto& message : page->messages)
+            {
+                chat_seen_ = std::max(chat_seen_, message.id);
+                AddMessage(status.chat.messages, std::move(message));
+            }
+            status.chat.can_send = page->can_send;
+            status.chat.loaded = true;
+        }
         status.error.clear();
     });
     std::lock_guard<std::mutex> lock(mutex_);
     if (me) next_me_ = Clock::now() + kPlayerPoll;
     if (lists) next_lists_ = Clock::now() + kListsPoll;
     if (interval) next_poll_ = Clock::now() + std::chrono::seconds(interval);
+    if (chat_with) next_chat_ = Clock::now() + kChatPoll;
+    if (status_.chat.with) next_poll_ = std::min(next_poll_, next_chat_);
 }
 
 void CompetitiveService::SignIn()
@@ -420,6 +454,56 @@ void CompetitiveService::AddFriend(const std::string& name)
         auto friends = api.AddFriend(name);
         Change([&](Status& status) { SetFriends(status, std::move(friends)); });
     }, true);
+}
+
+void CompetitiveService::OpenChat(std::int64_t player_id)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (status_.chat.with != player_id)
+        {
+            status_.chat = {};
+            status_.chat.with = player_id;
+            chat_seen_ = 0;
+            ++status_.serial;
+        }
+        next_chat_ = next_poll_ = {};
+    }
+    wake_.notify_all();
+}
+
+void CompetitiveService::CloseChat()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    status_.chat = {};
+    ++status_.serial;
+}
+
+void CompetitiveService::SendChat(const std::string& body)
+{
+    std::int64_t with;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        with = status_.chat.with;
+        if (!with || status_.chat.sending) return;
+        status_.chat.sending = true;
+        ++status_.serial;
+    }
+    Post([this, with, body](ProfileService& api) {
+        // Sent or not, the panel can write again.
+        struct Done
+        {
+            CompetitiveService* service;
+            ~Done()
+            {
+                service->Change([](Status& status) { status.chat.sending = false; });
+            }
+        } done{this};
+        auto message = api.SendChat(with, body);
+        Change([&](Status& status) {
+            if (status.chat.with == with) AddMessage(status.chat.messages, std::move(message));
+        });
+    }, false);
 }
 
 void CompetitiveService::RemoveFriend(std::int64_t player_id)

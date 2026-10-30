@@ -2753,6 +2753,7 @@ private:
         DrawImportPrompt();
         DrawRegionPrompt();
         DrawWelcome();
+        DrawChat();
         DrawUpdateDialog();
         // The new files are in place: restart into them (unsaved settings are
         // saved or dropped in the update dialog first).
@@ -3762,6 +3763,20 @@ private:
             competitive_errors_ = status.error_serial;
             if (page_ == PageCompetitive && !status.error.empty()) Notice(status.error, NoticeKind::Error);
         }
+        // A friend's new message, told once (not for the open conversation,
+        // nor for those unread at the sign-in).
+        if (status.state == CompetitiveService::State::SignedIn)
+        {
+            for (const auto& player : status.lists.friends)
+            {
+                int& told = chat_unread_told_[player.id];
+                if (player.unread > told && chat_unread_known_ && status.chat.with != player.id && !capture_)
+                    Notice("New message from " + player.name + (page_ == PageCompetitive ? "" : " (Competitive)"),
+                           NoticeKind::Info);
+                told = player.unread;
+            }
+            if (!status.lists.friends.empty()) chat_unread_known_ = true;
+        }
         // Both pressed Ready to play!: this launcher starts the set's game.
         if (status.match && status.match->stage == "go" && status.match->id != competitive_started_set_ && !capture_)
         {
@@ -4294,6 +4309,33 @@ private:
             }
             edge -= Dp(10);
         }
+        // Chat, for a friend who keeps the player too: the unread count on it.
+        if (player.chat)
+        {
+            const float size = Dp(34);
+            edge -= size;
+            ImGui::SetCursorScreenPos({edge, center.y - size * 0.5f});
+            const bool pressed = ImGui::InvisibleButton("##chat", {size, size});
+            const bool over = ImGui::IsItemHovered();
+            const ImVec2 middle{edge + size * 0.5f, center.y};
+            const ImVec4 tint = over || player.unread ? color::accent : color::muted;
+            if (over || player.unread) draw->AddCircleFilled(middle, size * 0.5f, Col(tint, over ? 0.16f : 0.10f));
+            DrawIcon(draw, Icon::Chat, middle, Dp(17), Col(tint));
+            if (player.unread)
+            {
+                const std::string count = player.unread > 9 ? "9+" : std::to_string(player.unread);
+                const ImVec2 text = TextSize(fonts.caption, count.c_str());
+                const float badge = std::max(Dp(16), text.x + Dp(8));
+                const ImVec2 at{middle.x + size * 0.22f, middle.y - size * 0.5f};
+                draw->AddRectFilled({at.x - badge * 0.5f, at.y}, {at.x + badge * 0.5f, at.y + Dp(16)}, Col(color::accent),
+                                    Dp(8));
+                DrawLabel(draw, fonts.caption, {at.x - text.x * 0.5f, at.y + (Dp(16) - text.y) * 0.5f},
+                          Col(color::accent_ink), count.c_str());
+            }
+            if (over) ImGui::SetTooltip("Chat with %s", player.name.c_str());
+            if (pressed) OpenChatWith(player);
+            edge -= Dp(6);
+        }
         if (player.online)
         {
             place(Dp(132));
@@ -4305,13 +4347,7 @@ private:
         // The name, the Discord username after it, and the line under them.
         const float text_left = center.x + radius + Dp(14);
         const std::string handle = player.discord.empty() ? std::string() : "@" + player.discord;
-        std::string status;
-        ImVec4 status_tint = color::muted;
-        if (player.online && player.busy) status = "In a set", status_tint = color::warning;
-        else if (playing) status = "Playing a match", status_tint = color::warning;
-        else if (player.online && player.activity == "game") status = "In the game", status_tint = color::success;
-        else if (player.online) status = "Online", status_tint = color::success;
-        else status = platform::DescribeLastOnline(now, player.last_online);
+        const auto [status, status_tint] = PlayerStatus(player, now);
         const ImVec2 name = TextSize(fonts.label, player.name.c_str());
         const float block = name.y + Dp(3) + FontSize(fonts.caption);
         const float top = center.y - block * 0.5f;
@@ -4327,6 +4363,230 @@ private:
         ImGui::SetCursorScreenPos(start);
         ImGui::Dummy({width, height});
         ImGui::PopID();
+    }
+
+    // What a player is doing, for their row and the chat panel's header.
+    static std::pair<std::string, ImVec4> PlayerStatus(const platform::ProfilePlayer& player, std::int64_t now)
+    {
+        if (player.online && player.busy) return {"In a set", color::warning};
+        if (player.online && player.activity == "match") return {"Playing a match", color::warning};
+        if (player.online && player.activity == "game") return {"In the game", color::success};
+        if (player.online) return {"Online", color::success};
+        return {platform::DescribeLastOnline(now, player.last_online), color::muted};
+    }
+
+    void OpenChatWith(const platform::ProfilePlayer& player)
+    {
+        chat_partner_ = player;
+        chat_open_requested_ = chat_focus_ = true;
+        chat_draft_.clear();
+        chat_drawn_ = 0;
+        competitive_->OpenChat(player.id);
+    }
+
+    void CloseChat()
+    {
+        ImGui::CloseCurrentPopup();
+        chat_partner_.reset();
+        competitive_->CloseChat();
+    }
+
+    // The chat panel over the dimmed launcher: the conversation with one
+    // friend, a line to write, and their Discord profile.
+    void DrawChat()
+    {
+        if (chat_open_requested_ && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+        {
+            ImGui::OpenPopup("Chat");
+            chat_open_requested_ = false;
+        }
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const float width = std::min(Dp(560), viewport->Size.x - Dp(48));
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({width, 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(26, 22));
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4{0, 0, 0, 0});
+        if (ImGui::BeginPopupModal("Chat", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
+            | ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
+            DrawChatContents();
+            ImGui::PopStyleVar();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+    }
+
+    void DrawChatContents()
+    {
+        const auto& fonts = CurrentFonts();
+        if (!chat_partner_)
+        {
+            ImGui::CloseCurrentPopup();
+            return;
+        }
+        // Until the service's next snapshot, the conversation just opened is empty.
+        static const CompetitiveService::Status::Chat opening;
+        const auto& chat = competitive_status_.chat.with == chat_partner_->id ? competitive_status_.chat : opening;
+        // The friend as the lists have them now, else as when the panel opened.
+        platform::ProfilePlayer partner = *chat_partner_;
+        for (const auto& player : competitive_status_.lists.friends)
+            if (player.id == partner.id) partner = player;
+        const std::int64_t now = std::int64_t(std::time(nullptr));
+        auto* draw = ImGui::GetWindowDrawList();
+        DrawDialogCard(color::accent);
+        const float left = ImGui::GetCursorScreenPos().x;
+        const float right = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+
+        // Header: the avatar, the name and what they're doing; Discord and close.
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        const float radius = Dp(20);
+        const ImVec2 center{top.x + radius, top.y + radius};
+        ImVec4 tint{0, 0, 0, 1};
+        ImGui::ColorConvertHSVtoRGB(std::fmod(float(partner.id) * 0.618034f, 1.0f), 0.55f, 0.62f, tint.x, tint.y,
+                                    tint.z);
+        draw->AddCircleFilled(center, radius, Col(tint));
+        std::string initial = partner.name.empty() ? std::string("?") : partner.name.substr(0, 1);
+        if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
+            initial = partner.name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2,
+                                                                    partner.name.size()));
+        else
+            initial[0] = char(std::toupper(byte));
+        const ImVec2 letter = TextSize(fonts.heading, initial.c_str());
+        DrawLabel(draw, fonts.heading, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f}, Col(color::text),
+                  initial.c_str());
+        const auto [status, status_tint] = PlayerStatus(partner, now);
+        const float text_left = center.x + radius + Dp(14);
+        const ImVec2 name = TextSize(fonts.heading, partner.name.c_str());
+        DrawLabel(draw, fonts.heading, {text_left, top.y}, Col(color::text), partner.name.c_str());
+        DrawLabel(draw, fonts.caption, {text_left, top.y + name.y + Dp(2)}, Col(status_tint), status.c_str());
+        float edge = right;
+        {
+            const float size = Dp(32);
+            edge -= size;
+            ImGui::SetCursorScreenPos({edge, center.y - size * 0.5f});
+            const bool pressed = ImGui::InvisibleButton("##chat_close", {size, size});
+            const bool over = ImGui::IsItemHovered();
+            if (over) draw->AddCircleFilled({edge + size * 0.5f, center.y}, size * 0.5f, Col(color::text, 0.08f));
+            DrawIcon(draw, Icon::Close, {edge + size * 0.5f, center.y}, Dp(14), Col(over ? color::text : color::muted));
+            if (pressed)
+            {
+                CloseChat();
+                return;
+            }
+            edge -= Dp(8);
+        }
+        if (!partner.discord_id.empty())
+        {
+            const char* label = "Discord";
+            const float button = GhostWidth(label, Icon::Link);
+            edge -= button;
+            ImGui::SetCursorScreenPos({edge, center.y - Dp(17)});
+            if (GhostButton("chat_discord", label, {button, Dp(34)}, true, Icon::Link))
+                SDL_OpenURL(("https://discord.com/users/" + partner.discord_id).c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open %s's Discord profile", partner.name.c_str());
+        }
+        ImGui::SetCursorScreenPos({left, top.y + radius * 2.0f + Dp(16)});
+        DialogDivider();
+
+        // The conversation: theirs on the left, the player's on the right in
+        // the accent, the time over each group.
+        const float height = std::clamp(ImGui::GetMainViewport()->Size.y * 0.5f, Dp(180), Dp(380));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0, 0, 0, 0});
+        ImGui::BeginChild("##chat_messages", {right - left, height});
+        {
+            auto* list = ImGui::GetWindowDrawList();
+            const float area = ImGui::GetContentRegionAvail().x - Dp(6);
+            const float wrap = area * 0.74f, pad_x = Dp(12), pad_y = Dp(8);
+            ImGui::Dummy({0, Dp(12)});
+            if (!chat.loaded || chat.messages.empty())
+            {
+                const char* empty = !chat.loaded ? "Loading the conversation..."
+                                                 : "No messages yet. Say hello!";
+                const ImVec2 size = TextSize(fonts.body, empty);
+                ImGui::SetCursorPos({(area - size.x) * 0.5f, height * 0.5f - size.y});
+                TextColored(fonts.body, color::muted, empty);
+            }
+            const platform::ChatMessage* previous = nullptr;
+            for (const auto& message : chat.messages)
+            {
+                if (!previous || previous->mine != message.mine || message.sent_at - previous->sent_at > 600)
+                {
+                    if (previous) ImGui::Dummy({0, Dp(8)});
+                    const std::string when = platform::DescribeChatTime(now, message.sent_at);
+                    const ImVec2 size = TextSize(fonts.caption, when.c_str());
+                    const ImVec2 at = ImGui::GetCursorScreenPos();
+                    DrawLabel(list, fonts.caption, {message.mine ? at.x + area - size.x : at.x, at.y}, Col(color::dim),
+                              when.c_str());
+                    ImGui::Dummy({0, size.y + Dp(4)});
+                }
+                previous = &message;
+                ImFont* font = fonts.body;
+                const float font_size = FontSize(font);
+                const ImVec2 text = font->CalcTextSizeA(font_size, FLT_MAX, wrap, message.body.c_str());
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                const float bubble_w = std::ceil(text.x) + 2 * pad_x, bubble_h = std::ceil(text.y) + 2 * pad_y;
+                const float x = message.mine ? at.x + area - bubble_w : at.x;
+                list->AddRectFilled({x, at.y}, {x + bubble_w, at.y + bubble_h},
+                                    Col(message.mine ? Mix(color::card, color::accent, 0.24f) : color::field), Dp(14));
+                list->AddText(font, font_size, {x + pad_x, at.y + pad_y}, Col(color::text), message.body.c_str(),
+                              nullptr, wrap);
+                ImGui::Dummy({area, bubble_h + Dp(4)});
+            }
+            ImGui::Dummy({0, Dp(4)});
+            // New messages (and the panel's first frame) scroll to the end.
+            if (chat.messages.size() != chat_drawn_)
+            {
+                ImGui::SetScrollHereY(1.0f);
+                chat_drawn_ = chat.messages.size();
+            }
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        DialogDivider();
+        ImGui::Dummy({0, Dp(14)});
+
+        // A line to write, or why there is none.
+        if (chat.loaded && !chat.can_send)
+            TextWrappedColored(fonts.body, color::muted,
+                               (partner.name + " doesn't have you as a friend: you can read your messages, but not "
+                                               "write. Messages are kept 30 days.").c_str());
+        else
+        {
+            const float send = PrimaryWidth("Send", Icon::Chat);
+            if (chat_focus_)
+            {
+                ImGui::SetKeyboardFocusHere();
+                chat_focus_ = false;
+            }
+            ImGui::SetNextItemWidth(right - left - send - Dp(10));
+            const bool entered = ImGui::InputTextWithHint("##chat_line", "Write a message", &chat_draft_,
+                                                          ImGuiInputTextFlags_EnterReturnsTrue);
+            const auto first = chat_draft_.find_first_not_of(" \t");
+            const std::string line = first == std::string::npos
+                ? std::string()
+                : chat_draft_.substr(first, chat_draft_.find_last_not_of(" \t") + 1 - first);
+            std::size_t characters = 0;
+            for (const unsigned char c : line) characters += (c & 0xC0) != 0x80;
+            const bool usable = !line.empty() && characters <= 300 && !chat.sending;
+            ImGui::SameLine(0, Dp(10));
+            if ((PrimaryButton("chat_send", "Send", {send, ImGui::GetFrameHeight()}, usable, Icon::Chat)
+                 || entered) && usable)
+            {
+                competitive_->SendChat(line);
+                chat_draft_.clear();
+                chat_focus_ = true;
+            }
+            ImGui::Dummy({0, Dp(8)});
+            const std::string note = characters > 250
+                ? (characters > 300 ? std::to_string(characters - 300) + " characters too many"
+                                    : std::to_string(300 - characters) + " characters left")
+                : std::string("Messages go through the Recharged server, which keeps them 30 days.");
+            TextColored(fonts.caption, characters > 300 ? color::danger : color::dim, note.c_str());
+        }
+        if (CancelPressed()) CloseChat();
     }
 
     // The players: the rules every challenge from this page uses, the
@@ -9494,6 +9754,16 @@ private:
     bool training_requested_ = false;
     // A set's go seen: start its game (once per set and launcher).
     bool competitive_go_ = false;
+    // The chat panel: the friend it is open with (a copy of their row for
+    // the header when they leave the lists), the line being written, the
+    // messages drawn last frame (new ones scroll into view), and the unread
+    // counts already told in a notice.
+    std::optional<platform::ProfilePlayer> chat_partner_;
+    bool chat_open_requested_ = false, chat_focus_ = false;
+    std::string chat_draft_;
+    std::size_t chat_drawn_ = 0;
+    std::map<std::int64_t, int> chat_unread_told_;
+    bool chat_unread_known_ = false;
     std::int64_t competitive_started_set_ = 0;
     bool training_ = false;
     NoticeKind notice_kind_ = NoticeKind::Info;
