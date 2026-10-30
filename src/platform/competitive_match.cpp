@@ -29,6 +29,7 @@
 
 #include <RVLFaceLib/RFL_Database.h>
 #include <dwc/dwc_login.h>
+#include <dwc/dwc_main.h>
 
 #include <cstdio>
 #include <cstring>
@@ -180,6 +181,22 @@ extern "C" bool mscharged_competitive_take_use(void)
 {
     if (sSetStage != CHARGED_SET_OVERLAY || PopupOnTop()) return false;
     sSetStage = CHARGED_SET_LOGIN;
+    return true;
+}
+
+// DWC refuses to start a search while it updates its servers, the friend
+// list sync that follows the login, which the retail menus always outlast: the
+// set's game waits for it, at most 600 frames (10 s).
+extern "C" bool mscharged_competitive_ranked_waits(void)
+{
+    static int sWaitedFrames = 0;
+    if (sSetStage != CHARGED_SET_LOGIN)
+    {
+        sWaitedFrames = 0;
+        return false;
+    }
+    if (DWC_GetState() != DWC_STATE_UPDATE_SERVERS || sWaitedFrames >= 600) return false;
+    ++sWaitedFrames;
     return true;
 }
 

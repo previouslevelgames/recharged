@@ -13,8 +13,9 @@ step at a time, as the player would:
 - the online Mii menu chooses the player's own Mii on its page (SelectMii),
   and its overlay presses Use, which selects the Mii, keeps its save slot and
   goes on to the WFC login;
-- the login, once it succeeded, goes on into the RANKED search for one
-  player, as the online menu's RANKED and the player count would
+- the login, once it succeeded and DWC ended the friend list sync that
+  follows it (DWC refuses a search before), goes on into the RANKED search
+  for one player, as the online menu's RANKED and the player count would
   (InitializeOnlineMatch, the matchmaking draft scene) instead of the online
   menu; the profile service's RANKED steering then lets the two games find
   only each other;
@@ -34,7 +35,7 @@ diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
 index ef60b8a..1cbc382 100644
 --- a/include/mscharged_competitive.h
 +++ b/include/mscharged_competitive.h
-@@ -34,6 +34,30 @@ bool mscharged_competitive_tweak(int tweak);
+@@ -34,6 +34,33 @@ bool mscharged_competitive_tweak(int tweak);
  // otherwise `stadium`.
  int mscharged_competitive_stadium(int stadium);
  
@@ -52,6 +53,9 @@ index ef60b8a..1cbc382 100644
 +// The login succeeded: true to go on into the RANKED search (once) instead
 +// of the online menu.
 +bool mscharged_competitive_take_ranked(void);
++// The login succeeded, before the RANKED step: true while the set's game
++// waits for DWC's friend list sync after the login (no search starts then).
++bool mscharged_competitive_ranked_waits(void);
 +// The connection check with these two machines' WFC profiles: 0 accept (the
 +// set's opponent), 1 reject (anybody else), -1 the player decides.
 +int mscharged_competitive_connection(unsigned first, unsigned second);
@@ -202,13 +206,16 @@ index ddc201c..9a26db2 100644
  
  SHOnlineLogin::SHOnlineLogin()
      : mPopupActive(false)
-@@ -131,6 +135,18 @@ void SHOnlineLogin::Update(float fDeltaT)
+@@ -131,6 +135,21 @@ void SHOnlineLogin::Update(float fDeltaT)
              mState = ONLINE_LOGIN_WAIT_RESULT;
          break;
      case ONLINE_LOGIN_SUCCESS:
 +#if defined(MSCHARGED_TWEAKS)
 +        // Competitive play: a set's game goes on into the RANKED search for
-+        // one player, as the online menu's RANKED would.
++        // one player, as the online menu's RANKED would, once DWC ended the
++        // friend list sync after the login (its search refuses to start
++        // before; the retail menus always take longer).
++        if (mscharged_competitive_ranked_waits()) break;
 +        if (mscharged_competitive_take_ranked())
 +        {
 +            InitializeOnlineMatch(false, false, true);
