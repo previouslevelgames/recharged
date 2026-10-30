@@ -238,6 +238,10 @@ constexpr PitchSpot kSidekickSpots[] = {{"LEFT WING", 0.44f, 0.22f}, {"RIGHT WIN
 constexpr PitchSpot kCaptainSpot{"CAPTAIN", 0.76f, 0.50f}, kGoalieSpot{"GOALIE", 0.075f, 0.50f};
 static_assert(std::size(kSidekickSpots) == mscharged::platform::kSidekickSlots);
 
+// The sparks that crackle over the Recharged logo now and then are off for
+// now: the logo stays still. Set to true to bring them back.
+constexpr bool kLogoSparks = false;
+
 #if defined(__linux__)
 // The udev rule from docs/SETTINGS.md (Wii Remotes): lets the logged-in user
 // open Wii Remotes, paired over Bluetooth or behind a DolphinBar.
@@ -545,8 +549,9 @@ public:
         load_levels("logo.png", logo_);
         logo_aspect_ = logo_.front().width / logo_.front().height;
         // tools/launcher_art.py cuts both out alike; another picture is left out.
-        load_levels("logo_sizzle.png", logo_sizzle_);
-        if (logo_sizzle_.front().width != logo_.front().width || logo_sizzle_.front().height != logo_.front().height)
+        if (kLogoSparks) load_levels("logo_sizzle.png", logo_sizzle_);
+        if (!logo_sizzle_.empty() && (logo_sizzle_.front().width != logo_.front().width ||
+                                      logo_sizzle_.front().height != logo_.front().height))
         {
             for (const auto& level : logo_sizzle_) SDL_DestroyTexture(level.texture);
             logo_sizzle_.clear();
@@ -794,7 +799,7 @@ private:
     }
 
     // The logo with its top left corner at `pos`, `height` tall, the sparked
-    // logo sizzling over it; returns its width.
+    // logo sizzling over it (with kLogoSparks); returns its width.
     float DrawLogo(ImDrawList* draw, ImVec2 pos, float height)
     {
         const float width = height * logo_aspect_;
@@ -814,7 +819,7 @@ private:
     // moments, 1.5 to 6 seconds apart, the sparks crackle for 0.35 to 0.9
     // seconds (now and then striking again at once), flickering to another
     // strength every few hundredths of a second, rising fast and fading out.
-    // Nothing in screenshots, so that they stay the same.
+    // Nothing in screenshots, so that they stay the same, nor without kLogoSparks.
     float Sizzle()
     {
         if (capture_ || logo_sizzle_.empty()) return 0.0f;

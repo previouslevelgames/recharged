@@ -5,10 +5,10 @@
 # Returning-to-FE branch and later task transitions retain their explicit diagnostic holds.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index b2a2eec..8cdeed9 100644
+index a3943a0..95fc4c7 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -910,10 +910,13 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -908,10 +908,13 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          InitializeFrontEndState1(this);
          break;
  #endif
@@ -23,7 +23,7 @@ index b2a2eec..8cdeed9 100644
      case 87:
          InitializeGameState1(this);
          break;
-@@ -1560,7 +1563,8 @@ void InitializeFrontEndState1(AsyncLoadingManager* manager)
+@@ -1558,7 +1561,8 @@ void InitializeFrontEndState1(AsyncLoadingManager* manager)
  
  void InitializeFrontEndState2(AsyncLoadingManager* manager)
  {
@@ -33,7 +33,7 @@ index b2a2eec..8cdeed9 100644
      static GLMemoryRequirement requirements[] = {
          { GLM_Header, 0x400 },
          { GLM_VertexData, 0x800 },
-@@ -1570,12 +1574,14 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
+@@ -1568,12 +1572,14 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
      ImpostorManager::GetInstance()->SetEnabled(true);
  #endif // unqualified stadium/impostor initialization is omitted in this diagnostic
      manager->SetLoadingComment("InitializeFEState2");
@@ -41,26 +41,26 @@ index b2a2eec..8cdeed9 100644
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
 +    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
      ParticleUpdateTask* particleTask = ParticleUpdateTask::sInstance;
-     particleTask->Initialize(GetLayerView((eCLV)0x19), 0x5F6, 0x2FB);
+     particleTask->Initialize(GetLayerView(eCLV_Particles), 0x5F6, 0x2FB);
  #endif // unqualified effects initialization is omitted in this diagnostic
-     GameInfoManager::Instance()->ResetUnknown0xA0();
+     GameInfoManager::Instance()->ClearGameSettingsOverride();
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
 +    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
      FEMusic::StopStream();
  #endif // normal AX frontend music is omitted in this diagnostic
-     BaseSceneHandler* scene = GameSceneManager::Instance()->Push((SceneList)0x1D, SCREEN_NOTHING, false);
-@@ -1585,7 +1591,8 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
+     BaseSceneHandler* scene = GameSceneManager::Instance()->Push(SCENE_NAVIGATION, SCREEN_NOTHING, false);
+@@ -1583,7 +1589,8 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
      {
-         lbl_806E1044 = true;
-         GameSceneManager::Instance()->Push((SceneList)0x16, SCREEN_NOTHING, false);
+         sIntroMovieStarted = true;
+         GameSceneManager::Instance()->Push(SCENE_INTRO_MOVIE, SCREEN_NOTHING, false);
 -#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) \
 +    || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FINALIZE))
          FrontEndPresentation::GetInstance()->Call("StartTitleScreenSequence");
  #endif // unqualified3D title-camera initialization omitted; actual Intro/Title camera waits stay held
      }
-@@ -1682,7 +1689,8 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
+@@ -1680,7 +1687,8 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
  
  #endif
  }

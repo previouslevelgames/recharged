@@ -139,6 +139,15 @@ function(mscharged_select_original_frontend_online target)
         "${MSCHARGED_PREPARED}/src/RVL_SDK/rfl/RFL_Model.c"
         # The Mii icons of the online scenes (MiiManager::CreateIcon).
         "${MSCHARGED_PREPARED}/src/RVL_SDK/rfl/RFL_Icon.c")
+    # The Korean release's newer DWC and GameSpy have a few more units.
+    get_target_property(_online_version "${target}" MSCHARGED_GAME_VERSION)
+    if(_online_version STREQUAL "R4QK01")
+        list(APPEND _online_sources
+            "${MSCHARGED_PREPARED}/src/RVL_SDK/dwc/dwc_cf.c"
+            "${MSCHARGED_PREPARED}/src/RVL_SDK/dwc/dwc_reliable.c"
+            "${MSCHARGED_PREPARED}/src/RVL_SDK/gamespy/common/gsUdpEngine.c"
+            "${MSCHARGED_PREPARED}/src/RVL_SDK/gamespy/GP/gpiKeys.c")
+    endif()
     # Sources already in the module (OSMutex through the Mii resources) keep
     # their existing owner and options.
     _mscharged_world_owned_sources("${target}" _online_known)

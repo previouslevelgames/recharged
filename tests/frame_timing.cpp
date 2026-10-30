@@ -55,7 +55,7 @@ void Run()
     auto s=mscharged::ReadFrameTiming(counter);
     Check(Close(s.average_ms[0],1) && Close(s.average_ms[1],2) && s.pending_frames==20,"Original averaging window changed");
     Check(s.next_history==10 && s.next_continuous==50,"Original history wrap changed");
-    Check(region.m_unk10==325 && region.m_Histogram.m_NumSamples==325 && Close(region.m_fThreshold,975),"Conditional time region sampling changed");
+    Check(region.m_nFrameCount==325 && region.m_Histogram.m_NumSamples==325 && Close(region.m_fTotalFrameTime,975),"Conditional time region sampling changed");
     Reject([&] { counter.StartTimer(-1); });Reject([&] { counter.StartTimer(2); });
     FrameCounter::NUM_FRAMES_TO_AVERAGE_OVER=0;
     Reject([&] { counter.FinishTiming(); });FrameCounter::NUM_FRAMES_TO_AVERAGE_OVER=30;

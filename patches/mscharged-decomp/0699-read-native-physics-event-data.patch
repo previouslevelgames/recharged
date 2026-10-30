@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Read native physics event data by member
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: native compiler/ABI compatibility
 
 The PhysicsEventQueue handlers read their event data and objects through
@@ -23,7 +23,7 @@ On native builds every handler reads these through the declared members.
 Wii builds are unchanged.
 
 diff --git a/src/Game/Physics/PhysicsEventQueue.cpp b/src/Game/Physics/PhysicsEventQueue.cpp
-index c16dd72..e3b4d1a 100644
+index e52e643..82e7dbb 100644
 --- a/src/Game/Physics/PhysicsEventQueue.cpp
 +++ b/src/Game/Physics/PhysicsEventQueue.cpp
 @@ -276,24 +276,44 @@ void RegisterPhysicsEventHandlers()
@@ -169,14 +169,14 @@ index c16dd72..e3b4d1a 100644
 +    if (patch->m_Type == 0 && patch->m_bKillMe == false)
 +    {
 +        CreateExplosionShockwave(&((PhysicsObject*)patch)->GetPosition());
-+        ((PhysicsObject*)patch)->Unknown0();
++        ((PhysicsObject*)patch)->ResetState();
 +    }
 +#else
      unsigned char* object = *(unsigned char**)((unsigned char*)data + 0x10);
      if (*(int*)(object + 0x48) == 0 && object[0x65] == false)
      {
          CreateExplosionShockwave(&((PhysicsObject*)object)->GetPosition());
-         ((PhysicsObject*)object)->Unknown0();
+         ((PhysicsObject*)object)->ResetState();
      }
 +#endif
  }

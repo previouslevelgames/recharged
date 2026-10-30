@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Restore original target source decisions outside diagnostics
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: original-source fidelity correction; legacy checks diagnostic-only.
 
 diff --git a/include/NL/gl/glTarget.h b/include/NL/gl/glTarget.h

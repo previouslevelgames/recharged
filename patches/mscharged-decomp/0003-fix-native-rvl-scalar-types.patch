@@ -1,6 +1,6 @@
 Subject: Keep RVL scalar and clock fields at console widths
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 RVL long typedefs widen on LP64. Use fixed-width 32-bit fields and the
 standard pointer-width type. Avoid native POSIX and C++ character-type name
@@ -68,14 +68,10 @@ index 97eace4..5521be6 100644
  #ifdef __cplusplus
  }
 diff --git a/libs/RVL_SDK/include/revolution/types.h b/libs/RVL_SDK/include/revolution/types.h
-index aa7de73..794b1d9 100644
+index ef4812c..5fa52d2 100644
 --- a/libs/RVL_SDK/include/revolution/types.h
 +++ b/libs/RVL_SDK/include/revolution/types.h
-@@ -2,14 +2,15 @@
- #define REVOLUTION_TYPES_H
- 
- #include <decomp.h>
-+#include <stdint.h>
+@@ -7,11 +7,11 @@
  
  typedef signed char s8;
  typedef signed short s16;
@@ -89,11 +85,7 @@ index aa7de73..794b1d9 100644
  typedef unsigned long long u64;
  
  typedef volatile u8 vu8;
-@@ -54,16 +55,21 @@ typedef unsigned short wchar_t;
- #define NULL 0
- #endif
- 
--typedef unsigned long uintptr_t;
+@@ -58,12 +58,18 @@ typedef int bool;
  typedef unsigned short int byte2_t;
  typedef unsigned char byte1_t;
  typedef byte1_t byte_t;
