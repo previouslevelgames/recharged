@@ -29,6 +29,7 @@
 
 #include <RVLFaceLib/RFL_Database.h>
 #include <dwc/dwc_login.h>
+#include <dwc/dwc_main.h>
 
 #include <cstdio>
 #include <cstring>
@@ -122,11 +123,14 @@ extern "C" __attribute__((visibility("default"))) bool charged_wfc_snapshot(Char
     s.competitive_setups = sSetups;
     s.competitive_games = sActive ? sMatch.games : 0;
     // StartNetworkedGame gives each machine's players a side by their network
-    // player id (machine * 4 + player): this machine's first player's.
+    // player id (machine * 4 + player): this machine's first player's. The
+    // main menu's Online sets only mIsOnlineMode, so the mode stays -1 after
+    // a fresh start until InitializeOnlineMatch: no game info to read yet.
     s.local_side = -1;
     const GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
     if (info && info->mIsOnlineMode && g_pNetworkSession && g_pNetworkSession->mLocalMachineId >= 0
-        && g_pNetworkSession->mLocalMachineId < 4)
+        && g_pNetworkSession->mLocalMachineId < 4 && info->mCurrentMode >= 0
+        && info->mCurrentMode < GameInfoManager::GM_NUM_MODES && info->mGameInfo[info->mCurrentMode])
     {
         const auto player = GetNetworkPlayerId(0, s8(g_pNetworkSession->mLocalMachineId));
         const short side = info->GetPlayingSide((unsigned short)player);
@@ -177,6 +181,22 @@ extern "C" bool mscharged_competitive_take_use(void)
 {
     if (sSetStage != CHARGED_SET_OVERLAY || PopupOnTop()) return false;
     sSetStage = CHARGED_SET_LOGIN;
+    return true;
+}
+
+// DWC refuses to start a search while it updates its servers, the friend
+// list sync that follows the login, which the retail menus always outlast: the
+// set's game waits for it, at most 600 frames (10 s).
+extern "C" bool mscharged_competitive_ranked_waits(void)
+{
+    static int sWaitedFrames = 0;
+    if (sSetStage != CHARGED_SET_LOGIN)
+    {
+        sWaitedFrames = 0;
+        return false;
+    }
+    if (DWC_GetState() != DWC_STATE_UPDATE_SERVERS || sWaitedFrames >= 600) return false;
+    ++sWaitedFrames;
     return true;
 }
 
