@@ -569,7 +569,15 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     {
         // Steps undone: they run again when their inputs have all arrived (the
         // inputs that did arrive are kept), and their time goes back to the
-        // fixed update, to catch up.
+        // fixed update, to catch up. Their places in the step ring still hold
+        // them until they run again, so the steps kept are those through
+        // replayEnd only: the oldest kept step and the rollbacks' depth count
+        // just these (an undone step's journal mark lies past the journal now).
+        if (s.latest > s.replayEnd)
+        {
+            const int kept = std::min(s.stored, kRing);
+            s.stored = kept - static_cast<int>(std::min(s.latest - s.replayEnd, static_cast<unsigned>(kept - 1)));
+        }
         s.latest = s.replayEnd;
         s.net.lastInputFrame = s.replayEnd;
         s.net.waitThrough = std::max(s.net.waitThrough, ran);
