@@ -122,11 +122,14 @@ extern "C" __attribute__((visibility("default"))) bool charged_wfc_snapshot(Char
     s.competitive_setups = sSetups;
     s.competitive_games = sActive ? sMatch.games : 0;
     // StartNetworkedGame gives each machine's players a side by their network
-    // player id (machine * 4 + player): this machine's first player's.
+    // player id (machine * 4 + player): this machine's first player's. The
+    // main menu's Online sets only mIsOnlineMode, so the mode stays -1 after
+    // a fresh start until InitializeOnlineMatch: no game info to read yet.
     s.local_side = -1;
     const GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
     if (info && info->mIsOnlineMode && g_pNetworkSession && g_pNetworkSession->mLocalMachineId >= 0
-        && g_pNetworkSession->mLocalMachineId < 4)
+        && g_pNetworkSession->mLocalMachineId < 4 && info->mCurrentMode >= 0
+        && info->mCurrentMode < GameInfoManager::GM_NUM_MODES && info->mGameInfo[info->mCurrentMode])
     {
         const auto player = GetNetworkPlayerId(0, s8(g_pNetworkSession->mLocalMachineId));
         const short side = info->GetPlayingSide((unsigned short)player);
