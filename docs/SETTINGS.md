@@ -467,10 +467,15 @@ tweaks both teams play with.
    only if it is the code the launcher shows.
 2. Challenge a player who has Recharged open: from your friends or the other
    players online with a click, or by their Discord username. They accept or
-   decline.
-3. Both press **Ready to play!**. The game then starts by itself, signs in to
-   the online server with your own Mii and goes straight to the captain
-   draft against your opponent, where you choose your captain and sidekicks.
+   decline, in the launcher or on a card over their game while it is in its
+   menus (A accepts, B declines; the game waits behind the card). A player in
+   a match shows as *Playing a match* and can be challenged once it is over.
+3. Once they accept, both games start by themselves: a game in which the
+   challenge was accepted closes, and its launcher starts the set's game. The
+   game signs in to the online server with your own Mii and goes straight to
+   the captain draft against your opponent, where you choose your captain and
+   sidekicks. **Not ready** in the lobby holds the set until you press
+   **Ready to play!** again.
 4. After the series both games report the result, the game closes and the
    launcher opens again with the result, and **Rematch**.
 
@@ -479,6 +484,12 @@ everyone you challenge, everyone whose challenge you accept, and anyone you add
 with the heart (or by Discord username). The list shows who has Recharged open
 or is in a set, and for the others when they were last online. The heart again
 takes a player off.
+
+Friends who have you as a friend too can **chat**: the speech bubble on their
+row opens the conversation, with the number of messages you haven't read yet
+on it, and **Discord** there opens their Discord profile. Messages are one
+line of up to 300 characters; they go through the online server, which keeps
+them 30 days.
 
 You need no Mii of your own: the launcher makes one from your Discord account,
 named after your Discord name, the same on every computer. It is an ordinary

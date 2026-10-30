@@ -13,8 +13,8 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 1. Open Recharged and go to **Competitive**, your lobby. It shows your open
    sets, who is online right now and your recent opponents.
 2. Challenge an opponent, or let a tournament pair you with one.
-3. You both press **Ready to play!**
-4. The game starts by itself, **straight into the captain draft**: no intro,
+3. They accept, in the launcher or on a card over their game.
+4. Both games start by themselves, **straight into the captain draft**: no intro,
    no menus, no friend codes to trade, no searching. You pick your captain and
    sidekicks in the game's own draft, just like on the Wii.
 5. You play the series under the set's rules, for example best of 3, three
@@ -29,9 +29,11 @@ with the score.
 ## Challenge a friend
 
 - Type a player's Discord name and choose a rule set. They get
-  **"Alice challenges you"** with Accept and Decline.
-- Anyone who is signed in and has Recharged open can be challenged. The lobby
-  shows who is online.
+  **"Alice challenges you"** with Accept and Decline: in the launcher, or on a
+  card over the game while they are in its menus.
+- Anyone who is signed in and has Recharged open can be challenged, unless
+  they are playing a match. The lobby shows who is online and what they do.
+- Friends who keep each other as friends can chat in the launcher.
 - A challenge lasts only as long as Recharged is open: close Recharged and
   your open challenges are gone, with nothing to clean up.
 
