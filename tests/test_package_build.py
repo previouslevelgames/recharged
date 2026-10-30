@@ -308,6 +308,35 @@ class PackageBuildTests(PackageFixture):
         self.assertEqual(manifest["files"]["recharged"]["mode"], "0o755")
         self.assertEqual(script, PACKAGER.MACOS_START_SCRIPT)
 
+    def test_discord_sdk_goes_beside_the_program_only_from_a_build_with_it(self):
+        library, notices = "libdiscord_partner_sdk.so", PACKAGER.DISCORD_SDK_NOTICES
+        self.write(self.build, library, b"Discord's library")
+        self.write(self.build, notices, b"open source notices")
+
+        def manifest():
+            with tarfile.open(self.package()) as archive:
+                member = next(item for item in archive if item.name.endswith("/SOURCE-MANIFEST.json"))
+                found = json.load(archive.extractfile(member))
+            shutil.rmtree(self.output)
+            return found
+
+        # A build without the SDK: a stray copy stays out.
+        without = manifest()
+        self.assertIsNone(without["discord_social_sdk"])
+        self.assertNotIn(library, without["files"])
+        self.assertNotIn(notices, without["files"])
+        with (self.build / "CMakeCache.txt").open("a") as stream:
+            stream.write("MSCHARGED_DISCORD_SOCIAL_SDK:PATH=/sdk/discord_social_sdk\n")
+        found = manifest()
+        self.assertEqual(found["discord_social_sdk"], library)
+        self.assertIn(library, found["files"])
+        self.assertIn(notices, found["files"])
+        # Loaded at run time: no requirement of the package.
+        self.assertNotIn(library, found["linux_requirements"])
+        (self.build / notices).unlink()
+        with self.assertRaisesRegex(PACKAGER.PackageError, "Missing or unsafe"):
+            self.package()
+
     def test_macos_requires_the_app_as_built(self):
         self.use_macos_build()
         (self.build / "Recharged.app/Contents/_CodeSignature/CodeResources").unlink()
@@ -606,6 +635,29 @@ class MacosPackageTests(PackageFixture):
                                           *manifest["modules"]}:
                 self.assertEqual(files[name], originals[name], name)
             self.assertIn(f"(macos, {architecture})", files["PACKAGE-README.md"][0].decode())
+
+    def test_discord_sdk_stays_as_discord_made_it(self):
+        library = "libdiscord_partner_sdk.dylib"
+        universal = FAT + b" Discord's universal library"
+        with (self.build / "CMakeCache.txt").open("a") as stream:
+            stream.write("MSCHARGED_DISCORD_SOCIAL_SDK:PATH=/sdk/discord_social_sdk\n")
+        extra = {library: universal, PACKAGER.DISCORD_SDK_NOTICES: b"open source notices"}
+        arm64 = self.mac_package("arm64", extra)
+        self.restore_build()
+        x86_64 = self.mac_package("x86_64", extra)
+        root = MAC.stage(arm64, x86_64, self.root / "universal", merge=fake_lipo)
+        self.assertEqual((root / library).read_bytes(), universal)
+        archives = MAC.pack(self.root / "universal", self.output, signature=self.seal(root), thin=fake_thin)
+        for path in archives:
+            manifest, files = MAC.read_package(path)
+            self.assertEqual(manifest["discord_social_sdk"], library)
+            self.assertEqual(files[library][0], universal)
+        # One package with it, one without: not the same build.
+        manifest, files = MAC.read_package(x86_64)
+        del files[library]
+        other = self.repack(self.root / "other.tar.gz", {**manifest, "discord_social_sdk": None}, files)
+        with self.assertRaisesRegex(MAC.PackageError, "different builds"):
+            MAC.stage(arm64, other, self.root / "mismatch", merge=fake_lipo)
 
     def test_ad_hoc_package_says_it_is_not_signed(self):
         arm64, x86_64 = self.both()

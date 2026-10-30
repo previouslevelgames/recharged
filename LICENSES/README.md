@@ -34,6 +34,7 @@ notices for everything it includes:
 | `LICENSES/toolchain/` (Windows) | The LLVM-MinGW C++ runtime (`libc++`, `libunwind`) and mingw-w64 runtime and winpthreads notices |
 | `LICENSES/dxc/`, `LICENSES/windows-sdk/` (Windows) | The notices of the bundled Microsoft DirectX shader compilers |
 | `assets/launcher/` | Launcher artwork with its provenance, and the Roboto font with the Apache 2.0 text |
+| `LICENSES/discord-social-sdk/` | The open source notices of the Discord Social SDK, in packages that include it (see below) |
 | `SOURCE-MANIFEST.json` | The exact source commits, patches and file hashes of the build |
 
 The notice collection is deliberately broad: it does not assert that every
@@ -67,6 +68,18 @@ table names the principal ones.
 
 Portions of this software are copyright © 2026 The FreeType Project
 (https://freetype.org). All rights reserved.
+
+## Discord Social SDK
+
+Official packages include the Discord Social SDK (`discord_partner_sdk.dll`,
+`libdiscord_partner_sdk.dylib` or `libdiscord_partner_sdk.so`) for the
+launcher's Discord friends. It is Discord's proprietary library, distributed
+under the [Discord Social SDK Terms](https://support-dev.discord.com/hc/en-us/articles/30225844245271-Discord-Social-SDK-Terms)
+as part of Recharged only: it is outside the CC0 dedication, may not be
+redistributed on its own, and is not part of this repository. The notices of
+the open source software inside it are in `LICENSES/discord-social-sdk/`.
+Builds from source go without it unless it is downloaded separately
+([BUILDING.md](../docs/BUILDING.md)).
 
 ## Application artwork
 

@@ -24,7 +24,7 @@ namespace mscharged::platform
 {
 namespace
 {
-std::filesystem::path g_program;
+std::filesystem::path g_program, g_prepared;
 std::vector<std::string> g_arguments;
 
 #ifndef _WIN32
@@ -51,8 +51,21 @@ void CloseDescriptorsOnExec()
 
 void ArmLauncherReopen(const std::filesystem::path& program, int argc, char** argv)
 {
-    g_program = program;
+    g_program = g_prepared = program;
     g_arguments.assign(argv, argv + argc);
+}
+
+void PrepareLauncherReopen(const std::filesystem::path& program, int argc, char** argv)
+{
+    g_prepared = program;
+    g_arguments.assign(argv, argv + argc);
+}
+
+bool ArmPreparedLauncherReopen()
+{
+    if (g_prepared.empty()) return false;
+    g_program = g_prepared;
+    return true;
 }
 
 bool ReopenLauncher(const char* reason)

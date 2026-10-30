@@ -8,6 +8,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <ctime>
 #include <fstream>
 #include <sstream>
 #include <system_error>
@@ -96,7 +97,29 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.discord_id = value["discord_id"].Text();
     player.online = value["online"].Bool();
     player.busy = value["busy"].Bool();
+    player.activity = value["activity"].Text();
+    player.last_online = value["last_online"].Integer();
+    player.is_friend = value["friend"].Bool();
+    player.chat = value["chat"].Bool();
+    player.unread = int(value["unread"].Integer().value_or(0));
     return player;
+}
+
+ChatMessage ParseChatMessage(const JsonValue& value)
+{
+    ChatMessage message;
+    message.id = value["id"].Integer().value_or(0);
+    message.mine = value["mine"].Bool();
+    message.body = value["body"].Text();
+    message.sent_at = value["sent_at"].Integer().value_or(0);
+    return message;
+}
+
+std::vector<ProfilePlayer> ParsePlayers(const JsonValue& value)
+{
+    std::vector<ProfilePlayer> players;
+    for (const auto& player : value.Items()) players.push_back(ParsePlayer(player));
+    return players;
 }
 
 MatchRules ParseRules(const JsonValue& value)
@@ -231,6 +254,7 @@ ProfileService::Answer ProfileService::Call(const char* method, const std::strin
         request.headers.push_back("Content-Type: application/json");
     }
     if (!token_.empty()) request.headers.push_back("Authorization: Bearer " + token_);
+    if (!activity_.empty()) request.headers.push_back("Recharged-Activity: " + activity_);
     request.connect_timeout = 10;
     request.stall_timeout = 20;
     request.max_size = 1u << 20;
@@ -278,6 +302,7 @@ ProfileServerInfo ProfileService::Info()
         info.version = answer.body["version"].Text();
         info.discord = answer.body["sign_in"]["discord"].Bool();
         info.test = answer.body["sign_in"]["test"].Bool();
+        info.discord_application = answer.body["discord_application"].Text();
         return info;
     }
     catch (const ProfileError& e)
@@ -383,9 +408,149 @@ PlayerLists ProfileService::Players()
 {
     const auto answer = Call("GET", "/api/v1/players", nullptr);
     PlayerLists lists;
-    for (const auto& player : answer.body["online"].Items()) lists.online.push_back(ParsePlayer(player));
-    for (const auto& player : answer.body["recent"].Items()) lists.recent.push_back(ParsePlayer(player));
+    lists.online = ParsePlayers(answer.body["online"]);
+    lists.recent = ParsePlayers(answer.body["recent"]);
+    lists.friends = ParsePlayers(answer.body["friends"]);
     return lists;
+}
+
+std::vector<ProfilePlayer> ProfileService::AddFriend(std::int64_t player_id)
+{
+    const std::string body = "{\"player_id\":" + Integer(player_id) + "}";
+    return ParsePlayers(Call("POST", "/api/v1/friends", &body).body["friends"]);
+}
+
+std::vector<ProfilePlayer> ProfileService::AddFriend(const std::string& name)
+{
+    std::string body = "{\"name\":";
+    AppendJsonString(body, name);
+    body += "}";
+    return ParsePlayers(Call("POST", "/api/v1/friends", &body).body["friends"]);
+}
+
+std::vector<ProfilePlayer> ProfileService::RemoveFriend(std::int64_t player_id)
+{
+    return ParsePlayers(Call("DELETE", "/api/v1/friends/" + Integer(player_id), nullptr).body["friends"]);
+}
+
+namespace
+{
+DiscordTokens ParseDiscordTokens(const JsonValue& value)
+{
+    DiscordTokens tokens;
+    tokens.access_token = value["access_token"].Text();
+    tokens.refresh_token = value["refresh_token"].Text();
+    tokens.expires_in = value["expires_in"].Integer().value_or(0);
+    if (tokens.access_token.empty() || tokens.refresh_token.empty())
+        throw ProfileError("The server's Discord tokens are incomplete", 0);
+    return tokens;
+}
+} // namespace
+
+DiscordTokens ProfileService::DiscordToken(const std::string& code, const std::string& verifier,
+                                           const std::string& redirect_uri)
+{
+    std::string body = "{\"code\":";
+    AppendJsonString(body, code);
+    body += ",\"code_verifier\":";
+    AppendJsonString(body, verifier);
+    body += ",\"redirect_uri\":";
+    AppendJsonString(body, redirect_uri);
+    body += "}";
+    return ParseDiscordTokens(Call("POST", "/api/v1/discord/token", &body).body);
+}
+
+DiscordTokens ProfileService::RefreshDiscordToken(const std::string& refresh_token)
+{
+    std::string body = "{\"refresh_token\":";
+    AppendJsonString(body, refresh_token);
+    body += "}";
+    return ParseDiscordTokens(Call("POST", "/api/v1/discord/token", &body).body);
+}
+
+std::vector<ProfilePlayer> ProfileService::PlayersByDiscord(const std::vector<std::string>& discord_ids)
+{
+    std::string body = "{\"ids\":[";
+    for (std::size_t i = 0; i < discord_ids.size(); ++i)
+    {
+        if (i) body += ',';
+        AppendJsonString(body, discord_ids[i]);
+    }
+    body += "]}";
+    return ParsePlayers(Call("POST", "/api/v1/players/discord", &body).body["players"]);
+}
+
+ChatPage ProfileService::Chat(std::int64_t player_id, std::int64_t after)
+{
+    std::string path = "/api/v1/chat/" + Integer(player_id);
+    if (after > 0) path += "?after=" + Integer(after);
+    const auto answer = Call("GET", path, nullptr);
+    ChatPage page;
+    for (const auto& message : answer.body["messages"].Items()) page.messages.push_back(ParseChatMessage(message));
+    page.can_send = answer.body["can_send"].Bool();
+    return page;
+}
+
+ChatMessage ProfileService::SendChat(std::int64_t player_id, const std::string& body)
+{
+    std::string request = "{\"body\":";
+    AppendJsonString(request, body);
+    request += "}";
+    return ParseChatMessage(Call("POST", "/api/v1/chat/" + Integer(player_id), &request).body);
+}
+
+std::string DescribeLastOnline(std::int64_t now, std::optional<std::int64_t> when)
+{
+    if (!when) return "Not online yet";
+    const std::int64_t seconds = std::max<std::int64_t>(0, now - *when);
+    const auto count = [](std::int64_t value, const char* unit) {
+        return std::to_string(value) + " " + unit + (value == 1 ? "" : "s") + " ago";
+    };
+    std::string text;
+    if (seconds < 120) text = "just now";
+    else if (seconds < 3600) text = count(seconds / 60, "minute");
+    else if (seconds < 86400) text = count(seconds / 3600, "hour");
+    else if (seconds < 2 * 86400) text = "yesterday";
+    else if (seconds < 30 * 86400) text = count(seconds / 86400, "day");
+    else
+    {
+        // Longer ago: the day, and the year when it was another.
+        const std::time_t then = std::time_t(*when), today = std::time_t(now);
+        std::tm then_local{}, now_local{};
+#ifdef _WIN32
+        localtime_s(&then_local, &then);
+        localtime_s(&now_local, &today);
+#else
+        localtime_r(&then, &then_local);
+        localtime_r(&today, &now_local);
+#endif
+        char day[32];
+        std::strftime(day, sizeof day, then_local.tm_year == now_local.tm_year ? "%d %B" : "%d %B %Y", &then_local);
+        text = std::string("on ") + (day[0] == '0' ? day + 1 : day);
+    }
+    return "Last online " + text;
+}
+
+std::string DescribeChatTime(std::int64_t now, std::int64_t when)
+{
+    const auto local = [](std::int64_t seconds) {
+        const std::time_t time = std::time_t(seconds);
+        std::tm value{};
+#ifdef _WIN32
+        localtime_s(&value, &time);
+#else
+        localtime_r(&time, &value);
+#endif
+        return value;
+    };
+    const std::tm then = local(when), today = local(now), yesterday = local(now - 86400);
+    char clock[16], day[40];
+    std::strftime(clock, sizeof clock, "%H:%M", &then);
+    const auto same_day = [&](const std::tm& a) { return a.tm_year == then.tm_year && a.tm_yday == then.tm_yday; };
+    if (same_day(today)) return clock;
+    if (same_day(yesterday)) return std::string("Yesterday ") + clock;
+    std::strftime(day, sizeof day, then.tm_year == today.tm_year ? "%d %B" : "%d %B %Y", &then);
+    return std::string(day[0] == '0' ? day + 1 : day) + ", " + clock;
 }
 
 ProfileMatch ProfileService::ReadyToPlay(std::int64_t match, bool ready)
@@ -465,37 +630,12 @@ std::filesystem::path ProfileSessionFile(const std::filesystem::path& data_folde
     return data_folder / "online" / name.concat(".session");
 }
 
-std::optional<SavedProfileSession> LoadProfileSession(const std::filesystem::path& file)
+namespace
 {
-    std::ifstream stream(file, std::ios::binary);
-    if (!stream) return std::nullopt;
-    std::ostringstream text;
-    text << stream.rdbuf();
-    try
-    {
-        const auto document = ParseJson(text.str());
-        SavedProfileSession session;
-        session.server = document["server"].Text();
-        session.token = document["token"].Text();
-        session.player_name = document["player"].Text();
-        if (session.server.empty() || session.token.empty()) return std::nullopt;
-        return session;
-    }
-    catch (const std::exception&)
-    {
-        return std::nullopt;
-    }
-}
-
-void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSession& session)
+// Writes `text` to `file` through a new file that only this user can read
+// (it holds a token) and a rename.
+void WritePrivateFile(const std::filesystem::path& file, const std::string& text)
 {
-    std::string text = "{\"server\":";
-    AppendJsonString(text, session.server);
-    text += ",\"token\":";
-    AppendJsonString(text, session.token);
-    text += ",\"player\":";
-    AppendJsonString(text, session.player_name);
-    text += "}\n";
     std::filesystem::create_directories(file.parent_path());
     auto temporary = file;
     temporary += ".new";
@@ -519,6 +659,75 @@ void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSes
     }
 #endif
     std::filesystem::rename(temporary, file);
+}
+
+std::optional<JsonValue> ReadJsonFile(const std::filesystem::path& file)
+{
+    std::ifstream stream(file, std::ios::binary);
+    if (!stream) return std::nullopt;
+    std::ostringstream text;
+    text << stream.rdbuf();
+    try
+    {
+        return ParseJson(text.str());
+    }
+    catch (const std::exception&)
+    {
+        return std::nullopt;
+    }
+}
+} // namespace
+
+std::optional<SavedProfileSession> LoadProfileSession(const std::filesystem::path& file)
+{
+    const auto document = ReadJsonFile(file);
+    if (!document) return std::nullopt;
+    SavedProfileSession session;
+    session.server = (*document)["server"].Text();
+    session.token = (*document)["token"].Text();
+    session.player_name = (*document)["player"].Text();
+    if (session.server.empty() || session.token.empty()) return std::nullopt;
+    return session;
+}
+
+
+void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSession& session)
+{
+    std::string text = "{\"server\":";
+    AppendJsonString(text, session.server);
+    text += ",\"token\":";
+    AppendJsonString(text, session.token);
+    text += ",\"player\":";
+    AppendJsonString(text, session.player_name);
+    text += "}\n";
+    WritePrivateFile(file, text);
+}
+
+std::filesystem::path DiscordLinkFile(const std::filesystem::path& data_folder, const std::filesystem::path& config)
+{
+    auto file = ProfileSessionFile(data_folder, config);
+    return file.replace_extension(".discord");
+}
+
+std::optional<SavedDiscordLink> LoadDiscordLink(const std::filesystem::path& file)
+{
+    const auto document = ReadJsonFile(file);
+    if (!document) return std::nullopt;
+    SavedDiscordLink link;
+    link.server = (*document)["server"].Text();
+    link.refresh_token = (*document)["refresh_token"].Text();
+    if (link.server.empty() || link.refresh_token.empty()) return std::nullopt;
+    return link;
+}
+
+void SaveDiscordLink(const std::filesystem::path& file, const SavedDiscordLink& link)
+{
+    std::string text = "{\"server\":";
+    AppendJsonString(text, link.server);
+    text += ",\"refresh_token\":";
+    AppendJsonString(text, link.refresh_token);
+    text += "}\n";
+    WritePrivateFile(file, text);
 }
 
 void ForgetProfileSession(const std::filesystem::path& file)

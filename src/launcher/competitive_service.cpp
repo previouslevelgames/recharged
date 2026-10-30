@@ -2,6 +2,8 @@
 
 #include "platform/http_client.h"
 
+#include <algorithm>
+
 namespace mscharged::launcher
 {
 using platform::ProfileError;
@@ -19,8 +21,22 @@ namespace
 // player's heartbeat: a set lasts while both have Recharged open.
 constexpr auto kMatchPoll = 4s;
 constexpr auto kListsPoll = 5s;
+// An open conversation is followed closely.
+constexpr auto kChatPoll = 2s;
+
+// A message in id order, once: the next fetch brings this launcher's own again.
+void AddMessage(std::vector<platform::ChatMessage>& messages, platform::ChatMessage message)
+{
+    const auto at = std::lower_bound(messages.begin(), messages.end(), message.id,
+                                     [](const platform::ChatMessage& kept, std::int64_t id) { return kept.id < id; });
+    if (at == messages.end() || at->id != message.id) messages.insert(at, std::move(message));
+}
 constexpr auto kPlayerPoll = 60s;
 constexpr auto kRetry = 15s;
+// The Discord friends looked up with the lists, at most this many, as many
+// at once as the server takes.
+constexpr std::size_t kDiscordFriends = 1000;
+constexpr std::size_t kDiscordLookup = 200;
 } // namespace
 
 CompetitiveService::CompetitiveService(std::filesystem::path session_file) : session_file_(std::move(session_file))
@@ -294,7 +310,20 @@ void CompetitiveService::Poll(ProfileService& api)
     const auto match = api.CurrentMatch(&interval);
     std::optional<platform::ProfilePlayer> player;
     if (me) player = api.Me();
+    // The open conversation: its new messages.
+    std::int64_t chat_with = 0, chat_after = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (status_.chat.with && Clock::now() >= next_chat_)
+        {
+            chat_with = status_.chat.with;
+            chat_after = chat_seen_;
+        }
+    }
+    std::optional<platform::ChatPage> page;
+    if (chat_with) page = api.Chat(chat_with, chat_after);
     std::optional<platform::PlayerLists> found;
+    std::optional<std::vector<platform::ProfilePlayer>> discord;
     if (lists)
     {
         try
@@ -306,17 +335,93 @@ void CompetitiveService::Poll(ProfileService& api)
             if (e.Status() != 404) throw;
             found = platform::PlayerLists{};
         }
+        std::vector<std::string> ids;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            ids = discord_ids_;
+        }
+        discord.emplace();
+        try
+        {
+            for (std::size_t first = 0; first < ids.size(); first += kDiscordLookup)
+            {
+                const std::vector<std::string> part(ids.begin() + std::ptrdiff_t(first),
+                                                    ids.begin() + std::ptrdiff_t(std::min(ids.size(), first + kDiscordLookup)));
+                for (auto& player : api.PlayersByDiscord(part)) discord->push_back(std::move(player));
+            }
+        }
+        catch (const ProfileError& e)
+        {
+            // A server before 1.2.0 can't tell.
+            if (e.Status() != 404) throw;
+        }
+        std::sort(discord->begin(), discord->end(), [](const auto& a, const auto& b) {
+            if (a.online != b.online) return a.online;
+            return a.name < b.name;
+        });
     }
     Change([&](Status& status) {
         status.match = match;
         if (player) status.player = *player;
         if (found) status.lists = *found;
+        if (discord) status.discord_players = std::move(*discord);
+        if (page && status.chat.with == chat_with)
+        {
+            for (auto& message : page->messages)
+            {
+                chat_seen_ = std::max(chat_seen_, message.id);
+                AddMessage(status.chat.messages, std::move(message));
+            }
+            status.chat.can_send = page->can_send;
+            status.chat.loaded = true;
+        }
         status.error.clear();
     });
     std::lock_guard<std::mutex> lock(mutex_);
     if (me) next_me_ = Clock::now() + kPlayerPoll;
     if (lists) next_lists_ = Clock::now() + kListsPoll;
     if (interval) next_poll_ = Clock::now() + std::chrono::seconds(interval);
+    if (chat_with) next_chat_ = Clock::now() + kChatPoll;
+    if (status_.chat.with) next_poll_ = std::min(next_poll_, next_chat_);
+}
+
+void CompetitiveService::SetDiscordFriends(std::vector<std::string> discord_ids)
+{
+    if (discord_ids.size() > kDiscordFriends) discord_ids.resize(kDiscordFriends);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (discord_ids == discord_ids_) return;
+        // A first list, or another one: looked up at once.
+        discord_ids_ = std::move(discord_ids);
+        if (discord_ids_.empty()) status_.discord_players.clear();
+        else next_poll_ = next_lists_ = Clock::now();
+        ++status_.serial;
+    }
+    wake_.notify_all();
+}
+
+void CompetitiveService::TradeDiscordToken(std::string code, std::string verifier, std::string redirect_uri,
+                                           std::string refresh_token, DiscordTraded done)
+{
+    Post(
+        [=](ProfileService& api) {
+            try
+            {
+                done(refresh_token.empty() ? api.DiscordToken(code, verifier, redirect_uri)
+                                           : api.RefreshDiscordToken(refresh_token),
+                     std::string(), false);
+            }
+            catch (const ProfileError& e)
+            {
+                done({}, e.what(), e.Status() == 400);
+                if (e.SignedOut()) throw;
+            }
+            catch (const std::exception& e)
+            {
+                done({}, e.what(), false);
+            }
+        },
+        false);
 }
 
 void CompetitiveService::SignIn()
@@ -385,6 +490,96 @@ void CompetitiveService::ChallengePlayer(std::int64_t opponent_id, std::int64_t 
     Post([this, opponent_id, rule_set](ProfileService& api) {
         const auto match = api.ChallengePlayer(opponent_id, rule_set);
         Change([&](Status& status) { status.match = match; });
+    }, true);
+}
+
+namespace
+{
+// The friends the server answered, and every list's friend marks after them.
+void SetFriends(CompetitiveService::Status& status, std::vector<platform::ProfilePlayer> friends)
+{
+    const auto marked = [&](std::vector<platform::ProfilePlayer>& players) {
+        for (auto& player : players)
+            player.is_friend = std::any_of(friends.begin(), friends.end(),
+                                           [&](const platform::ProfilePlayer& friend_) { return friend_.id == player.id; });
+    };
+    marked(status.lists.online);
+    marked(status.lists.recent);
+    status.lists.friends = std::move(friends);
+}
+} // namespace
+
+void CompetitiveService::AddFriend(std::int64_t player_id)
+{
+    Post([this, player_id](ProfileService& api) {
+        auto friends = api.AddFriend(player_id);
+        Change([&](Status& status) { SetFriends(status, std::move(friends)); });
+    }, true);
+}
+
+void CompetitiveService::AddFriend(const std::string& name)
+{
+    Post([this, name](ProfileService& api) {
+        auto friends = api.AddFriend(name);
+        Change([&](Status& status) { SetFriends(status, std::move(friends)); });
+    }, true);
+}
+
+void CompetitiveService::OpenChat(std::int64_t player_id)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (status_.chat.with != player_id)
+        {
+            status_.chat = {};
+            status_.chat.with = player_id;
+            chat_seen_ = 0;
+            ++status_.serial;
+        }
+        next_chat_ = next_poll_ = {};
+    }
+    wake_.notify_all();
+}
+
+void CompetitiveService::CloseChat()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    status_.chat = {};
+    ++status_.serial;
+}
+
+void CompetitiveService::SendChat(const std::string& body)
+{
+    std::int64_t with;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        with = status_.chat.with;
+        if (!with || status_.chat.sending) return;
+        status_.chat.sending = true;
+        ++status_.serial;
+    }
+    Post([this, with, body](ProfileService& api) {
+        // Sent or not, the panel can write again.
+        struct Done
+        {
+            CompetitiveService* service;
+            ~Done()
+            {
+                service->Change([](Status& status) { status.chat.sending = false; });
+            }
+        } done{this};
+        auto message = api.SendChat(with, body);
+        Change([&](Status& status) {
+            if (status.chat.with == with) AddMessage(status.chat.messages, std::move(message));
+        });
+    }, false);
+}
+
+void CompetitiveService::RemoveFriend(std::int64_t player_id)
+{
+    Post([this, player_id](ProfileService& api) {
+        auto friends = api.RemoveFriend(player_id);
+        Change([&](Status& status) { SetFriends(status, std::move(friends)); });
     }, true);
 }
 

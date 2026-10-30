@@ -13,8 +13,8 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 1. Open Recharged and go to **Competitive**, your lobby. It shows your open
    sets, who is online right now and your recent opponents.
 2. Challenge an opponent, or let a tournament pair you with one.
-3. You both press **Ready to play!**
-4. The game starts by itself, **straight into the captain draft**: no intro,
+3. They accept, in the launcher or on a card over their game.
+4. Both games start by themselves, **straight into the captain draft**: no intro,
    no menus, no friend codes to trade, no searching. You pick your captain and
    sidekicks in the game's own draft, just like on the Wii.
 5. You play the series under the set's rules, for example best of 3, three
@@ -29,11 +29,33 @@ with the score.
 ## Challenge a friend
 
 - Type a player's Discord name and choose a rule set. They get
-  **"Alice challenges you"** with Accept and Decline.
-- Anyone who is signed in and has Recharged open can be challenged. The lobby
-  shows who is online.
+  **"Alice challenges you"** with Accept and Decline: in the launcher, or on a
+  card over the game while they are in its menus.
+- Anyone who is signed in and has Recharged open can be challenged, unless
+  they are playing a match. The lobby shows who is online and what they do.
+- Friends who keep each other as friends can chat in the launcher.
+- Connect Discord in the launcher to see which of your Discord friends play
+  Recharged, and challenge them from there too (see below).
 - A challenge lasts only as long as Recharged is open: close Recharged and
   your open challenges are gone, with nothing to clean up.
+
+## Discord friends
+
+Recharged's own friends list follows you everywhere, but your friends are
+probably on Discord already. Press **Connect Discord** in the lobby's Players
+card, once per computer, and agree in the Discord app or your browser. The
+lobby then lists your Discord friends who have signed in to Recharged, with
+what they are doing and a Challenge button, and how many of your Discord
+friends are online.
+
+- Your Discord friends list goes from Discord straight to Recharged on your
+  computer. Our server only learns which of the accounts in it have a
+  Recharged profile; it keeps neither the list nor Discord's keys.
+- Connect the Discord account you signed in with. **Disconnect Discord** in
+  the same card ends it on this computer; Discord's settings (Authorized Apps)
+  end it everywhere.
+- Builds made from source go without Discord friends: they need Discord's
+  library, which only the official packages include.
 
 ## Tournaments on start.gg
 
@@ -65,7 +87,8 @@ this is needed: the meeting, the rules and the report happen automatically.
 - Your name in Recharged is your Discord name.
 - The profile is you, not your PC: sign in on any computer you play on.
 - From Discord, Recharged gets only your account's ID, name and picture:
-  nothing about your messages, friends or servers.
+  nothing about your messages, friends or servers. Only if you connect
+  Discord friends does the launcher read your friends list (see above).
 
 ## The same rules for both players
 

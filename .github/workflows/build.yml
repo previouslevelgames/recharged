@@ -156,6 +156,16 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ccache-${{ matrix.platform }}-${{ github.sha }}
           restore-keys: ccache-${{ matrix.platform }}-
+      # The Discord Social SDK for the launcher's Discord friends: Discord's
+      # closed library, never in the repository, from the private place the
+      # secret DISCORD_SOCIAL_SDK_URL names (tools/discord_sdk.py). Without it
+      # (forks) the build goes without Discord friends.
+      - name: Fetch the Discord Social SDK
+        env:
+          DISCORD_SOCIAL_SDK_URL: ${{ secrets.DISCORD_SOCIAL_SDK_URL }}
+          DISCORD_SOCIAL_SDK_TOKEN: ${{ secrets.DISCORD_SOCIAL_SDK_TOKEN }}
+          DISCORD_SOCIAL_SDK_SHA256: ${{ vars.DISCORD_SOCIAL_SDK_SHA256 }}
+        run: python tools/discord_sdk.py fetch "$RUNNER_TEMP/discord-social-sdk" >> "$GITHUB_ENV"
       # The build's origin (release, test or dev) for the launcher's update check,
       # the Discord status's application (a repository variable: public, not a secret)
       # and the hidden autopilot for online tests: never in a release; the repository
@@ -172,6 +182,7 @@ jobs:
           -DMSCHARGED_BUILD_TIME=$(date -u +%s)
           -DMSCHARGED_DISCORD_APPLICATION_ID=${{ vars.DISCORD_APPLICATION_ID }}
           -DMSCHARGED_AUTOPILOT=${{ github.event_name == 'push' && 'OFF' || vars.RECHARGED_AUTOPILOT || 'AUTO' }}
+          ${DISCORD_SDK:+"-DMSCHARGED_DISCORD_SOCIAL_SDK=$DISCORD_SDK"}
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ${{ matrix.cmake_args }}
@@ -316,6 +327,16 @@ jobs:
           restore-keys: ccache-windows-x86_64-
       - name: Prepare pinned Windows shader compilers
         run: python tools/setup_windows_graphics.py
+      # The Discord Social SDK for the launcher's Discord friends: Discord's
+      # closed library, never in the repository, from the private place the
+      # secret DISCORD_SOCIAL_SDK_URL names (tools/discord_sdk.py). Without it
+      # (forks) the build goes without Discord friends.
+      - name: Fetch the Discord Social SDK
+        env:
+          DISCORD_SOCIAL_SDK_URL: ${{ secrets.DISCORD_SOCIAL_SDK_URL }}
+          DISCORD_SOCIAL_SDK_TOKEN: ${{ secrets.DISCORD_SOCIAL_SDK_TOKEN }}
+          DISCORD_SOCIAL_SDK_SHA256: ${{ vars.DISCORD_SOCIAL_SDK_SHA256 }}
+        run: python tools/discord_sdk.py fetch "$RUNNER_TEMP/discord-social-sdk" >> "$GITHUB_ENV"
       - name: Configure original runtime
         run: >-
           cmake --preset release -B build/windows
@@ -330,6 +351,7 @@ jobs:
           -DMSCHARGED_BUILD_TIME=$(date -u +%s)
           -DMSCHARGED_DISCORD_APPLICATION_ID=${{ vars.DISCORD_APPLICATION_ID }}
           -DMSCHARGED_AUTOPILOT=${{ github.event_name == 'push' && 'OFF' || vars.RECHARGED_AUTOPILOT || 'AUTO' }}
+          ${DISCORD_SDK:+"-DMSCHARGED_DISCORD_SOCIAL_SDK=$DISCORD_SDK"}
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       # Only the packaged targets: some Linux-only diagnostics are not portable.

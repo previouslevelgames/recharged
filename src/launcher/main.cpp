@@ -12,6 +12,7 @@
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
 #include "launcher/competitive_service.h"
+#include "launcher/discord_friends.h"
 #include "launcher/disc_search.h"
 #include "launcher/image_library.h"
 #include "launcher/issue_reporters.h"
@@ -2753,6 +2754,7 @@ private:
         DrawImportPrompt();
         DrawRegionPrompt();
         DrawWelcome();
+        DrawChat();
         DrawUpdateDialog();
         // The new files are in place: restart into them (unsaved settings are
         // saved or dropped in the update dialog first).
@@ -3741,6 +3743,19 @@ private:
     {
         competitive_ = std::make_unique<CompetitiveService>(
             platform::ProfileSessionFile(DataFolder(base_), file_.path));
+        // The profile server trades the Discord SDK's tokens.
+        discord_friends_ = std::make_unique<DiscordFriends>(
+            base_, platform::DiscordLinkFile(DataFolder(base_), file_.path),
+            [service = competitive_.get()](DiscordFriends::TradeRequest request,
+                                           std::function<void(DiscordFriends::TradeResult)> done) {
+                service->TradeDiscordToken(
+                    std::move(request.code), std::move(request.verifier), std::move(request.redirect_uri),
+                    std::move(request.refresh_token),
+                    [done = std::move(done)](const platform::DiscordTokens& tokens, const std::string& error,
+                                             bool refused) {
+                        done({tokens.access_token, tokens.refresh_token, error, refused});
+                    });
+            });
     }
 
     // Every frame: the service follows online.profile_server (the settings
@@ -3762,11 +3777,59 @@ private:
             competitive_errors_ = status.error_serial;
             if (page_ == PageCompetitive && !status.error.empty()) Notice(status.error, NoticeKind::Error);
         }
+        // A friend's new message, told once (not for the open conversation,
+        // nor for those unread at the sign-in).
+        if (status.state == CompetitiveService::State::SignedIn)
+        {
+            for (const auto& player : status.lists.friends)
+            {
+                int& told = chat_unread_told_[player.id];
+                if (player.unread > told && chat_unread_known_ && status.chat.with != player.id && !capture_)
+                    Notice("New message from " + player.name + (page_ == PageCompetitive ? "" : " (Competitive)"),
+                           NoticeKind::Info);
+                told = player.unread;
+            }
+            if (!status.lists.friends.empty()) chat_unread_known_ = true;
+        }
+        UpdateDiscordFriends();
         // Both pressed Ready to play!: this launcher starts the set's game.
         if (status.match && status.match->stage == "go" && status.match->id != competitive_started_set_ && !capture_)
         {
             competitive_started_set_ = status.match->id;
             competitive_go_ = true;
+        }
+    }
+
+    // The Discord friends follow the sign-in and the server's Discord
+    // application; their accounts go to the service, which finds those who
+    // play Recharged.
+    void UpdateDiscordFriends()
+    {
+        if (!discord_friends_) return;
+        const auto& status = competitive_status_;
+        DiscordFriends::Account account;
+        if (status.state == CompetitiveService::State::SignedIn && !status.info.discord_application.empty())
+        {
+            account.server = status.server;
+            account.application = std::strtoull(status.info.discord_application.c_str(), nullptr, 10);
+        }
+        discord_friends_->SetAccount(account);
+        discord_status_ = discord_friends_->Snapshot();
+        std::vector<std::string> ids;
+        if (discord_status_.state == DiscordFriends::State::Ready)
+            for (const auto& entry : discord_status_.friends) ids.push_back(entry.id);
+        if (ids != discord_asked_)
+        {
+            discord_asked_ = ids;
+            competitive_->SetDiscordFriends(std::move(ids));
+        }
+        if (discord_status_.error_serial != discord_errors_)
+        {
+            discord_errors_ = discord_status_.error_serial;
+            if (page_ == PageCompetitive && !discord_status_.error.empty())
+                Notice(discord_status_.error, discord_status_.state == DiscordFriends::State::NotLinked
+                                                  ? NoticeKind::Info
+                                                  : NoticeKind::Error);
         }
     }
 
@@ -3810,18 +3873,25 @@ private:
         quit = true;
     }
 
-    // Nothing on its way from the profile service (for development captures).
+    // Nothing on its way from the profile service or Discord (for
+    // development captures).
     bool CompetitiveSettled() const
     {
-        return !competitive_ || (competitive_status_.state != CompetitiveService::State::Connecting
-                                 && !competitive_status_.busy);
+        if (!competitive_) return true;
+        const auto& status = competitive_status_;
+        const bool discord_due = status.state == CompetitiveService::State::SignedIn
+            && !status.info.discord_application.empty();
+        const auto discord = discord_status_.state;
+        const bool discord_settled = !discord_friends_ || discord == DiscordFriends::State::Missing
+            || (discord != DiscordFriends::State::Connecting && (discord != DiscordFriends::State::Off || !discord_due));
+        return status.state != CompetitiveService::State::Connecting && !status.busy && discord_settled;
     }
 
     void CompetitivePage()
     {
         PageHeader("Competitive", "Sets against other Recharged players by the rules of the server. Sign in with "
-                                  "Discord and challenge a player: once both of you are ready, your games go straight "
-                                  "to the captain draft.");
+                                  "Discord and challenge a player: once they accept, both games go straight to the "
+                                  "captain draft.");
         using State = CompetitiveService::State;
         const auto& status = competitive_status_;
         CompetitiveStatusBar();
@@ -4070,7 +4140,8 @@ private:
             if (BeginRows("##match_rows"))
             {
                 Row(("Waiting for " + opponent).c_str(),
-                    (rules + ". A challenge without an answer ends after 10 minutes.").c_str());
+                    (rules + ". Once they accept, both games start. A challenge without an answer ends after "
+                             "10 minutes.").c_str());
                 if (SecondaryButton("withdraw", "Withdraw", Dp(140, 38), !busy)) competitive_->CancelMatch();
                 EndRows();
             }
@@ -4079,7 +4150,7 @@ private:
         {
             if (BeginRows("##match_rows"))
             {
-                Row((opponent + " challenges you").c_str(), (rules + ".").c_str());
+                Row((opponent + " challenges you").c_str(), (rules + ". Accept, and both games start.").c_str());
                 const float width = (ImGui::GetContentRegionAvail().x - Dp(10)) * 0.5f;
                 if (PrimaryButton("accept", "Accept", {width, Dp(40)}, !busy, Icon::Check)) competitive_->Accept();
                 ImGui::SameLine(0, Dp(10));
@@ -4202,22 +4273,460 @@ private:
         return &sets.front();
     }
 
-    // The next set: the rules every challenge from this page uses, the
-    // players who have Recharged open and the ones last played with (a click
-    // challenges them), and a challenge by Discord username.
+    // A small heading over a group of rows: tracked capitals, and a count
+    // after them.
+    void SectionHeading(const char* text, const std::string& after)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        ImGui::Dummy({0, Dp(10)});
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float tracking = Dp(1.4f);
+        DrawTracked(draw, fonts.caption, at, Col(color::dim), text, tracking);
+        if (!after.empty())
+            DrawLabel(draw, fonts.caption, {at.x + TrackedWidth(fonts.caption, text, tracking) + Dp(10), at.y},
+                      Col(color::muted), after.c_str());
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(4)});
+    }
+
+    // One player of the lists as a row: their initial on a colour of their
+    // own with a dot for whether they have Recharged open, the name, what
+    // they're doing or when they last had Recharged open, and the row's
+    // buttons. The row lights up under the pointer.
+    void PlayerRow(const platform::ProfilePlayer& player, const platform::RuleSet* rules, std::int64_t now)
+    {
+        const auto& fonts = CurrentFonts();
+        const bool busy = competitive_status_.busy;
+        ImGui::PushID(int(player.id));
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(60), bleed = Dp(10);
+        const ImVec2 end{start.x + width, start.y + height};
+        const bool inside = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)
+            && ImGui::IsMouseHoveringRect({start.x - bleed, start.y}, {end.x + bleed, end.y});
+        const float glow = Animate(ImGui::GetID("##row"), inside);
+        if (glow > 0.01f)
+            draw->AddRectFilled({start.x - bleed, start.y}, {end.x + bleed, end.y}, Col(color::card_hover, glow), Dp(12));
+        const ImVec4 surface = Mix(color::card, color::card_hover, glow);
+
+        // The avatar: a colour from the player's id, the same everywhere.
+        const float radius = Dp(20);
+        const ImVec2 center{start.x + radius, start.y + height * 0.5f};
+        ImVec4 tint{0, 0, 0, 1};
+        ImGui::ColorConvertHSVtoRGB(std::fmod(float(player.id) * 0.618034f, 1.0f), 0.55f, 0.62f, tint.x, tint.y,
+                                    tint.z);
+        if (!player.online) tint = Mix(tint, color::card, 0.45f);
+        draw->AddCircleFilled(center, radius, Col(tint));
+        std::string initial = player.name.empty() ? std::string("?") : player.name.substr(0, 1);
+        if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
+            initial = player.name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2,
+                                                                   player.name.size()));
+        else
+            initial[0] = char(std::toupper(byte));
+        const ImVec2 letter = TextSize(fonts.heading, initial.c_str());
+        DrawLabel(draw, fonts.heading, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f},
+                  Col(color::text, player.online ? 1.0f : 0.7f), initial.c_str());
+        // The presence dot, ringed in the row's colour: green with Recharged
+        // open, amber in a set or a match (no challenges then), grey away.
+        const bool playing = player.online && player.activity == "match";
+        const bool taken = player.busy || playing;
+        const ImVec2 dot{center.x + radius * 0.74f, center.y + radius * 0.74f};
+        draw->AddCircleFilled(dot, Dp(7.5f), Col(surface));
+        draw->AddCircleFilled(dot, Dp(5), Col(!player.online ? color::dim : taken ? color::warning : color::success));
+
+        // The buttons, from the right: the heart, lit for a friend (a click
+        // takes them off) and grey for anyone else (a click adds them), then
+        // Challenge for a player who has Recharged open.
+        float edge = end.x;
+        const float button_height = Dp(36);
+        const auto place = [&](float button_width) {
+            edge -= button_width;
+            ImGui::SetCursorScreenPos({edge, center.y - button_height * 0.5f});
+        };
+        {
+            const float size = Dp(34);
+            edge -= size;
+            ImGui::SetCursorScreenPos({edge, center.y - size * 0.5f});
+            const bool pressed = ImGui::InvisibleButton("##friend", {size, size});
+            const bool over = ImGui::IsItemHovered();
+            const ImVec2 middle{edge + size * 0.5f, center.y};
+            const ImVec4 heart = player.is_friend ? (over ? color::danger : color::accent)
+                                                  : (over ? color::accent : color::dim);
+            if (over || player.is_friend) draw->AddCircleFilled(middle, size * 0.5f, Col(heart, over ? 0.16f : 0.10f));
+            DrawIcon(draw, Icon::Heart, middle, Dp(16), Col(heart));
+            if (over)
+                ImGui::SetTooltip(player.is_friend ? "Remove %s from your friends" : "Add %s to your friends",
+                                  player.name.c_str());
+            if (pressed && !busy)
+            {
+                if (player.is_friend) competitive_->RemoveFriend(player.id);
+                else competitive_->AddFriend(player.id);
+            }
+            edge -= Dp(10);
+        }
+        // Chat, for a friend who keeps the player too: the unread count on it.
+        if (player.chat)
+        {
+            const float size = Dp(34);
+            edge -= size;
+            ImGui::SetCursorScreenPos({edge, center.y - size * 0.5f});
+            const bool pressed = ImGui::InvisibleButton("##chat", {size, size});
+            const bool over = ImGui::IsItemHovered();
+            const ImVec2 middle{edge + size * 0.5f, center.y};
+            const ImVec4 tint = over || player.unread ? color::accent : color::muted;
+            if (over || player.unread) draw->AddCircleFilled(middle, size * 0.5f, Col(tint, over ? 0.16f : 0.10f));
+            DrawIcon(draw, Icon::Chat, middle, Dp(17), Col(tint));
+            if (player.unread)
+            {
+                const std::string count = player.unread > 9 ? "9+" : std::to_string(player.unread);
+                const ImVec2 text = TextSize(fonts.caption, count.c_str());
+                const float badge = std::max(Dp(16), text.x + Dp(8));
+                const ImVec2 at{middle.x + size * 0.22f, middle.y - size * 0.5f};
+                draw->AddRectFilled({at.x - badge * 0.5f, at.y}, {at.x + badge * 0.5f, at.y + Dp(16)}, Col(color::accent),
+                                    Dp(8));
+                DrawLabel(draw, fonts.caption, {at.x - text.x * 0.5f, at.y + (Dp(16) - text.y) * 0.5f},
+                          Col(color::accent_ink), count.c_str());
+            }
+            if (over) ImGui::SetTooltip("Chat with %s", player.name.c_str());
+            if (pressed) OpenChatWith(player);
+            edge -= Dp(6);
+        }
+        if (player.online)
+        {
+            place(Dp(132));
+            if (SecondaryButton("challenge_player", "Challenge", {Dp(132), button_height},
+                                !busy && rules && !taken, Icon::Trophy))
+                competitive_->ChallengePlayer(player.id, rules->id);
+        }
+
+        // The name, the Discord username after it, and the line under them.
+        const float text_left = center.x + radius + Dp(14);
+        const std::string handle = player.discord.empty() ? std::string() : "@" + player.discord;
+        const auto [status, status_tint] = PlayerStatus(player, now);
+        const ImVec2 name = TextSize(fonts.label, player.name.c_str());
+        const float block = name.y + Dp(3) + FontSize(fonts.caption);
+        const float top = center.y - block * 0.5f;
+        draw->PushClipRect({text_left, start.y}, {std::max(text_left, edge - Dp(12)), end.y}, true);
+        DrawLabel(draw, fonts.label, {text_left, top}, Col(player.online ? color::text : Mix(color::text, color::muted, 0.4f)),
+                  player.name.c_str());
+        if (!handle.empty())
+            DrawLabel(draw, fonts.caption, {text_left + name.x + Dp(8), top + (name.y - FontSize(fonts.caption)) * 0.5f},
+                      Col(color::dim), handle.c_str());
+        DrawLabel(draw, fonts.caption, {text_left, top + name.y + Dp(3)}, Col(status_tint), status.c_str());
+        draw->PopClipRect();
+
+        ImGui::SetCursorScreenPos(start);
+        ImGui::Dummy({width, height});
+        ImGui::PopID();
+    }
+
+    // What a player is doing, for their row and the chat panel's header.
+    static std::pair<std::string, ImVec4> PlayerStatus(const platform::ProfilePlayer& player, std::int64_t now)
+    {
+        if (player.online && player.busy) return {"In a set", color::warning};
+        if (player.online && player.activity == "match") return {"Playing a match", color::warning};
+        if (player.online && player.activity == "game") return {"In the game", color::success};
+        if (player.online) return {"Online", color::success};
+        return {platform::DescribeLastOnline(now, player.last_online), color::muted};
+    }
+
+    void OpenChatWith(const platform::ProfilePlayer& player)
+    {
+        chat_partner_ = player;
+        chat_open_requested_ = chat_focus_ = true;
+        chat_draft_.clear();
+        chat_drawn_ = 0;
+        competitive_->OpenChat(player.id);
+    }
+
+    void CloseChat()
+    {
+        ImGui::CloseCurrentPopup();
+        chat_partner_.reset();
+        competitive_->CloseChat();
+    }
+
+    // The chat panel over the dimmed launcher: the conversation with one
+    // friend, a line to write, and their Discord profile.
+    void DrawChat()
+    {
+        if (chat_open_requested_ && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+        {
+            ImGui::OpenPopup("Chat");
+            chat_open_requested_ = false;
+        }
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const float width = std::min(Dp(560), viewport->Size.x - Dp(48));
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({width, 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(26, 22));
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4{0, 0, 0, 0});
+        if (ImGui::BeginPopupModal("Chat", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
+            | ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
+            DrawChatContents();
+            ImGui::PopStyleVar();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+    }
+
+    void DrawChatContents()
+    {
+        const auto& fonts = CurrentFonts();
+        if (!chat_partner_)
+        {
+            ImGui::CloseCurrentPopup();
+            return;
+        }
+        // Until the service's next snapshot, the conversation just opened is empty.
+        static const CompetitiveService::Status::Chat opening;
+        const auto& chat = competitive_status_.chat.with == chat_partner_->id ? competitive_status_.chat : opening;
+        // The friend as the lists have them now, else as when the panel opened.
+        platform::ProfilePlayer partner = *chat_partner_;
+        for (const auto& player : competitive_status_.lists.friends)
+            if (player.id == partner.id) partner = player;
+        const std::int64_t now = std::int64_t(std::time(nullptr));
+        auto* draw = ImGui::GetWindowDrawList();
+        DrawDialogCard(color::accent);
+        const float left = ImGui::GetCursorScreenPos().x;
+        const float right = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+
+        // Header: the avatar, the name and what they're doing; Discord and close.
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        const float radius = Dp(20);
+        const ImVec2 center{top.x + radius, top.y + radius};
+        ImVec4 tint{0, 0, 0, 1};
+        ImGui::ColorConvertHSVtoRGB(std::fmod(float(partner.id) * 0.618034f, 1.0f), 0.55f, 0.62f, tint.x, tint.y,
+                                    tint.z);
+        draw->AddCircleFilled(center, radius, Col(tint));
+        std::string initial = partner.name.empty() ? std::string("?") : partner.name.substr(0, 1);
+        if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
+            initial = partner.name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2,
+                                                                    partner.name.size()));
+        else
+            initial[0] = char(std::toupper(byte));
+        const ImVec2 letter = TextSize(fonts.heading, initial.c_str());
+        DrawLabel(draw, fonts.heading, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f}, Col(color::text),
+                  initial.c_str());
+        const auto [status, status_tint] = PlayerStatus(partner, now);
+        const float text_left = center.x + radius + Dp(14);
+        const ImVec2 name = TextSize(fonts.heading, partner.name.c_str());
+        DrawLabel(draw, fonts.heading, {text_left, top.y}, Col(color::text), partner.name.c_str());
+        DrawLabel(draw, fonts.caption, {text_left, top.y + name.y + Dp(2)}, Col(status_tint), status.c_str());
+        float edge = right;
+        {
+            const float size = Dp(32);
+            edge -= size;
+            ImGui::SetCursorScreenPos({edge, center.y - size * 0.5f});
+            const bool pressed = ImGui::InvisibleButton("##chat_close", {size, size});
+            const bool over = ImGui::IsItemHovered();
+            if (over) draw->AddCircleFilled({edge + size * 0.5f, center.y}, size * 0.5f, Col(color::text, 0.08f));
+            DrawIcon(draw, Icon::Close, {edge + size * 0.5f, center.y}, Dp(14), Col(over ? color::text : color::muted));
+            if (pressed)
+            {
+                CloseChat();
+                return;
+            }
+            edge -= Dp(8);
+        }
+        if (!partner.discord_id.empty())
+        {
+            const char* label = "Discord";
+            const float button = GhostWidth(label, Icon::Link);
+            edge -= button;
+            ImGui::SetCursorScreenPos({edge, center.y - Dp(17)});
+            if (GhostButton("chat_discord", label, {button, Dp(34)}, true, Icon::Link))
+                SDL_OpenURL(("https://discord.com/users/" + partner.discord_id).c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open %s's Discord profile", partner.name.c_str());
+        }
+        ImGui::SetCursorScreenPos({left, top.y + radius * 2.0f + Dp(16)});
+        DialogDivider();
+
+        // The conversation: theirs on the left, the player's on the right in
+        // the accent, the time over each group.
+        const float height = std::clamp(ImGui::GetMainViewport()->Size.y * 0.5f, Dp(180), Dp(380));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0, 0, 0, 0});
+        ImGui::BeginChild("##chat_messages", {right - left, height});
+        {
+            auto* list = ImGui::GetWindowDrawList();
+            const float area = ImGui::GetContentRegionAvail().x - Dp(6);
+            const float wrap = area * 0.74f, pad_x = Dp(12), pad_y = Dp(8);
+            ImGui::Dummy({0, Dp(12)});
+            if (!chat.loaded || chat.messages.empty())
+            {
+                const char* empty = !chat.loaded ? "Loading the conversation..."
+                                                 : "No messages yet. Say hello!";
+                const ImVec2 size = TextSize(fonts.body, empty);
+                ImGui::SetCursorPos({(area - size.x) * 0.5f, height * 0.5f - size.y});
+                TextColored(fonts.body, color::muted, empty);
+            }
+            const platform::ChatMessage* previous = nullptr;
+            for (const auto& message : chat.messages)
+            {
+                if (!previous || previous->mine != message.mine || message.sent_at - previous->sent_at > 600)
+                {
+                    if (previous) ImGui::Dummy({0, Dp(8)});
+                    const std::string when = platform::DescribeChatTime(now, message.sent_at);
+                    const ImVec2 size = TextSize(fonts.caption, when.c_str());
+                    const ImVec2 at = ImGui::GetCursorScreenPos();
+                    DrawLabel(list, fonts.caption, {message.mine ? at.x + area - size.x : at.x, at.y}, Col(color::dim),
+                              when.c_str());
+                    ImGui::Dummy({0, size.y + Dp(4)});
+                }
+                previous = &message;
+                ImFont* font = fonts.body;
+                const float font_size = FontSize(font);
+                const ImVec2 text = font->CalcTextSizeA(font_size, FLT_MAX, wrap, message.body.c_str());
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                const float bubble_w = std::ceil(text.x) + 2 * pad_x, bubble_h = std::ceil(text.y) + 2 * pad_y;
+                const float x = message.mine ? at.x + area - bubble_w : at.x;
+                list->AddRectFilled({x, at.y}, {x + bubble_w, at.y + bubble_h},
+                                    Col(message.mine ? Mix(color::card, color::accent, 0.24f) : color::field), Dp(14));
+                list->AddText(font, font_size, {x + pad_x, at.y + pad_y}, Col(color::text), message.body.c_str(),
+                              nullptr, wrap);
+                ImGui::Dummy({area, bubble_h + Dp(4)});
+            }
+            ImGui::Dummy({0, Dp(4)});
+            // New messages (and the panel's first frame) scroll to the end.
+            if (chat.messages.size() != chat_drawn_)
+            {
+                ImGui::SetScrollHereY(1.0f);
+                chat_drawn_ = chat.messages.size();
+            }
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        DialogDivider();
+        ImGui::Dummy({0, Dp(14)});
+
+        // A line to write, or why there is none.
+        if (chat.loaded && !chat.can_send)
+            TextWrappedColored(fonts.body, color::muted,
+                               (partner.name + " doesn't have you as a friend: you can read your messages, but not "
+                                               "write. Messages are kept 30 days.").c_str());
+        else
+        {
+            const float send = PrimaryWidth("Send", Icon::Chat);
+            if (chat_focus_)
+            {
+                ImGui::SetKeyboardFocusHere();
+                chat_focus_ = false;
+            }
+            ImGui::SetNextItemWidth(right - left - send - Dp(10));
+            const bool entered = ImGui::InputTextWithHint("##chat_line", "Write a message", &chat_draft_,
+                                                          ImGuiInputTextFlags_EnterReturnsTrue);
+            const auto first = chat_draft_.find_first_not_of(" \t");
+            const std::string line = first == std::string::npos
+                ? std::string()
+                : chat_draft_.substr(first, chat_draft_.find_last_not_of(" \t") + 1 - first);
+            std::size_t characters = 0;
+            for (const unsigned char c : line) characters += (c & 0xC0) != 0x80;
+            const bool usable = !line.empty() && characters <= 300 && !chat.sending;
+            ImGui::SameLine(0, Dp(10));
+            if ((PrimaryButton("chat_send", "Send", {send, ImGui::GetFrameHeight()}, usable, Icon::Chat)
+                 || entered) && usable)
+            {
+                competitive_->SendChat(line);
+                chat_draft_.clear();
+                chat_focus_ = true;
+            }
+            ImGui::Dummy({0, Dp(8)});
+            const std::string note = characters > 250
+                ? (characters > 300 ? std::to_string(characters - 300) + " characters too many"
+                                    : std::to_string(300 - characters) + " characters left")
+                : std::string("Messages go through the Recharged server, which keeps them 30 days.");
+            TextColored(fonts.caption, characters > 300 ? color::danger : color::dim, note.c_str());
+        }
+        if (CancelPressed()) CloseChat();
+    }
+
+    // The player's Discord friends who play Recharged, once the player
+    // connects Discord (nothing in a build without the Discord Social SDK):
+    // those not among the friends already, as rows. Returns the players
+    // shown.
+    std::set<std::int64_t> DiscordFriendsSection(const platform::RuleSet* rules, std::int64_t now)
+    {
+        using State = DiscordFriends::State;
+        std::set<std::int64_t> shown;
+        const auto& discord = discord_status_;
+        if (!discord_friends_ || discord.state == State::Missing || discord.state == State::Off) return shown;
+        const auto& fonts = CurrentFonts();
+        const auto& players = competitive_status_.discord_players;
+        std::string after;
+        if (discord.state == State::Ready)
+        {
+            const auto online = std::count_if(discord.friends.begin(), discord.friends.end(), [](const auto& entry) {
+                return entry.presence != DiscordFriends::Presence::Offline;
+            });
+            after = std::to_string(players.size()) + " in Recharged · " + std::to_string(online) + " online on Discord";
+        }
+        SectionHeading("DISCORD FRIENDS", after);
+        const ImVec2 button{Dp(190), Dp(36)};
+        switch (discord.state)
+        {
+        case State::NotLinked:
+        case State::Failed:
+            TextWrappedColored(fonts.body, discord.state == State::Failed ? color::warning : color::muted,
+                               discord.state == State::Failed && !discord.error.empty()
+                                   ? discord.error.c_str()
+                                   : "Connect Discord to see which of your Discord friends play Recharged and "
+                                     "challenge them from here. Your friends list stays between Discord and this "
+                                     "computer.");
+            ImGui::Dummy({0, Dp(6)});
+            if (SecondaryButton("discord_connect", discord.state == State::Failed ? "Try again" : "Connect Discord",
+                                button, true, Icon::Link))
+                discord_friends_->Connect();
+            break;
+        case State::Linking:
+            TextWrappedColored(fonts.body, color::muted,
+                               "Confirm in Discord: it opened in the Discord app or in your browser.");
+            ImGui::Dummy({0, Dp(6)});
+            if (GhostButton("discord_cancel", "Cancel", button, true, Icon::Close)) discord_friends_->Cancel();
+            break;
+        case State::Connecting: TextWrappedColored(fonts.body, color::muted, "Connecting to Discord..."); break;
+        case State::Ready:
+            for (const auto& player : players)
+                if (!player.is_friend)
+                {
+                    shown.insert(player.id);
+                    PlayerRow(player, rules, now);
+                }
+            if (shown.empty())
+                TextWrappedColored(fonts.body, color::muted,
+                                   players.empty() ? "None of your Discord friends has signed in to Recharged yet."
+                                                   : "Those who play Recharged are among your friends above.");
+            ImGui::Dummy({0, Dp(6)});
+            if (GhostButton("discord_disconnect", "Disconnect Discord", button, true, Icon::Close))
+                discord_friends_->Disconnect();
+            break;
+        default: break;
+        }
+        return shown;
+    }
+
+    // The players: the rules every challenge from this page uses, the
+    // player's friends (online first, then when they last had Recharged
+    // open), everyone else who has Recharged open, and adding or challenging
+    // a player by Discord username.
     void CompetitiveChallengeCard()
     {
         const auto& status = competitive_status_;
         const auto& lists = status.lists;
         const auto& fonts = CurrentFonts();
         const bool busy = status.busy;
-        BeginCard("##competitive_challenge", "Challenge a player",
-                  "Players who have Recharged open, and the ones you played last. Your challenge uses these rules.",
-                  Icon::Trophy);
+        const auto now = std::int64_t(std::time(nullptr));
+        BeginCard("##competitive_players", "Players",
+                  "Your friends follow you to every computer: everyone you challenge or play, and anyone you add.",
+                  Icon::Person);
         const platform::RuleSet* chosen = ChosenRuleSet();
         if (BeginRows("##challenge_rules_row"))
         {
-            Row("Rules", chosen ? platform::DescribeRules(chosen->rules).c_str() : "This server has no rule sets yet.");
+            Row("Rules for your challenges",
+                chosen ? platform::DescribeRules(chosen->rules).c_str() : "This server has no rule sets yet.");
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::BeginCombo("##challenge_rules", chosen ? chosen->name.c_str() : "None on this server"))
             {
@@ -4227,53 +4736,44 @@ private:
             }
             EndRows();
         }
-        const auto rows = [&](const char* heading, const char* id, const std::vector<platform::ProfilePlayer>& players) {
-            ImGui::Dummy({0, Dp(4)});
-            TextColored(fonts.caption, color::dim, heading);
-            if (!BeginRows(id)) return;
-            for (const auto& player : players)
-            {
-                ImGui::PushID(int(player.id));
-                const std::string about = player.busy      ? "In a set"
-                                          : !player.online ? "Not online"
-                                          : player.discord.empty() ? "Online"
-                                                                   : "@" + player.discord;
-                Row(player.name.c_str(), about.c_str());
-                if (SecondaryButton("challenge_player", "Challenge", Dp(140, 36),
-                                    !busy && chosen && player.online && !player.busy, Icon::Trophy))
-                    competitive_->ChallengePlayer(player.id, chosen->id);
-                ImGui::PopID();
-            }
-            EndRows();
-        };
-        if (lists.online.empty())
-        {
-            ImGui::Dummy({0, Dp(4)});
-            TextColored(fonts.caption, color::dim, "ONLINE NOW");
+
+        const auto online_friends = std::count_if(lists.friends.begin(), lists.friends.end(),
+                                                  [](const platform::ProfilePlayer& player) { return player.online; });
+        SectionHeading("FRIENDS", lists.friends.empty() ? std::string()
+                                  : std::to_string(online_friends) + " online · " + std::to_string(lists.friends.size()));
+        if (lists.friends.empty())
+            TextWrappedColored(fonts.body, color::muted,
+                               "No friends yet. Players you challenge or play show up here, and anyone you add.");
+        for (const auto& player : lists.friends) PlayerRow(player, chosen, now);
+
+        const auto discord_shown = DiscordFriendsSection(chosen, now);
+        std::vector<const platform::ProfilePlayer*> others;
+        for (const auto& player : lists.online)
+            if (!player.is_friend && !discord_shown.count(player.id)) others.push_back(&player);
+        SectionHeading("ALSO ONLINE", others.empty() ? std::string() : std::to_string(others.size()));
+        if (others.empty())
             TextWrappedColored(fonts.body, color::muted, "Nobody else has Recharged open right now.");
-        }
-        else
-            rows("ONLINE NOW", "##online_rows", lists.online);
-        if (!lists.recent.empty()) rows("RECENT OPPONENTS", "##recent_rows", lists.recent);
-        ImGui::Dummy({0, Dp(4)});
-        if (BeginRows("##challenge_name_row"))
-        {
-            Row("By Discord username", "They must have Recharged open.");
-            const float button = Dp(140);
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - button - Dp(10));
-            const bool entered = ImGui::InputTextWithHint("##challenge_name", "Discord username", &challenge_name_,
-                                                          ImGuiInputTextFlags_EnterReturnsTrue);
-            ImGui::SameLine(0, Dp(10));
-            const auto first = challenge_name_.find_first_not_of(" \t");
-            const std::string name = first == std::string::npos
-                ? std::string()
-                : challenge_name_.substr(first, challenge_name_.find_last_not_of(" \t") + 1 - first);
-            const bool usable = !busy && chosen && !name.empty();
-            if (SecondaryButton("challenge", "Challenge", {button, ImGui::GetFrameHeight()}, usable, Icon::Trophy)
-                || (entered && usable))
-                competitive_->Challenge(name, challenge_rule_set_);
-            EndRows();
-        }
+        for (const auto* player : others) PlayerRow(*player, chosen, now);
+
+        // By Discord username: add as a friend, or challenge.
+        SectionHeading("BY DISCORD USERNAME", std::string());
+        const float button = Dp(132), gap = Dp(8);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 2 * button - 2 * gap);
+        const bool entered = ImGui::InputTextWithHint("##challenge_name", "Discord username", &challenge_name_,
+                                                      ImGuiInputTextFlags_EnterReturnsTrue);
+        const auto first = challenge_name_.find_first_not_of(" \t");
+        const std::string name = first == std::string::npos
+            ? std::string()
+            : challenge_name_.substr(first, challenge_name_.find_last_not_of(" \t") + 1 - first);
+        ImGui::SameLine(0, gap);
+        if (GhostButton("add_by_name", "Add friend", {button, ImGui::GetFrameHeight()}, !busy && !name.empty(),
+                        Icon::Heart))
+            competitive_->AddFriend(name);
+        ImGui::SameLine(0, gap);
+        const bool usable = !busy && chosen && !name.empty();
+        if (SecondaryButton("challenge", "Challenge", {button, ImGui::GetFrameHeight()}, usable, Icon::Trophy)
+            || (entered && usable))
+            competitive_->Challenge(name, challenge_rule_set_);
         EndCard();
     }
 
@@ -9374,6 +9874,16 @@ private:
     bool training_requested_ = false;
     // A set's go seen: start its game (once per set and launcher).
     bool competitive_go_ = false;
+    // The chat panel: the friend it is open with (a copy of their row for
+    // the header when they leave the lists), the line being written, the
+    // messages drawn last frame (new ones scroll into view), and the unread
+    // counts already told in a notice.
+    std::optional<platform::ProfilePlayer> chat_partner_;
+    bool chat_open_requested_ = false, chat_focus_ = false;
+    std::string chat_draft_;
+    std::size_t chat_drawn_ = 0;
+    std::map<std::int64_t, int> chat_unread_told_;
+    bool chat_unread_known_ = false;
     std::int64_t competitive_started_set_ = 0;
     bool training_ = false;
     NoticeKind notice_kind_ = NoticeKind::Info;
@@ -9472,6 +9982,13 @@ private:
     std::unique_ptr<CompetitiveService> competitive_;
     CompetitiveService::Status competitive_status_;
     std::uint64_t competitive_opened_ = 0, competitive_errors_ = 0;
+    // The Discord friends (after the service: it goes first), what they
+    // showed last, the friends whose players were asked for and the last
+    // failure told.
+    std::unique_ptr<DiscordFriends> discord_friends_;
+    DiscordFriends::Status discord_status_;
+    std::vector<std::string> discord_asked_;
+    std::uint64_t discord_errors_ = 0;
     std::string test_player_name_, challenge_name_;
     std::int64_t challenge_rule_set_ = 0;
     UpdateService::Status update_;
@@ -9808,11 +10325,12 @@ int main(int argc, char** argv)
         }
         std::optional<ResolvedLaunch> frontend_launch;
         int result;
-        fs::path restart, reopen;
+        fs::path restart, reopen, launcher_program;
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
             frontend_launch = launcher.FrontendLaunch();
+            launcher_program = launcher.RestartExecutable();
             if (launcher.RestartRequested()) restart = launcher.RestartExecutable();
             // A set's game always opens the launcher again, into its lobby.
             else if (frontend_launch && (frontend_launch->settings.reopen_after_game || frontend_launch->start_competitive))
@@ -9832,6 +10350,8 @@ int main(int argc, char** argv)
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
         // [launcher] reopen_after_game: closing the game starts this launcher again.
         if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(reopen, argc, argv);
+        // A challenge accepted in the game opens the launcher, which starts the set.
+        else if (frontend_launch) mscharged::platform::PrepareLauncherReopen(launcher_program, argc, argv);
         if (frontend_launch) return RunOriginalGame(argc, argv, &*frontend_launch, true,
             OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #endif

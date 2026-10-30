@@ -44,8 +44,35 @@ struct ProfilePlayer
     // GET /api/v1/me only: the Discord account id (digits; empty for test
     // players), which never changes: the player's Mii is made from it.
     std::string discord_id;
-    // In the lobby's lists: Recharged is open, and a set to play.
+    // In the lobby's lists: Recharged is open, and a set to play; when they
+    // last had it open (Unix seconds); the player keeps them as a friend.
     bool online = false, busy = false;
+    // While online, what their Recharged is doing: "launcher", "game" (the
+    // game, outside a match) or "match" (a match in the game: nobody can
+    // challenge them); empty from servers before 1.2.0.
+    std::string activity;
+    std::optional<std::int64_t> last_online;
+    bool is_friend = false;
+    // Both keep each other as friends: they can write each other; their
+    // messages not read yet. With chat, discord_id is theirs (empty for test
+    // players).
+    bool chat = false;
+    int unread = 0;
+};
+
+// A message between two friends (GET /api/v1/chat/<id>).
+struct ChatMessage
+{
+    std::int64_t id = 0;
+    bool mine = false; // sent by this player
+    std::string body;
+    std::int64_t sent_at = 0; // Unix seconds
+};
+
+struct ChatPage
+{
+    std::vector<ChatMessage> messages; // oldest first
+    bool can_send = false;
 };
 
 // The lobby's lists (GET /api/v1/players).
@@ -53,7 +80,18 @@ struct PlayerLists
 {
     std::vector<ProfilePlayer> online; // who has Recharged open, by name
     std::vector<ProfilePlayer> recent; // the last players a set was played with
+    // The player's friends: online first, by name, then the last online first.
+    std::vector<ProfilePlayer> friends;
 };
+
+// When a player last had Recharged open, for the friends list: "Last online 5
+// minutes ago", "... yesterday", "... on 3 October"; `now` and `when` in Unix
+// seconds.
+std::string DescribeLastOnline(std::int64_t now, std::optional<std::int64_t> when);
+
+// When a chat message was sent, in local time: "14:05" today, "Yesterday
+// 14:05", "3 October, 14:05", or with the year when it was another.
+std::string DescribeChatTime(std::int64_t now, std::int64_t when);
 
 // The rules a match is played by (docs/profiles.md, "Rules").
 struct MatchRules
@@ -119,6 +157,19 @@ struct ProfileServerInfo
     std::string version;
     bool discord = false; // Discord sign-in
     bool test = false;    // sign-in by name (test servers)
+    // The Discord application the server signs in to (digits): the one the
+    // launcher's Discord Social SDK uses. Empty without Discord sign-in, and
+    // from servers before 1.2.0.
+    std::string discord_application;
+};
+
+// The Discord Social SDK's tokens, which the server trades for the launcher
+// (docs/COMPETITIVE.md, "Discord friends").
+struct DiscordTokens
+{
+    std::string access_token;
+    std::string refresh_token;
+    std::int64_t expires_in = 0; // seconds
 };
 
 struct SignInStart
@@ -171,6 +222,9 @@ public:
     void SetToken(std::string token) { token_ = std::move(token); }
     // Lets another thread stop the running call.
     void SetCancel(std::shared_ptr<HttpCancel> cancel) { cancel_ = std::move(cancel); }
+    // The game's requests say what it is doing ("game" or "match", the
+    // Recharged-Activity header); the launcher's say nothing.
+    void SetActivity(std::string activity) { activity_ = std::move(activity); }
 
     // Without a session.
     ProfileServerInfo Info();
@@ -185,6 +239,15 @@ public:
     ProfileMatch Challenge(const std::string& opponent, std::int64_t rule_set);
     // The same by the player's id, from the lobby's lists.
     ProfileMatch ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set);
+    // The friends after adding one (by player id or Discord username) or
+    // taking one off.
+    std::vector<ProfilePlayer> AddFriend(std::int64_t player_id);
+    std::vector<ProfilePlayer> AddFriend(const std::string& name);
+    std::vector<ProfilePlayer> RemoveFriend(std::int64_t player_id);
+    // The messages with `player_id`, those after message `after` (0: the
+    // latest 50); a message to them.
+    ChatPage Chat(std::int64_t player_id, std::int64_t after);
+    ChatMessage SendChat(std::int64_t player_id, const std::string& body);
     // The set still to be played, or the last one that ended; `poll_interval`
     // gets how soon (seconds) the server wants to be asked again.
     std::optional<ProfileMatch> CurrentMatch(int* poll_interval = nullptr);
@@ -198,6 +261,15 @@ public:
     ProfileMatch Cancel(std::int64_t match);
     // The game's proof that it is logged in to WFC as `profile_id`.
     WfcProfile ProveWfcLogin(std::int64_t profile_id, const std::string& login_ticket);
+    // The Discord Social SDK's tokens for the code of its authorization, or
+    // for the refresh token of earlier ones. A ProfileError with Status() 400
+    // means Discord refused: the link has to be made again.
+    DiscordTokens DiscordToken(const std::string& code, const std::string& verifier, const std::string& redirect_uri);
+    DiscordTokens RefreshDiscordToken(const std::string& refresh_token);
+    // Which of these Discord accounts (the player's Discord friends) have
+    // signed in to Recharged, as the lists show players, each with its
+    // discord_id; at most 200 at once.
+    std::vector<ProfilePlayer> PlayersByDiscord(const std::vector<std::string>& discord_ids);
     ReadyAnswer Ready(std::int64_t match, std::int64_t profile_id, const std::string& rules_hash);
     ProfileMatch Report(std::int64_t match, const std::vector<MatchGame>& games);
 
@@ -207,6 +279,7 @@ private:
 
     std::string server_;
     std::string token_;
+    std::string activity_;
     std::shared_ptr<HttpCancel> cancel_;
 };
 
@@ -227,4 +300,19 @@ std::optional<SavedProfileSession> LoadProfileSession(const std::filesystem::pat
 // Readable by this user only, where the system has such permissions.
 void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSession& session);
 void ForgetProfileSession(const std::filesystem::path& file);
+
+// The Discord friends' link of a settings file, kept between runs like the
+// session: the server that traded the Discord Social SDK's tokens and the
+// refresh token, which gets the next ones.
+struct SavedDiscordLink
+{
+    std::string server;
+    std::string refresh_token;
+};
+
+// <data folder>/online/<settings file name>.discord
+std::filesystem::path DiscordLinkFile(const std::filesystem::path& data_folder, const std::filesystem::path& config);
+std::optional<SavedDiscordLink> LoadDiscordLink(const std::filesystem::path& file);
+// Readable by this user only, as the session; ForgetProfileSession removes it.
+void SaveDiscordLink(const std::filesystem::path& file, const SavedDiscordLink& link);
 } // namespace mscharged::platform

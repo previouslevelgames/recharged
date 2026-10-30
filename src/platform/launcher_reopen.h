@@ -8,6 +8,13 @@ namespace mscharged::platform
 // normally, the launcher opens again, with this run's arguments.
 void ArmLauncherReopen(const std::filesystem::path& program, int argc, char** argv);
 
+// The launcher a game started from it can open when it closes, kept but not
+// armed: the game arms it when the player accepts a challenge in it (the
+// launcher then starts the set's game). ArmPreparedLauncherReopen is false
+// without one (a game started without the launcher).
+void PrepareLauncherReopen(const std::filesystem::path& program, int argc, char** argv);
+bool ArmPreparedLauncherReopen();
+
 // Call where the game closes normally, in place of the session's last log
 // line. Nothing armed (or the program is gone): returns false, and the caller
 // ends its log as usual. Armed: ends the session log with `reason` and starts

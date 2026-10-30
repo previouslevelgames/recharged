@@ -51,6 +51,7 @@
 #include "platform/session_log.h"
 #include "platform/launcher_reopen.h"
 #include "platform/competitive_host.h"
+#include "platform/wpad_sdl.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
 #include "platform/netplay_snapshot.h"
@@ -1340,6 +1341,53 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 SDL_PushEvent(&quit);
             }
         };
+        // A challenge while the game is in its menus: a card over the dimmed
+        // picture, which holds every player's buttons. A accepts (the game
+        // closes and the launcher starts the set's game), B declines.
+        std::int64_t cardMatch=0;
+        std::chrono::steady_clock::time_point cardShown{};
+        auto serviceChallengeCard = [&](std::chrono::steady_clock::time_point now) {
+            if(!competitive || !hostOverlay)return;
+            if(const auto notice=competitive->TakeNotice()) hostOverlay->ShowMessage(*notice,now);
+            if(competitive->RestartForSet()) {
+                const bool launcher=mscharged::platform::ArmPreparedLauncherReopen();
+                mscharged::platform::SessionLogLine(launcher
+                    ? "Competitive: challenge accepted in the game; closing it, the launcher starts the set"
+                    : "Competitive: challenge accepted in the game, which was not started from the launcher");
+                if(launcher) {
+                    SDL_Event quit{};
+                    quit.type=SDL_EVENT_QUIT;
+                    SDL_PushEvent(&quit);
+                } else hostOverlay->ShowMessage("Challenge accepted: open the launcher to play the set",now);
+            }
+            const auto invitation=competitive->PendingInvitation();
+            const std::int64_t match=invitation ? invitation->match : 0;
+            if(match!=cardMatch) {
+                cardMatch=match;
+                cardShown=now;
+                mscharged::platform::SetNativeWpadHold(match!=0);
+                if(invitation) {
+                    mscharged::runtime::HostOverlay::Card card;
+                    card.kicker="CHALLENGE";
+                    card.title=invitation->from+" challenges you";
+                    card.detail=invitation->rules+".";
+                    card.accept="Accept";
+                    card.decline="Decline";
+                    card.note="Accept closes the game, and the launcher starts the set: straight to the captain draft.";
+                    hostOverlay->SetCard(card);
+                    mscharged::platform::SessionLogLine("Competitive: "+invitation->from+" challenges you (match "
+                        +std::to_string(match)+")");
+                } else hostOverlay->SetCard(std::nullopt);
+            }
+            if(!cardMatch)return;
+            // Presses in the card's first moment are not answers (a button the
+            // player was pressing for the menu).
+            const auto presses=mscharged::platform::TakeNativeWpadHeldPresses();
+            if(now-cardShown<std::chrono::milliseconds(600) || (!presses.a && !presses.b))return;
+            const bool accept=presses.a>0;
+            competitive->Answer(cardMatch,accept);
+            hostOverlay->ShowMessage(accept ? "Challenge accepted: the set starts" : "Challenge declined",now);
+        };
         auto observeNetplay = [&] {
             if((!hostOverlay && !framePacing) || !netplaySnapshot)return;
             const auto now=std::chrono::steady_clock::now();
@@ -1480,6 +1528,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
             const auto now=std::chrono::steady_clock::now();
             if(framePacing) framePacing->Update(now);
+            serviceChallengeCard(now);
             if(hostOverlay) {
                 if(const auto rate=frameRate.Sample(frames,now)) hostOverlay->SetRate(*rate);
                 const auto size=aurora_get_window_size();

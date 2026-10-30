@@ -47,13 +47,27 @@ public:
     void SetNetwork(const Network& network);
     // Shows `text` for a moment, replacing the message shown before.
     void ShowMessage(std::string text, Clock::time_point now);
+    // A card in the middle of the dimmed picture that asks the player
+    // something (a challenge from another player): the A and B buttons'
+    // answers. None hides it. The host holds the players' buttons meanwhile.
+    struct Card {
+        std::string kicker;  // the small line above the title
+        std::string title;
+        std::string detail;  // wrapped under the title
+        std::string accept;  // the A button
+        std::string decline; // the B button
+        std::string note;    // under the buttons
+        bool operator==(const Card&) const = default;
+    };
+    void SetCard(std::optional<Card> card);
     // Rebuild only when a displayed value, the message's fade or the window's
     // pixel size changes. Unknown measurements show N/A, including during the
     // first sample window.
     void Update(std::uint32_t surface_width, std::uint32_t surface_height, Clock::time_point now);
 
 private:
-    void BuildFonts(float size);
+    void BuildFonts(float size, float unit);
+    void DrawCard(float width, float height, float unit);
 
     std::optional<OverlayCorner> performance_;
     std::optional<platform::SystemUsageMonitor> usage_;
@@ -61,6 +75,7 @@ private:
     std::optional<int> value_;
     Network network_;
     std::string message_;
+    std::optional<Card> card_, shownCard_;
     Clock::time_point messageShown_{};
     std::array<std::optional<int>, kMaxPerformanceMetrics> shownValues_{};
     std::size_t shownCount_ = 0;
@@ -70,9 +85,13 @@ private:
     std::uint32_t shownWidth_ = 0;
     std::uint32_t shownHeight_ = 0;
     float builtSize_ = 0.0f;
+    float builtUnit_ = 0.0f;
     ImFont* number_ = nullptr;
     ImFont* label_ = nullptr;
     ImFont* messageFont_ = nullptr;
+    // The card's: its title and buttons (bold), its text, its small lines.
+    ImFont* cardBold_ = nullptr;
+    ImFont* cardText_ = nullptr;
 };
 
 } // namespace mscharged::runtime

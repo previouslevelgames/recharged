@@ -499,6 +499,12 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->PathBezierCubicCurveTo(p(0.48f, 0.02f), p(0.30f, 0.16f), p(0.0f, 0.40f));
         draw->PathFillConcave(color);
         break;
+    case Icon::Chat:
+        // A speech bubble, its tail at the lower left, with three dots.
+        draw->AddRect(p(-0.46f, -0.38f), p(0.46f, 0.22f), color, 0.16f * s, 0, t);
+        draw->AddTriangleFilled(p(-0.30f, 0.20f), p(-0.04f, 0.20f), p(-0.32f, 0.46f), color);
+        for (int n = -1; n <= 1; ++n) draw->AddCircleFilled(p(0.21f * float(n), -0.08f), 0.065f * s, color);
+        break;
     case Icon::Bug:
     {
         // A beetle: body, head, antennae and three legs a side.
