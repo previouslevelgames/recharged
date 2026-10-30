@@ -55,6 +55,26 @@ public:
     // The caller closes the game; true once.
     bool CloseNow();
 
+    // A challenge to this player while the game is in its menus (not in a
+    // match, not a set's game): what the host's card asks, or none.
+    struct Invitation
+    {
+        std::int64_t match = 0;
+        std::string from;  // the challenger's name
+        std::string rules; // the rule set and what it plays by
+    };
+    std::optional<Invitation> PendingInvitation();
+    // The card's answer. An accept is also the player's Ready to play!: once
+    // the server has it, RestartForSet() says so.
+    void Answer(std::int64_t match, bool accept);
+    // On the game's thread: the accepted set goes, and this game is not the
+    // set's; the caller closes it and opens the launcher, which starts the
+    // set's game. True once.
+    bool RestartForSet();
+    // What the host shows in a message (an answer the server did not take),
+    // once.
+    std::optional<std::string> TakeNotice();
+
 private:
     CompetitiveHost(std::string server, std::string token, std::string player, Log log);
     void Run();
@@ -81,6 +101,13 @@ private:
     // What the game is doing, for the server's lists: "game", or "match"
     // from a match's loading until it is unloaded (no challenges then).
     std::string activity_ = "game";
+    // A challenge to answer in the game's menus, the card's answer still to
+    // send, the last one sent, and the accepted set the game closes for.
+    std::optional<Invitation> invitation_;
+    std::int64_t answer_match_ = 0, answered_match_ = 0;
+    bool answer_accept_ = false;
+    bool restart_ = false, restart_taken_ = false;
+    std::optional<std::string> notice_;
     struct Report
     {
         std::int64_t match = 0;

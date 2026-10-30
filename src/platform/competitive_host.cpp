@@ -14,6 +14,8 @@ namespace
 // The server keeps a ready game for 30 seconds; the game says it every 10.
 constexpr auto kReadyEvery = 10s;
 constexpr auto kMatchEvery = 10s;
+// In the game's menus a challenge reaches the card sooner.
+constexpr auto kMenuMatchEvery = 4s;
 constexpr auto kRetry = 15s;
 // cGame's eGameState.
 constexpr int kGamePreGame = 0, kGameKickoff = 1, kGameEnd = 3, kGamePlay = 5;
@@ -272,12 +274,52 @@ void CompetitiveHost::Run()
 void CompetitiveHost::Work(ProfileService& api)
 {
     const auto now = Clock::now();
+    // The card's answer. An accepted set closes this game: nothing more is
+    // done for it (no ready for the set from this game).
+    std::int64_t answer = 0;
+    bool accept = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (restart_) return;
+        api.SetActivity(activity_);
+        answer = answer_match_;
+        accept = answer_accept_;
+        answer_match_ = 0;
+    }
+    if (answer)
+    {
+        std::optional<std::string> notice;
+        bool restart = false;
+        try
+        {
+            const auto answered = accept ? api.Accept(answer) : api.Decline(answer);
+            Said(std::string(accept ? "accepted" : "declined") + " the challenge of match " + std::to_string(answer)
+                 + " in the game (" + answered.stage + ")");
+            restart = accept;
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled()) throw;
+            Said(std::string("the answer to match ") + std::to_string(answer) + " was not taken: " + e.what());
+            notice = e.Status() == 0 ? std::string("The server didn't answer. Try again on the launcher's Competitive page.")
+                                     : std::string("The challenge is no longer open.");
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        invitation_.reset();
+        if (notice) notice_ = notice;
+        if (restart)
+        {
+            restart_ = true;
+            return;
+        }
+        next_match_ = {};
+    }
+
     bool fetch, report;
     unsigned profile;
     std::string ticket;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        api.SetActivity(activity_);
         fetch = now >= next_match_;
         report = !reports_.empty();
         profile = login_profile_;
@@ -287,6 +329,11 @@ void CompetitiveHost::Work(ProfileService& api)
     if (fetch || report)
     {
         auto current = api.CurrentMatch();
+        // A challenge to this player: the card's, while the game is not a set's.
+        std::optional<Invitation> invitation;
+        if (current && current->state == "challenged" && current->side == "challenged")
+            invitation = Invitation{current->id, current->opponent.name,
+                                    current->rule_set + ": " + DescribeRules(current->rules)};
         if (current && current->state != "accepted") current.reset();
         std::optional<ChargedCompetitiveRules> rules;
         if (current)
@@ -296,6 +343,7 @@ void CompetitiveHost::Work(ProfileService& api)
             if (!rules) Said(error);
         }
         std::unique_lock<std::mutex> lock(mutex_);
+        invitation_ = set_ ? std::nullopt : invitation;
         const bool news = (current ? current->id : 0) != (match_ ? match_->id : 0);
         match_ = current;
         if (!SameRules(rules, rules_))
@@ -303,7 +351,7 @@ void CompetitiveHost::Work(ProfileService& api)
             rules_ = rules;
             ++rules_version_;
         }
-        next_match_ = Clock::now() + kMatchEvery;
+        next_match_ = Clock::now() + (activity_ == "game" && !set_ ? kMenuMatchEvery : kMatchEvery);
         if (news)
         {
             next_ready_ = {};
@@ -432,5 +480,38 @@ void CompetitiveHost::Work(ProfileService& api)
         if (unsent_ > 0) --unsent_;
         next_match_ = {};
     }
+}
+std::optional<CompetitiveHost::Invitation> CompetitiveHost::PendingInvitation()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!invitation_ || set_ || restart_ || activity_ != "game" || invitation_->match == answered_match_)
+        return std::nullopt;
+    return invitation_;
+}
+
+void CompetitiveHost::Answer(std::int64_t match, bool accept)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        answer_match_ = answered_match_ = match;
+        answer_accept_ = accept;
+    }
+    wake_.notify_all();
+}
+
+bool CompetitiveHost::RestartForSet()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!restart_ || restart_taken_) return false;
+    restart_taken_ = true;
+    return true;
+}
+
+std::optional<std::string> CompetitiveHost::TakeNotice()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto notice = std::move(notice_);
+    notice_.reset();
+    return notice;
 }
 } // namespace mscharged::platform

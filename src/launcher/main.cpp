@@ -3820,8 +3820,8 @@ private:
     void CompetitivePage()
     {
         PageHeader("Competitive", "Sets against other Recharged players by the rules of the server. Sign in with "
-                                  "Discord and challenge a player: once both of you are ready, your games go straight "
-                                  "to the captain draft.");
+                                  "Discord and challenge a player: once they accept, both games go straight to the "
+                                  "captain draft.");
         using State = CompetitiveService::State;
         const auto& status = competitive_status_;
         CompetitiveStatusBar();
@@ -4070,7 +4070,8 @@ private:
             if (BeginRows("##match_rows"))
             {
                 Row(("Waiting for " + opponent).c_str(),
-                    (rules + ". A challenge without an answer ends after 10 minutes.").c_str());
+                    (rules + ". Once they accept, both games start. A challenge without an answer ends after "
+                             "10 minutes.").c_str());
                 if (SecondaryButton("withdraw", "Withdraw", Dp(140, 38), !busy)) competitive_->CancelMatch();
                 EndRows();
             }
@@ -4079,7 +4080,7 @@ private:
         {
             if (BeginRows("##match_rows"))
             {
-                Row((opponent + " challenges you").c_str(), (rules + ".").c_str());
+                Row((opponent + " challenges you").c_str(), (rules + ". Accept, and both games start.").c_str());
                 const float width = (ImGui::GetContentRegionAvail().x - Dp(10)) * 0.5f;
                 if (PrimaryButton("accept", "Accept", {width, Dp(40)}, !busy, Icon::Check)) competitive_->Accept();
                 ImGui::SameLine(0, Dp(10));
@@ -9927,11 +9928,12 @@ int main(int argc, char** argv)
         }
         std::optional<ResolvedLaunch> frontend_launch;
         int result;
-        fs::path restart, reopen;
+        fs::path restart, reopen, launcher_program;
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
             frontend_launch = launcher.FrontendLaunch();
+            launcher_program = launcher.RestartExecutable();
             if (launcher.RestartRequested()) restart = launcher.RestartExecutable();
             // A set's game always opens the launcher again, into its lobby.
             else if (frontend_launch && (frontend_launch->settings.reopen_after_game || frontend_launch->start_competitive))
@@ -9951,6 +9953,8 @@ int main(int argc, char** argv)
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
         // [launcher] reopen_after_game: closing the game starts this launcher again.
         if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(reopen, argc, argv);
+        // A challenge accepted in the game opens the launcher, which starts the set.
+        else if (frontend_launch) mscharged::platform::PrepareLauncherReopen(launcher_program, argc, argv);
         if (frontend_launch) return RunOriginalGame(argc, argv, &*frontend_launch, true,
             OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #endif
