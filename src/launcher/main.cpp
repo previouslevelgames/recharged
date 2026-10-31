@@ -4044,11 +4044,20 @@ private:
         shy.activity = "launcher";
         competitive_status_.player.available = true;
         competitive_status_.lists.available = {shy};
+        // A friend code as the server writes it (R4QE).
+        const auto code = [](std::int32_t id) {
+            char text[16];
+            std::snprintf(text, sizeof text, "%012llu",
+                          static_cast<unsigned long long>(platform::FriendCode(id, 0x52345145u)));
+            const std::string digits = text;
+            return digits.substr(0, 4) + "-" + digits.substr(4, 4) + "-" + digits.substr(8);
+        };
         const auto mii = [&](std::int32_t id, const char* name, bool online, const char* status, bool is_friend) {
             platform::MiiProfile profile;
             profile.profile_id = id;
             profile.mii = name;
             profile.game = "R4QE";
+            profile.friend_code = code(id);
             profile.online = online;
             profile.status = status;
             profile.last_online = now - 5 * 3600;
@@ -4112,6 +4121,7 @@ private:
             preview_opened_ = true;
             friends_offline_open_ = mode == "preview-offline";
             if (mode == "preview-search") friend_search_ = "lu";
+            if (mode == "preview-code") friend_search_ = code(1000000099);
         }
     }
 
@@ -5392,7 +5402,43 @@ private:
         };
         const std::string wanted = lower(query);
         if (lower(entry.Name()).find(wanted) != std::string::npos) return true;
+        // A Mii by its friend code, with or without the dashes.
+        if (entry.mii)
+        {
+            const auto digits = [](const std::string& text) {
+                std::string only;
+                for (const char c : text)
+                    if (std::isdigit(static_cast<unsigned char>(c))) only += c;
+                return only;
+            };
+            const std::string typed = digits(query);
+            if (typed.size() >= 4 && digits(entry.mii->friend_code).find(typed) != std::string::npos) return true;
+        }
         return entry.player && lower(entry.player->discord).find(wanted) != std::string::npos;
+    }
+
+    // A friend code typed in the search (12 digits, any spaces, dashes or
+    // dots): its profile when the code is one of the game's, for any of its
+    // releases, and the code as the game shows it.
+    static std::optional<std::pair<std::int32_t, std::string>> FriendCodeProfile(const std::string& text)
+    {
+        std::string digits;
+        for (const char c : text)
+        {
+            if (std::isdigit(static_cast<unsigned char>(c))) digits += c;
+            else if (c != ' ' && c != '-' && c != '.') return std::nullopt;
+        }
+        if (digits.size() != 12) return std::nullopt;
+        const std::uint64_t code = std::stoull(digits);
+        const auto profile = std::int32_t(std::uint32_t(code & 0xFFFFFFFFu));
+        for (const char* game : {"R4QE", "R4QP", "R4QJ", "R4QK"})
+        {
+            const std::uint32_t id = std::uint32_t(game[0]) << 24 | std::uint32_t(game[1]) << 16
+                | std::uint32_t(game[2]) << 8 | std::uint32_t(game[3]);
+            if (platform::FriendCode(profile, id) == code)
+                return std::pair{profile, digits.substr(0, 4) + "-" + digits.substr(4, 4) + "-" + digits.substr(8)};
+        }
+        return std::nullopt;
     }
 
     // A friend as one row of the list: their initial on a colour of their own
@@ -5549,6 +5595,10 @@ private:
                                 Col(color::border, online ? 0.9f : 0.5f), Dp(5));
             DrawLabel(draw, fonts.caption, {tag_at.x + Dp(6), tag_at.y + (Dp(18) - tag_size.y) * 0.5f},
                       Col(color::muted, online ? 1.0f : 0.7f), tag);
+            if (!entry.mii->friend_code.empty())
+                DrawLabel(draw, fonts.caption,
+                          {tag_at.x + tag_size.x + Dp(20), center.y - FontSize(fonts.caption) * 0.5f},
+                          Col(color::dim), entry.mii->friend_code.c_str());
         }
         draw->PopClipRect();
         const ImVec2 status_size = TextSize(fonts.body, state.text.c_str());
@@ -5662,7 +5712,7 @@ private:
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {Dp(16), (height - ImGui::GetFontSize()) * 0.5f});
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, height * 0.5f);
         ImGui::SetNextItemWidth(width - available_width);
-        ImGui::InputTextWithHint("##friend_search", "Find a friend, or add a player by Discord username",
+        ImGui::InputTextWithHint("##friend_search", "Find a friend, or add one by Discord username or friend code",
                                  &friend_search_);
         ImGui::PopStyleVar(2);
         ImGui::PopFont();
@@ -5712,8 +5762,29 @@ private:
             ? std::string()
             : friend_search_.substr(first, friend_search_.find_last_not_of(" \t") + 1 - first);
         if (query.empty()) return query;
-        // A player by that Discord username: add them, or challenge them.
         const bool busy = competitive_status_.busy;
+        if (const auto code = FriendCodeProfile(query))
+        {
+            // A friend code: its Mii profile, to add to the friends.
+            ImGui::Dummy({0, Dp(4)});
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float row = Dp(40), add = Dp(170);
+            auto* draw = ImGui::GetWindowDrawList();
+            DrawMiiFace(draw, {at.x + Dp(16), at.y + row * 0.5f}, Dp(28), unsigned(code->first), 1.0f);
+            const std::string text = "Friend code " + code->second;
+            DrawLabel(draw, fonts.body, {at.x + Dp(40), at.y + (row - FontSize(fonts.body)) * 0.5f}, Col(color::muted),
+                      text.c_str());
+            ImGui::SetCursorScreenPos({at.x + width - add, at.y + (row - Dp(32)) * 0.5f});
+            if (SecondaryButton("add_by_code", "Add Mii friend", {add, Dp(32)}, !busy, Icon::Heart))
+            {
+                competitive_->AddMiiFriend(code->first);
+                friend_search_.clear();
+            }
+            ImGui::SetCursorScreenPos(at);
+            ImGui::Dummy({width, row});
+            return query;
+        }
+        // A player by that Discord username: add them, or challenge them.
         ImGui::Dummy({0, Dp(4)});
         const ImVec2 at = ImGui::GetCursorScreenPos();
         const float row = Dp(40), add = Dp(128), challenge = Dp(150);

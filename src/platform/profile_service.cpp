@@ -125,6 +125,7 @@ std::vector<MiiProfile> ParseMiis(const JsonValue& value)
         mii.profile_id = std::int32_t(item["profile_id"].Integer().value_or(0));
         mii.mii = item["mii"].Text();
         mii.game = item["game"].Text();
+        mii.friend_code = item["friend_code"].Text();
         mii.online = item["online"].Bool();
         mii.status = item["status"].Text();
         mii.last_online = item["last_online"].Integer();

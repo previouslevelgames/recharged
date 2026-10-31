@@ -320,7 +320,7 @@ void Requests()
         {"PUT /api/v1/me/available", 200, R"({"available":true})"},
         // Mii friends (1.2.1).
         {"POST /api/v1/friends/miis", 200,
-         R"({"mii_friends":[{"profile_id":1000000004,"mii":"Tommy","game":"R4QE","online":true,)"
+         R"({"mii_friends":[{"profile_id":1000000004,"mii":"Tommy","game":"R4QE","friend_code":"3789-5712-2052","online":true,)"
          R"("status":"matchmaking","last_online":1793000000,"friend":true}]})"},
         {"DELETE /api/v1/friends/miis/1000000004", 200, R"({"mii_friends":[]})"},
     };
@@ -412,6 +412,7 @@ void Requests()
         CHECK(api.SetAvailable(true));
         const auto miis = api.AddMiiFriend(1000000004);
         CHECK(miis.size() == 1 && miis[0].mii == "Tommy" && miis[0].game == "R4QE" && miis[0].online
+              && miis[0].friend_code == "3789-5712-2052"
               && miis[0].status == "matchmaking" && miis[0].last_online == 1793000000 && miis[0].is_friend);
         CHECK(api.RemoveMiiFriend(1000000004).empty());
     }

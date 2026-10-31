@@ -112,6 +112,7 @@ struct MiiProfile
     std::int32_t profile_id = 0;
     std::string mii;  // the Mii name of its last login
     std::string game; // R4QE, R4QP, R4QJ or R4QK
+    std::string friend_code; // as the game shows it, "0868-9934-5920"
     bool online = false;
     std::string status; // online: menu, matchmaking or match
     std::optional<std::int64_t> last_online; // the last login (Unix seconds)

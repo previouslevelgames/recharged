@@ -47,8 +47,9 @@ with the score.
   you don't know yet: the others who are available show under **Available
   now**, and you show to them. Off, nobody sees you there. The players of the
   game's own online mode who don't use the launcher show there too, by their
-  Mii (a Mii face and their Mii name, never a friend code), with what they
-  are doing in the game.
+  Mii (a Mii face, their Mii name and friend code), with what they are doing
+  in the game. Typing a friend code in the search field finds that Mii, and
+  **Add Mii friend** keeps them among your friends.
 - The heart keeps a player among your friends: lit for a friend (a click takes
   them off), grey for anyone else (a click adds them). Mii players added this
   way show in your list with their Mii face; Discord friends need no heart.
