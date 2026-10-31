@@ -490,8 +490,8 @@ Your **friends** are kept on the server, so they follow you to every computer:
 the players you add with the heart (or by Discord username). Playing someone
 doesn't make them a friend: they show under *Played recently* on the Players
 page, the latest first, until you add them. The list shows who has Recharged
-open or is in a set, and for the others when they were last online. The heart
-again takes a player off.
+open or is in a set, and for the others when they were last online. **Remove
+from friends** in a friend's **⋯** menu takes them off.
 
 Friends who have you as a friend too can **chat**: the speech bubble on their
 row opens the conversation, with the number of messages you haven't read yet

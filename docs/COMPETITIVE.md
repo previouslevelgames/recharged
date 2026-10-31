@@ -37,9 +37,10 @@ with the score.
 - Anyone who is signed in and has Recharged open can be challenged, unless
   they are playing a match. The Online pages show who is online and what they
   do.
-- Add the players you like to play with to your friends, with the heart or by
-  Discord name: playing someone doesn't make them a friend, they show on the
-  Players page among your recent opponents.
+- Add the players you like to play with to your friends, with the heart on
+  the Players page or by Discord name in the Friends page's search field:
+  playing someone doesn't make them a friend, they show on the Players page
+  among your recent opponents.
 - Friends who keep each other as friends can chat in the launcher.
 - Your Discord friends show in the launcher too, with who of them has
   Recharged open, and you challenge them from there (see below).
@@ -55,12 +56,15 @@ page then lists all your Discord friends. If you signed in before that, press
 **Connect Discord** on the **Friends** page once per computer and agree in the
 Discord app or your browser.
 
-The **Friends** page lists your friends and your Discord friends together.
-Those with Recharged open come first, each with what they are doing: in the
-launcher, in the game, idle, in a match or in a set. Click one to challenge
-them; someone in a match or a set shows that instead, until it ends. The
-others are folded away under **Offline**: your friends with when they last
-had Recharged open, your Discord friends with what Discord says about them.
+The **Friends** page lists your friends and your Discord friends together,
+Discord friends with Discord's mark. Those with Recharged open come first,
+each with what they are doing (in the launcher, in the game, idle, in a match
+or in a set) and **Challenge** at the end of the row, greyed while they are in
+a match or a set. The others are folded away under **Offline**: your friends
+with when they last had Recharged open, your Discord friends with what Discord
+says about them. The search field over the list finds a friend, or adds or
+challenges a player by Discord username; **Connected** next to it ends the
+Discord link.
 
 - Your Discord friends list goes from Discord straight to Recharged on your
   computer. Our server only learns which of the accounts in it have a
