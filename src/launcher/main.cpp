@@ -209,6 +209,38 @@ void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_col
     DrawIcon(draw, Icon::Person, center, size * 0.62f, Col(light ? color::window : color::text));
 }
 
+// A Mii of the game's own online players, whose Mii data the launcher doesn't
+// have: a Mii-style face (a head with a bowl cut, eyes and a smile) on a
+// rounded square of one of the twelve favourite colours, as the Wii shows its
+// Mii icons. `seed` picks the colour.
+void DrawMiiFace(ImDrawList* draw, ImVec2 center, float size, unsigned seed, float alpha)
+{
+    static constexpr unsigned char kFavoriteColors[12][3] = {
+        {184, 64, 48},  {240, 120, 40}, {248, 216, 32}, {128, 200, 40}, {0, 116, 40},    {32, 72, 152},
+        {64, 160, 216}, {232, 96, 120}, {112, 44, 168}, {72, 56, 24},   {224, 224, 224}, {24, 24, 20}};
+    const auto& rgb = kFavoriteColors[seed % 12];
+    const ImVec4 fill{rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+    const float half = size * 0.5f;
+    draw->AddRectFilled({center.x - half, center.y - half}, {center.x + half, center.y + half}, Col(fill, alpha),
+                        size * 0.24f);
+    draw->AddRect({center.x - half, center.y - half}, {center.x + half, center.y + half},
+                  Col(ImVec4{1, 1, 1, 1}, 0.12f * alpha), size * 0.24f, 0, Dp(1));
+    const ImVec2 head{center.x, center.y + size * 0.06f};
+    const float radius = size * 0.30f;
+    draw->AddCircleFilled(head, radius, Col(ImVec4{1.0f, 0.84f, 0.67f, 1}, alpha), 24);
+    // The hair: the head's upper half, a little wider.
+    const ImU32 hair = Col(ImVec4{0.24f, 0.16f, 0.11f, 1}, alpha);
+    draw->PathArcTo(head, radius * 1.06f, 3.14159265f, 2.0f * 3.14159265f, 16);
+    draw->PathFillConvex(hair);
+    draw->AddRectFilled({head.x - radius * 1.06f, head.y - radius * 0.12f}, {head.x + radius * 1.06f, head.y + Dp(0.5f)},
+                        hair);
+    const ImU32 ink = Col(ImVec4{0.12f, 0.09f, 0.08f, 1}, alpha);
+    draw->AddCircleFilled({head.x - radius * 0.36f, head.y + radius * 0.30f}, radius * 0.11f, ink);
+    draw->AddCircleFilled({head.x + radius * 0.36f, head.y + radius * 0.30f}, radius * 0.11f, ink);
+    draw->PathArcTo({head.x, head.y + radius * 0.42f}, radius * 0.30f, 0.35f * 3.14159265f, 0.65f * 3.14159265f, 8);
+    draw->PathStroke(ink, 0, std::max(1.0f, radius * 0.09f));
+}
+
 // In the sidebar's order. The pages of a group (kNavGroups) follow each other.
 enum Page { PagePlay, PageGame, PageFriends, PageLeaderboard, PageEvents, PageMatchSettings, PageOnlineSettings,
             PageDisplay, PageAudio, PageControls,
@@ -4012,6 +4044,21 @@ private:
         shy.activity = "launcher";
         competitive_status_.player.available = true;
         competitive_status_.lists.available = {shy};
+        const auto mii = [&](std::int32_t id, const char* name, bool online, const char* status, bool is_friend) {
+            platform::MiiProfile profile;
+            profile.profile_id = id;
+            profile.mii = name;
+            profile.game = "R4QE";
+            profile.online = online;
+            profile.status = status;
+            profile.last_online = now - 5 * 3600;
+            profile.is_friend = is_friend;
+            return profile;
+        };
+        competitive_status_.lists.mii_friends = {mii(1000000004, "Tommy", true, "matchmaking", true),
+                                                 mii(1000000007, "Sara", false, "", true)};
+        competitive_status_.lists.game_online = {mii(1000000011, "Kenji", true, "match", false),
+                                                 mii(1000000012, "Lou", true, "menu", false)};
         // A leaderboard: the season's with the player on it, and the day's.
         platform::Leaderboard board;
         board.season.first_day = "2026-10-01";
@@ -5211,10 +5258,23 @@ private:
     {
         const platform::ProfilePlayer* player = nullptr; // their Recharged profile
         const DiscordFriends::Friend* discord = nullptr; // their Discord account, for a Discord friend
-        // Recharged open: the server sees their launcher or game, or Discord their game.
-        bool Online() const { return (player && player->online) || (discord && discord->in_recharged); }
-        const std::string& Name() const { return player ? player->name : discord->name; }
-        std::string Key() const { return player ? "p" + std::to_string(player->id) : "d" + discord->id; }
+        const platform::MiiProfile* mii = nullptr;       // or a player of the game's online mode, by their Mii
+        // Recharged open: the server sees their launcher or game, or Discord
+        // their game; a Mii: logged in to the game's online mode.
+        bool Online() const
+        {
+            return (player && player->online) || (discord && discord->in_recharged) || (mii && mii->online);
+        }
+        std::string Name() const
+        {
+            if (mii) return mii->mii.empty() ? std::string("Mii") : mii->mii;
+            return player ? player->name : discord->name;
+        }
+        std::string Key() const
+        {
+            if (mii) return "m" + std::to_string(mii->profile_id);
+            return player ? "p" + std::to_string(player->id) : "d" + discord->id;
+        }
     };
 
     // What a friend is doing: the status line and its colour, their order in
@@ -5232,6 +5292,14 @@ private:
     {
         using Presence = DiscordFriends::Presence;
         const auto* player = entry.player;
+        if (const auto* mii = entry.mii)
+        {
+            // In the game's online mode, from DWC's status.
+            if (!mii->online) return {platform::DescribeLastOnline(now, mii->last_online), color::muted, 0};
+            if (mii->status == "match") return {"Playing a match in the game", color::warning, 2};
+            if (mii->status == "matchmaking") return {"Looking for a match in the game", color::success, 1};
+            return {"In the game's online menu", color::success, 1};
+        }
         const Presence presence = entry.discord ? entry.discord->presence : Presence::Online;
         if (entry.Online())
         {
@@ -5265,6 +5333,7 @@ private:
             known.emplace(player.id, entries.size());
             entries.push_back({&player, nullptr});
         }
+        for (const auto& mii : competitive_status_.lists.mii_friends) entries.push_back({nullptr, nullptr, &mii});
         if (discord_status_.state == DiscordFriends::State::Ready)
         {
             std::map<std::string, const platform::ProfilePlayer*> profiles;
@@ -5293,8 +5362,11 @@ private:
         {
             std::string name = entry.Name();
             for (auto& c : name) c = char(std::tolower(static_cast<unsigned char>(c)));
-            ordered.push_back({{entry.Online(), entry.player != nullptr, FriendStateOf(entry, now).rank,
-                                entry.player ? entry.player->last_online.value_or(0) : 0, std::move(name)},
+            const std::int64_t last = entry.player ? entry.player->last_online.value_or(0)
+                : entry.mii                         ? entry.mii->last_online.value_or(0)
+                                                    : 0;
+            ordered.push_back({{entry.Online(), entry.player != nullptr || entry.mii != nullptr,
+                                FriendStateOf(entry, now).rank, last, std::move(name)},
                                entry});
         }
         std::stable_sort(ordered.begin(), ordered.end(), [](const auto& a, const auto& b) {
@@ -5349,55 +5421,64 @@ private:
 
         const float radius = online ? Dp(17) : Dp(15);
         const ImVec2 center{start.x + radius, start.y + height * 0.5f};
-        const double seed = player ? double(player->id)
-                                   : double(std::strtoull(entry.discord->id.c_str(), nullptr, 10) % 100003);
-        ImVec4 tint{0, 0, 0, 1};
-        ImGui::ColorConvertHSVtoRGB(float(std::fmod(seed * 0.618034, 1.0)), 0.55f, 0.62f, tint.x, tint.y, tint.z);
-        if (!online) tint = Mix(tint, color::card, 0.5f);
-        draw->AddCircleFilled(center, radius, Col(tint));
-        const std::string& name = entry.Name();
-        std::string initial = name.empty() ? std::string("?") : name.substr(0, 1);
-        if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
-            initial = name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2, name.size()));
+        const std::string name = entry.Name();
+        if (entry.mii)
+            // A player of the game's online mode: a Mii face on a square.
+            DrawMiiFace(draw, center, radius * 2.0f, unsigned(entry.mii->profile_id), online ? 1.0f : 0.55f);
         else
-            initial[0] = char(std::toupper(byte));
-        const ImVec2 letter = TextSize(fonts.label, initial.c_str());
-        DrawLabel(draw, fonts.label, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f},
-                  Col(color::text, online ? 1.0f : 0.65f), initial.c_str());
+        {
+            const double seed = player ? double(player->id)
+                                       : double(std::strtoull(entry.discord->id.c_str(), nullptr, 10) % 100003);
+            ImVec4 tint{0, 0, 0, 1};
+            ImGui::ColorConvertHSVtoRGB(float(std::fmod(seed * 0.618034, 1.0)), 0.55f, 0.62f, tint.x, tint.y,
+                                        tint.z);
+            if (!online) tint = Mix(tint, color::card, 0.5f);
+            draw->AddCircleFilled(center, radius, Col(tint));
+            std::string initial = name.empty() ? std::string("?") : name.substr(0, 1);
+            if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
+                initial = name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2, name.size()));
+            else
+                initial[0] = char(std::toupper(byte));
+            const ImVec2 letter = TextSize(fonts.label, initial.c_str());
+            DrawLabel(draw, fonts.label, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f},
+                      Col(color::text, online ? 1.0f : 0.65f), initial.c_str());
+        }
         const bool discord_on = entry.discord && entry.discord->presence != DiscordFriends::Presence::Offline;
         const ImVec2 dot{center.x + radius * 0.72f, center.y + radius * 0.72f};
         draw->AddCircleFilled(dot, Dp(6.5f), Col(surface));
         draw->AddCircleFilled(dot, Dp(4.2f),
                               Col(online ? state.tint : discord_on && !player ? color::discord : color::dim));
 
-        // The end of the row, from the right: the menu (for a friend added by
-        // hand, and a player played recently), chat, Adhoc Battle!.
+        // The end of the row, from the right: the heart, chat, Adhoc Battle!.
+        // The heart keeps a player or a Mii profile among the friends (lit),
+        // or adds one (grey); Discord friends have none: they are friends
+        // already.
         float edge = end.x;
-        if (player && (player->is_friend || !entry.discord))
+        const bool hearted = entry.mii ? entry.mii->is_friend : player && player->is_friend;
+        if (entry.mii || (player && !entry.discord))
         {
-            const float size = Dp(30);
+            const float size = Dp(32);
             edge -= size;
             ImGui::SetCursorScreenPos({edge, center.y - size * 0.5f});
-            if (GhostButton("more", "", {size, size}, true, Icon::More)) ImGui::OpenPopup("friend_menu");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("More");
-            const float menu = Dp(220);
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(6, 6));
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
-            ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, Dp(10));
-            ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
-            if (ImGui::BeginPopup("friend_menu"))
+            const bool pressed = ImGui::InvisibleButton("##heart", {size, size});
+            const bool over = ImGui::IsItemHovered();
+            const ImVec2 middle{edge + size * 0.5f, center.y};
+            const ImVec4 heart = hearted ? (over ? color::danger : color::accent) : (over ? color::accent : color::dim);
+            if (over || hearted) draw->AddCircleFilled(middle, size * 0.5f, Col(heart, over ? 0.16f : 0.10f));
+            DrawIcon(draw, Icon::Heart, middle, Dp(15), Col(heart));
+            if (over)
+                ImGui::SetTooltip(hearted ? "Remove %s from your friends" : "Add %s to your friends", name.c_str());
+            if (pressed && !busy)
             {
-                if (player->is_friend)
+                if (entry.mii)
                 {
-                    if (MenuAction("remove", "Remove from friends", menu) && !busy) competitive_->RemoveFriend(player->id);
+                    if (hearted) competitive_->RemoveMiiFriend(entry.mii->profile_id);
+                    else competitive_->AddMiiFriend(entry.mii->profile_id);
                 }
-                else if (MenuAction("add", "Add to friends", menu) && !busy)
-                    competitive_->AddFriend(player->id);
-                ImGui::EndPopup();
+                else if (hearted) competitive_->RemoveFriend(player->id);
+                else competitive_->AddFriend(player->id);
             }
-            ImGui::PopStyleColor();
-            ImGui::PopStyleVar(3);
-            edge -= Dp(4);
+            edge -= Dp(6);
         }
         if (player && player->chat)
         {
@@ -5458,6 +5539,17 @@ private:
         if (entry.discord)
             DrawDiscordMark(draw, {text_left + name_size.x + Dp(8) + mark * 0.5f, center.y}, mark,
                             Col(color::discord, online ? 1.0f : 0.55f), Col(surface));
+        if (entry.mii)
+        {
+            // A player of the game's online mode: a small Mii tag.
+            const char* tag = "Mii";
+            const ImVec2 tag_size = TextSize(fonts.caption, tag);
+            const ImVec2 tag_at{text_left + name_size.x + Dp(8), center.y - Dp(9)};
+            draw->AddRectFilled(tag_at, {tag_at.x + tag_size.x + Dp(12), tag_at.y + Dp(18)},
+                                Col(color::border, online ? 0.9f : 0.5f), Dp(5));
+            DrawLabel(draw, fonts.caption, {tag_at.x + Dp(6), tag_at.y + (Dp(18) - tag_size.y) * 0.5f},
+                      Col(color::muted, online ? 1.0f : 0.7f), tag);
+        }
         draw->PopClipRect();
         const ImVec2 status_size = TextSize(fonts.body, state.text.c_str());
         draw->PushClipRect({status_left, start.y}, {std::max(status_left, edge - Dp(8)), end.y}, true);
@@ -5485,11 +5577,15 @@ private:
         for (const auto& player : competitive_status_.lists.available)
             if (!listed.count(player.id) && (query.empty() || FriendMatches({&player, nullptr}, query)))
                 available.push_back({&player, nullptr});
+        // Then the game's own online players, by their Mii.
+        for (const auto& mii : competitive_status_.lists.game_online)
+            if (query.empty() || FriendMatches({nullptr, nullptr, &mii}, query))
+                available.push_back({nullptr, nullptr, &mii});
         FriendListDivider();
         FriendGroupHeading("AVAILABLE NOW", available.size(), nullptr);
         if (available.empty())
             TextWrappedColored(CurrentFonts().body, color::muted,
-                               "Nobody else is available for random games right now.");
+                               "Nobody else is available for random games, nor online in the game, right now.");
         for (std::size_t n = 0; n < available.size(); ++n)
             FriendListRow(available[n], rules, now, n + 1 < available.size());
     }

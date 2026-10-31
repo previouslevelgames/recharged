@@ -318,6 +318,11 @@ void Requests()
          R"("daily":{"first_day":"2026-10-31","last_day":"2026-10-31","players":0,"top":[],"you":null}})"},
         // Available for random games (1.2.1).
         {"PUT /api/v1/me/available", 200, R"({"available":true})"},
+        // Mii friends (1.2.1).
+        {"POST /api/v1/friends/miis", 200,
+         R"({"mii_friends":[{"profile_id":1000000004,"mii":"Tommy","game":"R4QE","online":true,)"
+         R"("status":"matchmaking","last_online":1793000000,"friend":true}]})"},
+        {"DELETE /api/v1/friends/miis/1000000004", 200, R"({"mii_friends":[]})"},
     };
     std::vector<Sent> sent;
     {
@@ -405,6 +410,10 @@ void Requests()
               && board.season.you && board.season.you->rank == 2 && board.season.you->region == 4);
         CHECK(board.daily.players == 0 && board.daily.top.empty() && !board.daily.you);
         CHECK(api.SetAvailable(true));
+        const auto miis = api.AddMiiFriend(1000000004);
+        CHECK(miis.size() == 1 && miis[0].mii == "Tommy" && miis[0].game == "R4QE" && miis[0].online
+              && miis[0].status == "matchmaking" && miis[0].last_online == 1793000000 && miis[0].is_friend);
+        CHECK(api.RemoveMiiFriend(1000000004).empty());
     }
     CHECK(sent.size() == exchanges.size());
     for (const auto& request : sent) CHECK(request.expected);
@@ -429,6 +438,7 @@ void Requests()
         CHECK(sent[20].body == R"({"refresh_token":"old"})");
         CHECK(sent[21].body == R"({"ids":["41771983423143937","123"]})");
         CHECK(sent[24].body == R"({"available":true})" && sent[24].content_type == "application/json");
+        CHECK(sent[25].body == R"({"profile_id":1000000004})" && sent[26].body.empty());
     }
 
     // Unencrypted only for addresses ProfileServerAddress lets through.

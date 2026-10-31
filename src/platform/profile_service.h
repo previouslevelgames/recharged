@@ -105,6 +105,19 @@ struct Leaderboard
     LeaderboardBoard season, daily;
 };
 
+// A player of the game's own online mode without a Recharged launcher, by
+// their Mii (servers from 1.2.1): never a friend code.
+struct MiiProfile
+{
+    std::int32_t profile_id = 0;
+    std::string mii;  // the Mii name of its last login
+    std::string game; // R4QE, R4QP, R4QJ or R4QK
+    bool online = false;
+    std::string status; // online: menu, matchmaking or match
+    std::optional<std::int64_t> last_online; // the last login (Unix seconds)
+    bool is_friend = false;
+};
+
 // The lobby's lists (GET /api/v1/players).
 struct PlayerLists
 {
@@ -115,6 +128,9 @@ struct PlayerLists
     // While the player is available for random games: the other available
     // players with Recharged open (servers from 1.2.1).
     std::vector<ProfilePlayer> available;
+    // The Mii profiles the player keeps as friends, and while available the
+    // game's own online players not in the lists (servers from 1.2.1).
+    std::vector<MiiProfile> mii_friends, game_online;
 };
 
 // When a player last had Recharged open, for the friends list: "Last online 5
@@ -281,6 +297,9 @@ public:
     // Available for random games, or not: the answer's value. 404 from a
     // server before 1.2.1.
     bool SetAvailable(bool available);
+    // The Mii friends after adding or taking one off.
+    std::vector<MiiProfile> AddMiiFriend(std::int32_t profile_id);
+    std::vector<MiiProfile> RemoveMiiFriend(std::int32_t profile_id);
     std::vector<ProfilePlayer> AddFriend(const std::string& name);
     std::vector<ProfilePlayer> RemoveFriend(std::int64_t player_id);
     // The messages with `player_id`, those after message `after` (0: the

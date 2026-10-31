@@ -45,7 +45,13 @@ with the score.
 - Friends who keep each other as friends can chat in the launcher.
 - Switch on **Available for random games** on the Friends page to meet players
   you don't know yet: the others who are available show under **Available
-  now**, and you show to them. Off, nobody sees you there.
+  now**, and you show to them. Off, nobody sees you there. The players of the
+  game's own online mode who don't use the launcher show there too, by their
+  Mii (a Mii face and their Mii name, never a friend code), with what they
+  are doing in the game.
+- The heart keeps a player among your friends: lit for a friend (a click takes
+  them off), grey for anyone else (a click adds them). Mii players added this
+  way show in your list with their Mii face; Discord friends need no heart.
 - Your Discord friends show in the launcher too, with who of them has
   Recharged open, and you challenge them from there (see below).
 - A challenge lasts only as long as Recharged is open: close Recharged and

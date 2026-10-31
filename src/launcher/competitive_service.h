@@ -90,6 +90,9 @@ public:
     void AddFriend(std::int64_t player_id);
     // Available for random games, or not (the Friends page's switch).
     void SetAvailable(bool available);
+    // A Mii profile onto the friends, or off them.
+    void AddMiiFriend(std::int32_t profile_id);
+    void RemoveMiiFriend(std::int32_t profile_id);
     void AddFriend(const std::string& name);
     void RemoveFriend(std::int64_t player_id);
     // The chat panel: the conversation with a friend, followed every two

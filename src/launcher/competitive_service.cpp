@@ -592,6 +592,31 @@ void CompetitiveService::SetAvailable(bool available)
     }, true);
 }
 
+void CompetitiveService::AddMiiFriend(std::int32_t profile_id)
+{
+    Post([this, profile_id](ProfileService& api) {
+        auto friends = api.AddMiiFriend(profile_id);
+        Change([&](Status& status) {
+            status.lists.mii_friends = std::move(friends);
+            // Now among the friends, no longer among the game's players.
+            auto& game = status.lists.game_online;
+            game.erase(std::remove_if(game.begin(), game.end(),
+                                      [&](const auto& mii) { return mii.profile_id == profile_id; }),
+                       game.end());
+        });
+    }, true);
+}
+
+void CompetitiveService::RemoveMiiFriend(std::int32_t profile_id)
+{
+    Post([this, profile_id](ProfileService& api) {
+        auto friends = api.RemoveMiiFriend(profile_id);
+        Change([&](Status& status) { status.lists.mii_friends = std::move(friends); });
+        std::lock_guard<std::mutex> lock(mutex_);
+        next_poll_ = next_lists_ = Clock::now();
+    }, true);
+}
+
 void CompetitiveService::AddFriend(const std::string& name)
 {
     Post([this, name](ProfileService& api) {

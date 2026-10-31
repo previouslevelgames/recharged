@@ -116,6 +116,24 @@ ChatMessage ParseChatMessage(const JsonValue& value)
     return message;
 }
 
+std::vector<MiiProfile> ParseMiis(const JsonValue& value)
+{
+    std::vector<MiiProfile> miis;
+    for (const auto& item : value.Items())
+    {
+        MiiProfile mii;
+        mii.profile_id = std::int32_t(item["profile_id"].Integer().value_or(0));
+        mii.mii = item["mii"].Text();
+        mii.game = item["game"].Text();
+        mii.online = item["online"].Bool();
+        mii.status = item["status"].Text();
+        mii.last_online = item["last_online"].Integer();
+        mii.is_friend = item["friend"].Bool();
+        if (mii.profile_id) miis.push_back(std::move(mii));
+    }
+    return miis;
+}
+
 std::vector<ProfilePlayer> ParsePlayers(const JsonValue& value)
 {
     std::vector<ProfilePlayer> players;
@@ -452,7 +470,20 @@ PlayerLists ProfileService::Players()
     lists.recent = ParsePlayers(answer.body["recent"]);
     lists.friends = ParsePlayers(answer.body["friends"]);
     lists.available = ParsePlayers(answer.body["available"]);
+    lists.mii_friends = ParseMiis(answer.body["mii_friends"]);
+    lists.game_online = ParseMiis(answer.body["game_online"]);
     return lists;
+}
+
+std::vector<MiiProfile> ProfileService::AddMiiFriend(std::int32_t profile_id)
+{
+    const std::string body = "{\"profile_id\":" + Integer(profile_id) + "}";
+    return ParseMiis(Call("POST", "/api/v1/friends/miis", &body).body["mii_friends"]);
+}
+
+std::vector<MiiProfile> ProfileService::RemoveMiiFriend(std::int32_t profile_id)
+{
+    return ParseMiis(Call("DELETE", "/api/v1/friends/miis/" + Integer(profile_id), nullptr).body["mii_friends"]);
 }
 
 bool ProfileService::SetAvailable(bool available)
