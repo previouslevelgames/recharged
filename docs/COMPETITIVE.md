@@ -39,9 +39,9 @@ with the score.
   they are playing a match. The Online pages show who is online and what they
   do.
 - Add the players you like to play with to your friends, by Discord name in
-  the Friends page's search field, or with **Add to friends** in the **⋯**
-  menu of a recent opponent: playing someone doesn't make them a friend, they
-  show under **Played recently** on the Friends page.
+  the Friends page's search field, or with the heart next to a recent
+  opponent: playing someone doesn't make them a friend, they show under
+  **Played recently** on the Friends page.
 - Friends who keep each other as friends can chat in the launcher.
 - Switch on **Available for random games** on the Friends page to meet players
   you don't know yet: the others who are available show under **Available
