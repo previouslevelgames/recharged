@@ -88,6 +88,8 @@ public:
     // The friends list: add a player (from the lists, or by Discord
     // username) or take one off.
     void AddFriend(std::int64_t player_id);
+    // Available for random games, or not (the Friends page's switch).
+    void SetAvailable(bool available);
     void AddFriend(const std::string& name);
     void RemoveFriend(std::int64_t player_id);
     // The chat panel: the conversation with a friend, followed every two

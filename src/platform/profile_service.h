@@ -57,6 +57,8 @@ struct ProfilePlayer
     // messages not read yet. With chat, discord_id is theirs (empty for test
     // players).
     bool chat = false;
+    // GET /api/v1/me only: available for random games (servers from 1.2.1).
+    bool available = false;
     int unread = 0;
 };
 
@@ -110,6 +112,9 @@ struct PlayerLists
     std::vector<ProfilePlayer> recent; // the last players a set was played with
     // The player's friends: online first, by name, then the last online first.
     std::vector<ProfilePlayer> friends;
+    // While the player is available for random games: the other available
+    // players with Recharged open (servers from 1.2.1).
+    std::vector<ProfilePlayer> available;
 };
 
 // When a player last had Recharged open, for the friends list: "Last online 5
@@ -273,6 +278,9 @@ public:
     // The friends after adding one (by player id or Discord username) or
     // taking one off.
     std::vector<ProfilePlayer> AddFriend(std::int64_t player_id);
+    // Available for random games, or not: the answer's value. 404 from a
+    // server before 1.2.1.
+    bool SetAvailable(bool available);
     std::vector<ProfilePlayer> AddFriend(const std::string& name);
     std::vector<ProfilePlayer> RemoveFriend(std::int64_t player_id);
     // The messages with `player_id`, those after message `after` (0: the

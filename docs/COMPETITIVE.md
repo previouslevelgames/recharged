@@ -43,6 +43,9 @@ with the score.
   menu of a recent opponent: playing someone doesn't make them a friend, they
   show under **Played recently** on the Friends page.
 - Friends who keep each other as friends can chat in the launcher.
+- Switch on **Available for random games** on the Friends page to meet players
+  you don't know yet: the others who are available show under **Available
+  now**, and you show to them. Off, nobody sees you there.
 - Your Discord friends show in the launcher too, with who of them has
   Recharged open, and you challenge them from there (see below).
 - A challenge lasts only as long as Recharged is open: close Recharged and

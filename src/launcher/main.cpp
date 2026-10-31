@@ -4006,6 +4006,12 @@ private:
         auto koopa = make(900020, "Koopa", "koopa", "");
         koopa.last_online = now - 26 * 3600;
         competitive_status_.lists.recent = {koopa};
+        // Available for random games, with one other available player.
+        auto shy = make(900030, "Shy Guy", "shyguy", "");
+        shy.online = true;
+        shy.activity = "launcher";
+        competitive_status_.player.available = true;
+        competitive_status_.lists.available = {shy};
         // A leaderboard: the season's with the player on it, and the day's.
         platform::Leaderboard board;
         board.season.first_day = "2026-10-01";
@@ -4152,6 +4158,7 @@ private:
                                    query.empty() ? "None of your friends has Recharged open right now."
                                                  : "No friend with Recharged open matches.");
             for (std::size_t n = 0; n < online.size(); ++n) FriendListRow(online[n], rules, now, n + 1 < online.size());
+            AvailablePlayers(online, offline, rules, now, query);
             if (!offline.empty())
             {
                 FriendListDivider();
@@ -5465,6 +5472,36 @@ private:
         ImGui::PopID();
     }
 
+    // While the player is available for random games: the other available
+    // players who aren't in the list already, to battle or to add.
+    void AvailablePlayers(const std::vector<FriendEntry>& online, const std::vector<FriendEntry>& offline,
+                          const platform::RuleSet* rules, std::int64_t now, const std::string& query)
+    {
+        if (!competitive_status_.player.available) return;
+        std::set<std::int64_t> listed;
+        for (const auto& entry : online) if (entry.player) listed.insert(entry.player->id);
+        for (const auto& entry : offline) if (entry.player) listed.insert(entry.player->id);
+        std::vector<FriendEntry> available;
+        for (const auto& player : competitive_status_.lists.available)
+            if (!listed.count(player.id) && (query.empty() || FriendMatches({&player, nullptr}, query)))
+                available.push_back({&player, nullptr});
+        FriendListDivider();
+        FriendGroupHeading("AVAILABLE NOW", available.size(), nullptr);
+        if (available.empty())
+            TextWrappedColored(CurrentFonts().body, color::muted,
+                               "Nobody else is available for random games right now.");
+        for (std::size_t n = 0; n < available.size(); ++n)
+            FriendListRow(available[n], rules, now, n + 1 < available.size());
+    }
+
+    // Whether the profile server is at least version major.minor.patch.
+    bool ServerAtLeast(int major, int minor, int patch) const
+    {
+        int parts[3] = {};
+        std::sscanf(competitive_status_.info.version.c_str(), "%d.%d.%d", &parts[0], &parts[1], &parts[2]);
+        return std::make_tuple(parts[0], parts[1], parts[2]) >= std::make_tuple(major, minor, patch);
+    }
+
     // A group's heading in the friends list: tracked capitals and the count;
     // with `open`, a chevron and the whole line folds the group. Whether its
     // rows show.
@@ -5520,14 +5557,41 @@ private:
     {
         const auto& fonts = CurrentFonts();
         const float height = Dp(38), width = ImGui::GetContentRegionAvail().x;
+        // The switch for random games at the right (servers from 1.2.1).
+        const bool switchable = ServerAtLeast(1, 2, 1);
+        const char* available_label = "Available for random games";
+        const float available_width
+            = switchable ? Dp(48) + Dp(10) + TextSize(fonts.body, available_label).x + Dp(16) : 0.0f;
         ImGui::PushFont(fonts.body);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {Dp(16), (height - ImGui::GetFontSize()) * 0.5f});
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, height * 0.5f);
-        ImGui::SetNextItemWidth(width);
+        ImGui::SetNextItemWidth(width - available_width);
         ImGui::InputTextWithHint("##friend_search", "Find a friend, or add a player by Discord username",
                                  &friend_search_);
         ImGui::PopStyleVar(2);
         ImGui::PopFont();
+        if (switchable)
+        {
+            const ImVec2 field_end = ImGui::GetItemRectMax();
+            const ImVec2 at{field_end.x + Dp(16), field_end.y - height * 0.5f - Dp(14)};
+            bool available = competitive_status_.player.available;
+            ImGui::SetCursorScreenPos(at);
+            ImGui::BeginDisabled(competitive_status_.busy);
+            if (Toggle("available_for_random", &available)) competitive_->SetAvailable(available);
+            ImGui::EndDisabled();
+            const bool over = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+            DrawLabel(ImGui::GetWindowDrawList(), fonts.body,
+                      {at.x + Dp(58), at.y + (Dp(28) - FontSize(fonts.body)) * 0.5f},
+                      Col(available ? color::text : color::muted), available_label);
+            ImGui::SetCursorScreenPos({at.x + Dp(58), at.y});
+            ImGui::InvisibleButton("##available_label", {TextSize(fonts.body, available_label).x, Dp(28)});
+            if (ImGui::IsItemClicked() && !competitive_status_.busy) competitive_->SetAvailable(!available);
+            if (over || ImGui::IsItemHovered())
+                ImGui::SetTooltip("While it's on, the other players who are available see you under Available "
+                                  "now, and you see them:\nanyone of them can battle you, and you them.");
+            ImGui::SetCursorScreenPos({ImGui::GetWindowPos().x + ImGui::GetStyle().WindowPadding.x, field_end.y});
+            ImGui::Dummy({width, Dp(1)});
+        }
         using DiscordState = DiscordFriends::State;
         if (discord_friends_
             && (discord_status_.state == DiscordState::NotLinked || discord_status_.state == DiscordState::Failed))

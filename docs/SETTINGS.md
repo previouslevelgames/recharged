@@ -457,8 +457,9 @@ writes `rollback_test` or `rollback_log`.
 
 The launcher's **Online** pages play sets against other Recharged players by
 the rules of the project's online server, `https://rechargedwfc.net`:
-**Friends** (your friends and your Discord friends, and the players you played
-last), **Leaderboard** (the game's RANKED leaderboards on the server: the
+**Friends** (your friends and your Discord friends, the players you played
+last and, while you are available for random games, the other available
+players), **Leaderboard** (the game's RANKED leaderboards on the server: the
 season's leaders and today's, and your own place), **Events** (tournaments,
 coming later), **Match settings** (the rule
 set your challenges go out with, kept as `[online] challenge_rules`) and

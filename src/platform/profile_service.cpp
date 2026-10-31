@@ -95,6 +95,7 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.test = value["test"].Bool();
     for (const auto& profile : value["wfc"].Items()) player.wfc.push_back(ParseWfc(profile));
     player.discord_id = value["discord_id"].Text();
+    player.available = value["available"].Bool();
     player.online = value["online"].Bool();
     player.busy = value["busy"].Bool();
     player.activity = value["activity"].Text();
@@ -450,7 +451,14 @@ PlayerLists ProfileService::Players()
     lists.online = ParsePlayers(answer.body["online"]);
     lists.recent = ParsePlayers(answer.body["recent"]);
     lists.friends = ParsePlayers(answer.body["friends"]);
+    lists.available = ParsePlayers(answer.body["available"]);
     return lists;
+}
+
+bool ProfileService::SetAvailable(bool available)
+{
+    const std::string body = std::string("{\"available\":") + (available ? "true" : "false") + "}";
+    return Call("PUT", "/api/v1/me/available", &body).body["available"].Bool();
 }
 
 std::vector<ProfilePlayer> ProfileService::AddFriend(std::int64_t player_id)

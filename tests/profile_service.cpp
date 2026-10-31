@@ -316,6 +316,8 @@ void Requests()
          R"({"rank":2,"mii":"Nelly","player":"Nelly","wins":3,"losses":null,"points":30,"region":4,"you":true}],)"
          R"("you":{"rank":2,"mii":"Nelly","player":"Nelly","wins":3,"losses":null,"points":30,"region":4,"you":true}},)"
          R"("daily":{"first_day":"2026-10-31","last_day":"2026-10-31","players":0,"top":[],"you":null}})"},
+        // Available for random games (1.2.1).
+        {"PUT /api/v1/me/available", 200, R"({"available":true})"},
     };
     std::vector<Sent> sent;
     {
@@ -402,6 +404,7 @@ void Requests()
               && board.season.top[0].wins == 5 && board.season.top[1].you && !board.season.top[1].losses
               && board.season.you && board.season.you->rank == 2 && board.season.you->region == 4);
         CHECK(board.daily.players == 0 && board.daily.top.empty() && !board.daily.you);
+        CHECK(api.SetAvailable(true));
     }
     CHECK(sent.size() == exchanges.size());
     for (const auto& request : sent) CHECK(request.expected);
@@ -425,6 +428,7 @@ void Requests()
         CHECK(sent[19].body == R"({"code":"c0de","code_verifier":"v","redirect_uri":"http://127.0.0.1:5000/callback"})");
         CHECK(sent[20].body == R"({"refresh_token":"old"})");
         CHECK(sent[21].body == R"({"ids":["41771983423143937","123"]})");
+        CHECK(sent[24].body == R"({"available":true})" && sent[24].content_type == "application/json");
     }
 
     // Unencrypted only for addresses ProfileServerAddress lets through.

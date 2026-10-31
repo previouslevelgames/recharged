@@ -578,6 +578,20 @@ void CompetitiveService::AddFriend(std::int64_t player_id)
     }, true);
 }
 
+void CompetitiveService::SetAvailable(bool available)
+{
+    Post([this, available](ProfileService& api) {
+        const bool now = api.SetAvailable(available);
+        // The available players come with the next lists, at once.
+        Change([&](Status& status) {
+            status.player.available = now;
+            if (!now) status.lists.available.clear();
+        });
+        std::lock_guard<std::mutex> lock(mutex_);
+        next_poll_ = next_lists_ = Clock::now();
+    }, true);
+}
+
 void CompetitiveService::AddFriend(const std::string& name)
 {
     Post([this, name](ProfileService& api) {
