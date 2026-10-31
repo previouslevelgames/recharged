@@ -457,7 +457,7 @@ writes `rollback_test` or `rollback_log`.
 
 The launcher's **Online** pages play sets against other Recharged players by
 the rules of the project's online server, `https://rechargedwfc.net`:
-**Friends** (your friends and your Discord friends who play Recharged),
+**Friends** (your friends and your Discord friends),
 **Players** (everyone else with Recharged open, and the players you played
 last) and **Events** (tournaments, coming later). A private server's `https://`
 address (from its admins) goes in `[online] profile_server`; only the file

@@ -11,7 +11,7 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 ## How a match feels
 
 1. Open Recharged and go to **Online**. Its **Friends** page shows your friends
-   and your Discord friends who play Recharged, **Players** everyone else who
+   and your Discord friends, **Players** everyone else who
    is online and your recent opponents, and **Events** your tournaments
    (coming later). Your open set shows at the top of each.
 2. Challenge an opponent, or let a tournament pair you with one.
@@ -40,8 +40,8 @@ with the score.
   Discord name: playing someone doesn't make them a friend, they show on the
   Players page among your recent opponents.
 - Friends who keep each other as friends can chat in the launcher.
-- Connect Discord in the launcher to see which of your Discord friends play
-  Recharged, and challenge them from there too (see below).
+- Connect Discord in the launcher to see your Discord friends there, who of
+  them has Recharged open, and challenge them from there too (see below).
 - A challenge lasts only as long as Recharged is open: close Recharged and
   your open challenges are gone, with nothing to clean up.
 
@@ -50,9 +50,10 @@ with the score.
 Recharged's own friends list follows you everywhere, but your friends are
 probably on Discord already. Press **Connect Discord** on the **Friends**
 page, once per computer, and agree in the Discord app or your browser. The
-page then lists your Discord friends who have signed in to Recharged, with
-what they are doing and a Challenge button, and how many of your Discord
-friends are online.
+page then lists all your Discord friends. Those with Recharged open come
+first, marked green: the server sees their launcher or game, Discord their
+game. Those who have signed in to Recharged show what they are doing and a
+Challenge button; the others show what Discord says about them.
 
 - Your Discord friends list goes from Discord straight to Recharged on your
   computer. Our server only learns which of the accounts in it have a

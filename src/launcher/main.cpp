@@ -649,6 +649,9 @@ public:
 
         bool quit = false;
         unsigned frame = 0;
+        // Frames in a row with nothing on its way: a capture waits for three, so
+        // that cards sized by their contents have measured them.
+        unsigned settled_frames = 0;
         const unsigned smoke_frames = unsigned(PageCount) * 4 + 2;
         while (!quit)
         {
@@ -719,10 +722,10 @@ public:
             RenderHero();
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
             const bool update_settled = update_preview_ || (!UpdateBusy() && !(update_capture_install_ && update_.offer));
-            if (!options_.screenshot.empty() && frame >= 12
-                && ((!pending_ && !searching_ && !library_scanning_ && !candidate_pending_ && !texture_scanning_
-                     && update_settled && CompetitiveSettled())
-                    || frame > 600))
+            const bool settled = !pending_ && !searching_ && !library_scanning_ && !candidate_pending_
+                && !texture_scanning_ && update_settled && CompetitiveSettled();
+            settled_frames = settled ? settled_frames + 1 : 0;
+            if (!options_.screenshot.empty() && frame >= 12 && (settled_frames >= 3 || frame > 600))
             {
                 SDL_SetRenderScale(renderer_, 1.0f, 1.0f);
                 auto pixels = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
@@ -3856,6 +3859,14 @@ private:
         }
         discord_friends_->SetAccount(account);
         discord_status_ = discord_friends_->Snapshot();
+        // Development captures: RECHARGED_CAPTURE_DISCORD=preview shows made-up
+        // Discord friends while signed in, and asks the server nothing.
+        const char* preview = capture_ ? std::getenv("RECHARGED_CAPTURE_DISCORD") : nullptr;
+        if (preview && std::string(preview) == "preview" && status.state == CompetitiveService::State::SignedIn)
+        {
+            PreviewDiscordFriends();
+            return;
+        }
         std::vector<std::string> ids;
         if (discord_status_.state == DiscordFriends::State::Ready)
             for (const auto& entry : discord_status_.friends) ids.push_back(entry.id);
@@ -3872,6 +3883,36 @@ private:
                                                   ? NoticeKind::Info
                                                   : NoticeKind::Error);
         }
+    }
+
+    // Made-up Discord friends for a development capture: two with a Recharged
+    // profile (one with the game open), one Discord sees in the game, and
+    // others online, idle and offline.
+    void PreviewDiscordFriends()
+    {
+        using Presence = DiscordFriends::Presence;
+        discord_status_.state = DiscordFriends::State::Ready;
+        discord_status_.error.clear();
+        discord_status_.friends = {{"900000000000000001", "Daisy", Presence::Online, true},
+                                   {"900000000000000002", "Luigi", Presence::Online, false},
+                                   {"900000000000000003", "Toad", Presence::Online, true},
+                                   {"900000000000000004", "Wario", Presence::Idle, false},
+                                   {"900000000000000005", "Yoshi", Presence::DoNotDisturb, false},
+                                   {"900000000000000006", "Bowser", Presence::Offline, false},
+                                   {"900000000000000007", "Waluigi", Presence::Offline, false}};
+        auto& players = competitive_status_.discord_players;
+        players.assign(2, {});
+        players[0].id = 900001;
+        players[0].name = "Daisy";
+        players[0].discord = "daisy";
+        players[0].discord_id = "900000000000000001";
+        players[0].online = true;
+        players[0].activity = "game";
+        players[1].id = 900006;
+        players[1].name = "Bowser";
+        players[1].discord = "bowser";
+        players[1].discord_id = "900000000000000006";
+        players[1].last_online = std::int64_t(std::time(nullptr)) - 3 * 3600;
     }
 
     // A set's go: the player's own Mii (made from their Discord account, the
@@ -3932,7 +3973,7 @@ private:
     // play Recharged.
     void FriendsPage()
     {
-        if (!OnlinePageTop("Friends", "Your friends and your Discord friends who play Recharged. Challenge one: once "
+        if (!OnlinePageTop("Friends", "Your friends and your Discord friends. Challenge one who plays Recharged: once "
                                       "they accept, both games go straight to the captain draft."))
             return;
         const auto now = std::int64_t(std::time(nullptr));
@@ -4817,20 +4858,43 @@ private:
     void DiscordFriendsSection(const platform::RuleSet* rules, std::int64_t now)
     {
         using State = DiscordFriends::State;
-        std::set<std::int64_t> shown;
         const auto& discord = discord_status_;
         if (!discord_friends_ || discord.state == State::Missing || discord.state == State::Off) return;
         const auto& fonts = CurrentFonts();
-        const auto& players = competitive_status_.discord_players;
-        std::string after;
+        // Every Discord friend, with their Recharged profile when they have
+        // one: first those with Recharged open (the server sees their launcher
+        // or game, Discord their game), then those who have signed in to
+        // Recharged, then the others as Discord shows them (online first).
+        struct Entry
+        {
+            const DiscordFriends::Friend* discord;
+            const platform::ProfilePlayer* player;
+        };
+        std::vector<Entry> entries;
+        std::size_t open = 0;
         if (discord.state == State::Ready)
         {
-            const auto online = std::count_if(discord.friends.begin(), discord.friends.end(), [](const auto& entry) {
-                return entry.presence != DiscordFriends::Presence::Offline;
-            });
-            after = std::to_string(players.size()) + " in Recharged · " + std::to_string(online) + " online on Discord";
+            std::map<std::string, const platform::ProfilePlayer*> profiles;
+            for (const auto& player : competitive_status_.discord_players)
+                if (!player.discord_id.empty()) profiles.emplace(player.discord_id, &player);
+            for (const auto& entry : discord.friends)
+            {
+                const auto found = profiles.find(entry.id);
+                entries.push_back({&entry, found == profiles.end() ? nullptr : found->second});
+            }
+            const auto rank = [](const Entry& entry) {
+                if ((entry.player && entry.player->online) || entry.discord->in_recharged) return 0;
+                if (entry.player) return 1;
+                return entry.discord->presence != DiscordFriends::Presence::Offline ? 2 : 3;
+            };
+            std::stable_sort(entries.begin(), entries.end(),
+                             [&](const Entry& a, const Entry& b) { return rank(a) < rank(b); });
+            open = std::size_t(std::count_if(entries.begin(), entries.end(),
+                                             [&](const Entry& entry) { return rank(entry) == 0; }));
         }
-        SectionHeading("DISCORD FRIENDS", after);
+        SectionHeading("DISCORD FRIENDS", discord.state != State::Ready ? std::string()
+                                          : std::to_string(open) + " with Recharged open · "
+                                              + std::to_string(entries.size()) + " friends");
         const ImVec2 button{Dp(190), Dp(36)};
         switch (discord.state)
         {
@@ -4839,9 +4903,9 @@ private:
             TextWrappedColored(fonts.body, discord.state == State::Failed ? color::warning : color::muted,
                                discord.state == State::Failed && !discord.error.empty()
                                    ? discord.error.c_str()
-                                   : "Connect Discord to see which of your Discord friends play Recharged and "
-                                     "challenge them from here. Your friends list stays between Discord and this "
-                                     "computer.");
+                                   : "Connect Discord to see your Discord friends here, who of them has Recharged "
+                                     "open, and to challenge them from here. Your friends list stays between Discord "
+                                     "and this computer.");
             ImGui::Dummy({0, Dp(6)});
             if (SecondaryButton("discord_connect", discord.state == State::Failed ? "Try again" : "Connect Discord",
                                 button, true, Icon::Link))
@@ -4855,22 +4919,78 @@ private:
             break;
         case State::Connecting: TextWrappedColored(fonts.body, color::muted, "Connecting to Discord..."); break;
         case State::Ready:
-            for (const auto& player : players)
-                if (!player.is_friend)
-                {
-                    shown.insert(player.id);
-                    PlayerRow(player, rules, now);
-                }
-            if (shown.empty())
-                TextWrappedColored(fonts.body, color::muted,
-                                   players.empty() ? "None of your Discord friends has signed in to Recharged yet."
-                                                   : "Those who play Recharged are among your friends above.");
+            // Their own IDs: a friend can be in the list above too.
+            ImGui::PushID("discord_friends");
+            for (const auto& entry : entries)
+            {
+                if (entry.player) PlayerRow(*entry.player, rules, now);
+                else DiscordFriendRow(*entry.discord);
+            }
+            ImGui::PopID();
+            if (entries.empty())
+                TextWrappedColored(fonts.body, color::muted, "Discord shows no friends for this account.");
             ImGui::Dummy({0, Dp(6)});
             if (GhostButton("discord_disconnect", "Disconnect Discord", button, true, Icon::Close))
                 discord_friends_->Disconnect();
             break;
         default: break;
         }
+    }
+
+    // A Discord friend without a Recharged profile on this server: their name
+    // and what Discord says they are doing (green when Discord sees them in
+    // the game), the player row's look without its buttons.
+    void DiscordFriendRow(const DiscordFriends::Friend& entry)
+    {
+        using Presence = DiscordFriends::Presence;
+        const auto& fonts = CurrentFonts();
+        ImGui::PushID(entry.id.c_str());
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(60);
+        const bool open = entry.in_recharged, online = entry.presence != Presence::Offline;
+        const float radius = Dp(20);
+        const ImVec2 center{start.x + radius, start.y + height * 0.5f};
+        ImVec4 tint{0, 0, 0, 1};
+        const auto seed = std::strtoull(entry.id.c_str(), nullptr, 10) % 100003;
+        ImGui::ColorConvertHSVtoRGB(std::fmod(float(seed) * 0.618034f, 1.0f), 0.55f, 0.62f, tint.x, tint.y, tint.z);
+        if (!open) tint = Mix(tint, color::card, 0.45f);
+        draw->AddCircleFilled(center, radius, Col(tint));
+        std::string initial = entry.name.empty() ? std::string("?") : entry.name.substr(0, 1);
+        if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
+            initial = entry.name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2,
+                                                                  entry.name.size()));
+        else
+            initial[0] = char(std::toupper(byte));
+        const ImVec2 letter = TextSize(fonts.heading, initial.c_str());
+        DrawLabel(draw, fonts.heading, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f},
+                  Col(color::text, open ? 1.0f : 0.7f), initial.c_str());
+        // The dot: green in the game, Discord's blurple when only Discord is
+        // open, grey offline.
+        const ImVec2 dot{center.x + radius * 0.74f, center.y + radius * 0.74f};
+        draw->AddCircleFilled(dot, Dp(7.5f), Col(color::card));
+        draw->AddCircleFilled(dot, Dp(5), Col(open ? color::success : online ? color::discord : color::dim));
+        const char* status = open                                   ? "In the game"
+            : entry.presence == Presence::Online                    ? "Online on Discord"
+            : entry.presence == Presence::Idle                      ? "Idle on Discord"
+            : entry.presence == Presence::DoNotDisturb              ? "Do not disturb on Discord"
+                                                                    : "Offline";
+        const float text_left = center.x + radius + Dp(14);
+        const ImVec2 name = TextSize(fonts.label, entry.name.c_str());
+        const float block = name.y + Dp(3) + FontSize(fonts.caption);
+        const float top = center.y - block * 0.5f;
+        draw->PushClipRect({text_left, start.y}, {start.x + width, start.y + height}, true);
+        DrawLabel(draw, fonts.label, {text_left, top}, Col(open ? color::text : Mix(color::text, color::muted, 0.4f)),
+                  entry.name.c_str());
+        const char* note = "not signed in to Recharged";
+        DrawLabel(draw, fonts.caption, {text_left + name.x + Dp(8), top + (name.y - FontSize(fonts.caption)) * 0.5f},
+                  Col(color::dim), note);
+        DrawLabel(draw, fonts.caption, {text_left, top + name.y + Dp(3)}, Col(open ? color::success : color::muted),
+                  status);
+        draw->PopClipRect();
+        ImGui::SetCursorScreenPos(start);
+        ImGui::Dummy({width, height});
+        ImGui::PopID();
     }
 
     void MakeMii()
