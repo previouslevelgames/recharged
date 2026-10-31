@@ -4110,8 +4110,8 @@ private:
         {
             ImGui::Dummy({0, Dp(4)});
             TextWrappedColored(fonts.body, color::muted,
-                               "No friends yet. Add players by their Discord username above, with the heart on the "
-                               "Players page, or connect Discord to bring your Discord friends.");
+                               "No friends yet. Add players by their Discord username above, or with the heart on "
+                               "the Players page.");
         }
         else
         {
@@ -4602,14 +4602,20 @@ private:
                                    : waiting ? "Connecting to Discord."
                                    : discord == DiscordState::Missing
                                        ? "Builds made from source go without Discord friends."
-                                       : "Sign out and connect Discord again to bring them.");
+                                       : "This server didn't link them with your sign-in: Link asks Discord once.");
             if (linked)
                 value("Linked  ·  " + std::to_string(discord_status_.friends.size()) + " friends, "
                           + std::to_string(status.discord_players.size()) + " on Recharged",
                       color::text, &color::success);
             else if (waiting) value("Connecting...", color::muted, &color::warning);
             else if (discord == DiscordState::Missing) value("Not in this build", color::muted, nullptr);
-            else value("Not linked", color::warning, &color::warning);
+            else
+            {
+                value("Not linked", color::warning, &color::warning);
+                ImGui::SameLine(0, Dp(16));
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
+                if (DiscordButton("link_discord_friends", "Link", Dp(96, 32))) discord_friends_->Connect();
+            }
 
             // The server: only the settings file changes it.
             std::string host = status.server;
@@ -5550,16 +5556,15 @@ private:
             // Discord friends not connected on this computer: the way there.
             ImGui::Dummy({0, Dp(4)});
             const ImVec2 at = ImGui::GetCursorScreenPos();
-            const float row = Dp(36), button = Dp(150);
+            const float row = Dp(36), button = Dp(130);
             auto* draw = ImGui::GetWindowDrawList();
             const float mark = Dp(16);
             DrawDiscordMark(draw, {at.x + Dp(4) + mark * 0.5f, at.y + row * 0.5f}, mark, Col(color::discord),
                             Col(color::card));
             DrawLabel(draw, fonts.body, {at.x + mark + Dp(14), at.y + (row - FontSize(fonts.body)) * 0.5f},
-                      Col(color::muted), "Your Discord friends aren't linked: sign out and connect Discord again.");
+                      Col(color::muted), "Your Discord friends aren't linked yet.");
             ImGui::SetCursorScreenPos({at.x + width - button, at.y + (row - Dp(32)) * 0.5f});
-            if (GhostButton("to_online_settings", "Online settings", {button, Dp(32)}, true, Icon::Person))
-                page_ = PageOnlineSettings;
+            if (DiscordButton("link_discord_friends", "Link them", {button, Dp(32)})) discord_friends_->Connect();
             ImGui::SetCursorScreenPos(at);
             ImGui::Dummy({width, row});
         }

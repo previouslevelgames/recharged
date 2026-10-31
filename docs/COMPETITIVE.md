@@ -53,8 +53,9 @@ with the score.
 Recharged's own friends list follows you everywhere, but your friends are
 probably on Discord already. Signing in with Discord links them too: Discord's
 page asks for your account and your friends list at once, and the **Friends**
-page then lists all your Discord friends. If you signed in before that, sign
-out on **Online settings** and connect Discord again.
+page then lists all your Discord friends. If your server doesn't link them
+with the sign-in (servers before 1.2.1), **Link** on the Friends page or on
+**Online settings** asks Discord for them once.
 
 The **Friends** page lists your friends and your Discord friends together,
 Discord friends with Discord's mark. Those with Recharged open come first,
