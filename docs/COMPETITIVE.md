@@ -11,8 +11,8 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 ## How a match feels
 
 1. Open Recharged and go to **Online**; the first time, **Connect Discord**
-   there. Its **Friends** page shows your friends and your Discord friends,
-   **Players** everyone else who is online and your recent opponents, and
+   there. Its **Friends** page shows your friends, your Discord friends and
+   your recent opponents, **Leaderboard** the game's RANKED leaderboards, and
    **Events** your tournaments (coming later). Your open set shows at the top
    of each.
 2. Challenge an opponent, or let a tournament pair you with one.
@@ -38,10 +38,10 @@ with the score.
 - Anyone who is signed in and has Recharged open can be challenged, unless
   they are playing a match. The Online pages show who is online and what they
   do.
-- Add the players you like to play with to your friends, with the heart on
-  the Players page or by Discord name in the Friends page's search field:
-  playing someone doesn't make them a friend, they show on the Players page
-  among your recent opponents.
+- Add the players you like to play with to your friends, by Discord name in
+  the Friends page's search field, or with **Add to friends** in the **⋯**
+  menu of a recent opponent: playing someone doesn't make them a friend, they
+  show under **Played recently** on the Friends page.
 - Friends who keep each other as friends can chat in the launcher.
 - Your Discord friends show in the launcher too, with who of them has
   Recharged open, and you challenge them from there (see below).
@@ -60,7 +60,7 @@ with the sign-in (servers before 1.2.1), **Link** on the Friends page or on
 The **Friends** page lists your friends and your Discord friends together,
 Discord friends with Discord's mark. Those with Recharged open come first,
 each with what they are doing (in the launcher, in the game, idle, in a match
-or in a set) and **Challenge** at the end of the row, greyed while they are in
+or in a set) and **Adhoc Battle!** at the end of the row, greyed while they are in
 a match or a set. The others are folded away under **Offline**: your friends
 with when they last had Recharged open, your Discord friends with what Discord
 says about them. The search field over the list finds a friend, or adds or

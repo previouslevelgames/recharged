@@ -75,6 +75,34 @@ struct ChatPage
     bool can_send = false;
 };
 
+// The game's RANKED leaderboards (GET /api/v1/leaderboard, servers from
+// 1.2.1): a row of a board, as the game ranks it (equal points share a rank).
+struct LeaderboardEntry
+{
+    int rank = 0;
+    std::string mii;    // the Mii's name in the game's record
+    std::string player; // the Recharged player whose profile it is, if a launcher proved it
+    std::optional<int> wins, losses;
+    int points = 0;
+    int region = 0; // 1 JP, 2 US, 4 EU, 8 KR
+    bool you = false;
+};
+
+// One board of the current season (or day): its days, everyone on it, the
+// leaders, and the player's own best row.
+struct LeaderboardBoard
+{
+    std::string first_day, last_day; // YYYY-MM-DD
+    int players = 0;
+    std::vector<LeaderboardEntry> top;
+    std::optional<LeaderboardEntry> you;
+};
+
+struct Leaderboard
+{
+    LeaderboardBoard season, daily;
+};
+
 // The lobby's lists (GET /api/v1/players).
 struct PlayerLists
 {
@@ -255,6 +283,8 @@ public:
     // gets how soon (seconds) the server wants to be asked again.
     std::optional<ProfileMatch> CurrentMatch(int* poll_interval = nullptr);
     PlayerLists Players();
+    // 404 from a server before 1.2.1.
+    Leaderboard RankedLeaderboard();
     // The launcher's Ready to play! (or taking it back).
     ProfileMatch ReadyToPlay(std::int64_t match, bool ready);
     // The ended set again: the same opponent and rules.

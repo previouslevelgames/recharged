@@ -413,6 +413,36 @@ std::optional<ProfileMatch> ProfileService::CurrentMatch(int* poll_interval)
     return ParseMatch(match);
 }
 
+Leaderboard ProfileService::RankedLeaderboard()
+{
+    const auto answer = Call("GET", "/api/v1/leaderboard", nullptr);
+    const auto entry = [](const JsonValue& value) {
+        LeaderboardEntry row;
+        row.rank = int(value["rank"].Integer().value_or(0));
+        row.mii = value["mii"].Text();
+        row.player = value["player"].Text();
+        if (const auto wins = value["wins"].Integer()) row.wins = int(*wins);
+        if (const auto losses = value["losses"].Integer()) row.losses = int(*losses);
+        row.points = int(value["points"].Integer().value_or(0));
+        row.region = int(value["region"].Integer().value_or(0));
+        row.you = value["you"].Bool();
+        return row;
+    };
+    const auto board = [&](const JsonValue& value) {
+        LeaderboardBoard result;
+        result.first_day = value["first_day"].Text();
+        result.last_day = value["last_day"].Text();
+        result.players = int(value["players"].Integer().value_or(0));
+        for (const auto& row : value["top"].Items()) result.top.push_back(entry(row));
+        if (value["you"].IsObject()) result.you = entry(value["you"]);
+        return result;
+    };
+    Leaderboard leaderboard;
+    leaderboard.season = board(answer.body["season"]);
+    leaderboard.daily = board(answer.body["daily"]);
+    return leaderboard;
+}
+
 PlayerLists ProfileService::Players()
 {
     const auto answer = Call("GET", "/api/v1/players", nullptr);

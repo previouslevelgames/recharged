@@ -50,6 +50,11 @@ public:
         // The Discord friends (SetDiscordFriends) who have signed in to
         // Recharged, as the lists show players, by name.
         std::vector<platform::ProfilePlayer> discord_players;
+        // The game's RANKED leaderboards, while asked for (WantLeaderboard):
+        // none before the first answer; `leaderboard_missing` for a server
+        // without them (before 1.2.1).
+        std::optional<platform::Leaderboard> leaderboard;
+        bool leaderboard_missing = false;
         // The conversation open in the chat panel (OpenChat): with whom (0:
         // none), the messages so far (oldest first), whether the first fetch
         // came, whether the two can write, and a message on its way.
@@ -93,6 +98,9 @@ public:
     // The player's Discord friends (DiscordFriends): who of them plays
     // Recharged is looked up with the lists.
     void SetDiscordFriends(std::vector<std::string> discord_ids);
+    // The Leaderboard page is shown (every frame it is): the leaderboards
+    // are fetched now, and again once a minute while it stays.
+    void WantLeaderboard();
     // Trades the Discord Social SDK's code (with its verifier and redirect)
     // or refresh token for its tokens; `done` gets them on the worker, or
     // the failure's words and whether Discord refused (the link has to be
@@ -141,7 +149,8 @@ private:
     std::string sign_in_id_;       // the sign-in being waited for
     int poll_interval_ = 2;        // seconds between asks while signing in
     std::chrono::steady_clock::time_point next_poll_{};
-    std::chrono::steady_clock::time_point next_me_{}, next_lists_{}, next_chat_{};
+    std::chrono::steady_clock::time_point next_me_{}, next_lists_{}, next_chat_{}, next_leaderboard_{};
+    std::chrono::steady_clock::time_point leaderboard_wanted_{}; // the page's last frame
     std::int64_t chat_seen_ = 0; // the last message a fetch of the open conversation had
     std::vector<std::string> discord_ids_; // SetDiscordFriends
     std::shared_ptr<platform::HttpCancel> cancel_; // the running call's

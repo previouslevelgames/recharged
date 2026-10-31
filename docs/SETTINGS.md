@@ -457,9 +457,10 @@ writes `rollback_test` or `rollback_log`.
 
 The launcher's **Online** pages play sets against other Recharged players by
 the rules of the project's online server, `https://rechargedwfc.net`:
-**Friends** (your friends and your Discord friends),
-**Players** (everyone else with Recharged open, and the players you played
-last), **Events** (tournaments, coming later), **Match settings** (the rule
+**Friends** (your friends and your Discord friends, and the players you played
+last), **Leaderboard** (the game's RANKED leaderboards on the server: the
+season's leaders and today's, and your own place), **Events** (tournaments,
+coming later), **Match settings** (the rule
 set your challenges go out with, kept as `[online] challenge_rules`) and
 **Online settings** (who you are signed in as, your friend code, whether your
 Discord friends are linked, the server, and Sign out, which also ends the
@@ -490,9 +491,10 @@ tweaks both teams play with.
    launcher opens again with the result, and **Rematch**.
 
 Your **friends** are kept on the server, so they follow you to every computer:
-the players you add with the heart (or by Discord username). Playing someone
-doesn't make them a friend: they show under *Played recently* on the Players
-page, the latest first, until you add them. The list shows who has Recharged
+the players you add by Discord username, or from *Played recently* on the
+Friends page with **Add to friends** in their **⋯** menu. Playing someone
+doesn't make them a friend: they show under *Played recently*, the latest
+first, until you add them. The list shows who has Recharged
 open or is in a set, and for the others when they were last online. **Remove
 from friends** in a friend's **⋯** menu takes them off.
 
