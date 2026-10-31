@@ -9,14 +9,14 @@ end of the [Steam Deck guide](STEAM_DECK.md#troubleshooting).
 ## The launcher does not accept my disc
 
 Recharged runs **Mario Strikers Charged for the USA (game ID `R4QE01`,
-revision 1) and for Europe (`R4QP01`, revisions 1 and 2)**. The launcher's
+revision 1), for Europe (`R4QP01`, revisions 1 and 2), for Japan (`R4QJ01`)
+and for Korea (`R4QK01`, *Mario Power Soccer*)**. The launcher's
 **Game** page shows the ID and revision of every image in your game folder;
 images of versions this build cannot run are listed with the reason but cannot
 be chosen.
 
-- **Another ID**, such as `R4QJ01` (Japan): not supported yet; the
-  decompilation of these versions is still being completed. Renaming the file
-  does not change the version inside it.
+- **Another ID or revision:** not supported. Renaming the file does not
+  change the version inside it.
 - **"This build accepts ISO, RVZ and WBFS disc images":** only complete
   `.iso`, `.rvz` and `.wbfs` images work; other formats (`.ciso`, `.wia`,
   `.gcz`) and extracted disc folders are not supported. A WBFS image split into

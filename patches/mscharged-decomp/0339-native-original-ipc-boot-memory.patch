@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Supply original SDK IPC initialization with native boot memory
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Preserve the original OSIpc and IPCInit state and advancing arena cursor. Native
 bootloader metadata contains host-width pointer endpoints instead of Wii32 RAM
@@ -10,7 +10,7 @@ unsupported hardware operations; this patch does not initialize IOS or NAND.
 The console macro expansions preserve the original expressions and flow.
 
 diff --git a/src/RVL_SDK/ipc/ipcMain.c b/src/RVL_SDK/ipc/ipcMain.c
-index 45bd6a9..494958e 100644
+index bda148d..77b3cfe 100644
 --- a/src/RVL_SDK/ipc/ipcMain.c
 +++ b/src/RVL_SDK/ipc/ipcMain.c
 @@ -1,6 +1,16 @@
@@ -30,8 +30,8 @@ index 45bd6a9..494958e 100644
  static u8 Initialized = FALSE;
  static void* IPCCurrentBufferLo = NULL;
  static void* IPCCurrentBufferHi = NULL;
-@@ -18,11 +28,11 @@ void IPCInit(void) {
- }
+@@ -29,11 +39,11 @@ void IPCReInit(void) {
+ #endif
  
  u32 IPCReadReg(s32 index) {
 -    return IPC_HW_REGS_PPC[index];

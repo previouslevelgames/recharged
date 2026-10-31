@@ -190,7 +190,7 @@ class PackageBuildTests(PackageFixture):
             manifest = json.load(archive.extractfile(manifest_member))
             self.assertEqual(manifest["version"], "1.0.0+g123456789abc")
             self.assertEqual(manifest["packaging_source_commit"], "6" * 40)
-            self.assertEqual(len(manifest["modules"]), 2)
+            self.assertEqual(len(manifest["modules"]), len(PACKAGER.MODULES))
             self.assertEqual(len(manifest["prepared"]), len(PACKAGER.DEPENDENCIES))
             self.assertEqual(manifest["cargo"]["packages"][0]["name"], "codec")
             self.assertEqual(len(manifest["cargo"]["packages"]), 2)
@@ -249,7 +249,7 @@ class PackageBuildTests(PackageFixture):
         shutil.rmtree(self.build)
         shutil.rmtree(self.source)
         manifest = json.loads((relocated / "SOURCE-MANIFEST.json").read_text())
-        self.assertEqual(manifest["modules"], ["recharged_game_us.so", "recharged_game_eu.so"])
+        self.assertEqual(manifest["modules"], [stem + ".so" for stem in PACKAGER.MODULES])
         self.assertFalse((relocated / "prepared").exists())
         self.assertFalse((relocated / "mscharged_original_loading_module.so").exists())
         for relative, recorded in manifest["files"].items():

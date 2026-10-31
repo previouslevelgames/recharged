@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Give native GL resource pools room for native header sizes
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: native data-size adaptation; apply after 0688.
 
 Records loaded from disc keep their Wii header quotas (0180, 0238), but

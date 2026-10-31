@@ -1,5 +1,5 @@
 Subject: Tweak: Thunder Island walls
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Thunder Island has the electric fence of the other stadiums only around its
 goals; along its sides the island ends. The field's walls are the same
@@ -41,10 +41,10 @@ its wind, lightning and flying debris, and the shadows it hides near its
 edges are unchanged.
 
 diff --git a/include/Game/GameInfo.h b/include/Game/GameInfo.h
-index c80578d..3891420 100644
+index 5745a62..73a178b 100644
 --- a/include/Game/GameInfo.h
 +++ b/include/Game/GameInfo.h
-@@ -246,4 +246,13 @@ void FormatFriendKey(unsigned long long friendKey, u16* output);
+@@ -244,4 +244,13 @@ void FormatFriendKey(unsigned long long friendKey, u16* output);
  
  extern void* gOnlineFriendSelectionContext;
  
@@ -59,7 +59,7 @@ index c80578d..3891420 100644
 +
  #endif // GAME_GAMEINFO_H
 diff --git a/src/Game/AI/DesireSteering.cpp b/src/Game/AI/DesireSteering.cpp
-index dd71daf..eb8a7a1 100644
+index f4366a0..d2b5286 100644
 --- a/src/Game/AI/DesireSteering.cpp
 +++ b/src/Game/AI/DesireSteering.cpp
 @@ -220,6 +220,11 @@ void UpdateSteeringAvoidance(DesireSteering* desire, float fDeltaT)
@@ -71,11 +71,11 @@ index dd71daf..eb8a7a1 100644
 +                // fence (the High Voltage cheat's rule still applies).
 +                && !ThunderIslandWalls()
 +#endif
-                 || GameInfoManager::Instance()->IsRule0x4Equal3())
+                 || GameInfoManager::Instance()->IsHighVoltageEnabled())
              {
                  if (desire->m_pFielder->IsOnScreen()
 diff --git a/src/Game/AI/Fielder.cpp b/src/Game/AI/Fielder.cpp
-index 330be45..66b3552 100644
+index 31a8ad5..f31a243 100644
 --- a/src/Game/AI/Fielder.cpp
 +++ b/src/Game/AI/Fielder.cpp
 @@ -1297,9 +1297,19 @@ bool cFielder::CanGetElectrocuted() const
@@ -173,10 +173,10 @@ index 330be45..66b3552 100644
              else if (m_pPhysicsCharacter->m_CanCollideWithGoalLine)
                  fixed = cField::FixOutOfBoundsX(destination, false, 0.9f * GetScaledPlayerWidth(m_pTweaks, GetPlayerScale()));
 diff --git a/src/Game/AI/FielderActions.cpp b/src/Game/AI/FielderActions.cpp
-index 1918092..00c4d96 100644
+index 3b4d062..fe8d55b 100644
 --- a/src/Game/AI/FielderActions.cpp
 +++ b/src/Game/AI/FielderActions.cpp
-@@ -1040,7 +1040,12 @@ void cFielder::InitActionLaunched(const nlVector3& v3Velocity)
+@@ -1034,7 +1034,12 @@ void cFielder::InitActionLaunched(const nlVector3& v3Velocity)
      SetTangible(1, 0);
      m_fOpacity = 1.0f;
  
@@ -190,7 +190,7 @@ index 1918092..00c4d96 100644
      {
          m_pPhysicsCharacter->m_CanCollideWithGoalLine = 0;
          m_pPhysicsCharacter->m_CanCollideWithWall = 0;
-@@ -1069,6 +1074,10 @@ void cFielder::ActionLaunched(float fDeltaT)
+@@ -1063,6 +1068,10 @@ void cFielder::ActionLaunched(float fDeltaT)
                  = (float)fabs(0.5f * (2.0f * cField::mv3FieldPosition.y));
  
              if (GameInfoManager::Instance()->GetStadium() == STAD_THUNDER_ISLAND
@@ -201,7 +201,7 @@ index 1918092..00c4d96 100644
                  && (((float)fabs(v3Position.x) - fGoalLineX > 0.0f
                          && (float)fabs(v3Position.x) - (5.0f + fGoalLineX)
                                 < 0.0f)
-@@ -1919,7 +1928,12 @@ void cFielder::InitActionFall()
+@@ -1913,7 +1922,12 @@ void cFielder::InitActionFall()
              SwapController(false);
          }
  
@@ -216,7 +216,7 @@ index 1918092..00c4d96 100644
              m_pPhysicsCharacter->m_CanCollideWithGoalLine = 0;
              m_pPhysicsCharacter->m_CanCollideWithWall = 0;
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
-index 1ea45da..f91234f 100644
+index 03e08cc..e68875e 100644
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
 @@ -1401,7 +1401,13 @@ void cCharacter::UpdateMovementState(float fDeltaT)
@@ -257,7 +257,7 @@ index 1ea45da..f91234f 100644
          {
              if (EmitElectricFenceBallEffect(pEventData->position, pEventData->normal, MSCHARGED_EMISSION_OWNER_ADDRESS(pEventData->pBall), false))
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
-index 87af7a7..36d981f 100644
+index e25e32a..1158b43 100644
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
 @@ -477,7 +477,13 @@ cGame::cGame(void* terrainIndex, int weatherType, bool startCrowdRiot)
@@ -276,7 +276,7 @@ index 87af7a7..36d981f 100644
  
      avoidableCenter.x = 0.0f;
 diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
-index 9f8512b..963cddb 100644
+index ab20fbe..c835f2e 100644
 --- a/src/Game/GameInfo.cpp
 +++ b/src/Game/GameInfo.cpp
 @@ -161,6 +161,15 @@ void GameInfoManager::SetStadium(int stadium)
@@ -296,7 +296,7 @@ index 9f8512b..963cddb 100644
  {
      return mGameInfo[mCurrentMode]->mPadSides[pad];
 diff --git a/src/Game/Physics/PhysicsBanana.cpp b/src/Game/Physics/PhysicsBanana.cpp
-index 47278df..d77f4f9 100644
+index 37487e4..9540c23 100644
 --- a/src/Game/Physics/PhysicsBanana.cpp
 +++ b/src/Game/Physics/PhysicsBanana.cpp
 @@ -316,7 +316,13 @@ ContactType PhysicsBanana::Contact(
@@ -315,7 +315,7 @@ index 47278df..d77f4f9 100644
                  float sidelineDistance
                      = fabsf(contactPos.y) - m_pPowerupObject->GetRadius();
 diff --git a/src/Game/Physics/PhysicsCharacter.cpp b/src/Game/Physics/PhysicsCharacter.cpp
-index 4efaa42..909d3e9 100644
+index 98fb1ef..36149b5 100644
 --- a/src/Game/Physics/PhysicsCharacter.cpp
 +++ b/src/Game/Physics/PhysicsCharacter.cpp
 @@ -192,6 +192,10 @@ ContactType PhysicsCharacter::Contact(PhysicsObject* other,
@@ -349,7 +349,7 @@ index 5682ad4..941f169 100644
              bool isChainChomp
                  = ((SkinAnimatedNPC*)mpAINPC)->GetSkinAnimatedNPC_Type()
 diff --git a/src/Game/Physics/PhysicsShell.cpp b/src/Game/Physics/PhysicsShell.cpp
-index 6be4abe..b98209e 100644
+index bfa1d10..9e46bfd 100644
 --- a/src/Game/Physics/PhysicsShell.cpp
 +++ b/src/Game/Physics/PhysicsShell.cpp
 @@ -430,7 +430,13 @@ ContactType PhysicsShell::Contact(
@@ -368,7 +368,7 @@ index 6be4abe..b98209e 100644
                  nlVector3 contactPos;
                  nlVec3Set(contactPos, info->geom.pos[0], info->geom.pos[1], info->geom.pos[2]);
 diff --git a/src/Game/PhysicsAIBall.cpp b/src/Game/PhysicsAIBall.cpp
-index 521c17d..bcddb6f 100644
+index 649a71c..2e066c7 100644
 --- a/src/Game/PhysicsAIBall.cpp
 +++ b/src/Game/PhysicsAIBall.cpp
 @@ -182,7 +182,13 @@ ContactType PhysicsAIBall::Contact(
@@ -387,7 +387,7 @@ index 521c17d..bcddb6f 100644
                      bool bAboveHeight = contactPos.z > 0.36f;
                      float sideDist = fabsf(contactPos.y) - GetRadius();
 diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
-index 5db5f26..f091ffe 100644
+index 16dead6..fde4e04 100644
 --- a/src/Game/Render/ChainChomp.cpp
 +++ b/src/Game/Render/ChainChomp.cpp
 @@ -385,7 +385,12 @@ void ChainChomp::Update(float fDeltaT)

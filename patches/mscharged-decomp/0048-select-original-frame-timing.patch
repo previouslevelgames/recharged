@@ -1,6 +1,6 @@
 Subject: Add separately selected frame timing diagnostics
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Add timing/history diagnostic copies selected separately from the complete
 original FrameCounter, Histogram and TimeRegions sources. Preserve all original
@@ -33,7 +33,7 @@ index dbe3e5b..dbc8908 100644
      void FinishTiming();
 diff --git a/src/Game/Debug/FrameTiming.cpp b/src/Game/Debug/FrameTiming.cpp
 new file mode 100644
-index 0000000..9b2bee5
+index 0000000..33c2fef
 --- /dev/null
 +++ b/src/Game/Debug/FrameTiming.cpp
 @@ -0,0 +1,197 @@
@@ -131,9 +131,9 @@ index 0000000..9b2bee5
 +        TimeRegion* region = iterator.Current();
 +        if (region->m_pConditionFunc())
 +        {
-+            region->m_unk10++;
++            region->m_nFrameCount++;
 +            region->m_Histogram.AddSample(totalFrameTime);
-+            region->m_fThreshold += totalFrameTime;
++            region->m_fTotalFrameTime += totalFrameTime;
 +        }
 +
 +        iterator.Next();
@@ -218,8 +218,8 @@ index 0000000..9b2bee5
 +    const char* pName, bool (*pConditionFunc)())
 +    : m_pName(pName)
 +    , m_pConditionFunc(pConditionFunc)
-+    , m_fThreshold(0.0f)
-+    , m_unk10(0)
++    , m_fTotalFrameTime(0.0f)
++    , m_nFrameCount(0)
 +    , m_Histogram(pName, 5, lbl_806E6178, lbl_806E617C)
 +{
 +    if (!pConditionFunc) throw std::invalid_argument("Time region requires a condition");

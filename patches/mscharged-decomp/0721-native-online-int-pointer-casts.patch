@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Keep integers and null arguments apart from pointers in the online sources
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: native compiler/ABI compatibility
 
 DWC passes a friend index and a flag through GameSpy's void* callback

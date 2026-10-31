@@ -11,11 +11,12 @@
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>
+#include <string>
 #include <thread>
 
 namespace {
 using namespace mscharged::platform;
-// The USA build's KPADInit calibrates the pointer for the sensor bar; the
+// The USA and Korean builds' KPADInit sets the pointer centre for the sensor bar; the
 // European build's (desktop_dpd_eu) keeps the centre at the bar.
 #if defined(VERSION_R4QP01_REV2)
 constexpr bool kSensorHeight = false;
@@ -193,8 +194,16 @@ void SourceAndMouse() {
     const auto retained=last.pos;
     Mouse(5,5);
     Until([]{return last.dpd_valid_fg==0;},"Black-bar raw observation remained visible");
-    Check(last.pos.x==retained.x&&last.pos.y==retained.y,
-          "Host repaired original KPAD retained-position invalidity behavior");
+#if defined(VERSION_R4QK01)
+    // The Korean build's newer KPAD can take one more smoothing step, of float
+    // rounding size, before it keeps the position.
+    constexpr float kRetainedSlack = 1e-5f;
+#else
+    constexpr float kRetainedSlack = 0.0f;
+#endif
+    Check(std::fabs(last.pos.x-retained.x)<=kRetainedSlack&&std::fabs(last.pos.y-retained.y)<=kRetainedSlack,
+          ("Host repaired original KPAD retained-position invalidity behavior: "+std::to_string(retained.x)+","
+           +std::to_string(retained.y)+" -> "+std::to_string(last.pos.x)+","+std::to_string(last.pos.y)).c_str());
     projected=false;Mouse(320,240);Service();
     Check(last.dpd_valid_fg==0,"Unknown output projection fabricated source pointer readiness");
     projected=true;projection={2,80,60,400,300};CheckPosition(.25f,.8f);

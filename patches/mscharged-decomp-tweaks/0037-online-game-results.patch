@@ -1,5 +1,5 @@
 Subject: Port: online games' results for the WFC server's match reports
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Recharged builds report every online series they play, ranked or between
 friends, to the WFC server, which pairs both machines' reports into its

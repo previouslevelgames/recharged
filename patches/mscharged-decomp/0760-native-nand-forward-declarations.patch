@@ -1,0 +1,28 @@
+From: mscharged-port
+Subject: Declare the forward NAND calls with their 32-bit results
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+nand_fwd.h declares NANDGetHomeDir and NANDMove with the Wii's long, which is
+32 bits there; nand.h declares the same functions with s32. Natively a long is
+64 bits wide, so both headers in one unit conflict. The native branch uses the
+32-bit int of s32; the console declarations stay unchanged.
+
+diff --git a/libs/RVL_SDK/include/revolution/nand_fwd.h b/libs/RVL_SDK/include/revolution/nand_fwd.h
+index 062e518..d0d5251 100644
+--- a/libs/RVL_SDK/include/revolution/nand_fwd.h
++++ b/libs/RVL_SDK/include/revolution/nand_fwd.h
+@@ -7,8 +7,14 @@
+ extern "C" {
+ #endif
+ 
++#if defined(MSCHARGED_NATIVE)
++// The 32-bit results of nand.h (s32): a host long is 64 bits wide.
++int NANDGetHomeDir(char* out);
++int NANDMove(const char* from, const char* to);
++#else
+ long NANDGetHomeDir(char* out);
+ long NANDMove(const char* from, const char* to);
++#endif
+ 
+ #ifdef __cplusplus
+ }

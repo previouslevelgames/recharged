@@ -1,5 +1,5 @@
 Subject: Provide the original empty member-binding selector for native debug emission
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 The upstream BindMember primary template passes its declared empty const
 BindMemberNoArg selector by reference, which MWCC's inlining removes. Native
@@ -12,10 +12,10 @@ Console preprocessing remains unchanged. This is a permanent compiler/link
 compatibility provider, not a game behavior workaround or runtime readiness.
 
 diff --git a/src/NL/nlBind.cpp b/src/NL/nlBind.cpp
-index ae2fc9f..3ad951c 100644
+index baca74d..5ac3284 100644
 --- a/src/NL/nlBind.cpp
 +++ b/src/NL/nlBind.cpp
-@@ -1,4 +1,11 @@
+@@ -1,3 +1,10 @@
  #include "NL/nlBind.h"
 +#ifdef MSCHARGED_NATIVE
 +#include "NL/nlBindMember.h"
@@ -25,5 +25,4 @@ index ae2fc9f..3ad951c 100644
 +const BindMemberNoArg bindMemberNoArg = {};
 +#endif
  
- #ifndef MSCHARGED_NATIVE
- __declspec(section ".sdata2")
+ const Placeholder<0> placeholder0 = { };

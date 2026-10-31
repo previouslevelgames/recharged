@@ -53,9 +53,10 @@ around it, from a 2048 x 1535 original of the same proportions (SHA-256
 2026-10-28) stretched over the logo's canvas. Both are cut out alike, to the
 visible pixels of either, and scaled to 1280 pixels wide by
 `tools/launcher_art.py logo ORIGINAL.png SIZZLE.png`. The launcher shows the
-logo on the Play page and on the About page and, at random moments, fades the
-sparked one in over it for a short, flickering crackle; for the smaller sizes it
-draws halved copies it makes at start.
+logo on the Play page and on the About page; for the smaller sizes it draws
+halved copies it makes at start. It can also fade the sparked logo in over it at
+random moments for a short, flickering crackle, but that is switched off for now
+(`kLogoSparks` in `src/launcher/main.cpp`), so the logo stays still.
 
 Both logos are outside the project's CC0 dedication; rights remain with their
 creator.

@@ -1,6 +1,6 @@
 Subject: [PATCH] share canonical native OS types and heap address width
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Native compilation uses the actual SDK context/alarm/thread/mutex ABI. Preserve
 console declarations and missing Wii services as explicit imports. Heap pointer
@@ -25,7 +25,7 @@ index f660b89..f217b3f 100644
  static inline UIntPtr GetUIntPtr(const void* ptr) {
      return (UIntPtr)ptr;
 diff --git a/libs/RVL_SDK/include/revolution/os/OSAlarm.h b/libs/RVL_SDK/include/revolution/os/OSAlarm.h
-index 25e2ed1..1846acf 100644
+index c49031d..ced66ba 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSAlarm.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSAlarm.h
 @@ -1,6 +1,22 @@
@@ -50,7 +50,7 @@ index 25e2ed1..1846acf 100644
 +
  #include <revolution/os/OSContext.h>
  #include <revolution/types.h>
- 
+ #include <revolution/os/OSAlarm_fwd.h>
 @@ -43,4 +59,6 @@ void* OSGetAlarmUserData(const OSAlarm* alarm);
  }
  #endif
@@ -59,7 +59,7 @@ index 25e2ed1..1846acf 100644
 +
  #endif  // REVOLUTION_OS_ALARM_H
 diff --git a/libs/RVL_SDK/include/revolution/os/OSContext.h b/libs/RVL_SDK/include/revolution/os/OSContext.h
-index 899a385..1057b3b 100644
+index 8b539b6..18782f4 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSContext.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSContext.h
 @@ -7,7 +7,7 @@
@@ -94,7 +94,7 @@ index 7fcdbaa..0748458 100644
 +
  #endif  // REVOLUTION_OS_MUTEX_H
 diff --git a/libs/RVL_SDK/include/revolution/os/OSThread.h b/libs/RVL_SDK/include/revolution/os/OSThread.h
-index 9d040dc..97ad08e 100644
+index a4a31ae..d9ae79e 100644
 --- a/libs/RVL_SDK/include/revolution/os/OSThread.h
 +++ b/libs/RVL_SDK/include/revolution/os/OSThread.h
 @@ -1,6 +1,10 @@
@@ -108,7 +108,7 @@ index 9d040dc..97ad08e 100644
  #include <revolution/os/OSContext.h>
  #include <revolution/os/OSThread_fwd.h>
  #include <revolution/types.h>
-@@ -98,4 +102,6 @@ void OSSleepTicks(s64 ticks);
+@@ -101,4 +105,6 @@ void OSSleepTicks(s64 ticks);
  }
  #endif
  

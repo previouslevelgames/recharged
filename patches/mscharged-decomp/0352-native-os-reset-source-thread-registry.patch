@@ -1,12 +1,12 @@
 Subject: [PATCH] Preserve original OS reset source with native SDK thread registry
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Purpose: Canonical compiler declarations and full-width native thread-list ABI; original shutdown algorithms retained.
 
 diff --git a/libs/RVL_SDK/include/revolution/os/OS.h b/libs/RVL_SDK/include/revolution/os/OS.h
-index 968687d..1105deb 100644
+index f5094f5..9ba1b8b 100644
 --- a/libs/RVL_SDK/include/revolution/os/OS.h
 +++ b/libs/RVL_SDK/include/revolution/os/OS.h
-@@ -56,15 +56,7 @@ typedef enum OSExceptionType {
+@@ -57,15 +57,7 @@ typedef enum OSExceptionType {
      OS_EXC_MAX
  } OSExceptionType;
  
@@ -46,10 +46,10 @@ index 0000000..dfaa062
 +
 +#endif // REVOLUTION_OS_IOS_REV_H
 diff --git a/src/RVL_SDK/os/OSReset.c b/src/RVL_SDK/os/OSReset.c
-index 92c3745..77ef427 100644
+index 1e184ff..802d49b 100644
 --- a/src/RVL_SDK/os/OSReset.c
 +++ b/src/RVL_SDK/os/OSReset.c
-@@ -4,13 +4,36 @@
+@@ -4,7 +4,26 @@
  #include <revolution/vi/vi3in1.h>
  #include <revolution/os/OSNandbootInfo.h>
  #include <revolution/sc_fwd.h>
@@ -74,8 +74,9 @@ index 92c3745..77ef427 100644
 +extern volatile u32 PI_HW_REGS[];
 +#endif
  
- typedef struct SCIdleModeInfo {
-     u8 standby;
+ #if defined(VERSION_R4QK01)
+ #include <revolution/esp/esp.h>
+@@ -17,6 +36,10 @@ typedef struct SCIdleModeInfo {
      u8 wc24;
  } SCIdleModeInfo;
  
@@ -86,7 +87,7 @@ index 92c3745..77ef427 100644
  enum {
      OS_STATE_FLAGS_SHUTDOWN_NONE = 0,
      OS_STATE_FLAGS_SHUTDOWN_POWER_OFF,
-@@ -31,7 +54,11 @@ enum {
+@@ -37,7 +60,11 @@ enum {
  #define EXEC_WORK_ARENA_LO ((void*)0x81280000)
  #define EXEC_WORK_ARENA_HI ((void*)0x812F0000)
  
@@ -98,7 +99,7 @@ index 92c3745..77ef427 100644
  
  void __OSGetIOSRev(OSIOSRev* rev);
  
-@@ -86,7 +113,11 @@ static void KillThreads(void) {
+@@ -94,7 +121,11 @@ static void KillThreads(void) {
      OSThread* next;
  
      for (thread = __OSActiveThreadQueue.head; thread; thread = next) {

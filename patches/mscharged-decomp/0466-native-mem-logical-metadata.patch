@@ -1,9 +1,9 @@
 From: mscharged-port
 Subject: Preserve original MEM logical capacity with native metadata backing
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 diff --git a/src/RVL_SDK/mem/mem_expHeap.c b/src/RVL_SDK/mem/mem_expHeap.c
-index d0ee90e..f432400 100644
+index e1f7e77..bd627fc 100644
 --- a/src/RVL_SDK/mem/mem_expHeap.c
 +++ b/src/RVL_SDK/mem/mem_expHeap.c
 @@ -2,10 +2,16 @@
@@ -74,7 +74,7 @@ index d0ee90e..f432400 100644
  
      expHeap->groupID = 0;
      expHeap->feature.val = 0;
-@@ -156,17 +174,17 @@ static void* AllocUsedBlockFromFreeBlock_(MEMiExpHeapHead* pEHHead, MEMiExpHeapM
+@@ -156,11 +174,11 @@ static void* AllocUsedBlockFromFreeBlock_(MEMiExpHeapHead* pEHHead, MEMiExpHeapM
      GetRegionOfMBlock_(&freeRgnT, pMBHeadFree);
      freeRgnB.end = freeRgnT.end;
      freeRgnB.start = AddU32ToPtr(mblock, size);
@@ -83,19 +83,21 @@ index d0ee90e..f432400 100644
  
      pMBHeadFreePrev = RemoveMBlock_(&pEHHead->mbFreeList, pMBHeadFree);
  
--    if (GetOffsetFromPtr(freeRgnT.start, freeRgnT.end) < sizeof(MEMiExpHeapMBlockHead) + 4) {
-+    if (GetOffsetFromPtr(freeRgnT.start, freeRgnT.end) < MEM_EXP_BLOCK_SIZE + 4) {
-         freeRgnT.end = freeRgnT.start;
-     } else {
+-    if (GetOffsetFromPtr(freeRgnT.start, freeRgnT.end) < sizeof(MEMiExpHeapMBlockHead) + 4
++    if (GetOffsetFromPtr(freeRgnT.start, freeRgnT.end) < MEM_EXP_BLOCK_SIZE + 4
+ #if defined(VERSION_R4QK01)
+         || (direction == 0 && !pEHHead->feature.fields.useMarginOfAlign)
+ #endif
+@@ -170,7 +188,7 @@ static void* AllocUsedBlockFromFreeBlock_(MEMiExpHeapHead* pEHHead, MEMiExpHeapM
          pMBHeadFreePrev = InsertMBlock_(&pEHHead->mbFreeList, InitFreeMBlock_(&freeRgnT), pMBHeadFreePrev);
      }
  
--    if (GetOffsetFromPtr(freeRgnB.start, freeRgnB.end) < sizeof(MEMiExpHeapMBlockHead) + 4) {
-+    if (GetOffsetFromPtr(freeRgnB.start, freeRgnB.end) < MEM_EXP_BLOCK_SIZE + 4) {
-         freeRgnB.start = freeRgnB.end;
-     } else {
-         (void)InsertMBlock_(&pEHHead->mbFreeList, InitFreeMBlock_(&freeRgnB), pMBHeadFreePrev);
-@@ -178,12 +196,12 @@ static void* AllocUsedBlockFromFreeBlock_(MEMiExpHeapHead* pEHHead, MEMiExpHeapM
+-    if (GetOffsetFromPtr(freeRgnB.start, freeRgnB.end) < sizeof(MEMiExpHeapMBlockHead) + 4
++    if (GetOffsetFromPtr(freeRgnB.start, freeRgnB.end) < MEM_EXP_BLOCK_SIZE + 4
+ #if defined(VERSION_R4QK01)
+         || (direction == 1 && !pEHHead->feature.fields.useMarginOfAlign)
+ #endif
+@@ -186,12 +204,12 @@ static void* AllocUsedBlockFromFreeBlock_(MEMiExpHeapHead* pEHHead, MEMiExpHeapM
          MEMiExpHeapMBlockHead* pMBHeadNewUsed;
          MemRegion region;
  
@@ -110,7 +112,7 @@ index d0ee90e..f432400 100644
          SetGroupIDForMBlock_(pMBHeadNewUsed, pEHHead->groupID);
          AppendMBlock_(&pEHHead->mbUsedList, pMBHeadNewUsed);
      }
-@@ -261,26 +279,26 @@ static BOOL RecycleRegion_(MEMiExpHeapHead* expHeap, const MemRegion* region) {
+@@ -269,26 +287,26 @@ static BOOL RecycleRegion_(MEMiExpHeapHead* expHeap, const MemRegion* region) {
          MEMiExpHeapMBlockHead* block;
  
          for (block = expHeap->mbFreeList.head; block; block = block->next) {
@@ -142,7 +144,7 @@ index d0ee90e..f432400 100644
          return FALSE;
      }
  
-@@ -299,7 +317,7 @@ MEMHeapHandle MEMCreateExpHeapEx(void* startAddress, u32 size, u16 optFlag) {
+@@ -307,7 +325,7 @@ MEMHeapHandle MEMCreateExpHeapEx(void* startAddress, u32 size, u16 optFlag) {
  
      if (GetUIntPtr(startAddress) > GetUIntPtr(endAddress) ||
          GetOffsetFromPtr(startAddress, endAddress) <
@@ -151,7 +153,7 @@ index d0ee90e..f432400 100644
          return NULL;
      }
  
-@@ -310,12 +328,24 @@ MEMHeapHandle MEMCreateExpHeapEx(void* startAddress, u32 size, u16 optFlag) {
+@@ -318,12 +336,24 @@ MEMHeapHandle MEMCreateExpHeapEx(void* startAddress, u32 size, u16 optFlag) {
  }
  
  void* MEMDestroyExpHeap(MEMHeapHandle heap) {
@@ -176,7 +178,7 @@ index d0ee90e..f432400 100644
  
      if (size == 0) {
          size = 1;
-@@ -334,8 +364,16 @@ void* MEMAllocFromExpHeapEx(MEMHeapHandle heap, u32 size, int alignment) {
+@@ -342,8 +372,16 @@ void* MEMAllocFromExpHeapEx(MEMHeapHandle heap, u32 size, int alignment) {
      return memory;
  }
  
@@ -195,7 +197,7 @@ index d0ee90e..f432400 100644
  }
  
  static inline MEMiExpHeapHead* GetExpHeapHeadPtrFromHandle_(MEMHeapHandle heap) {
-@@ -354,7 +392,14 @@ void MEMFreeToExpHeap(MEMHeapHandle heap, void* memBlock) {
+@@ -366,7 +404,14 @@ void MEMFreeToExpHeap(MEMHeapHandle heap, void* memBlock) {
  
      pHeapHd = heap;
      pExpHeapHd = GetExpHeapHeadPtrFromHandle_(pHeapHd);
@@ -209,9 +211,9 @@ index d0ee90e..f432400 100644
 +    ChargedValidateMEMFree(heap, pMBHead);
 +#endif
  
+ #if !defined(VERSION_R4QK01)
      LockHeap(heap);
- 
-@@ -366,6 +411,9 @@ void MEMFreeToExpHeap(MEMHeapHandle heap, void* memBlock) {
+@@ -380,6 +425,9 @@ void MEMFreeToExpHeap(MEMHeapHandle heap, void* memBlock) {
  }
  
  u32 MEMGetAllocatableSizeForExpHeapEx(MEMHeapHandle heap, int alignment) {

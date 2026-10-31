@@ -1,5 +1,5 @@
 Subject: Restore original task and movie compilation with native ABI interfaces
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Original tasks, frontend provider, movie/handler and THPSimple bodies compile
 as complete units. Legacy borrowed-task checks, absent-service stops and movie
@@ -25,7 +25,7 @@ index 02ac295..f0d70d4 100644
  bool SetWorldAnimation(const char* objectName, const char* animationName,
      ePlayMode playMode);
 diff --git a/include/Game/GameInfo.h b/include/Game/GameInfo.h
-index 1f76681..c2c6c29 100644
+index 6f3e0bc..7dcad2f 100644
 --- a/include/Game/GameInfo.h
 +++ b/include/Game/GameInfo.h
 @@ -8,7 +8,11 @@
@@ -38,13 +38,13 @@ index 1f76681..c2c6c29 100644
  typedef unsigned long long u64;
 +#endif
  
- typedef CupSidekicks GameRules;
- 
+ struct UserInfo
+ {
 diff --git a/include/Game/SAnim.h b/include/Game/SAnim.h
-index 4bdad5f..a8c0ea7 100644
+index 8808854..bcad402 100644
 --- a/include/Game/SAnim.h
 +++ b/include/Game/SAnim.h
-@@ -71,11 +71,7 @@ public:
+@@ -75,11 +75,7 @@ public:
          return (id & 0x80FFFFFF) == 0x80017000;
      }
  

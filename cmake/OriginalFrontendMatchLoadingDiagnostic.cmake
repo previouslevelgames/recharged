@@ -84,7 +84,7 @@ function(mscharged_select_original_frontend_match_loading target)
             src/Game/AI/TransitionFunc.cpp
             src/Game/AI/TutorialMegastrikeDesire.cpp
             src/Game/AI/shdStateMachine.cpp
-            src/Game/AI/tu_803115F4.cpp
+            src/Game/AI/DesireUpdate.cpp
             src/Game/Camera/AnimViewerCam.cpp
             src/Game/Camera/FaceCam.cpp
             src/Game/Camera/FollowCam.cpp
@@ -238,7 +238,7 @@ function(mscharged_select_original_frontend_match_loading target)
             src/Game/TweaksBase.cpp
             src/Game/Weather.cpp
             src/Game/WeatherData.cpp
-            src/Game/tu_8013E2EC.cpp
+            src/Game/WorldInitialization.cpp
             src/NL/PointerEntryTable.cpp
             src/NL/gl/glMultiTextureModelWriter.cpp
             src/NL/gl/glShadowedTexturedColourModelWriter.cpp

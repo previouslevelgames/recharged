@@ -1,5 +1,5 @@
 Subject: Retain original vertex animation resources and frame stream descriptors
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Select original GLVertexAnim construction, update and frame binding; pair its
 stream-ID allocation with nlFree and privately copy only rebound descriptors.
