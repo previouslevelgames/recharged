@@ -1497,7 +1497,17 @@ bool DiscordButton(const char* id, const char* label, ImVec2 size, bool hero)
     const float mark = hero ? Dp(26) : Dp(20), gap = hero ? Dp(12) : Dp(10);
     const float left = pos.x + (size.x - (text.x + mark + gap)) * 0.5f;
     DrawDiscordMark(draw, {left + mark * 0.5f, pos.y + size.y * 0.5f}, mark, IM_COL32_WHITE, Col(fill));
-    DrawLabel(draw, font, {left + mark + gap, pos.y + (size.y - text.y) * 0.5f}, IM_COL32_WHITE, label);
+    const ImVec2 at{left + mark + gap, pos.y + (size.y - text.y) * 0.5f};
+    if (hero)
+    {
+        // Bold: the only font is a medium weight, so the label is drawn twice
+        // a little apart, over a soft shadow.
+        DrawLabel(draw, font, {at.x, at.y + Dp(1.5f)}, Col(color::window, 0.35f), label);
+        DrawLabel(draw, font, at, IM_COL32_WHITE, label);
+        DrawLabel(draw, font, {at.x + Dp(0.7f), at.y}, IM_COL32_WHITE, label);
+    }
+    else
+        DrawLabel(draw, font, at, IM_COL32_WHITE, label);
     ImGui::PopID();
     return pressed;
 }
