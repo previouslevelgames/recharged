@@ -52,10 +52,14 @@ probably on Discord already. Signing in with Discord links them too: Discord's
 page asks for your account and your friends list at once, and the **Friends**
 page then lists all your Discord friends. If you signed in before that, press
 **Connect Discord** on the **Friends** page once per computer and agree in the
-Discord app or your browser. Those with Recharged open come first, marked
-green: the server sees their launcher or game, Discord their game. Those who
-have signed in to Recharged show what they are doing and a Challenge button;
-the others show what Discord says about them.
+Discord app or your browser.
+
+The **Friends** page lists your friends and your Discord friends together.
+Those with Recharged open come first, each with what they are doing: in the
+launcher, in the game, idle, in a match or in a set. Click one to challenge
+them; someone in a match or a set shows that instead, until it ends. The
+others are folded away under **Offline**: your friends with when they last
+had Recharged open, your Discord friends with what Discord says about them.
 
 - Your Discord friends list goes from Discord straight to Recharged on your
   computer. Our server only learns which of the accounts in it have a
