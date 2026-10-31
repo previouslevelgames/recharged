@@ -733,7 +733,7 @@ float NavGroupPagesHeight(std::size_t pages)
 }
 
 int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>& pages, float width,
-             float row_height, const ImVec4* status)
+             float row_height, const ImVec4* status, bool pulse)
 {
     ImGui::PushID(label);
     auto* draw = ImGui::GetWindowDrawList();
@@ -773,9 +773,16 @@ int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>
               Col(Mix(Mix(color::muted, color::text, hover), ImVec4{1, 1, 1, 1}, shown)), label);
     if (status)
     {
-        // The status dot after the label, with a soft halo.
+        // The status dot after the label: a soft halo, or for a live one a
+        // ring that grows out of it and fades, every 1.8 s.
         const ImVec2 dot{label_left + TextSize(fonts.label, label).x + Dp(12), pos.y + row * 0.5f};
-        draw->AddCircleFilled(dot, Dp(7), Col(*status, 0.18f));
+        if (pulse)
+        {
+            const float t = float(std::fmod(ImGui::GetTime(), 1.8) / 1.8);
+            draw->AddCircleFilled(dot, Dp(4) + Dp(8) * t, Col(*status, 0.5f * (1.0f - t) * (1.0f - t)));
+        }
+        else
+            draw->AddCircleFilled(dot, Dp(7), Col(*status, 0.18f));
         draw->AddCircleFilled(dot, Dp(4), Col(*status));
     }
     if (!pages.empty())

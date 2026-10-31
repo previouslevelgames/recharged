@@ -2872,7 +2872,8 @@ private:
                 if (!is_online || signed_in)
                     for (int p = i; p < i + info.count; ++p) pages.push_back({page_names[p], page_icons[p], page_ == p});
                 const int clicked = NavGroup(info.label, info.icon, open_group == group, pages, width - Dp(24),
-                                             row - Dp(4), is_online && competitive_ ? &dot : nullptr);
+                                             row - Dp(4), is_online && competitive_ ? &dot : nullptr,
+                                             is_online && signed_in);
                 if (clicked == 0) page_ = group_page_[group];
                 if (clicked > 0) page_ = i + clicked - 1;
             }
