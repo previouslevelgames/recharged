@@ -534,7 +534,8 @@ checks on demand.
 to follow: official releases, or also the **test builds** of changes that are
 not released yet, with the change's description as notes. Switching asks
 whether to install the other channel's build; *Later* keeps the build and
-the choice you had. On a test build, *Release*
+the choice you had. With no test build to switch to, Test goes back to
+Release by itself. On a test build, *Release*
 offers the way back to the latest release. A test build moves on to the
 release that contains it.
 

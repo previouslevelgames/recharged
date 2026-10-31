@@ -1059,8 +1059,9 @@ private:
     // A switch (Release / Test, or a test build from the menu) holds only
     // when something gets installed: Later in the update dialog, or closing
     // the menu without a choice, brings the previous choice back, since
-    // nothing changed. Without anything to install (no test builds, no
-    // network) the new choice stays.
+    // nothing changed. Test also goes back when there is no test build to go
+    // to (or no network); Release and a menu choice with nothing to install
+    // stay.
     void BeginSwitch()
     {
         if (!switch_from_) switch_from_ = UpdateChoice{draft_.update_channel, draft_.test_build};
@@ -2515,6 +2516,17 @@ private:
                 }
                 else if (update_prompt_ == UpdatePrompt::Switch && ChooseTestBuild())
                     test_menu_ = true;
+                // Test without a test build to go to (none for this system, or the
+                // check failed): the switch goes back to what it was.
+                else if (update_prompt_ == UpdatePrompt::Switch
+                         && (update_.state == UpdateService::State::CheckFailed || update_.test_builds.empty()))
+                {
+                    Notice(update_.state == UpdateService::State::CheckFailed
+                               ? "Couldn't look for test builds: " + update_.error
+                               : std::string("There is no test build to switch to right now."),
+                           update_.state == UpdateService::State::CheckFailed ? NoticeKind::Warning : NoticeKind::Info);
+                    CancelSwitch();
+                }
                 // Nothing to install or choose: the switch stands.
                 if (!update_dialog_ && !test_menu_) switch_from_.reset();
                 update_prompt_ = UpdatePrompt::None;
