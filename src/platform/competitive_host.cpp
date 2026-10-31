@@ -44,7 +44,7 @@ std::unique_ptr<CompetitiveHost> CompetitiveHost::Start(const std::string& serve
     const auto server = ProfileServerAddress(server_setting, &error);
     if (!server) return fail("online.profile_server: " + error);
     const auto session = LoadProfileSession(session_file);
-    if (!session || session->server != *server) return fail("not signed in (the launcher's Competitive page)");
+    if (!session || session->server != *server) return fail("not signed in (the launcher's Online pages)");
     return std::unique_ptr<CompetitiveHost>(
         new CompetitiveHost(*server, session->token, session->player_name, std::move(log)));
 }
@@ -248,7 +248,7 @@ void CompetitiveHost::Run()
             if (e.Cancelled()) return;
             if (e.SignedOut())
             {
-                Said("signed out (the session ended); sign in again on the launcher's Competitive page");
+                Said("signed out (the session ended); sign in again on the launcher's Online pages");
                 std::lock_guard<std::mutex> relock(mutex_);
                 if (rules_)
                 {
@@ -301,7 +301,7 @@ void CompetitiveHost::Work(ProfileService& api)
         {
             if (e.Cancelled()) throw;
             Said(std::string("the answer to match ") + std::to_string(answer) + " was not taken: " + e.what());
-            notice = e.Status() == 0 ? std::string("The server didn't answer. Try again on the launcher's Competitive page.")
+            notice = e.Status() == 0 ? std::string("The server didn't answer. Try again on the launcher's Online pages.")
                                      : std::string("The challenge is no longer open.");
         }
         std::lock_guard<std::mutex> lock(mutex_);

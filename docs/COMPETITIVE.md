@@ -10,8 +10,10 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 
 ## How a match feels
 
-1. Open Recharged and go to **Competitive**, your lobby. It shows your open
-   sets, who is online right now and your recent opponents.
+1. Open Recharged and go to **Online**. Its **Friends** page shows your friends
+   and your Discord friends who play Recharged, **Players** everyone else who
+   is online and your recent opponents, and **Events** your tournaments
+   (coming later). Your open set shows at the top of each.
 2. Challenge an opponent, or let a tournament pair you with one.
 3. They accept, in the launcher or on a card over their game.
 4. Both games start by themselves, **straight into the captain draft**: no intro,
@@ -19,7 +21,7 @@ works as on the Wii, with friend codes, ranked matches and rankings.
    sidekicks in the game's own draft, just like on the Wii.
 5. You play the series under the set's rules, for example best of 3, three
    minutes per game, no Mega Strikes.
-6. Back in the lobby you see the result. Ask for a rematch, or move on to
+6. Back in the launcher you see the result. Ask for a rematch, or move on to
    your next set.
 
 A *set* is your series of games against one opponent. While you wait or play,
@@ -32,7 +34,11 @@ with the score.
   **"Alice challenges you"** with Accept and Decline: in the launcher, or on a
   card over the game while they are in its menus.
 - Anyone who is signed in and has Recharged open can be challenged, unless
-  they are playing a match. The lobby shows who is online and what they do.
+  they are playing a match. The Online pages show who is online and what they
+  do.
+- Add the players you like to play with to your friends, with the heart or by
+  Discord name: playing someone doesn't make them a friend, they show on the
+  Players page among your recent opponents.
 - Friends who keep each other as friends can chat in the launcher.
 - Connect Discord in the launcher to see which of your Discord friends play
   Recharged, and challenge them from there too (see below).
@@ -42,9 +48,9 @@ with the score.
 ## Discord friends
 
 Recharged's own friends list follows you everywhere, but your friends are
-probably on Discord already. Press **Connect Discord** in the lobby's Players
-card, once per computer, and agree in the Discord app or your browser. The
-lobby then lists your Discord friends who have signed in to Recharged, with
+probably on Discord already. Press **Connect Discord** on the **Friends**
+page, once per computer, and agree in the Discord app or your browser. The
+page then lists your Discord friends who have signed in to Recharged, with
 what they are doing and a Challenge button, and how many of your Discord
 friends are online.
 
@@ -71,7 +77,7 @@ standings. Recharged takes care of everything from "you have been paired" to
   series.
 - **The result goes in by itself.** Both games send what they saw. When they
   agree, our server enters the result and the game scores on start.gg, the
-  bracket moves on, and your next set shows up in the lobby.
+  bracket moves on, and your next set shows up on the **Events** page.
 - **Disputes** stay with the tournament's organizers on start.gg, as always.
 
 If you have played online tournaments on start.gg before, for example in

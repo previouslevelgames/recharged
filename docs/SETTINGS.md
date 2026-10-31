@@ -455,20 +455,23 @@ writes `rollback_test` or `rollback_log`.
 
 ## Competitive play
 
-The launcher's **Competitive** page plays sets against other Recharged players
-by the rules of the project's online server, `https://rechargedwfc.net`. A
-private server's `https://` address (from its admins) goes in
-`[online] profile_server`; only the file changes it. The bar at the top of the
-page shows who you are signed in as, what you are doing, and whether the server
-answers. A set is a series against
+The launcher's **Online** pages play sets against other Recharged players by
+the rules of the project's online server, `https://rechargedwfc.net`:
+**Friends** (your friends and your Discord friends who play Recharged),
+**Players** (everyone else with Recharged open, and the players you played
+last) and **Events** (tournaments, coming later). A private server's `https://`
+address (from its admins) goes in `[online] profile_server`; only the file
+changes it. The bar at the top of these pages shows who you are signed in as,
+what you are doing, and whether the server answers; your set shows under it.
+A set is a series against
 one player, by one of the server's rule sets: skill level, game length or goal
 limit, the games of the series, the stadium, and the *Competitive gameplay*
 tweaks both teams play with.
 
 1. Sign in with Discord. The browser opens a page that shows a code; go on
    only if it is the code the launcher shows.
-2. Challenge a player who has Recharged open: from your friends or the other
-   players online with a click, or by their Discord username. They accept or
+2. Challenge a player who has Recharged open: from the Friends or Players page
+   with a click, or by their Discord username. They accept or
    decline, in the launcher or on a card over their game while it is in its
    menus (A accepts, B declines; the game waits behind the card). A player in
    a match shows as *Playing a match* and can be challenged once it is over.
@@ -476,16 +479,17 @@ tweaks both teams play with.
    challenge was accepted closes, and its launcher starts the set's game. The
    game signs in to the online server with your own Mii and goes straight to
    the captain draft against your opponent, where you choose your captain and
-   sidekicks. **Not ready** in the lobby holds the set until you press
+   sidekicks. **Not ready** on the Online pages holds the set until you press
    **Ready to play!** again.
 4. After the series both games report the result, the game closes and the
    launcher opens again with the result, and **Rematch**.
 
 Your **friends** are kept on the server, so they follow you to every computer:
-everyone you challenge, everyone whose challenge you accept, and anyone you add
-with the heart (or by Discord username). The list shows who has Recharged open
-or is in a set, and for the others when they were last online. The heart again
-takes a player off.
+the players you add with the heart (or by Discord username). Playing someone
+doesn't make them a friend: they show under *Played recently* on the Players
+page, the latest first, until you add them. The list shows who has Recharged
+open or is in a set, and for the others when they were last online. The heart
+again takes a player off.
 
 Friends who have you as a friend too can **chat**: the speech bubble on their
 row opens the conversation, with the number of messages you haven't read yet

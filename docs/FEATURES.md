@@ -239,7 +239,7 @@ banner the game uses for its save, read from your own image. Click the one to
 play; images of versions this build cannot run yet are listed with the reason
 ([game images](SETTINGS.md#game-images)).
 
-Under **Online/Match setup**, its **Sidekicks** page sets the sidekicks each
+Under **Match setup**, its **Sidekicks** page sets the sidekicks each
 captain starts with, on a pitch laid out like the team plays: click a sidekick
 to put another one there. The game's sidekick screen then starts from that
 lineup, and what you choose there shows on the page: both are the lineups in

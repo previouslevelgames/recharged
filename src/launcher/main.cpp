@@ -209,16 +209,38 @@ void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_col
     DrawIcon(draw, Icon::Person, center, size * 0.62f, Col(light ? color::window : color::text));
 }
 
-enum Page { PagePlay, PageGame, PageMiis, PageSidekicks, PageRules, PageCompetitive, PageDisplay, PageAudio,
-            PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play", "Game", "Miis", "Sidekicks", "Match rules", "Competitive", "Display",
-                                      "Audio", "Controls", "Gameplay", "Advanced", "About"};
-constexpr const char* page_ids[] = {"play", "game", "miis", "sidekicks", "rules", "competitive", "display", "audio",
-                                    "controls", "gameplay", "advanced", "about"};
-constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Pitch, Icon::Trophy, Icon::Medal,
-                               Icon::Display, Icon::Audio, Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
+// In the sidebar's order. The pages of a group (kNavGroups) follow each other.
+enum Page { PagePlay, PageGame, PageFriends, PagePlayers, PageEvents, PageDisplay, PageAudio, PageControls,
+            PageGameplay, PageMiis, PageSidekicks, PageRules, PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_names[] = {"Play",     "Game",     "Friends", "Players",   "Events",
+                                      "Display",  "Audio",    "Controls", "Gameplay", "Miis",
+                                      "Sidekicks", "Match rules", "Advanced", "About"};
+constexpr const char* page_ids[] = {"play",     "game",     "friends", "players",   "events",   "display",  "audio",
+                                    "controls", "gameplay", "miis",    "sidekicks", "rules",    "advanced", "about"};
+constexpr Icon page_icons[] = {Icon::Play,     Icon::Disc,   Icon::Heart,  Icon::Gamepad, Icon::Medal,
+                               Icon::Display,  Icon::Audio,  Icon::Keyboard, Icon::Target, Icon::Person,
+                               Icon::Pitch,    Icon::Trophy, Icon::Sliders, Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
     && std::size(page_icons) == PageCount);
+
+// The sidebar's groups of three pages each: one row that opens the last of
+// its pages shown, and shows their rows while one of them is open.
+struct NavGroupInfo
+{
+    const char* label;
+    Icon icon;
+    int first;
+};
+constexpr int kNavGroupPages = 3;
+constexpr NavGroupInfo kNavGroups[] = {{"Online", Icon::Chat, PageFriends}, {"Match setup", Icon::Clipboard, PageMiis}};
+constexpr int NavGroupOf(int page)
+{
+    for (int group = 0; group < int(std::size(kNavGroups)); ++group)
+        if (page >= kNavGroups[group].first && page < kNavGroups[group].first + kNavGroupPages) return group;
+    return -1;
+}
+static_assert(NavGroupOf(PageEvents) == 0 && NavGroupOf(PageRules) == 1 && NavGroupOf(PageGameplay) == -1);
+constexpr bool OnlinePage(int page) { return NavGroupOf(page) == 0; }
 
 // The captains (eTeamID order) and the sidekicks (eSidekickID order), as the
 // game names them.
@@ -518,7 +540,7 @@ public:
         if (const char* set = std::getenv(kCompetitiveSetVariable); set && *set && !capture_)
         {
             competitive_started_set_ = std::strtoll(set, nullptr, 10);
-            if (!options_.page_selected) page_ = PageCompetitive;
+            if (!options_.page_selected) page_ = PageFriends;
         }
 #if !defined(__APPLE__)
         // The PC's graphics cards, for Advanced -> Graphics card and the log.
@@ -2787,30 +2809,30 @@ private:
         DrawLabel(draw, fonts.caption, {pad, y}, Col(color::dim), "Mario Strikers Charged");
         y += FontSize(fonts.caption) + Dp(28);
 
-        // Miis, Sidekicks and Match rules are the Online/Match setup group: its
-        // row opens the last of them shown, and it shows their rows while one
-        // of them is open.
-        const auto setup = [](int page) { return page == PageMiis || page == PageSidekicks || page == PageRules; };
-        if (setup(page_)) setup_page_ = page_;
+        // A group's row opens the last of its pages shown (kNavGroups).
+        const int open_group = NavGroupOf(page_);
+        if (open_group >= 0) group_page_[open_group] = page_;
         // The pages above the version line: their rows get lower when the
         // window is too low for all of them at the usual height, with room
-        // for the group's open panel (its three pages share its row).
+        // for the open group's panel (each group's pages share its row).
         const float badge = height - Dp(40);
-        const float row = std::clamp((badge - Dp(8) - y - NavGroupPagesHeight(3)) / float(PageCount - 2), Dp(34),
+        const float rows = float(PageCount - int(std::size(kNavGroups)) * (kNavGroupPages - 1));
+        const float row = std::clamp((badge - Dp(8) - y - NavGroupPagesHeight(kNavGroupPages)) / rows, Dp(34),
                                      Dp(48));
         ImGui::SetCursorPos({Dp(12), y});
         for (int i = 0; i < PageCount; ++i)
         {
             ImGui::SetCursorPosX(Dp(12));
-            if (setup(i))
+            if (const int group = NavGroupOf(i); group >= 0)
             {
-                if (i != PageMiis) continue;
+                const NavGroupInfo& info = kNavGroups[group];
+                if (i != info.first) continue;
                 const auto page = [&](int p) { return NavPage{page_names[p], page_icons[p], page_ == p}; };
-                const int clicked = NavGroup("Online/Match setup", Icon::Clipboard, setup(page_),
-                                             {page(PageMiis), page(PageSidekicks), page(PageRules)}, width - Dp(24),
-                                             row - Dp(4));
-                if (clicked == 0) page_ = setup_page_;
-                if (clicked > 0) page_ = PageMiis + clicked - 1;
+                static_assert(kNavGroupPages == 3);
+                const int clicked = NavGroup(info.label, info.icon, open_group == group,
+                                             {page(i), page(i + 1), page(i + 2)}, width - Dp(24), row - Dp(4));
+                if (clicked == 0) page_ = group_page_[group];
+                if (clicked > 0) page_ = i + clicked - 1;
             }
             else if (NavItem(page_names[i], page_icons[i], page_ == i, width - Dp(24), row - Dp(4))) page_ = i;
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y + Dp(4));
@@ -2888,7 +2910,9 @@ private:
             case PageMiis: MiiPage(); break;
             case PageSidekicks: SidekicksPage(); break;
             case PageRules: MatchRulesPage(); break;
-            case PageCompetitive: CompetitivePage(); break;
+            case PageFriends: FriendsPage(); break;
+            case PagePlayers: PlayersPage(); break;
+            case PageEvents: EventsPage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
@@ -3780,7 +3804,7 @@ private:
         if (status.error_serial != competitive_errors_)
         {
             competitive_errors_ = status.error_serial;
-            if (page_ == PageCompetitive && !status.error.empty()) Notice(status.error, NoticeKind::Error);
+            if (OnlinePage(page_) && !status.error.empty()) Notice(status.error, NoticeKind::Error);
         }
         // A friend's new message, told once (not for the open conversation,
         // nor for those unread at the sign-in).
@@ -3790,7 +3814,7 @@ private:
             {
                 int& told = chat_unread_told_[player.id];
                 if (player.unread > told && chat_unread_known_ && status.chat.with != player.id && !capture_)
-                    Notice("New message from " + player.name + (page_ == PageCompetitive ? "" : " (Competitive)"),
+                    Notice("New message from " + player.name + (page_ == PageFriends ? "" : " (Online, Friends)"),
                            NoticeKind::Info);
                 told = player.unread;
             }
@@ -3831,7 +3855,7 @@ private:
         if (discord_status_.error_serial != discord_errors_)
         {
             discord_errors_ = discord_status_.error_serial;
-            if (page_ == PageCompetitive && !discord_status_.error.empty())
+            if (OnlinePage(page_) && !discord_status_.error.empty())
                 Notice(discord_status_.error, discord_status_.state == DiscordFriends::State::NotLinked
                                                   ? NoticeKind::Info
                                                   : NoticeKind::Error);
@@ -3892,11 +3916,138 @@ private:
         return status.state != CompetitiveService::State::Connecting && !status.busy && discord_settled;
     }
 
-    void CompetitivePage()
+    // Online -> Friends: the player's friends and the Discord friends who
+    // play Recharged.
+    void FriendsPage()
     {
-        PageHeader("Competitive", "Sets against other Recharged players by the rules of the server. Sign in with "
-                                  "Discord and challenge a player: once they accept, both games go straight to the "
-                                  "captain draft.");
+        if (!OnlinePageTop("Friends", "Your friends and your Discord friends who play Recharged. Challenge one: once "
+                                      "they accept, both games go straight to the captain draft."))
+            return;
+        const auto now = std::int64_t(std::time(nullptr));
+        BeginCard("##online_friends", "Friends",
+                  "Your friends follow you to every computer. Add players with the heart, here or on the Players "
+                  "page, or by their Discord username.",
+                  Icon::Heart);
+        const platform::RuleSet* chosen = ChallengeRulesRow();
+        const auto& friends = competitive_status_.lists.friends;
+        const auto online = std::count_if(friends.begin(), friends.end(),
+                                          [](const platform::ProfilePlayer& player) { return player.online; });
+        SectionHeading("FRIENDS", friends.empty() ? std::string()
+                                  : std::to_string(online) + " online · " + std::to_string(friends.size()));
+        if (friends.empty())
+            TextWrappedColored(CurrentFonts().body, color::muted,
+                               "No friends yet. Add the players you like to play with: with the heart next to them, "
+                               "or by their Discord username below.");
+        for (const auto& player : friends) PlayerRow(player, chosen, now);
+        DiscordFriendsSection(chosen, now);
+        ByDiscordUsername(chosen);
+        EndCard();
+    }
+
+    // Online -> Players: everyone else with Recharged open, and the players
+    // last played with who are not friends.
+    void PlayersPage()
+    {
+        if (!OnlinePageTop("Players", "Everyone with Recharged open, and the players you played last. Challenge "
+                                      "anyone free to play, or add them to your friends."))
+            return;
+        const auto& status = competitive_status_;
+        const auto& lists = status.lists;
+        const auto now = std::int64_t(std::time(nullptr));
+        BeginCard("##online_players", "Players", "Friends and Discord friends who play Recharged are on the Friends page.",
+                  Icon::Gamepad);
+        const platform::RuleSet* chosen = ChallengeRulesRow();
+        // Each player once on the page (their rows share their id): not the
+        // friends, nor the Discord friends the Friends page shows.
+        std::set<std::int64_t> shown;
+        if (discord_status_.state == DiscordFriends::State::Ready)
+            for (const auto& player : status.discord_players) shown.insert(player.id);
+        const auto pick = [&](const std::vector<platform::ProfilePlayer>& list) {
+            std::vector<const platform::ProfilePlayer*> picked;
+            for (const auto& player : list)
+                if (!player.is_friend && shown.insert(player.id).second) picked.push_back(&player);
+            return picked;
+        };
+        const auto online = pick(lists.online);
+        SectionHeading("ONLINE NOW", online.empty() ? std::string() : std::to_string(online.size()));
+        if (online.empty())
+            TextWrappedColored(CurrentFonts().body, color::muted, "Nobody else has Recharged open right now.");
+        for (const auto* player : online) PlayerRow(*player, chosen, now);
+        // The server's latest first.
+        const auto recent = pick(lists.recent);
+        SectionHeading("PLAYED RECENTLY", recent.empty() ? std::string() : std::to_string(recent.size()));
+        if (recent.empty())
+            TextWrappedColored(CurrentFonts().body, color::muted,
+                               "The players you finish a set with show up here, the latest first, until you add "
+                               "them to your friends.");
+        for (const auto* player : recent) PlayerRow(*player, chosen, now);
+        ByDiscordUsername(chosen);
+        EndCard();
+    }
+
+    // Online -> Events: tournaments and organised match-ups, still to come.
+    void EventsPage()
+    {
+        OnlinePageTop("Events", "Tournaments and match-ups that organisers set up for you.");
+        BeginCard("##online_events", "Coming later",
+                  "Tournaments on start.gg and match-ups set up by an organiser will show up here: your next set, "
+                  "your opponent and the rules. You play it like an accepted challenge.",
+                  Icon::Medal);
+        EndCard();
+    }
+
+    // The rules every challenge from the Online pages uses.
+    const platform::RuleSet* ChallengeRulesRow()
+    {
+        const platform::RuleSet* chosen = ChosenRuleSet();
+        if (BeginRows("##challenge_rules_row"))
+        {
+            Row("Rules for your challenges",
+                chosen ? platform::DescribeRules(chosen->rules).c_str() : "This server has no rule sets yet.");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::BeginCombo("##challenge_rules", chosen ? chosen->name.c_str() : "None on this server"))
+            {
+                for (const auto& set : competitive_status_.rule_sets)
+                    if (ImGui::Selectable(set.name.c_str(), &set == chosen)) challenge_rule_set_ = set.id;
+                ImGui::EndCombo();
+            }
+            EndRows();
+        }
+        return ChosenRuleSet();
+    }
+
+    // Adding or challenging a player by Discord username.
+    void ByDiscordUsername(const platform::RuleSet* rules)
+    {
+        const bool busy = competitive_status_.busy;
+        SectionHeading("BY DISCORD USERNAME", std::string());
+        const float button = Dp(132), gap = Dp(8);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 2 * button - 2 * gap);
+        const bool entered = ImGui::InputTextWithHint("##challenge_name", "Discord username", &challenge_name_,
+                                                      ImGuiInputTextFlags_EnterReturnsTrue);
+        const auto first = challenge_name_.find_first_not_of(" \t");
+        const std::string name = first == std::string::npos
+            ? std::string()
+            : challenge_name_.substr(first, challenge_name_.find_last_not_of(" \t") + 1 - first);
+        ImGui::SameLine(0, gap);
+        if (GhostButton("add_by_name", "Add friend", {button, ImGui::GetFrameHeight()}, !busy && !name.empty(),
+                        Icon::Heart))
+            competitive_->AddFriend(name);
+        ImGui::SameLine(0, gap);
+        const bool usable = !busy && rules && !HasOpenSet() && !name.empty();
+        if (SecondaryButton("challenge", "Challenge", {button, ImGui::GetFrameHeight()}, usable, Icon::Trophy)
+            || (entered && usable))
+            competitive_->Challenge(name, challenge_rule_set_);
+    }
+
+    // The player has a set to play: no other challenge until it ends.
+    bool HasOpenSet() const { return competitive_status_.match && competitive_status_.match->Open(); }
+
+    // The top of every Online page: its header, the server and the
+    // player's sign-in, and their set. Whether the player is signed in.
+    bool OnlinePageTop(const char* title, const char* text)
+    {
+        PageHeader(title, text);
         using State = CompetitiveService::State;
         const auto& status = competitive_status_;
         CompetitiveStatusBar();
@@ -3911,8 +4062,9 @@ private:
                     color::warning, Icon::Warning);
         else if (status.state == State::SignedOut && status.info.test)
             CompetitiveTestSignIn();
-        else if (status.state == State::SignedIn)
-            CompetitiveMatchCard();
+        if (status.state != State::SignedIn) return false;
+        CompetitiveMatchCard();
+        return true;
     }
 
     // What the bar's pill says about the signed-in player: the set's stage.
@@ -4123,8 +4275,7 @@ private:
         EndCard();
     }
 
-    // The set to play while there is one; else the last one's result and
-    // the challenge of the next.
+    // The set to play while there is one; else the last one's result.
     void CompetitiveMatchCard()
     {
         const auto& status = competitive_status_;
@@ -4133,7 +4284,6 @@ private:
         if (!match || !match->Open())
         {
             if (match) LastSetCard(*match, busy);
-            CompetitiveChallengeCard();
             return;
         }
         BeginCard("##competitive_match", "Your set", "A series against one player, by one of the server's rule sets.",
@@ -4400,7 +4550,7 @@ private:
         {
             place(Dp(132));
             if (SecondaryButton("challenge_player", "Challenge", {Dp(132), button_height},
-                                !busy && rules && !taken, Icon::Trophy))
+                                !busy && rules && !taken && !HasOpenSet(), Icon::Trophy))
                 competitive_->ChallengePlayer(player.id, rules->id);
         }
 
@@ -4651,14 +4801,13 @@ private:
 
     // The player's Discord friends who play Recharged, once the player
     // connects Discord (nothing in a build without the Discord Social SDK):
-    // those not among the friends already, as rows. Returns the players
-    // shown.
-    std::set<std::int64_t> DiscordFriendsSection(const platform::RuleSet* rules, std::int64_t now)
+    // those not among the friends already, as rows.
+    void DiscordFriendsSection(const platform::RuleSet* rules, std::int64_t now)
     {
         using State = DiscordFriends::State;
         std::set<std::int64_t> shown;
         const auto& discord = discord_status_;
-        if (!discord_friends_ || discord.state == State::Missing || discord.state == State::Off) return shown;
+        if (!discord_friends_ || discord.state == State::Missing || discord.state == State::Off) return;
         const auto& fonts = CurrentFonts();
         const auto& players = competitive_status_.discord_players;
         std::string after;
@@ -4710,76 +4859,6 @@ private:
             break;
         default: break;
         }
-        return shown;
-    }
-
-    // The players: the rules every challenge from this page uses, the
-    // player's friends (online first, then when they last had Recharged
-    // open), everyone else who has Recharged open, and adding or challenging
-    // a player by Discord username.
-    void CompetitiveChallengeCard()
-    {
-        const auto& status = competitive_status_;
-        const auto& lists = status.lists;
-        const auto& fonts = CurrentFonts();
-        const bool busy = status.busy;
-        const auto now = std::int64_t(std::time(nullptr));
-        BeginCard("##competitive_players", "Players",
-                  "Your friends follow you to every computer: everyone you challenge or play, and anyone you add.",
-                  Icon::Person);
-        const platform::RuleSet* chosen = ChosenRuleSet();
-        if (BeginRows("##challenge_rules_row"))
-        {
-            Row("Rules for your challenges",
-                chosen ? platform::DescribeRules(chosen->rules).c_str() : "This server has no rule sets yet.");
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            if (ImGui::BeginCombo("##challenge_rules", chosen ? chosen->name.c_str() : "None on this server"))
-            {
-                for (const auto& set : status.rule_sets)
-                    if (ImGui::Selectable(set.name.c_str(), &set == chosen)) challenge_rule_set_ = set.id;
-                ImGui::EndCombo();
-            }
-            EndRows();
-        }
-
-        const auto online_friends = std::count_if(lists.friends.begin(), lists.friends.end(),
-                                                  [](const platform::ProfilePlayer& player) { return player.online; });
-        SectionHeading("FRIENDS", lists.friends.empty() ? std::string()
-                                  : std::to_string(online_friends) + " online · " + std::to_string(lists.friends.size()));
-        if (lists.friends.empty())
-            TextWrappedColored(fonts.body, color::muted,
-                               "No friends yet. Players you challenge or play show up here, and anyone you add.");
-        for (const auto& player : lists.friends) PlayerRow(player, chosen, now);
-
-        const auto discord_shown = DiscordFriendsSection(chosen, now);
-        std::vector<const platform::ProfilePlayer*> others;
-        for (const auto& player : lists.online)
-            if (!player.is_friend && !discord_shown.count(player.id)) others.push_back(&player);
-        SectionHeading("ALSO ONLINE", others.empty() ? std::string() : std::to_string(others.size()));
-        if (others.empty())
-            TextWrappedColored(fonts.body, color::muted, "Nobody else has Recharged open right now.");
-        for (const auto* player : others) PlayerRow(*player, chosen, now);
-
-        // By Discord username: add as a friend, or challenge.
-        SectionHeading("BY DISCORD USERNAME", std::string());
-        const float button = Dp(132), gap = Dp(8);
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 2 * button - 2 * gap);
-        const bool entered = ImGui::InputTextWithHint("##challenge_name", "Discord username", &challenge_name_,
-                                                      ImGuiInputTextFlags_EnterReturnsTrue);
-        const auto first = challenge_name_.find_first_not_of(" \t");
-        const std::string name = first == std::string::npos
-            ? std::string()
-            : challenge_name_.substr(first, challenge_name_.find_last_not_of(" \t") + 1 - first);
-        ImGui::SameLine(0, gap);
-        if (GhostButton("add_by_name", "Add friend", {button, ImGui::GetFrameHeight()}, !busy && !name.empty(),
-                        Icon::Heart))
-            competitive_->AddFriend(name);
-        ImGui::SameLine(0, gap);
-        const bool usable = !busy && chosen && !name.empty();
-        if (SecondaryButton("challenge", "Challenge", {button, ImGui::GetFrameHeight()}, usable, Icon::Trophy)
-            || (entered && usable))
-            competitive_->Challenge(name, challenge_rule_set_);
-        EndCard();
     }
 
     void MakeMii()
@@ -9894,7 +9973,7 @@ private:
     NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
     int page_ = PagePlay;
-    int setup_page_ = PageMiis; // the Online/Match setup page its row opens
+    int group_page_[std::size(kNavGroups)] = {PageFriends, PageMiis}; // the page each group's row opens
     bool close_requested_ = false;
     bool pending_ = false;
     bool region_prompt_ = false;

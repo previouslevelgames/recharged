@@ -389,6 +389,6 @@ rich_presence = true
 # rollback_log =
 # Competitive play: the address of a Recharged WFC server's profile service
 # (https://, or http:// for a test server on this computer or network).
-# Players sign in to it with Discord on the launcher's Competitive page, which
-# shows it; only this file changes it. Left out or empty, the project's server.
+# Players sign in to it with Discord on the launcher's Online pages, which
+# show it; only this file changes it. Left out or empty, the project's server.
 # profile_server = https://rechargedwfc.net
