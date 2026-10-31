@@ -3910,8 +3910,7 @@ private:
         // Development captures: RECHARGED_CAPTURE_DISCORD=preview shows made-up
         // Discord friends while signed in, and asks the server nothing.
         const char* preview = capture_ ? std::getenv("RECHARGED_CAPTURE_DISCORD") : nullptr;
-        if (preview && std::string(preview).rfind("preview", 0) == 0
-            && status.state == CompetitiveService::State::SignedIn)
+        if (preview && std::string(preview).rfind("preview", 0) == 0)
         {
             PreviewDiscordFriends(preview);
             return;
@@ -3943,6 +3942,29 @@ private:
     void PreviewDiscordFriends(const std::string& mode)
     {
         using Presence = DiscordFriends::Presence;
+        if (competitive_status_.state != CompetitiveService::State::SignedIn)
+        {
+            // Signed out: a made-up profile on the server, for the pages that need one.
+            competitive_status_.state = CompetitiveService::State::SignedIn;
+            competitive_status_.player.id = 900000;
+            competitive_status_.player.name = "Anosch";
+            competitive_status_.player.discord = ".anosch";
+            competitive_status_.player.wfc = {{1000000000, "R4QE", "0868-9934-5920", "Anosch"}};
+            if (competitive_status_.info.version.empty()) competitive_status_.info.version = "1.2.1";
+            if (competitive_status_.server.empty()) competitive_status_.server = draft_.profile_server;
+            if (competitive_status_.rule_sets.empty())
+            {
+                platform::RuleSet set;
+                set.id = 1;
+                set.name = "Competitive";
+                set.rules.skill = "rookie";
+                set.rules.limit = "time";
+                set.rules.time = 180;
+                set.rules.games = 3;
+                set.rules.stadium = "random";
+                competitive_status_.rule_sets = {set};
+            }
+        }
         discord_status_.state = DiscordFriends::State::Ready;
         discord_status_.error.clear();
         discord_status_.friends = {{"900000000000000001", "Daisy", Presence::Idle, true},
@@ -4393,31 +4415,40 @@ private:
         }
         ImGui::Dummy({0, Dp(16)});
 
-        // The one step, or what holds it up.
+        // The one step, or what holds it up; centred under the tiles.
+        const float left = ImGui::GetCursorPosX();
+        const auto centred = [&](ImFont* font, const ImVec4& tint, const std::string& text) {
+            ImGui::SetCursorPosX(left + std::max(0.0f, (width - TextSize(font, text.c_str()).x) * 0.5f));
+            TextColored(font, tint, text.c_str());
+        };
         switch (status.state)
         {
         case State::SignedOut:
             if (status.info.discord)
             {
+                const ImVec2 size = Dp(340, 58);
+                ImGui::Dummy({0, Dp(4)});
+                ImGui::SetCursorPosX(left + (width - size.x) * 0.5f);
                 ImGui::BeginDisabled(busy);
-                if (DiscordButton("online_connect", "Connect Discord", Dp(300, 50))) competitive_->SignIn();
+                if (DiscordButton("online_connect", "Connect Discord", size, true)) competitive_->SignIn();
                 ImGui::EndDisabled();
-                ImGui::Dummy({0, Dp(6)});
-                TextWrappedColored(fonts.caption, color::dim,
-                                   "Your profile takes your Discord name and picture. Your friends list goes from "
-                                   "Discord straight to this computer.");
+                ImGui::Dummy({0, Dp(12)});
+                centred(fonts.caption, color::dim,
+                        "Your profile takes your Discord name and picture. Your friends list goes from Discord "
+                        "straight to this computer.");
             }
             else if (!status.info.test)
-                TextWrappedColored(fonts.body, color::muted, "This server offers no way to sign in yet.");
+                centred(fonts.body, color::muted, "This server offers no way to sign in yet.");
             break;
         case State::SigningIn:
         {
-            TextColored(fonts.label, color::text, "Finish in your browser");
-            ImGui::Dummy({0, Dp(2)});
-            TextWrappedColored(fonts.body, color::muted, "Go on only if the page there shows this code:");
+            centred(fonts.heading, color::text, "Finish in your browser");
+            centred(fonts.body, color::muted, "Go on only if the page there shows this code:");
             ImGui::Dummy({0, Dp(4)});
-            TextColored(fonts.title, color::accent, status.code.c_str());
-            ImGui::Dummy({0, Dp(8)});
+            centred(fonts.title, color::accent, status.code);
+            ImGui::Dummy({0, Dp(10)});
+            const float buttons = Dp(210) + Dp(10) + Dp(120);
+            ImGui::SetCursorPosX(left + (width - buttons) * 0.5f);
             if (SecondaryButton("sign_in_again", "Open the page again", Dp(210, 40), !status.url.empty(), Icon::Link))
                 SDL_OpenURL(status.url.c_str());
             ImGui::SameLine(0, Dp(10));
@@ -4450,73 +4481,143 @@ private:
         if (const auto scheme = host.find("://"); scheme != std::string::npos) host.erase(0, scheme + 3);
         const std::string server
             = "Server: " + host + (status.info.version.empty() ? std::string() : "  ·  " + status.info.version);
-        ImGui::Dummy({0, Dp(10)});
-        TextColored(fonts.caption, color::dim, server.c_str());
+        ImGui::Dummy({0, Dp(14)});
+        centred(fonts.caption, color::dim, server);
         EndCard();
         if (status.state == State::SignedOut && status.info.test) CompetitiveTestSignIn();
     }
 
-    // Online -> Online settings: the player's profile and sign-out, the
-    // server, and the Discord friends' link.
+    // Online -> Online settings: one card with the player's profile (the
+    // initial, the name with what they are doing, the Discord username and
+    // Sign out) over rows for the friend code, the Discord friends and the
+    // server.
     void OnlineSettingsPage()
     {
-        if (competitive_status_.state != CompetitiveService::State::SignedIn)
+        using State = CompetitiveService::State;
+        const auto& status = competitive_status_;
+        if (status.state != State::SignedIn)
         {
             OnlineWelcome();
             return;
         }
-        PageHeader("Online settings", "Your profile, the server you play on, and your Discord friends.");
-        CompetitiveStatusBar();
-        DiscordLinkCard();
-    }
-
-    // The Discord friends' link: connected and the way to end it, or Connect
-    // Discord (sign-ins before the server passed it on), or the link under
-    // way.
-    void DiscordLinkCard()
-    {
-        using State = DiscordFriends::State;
-        const auto& discord = discord_status_;
+        PageHeader("Online settings", "Your profile, your Discord friends and the server you play on.");
+        const auto& player = status.player;
         const auto& fonts = CurrentFonts();
-        BeginCard("##discord_link", "Discord friends",
-                  "Your Discord friends on the Friends page, with who of them has Recharged open.", Icon::Chat);
-        const ImVec2 button{Dp(200), Dp(40)};
-        switch (discord_friends_ ? discord.state : State::Missing)
+        BeginCard("##online_profile", nullptr);
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(64), avatar = Dp(58);
+        const ImVec2 center{at.x + avatar * 0.5f, at.y + height * 0.5f};
+        draw->AddCircleFilled(center, avatar * 0.5f, Col(color::accent, 0.16f));
+        draw->AddCircle(center, avatar * 0.5f, Col(color::accent, 0.45f), 0, Dp(1.5f));
+        std::string initial = player.name.empty() ? std::string("?") : player.name.substr(0, 1);
+        if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
+            initial = player.name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2,
+                                                                   player.name.size()));
+        else
+            initial[0] = char(std::toupper(byte));
+        const ImVec2 letter = TextSize(fonts.title, initial.c_str());
+        DrawLabel(draw, fonts.title, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f}, Col(color::accent),
+                  initial.c_str());
+        // Sign out, which also ends the Discord friends' link on this computer.
+        const ImVec2 sign_out{Dp(124), Dp(38)};
+        ImGui::SetCursorScreenPos({at.x + width - sign_out.x, center.y - sign_out.y * 0.5f});
+        if (GhostButton("sign_out", "Sign out", sign_out, !status.busy, Icon::Close))
         {
-        case State::Ready:
-        {
-            const std::string text = "Connected: " + std::to_string(discord.friends.size()) + " Discord friends, "
-                + std::to_string(competitive_status_.discord_players.size()) + " of them on Recharged.";
-            TextWrappedColored(fonts.body, color::muted, text.c_str());
-            ImGui::Dummy({0, Dp(6)});
-            if (GhostButton("discord_disconnect", "Disconnect Discord", button, true, Icon::Close))
-                discord_friends_->Disconnect();
-            break;
+            competitive_->SignOut();
+            if (discord_friends_) discord_friends_->Disconnect();
         }
-        case State::NotLinked:
-        case State::Failed:
-            TextWrappedColored(fonts.body, discord.state == State::Failed ? color::warning : color::muted,
-                               discord.state == State::Failed && !discord.error.empty()
-                                   ? discord.error.c_str()
-                                   : "Not connected on this computer. Your friends list goes from Discord straight to "
-                                     "this computer.");
-            ImGui::Dummy({0, Dp(6)});
-            if (DiscordButton("discord_connect", discord.state == State::Failed ? "Try again" : "Connect Discord",
-                              button))
-                discord_friends_->Connect();
-            break;
-        case State::Linking:
-            TextWrappedColored(fonts.body, color::muted,
-                               "Confirm in Discord: it opened in the Discord app or in your browser.");
-            ImGui::Dummy({0, Dp(6)});
-            if (GhostButton("discord_cancel", "Cancel", button, true, Icon::Close)) discord_friends_->Cancel();
-            break;
-        case State::Connecting: TextWrappedColored(fonts.body, color::muted, "Connecting to Discord..."); break;
-        default:
-            TextWrappedColored(fonts.body, color::muted,
-                               "This build has no Discord friends: they need Discord's library, which only the "
-                               "official packages include.");
-            break;
+        const float text_left = at.x + avatar + Dp(18);
+        const std::string under = !player.discord.empty() ? "@" + player.discord + "  ·  Signed in with Discord"
+            : player.test                                ? std::string("Test player")
+                                                         : std::string("Signed in");
+        const float block = FontSize(fonts.heading) + Dp(4) + FontSize(fonts.body);
+        const float top = center.y - block * 0.5f;
+        draw->PushClipRect({text_left, at.y}, {at.x + width - sign_out.x - Dp(16), at.y + height}, true);
+        DrawLabel(draw, fonts.heading, {text_left, top}, Col(color::text), player.name.c_str());
+        {
+            // What the player is doing, as a pill after the name.
+            const auto [word, tint] = PlayerActivity(status.match);
+            const ImVec2 size = TextSize(fonts.caption, word);
+            const ImVec2 pill{text_left + TextSize(fonts.heading, player.name.c_str()).x + Dp(12),
+                              top + (FontSize(fonts.heading) - Dp(22)) * 0.5f};
+            draw->AddRectFilled(pill, {pill.x + Dp(26) + size.x, pill.y + Dp(22)}, Col(tint, 0.14f), Dp(11));
+            draw->AddCircleFilled({pill.x + Dp(11), pill.y + Dp(11)}, Dp(3.5f), Col(tint));
+            DrawLabel(draw, fonts.caption, {pill.x + Dp(19), pill.y + (Dp(22) - size.y) * 0.5f}, Col(tint), word);
+        }
+        DrawLabel(draw, fonts.body, {text_left, top + FontSize(fonts.heading) + Dp(4)}, Col(color::muted),
+                  under.c_str());
+        draw->PopClipRect();
+        ImGui::SetCursorScreenPos(at);
+        ImGui::Dummy({width, height});
+        ImGui::Dummy({0, Dp(8)});
+        {
+            const ImVec2 line = ImGui::GetCursorScreenPos();
+            draw->AddRectFilled({line.x, line.y}, {line.x + width, line.y + Dp(1)}, Col(color::border));
+            ImGui::Dummy({width, Dp(6)});
+        }
+
+        // A row's value: a dot in its colour, then the text.
+        const auto value = [&](const std::string& text, const ImVec4& tint, const ImVec4* dot) {
+            const ImVec2 start = ImGui::GetCursorScreenPos();
+            const float line = FontSize(fonts.label);
+            float x = start.x;
+            if (dot)
+            {
+                draw->AddCircleFilled({x + Dp(4), start.y + line * 0.5f}, Dp(4), Col(*dot));
+                x += Dp(16);
+            }
+            DrawLabel(draw, fonts.label, {x, start.y}, Col(tint), text.c_str());
+            ImGui::Dummy({x - start.x + TextSize(fonts.label, text.c_str()).x, line});
+        };
+        if (BeginRows("##online_settings_rows"))
+        {
+            // The friend code of the Mii that plays online, others in the tooltip.
+            Row("Friend code", player.wfc.empty() ? "A Mii gets one at its first online login in the game."
+                                                  : "For the game's own online menus.");
+            if (player.wfc.empty()) value("None yet", color::muted, nullptr);
+            else
+            {
+                const auto& first = player.wfc.front();
+                value(first.friend_code
+                          + (player.wfc.size() > 1 ? "  +" + std::to_string(player.wfc.size() - 1) : std::string()),
+                      color::text, nullptr);
+                if (ImGui::IsItemHovered())
+                {
+                    std::string codes;
+                    for (const auto& profile : player.wfc)
+                        codes += (codes.empty() ? "" : "\n") + profile.friend_code + "  "
+                            + (profile.mii.empty() ? profile.game : profile.mii + ", " + profile.game);
+                    ImGui::SetTooltip("%s", codes.c_str());
+                }
+            }
+
+            // The Discord friends that come with the sign-in.
+            using DiscordState = DiscordFriends::State;
+            const DiscordState discord = discord_friends_ ? discord_status_.state : DiscordState::Missing;
+            const bool linked = discord == DiscordState::Ready;
+            const bool waiting = discord == DiscordState::Connecting || discord == DiscordState::Linking;
+            Row("Discord friends", linked ? "On the Friends page, with who of them has Recharged open."
+                                   : waiting ? "Connecting to Discord."
+                                   : discord == DiscordState::Missing
+                                       ? "Builds made from source go without Discord friends."
+                                       : "Sign out and connect Discord again to bring them.");
+            if (linked)
+                value("Linked  ·  " + std::to_string(discord_status_.friends.size()) + " friends, "
+                          + std::to_string(status.discord_players.size()) + " on Recharged",
+                      color::text, &color::success);
+            else if (waiting) value("Connecting...", color::muted, &color::warning);
+            else if (discord == DiscordState::Missing) value("Not in this build", color::muted, nullptr);
+            else value("Not linked", color::warning, &color::warning);
+
+            // The server: only the settings file changes it.
+            std::string host = status.server;
+            if (const auto scheme = host.find("://"); scheme != std::string::npos) host.erase(0, scheme + 3);
+            const std::string where = "online.profile_server in " + file_.path.filename().string() + ".";
+            Row("Server", ("Set by " + where).c_str());
+            value(host + (status.info.version.empty() ? std::string() : "  ·  " + status.info.version), color::text,
+                  &color::success);
+            EndRows();
         }
         EndCard();
     }
@@ -4532,181 +4633,6 @@ private:
         if (match->stage == "playing") return {"Playing", color::accent};
         if (match->stage == "open" && match->you_ready) return {"Ready", color::success};
         return {"In a set", color::info};
-    }
-
-    // The top of the page, one line: who you are and what you're doing, the
-    // server (only the settings file changes it), and signing in or out.
-    void CompetitiveStatusBar()
-    {
-        using State = CompetitiveService::State;
-        const auto& status = competitive_status_;
-        const auto& fonts = CurrentFonts();
-        const bool busy = status.busy;
-        const float height = Dp(76);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, color::card);
-        ImGui::PushStyleColor(ImGuiCol_Border, color::border);
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, Dp(16));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(20, 0));
-        ImGui::BeginChild("##competitive_bar", {0, height}, ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        auto* draw = ImGui::GetWindowDrawList();
-        const ImVec2 window = ImGui::GetWindowPos();
-        const float left = window.x + Dp(20), right = window.x + ImGui::GetWindowWidth() - Dp(20);
-        const float middle = window.y + height * 0.5f;
-
-        // Right to left: the actions, then the server.
-        float edge = right;
-        const auto place = [&](float width, float item_height) {
-            edge -= width;
-            ImGui::SetCursorScreenPos({edge, middle - item_height * 0.5f});
-        };
-        if (status.state == State::SignedIn)
-        {
-            place(Dp(110), Dp(36));
-            if (GhostButton("sign_out", "Sign out", Dp(110, 36), !busy)) competitive_->SignOut();
-        }
-        else if (status.state == State::SigningIn)
-        {
-            place(Dp(100), Dp(36));
-            if (GhostButton("sign_in_stop", "Cancel", Dp(100, 36))) competitive_->StopSignIn();
-            edge -= Dp(8);
-            place(Dp(190), Dp(36));
-            if (SecondaryButton("sign_in_again", "Open the page again", Dp(190, 36), !status.url.empty(), Icon::Link))
-                SDL_OpenURL(status.url.c_str());
-        }
-        else if (status.state == State::SignedOut && status.info.discord)
-        {
-            place(Dp(220), Dp(40));
-            ImGui::BeginDisabled(busy);
-            if (DiscordButton("sign_in_discord", "Sign in with Discord", Dp(220, 40))) competitive_->SignIn();
-            ImGui::EndDisabled();
-        }
-        if (edge < right) edge -= Dp(24);
-
-        // The server: a dot for how it answers, its host, and its version.
-        std::string host = status.server.empty() ? draft_.profile_server : status.server;
-        if (const auto scheme = host.find("://"); scheme != std::string::npos) host.erase(0, scheme + 3);
-        const bool connected = status.state == State::SignedOut || status.state == State::SigningIn
-            || status.state == State::SignedIn;
-        const ImVec4 tint = connected ? color::success
-            : status.state == State::Connecting ? color::muted
-            : color::danger;
-        const std::string about = connected ? (status.info.version.empty() ? "Connected" : "Server " + status.info.version)
-            : status.state == State::Connecting ? "Connecting..."
-            : status.state == State::Unavailable ? "No answer"
-            : "Not a server's address";
-        const float dot = Dp(8), gap = Dp(8);
-        const ImVec2 host_size = TextSize(fonts.body, host.c_str()), about_size = TextSize(fonts.caption, about.c_str());
-        const float server_width = dot + gap + std::max(host_size.x, about_size.x);
-        edge -= server_width;
-        const float lines = host_size.y + Dp(2) + about_size.y;
-        const float top = middle - lines * 0.5f;
-        draw->AddCircleFilled({edge + dot * 0.5f, top + host_size.y * 0.5f}, dot * 0.5f, Col(tint));
-        if (status.state == State::Connecting) draw->AddCircle({edge + dot * 0.5f, top + host_size.y * 0.5f}, dot,
-                                                               Col(tint, 0.35f), 0, Dp(1.5f));
-        DrawLabel(draw, fonts.body, {edge + dot + gap, top}, Col(color::text), host.c_str());
-        DrawLabel(draw, fonts.caption, {edge + dot + gap, top + host_size.y + Dp(2)}, Col(color::muted), about.c_str());
-        ImGui::SetCursorScreenPos({edge, top});
-        ImGui::InvisibleButton("##competitive_server", {server_width, lines});
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s\nThe server of competitive play: online.profile_server in %s.",
-                              (status.server.empty() ? draft_.profile_server : status.server).c_str(),
-                              file_.path.filename().string().c_str());
-        const float text_right = edge - Dp(24);
-
-        // Left: the avatar (an initial), then the name and what's under it.
-        const float avatar = Dp(42);
-        const ImVec2 center{left + avatar * 0.5f, middle};
-        std::string title, under;
-        std::pair<const char*, ImVec4> pill{nullptr, color::muted};
-        const auto& player = status.player;
-        if (status.state == State::SignedIn)
-        {
-            draw->AddCircleFilled(center, avatar * 0.5f, Col(color::accent, 0.16f));
-            std::string initial = player.name.empty() ? std::string("?") : player.name.substr(0, 1);
-            if (const auto byte = static_cast<unsigned char>(player.name.empty() ? '?' : player.name[0]); byte >= 0x80)
-            {
-                // The whole first character of a name that starts outside ASCII.
-                std::size_t length = byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2;
-                initial = player.name.substr(0, std::min(length, player.name.size()));
-            }
-            else
-                initial[0] = char(std::toupper(byte));
-            const ImVec2 size = TextSize(fonts.heading, initial.c_str());
-            DrawLabel(draw, fonts.heading, {center.x - size.x * 0.5f, center.y - size.y * 0.5f}, Col(color::accent),
-                      initial.c_str());
-            title = player.name;
-            under = !player.discord.empty() ? "@" + player.discord : player.test ? "Test player" : std::string();
-            if (!player.wfc.empty())
-            {
-                const auto& first = player.wfc.front();
-                under += (under.empty() ? "" : "  ·  ") + std::string("Friend code ") + first.friend_code;
-                if (player.wfc.size() > 1) under += " +" + std::to_string(player.wfc.size() - 1);
-            }
-            pill = PlayerActivity(status.match);
-        }
-        else
-        {
-            draw->AddCircleFilled(center, avatar * 0.5f, Col(color::muted, 0.12f));
-            if (status.state == State::SigningIn || status.state == State::Connecting)
-                Spinner(center, Dp(9), Col(color::muted));
-            else
-                DrawIcon(draw, Icon::Person, center, Dp(20), Col(color::muted));
-            switch (status.state)
-            {
-            case State::SigningIn:
-                title = "Your code";
-                under = "Go on in your browser only if its page shows it.";
-                break;
-            case State::SignedOut:
-                title = "Not signed in";
-                under = status.info.discord ? "Sign in to challenge players and play sets."
-                    : status.info.test      ? "This test server signs you in with a name."
-                                            : "This server offers no way to sign in yet.";
-                break;
-            case State::Connecting: title = "Competitive play"; under = "Asking the server..."; break;
-            default: title = "Competitive play"; under = "Not available until the server answers."; break;
-            }
-        }
-        const float text_left = left + avatar + Dp(14);
-        const ImVec2 title_size = TextSize(fonts.label, title.c_str());
-        const float block = title_size.y + Dp(3) + FontSize(fonts.caption);
-        const float title_top = middle - block * 0.5f;
-        draw->PushClipRect({text_left, window.y}, {std::max(text_left, text_right), window.y + height}, true);
-        DrawLabel(draw, fonts.label, {text_left, title_top}, Col(color::text), title.c_str());
-        DrawLabel(draw, fonts.caption, {text_left, title_top + title_size.y + Dp(3)}, Col(color::muted), under.c_str());
-        float after_title = text_left + title_size.x + Dp(12);
-        if (pill.first)
-        {
-            // A dot and a word after the name.
-            const ImVec2 word = TextSize(fonts.caption, pill.first);
-            const ImVec2 at{after_title, title_top + (title_size.y - Dp(22)) * 0.5f};
-            const ImVec2 end{at.x + Dp(26) + word.x, at.y + Dp(22)};
-            draw->AddRectFilled(at, end, Col(pill.second, 0.14f), Dp(11));
-            draw->AddCircleFilled({at.x + Dp(11), at.y + Dp(11)}, Dp(3.5f), Col(pill.second));
-            DrawLabel(draw, fonts.caption, {at.x + Dp(19), at.y + (Dp(22) - word.y) * 0.5f}, Col(pill.second),
-                      pill.first);
-        }
-        else if (status.state == State::SigningIn)
-            DrawLabel(draw, fonts.label, {after_title - Dp(4), title_top}, Col(color::accent), status.code.c_str());
-        draw->PopClipRect();
-        if (status.state == State::SignedIn && player.wfc.size() > 1)
-        {
-            ImGui::SetCursorScreenPos({text_left, title_top + title_size.y});
-            ImGui::InvisibleButton("##friend_codes", {std::max(1.0f, std::min(text_right - text_left, Dp(320))), Dp(18)});
-            if (ImGui::IsItemHovered())
-            {
-                std::string codes;
-                for (const auto& profile : player.wfc)
-                    codes += (codes.empty() ? "" : "\n") + profile.friend_code + "  "
-                        + (profile.mii.empty() ? profile.game : profile.mii + ", " + profile.game);
-                ImGui::SetTooltip("%s", codes.c_str());
-            }
-        }
-        ImGui::EndChild();
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor(2);
-        ImGui::Dummy({0, Dp(8)});
     }
 
     // A test server's sign-in by name, for a second game on this computer
@@ -5629,7 +5555,7 @@ private:
             DrawDiscordMark(draw, {at.x + Dp(4) + mark * 0.5f, at.y + row * 0.5f}, mark, Col(color::discord),
                             Col(color::card));
             DrawLabel(draw, fonts.body, {at.x + mark + Dp(14), at.y + (row - FontSize(fonts.body)) * 0.5f},
-                      Col(color::muted), "Your Discord friends aren't connected on this computer.");
+                      Col(color::muted), "Your Discord friends aren't linked: sign out and connect Discord again.");
             ImGui::SetCursorScreenPos({at.x + width - button, at.y + (row - Dp(32)) * 0.5f});
             if (GhostButton("to_online_settings", "Online settings", {button, Dp(32)}, true, Icon::Person))
                 page_ = PageOnlineSettings;

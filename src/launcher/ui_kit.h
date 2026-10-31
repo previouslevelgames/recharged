@@ -98,7 +98,7 @@ struct NavPage
 // raised panel with the pages under it. Returns 0 for a click on the group's
 // row, 1 and up for one on a page, -1 for none. row_height 0: the usual row
 // (44 dp), as NavItem. Without pages the row stands alone (no chevron);
-// `status`, when given, is a dot in that colour before the label.
+// `status`, when given, is a dot in that colour after the label.
 int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>& pages, float width,
              float row_height = 0.0f, const ImVec4* status = nullptr);
 // The height an open NavGroup adds under its row for that many pages.
@@ -170,7 +170,8 @@ void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
 // the colour it sits on.
 void DrawDiscordMark(ImDrawList* draw, ImVec2 center, float width, ImU32 color, ImU32 eyes);
 // A button in Discord's colour with its logo, for a link to a Discord server.
-bool DiscordButton(const char* id, const char* label, ImVec2 size);
+// `hero`: the big call to action, a pill with a bold label and a glow.
+bool DiscordButton(const char* id, const char* label, ImVec2 size, bool hero = false);
 // A small flag of a disc region (the disc ID's fourth letter: E USA, P Europe,
 // J Japan, K Korea; grey for others), `height` tall and 1.5 times as wide.
 // Always shown with the region's name: the flag alone tells nothing to some.

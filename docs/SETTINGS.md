@@ -461,8 +461,9 @@ the rules of the project's online server, `https://rechargedwfc.net`:
 **Players** (everyone else with Recharged open, and the players you played
 last), **Events** (tournaments, coming later), **Match settings** (the rule
 set your challenges go out with, kept as `[online] challenge_rules`) and
-**Online settings** (who you are signed in as, the server and whether it
-answers, your Discord friends' link, and Sign out). A dot before **Online** in
+**Online settings** (who you are signed in as, your friend code, whether your
+Discord friends are linked, the server, and Sign out, which also ends the
+Discord link on this computer). A dot before **Online** in
 the sidebar shows the sign-in: green signed in, red not; signed out, Online is
 one page that shows what playing online brings and **Connect Discord**. Your
 set shows at the top of the Online pages. A private server's `https://`

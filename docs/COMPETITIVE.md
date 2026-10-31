@@ -53,9 +53,8 @@ with the score.
 Recharged's own friends list follows you everywhere, but your friends are
 probably on Discord already. Signing in with Discord links them too: Discord's
 page asks for your account and your friends list at once, and the **Friends**
-page then lists all your Discord friends. If you signed in before that, press
-**Connect Discord** on **Online settings** once per computer and agree in the
-Discord app or your browser.
+page then lists all your Discord friends. If you signed in before that, sign
+out on **Online settings** and connect Discord again.
 
 The **Friends** page lists your friends and your Discord friends together,
 Discord friends with Discord's mark. Those with Recharged open come first,
@@ -69,9 +68,8 @@ challenges a player by Discord username.
 - Your Discord friends list goes from Discord straight to Recharged on your
   computer. Our server only learns which of the accounts in it have a
   Recharged profile; it keeps neither the list nor Discord's keys.
-- Connect the Discord account you signed in with. **Disconnect Discord** on
-  **Online settings** ends it on this computer; Discord's settings (Authorized
-  Apps) end it everywhere.
+- **Sign out** on **Online settings** ends it on this computer; Discord's
+  settings (Authorized Apps) end it everywhere.
 - Builds made from source go without Discord friends: they need Discord's
   library, which only the official packages include.
 

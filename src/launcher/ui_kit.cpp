@@ -768,17 +768,16 @@ int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>
                                 shown)),
                         Dp(8));
     DrawIcon(draw, icon, badge, Dp(17), Col(Mix(Mix(color::muted, color::text, hover), color::accent, shown)));
-    float label_left = pos.x + Dp(54);
-    if (status)
-    {
-        // The status dot, with a soft halo.
-        const ImVec2 dot{label_left + Dp(5), pos.y + row * 0.5f};
-        draw->AddCircleFilled(dot, Dp(7), Col(*status, 0.18f));
-        draw->AddCircleFilled(dot, Dp(4), Col(*status));
-        label_left += Dp(16);
-    }
+    const float label_left = pos.x + Dp(54);
     DrawLabel(draw, fonts.label, {label_left, pos.y + (row - FontSize(fonts.label)) * 0.5f},
               Col(Mix(Mix(color::muted, color::text, hover), ImVec4{1, 1, 1, 1}, shown)), label);
+    if (status)
+    {
+        // The status dot after the label, with a soft halo.
+        const ImVec2 dot{label_left + TextSize(fonts.label, label).x + Dp(12), pos.y + row * 0.5f};
+        draw->AddCircleFilled(dot, Dp(7), Col(*status, 0.18f));
+        draw->AddCircleFilled(dot, Dp(4), Col(*status));
+    }
     if (!pages.empty())
     {
         const float turn = 3.14159265f * shown, c = std::cos(turn), s = std::sin(turn), size = Dp(12);
@@ -1468,33 +1467,37 @@ void DrawDiscordMark(ImDrawList* draw, ImVec2 center, float width, ImU32 color, 
                                eyes);
 }
 
-bool DiscordButton(const char* id, const char* label, ImVec2 size)
+bool DiscordButton(const char* id, const char* label, ImVec2 size, bool hero)
 {
     ImGui::PushID(id);
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     const bool pressed = ImGui::InvisibleButton("##discord", size);
     const bool held = ImGui::IsItemActive();
     const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered(), 12.0f);
+    if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     auto* draw = ImGui::GetWindowDrawList();
-    const float rounding = std::min(size.y * 0.5f, Dp(10));
+    const float rounding = hero ? size.y * 0.5f : std::min(size.y * 0.5f, Dp(10));
     const ImVec2 max = Add(pos, size);
     const ImVec4 white{1, 1, 1, 1};
     const ImVec4 fill = held ? Mix(color::discord, color::window, 0.15f) : Mix(color::discord, white, 0.10f * hover);
-    // A soft glow while hovered, as the Play button's.
-    if (hover > 0.0f)
-        for (int i = 0; i < 3; ++i)
+    // A soft glow, as the Play button's: while hovered, and always (stronger
+    // under the pointer) for the hero.
+    const float glow = hero ? 0.55f + 0.45f * hover : hover;
+    if (glow > 0.0f)
+        for (int i = 0; i < 4; ++i)
         {
-            const float grow = Dp(1.5f + 2.5f * float(i));
+            const float grow = Dp(1.5f + 3.0f * float(i));
             draw->AddRectFilled({pos.x - grow, pos.y - grow}, {max.x + grow, max.y + grow},
-                                Col(color::discord, (0.10f - 0.03f * float(i)) * hover), rounding + grow);
+                                Col(color::discord, (0.11f - 0.025f * float(i)) * glow), rounding + grow);
         }
-    FillGradient(draw, pos, max, Col(Mix(fill, white, 0.06f)), Col(fill), rounding, false);
+    FillGradient(draw, pos, max, Col(Mix(fill, white, hero ? 0.16f : 0.06f)), Col(fill), rounding, false);
     const auto& fonts = CurrentFonts();
-    const ImVec2 text = TextSize(fonts.body, label);
-    const float mark = Dp(20), gap = Dp(10);
+    ImFont* font = hero ? fonts.heading : fonts.body;
+    const ImVec2 text = TextSize(font, label);
+    const float mark = hero ? Dp(26) : Dp(20), gap = hero ? Dp(12) : Dp(10);
     const float left = pos.x + (size.x - (text.x + mark + gap)) * 0.5f;
     DrawDiscordMark(draw, {left + mark * 0.5f, pos.y + size.y * 0.5f}, mark, IM_COL32_WHITE, Col(fill));
-    DrawLabel(draw, fonts.body, {left + mark + gap, pos.y + (size.y - text.y) * 0.5f}, IM_COL32_WHITE, label);
+    DrawLabel(draw, font, {left + mark + gap, pos.y + (size.y - text.y) * 0.5f}, IM_COL32_WHITE, label);
     ImGui::PopID();
     return pressed;
 }
