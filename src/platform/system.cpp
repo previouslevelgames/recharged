@@ -143,6 +143,9 @@ extern "C" std::uint8_t SCGetSoundMode() { return ReadSettings().sound_mode; }
 extern "C" s8 SCGetProductArea() { return SC_AREA_USA; }
 extern "C" char* SCGetProductCode() { static char code[] = "LU"; return code; }
 extern "C" BOOL SCGetProductSN(u32* sn) { *sn = 0x26012005; return 1; }
+// The Korean game's main menu asks it. A PC has no Wii parental controls: the
+// NET.CTPC item is absent, which original scapi.c reads as no restriction.
+extern "C" BOOL SCCheckPCMessageRestriction() { return 0; }
 
 
 extern "C" std::uint32_t SCGetSimpleAddressID()

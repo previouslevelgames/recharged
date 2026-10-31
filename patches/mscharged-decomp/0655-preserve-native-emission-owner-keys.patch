@@ -1,5 +1,5 @@
 Subject: Preserve original emission owner keys across native pointer ABIs
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Use full-width native address transport through the original manager and
 mixed electric-fence ball helper. Keep original numeric IDs, controller
@@ -87,7 +87,7 @@ index 455dad0..da3e043 100644
  
  #endif // GAME_RENDER_ELECTRIC_FENCE_H
 diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
-index d0271ab..b87e97f 100644
+index cdc5c65..4460a72 100644
 --- a/src/Game/AI/Powerups.cpp
 +++ b/src/Game/AI/Powerups.cpp
 @@ -3081,7 +3081,7 @@ void Bobomb::ThrowAt(cFielder* pThrower)
@@ -100,7 +100,7 @@ index d0271ab..b87e97f 100644
      if (gBobombAnticipationVoiceID != -1)
      {
 diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
-index 73195e8..aa321bc 100644
+index 010c351..0f14242 100644
 --- a/src/Game/Ball.cpp
 +++ b/src/Game/Ball.cpp
 @@ -1089,7 +1089,7 @@ bool IsBallEffectPlaying(
@@ -120,7 +120,7 @@ index 73195e8..aa321bc 100644
 +                MSCHARGED_EMISSION_OWNER_ADDRESS(pBallTrail), NULL);
              if (pBallTrail->blurHandler != NULL)
              {
-                 pBallTrail->blurHandler->Die(lbl_806DB54C);
+                 pBallTrail->blurHandler->Die(gBallTrailFadeTime);
 @@ -3477,7 +3477,7 @@ void SetBallTrailVisible(LiveBallTrail* pBallTrail, bool bParam)
      if (!pBallTrail->visible)
      {
@@ -129,7 +129,7 @@ index 73195e8..aa321bc 100644
 +            MSCHARGED_EMISSION_OWNER_ADDRESS(pBallTrail), NULL);
          if (pBallTrail->blurHandler != NULL)
          {
-             pBallTrail->blurHandler->Die(lbl_806DB54C);
+             pBallTrail->blurHandler->Die(gBallTrailFadeTime);
 diff --git a/src/Game/BasicStadium.cpp b/src/Game/BasicStadium.cpp
 index 0d96a30..387de29 100644
 --- a/src/Game/BasicStadium.cpp
@@ -144,7 +144,7 @@ index 0d96a30..387de29 100644
      }
  }
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
-index 5eaf14d..bbea176 100644
+index 569c03b..70b0a87 100644
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
 @@ -371,7 +371,7 @@ cCharacter::cCharacter(eCharacterClass cc, const int* nModelID,
@@ -213,7 +213,7 @@ index 5eaf14d..bbea176 100644
                  PlaySound(10, 0x2AA0C2A9UL, NULL, NULL);
              }
 diff --git a/src/Game/CharacterTriggers.cpp b/src/Game/CharacterTriggers.cpp
-index d447bed..cb8aaab 100644
+index 6961663..69e72d6 100644
 --- a/src/Game/CharacterTriggers.cpp
 +++ b/src/Game/CharacterTriggers.cpp
 @@ -1244,7 +1244,7 @@ void KillHeaderTarget(cBall* pBall, bool bActive)
@@ -328,7 +328,7 @@ index 039a8a5..361e857 100644
      EmissionManager::Instance()->DestroyAll(3, true);
  }
 diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.cpp
-index 587273b..b138597 100644
+index c1b8736..6d66d7e 100644
 --- a/src/Game/Physics/PhysicsPatch.cpp
 +++ b/src/Game/Physics/PhysicsPatch.cpp
 @@ -60,8 +60,8 @@ inline void PhysicsPatch::KillEffect()
@@ -414,7 +414,7 @@ index 09cbd99..bcb7ddd 100644
      physics->DisableCollisions();
  }
 diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
-index 658c2ae..6d638b1 100644
+index 613d7d8..5e2d4df 100644
 --- a/src/Game/Render/ChainChomp.cpp
 +++ b/src/Game/Render/ChainChomp.cpp
 @@ -84,9 +84,9 @@ ChainChomp::ChainChomp(cSHierarchy& pHierarchy, int nModelID,

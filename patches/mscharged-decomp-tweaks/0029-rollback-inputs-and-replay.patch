@@ -1,5 +1,5 @@
 Subject: Diagnostic: rollback inputs, replay and outgoing deterministic data
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Rollback study. Under RECHARGED_ROLLBACK_TEST the port's rollback (in the
 game module) saves the match after every fixed step and goes back a few
@@ -78,7 +78,7 @@ index 1b67126..8b3abd2 100644
  #endif // GAME_NETWORK_INPUT_ROUTER_H
 diff --git a/include/mscharged_rollback.h b/include/mscharged_rollback.h
 new file mode 100644
-index 0000000..d9dfa8e
+index 0000000..b3488c3
 --- /dev/null
 +++ b/include/mscharged_rollback.h
 @@ -0,0 +1,80 @@
@@ -163,7 +163,7 @@ index 0000000..d9dfa8e
 +#endif // MSCHARGED_ROLLBACK_H
 +#endif // MSCHARGED_TWEAKS
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
-index 1a6cf4e..6ba0363 100644
+index 1ced38f..fea9ce4 100644
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
 @@ -41,6 +41,9 @@
@@ -516,22 +516,22 @@ index 14e2acd..5ba9b4b 100644
  }
  
 diff --git a/src/Game/Render/MegaBallIndicators.cpp b/src/Game/Render/MegaBallIndicators.cpp
-index 298301f..a1d196e 100644
+index 5815b7a..fbe8b28 100644
 --- a/src/Game/Render/MegaBallIndicators.cpp
 +++ b/src/Game/Render/MegaBallIndicators.cpp
-@@ -24,6 +24,9 @@
+@@ -21,6 +21,9 @@
  #include "NL/plat/WiiPad.h"
- #endif
+ #include "NL/plat/WiiRemotePad.h"
  #include <math.h>
 +#if defined(MSCHARGED_TWEAKS)
 +#include "mscharged_rollback.h"
 +#endif
  
- void SendMegaBallPointerUpdate(u16 angle, u32 textureIndex, u32 status,
+ void SendMegaBallPointerUpdate(u16 angle, unsigned int textureIndex, unsigned int status,
      float x, float y);
-@@ -1049,6 +1052,13 @@ void UpdateAndRenderMegaBallIndicators(float fDeltaT)
- void SendMegaBallPointerUpdate(u16 nAngle, u32 nTextureIndex,
-     u32 nStatus, float fX, float fY)
+@@ -1036,6 +1039,13 @@ void UpdateAndRenderMegaBallIndicators(float fDeltaT)
+ void SendMegaBallPointerUpdate(u16 nAngle, unsigned int nTextureIndex,
+     unsigned int nStatus, float fX, float fY)
  {
 +#if defined(MSCHARGED_TWEAKS)
 +    // A rollback's replay: the pointer went out when its frame first ran.
@@ -573,7 +573,7 @@ index b3f08c8..caa21f1 100644
          = WPADIsMotorEnabled() && preset != RUMBLE_POINTER_HOVER;
      gRumbleEnabledOverride
 diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
-index baec505..a8cc199 100644
+index f373b62..dc6533f 100644
 --- a/src/Game/Task/BeginFrameTask.cpp
 +++ b/src/Game/Task/BeginFrameTask.cpp
 @@ -28,6 +28,9 @@
@@ -586,7 +586,7 @@ index baec505..a8cc199 100644
  #include "NL/nlFileGC.h"
  #include "NL/nlMath.h"
  #include "NL/platvmath.h"
-@@ -462,6 +465,11 @@ void BeginFrameTask::Run(float dt)
+@@ -457,6 +460,11 @@ void BeginFrameTask::Run(float dt)
      HideLayerView(eCLV_ShadowVolume);
      HideLayerView(eCLV_ShadowVolumeBlend);
  #endif // both3D shadow views are omitted by existing Anark-only setup
@@ -620,7 +620,7 @@ index f4eabdb..4542cff 100644
 +}
 +#endif
 diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
-index f0fbe6d..ff3be53 100644
+index 580a4be..f37d94b 100644
 --- a/src/Game/Task/FixedUpdateTask.cpp
 +++ b/src/Game/Task/FixedUpdateTask.cpp
 @@ -38,6 +38,9 @@
@@ -699,7 +699,7 @@ index f0fbe6d..ff3be53 100644
              {
                  break;
 diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
-index e4f3dd8..2c4bf6f 100644
+index 06551ee..4c9fceb 100644
 --- a/src/Game/Task/FrontEndTask.cpp
 +++ b/src/Game/Task/FrontEndTask.cpp
 @@ -27,6 +27,9 @@
@@ -737,7 +737,7 @@ index e4f3dd8..2c4bf6f 100644
      {
          if (!gpHBMManager->mActive
 diff --git a/src/NL/gl/glView.cpp b/src/NL/gl/glView.cpp
-index 6fc0a98..658569e 100644
+index 382dfcc..b6b5023 100644
 --- a/src/NL/gl/glView.cpp
 +++ b/src/NL/gl/glView.cpp
 @@ -14,6 +14,9 @@

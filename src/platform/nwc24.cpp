@@ -7,6 +7,8 @@ bool nwc24_opened = false;
 }
 
 extern "C" void VFInit() { vf_ready = true; }
+// The Korean DWC's call: the same drive with the caller's work area.
+extern "C" void VFInitEx(void*, u32) { vf_ready = true; }
 extern "C" s32 VFIsAvailable() { return vf_ready; }
 extern "C" void VFFinalize() { vf_ready = false; }
 

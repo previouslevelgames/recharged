@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Adapt original glPlat canonical SDK compiler ABI
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: permanent host compiler/platform/data ABI adaptation.
 
 Refreshed for decomp 9046e67a: upstream replaced glPlat.cpp's local SDK
@@ -43,7 +43,7 @@ index bb6982b..dddea72 100644
  #ifdef __cplusplus
  }
 diff --git a/src/NL/gl/glPlat.cpp b/src/NL/gl/glPlat.cpp
-index 6ed77da..a9b2dd3 100644
+index c3c6b41..8bafce7 100644
 --- a/src/NL/gl/glPlat.cpp
 +++ b/src/NL/gl/glPlat.cpp
 @@ -1,3 +1,8 @@
@@ -111,7 +111,7 @@ index 6ed77da..a9b2dd3 100644
      GXRenderModeObj& mode = glx_rmode;
      GXSetViewport(0.0f, 0.0f, (f32)mode.fbWidth, (f32)mode.efbHeight, 0.0f, 1.0f);
      GXSetScissor(0, 0, mode.fbWidth, mode.efbHeight);
-@@ -226,7 +248,11 @@ bool glplatStartup(gl_ScreenInfo* screenInfo)
+@@ -241,7 +263,11 @@ bool glplatStartup(gl_ScreenInfo* screenInfo)
          return false;
      }
      glx_FIFO = GXInit(glx_FIFOMem, glx_FIFOSize);
@@ -121,9 +121,9 @@ index 6ed77da..a9b2dd3 100644
      GXInitFifoLimits(glx_FIFO, glx_FIFOSize - 0x10000, glx_FIFOSize - 0x40000);
 +#endif
  
-     u32 fbSize = ((glx_rmode.fbWidth + 15) & 0xFFF0) * glx_rmode.xfbHeight * 2;
+     fbSize = ((glx_rmode.fbWidth + 15) & 0xFFF0) * glx_rmode.xfbHeight * 2;
      if (fbSize < 0x9F600)
-@@ -247,7 +273,11 @@ bool glplatStartup(gl_ScreenInfo* screenInfo)
+@@ -262,7 +288,11 @@ bool glplatStartup(gl_ScreenInfo* screenInfo)
      glxSwapSetBlack(true);
      VIFlush();
      VIWaitForRetrace();

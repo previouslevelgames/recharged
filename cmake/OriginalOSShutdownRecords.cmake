@@ -35,6 +35,8 @@ mscharged_configure_original_shutdown_records(charged_original_os_shutdown_recor
 
 # Attach to the existing original module and its already selected NAND/OSReset
 # owners. This adds no initializer, host game loop or reset request.
+# An optional game version picks that version's copy (the Korean OS records
+# differ); the others share the R4QE01 one.
 function(mscharged_add_original_shutdown_records target)
     if(NOT TARGET "${target}")
         message(FATAL_ERROR "Original shutdown records require an existing source target")
@@ -47,7 +49,20 @@ function(mscharged_add_original_shutdown_records target)
             message(FATAL_ERROR "Original shutdown record owner is already selected: ${_source}")
         endif()
     endforeach()
-    target_sources("${target}" PRIVATE $<TARGET_OBJECTS:charged_original_os_shutdown_record_sources>)
+    set(_records charged_original_os_shutdown_record_sources)
+    if(ARGC GREATER 1 AND ARGV1 STREQUAL "R4QK01")
+        set(_records charged_original_os_shutdown_record_sources_kr)
+        if(NOT TARGET ${_records})
+            add_library(${_records} OBJECT EXCLUDE_FROM_ALL
+                "${MSCHARGED_PREPARED}/src/RVL_SDK/os/OSPlayRecord.c"
+                "${MSCHARGED_PREPARED}/src/RVL_SDK/os/OSStateFlags.c"
+                src/platform/os_shutdown_record_transport.cpp)
+            add_dependencies(${_records} verify_prepared)
+            mscharged_configure_original_shutdown_records(${_records})
+            set_target_properties(${_records} PROPERTIES MSCHARGED_GAME_VERSION R4QK01)
+        endif()
+    endif()
+    target_sources("${target}" PRIVATE $<TARGET_OBJECTS:${_records}>)
 endfunction()
 
 # Requalifies current prepared source; this fixture owns only a disposable

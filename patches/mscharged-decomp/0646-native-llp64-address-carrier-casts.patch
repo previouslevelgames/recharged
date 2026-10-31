@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Native LLP64 casts for 32-bit address carriers
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: native compiler/ABI compatibility; apply after 0645.
 
 The game stores addresses and pointer-sized contexts in unsigned long: hashes
@@ -31,7 +31,7 @@ index fb879d2..82df9ac 100644
      {
          result = 1;
 diff --git a/src/Game/AI/DesireUsePowerup.cpp b/src/Game/AI/DesireUsePowerup.cpp
-index 8073f5c..24ff211 100644
+index 69d162b..664b9b1 100644
 --- a/src/Game/AI/DesireUsePowerup.cpp
 +++ b/src/Game/AI/DesireUsePowerup.cpp
 @@ -40,7 +40,11 @@ DesireUpdate TransDesireUsePowerup(
@@ -131,22 +131,22 @@ index 374769b..cb2813a 100644
      case FT_VECTOR:
  #if defined(MSCHARGED_NATIVE)
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index dbda71f..d113e85 100644
+index 07fb0bb..f3799a7 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -548,7 +548,11 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -546,7 +546,11 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
              StopWithUndo();
              break;
          }
 +#if defined(MSCHARGED_NATIVE)
-+        glEndLoadTextureBundle(lbl_806E1060, (unsigned long)(__UINTPTR_TYPE__)lbl_806E1064,
++        glEndLoadTextureBundle(sFrontEndTextureBundleData, (unsigned long)(__UINTPTR_TYPE__)sFrontEndTextureBundleSize,
 +#else
-         glEndLoadTextureBundle(lbl_806E1060, (unsigned long)lbl_806E1064,
+         glEndLoadTextureBundle(sFrontEndTextureBundleData, (unsigned long)sFrontEndTextureBundleSize,
 +#endif
              glGetCurrentResourcePool(), 0);
-         nlFree(lbl_806E1060);
-         lbl_806E1060 = 0;
-@@ -1876,7 +1880,11 @@ void DestroyFrontEndState(AsyncLoadingManager* manager)
+         nlFree(sFrontEndTextureBundleData);
+         sFrontEndTextureBundleData = 0;
+@@ -1874,7 +1878,11 @@ void DestroyFrontEndState(AsyncLoadingManager* manager)
      glCompact();
      g_PendingAnimationRequestPool.FreeBlocks();
  
@@ -158,7 +158,7 @@ index dbda71f..d113e85 100644
      glDestroyResourcePool(glGetCurrentResourcePool());
      glSetCurrentResourcePool(0);
      OnResourceUnloadEnd(2);
-@@ -2240,7 +2248,11 @@ void DestroyGameState(AsyncLoadingManager* manager)
+@@ -2238,7 +2246,11 @@ void DestroyGameState(AsyncLoadingManager* manager)
      FEResourceManager::Instance()->Cleanup();
      DestroyFEResourcePool();
      ScreenTransitionManager::Instance()->CancelAllTransitions();
@@ -170,7 +170,7 @@ index dbda71f..d113e85 100644
  
      if (FontManager::s_pInstance != 0)
      {
-@@ -2267,7 +2279,11 @@ void DestroyGameState(AsyncLoadingManager* manager)
+@@ -2265,7 +2277,11 @@ void DestroyGameState(AsyncLoadingManager* manager)
      glCompact();
      g_PendingAnimationRequestPool.FreeBlocks();
      FreeFunctionMemoryPools();
@@ -183,7 +183,7 @@ index dbda71f..d113e85 100644
      glSetCurrentResourcePool(0);
      FreeEventDataPools();
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
-index 5781d3a..1ea45da 100644
+index f6f6661..03e08cc 100644
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
 @@ -2185,7 +2185,11 @@ void OnCollisionPowerupWall(CollisionPowerupWallData* pEventData)
@@ -199,7 +199,7 @@ index 5781d3a..1ea45da 100644
          || fabsf(pos.x) > cField::GetGoalLineX(1U) - 2.5f)
      {
 diff --git a/src/Game/Drawable/DrawableNetMesh.cpp b/src/Game/Drawable/DrawableNetMesh.cpp
-index 5486ac6..967e0ba 100644
+index b367f3d..48371e5 100644
 --- a/src/Game/Drawable/DrawableNetMesh.cpp
 +++ b/src/Game/Drawable/DrawableNetMesh.cpp
 @@ -185,7 +185,11 @@ void DrawableNetMesh::Render() const
@@ -227,7 +227,7 @@ index 5486ac6..967e0ba 100644
              int index = volatileThis->mNetIndex;
              GLResourceMarker* handle = (GLResourceMarker*)gNetMeshResourcePools[index][siResourcePoolIndex[index]]->MarkResource();
 diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
-index 7423ec6..4fe7dbe 100644
+index f735578..f2f392e 100644
 --- a/src/Game/Game.cpp
 +++ b/src/Game/Game.cpp
 @@ -398,7 +398,11 @@ cGame::cGame(void* terrainIndex, int weatherType, bool startCrowdRiot)
@@ -259,7 +259,7 @@ index c7c77db..26aa677 100644
      }
      mTrophyPresentation = 0;
 diff --git a/src/Game/Render/ChainChomp.cpp b/src/Game/Render/ChainChomp.cpp
-index 6d638b1..5db5f26 100644
+index 5e2d4df..16dead6 100644
 --- a/src/Game/Render/ChainChomp.cpp
 +++ b/src/Game/Render/ChainChomp.cpp
 @@ -883,11 +883,19 @@ void ChainChomp::Hide()
@@ -283,7 +283,7 @@ index 6d638b1..5db5f26 100644
      meChainChompState = CHAIN_STATE_HIDDEN;
      mfDesiredSpeed = 0.0f;
 diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
-index 3e4a47b..29198d3 100644
+index 88487db..563406c 100644
 --- a/src/Game/SH/SHChooseCaptains.cpp
 +++ b/src/Game/SH/SHChooseCaptains.cpp
 @@ -537,7 +537,11 @@ void ChooseCaptainsSceneV2::LoadCaptainTextures()
@@ -432,7 +432,7 @@ index 3e4a47b..29198d3 100644
      if (mSidePads[which] != -1 || GetSide(index) != -1 || !mConfirmed[which] || mReadyPressed[which])
      {
 diff --git a/src/Game/SH/SHChooseSidekicks.cpp b/src/Game/SH/SHChooseSidekicks.cpp
-index b28ce34..bfab3d5 100644
+index 5145a6d..14c3d2c 100644
 --- a/src/Game/SH/SHChooseSidekicks.cpp
 +++ b/src/Game/SH/SHChooseSidekicks.cpp
 @@ -510,7 +510,11 @@ void ChooseSidekicksSceneV2::Update(float dt)
@@ -592,7 +592,7 @@ index b28ce34..bfab3d5 100644
  
      if (mSidePads[which] != -1 || side != -1)
 diff --git a/src/Game/SH/SHChooseSides.cpp b/src/Game/SH/SHChooseSides.cpp
-index 66297f4..917ff88 100644
+index bee4617..8de3ace 100644
 --- a/src/Game/SH/SHChooseSides.cpp
 +++ b/src/Game/SH/SHChooseSides.cpp
 @@ -631,7 +631,11 @@ void SHChooseSides2::BindChooseSideInstances()

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Run European revision 1 data on the revision 2 code
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Owner decision: a European revision 1 disc plays with the game code of
 revision 2. Three data contracts changed between the revisions (checked on

@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Preserve original sound handle numeric carrier and native runtime declarations
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: permanent modern compiler and Wii32 numeric carrier adaptation.
 
 XSoundHandle value2 is the original cueIndex encoded by XSoundCueHandle, never

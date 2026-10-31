@@ -1,5 +1,5 @@
 Subject: Competitive play: RANKED against the opponent by the match's rules
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 A player signed in to a Recharged profile on the launcher's Competitive page
 can accept a test match with another player, by a rule set the WFC server's
@@ -69,7 +69,7 @@ index 0000000..ef60b8a
 +#endif // MSCHARGED_COMPETITIVE_H
 +#endif // MSCHARGED_TWEAKS
 diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
-index 609e515..19289cc 100644
+index d07a995..60778b1 100644
 --- a/src/Game/GameInfo.cpp
 +++ b/src/Game/GameInfo.cpp
 @@ -13,6 +13,7 @@
@@ -118,7 +118,7 @@ index 609e515..19289cc 100644
          mCurGameGameplayOptions.NumGames = 11;
      }
 diff --git a/src/Game/GameTweaksManager.cpp b/src/Game/GameTweaksManager.cpp
-index 2885bfc..b609692 100644
+index 06e891d..6654aa4 100644
 --- a/src/Game/GameTweaksManager.cpp
 +++ b/src/Game/GameTweaksManager.cpp
 @@ -6,6 +6,9 @@
@@ -147,7 +147,7 @@ index 2885bfc..b609692 100644
      state->mTerrainType = terrain;
  
 diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
-index b23584c..b01f03d 100644
+index 13f9cfb..bac7781 100644
 --- a/src/Game/NetworkSession.cpp
 +++ b/src/Game/NetworkSession.cpp
 @@ -12,6 +12,9 @@
@@ -174,7 +174,7 @@ index b23584c..b01f03d 100644
      else
      {
 diff --git a/src/Game/Weather.cpp b/src/Game/Weather.cpp
-index 945f042..769c133 100644
+index 5c5e28b..7f03029 100644
 --- a/src/Game/Weather.cpp
 +++ b/src/Game/Weather.cpp
 @@ -37,6 +37,9 @@
@@ -200,5 +200,5 @@ index 945f042..769c133 100644
 +        return;
 +    }
  #endif
-     if (lbl_806E12C8)
+     if (g_pPhysicsPatchManager)
      {

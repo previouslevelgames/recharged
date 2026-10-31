@@ -1,6 +1,6 @@
 Subject: Share original async loading sequence, stage readiness and persistent pool inputs
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Keep the original sequence switch and readiness/yield equations shared with a
 bounded native boot owner. Select source-defined pool requirements and original
@@ -173,10 +173,10 @@ index 0000000..c419a63
 +}
 +#endif
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 44969fe..482429f 100644
+index a39360d..d59b95a 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -149,8 +149,10 @@ extern SlotPool<cSAnimCallback> lbl_805840D8;
+@@ -147,8 +147,10 @@ void DestroyCharacters();
  
  bool g_VerboseAudio;
  bool g_bDumpMemoryStatsOnLoad;
@@ -185,9 +185,9 @@ index 44969fe..482429f 100644
  float g_fYieldScriptBlockingTimeMS = 45.0f;
 +#endif
  
- static const char* lbl_806E103C;
- static BaseSceneHandler* lbl_806E1040;
-@@ -189,12 +191,8 @@ static inline void ReleaseEventConnection(EventConnection** owner)
+ static const char* sPreviousLoadingComment;
+ static BaseSceneHandler* sLoadingScene;
+@@ -187,12 +189,8 @@ static inline void ReleaseEventConnection(EventConnection** owner)
          ((EventBase*)(*owner)->mEvent)->Disconnect(owner);
      }
  }
@@ -201,7 +201,7 @@ index 44969fe..482429f 100644
  
  static inline bool IsTeamInCurrentGame(int team)
  {
-@@ -224,24 +222,15 @@ static inline bool IsSidekickInCurrentGame(eSidekickID sidekick)
+@@ -222,24 +220,15 @@ static inline bool IsSidekickInCurrentGame(eSidekickID sidekick)
  
  static inline void FinishLoadingStep(AsyncLoadingManager* manager)
  {
@@ -230,7 +230,7 @@ index 44969fe..482429f 100644
  }
  
  void OnAsyncSoundBankLoaded(AudioResourceLoadOwner*, void* context)
-@@ -1179,117 +1168,7 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
+@@ -1177,117 +1166,7 @@ u32 UpdateAsyncLoadingSequence(AsyncLoadingManager* manager)
      manager->SetLoadingComment("No Loading Comment");
  
      bool completed = false;
@@ -349,7 +349,7 @@ index 44969fe..482429f 100644
  
      if (result == ASYNC_LOADING_NO_TRANSITION)
      {
-@@ -2273,6 +2152,8 @@ GlobalEventConnectionOwner::~GlobalEventConnectionOwner()
+@@ -2271,6 +2150,8 @@ GlobalEventConnectionOwner::~GlobalEventConnectionOwner()
      }
  }
  
@@ -381,7 +381,7 @@ index 0000000..5fa6061
 +{
 +}
 diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
-index 896ebfe..67701e0 100644
+index 8a198b4..927242e 100644
 --- a/src/Game/Task/FixedUpdateTask.cpp
 +++ b/src/Game/Task/FixedUpdateTask.cpp
 @@ -50,17 +50,21 @@ bool g_bRunSimAndRenderInLockStep;

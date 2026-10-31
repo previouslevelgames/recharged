@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Compile whole original NAND with native pointer and C declarations
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Keep the original NAND request, error, permission and callback decisions.
 The ES buffer alignment test uses a native pointer. GNU noinline attaches to
@@ -37,10 +37,10 @@ index 6164b3a..24aa3c0 100644
      }
  
 diff --git a/src/RVL_SDK/nand/nand.c b/src/RVL_SDK/nand/nand.c
-index df9e6f5..fc06c8b 100644
+index 62041ca..2d752d6 100644
 --- a/src/RVL_SDK/nand/nand.c
 +++ b/src/RVL_SDK/nand/nand.c
-@@ -4,6 +4,17 @@
+@@ -4,6 +4,14 @@
  #include <stdio.h>
  #include <string.h>
  
@@ -48,22 +48,10 @@ index df9e6f5..fc06c8b 100644
 +// Retain the legacy unresolved call in the unused NANDMove source body. This
 +// declaration supplies no implementation or inferred memory-clear behavior.
 +extern int MEMCLR(void* address);
-+#define NAND_COMPOSE_SUFFIX
 +static void nandComposePerm(u8* out, u32 ownerPerm, u32 groupPerm,
 +                            u32 otherPerm) __attribute__((noinline));
-+#else
-+#define NAND_COMPOSE_SUFFIX DECOMP_DONT_INLINE
 +#endif
 +
  static void nandSplitPerm(u8 perm, u32* ownerPerm, u32* groupPerm,
-                           u32* otherPerm) DECOMP_DONT_INLINE;
+                           u32* otherPerm);
  static void nandGetStatusCallback(s32 result, void* arg);
-@@ -391,7 +402,7 @@ s32 NANDGetLengthAsync(NANDFileInfo* info, u32* lengthOut,
- }
- 
- static void nandComposePerm(u8* out, u32 ownerPerm, u32 groupPerm,
--                            u32 otherPerm) DECOMP_DONT_INLINE {
-+                            u32 otherPerm) NAND_COMPOSE_SUFFIX {
-     u32 perm = 0;
- 
-     if (ownerPerm & NAND_ACCESS_READ) {

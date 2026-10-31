@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original pose methods and native borrowed callback ABI
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Original modules retain source constructor/array ownership/copy/Pose/Replay
 and callback methods. Preserve first callback word borrowed native addresses;
@@ -8,7 +8,7 @@ keep the second numeric word unchanged. Diagnostic guards do not enter original
 execution. Scalar PPC/compiler adaptations remain explicit and separate.
 
 diff --git a/include/Game/Player.h b/include/Game/Player.h
-index 9bbf165..5342058 100644
+index 2a3fe35..632662f 100644
 --- a/include/Game/Player.h
 +++ b/include/Game/Player.h
 @@ -2,6 +2,7 @@
@@ -112,7 +112,7 @@ index 0000000..f4939fe
 +#endif
 +#endif
 diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/DrawableCharacter.cpp
-index 0b484d6..439e836 100644
+index a74dcf9..b4aae2d 100644
 --- a/src/Game/Drawable/DrawableCharacter.cpp
 +++ b/src/Game/Drawable/DrawableCharacter.cpp
 @@ -256,7 +256,7 @@ void DrawableCharacter::Grab(cCharacter& source)
@@ -137,7 +137,7 @@ index 0b484d6..439e836 100644
  
      accumulator->BuildNodeMatrices(worldMatrix);
 diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
-index 6b9cb37..04c26bf 100644
+index d71b71d..ca96f83 100644
 --- a/src/Game/Player.cpp
 +++ b/src/Game/Player.cpp
 @@ -1047,7 +1047,7 @@ cPN_SingleAxisBlender* cPlayer::CreateSingleAxisBlender(
@@ -150,7 +150,7 @@ index 6b9cb37..04c26bf 100644
  {
      cPlayer& self = *(cPlayer*)nSelf;
 @@ -1119,7 +1119,11 @@ void cPlayer::PostPhysicsUpdate()
- void cPlayer::Unknown7(float)
+ void cPlayer::BeginPhysicsStep(float)
  {
      m_pPoseAccumulator->SetBuildNodeMatrixCallback(
 +#if defined(MSCHARGED_NATIVE)

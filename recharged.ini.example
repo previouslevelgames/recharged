@@ -12,8 +12,9 @@ folder = game
 folder_subfolders = true
 
 # Game text: auto, or a language of the disc: english, french or spanish
-# (USA); english, german, french, spanish or italian (Europe). Automatic takes
-# the computer's language when the disc has it, else English.
+# (USA); english, german, french, spanish or italian (Europe). The Japanese
+# and Korean discs have only japanese and korean. Automatic takes the
+# computer's language when the disc has it, else the disc's first language.
 language = auto
 
 # Folder for the game's Wii saves. Empty: data/nand next to the program.

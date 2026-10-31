@@ -191,6 +191,7 @@ jobs:
         run: >-
           cmake --build --preset release --target
           mscharged mscharged_original_frontend_module_us mscharged_original_frontend_module_eu
+          mscharged_original_frontend_module_jp mscharged_original_frontend_module_kr
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats || true
@@ -207,7 +208,7 @@ jobs:
         run: |
           if [ -n "$MACOS_ARCH" ]; then
             for binary in build/release/recharged \
-                build/release/recharged_game_{us,eu}.{so,dylib,bundle}; do
+                build/release/recharged_game_{us,eu,jp,kr}.{so,dylib,bundle}; do
               [ -e "$binary" ] || continue
               lipo -archs "$binary"
               test "$(lipo -archs "$binary")" = "$MACOS_ARCH"
@@ -222,7 +223,7 @@ jobs:
           # The game modules stay plain x86-64 (see Install Linux tools): online
           # play needs the same game code on every machine.
           if [ "$RUNNER_OS" = Linux ]; then
-            for module in build/release/recharged_game_{us,eu}.so; do
+            for module in build/release/recharged_game_{us,eu,jp,kr}.so; do
               avx=$(objdump -d --no-show-raw-insn "$module" | awk -F '\t' 'NF >= 2 && $2 ~ /^v/' | wc -l)
               echo "$module: $avx AVX instructions"
               test "$avx" -eq 0
@@ -359,6 +360,7 @@ jobs:
         run: >-
           cmake --build build/windows --target
           mscharged mscharged_original_frontend_module_us mscharged_original_frontend_module_eu
+          mscharged_original_frontend_module_jp mscharged_original_frontend_module_kr
       - name: Compiler cache statistics
         if: always()
         run: ccache --show-stats || true

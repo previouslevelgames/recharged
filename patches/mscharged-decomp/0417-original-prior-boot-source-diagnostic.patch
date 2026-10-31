@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Admit authored original BootLoadingToFE and script6 source prerequisites
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Classification: named default-OFF selected original-source integration.
 Restore exact Async services for owned BootLoadingToFE/scripts6 and14,
@@ -11,10 +11,10 @@ Normal startup and earlier selected modes retain their original tokens.
 Later CleanBoot state remains the existing explicit cadence boundary.
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 3274018..79225a2 100644
+index ea9103b..8198397 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
-@@ -290,6 +290,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -288,6 +288,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 0:
          LoadTrophyTemplates();
          break;
@@ -24,7 +24,7 @@ index 3274018..79225a2 100644
      case 1:
      {
          bool persistent = m_SP[-1] != 0;
-@@ -317,6 +320,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -315,6 +318,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 3:
          CreateFEResourcePool();
          break;
@@ -34,7 +34,7 @@ index 3274018..79225a2 100644
      case 4:
      {
          OnResourceLoadBegin(4);
-@@ -325,6 +331,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -323,6 +329,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
              requirements.entries, 2, "PersistentResourcePool");
          break;
      }
@@ -43,7 +43,7 @@ index 3274018..79225a2 100644
      case 5:
          m_SP++;
          m_SP[-1] = CharacterLoader::sInstance.ShareDuplicateAnimInventory();
-@@ -569,6 +577,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -567,6 +575,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          break;
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
@@ -53,7 +53,7 @@ index 3274018..79225a2 100644
      case 28:
          SetLoadingComment("AsyncInitializeEmissionManager");
          if (ParticleUpdateTask::sInstance->FinishLoading(sPersistentResourcePool))
-@@ -581,6 +592,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -579,6 +590,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
              StopWithUndo();
          }
          break;
@@ -62,7 +62,7 @@ index 3274018..79225a2 100644
      case 29:
          CharacterLoader::sInstance.StartLoadingCaptainAudio();
          break;
-@@ -644,11 +657,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -642,11 +655,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          LoadFuzzyByteCode(GetFuzzyAIScriptFilename(), true);
          FinishLoadingStep(this);
          break;
@@ -78,8 +78,8 @@ index 3274018..79225a2 100644
 +#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
      case 42:
          SetLoadingComment("AsyncStartLoadingGameFE");
-         lbl_806E1060 = 0;
-@@ -807,10 +825,15 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+         sFrontEndTextureBundleData = 0;
+@@ -805,10 +823,15 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          FinishLoadingStepOrUndo(this,
              CharacterLoader::sInstance.FinalizeLoadingHierarchy());
          break;
@@ -95,7 +95,7 @@ index 3274018..79225a2 100644
      case 77:
          SetLoadingComment("FinalizeLoadingSharedTextures");
          FinishLoadingStepOrUndo(this,
-@@ -838,6 +861,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -836,6 +859,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
              StopWithUndo();
          }
          break;
@@ -105,7 +105,7 @@ index 3274018..79225a2 100644
      case 81:
      {
          nlFileCache* fileCache = nlGetFileCache();
-@@ -845,6 +871,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -843,6 +869,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          MovieInit();
          break;
      }
@@ -114,7 +114,7 @@ index 3274018..79225a2 100644
      case 82:
          DestroyFEResourcePool();
          break;
-@@ -996,10 +1024,15 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -994,10 +1022,15 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          m_SP++;
          m_SP[-1] = CharacterLoader::sInstance.NeedsSharedTextures();
          break;
@@ -130,7 +130,7 @@ index 3274018..79225a2 100644
      case 109:
          gNPCManager->CreateDiddyBanana();
          break;
-@@ -1030,6 +1063,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -1028,6 +1061,9 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
      case 118:
          fn_80111664();
          break;
@@ -140,7 +140,7 @@ index 3274018..79225a2 100644
      case 119:
          m_SP++;
          m_SP[-1] = true;
-@@ -1042,6 +1078,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -1040,6 +1076,8 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          OnLoadingCheckpoint(checkpoint);
          break;
      }
@@ -149,7 +149,7 @@ index 3274018..79225a2 100644
      case 121:
          ReplayManager::Instance()->ResetSnapshots();
          break;
-@@ -1128,11 +1166,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
+@@ -1126,11 +1164,16 @@ void AsyncLoadingManager::DoFunctionCall(unsigned int functionIndex)
          CharacterLoader::sInstance.StartLoadingHierarchy();
          FinishLoadingStep(this);
          break;
@@ -201,10 +201,10 @@ index 41ce41c..f52f8dd 100644
      {
          BeginBootToFrontEndLoading(AsyncLoadingManager::Instance());
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp
-index dfe48e9..3cee628 100644
+index 76f3302..8fc794a 100644
 --- a/src/Game/main.cpp
 +++ b/src/Game/main.cpp
-@@ -227,6 +227,8 @@ static FrontEndTask frontEndTask;
+@@ -231,6 +231,8 @@ static FrontEndTask frontEndTask;
  static WorldUpdateTask worldUpdateTask;
  static GameRenderTask gameRenderTask;
  static MovieRenderTask movieRenderTask;
@@ -213,7 +213,7 @@ index dfe48e9..3cee628 100644
  static ParticleUpdateTask particleUpdateTask;
  #endif
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-@@ -611,11 +613,13 @@ static void Initialize()
+@@ -624,11 +626,13 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
      sLoadingTask.Start();
  #endif
@@ -228,7 +228,7 @@ index dfe48e9..3cee628 100644
      ImpostorManager::GetInstance();
      ClockManager::Initialize();
  #endif // unrelated manager/audio boot; retain the source callback position
-@@ -710,8 +714,10 @@ static void Initialize()
+@@ -725,8 +729,10 @@ static void Initialize()
  #if !defined(MSCHARGED_DIAGNOSTIC_MAIN_BOOTSTRAP) || defined(MSCHARGED_DIAGNOSTIC_FRONTEND_FLASH)
      nlFlashInitialize();
  #endif
@@ -240,7 +240,7 @@ index dfe48e9..3cee628 100644
      ReplayChoreo::Instance();
      GetPresentation();
  #endif // unrelated replay/presentation tasks remain omitted
-@@ -799,7 +805,7 @@ static void AddTasks()
+@@ -814,7 +820,7 @@ static void AddTasks()
      nlTaskManager::AddTask(&movieRenderTask, 11, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
      nlTaskManager::AddTask(&frontEndTask, 13, (u32)-1);
@@ -249,7 +249,7 @@ index dfe48e9..3cee628 100644
      nlTaskManager::AddTask(&particleUpdateTask, 12, 0x0002001F);
  #endif // unqualified unrelated task registration remains omitted
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || defined(MSCHARGED_DIAGNOSTIC_GAME_AUDIO_TASK)
-@@ -817,7 +823,7 @@ static void AddTasks()
+@@ -837,7 +843,7 @@ static void AddTasks()
      nlTaskManager::AddTask(
          &flashMemoryTask, 13, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
@@ -258,7 +258,7 @@ index dfe48e9..3cee628 100644
      nlTaskManager::AddTask(nlGetFileCache(), 3, (u32)-1);
  #endif // unqualified unrelated task registration remains omitted
  #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE)
-@@ -980,11 +986,13 @@ int main()
+@@ -1000,11 +1006,13 @@ int main()
          || loading->mSequenceState != ASYNC_LOADING_IDLE
          || !loading->IsFinished())
          throw std::logic_error("Authored Boot script0 requires its actual NL bytecode callback and idle source owner");
@@ -272,7 +272,7 @@ index dfe48e9..3cee628 100644
      // Retain the existing selected Anark view and exact original
      // main state request. Full camera/world bootstrap remains held.
      nlMatrix4 identity;
-@@ -992,7 +1000,11 @@ int main()
+@@ -1012,7 +1020,11 @@ int main()
      UpdateLayerCameras(identity, identity, 4.0f / 3.0f, 0.4712389f,
          4.0f / 3.0f, 0.4712389f);
      nlTaskManager::SetNextState(0x00100000);

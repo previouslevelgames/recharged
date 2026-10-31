@@ -15,7 +15,7 @@ namespace {
 static_assert(std::endian::native == std::endian::little,
               "Original save transport currently qualifies little-endian native hosts only");
 static_assert(sizeof(int) == 4 && sizeof(float) == 4 && sizeof(bool) == 1);
-static_assert(sizeof(UserInfo) == 0x80 && sizeof(GameRules) == 12);
+static_assert(sizeof(UserInfo) == 0x80 && sizeof(CupSidekicks) == 12);
 static_assert(sizeof(TeamStats) == 0x70 && sizeof(PlayerStats) == 0x54);
 static_assert(sizeof(BasicGameInfo) == 0x128);
 static_assert(sizeof(CupHistoryRecord) == 8 && sizeof(CupHistory) == 0x36C);

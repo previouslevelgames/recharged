@@ -38,7 +38,7 @@ bool Project(void*, SDL_Window* actual, DesktopDpdProjection* output) {
     *output = projection;
     return projected;
 }
-// The USA build's KPADInit calibrates the pointer for the sensor bar; the
+// The USA and Korean builds' KPADInit sets the pointer centre for the sensor bar; the
 // European build's (desktop_input_lifecycle_eu) keeps the centre at the bar.
 DesktopWpadSettings Settings() {
     DesktopWpadSettings settings{true, false, true, Project, nullptr};

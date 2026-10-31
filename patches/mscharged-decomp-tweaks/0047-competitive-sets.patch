@@ -1,5 +1,5 @@
 Subject: Competitive play: a set's game starts itself into its RANKED search
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 A competitive set starts in the launcher's lobby: once both players pressed
 Ready to play!, both launchers start the game with the set handed over
@@ -32,7 +32,7 @@ The captain draft, the match and the series are retail, by the set's rules
 stays retail.
 
 diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
-index ef60b8a..1cbc382 100644
+index ef60b8a..e6e0802 100644
 --- a/include/mscharged_competitive.h
 +++ b/include/mscharged_competitive.h
 @@ -34,6 +34,33 @@ bool mscharged_competitive_tweak(int tweak);
@@ -70,7 +70,7 @@ index ef60b8a..1cbc382 100644
  }
  #endif
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
-index 9c0012b..805be8b 100644
+index 61c45f3..be9b215 100644
 --- a/src/Game/AsyncLoading.cpp
 +++ b/src/Game/AsyncLoading.cpp
 @@ -144,6 +144,9 @@
@@ -83,7 +83,7 @@ index 9c0012b..805be8b 100644
  #else
  #define OS_BUS_CLOCK_SPEED           (*(volatile u32*)0x800000F8)
  #define OS_TIME_SPEED                (OS_BUS_CLOCK_SPEED / 4)
-@@ -1727,6 +1730,10 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
+@@ -1725,6 +1728,10 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
  #endif
          else if (GameInfoManager::Instance()->IsOnline())
          {
@@ -95,7 +95,7 @@ index 9c0012b..805be8b 100644
              GameSceneManager::Instance()->Push(SCENE_ONLINE_MENU, SCREEN_NOTHING, false);
              FrontEndPresentation::GetInstance()->Call("TransitionGameToOnlineMainMenu");
 diff --git a/src/Game/FE/fePopupMenu.cpp b/src/Game/FE/fePopupMenu.cpp
-index 06468c2..e82a8e8 100644
+index 25ceaee..af149d1 100644
 --- a/src/Game/FE/fePopupMenu.cpp
 +++ b/src/Game/FE/fePopupMenu.cpp
 @@ -18,6 +18,9 @@
@@ -108,7 +108,7 @@ index 06468c2..e82a8e8 100644
  #include "Game/DB/CharacterInfo.h"
  #include "Game/NetTournManager.h"
  #include "Game/NetworkSession.h"
-@@ -424,6 +427,18 @@ void FEPopupMenu::Update(float fDeltaT)
+@@ -428,6 +431,18 @@ void FEPopupMenu::Update(float fDeltaT)
      }
      if (pSlide->GetCurrentTime() < 1.5)
          return;
@@ -192,7 +192,7 @@ index 40708f4..42a0559 100644
      {
          TLComponentInstance* controller = gFEPointerInstances[pad];
 diff --git a/src/Game/SH/SHOnlineLogin.cpp b/src/Game/SH/SHOnlineLogin.cpp
-index ddc201c..9a26db2 100644
+index ddc201c..dcefc34 100644
 --- a/src/Game/SH/SHOnlineLogin.cpp
 +++ b/src/Game/SH/SHOnlineLogin.cpp
 @@ -25,6 +25,10 @@
@@ -229,7 +229,7 @@ index ddc201c..9a26db2 100644
          FEAudio::StopAnimAudioEvent(0x71D9CD2F, this);
          FEAudio::PlayAnimAudioEvent(0x37A9934D, 0, 0, true);
 diff --git a/src/Game/SH/SHOnlineMiiSelect.cpp b/src/Game/SH/SHOnlineMiiSelect.cpp
-index b63b015..8b6f6a7 100644
+index 3e23965..1d182ac 100644
 --- a/src/Game/SH/SHOnlineMiiSelect.cpp
 +++ b/src/Game/SH/SHOnlineMiiSelect.cpp
 @@ -44,6 +44,9 @@
@@ -263,7 +263,7 @@ index b63b015..8b6f6a7 100644
      for (unsigned int pad = 0; pad < 4; ++pad)
      {
 diff --git a/src/Game/SH/SHOnlineMiiSelectOverlay.cpp b/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
-index 1e17246..7dfb19c 100644
+index 3498f38..783a6d6 100644
 --- a/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
 +++ b/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
 @@ -45,6 +45,9 @@
@@ -276,7 +276,7 @@ index 1e17246..7dfb19c 100644
  
  SHOnlineMiiSelectOverlay::SHOnlineMiiSelectOverlay()
      : mInitialized(false)
-@@ -456,6 +459,13 @@ void SHOnlineMiiSelectOverlay::Update(float fDeltaT)
+@@ -503,6 +506,13 @@ void SHOnlineMiiSelectOverlay::Update(float fDeltaT)
          }
      }
  

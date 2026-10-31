@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit original cup game results, knockout and final-round pages and award natives
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: temporary explicit original-source diagnostic admission; depends on 0640.
 
 After a cup match the schedule (32) lists the played matchup; pressing it pushes
@@ -22,7 +22,7 @@ std::intptr_t. Console builds keep the literal casts. Handler bodies, CupManager
 progression and every push are unchanged.
 
 diff --git a/src/Game/FE/BaseGameSceneManager.cpp b/src/Game/FE/BaseGameSceneManager.cpp
-index b967a80..f97cd4a 100644
+index 429377e..fe0da66 100644
 --- a/src/Game/FE/BaseGameSceneManager.cpp
 +++ b/src/Game/FE/BaseGameSceneManager.cpp
 @@ -463,7 +463,7 @@ BaseSceneHandler* BaseGameSceneManager::Push(SceneList newscene, ScreenMovement
@@ -75,7 +75,7 @@ index 8a45bf1..d7a4de8 100644
          ShowCupGoldenBootNews();
          break;
 diff --git a/src/Game/SH/SHCupFinalRounds.cpp b/src/Game/SH/SHCupFinalRounds.cpp
-index 90000c3..a2bdbe4 100644
+index 4c5fd97..0e32c9d 100644
 --- a/src/Game/SH/SHCupFinalRounds.cpp
 +++ b/src/Game/SH/SHCupFinalRounds.cpp
 @@ -1,4 +1,11 @@
@@ -90,7 +90,7 @@ index 90000c3..a2bdbe4 100644
  #include "NL/nlFunction.inl"
  #include "Game/FE/feHelpFuncs_decl.h"
  #include "Game/SH/SHNavigation.h"
-@@ -373,7 +380,7 @@ void CupFinalRoundsScene::OnBracketPointerLeave(unsigned int index, void* contex
+@@ -383,7 +390,7 @@ void CupFinalRoundsScene::OnBracketPointerLeave(unsigned int index, void* contex
  
  void CupFinalRoundsScene::OnMatchupPointerEnter(unsigned int index, void* context)
  {
@@ -99,7 +99,7 @@ index 90000c3..a2bdbe4 100644
      ++mPointerHoverCounts[index];
      mMatchupInstances[matchup]->SetActiveSlide("slide2", true, false);
      FEAudio::PlayAnimAudioEvent(0x50204AFA, 0, 0, 1);
-@@ -382,7 +389,7 @@ void CupFinalRoundsScene::OnMatchupPointerEnter(unsigned int index, void* contex
+@@ -392,7 +399,7 @@ void CupFinalRoundsScene::OnMatchupPointerEnter(unsigned int index, void* contex
  
  void CupFinalRoundsScene::OnMatchupPointerLeave(unsigned int index, void* context)
  {
@@ -108,7 +108,7 @@ index 90000c3..a2bdbe4 100644
      --mPointerHoverCounts[index];
      mMatchupInstances[matchup]->SetActiveSlide("slide1", true, false);
      mMatchupButtons[matchup].SetPointerState(POINTER_BUTTON_NORMAL, index);
-@@ -429,7 +436,7 @@ void CupFinalRoundsScene::OnBracketPointerPress(unsigned int, void* context)
+@@ -439,7 +446,7 @@ void CupFinalRoundsScene::OnBracketPointerPress(unsigned int, void* context)
          GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
      }
  
@@ -116,8 +116,8 @@ index 90000c3..a2bdbe4 100644
 +    switch (MSCHARGED_CUP_FINAL_ROUNDS_CONTEXT(int, context))
      {
      case 0:
-         FEAudio::PlayAnimAudioEvent(0x6E5C794C, 0, 0, 1);
-@@ -450,7 +457,7 @@ void CupFinalRoundsScene::OnBracketPointerPress(unsigned int, void* context)
+ #if defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+@@ -465,7 +472,7 @@ void CupFinalRoundsScene::OnBracketPointerPress(unsigned int, void* context)
  void CupFinalRoundsScene::OnMatchupPointerPress(unsigned int, void* context)
  {
      FEAudio::PlayAnimAudioEvent(0x970D6164, 0, 0, 1);
@@ -127,7 +127,7 @@ index 90000c3..a2bdbe4 100644
      {
          GameResultsScene* results = (GameResultsScene*)GameSceneManager::Instance()->Push(
 diff --git a/src/Game/SH/SHCupKnockout.cpp b/src/Game/SH/SHCupKnockout.cpp
-index e110b43..12d5c02 100644
+index ff1200c..84a6427 100644
 --- a/src/Game/SH/SHCupKnockout.cpp
 +++ b/src/Game/SH/SHCupKnockout.cpp
 @@ -1,4 +1,11 @@
@@ -142,7 +142,7 @@ index e110b43..12d5c02 100644
  
  #include "Game/DB/CharacterInfo.h"
  #include "Game/DB/CupInterface.h"
-@@ -705,7 +712,7 @@ void CupKnockoutScene::OnBracketPointerPress(unsigned int, void* context)
+@@ -740,7 +747,7 @@ void CupKnockoutScene::OnBracketPointerPress(unsigned int, void* context)
      for (int i = 0; i < 4; ++i)
          GetPointerInstance(i)->SetActiveSlide("waiting", true, false);
  
@@ -150,8 +150,8 @@ index e110b43..12d5c02 100644
 +    switch (MSCHARGED_CUP_KNOCKOUT_CONTEXT(int, context))
      {
      case 0:
-         FEAudio::PlayAnimAudioEvent(0x6E5C794C, 0, 0, 1);
-@@ -721,7 +728,7 @@ void CupKnockoutScene::OnBracketPointerPress(unsigned int, void* context)
+ #if defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+@@ -764,7 +771,7 @@ void CupKnockoutScene::OnBracketPointerPress(unsigned int, void* context)
  
  void CupKnockoutScene::OnMatchupPointerEnter(unsigned int index, void* context)
  {
@@ -160,7 +160,7 @@ index e110b43..12d5c02 100644
      ++mPointerHoverCounts[index];
      mMatchupInstances[matchup]->SetActiveSlide("over", true, false);
      FEAudio::PlayAnimAudioEvent(0x50204AFA, 0, 0, 1);
-@@ -730,7 +737,7 @@ void CupKnockoutScene::OnMatchupPointerEnter(unsigned int index, void* context)
+@@ -773,7 +780,7 @@ void CupKnockoutScene::OnMatchupPointerEnter(unsigned int index, void* context)
  
  void CupKnockoutScene::OnMatchupPointerLeave(unsigned int index, void* context)
  {
@@ -169,7 +169,7 @@ index e110b43..12d5c02 100644
      --mPointerHoverCounts[index];
      mMatchupInstances[matchup]->SetActiveSlide("off", true, false);
      mMatchupButtons[matchup].SetPointerState(POINTER_BUTTON_NORMAL, index);
-@@ -740,7 +747,7 @@ void CupKnockoutScene::OnMatchupPointerPress(unsigned int, void* context)
+@@ -783,7 +790,7 @@ void CupKnockoutScene::OnMatchupPointerPress(unsigned int, void* context)
  {
      int numGames = mTournament->GetNumGames(1);
      FEAudio::PlayAnimAudioEvent(0x970D6164, 0, 0, 1);

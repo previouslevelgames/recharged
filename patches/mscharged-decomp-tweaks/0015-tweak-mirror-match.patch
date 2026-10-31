@@ -1,5 +1,5 @@
 Subject: Tweak: mirror match
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 In Domination's captain select, a captain one team has picked is greyed out
 and the other team cannot pick him: OnCaptainPointerEnter and
@@ -54,7 +54,7 @@ A captain on both teams otherwise loads like a sidekick kind on both teams,
 which the game allows: one template, and a sound bank slot per team.
 
 diff --git a/include/Game/DB/CharacterInfo.h b/include/Game/DB/CharacterInfo.h
-index 2eec3f5..3659959 100644
+index 9b1fef6..aadb1ee 100644
 --- a/include/Game/DB/CharacterInfo.h
 +++ b/include/Game/DB/CharacterInfo.h
 @@ -69,4 +69,20 @@ nlColour GetTeamColour(const CharacterInfo& team, const CharacterInfo& opponent,
@@ -133,7 +133,7 @@ index a8044ad..6d3ee15 100644
 +
  #endif // GAME_SH_SH_STRIKER_TIMES_BASE_H
 diff --git a/src/Game/AI/DesireSuperPower.cpp b/src/Game/AI/DesireSuperPower.cpp
-index 0f01874..9a48b8b 100644
+index cc286eb..63965f5 100644
 --- a/src/Game/AI/DesireSuperPower.cpp
 +++ b/src/Game/AI/DesireSuperPower.cpp
 @@ -321,6 +321,9 @@ bool DesireSuperPower::Initialize(void* context)
@@ -147,10 +147,10 @@ index 0f01874..9a48b8b 100644
              PlaySound(fielder->m_uSoundSlotId, 0x790F135F, 0, 0);
              DeliverSuperPresentationEvent(g_pGame, fielder);
 diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
-index 697f7d8..f119d60 100644
+index be2e9e9..01fb3dc 100644
 --- a/src/Game/AI/GoalieActions.cpp
 +++ b/src/Game/AI/GoalieActions.cpp
-@@ -6904,7 +6904,14 @@ void Goalie::InitActionMegaStrike(float numBalls, float accuracy)
+@@ -6898,7 +6898,14 @@ void Goalie::InitActionMegaStrike(float numBalls, float accuracy)
      char texture[128];
      const CharacterInfo& teamInfo = *m_pTeam->GetCaptain()->GetCharacterInfoData();
      cFielder* opponent = m_pTeam->GetOtherTeam()->GetCaptain();
@@ -428,7 +428,7 @@ index cf22bda..34ae4aa 100644
  
      const char* szName = GetCharacterInfo(mCurrent->cc).mName;
 diff --git a/src/Game/DB/BasicGameInfo.cpp b/src/Game/DB/BasicGameInfo.cpp
-index 39355a5..1be0f14 100644
+index 349c875..58156fb 100644
 --- a/src/Game/DB/BasicGameInfo.cpp
 +++ b/src/Game/DB/BasicGameInfo.cpp
 @@ -5,6 +5,7 @@
@@ -504,7 +504,7 @@ index dc86883..d347dbc 100644
  }
  
 diff --git a/src/Game/FE/Overlay/OverlayHandlerGoal.cpp b/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
-index 29c1120..b1bda86 100644
+index d72f2a5..be0ec72 100644
 --- a/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
 +++ b/src/Game/FE/Overlay/OverlayHandlerGoal.cpp
 @@ -31,6 +31,62 @@
@@ -593,7 +593,7 @@ index 29c1120..b1bda86 100644
  
  void GoalOverlay::DoCupWinOverlay(int cup)
 diff --git a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
-index 4e25172..cf93640 100644
+index ab5878f..799475b 100644
 --- a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
 +++ b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
 @@ -26,6 +26,7 @@
@@ -719,7 +719,7 @@ index 017cc05..b98846d 100644
 +#endif
  }
 diff --git a/src/Game/FE/feCaptainComponent.cpp b/src/Game/FE/feCaptainComponent.cpp
-index 5f62102..d3c7ff9 100644
+index 53b23d0..6590ad7 100644
 --- a/src/Game/FE/feCaptainComponent.cpp
 +++ b/src/Game/FE/feCaptainComponent.cpp
 @@ -13,6 +13,10 @@
@@ -761,7 +761,7 @@ index 5f62102..d3c7ff9 100644
 +
 +static void MirrorMatchShowAwayCaptain(const FECaptainComponent* component, TLImageInstance* image)
 +{
-+    if (GameInfoManager::Instance()->IsInMode3() || GameInfoManager::Instance()->mIsOnlineMode)
++    if (GameInfoManager::Instance()->IsInCupMode() || GameInfoManager::Instance()->mIsOnlineMode)
 +    {
 +        return;
 +    }
@@ -797,7 +797,7 @@ index 5f62102..d3c7ff9 100644
      }
  }
 diff --git a/src/Game/FE/feCharacterPDAComponent.cpp b/src/Game/FE/feCharacterPDAComponent.cpp
-index 05d6d5d..368fe26 100644
+index 51bbd33..1b625b0 100644
 --- a/src/Game/FE/feCharacterPDAComponent.cpp
 +++ b/src/Game/FE/feCharacterPDAComponent.cpp
 @@ -22,6 +22,57 @@
@@ -935,7 +935,7 @@ index 05d6d5d..368fe26 100644
      else
      {
 diff --git a/src/Game/FE/feModelManager.cpp b/src/Game/FE/feModelManager.cpp
-index 2ecd370..12dd818 100644
+index d9d00a9..3656a0b 100644
 --- a/src/Game/FE/feModelManager.cpp
 +++ b/src/Game/FE/feModelManager.cpp
 @@ -48,6 +48,20 @@ namespace { std::unordered_set<const FEModel*> sAutomaticPreparedFEModels; }
@@ -1253,7 +1253,7 @@ index 94b697d..cf5f5e7 100644
  }
  
 diff --git a/src/Game/SH/SHChooseCaptains.cpp b/src/Game/SH/SHChooseCaptains.cpp
-index 622df78..60c387f 100644
+index eac5696..141fdb5 100644
 --- a/src/Game/SH/SHChooseCaptains.cpp
 +++ b/src/Game/SH/SHChooseCaptains.cpp
 @@ -37,9 +37,20 @@
@@ -1335,7 +1335,7 @@ index 622df78..60c387f 100644
  }
  
 diff --git a/src/Game/SH/SHChooseSidekicks.cpp b/src/Game/SH/SHChooseSidekicks.cpp
-index 49bbb30..46c752f 100644
+index 654a6b1..9860b11 100644
 --- a/src/Game/SH/SHChooseSidekicks.cpp
 +++ b/src/Game/SH/SHChooseSidekicks.cpp
 @@ -34,8 +34,72 @@
@@ -1479,7 +1479,7 @@ index 49bbb30..46c752f 100644
          {
              mPositionsLoaded[1][i] = mPositionImages[1][i]->Update(true);
 diff --git a/src/Game/SH/SHChooseSides.cpp b/src/Game/SH/SHChooseSides.cpp
-index 6cd7774..025d152 100644
+index cc162b5..cca7506 100644
 --- a/src/Game/SH/SHChooseSides.cpp
 +++ b/src/Game/SH/SHChooseSides.cpp
 @@ -163,6 +163,14 @@ void SHChooseSides2::SceneCreated()
@@ -1498,7 +1498,7 @@ index 6cd7774..025d152 100644
      TLComponentInstance* screen = 0;
      SHNavigation* object = GetNavigationScene();
 diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
-index 22633d8..b70e395 100644
+index b6e43fd..f38122e 100644
 --- a/src/Game/SH/SHLoading.cpp
 +++ b/src/Game/SH/SHLoading.cpp
 @@ -32,6 +32,9 @@
@@ -1526,7 +1526,7 @@ index 22633d8..b70e395 100644
 +
 +static void MirrorMatchShowAwayLogo(FEPresentation* presentation, const CharacterInfo& home, const CharacterInfo& away)
 +{
-+    if (GameInfoManager::Instance()->IsInMode3() || GameInfoManager::Instance()->mIsOnlineMode
++    if (GameInfoManager::Instance()->IsInCupMode() || GameInfoManager::Instance()->mIsOnlineMode
 +        || !MirrorMatchAwayKit(1, away, home) || HasWholeAwayKit(away))
 +    {
 +        return;
@@ -1585,7 +1585,7 @@ index 3a8d01f..75bc592 100644
      for (int index = 0; index < 4; ++index)
      {
 diff --git a/src/Game/SH/SHPausePostGame.cpp b/src/Game/SH/SHPausePostGame.cpp
-index 2c62591..9f343bb 100644
+index 5ead5fe..d6a6610 100644
 --- a/src/Game/SH/SHPausePostGame.cpp
 +++ b/src/Game/SH/SHPausePostGame.cpp
 @@ -28,6 +28,7 @@

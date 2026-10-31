@@ -1,6 +1,6 @@
 Subject: Separate legacy tweak diagnostics from original native source
 
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 The historical registration wrapper, parsing guards and game-side fixes
 require MSCHARGED_DIAGNOSTIC_TWEAKS. Original native TUs retain retail
@@ -262,13 +262,13 @@ index 257b5dd..fbb6b0d 100644
  }
 +#endif
 diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
-index b348f5b..0ec0b73 100644
+index f6e053c..a384794 100644
 --- a/src/Game/Ball.cpp
 +++ b/src/Game/Ball.cpp
 @@ -3310,7 +3310,9 @@ void OnBallStateChange(int previousState, int currentState)
  }
  
- static unsigned short lbl_806DB5C0 = 0xFFFF;
+ static unsigned short sBallDebugType = 0xFFFF;
 +#ifndef MSCHARGED_DIAGNOSTIC_TWEAKS
  char gTweakFloatBindingFormat[] __attribute__((aligned(4))) = "%.3f";
 +#endif

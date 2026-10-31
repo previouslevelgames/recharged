@@ -402,8 +402,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         Check(!priorBoot || !resizeCheck,
               "The prior Boot stage retains original effects/NPC owners; resize teardown is not qualified");
         // One game module per game version; both European revisions run the EU one.
-        const char* moduleFilename=release->code==mscharged::GameCode::Europe
-            ? MSCHARGED_ORIGINAL_FRONTEND_MODULE_EU_FILENAME : MSCHARGED_ORIGINAL_FRONTEND_MODULE_US_FILENAME;
+        const char* moduleFilename=MSCHARGED_ORIGINAL_FRONTEND_MODULE_US_FILENAME;
+        switch(release->code) {
+        case mscharged::GameCode::Europe: moduleFilename=MSCHARGED_ORIGINAL_FRONTEND_MODULE_EU_FILENAME; break;
+        case mscharged::GameCode::Japan: moduleFilename=MSCHARGED_ORIGINAL_FRONTEND_MODULE_JP_FILENAME; break;
+        case mscharged::GameCode::Korea: moduleFilename=MSCHARGED_ORIGINAL_FRONTEND_MODULE_KR_FILENAME; break;
+        case mscharged::GameCode::Usa: break;
+        }
         const auto modulePath=executableDirectory/moduleFilename;
         Check(std::filesystem::is_regular_file(modulePath),"Original-main source module is missing beside the executable");
         // Real host window/device/FIFO owner exists before any original module
@@ -730,7 +735,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::SetHotkeys(hotkeys);
         mscharged::platform::DesktopWpadSettings desktop{true,false,true,mscharged::platform::QueryPresentedDesktopDpd,
             nullptr,true,true,-1,mscharged::platform::ParseKeyBindings(launch.settings.keys,hotkeys)};
-        desktop.kpad_sensor_height=release->code==mscharged::GameCode::Usa;
+        // Only the European KPAD keeps its pointer centre at the sensor bar.
+        desktop.kpad_sensor_height=release->code!=mscharged::GameCode::Europe;
         desktop.rumble_strength=launch.settings.rumble_strength;
         // Each gamepad's profile (controls.gamepadN_profile).
         for (std::size_t pad = 0; pad < desktop.gamepad_profiles.size(); ++pad) {
@@ -744,8 +750,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
         wpad.speaker_volume=static_cast<std::uint8_t>((launch.settings.speaker_volume*127+50)/100);
         wpad.remote_speaker=launch.settings.speaker_volume>0;
-        // Original WPADControlSpeaker ON: 0x80 in the American game, 0x08 in the European one.
-        wpad.remote_speaker_reg01=release->code==mscharged::GameCode::Usa ? 0x80 : 0x08;
+        // Original WPADControlSpeaker ON: 0x08 in the European game, 0x80 in the others.
+        wpad.remote_speaker_reg01=release->code==mscharged::GameCode::Europe ? 0x08 : 0x80;
         wpad.bluetooth_search=launch.settings.bluetooth_search;
         mscharged::platform::InitializeNativeHardwareInput(host.window,wpad,
             mscharged::platform::GetNativeSTMInput(), desktop, players);

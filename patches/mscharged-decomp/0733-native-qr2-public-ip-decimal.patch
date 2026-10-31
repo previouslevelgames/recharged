@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Report QR2's public IP as the Wii's decimal natively
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: native byte-order compatibility
 
 QR2 learns its public address from the master server as hex, keeps it in

@@ -99,9 +99,9 @@ and the stadium. Tournament organizers choose the rule set of their event; for
 a challenge you pick one from the server's list. start.gg only pairs the
 players and keeps the scores.
 
-Players of the USA and the European version cannot play against each other,
-because the two versions of the game differ inside. Every tournament is for
-one version.
+Players of different versions (USA, Europe, Japan, Korea) cannot play against
+each other, because the versions of the game differ inside. Every tournament
+is for one version.
 
 ## Later
 

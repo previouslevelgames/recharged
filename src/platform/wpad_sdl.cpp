@@ -1130,4 +1130,29 @@ BOOL WPADIsMotorEnabled() {
     std::lock_guard lock(State().reports);
     return State().motor_enabled ? TRUE : FALSE;
 }
+
+// The newer WPAD of the Korean release: KPAD's own calls. This WPAD has no
+// Balance Board, train, guitar or drum controller, so those calls answer as
+// the Korean WPAD.c does without one (its weak WBC dummies included).
+void WPADSetCallbackByKPAD(BOOL) {}
+u8 WPADGetDpdFormat(s32 index) {
+    auto& channel = GetChannel(index);
+    std::lock_guard lock(State().reports);
+    return ChannelPointer(channel) ? u8(channel.dpd_command) : u8(WPAD_DPD_DISABLE);
+}
+s32 WPADControlBLC(s32 index, s32, WPADCallback callback) {
+    const WPADResult result = GetChannel(index).pad ? WPAD_ERR_COMMUNICATION_ERROR : WPAD_ERR_NO_CONTROLLER;
+    if (callback) callback(index, result);
+    return result;
+}
+BOOL WPADIsEnabledVSM() { return FALSE; }
+BOOL WPADIsEnabledTRN() { return FALSE; }
+BOOL WPADIsEnabledGTR() { return FALSE; }
+BOOL WPADIsEnabledDRM() { return FALSE; }
+s32 WBCSetupCalibration() { return WPAD_ERR_OK; }
+s32 WBCGetCalibrationStatus() { return 0; }
+s32 WBCGetBatteryLevel(u8) { return 0; }
+s32 WBCRead(void*, f64*, int) { return WPAD_ERR_NO_CONTROLLER; }
+s32 WBCSetZEROPoint(f64*, int) { return WPAD_ERR_NO_CONTROLLER; }
+s32 WBCGetTGCWeight(f64, f64*, void*) { return WPAD_ERR_NO_CONTROLLER; }
 }

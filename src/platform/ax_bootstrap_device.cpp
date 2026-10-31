@@ -18,11 +18,13 @@ std::uint32_t PrepareRetainedChip(DSPInstructionCore& chip,NativeDSPMailboxEndpo
                                  NativeDSPControlEndpoint control,std::uint32_t firmware) {
     chip.RequireHardwareEndpoints(mailboxes,control);chip.PauseHaltedExecution();return firmware;
 }
-// Exact SHA256 of the original reconstructed AX DSPCode.c byte image. This
-// identifies task hardware code, not an external ROM or guessed replacement.
-constexpr std::array<std::uint32_t,8> FirmwareDigest{
-    0x329e87af,0xe881d4b5,0x71c74ac9,0x52c599ee,
-    0xab8ec678,0x2748565c,0x8fd15551,0xc04bea24};
+// Exact SHA256 of the original reconstructed AX DSPCode.c byte images: the
+// older SDK's (USA, Europe, Japan) and the Korean release's newer one, which
+// has the same size, init and resume vectors and takes the same command lists.
+// This identifies task hardware code, not an external ROM or guessed replacement.
+constexpr std::array<std::array<std::uint32_t,8>,2> FirmwareDigests{{
+    {0x329e87af,0xe881d4b5,0x71c74ac9,0x52c599ee,0xab8ec678,0x2748565c,0x8fd15551,0xc04bea24},
+    {0xd6d5952c,0x5e6c5570,0x5513d89e,0x58ba1231,0x4db23d87,0x58c4acfd,0x2c75b81b,0x7140c0ed}}};
 std::uint32_t Rotate(std::uint32_t x,unsigned n) {return (x>>n)|(x<<(32-n));}
 // FIPS180-4 SHA256, fixed8192-byte input plus its mandatory padding block.
 // Unsigned32 arithmetic preserves modular additions independent of host endian.
@@ -96,7 +98,8 @@ struct NativeAXBootstrapDevice::State {
     void ValidateImage() const {
         std::array<unsigned char,FirmwareBytes> bytes{};
         DSPBackendReadMemory(memory,firmware,bytes.data(),bytes.size());
-        if(Digest(bytes)!=FirmwareDigest)
+        const auto digest=Digest(bytes);
+        if(std::find(FirmwareDigests.begin(),FirmwareDigests.end(),digest)==FirmwareDigests.end())
             throw std::invalid_argument("AX bootstrap task image is not the exact source firmware");
     }
     void PublishLoader() {

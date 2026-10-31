@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Keep DWC ranking words in their little-endian wire order natively
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 Classification: native byte-order compatibility
 
 The DWC ranking protocol carries little-endian words, the DS's order, and
@@ -15,11 +15,11 @@ Natively the swap keeps each word as it is; a static assertion limits
 that to little-endian hosts, as the native save transport does.
 
 diff --git a/src/RVL_SDK/dwc/dwc_encsession.c b/src/RVL_SDK/dwc/dwc_encsession.c
-index ced9a52..154f4ee 100644
+index 65b7601..47b6f24 100644
 --- a/src/RVL_SDK/dwc/dwc_encsession.c
 +++ b/src/RVL_SDK/dwc/dwc_encsession.c
-@@ -36,9 +36,17 @@ static struct
-     BOOL (*callback)(u32* data, int size);
+@@ -48,9 +48,17 @@ static struct
+ #endif
  } g_session = { DWCi_ENC_SESSION_STATE_INITIAL };
  
 +#if defined(MSCHARGED_NATIVE)
@@ -34,10 +34,10 @@ index ced9a52..154f4ee 100644
          | (((u32)(value) >> 8) & 0x0000FF00) | (((u32)(value) >> 24) & 0x000000FF))
 +#endif
  
- static u32 b64size(u32 len)
- {
+ #if defined(VERSION_R4QK01)
+ #define DWCi_ENC_HASH_LENGTH (sizeof(g_session.cachedHash) - 1)
 diff --git a/src/RVL_SDK/dwc/dwc_ranksession.c b/src/RVL_SDK/dwc/dwc_ranksession.c
-index 670912d..db81bf5 100644
+index edfb8c2..2d4472b 100644
 --- a/src/RVL_SDK/dwc/dwc_ranksession.c
 +++ b/src/RVL_SDK/dwc/dwc_ranksession.c
 @@ -23,9 +23,17 @@ typedef struct

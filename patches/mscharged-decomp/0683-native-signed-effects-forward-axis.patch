@@ -1,5 +1,5 @@
 Subject: Preserve the signed Wii32 effects forward-axis representation
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 Native-only declaration transport. Console tokens, numeric constants, source
 branches and serialized data remain unchanged. Apply after the refreshed469

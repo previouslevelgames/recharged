@@ -1,9 +1,9 @@
 From: mscharged-port
 Subject: Prepare source-authored procedural and inherited render variants
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 diff --git a/src/Game/Render/StadiumLoading.cpp b/src/Game/Render/StadiumLoading.cpp
-index 9a7da4e..67d0adc 100644
+index 9044788..bdb426a 100644
 --- a/src/Game/Render/StadiumLoading.cpp
 +++ b/src/Game/Render/StadiumLoading.cpp
 @@ -41,6 +41,9 @@
@@ -15,7 +15,7 @@ index 9a7da4e..67d0adc 100644
 +#endif
  extern "C"
  {
-     extern bool lbl_806DEE60;
+     extern bool gUseReducedStadiumUpdates;
 @@ -148,6 +151,21 @@ DrawableObject** GetNumberRenderObjects()
      return gStadiumNumberInstances;
  }
