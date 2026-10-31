@@ -10,10 +10,11 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 
 ## How a match feels
 
-1. Open Recharged and go to **Online**. Its **Friends** page shows your friends
-   and your Discord friends, **Players** everyone else who
-   is online and your recent opponents, and **Events** your tournaments
-   (coming later). Your open set shows at the top of each.
+1. Open Recharged and go to **Online**; the first time, **Connect Discord**
+   there. Its **Friends** page shows your friends and your Discord friends,
+   **Players** everyone else who is online and your recent opponents, and
+   **Events** your tournaments (coming later). Your open set shows at the top
+   of each.
 2. Challenge an opponent, or let a tournament pair you with one.
 3. They accept, in the launcher or on a card over their game.
 4. Both games start by themselves, **straight into the captain draft**: no intro,
@@ -53,7 +54,7 @@ Recharged's own friends list follows you everywhere, but your friends are
 probably on Discord already. Signing in with Discord links them too: Discord's
 page asks for your account and your friends list at once, and the **Friends**
 page then lists all your Discord friends. If you signed in before that, press
-**Connect Discord** on the **Friends** page once per computer and agree in the
+**Connect Discord** on **Online settings** once per computer and agree in the
 Discord app or your browser.
 
 The **Friends** page lists your friends and your Discord friends together,
@@ -63,15 +64,14 @@ or in a set) and **Challenge** at the end of the row, greyed while they are in
 a match or a set. The others are folded away under **Offline**: your friends
 with when they last had Recharged open, your Discord friends with what Discord
 says about them. The search field over the list finds a friend, or adds or
-challenges a player by Discord username; **Connected** next to it ends the
-Discord link.
+challenges a player by Discord username.
 
 - Your Discord friends list goes from Discord straight to Recharged on your
   computer. Our server only learns which of the accounts in it have a
   Recharged profile; it keeps neither the list nor Discord's keys.
-- Connect the Discord account you signed in with. **Disconnect Discord** in
-  the same card ends it on this computer; Discord's settings (Authorized Apps)
-  end it everywhere.
+- Connect the Discord account you signed in with. **Disconnect Discord** on
+  **Online settings** ends it on this computer; Discord's settings (Authorized
+  Apps) end it everywhere.
 - Builds made from source go without Discord friends: they need Discord's
   library, which only the official packages include.
 

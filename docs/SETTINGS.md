@@ -459,19 +459,21 @@ The launcher's **Online** pages play sets against other Recharged players by
 the rules of the project's online server, `https://rechargedwfc.net`:
 **Friends** (your friends and your Discord friends),
 **Players** (everyone else with Recharged open, and the players you played
-last), **Events** (tournaments, coming later) and **Match settings** (the rule
-set your challenges go out with, kept as `[online] challenge_rules`). A
-private server's `https://`
+last), **Events** (tournaments, coming later), **Match settings** (the rule
+set your challenges go out with, kept as `[online] challenge_rules`) and
+**Online settings** (who you are signed in as, the server and whether it
+answers, your Discord friends' link, and Sign out). A dot before **Online** in
+the sidebar shows the sign-in: green signed in, red not; signed out, Online is
+one page that shows what playing online brings and **Connect Discord**. Your
+set shows at the top of the Online pages. A private server's `https://`
 address (from its admins) goes in `[online] profile_server`; only the file
-changes it. The bar at the top of these pages shows who you are signed in as,
-what you are doing, and whether the server answers; your set shows under it.
-A set is a series against
+changes it. A set is a series against
 one player, by one of the server's rule sets: skill level, game length or goal
 limit, the games of the series, the stadium, and the *Competitive gameplay*
 tweaks both teams play with.
 
-1. Sign in with Discord. The browser opens a page that shows a code; go on
-   only if it is the code the launcher shows.
+1. Connect Discord on **Online**. The browser opens a page that shows a code;
+   go on only if it is the code the launcher shows.
 2. Challenge a player who has Recharged open: from the Friends or Players page
    with a click, or by their Discord username. They accept or
    decline, in the launcher or on a card over their game while it is in its

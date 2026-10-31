@@ -97,9 +97,10 @@ struct NavPage
 // A sidebar group of pages, open while one of them is shown: its row, and a
 // raised panel with the pages under it. Returns 0 for a click on the group's
 // row, 1 and up for one on a page, -1 for none. row_height 0: the usual row
-// (44 dp), as NavItem.
+// (44 dp), as NavItem. Without pages the row stands alone (no chevron);
+// `status`, when given, is a dot in that colour before the label.
 int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>& pages, float width,
-             float row_height = 0.0f);
+             float row_height = 0.0f, const ImVec4* status = nullptr);
 // The height an open NavGroup adds under its row for that many pages.
 float NavGroupPagesHeight(std::size_t pages);
 bool PrimaryButton(const char* id, const char* label, ImVec2 size, bool enabled, Icon icon = Icon::None,

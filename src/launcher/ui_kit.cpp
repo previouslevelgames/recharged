@@ -733,7 +733,7 @@ float NavGroupPagesHeight(std::size_t pages)
 }
 
 int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>& pages, float width,
-             float row_height)
+             float row_height, const ImVec4* status)
 {
     ImGui::PushID(label);
     auto* draw = ImGui::GetWindowDrawList();
@@ -741,7 +741,7 @@ int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     const float row = row_height > 0.0f ? row_height : Dp(44), page_row = Dp(36), step = Dp(38), top = Dp(4);
     const float shown = Animate(ImGui::GetID("##open"), open, 11.0f);
-    const float height = row + NavGroupPagesHeight(pages.size()) * shown;
+    const float height = row + (pages.empty() ? 0.0f : NavGroupPagesHeight(pages.size()) * shown);
     const ImVec2 max{pos.x + width, pos.y + height};
     int clicked = -1;
 
@@ -768,8 +768,18 @@ int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>
                                 shown)),
                         Dp(8));
     DrawIcon(draw, icon, badge, Dp(17), Col(Mix(Mix(color::muted, color::text, hover), color::accent, shown)));
-    DrawLabel(draw, fonts.label, {pos.x + Dp(54), pos.y + (row - FontSize(fonts.label)) * 0.5f},
+    float label_left = pos.x + Dp(54);
+    if (status)
+    {
+        // The status dot, with a soft halo.
+        const ImVec2 dot{label_left + Dp(5), pos.y + row * 0.5f};
+        draw->AddCircleFilled(dot, Dp(7), Col(*status, 0.18f));
+        draw->AddCircleFilled(dot, Dp(4), Col(*status));
+        label_left += Dp(16);
+    }
+    DrawLabel(draw, fonts.label, {label_left, pos.y + (row - FontSize(fonts.label)) * 0.5f},
               Col(Mix(Mix(color::muted, color::text, hover), ImVec4{1, 1, 1, 1}, shown)), label);
+    if (!pages.empty())
     {
         const float turn = 3.14159265f * shown, c = std::cos(turn), s = std::sin(turn), size = Dp(12);
         const ImVec2 at{max.x - Dp(20), pos.y + row * 0.5f};
