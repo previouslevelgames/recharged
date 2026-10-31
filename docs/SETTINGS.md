@@ -455,20 +455,29 @@ writes `rollback_test` or `rollback_log`.
 
 ## Competitive play
 
-The launcher's **Competitive** page plays sets against other Recharged players
-by the rules of the project's online server, `https://rechargedwfc.net`. A
-private server's `https://` address (from its admins) goes in
-`[online] profile_server`; only the file changes it. The bar at the top of the
-page shows who you are signed in as, what you are doing, and whether the server
-answers. A set is a series against
+The launcher's **Online** pages play sets against other Recharged players by
+the rules of the project's online server, `https://rechargedwfc.net`:
+**Friends** (your friends and your Discord friends, and the players you played
+last), **Leaderboard** (the game's RANKED leaderboards on the server: the
+season's leaders and today's, and your own place), **Events** (tournaments,
+coming later), **Match settings** (the rule
+set your challenges go out with, kept as `[online] challenge_rules`) and
+**Online settings** (who you are signed in as, your friend code, whether your
+Discord friends are linked, the server, and Sign out, which also ends the
+Discord link on this computer). A dot before **Online** in
+the sidebar shows the sign-in: green signed in, red not; signed out, Online is
+one page that shows what playing online brings and **Connect Discord**. Your
+set shows at the top of the Online pages. A private server's `https://`
+address (from its admins) goes in `[online] profile_server`; only the file
+changes it. A set is a series against
 one player, by one of the server's rule sets: skill level, game length or goal
 limit, the games of the series, the stadium, and the *Competitive gameplay*
 tweaks both teams play with.
 
-1. Sign in with Discord. The browser opens a page that shows a code; go on
-   only if it is the code the launcher shows.
-2. Challenge a player who has Recharged open: from your friends or the other
-   players online with a click, or by their Discord username. They accept or
+1. Connect Discord on **Online**. The browser opens a page that shows a code;
+   go on only if it is the code the launcher shows.
+2. Challenge a player who has Recharged open: from the Friends or Players page
+   with a click, or by their Discord username. They accept or
    decline, in the launcher or on a card over their game while it is in its
    menus (A accepts, B declines; the game waits behind the card). A player in
    a match shows as *Playing a match* and can be challenged once it is over.
@@ -476,16 +485,18 @@ tweaks both teams play with.
    challenge was accepted closes, and its launcher starts the set's game. The
    game signs in to the online server with your own Mii and goes straight to
    the captain draft against your opponent, where you choose your captain and
-   sidekicks. **Not ready** in the lobby holds the set until you press
+   sidekicks. **Not ready** on the Online pages holds the set until you press
    **Ready to play!** again.
 4. After the series both games report the result, the game closes and the
    launcher opens again with the result, and **Rematch**.
 
 Your **friends** are kept on the server, so they follow you to every computer:
-everyone you challenge, everyone whose challenge you accept, and anyone you add
-with the heart (or by Discord username). The list shows who has Recharged open
-or is in a set, and for the others when they were last online. The heart again
-takes a player off.
+the players you add by Discord username, or from *Played recently* on the
+Friends page with **Add to friends** in their **⋯** menu. Playing someone
+doesn't make them a friend: they show under *Played recently*, the latest
+first, until you add them. The list shows who has Recharged
+open or is in a set, and for the others when they were last online. **Remove
+from friends** in a friend's **⋯** menu takes them off.
 
 Friends who have you as a friend too can **chat**: the speech bubble on their
 row opens the conversation, with the number of messages you haven't read yet
@@ -530,7 +541,8 @@ checks on demand.
 to follow: official releases, or also the **test builds** of changes that are
 not released yet, with the change's description as notes. Switching asks
 whether to install the other channel's build; *Later* keeps the build and
-the choice you had. On a test build, *Release*
+the choice you had. With no test build to switch to, Test goes back to
+Release by itself. On a test build, *Release*
 offers the way back to the latest release. A test build moves on to the
 release that contains it.
 

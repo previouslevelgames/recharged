@@ -1,6 +1,7 @@
 #include "launcher/competitive_service.h"
 
 #include "platform/http_client.h"
+#include "platform/session_log.h"
 
 #include <algorithm>
 
@@ -21,6 +22,9 @@ namespace
 // player's heartbeat: a set lasts while both have Recharged open.
 constexpr auto kMatchPoll = 4s;
 constexpr auto kListsPoll = 5s;
+// The leaderboards, while their page is shown (it says so every frame).
+constexpr auto kLeaderboardPoll = 60s;
+constexpr auto kLeaderboardShown = 2s;
 // An open conversation is followed closely.
 constexpr auto kChatPoll = 2s;
 
@@ -39,7 +43,8 @@ constexpr std::size_t kDiscordFriends = 1000;
 constexpr std::size_t kDiscordLookup = 200;
 } // namespace
 
-CompetitiveService::CompetitiveService(std::filesystem::path session_file) : session_file_(std::move(session_file))
+CompetitiveService::CompetitiveService(std::filesystem::path session_file, std::filesystem::path discord_link_file)
+    : session_file_(std::move(session_file)), discord_link_file_(std::move(discord_link_file))
 {
     worker_ = std::thread([this] { Run(); });
 }
@@ -193,6 +198,9 @@ void CompetitiveService::SignedOutHere(const char* reason)
     status_.state = State::SignedOut;
     status_.player = {};
     status_.match.reset();
+    // The next player's place on them differs.
+    status_.leaderboard.reset();
+    next_leaderboard_ = {};
     if (reason)
     {
         status_.error = reason;
@@ -287,7 +295,22 @@ void CompetitiveService::Poll(ProfileService& api)
         switch (result.status)
         {
         case SignInResult::Status::Waiting: return;
-        case SignInResult::Status::SignedIn: Signed(api, result.token, result.player); return;
+        case SignInResult::Status::SignedIn:
+            // The Discord friends link with the sign-in's tokens: kept before
+            // it counts as signed in, so they connect from it at once.
+            if (result.discord)
+            {
+                try
+                {
+                    platform::SaveDiscordLink(discord_link_file_, {api.Server(), result.discord->refresh_token});
+                }
+                catch (const std::exception& e)
+                {
+                    platform::SessionLogLine(std::string("Discord friends: the link is not kept: ") + e.what());
+                }
+            }
+            Signed(api, result.token, result.player);
+            return;
         case SignInResult::Status::Refused:
         case SignInResult::Status::Expired:
             Change([&](Status& status) {
@@ -360,11 +383,35 @@ void CompetitiveService::Poll(ProfileService& api)
             return a.name < b.name;
         });
     }
+    // The leaderboards, while their page is shown.
+    bool board = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        board = Clock::now() - leaderboard_wanted_ < kLeaderboardShown && Clock::now() >= next_leaderboard_
+            && !status_.leaderboard_missing;
+    }
+    std::optional<platform::Leaderboard> leaderboard;
+    bool leaderboard_missing = false;
+    if (board)
+    {
+        try
+        {
+            leaderboard = api.RankedLeaderboard();
+        }
+        catch (const ProfileError& e)
+        {
+            // A server before 1.2.1 has none.
+            if (e.Status() != 404) throw;
+            leaderboard_missing = true;
+        }
+    }
     Change([&](Status& status) {
         status.match = match;
         if (player) status.player = *player;
         if (found) status.lists = *found;
         if (discord) status.discord_players = std::move(*discord);
+        if (leaderboard) status.leaderboard = std::move(*leaderboard);
+        if (leaderboard_missing) status.leaderboard_missing = true;
         if (page && status.chat.with == chat_with)
         {
             for (auto& message : page->messages)
@@ -380,6 +427,7 @@ void CompetitiveService::Poll(ProfileService& api)
     std::lock_guard<std::mutex> lock(mutex_);
     if (me) next_me_ = Clock::now() + kPlayerPoll;
     if (lists) next_lists_ = Clock::now() + kListsPoll;
+    if (board) next_leaderboard_ = Clock::now() + kLeaderboardPoll;
     if (interval) next_poll_ = Clock::now() + std::chrono::seconds(interval);
     if (chat_with) next_chat_ = Clock::now() + kChatPoll;
     if (status_.chat.with) next_poll_ = std::min(next_poll_, next_chat_);
@@ -398,6 +446,19 @@ void CompetitiveService::SetDiscordFriends(std::vector<std::string> discord_ids)
         ++status_.serial;
     }
     wake_.notify_all();
+}
+
+void CompetitiveService::WantLeaderboard()
+{
+    bool first = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        // Opened (again): fetched at once when due.
+        first = Clock::now() - leaderboard_wanted_ >= kLeaderboardShown && Clock::now() >= next_leaderboard_;
+        leaderboard_wanted_ = Clock::now();
+        if (first) next_poll_ = Clock::now();
+    }
+    if (first) wake_.notify_all();
 }
 
 void CompetitiveService::TradeDiscordToken(std::string code, std::string verifier, std::string redirect_uri,

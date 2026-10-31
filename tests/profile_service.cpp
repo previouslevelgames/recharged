@@ -305,6 +305,17 @@ void Requests()
         {"POST /api/v1/discord/token", 400, R"({"error":"Discord refused: connect Discord again"})"},
         {"POST /api/v1/players/discord", 200,
          R"({"players":[{"id":8,"name":"Sam","online":true,"discord_id":"41771983423143937"}]})"},
+        // A Discord sign-in that brings the Discord SDK's tokens (1.2.1).
+        {"GET /api/v1/sign-in/abc", 200,
+         R"({"status":"signed_in","token":"t2","player":{"id":7,"name":"Nelly","discord":"nelly","test":false},)"
+         R"("discord":{"access_token":"a2","refresh_token":"r2","expires_in":604800,"scope":"identify openid sdk.social_layer_presence"}})"},
+        // The RANKED leaderboards (1.2.1).
+        {"GET /api/v1/leaderboard", 200,
+         R"({"season":{"first_day":"2026-10-01","last_day":"2026-10-31","players":3,"top":[)"
+         R"({"rank":1,"mii":"Mario","player":null,"wins":5,"losses":1,"points":50,"region":2,"you":false},)"
+         R"({"rank":2,"mii":"Nelly","player":"Nelly","wins":3,"losses":null,"points":30,"region":4,"you":true}],)"
+         R"("you":{"rank":2,"mii":"Nelly","player":"Nelly","wins":3,"losses":null,"points":30,"region":4,"you":true}},)"
+         R"("daily":{"first_day":"2026-10-31","last_day":"2026-10-31","players":0,"top":[],"you":null}})"},
     };
     std::vector<Sent> sent;
     {
@@ -315,7 +326,7 @@ void Requests()
               && info.discord_application == "1561321462327943259");
         const auto signed_in = api.TestSignIn("Nel\"ly");
         CHECK(signed_in.status == SignInResult::Status::SignedIn && signed_in.token == "t0k3n"
-              && signed_in.player.name == "Nelly" && signed_in.player.test);
+              && signed_in.player.name == "Nelly" && signed_in.player.test && !signed_in.discord);
         api.SetToken(signed_in.token);
         const auto match = api.Challenge("sam", 2);
         CHECK(match.id == 12 && match.state == "accepted" && match.opponent.wfc.size() == 1
@@ -381,6 +392,16 @@ void Requests()
         }
         const auto found = api.PlayersByDiscord({"41771983423143937", "123"});
         CHECK(found.size() == 1 && found[0].id == 8 && found[0].online && found[0].discord_id == "41771983423143937");
+        const auto with_discord = api.PollSignIn("abc");
+        CHECK(with_discord.status == SignInResult::Status::SignedIn && with_discord.token == "t2" && with_discord.discord
+              && with_discord.discord->access_token == "a2" && with_discord.discord->refresh_token == "r2"
+              && with_discord.discord->expires_in == 604800);
+        const auto board = api.RankedLeaderboard();
+        CHECK(board.season.players == 3 && board.season.top.size() == 2 && board.season.first_day == "2026-10-01"
+              && board.season.top[0].mii == "Mario" && board.season.top[0].player.empty()
+              && board.season.top[0].wins == 5 && board.season.top[1].you && !board.season.top[1].losses
+              && board.season.you && board.season.you->rank == 2 && board.season.you->region == 4);
+        CHECK(board.daily.players == 0 && board.daily.top.empty() && !board.daily.you);
     }
     CHECK(sent.size() == exchanges.size());
     for (const auto& request : sent) CHECK(request.expected);
