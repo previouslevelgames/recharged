@@ -30,7 +30,8 @@ with the score.
 
 ## Challenge a friend
 
-- Type a player's Discord name and choose a rule set. They get
+- Choose your rule set once on **Online → Match settings**, then challenge a
+  friend with a click, or type a player's Discord name. They get
   **"Alice challenges you"** with Accept and Decline: in the launcher, or on a
   card over the game while they are in its menus.
 - Anyone who is signed in and has Recharged open can be challenged, unless
@@ -109,7 +110,7 @@ Every set has one rule set, the same for both players: the competitive
 gameplay tweaks (such as no Mega Strikes, fast terrain and Thunder Island
 walls), the skill level, the game length or goal limit, the number of games
 and the stadium. Tournament organizers choose the rule set of their event; for
-a challenge you pick one from the server's list. start.gg only pairs the
+a challenge you pick one from the server's list on **Match settings**. start.gg only pairs the
 players and keeps the scores.
 
 Players of different versions (USA, Europe, Japan, Korea) cannot play against

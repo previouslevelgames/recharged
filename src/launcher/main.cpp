@@ -210,36 +210,53 @@ void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_col
 }
 
 // In the sidebar's order. The pages of a group (kNavGroups) follow each other.
-enum Page { PagePlay, PageGame, PageFriends, PagePlayers, PageEvents, PageDisplay, PageAudio, PageControls,
+enum Page { PagePlay, PageGame, PageFriends, PagePlayers, PageEvents, PageMatchSettings, PageDisplay, PageAudio,
+            PageControls,
             PageGameplay, PageMiis, PageSidekicks, PageRules, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play",     "Game",     "Friends", "Players",   "Events",
-                                      "Display",  "Audio",    "Controls", "Gameplay", "Miis",
-                                      "Sidekicks", "Match rules", "Advanced", "About"};
-constexpr const char* page_ids[] = {"play",     "game",     "friends", "players",   "events",   "display",  "audio",
-                                    "controls", "gameplay", "miis",    "sidekicks", "rules",    "advanced", "about"};
-constexpr Icon page_icons[] = {Icon::Play,     Icon::Disc,   Icon::Heart,  Icon::Gamepad, Icon::Medal,
-                               Icon::Display,  Icon::Audio,  Icon::Keyboard, Icon::Target, Icon::Person,
-                               Icon::Pitch,    Icon::Trophy, Icon::Sliders, Icon::Info};
+constexpr const char* page_names[] = {"Play",     "Game",     "Friends",   "Players",     "Events",
+                                      "Match settings", "Display", "Audio", "Controls", "Gameplay",
+                                      "Miis",     "Sidekicks", "Match rules", "Advanced", "About"};
+constexpr const char* page_ids[] = {"play",     "game",     "friends",   "players",  "events",
+                                    "match-settings", "display", "audio", "controls", "gameplay",
+                                    "miis",     "sidekicks", "rules",    "advanced", "about"};
+constexpr Icon page_icons[] = {Icon::Play,     Icon::Disc,   Icon::Heart,    Icon::Gamepad, Icon::Medal,
+                               Icon::Gear,     Icon::Display, Icon::Audio,   Icon::Keyboard, Icon::Target,
+                               Icon::Person,   Icon::Pitch,  Icon::Trophy,   Icon::Sliders, Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
     && std::size(page_icons) == PageCount);
 
-// The sidebar's groups of three pages each: one row that opens the last of
-// its pages shown, and shows their rows while one of them is open.
+// The sidebar's groups of pages: one row that opens the last of its pages
+// shown, and shows their rows while one of them is open.
 struct NavGroupInfo
 {
     const char* label;
     Icon icon;
     int first;
+    int count;
 };
-constexpr int kNavGroupPages = 3;
-constexpr NavGroupInfo kNavGroups[] = {{"Online", Icon::Chat, PageFriends}, {"Match setup", Icon::Clipboard, PageMiis}};
+constexpr NavGroupInfo kNavGroups[] = {{"Online", Icon::Chat, PageFriends, 4},
+                                       {"Match setup", Icon::Clipboard, PageMiis, 3}};
 constexpr int NavGroupOf(int page)
 {
     for (int group = 0; group < int(std::size(kNavGroups)); ++group)
-        if (page >= kNavGroups[group].first && page < kNavGroups[group].first + kNavGroupPages) return group;
+        if (page >= kNavGroups[group].first && page < kNavGroups[group].first + kNavGroups[group].count) return group;
     return -1;
 }
-static_assert(NavGroupOf(PageEvents) == 0 && NavGroupOf(PageRules) == 1 && NavGroupOf(PageGameplay) == -1);
+// Pages that share a group's row, and the most pages one group has.
+constexpr int NavGroupedRows()
+{
+    int rows = 0;
+    for (const auto& group : kNavGroups) rows += group.count - 1;
+    return rows;
+}
+constexpr int NavGroupMostPages()
+{
+    int most = 0;
+    for (const auto& group : kNavGroups) most = group.count > most ? group.count : most;
+    return most;
+}
+static_assert(NavGroupOf(PageMatchSettings) == 0 && NavGroupOf(PageRules) == 1 && NavGroupOf(PageGameplay) == -1
+              && NavGroupOf(PageDisplay) == -1 && NavGroupOf(PageAdvanced) == -1);
 constexpr bool OnlinePage(int page) { return NavGroupOf(page) == 0; }
 
 // The captains (eTeamID order) and the sidekicks (eSidekickID order), as the
@@ -2831,8 +2848,8 @@ private:
         // window is too low for all of them at the usual height, with room
         // for the open group's panel (each group's pages share its row).
         const float badge = height - Dp(40);
-        const float rows = float(PageCount - int(std::size(kNavGroups)) * (kNavGroupPages - 1));
-        const float row = std::clamp((badge - Dp(8) - y - NavGroupPagesHeight(kNavGroupPages)) / rows, Dp(34),
+        const float rows = float(PageCount - NavGroupedRows());
+        const float row = std::clamp((badge - Dp(8) - y - NavGroupPagesHeight(NavGroupMostPages())) / rows, Dp(34),
                                      Dp(48));
         ImGui::SetCursorPos({Dp(12), y});
         for (int i = 0; i < PageCount; ++i)
@@ -2842,10 +2859,10 @@ private:
             {
                 const NavGroupInfo& info = kNavGroups[group];
                 if (i != info.first) continue;
-                const auto page = [&](int p) { return NavPage{page_names[p], page_icons[p], page_ == p}; };
-                static_assert(kNavGroupPages == 3);
-                const int clicked = NavGroup(info.label, info.icon, open_group == group,
-                                             {page(i), page(i + 1), page(i + 2)}, width - Dp(24), row - Dp(4));
+                std::vector<NavPage> pages;
+                for (int p = i; p < i + info.count; ++p) pages.push_back({page_names[p], page_icons[p], page_ == p});
+                const int clicked = NavGroup(info.label, info.icon, open_group == group, pages, width - Dp(24),
+                                             row - Dp(4));
                 if (clicked == 0) page_ = group_page_[group];
                 if (clicked > 0) page_ = i + clicked - 1;
             }
@@ -2928,6 +2945,7 @@ private:
             case PageFriends: FriendsPage(); break;
             case PagePlayers: PlayersPage(); break;
             case PageEvents: EventsPage(); break;
+            case PageMatchSettings: MatchSettingsPage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
@@ -4006,7 +4024,7 @@ private:
                   "Your friends follow you to every computer. Add players with the heart, here or on the Players "
                   "page, or by their Discord username.",
                   Icon::Heart);
-        const platform::RuleSet* chosen = ChallengeRulesRow();
+        const platform::RuleSet* chosen = ChallengeRulesNote();
         std::vector<FriendEntry> online, offline;
         for (const auto& entry : FriendEntries(now)) (entry.Online() ? online : offline).push_back(entry);
         SectionHeading("ONLINE", online.empty() ? std::string() : std::to_string(online.size()));
@@ -4035,7 +4053,7 @@ private:
         const auto now = std::int64_t(std::time(nullptr));
         BeginCard("##online_players", "Players", "Friends and Discord friends who play Recharged are on the Friends page.",
                   Icon::Gamepad);
-        const platform::RuleSet* chosen = ChallengeRulesRow();
+        const platform::RuleSet* chosen = ChallengeRulesNote();
         // Each player once on the page (their rows share their id): not the
         // friends, nor the Discord friends the Friends page shows.
         std::set<std::int64_t> shown;
@@ -4075,24 +4093,103 @@ private:
         EndCard();
     }
 
-    // The rules every challenge from the Online pages uses.
-    const platform::RuleSet* ChallengeRulesRow()
+    // Online -> Match settings: the rule set the player's challenges go out
+    // with, chosen from the server's as boxes, and kept in the settings file.
+    void MatchSettingsPage()
     {
+        if (!OnlinePageTop("Match settings", "How the sets you challenge others to are played."))
+            return;
+        const auto& fonts = CurrentFonts();
+        BeginCard("##match_settings_rules", "Rules for your challenges",
+                  "Your challenges go out with this rule set; the player you challenge sees it before accepting. A "
+                  "set and all its games keep it.",
+                  Icon::Trophy);
         const platform::RuleSet* chosen = ChosenRuleSet();
-        if (BeginRows("##challenge_rules_row"))
+        if (competitive_status_.rule_sets.empty())
+            TextWrappedColored(fonts.body, color::muted, "This server has no rule sets yet.");
+        for (const auto& set : competitive_status_.rule_sets)
         {
-            Row("Rules for your challenges",
-                chosen ? platform::DescribeRules(chosen->rules).c_str() : "This server has no rule sets yet.");
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            if (ImGui::BeginCombo("##challenge_rules", chosen ? chosen->name.c_str() : "None on this server"))
+            ImGui::PushID(int(set.id));
+            auto* draw = ImGui::GetWindowDrawList();
+            const ImVec2 start = ImGui::GetCursorScreenPos();
+            const float width = ImGui::GetContentRegionAvail().x, pad = Dp(16), check = Dp(26);
+            const std::string summary = platform::DescribeRules(set.rules);
+            const float wrap = width - 2 * pad - check - Dp(12);
+            const float text = fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, summary.c_str()).y;
+            const float height = pad + FontSize(fonts.label) + Dp(4) + text + pad;
+            const bool picked = &set == chosen;
+            if (ImGui::InvisibleButton("##rule_set", {width, height}) && !picked) ChooseChallengeRules(set.name);
+            const bool over = ImGui::IsItemHovered();
+            if (over && !picked) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            const float glow = Animate(ImGui::GetItemID(), over || picked);
+            const ImVec2 end{start.x + width, start.y + height};
+            draw->AddRectFilled(start, end, Col(Mix(color::field, color::border, glow * 0.3f)), Dp(14));
+            draw->AddRect(start, end, picked ? Col(color::accent, 0.85f) : Col(color::border), Dp(14), 0,
+                          picked ? Dp(1.5f) : Dp(1));
+            DrawLabel(draw, fonts.label, {start.x + pad, start.y + pad}, Col(color::text), set.name.c_str());
+            draw->AddText(fonts.caption, FontSize(fonts.caption),
+                          {start.x + pad, start.y + pad + FontSize(fonts.label) + Dp(4)}, Col(color::muted),
+                          summary.c_str(), nullptr, wrap);
+            // The chosen one's check, a ring for the others.
+            const ImVec2 mark{end.x - pad - check * 0.5f, start.y + height * 0.5f};
+            if (picked)
             {
-                for (const auto& set : competitive_status_.rule_sets)
-                    if (ImGui::Selectable(set.name.c_str(), &set == chosen)) challenge_rule_set_ = set.id;
-                ImGui::EndCombo();
+                draw->AddCircleFilled(mark, check * 0.5f, Col(color::accent));
+                DrawIcon(draw, Icon::Check, mark, Dp(14), Col(color::accent_ink));
             }
-            EndRows();
+            else
+                draw->AddCircle(mark, check * 0.5f - Dp(1), Col(over ? color::muted : color::border), 0, Dp(1.5f));
+            ImGui::SetCursorScreenPos(start);
+            ImGui::Dummy({width, height});
+            ImGui::Dummy({0, Dp(2)});
+            ImGui::PopID();
         }
-        return ChosenRuleSet();
+        EndCard();
+    }
+
+    // The rule set challenges go out with, saved at once without the other
+    // changes not saved yet (as the update choice is).
+    void ChooseChallengeRules(const std::string& name)
+    {
+        draft_.challenge_rules = name;
+        if (!config_ok_) return;
+        try
+        {
+            Settings saved = file_.settings;
+            saved.challenge_rules = name;
+            SaveConfig(file_, saved);
+        }
+        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+    }
+
+    // Over the Friends and Players lists: the rule set challenges go out
+    // with, and the way to Match settings.
+    const platform::RuleSet* ChallengeRulesNote()
+    {
+        const auto& fonts = CurrentFonts();
+        const platform::RuleSet* chosen = ChosenRuleSet();
+        const float button = Dp(96), height = Dp(32);
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        auto* draw = ImGui::GetWindowDrawList();
+        const std::string lead = chosen ? "Your challenges go out with " : "This server has no rule sets yet.";
+        const float y = start.y + (height - FontSize(fonts.body)) * 0.5f;
+        draw->PushClipRect(start, {start.x + width - button - Dp(12), start.y + height}, true);
+        DrawLabel(draw, fonts.body, {start.x, y}, Col(color::muted), lead.c_str());
+        if (chosen)
+        {
+            const float after = start.x + TextSize(fonts.body, lead.c_str()).x;
+            DrawLabel(draw, fonts.label, {after, start.y + (height - FontSize(fonts.label)) * 0.5f}, Col(color::text),
+                      chosen->name.c_str());
+        }
+        draw->PopClipRect();
+        ImGui::SetCursorScreenPos({start.x + width - button, start.y});
+        if (GhostButton("rules_change", "Change", {button, height}, true, Icon::Gear)) page_ = PageMatchSettings;
+        if (chosen && ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s: %s", chosen->name.c_str(), platform::DescribeRules(chosen->rules).c_str());
+        ImGui::SetCursorScreenPos(start);
+        ImGui::Dummy({width, height});
+        return chosen;
     }
 
     // Adding or challenging a player by Discord username.
@@ -4116,7 +4213,7 @@ private:
         const bool usable = !busy && rules && !HasOpenSet() && !name.empty();
         if (SecondaryButton("challenge", "Challenge", {button, ImGui::GetFrameHeight()}, usable, Icon::Trophy)
             || (entered && usable))
-            competitive_->Challenge(name, challenge_rule_set_);
+            competitive_->Challenge(name, rules->id);
     }
 
     // The player has a set to play: no other challenge until it ends.
@@ -4497,14 +4594,14 @@ private:
                     match.you_ready ? color::accent : color::info, Icon::Play);
     }
 
-    const platform::RuleSet* ChosenRuleSet()
+    // The rule set challenges go out with: the one Match settings chose (by
+    // name), else the server's first.
+    const platform::RuleSet* ChosenRuleSet() const
     {
         const auto& sets = competitive_status_.rule_sets;
         for (const auto& set : sets)
-            if (set.id == challenge_rule_set_) return &set;
-        if (sets.empty()) return nullptr;
-        challenge_rule_set_ = sets.front().id;
-        return &sets.front();
+            if (set.name == draft_.challenge_rules) return &set;
+        return sets.empty() ? nullptr : &sets.front();
     }
 
     // A small heading over a group of rows: tracked capitals, and a count
@@ -10459,7 +10556,6 @@ private:
     std::vector<std::string> discord_asked_;
     std::uint64_t discord_errors_ = 0;
     std::string test_player_name_, challenge_name_;
-    std::int64_t challenge_rule_set_ = 0;
     UpdateService::Status update_;
     bool update_dialog_ = false, update_capture_dialog_ = false, update_capture_install_ = false, restart_ = false;
     bool update_preview_ = false;

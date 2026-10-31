@@ -732,7 +732,7 @@ float NavGroupPagesHeight(std::size_t pages)
     return Dp(4) + Dp(38) * float(pages) - Dp(2) + Dp(10);
 }
 
-int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavPage> pages, float width,
+int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>& pages, float width,
              float row_height)
 {
     ImGui::PushID(label);

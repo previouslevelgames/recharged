@@ -530,6 +530,16 @@ int main()
                 "Saving changed the profile server of the file");
         Require(LoadConfig(host).contents.find("profile_server") == std::string::npos,
                 "Saving added a profile server");
+        // [online] challenge_rules: empty by default (the server's first rule
+        // set); a chosen one is kept and saved.
+        Require(defaults.challenge_rules.empty(), "Challenge rules default");
+        std::ofstream(path) << "[online]\nchallenge_rules = Best of 5\n";
+        auto rulesFile = LoadConfig(path);
+        Require(rulesFile.settings.challenge_rules == "Best of 5", "Challenge rules read");
+        rulesFile.settings.challenge_rules = "Competitive";
+        SaveConfig(rulesFile, rulesFile.settings);
+        Require(LoadConfig(path).contents.find("challenge_rules = Competitive") != std::string::npos,
+                "Saving wrote the challenge rules");
         std::ofstream(path) << "[online]\nrollback = true\nrollback_test = true\nrollback_delay = 9\nrollback_log = rb.txt\n";
         auto rollbackFile = LoadConfig(path);
         Require(rollbackFile.settings.rollback && rollbackFile.settings.rollback_test

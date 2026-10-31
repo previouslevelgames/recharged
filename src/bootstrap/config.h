@@ -251,6 +251,10 @@ struct Settings
     // file sets it: the launcher shows it and saving leaves it as it is.
     // Players sign in to it with Discord on the launcher's Online pages.
     std::string profile_server = kDefaultProfileServer;
+    // [online] challenge_rules: the rule set (by its name on the profile
+    // server) the player's challenges go out with, from the launcher's Online
+    // -> Match settings. Empty, or a name the server doesn't have: its first.
+    std::string challenge_rules;
     // [online] rollback (on by default): network matches predict the inputs
     // still on their way and roll back when they differ, instead of waiting
     // for them. Every machine in the match must have it on (the input delay
