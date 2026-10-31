@@ -1,6 +1,7 @@
 #include "launcher/competitive_service.h"
 
 #include "platform/http_client.h"
+#include "platform/session_log.h"
 
 #include <algorithm>
 
@@ -39,7 +40,8 @@ constexpr std::size_t kDiscordFriends = 1000;
 constexpr std::size_t kDiscordLookup = 200;
 } // namespace
 
-CompetitiveService::CompetitiveService(std::filesystem::path session_file) : session_file_(std::move(session_file))
+CompetitiveService::CompetitiveService(std::filesystem::path session_file, std::filesystem::path discord_link_file)
+    : session_file_(std::move(session_file)), discord_link_file_(std::move(discord_link_file))
 {
     worker_ = std::thread([this] { Run(); });
 }
@@ -287,7 +289,22 @@ void CompetitiveService::Poll(ProfileService& api)
         switch (result.status)
         {
         case SignInResult::Status::Waiting: return;
-        case SignInResult::Status::SignedIn: Signed(api, result.token, result.player); return;
+        case SignInResult::Status::SignedIn:
+            // The Discord friends link with the sign-in's tokens: kept before
+            // it counts as signed in, so they connect from it at once.
+            if (result.discord)
+            {
+                try
+                {
+                    platform::SaveDiscordLink(discord_link_file_, {api.Server(), result.discord->refresh_token});
+                }
+                catch (const std::exception& e)
+                {
+                    platform::SessionLogLine(std::string("Discord friends: the link is not kept: ") + e.what());
+                }
+            }
+            Signed(api, result.token, result.player);
+            return;
         case SignInResult::Status::Refused:
         case SignInResult::Status::Expired:
             Change([&](Status& status) {

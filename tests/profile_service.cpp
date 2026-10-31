@@ -305,6 +305,10 @@ void Requests()
         {"POST /api/v1/discord/token", 400, R"({"error":"Discord refused: connect Discord again"})"},
         {"POST /api/v1/players/discord", 200,
          R"({"players":[{"id":8,"name":"Sam","online":true,"discord_id":"41771983423143937"}]})"},
+        // A Discord sign-in that brings the Discord SDK's tokens (1.2.1).
+        {"GET /api/v1/sign-in/abc", 200,
+         R"({"status":"signed_in","token":"t2","player":{"id":7,"name":"Nelly","discord":"nelly","test":false},)"
+         R"("discord":{"access_token":"a2","refresh_token":"r2","expires_in":604800,"scope":"identify openid sdk.social_layer_presence"}})"},
     };
     std::vector<Sent> sent;
     {
@@ -315,7 +319,7 @@ void Requests()
               && info.discord_application == "1561321462327943259");
         const auto signed_in = api.TestSignIn("Nel\"ly");
         CHECK(signed_in.status == SignInResult::Status::SignedIn && signed_in.token == "t0k3n"
-              && signed_in.player.name == "Nelly" && signed_in.player.test);
+              && signed_in.player.name == "Nelly" && signed_in.player.test && !signed_in.discord);
         api.SetToken(signed_in.token);
         const auto match = api.Challenge("sam", 2);
         CHECK(match.id == 12 && match.state == "accepted" && match.opponent.wfc.size() == 1
@@ -381,6 +385,10 @@ void Requests()
         }
         const auto found = api.PlayersByDiscord({"41771983423143937", "123"});
         CHECK(found.size() == 1 && found[0].id == 8 && found[0].online && found[0].discord_id == "41771983423143937");
+        const auto with_discord = api.PollSignIn("abc");
+        CHECK(with_discord.status == SignInResult::Status::SignedIn && with_discord.token == "t2" && with_discord.discord
+              && with_discord.discord->access_token == "a2" && with_discord.discord->refresh_token == "r2"
+              && with_discord.discord->expires_in == 604800);
     }
     CHECK(sent.size() == exchanges.size());
     for (const auto& request : sent) CHECK(request.expected);

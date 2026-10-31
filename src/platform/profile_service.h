@@ -188,6 +188,9 @@ struct SignInResult
     std::string token;
     ProfilePlayer player;
     std::string message; // why it was refused
+    // A Discord sign-in that Discord granted the Social SDK's scopes (servers
+    // from 1.2.1): the SDK's tokens, which link the Discord friends at once.
+    std::optional<DiscordTokens> discord;
 };
 
 struct ReadyAnswer

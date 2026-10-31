@@ -63,8 +63,10 @@ public:
         std::uint64_t serial = 0;    // changes with every change
     };
 
-    // `session_file`: where the session of this settings file is kept.
-    explicit CompetitiveService(std::filesystem::path session_file);
+    // `session_file`: where the session of this settings file is kept;
+    // `discord_link_file`: where a Discord sign-in's tokens link the Discord
+    // friends (platform::DiscordLinkFile), before it counts as signed in.
+    CompetitiveService(std::filesystem::path session_file, std::filesystem::path discord_link_file);
     ~CompetitiveService();
     CompetitiveService(const CompetitiveService&) = delete;
     CompetitiveService& operator=(const CompetitiveService&) = delete;
@@ -122,6 +124,7 @@ private:
     void Change(const std::function<void(Status&)>& change);
 
     const std::filesystem::path session_file_;
+    const std::filesystem::path discord_link_file_;
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     struct Queued

@@ -3786,7 +3786,8 @@ private:
     void StartCompetitive()
     {
         competitive_ = std::make_unique<CompetitiveService>(
-            platform::ProfileSessionFile(DataFolder(base_), file_.path));
+            platform::ProfileSessionFile(DataFolder(base_), file_.path),
+            platform::DiscordLinkFile(DataFolder(base_), file_.path));
         // The profile server trades the Discord SDK's tokens.
         discord_friends_ = std::make_unique<DiscordFriends>(
             base_, platform::DiscordLinkFile(DataFolder(base_), file_.path),

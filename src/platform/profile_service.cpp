@@ -182,6 +182,15 @@ SignInResult ParseSignIn(const JsonValue& value)
         result.token = value["token"].Text();
         result.player = ParsePlayer(value["player"]);
         if (result.token.empty()) throw ProfileError("The server sent no session", 200);
+        const auto& discord = value["discord"];
+        if (!discord["access_token"].Text().empty() && !discord["refresh_token"].Text().empty())
+        {
+            DiscordTokens tokens;
+            tokens.access_token = discord["access_token"].Text();
+            tokens.refresh_token = discord["refresh_token"].Text();
+            tokens.expires_in = discord["expires_in"].Integer().value_or(0);
+            result.discord = std::move(tokens);
+        }
     }
     else if (status == "refused")
     {

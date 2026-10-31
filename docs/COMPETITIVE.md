@@ -40,20 +40,22 @@ with the score.
   Discord name: playing someone doesn't make them a friend, they show on the
   Players page among your recent opponents.
 - Friends who keep each other as friends can chat in the launcher.
-- Connect Discord in the launcher to see your Discord friends there, who of
-  them has Recharged open, and challenge them from there too (see below).
+- Your Discord friends show in the launcher too, with who of them has
+  Recharged open, and you challenge them from there (see below).
 - A challenge lasts only as long as Recharged is open: close Recharged and
   your open challenges are gone, with nothing to clean up.
 
 ## Discord friends
 
 Recharged's own friends list follows you everywhere, but your friends are
-probably on Discord already. Press **Connect Discord** on the **Friends**
-page, once per computer, and agree in the Discord app or your browser. The
-page then lists all your Discord friends. Those with Recharged open come
-first, marked green: the server sees their launcher or game, Discord their
-game. Those who have signed in to Recharged show what they are doing and a
-Challenge button; the others show what Discord says about them.
+probably on Discord already. Signing in with Discord links them too: Discord's
+page asks for your account and your friends list at once, and the **Friends**
+page then lists all your Discord friends. If you signed in before that, press
+**Connect Discord** on the **Friends** page once per computer and agree in the
+Discord app or your browser. Those with Recharged open come first, marked
+green: the server sees their launcher or game, Discord their game. Those who
+have signed in to Recharged show what they are doing and a Challenge button;
+the others show what Discord says about them.
 
 - Your Discord friends list goes from Discord straight to Recharged on your
   computer. Our server only learns which of the accounts in it have a
