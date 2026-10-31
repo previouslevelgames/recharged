@@ -186,9 +186,13 @@ extern "C" bool mscharged_competitive_take_use(void)
 
 // DWC refuses to start a search while it updates its servers, the friend
 // list sync that follows the login, which the retail menus always outlast: the
-// set's game waits for it, at most 600 frames (10 s).
+// set's game waits for it, at most 600 frames (10 s). Korea's DWC stays
+// ONLINE during the sync and starts a search anyway: nothing to wait for.
 extern "C" bool mscharged_competitive_ranked_waits(void)
 {
+#if defined(VERSION_R4QK01)
+    return false;
+#else
     static int sWaitedFrames = 0;
     if (sSetStage != CHARGED_SET_LOGIN)
     {
@@ -198,6 +202,7 @@ extern "C" bool mscharged_competitive_ranked_waits(void)
     if (DWC_GetState() != DWC_STATE_UPDATE_SERVERS || sWaitedFrames >= 600) return false;
     ++sWaitedFrames;
     return true;
+#endif
 }
 
 extern "C" bool mscharged_competitive_take_ranked(void)
