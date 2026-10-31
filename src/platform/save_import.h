@@ -146,6 +146,17 @@ struct MiiCreateIdTaken : std::runtime_error {
 MiiImportResult AddMii(const std::string& record, const std::filesystem::path& nand_root, const SaveTitle& title,
                        const std::filesystem::path& backup_parent);
 
+// What EnsureMii did.
+enum class MiiEnsured { Added, Renamed, Unchanged };
+
+// The Mii `record` (a keyed Mii, mii_maker.h) in the database of the NAND
+// backing at `nand_root`: added as AddMii does when its create ID is not
+// there; a Mii with that create ID keeps its face and slot and takes the
+// record's name. Writes, and backs up, only when something changes. Throws
+// as AddMii does for a damaged or full database or an unusable save folder.
+MiiEnsured EnsureMii(const std::string& record, const std::filesystem::path& nand_root, const SaveTitle& title,
+                     const std::filesystem::path& backup_parent);
+
 // The game save (Strikers2) as the launcher finds it, for the settings it
 // changes there: the captains' lineups and the match settings.
 enum class GameSaveState {

@@ -58,6 +58,12 @@ struct Channel {
     WPADResult dpd_result = WPAD_ERR_OK;
     bool announced = false;
     bool pending_disconnect = false;
+    // A host card's hold (SetNativeWpadHold): the buttons down at its last
+    // report, whether the hold's first report is still to come (buttons
+    // already down then are no press), and after it whether the game waits
+    // for every button to come up.
+    u16 hold_seen = 0;
+    bool hold_fresh = false, hold_release = false;
     bool disconnected_this_service = false;
     bool motor_running = false;
     bool rumble_failure_logged = false;
@@ -110,6 +116,10 @@ struct Hardware {
     int mouse_channel = -1;
     bool mouse_pointer = false, mouse_a = false, mouse_b = false;
     mscharged::platform::NativeDpdObservation mouse_observation{};
+    // A host card holds every player's input: A and B presses since the
+    // card last took them.
+    bool hold = false;
+    int held_a = 0, held_b = 0;
     // Player assignment of native providers: joysticks with a fixed channel,
     // and the channels kept free for them.
     std::vector<std::pair<SDL_JoystickID, int>> fixed_channels;
@@ -294,6 +304,23 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
                 }
         }
         CopyNunchukObservation(channel, report);
+        // A host card asks something: the presses are the card's, and the
+        // game sees nothing until every button is up again afterwards.
+        if (state.hold || channel.hold_release) {
+            const u16 down = report.button;
+            if (state.hold) {
+                if (channel.hold_fresh) channel.hold_seen = down;
+                channel.hold_fresh = false;
+                const u16 pressed = down & ~channel.hold_seen;
+                if (pressed & WPAD_BUTTON_A) ++state.held_a;
+                if (pressed & WPAD_BUTTON_B) ++state.held_b;
+                channel.hold_seen = down;
+            } else if (!down) channel.hold_release = false;
+            if (state.hold || channel.hold_release) {
+                report.button = 0;
+                report.fsStickX = report.fsStickY = 0;
+            }
+        }
         // Retail WPADiExcludeButton removes opposite right/down bits.
         if ((report.button & (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT)) ==
                 (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT)) report.button &= ~WPAD_BUTTON_RIGHT;
@@ -544,6 +571,24 @@ void DetachNativeWpadNunchukSource(NativeNunchukSource source) {
     bool any = false;
     for (const auto& producer : state.nunchuk_producers) any |= producer.source.generation != 0;
     if (!any) state.nunchuk_owner = {};
+}
+void SetNativeWpadHold(bool hold) {
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    if (state.hold == hold) return;
+    state.hold = hold;
+    state.held_a = state.held_b = 0;
+    for (auto& channel : state.channels) {
+        channel.hold_fresh = hold;
+        channel.hold_release = !hold;
+    }
+}
+NativeWpadHeldPresses TakeNativeWpadHeldPresses() {
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    const NativeWpadHeldPresses presses{state.held_a, state.held_b};
+    state.held_a = state.held_b = 0;
+    return presses;
 }
 void ConfigureWpadSDL(WpadSDLSettings settings) {
     auto& state = State();

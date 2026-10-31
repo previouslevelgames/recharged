@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 1.1.1 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.2.0 LANGUAGES C CXX)
 
 # The game module replaces the global operator new/delete with allocators whose
 # scopes are global state. GCC 15 assumes replaceable new/delete leave global
@@ -338,6 +338,8 @@ if(BUILD_TESTING OR MSCHARGED_BUILD_SCENE_PREVIEW OR MSCHARGED_BUILD_GAME_STARTU
     include(cmake/WorldObjects.cmake)
 endif()
 
+# Competitive play's profile service; the launcher and the game host link it.
+include(cmake/Competitive.cmake)
 # The Discord status (issue #71); the game host links it.
 include(cmake/Discord.cmake)
 

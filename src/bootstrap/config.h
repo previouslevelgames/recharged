@@ -18,6 +18,7 @@
 namespace mscharged
 {
 inline constexpr const char* kDefaultOnlineServer = "2.31.48.136";
+inline constexpr const char* kDefaultProfileServer = "https://rechargedwfc.net";
 
 struct Settings
 {
@@ -244,6 +245,12 @@ struct Settings
     // (*.nintendowifi.net) resolve. Left out or empty, the project's server:
     // earlier builds wrote an empty one into every saved file.
     std::string online_server = kDefaultOnlineServer;
+    // online.profile_server: the address of the WFC server's profile service
+    // for competitive play (https://, or http:// for a test server on this
+    // computer or network). Left out or empty, the project's server. Only the
+    // file sets it: the launcher shows it and saving leaves it as it is.
+    // Players sign in to it with Discord on the launcher's Online pages.
+    std::string profile_server = kDefaultProfileServer;
     // [online] rollback (on by default): network matches predict the inputs
     // still on their way and roll back when they differ, instead of waiting
     // for them. Every machine in the match must have it on (the input delay

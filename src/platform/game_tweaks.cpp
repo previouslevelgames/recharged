@@ -32,6 +32,9 @@ bool sTrainingAwayGoalie = true;
 bool sTrainingSkipGoal;
 int sTrainingAwaySkill = -1;
 bool sTrainingPlayAway;
+// Competitive play: a set's game (competitive_match.cpp) passes the title as
+// Skip intro does.
+bool sSetStart;
 bool sPerformanceMode;
 // Wider view (display.wider_view, issue #91): the window's picture shape
 // divided by 16:9 while the wider view fills it, 1 otherwise; and whether the
@@ -158,6 +161,14 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
     sMatchView = false;
     sHudFlipped = false;
     sHudHidden = mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_HUD);
+}
+
+// Competitive play (competitive_match.cpp, at the host's
+// charged_configure_competitive_start): the title is passed at once, as by
+// Skip intro, and the main menu then goes online by itself.
+void mscharged_tweak_set_start(void)
+{
+    sSetStart = true;
 }
 
 // Host entry (Training): the item of the team that trains (ePowerUpType, -1
@@ -417,7 +428,7 @@ bool mscharged_tweak_take_title_press(void)
 
 bool mscharged_tweak_title_pending(void)
 {
-    return !sTitlePassed && (sTrainingStart || mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO));
+    return !sTitlePassed && (sTrainingStart || sSetStart || mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO));
 }
 
 int mscharged_tweak_training_item(void)

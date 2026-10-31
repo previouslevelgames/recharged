@@ -42,12 +42,19 @@ WINDOWS_RUNTIME_NOTICES = ("LICENSE.TXT", "x86_64-w64-mingw32/share/mingw32/COPY
 # OS components supplied by supported Windows 10/11 installations. Compiler
 # runtimes (including the Visual C++ runtime) deliberately are not in this set.
 WINDOWS_SYSTEM_DLLS = frozenset((
-    "advapi32.dll", "bcrypt.dll", "bcryptprimitives.dll", "cfgmgr32.dll", "comdlg32.dll",
+    "advapi32.dll", "avrt.dll", "bcrypt.dll", "bcryptprimitives.dll", "cfgmgr32.dll", "comdlg32.dll",
     "crypt32.dll", "d3d11.dll", "d3d12.dll", "dbghelp.dll", "dwmapi.dll", "dxgi.dll",
     "gdi32.dll", "imm32.dll", "iphlpapi.dll", "kernel32.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll", "pdh.dll",
-    "rpcrt4.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll", "ucrtbase.dll",
+    "propsys.dll", "qwave.dll", "rpcrt4.dll", "setupapi.dll", "shell32.dll", "shlwapi.dll", "ucrtbase.dll",
     "user32.dll", "userenv.dll", "version.dll", "winhttp.dll", "winmm.dll", "wintrust.dll", "ws2_32.dll",
 ))
+# The Discord Social SDK (Discord's closed library, cmake/DiscordSocialSdk.cmake)
+# beside the program, with its notices, when the build has it. The launcher
+# loads it at run time for the Discord friends and goes without when it does
+# not load, so it is no requirement of the package (not checked as one).
+DISCORD_SDK_LIBRARIES = {"windows": "discord_partner_sdk.dll", "macos": "libdiscord_partner_sdk.dylib",
+                         "linux": "libdiscord_partner_sdk.so"}
+DISCORD_SDK_NOTICES = "LICENSES/discord-social-sdk/License-Notices.txt"
 # macOS: Recharged.app as the build makes it (program, Info.plist, icon and
 # its ad-hoc signature); Finder starts it without Terminal (#61).
 MACOS_APP = "Recharged.app"
@@ -476,6 +483,10 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
             copy(build, executable_name)
         for module in modules:
             copy(build, module)
+        discord_sdk = DISCORD_SDK_LIBRARIES[system] if cache.get("MSCHARGED_DISCORD_SOCIAL_SDK") else None
+        if discord_sdk:
+            copy(build, discord_sdk)
+            copy(build, DISCORD_SDK_NOTICES)
         if windows:
             for dll in WINDOWS_RUNTIME:
                 copy(runtime_root / "x86_64-w64-mingw32/bin", dll)
@@ -567,7 +578,8 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
         put("PACKAGE-README.md", readme.encode())
         manifest = {"format": 1, "version": version, "platform": "steamdeck" if steamdeck else system,
                     "architecture": arch,
-                    "packaging_source_commit": revision, "modules": modules, "prepared": prepared,
+                    "packaging_source_commit": revision, "modules": modules, "discord_social_sdk": discord_sdk,
+                    "prepared": prepared,
                     "cargo": {"options": cargo_options, "lock_sha256": digest(lock_bytes), "packages": rust},
                     "files": files}
         if steamdeck:

@@ -511,6 +511,25 @@ int main()
                 "Saving wrote the default online server");
         std::ofstream(path) << "[online]\nserver = example.org\n";
         Require(LoadConfig(path).settings.online_server == "example.org", "Another online server kept");
+        // [online] profile_server: the project's server when left out or
+        // empty; only the file sets it, so saving neither writes nor drops it.
+        Require(defaults.profile_server == "https://rechargedwfc.net", "Profile server default");
+        std::ofstream(path) << "[online]\nprofile_server =\n";
+        auto emptyProfiles = LoadConfig(path);
+        Require(emptyProfiles.settings.profile_server == "https://rechargedwfc.net",
+                "An empty profile server is the default");
+        SaveConfig(emptyProfiles, emptyProfiles.settings);
+        Require(LoadConfig(path).contents.find("profile_server =\n") != std::string::npos,
+                "Saving wrote the default profile server");
+        std::ofstream(path) << "[online]\nprofile_server = http://127.0.0.1:8080\n";
+        auto ownProfiles = LoadConfig(path);
+        Require(ownProfiles.settings.profile_server == "http://127.0.0.1:8080", "Another profile server read");
+        ownProfiles.settings.profile_server = "https://other.example";
+        SaveConfig(ownProfiles, ownProfiles.settings);
+        Require(LoadConfig(path).settings.profile_server == "http://127.0.0.1:8080",
+                "Saving changed the profile server of the file");
+        Require(LoadConfig(host).contents.find("profile_server") == std::string::npos,
+                "Saving added a profile server");
         std::ofstream(path) << "[online]\nrollback = true\nrollback_test = true\nrollback_delay = 9\nrollback_log = rb.txt\n";
         auto rollbackFile = LoadConfig(path);
         Require(rollbackFile.settings.rollback && rollbackFile.settings.rollback_test

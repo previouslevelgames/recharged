@@ -1,0 +1,20 @@
+# Competitive play (1.2.0): the profile service of a Recharged WFC server, for
+# the launcher (sign-in, challenges) and the game host (login, results).
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/Http.cmake")
+if(NOT TARGET charged_json)
+    add_library(charged_json STATIC src/platform/json.cpp)
+    target_include_directories(charged_json PUBLIC src)
+    target_compile_features(charged_json PUBLIC cxx_std_17)
+endif()
+add_library(charged_competitive STATIC src/platform/profile_service.cpp src/platform/competitive_rules.cpp
+    src/platform/competitive_host.cpp)
+target_include_directories(charged_competitive PUBLIC src)
+target_compile_features(charged_competitive PUBLIC cxx_std_17)
+target_link_libraries(charged_competitive PUBLIC charged_http charged_json)
+if(BUILD_TESTING)
+    add_executable(profile_service_tests tests/profile_service.cpp)
+    target_link_libraries(profile_service_tests PRIVATE charged_competitive)
+    add_test(NAME profile_service COMMAND profile_service_tests)
+    set_tests_properties(profile_service PROPERTIES TIMEOUT 60)
+endif()

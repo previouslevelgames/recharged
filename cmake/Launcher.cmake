@@ -78,13 +78,30 @@ target_compile_features(charged_match_presets PUBLIC cxx_std_17)
 target_link_libraries(charged_match_presets PUBLIC charged_host)
 # New Miis for players without any (the Miis page).
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MiiMaker.cmake")
-add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launcher/release_notes_view.cpp)
+# The Discord friends (docs/COMPETITIVE.md), with the Discord Social SDK when
+# MSCHARGED_DISCORD_SOCIAL_SDK names it.
+add_library(charged_discord_friends STATIC src/launcher/discord_friends.cpp)
+target_include_directories(charged_discord_friends PUBLIC src)
+target_compile_features(charged_discord_friends PUBLIC cxx_std_17)
+target_link_libraries(charged_discord_friends PUBLIC charged_competitive charged_session_log)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DiscordSocialSdk.cmake")
+mscharged_discord_social_sdk(charged_discord_friends)
+if(BUILD_TESTING)
+    add_executable(discord_friends_tests tests/discord_friends.cpp)
+    target_link_libraries(discord_friends_tests PRIVATE charged_discord_friends)
+    mscharged_discord_social_sdk_beside(discord_friends_tests)
+    add_test(NAME discord_friends COMMAND discord_friends_tests)
+    set_tests_properties(discord_friends PROPERTIES TIMEOUT 60)
+endif()
+add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launcher/release_notes_view.cpp
+    src/launcher/competitive_service.cpp)
 # The program players start: recharged (recharged.exe). The target keeps its old name.
 # On Windows it is a Windows (GUI) program, so no console opens with it (#61).
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
     charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_graphics_cards
-    charged_texture_packs charged_mii_maker charged_match_presets)
+    charged_texture_packs charged_mii_maker charged_match_presets charged_competitive charged_discord_friends)
+mscharged_discord_social_sdk_beside(mscharged)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
 mscharged_stage_pipeline_catalog(mscharged)
 if(APPLE)

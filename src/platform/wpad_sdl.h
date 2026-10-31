@@ -65,5 +65,17 @@ void SetNativeWpadSharedPointer(const NativeDpdObservation* observation);
 // `observation` is non-null, and the mouse buttons add A and B. -1 ends it.
 // Call from the SDL owner; original DPD enable/disable still applies.
 void SetNativeWpadMousePlayer(int channel, const NativeDpdObservation* observation, bool a, bool b);
+// A host card (an incoming challenge) asks the player something: while held,
+// the game sees no buttons and a centred Nunchuk stick from every player, and
+// their new A and B presses (also the mouse buttons of the mouse player) go
+// to the card. Released, a player's buttons reach the game again once all of
+// them are up. On the game's thread, between frames.
+void SetNativeWpadHold(bool hold);
+struct NativeWpadHeldPresses
+{
+    int a = 0, b = 0;
+};
+// The A and B presses since the last call, while held.
+NativeWpadHeldPresses TakeNativeWpadHeldPresses();
 
 } // namespace mscharged::platform

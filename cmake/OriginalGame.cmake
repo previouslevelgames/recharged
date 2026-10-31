@@ -363,7 +363,8 @@ target_link_libraries(charged_original_game_host PRIVATE
     charged_native_system_settings charged_native_video_device charged_movie_hardware
     charged_native_hardware_owner
     charged_native_video_output_device charged_native_filesystem_boot
-    charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_texture_packs ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
+    charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_competitive charged_texture_packs
+    ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
 
 # The autopilot's sound (test and dev builds): one sound of the disc's banks
 # that the host decodes and plays itself (src/platform/bank_cue.cpp).

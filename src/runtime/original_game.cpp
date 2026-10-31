@@ -50,6 +50,8 @@
 #include "platform/log_window.h"
 #include "platform/session_log.h"
 #include "platform/launcher_reopen.h"
+#include "platform/competitive_host.h"
+#include "platform/wpad_sdl.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
 #include "platform/netplay_snapshot.h"
@@ -1286,6 +1288,112 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto netplaySnapshot=reinterpret_cast<ChargedNetplaySnapshotFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_netplay_snapshot"));
         std::chrono::steady_clock::time_point lastNetplay{};
+        // Competitive play: with the launcher's session for these settings, the
+        // game's WFC login goes to the profile service, the accepted match's
+        // rules to the module, and its series' result back to the server.
+        auto wfcSnapshot=reinterpret_cast<ChargedWfcSnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_wfc_snapshot"));
+        auto configureCompetitive=reinterpret_cast<ChargedConfigureCompetitiveFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive"));
+        std::unique_ptr<mscharged::platform::CompetitiveHost> competitive;
+        {
+            std::string off;
+            if(wfcSnapshot && configureCompetitive)
+                competitive=mscharged::platform::CompetitiveHost::Start(launch.settings.profile_server,
+                    mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
+                    [](const std::string& text) {
+                        mscharged::platform::SessionLogLine(text);
+                        std::fprintf(stderr,"%s\n",text.c_str());
+                    },&off);
+            else off="this build's game module has no competitive play";
+            const auto line=competitive ? "Competitive: on, signed in as "+competitive->PlayerName()
+                : "Competitive: off ("+off+")";
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
+        // A set's game (the launcher's Ready to play!): it starts itself into
+        // the set's RANKED search with the player's own Mii, and closes once
+        // the set is done; the launcher then opens again.
+        if(launch.start_competitive) {
+            auto configureStart=reinterpret_cast<ChargedConfigureCompetitiveStartFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive_start"));
+            if(competitive && configureStart
+               && configureStart(launch.competitive_mii.data(),unsigned(launch.competitive_mii.size())))
+                competitive->PlaySet(launch.competitive_set);
+            else {
+                const std::string line="Competitive: set "+std::to_string(launch.competitive_set)
+                    +" cannot start ("+(competitive ? "this build's game module has no sets" : "competitive play is off")+")";
+                mscharged::platform::SessionLogLine(line);
+                std::fprintf(stderr,"%s\n",line.c_str());
+            }
+        }
+        std::chrono::steady_clock::time_point lastCompetitive{};
+        auto observeCompetitive = [&] {
+            if(!competitive)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-lastCompetitive<std::chrono::seconds(1))return;
+            lastCompetitive=now;
+            ChargedWfcSnapshot wfc{};
+            if(!wfcSnapshot(&wfc,sizeof wfc))return;
+            ChargedPresenceSnapshot game{};
+            const bool known=presenceSnapshot && presenceSnapshot(&game,sizeof game);
+            std::optional<ChargedCompetitiveRules> rules;
+            if(competitive->Observe(wfc,known ? &game : nullptr,rules))
+                configureCompetitive(rules ? &*rules : nullptr,sizeof(ChargedCompetitiveRules));
+            // The set's game is done: closed as by the window's close button.
+            if(competitive->CloseNow()) {
+                SDL_Event quit{};
+                quit.type=SDL_EVENT_QUIT;
+                SDL_PushEvent(&quit);
+            }
+        };
+        // A challenge while the game is in its menus: a card over the dimmed
+        // picture, which holds every player's buttons. A accepts (the game
+        // closes and the launcher starts the set's game), B declines.
+        std::int64_t cardMatch=0;
+        std::chrono::steady_clock::time_point cardShown{};
+        auto serviceChallengeCard = [&](std::chrono::steady_clock::time_point now) {
+            if(!competitive || !hostOverlay)return;
+            if(const auto notice=competitive->TakeNotice()) hostOverlay->ShowMessage(*notice,now);
+            if(competitive->RestartForSet()) {
+                const bool launcher=mscharged::platform::ArmPreparedLauncherReopen();
+                mscharged::platform::SessionLogLine(launcher
+                    ? "Competitive: challenge accepted in the game; closing it, the launcher starts the set"
+                    : "Competitive: challenge accepted in the game, which was not started from the launcher");
+                if(launcher) {
+                    SDL_Event quit{};
+                    quit.type=SDL_EVENT_QUIT;
+                    SDL_PushEvent(&quit);
+                } else hostOverlay->ShowMessage("Challenge accepted: open the launcher to play the set",now);
+            }
+            const auto invitation=competitive->PendingInvitation();
+            const std::int64_t match=invitation ? invitation->match : 0;
+            if(match!=cardMatch) {
+                cardMatch=match;
+                cardShown=now;
+                mscharged::platform::SetNativeWpadHold(match!=0);
+                if(invitation) {
+                    mscharged::runtime::HostOverlay::Card card;
+                    card.kicker="CHALLENGE";
+                    card.title=invitation->from+" challenges you";
+                    card.detail=invitation->rules+".";
+                    card.accept="Accept";
+                    card.decline="Decline";
+                    card.note="Accept closes the game, and the launcher starts the set: straight to the captain draft.";
+                    hostOverlay->SetCard(card);
+                    mscharged::platform::SessionLogLine("Competitive: "+invitation->from+" challenges you (match "
+                        +std::to_string(match)+")");
+                } else hostOverlay->SetCard(std::nullopt);
+            }
+            if(!cardMatch)return;
+            // Presses in the card's first moment are not answers (a button the
+            // player was pressing for the menu).
+            const auto presses=mscharged::platform::TakeNativeWpadHeldPresses();
+            if(now-cardShown<std::chrono::milliseconds(600) || (!presses.a && !presses.b))return;
+            const bool accept=presses.a>0;
+            competitive->Answer(cardMatch,accept);
+            hostOverlay->ShowMessage(accept ? "Challenge accepted: the set starts" : "Challenge declined",now);
+        };
         auto observeNetplay = [&] {
             if((!hostOverlay && !framePacing) || !netplaySnapshot)return;
             const auto now=std::chrono::steady_clock::now();
@@ -1426,6 +1534,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
             const auto now=std::chrono::steady_clock::now();
             if(framePacing) framePacing->Update(now);
+            serviceChallengeCard(now);
             if(hostOverlay) {
                 if(const auto rate=frameRate.Sample(frames,now)) hostOverlay->SetRate(*rate);
                 const auto size=aurora_get_window_size();
@@ -1449,7 +1558,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -1538,7 +1647,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}

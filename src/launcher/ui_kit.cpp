@@ -428,6 +428,13 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(-0.28f, -0.28f), p(0.28f, 0.28f), color, t * 1.3f);
         draw->AddLine(p(0.28f, -0.28f), p(-0.28f, 0.28f), color, t * 1.3f);
         break;
+    case Icon::Medal:
+        // A medal (competitive play): the ribbon's two bands over the disc.
+        draw->AddLine(p(-0.24f, -0.44f), p(-0.04f, -0.06f), color, t * 1.6f);
+        draw->AddLine(p(0.24f, -0.44f), p(0.04f, -0.06f), color, t * 1.6f);
+        draw->AddCircle(p(0.0f, 0.18f), 0.24f * s, color, 0, t * 1.3f);
+        draw->AddCircleFilled(p(0.0f, 0.18f), 0.11f * s, color);
+        break;
     case Icon::Person:
         // A Mii: the head over rounded shoulders.
         draw->AddCircleFilled(p(0.0f, -0.20f), 0.20f * s, color);
@@ -491,6 +498,12 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->PathBezierCubicCurveTo(p(0.34f, -0.42f), p(0.48f, -0.32f), p(0.48f, -0.14f));
         draw->PathBezierCubicCurveTo(p(0.48f, 0.02f), p(0.30f, 0.16f), p(0.0f, 0.40f));
         draw->PathFillConcave(color);
+        break;
+    case Icon::Chat:
+        // A speech bubble, its tail at the lower left, with three dots.
+        draw->AddRect(p(-0.46f, -0.38f), p(0.46f, 0.22f), color, 0.16f * s, 0, t);
+        draw->AddTriangleFilled(p(-0.30f, 0.20f), p(-0.04f, 0.20f), p(-0.32f, 0.46f), color);
+        for (int n = -1; n <= 1; ++n) draw->AddCircleFilled(p(0.21f * float(n), -0.08f), 0.065f * s, color);
         break;
     case Icon::Bug:
     {
@@ -688,11 +701,11 @@ void FillGradient(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 first, ImU32 s
     ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, end, min, to, first, second);
 }
 
-bool NavItem(const char* label, Icon icon, bool selected, float width)
+bool NavItem(const char* label, Icon icon, bool selected, float width, float height)
 {
     ImGui::PushID(label);
     const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const ImVec2 size{width, Dp(44)};
+    const ImVec2 size{width, height > 0.0f ? height : Dp(44)};
     const bool pressed = ImGui::InvisibleButton("##nav", size);
     const bool hovered = ImGui::IsItemHovered();
     const float hover = Animate(ImGui::GetID("##hover"), hovered || selected, 12.0f);
@@ -702,7 +715,7 @@ bool NavItem(const char* label, Icon icon, bool selected, float width)
         draw->AddRectFilled(pos, Add(pos, size), Col(selected ? Mix(color::field, color::accent, 0.10f) : color::field,
                                                       hover), Dp(10));
     if (active > 0.0f)
-        draw->AddRectFilled({pos.x, pos.y + Dp(11)}, {pos.x + Dp(4), pos.y + size.y - Dp(11)},
+        draw->AddRectFilled({pos.x, pos.y + size.y * 0.25f}, {pos.x + Dp(4), pos.y + size.y * 0.75f},
                             Col(color::accent, active), Dp(2));
     const ImVec4 tint = Mix(color::muted, selected ? color::accent : color::text, std::max(hover * 0.75f, active));
     DrawIcon(draw, icon, {pos.x + Dp(28), pos.y + size.y * 0.5f}, Dp(19), Col(tint));
@@ -713,15 +726,22 @@ bool NavItem(const char* label, Icon icon, bool selected, float width)
     return pressed;
 }
 
-int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavPage> pages, float width)
+float NavGroupPagesHeight(std::size_t pages)
+{
+    // A top margin, the page rows 38 dp apart (each 36 dp high) and a bottom margin.
+    return Dp(4) + Dp(38) * float(pages) - Dp(2) + Dp(10);
+}
+
+int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavPage> pages, float width,
+             float row_height)
 {
     ImGui::PushID(label);
     auto* draw = ImGui::GetWindowDrawList();
     const auto& fonts = CurrentFonts();
     const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const float row = Dp(44), page_row = Dp(36), step = Dp(38), top = Dp(4), bottom = Dp(10);
+    const float row = row_height > 0.0f ? row_height : Dp(44), page_row = Dp(36), step = Dp(38), top = Dp(4);
     const float shown = Animate(ImGui::GetID("##open"), open, 11.0f);
-    const float height = row + (top + step * float(pages.size()) - (step - page_row) + bottom) * shown;
+    const float height = row + NavGroupPagesHeight(pages.size()) * shown;
     const ImVec2 max{pos.x + width, pos.y + height};
     int clicked = -1;
 

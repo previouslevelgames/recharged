@@ -1,0 +1,292 @@
+Subject: Competitive play: a set's game starts itself into its RANKED search
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+A competitive set starts in the launcher's lobby: once both players pressed
+Ready to play!, both launchers start the game with the set handed over
+(charged_configure_competitive_start in src/platform/competitive_match.cpp,
+with the player's own Mii, which the launcher made from their Discord
+account). Such a game goes through the retail online flow by itself, one
+step at a time, as the player would:
+
+- the title is passed at once, as by Skip intro, and the main menu chooses
+  Online (SelectItem, with its own checks and the online save's load);
+- the online Mii menu chooses the player's own Mii on its page (SelectMii),
+  and its overlay presses Use, which selects the Mii, keeps its save slot and
+  goes on to the WFC login;
+- the login, once it succeeded and DWC ended the friend list sync that
+  follows it (DWC refuses a search before), goes on into the RANKED search
+  for one player, as the online menu's RANKED and the player count would
+  (InitializeOnlineMatch, the matchmaking draft scene) instead of the online
+  menu; the profile service's RANKED steering then lets the two games find
+  only each other;
+- the connection check accepts the set's opponent at once and rejects
+  anybody else (who is then left out of the search, as retail does);
+- every popup is answered with its first option; one that is not harmless
+  (anything but a low battery, a Mii's first time online, a new online save)
+  ends the set, and the retail flow behind it goes on;
+- back from the online match, the series is over (the online menu still
+  comes up, under the host closing the game).
+
+The captain draft, the match and the series are retail, by the set's rules
+(0046). A game without a set handed over, and so the main menu's own Online,
+stays retail.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+index ef60b8a..e6e0802 100644
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -34,6 +34,33 @@ bool mscharged_competitive_tweak(int tweak);
+ // otherwise `stadium`.
+ int mscharged_competitive_stadium(int stadium);
+ 
++#if defined(MSCHARGED_TWEAKS)
++// A set's game (the launcher's Ready to play!, tweak patch 0047): it starts
++// itself into the set's RANKED search, one step at a time. Each answer is
++// for this game's set only; without one everything stays retail.
++// The main menu, once ready: true to choose Online now (once).
++bool mscharged_competitive_take_main_menu(void);
++// The online Mii menu, once ready: the position of the set's Mii in its list
++// (`official_indices`, `count` of them) to choose now, or -1.
++int mscharged_competitive_mii_position(const int* official_indices, int count);
++// The Mii's overlay, once ready: true to press Use now (once).
++bool mscharged_competitive_take_use(void);
++// The login succeeded: true to go on into the RANKED search (once) instead
++// of the online menu.
++bool mscharged_competitive_take_ranked(void);
++// The login succeeded, before the RANKED step: true while the set's game
++// waits for DWC's friend list sync after the login (no search starts then).
++bool mscharged_competitive_ranked_waits(void);
++// The connection check with these two machines' WFC profiles: 0 accept (the
++// set's opponent), 1 reject (anybody else), -1 the player decides.
++int mscharged_competitive_connection(unsigned first, unsigned second);
++// A popup (ePopupMenu) ready for input: the option to press, or -1 for the
++// player's own choice. One that is not harmless ends the set.
++int mscharged_competitive_popup(int type);
++// The front end is back from an online match (the series is over).
++void mscharged_competitive_back_from_game(void);
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index 61c45f3..be9b215 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -144,6 +144,9 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include <revolution/os/OSTime.h>
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ #else
+ #define OS_BUS_CLOCK_SPEED           (*(volatile u32*)0x800000F8)
+ #define OS_TIME_SPEED                (OS_BUS_CLOCK_SPEED / 4)
+@@ -1725,6 +1728,10 @@ void InitializeFrontEndState2(AsyncLoadingManager* manager)
+ #endif
+         else if (GameInfoManager::Instance()->IsOnline())
+         {
++#if defined(MSCHARGED_TWEAKS)
++            // Competitive play: a set's series is over; the host closes the game.
++            mscharged_competitive_back_from_game();
++#endif
+             FEAudio::PlayAnimAudioEvent(0x37A9934D, 0, 0, true);
+             GameSceneManager::Instance()->Push(SCENE_ONLINE_MENU, SCREEN_NOTHING, false);
+             FrontEndPresentation::GetInstance()->Call("TransitionGameToOnlineMainMenu");
+diff --git a/src/Game/FE/fePopupMenu.cpp b/src/Game/FE/fePopupMenu.cpp
+index 25ceaee..af149d1 100644
+--- a/src/Game/FE/fePopupMenu.cpp
++++ b/src/Game/FE/fePopupMenu.cpp
+@@ -18,6 +18,9 @@
+ #include "Game/DB/GameProgress.h"
+ #include "Game/DB/SaveLoad.h"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ #include "Game/DB/CharacterInfo.h"
+ #include "Game/NetTournManager.h"
+ #include "Game/NetworkSession.h"
+@@ -428,6 +431,18 @@ void FEPopupMenu::Update(float fDeltaT)
+     }
+     if (pSlide->GetCurrentTime() < 1.5)
+         return;
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a set's game answers its popups itself.
++    if (!mOptionPressed)
++    {
++        const int option = mscharged_competitive_popup(mType);
++        if (option >= 0 && option < mPopup.numOptions)
++        {
++            OnOptionPointerPress(gFEControllerIndex, reinterpret_cast<void*>(static_cast<std::intptr_t>(option)));
++            return;
++        }
++    }
++#endif
+ 
+     for (int index = 0; index < 4; ++index)
+     {
+diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
+index d0cac8f..0c42cda 100644
+--- a/src/Game/SH/SHMainMenu.cpp
++++ b/src/Game/SH/SHMainMenu.cpp
+@@ -44,6 +44,9 @@
+ #include "Game/SH/SHHallOfFame.h"
+ #include "Game/SH/SHNavigation.h"
+ #include "Game/MiiManager.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ 
+ /**
+  * Offset/Address/Size: 0x0 | 0x8021F0F4 | size: 0x100
+@@ -243,6 +246,14 @@ void SHMainMenu::Update(float fDeltaT)
+             GetPointerInstance(i)->SetActiveSlide("cursor", true, false);
+         }
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a set's game chooses Online, as the player would.
++    if (!mItemSelected && !mWaitingForLoad && mscharged_competitive_take_main_menu())
++    {
++        SelectItem(gFEControllerIndex, reinterpret_cast<void*>(static_cast<std::uintptr_t>(MAIN_MENU_ONLINE)));
++        return;
++    }
++#endif
+ 
+     if (gMainMenuInputResetPending)
+     {
+diff --git a/src/Game/SH/SHOnlineConnectionQuality.cpp b/src/Game/SH/SHOnlineConnectionQuality.cpp
+index 40708f4..42a0559 100644
+--- a/src/Game/SH/SHOnlineConnectionQuality.cpp
++++ b/src/Game/SH/SHOnlineConnectionQuality.cpp
+@@ -42,6 +42,10 @@ const char* sConnectionDecisionComponentNames[2] = { "ACCEPT", "REJECT" };
+ #include "NL/plat/TransportConnection.h"
+ #include "NL/nlstring_tmpl.h"
+ #include "Game/FE/tlDefault.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#include <cstdint>
++#endif
+ 
+ static inline void UpdateConnectionQualityTimerText(
+     OnlineConnectionQualityScene* scene, TLTextInstance* timer)
+@@ -300,6 +304,19 @@ void OnlineConnectionQualityScene::Update(float dt)
+     }
+ 
+     UpdateConnectionQuality();
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a set's game accepts its opponent at once, and
++    // nobody else.
++    if (!mDecisionMade)
++    {
++        const int decision = mscharged_competitive_connection(mProfileIds[0], mProfileIds[1]);
++        if (decision >= 0)
++        {
++            OnDecisionPointerPress(gFEControllerIndex,
++                reinterpret_cast<void*>(static_cast<std::intptr_t>(decision == 0 ? ButtonAccept : ButtonReject)));
++        }
++    }
++#endif
+     for (unsigned int pad = 0; pad < 4; ++pad)
+     {
+         TLComponentInstance* controller = gFEPointerInstances[pad];
+diff --git a/src/Game/SH/SHOnlineLogin.cpp b/src/Game/SH/SHOnlineLogin.cpp
+index ddc201c..dcefc34 100644
+--- a/src/Game/SH/SHOnlineLogin.cpp
++++ b/src/Game/SH/SHOnlineLogin.cpp
+@@ -25,6 +25,10 @@
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_online_reports.h"
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/SH/SHOnlinePlayerCount.h"
++#include "mscharged_competitive.h"
++#endif
+ 
+ SHOnlineLogin::SHOnlineLogin()
+     : mPopupActive(false)
+@@ -131,6 +135,21 @@ void SHOnlineLogin::Update(float fDeltaT)
+             mState = ONLINE_LOGIN_WAIT_RESULT;
+         break;
+     case ONLINE_LOGIN_SUCCESS:
++#if defined(MSCHARGED_TWEAKS)
++        // Competitive play: a set's game goes on into the RANKED search for
++        // one player, as the online menu's RANKED would, once DWC ended the
++        // friend list sync after the login (its search refuses to start
++        // before; the retail menus always take longer).
++        if (mscharged_competitive_ranked_waits()) break;
++        if (mscharged_competitive_take_ranked())
++        {
++            InitializeOnlineMatch(false, false, true);
++            GameSceneManager::Instance()->Push(SCENE_ONLINE_MATCHMAKING_DRAFT, SCREEN_FORWARD, true);
++            FEAudio::StopAnimAudioEvent(0x71D9CD2F, this);
++            FEAudio::PlayAnimAudioEvent(0x37A9934D, 0, 0, true);
++            break;
++        }
++#endif
+         GameSceneManager::Instance()->Push(SCENE_ONLINE_MENU, SCREEN_FORWARD, true);
+         FEAudio::StopAnimAudioEvent(0x71D9CD2F, this);
+         FEAudio::PlayAnimAudioEvent(0x37A9934D, 0, 0, true);
+diff --git a/src/Game/SH/SHOnlineMiiSelect.cpp b/src/Game/SH/SHOnlineMiiSelect.cpp
+index 3e23965..1d182ac 100644
+--- a/src/Game/SH/SHOnlineMiiSelect.cpp
++++ b/src/Game/SH/SHOnlineMiiSelect.cpp
+@@ -44,6 +44,9 @@
+ #include "Game/FE/fePageControls.h"
+ #include "NL/nlstring_tmpl.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ 
+ typedef BasicString<unsigned short, Detail::TempStringAllocator> WideBasicString;
+ 
+@@ -282,6 +285,19 @@ void SHOnlineMiiSelect::Update(float fDeltaT)
+         ClearMissingMiiSaveSlots();
+ #endif
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a set's game chooses the player's own Mii, on its page.
++    {
++        const int position = mscharged_competitive_mii_position(mOfficialIndices, mMiiCount);
++        if (position >= 0)
++        {
++            mCurrentPage = position / 10;
++            UpdatePage();
++            SelectMii(0, reinterpret_cast<void*>(static_cast<std::intptr_t>(position % 10)));
++            return;
++        }
++    }
++#endif
+ 
+     for (unsigned int pad = 0; pad < 4; ++pad)
+     {
+diff --git a/src/Game/SH/SHOnlineMiiSelectOverlay.cpp b/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
+index 3498f38..783a6d6 100644
+--- a/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
++++ b/src/Game/SH/SHOnlineMiiSelectOverlay.cpp
+@@ -45,6 +45,9 @@
+ #include "Game/BaseSceneHandler.inl"
+ #include "Game/GameInfo.inl"
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ 
+ SHOnlineMiiSelectOverlay::SHOnlineMiiSelectOverlay()
+     : mInitialized(false)
+@@ -503,6 +506,13 @@ void SHOnlineMiiSelectOverlay::Update(float fDeltaT)
+         }
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a set's game uses the Mii, as the player would.
++    if (!mSavePending && mscharged_competitive_take_use())
++    {
++        SelectOption(0, reinterpret_cast<void*>(static_cast<std::intptr_t>(0)));
++    }
++#endif
+     if (mSavePending)
+     {
+         if (SaveEnabled && SaveLoad::CardBusy())
