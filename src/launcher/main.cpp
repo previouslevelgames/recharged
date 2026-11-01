@@ -2802,6 +2802,10 @@ private:
     {
         frontend_launch_ = EffectiveLaunch();
         frontend_launch_->start_training = training_;
+        // A set that goes while the game runs uses the player's own Mii, when
+        // a set's game made it on this computer before.
+        if (const auto key = PlayerMiiKey(); !key.empty())
+            frontend_launch_->competitive_mii = mscharged::platform::KeyedMiiCreateId(key);
         quit = true;
     }
 
@@ -4232,6 +4236,17 @@ private:
         }
     }
 
+    // The key of the player's own Mii (made from their Discord account, the
+    // same on every computer); empty when not signed in.
+    std::string PlayerMiiKey() const
+    {
+        const auto& status = competitive_status_;
+        if (status.state != CompetitiveService::State::SignedIn) return {};
+        const auto& player = status.player;
+        return !player.discord_id.empty() ? "discord:" + player.discord_id
+                                          : "player:" + status.server + "#" + std::to_string(player.id);
+    }
+
     // A set's go: the player's own Mii (made from their Discord account, the
     // same on every computer) in the save folder, then the game, which goes
     // through the online login straight into RANKED against the opponent.
@@ -4247,9 +4262,7 @@ private:
             return;
         }
         const auto& player = status.player;
-        const std::string key = !player.discord_id.empty()
-            ? "discord:" + player.discord_id
-            : "player:" + status.server + "#" + std::to_string(player.id);
+        const std::string key = PlayerMiiKey();
         try
         {
             const auto folder = SaveFolder();
@@ -11564,12 +11577,11 @@ int main(int argc, char** argv)
         }
         std::optional<ResolvedLaunch> frontend_launch;
         int result;
-        fs::path restart, reopen, launcher_program;
+        fs::path restart, reopen;
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
             frontend_launch = launcher.FrontendLaunch();
-            launcher_program = launcher.RestartExecutable();
             if (launcher.RestartRequested()) restart = launcher.RestartExecutable();
             // A set's game always opens the launcher again, into its lobby.
             else if (frontend_launch && (frontend_launch->settings.reopen_after_game || frontend_launch->start_competitive))
@@ -11589,8 +11601,6 @@ int main(int argc, char** argv)
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
         // [launcher] reopen_after_game: closing the game starts this launcher again.
         if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(reopen, argc, argv);
-        // A challenge accepted in the game opens the launcher, which starts the set.
-        else if (frontend_launch) mscharged::platform::PrepareLauncherReopen(launcher_program, argc, argv);
         if (frontend_launch) return RunOriginalGame(argc, argv, &*frontend_launch, true,
             OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #endif

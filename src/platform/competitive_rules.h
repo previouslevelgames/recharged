@@ -63,9 +63,13 @@ enum ChargedSetStage
 #ifdef __cplusplus
 extern "C" {
 #endif
-// Game module entry, before original main: this game is a set's, with the
-// player's own Mii (`mii`: its 8-byte create ID; false when `size` is not 8).
+// Game module entry, before original main or between frames: this game is a
+// set's, with the player's own Mii (`mii`: its 8-byte create ID; false when
+// `size` is not 8).
 typedef bool (*ChargedConfigureCompetitiveStartFunction)(const unsigned char* mii, unsigned size);
+// Game module entry, between frames: the set is done and the host has
+// finished with it; the game's popups and menus are the player's again.
+typedef void (*ChargedCompetitiveEndSetFunction)(void);
 // Game module entry: fills `snapshot` when `size` matches this build's
 // struct; false otherwise.
 typedef bool (*ChargedWfcSnapshotFunction)(ChargedWfcSnapshot* snapshot, unsigned size);

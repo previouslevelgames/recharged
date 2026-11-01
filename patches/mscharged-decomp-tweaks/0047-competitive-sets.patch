@@ -1,31 +1,35 @@
 Subject: Competitive play: a set's game starts itself into its RANKED search
 Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
-A competitive set starts in the launcher's lobby: once both players pressed
-Ready to play!, both launchers start the game with the set handed over
-(charged_configure_competitive_start in src/platform/competitive_match.cpp,
-with the player's own Mii, which the launcher made from their Discord
-account). Such a game goes through the retail online flow by itself, one
-step at a time, as the player would:
+A competitive set starts once both players pressed Ready to play!: in the
+launcher's lobby, both launchers start the game with the set handed over, and
+a game that already runs (a challenge accepted in it, a rematch) takes the
+set over between frames (charged_configure_competitive_start in
+src/platform/competitive_match.cpp, with the player's own Mii, which the
+launcher made from their Discord account). Such a game goes through the
+retail online flow by itself, one step at a time, as the player would:
 
 - the title is passed at once, as by Skip intro, and the main menu chooses
   Online (SelectItem, with its own checks and the online save's load);
 - the online Mii menu chooses the player's own Mii on its page (SelectMii),
   and its overlay presses Use, which selects the Mii, keeps its save slot and
-  goes on to the WFC login;
+  goes on to the WFC login; a Mii that is not on this computer is the
+  player's choice;
 - the login, once it succeeded and DWC ended the friend list sync that
   follows it (DWC refuses a search before), goes on into the RANKED search
   for one player, as the online menu's RANKED and the player count would
   (InitializeOnlineMatch, the matchmaking draft scene) instead of the online
   menu; the profile service's RANKED steering then lets the two games find
   only each other;
+- a set that goes while the player is in the online menu (already logged
+  in) goes on from there into the same RANKED search, with the Mii in use;
 - the connection check accepts the set's opponent at once and rejects
   anybody else (who is then left out of the search, as retail does);
 - every popup is answered with its first option; one that is not harmless
   (anything but a low battery, a Mii's first time online, a new online save)
   ends the set, and the retail flow behind it goes on;
-- back from the online match, the series is over (the online menu still
-  comes up, under the host closing the game).
+- back from the online match, the series is over: the online menu comes up,
+  where the host offers a rematch.
 
 The captain draft, the match and the series are retail, by the set's rules
 (0046). A game without a set handed over, and so the main menu's own Online,
@@ -35,13 +39,14 @@ diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
 index ef60b8a..e6e0802 100644
 --- a/include/mscharged_competitive.h
 +++ b/include/mscharged_competitive.h
-@@ -34,6 +34,33 @@ bool mscharged_competitive_tweak(int tweak);
+@@ -34,6 +34,37 @@ bool mscharged_competitive_tweak(int tweak);
  // otherwise `stadium`.
  int mscharged_competitive_stadium(int stadium);
  
 +#if defined(MSCHARGED_TWEAKS)
-+// A set's game (the launcher's Ready to play!, tweak patch 0047): it starts
-+// itself into the set's RANKED search, one step at a time. Each answer is
++// A set's game (the launcher's Ready to play!, or a set that went while the
++// game runs, tweak patch 0047): it starts itself into the set's RANKED
++// search, one step at a time. Each answer is
 +// for this game's set only; without one everything stays retail.
 +// The main menu, once ready: true to choose Online now (once).
 +bool mscharged_competitive_take_main_menu(void);
@@ -53,6 +58,9 @@ index ef60b8a..e6e0802 100644
 +// The login succeeded: true to go on into the RANKED search (once) instead
 +// of the online menu.
 +bool mscharged_competitive_take_ranked(void);
++// The online menu, once ready: true to go on into the RANKED search now
++// (once), for a set that went while the player was in it.
++bool mscharged_competitive_take_online_menu(void);
 +// The login succeeded, before the RANKED step: true while the set's game
 +// waits for DWC's friend list sync after the login (no search starts then).
 +bool mscharged_competitive_ranked_waits(void);
@@ -88,7 +96,7 @@ index 61c45f3..be9b215 100644
          else if (GameInfoManager::Instance()->IsOnline())
          {
 +#if defined(MSCHARGED_TWEAKS)
-+            // Competitive play: a set's series is over; the host closes the game.
++            // Competitive play: a set's series is over.
 +            mscharged_competitive_back_from_game();
 +#endif
              FEAudio::PlayAnimAudioEvent(0x37A9934D, 0, 0, true);
@@ -191,6 +199,40 @@ index 40708f4..42a0559 100644
      for (unsigned int pad = 0; pad < 4; ++pad)
      {
          TLComponentInstance* controller = gFEPointerInstances[pad];
+diff --git a/src/Game/SH/SHOnlineHub.cpp b/src/Game/SH/SHOnlineHub.cpp
+--- a/src/Game/SH/SHOnlineHub.cpp
++++ b/src/Game/SH/SHOnlineHub.cpp
+@@ -46,6 +46,10 @@
+ #include "Game/MiiManager.h"
+ #include "Game/FE/tlDefault.h"
+ #include "Game/SH/SHOnlineHub.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/SH/SHOnlinePlayerCount.h"
++#include "mscharged_competitive.h"
++#endif
+ 
+ static inline void ShowOnlineHubDialog(SHOnlineHub* hub, ePopupMenu type);
+ 
+@@ -174,6 +178,19 @@ void SHOnlineHub::Update(float dt)
+             return;
+         }
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a set that went while the player is in the online
++    // menu goes on into its RANKED search, as RANKED and one player would.
++    if (mState == ONLINE_HUB_READY && mscharged_competitive_take_online_menu())
++    {
++        SHNavigation* scene = GetNavigationScene();
++        if (scene != 0)
++            scene->HideButtons();
++        InitializeOnlineMatch(false, false, true);
++        GameSceneManager::Instance()->Push(SCENE_ONLINE_MATCHMAKING_DRAFT, SCREEN_FORWARD, true);
++        return;
++    }
++#endif
+     if (!GameSceneManager::Instance()->IsOnStack(SCENE_POPUP_MENU) && g_pFriendManager->FindHostInvitation())
+     {
+         FriendManager* friendManager = g_pFriendManager;
 diff --git a/src/Game/SH/SHOnlineLogin.cpp b/src/Game/SH/SHOnlineLogin.cpp
 index ddc201c..dcefc34 100644
 --- a/src/Game/SH/SHOnlineLogin.cpp

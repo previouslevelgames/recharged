@@ -4,13 +4,16 @@
 // (mscharged_competitive.h), and the game's WFC login for the host
 // (charged_wfc_snapshot), which proves it to the profile service.
 //
-// A set's game (charged_configure_competitive_start, the launcher's Ready to
-// play!) also starts itself through the hooks of tweak patch 0047: the title
-// is passed, the main menu goes online, the online Mii menu takes the
-// player's own Mii, the login goes on into the RANKED search, the connection
-// check accepts the set's opponent (and nobody else), and popups are answered;
-// one that is not harmless ends the set. The host closes the game once the
-// set is over or failed. Everything else stays the retail online flow.
+// A set's game (charged_configure_competitive_start: the launcher's Ready to
+// play!, or a set that went while the game runs) also starts itself through
+// the hooks of tweak patch 0047: the title is passed, the main menu goes
+// online, the online Mii menu takes the player's own Mii, the login (or the
+// online menu, when the player is already in it) goes on into the RANKED
+// search, the connection check accepts the set's opponent (and nobody else),
+// and popups are answered; one that is not harmless ends the set. Once the
+// set is over or failed, the host ends it (charged_competitive_end_set) and
+// the game stays in its online menus. Everything else stays the retail
+// online flow.
 #if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE)
 #error Competitive play belongs to the isolated original game module
 #endif
@@ -140,9 +143,10 @@ extern "C" __attribute__((visibility("default"))) bool charged_wfc_snapshot(Char
     return true;
 }
 
-// Host entry, before original main: this game is a set's (`mii`: the
-// player's own Mii's create ID, 8 bytes): it starts itself into the set's
-// RANKED search.
+// Host entry, before original main or between frames: this game is a set's
+// (`mii`: the player's own Mii's create ID, 8 bytes): it starts itself into
+// the set's RANKED search from the title, the main menu or the online menu,
+// whichever comes up next.
 extern "C" void mscharged_tweak_set_start(void);
 extern "C" __attribute__((visibility("default"))) bool charged_configure_competitive_start(const unsigned char* mii,
                                                                                            unsigned size)
@@ -150,8 +154,18 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
     if (!mii || size != sizeof sSetMii) return false;
     std::memcpy(&sSetMii, mii, sizeof sSetMii);
     sSetStage = CHARGED_SET_BOOT;
+    sSetPopup = -1;
     mscharged_tweak_set_start();
     return true;
+}
+
+// Host entry, between frames: the set is over (or failed) and the host has
+// done with it; the game is no set's any more, and its popups and menus are
+// the player's again.
+extern "C" __attribute__((visibility("default"))) void charged_competitive_end_set(void)
+{
+    sSetStage = CHARGED_SET_NONE;
+    sSetPopup = -1;
 }
 
 extern "C" bool mscharged_competitive_take_main_menu(void)
@@ -172,8 +186,10 @@ extern "C" int mscharged_competitive_mii_position(const int* official_indices, i
                 sSetStage = CHARGED_SET_OVERLAY;
                 return position;
             }
-    std::fputs("Competitive: the set's Mii is not in the Mii database\n", stderr);
-    sSetStage = CHARGED_SET_FAILED;
+    // Not on this computer (a game the launcher did not start for the set):
+    // the player chooses the Mii, and the login still goes on into RANKED.
+    std::fputs("Competitive: the set's Mii is not in the Mii database; the player chooses one\n", stderr);
+    sSetStage = CHARGED_SET_LOGIN;
     return -1;
 }
 
@@ -208,6 +224,15 @@ extern "C" bool mscharged_competitive_ranked_waits(void)
 extern "C" bool mscharged_competitive_take_ranked(void)
 {
     if (sSetStage != CHARGED_SET_LOGIN) return false;
+    sSetStage = CHARGED_SET_SEARCH;
+    return true;
+}
+
+// A set that went while the player is in the online menu: already logged in,
+// it goes on into the RANKED search with the Mii in use.
+extern "C" bool mscharged_competitive_take_online_menu(void)
+{
+    if (sSetStage != CHARGED_SET_BOOT || PopupOnTop()) return false;
     sSetStage = CHARGED_SET_SEARCH;
     return true;
 }

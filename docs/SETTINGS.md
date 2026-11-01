@@ -489,14 +489,21 @@ tweaks both teams play with.
    someone challenges you and when your challenge is accepted
    (`[online] challenge_sound`, on by default; at the master volume, not when
    muted).
-3. Once they accept, both games start by themselves: a game in which the
-   challenge was accepted closes, and its launcher starts the set's game. The
-   game signs in to the online server with your own Mii and goes straight to
-   the captain draft against your opponent, where you choose your captain and
-   sidekicks. **Not ready** on the Online pages holds the set until you press
+3. Once they accept, both games go on by themselves: the launcher starts the
+   set's game, and a game that already runs (the challenge was accepted on its
+   card) goes on from its main menu or online menu, without closing. The game
+   signs in to the online server with your own Mii (in the online menu, with
+   the Mii it uses) and goes straight to the captain draft against your
+   opponent, where you choose your captain and sidekicks. A game that is
+   elsewhere in its menus says so: back on the main menu or the online menu,
+   it goes on. **Not ready** on the Online pages holds the set until you press
    **Ready to play!** again.
-4. After the series both games report the result, the game closes and the
-   launcher opens again with the result, and **Rematch**.
+4. After the series both games report the result and stay in the online menu,
+   with a card: **Rematch** challenges your opponent again by the same rules,
+   and once they accept, the next set goes on into RANKED. A set that stopped
+   (a message in the game, or the games didn't meet) offers **Play it again**,
+   your Ready to play! for it. **Not now** (B) leaves it; closing a set's game
+   opens the launcher again.
 
 Your **friends** are kept on the server, so they follow you to every computer:
 the players you add by Discord username, or with the heart next to them on the

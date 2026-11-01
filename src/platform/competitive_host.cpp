@@ -21,8 +21,13 @@ constexpr auto kRetry = 15s;
 constexpr int kGamePreGame = 0, kGameKickoff = 1, kGameEnd = 3, kGamePlay = 5;
 // GameInfoManager::eGameMode: the title screen's demo match.
 constexpr int kModeDemo = 2;
-// A set's game waits this long for its last report before it closes anyway.
-constexpr auto kCloseWait = 20s;
+// A set's game waits this long for its last report before it ends the set
+// anyway.
+constexpr auto kEndWait = 20s;
+
+// The launcher's GoKey: each go of a set (it can go again after a Ready to
+// play! taken back) has its own.
+std::int64_t GoKey(const ProfileMatch& match) { return match.go_at ? match.go_at : match.id; }
 
 bool SameRules(const std::optional<ChargedCompetitiveRules>& a, const std::optional<ChargedCompetitiveRules>& b)
 {
@@ -227,23 +232,78 @@ std::optional<CompetitiveHost::SetStatus> CompetitiveHost::CurrentSet()
     return status;
 }
 
-bool CompetitiveHost::CloseNow()
+std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
 {
+    SetEnd end;
     std::string why;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!set_ || set_closed_ || set_done_ == Clock::time_point{}) return false;
+        if (!set_ || set_done_ == Clock::time_point{}) return std::nullopt;
         // The last report out, and a set left without one waiting again.
         const bool reported = unsent_ == 0 && reports_.empty();
-        const bool settled = set_stage_ == CHARGED_SET_OVER ? reported : set_unready_ || set_stage_ == CHARGED_SET_OVER;
-        if (!settled && Clock::now() - set_done_ < kCloseWait) return false;
-        set_closed_ = true;
-        why = set_stage_ == CHARGED_SET_OVER   ? "the series is over"
-            : set_stage_ == CHARGED_SET_FAILED ? "it stopped at popup " + std::to_string(set_popup_)
-                                               : "the set was called off";
+        const bool settled = set_stage_ == CHARGED_SET_OVER ? reported : set_unready_;
+        if (!settled && Clock::now() - set_done_ < kEndWait) return std::nullopt;
+        if (match_ && match_->id == set_)
+        {
+            set_opponent_ = match_->opponent.name;
+            set_games_ = match_->rules.games;
+        }
+        end.match = set_;
+        end.opponent = set_opponent_;
+        end.games = set_games_;
+        if (series_match_ == set_)
+            for (const auto& game : series_)
+            {
+                end.won += game.my_score > game.opponent_score;
+                end.lost += game.my_score < game.opponent_score;
+            }
+        end.how = set_stage_ == CHARGED_SET_OVER   ? SetEnd::How::Over
+                : set_stage_ == CHARGED_SET_FAILED ? SetEnd::How::Failed
+                                                   : SetEnd::How::CalledOff;
+        end.popup = set_popup_;
+        why = end.how == SetEnd::How::Over     ? "the series is over"
+            : end.how == SetEnd::How::Failed ? "it stopped at popup " + std::to_string(set_popup_)
+                                             : "the set was called off";
+        // No set's game any more: challenges reach the card again.
+        set_ = 0;
+        set_stage_ = CHARGED_SET_NONE;
+        set_popup_ = -1;
+        set_called_off_ = set_unready_ = false;
+        set_done_ = {};
+        paired_ = false;
+        next_match_ = {};
     }
-    Said("set " + std::to_string(set_) + ": the game closes, " + why);
-    return true;
+    wake_.notify_all();
+    Said("set " + std::to_string(end.match) + " is done, " + why + "; the game stays open");
+    return end;
+}
+
+std::optional<CompetitiveHost::SetStart> CompetitiveHost::TakeSetStart()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto start = std::move(set_start_);
+    set_start_.reset();
+    // A set this game already plays (the launcher's).
+    if (set_) return std::nullopt;
+    return start;
+}
+
+void CompetitiveHost::PlayAgain(std::int64_t match, bool rematch)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        again_match_ = match;
+        again_rematch_ = rematch;
+    }
+    wake_.notify_all();
+}
+
+bool CompetitiveHost::ReadyDue() const
+{
+    // Only a set's game says it is ready for its set (that counts as the
+    // player's Ready to play!); before sets, any game for the accepted match.
+    return match_ && rules_ && proven_profile_ && proven_profile_ == login_profile_
+        && (match_->stage.empty() || match_->id == set_);
 }
 
 void CompetitiveHost::Run()
@@ -263,8 +323,7 @@ void CompetitiveHost::Run()
             // The next match check, or the next ready call while one can be
             // made; a new login or a series to report wakes the thread sooner.
             std::lock_guard<std::mutex> relock(mutex_);
-            const bool ready = match_ && rules_ && proven_profile_ && proven_profile_ == login_profile_;
-            next = ready ? std::min(next_match_, next_ready_) : next_match_;
+            next = ReadyDue() ? std::min(next_match_, next_ready_) : next_match_;
         }
         catch (const ProfileError& e)
         {
@@ -297,28 +356,28 @@ void CompetitiveHost::Run()
 void CompetitiveHost::Work(ProfileService& api)
 {
     const auto now = Clock::now();
-    // The card's answer. An accepted set closes this game: nothing more is
-    // done for it (no ready for the set from this game).
-    std::int64_t answer = 0;
-    bool accept = false;
+    // The card's answer. An accept goes on with the set in this game (the
+    // match check below sees it go).
+    std::int64_t answer = 0, again = 0;
+    bool accept = false, rematch = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (restart_) return;
         api.SetActivity(activity_);
         answer = answer_match_;
         accept = answer_accept_;
         answer_match_ = 0;
+        again = again_match_;
+        rematch = again_rematch_;
+        again_match_ = 0;
     }
     if (answer)
     {
         std::optional<std::string> notice;
-        bool restart = false;
         try
         {
             const auto answered = accept ? api.Accept(answer) : api.Decline(answer);
             Said(std::string(accept ? "accepted" : "declined") + " the challenge of match " + std::to_string(answer)
                  + " in the game (" + answered.stage + ")");
-            restart = accept;
         }
         catch (const ProfileError& e)
         {
@@ -330,11 +389,30 @@ void CompetitiveHost::Work(ProfileService& api)
         std::lock_guard<std::mutex> lock(mutex_);
         invitation_.reset();
         if (notice) notice_ = notice;
-        if (restart)
+        next_match_ = {};
+    }
+    // The set again, after it ended in this game: a rematch, or Ready to
+    // play! again.
+    if (again)
+    {
+        std::optional<std::string> notice;
+        try
         {
-            restart_ = true;
-            return;
+            const auto asked = rematch ? api.Rematch(again) : api.ReadyToPlay(again, true);
+            Said((rematch ? "asked for a rematch of match " : "ready again for match ") + std::to_string(again)
+                 + " in the game (match " + std::to_string(asked.id) + ", " + asked.stage + ")");
         }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled()) throw;
+            Said(std::string(rematch ? "the rematch of match " : "ready again for match ") + std::to_string(again)
+                 + " was not taken: " + e.what());
+            notice = e.Status() == 0 ? std::string("The server didn't answer. Try again on the launcher's Online pages.")
+                                     : std::string(rematch ? "No rematch: the set is no longer there."
+                                                           : "The set is no longer open.");
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (notice) notice_ = notice;
         next_match_ = {};
     }
 
@@ -356,7 +434,8 @@ void CompetitiveHost::Work(ProfileService& api)
         std::optional<Invitation> invitation;
         if (current && current->state == "challenged" && current->side == "challenged")
             invitation = Invitation{current->id, current->opponent.name,
-                                    current->rule_set + ": " + DescribeRules(current->rules)};
+                                    current->rule_set + ": " + DescribeRules(current->rules),
+                                    current->rematch_of != 0};
         if (current && current->state != "accepted") current.reset();
         std::optional<ChargedCompetitiveRules> rules;
         if (current)
@@ -393,6 +472,18 @@ void CompetitiveHost::Work(ProfileService& api)
         if (set_ && set_stage_ < CHARGED_SET_PLAYING
             && (!current || current->id != set_ || current->stage == "open" || current->stage == "invited"))
             set_called_off_ = true;
+        // A set that went: this game plays it, unless it plays one already
+        // (then that go counts as started) or is in a match.
+        if (current && current->stage == "go")
+        {
+            const auto key = GoKey(*current);
+            if (set_ == current->id) started_go_ = key;
+            else if (!set_ && activity_ == "game" && key != started_go_)
+            {
+                started_go_ = key;
+                set_start_ = SetStart{current->id, current->opponent.name};
+            }
+        }
     }
 
     // A set's game that stopped or was called off before a result: the
@@ -451,7 +542,7 @@ void CompetitiveHost::Work(ProfileService& api)
     {
         std::lock_guard<std::mutex> lock(mutex_);
         match = match_;
-        ready = match && rules_ && proven_profile_ && proven_profile_ == login_profile_ && Clock::now() >= next_ready_;
+        ready = ReadyDue() && Clock::now() >= next_ready_;
         profile = proven_profile_;
     }
     if (ready)
@@ -507,7 +598,7 @@ void CompetitiveHost::Work(ProfileService& api)
 std::optional<CompetitiveHost::Invitation> CompetitiveHost::PendingInvitation()
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!invitation_ || set_ || restart_ || activity_ != "game" || invitation_->match == answered_match_)
+    if (!invitation_ || set_ || activity_ != "game" || invitation_->match == answered_match_)
         return std::nullopt;
     return invitation_;
 }
@@ -520,14 +611,6 @@ void CompetitiveHost::Answer(std::int64_t match, bool accept)
         answer_accept_ = accept;
     }
     wake_.notify_all();
-}
-
-bool CompetitiveHost::RestartForSet()
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!restart_ || restart_taken_) return false;
-    restart_taken_ = true;
-    return true;
 }
 
 std::optional<std::string> CompetitiveHost::TakeNotice()

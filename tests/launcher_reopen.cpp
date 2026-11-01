@@ -53,9 +53,7 @@ int Reopened(int argc, char** argv)
 }
 
 // The game's side: a session log, a descriptor without close-on-exec and
-// blocked signals, as a game's threads leave them. Its launcher is only
-// prepared, as for a game started from it, until a challenge accepted in the
-// game arms it.
+// blocked signals, as a game's threads leave them.
 [[noreturn]] void Game(const std::filesystem::path& directory, char* program)
 {
     setenv("RECHARGED_LOG_DIR", directory.c_str(), 1);
@@ -70,9 +68,7 @@ int Reopened(int argc, char** argv)
     pthread_sigmask(SIG_BLOCK, &block, nullptr);
     std::string fd_text = std::to_string(fd);
     char* arguments[] = {program, const_cast<char*>("--reopened"), fd_text.data(), nullptr};
-    mscharged::platform::PrepareLauncherReopen(program, 3, arguments);
-    if (mscharged::platform::ReopenLauncher("closed")) std::_Exit(4); // prepared is not armed
-    if (!mscharged::platform::ArmPreparedLauncherReopen()) std::_Exit(5);
+    mscharged::platform::ArmLauncherReopen(program, 3, arguments);
     mscharged::platform::ReopenLauncher("closed, reopening the launcher");
     std::_Exit(3); // execv failed
 }
@@ -86,7 +82,6 @@ int main(int argc, char** argv)
         const auto program = std::filesystem::absolute(argv[0]);
         // Nothing armed, or the program is gone: the caller ends its log itself.
         Require(!mscharged::platform::ReopenLauncher("test"), "Reopened without being armed");
-        Require(!mscharged::platform::ArmPreparedLauncherReopen(), "Armed without a prepared launcher");
         char* missing[] = {argv[0], nullptr};
         mscharged::platform::ArmLauncherReopen("/nonexistent/recharged", 1, missing);
         Require(!mscharged::platform::ReopenLauncher("test"), "Reopened a missing program");

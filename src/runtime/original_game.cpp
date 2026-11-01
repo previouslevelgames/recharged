@@ -1313,12 +1313,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }
-        // A set's game (the launcher's Ready to play!): it starts itself into
-        // the set's RANKED search with the player's own Mii, and closes once
-        // the set is done; the launcher then opens again.
+        // A set's game (the launcher's Ready to play!, or a set that went
+        // while this game runs): it starts itself into the set's RANKED search
+        // with the player's own Mii, and stays open once the set is done.
+        auto configureStart=reinterpret_cast<ChargedConfigureCompetitiveStartFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive_start"));
+        auto endSet=reinterpret_cast<ChargedCompetitiveEndSetFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_competitive_end_set"));
         if(launch.start_competitive) {
-            auto configureStart=reinterpret_cast<ChargedConfigureCompetitiveStartFunction>(
-                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive_start"));
             if(competitive && configureStart
                && configureStart(launch.competitive_mii.data(),unsigned(launch.competitive_mii.size())))
                 competitive->PlaySet(launch.competitive_set);
@@ -1330,6 +1332,24 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
         }
         std::chrono::steady_clock::time_point lastCompetitive{};
+        // The set this game played last, for the card that offers it again.
+        std::optional<mscharged::platform::CompetitiveHost::SetEnd> afterSet;
+        // A set started in this game that waits for the main menu or the
+        // online menu (the player is somewhere else in the menus).
+        bool setStartedHere=false;
+        std::chrono::steady_clock::time_point setWaiting{}, setReminded{};
+        std::optional<mscharged::platform::AlertSound> challengeSound;
+        // [online] challenge_sound: the chime at the master volume (not muted),
+        // and the window flashes while it is in the background.
+        auto alert = [&] {
+            if(!launch.settings.challenge_sound)return;
+            if(!launch.settings.mute) {
+                if(!challengeSound) challengeSound.emplace();
+                challengeSound->Play(float(launch.settings.master_volume)/100.0f);
+            }
+            if(host.window && !(SDL_GetWindowFlags(host.window)&SDL_WINDOW_INPUT_FOCUS))
+                SDL_FlashWindow(host.window,SDL_FLASH_UNTIL_FOCUSED);
+        };
         auto observeCompetitive = [&] {
             if(!competitive)return;
             const auto now=std::chrono::steady_clock::now();
@@ -1345,70 +1365,128 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(const auto set=competitive->CurrentSet())
                 presenceSet=mscharged::platform::SetText{set->opponent,set->won,set->lost,set->games};
             else presenceSet.reset();
-            // The set's game is done: closed as by the window's close button.
-            if(competitive->CloseNow()) {
-                SDL_Event quit{};
-                quit.type=SDL_EVENT_QUIT;
-                SDL_PushEvent(&quit);
+            // A set that went while this game is in its menus: it goes on into
+            // RANKED from the main menu or the online menu, without closing.
+            if(const auto start=competitive->TakeSetStart()) {
+                if(configureStart
+                   && configureStart(launch.competitive_mii.data(),unsigned(launch.competitive_mii.size()))) {
+                    competitive->PlaySet(start->match);
+                    afterSet.reset();
+                    setStartedHere=true;
+                    alert();
+                    if(hostOverlay) hostOverlay->ShowMessage("Set against "+start->opponent+": off to RANKED",now);
+                } else mscharged::platform::SessionLogLine("Competitive: set "+std::to_string(start->match)
+                    +" cannot start here (this build's game module has no sets)");
             }
+            // The set's game is done: it stays open, and the card offers the
+            // set again.
+            if(auto end=competitive->TakeSetEnd()) {
+                if(endSet) endSet();
+                afterSet=std::move(end);
+                setStartedHere=false;
+            }
+            // Started here and not on its way yet: say where it goes on from.
+            if(setStartedHere && wfc.set_stage==CHARGED_SET_BOOT) {
+                if(setWaiting==std::chrono::steady_clock::time_point{}) setWaiting=now;
+                else if(hostOverlay && now-setWaiting>=std::chrono::seconds(6)
+                        && now-setReminded>=std::chrono::seconds(15)) {
+                    setReminded=now;
+                    hostOverlay->ShowMessage("The set waits: go back to the main menu or the online menu,"
+                        " and the game takes you to RANKED",now);
+                }
+            } else setWaiting={};
         };
-        // A challenge while the game is in its menus: a card over the dimmed
-        // picture, which holds every player's buttons. A accepts (the game
-        // closes and the launcher starts the set's game), B declines.
+        // A card over the dimmed picture while the game is in its menus, which
+        // holds every player's buttons: a challenge (A accepts, and the set
+        // starts in this game; B declines), or after a set the same set again
+        // (A: a rematch, or Ready to play! again for one that stopped; B: not
+        // now).
+        enum class CardKind { None, Challenge, AfterSet };
+        CardKind cardKind=CardKind::None;
         std::int64_t cardMatch=0;
         std::chrono::steady_clock::time_point cardShown{};
-        std::optional<mscharged::platform::AlertSound> challengeSound;
         auto serviceChallengeCard = [&](std::chrono::steady_clock::time_point now) {
             if(!competitive || !hostOverlay)return;
             if(const auto notice=competitive->TakeNotice()) hostOverlay->ShowMessage(*notice,now);
-            if(competitive->RestartForSet()) {
-                const bool launcher=mscharged::platform::ArmPreparedLauncherReopen();
-                mscharged::platform::SessionLogLine(launcher
-                    ? "Competitive: challenge accepted in the game; closing it, the launcher starts the set"
-                    : "Competitive: challenge accepted in the game, which was not started from the launcher");
-                if(launcher) {
-                    SDL_Event quit{};
-                    quit.type=SDL_EVENT_QUIT;
-                    SDL_PushEvent(&quit);
-                } else hostOverlay->ShowMessage("Challenge accepted: open the launcher to play the set",now);
-            }
             const auto invitation=competitive->PendingInvitation();
-            const std::int64_t match=invitation ? invitation->match : 0;
-            if(match!=cardMatch) {
+            CardKind kind=CardKind::None;
+            std::int64_t match=0;
+            if(invitation) {
+                // A challenge (their rematch, too) takes the place of the
+                // card that offers the last set again.
+                kind=CardKind::Challenge;
+                match=invitation->match;
+                afterSet.reset();
+            } else if(afterSet) {
+                kind=CardKind::AfterSet;
+                match=afterSet->match;
+            }
+            if(kind!=cardKind || match!=cardMatch) {
+                cardKind=kind;
                 cardMatch=match;
                 cardShown=now;
-                mscharged::platform::SetNativeWpadHold(match!=0);
-                if(invitation) {
-                    mscharged::runtime::HostOverlay::Card card;
-                    card.kicker="CHALLENGE";
-                    card.title=invitation->from+" challenges you";
+                mscharged::platform::SetNativeWpadHold(kind!=CardKind::None);
+                mscharged::runtime::HostOverlay::Card card;
+                if(kind==CardKind::Challenge) {
+                    card.kicker=invitation->rematch ? "REMATCH" : "CHALLENGE";
+                    card.title=invitation->from+(invitation->rematch ? " wants a rematch" : " challenges you");
                     card.detail=invitation->rules+".";
                     card.accept="Accept";
                     card.decline="Decline";
-                    card.note="Accept closes the game, and the launcher starts the set: straight to the captain draft.";
+                    card.note="Accept goes on into RANKED: straight to the captain draft.";
                     hostOverlay->SetCard(card);
-                    mscharged::platform::SessionLogLine("Competitive: "+invitation->from+" challenges you (match "
-                        +std::to_string(match)+")");
-                    // [online] challenge_sound: the chime at the master volume (not
-                    // muted), and the window flashes while it is in the background.
-                    if(launch.settings.challenge_sound) {
-                        if(!launch.settings.mute) {
-                            if(!challengeSound) challengeSound.emplace();
-                            challengeSound->Play(float(launch.settings.master_volume)/100.0f);
-                        }
-                        if(host.window && !(SDL_GetWindowFlags(host.window)&SDL_WINDOW_INPUT_FOCUS))
-                            SDL_FlashWindow(host.window,SDL_FLASH_UNTIL_FOCUSED);
+                    mscharged::platform::SessionLogLine("Competitive: "+invitation->from
+                        +(invitation->rematch ? " wants a rematch" : " challenges you")
+                        +" (match "+std::to_string(match)+")");
+                    alert();
+                } else if(kind==CardKind::AfterSet) {
+                    using How=mscharged::platform::CompetitiveHost::SetEnd::How;
+                    const auto& end=*afterSet;
+                    const std::string opponent=end.opponent.empty() ? std::string("your opponent") : end.opponent;
+                    const std::string score=std::to_string(std::max(end.won,end.lost))+"-"
+                        +std::to_string(std::min(end.won,end.lost));
+                    if(end.how==How::Over) {
+                        card.kicker="SET OVER";
+                        card.title=end.won>end.lost ? "You won "+score+" against "+opponent
+                            : end.lost>end.won ? opponent+" won "+score
+                            : "A draw against "+opponent;
+                        card.detail="The same opponent and rules again: "+opponent+" gets the challenge.";
+                        card.accept="Rematch";
+                        card.decline="Not now";
+                        card.note="Once they accept, the game goes on into RANKED.";
+                    } else {
+                        card.kicker="SET STOPPED";
+                        card.title="The set against "+opponent+" stopped";
+                        card.detail=end.how==How::Failed ? std::string("A message in the game ended it.")
+                            : opponent+" isn't ready any more, or your games didn't meet in time.";
+                        card.accept="Play it again";
+                        card.decline="Not now";
+                        card.note="Play it again is your Ready to play!: the set goes once "+opponent
+                            +" is ready too.";
                     }
+                    hostOverlay->SetCard(card);
                 } else hostOverlay->SetCard(std::nullopt);
             }
-            if(!cardMatch)return;
+            if(kind==CardKind::None)return;
             // Presses in the card's first moment are not answers (a button the
             // player was pressing for the menu).
             const auto presses=mscharged::platform::TakeNativeWpadHeldPresses();
             if(now-cardShown<std::chrono::milliseconds(600) || (!presses.a && !presses.b))return;
             const bool accept=presses.a>0;
-            competitive->Answer(cardMatch,accept);
-            hostOverlay->ShowMessage(accept ? "Challenge accepted: the set starts" : "Challenge declined",now);
+            if(kind==CardKind::Challenge) {
+                competitive->Answer(cardMatch,accept);
+                hostOverlay->ShowMessage(accept ? "Challenge accepted: off to RANKED" : "Challenge declined",now);
+                return;
+            }
+            using How=mscharged::platform::CompetitiveHost::SetEnd::How;
+            const bool rematch=afterSet->how==How::Over;
+            const std::string opponent=afterSet->opponent.empty() ? std::string("your opponent") : afterSet->opponent;
+            if(accept) {
+                competitive->PlayAgain(cardMatch,rematch);
+                hostOverlay->ShowMessage((rematch ? "Rematch asked: waiting for " : "Ready again: waiting for ")
+                    +opponent,now);
+            }
+            afterSet.reset();
         };
         auto observeNetplay = [&] {
             if((!hostOverlay && !framePacing) || !netplaySnapshot)return;
