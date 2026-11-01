@@ -592,7 +592,7 @@ public:
         // start again by itself.
         if (const char* set = std::getenv(kCompetitiveSetVariable); set && *set && !capture_)
         {
-            competitive_started_set_ = std::strtoll(set, nullptr, 10);
+            competitive_started_go_ = std::strtoll(set, nullptr, 10);
             if (!options_.page_selected) page_ = PageFriends;
         }
 #if !defined(__APPLE__)
@@ -3875,6 +3875,9 @@ private:
     void UpdateCompetitive()
     {
         if (!competitive_) return;
+        // What keeps this computer from playing a set (no game image...), for
+        // the buttons that would start one.
+        set_blocker_ = PlayBlocker();
         competitive_->SetServer(platform::ProfileServerAddress(draft_.profile_server).value_or(std::string()));
         competitive_status_ = competitive_->Snapshot();
         const auto& status = competitive_status_;
@@ -3938,9 +3941,11 @@ private:
         UpdateSetPresence();
         UpdateDiscordFriends();
         // Both pressed Ready to play!: this launcher starts the set's game.
-        if (status.match && status.match->stage == "go" && status.match->id != competitive_started_set_ && !capture_)
+        // Each go once: a set that waited for both again and goes again starts
+        // the games again.
+        if (status.match && status.match->stage == "go" && GoKey(*status.match) != competitive_started_go_ && !capture_)
         {
-            competitive_started_set_ = status.match->id;
+            competitive_started_go_ = GoKey(*status.match);
             competitive_go_ = true;
         }
     }
@@ -4236,7 +4241,7 @@ private:
         frontend_launch_->competitive_set = status.match->id;
         frontend_launch_->competitive_mii = mscharged::platform::KeyedMiiCreateId(key);
         // The game and the launcher it opens again afterwards see it.
-        SetEnvironment(kCompetitiveSetVariable, std::to_string(status.match->id));
+        SetEnvironment(kCompetitiveSetVariable, std::to_string(GoKey(*status.match)));
         quit = true;
     }
 
@@ -4882,6 +4887,10 @@ private:
         EndCard();
     }
 
+    // A set's go, one value each time it goes: when it went (servers with
+    // sets), else the set.
+    static std::int64_t GoKey(const platform::ProfileMatch& match) { return match.go_at ? match.go_at : match.id; }
+
     // What the bar's pill says about the signed-in player: the set's stage.
     static std::pair<const char*, ImVec4> PlayerActivity(const std::optional<platform::ProfileMatch>& match)
     {
@@ -4946,9 +4955,11 @@ private:
         {
             if (BeginRows("##match_rows"))
             {
-                Row((opponent + " challenges you").c_str(), "Accept, and both games start.");
+                Row((opponent + " challenges you").c_str(),
+                    set_blocker_.empty() ? "Accept, and both games start." : set_blocker_.c_str());
                 const float width = (ImGui::GetContentRegionAvail().x - Dp(10)) * 0.5f;
-                if (PrimaryButton("accept", "Accept", {width, Dp(40)}, !busy, Icon::Check)) competitive_->Accept();
+                if (PrimaryButton("accept", "Accept", {width, Dp(40)}, !busy && set_blocker_.empty(), Icon::Check))
+                    competitive_->Accept();
                 ImGui::SameLine(0, Dp(10));
                 if (SecondaryButton("decline", "Decline", {width, Dp(40)}, !busy, Icon::Close))
                     competitive_->Decline();
@@ -4999,7 +5010,8 @@ private:
             Row(("Last set: " + title).c_str(), (text + ".").c_str());
             const bool ended = match.state == "finished" || match.state == "disputed";
             if (ended && !match.stage.empty()
-                && PrimaryButton("rematch", "Rematch", Dp(160, 40), !busy && match.opponent_online, Icon::Play))
+                && PrimaryButton("rematch", "Rematch", Dp(160, 40),
+                                 !busy && match.opponent_online && set_blocker_.empty(), Icon::Play))
                 competitive_->Rematch();
             EndRows();
         }
@@ -5020,15 +5032,18 @@ private:
         {
             if (match.stage == "go")
             {
-                // Back from a game that ended before the set started: start it again.
-                Row("Both are ready", "The game starts and goes straight to the captain draft.");
+                // Back from a game that ended before the set started: start it
+                // again, or end the set.
+                Row("Your game closed before the set began",
+                    set_blocker_.empty() ? "Start it again: it goes straight to the captain draft."
+                                         : set_blocker_.c_str());
                 const float width = (ImGui::GetContentRegionAvail().x - Dp(10)) * 0.5f;
-                if (PrimaryButton("start_set", "Start the game", {width, Dp(40)}, !busy && PlayBlocker().empty(),
+                if (PrimaryButton("start_set", "Start the game", {width, Dp(40)}, !busy && set_blocker_.empty(),
                                   Icon::Play))
                     competitive_go_ = true;
                 ImGui::SameLine(0, Dp(10));
-                if (SecondaryButton("not_ready", "Not ready", {width, Dp(40)}, !busy, Icon::Close))
-                    competitive_->ReadyToPlay(false);
+                if (SecondaryButton("cancel_go", "Cancel set", {width, Dp(40)}, !busy, Icon::Close))
+                    competitive_->CancelMatch();
             }
             else
             {
@@ -5083,8 +5098,11 @@ private:
         const ImVec2 button{width - cancel - gap, Dp(42)};
         if (!match.you_ready)
         {
-            if (PrimaryButton("ready_to_play", "Ready to play!", button, !busy, Icon::Play, true))
+            if (PrimaryButton("ready_to_play", "Ready to play!", button, !busy && set_blocker_.empty(), Icon::Play,
+                              true))
                 competitive_->ReadyToPlay(true);
+            if (!set_blocker_.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", set_blocker_.c_str());
         }
         else if (SecondaryButton("not_ready", "Ready  -  click to undo", button, !busy, Icon::Check))
             competitive_->ReadyToPlay(false);
@@ -5645,12 +5663,13 @@ private:
             const ImVec2 size{Dp(150), Dp(32)};
             edge -= size.x;
             ImGui::SetCursorScreenPos({edge, center.y - size.y * 0.5f});
-            const bool usable = !busy && rules && !HasOpenSet() && !state.blocked;
+            const bool usable = !busy && rules && !HasOpenSet() && !state.blocked && set_blocker_.empty();
             if (SecondaryButton("challenge", "Adhoc Battle!", size, usable, Icon::Trophy))
                 competitive_->ChallengePlayer(player->id, rules->id);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             {
                 if (state.blocked) ImGui::SetTooltip("%s: battle them once it ends.", state.blocked);
+                else if (!set_blocker_.empty()) ImGui::SetTooltip("%s", set_blocker_.c_str());
                 else if (!rules) ImGui::SetTooltip("This server has no rule sets yet.");
                 else if (HasOpenSet()) ImGui::SetTooltip("Finish your set first.");
                 else
@@ -5887,13 +5906,15 @@ private:
             friend_search_.clear();
         }
         ImGui::SetCursorScreenPos({at.x + width - challenge, at.y + (row - Dp(32)) * 0.5f});
-        const bool usable = !busy && rules && !HasOpenSet();
+        const bool usable = !busy && rules && !HasOpenSet() && set_blocker_.empty();
         if (SecondaryButton("challenge_by_name", "Adhoc Battle!", {challenge, Dp(32)}, usable, Icon::Trophy))
         {
             competitive_->Challenge(query, rules->id);
             friend_search_.clear();
         }
-        if (rules && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        if (!set_blocker_.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", set_blocker_.c_str());
+        else if (rules && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("A set by %s: %s.\nChange the rules in Match settings.", rules->name.c_str(),
                               platform::DescribeRules(rules->rules).c_str());
         ImGui::SetCursorScreenPos(at);
@@ -11008,7 +11029,7 @@ private:
     std::size_t chat_drawn_ = 0;
     std::map<std::int64_t, int> chat_unread_told_;
     bool chat_unread_known_ = false;
-    std::int64_t competitive_started_set_ = 0;
+    std::int64_t competitive_started_go_ = 0; // GoKey of the set's go this launcher started the game for
     bool training_ = false;
     NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
@@ -11115,6 +11136,7 @@ private:
     bool friends_recent_open_ = false;  // the Friends page shows the players played recently
     std::int64_t watched_match_ = 0;    // the open set, told when it ends without a result
     std::int64_t alerted_ = 0;          // the last chime: a set's id * 2, + 1 for an accepted challenge
+    std::string set_blocker_;           // why this computer can't play a set now (PlayBlocker), or empty
     std::optional<platform::AlertSound> alert_sound_;
     std::optional<platform::DiscordPresence> set_presence_; // the Discord status of a waiting set
     bool friends_offline_open_ = false; // the Friends page shows its offline friends
