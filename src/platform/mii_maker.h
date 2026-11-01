@@ -2,7 +2,9 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 
 // Making a new Mii for players without one (the launcher's Miis page). Its
 // face is the Wii's own random face (RFL_MakeRandomFace.c); save_import.h's
@@ -12,11 +14,28 @@ namespace mscharged::platform {
 // basic plane, none of them control characters.
 bool ValidMiiName(const std::string& name);
 
+// The Wii's twelve favourite colours (RFLFavoriteColor: 0 red, 1 orange ...
+// 10 white, 11 black).
+inline constexpr int kMiiFavoriteColors = 12;
+
 // A new Mii named `name`, as its 74-byte record in RFL_DB.dat. `seed` picks
 // the face; `created` (Unix seconds) makes the create ID unique, as the Mii
-// Channel does: the game keys each save slot by it. Throws
-// std::invalid_argument for a name ValidMiiName rejects.
-std::string MakeRandomMii(const std::string& name, std::uint32_t seed, std::int64_t created);
+// Channel does: the game keys each save slot by it. `favorite_color` (0-11)
+// replaces the random face's own favourite colour; -1 keeps it. Throws
+// std::invalid_argument for a name ValidMiiName rejects or a colour outside
+// -1..11.
+std::string MakeRandomMii(const std::string& name, std::uint32_t seed, std::int64_t created,
+                          int favorite_color = -1);
+
+// A Mii record's create ID (the game keys the Mii's online save slot by it)
+// and favourite colour; the record must be 74 bytes.
+std::array<unsigned char, 8> MiiRecordCreateId(const std::string& record);
+int MiiRecordFavoriteColor(const std::string& record);
+
+// A create ID as 16 lowercase hex digits (the settings file's online.mii),
+// and back: nullopt for anything but 16 hex digits.
+std::string MiiCreateIdText(const std::array<unsigned char, 8>& create_id);
+std::optional<std::array<unsigned char, 8>> ParseMiiCreateId(std::string_view text);
 
 // A player's own Mii for competitive play, the same on every computer: its
 // face and its create ID come from `key` alone (e.g. "discord:<account id>"),

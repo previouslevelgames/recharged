@@ -6,7 +6,8 @@
 
 namespace mscharged::platform {
 namespace {
-constexpr std::size_t kNameChars = 10, kRecordBytes = 0x4A;
+constexpr std::size_t kNameChars = 10, kRecordBytes = 0x4A, kCreateIdOffset = 0x18;
+constexpr unsigned kColorBits = 0x1E;
 // Create IDs count 4-second steps from 2006-01-01 (Unix 1136073600) in their
 // low 28 bits; the top bit marks an ordinary Mii, neither special (golden
 // pants) nor temporary (RFLi_CREATE_ID_MASK_*, RFLi_Config.h).
@@ -127,9 +128,11 @@ bool ValidMiiName(const std::string& name) {
     return true;
 }
 
-std::string MakeRandomMii(const std::string& name, std::uint32_t seed, std::int64_t created) {
+std::string MakeRandomMii(const std::string& name, std::uint32_t seed, std::int64_t created, int favorite_color) {
     if (!ValidMiiName(name))
         throw std::invalid_argument("A Mii's name has 1 to 10 characters.");
+    if (favorite_color < -1 || favorite_color >= kMiiFavoriteColors)
+        throw std::invalid_argument("A Mii's favourite colour is one of the Wii's twelve.");
     const auto cells = Utf16(name);
     unsigned short wii_name[kNameChars]{};
     for (std::size_t n = 0; n < cells.size(); ++n) wii_name[n] = cells[n];
@@ -147,8 +150,50 @@ std::string MakeRandomMii(const std::string& name, std::uint32_t seed, std::int6
 
     std::string record(kRecordBytes, '\0');
     ChargedMakeRandomMiiRecord(wii_name, create_id, record.data());
+    // The colour is bits 1-4 of the record's first big-endian half-word
+    // (RFLiCharData's favoriteColor); the face's draws stay as they were.
+    if (favorite_color >= 0)
+        record[1] = char((static_cast<unsigned char>(record[1]) & ~kColorBits) | (favorite_color << 1));
     return record;
 }
+
+std::array<unsigned char, 8> MiiRecordCreateId(const std::string& record) {
+    if (record.size() != kRecordBytes) throw std::invalid_argument("Not a Mii record.");
+    std::array<unsigned char, 8> id{};
+    for (std::size_t n = 0; n < id.size(); ++n) id[n] = static_cast<unsigned char>(record[kCreateIdOffset + n]);
+    return id;
+}
+
+int MiiRecordFavoriteColor(const std::string& record) {
+    if (record.size() != kRecordBytes) throw std::invalid_argument("Not a Mii record.");
+    return (static_cast<unsigned char>(record[1]) & kColorBits) >> 1;
+}
+
+std::string MiiCreateIdText(const std::array<unsigned char, 8>& create_id) {
+    static constexpr char kDigits[] = "0123456789abcdef";
+    std::string text;
+    for (const unsigned char byte : create_id) {
+        text += kDigits[byte >> 4];
+        text += kDigits[byte & 0x0F];
+    }
+    return text;
+}
+
+std::optional<std::array<unsigned char, 8>> ParseMiiCreateId(std::string_view text) {
+    if (text.size() != 16) return std::nullopt;
+    std::array<unsigned char, 8> id{};
+    for (std::size_t n = 0; n < text.size(); ++n) {
+        const char c = text[n];
+        const int digit = c >= '0' && c <= '9' ? c - '0'
+            : c >= 'a' && c <= 'f'              ? c - 'a' + 10
+            : c >= 'A' && c <= 'F'              ? c - 'A' + 10
+                                                : -1;
+        if (digit < 0) return std::nullopt;
+        id[n / 2] = static_cast<unsigned char>(id[n / 2] << 4 | digit);
+    }
+    return id;
+}
+
 std::array<unsigned char, 8> KeyedMiiCreateId(const std::string& key) {
     const auto bits = KeyBits(key)[1];
     std::array<unsigned char, 8> id{};

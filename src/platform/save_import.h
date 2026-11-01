@@ -86,6 +86,10 @@ struct InstalledMii {
     // online server gives the Mii its profile at its first login there: 0
     // until then.
     std::uint64_t friend_code = 0;
+    // Its create ID, which the game keys that save slot by (mii_maker.h),
+    // and its whole 74-byte record (the face, for a picture of it).
+    std::array<unsigned char, 8> create_id{};
+    std::string record;
 };
 
 struct MiiDatabaseStatus {

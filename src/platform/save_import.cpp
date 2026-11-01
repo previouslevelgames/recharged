@@ -727,6 +727,8 @@ std::vector<InstalledMii> ListedMiis(const std::string& database, const std::vec
         if (!MiiUsed(record)) continue;
         const unsigned flags = record[0] << 8 | record[1];
         InstalledMii mii{MiiName(record + kMiiNameOffset), int(flags >> kMiiColorShift & kMiiColorMask)};
+        std::copy_n(record + kMiiCreateIdOffset, kMiiCreateIdBytes, mii.create_id.begin());
+        mii.record.assign(reinterpret_cast<const char*>(record), kMiiBytes);
         const auto online = std::find_if(slots.begin(), slots.end(), [&](const OnlineSlot& slot) {
             return std::equal(slot.create_id.begin(), slot.create_id.end(), record + kMiiCreateIdOffset);
         });

@@ -122,6 +122,33 @@ void KeyedMiis() {
     Check(ids.size() == 2000, "Keyed create IDs repeat");
 }
 
+// A chosen favourite colour, and nothing else changed by it; the create ID
+// as the settings file writes it, and back.
+void Colours() {
+    const std::int64_t created = 1136073600 + 4 * std::int64_t(0x02C6FC69);
+    const auto random = MakeRandomMii("Mario", 42, created);
+    for (int color = 0; color < kMiiFavoriteColors; ++color) {
+        const auto record = MakeRandomMii("Mario", 42, created, color);
+        Check(Decode(record).favoriteColor == color && MiiRecordFavoriteColor(record) == color, "Chosen colour");
+        auto same = record;
+        same[1] = random[1];
+        Check(same == random && ((random[1] ^ record[1]) & ~0x1E) == 0, "The colour changed more than its bits");
+    }
+    Check(MiiRecordFavoriteColor(random) == int(Decode(random).favoriteColor), "Random colour read");
+    for (int color : {-2, 12}) {
+        bool thrown{};
+        try { MakeRandomMii("Mario", 42, created, color); } catch (const std::invalid_argument&) { thrown = true; }
+        Check(thrown, "A colour outside the twelve");
+    }
+    const auto id = MiiRecordCreateId(random);
+    Check(std::memcmp(id.data(), random.data() + 24, 8) == 0, "Record create ID");
+    const auto text = MiiCreateIdText(id);
+    Check(text.size() == 16 && text.rfind("82c6fc69", 0) == 0, "Create ID text");
+    Check(ParseMiiCreateId(text) == id && ParseMiiCreateId("82C6FC69" + text.substr(8)) == id, "Create ID parsed");
+    for (const char* bad : {"", "82c6fc69", "82c6fc6900112233ff", "82c6fc69 0112233", "82c6fc69001122zz"})
+        Check(!ParseMiiCreateId(bad), std::string("Create ID accepted: ") + bad);
+}
+
 void FittedNames() {
     Check(FitMiiName("Nelly") == "Nelly", "Plain name");
     Check(FitMiiName("  Super   Mario  Bros  ") == "Super Mari", "Spaces and cut");
@@ -141,6 +168,7 @@ int main() {
         RoundTrip();
         Faces();
         KeyedMiis();
+        Colours();
         FittedNames();
         std::cout << "mii_maker: " << checks << " checks passed\n";
         return 0;

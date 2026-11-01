@@ -302,6 +302,17 @@ void RunAddMii(const fs::path& root) {
     Check(links && database.find_first_not_of('\0', kMiiChecked) == std::string::npos,
           "New database's hidden Miis differ from a formatted one");
 
+    // The list gives each Mii its create ID and favourite colour.
+    {
+        const auto red = MakeRandomMii("Red", 5, now, 0);
+        const auto listed = InstalledMiis(fresh, kTitle);
+        Check(listed.miis.size() == 1 && listed.miis[0].create_id == MiiRecordCreateId(mario)
+                  && listed.miis[0].record == mario
+                  && listed.miis[0].favorite_color == MiiRecordFavoriteColor(mario),
+              "A listed Mii's create ID or colour");
+        Check(MiiRecordFavoriteColor(red) == 0, "A red Mii's colour");
+    }
+
     result = AddMii(luigi, fresh, kTitle, backups);
     Check(Miis(fresh) == std::vector<std::string>{"Mario", "Luigi"}
               && Bytes(result.backup / "RFL_DB.dat") == database,
