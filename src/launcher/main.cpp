@@ -198,20 +198,115 @@ void Callout(const std::string& text, const ImVec4& tint, Icon icon)
     ImGui::Dummy({width, height});
 }
 
+// The Wii's twelve favourite colours (RFLGetFavoriteColor, RFL_Model.c) and
+// their names, in RFLFavoriteColor order.
+constexpr unsigned char kMiiColorRgb[12][3] = {
+    {184, 64, 48},  {240, 120, 40}, {248, 216, 32}, {128, 200, 40}, {0, 116, 40},    {32, 72, 152},
+    {64, 160, 216}, {232, 96, 120}, {112, 44, 168}, {72, 56, 24},   {224, 224, 224}, {24, 24, 20}};
+constexpr const char* kMiiColorNames[12] = {"Red",  "Orange", "Yellow", "Light green", "Green", "Blue",
+                                            "Light blue", "Pink", "Purple", "Brown", "White", "Black"};
+
+ImVec4 MiiColor(int favorite_color)
+{
+    const auto& rgb = kMiiColorRgb[favorite_color >= 0 && favorite_color < 12 ? favorite_color : 0];
+    return {rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+}
+
 // A Mii's figure on a disc of its favourite colour (RFLGetFavoriteColor,
 // RFL_Model.c), the colour the Wii puts behind its Mii icons.
 void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_color)
 {
-    static constexpr unsigned char kFavoriteColors[12][3] = {
-        {184, 64, 48},  {240, 120, 40}, {248, 216, 32}, {128, 200, 40}, {0, 116, 40},    {32, 72, 152},
-        {64, 160, 216}, {232, 96, 120}, {112, 44, 168}, {72, 56, 24},   {224, 224, 224}, {24, 24, 20}};
-    const auto& rgb = kFavoriteColors[favorite_color >= 0 && favorite_color < 12 ? favorite_color : 0];
-    const ImVec4 fill{rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+    const ImVec4 fill = MiiColor(favorite_color);
     draw->AddCircleFilled(center, size * 0.5f, Col(fill));
     draw->AddCircle(center, size * 0.5f, Col(color::border), 0, Dp(1));
     // Dark ink on the light colours (white, yellow, yellow-green).
     const bool light = 0.2126f * fill.x + 0.7152f * fill.y + 0.0722f * fill.z > 0.6f;
     DrawIcon(draw, Icon::Person, center, size * 0.62f, Col(light ? color::window : color::text));
+}
+
+// The player's own Mii on the Online pages. `record` is its 74-byte Mii
+// record (mii_maker.h; empty when there is none yet): the head picture the
+// launcher will draw from it goes here. Until then, its figure on its
+// favourite colour.
+void DrawOwnMii(ImDrawList* draw, ImVec2 center, float size, int favorite_color, const std::string& record)
+{
+    (void)record; // the Mii's head picture, drawn from its record, comes here
+    DrawMiiFigure(draw, center, size, favorite_color);
+}
+
+// The Wii's twelve favourite colours as round swatches, `per_row` to a row,
+// the chosen one ringed; true when another is chosen.
+bool MiiColorSwatches(const char* id, int* chosen, float size, int per_row)
+{
+    bool changed = false;
+    auto* draw = ImGui::GetWindowDrawList();
+    ImGui::PushID(id);
+    for (int c = 0; c < 12; ++c)
+    {
+        if (c % per_row) ImGui::SameLine(0, Dp(10));
+        ImGui::PushID(c);
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("##swatch", {size, size}))
+        {
+            changed = *chosen != c;
+            *chosen = c;
+        }
+        const bool hovered = ImGui::IsItemHovered();
+        if (hovered)
+        {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            ImGui::SetTooltip("%s", kMiiColorNames[c]);
+        }
+        const ImVec2 center{at.x + size * 0.5f, at.y + size * 0.5f};
+        const float selected = Animate(ImGui::GetID("##selected"), *chosen == c, 14.0f);
+        draw->AddCircleFilled(center, size * 0.5f - Dp(3) * selected, Col(MiiColor(c)));
+        draw->AddCircle(center, size * 0.5f - Dp(3) * selected, Col(color::border, hovered ? 1.0f : 0.7f), 0, Dp(1));
+        if (selected > 0.0f) draw->AddCircle(center, size * 0.5f, Col(color::accent, selected), 0, Dp(2));
+        if (*chosen == c)
+        {
+            const ImVec4 fill = MiiColor(c);
+            const bool light = 0.2126f * fill.x + 0.7152f * fill.y + 0.0722f * fill.z > 0.6f;
+            DrawIcon(draw, Icon::Check, center, size * 0.42f, Col(light ? color::window : color::text));
+        }
+        ImGui::PopID();
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+// A profile name as the server takes it (POST /api/v1/sign-in/mii): `name`
+// without spaces around it; valid for 1 to 32 characters, none a control
+// character.
+std::string TrimmedProfileName(const std::string& name)
+{
+    const auto first = name.find_first_not_of(" \t");
+    if (first == std::string::npos) return {};
+    return name.substr(first, name.find_last_not_of(" \t") - first + 1);
+}
+
+bool ValidProfileName(const std::string& name)
+{
+    const std::string trimmed = TrimmedProfileName(name);
+    std::size_t characters = 0;
+    for (std::size_t n = 0; n < trimmed.size(); ++characters)
+    {
+        const auto lead = static_cast<unsigned char>(trimmed[n]);
+        const std::size_t length = lead < 0x80 ? 1 : (lead & 0xE0) == 0xC0 ? 2 : (lead & 0xF0) == 0xE0 ? 3
+            : (lead & 0xF8) == 0xF0                                         ? 4
+                                                                            : 0;
+        if (!length || n + length > trimmed.size()) return false;
+        char32_t c = length == 1 ? lead : lead & (0x7F >> length);
+        for (std::size_t k = 1; k < length; ++k) c = (c << 6) | (static_cast<unsigned char>(trimmed[n + k]) & 0x3F);
+        n += length;
+        // Control characters, and the invisible format ones (soft hyphen,
+        // zero-width and direction marks, word joiners, BOM, tags).
+        if (c < 0x20 || (c >= 0x7F && c < 0xA0) || c == 0xAD || (c >= 0x600 && c <= 0x605) || c == 0x61C
+            || c == 0x6DD || c == 0x70F || c == 0x180E || (c >= 0x200B && c <= 0x200F) || (c >= 0x2028 && c <= 0x202E)
+            || (c >= 0x2060 && c <= 0x206F) || c == 0xFEFF || (c >= 0xFFF9 && c <= 0xFFFB)
+            || (c >= 0xE0000 && c <= 0xE007F))
+            return false;
+    }
+    return characters >= 1 && characters <= 32;
 }
 
 // A Mii of the game's own online players, whose Mii data the launcher doesn't
@@ -220,11 +315,7 @@ void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_col
 // Mii icons. `seed` picks the colour.
 void DrawMiiFace(ImDrawList* draw, ImVec2 center, float size, unsigned seed, float alpha)
 {
-    static constexpr unsigned char kFavoriteColors[12][3] = {
-        {184, 64, 48},  {240, 120, 40}, {248, 216, 32}, {128, 200, 40}, {0, 116, 40},    {32, 72, 152},
-        {64, 160, 216}, {232, 96, 120}, {112, 44, 168}, {72, 56, 24},   {224, 224, 224}, {24, 24, 20}};
-    const auto& rgb = kFavoriteColors[seed % 12];
-    const ImVec4 fill{rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+    const ImVec4 fill = MiiColor(int(seed % 12));
     const float half = size * 0.5f;
     draw->AddRectFilled({center.x - half, center.y - half}, {center.x + half, center.y + half}, Col(fill, alpha),
                         size * 0.24f);
@@ -2790,6 +2881,11 @@ private:
     // counts as there.
     std::string OnlineBlocker() const
     {
+        // Development captures and smoke tests of the made-up online states
+        // (RECHARGED_CAPTURE_DISCORD=preview...) show the pages without one.
+        if (const char* preview = capture_ ? std::getenv("RECHARGED_CAPTURE_DISCORD") : nullptr;
+            preview && std::string(preview).rfind("preview", 0) == 0)
+            return {};
         if (DiscSelection().empty())
             return "Choose your game image on the Game page first: playing online and your Mii need it.";
         if (check_.selection == DiscSelection())
@@ -2814,10 +2910,15 @@ private:
         frontend_launch_ = EffectiveLaunch();
         frontend_launch_->start_training = training_;
         frontend_launch_->discord_friends = discord_asked_;
-        // A set that goes while the game runs uses the player's own Mii: made
-        // now if it isn't there yet. Without it the game lets the player
-        // choose a Mii for the set, so Play goes on.
-        if (const auto key = PlayerMiiKey(); !key.empty())
+        // A set that goes while the game runs uses the player's own Mii: the
+        // chosen one, or the one made from the account (made now if it isn't
+        // there yet). Without it the game lets the player choose a Mii for
+        // the set, so Play goes on.
+        if (ChosenOwnMii())
+        {
+            if (const auto own = PlayerOwnMii(); own && own->here) frontend_launch_->competitive_mii = own->id;
+        }
+        else if (const auto key = PlayerMiiKey(); !key.empty())
         {
             try
             {
@@ -2888,6 +2989,8 @@ private:
         DrawClosePrompt(quit);
         DrawPlayPrompt(quit);
         DrawImportPrompt();
+        DrawSignOutPrompt();
+        DrawChooseMiiPrompt();
         DrawRegionPrompt();
         DrawChallengeDialog();
         DrawWelcome();
@@ -3790,9 +3893,10 @@ private:
     // one, or importing Dolphin's.
     void MiiPage()
     {
-        PageHeader("Legacy Mii profiles", "The Miis of the game's own online mode, with their friend codes. Sets need "
-                                          "none: Recharged makes yours from your Discord account. Every Wii game "
-                                          "reads them from the same database.");
+        PageHeader("Legacy Mii profiles", "The Miis of the game's own online mode, with their friend codes. Playing "
+                                          "with a Mii, you choose yours on Player profile; with Discord, Recharged "
+                                          "makes yours from your Discord name. Every Wii game reads them from the "
+                                          "same database.");
         const auto& fonts = CurrentFonts();
         BeginCard("##miis", "Your Miis", "In the order of the game's online list, with each Mii's friend code.",
                   Icon::Person);
@@ -3930,6 +4034,7 @@ private:
         set_blocker_ = PlayBlocker();
         competitive_->SetServer(platform::ProfileServerAddress(draft_.profile_server).value_or(std::string()));
         competitive_status_ = competitive_->Snapshot();
+        UpdateMiiWizard();
         const auto& status = competitive_status_;
         if (status.sign_in != competitive_opened_)
         {
@@ -4073,7 +4178,8 @@ private:
         if (!discord_friends_) return;
         const auto& status = competitive_status_;
         DiscordFriends::Account account;
-        if (status.state == CompetitiveService::State::SignedIn && !status.info.discord_application.empty())
+        if (status.state == CompetitiveService::State::SignedIn && !status.info.discord_application.empty()
+            && !status.player.MiiAccount())
         {
             account.server = status.server;
             account.application = std::strtoull(status.info.discord_application.c_str(), nullptr, 10);
@@ -4111,6 +4217,11 @@ private:
     void PreviewDiscordFriends(const std::string& mode)
     {
         using Presence = DiscordFriends::Presence;
+        if (mode == "preview-welcome" || mode.rfind("preview-mii", 0) == 0)
+        {
+            PreviewMiiAccount(mode);
+            return;
+        }
         if (competitive_status_.state != CompetitiveService::State::SignedIn)
         {
             // Signed out: a made-up profile on the server, for the pages that need one.
@@ -4118,6 +4229,8 @@ private:
             competitive_status_.player.id = 900000;
             competitive_status_.player.name = "Anosch";
             competitive_status_.player.discord = ".anosch";
+            competitive_status_.player.discord_id = "80351110224678912";
+            competitive_status_.player.account = "discord";
             competitive_status_.player.wfc = {{1000000000, "R4QE", "0868-9934-5920", "Anosch"}};
             if (competitive_status_.info.version.empty()) competitive_status_.info.version = "1.2.1";
             if (competitive_status_.server.empty()) competitive_status_.server = draft_.profile_server;
@@ -4228,12 +4341,141 @@ private:
         }
     }
 
+    // Made-up Mii sign-in states for a development capture, offline:
+    // "preview-welcome" (the two ways in), "preview-mii-new" / "-name" /
+    // "-pick" (step 1: a new Mii, its own name typed, one of this computer's),
+    // "preview-mii-go" / "-error" (step 2, and a refused sign-in), and
+    // "preview-mii-profile" / "-connect" / "-taken" / "-signout" (a Mii
+    // player's profile, connecting Discord, that Discord account taken, and
+    // Sign out asked for a Mii without a friend code yet).
+    void PreviewMiiAccount(const std::string& mode)
+    {
+        auto& status = competitive_status_;
+        status.info.discord = status.info.mii = true;
+        status.info.version = "1.2.4";
+        if (status.server.empty()) status.server = draft_.profile_server;
+        status.error.clear();
+        status.busy = false;
+        const bool first = !preview_applied_;
+        preview_applied_ = true;
+        const auto& miis = InstalledMiis().miis;
+        if (mode == "preview-welcome" || mode.rfind("preview-mii-profile", 0) != 0)
+        {
+            status.state = CompetitiveService::State::SignedOut;
+            if (mode == "preview-mii-error")
+                status.mii_error = "Too many new players from here: try again in an hour";
+            if (!first || mode == "preview-welcome") return;
+            StartMiiWizard();
+            wizard_.source = 0;
+            wizard_.seed = 7;
+            wizard_.color = 5;
+            wizard_.profile_name = "Bob the Builder";
+            wizard_.profile_typed = true;
+            if (mode == "preview-mii-name")
+            {
+                wizard_.own_mii_name = true;
+                wizard_.mii_name = "Bobby";
+            }
+            if (mode == "preview-mii-pick" && !miis.empty())
+            {
+                wizard_.source = 1;
+                wizard_.chosen = miis.front().create_id;
+                wizard_.profile_name = miis.front().name;
+                wizard_.profile_typed = false;
+            }
+            if (mode == "preview-mii-go" || mode == "preview-mii-error") wizard_.step = 2;
+            return;
+        }
+        status.state = CompetitiveService::State::SignedIn;
+        status.player = {};
+        status.player.id = 900020;
+        status.player.name = "Bob the Builder";
+        status.player.account = "mii";
+        status.player.friend_code = "0868-9934-5920";
+        status.player.wfc = {{1000000000, "R4QE", "0868-9934-5920", miis.empty() ? "Bob" : miis.front().name}};
+        if (mode == "preview-mii-profile-connect")
+        {
+            status.connecting_discord = true;
+            status.code = "K7Q2";
+            status.url = "https://example.invalid/sign-in";
+        }
+        if (mode == "preview-mii-profile-taken")
+            status.connect_error = "This Discord account already has a Recharged profile";
+        if (mode == "preview-mii-profile-signout")
+        {
+            status.player.friend_code.clear();
+            status.player.wfc.clear();
+            if (first) sign_out_prompt_ = true;
+        }
+        if (first && !miis.empty()) draft_.online_mii = platform::MiiCreateIdText(miis.front().create_id);
+    }
+
+    // The player's own Mii as the Online pages show it.
+    struct OwnMii
+    {
+        std::string name;
+        int color = 0;
+        std::array<unsigned char, 8> id{};
+        std::string record;            // empty while it isn't among this computer's Miis
+        std::uint64_t friend_code = 0; // from the game's online save, once it logged in
+        bool here = false;             // among this computer's Miis
+    };
+
+    // Whether the player's sets go with a Mii they chose (online.mii): a Mii
+    // player, or one who connected Discord to their Mii profile here.
+    // Otherwise a Discord (or test) player's Mii is made from the account.
+    bool ChosenOwnMii() const
+    {
+        return !draft_.online_mii.empty() || competitive_status_.player.MiiAccount();
+    }
+
+    // The player's own Mii while signed in: the chosen one (nullopt when none
+    // is chosen), else the one made from the account, whether or not it has
+    // been made in the save folder yet.
+    std::optional<OwnMii> PlayerOwnMii()
+    {
+        const auto& status = competitive_status_;
+        if (status.state != CompetitiveService::State::SignedIn) return std::nullopt;
+        OwnMii own;
+        if (ChosenOwnMii())
+        {
+            const auto id = platform::ParseMiiCreateId(draft_.online_mii);
+            if (!id) return std::nullopt;
+            own.id = *id;
+        }
+        else
+        {
+            const std::string key = PlayerMiiKey();
+            const auto& player = status.player;
+            own.name = platform::FitMiiName(player.name, player.discord);
+            if (keyed_mii_for_ != key + '\n' + own.name)
+            {
+                keyed_mii_for_ = key + '\n' + own.name;
+                keyed_mii_record_ = platform::MakeKeyedMii(own.name, key);
+            }
+            own.id = platform::KeyedMiiCreateId(key);
+            own.record = keyed_mii_record_;
+            own.color = platform::MiiRecordFavoriteColor(own.record);
+        }
+        for (const auto& mii : InstalledMiis().miis)
+            if (mii.create_id == own.id)
+            {
+                own.name = mii.name;
+                own.color = mii.favorite_color;
+                own.record = mii.record;
+                own.friend_code = mii.friend_code;
+                own.here = true;
+            }
+        return own;
+    }
+
     // The key of the player's own Mii (made from their Discord account, the
-    // same on every computer); empty when not signed in.
+    // same on every computer); empty when not signed in, and for a player
+    // whose sets go with a Mii they chose.
     std::string PlayerMiiKey() const
     {
         const auto& status = competitive_status_;
-        if (status.state != CompetitiveService::State::SignedIn) return {};
+        if (status.state != CompetitiveService::State::SignedIn || ChosenOwnMii()) return {};
         const auto& player = status.player;
         return !player.discord_id.empty() ? "discord:" + player.discord_id
                                           : "player:" + status.server + "#" + std::to_string(player.id);
@@ -4254,7 +4496,7 @@ private:
         return key;
     }
 
-    // A set's go: the player's own Mii (EnsurePlayerMii), then the game,
+    // A set's go: the player's own Mii (chosen, or EnsurePlayerMii), then the game,
     // which goes through the online login straight into RANKED against the
     // opponent. Anything in the way takes the player's Ready to play! back.
     void StartSet(bool& quit)
@@ -4268,22 +4510,39 @@ private:
             competitive_->ReadyToPlay(false);
             return;
         }
-        std::string key;
-        try
+        // The player's own Mii: the chosen one, which must be here, or the
+        // one made from the account.
+        std::array<unsigned char, 8> mii{};
+        if (ChosenOwnMii())
         {
-            key = EnsurePlayerMii();
+            const auto own = PlayerOwnMii();
+            if (!own || !own->here)
+            {
+                set_start_error_ = "Choose your Mii on Player profile: the set's game plays with it.";
+                Notice("The set's game can't start: " + set_start_error_, NoticeKind::Error);
+                competitive_->ReadyToPlay(false);
+                return;
+            }
+            mii = own->id;
         }
-        catch (const std::exception& e)
+        else
         {
-            set_start_error_ = std::string("Your Mii for the set could not be made: ") + e.what();
-            Notice(set_start_error_, NoticeKind::Error);
-            competitive_->ReadyToPlay(false);
-            return;
+            try
+            {
+                mii = mscharged::platform::KeyedMiiCreateId(EnsurePlayerMii());
+            }
+            catch (const std::exception& e)
+            {
+                set_start_error_ = std::string("Your Mii for the set could not be made: ") + e.what();
+                Notice(set_start_error_, NoticeKind::Error);
+                competitive_->ReadyToPlay(false);
+                return;
+            }
         }
         frontend_launch_ = EffectiveLaunch();
         frontend_launch_->start_competitive = true;
         frontend_launch_->competitive_set = status.match->id;
-        frontend_launch_->competitive_mii = mscharged::platform::KeyedMiiCreateId(key);
+        frontend_launch_->competitive_mii = mii;
         frontend_launch_->discord_friends = discord_asked_;
         // The game and the launcher it opens again afterwards see it.
         SetEnvironment(kCompetitiveSetVariable, std::to_string(GoKey(*status.match)));
@@ -4370,6 +4629,13 @@ private:
         DrawTracked(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(tint, 0.95f), overline, Dp(1.4f));
         ImGui::Dummy({0, FontSize(fonts.caption) + Dp(5)});
         TextColored(fonts.heading, color::text, headline.c_str());
+        if (match.opponent.MiiAccount())
+        {
+            // A Mii player: their name with their friend code.
+            const std::string code = !match.opponent.friend_code.empty() ? match.opponent.friend_code
+                                                                           : std::string("no friend code yet");
+            TextColored(fonts.caption, color::muted, (them + "  ·  " + code).c_str());
+        }
         ImGui::Dummy({0, Dp(3)});
         TextWrappedColored(fonts.body, Mix(color::muted, color::text, 0.45f),
                            (match.rule_set.empty() ? std::string("A set") : match.rule_set).c_str());
@@ -4645,7 +4911,28 @@ private:
     // Online -> Events: tournaments and organised match-ups, still to come.
     void EventsPage()
     {
-        OnlinePageTop("Events", "Tournaments and match-ups that organisers set up for you.");
+        const bool signed_in = OnlinePageTop("Events", "Tournaments and match-ups that organisers set up for you.");
+        // Tournaments sign players in with Discord: a Mii player connects it
+        // to their profile first.
+        if (signed_in && competitive_status_.player.MiiAccount())
+        {
+            const auto& status = competitive_status_;
+            BeginCard("##events_discord", "Tournaments need Discord",
+                      "Tournaments know their players by Discord. Connect it to your profile: your name, friends and "
+                      "Mii stay.",
+                      Icon::Medal);
+            if (status.connecting_discord)
+                TextWrappedColored(CurrentFonts().body, color::muted,
+                                   "Connecting Discord: finish in your browser, with the code on Player profile.");
+            else if (!status.info.discord)
+                TextWrappedColored(CurrentFonts().body, color::muted, "This server offers no Discord sign-in.");
+            else if (DiscordButton("events_connect", "Connect Discord", Dp(220, 42)) && !status.busy)
+            {
+                competitive_->SignIn();
+                page_ = PageOnlineSettings;
+            }
+            EndCard();
+        }
         BeginCard("##online_events", "Coming later",
                   "Tournaments on start.gg and match-ups set up by an organiser will show up here: your next set, "
                   "your opponent and the rules. You play it like an accepted challenge.",
@@ -4771,8 +5058,8 @@ private:
     {
         PageHeader(title, text);
         if (competitive_status_.state == CompetitiveService::State::SignedIn) return true;
-        BeginCard("##sign_in_first", "Sign in first", "Sign in with Discord on Player profile, and this page fills.",
-                  Icon::Person);
+        BeginCard("##sign_in_first", "Sign in first",
+                  "Connect Discord or play with a Mii on Player profile, and this page fills.", Icon::Person);
         if (GhostButton("sign_in_profile", "Player profile", {GhostWidth("Player profile", Icon::Person), Dp(40)}, true,
                         Icon::Person))
             page_ = PageOnlineSettings;
@@ -4780,15 +5067,14 @@ private:
         return false;
     }
 
-    // Online while not signed in: what playing online here brings, and the
-    // one step to it, signing in with Discord; the sign-in's code while it
-    // runs, and what is wrong when the server can't be used.
+    // Online while not signed in: the two ways in (Connect Discord, Play with
+    // a Mii) and what playing online here brings; the Discord sign-in's code
+    // while it runs, and what is wrong when the server can't be used.
     void OnlineWelcome()
     {
         using State = CompetitiveService::State;
         const auto& status = competitive_status_;
         const auto& fonts = CurrentFonts();
-        const bool busy = status.busy;
         BeginCard("##online_welcome", nullptr);
         auto* draw = ImGui::GetWindowDrawList();
         const float width = ImGui::GetContentRegionAvail().x;
@@ -4803,72 +5089,10 @@ private:
         ImGui::Dummy({0, Dp(8)});
         TextColored(fonts.title, color::text, "Play online, the easy way");
         ImGui::Dummy({0, Dp(2)});
-        TextWrappedColored(fonts.body, color::muted, "Connect Discord once and you're ready: no friend codes, no setup.");
+        TextWrappedColored(fonts.body, color::muted, "Connect Discord, or play with a Mii: no friend codes, no setup.");
         ImGui::Dummy({0, Dp(18)});
 
-        // What it brings, as tiles two by two.
-        struct Benefit
-        {
-            Icon icon;
-            const char* title;
-            const char* text;
-            const char* tag;
-        };
-        static constexpr Benefit benefits[] = {
-            {Icon::Play, "Online in one click",
-             "Skip the Wii's friend codes and setup: your profile and Mii come from your Discord account.", nullptr},
-            {Icon::Chat, "Challenges over the game",
-             "Press F1 (or HOME) in the game to see who is online and challenge them.", nullptr},
-            {Icon::Trophy, "Real sets, fair rules",
-             "Best-of series by competitive rules that both players see before they accept.", nullptr},
-            {Icon::Medal, "Tournaments", "Your next tournament game, opponent and rules, in the game's Events tab.",
-             "Soon"},
-        };
-        const float gap = Dp(12), tile = (width - gap) * 0.5f, pad = Dp(16), badge = Dp(38);
-        const float text_width = tile - pad * 2 - badge - Dp(14);
-        for (int row = 0; row < 2; ++row)
-        {
-            float height = 0.0f;
-            for (int column = 0; column < 2; ++column)
-            {
-                const Benefit& benefit = benefits[row * 2 + column];
-                const float text = fonts.body->CalcTextSizeA(FontSize(fonts.body), FLT_MAX, text_width, benefit.text).y;
-                height = std::max(height, pad + FontSize(fonts.label) + Dp(6) + text + pad);
-            }
-            const ImVec2 top = ImGui::GetCursorScreenPos();
-            for (int column = 0; column < 2; ++column)
-            {
-                const Benefit& benefit = benefits[row * 2 + column];
-                const ImVec2 at{top.x + column * (tile + gap), top.y};
-                const ImVec2 end{at.x + tile, at.y + height};
-                draw->AddRectFilled(at, end, Col(color::field), Dp(14));
-                draw->AddRect(at, end, Col(color::border, 0.8f), Dp(14));
-                const ImVec2 icon{at.x + pad + badge * 0.5f, at.y + pad + badge * 0.5f};
-                draw->AddRectFilled({icon.x - badge * 0.5f, icon.y - badge * 0.5f},
-                                    {icon.x + badge * 0.5f, icon.y + badge * 0.5f},
-                                    Col(benefit.tag ? color::info : color::accent, 0.14f), Dp(10));
-                DrawIcon(draw, benefit.icon, icon, Dp(19), Col(benefit.tag ? color::info : color::accent));
-                const float left = at.x + pad + badge + Dp(14);
-                DrawLabel(draw, fonts.label, {left, at.y + pad}, Col(color::text), benefit.title);
-                if (benefit.tag)
-                {
-                    const float x = left + TextSize(fonts.label, benefit.title).x + Dp(10);
-                    const ImVec2 tag = TextSize(fonts.caption, benefit.tag);
-                    const ImVec2 tag_at{x, at.y + pad + (FontSize(fonts.label) - Dp(20)) * 0.5f};
-                    draw->AddRectFilled(tag_at, {tag_at.x + tag.x + Dp(16), tag_at.y + Dp(20)}, Col(color::info, 0.16f),
-                                        Dp(10));
-                    DrawLabel(draw, fonts.caption, {tag_at.x + Dp(8), tag_at.y + (Dp(20) - tag.y) * 0.5f},
-                              Col(color::info), benefit.tag);
-                }
-                draw->AddText(fonts.body, FontSize(fonts.body), {left, at.y + pad + FontSize(fonts.label) + Dp(6)},
-                              Col(color::muted), benefit.text, nullptr, text_width);
-            }
-            ImGui::Dummy({width, height});
-            ImGui::Dummy({0, Dp(2)});
-        }
-        ImGui::Dummy({0, Dp(16)});
-
-        // The one step, or what holds it up; centred under the tiles.
+        // The two ways in, or the sign-in's code, or what holds them up.
         const float left = ImGui::GetCursorPosX();
         const auto centred = [&](ImFont* font, const ImVec4& tint, const std::string& text) {
             ImGui::SetCursorPosX(left + std::max(0.0f, (width - TextSize(font, text.c_str()).x) * 0.5f));
@@ -4876,23 +5100,7 @@ private:
         };
         switch (status.state)
         {
-        case State::SignedOut:
-            if (status.info.discord)
-            {
-                const ImVec2 size = Dp(340, 58);
-                ImGui::Dummy({0, Dp(4)});
-                ImGui::SetCursorPosX(left + (width - size.x) * 0.5f);
-                ImGui::BeginDisabled(busy);
-                if (DiscordButton("online_connect", "Connect Discord", size, true)) competitive_->SignIn();
-                ImGui::EndDisabled();
-                ImGui::Dummy({0, Dp(12)});
-                centred(fonts.caption, color::dim,
-                        "Your profile takes your Discord name and picture. Your friends list goes from Discord "
-                        "straight to this computer.");
-            }
-            else if (!status.info.test)
-                centred(fonts.body, color::muted, "This server offers no way to sign in yet.");
-            break;
+        case State::SignedOut: OnlineChoices(width); break;
         case State::SigningIn:
         {
             centred(fonts.heading, color::text, "Finish in your browser");
@@ -4929,6 +5137,70 @@ private:
                     color::warning, Icon::Warning);
             break;
         }
+        ImGui::Dummy({0, Dp(22)});
+
+        // What it brings either way, as tiles two by two.
+        struct Benefit
+        {
+            Icon icon;
+            const char* title;
+            const char* text;
+            const char* tag;
+        };
+        static constexpr Benefit benefits[] = {
+            {Icon::Play, "Online in one click",
+             "Skip the Wii's friend codes and setup: your profile is ready in a minute, with Discord or a Mii.",
+             nullptr},
+            {Icon::Chat, "Challenges over the game",
+             "Press F1 (or HOME) in the game to see who is online and challenge them.", nullptr},
+            {Icon::Trophy, "Real sets, fair rules",
+             "Best-of series by competitive rules that both players see before they accept.", nullptr},
+            {Icon::Medal, "Tournaments",
+             "Your next tournament game, opponent and rules, in the game's Events tab. With Discord.", "Soon"},
+        };
+        const float gap = Dp(12), tile = (width - gap) * 0.5f, pad = Dp(16), badge = Dp(38);
+        const float text_width = tile - pad * 2 - badge - Dp(14);
+        for (int row = 0; row < 2; ++row)
+        {
+            float height = 0.0f;
+            for (int column = 0; column < 2; ++column)
+            {
+                const Benefit& benefit = benefits[row * 2 + column];
+                const float text = fonts.body->CalcTextSizeA(FontSize(fonts.body), FLT_MAX, text_width, benefit.text).y;
+                height = std::max(height, pad + FontSize(fonts.label) + Dp(6) + text + pad);
+            }
+            const ImVec2 top = ImGui::GetCursorScreenPos();
+            for (int column = 0; column < 2; ++column)
+            {
+                const Benefit& benefit = benefits[row * 2 + column];
+                const ImVec2 at{top.x + column * (tile + gap), top.y};
+                const ImVec2 end{at.x + tile, at.y + height};
+                draw->AddRectFilled(at, end, Col(color::field), Dp(14));
+                draw->AddRect(at, end, Col(color::border, 0.8f), Dp(14));
+                const ImVec2 icon{at.x + pad + badge * 0.5f, at.y + pad + badge * 0.5f};
+                draw->AddRectFilled({icon.x - badge * 0.5f, icon.y - badge * 0.5f},
+                                    {icon.x + badge * 0.5f, icon.y + badge * 0.5f},
+                                    Col(benefit.tag ? color::info : color::accent, 0.14f), Dp(10));
+                DrawIcon(draw, benefit.icon, icon, Dp(19), Col(benefit.tag ? color::info : color::accent));
+                const float text_left = at.x + pad + badge + Dp(14);
+                DrawLabel(draw, fonts.label, {text_left, at.y + pad}, Col(color::text), benefit.title);
+                if (benefit.tag)
+                {
+                    const float x = text_left + TextSize(fonts.label, benefit.title).x + Dp(10);
+                    const ImVec2 tag = TextSize(fonts.caption, benefit.tag);
+                    const ImVec2 tag_at{x, at.y + pad + (FontSize(fonts.label) - Dp(20)) * 0.5f};
+                    draw->AddRectFilled(tag_at, {tag_at.x + tag.x + Dp(16), tag_at.y + Dp(20)}, Col(color::info, 0.16f),
+                                        Dp(10));
+                    DrawLabel(draw, fonts.caption, {tag_at.x + Dp(8), tag_at.y + (Dp(20) - tag.y) * 0.5f},
+                              Col(color::info), benefit.tag);
+                }
+                draw->AddText(fonts.body, FontSize(fonts.body), {text_left, at.y + pad + FontSize(fonts.label) + Dp(6)},
+                              Col(color::muted), benefit.text, nullptr, text_width);
+            }
+            ImGui::Dummy({width, height});
+            ImGui::Dummy({0, Dp(2)});
+        }
+
         // The server, for those who run their own.
         std::string host = status.server.empty() ? draft_.profile_server : status.server;
         if (const auto scheme = host.find("://"); scheme != std::string::npos) host.erase(0, scheme + 3);
@@ -4940,48 +5212,553 @@ private:
         if (status.state == State::SignedOut && status.info.test) CompetitiveTestSignIn();
     }
 
+    // The welcome's two ways in, side by side: Connect Discord (the profile
+    // and Mii from the Discord account, Discord friends and tournaments) and
+    // Play with a Mii (no account), each with its button.
+    void OnlineChoices(float width)
+    {
+        const auto& status = competitive_status_;
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        struct Choice
+        {
+            const char* title;
+            const char* text;
+            ImVec4 tint;
+        };
+        const Choice choices[] = {
+            {"Connect Discord",
+             "Your profile and Mii come from your Discord account. Brings your Discord friends, and tournaments "
+             "when they start.",
+             color::discord},
+            {"Play with a Mii",
+             "No account needed: choose a name and a Mii. Friends, challenges and sets work the same.",
+             color::accent},
+        };
+        const float gap = Dp(14), tile = (width - gap) * 0.5f, pad = Dp(20), badge = Dp(44), button = Dp(48);
+        const float text_width = tile - pad * 2;
+        float text_height = 0.0f;
+        for (const auto& choice : choices)
+            text_height = std::max(text_height, fonts.body->CalcTextSizeA(FontSize(fonts.body), FLT_MAX, text_width,
+                                                                          choice.text).y);
+        const float height = pad + badge + Dp(14) + FontSize(fonts.heading) + Dp(6) + text_height + Dp(18) + button + pad;
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        const bool discord = status.info.discord;
+        for (int n = 0; n < 2; ++n)
+        {
+            const Choice& choice = choices[n];
+            const ImVec2 at{top.x + n * (tile + gap), top.y};
+            const ImVec2 end{at.x + tile, at.y + height};
+            FillGradient(draw, at, end, Col(Mix(color::field, choice.tint, 0.08f)), Col(color::field), Dp(16), false);
+            draw->AddRect(at, end, Col(Mix(color::border, choice.tint, 0.35f), 0.9f), Dp(16));
+            const ImVec2 icon{at.x + pad + badge * 0.5f, at.y + pad + badge * 0.5f};
+            draw->AddRectFilled({icon.x - badge * 0.5f, icon.y - badge * 0.5f},
+                                {icon.x + badge * 0.5f, icon.y + badge * 0.5f}, Col(choice.tint, n == 0 ? 1.0f : 0.16f),
+                                Dp(12));
+            if (n == 0) DrawDiscordMark(draw, icon, Dp(26), IM_COL32_WHITE, Col(choice.tint));
+            else DrawIcon(draw, Icon::Person, icon, Dp(22), Col(choice.tint));
+            const float y = at.y + pad + badge + Dp(14);
+            DrawLabel(draw, fonts.heading, {at.x + pad, y}, Col(color::text), choice.title);
+            draw->AddText(fonts.body, FontSize(fonts.body), {at.x + pad, y + FontSize(fonts.heading) + Dp(6)},
+                          Col(color::muted), choice.text, nullptr, text_width);
+            ImGui::SetCursorScreenPos({at.x + pad, end.y - pad - button});
+            if (n == 0)
+            {
+                if (discord)
+                {
+                    ImGui::BeginDisabled(status.busy);
+                    if (DiscordButton("online_connect", "Connect Discord", {text_width, button}, true))
+                        competitive_->SignIn();
+                    ImGui::EndDisabled();
+                }
+                else
+                {
+                    ImGui::Dummy({text_width, (button - FontSize(fonts.body)) * 0.5f});
+                    ImGui::SetCursorScreenPos({at.x + pad, ImGui::GetCursorScreenPos().y});
+                    TextColored(fonts.body, color::dim, "This server offers no Discord sign-in.");
+                }
+            }
+            else if (!status.info.mii)
+            {
+                ImGui::Dummy({text_width, (button - FontSize(fonts.body)) * 0.5f});
+                ImGui::SetCursorScreenPos({at.x + pad, ImGui::GetCursorScreenPos().y});
+                TextColored(fonts.body, color::dim, "This server offers no Mii sign-in yet.");
+            }
+            else if (PrimaryButton("online_mii", "Play with a Mii", {text_width, button}, !status.busy, Icon::Person))
+                StartMiiWizard();
+        }
+        ImGui::SetCursorScreenPos(top);
+        ImGui::Dummy({width, height});
+        ImGui::Dummy({0, Dp(10)});
+        TextWrappedColored(fonts.caption, color::dim,
+                           "With Discord, your profile takes your Discord name and picture, and your friends list "
+                           "goes from Discord straight to this computer. A Mii player can connect Discord later and "
+                           "keeps their profile.");
+    }
+
+    // ------------------------------------------------------- Mii sign-in
+    // Play with a Mii: two steps on Player profile, Your Mii (the profile
+    // name, and a new Mii, one of this computer's or Dolphin's) and Go
+    // online (the new Mii made, the sign-in by the profile name).
+    void StartMiiWizard()
+    {
+        wizard_ = MiiWizard{};
+        wizard_.step = 1;
+        wizard_.seed = std::random_device{}();
+        wizard_.color = int(wizard_.seed % 12);
+        // Miis here already: the list first.
+        const auto& miis = InstalledMiis();
+        if (miis.state == platform::MiiDatabaseState::Ready && !miis.miis.empty()) wizard_.source = 1;
+    }
+
+    // The Mii of this computer the wizard has chosen, if it is still there.
+    const platform::InstalledMii* WizardChosenMii()
+    {
+        if (!wizard_.chosen) return nullptr;
+        for (const auto& mii : InstalledMiis().miis)
+            if (mii.create_id == *wizard_.chosen) return &mii;
+        return nullptr;
+    }
+
+    // The name the Mii has in the game: a new Mii's (typed, else made from
+    // the profile name, as a Discord player's is from their Discord name),
+    // or the chosen Mii's own.
+    std::string WizardMiiName()
+    {
+        if (wizard_.source != 0)
+        {
+            const auto* mii = WizardChosenMii();
+            return mii ? mii->name : std::string();
+        }
+        if (wizard_.own_mii_name) return wizard_.mii_name;
+        const std::string profile = TrimmedProfileName(wizard_.profile_name);
+        return profile.empty() ? std::string() : platform::FitMiiName(profile);
+    }
+
+    // What keeps step 1 from going on, told under it; empty when it can.
+    std::string WizardBlocker()
+    {
+        if (!ValidProfileName(wizard_.profile_name))
+            return TrimmedProfileName(wizard_.profile_name).empty() ? "Choose your name."
+                                                                    : "Your name has 1 to 32 characters.";
+        using platform::MiiDatabaseState;
+        const auto& miis = InstalledMiis();
+        if (wizard_.source == 0)
+        {
+            if (!platform::ValidMiiName(WizardMiiName()))
+                return "Your Mii's name has 1 to 10 characters, without emoji.";
+            if (miis.state == MiiDatabaseState::Damaged)
+                return "This computer's Mii database is damaged: import your Miis from Dolphin instead.";
+            if (miis.state == MiiDatabaseState::Unusable) return miis.error;
+            if (miis.Full()) return "This computer has 100 Miis already: choose one of them.";
+            return {};
+        }
+        return WizardChosenMii() ? std::string() : std::string("Choose your Mii.");
+    }
+
+    void MiiWizardPage()
+    {
+        PageHeader("Play with a Mii", "No account needed: a name and a Mii, and you're online.");
+        if (wizard_.step == 1) MiiWizardYourMii();
+        else MiiWizardGoOnline();
+    }
+
+    // Step 1: the profile name, and the Mii.
+    void MiiWizardYourMii()
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        using platform::MiiDatabaseState;
+        BeginCard("##mii_wizard_1", "Your Mii", "Step 1 of 2: the name others see, and the Mii that plays for you.",
+                  Icon::Person);
+        if (BeginRows("##mii_wizard_rows"))
+        {
+            Row("Name", "What others see in the lobby, in friend lists and in sets. Up to 32 characters.");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::InputTextWithHint("##profile_name", "Your name online", &wizard_.profile_name))
+                wizard_.profile_typed = true;
+            // The Mii's own name, which the game shows: made from the profile
+            // name (as a Discord player's from their Discord name), or typed.
+            const std::string mii_name = WizardMiiName();
+            if (wizard_.source == 0 && wizard_.own_mii_name)
+            {
+                ImGui::Dummy({0, Dp(2)});
+                TextColored(fonts.caption, color::muted, "Your Mii's name in the game, up to 10 characters:");
+                const float reset = GhostWidth("Made from my name", Icon::None);
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset - Dp(8));
+                ImGui::InputTextWithHint("##wizard_mii_name", "Mii name", &wizard_.mii_name);
+                ImGui::SameLine(0, Dp(8));
+                if (GhostButton("wizard_mii_name_reset", "Made from my name", {reset, ImGui::GetFrameHeight()}))
+                    wizard_.own_mii_name = false;
+            }
+            else if (!mii_name.empty())
+            {
+                ImGui::Dummy({0, Dp(2)});
+                const std::string line = "In the game your Mii is called \"" + mii_name + "\".";
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                TextColored(fonts.caption, color::muted, line.c_str());
+                if (wizard_.source == 0)
+                {
+                    ImGui::SameLine(0, Dp(4));
+                    ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, at.y - Dp(4)});
+                    if (GhostButton("wizard_mii_name_change", "Change", {GhostWidth("Change", Icon::None), Dp(26)}))
+                    {
+                        wizard_.own_mii_name = true;
+                        wizard_.mii_name = mii_name;
+                    }
+                }
+            }
+
+            Row("Your Mii", "A new one, or one you have: on this computer, or in Dolphin.");
+            int source = wizard_.source;
+            if (Segmented("##wizard_source", &source, {"New", "This computer", "Dolphin"},
+                          ImGui::GetContentRegionAvail().x))
+                wizard_.source = source;
+            EndRows();
+        }
+        ImGui::Dummy({0, Dp(6)});
+        const ImVec2 line = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        draw->AddRectFilled(line, {line.x + width, line.y + Dp(1)}, Col(color::border));
+        ImGui::Dummy({width, Dp(14)});
+
+        const auto& miis = InstalledMiis();
+        if (wizard_.source == 0)
+        {
+            // A new Mii: its figure, and its favourite colour.
+            const float figure = Dp(92);
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            std::string preview;
+            try
+            {
+                const std::string name = WizardMiiName();
+                if (platform::ValidMiiName(name))
+                    preview = platform::MakeRandomMii(name, wizard_.seed, std::int64_t(std::time(nullptr)), wizard_.color);
+            }
+            catch (const std::exception&) {}
+            DrawOwnMii(draw, {at.x + figure * 0.5f, at.y + figure * 0.5f}, figure, wizard_.color, preview);
+            ImGui::SetCursorScreenPos({at.x + figure + Dp(24), at.y});
+            ImGui::BeginGroup();
+            TextColored(fonts.label, color::text, "Favourite colour");
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(4));
+            TextColored(fonts.caption, color::muted, kMiiColorNames[wizard_.color]);
+            ImGui::Dummy({0, Dp(2)});
+            const float swatches = ImGui::GetContentRegionAvail().x;
+            MiiColorSwatches("##wizard_colour", &wizard_.color, Dp(30), swatches >= Dp(30 * 12 + 10 * 11) ? 12 : 6);
+            ImGui::Dummy({0, Dp(4)});
+            ImGui::PushTextWrapPos(0.0f);
+            TextWrappedColored(fonts.caption, color::dim,
+                               "The face is random, from the Wii's own Mii maker: there is no Mii editor here. The Mii "
+                               "is made when you go online.");
+            ImGui::PopTextWrapPos();
+            ImGui::EndGroup();
+            const float bottom = std::max(ImGui::GetItemRectMax().y, at.y + figure);
+            ImGui::SetCursorScreenPos({at.x, bottom});
+            ImGui::Dummy({width, Dp(4)});
+        }
+        else if (wizard_.source == 1)
+        {
+            if (miis.state == MiiDatabaseState::Damaged)
+                Callout("The game cannot read this computer's Mii database. Import your Miis from Dolphin instead.",
+                        color::warning, Icon::Warning);
+            else if (miis.state == MiiDatabaseState::Unusable)
+                Callout(miis.error, color::danger, Icon::Error);
+            else if (miis.miis.empty())
+                TextWrappedColored(fonts.body, color::muted,
+                                   "No Miis on this computer yet: make a new one, or import yours from Dolphin.");
+            // Choosing one gives the profile its name until the player types one.
+            else if (MiiGrid("##wizard_miis", miis.miis, wizard_.chosen)
+                     && (!wizard_.profile_typed || TrimmedProfileName(wizard_.profile_name).empty()))
+            {
+                if (const auto* mii = WizardChosenMii()) wizard_.profile_name = mii->name;
+                wizard_.profile_typed = false;
+            }
+        }
+        else
+        {
+            // From Dolphin: the import (it replaces this computer's Miis),
+            // then the list to choose from.
+            TextWrappedColored(fonts.body, color::muted,
+                               "Play with the Miis you have in Dolphin: they replace this computer's Miis (those are "
+                               "backed up first), then you choose yours.");
+            ImGui::Dummy({0, Dp(6)});
+            bool browsing;
+            {
+                std::lock_guard<std::mutex> lock(folder_dialog_->mutex);
+                browsing = folder_dialog_->active;
+            }
+            const auto found = platform::FindDolphinMiiDatabases();
+            if (!found.empty())
+            {
+                TextWrappedColored(fonts.caption, color::dim, ("Found in " + PathUtf8(found.front()) + ".").c_str());
+                ImGui::Dummy({0, Dp(4)});
+                if (SecondaryButton("wizard_import", "Import Dolphin Miis", Dp(220, 40), config_ok_, Icon::Copy))
+                    AskImport(found.front(), ImportKind::Miis);
+                ImGui::SameLine(0, Dp(10));
+            }
+            else
+            {
+                TextWrappedColored(fonts.caption, color::dim, "No Dolphin Miis found. Choose Dolphin's user folder.");
+                ImGui::Dummy({0, Dp(4)});
+            }
+            if (SecondaryButton("wizard_import_choose", found.empty() ? "Choose folder..." : "Choose another folder...",
+                                Dp(220, 40), !browsing && config_ok_, Icon::Folder))
+                BrowseFolder(FolderPurpose::DolphinMiis);
+        }
+
+        ImGui::Dummy({0, Dp(14)});
+        const std::string blocker = WizardBlocker();
+        const ImVec2 bar = ImGui::GetCursorScreenPos();
+        if (GhostButton("wizard_back", "Back", Dp(110, 42), true, Icon::Back)) wizard_.step = 0;
+        const float next = Dp(150);
+        if (!blocker.empty() && (wizard_.profile_typed || wizard_.source != 0))
+        {
+            ImGui::SameLine(0, Dp(16));
+            ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, bar.y + (Dp(42) - FontSize(fonts.caption)) * 0.5f});
+            TextColored(fonts.caption, color::warning, blocker.c_str());
+        }
+        ImGui::SetCursorScreenPos({bar.x + width - next, bar.y});
+        if (PrimaryButton("wizard_next", "Next", {next, Dp(42)}, blocker.empty())) wizard_.step = 2;
+        EndCard();
+    }
+
+    // This computer's Miis as tiles, the one `chosen` marked; true when a
+    // click chose one (into `chosen`).
+    bool MiiGrid(const char* id, const std::vector<platform::InstalledMii>& miis,
+                 std::optional<std::array<unsigned char, 8>>& chosen_id)
+    {
+        bool clicked = false;
+        ImGui::PushID(id);
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x, gap = Dp(10);
+        const int columns = width > Dp(640) ? 3 : 2;
+        const float tile = (width - gap * float(columns - 1)) / float(columns), height = Dp(62), figure = Dp(40);
+        for (std::size_t n = 0; n < miis.size(); ++n)
+        {
+            const auto& mii = miis[n];
+            if (n % std::size_t(columns)) ImGui::SameLine(0, gap);
+            ImGui::PushID(int(n));
+            const ImVec2 min = ImGui::GetCursorScreenPos(), max{min.x + tile, min.y + height};
+            if (ImGui::InvisibleButton("##mii", {tile, height}))
+            {
+                chosen_id = mii.create_id;
+                clicked = true;
+            }
+            const bool chosen = chosen_id && *chosen_id == mii.create_id;
+            const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 14.0f);
+            const float active = Animate(ImGui::GetID("##chosen"), chosen, 12.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            draw->AddRectFilled(min, max, Col(Mix(Mix(color::field, color::card_hover, hover), color::accent_dark, active)),
+                                Dp(12));
+            draw->AddRect(min, max, Col(Mix(color::border, color::accent, active), 0.6f + 0.4f * active), Dp(12), 0,
+                          Dp(1.0f + 0.5f * active));
+            DrawOwnMii(draw, {min.x + Dp(12) + figure * 0.5f, min.y + height * 0.5f}, figure, mii.favorite_color,
+                       mii.record);
+            const float text = min.x + Dp(12) + figure + Dp(12);
+            const float block = FontSize(fonts.label) + Dp(2) + FontSize(fonts.caption);
+            const float top = min.y + (height - block) * 0.5f;
+            DrawClipped(draw, fonts.label, {text, top}, max.x - text - Dp(30), Mix(color::text, color::accent_hi, active),
+                        mii.name);
+            DrawClipped(draw, fonts.caption, {text, top + FontSize(fonts.label) + Dp(2)}, max.x - text - Dp(30),
+                        color::muted,
+                        mii.friend_code ? "Friend code " + platform::FriendCodeText(mii.friend_code)
+                                        : std::string("No friend code yet"));
+            if (active > 0.0f)
+                DrawIcon(draw, Icon::Check, {max.x - Dp(18), min.y + height * 0.5f}, Dp(16), Col(color::accent, active));
+            ImGui::PopID();
+        }
+        ImGui::PopID();
+        return clicked;
+    }
+
+    // Step 2: what goes online, and Go online.
+    void MiiWizardGoOnline()
+    {
+        const auto& status = competitive_status_;
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        BeginCard("##mii_wizard_2", "Go online", "Step 2 of 2: Recharged signs you in with your name and your Mii.",
+                  Icon::Play);
+        const std::string profile = TrimmedProfileName(wizard_.profile_name);
+        const std::string mii_name = WizardMiiName();
+        const auto* chosen = wizard_.source == 0 ? nullptr : WizardChosenMii();
+        std::string record = chosen ? chosen->record : std::string();
+        if (!chosen && platform::ValidMiiName(mii_name))
+            try
+            {
+                record = platform::MakeRandomMii(mii_name, wizard_.seed, std::int64_t(std::time(nullptr)), wizard_.color);
+            }
+            catch (const std::exception&) {}
+        const int colour = chosen ? chosen->favorite_color : wizard_.color;
+        {
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float figure = Dp(72), width = ImGui::GetContentRegionAvail().x;
+            DrawOwnMii(draw, {at.x + figure * 0.5f, at.y + figure * 0.5f}, figure, colour, record);
+            const float left = at.x + figure + Dp(20);
+            const float block = FontSize(fonts.title) + Dp(4) + FontSize(fonts.body);
+            const float top = at.y + (figure - block) * 0.5f;
+            DrawClipped(draw, fonts.title, {left, top}, at.x + width - left, color::text, profile);
+            const std::string under = "Your Mii \"" + mii_name + "\"" + (chosen ? "" : ", made when you go online");
+            DrawClipped(draw, fonts.body, {left, top + FontSize(fonts.title) + Dp(4)}, at.x + width - left,
+                        color::muted, under);
+            ImGui::Dummy({width, figure});
+        }
+        ImGui::Dummy({0, Dp(10)});
+        TextWrappedColored(fonts.body, color::muted,
+                           "No account and no password: this computer keeps you signed in. Friends, challenges and "
+                           "sets work as they do with Discord.");
+        ImGui::Dummy({0, Dp(4)});
+        TextWrappedColored(fonts.caption, color::dim,
+                           "Tournaments and Discord friends need Discord: connect it later on Player profile and your "
+                           "profile stays. After its first online game this Mii also brings you back if you sign out: "
+                           "log in with it in the game.");
+        if (!status.mii_error.empty())
+        {
+            ImGui::Dummy({0, Dp(10)});
+            Callout(status.mii_error + (status.mii_error.back() == '.' ? "" : "."), color::danger, Icon::Error);
+        }
+        ImGui::Dummy({0, Dp(16)});
+        const float width = ImGui::GetContentRegionAvail().x;
+        const ImVec2 bar = ImGui::GetCursorScreenPos();
+        const bool busy = status.busy || wizard_.signing_in;
+        if (GhostButton("wizard_back_2", "Back", Dp(110, 42), !busy, Icon::Back)) wizard_.step = 1;
+        const float go = Dp(190);
+        ImGui::SetCursorScreenPos({bar.x + width - go, bar.y});
+        const bool ready = status.state == CompetitiveService::State::SignedOut && WizardBlocker().empty();
+        if (PrimaryButton("wizard_go", busy ? "Going online..." : "Go online", {go, Dp(42)}, ready && !busy, Icon::Play,
+                          ready && !busy))
+            GoOnlineWithMii();
+        if (status.state != CompetitiveService::State::SignedOut && !busy)
+        {
+            ImGui::Dummy({0, Dp(6)});
+            TextWrappedColored(fonts.caption, color::warning, "The server can't be reached right now.");
+        }
+        EndCard();
+    }
+
+    // Go online: a new Mii is made (once: after a failed sign-in it is one
+    // of this computer's), then the sign-in by the profile name; the Mii
+    // becomes the player's own when it succeeds (UpdateMiiWizard).
+    void GoOnlineWithMii()
+    {
+        if (wizard_.source == 0)
+        {
+            try
+            {
+                const auto folder = SaveFolder();
+                std::string record;
+                // A create ID already there is made again: another one.
+                for (int attempt = 0;; ++attempt)
+                {
+                    record = platform::MakeRandomMii(WizardMiiName(), wizard_.seed + std::uint32_t(attempt),
+                                                     std::int64_t(std::time(nullptr)), wizard_.color);
+                    try
+                    {
+                        platform::AddMii(record, folder, SaveTitleOf(Release()), folder / "backups");
+                        break;
+                    }
+                    catch (const platform::MiiCreateIdTaken&) { if (attempt == 2) throw; }
+                }
+                wizard_.chosen = platform::MiiRecordCreateId(record);
+                wizard_.source = 1;
+            }
+            catch (const std::exception& e)
+            {
+                Notice(std::string("Your Mii could not be made: ") + e.what(), NoticeKind::Error);
+                return;
+            }
+        }
+        if (!WizardChosenMii()) return;
+        wizard_.signing_in = true;
+        competitive_->MiiSignIn(TrimmedProfileName(wizard_.profile_name));
+    }
+
+    // Every frame: a Mii sign-in that ended. Signed in, the chosen Mii is
+    // the player's own (online.mii) and the wizard closes; else its step 2
+    // shows why.
+    void UpdateMiiWizard()
+    {
+        const auto& status = competitive_status_;
+        if (!wizard_.signing_in || status.busy) return;
+        wizard_.signing_in = false;
+        if (status.state != CompetitiveService::State::SignedIn || !wizard_.chosen) return;
+        ChooseOnlineMii(platform::MiiCreateIdText(*wizard_.chosen));
+        if (!capture_) Notice("You're online as " + status.player.name + ".", NoticeKind::Success);
+        wizard_ = MiiWizard{};
+    }
+
+    // The player's own Mii (online.mii), saved at once without the other
+    // changes not saved yet; empty: none chosen.
+    void ChooseOnlineMii(const std::string& id)
+    {
+        draft_.online_mii = id;
+        if (!config_ok_) return;
+        try
+        {
+            Settings saved = file_.settings;
+            saved.online_mii = id;
+            SaveConfig(file_, saved);
+        }
+        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+    }
+
     // Online -> Player profile: one card with the player's profile (the
-    // initial, the name with what they are doing, the Discord username and
-    // Sign out) over rows for the friend code, the Discord friends and the
-    // server.
+    // initial, or a Mii player's Mii; the name with what they are doing, how
+    // they signed in, and Sign out) over rows for their Mii, the friend code,
+    // Discord (its friends, or connecting it), the chime and the server.
+    // Signed out: the welcome, or Play with a Mii's steps.
     void OnlineSettingsPage()
     {
         using State = CompetitiveService::State;
         const auto& status = competitive_status_;
         if (status.state != State::SignedIn)
         {
-            OnlineWelcome();
+            if (wizard_.step > 0 && status.state != State::SigningIn) MiiWizardPage();
+            else OnlineWelcome();
             return;
         }
-        PageHeader("Player profile", "Your profile, your Discord friends and the server you play on.");
         const auto& player = status.player;
+        const bool mii_account = player.MiiAccount();
+        PageHeader("Player profile", mii_account ? "Your profile, your Mii and the server you play on."
+                                                 : "Your profile, your Discord friends and the server you play on.");
+        const auto own = PlayerOwnMii();
         const auto& fonts = CurrentFonts();
         BeginCard("##online_profile", nullptr);
         auto* draw = ImGui::GetWindowDrawList();
         const ImVec2 at = ImGui::GetCursorScreenPos();
         const float width = ImGui::GetContentRegionAvail().x, height = Dp(64), avatar = Dp(58);
         const ImVec2 center{at.x + avatar * 0.5f, at.y + height * 0.5f};
-        draw->AddCircleFilled(center, avatar * 0.5f, Col(color::accent, 0.16f));
-        draw->AddCircle(center, avatar * 0.5f, Col(color::accent, 0.45f), 0, Dp(1.5f));
-        std::string initial = player.name.empty() ? std::string("?") : player.name.substr(0, 1);
-        if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
-            initial = player.name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2,
-                                                                   player.name.size()));
+        if (mii_account)
+            DrawOwnMii(draw, center, avatar, own ? own->color : 0, own ? own->record : std::string());
         else
-            initial[0] = char(std::toupper(byte));
-        const ImVec2 letter = TextSize(fonts.title, initial.c_str());
-        DrawLabel(draw, fonts.title, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f}, Col(color::accent),
-                  initial.c_str());
-        // Sign out, which also ends the Discord friends' link on this computer.
+        {
+            draw->AddCircleFilled(center, avatar * 0.5f, Col(color::accent, 0.16f));
+            draw->AddCircle(center, avatar * 0.5f, Col(color::accent, 0.45f), 0, Dp(1.5f));
+            std::string initial = player.name.empty() ? std::string("?") : player.name.substr(0, 1);
+            if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
+                initial = player.name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2,
+                                                                       player.name.size()));
+            else
+                initial[0] = char(std::toupper(byte));
+            const ImVec2 letter = TextSize(fonts.title, initial.c_str());
+            DrawLabel(draw, fonts.title, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f}, Col(color::accent),
+                      initial.c_str());
+        }
+        // Sign out, which also ends the Discord friends' link on this
+        // computer; a Mii player is asked first (they come back by the game).
         const ImVec2 sign_out{Dp(124), Dp(38)};
         ImGui::SetCursorScreenPos({at.x + width - sign_out.x, center.y - sign_out.y * 0.5f});
         if (GhostButton("sign_out", "Sign out", sign_out, !status.busy, Icon::Close))
         {
-            competitive_->SignOut();
-            if (discord_friends_) discord_friends_->Disconnect();
+            if (mii_account) sign_out_prompt_ = true;
+            else SignOutPlayer();
         }
         const float text_left = at.x + avatar + Dp(18);
-        const std::string under = !player.discord.empty() ? "@" + player.discord + "  ·  Signed in with Discord"
+        const std::string under = mii_account
+            ? "Account: Mii  ·  " + (!player.friend_code.empty() ? player.friend_code
+                                                                  : std::string("friend code after your first online game"))
+            : !player.discord.empty()                    ? "@" + player.discord + "  ·  Signed in with Discord"
             : player.test                                ? std::string("Test player")
                                                          : std::string("Signed in");
         const float block = FontSize(fonts.heading) + Dp(4) + FontSize(fonts.body);
@@ -5025,17 +5802,22 @@ private:
         };
         if (BeginRows("##online_settings_rows"))
         {
+            if (mii_account) OwnMiiRow(own);
+
             // The friend code of the Mii that plays online, others in the tooltip.
-            Row("Friend code", player.wfc.empty() ? "A Mii gets one at its first online login in the game."
-                                                  : "For the game's own online menus.");
-            if (player.wfc.empty()) value("None yet", color::muted, nullptr);
+            std::string code = player.friend_code;
+            if (code.empty() && !player.wfc.empty()) code = player.wfc.front().friend_code;
+            if (code.empty() && mii_account && own && own->friend_code)
+                code = platform::FriendCodeText(own->friend_code);
+            Row("Friend code", !code.empty() ? "For the game's own online menus."
+                               : mii_account ? "Your Mii gets one at its first online game."
+                                             : "A Mii gets one at its first online login in the game.");
+            if (code.empty()) value(mii_account ? "After your first online game" : "None yet", color::muted, nullptr);
             else
             {
-                const auto& first = player.wfc.front();
-                value(first.friend_code
-                          + (player.wfc.size() > 1 ? "  +" + std::to_string(player.wfc.size() - 1) : std::string()),
+                value(code + (player.wfc.size() > 1 ? "  +" + std::to_string(player.wfc.size() - 1) : std::string()),
                       color::text, nullptr);
-                if (ImGui::IsItemHovered())
+                if (ImGui::IsItemHovered() && !player.wfc.empty())
                 {
                     std::string codes;
                     for (const auto& profile : player.wfc)
@@ -5045,28 +5827,34 @@ private:
                 }
             }
 
-            // The Discord friends that come with the sign-in.
-            using DiscordState = DiscordFriends::State;
-            const DiscordState discord = discord_friends_ ? discord_status_.state : DiscordState::Missing;
-            const bool linked = discord == DiscordState::Ready;
-            const bool waiting = discord == DiscordState::Connecting || discord == DiscordState::Linking;
-            Row("Discord friends", linked ? "Your Discord friends, and how many of them play Recharged."
-                                   : waiting ? "Connecting to Discord."
-                                   : discord == DiscordState::Missing
-                                       ? "Builds made from source go without Discord friends."
-                                       : "This server didn't link them with your sign-in: Link asks Discord once.");
-            if (linked)
-                value("Linked  ·  " + std::to_string(discord_status_.friends.size()) + " friends, "
-                          + std::to_string(status.discord_players.size()) + " on Recharged",
-                      color::text, &color::success);
-            else if (waiting) value("Connecting...", color::muted, &color::warning);
-            else if (discord == DiscordState::Missing) value("Not in this build", color::muted, nullptr);
+            if (mii_account) ConnectDiscordRow();
             else
             {
-                value("Not linked", color::warning, &color::warning);
-                ImGui::SameLine(0, Dp(16));
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
-                if (DiscordButton("link_discord_friends", "Link", Dp(96, 32))) discord_friends_->Connect();
+                // The Discord friends that come with the sign-in.
+                using DiscordState = DiscordFriends::State;
+                const DiscordState discord = discord_friends_ ? discord_status_.state : DiscordState::Missing;
+                const bool linked = discord == DiscordState::Ready;
+                const bool waiting = discord == DiscordState::Connecting || discord == DiscordState::Linking;
+                Row("Discord friends",
+                    linked ? "Your Discord friends, and how many of them play Recharged."
+                    : waiting ? "Connecting to Discord."
+                    : discord == DiscordState::Missing
+                        ? "Builds made from source go without Discord friends."
+                        : "This server didn't link them with your sign-in: Link asks Discord once.");
+                if (linked)
+                    value("Linked  ·  " + std::to_string(discord_status_.friends.size()) + " friends, "
+                              + std::to_string(status.discord_players.size()) + " on Recharged",
+                          color::text, &color::success);
+                else if (waiting) value("Connecting...", color::muted, &color::warning);
+                else if (discord == DiscordState::Missing) value("Not in this build", color::muted, nullptr);
+                else
+                {
+                    value("Not linked", color::warning, &color::warning);
+                    ImGui::SameLine(0, Dp(16));
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
+                    if (DiscordButton("link_discord_friends", "Link", Dp(96, 32))) discord_friends_->Connect();
+                }
+                OwnMiiRow(own);
             }
 
             // The challenge sound, with a way to hear it.
@@ -5090,6 +5878,181 @@ private:
             EndRows();
         }
         EndCard();
+        // Connecting Discord was refused: most often that Discord account
+        // has a profile of its own.
+        if (mii_account && !status.connect_error.empty())
+        {
+            std::string text = status.connect_error;
+            if (!text.empty() && text.back() != '.') text += '.';
+            if (status.connect_error.find("This Discord account") != std::string::npos)
+                text += " That Discord account plays with its own profile: to use it, sign out here and connect "
+                        "Discord on Player profile. Or connect another Discord account to this profile.";
+            Callout(text, color::warning, Icon::Warning);
+        }
+    }
+
+    // The row of the player's own Mii: its figure and name, and for a Mii
+    // player the Mii of this computer it is (Change chooses another).
+    void OwnMiiRow(const std::optional<OwnMii>& own)
+    {
+        const auto& fonts = CurrentFonts();
+        const bool chosen_kind = ChosenOwnMii();
+        const char* description = !chosen_kind ? "Plays your sets: made from your Discord name, the same on every "
+                                                 "computer."
+            : !own                               ? "None chosen: choose the Mii your sets go with."
+            : !own->here                         ? "It's no longer among this computer's Miis: choose another."
+            : competitive_status_.player.MiiAccount() ? "Plays your sets and online games: one of this computer's Miis."
+                                                      : "Plays your sets: the Mii you chose before connecting Discord.";
+        Row("Your Mii", description);
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float figure = Dp(30), line = std::max(figure, FontSize(fonts.label));
+        if (own && (own->here || !chosen_kind))
+        {
+            DrawOwnMii(draw, {at.x + figure * 0.5f, at.y + line * 0.5f}, figure, own->color, own->record);
+            DrawLabel(draw, fonts.label, {at.x + figure + Dp(10), at.y + (line - FontSize(fonts.label)) * 0.5f},
+                      Col(color::text), own->name.c_str());
+            ImGui::Dummy({figure + Dp(10) + TextSize(fonts.label, own->name.c_str()).x, line});
+        }
+        else
+        {
+            DrawLabel(draw, fonts.label, {at.x, at.y + (line - FontSize(fonts.label)) * 0.5f}, Col(color::muted),
+                      "None");
+            ImGui::Dummy({TextSize(fonts.label, "None").x, line});
+        }
+        if (chosen_kind)
+        {
+            ImGui::SameLine(0, Dp(14));
+            ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, at.y + (line - Dp(30)) * 0.5f});
+            const char* label = own && own->here ? "Change" : "Choose";
+            if (GhostButton("own_mii_change", label, {GhostWidth(label, Icon::Person), Dp(30)}, true, Icon::Person))
+                choose_mii_prompt_ = true;
+        }
+    }
+
+    // A Mii player's Discord row: Connect Discord (the sign-in with their
+    // session joins Discord to the profile), and its code while it runs.
+    void ConnectDiscordRow()
+    {
+        const auto& status = competitive_status_;
+        const auto& fonts = CurrentFonts();
+        if (status.connecting_discord)
+        {
+            Row("Discord", "Finish in your browser. Go on only if the page there shows this code.");
+            TextColored(fonts.heading, color::accent, status.code.c_str());
+            ImGui::SameLine(0, Dp(14));
+            const float y = ImGui::GetCursorPosY() - Dp(4);
+            ImGui::SetCursorPosY(y);
+            if (GhostButton("connect_again", "Open again", {GhostWidth("Open again", Icon::Link), Dp(32)},
+                            !status.url.empty(), Icon::Link))
+                SDL_OpenURL(status.url.c_str());
+            ImGui::SameLine(0, Dp(6));
+            ImGui::SetCursorPosY(y);
+            if (GhostButton("connect_stop", "Cancel", {GhostWidth("Cancel", Icon::None), Dp(32)}))
+                competitive_->StopSignIn();
+            return;
+        }
+        Row("Discord", status.info.discord
+                           ? "Connect it for tournaments and your Discord friends. Your name, friends and Mii stay."
+                           : "This server offers no Discord sign-in.");
+        if (status.info.discord && DiscordButton("connect_discord", "Connect Discord", Dp(200, 36))
+            && !status.busy)
+            competitive_->SignIn();
+    }
+
+    // Signing out here: the session, the Discord friends' link, and the Mii
+    // chosen for it.
+    void SignOutPlayer()
+    {
+        competitive_->SignOut();
+        if (discord_friends_) discord_friends_->Disconnect();
+        if (!draft_.online_mii.empty()) ChooseOnlineMii("");
+    }
+
+    // A Mii player's Sign out, asked first: no password brings them back,
+    // their Mii logging in in the game does.
+    void DrawSignOutPrompt()
+    {
+        if (sign_out_prompt_)
+        {
+            ImGui::OpenPopup("Sign out?");
+            sign_out_prompt_ = false;
+        }
+        const auto& fonts = CurrentFonts();
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        ImGui::SetNextWindowSizeConstraints({Dp(460), 0}, {Dp(560), FLT_MAX});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal("Sign out?", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+            | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
+        {
+            const auto own = PlayerOwnMii();
+            TextColored(fonts.heading, color::text, "Sign out?");
+            ImGui::Dummy({0, Dp(2)});
+            // The game brings a Mii player back by the friend code of the Mii
+            // that logged in; before its first online game there is none.
+            if (competitive_status_.player.friend_code.empty())
+                Callout("This Mii hasn't played online yet: signing out loses this profile for good.", color::warning,
+                        Icon::Warning);
+            else
+            {
+                const std::string mii = own && own->here ? own->name : std::string("your Mii");
+                TextWrappedColored(fonts.body, color::muted,
+                                   ("You come back by logging in with this Mii in the game: start the game, go "
+                                    "online with " + mii + ", and Recharged signs you in again. There is no password.")
+                                       .c_str());
+            }
+            ImGui::Dummy({0, Dp(10)});
+            if (PrimaryButton("sign_out_confirm", "Sign out", Dp(140, 42), true, Icon::Close))
+            {
+                ImGui::CloseCurrentPopup();
+                SignOutPlayer();
+            }
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("sign_out_cancel", "Cancel", Dp(100, 42)) || CancelPressed()) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
+    }
+
+    // Choosing the player's own Mii among this computer's (Your Mii's
+    // Change): it becomes online.mii.
+    void DrawChooseMiiPrompt()
+    {
+        if (choose_mii_prompt_)
+        {
+            ImGui::OpenPopup("Your Mii");
+            choose_mii_prompt_ = false;
+        }
+        const auto& fonts = CurrentFonts();
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({std::min(Dp(640), ImGui::GetMainViewport()->Size.x - Dp(48)), 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal("Your Mii", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+            | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
+        {
+            TextColored(fonts.heading, color::text, "Your Mii");
+            TextWrappedColored(fonts.body, color::muted,
+                               "The Mii your sets and online games go with, one of this computer's. Its friend code "
+                               "comes with it.");
+            ImGui::Dummy({0, Dp(8)});
+            const auto& miis = InstalledMiis();
+            if (miis.miis.empty())
+                TextWrappedColored(fonts.body, color::muted,
+                                   "No Miis on this computer: make one or import yours on Legacy Mii profiles.");
+            else
+            {
+                auto chosen = platform::ParseMiiCreateId(draft_.online_mii);
+                if (MiiGrid("##own_miis", miis.miis, chosen) && chosen)
+                {
+                    ChooseOnlineMii(platform::MiiCreateIdText(*chosen));
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::Dummy({0, Dp(10)});
+            if (SecondaryButton("choose_mii_close", "Close", Dp(100, 42)) || CancelPressed()) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
     }
 
     // A set's go, one value each time it goes: when it went (servers with
@@ -5904,6 +6867,8 @@ private:
             Notice("Dolphin Miis imported (" + names + ")."
                        + (result.backup.empty() ? "" : " Your previous Miis are in " + PathUtf8(result.backup) + "."),
                    NoticeKind::Success);
+            // Play with a Mii's Dolphin choice: now to choose from them.
+            if (wizard_.step == 1 && wizard_.source == 2) wizard_.source = 1;
         }
         catch (const std::exception& e) { Notice(std::string("Import failed: ") + e.what(), NoticeKind::Error); }
     }
@@ -10311,6 +11276,30 @@ private:
     std::vector<fs::file_time_type> miis_times_;
     mscharged::platform::MiiDatabaseStatus miis_;
     std::string new_mii_name_;
+    // Player profile's Play with a Mii (MiiWizardPage): the step (0 the
+    // welcome, 1 Your Mii, 2 Go online), where the Mii comes from (0 a new
+    // one, 1 this computer's, 2 Dolphin's), the profile name and whether the
+    // player typed it, a Mii name typed instead of the one made from it, the
+    // new Mii's colour and face, the chosen Mii of this computer (the new
+    // one once made), and the sign-in on its way.
+    struct MiiWizard
+    {
+        int step = 0;
+        int source = 0;
+        std::string profile_name;
+        bool profile_typed = false;
+        bool own_mii_name = false;
+        std::string mii_name;
+        int color = 0;
+        std::uint32_t seed = 0;
+        std::optional<std::array<unsigned char, 8>> chosen;
+        bool signing_in = false;
+    };
+    MiiWizard wizard_;
+    bool sign_out_prompt_ = false, choose_mii_prompt_ = false;
+    bool preview_applied_ = false; // a development capture's made-up Mii state, set once
+    // The Mii made from a Discord account (PlayerOwnMii), for its key and name.
+    std::string keyed_mii_for_, keyed_mii_record_;
     // The Teams page: the captain shown, the slot whose menu is open, and the
     // lineups read from the save folder.
     int lineup_captain_ = 0;

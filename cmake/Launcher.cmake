@@ -189,6 +189,15 @@ if(BUILD_TESTING)
         COMMAND mscharged --smoke-test --config "${CMAKE_CURRENT_BINARY_DIR}/launcher-test-missing.ini")
     set_tests_properties(launcher_smoke PROPERTIES
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software" TIMEOUT 30)
+    # The Online pages with made-up states: Play with a Mii's steps, a Mii
+    # player's profile (with its Sign out asked), a Discord player's.
+    foreach(preview IN ITEMS preview-mii-new preview-mii-go preview-mii-profile-signout preview)
+        add_test(NAME launcher_smoke_${preview}
+            COMMAND mscharged --smoke-test --config "${CMAKE_CURRENT_BINARY_DIR}/launcher-test-missing.ini")
+        set_tests_properties(launcher_smoke_${preview} PROPERTIES
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;RECHARGED_CAPTURE_DISCORD=${preview}"
+            TIMEOUT 30)
+    endforeach()
     add_executable(launcher_ui_metrics_tests tests/launcher_ui_metrics.cpp)
     target_include_directories(launcher_ui_metrics_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     add_test(NAME launcher_ui_metrics COMMAND launcher_ui_metrics_tests)
