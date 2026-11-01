@@ -1,0 +1,608 @@
+From: mscharged-port
+Subject: Time the native GX pipeline's phases
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host diagnostics, no behaviour change.
+
+For frame logs (the Switch runs at a fraction of the desktop frame rate, and
+the logs must show where a frame goes): the host can switch on totals of the
+game thread's phases (drawing its views, the rest of its frame) and of its
+waits at a draw-done and at the VI retrace, of the FIFO processor's parsing
+and of its wait until a draw-done frame finished on the GPU, of the render
+worker's work with the command buffer submit, the GPU wait, the window image
+acquire and the present inside it, with thread CPU times and samples of the
+CPU core each of these threads ran on. Off by default; switched off, each hook
+reads one relaxed flag. Nothing waits, orders or submits differently.
+
+diff --git a/include/aurora/gfx.h b/include/aurora/gfx.h
+index 0cc93ec..b8458b0 100644
+--- a/include/aurora/gfx.h
++++ b/include/aurora/gfx.h
+@@ -31,6 +31,35 @@ typedef struct {
+ const AuroraStats* aurora_get_stats();
+ float aurora_get_fps();
+ 
++// Host timings of the native GX pipeline for frame logs: totals since the
++// start, counted only while enabled (off by default). Times in nanoseconds.
++typedef struct {
++  uint64_t ownerSendNs;        // game thread: drawing its views (until the draw-done after its display copy)
++  uint64_t ownerUpdateNs;      // game thread: the rest of its frame (until the next draw-done)
++  uint64_t ownerPriorWaitNs;   // game thread: a draw-done waiting for earlier frames to finish on the GPU
++  uint64_t ownerParseWaitNs;   // game thread: a draw-done waiting for the FIFO processor to read its frame
++  uint64_t ownerDoneWaitNs;    // game thread: GXWaitDrawDone
++  uint64_t ownerRetraceWaitNs; // game thread: VIWaitForRetrace
++  uint64_t fifoParseNs;        // FIFO processor: reading GX commands (wall time)
++  uint64_t fifoParseCpuNs;     // FIFO processor: its thread's CPU time meanwhile (0 where unknown)
++  uint64_t fifoLatchNs;        // FIFO processor at a draw-done: until that frame finished on the GPU
++  uint64_t renderNs;           // render worker: all its work items, the waits below included (wall time)
++  uint64_t renderCpuNs;        // render worker: its thread's CPU time meanwhile (0 where unknown)
++  uint64_t submitNs;           // draw-done frames: finishing the command buffer and submitting it
++  uint64_t gpuWaitNs;          // draw-done frames: waiting for the GPU to finish them
++  uint64_t acquireNs;          // presents: waiting for the next window image
++  uint64_t presentNs;          // presents: the whole present work item
++  uint64_t drawDoneFrames;     // frames submitted and waited for at a draw-done
++  uint64_t emptyDrawDoneFrames; // of those, frames without a draw
++  uint64_t presents;           // window presents
++  uint64_t ownerCores[8];      // samples of the CPU core each thread ran on (cores 0-7)
++  uint64_t fifoCores[8];
++  uint64_t renderCores[8];
++} AuroraGXPhaseTimes;
++
++void aurora_set_gx_phase_timing(bool enabled);
++void aurora_get_gx_phase_times(AuroraGXPhaseTimes* times);
++
+ void aurora_enable_vsync(bool enabled);
+ 
+ // Arm actual native GX FIFO execution before reconstructed module/statics.
+diff --git a/lib/dolphin/gx/GXFrameBuffer.cpp b/lib/dolphin/gx/GXFrameBuffer.cpp
+index a8a3e34..40f4928 100644
+--- a/lib/dolphin/gx/GXFrameBuffer.cpp
++++ b/lib/dolphin/gx/GXFrameBuffer.cpp
+@@ -5,6 +5,7 @@
+ #include "../../gfx/tex_copy_conv.hpp"
+ #include "../../gfx/texture.hpp"
+ #include "../../gfx/recording.hpp"
++#include "../../gfx/phase_times.hpp"
+ #include "../../window.hpp"
+ #include "../../webgpu/gpu.hpp"
+ #include "../../gx/texture.hpp"
+@@ -409,6 +410,7 @@ void GXSetDispCopyGamma(GXGamma gamma)
+ 
+ void GXCopyDisp(void* dest, GXBool clear)
+ {
++    aurora::gfx::phase_times::owner_copy_display();
+     u32 reg;
+     u32 tempPeCtrl;
+     u32 phyAddr;
+diff --git a/lib/dolphin/gx/GXManage.cpp b/lib/dolphin/gx/GXManage.cpp
+index 794b0cc..2b93c74 100644
+--- a/lib/dolphin/gx/GXManage.cpp
++++ b/lib/dolphin/gx/GXManage.cpp
+@@ -3,6 +3,7 @@
+ #include "__gx.h"
+ 
+ #include "../../gx/fifo.hpp"
++#include "../../gfx/phase_times.hpp"
+ #include "dolphin/gd/GDGeometry.h"
+ 
+ #include <cstring>
+@@ -302,6 +303,7 @@ void GXSetDrawDone() {
+   // owner polling must not let that old cause satisfy the following reset.
+   // Existing owner/context/mask rules retain pending masked/foreign causes.
+   // Earlier tokens are finished and delivered first, as on the console.
++  aurora::gfx::phase_times::owner_draw_done_begin();
+   aurora::gx::fifo::deliver_prior_draw_done();
+   const BOOL enabled = OSDisableInterrupts();
+   GX_WRITE_RAS_REG(kDrawDoneCommand);
+@@ -310,6 +312,7 @@ void GXSetDrawDone() {
+   OSRestoreInterrupts(enabled);
+   aurora::gx::fifo::publish_draw_done();
+   aurora::gx::fifo::wait_draw_done_parsed();
++  aurora::gfx::phase_times::owner_mark();
+ }
+ 
+ BOOL AuroraServiceGXDrawDone() { return aurora::gx::fifo::service_draw_done(); }
+diff --git a/lib/dolphin/vi/vi.cpp b/lib/dolphin/vi/vi.cpp
+index 09bb4ab..f4f586b 100644
+--- a/lib/dolphin/vi/vi.cpp
++++ b/lib/dolphin/vi/vi.cpp
+@@ -9,6 +9,7 @@
+ #include "../../window.hpp"
+ #if defined(AURORA_ENABLE_GX)
+ #include "../../gx/fifo.hpp"
++#include "../../gfx/phase_times.hpp"
+ #endif
+ #include "aurora/math.hpp"
+ #include "vi_internal.hpp"
+@@ -625,6 +626,9 @@ void VIFlush() {
+   state.next_buffer = state.requested.framebuffer; state.flush = true;
+ }
+ void VIWaitForRetrace() {
++#if defined(AURORA_ENABLE_GX)
++  const aurora::gfx::phase_times::OwnerWait waiting{aurora::gfx::phase_times::OwnerRetraceWait};
++#endif
+   auto& state = State();
+   { std::lock_guard lock(state.mutex); RequireOwner(state);
+     if (state.active || state.callback_active) throw std::logic_error("VIWaitForRetrace cannot sleep inside a VI interrupt callback"); }
+diff --git a/lib/gfx/frame.cpp b/lib/gfx/frame.cpp
+index b307c97..1401d21 100644
+--- a/lib/gfx/frame.cpp
++++ b/lib/gfx/frame.cpp
+@@ -2,6 +2,7 @@
+ #include "xfb.hpp"
+ 
+ #include "depth_peek.hpp"
++#include "phase_times.hpp"
+ #include "pipeline_cache.hpp"
+ #include "recording.hpp"
+ #include "render_worker.hpp"
+@@ -724,10 +725,15 @@ void submit_hardware_frame_and_wait() {
+   // hardware packet Loads EFB; this boundary adds no game frame or VI present.
+   finish();
+   end_frame([](wgpu::CommandEncoder& encoder, std::vector<AfterSubmitCallback> callbacks) {
++    phase_times::count(phase_times::DrawDoneFrames);
++    if (g_resources.stats.drawCallCount == 0) phase_times::count(phase_times::EmptyDrawDoneFrames);
+     webgpu::gpu_prof::frame_end(encoder);
+-    const wgpu::CommandBufferDescriptor descriptor{.label = "Original GX native submission"};
+-    const auto commands = encoder.Finish(&descriptor);
+-    g_queue.Submit(1, &commands);
++    {
++      const phase_times::Span submit{phase_times::Submit};
++      const wgpu::CommandBufferDescriptor descriptor{.label = "Original GX native submission"};
++      const auto commands = encoder.Finish(&descriptor);
++      g_queue.Submit(1, &commands);
++    }
+     webgpu::gpu_prof::after_submit();
+     for (auto& callback : callbacks) if (callback) callback();
+     after_submit();
+@@ -735,7 +741,10 @@ void submit_hardware_frame_and_wait() {
+     auto completion = std::make_shared<Completion>();
+     const auto future = g_queue.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
+         [completion](wgpu::QueueWorkDoneStatus status, wgpu::StringView) { completion->status = status; });
+-    const auto waited = g_instance.WaitAny(future, 5'000'000'000);
++    const auto waited = [&] {
++      const phase_times::Span gpuWait{phase_times::GpuWait};
++      return g_instance.WaitAny(future, 5'000'000'000);
++    }();
+     AURORA_ASSERT(waited == wgpu::WaitStatus::Success &&
+         completion->status == wgpu::QueueWorkDoneStatus::Success,
+         "Original GX native submission failed to complete on the GPU");
+@@ -776,9 +785,13 @@ void submit_draw_done_and_wait() {
+     const wgpu::CommandEncoderDescriptor descriptor{.label = "GX finish encoder"};
+     auto encoder = packet ? std::move(packet->encoder) : g_device.CreateCommandEncoder(&descriptor);
+     if (packet) webgpu::gpu_prof::frame_end(encoder);
+-    const wgpu::CommandBufferDescriptor bufferDescriptor{.label = "GX finish GPU prefix"};
+-    const auto commands = encoder.Finish(&bufferDescriptor);
+-    g_queue.Submit(1, &commands);
++    phase_times::count(phase_times::DrawDoneFrames);
++    {
++      const phase_times::Span submit{phase_times::Submit};
++      const wgpu::CommandBufferDescriptor bufferDescriptor{.label = "GX finish GPU prefix"};
++      const auto commands = encoder.Finish(&bufferDescriptor);
++      g_queue.Submit(1, &commands);
++    }
+     if (packet) {
+       webgpu::gpu_prof::after_submit();
+       auto callbacks = std::move(packet->afterSubmitCallbacks);
+@@ -792,7 +805,10 @@ void submit_draw_done_and_wait() {
+     auto completion = std::make_shared<Completion>();
+     const auto future = g_queue.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
+         [completion](wgpu::QueueWorkDoneStatus status, wgpu::StringView) { completion->status = status; });
+-    const auto waited = g_instance.WaitAny(future, 5'000'000'000);
++    const auto waited = [&] {
++      const phase_times::Span gpuWait{phase_times::GpuWait};
++      return g_instance.WaitAny(future, 5'000'000'000);
++    }();
+     AURORA_ASSERT(waited == wgpu::WaitStatus::Success,
+                   "GX submitted GPU work wait failed: {}", magic_enum::enum_name(waited));
+     AURORA_ASSERT(completion->status == wgpu::QueueWorkDoneStatus::Success,
+@@ -875,4 +891,39 @@ float calculate_fps() noexcept {
+ } // namespace aurora::gfx
+ 
+ const AuroraStats* aurora_get_stats() { return &aurora::gfx::detail::resources().stats; }
++
++void aurora_set_gx_phase_timing(bool enabled) {
++  aurora::gfx::phase_times::g_enabled.store(enabled, std::memory_order_relaxed);
++}
++
++void aurora_get_gx_phase_times(AuroraGXPhaseTimes* times) {
++  namespace phase = aurora::gfx::phase_times;
++  if (times == nullptr) return;
++  const auto value = [](phase::Counter counter) { return phase::g_counters[counter].load(std::memory_order_relaxed); };
++  *times = AuroraGXPhaseTimes{
++      .ownerSendNs = value(phase::OwnerSend),
++      .ownerUpdateNs = value(phase::OwnerUpdate),
++      .ownerPriorWaitNs = value(phase::OwnerPriorWait),
++      .ownerParseWaitNs = value(phase::OwnerParseWait),
++      .ownerDoneWaitNs = value(phase::OwnerDoneWait),
++      .ownerRetraceWaitNs = value(phase::OwnerRetraceWait),
++      .fifoParseNs = value(phase::FifoParse),
++      .fifoParseCpuNs = value(phase::FifoParseCpu),
++      .fifoLatchNs = value(phase::FifoLatch),
++      .renderNs = value(phase::Render),
++      .renderCpuNs = value(phase::RenderCpu),
++      .submitNs = value(phase::Submit),
++      .gpuWaitNs = value(phase::GpuWait),
++      .acquireNs = value(phase::Acquire),
++      .presentNs = value(phase::Present),
++      .drawDoneFrames = value(phase::DrawDoneFrames),
++      .emptyDrawDoneFrames = value(phase::EmptyDrawDoneFrames),
++      .presents = value(phase::Presents),
++  };
++  for (uint32_t core = 0; core < phase::CoreSlots; ++core) {
++    times->ownerCores[core] = phase::g_cores[phase::OwnerThread][core].load(std::memory_order_relaxed);
++    times->fifoCores[core] = phase::g_cores[phase::FifoThread][core].load(std::memory_order_relaxed);
++    times->renderCores[core] = phase::g_cores[phase::RenderThread][core].load(std::memory_order_relaxed);
++  }
++}
+ float aurora_get_fps() { return aurora::gfx::calculate_fps(); }
+diff --git a/lib/gfx/phase_times.hpp b/lib/gfx/phase_times.hpp
+new file mode 100644
+index 0000000..5dc197f
+--- /dev/null
++++ b/lib/gfx/phase_times.hpp
+@@ -0,0 +1,148 @@
++#pragma once
++
++// Host timings of the native GX pipeline's phases, for frame logs. Off by
++// default: until the host enables them each hook costs one relaxed load.
++
++#include <aurora/gfx.h>
++
++#include "../thread.hpp"
++
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++
++namespace aurora::gfx::phase_times {
++enum Counter : uint32_t {
++  OwnerSend,
++  OwnerUpdate,
++  OwnerPriorWait,
++  OwnerParseWait,
++  OwnerDoneWait,
++  OwnerRetraceWait,
++  FifoParse,
++  FifoParseCpu,
++  FifoLatch,
++  Render,
++  RenderCpu,
++  Submit,
++  GpuWait,
++  Acquire,
++  Present,
++  DrawDoneFrames,
++  EmptyDrawDoneFrames,
++  Presents,
++  CounterCount,
++};
++enum Thread : uint32_t { OwnerThread, FifoThread, RenderThread, ThreadCount };
++inline constexpr uint32_t CoreSlots = 8;
++
++inline std::atomic_bool g_enabled{false};
++inline std::atomic<uint64_t> g_counters[CounterCount]{};
++inline std::atomic<uint64_t> g_cores[ThreadCount][CoreSlots]{};
++
++inline bool enabled() noexcept { return g_enabled.load(std::memory_order_relaxed); }
++
++inline uint64_t now_ns() noexcept {
++  return static_cast<uint64_t>(
++      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
++          .count());
++}
++
++inline void add(Counter counter, uint64_t value) noexcept {
++  g_counters[counter].fetch_add(value, std::memory_order_relaxed);
++}
++
++inline void count(Counter counter) noexcept {
++  if (enabled()) add(counter, 1);
++}
++
++inline void sample_core(Thread thread) noexcept {
++  if (!enabled()) return;
++  const int core = aurora::thread::current_core();
++  if (core >= 0 && static_cast<uint32_t>(core) < CoreSlots)
++    g_cores[thread][core].fetch_add(1, std::memory_order_relaxed);
++}
++
++// Wall time of a scope.
++class Span {
++public:
++  explicit Span(Counter counter) noexcept : m_counter(counter), m_start(enabled() ? now_ns() : 0) {}
++  ~Span() {
++    if (m_start != 0) add(m_counter, now_ns() - m_start);
++  }
++  Span(const Span&) = delete;
++  Span& operator=(const Span&) = delete;
++
++private:
++  Counter m_counter;
++  uint64_t m_start;
++};
++
++// Wall and thread CPU time of a scope; more wall than CPU time means the
++// thread waited, for a lock or for a CPU core.
++class WorkSpan {
++public:
++  WorkSpan(Counter wall, Counter cpu) noexcept : m_wall(wall), m_cpu(cpu) {
++    if (!enabled()) return;
++    m_start = now_ns();
++    m_cpuStart = aurora::thread::current_cpu_time_ns();
++  }
++  ~WorkSpan() {
++    if (m_start == 0) return;
++    add(m_wall, now_ns() - m_start);
++    const uint64_t cpu = aurora::thread::current_cpu_time_ns();
++    if (cpu > m_cpuStart && m_cpuStart != 0) add(m_cpu, cpu - m_cpuStart);
++  }
++  WorkSpan(const WorkSpan&) = delete;
++  WorkSpan& operator=(const WorkSpan&) = delete;
++
++private:
++  Counter m_wall;
++  Counter m_cpu;
++  uint64_t m_start = 0;
++  uint64_t m_cpuStart = 0;
++};
++
++// The game (GX owner) thread's own phases, between the ends of its draw-dones:
++// one ends at the draw-done after the frame's display copy (the original
++// swap_Pre), when it has drawn its views (glplatSendFrame); the other at the
++// draw-done before them (swap_Post), after the rest of its frame. The waits
++// measured in between are counted on their own, not in these phases. Owner
++// thread only.
++inline uint64_t g_ownerMark = 0;
++inline bool g_ownerCopiedDisplay = false;
++inline uint64_t g_ownerWaited = 0;
++
++inline void owner_copy_display() noexcept { g_ownerCopiedDisplay = true; }
++
++inline void owner_draw_done_begin() noexcept {
++  if (!enabled() || g_ownerMark == 0) return;
++  const uint64_t elapsed = now_ns() - g_ownerMark;
++  add(g_ownerCopiedDisplay ? OwnerSend : OwnerUpdate, elapsed > g_ownerWaited ? elapsed - g_ownerWaited : 0);
++  sample_core(OwnerThread);
++}
++
++inline void owner_mark() noexcept {
++  g_ownerMark = enabled() ? now_ns() : 0;
++  g_ownerCopiedDisplay = false;
++  g_ownerWaited = 0;
++}
++
++// A wait of the owner thread, kept out of its phases.
++class OwnerWait {
++public:
++  explicit OwnerWait(Counter counter) noexcept : m_counter(counter), m_start(enabled() ? now_ns() : 0) {}
++  ~OwnerWait() {
++    if (m_start == 0) return;
++    const uint64_t waited = now_ns() - m_start;
++    add(m_counter, waited);
++    g_ownerWaited += waited;
++  }
++  OwnerWait(const OwnerWait&) = delete;
++  OwnerWait& operator=(const OwnerWait&) = delete;
++
++private:
++  Counter m_counter;
++  uint64_t m_start;
++};
++} // namespace aurora::gfx::phase_times
+diff --git a/lib/gfx/render_worker.cpp b/lib/gfx/render_worker.cpp
+index b0638e7..30ce50b 100644
+--- a/lib/gfx/render_worker.cpp
++++ b/lib/gfx/render_worker.cpp
+@@ -2,6 +2,7 @@
+ #include <aurora/hardware.h>
+ 
+ #include "../thread.hpp"
++#include "phase_times.hpp"
+ 
+ #include <algorithm>
+ #include <atomic>
+@@ -47,6 +48,8 @@ void worker_main(std::stop_token token) {
+ 
+     if (item->work) {
+       ZoneScopedN("QueueItem work");
++      phase_times::sample_core(phase_times::RenderThread);
++      const phase_times::WorkSpan work{phase_times::Render, phase_times::RenderCpu};
+       item->work();
+     }
+     complete_sync(item->sync);
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index f71c1b2..065e892 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -3,6 +3,7 @@
+ #include <SDL3/SDL_video.h>
+ #include "xfb.hpp"
+ #include "render_worker.hpp"
++#include "phase_times.hpp"
+ #include "png_io.hpp"
+ #include "../imgui.hpp"
+ #include "../window.hpp"
+@@ -558,6 +559,7 @@ void service(void*) {
+       Output& state;
+       ~Finished() { std::lock_guard lock(state.mutex); state.servicing = false; }
+     } finished{state};
++    const phase_times::Span presenting{phase_times::Present};
+     auto effective = scanout;
+     {
+       std::lock_guard lock(state.mutex);
+@@ -596,7 +598,12 @@ void service(void*) {
+     {
+       window::SurfaceLock lock;
+       if (window::is_presentable() && webgpu::g_surface) {
+-        wgpu::SurfaceTexture current; webgpu::g_surface.GetCurrentTexture(&current); status = current.status;
++        wgpu::SurfaceTexture current;
++        {
++          const phase_times::Span acquiring{phase_times::Acquire};
++          webgpu::g_surface.GetCurrentTexture(&current);
++        }
++        status = current.status;
+         if (status == wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal ||
+             status == wgpu::SurfaceGetCurrentTextureStatus::SuccessSuboptimal) target = std::move(current.texture);
+       }
+@@ -654,6 +661,7 @@ void service(void*) {
+         state.presented = effective; state.presented_snapshot = effective.black ? nullptr : snapshot;
+         ++state.presentations;
+         presented = true;
++        phase_times::count(phase_times::Presents);
+         const AuroraVIPresentedState completion{effective.framebuffer,
+             state.presented_snapshot ? state.presented_snapshot->revision : 0,
+             state.presentations, effective.retrace_count, effective.field, effective.black};
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+index c8f12e7..af00d73 100644
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -5,6 +5,7 @@
+ #include "command_processor.hpp"
+ #include "poke.hpp"
+ #include "../gfx/frame.hpp"
++#include "../gfx/phase_times.hpp"
+ #include <dolphin/os.h>
+ #include <dolphin/os/OSContext.h>
+ 
+@@ -70,6 +71,7 @@ std::atomic<uint64_t> sDrawDoneLatches{0};
+ std::atomic<uint64_t> sParsed{0};
+ 
+ void latch_gpu_draw_done() {
++  const gfx::phase_times::Span latch{gfx::phase_times::FifoLatch};
+   if (sNativeRecording.load(std::memory_order_acquire)) {
+     AURORA_ASSERT(sHardwareFrameActive, "Original GX finish has no native recording");
+     gfx::submit_hardware_frame_and_wait();
+@@ -104,6 +106,8 @@ void process_to(uint64_t target, std::memory_order order) noexcept {
+         AURORA_ASSERT(gfx::begin_hardware_frame(), "Original GX hardware staging/recorder failed to begin");
+         sHardwareFrameActive = true;
+       }
++      gfx::phase_times::sample_core(gfx::phase_times::FifoThread);
++      const gfx::phase_times::WorkSpan parse{gfx::phase_times::FifoParse, gfx::phase_times::FifoParseCpu};
+       result = process(detail::sBufferData + start, size);
+     }
+     AURORA_ASSERT(result.bytesProcessed > 0 && result.bytesProcessed <= target - processed,
+@@ -355,6 +359,7 @@ void deliver_prior_draw_done() {
+   const uint64_t target = sDrawDoneTokens;
+   if (sDrawDoneLatches.load(std::memory_order_acquire) < target) {
+     ZoneScoped;
++    const gfx::phase_times::OwnerWait waiting{gfx::phase_times::OwnerPriorWait};
+     std::unique_lock progress{sProcessProgressMutex};
+     while (sDrawDoneLatches.load(std::memory_order_acquire) < target) {
+       if (sProcessProgress.wait_for(progress, std::chrono::microseconds{250}, [&] {
+@@ -381,6 +386,7 @@ void wait_draw_done_parsed() {
+   const uint64_t target = sPublished.load(std::memory_order_relaxed);
+   if (sParsed.load(std::memory_order_acquire) >= target) return;
+   ZoneScoped;
++  const gfx::phase_times::OwnerWait waiting{gfx::phase_times::OwnerParseWait};
+   std::unique_lock progress{sProcessProgressMutex};
+   while (sParsed.load(std::memory_order_acquire) < target) {
+     if (sProcessProgress.wait_for(progress, std::chrono::microseconds{250}, [&] {
+@@ -397,17 +403,20 @@ void wait_draw_done() {
+   const BOOL enabled = OSDisableInterrupts();
+   struct Mask { BOOL enabled; ~Mask() { OSRestoreInterrupts(enabled); } } mask{enabled};
+   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+-  while (!sDrawDone) {
+-    // Native equivalent of source OSSleepThread: allow the genuine latched
+-    // interrupt while the source owner sleeps, then reenter its critical section.
+-    OSEnableInterrupts();
+-    // Sleep on the genuine finish IRQ; native desktop presentation is separate.
+-    aurora_service_hardware_interrupts();
+-    service_draw_done();
+-    std::this_thread::yield();
+-    OSDisableInterrupts();
+-    AURORA_ASSERT(sDrawDone || std::chrono::steady_clock::now() < deadline,
+-                  "GXWaitDrawDone timed out without a genuine GPU finish interrupt");
++  {
++    const gfx::phase_times::OwnerWait waiting{gfx::phase_times::OwnerDoneWait};
++    while (!sDrawDone) {
++      // Native equivalent of source OSSleepThread: allow the genuine latched
++      // interrupt while the source owner sleeps, then reenter its critical section.
++      OSEnableInterrupts();
++      // Sleep on the genuine finish IRQ; native desktop presentation is separate.
++      aurora_service_hardware_interrupts();
++      service_draw_done();
++      std::this_thread::yield();
++      OSDisableInterrupts();
++      AURORA_ASSERT(sDrawDone || std::chrono::steady_clock::now() < deadline,
++                    "GXWaitDrawDone timed out without a genuine GPU finish interrupt");
++    }
+   }
+ }
+ 
+diff --git a/lib/thread.cpp b/lib/thread.cpp
+index 348b0ec..e6b5e6f 100644
+--- a/lib/thread.cpp
++++ b/lib/thread.cpp
+@@ -23,6 +23,11 @@
+ #include <Windows.h>
+ #elif defined(__APPLE__)
+ #include <pthread.h>
++#elif defined(__SWITCH__)
++#include <switch.h>
++#endif
++#if !defined(_WIN32)
++#include <ctime>
+ #endif
+ 
+ namespace aurora::thread {
+@@ -281,6 +286,36 @@ void set_thread_name(const std::string& name) noexcept {
+ }
+ } // namespace
+ 
++uint64_t current_cpu_time_ns() noexcept {
++#if defined(__SWITCH__)
++  // Horizon counts each thread's time in system ticks.
++  u64 ticks = 0;
++  if (R_FAILED(svcGetInfo(&ticks, hosversionAtLeast(13, 0, 0) ? InfoType_ThreadTickCount : InfoType_ThreadTickCountDeprecated,
++                          threadGetCurHandle(), TickCountInfo_Total)))
++    return 0;
++  return armTicksToNs(ticks);
++#elif defined(_WIN32)
++  // Windows updates thread times per scheduler tick, too coarse for these spans.
++  return 0;
++#else
++  timespec time{};
++  if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time) != 0) return 0;
++  return static_cast<uint64_t>(time.tv_sec) * 1000000000u + static_cast<uint64_t>(time.tv_nsec);
++#endif
++}
++
++int current_core() noexcept {
++#if defined(__SWITCH__)
++  return static_cast<int>(svcGetCurrentProcessorNumber());
++#elif defined(_WIN32)
++  return static_cast<int>(GetCurrentProcessorNumber());
++#elif defined(__linux__)
++  return sched_getcpu();
++#else
++  return -1;
++#endif
++}
++
+ void set_current(const Options& options) noexcept {
+   if (!options.name.empty()) {
+     set_thread_name(options.name);
+diff --git a/lib/thread.hpp b/lib/thread.hpp
+index 0c65cc1..00a9173 100644
+--- a/lib/thread.hpp
++++ b/lib/thread.hpp
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include <concepts>
++#include <cstdint>
+ #include <functional>
+ #include <stop_token>
+ #include <string>
+@@ -22,6 +23,11 @@ struct Options {
+ // Applies thread options to the current thread
+ void set_current(const Options& options) noexcept;
+ 
++// CPU time the current thread has used, in nanoseconds (0 where unknown), and
++// the CPU core it runs on (-1 where unknown). For host timings only.
++uint64_t current_cpu_time_ns() noexcept;
++int current_core() noexcept;
++
+ class Thread {
+ public:
+   Thread() noexcept = default;

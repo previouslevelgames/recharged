@@ -55,12 +55,22 @@ std::int64_t ThreadCpuNs()
 {
     u64 ticks = 0;
     if (R_FAILED(svcGetInfo(&ticks, hosversionAtLeast(13, 0, 0) ? InfoType_ThreadTickCount
-                                : InfoType_ThreadTickCountDeprecated, CUR_THREAD_HANDLE, TickCountInfo_Total)))
+                                : InfoType_ThreadTickCountDeprecated, threadGetCurHandle(), TickCountInfo_Total)))
         return 0;
     return static_cast<std::int64_t>(armTicksToNs(ticks));
 }
 
 std::int64_t ProcessCpuNs() { return 0; }
+
+// Docked or handheld: the GPU runs at a different clock in each.
+std::int8_t SampleDocked()
+{
+    switch (appletGetOperationMode()) {
+    case AppletOperationMode_Console: return 1;
+    case AppletOperationMode_Handheld: return 0;
+    default: return -1;
+    }
+}
 #else
 std::int64_t ClockNs(clockid_t clock)
 {
@@ -71,6 +81,9 @@ std::int64_t ClockNs(clockid_t clock)
 
 std::int64_t ThreadCpuNs() { return ClockNs(CLOCK_THREAD_CPUTIME_ID); }
 std::int64_t ProcessCpuNs() { return ClockNs(CLOCK_PROCESS_CPUTIME_ID); }
+#endif
+#if !defined(__SWITCH__)
+std::int8_t SampleDocked() { return -1; }
 #endif
 
 double Ms(std::int64_t ns) { return static_cast<double>(ns) / 1e6; }
@@ -91,6 +104,14 @@ std::FILE* OpenLog(const std::filesystem::path& path)
 }
 
 } // namespace
+
+const char* FramePhaseColumn(unsigned phase)
+{
+    static const char* const columns[kFramePhaseCount] = {"send_ms", "update_ms", "prior_wait_ms", "parse_wait_ms",
+        "done_wait_ms", "retrace_wait_ms", "audio_ms", "fifo_parse_ms", "fifo_parse_cpu_ms", "fifo_latch_ms",
+        "render_ms", "render_cpu_ms", "submit_ms", "gpu_wait_ms", "acquire_ms", "present_ms"};
+    return phase < kFramePhaseCount ? columns[phase] : "";
+}
 
 const char* ArenaName(int stadium)
 {
@@ -144,10 +165,12 @@ void FrameTimingLog::FinishForProcessExit()
 
 FrameTimingLog::FrameTimingLog(std::FILE* file, std::filesystem::path path) : file_(file), path_(std::move(path))
 {
-    if (file_)
-        std::fputs("frame,start_ms,duration_ms,game_ms,game_cpu_ms,process_cpu_ms,vi_fields,presents,draws,"
-                   "pipelines_created,pipelines_queued,texture_upload_kb,fifo_mib,steady_ns,arena\n",
-                   file_);
+    if (!file_) return;
+    std::fputs("frame,start_ms,duration_ms,game_ms,game_cpu_ms,process_cpu_ms,vi_fields,presents,draws,"
+               "pipelines_created,pipelines_queued,texture_upload_kb,fifo_mib,steady_ns,arena",
+               file_);
+    for (unsigned phase = 0; phase < kFramePhaseCount; ++phase) std::fprintf(file_, ",%s", FramePhaseColumn(phase));
+    std::fputs(",draw_done_frames,empty_draw_done_frames,docked\n", file_);
 }
 
 FrameTimingLog::~FrameTimingLog()
@@ -217,7 +240,23 @@ void FrameTimingLog::EndFrame(const FrameTimingCounters& counters)
         record.vi_fields = counters.retraces - previous_counters_.retraces;
         record.presents = static_cast<std::uint32_t>(counters.presents - previous_counters_.presents);
         record.pipelines_created = counters.pipelines_created - previous_counters_.pipelines_created;
+        for (unsigned phase = 0; phase < kFramePhaseCount; ++phase) {
+            const std::uint64_t value = counters.phases[phase] - previous_counters_.phases[phase];
+            record.phases[phase] = static_cast<std::uint32_t>(std::min<std::uint64_t>(value, UINT32_MAX));
+        }
+        record.draw_done_frames = static_cast<std::uint16_t>(
+            std::min<std::uint64_t>(counters.draw_done_frames - previous_counters_.draw_done_frames, UINT16_MAX));
+        record.empty_draw_done_frames = static_cast<std::uint16_t>(std::min<std::uint64_t>(
+            counters.empty_draw_done_frames - previous_counters_.empty_draw_done_frames, UINT16_MAX));
     }
+    if (!has_first_cores_) {
+        first_cores_ = counters.cores;
+        has_first_cores_ = true;
+    }
+    last_cores_ = counters.cores;
+    // Once a second at 60 frames/s: the console's mode is a system call.
+    if (record.index % 60 == 0) docked_ = SampleDocked();
+    record.docked = docked_;
     previous_counters_ = counters;
     has_previous_ = true;
     pending_ = record;
@@ -232,11 +271,15 @@ void FrameTimingLog::Add(const FrameTimingRecord& record)
     const std::int64_t origin = records_.empty() ? record.start_ns : records_.front().start_ns;
     std::fprintf(file_,
                  "%" PRIu64 ",%.3f,%.3f,%.3f,%.3f,%.3f,%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32
-                 ",%.1f,%.2f,%" PRId64 ",%s\n",
+                 ",%.1f,%.2f,%" PRId64 ",%s",
                  record.index, Ms(record.start_ns - origin), Ms(record.duration_ns), Ms(record.game_ns),
                  Ms(record.game_cpu_ns), Ms(record.process_cpu_ns), record.vi_fields, record.presents, record.draws,
                  record.pipelines_created, record.pipelines_queued, record.texture_upload_bytes / 1024.0,
                  record.fifo_bytes / 1048576.0, record.start_ns, ArenaName(record.arena));
+    // The row continues: the phase times, then the draw-done frames and the console mode.
+    for (unsigned phase = 0; phase < kFramePhaseCount; ++phase) std::fprintf(file_, ",%.3f", Ms(record.phases[phase]));
+    std::fprintf(file_, ",%u,%u,%d\n", unsigned(record.draw_done_frames), unsigned(record.empty_draw_done_frames),
+                 int(record.docked));
     if (record.index % 60 == 59) std::fflush(file_);
 }
 
@@ -247,9 +290,30 @@ std::string FrameTimingLog::Summary() const
     for (const auto& record : records_)
         if (record.arena >= 0 && std::find(arenas.begin(), arenas.end(), record.arena) == arenas.end())
             arenas.push_back(record.arena);
-    if (arenas.empty()) return text + SummarizeRecords(records_);
-    // Menus are part of the whole-session figures only; each arena is judged on its own frames.
     text += SummarizeRecords(records_);
+    // Where the timed threads ran, for the whole session.
+    const auto cores = [&](const char* name, const std::array<std::uint64_t, 8>& first,
+                           const std::array<std::uint64_t, 8>& last) {
+        std::uint64_t total = 0;
+        for (std::size_t core = 0; core < first.size(); ++core) total += last[core] - first[core];
+        if (!total) return std::string();
+        std::string part = std::string(name);
+        for (std::size_t core = 0; core < first.size(); ++core)
+            if (const std::uint64_t samples = last[core] - first[core]) {
+                char value[32];
+                std::snprintf(value, sizeof value, " %zu:%.0f%%", core, 100.0 * double(samples) / double(total));
+                part += value;
+            }
+        return part;
+    };
+    std::string placement;
+    for (const auto& part : {cores("game thread", first_cores_.game, last_cores_.game),
+                             cores("FIFO processor", first_cores_.fifo, last_cores_.fifo),
+                             cores("render worker", first_cores_.render, last_cores_.render)})
+        if (!part.empty()) placement += (placement.empty() ? "" : "; ") + part;
+    if (!placement.empty()) text += "CPU cores (share of samples): " + placement + "\n";
+    // Menus are part of the whole-session figures only; each arena is judged on its own frames.
+    if (arenas.empty()) return text;
     for (const int arena : arenas) {
         std::vector<FrameTimingRecord> own;
         for (const auto& record : records_)
@@ -264,7 +328,7 @@ namespace {
 std::string SummarizeRecords(const std::vector<FrameTimingRecord>& records_)
 {
     std::string text;
-    char line[256];
+    char line[512];
     const auto append = [&](const char* format, auto... values) {
         std::snprintf(line, sizeof line, format, values...);
         text += line;
@@ -314,6 +378,43 @@ std::string SummarizeRecords(const std::vector<FrameTimingRecord>& records_)
         }
     append("Pipelines created: %" PRIu64 " in %" PRIu64 " frames; frames over 50 ms with pipeline work: %zu/%zu\n",
            pipelines, pipelineFrames, slowWithPipelines, slow);
+
+    std::array<double, kFramePhaseCount> phases{};
+    double drawDones = 0, emptyDrawDones = 0;
+    std::size_t docked = 0, handheld = 0;
+    for (const auto& record : records_) {
+        for (unsigned phase = 0; phase < kFramePhaseCount; ++phase) phases[phase] += record.phases[phase];
+        drawDones += record.draw_done_frames;
+        emptyDrawDones += record.empty_draw_done_frames;
+        docked += record.docked == 1;
+        handheld += record.docked == 0;
+    }
+    if (std::any_of(phases.begin(), phases.end(), [](double value) { return value > 0; })) {
+        const double frames = static_cast<double>(records_.size());
+        const auto ms = [&](unsigned phase) { return phases[phase] / frames / 1e6; };
+        // Windows keeps no fine thread CPU times.
+        const auto cpu = [&](unsigned phase) {
+            if (phases[phase] <= 0) return std::string();
+            char value[32];
+            std::snprintf(value, sizeof value, " (CPU %.2f)", ms(phase));
+            return std::string(value);
+        };
+        append("Game thread per frame ms: drawing its views %.2f, rest of its frame %.2f; waiting for earlier frames "
+               "on the GPU %.2f, for the FIFO processor %.2f, in GXWaitDrawDone %.2f, for the VI retrace %.2f; "
+               "audio callbacks %.2f (within the above)\n",
+               ms(kPhaseSend), ms(kPhaseUpdate), ms(kPhasePriorWait), ms(kPhaseParseWait), ms(kPhaseDoneWait),
+               ms(kPhaseRetraceWait), ms(kPhaseAudio));
+        append("FIFO processor per frame ms: reading GX commands %.2f%s, waiting until draw-done frames finished on "
+               "the GPU %.2f\n",
+               ms(kPhaseFifoParse), cpu(kPhaseFifoParseCpu).c_str(), ms(kPhaseFifoLatch));
+        append("Render worker per frame ms: busy %.2f%s, of which submitting draw-done frames %.2f, waiting for the GPU "
+               "%.2f, presenting %.2f (waiting for a window image %.2f)\n",
+               ms(kPhaseRender), cpu(kPhaseRenderCpu).c_str(), ms(kPhaseSubmit), ms(kPhaseGpuWait), ms(kPhasePresent),
+               ms(kPhaseAcquire));
+        append("Draw-done frames per game frame: %.2f, %.2f of them without a draw\n", drawDones / frames,
+               emptyDrawDones / frames);
+    }
+    if (docked || handheld) append("Console: %zu frames docked, %zu handheld\n", docked, handheld);
 
     std::vector<std::size_t> order(records_.size());
     std::iota(order.begin(), order.end(), std::size_t{0});

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -8,6 +9,37 @@
 #include <vector>
 
 namespace mscharged::runtime {
+
+// Where the host's frame time goes, as totals in nanoseconds since the start
+// (Aurora's GX phase times, the game's audio callbacks); each frame records
+// the differences. The game thread's audio callbacks run inside its phases.
+enum FramePhase : unsigned {
+    kPhaseSend,        // game thread: drawing its views
+    kPhaseUpdate,      // game thread: the rest of its frame
+    kPhasePriorWait,   // game thread: a draw-done waiting for earlier frames on the GPU
+    kPhaseParseWait,   // game thread: a draw-done waiting for the FIFO processor
+    kPhaseDoneWait,    // game thread: GXWaitDrawDone
+    kPhaseRetraceWait, // game thread: VIWaitForRetrace
+    kPhaseAudio,       // game thread: the game's audio (AI) callbacks
+    kPhaseFifoParse,   // FIFO processor: reading GX commands
+    kPhaseFifoParseCpu,
+    kPhaseFifoLatch,   // FIFO processor: waiting at a draw-done until its frame finished on the GPU
+    kPhaseRender,      // render worker: busy, the waits below included
+    kPhaseRenderCpu,
+    kPhaseSubmit,      // render worker: finishing and submitting a draw-done frame's commands
+    kPhaseGpuWait,     // render worker: waiting for the GPU to finish a draw-done frame
+    kPhaseAcquire,     // render worker: waiting for the next window image
+    kPhasePresent,     // render worker: presenting (the image wait included)
+    kFramePhaseCount
+};
+const char* FramePhaseColumn(unsigned phase);
+
+// CPU cores the timed threads were seen on (cores 0-7).
+struct FrameCoreSamples {
+    std::array<std::uint64_t, 8> game{};
+    std::array<std::uint64_t, 8> fifo{};
+    std::array<std::uint64_t, 8> render{};
+};
 
 // Absolute counters, read by the native loop after each original game frame.
 struct FrameTimingCounters {
@@ -18,6 +50,10 @@ struct FrameTimingCounters {
     std::uint32_t pipelines_queued = 0;     // pipelines still being created
     std::uint32_t texture_upload_bytes = 0; // texture uploads of the last frame
     std::uint64_t fifo_bytes = 0;           // GX FIFO backlog after the frame
+    std::array<std::uint64_t, kFramePhaseCount> phases{}; // phase totals (ns)
+    std::uint64_t draw_done_frames = 0;       // frames submitted and waited for at a draw-done
+    std::uint64_t empty_draw_done_frames = 0; // of those, frames without a draw
+    FrameCoreSamples cores{};
 };
 
 // One original game frame as seen by the native loop.
@@ -36,6 +72,10 @@ struct FrameTimingRecord {
     std::uint32_t texture_upload_bytes = 0;
     std::uint64_t fifo_bytes = 0;
     int arena = -1;                  // stadium of the match being played, -1 outside matches
+    std::array<std::uint32_t, kFramePhaseCount> phases{}; // this frame's phase times (ns)
+    std::uint16_t draw_done_frames = 0;
+    std::uint16_t empty_draw_done_frames = 0;
+    std::int8_t docked = -1;         // Switch: 1 docked, 0 handheld; -1 elsewhere
 };
 
 // Name of a stadium id as shown in the game; "Menus" for -1.
@@ -94,6 +134,10 @@ private:
     bool pending_valid_ = false;
     FrameTimingRecord pending_{};
     std::int64_t pending_process_cpu_ns_ = 0;
+    bool has_first_cores_ = false;
+    FrameCoreSamples first_cores_{};
+    FrameCoreSamples last_cores_{};
+    std::int8_t docked_ = -1;
 };
 
 } // namespace mscharged::runtime

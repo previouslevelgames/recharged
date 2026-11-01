@@ -115,3 +115,4 @@
 0119-scale-and-offset-the-viewport-depth.patch
 0120-draw-to-the-switch-window.patch
 0121-run-imgui-without-sdl-on-the-switch.patch
+0122-time-the-native-gx-phases.patch
