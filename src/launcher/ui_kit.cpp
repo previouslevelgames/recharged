@@ -349,6 +349,24 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->PathStroke(color, 0, t);
         draw->AddTriangleFilled(p(0.18f, -0.42f), p(0.48f, -0.30f), p(0.24f, -0.06f), color);
         break;
+    case Icon::Paint:
+    {
+        // A painter's palette: a round board with a notch for the thumb at the
+        // lower right, and three dots of paint.
+        draw->PathArcTo(c, 0.44f * s, 1.05f, 0.30f + 2.0f * IM_PI, 28);
+        draw->PathBezierQuadraticCurveTo(p(0.10f, 0.20f), p(0.218f, 0.382f));
+        draw->PathStroke(color, 0, t);
+        draw->AddCircleFilled(p(-0.20f, -0.12f), 0.105f * s, color);
+        draw->AddCircleFilled(p(0.10f, -0.22f), 0.105f * s, color);
+        draw->AddCircleFilled(p(-0.14f, 0.20f), 0.105f * s, color);
+        break;
+    }
+    case Icon::Dice:
+        draw->AddRect(p(-0.40f, -0.40f), p(0.40f, 0.40f), color, 0.14f * s, 0, t);
+        draw->AddCircleFilled(p(-0.18f, -0.18f), 0.07f * s, color);
+        draw->AddCircleFilled(c, 0.07f * s, color);
+        draw->AddCircleFilled(p(0.18f, 0.18f), 0.07f * s, color);
+        break;
     case Icon::Mouse:
         draw->AddRect(p(-0.28f, -0.45f), p(0.28f, 0.45f), color, 0.28f * s, 0, t);
         draw->AddLine(p(0.0f, -0.38f), p(0.0f, -0.14f), color, t);

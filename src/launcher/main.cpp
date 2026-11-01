@@ -1963,6 +1963,12 @@ private:
         return TextSize(font, label).x + (icon == Icon::None ? 0.0f : FontSize(font) * 0.82f + Dp(10)) + Dp(44);
     }
 
+    // A small framed action button's width (SecondaryButton: icon, gap, label).
+    static float ActionWidth(const char* label, Icon icon)
+    {
+        return TextSize(CurrentFonts().body, label).x + (icon == Icon::None ? 0.0f : Dp(18) + Dp(8)) + Dp(28);
+    }
+
     static float GhostWidth(const char* label, Icon icon)
     {
         return TextSize(CurrentFonts().body, label).x + (icon == Icon::None ? 0.0f : Dp(24)) + Dp(28);
@@ -4203,7 +4209,7 @@ private:
         // Its friend code on a button that copies it, and Edit.
         ImGui::TableSetColumnIndex(1);
         ImGui::PushID(int(index));
-        const float edit = GhostWidth("Edit", Icon::Sliders), row = ImGui::GetContentRegionAvail().x;
+        const float edit = GhostWidth("Edit", Icon::Paint), row = ImGui::GetContentRegionAvail().x;
         const ImVec2 at = ImGui::GetCursorScreenPos();
         if (mii.friend_code)
         {
@@ -4213,7 +4219,7 @@ private:
                 Notice("Friend code of " + mii.name + " copied: " + code + ".", NoticeKind::Success);
         }
         ImGui::SetCursorScreenPos({at.x + row - edit, at.y});
-        if (GhostButton("edit_mii", "Edit", {edit, Dp(40)}, config_ok_, Icon::Sliders))
+        if (GhostButton("edit_mii", "Edit", {edit, Dp(40)}, config_ok_, Icon::Paint))
             OpenMiiEditor(false, mii.record, false, false);
         ImGui::PopID();
     }
@@ -5774,8 +5780,8 @@ private:
                                 {GhostWidth("Another face", Icon::Refresh) + Dp(16), Dp(36)}, true, Icon::Refresh))
                 RollWizardFace(std::random_device{}());
             ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("wizard_edit_face", "Edit face", {GhostWidth("Edit face", Icon::Sliders) + Dp(16),
-                                Dp(36)}, true, Icon::Sliders))
+            if (SecondaryButton("wizard_edit_face", "Edit face", {GhostWidth("Edit face", Icon::Paint) + Dp(16),
+                                Dp(36)}, true, Icon::Paint))
                 OpenMiiEditor(true, preview, false, false);
             ImGui::Dummy({0, Dp(4)});
             ImGui::PushTextWrapPos(0.0f);
@@ -6138,11 +6144,35 @@ private:
         const auto& fonts = CurrentFonts();
         const bool wizard = editor.target == MiiEditor::Target::Wizard;
         ++mii_editor_frames_;
-        PageHeader(wizard ? "Your new Mii" : "Edit Mii",
-                   wizard ? "Its face, name and favourite colour, drawn as the game draws its Miis. It is made when "
-                            "you go online."
-                          : "Its face, name and favourite colour, drawn as the game draws its Miis. Saving keeps who "
-                            "it is online: its friend code and profile stay.");
+        // The title with a back button before it: back leaves as Cancel does.
+        {
+            const float back = Dp(40);
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const bool pressed = ImGui::InvisibleButton("##mii_editor_back", {back, back});
+            const bool over = ImGui::IsItemHovered();
+            if (over) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            if (over) ImGui::SetTooltip("Back without saving");
+            auto* header = ImGui::GetWindowDrawList();
+            const ImVec2 center{at.x + back * 0.5f, at.y + back * 0.5f};
+            header->AddCircleFilled(center, back * 0.5f, Col(color::text, over ? 0.12f : 0.05f));
+            header->AddCircle(center, back * 0.5f - Dp(0.5f), Col(color::border), 0, Dp(1));
+            DrawIcon(header, Icon::Back, center, Dp(18), Col(over ? color::text : color::muted));
+            ImGui::SameLine(0, Dp(14));
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (back - FontSize(fonts.title)) * 0.5f - Dp(2));
+            TextColored(fonts.title, color::text, wizard ? "Your new Mii" : "Edit Mii");
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(2));
+            TextWrappedColored(fonts.body, color::muted,
+                               wizard ? "Its face, name and favourite colour, drawn as the game draws its Miis. It is "
+                                        "made when you go online."
+                                      : "Its face, name and favourite colour, drawn as the game draws its Miis. Saving "
+                                        "keeps who it is online: its friend code and profile stay.");
+            ImGui::Dummy({0, Dp(8)});
+            if (pressed)
+            {
+                CloseMiiEditor();
+                return;
+            }
+        }
         const MiiEditor::Step before{editor.face, editor.name};
         BeginCard("##mii_editor", nullptr);
         auto* draw = ImGui::GetWindowDrawList();
@@ -6223,40 +6253,65 @@ private:
         ImGui::PopStyleVar();
         ImGui::EndGroup();
 
-        // Under both: Cancel, Undo, Start over, and Save.
+        // Under both: the steps (Undo, Start over, Random) at the left, Cancel
+        // and Save Mii at the right, all of one height.
         ImGui::Dummy({0, Dp(14)});
+        const float button = Dp(36);
         const ImVec2 bar = ImGui::GetCursorScreenPos();
-        if (GhostButton("mii_editor_cancel", "Cancel", Dp(110, 42), true, Icon::Close)) CloseMiiEditor();
-        ImGui::SameLine(0, Dp(6));
         // Undo and Start over are steps of their own, not changes to note.
         bool stepped = false;
-        if (GhostButton("mii_editor_undo", "Undo", Dp(100, 42), !editor.undo.empty(), Icon::Back))
+        // The steps share the left half, framed like Cancel and Save Mii.
+        const float step = (width * 0.5f - Dp(8) * 2) / 3;
+        if (SecondaryButton("mii_editor_undo", "Undo", {step, button}, !editor.undo.empty(), Icon::Back))
         {
             editor.face = editor.undo.back().face;
             editor.name = editor.undo.back().name;
             editor.undo.pop_back();
             stepped = true;
         }
-        ImGui::SameLine(0, Dp(6));
-        if (GhostButton("mii_editor_reset", "Start over", Dp(140, 42), MiiEditorChanged(), Icon::Refresh))
+        ImGui::SameLine(0, Dp(8));
+        if (SecondaryButton("mii_editor_reset", "Start over", {step, button}, MiiEditorChanged(), Icon::Refresh))
         {
             editor.undo.push_back({editor.face, editor.name});
             editor.face = editor.original_face;
             editor.name = editor.original_name;
             stepped = true;
         }
+        ImGui::SameLine(0, Dp(8));
+        // A whole new face from the Wii's own Mii maker; the name and the
+        // favourite colour stay, and Undo takes it back.
+        if (SecondaryButton("mii_editor_random", "Random", {step, button}, true, Icon::Dice))
+        {
+            editor.undo.push_back({editor.face, editor.name});
+            const int color = editor.face.favorite_color;
+            try
+            {
+                const auto random = platform::MakeRandomMii("Random", std::random_device{}(),
+                                                            std::int64_t(std::time(nullptr)), color);
+                editor.face = platform::mii::ReadMiiFace(random);
+                editor.face.favorite_color = color;
+            }
+            catch (const std::exception& error)
+            {
+                editor.undo.pop_back();
+                Notice(std::string("No random face: ") + error.what(), NoticeKind::Error);
+            }
+            stepped = true;
+        }
         const std::string blocker = MiiEditorBlocker();
-        const char* save = wizard ? "Use this face" : "Save";
-        const float save_width = Dp(wizard ? 180 : 140);
+        const char* save = wizard ? "Use this face" : "Save Mii";
+        const float end_button = Dp(wizard ? 150 : 124);
+        const float right_start = bar.x + width - end_button * 2 - Dp(8);
         if (!blocker.empty())
         {
             const ImVec2 size = TextSize(fonts.caption, blocker.c_str());
-            DrawLabel(draw, fonts.caption,
-                      {bar.x + width - save_width - Dp(16) - size.x, bar.y + (Dp(42) - size.y) * 0.5f},
+            DrawLabel(draw, fonts.caption, {right_start - Dp(14) - size.x, bar.y + (button - size.y) * 0.5f},
                       Col(color::warning), blocker.c_str());
         }
-        ImGui::SetCursorScreenPos({bar.x + width - save_width, bar.y});
-        if (PrimaryButton("mii_editor_save", save, {save_width, Dp(42)},
+        ImGui::SetCursorScreenPos({right_start, bar.y});
+        if (SecondaryButton("mii_editor_cancel", "Cancel", {end_button, button}, true, Icon::Close)) CloseMiiEditor();
+        ImGui::SameLine(0, Dp(8));
+        if (PrimaryButton("mii_editor_save", save, {end_button, button},
                           blocker.empty() && (wizard || MiiEditorChanged()), Icon::Check))
             SaveMiiEditor();
         EndCard();
@@ -6537,6 +6592,15 @@ private:
             DrawLabel(draw, fonts.label, {x, start.y}, Col(tint), text.c_str());
             ImGui::Dummy({x - start.x + TextSize(fonts.label, text.c_str()).x, line});
         };
+        // The rows' actions (Change and Edit of your Mii, Play of the sound)
+        // start in one column right after the widest of their values, so each
+        // reads with its value.
+        {
+            const float mii = own && (own->here || !ChosenOwnMii())
+                ? Dp(30) + Dp(10) + TextSize(fonts.label, own->name.c_str()).x
+                : TextSize(fonts.label, "None").x;
+            profile_actions_ = std::max(mii, Dp(48)) + Dp(18);
+        }
         if (BeginRows("##online_settings_rows"))
         {
             if (mii_account) OwnMiiRow(own);
@@ -6552,8 +6616,13 @@ private:
             if (code.empty()) value(mii_account ? "After your first online game" : "None yet", color::muted, nullptr);
             else
             {
-                value(code + (player.wfc.size() > 1 ? "  +" + std::to_string(player.wfc.size() - 1) : std::string()),
-                      color::text, nullptr);
+                // On a button that copies it, as on Legacy Mii profiles.
+                const std::string shown =
+                    code + (player.wfc.size() > 1 ? "  +" + std::to_string(player.wfc.size() - 1) : std::string());
+                const float copy_width = TextSize(fonts.body, shown.c_str()).x + Dp(18) + Dp(8) + Dp(32);
+                if (SecondaryButton("copy_friend_code", shown.c_str(), {copy_width, Dp(34)}, true, Icon::Copy)
+                    && SDL_SetClipboardText(code.c_str()))
+                    Notice("Friend code copied: " + code + ".", NoticeKind::Success);
                 if (ImGui::IsItemHovered() && !player.wfc.empty())
                 {
                     std::string codes;
@@ -6586,9 +6655,10 @@ private:
                 else if (discord == DiscordState::Missing) value("Not in this build", color::muted, nullptr);
                 else
                 {
+                    const float link_right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
                     value("Not linked", color::warning, &color::warning);
-                    ImGui::SameLine(0, Dp(16));
-                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
+                    ImGui::SameLine(0, 0);
+                    ImGui::SetCursorScreenPos({link_right - Dp(96), ImGui::GetCursorScreenPos().y - Dp(6)});
                     if (DiscordButton("link_discord_friends", "Link", Dp(96, 32))) discord_friends_->Connect();
                 }
                 OwnMiiRow(own);
@@ -6597,10 +6667,13 @@ private:
             // The challenge sound, with a way to hear it.
             Row("Challenge sound", "A chime when someone challenges you or accepts your challenge, and the window "
                                    "flashes while it is in the background.");
+            const ImVec2 sound = ImGui::GetCursorScreenPos();
             if (Toggle("##challenge_sound", &draft_.challenge_sound)) dirty_ = true;
-            ImGui::SameLine(0, Dp(16));
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(4));
-            if (GhostButton("hear_chime", "Play", Dp(86, 30), draft_.challenge_sound && !draft_.mute, Icon::Play))
+            // Its action in the actions' column, beside the switch.
+            ImGui::SameLine(0, 0);
+            ImGui::SetCursorScreenPos({sound.x + profile_actions_, sound.y + (Dp(28) - Dp(32)) * 0.5f});
+            if (SecondaryButton("hear_chime", "Play", {ActionWidth("Play", Icon::Play), Dp(32)},
+                                draft_.challenge_sound && !draft_.mute, Icon::Play))
                 Alert(false);
             if (draft_.mute && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Recharged is muted (Audio).");
@@ -6657,23 +6730,31 @@ private:
                       "None");
             ImGui::Dummy({TextSize(fonts.label, "None").x, line});
         }
+        // Its actions in the actions' column, beside the Mii: Edit, its face
+        // in the Mii editor (a Discord player's own Mii, made from the account,
+        // is added with it when it isn't here yet, and keeps the Discord name),
+        // and Change (a Mii player's).
+        const char* change = own && own->here ? "Change" : "Choose";
+        const bool editable =
+            own && (own->here || !chosen_kind) && own->record.size() == platform::mii::kMiiRecordBytes;
+        float x = at.x + profile_actions_;
+        const float y = at.y + (line - Dp(32)) * 0.5f;
+        if (editable)
+        {
+            ImGui::SameLine(0, 0);
+            ImGui::SetCursorScreenPos({x, y});
+            const float edit = ActionWidth("Edit", Icon::Paint);
+            if (SecondaryButton("own_mii_edit", "Edit", {edit, Dp(32)}, true, Icon::Paint))
+                OpenMiiEditor(false, own->record, !own->here, !chosen_kind);
+            x += edit + Dp(8);
+        }
         if (chosen_kind)
         {
-            ImGui::SameLine(0, Dp(14));
-            ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, at.y + (line - Dp(30)) * 0.5f});
-            const char* label = own && own->here ? "Change" : "Choose";
-            if (GhostButton("own_mii_change", label, {GhostWidth(label, Icon::Person), Dp(30)}, true, Icon::Person))
+            ImGui::SameLine(0, 0);
+            ImGui::SetCursorScreenPos({x, y});
+            if (SecondaryButton("own_mii_change", change, {ActionWidth(change, Icon::Person), Dp(32)}, true,
+                                Icon::Person))
                 choose_mii_prompt_ = true;
-        }
-        // Its face in the Mii editor: a Discord player's own Mii, made from
-        // the account, is added with it when it isn't here yet, and keeps
-        // the Discord name.
-        if (own && (own->here || !chosen_kind) && own->record.size() == platform::mii::kMiiRecordBytes)
-        {
-            ImGui::SameLine(0, Dp(chosen_kind ? 2 : 14));
-            ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, at.y + (line - Dp(30)) * 0.5f});
-            if (GhostButton("own_mii_edit", "Edit", {GhostWidth("Edit", Icon::Sliders), Dp(30)}, true, Icon::Sliders))
-                OpenMiiEditor(false, own->record, !own->here, !chosen_kind);
         }
     }
 
@@ -11949,6 +12030,7 @@ private:
     bool config_ok_ = false;
     bool dirty_ = false;
     bool play_prompt_ = false;
+    float profile_actions_ = 0.0f; // Player profile: where the rows' actions start, from the value
     // Start training: asked on the Gameplay page, and the start it makes.
     bool training_requested_ = false;
     // A set's go seen: start its game (once per set and launcher).
