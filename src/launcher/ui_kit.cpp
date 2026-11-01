@@ -570,6 +570,31 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(-0.15f, -0.02f), p(0.15f, -0.02f), color, t);
         draw->AddLine(p(-0.15f, 0.20f), p(0.07f, 0.20f), color, t);
         break;
+    case Icon::Bracket:
+    {
+        // A tournament's bracket: four lines meeting in two, the two in one.
+        for (const float y : {-0.40f, -0.12f, 0.12f, 0.40f})
+            draw->AddLine(p(-0.46f, y), p(-0.18f, y), color, t);
+        for (const float y : {-0.26f, 0.26f})
+        {
+            const float half = 0.14f;
+            const ImVec2 arm[] = {p(-0.18f, y - half), p(-0.18f, y + half)};
+            draw->AddPolyline(arm, 2, color, 0, t);
+            draw->AddLine(p(-0.18f, y), p(0.10f, y), color, t);
+        }
+        const ImVec2 join[] = {p(0.10f, -0.26f), p(0.10f, 0.26f)};
+        draw->AddPolyline(join, 2, color, 0, t);
+        draw->AddLine(p(0.10f, 0.0f), p(0.30f, 0.0f), color, t);
+        draw->AddCircleFilled(p(0.36f, 0.0f), 0.10f * s, color);
+        break;
+    }
+    case Icon::Podium:
+        // A leaderboard's podium: the winner's block in the middle, higher.
+        draw->AddRectFilled(p(-0.46f, 0.02f), p(-0.17f, 0.42f), color, 0.04f * s);
+        draw->AddRectFilled(p(-0.14f, -0.26f), p(0.14f, 0.42f), color, 0.04f * s);
+        draw->AddRectFilled(p(0.17f, 0.14f), p(0.46f, 0.42f), color, 0.04f * s);
+        draw->AddCircleFilled(p(0.0f, -0.40f), 0.07f * s, color);
+        break;
     case Icon::Up:
     case Icon::Down:
     {

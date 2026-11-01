@@ -367,6 +367,14 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     return model;
 }
 
+int OnlinePanelWaiting(const OnlinePanelModel& model)
+{
+    const OnlinePanelSet& set = model.set;
+    if (set.stage == OnlinePanelSet::Stage::Challenged && (set.can_accept || set.can_decline)) return 1;
+    if (set.stage == OnlinePanelSet::Stage::Ready && set.can_ready) return 1;
+    return 0;
+}
+
 const OnlinePanelRow* FindRow(const OnlinePanelModel& model, const std::string& key)
 {
     for (const auto& section : model.sections)

@@ -8,6 +8,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace mscharged::launcher
 {
@@ -22,10 +23,16 @@ namespace mscharged::launcher
 // "preview-ended" a set lost, "preview-match" while a match is played,
 // "preview-empty" nobody online, "preview-error" a message in the footer,
 // "preview-player" and "preview-player-mii" a player's screen,
-// "preview-options" and "preview-options-match" the Game options tab, and
+// "preview-options" and "preview-options-match" the Game options tab,
+// "preview-tabs" five tabs (made-up Ranked, Tournaments and Leaderboard
+// between Online and Game options, empty pages: they are not in the game)
+// with badges, "preview-tabs-max" seven, one of them not available, and
 // "preview-narrow" (or any state ending in "-narrow") a small window; the
 // prompts "preview-prompt-won", "-lost", "-stopped", "-challenge" and
-// "-rematch". The overlay's actions
+// "-rematch". RECHARGED_CAPTURE_TAB opens another tab than Online (its label:
+// "game-options", "ranked", ...), and RECHARGED_CAPTURE_SIZE=WxH sizes the
+// window as a game's of W x H, the overlay at the game's scale for it (its
+// height / 720). The overlay's actions
 // change the made-up data and go to the console; Escape closes it, F1 opens
 // Online and F2 Game options (the open tab's key closes it).
 class OnlinePanelPreview
@@ -54,6 +61,8 @@ private:
     overlay::GameOverlayState state_;
     overlay::OverlayPromptState prompt_state_;
     std::map<std::string, ImTextureID> avatars_;
+    std::vector<overlay::GameOverlayMoreTab> more_tabs_; // "preview-tabs": tabs to come
+    float game_height_ = 0.0f; // RECHARGED_CAPTURE_SIZE: the game window's height
     bool open_ = true;
     float appear_ = 0.0f;
 };

@@ -1,7 +1,8 @@
 // The overlay's Online tab data (src/overlay/online_panel_model.cpp) from
 // made-up lists and sets: who is online now and in which order, who is
 // available, what their rows say, who can be challenged, and the set at each
-// of its steps. Offline players are the launcher's, never the game's.
+// of its steps, and what waits for the player (the tab's badge). Offline
+// players are the launcher's, never the game's.
 
 #include "overlay/online_panel_model.h"
 
@@ -119,6 +120,7 @@ void TestPlayer()
     CHECK(model.sections[0].rows.empty());
     CHECK(model.sections[0].empty == "None of your friends is online");
     CHECK(model.sections[0].hint.find("launcher's Online pages") != std::string::npos);
+    CHECK(OnlinePanelWaiting(model) == 0);
 
     context.loading = true;
     const auto loading = MakeOnlinePanelModel({}, std::nullopt, context);
@@ -270,6 +272,7 @@ void TestSet()
     // A challenge to the player.
     auto model = MakeOnlinePanelModel({}, Set("challenged", "challenged", "invited"), context);
     CHECK(model.set.stage == Stage::Challenged && model.set.match == 77);
+    CHECK(OnlinePanelWaiting(model) == 1);
     CHECK(model.set.title == "Mario challenges you");
     CHECK(model.set.can_accept && model.set.can_decline && !model.set.can_cancel);
     CHECK(model.set.games == 0);
@@ -279,21 +282,25 @@ void TestSet()
     context.in_match = true;
     model = MakeOnlinePanelModel({}, Set("challenged", "challenged", "invited"), context);
     CHECK(!model.set.can_accept && model.set.can_decline);
+    CHECK(OnlinePanelWaiting(model) == 1); // to decline, or to accept after the match
     context.in_match = false;
 
     // The player's challenge.
     model = MakeOnlinePanelModel({}, Set("challenged", "challenger", "invited"), context);
     CHECK(model.set.stage == Stage::Waiting && model.set.status == "Waiting for Mario to accept");
+    CHECK(OnlinePanelWaiting(model) == 0);
     CHECK(model.set.can_cancel && model.set.cancel_label == "Withdraw" && !model.set.can_accept);
 
     // Accepted: Ready to play!, then waiting for the opponent.
     auto set = Set("accepted", "challenger", "open");
     model = MakeOnlinePanelModel({}, set, context);
     CHECK(model.set.stage == Stage::Ready && model.set.can_ready && model.set.status == "Ready when you are");
+    CHECK(OnlinePanelWaiting(model) == 1);
     CHECK(model.set.can_cancel && model.set.cancel_label == "Cancel set");
     set.you_ready = true;
     model = MakeOnlinePanelModel({}, set, context);
     CHECK(!model.set.can_ready && model.set.status == "Waiting for Mario to be ready");
+    CHECK(OnlinePanelWaiting(model) == 0);
     set.opponent_online = false;
     model = MakeOnlinePanelModel({}, set, context);
     CHECK(model.set.tone == Tone::Bad && model.set.status == "Mario has closed Recharged");

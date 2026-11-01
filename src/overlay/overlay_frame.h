@@ -6,15 +6,17 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
 // The frame of the game's overlay (game_overlay.h): a window in the middle of
 // the blurred picture with
-//   - tabs across the top (Online, Game options), with the keys that switch
-//     them at both ends;
+//   - tabs across the top (Online, Game options, ...: OverlayTabs), with the
+//     keys that switch them at both ends;
 //   - a title line: a back arrow (from a tab's second screen on) and the
-//     title; with tabs only on a tab's later screens (the tab names its first);
+//     title; with tabs only on a tab's later screens (the tab names its first,
+//     unless the strip is too narrow for its name);
 //   - the screen's own content, which it draws between BeginOverlay and
 //     EndOverlay, scrolling where it needs (BeginOverlayScroll);
 //   - a footer line, the same on every screen: a note, an optional Done (the
@@ -51,18 +53,37 @@ struct OverlayStyle
     std::vector<std::string> previous_tab_keys{"L1", "Q"}, next_tab_keys{"R1", "E"};
 };
 
-// Tabs across the top of the window.
+// Tabs across the top of the window, as the caller has them, in their order.
+// The strip fits from two to about seven: each with its icon and label while
+// they fit (in capitals, smaller as they need, then without icons), else the
+// open tab with its label and the others as icons (their labels under the
+// mouse), else icons alone (the page's title line names it); the keys that
+// switch them at its ends, all of them or the first of each.
 struct OverlayTabs
 {
     struct Tab
     {
+        int id = 0; // the caller's, which stays when tabs come and go (unlike its place)
         std::string label;
         launcher::Icon icon = launcher::Icon::None;
+        int badge = 0;         // things waiting there: a count on the tab (0: none)
+        bool dot = false;      // without a count: a dot (something new there)
+        bool available = true; // false: dimmed; neither a click nor the keys open it
+        bool hidden = false;   // not in the strip at all
+        std::string hint;      // under the mouse, after the label: why it isn't available
     };
     std::vector<Tab> tabs;
-    int current = 0;
-    int clicked = -1; // set by BeginOverlay: a tab the mouse picked
+    int current = 0;            // the open tab's id
+    std::optional<int> clicked; // set by BeginOverlay: the id of a tab the mouse picked
 };
+
+// Whether the tab `id` is in the strip and can be opened.
+bool OverlayTabOpens(const std::vector<OverlayTabs::Tab>& tabs, int id);
+// The id of the tab that opens `step` places after `current` (before it for
+// a negative step), over the hidden and unavailable ones and round from the
+// last to the first; `current` when no other opens. From a `current` not in
+// the strip, the first (or last) that opens.
+int OverlayTabStep(const std::vector<OverlayTabs::Tab>& tabs, int current, int step);
 
 // The overlay's layer: an ImGui window over the style's area (an empty one
 // meaning the whole display), transparent, in the overlay's style, with the

@@ -3,8 +3,9 @@
 // back, A and Enter on a row (its player's screen) and on its buttons, B and
 // Backspace (back, or close on a first screen), Escape, the tab keys (L1/R1,
 // L2/R2, Q/E, Ctrl+Tab), a click on a tab or beside the window, each tab's own
-// screens, Game options' switches and the frame's Done. No renderer: the
-// frames are built and thrown away.
+// screens, Game options' switches and the frame's Done; tabs from data (more
+// tabs, hidden and unavailable ones skipped, ids not places, badges) and the
+// strip from narrow to wide. No renderer: the frames are built and thrown away.
 
 #include "overlay/game_overlay.h"
 #include "overlay/overlay_prompt.h"
@@ -466,6 +467,105 @@ void TestFrameDone()
 }
 } // namespace
 
+// Tabs from data: more tabs between Online and Game options, the keys over
+// the hidden and unavailable ones and round, the host's switch by id, badges.
+void TestMoreTabs()
+{
+    const auto tab = [](int id, const char* label, bool available = true, bool hidden = false) {
+        GameOverlayMoreTab more;
+        more.tab.id = id;
+        more.tab.label = label;
+        more.tab.icon = mscharged::launcher::Icon::Trophy;
+        more.tab.available = available;
+        more.tab.hidden = hidden;
+        return more;
+    };
+    // The strip's own stepping.
+    std::vector<OverlayTabs::Tab> strip(4);
+    for (int n = 0; n < 4; ++n) strip[n].id = 10 + n;
+    strip[1].available = false;
+    strip[2].hidden = true;
+    CHECK(OverlayTabStep(strip, 10, 1) == 13 && OverlayTabStep(strip, 13, 1) == 10);
+    CHECK(OverlayTabStep(strip, 10, -1) == 13 && OverlayTabStep(strip, 13, -1) == 10);
+    CHECK(OverlayTabStep(strip, 99, 1) == 10 && OverlayTabStep(strip, 99, -1) == 13);
+    CHECK(OverlayTabOpens(strip, 10) && !OverlayTabOpens(strip, 11) && !OverlayTabOpens(strip, 12));
+    CHECK(!OverlayTabOpens(strip, 99));
+    strip[3].available = false;
+    CHECK(OverlayTabStep(strip, 10, 1) == 10); // nothing else opens
+
+    Harness h;
+    platform::ProfileMatch set;
+    set.id = 5;
+    set.state = "challenged";
+    set.side = "challenged";
+    set.stage = "invited";
+    set.opponent = Online(12, "Daisy");
+    set.opponent_online = true;
+    h.model.online = Model(set);
+    int drawn = 0;
+    h.model.more_tabs = {tab(100, "Ranked"), tab(101, "Tournaments", false), tab(102, "Events", true, true),
+                         tab(103, "Leaderboard")};
+    h.model.more_tabs[0].draw = [&drawn](const OverlayLayout&) { ++drawn; };
+    // Online first, Game options last, the more tabs between; Online's badge: the challenge.
+    const auto tabs = GameOverlayTabs(h.model);
+    CHECK(tabs.size() == 6 && tabs.front().id == int(OverlayTab::Online));
+    CHECK(tabs.back().id == int(OverlayTab::GameOptions) && tabs[1].id == 100 && tabs[4].id == 103);
+    CHECK(tabs.front().badge == 1 && tabs.back().badge == 0);
+    h.Open();
+    CHECK(h.state.Tab() == OverlayTab::Online && drawn == 0);
+    // The keys: Ranked (its page drawn), over Tournaments and Events to
+    // Leaderboard, Game options, round to Online, and back.
+    h.Press(ImGuiKey_E);
+    CHECK(int(h.state.Tab()) == 100 && drawn > 0);
+    h.Press(ImGuiKey_GamepadR1);
+    CHECK(int(h.state.Tab()) == 103);
+    h.Press(ImGuiKey_E);
+    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    h.Press(ImGuiKey_E);
+    CHECK(h.state.Tab() == OverlayTab::Online);
+    h.Press(ImGuiKey_Q);
+    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    h.Press(ImGuiKey_GamepadL1);
+    CHECK(int(h.state.Tab()) == 103);
+    // B on a more tab's only screen closes.
+    CHECK(h.Press(ImGuiKey_GamepadFaceRight).close);
+    // The host's keys open by id, wherever the tab stands; never one that doesn't open.
+    h.Open();
+    CHECK(h.state.Switch(OverlayTab::GameOptions) && h.state.Tab() == OverlayTab::GameOptions);
+    CHECK(!h.state.Switch(OverlayTab(101)) && h.state.Tab() == OverlayTab::GameOptions);
+    CHECK(!h.state.Switch(OverlayTab(102)) && !h.state.Switch(OverlayTab(555)));
+    h.Open(OverlayTab(101));
+    CHECK(h.state.Tab() == OverlayTab::Online);
+    h.Open(OverlayTab(103));
+    CHECK(int(h.state.Tab()) == 103);
+    // The open tab stops opening: the next that does. It goes: from the start.
+    h.model.more_tabs[3].tab.available = false;
+    h.Frame();
+    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    h.state.Switch(OverlayTab(100));
+    h.Frame();
+    CHECK(int(h.state.Tab()) == 100);
+    h.model.more_tabs.clear();
+    h.Frame();
+    CHECK(h.state.Tab() == OverlayTab::Online);
+
+    // Seven tabs, from a narrow window to a wide one, switching on every way
+    // (labels folding into icons as they need): each lands where it should.
+    h.model.more_tabs = {tab(100, "Ranked"), tab(101, "Tournaments"), tab(102, "Leaderboard"), tab(103, "Stats"),
+                         tab(104, "Replays")};
+    h.model.more_tabs[2].tab.badge = 12;
+    h.model.more_tabs[3].tab.dot = true;
+    for (const float width : {640.0f, 860.0f, 1280.0f, 1920.0f})
+    {
+        h.Frame([width](ImGuiIO& io) { io.DisplaySize = {width, width * 0.5625f}; });
+        h.Open();
+        for (int n = 0; n < 7; ++n) h.Press(ImGuiKey_E);
+        CHECK(h.state.Tab() == OverlayTab::Online);
+        h.Press(ImGuiKey_Q);
+        CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    }
+}
+
 int main()
 {
     TestScreens();
@@ -477,6 +577,7 @@ int main()
     TestLateLists();
     TestPrompt();
     TestFrameDone();
+    TestMoreTabs();
     if (failures)
     {
         std::fprintf(stderr, "%d overlay input checks failed\n", failures);

@@ -177,6 +177,10 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
                                       const std::optional<platform::ProfileMatch>& match,
                                       const OnlinePanelContext& context);
 
+// What waits for the player in the panel: a challenge to answer, their Ready
+// to give for a set. The overlay's Online tab shows it as a badge.
+int OnlinePanelWaiting(const OnlinePanelModel& model);
+
 // The row of `key` in the lists (or the set's opponent), for a player's screen; null when gone.
 const OnlinePanelRow* FindRow(const OnlinePanelModel& model, const std::string& key);
 

@@ -129,12 +129,71 @@ void Slanted(ImVec2 out[4], ImVec2 min, ImVec2 max, float slant)
     out[3] = {min.x - slant, max.y};
 }
 
+// A tab's badge: its count in a red pill, or a dot; 0 for none.
+float BadgeWidth(const launcher::Fonts& fonts, const OverlayTabs::Tab& tab)
+{
+    if (tab.badge > 0)
+    {
+        const std::string text = tab.badge > 9 ? "9+" : std::to_string(tab.badge);
+        return std::max(Dp(18), TextSize(fonts.caption, text.c_str()).x + Dp(10));
+    }
+    return tab.dot ? Dp(9) : 0.0f;
+}
+
+// The badge centred on `center`, ringed in the bar's dark so that it stands
+// out on the open tab's block too; `alpha` fades it with a dimmed tab.
+void DrawBadge(ImDrawList* draw, const launcher::Fonts& fonts, ImVec2 center, const OverlayTabs::Tab& tab,
+               float alpha)
+{
+    const float width = BadgeWidth(fonts, tab);
+    if (width <= 0.0f) return;
+    const float height = tab.badge > 0 ? Dp(18) : Dp(9), ring = Dp(2);
+    const ImVec2 min{center.x - width * 0.5f, center.y - height * 0.5f};
+    const ImVec2 max{center.x + width * 0.5f, center.y + height * 0.5f};
+    draw->AddRectFilled({min.x - ring, min.y - ring}, {max.x + ring, max.y + ring}, Col(color::window, 0.92f * alpha),
+                        height * 0.5f + ring);
+    const ImVec4 top = Mix(color::danger, ImVec4{1, 1, 1, 1}, 0.18f);
+    const int start = draw->VtxBuffer.Size;
+    draw->AddRectFilled(min, max, IM_COL32_WHITE, height * 0.5f);
+    ShadeVertical(draw, start, min.y, max.y, ImVec4{top.x, top.y, top.z, alpha},
+                  ImVec4{color::danger.x, color::danger.y, color::danger.z, alpha});
+    if (tab.badge <= 0) return;
+    const std::string text = tab.badge > 9 ? "9+" : std::to_string(tab.badge);
+    const ImVec2 size = TextSize(fonts.caption, text.c_str());
+    DrawLabel(draw, fonts.caption, {center.x - size.x * 0.5f, center.y - FontSize(fonts.caption) * 0.5f},
+              Col(ImVec4{1, 1, 1, 1}, alpha), text.c_str());
+}
+
+// How the strip draws its tabs: the first of these that fits the bar.
+struct TabLook
+{
+    ImFont* font;
+    float tracking, icon, gap, pad;
+    bool icons;    // the tabs other than the open one show their icon alone
+    bool all_keys; // every key at the ends, else the first of each (L1, R1)
+    bool no_icons = false; // the labels alone
+};
+
+// Where a tab sits in the bar.
+struct TabCell
+{
+    float x = 0.0f, width = 0.0f;
+    float content = 0.0f; // its icon, label and badge side by side (the label in capitals)
+    float label = 0.0f;   // the label's width, 0 for none
+    // With icons for the others: its width as an icon and with its label.
+    float folded = 0.0f, unfolded = 0.0f;
+};
+
 // The tabs: a bar of frosted glass across the top of the window, the tabs
-// spread evenly over it in tracked capitals, the open one a slanted block of
-// the accent with a glow, a sheen and a bright contour, sliding to the tab
+// over it in tracked capitals with their icons, the open one a slanted block
+// of the accent with a glow, a sheen and a bright contour, sliding to the tab
 // opened; at its ends the keys that switch them; a line of the accent under
-// it. For the mouse (the keys switch them). Its height.
-float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayTabs& tabs, float top)
+// it. Few tabs share the bar in equal parts; more take their own widths, in
+// smaller letters; when they don't fit, the open tab keeps its label and the
+// others show their icon (their label under the mouse); narrower still, all
+// of them their icon alone (`named` false: the open tab doesn't show its
+// name). For the mouse (the keys switch them). Its height.
+float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayTabs& tabs, float top, bool& named)
 {
     auto* draw = ImGui::GetWindowDrawList();
     const float height = Dp(58), rounding = Dp(22), line = Dp(2);
@@ -151,52 +210,214 @@ float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayT
     }
     const float middle = top + height * 0.5f;
 
-    // The keys at both ends: the previous tab's at the left, the next's at the right.
-    const auto caps = [&](const std::vector<std::string>& keys) {
+    // The tabs in the strip, and which of them is open.
+    std::vector<const OverlayTabs::Tab*> shown;
+    int open = -1;
+    for (const auto& tab : tabs.tabs)
+    {
+        if (tab.hidden) continue;
+        if (tab.id == tabs.current) open = int(shown.size());
+        shown.push_back(&tab);
+    }
+    const int count = int(shown.size());
+    std::vector<std::string> labels(shown.size());
+    for (int n = 0; n < count; ++n)
+    {
+        labels[n] = shown[n]->label;
+        for (auto& c : labels[n]) c = char(std::toupper(static_cast<unsigned char>(c)));
+    }
+
+    // The keys at the ends (none for a single tab): their width, all or the first.
+    const auto caps = [&](const std::vector<std::string>& keys, bool all) {
         float width = 0.0f;
-        for (const auto& key : keys) width += KeyCapWidth(fonts, key.c_str()) + Dp(5);
+        for (std::size_t k = 0; k < keys.size() && (all || k == 0); ++k)
+            width += KeyCapWidth(fonts, keys[k].c_str()) + Dp(5);
         return keys.empty() ? 0.0f : width - Dp(5);
     };
-    const float edge = Dp(26);
-    const float left_keys = caps(style.previous_tab_keys), right_keys = caps(style.next_tab_keys);
-    const float ends = std::max(left_keys, right_keys) + Dp(18);
-    float kx = bar_min.x + edge;
-    for (const auto& key : style.previous_tab_keys)
+    const float edge = Dp(20), chevron = Dp(14), clear = Dp(14);
+    const auto ends = [&](bool all) {
+        if (count < 2) return Dp(4);
+        return std::max(caps(style.previous_tab_keys, all), caps(style.next_tab_keys, all)) + chevron + clear;
+    };
+
+    // The first look that fits, and the tabs' cells in it.
+    const TabLook looks[] = {
+        {fonts.heading, Dp(1.8f), Dp(19), Dp(10), Dp(22), false, true},
+        {fonts.label, Dp(1.3f), Dp(17), Dp(8), Dp(15), false, true},
+        {fonts.label, Dp(1.3f), Dp(17), Dp(8), Dp(15), false, false},
+        {fonts.label, Dp(1.2f), 0.0f, 0.0f, Dp(16), false, false, true},
+        {fonts.label, Dp(1.3f), Dp(20), Dp(8), Dp(15), true, true},
+        {fonts.label, Dp(1.3f), Dp(20), Dp(8), Dp(15), true, false},
+    };
+    const float icon_cell = Dp(54), icon_cell_min = Dp(46), equal_cap = Dp(300);
+    TabLook look = looks[std::size(looks) - 1];
+    std::vector<TabCell> cells(shown.size());
+    float x0 = 0.0f, x1 = 0.0f;
+    bool fits = false;
+    for (const TabLook& candidate : looks)
     {
-        DrawKeyCap(fonts, draw, {kx, middle - Dp(11)}, key.c_str(), 0.0f);
-        kx += KeyCapWidth(fonts, key.c_str()) + Dp(5);
+        x0 = bar_min.x + edge + ends(candidate.all_keys);
+        x1 = bar_max.x - edge - ends(candidate.all_keys);
+        const float room = x1 - x0;
+        float widest = 0.0f, total = 0.0f;
+        for (int n = 0; n < count; ++n)
+        {
+            const OverlayTabs::Tab& tab = *shown[n];
+            TabCell& cell = cells[n];
+            cell.label = launcher::TrackedWidth(candidate.font, labels[n].c_str(), candidate.tracking);
+            const float badge = BadgeWidth(fonts, tab);
+            const float icon = tab.icon == Icon::None || candidate.no_icons ? 0.0f : candidate.icon;
+            cell.content = icon + (icon > 0.0f && cell.label > 0.0f ? candidate.gap : 0.0f) + cell.label
+                + (badge > 0.0f ? (tab.badge > 0 ? Dp(8) : Dp(3)) + badge : 0.0f);
+            cell.unfolded = cell.content + 2 * candidate.pad;
+            cell.folded = candidate.icons && tab.icon != Icon::None ? icon_cell : cell.unfolded;
+            cell.width = n == open ? cell.unfolded : cell.folded;
+            widest = std::max(widest, cell.width);
+            total += cell.width;
+        }
+        if (!candidate.icons && widest * float(count) <= room)
+        {
+            // Equal parts, as wide as the widest needs (a few tabs share the bar).
+            const float part = std::min(room / float(std::max(1, count)), std::max(widest, equal_cap));
+            for (auto& cell : cells) cell.width = cell.folded = cell.unfolded = part;
+        }
+        else if (total > room) continue;
+        else
+        {
+            // Their own widths, and what is left spread over them.
+            const float spread = std::min((room - total) / float(std::max(1, count)), Dp(candidate.icons ? 36 : 60));
+            for (auto& cell : cells)
+            {
+                cell.width += spread;
+                cell.folded += spread;
+                cell.unfolded += spread;
+            }
+        }
+        look = candidate;
+        fits = true;
+        break;
     }
-    kx = bar_max.x - edge - right_keys;
-    for (const auto& key : style.next_tab_keys)
+    // Narrower than even that: the icons closer (down to a minimum) beside
+    // the open tab's label; without room for that label, icons alone (in
+    // equal parts), and the page says its name in its title line.
+    bool named_room = true;
+    if (!fits)
     {
-        DrawKeyCap(fonts, draw, {kx, middle - Dp(11)}, key.c_str(), 0.0f);
-        kx += KeyCapWidth(fonts, key.c_str()) + Dp(5);
+        const float room = x1 - x0;
+        const float own = open >= 0 ? cells[open].unfolded : icon_cell;
+        const float others =
+            count > 1 ? std::clamp((room - own) / float(count - 1), icon_cell_min, icon_cell) : 0.0f;
+        named_room = own + others * float(count - 1) <= room;
+        for (int n = 0; n < count; ++n)
+            if (shown[n]->icon == Icon::None) named_room = true; // a tab without an icon needs its label
+        const float wide = named_room ? own : others;
+        const float spread = std::max(0.0f, room - wide - others * float(count - 1)) / float(std::max(1, count));
+        for (int n = 0; n < count; ++n)
+        {
+            cells[n].folded = (shown[n]->icon != Icon::None ? others : cells[n].unfolded) + spread;
+            cells[n].unfolded = (named_room ? wide : others) + spread;
+            cells[n].width = n == open ? cells[n].unfolded : cells[n].folded;
+        }
+    }
+    named = named_room && open >= 0;
+
+    // With icons for the others, the open tab's label grows out of its icon
+    // and the one it leaves folds into its icon (a tenth of a second).
+    std::vector<float> unfold(shown.size(), named_room ? 1.0f : 0.0f);
+    if (named_room && (look.icons || !fits))
+    {
+        float total = 0.0f;
+        for (int n = 0; n < count; ++n)
+        {
+            ImGui::PushID(shown[n]->id);
+            float& value = *ImGui::GetStateStorage()->GetFloatRef(ImGui::GetID("##overlay_tab_unfold"), 0.0f);
+            ImGui::PopID();
+            const float target = n == open ? 1.0f : 0.0f;
+            if (ImGui::IsWindowAppearing()) value = target;
+            value += (target - value) * (1.0f - std::exp(-ImGui::GetIO().DeltaTime * 20.0f));
+            if (std::fabs(target - value) < 0.002f) value = target;
+            unfold[n] = cells[n].folded < cells[n].unfolded ? value : 1.0f;
+            cells[n].width = cells[n].folded + (cells[n].unfolded - cells[n].folded) * unfold[n];
+            total += cells[n].width;
+        }
+        // Folding and unfolding at once, the bar may hold a little more for a moment.
+        if (total > x1 - x0)
+            for (auto& cell : cells) cell.width *= (x1 - x0) / total;
+    }
+    {
+        float total = 0.0f;
+        for (const auto& cell : cells) total += cell.width;
+        float x = (x0 + x1 - total) * 0.5f;
+        for (auto& cell : cells)
+        {
+            cell.x = x;
+            x += cell.width;
+        }
     }
 
-    // The tabs, each an equal share of the bar between the keys.
-    const std::size_t count = std::max<std::size_t>(1, tabs.tabs.size());
-    const float x0 = bar_min.x + edge + ends, x1 = bar_max.x - edge - ends;
-    const float cell = (x1 - x0) / float(count);
-    const float inset_y = Dp(9), slant = Dp(9), pad = Dp(6), tracking = Dp(1.8f);
+    // The keys at both ends, with a chevron towards the tabs: the previous
+    // tab's at the left, the next's at the right.
+    if (count >= 2)
+    {
+        float kx = bar_min.x + edge;
+        for (std::size_t k = 0; k < style.previous_tab_keys.size() && (look.all_keys || k == 0); ++k)
+        {
+            const char* key = style.previous_tab_keys[k].c_str();
+            DrawKeyCap(fonts, draw, {kx, middle - Dp(11)}, key, 0.0f);
+            kx += KeyCapWidth(fonts, key) + Dp(5);
+        }
+        const float arm = Dp(4.5f);
+        const ImU32 ink = Col(color::muted, 0.75f);
+        {
+            const float cx = kx - Dp(5) + Dp(6) + chevron * 0.5f;
+            const ImVec2 left[] = {
+                {cx + arm * 0.5f, middle - arm}, {cx - arm * 0.5f, middle}, {cx + arm * 0.5f, middle + arm}};
+            draw->AddPolyline(left, 3, ink, 0, Dp(1.6f));
+        }
+        const float right_keys = caps(style.next_tab_keys, look.all_keys);
+        kx = bar_max.x - edge - right_keys;
+        {
+            const float cx = kx - Dp(6) - chevron * 0.5f;
+            const ImVec2 right[] = {
+                {cx - arm * 0.5f, middle - arm}, {cx + arm * 0.5f, middle}, {cx - arm * 0.5f, middle + arm}};
+            draw->AddPolyline(right, 3, ink, 0, Dp(1.6f));
+        }
+        for (std::size_t k = 0; k < style.next_tab_keys.size() && (look.all_keys || k == 0); ++k)
+        {
+            const char* key = style.next_tab_keys[k].c_str();
+            DrawKeyCap(fonts, draw, {kx, middle - Dp(11)}, key, 0.0f);
+            kx += KeyCapWidth(fonts, key) + Dp(5);
+        }
+    }
+
+    const float inset_y = Dp(9), slant = Dp(9), pad = Dp(5);
     // Where the open tab's block is, in tabs: it slides to the tab opened
     // (eased out, about a tenth of a second); in place as the overlay appears.
-    float* slide = ImGui::GetStateStorage()->GetFloatRef(ImGui::GetID("##overlay_tab_slide"), float(tabs.current));
-    if (ImGui::IsWindowAppearing()) *slide = float(tabs.current);
-    *slide += (float(tabs.current) - *slide) * (1.0f - std::exp(-ImGui::GetIO().DeltaTime * 24.0f));
-    if (std::fabs(*slide - float(tabs.current)) < 0.002f) *slide = float(tabs.current);
+    float* slide = ImGui::GetStateStorage()->GetFloatRef(ImGui::GetID("##overlay_tab_slide"), float(std::max(0, open)));
+    if (ImGui::IsWindowAppearing() || open < 0) *slide = float(std::max(0, open));
+    *slide = std::clamp(*slide, 0.0f, float(std::max(0, count - 1)));
+    if (open >= 0)
+    {
+        *slide += (float(open) - *slide) * (1.0f - std::exp(-ImGui::GetIO().DeltaTime * 24.0f));
+        if (std::fabs(*slide - float(open)) < 0.002f) *slide = float(open);
+    }
 
     // The open tab's block: its glow, its gradient, a sheen on its upper
-    // half, its contour.
+    // half, its contour; between two cells while it slides.
+    if (open >= 0 && count > 0)
     {
+        const int a = std::clamp(int(std::floor(*slide)), 0, count - 1), b = std::min(a + 1, count - 1);
+        const float t = *slide - float(a);
+        const float bx = cells[a].x + (cells[b].x - cells[a].x) * t;
+        const float bw = cells[a].width + (cells[b].width - cells[a].width) * t;
         ImVec2 block[4];
-        const float bx = x0 + cell * *slide;
-        Slanted(block, {bx + pad, top + inset_y}, {bx + cell - pad, top + height - inset_y}, slant);
+        Slanted(block, {bx + pad, top + inset_y}, {bx + bw - pad, top + height - inset_y}, slant);
         for (int i = 3; i >= 1; --i)
         {
             const float grow = Dp(2.5f * float(i));
             ImVec2 glow[4];
             Slanted(glow, {bx + pad - grow, top + inset_y - grow * 0.6f},
-                    {bx + cell - pad + grow, top + height - inset_y + grow * 0.6f}, slant);
+                    {bx + bw - pad + grow, top + height - inset_y + grow * 0.6f}, slant);
             draw->AddConvexPolyFilled(glow, 4, Col(color::accent, 0.07f * float(4 - i)));
         }
         int start = draw->VtxBuffer.Size;
@@ -204,22 +425,27 @@ float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayT
         ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, block[3], block[1],
                                                       Col(color::accent_hi), Col(color::accent));
         const float half = top + height * 0.5f;
-        const ImVec2 sheen[4] = {block[0], block[1], {bx + cell - pad, half}, {bx + pad, half}};
+        const ImVec2 sheen[4] = {block[0], block[1], {bx + bw - pad, half}, {bx + pad, half}};
         start = draw->VtxBuffer.Size;
         draw->AddConvexPolyFilled(sheen, 4, IM_COL32_WHITE);
         ShadeVertical(draw, start, block[0].y, half, ImVec4{1, 1, 1, 0.30f}, ImVec4{1, 1, 1, 0.0f});
         draw->AddPolyline(block, 4, Col(Mix(color::accent_hi, ImVec4{1, 1, 1, 1}, 0.55f), 0.85f),
                           ImDrawFlags_Closed, Dp(1));
     }
-    for (std::size_t n = 0; n < tabs.tabs.size(); ++n)
+
+    for (int n = 0; n < count; ++n)
     {
-        const bool selected = int(n) == tabs.current;
-        const ImVec2 at{x0 + cell * float(n), top + inset_y}, max{x0 + cell * float(n + 1), top + height - inset_y};
-        ImGui::PushID(int(n));
+        const OverlayTabs::Tab& tab = *shown[n];
+        const TabCell& cell = cells[n];
+        const bool selected = n == open;
+        const ImVec2 at{cell.x, top + inset_y}, max{cell.x + cell.width, top + height - inset_y};
+        ImGui::PushID(tab.id);
         ImGui::SetCursorScreenPos(at);
-        if (ImGui::InvisibleButton("##overlay_tab", {max.x - at.x, max.y - at.y}) && !selected) tabs.clicked = int(n);
+        if (ImGui::InvisibleButton("##overlay_tab", {std::max(1.0f, max.x - at.x), max.y - at.y}) && !selected
+            && tab.available)
+            tabs.clicked = tab.id;
         const bool hovered = ImGui::IsItemHovered();
-        const float hover = launcher::Animate(ImGui::GetID("##hover"), hovered && !selected, 12.0f);
+        const float hover = launcher::Animate(ImGui::GetID("##hover"), hovered && !selected && tab.available, 12.0f);
         ImGui::PopID();
         // Lit as much as the block covers it.
         const float lit = std::clamp(1.0f - std::fabs(*slide - float(n)), 0.0f, 1.0f);
@@ -230,13 +456,61 @@ float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayT
             draw->AddConvexPolyFilled(quad, 4, Col(color::text, 0.05f * hover * (1.0f - lit)));
             draw->AddPolyline(quad, 4, Col(color::text, 0.14f * hover * (1.0f - lit)), ImDrawFlags_Closed, Dp(1));
         }
-        std::string label = tabs.tabs[n].label;
-        for (auto& c : label) c = char(std::toupper(static_cast<unsigned char>(c)));
-        const float text_w = launcher::TrackedWidth(fonts.heading, label.c_str(), tracking);
-        const ImU32 ink = Col(Mix(Mix(color::muted, color::text, hover), color::accent_ink, lit));
-        launcher::DrawTracked(draw, fonts.heading,
-                              {(at.x + max.x - text_w) * 0.5f, middle - FontSize(fonts.heading) * 0.5f}, ink,
-                              label.c_str(), tracking);
+        // Not available: in the dim of things that can't be used, fainter.
+        const float alpha = tab.available ? 1.0f : 0.6f;
+        const ImVec4 base = tab.available ? Mix(color::muted, color::text, hover) : color::dim;
+        const ImU32 ink = Col(Mix(base, color::accent_ink, lit), alpha);
+        // Its icon, its label (unfolding with icons for the others), its badge.
+        const float shows = unfold[n];
+        const float icon = tab.icon == Icon::None || look.no_icons ? 0.0f : look.icon;
+        const float rest = cell.content - icon;
+        const float content = icon + rest * shows;
+        // In the middle of its cell; from its left where it doesn't fit (its label cut short).
+        const float inner = Dp(12);
+        float x = std::max(cell.x + inner, cell.x + (cell.width - content) * 0.5f);
+        if (icon > 0.0f)
+        {
+            DrawIcon(draw, tab.icon, {x + icon * 0.5f, middle}, icon, ink);
+            x += icon + (cell.label > 0.0f ? look.gap : 0.0f) * shows;
+        }
+        const float badge = BadgeWidth(fonts, tab);
+        if (shows > 0.01f && cell.label > 0.0f)
+        {
+            // Cut to what has unfolded (renderers clip in whole pixels: a
+            // little more, and nothing once it all shows).
+            const bool cut = shows < 0.999f || x + cell.label > max.x - inner;
+            if (cut)
+                draw->PushClipRect({std::max(at.x + Dp(2), x - Dp(1)), at.y},
+                                   {std::min(max.x - inner, x + cell.label * shows + Dp(1)), max.y}, true);
+            const float text_y = middle - FontSize(look.font) * 0.5f;
+            launcher::DrawTracked(draw, look.font, {x, text_y},
+                                  Col(Mix(base, color::accent_ink, lit),
+                                      alpha * std::clamp(shows * 1.4f - 0.4f, 0.0f, 1.0f)),
+                                  labels[n].c_str(), look.tracking);
+            if (cut) draw->PopClipRect();
+            x += cell.label * shows;
+        }
+        if (badge > 0.0f)
+        {
+            if (shows > 0.5f && cell.label > 0.0f)
+                // After the label: a count beside it, a dot up at its top.
+                DrawBadge(draw, fonts,
+                          tab.badge > 0 ? ImVec2{x + Dp(8) + badge * 0.5f, middle}
+                                        : ImVec2{x + Dp(3) + badge * 0.5f, middle - FontSize(look.font) * 0.30f},
+                          tab, alpha);
+            else
+                // Folded into its icon: on the icon's upper right corner, mostly beside it.
+                DrawBadge(draw, fonts,
+                          {cell.x + (cell.width + icon) * 0.5f + badge * 0.5f - Dp(4), middle - icon * 0.5f + Dp(1)},
+                          tab, alpha);
+        }
+        // Under the mouse: the label where only the icon shows, and why a tab doesn't open.
+        if (hovered && ((shows < 0.5f && !labels[n].empty()) || (!tab.available && !tab.hint.empty())))
+        {
+            std::string tip = tab.label;
+            if (!tab.available && !tab.hint.empty()) tip += (tip.empty() ? "" : ": ") + tab.hint;
+            ImGui::SetTooltip("%s", tip.c_str());
+        }
     }
     // The accent line under the bar, with a faint glow below it.
     draw->AddRectFilled({bar_min.x + Dp(1), bar_max.y - line}, {bar_max.x - Dp(1), bar_max.y},
@@ -248,6 +522,36 @@ float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayT
     return height;
 }
 } // namespace
+
+// ------------------------------------------------------------------ tabs
+
+bool OverlayTabOpens(const std::vector<OverlayTabs::Tab>& tabs, int id)
+{
+    for (const auto& tab : tabs)
+        if (tab.id == id) return !tab.hidden && tab.available;
+    return false;
+}
+
+int OverlayTabStep(const std::vector<OverlayTabs::Tab>& tabs, int current, int step)
+{
+    const int count = int(tabs.size());
+    if (count == 0 || step == 0) return current;
+    int at = -1;
+    for (int n = 0; n < count; ++n)
+        if (tabs[n].id == current) at = n;
+    // From outside the strip, the first step lands on the first (or last) tab.
+    if (at < 0) at = step > 0 ? count - 1 : 0;
+    const int direction = step > 0 ? 1 : -1;
+    int left = std::abs(step);
+    for (int n = 1; n <= count; ++n)
+    {
+        const OverlayTabs::Tab& tab = tabs[((at + direction * n) % count + count) % count];
+        if (tab.hidden || !tab.available) continue;
+        if (tab.id == current) break;
+        if (--left == 0) return tab.id;
+    }
+    return current;
+}
 
 // ------------------------------------------------------------------ screens
 
@@ -562,11 +866,13 @@ OverlayLayout BeginOverlay(const OverlayStyle& style, OverlayScreens& screens, c
     OverlayGlass(draw, g.window_min, g.window_max, Dp(22), eased, color::accent);
 
     // The tabs, then the title line: the back arrow (from the second screen
-    // on) and the title. With tabs, a tab's first screen has no title line.
+    // on) and the title. With tabs, a tab's first screen has no title line
+    // (its tab names it), unless the tabs are too narrow to show its name.
     const float pad = Dp(28);
     float top = g.window_min.y;
-    if (tabs && !tabs->tabs.empty()) top += DrawTabs(style, fonts, *tabs, top);
-    if (!tabs || tabs->tabs.empty() || screens.CanGoBack())
+    bool named = false;
+    if (tabs && !tabs->tabs.empty()) top += DrawTabs(style, fonts, *tabs, top, named);
+    if (!tabs || tabs->tabs.empty() || screens.CanGoBack() || !named)
     {
         const float header = tabs && !tabs->tabs.empty() ? Dp(58) : Dp(68);
         float x = g.window_min.x + pad;

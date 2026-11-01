@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <cmath>
 #include <utility>
+#include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <iostream>
@@ -105,6 +107,38 @@ ProfileMatch Set(const ProfilePlayer& opponent, const char* state, const char* s
     set.rules.tweaks = {"fast_terrain", "no_mega_strikes"};
     return set;
 }
+// A tab to come, for "preview-tabs": its page is a placeholder.
+overlay::GameOverlayMoreTab MoreTab(int id, const char* label, Icon icon, int badge = 0, bool dot = false)
+{
+    overlay::GameOverlayMoreTab more;
+    more.tab.id = id;
+    more.tab.label = label;
+    more.tab.icon = icon;
+    more.tab.badge = badge;
+    more.tab.dot = dot;
+    more.draw = [label = std::string(label), icon](const overlay::OverlayLayout& layout) {
+        auto* draw = ImGui::GetWindowDrawList();
+        const Fonts& fonts = CurrentFonts();
+        const ImVec2 center{(layout.min.x + layout.max.x) * 0.5f, (layout.min.y + layout.max.y) * 0.5f - Dp(20)};
+        draw->AddCircleFilled(center, Dp(44), Col(color::text, 0.05f));
+        draw->AddCircle(center, Dp(44), Col(color::border), 0, Dp(1));
+        DrawIcon(draw, icon, center, Dp(40), Col(color::muted));
+        const ImVec2 title = TextSize(fonts.heading, label.c_str());
+        DrawLabel(draw, fonts.heading, {center.x - title.x * 0.5f, center.y + Dp(62)}, Col(color::text),
+                  label.c_str());
+        const char* note = "A tab to come: an empty page, in the launcher's preview only.";
+        const ImVec2 size = TextSize(fonts.caption, note);
+        DrawLabel(draw, fonts.caption, {center.x - size.x * 0.5f, center.y + Dp(94)}, Col(color::dim), note);
+    };
+    return more;
+}
+
+// A label as RECHARGED_CAPTURE_TAB names it: in small letters, a dash for a space.
+std::string Slug(std::string text)
+{
+    for (auto& c : text) c = c == ' ' ? '-' : char(std::tolower(static_cast<unsigned char>(c)));
+    return text;
+}
 } // namespace
 
 OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : capture_(capture)
@@ -114,11 +148,24 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     const auto now = std::int64_t(std::time(nullptr));
     // The window of a 1280x720 game (a small one for "preview-narrow"), at
     // the launcher's scale.
+    // RECHARGED_CAPTURE_SIZE=WxH: a game window of that size.
+    int game_width = 0, game_height = 0;
+    if (const char* size = std::getenv("RECHARGED_CAPTURE_SIZE"))
+        if (std::sscanf(size, "%dx%d", &game_width, &game_height) != 2 || game_width < 320 || game_height < 240)
+            game_width = game_height = 0;
     if (SDL_Window* window = renderer ? SDL_GetRenderWindow(renderer) : nullptr)
     {
         const bool narrow = mode_.size() >= 7 && mode_.compare(mode_.size() - 7, 7, "-narrow") == 0;
-        SDL_SetWindowSize(window, int(std::lround((narrow ? 860.0f : 1280.0f) * UiScale())),
-                          int(std::lround((narrow ? 640.0f : 720.0f) * UiScale())));
+        if (game_height > 0)
+        {
+            // Smaller than the launcher lets its window be, as a game's may be.
+            SDL_SetWindowMinimumSize(window, 0, 0);
+            SDL_SetWindowSize(window, game_width, game_height);
+            game_height_ = float(game_height);
+        }
+        else
+            SDL_SetWindowSize(window, int(std::lround((narrow ? 860.0f : 1280.0f) * UiScale())),
+                              int(std::lround((narrow ? 640.0f : 720.0f) * UiScale())));
     }
     struct Look
     {
@@ -195,7 +242,8 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         match_->you_ready = match_->opponent_ready = true;
         context_.score = overlay::OnlinePanelContext::Score{1, 0};
     }
-    else if (mode_ == "preview-invite") match_ = Set(peach, "challenged", "challenged", "invited");
+    else if (mode_ == "preview-invite" || mode_.rfind("preview-tabs", 0) == 0)
+        match_ = Set(peach, "challenged", "challenged", "invited");
     else if (mode_ == "preview-waiting") match_ = Set(shy, "challenged", "challenger", "invited");
     else if (mode_ == "preview-ready")
     {
@@ -222,8 +270,32 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     // Some options on, as a player might have them.
     for (const GameTweak tweak : {GameTweak::FastTerrain, GameTweak::NoMegaStrikes, GameTweak::FastMenus})
         options_.tweaks[GameTweakIndex(tweak)] = true;
-    state_.Open(mode_.rfind("preview-options", 0) == 0 ? overlay::OverlayTab::GameOptions
-                                                         : overlay::OverlayTab::Online);
+    // Tabs to come, with made-up badges (ids from 100: never the game's).
+    if (mode_.rfind("preview-tabs", 0) == 0)
+    {
+        more_tabs_ = {MoreTab(100, "Ranked", Icon::Medal, 0, true), MoreTab(101, "Tournaments", Icon::Bracket, 2),
+                      MoreTab(102, "Leaderboard", Icon::Podium)};
+        if (mode_.rfind("preview-tabs-max", 0) == 0)
+        {
+            more_tabs_.push_back(MoreTab(103, "Stats", Icon::Target));
+            more_tabs_.push_back(MoreTab(104, "Replays", Icon::Play));
+            more_tabs_.back().tab.available = false;
+            more_tabs_.back().tab.hint = "Coming later";
+            more_tabs_.push_back(MoreTab(105, "Events", Icon::Trophy));
+            more_tabs_.back().tab.hidden = true;
+        }
+    }
+    {
+        overlay::GameOverlayModel tabs;
+        tabs.more_tabs = more_tabs_;
+        state_.tabs = overlay::GameOverlayTabs(tabs);
+    }
+    overlay::OverlayTab first =
+        mode_.rfind("preview-options", 0) == 0 ? overlay::OverlayTab::GameOptions : overlay::OverlayTab::Online;
+    if (const char* tab = std::getenv("RECHARGED_CAPTURE_TAB"))
+        for (const auto& entry : state_.tabs)
+            if (Slug(entry.label) == Slug(tab)) first = overlay::OverlayTab(entry.id);
+    state_.Open(first);
     if (mode_ == "preview-player" || mode_ == "preview-player-mii")
     {
         const bool mii = mode_ == "preview-player-mii";
@@ -313,13 +385,24 @@ void OnlinePanelPreview::Draw(ImVec2 size, ImTextureID art_back, ImTextureID art
     overlay::GameOverlayModel model;
     model.online = overlay::MakeOnlinePanelModel(lists_, match_, context_);
     model.options = options_;
+    model.more_tabs = more_tabs_;
     overlay::GameOverlayStyle style;
     style.unit = UiScale();
     style.fonts = CurrentFonts();
     style.appear = appear_;
     style.image = [this](const std::string& key) { return Avatar(key); };
+    // A game window's size: the game's scale for it (its height / 720), the
+    // launcher's fonts scaled to it.
+    ImGuiIO& io = ImGui::GetIO();
+    const float font_scale = io.FontGlobalScale;
+    if (game_height_ > 0.0f)
+    {
+        style.unit = std::clamp(game_height_ / 720.0f, 0.5f, 4.0f);
+        io.FontGlobalScale = font_scale * style.unit / UiScale();
+    }
     overlay::GameOverlayActions actions;
     overlay::DrawGameOverlay(model, state_, actions, style);
+    io.FontGlobalScale = font_scale;
     if (actions.Any()) Apply(actions);
 }
 
