@@ -15,26 +15,17 @@ using namespace std::chrono_literals;
 
 namespace
 {
-// How often the page asks for news: the current set (a challenge, the other
-// player's answer and readiness, the result; as often as the server says,
-// this by default), the lobby's lists, the player (friend codes the game
-// proved), and the server while it does not answer. Every call is also the
-// player's heartbeat: a set lasts while both have Recharged open.
+// How often the launcher asks for news: the current set (a challenge, the
+// other player's answer and readiness, the result; as often as the server
+// says, this by default), which Discord friends play Recharged, the player
+// (friend codes the game proved), and the server while it does not answer.
+// Every call is also the player's heartbeat: a set lasts while both have
+// Recharged open, and only a player with Recharged open can be challenged.
 constexpr auto kMatchPoll = 4s;
-constexpr auto kListsPoll = 5s;
+constexpr auto kDiscordPoll = 30s;
 // The leaderboards, while their page is shown (it says so every frame).
 constexpr auto kLeaderboardPoll = 60s;
 constexpr auto kLeaderboardShown = 2s;
-// An open conversation is followed closely.
-constexpr auto kChatPoll = 2s;
-
-// A message in id order, once: the next fetch brings this launcher's own again.
-void AddMessage(std::vector<platform::ChatMessage>& messages, platform::ChatMessage message)
-{
-    const auto at = std::lower_bound(messages.begin(), messages.end(), message.id,
-                                     [](const platform::ChatMessage& kept, std::int64_t id) { return kept.id < id; });
-    if (at == messages.end() || at->id != message.id) messages.insert(at, std::move(message));
-}
 constexpr auto kPlayerPoll = 60s;
 constexpr auto kRetry = 15s;
 // The Discord friends looked up with the lists, at most this many, as many
@@ -241,16 +232,6 @@ void CompetitiveService::Signed(ProfileService& api, const std::string& token, c
     const auto sets = api.RuleSets();
     int interval = 0;
     const auto match = api.CurrentMatch(&interval);
-    platform::PlayerLists lists;
-    try
-    {
-        lists = api.Players();
-    }
-    catch (const ProfileError& e)
-    {
-        // A server before sets has no lists.
-        if (e.Status() != 404) throw;
-    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (running_ != generation_) return;
     platform::SaveProfileSession(session_file_, {api.Server(), token, player.name});
@@ -260,13 +241,12 @@ void CompetitiveService::Signed(ProfileService& api, const std::string& token, c
     status_.player = player;
     status_.rule_sets = sets;
     status_.match = match;
-    status_.lists = lists;
     status_.code.clear();
     status_.url.clear();
     status_.error.clear();
     ++status_.serial;
     next_me_ = Clock::now() + kPlayerPoll;
-    next_lists_ = Clock::now() + kListsPoll;
+    next_discord_ = Clock::now();
     next_poll_ = Clock::now() + (interval ? std::chrono::seconds(interval) : kMatchPoll);
 }
 
@@ -274,13 +254,13 @@ void CompetitiveService::Poll(ProfileService& api)
 {
     State state;
     std::string id;
-    bool me, lists;
+    bool me, discord_due;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         state = status_.state;
         id = sign_in_id_;
         me = Clock::now() >= next_me_;
-        lists = Clock::now() >= next_lists_;
+        discord_due = Clock::now() >= next_discord_;
         next_poll_ = Clock::now() + (state == State::SigningIn ? std::chrono::seconds(poll_interval_) : kMatchPoll);
     }
     if (state == State::Unavailable)
@@ -333,31 +313,10 @@ void CompetitiveService::Poll(ProfileService& api)
     const auto match = api.CurrentMatch(&interval);
     std::optional<platform::ProfilePlayer> player;
     if (me) player = api.Me();
-    // The open conversation: its new messages.
-    std::int64_t chat_with = 0, chat_after = 0;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (status_.chat.with && Clock::now() >= next_chat_)
-        {
-            chat_with = status_.chat.with;
-            chat_after = chat_seen_;
-        }
-    }
-    std::optional<platform::ChatPage> page;
-    if (chat_with) page = api.Chat(chat_with, chat_after);
-    std::optional<platform::PlayerLists> found;
+    // Which of the Discord friends play Recharged.
     std::optional<std::vector<platform::ProfilePlayer>> discord;
-    if (lists)
+    if (discord_due)
     {
-        try
-        {
-            found = api.Players();
-        }
-        catch (const ProfileError& e)
-        {
-            if (e.Status() != 404) throw;
-            found = platform::PlayerLists{};
-        }
         std::vector<std::string> ids;
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -408,29 +367,16 @@ void CompetitiveService::Poll(ProfileService& api)
     Change([&](Status& status) {
         status.match = match;
         if (player) status.player = *player;
-        if (found) status.lists = *found;
         if (discord) status.discord_players = std::move(*discord);
         if (leaderboard) status.leaderboard = std::move(*leaderboard);
         if (leaderboard_missing) status.leaderboard_missing = true;
-        if (page && status.chat.with == chat_with)
-        {
-            for (auto& message : page->messages)
-            {
-                chat_seen_ = std::max(chat_seen_, message.id);
-                AddMessage(status.chat.messages, std::move(message));
-            }
-            status.chat.can_send = page->can_send;
-            status.chat.loaded = true;
-        }
         status.error.clear();
     });
     std::lock_guard<std::mutex> lock(mutex_);
     if (me) next_me_ = Clock::now() + kPlayerPoll;
-    if (lists) next_lists_ = Clock::now() + kListsPoll;
+    if (discord_due) next_discord_ = Clock::now() + kDiscordPoll;
     if (board) next_leaderboard_ = Clock::now() + kLeaderboardPoll;
     if (interval) next_poll_ = Clock::now() + std::chrono::seconds(interval);
-    if (chat_with) next_chat_ = Clock::now() + kChatPoll;
-    if (status_.chat.with) next_poll_ = std::min(next_poll_, next_chat_);
 }
 
 void CompetitiveService::SetDiscordFriends(std::vector<std::string> discord_ids)
@@ -442,7 +388,7 @@ void CompetitiveService::SetDiscordFriends(std::vector<std::string> discord_ids)
         // A first list, or another one: looked up at once.
         discord_ids_ = std::move(discord_ids);
         if (discord_ids_.empty()) status_.discord_players.clear();
-        else next_poll_ = next_lists_ = Clock::now();
+        else next_poll_ = next_discord_ = Clock::now();
         ++status_.serial;
     }
     wake_.notify_all();
@@ -535,151 +481,6 @@ void CompetitiveService::SignOut()
             if (e.Cancelled()) throw;
         }
         SignedOutHere(nullptr);
-    }, true);
-}
-
-void CompetitiveService::Challenge(const std::string& opponent, std::int64_t rule_set)
-{
-    Post([this, opponent, rule_set](ProfileService& api) {
-        const auto match = api.Challenge(opponent, rule_set);
-        Change([&](Status& status) { status.match = match; });
-    }, true);
-}
-
-void CompetitiveService::ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set)
-{
-    Post([this, opponent_id, rule_set](ProfileService& api) {
-        const auto match = api.ChallengePlayer(opponent_id, rule_set);
-        Change([&](Status& status) { status.match = match; });
-    }, true);
-}
-
-namespace
-{
-// The friends the server answered, and every list's friend marks after them.
-void SetFriends(CompetitiveService::Status& status, std::vector<platform::ProfilePlayer> friends)
-{
-    const auto marked = [&](std::vector<platform::ProfilePlayer>& players) {
-        for (auto& player : players)
-            player.is_friend = std::any_of(friends.begin(), friends.end(),
-                                           [&](const platform::ProfilePlayer& friend_) { return friend_.id == player.id; });
-    };
-    marked(status.lists.online);
-    marked(status.lists.recent);
-    status.lists.friends = std::move(friends);
-}
-} // namespace
-
-void CompetitiveService::AddFriend(std::int64_t player_id)
-{
-    Post([this, player_id](ProfileService& api) {
-        auto friends = api.AddFriend(player_id);
-        Change([&](Status& status) { SetFriends(status, std::move(friends)); });
-    }, true);
-}
-
-void CompetitiveService::SetAvailable(bool available)
-{
-    Post([this, available](ProfileService& api) {
-        const bool now = api.SetAvailable(available);
-        // The available players come with the next lists, at once.
-        Change([&](Status& status) {
-            status.player.available = now;
-            if (!now) status.lists.available.clear();
-        });
-        std::lock_guard<std::mutex> lock(mutex_);
-        next_poll_ = next_lists_ = Clock::now();
-    }, true);
-}
-
-void CompetitiveService::AddMiiFriend(std::int32_t profile_id)
-{
-    Post([this, profile_id](ProfileService& api) {
-        auto friends = api.AddMiiFriend(profile_id);
-        Change([&](Status& status) {
-            status.lists.mii_friends = std::move(friends);
-            // Now among the friends, no longer among the game's players.
-            auto& game = status.lists.game_online;
-            game.erase(std::remove_if(game.begin(), game.end(),
-                                      [&](const auto& mii) { return mii.profile_id == profile_id; }),
-                       game.end());
-        });
-    }, true);
-}
-
-void CompetitiveService::RemoveMiiFriend(std::int32_t profile_id)
-{
-    Post([this, profile_id](ProfileService& api) {
-        auto friends = api.RemoveMiiFriend(profile_id);
-        Change([&](Status& status) { status.lists.mii_friends = std::move(friends); });
-        std::lock_guard<std::mutex> lock(mutex_);
-        next_poll_ = next_lists_ = Clock::now();
-    }, true);
-}
-
-void CompetitiveService::AddFriend(const std::string& name)
-{
-    Post([this, name](ProfileService& api) {
-        auto friends = api.AddFriend(name);
-        Change([&](Status& status) { SetFriends(status, std::move(friends)); });
-    }, true);
-}
-
-void CompetitiveService::OpenChat(std::int64_t player_id)
-{
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (status_.chat.with != player_id)
-        {
-            status_.chat = {};
-            status_.chat.with = player_id;
-            chat_seen_ = 0;
-            ++status_.serial;
-        }
-        next_chat_ = next_poll_ = {};
-    }
-    wake_.notify_all();
-}
-
-void CompetitiveService::CloseChat()
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    status_.chat = {};
-    ++status_.serial;
-}
-
-void CompetitiveService::SendChat(const std::string& body)
-{
-    std::int64_t with;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        with = status_.chat.with;
-        if (!with || status_.chat.sending) return;
-        status_.chat.sending = true;
-        ++status_.serial;
-    }
-    Post([this, with, body](ProfileService& api) {
-        // Sent or not, the panel can write again.
-        struct Done
-        {
-            CompetitiveService* service;
-            ~Done()
-            {
-                service->Change([](Status& status) { status.chat.sending = false; });
-            }
-        } done{this};
-        auto message = api.SendChat(with, body);
-        Change([&](Status& status) {
-            if (status.chat.with == with) AddMessage(status.chat.messages, std::move(message));
-        });
-    }, false);
-}
-
-void CompetitiveService::RemoveFriend(std::int64_t player_id)
-{
-    Post([this, player_id](ProfileService& api) {
-        auto friends = api.RemoveFriend(player_id);
-        Change([&](Status& status) { SetFriends(status, std::move(friends)); });
     }, true);
 }
 
