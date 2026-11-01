@@ -26,7 +26,8 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 4. Both games go **straight into the captain draft** by themselves: the
    launcher starts one, a game that already runs goes on without closing. No
    intro, no menus, no friend codes to trade, no searching. You pick your
-   captain and sidekicks in the game's own draft, just like on the Wii.
+   captain and sidekicks in the game's own draft, just like on the Wii; the
+   draft shows you both by your full Recharged names.
 5. You play the series under the set's rules, for example best of 3, three
    minutes per game, no Mega Strikes.
 6. The game stays open after the series and shows the result. Ask for a
