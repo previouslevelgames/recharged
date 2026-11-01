@@ -1,16 +1,21 @@
 #include "launcher/online_panel_preview.h"
 
 #include "launcher/ui_kit.h"
+#include "platform/http_client.h"
 
 #include <algorithm>
 #include <cmath>
 #include <utility>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <fstream>
 #include <iostream>
+#include <iterator>
+#include <stdexcept>
 
 namespace mscharged::launcher
 {
@@ -133,6 +138,39 @@ overlay::GameOverlayMoreTab MoreTab(int id, const char* label, Icon icon, int ba
     return more;
 }
 
+// RECHARGED_CAPTURE_AVATARS: one of Discord's six default avatars, for a
+// player without a made-up picture.
+std::string DefaultAvatar(std::int64_t id)
+{
+    return "https://cdn.discordapp.com/embed/avatars/" + std::to_string(id % 6) + ".png";
+}
+
+// The overlay's picture cache as the game has it, its textures made by the
+// launcher's renderer; "discord" downloads, any other value is a PNG file
+// read for every picture (offline captures).
+std::unique_ptr<overlay::OverlayImageCache> PictureCache(SDL_Renderer* renderer, const std::string& source)
+{
+    if (!renderer || source.empty()) return nullptr;
+    auto upload = [renderer](int width, int height, const void* rgba) {
+        SDL_Texture* texture =
+            SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, width, height);
+        if (!texture) return ImTextureID(0);
+        SDL_UpdateTexture(texture, nullptr, rgba, width * 4);
+        SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+        return TextureId(texture);
+    };
+    overlay::OverlayImageCache::Fetch fetch;
+    if (source != "discord")
+        fetch = [source](const std::string&, std::size_t max_bytes, const std::shared_ptr<platform::HttpCancel>&) {
+            std::ifstream file(source, std::ios::binary);
+            if (!file) throw std::runtime_error("cannot read " + source);
+            std::string bytes{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+            if (bytes.size() > max_bytes) throw std::runtime_error("too large");
+            return bytes;
+        };
+    return std::make_unique<overlay::OverlayImageCache>(upload, overlay::OverlayImageLimits{}, fetch);
+}
+
 // A label as RECHARGED_CAPTURE_TAB names it: in small letters, a dash for a space.
 std::string Slug(std::string text)
 {
@@ -184,6 +222,13 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         if (texture) avatars_[look.key] = TextureId(texture);
     }
 
+    // Pictures as the game draws them (RECHARGED_CAPTURE_AVATARS).
+    if (const char* source = std::getenv("RECHARGED_CAPTURE_AVATARS")) pictures_ = PictureCache(renderer, source);
+    const auto picture = [this](ProfilePlayer player) {
+        if (pictures_ && player.avatar_url.empty()) player.avatar_url = DefaultAvatar(player.id);
+        return player;
+    };
+
     ProfilePlayer& me = context_.me;
     me = Player(900000, "Anosch", "anosch");
     me.avatar_url = "preview:me";
@@ -215,6 +260,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     bowser.last_online = now - 3 * 3600;
     auto shy = Online(Player(900030, "Shy Guy", "shyguy"), "launcher");
     auto koopa = Online(Player(900020, "Koopa", "koopa"), "game");
+    for (ProfilePlayer* player : {&daisy, &luigi, &rosalina, &bowser, &shy, &koopa}) *player = picture(*player);
 
     if (mode_ != "preview-empty")
     {
@@ -296,6 +342,13 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         for (const auto& entry : state_.tabs)
             if (Slug(entry.label) == Slug(tab)) first = overlay::OverlayTab(entry.id);
     state_.Open(first);
+    // A capture shows the pictures: they are asked for and loaded before it.
+    if (pictures_ && capture_)
+    {
+        for (const ProfilePlayer* player : {&daisy, &luigi, &rosalina, &bowser, &shy, &koopa})
+            pictures_->Get(player->avatar_url);
+        pictures_->Settle(std::chrono::seconds(5));
+    }
     if (mode_ == "preview-player" || mode_ == "preview-player-mii")
     {
         const bool mii = mode_ == "preview-player-mii";
@@ -305,10 +358,11 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     }
 }
 
-ImTextureID OnlinePanelPreview::Avatar(const std::string& key) const
+ImTextureID OnlinePanelPreview::Avatar(const std::string& key)
 {
     const auto found = avatars_.find(key);
-    return found == avatars_.end() ? ImTextureID(0) : found->second;
+    if (found != avatars_.end()) return found->second;
+    return pictures_ ? pictures_->Get(key) : ImTextureID(0);
 }
 
 // The art as the game's picture under the panel: covering the window,
@@ -415,6 +469,7 @@ void OnlinePanelPreview::DrawPrompt()
     const auto person = [&](const char* name, std::int64_t id, const char* image) {
         ProfilePlayer player = Online(Player(id, name, name), "game");
         player.avatar_url = image;
+        if (pictures_ && player.avatar_url.empty()) player.avatar_url = DefaultAvatar(id);
         return player;
     };
     const auto row = [](const ProfilePlayer& player) {

@@ -1,11 +1,13 @@
 #pragma once
 
 #include "overlay/game_overlay.h"
+#include "overlay/overlay_images.h"
 #include "overlay/overlay_prompt.h"
 
 #include <SDL3/SDL.h>
 
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -32,9 +34,12 @@ namespace mscharged::launcher
 // "-rematch". RECHARGED_CAPTURE_TAB opens another tab than Online (its label:
 // "game-options", "ranked", ...), and RECHARGED_CAPTURE_SIZE=WxH sizes the
 // window as a game's of W x H, the overlay at the game's scale for it (its
-// height / 720). The overlay's actions
-// change the made-up data and go to the console; Escape closes it, F1 opens
-// Online and F2 Game options (the open tab's key closes it).
+// height / 720). RECHARGED_CAPTURE_AVATARS gives the players without a
+// made-up picture Discord's default avatars through the overlay's picture
+// cache (as the game has it): "discord" downloads them, a PNG file's path
+// stands in for each. The overlay's actions change the made-up data and go to
+// the console; Escape closes it, F1 opens Online and F2 Game options (the open
+// tab's key closes it).
 class OnlinePanelPreview
 {
 public:
@@ -50,7 +55,7 @@ private:
     void Apply(const overlay::GameOverlayActions& actions);
     void DrawPrompt();
     void DrawBackdrop(ImVec2 size, ImTextureID back, ImTextureID front, ImVec2 art_size) const;
-    ImTextureID Avatar(const std::string& key) const;
+    ImTextureID Avatar(const std::string& key);
 
     bool capture_ = false;
     std::string mode_;
@@ -61,6 +66,7 @@ private:
     overlay::GameOverlayState state_;
     overlay::OverlayPromptState prompt_state_;
     std::map<std::string, ImTextureID> avatars_;
+    std::unique_ptr<overlay::OverlayImageCache> pictures_; // RECHARGED_CAPTURE_AVATARS
     std::vector<overlay::GameOverlayMoreTab> more_tabs_; // "preview-tabs": tabs to come
     float game_height_ = 0.0f; // RECHARGED_CAPTURE_SIZE: the game window's height
     bool open_ = true;
