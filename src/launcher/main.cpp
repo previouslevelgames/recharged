@@ -2800,10 +2800,23 @@ private:
     {
         frontend_launch_ = EffectiveLaunch();
         frontend_launch_->start_training = training_;
-        // A set that goes while the game runs uses the player's own Mii, when
-        // a set's game made it on this computer before.
+        // A set that goes while the game runs uses the player's own Mii: made
+        // now if it isn't there yet. Without it the game lets the player
+        // choose a Mii for the set, so Play goes on.
         if (const auto key = PlayerMiiKey(); !key.empty())
+        {
+            try
+            {
+                EnsurePlayerMii();
+            }
+            catch (const std::exception& e)
+            {
+                const std::string text = std::string("Your Mii for online sets could not be made: ") + e.what();
+                platform::SessionLogLine(text);
+                Notice(text, NoticeKind::Warning);
+            }
             frontend_launch_->competitive_mii = mscharged::platform::KeyedMiiCreateId(key);
+        }
         quit = true;
     }
 
@@ -4202,10 +4215,24 @@ private:
                                           : "player:" + status.server + "#" + std::to_string(player.id);
     }
 
-    // A set's go: the player's own Mii (made from their Discord account, the
-    // same on every computer) in the save folder, then the game, which goes
-    // through the online login straight into RANKED against the opponent.
-    // Anything in the way takes the player's Ready to play! back.
+    // The player's own Mii (made from their Discord account, the same on
+    // every computer) in the save folder, added or renamed only when needed:
+    // its key, or empty when not signed in. Throws when it can't be made.
+    std::string EnsurePlayerMii()
+    {
+        const std::string key = PlayerMiiKey();
+        if (key.empty()) return key;
+        const auto& player = competitive_status_.player;
+        const auto folder = SaveFolder();
+        mscharged::platform::EnsureMii(
+            mscharged::platform::MakeKeyedMii(mscharged::platform::FitMiiName(player.name, player.discord), key),
+            folder, SaveTitleOf(Release()), folder / "backups");
+        return key;
+    }
+
+    // A set's go: the player's own Mii (EnsurePlayerMii), then the game,
+    // which goes through the online login straight into RANKED against the
+    // opponent. Anything in the way takes the player's Ready to play! back.
     void StartSet(bool& quit)
     {
         const auto& status = competitive_status_;
@@ -4217,14 +4244,10 @@ private:
             competitive_->ReadyToPlay(false);
             return;
         }
-        const auto& player = status.player;
-        const std::string key = PlayerMiiKey();
+        std::string key;
         try
         {
-            const auto folder = SaveFolder();
-            mscharged::platform::EnsureMii(
-                mscharged::platform::MakeKeyedMii(mscharged::platform::FitMiiName(player.name, player.discord), key),
-                folder, SaveTitleOf(Release()), folder / "backups");
+            key = EnsurePlayerMii();
         }
         catch (const std::exception& e)
         {
