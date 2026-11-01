@@ -15,6 +15,7 @@
 #include <limits>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 #include <vector>
 #if defined(__linux__)
 #include <unistd.h>
@@ -64,6 +65,18 @@ struct Channel {
     // for every button to come up.
     u16 hold_seen = 0;
     bool hold_fresh = false, hold_release = false;
+    // The host panel's: this channel's own buttons (no mouse A/B) at its last
+    // report, the ones down when the panel opened (hidden from it until
+    // released), whether HOME was down at the last report, and the reports
+    // left of a button press for the game (PressNativeWpadButton).
+    u16 own_seen = 0, panel_hidden = 0;
+    bool home_down = false;
+    int press_reports = 0;
+    u16 press_button = 0;
+    // The pointer and motion of its last report before a hold, which the
+    // game keeps seeing while held.
+    WPADFSStatus still{};
+    bool still_known = false;
     bool disconnected_this_service = false;
     bool motor_running = false;
     bool rumble_failure_logged = false;
@@ -116,10 +129,17 @@ struct Hardware {
     int mouse_channel = -1;
     bool mouse_pointer = false, mouse_a = false, mouse_b = false;
     mscharged::platform::NativeDpdObservation mouse_observation{};
-    // A host card holds every player's input: A and B presses since the
-    // card last took them.
-    bool hold = false;
+    // A host card or the host panel holds every player's input: A and B
+    // presses since the card last took them (not while the panel holds).
+    bool hold = false, card_hold = false, panel_hold = false;
     int held_a = 0, held_b = 0;
+    // The host panel: HOME taken from the game, the channels that pressed it
+    // since the panel last asked, and while it holds each channel's buttons
+    // and Nunchuk stick, and the buttons pressed since it last read them.
+    bool home_taken = false;
+    std::uint32_t home_presses = 0;
+    std::array<u16, WPAD_MAX_CONTROLLERS> panel_down{}, panel_pressed{};
+    std::array<std::int8_t, WPAD_MAX_CONTROLLERS> panel_stick_x{}, panel_stick_y{};
     // Player assignment of native providers: joysticks with a fixed channel,
     // and the channels kept free for them.
     std::vector<std::pair<SDL_JoystickID, int>> fixed_channels;
@@ -222,6 +242,8 @@ void ClearReports(Channel& channel) {
     channel.current = {};
     channel.current.err = WPAD_ERR_NO_CONTROLLER;
     channel.current.dev = WPAD_DEV_NOT_FOUND;
+    channel.still_known = channel.home_down = false;
+    channel.press_reports = 0;
 }
 bool RawAccel(float value, bool invert, s16& output) {
     // SDL's pinned Wii HID driver uses a fixed 100 counts/g and zero-point
@@ -293,6 +315,7 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
         report.dev = channel.device;
         report.err = WPAD_ERR_OK;
         report.button = channel.buttons;
+        const int index = int(&channel - state.channels.data());
         CopyDpdObservation(channel, report);
         if (int(&channel - state.channels.data()) == state.mouse_channel) {
             if (state.mouse_a) report.button |= WPAD_BUTTON_A;
@@ -304,23 +327,50 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
                 }
         }
         CopyNunchukObservation(channel, report);
-        // A host card asks something: the presses are the card's, and the
-        // game sees nothing until every button is up again afterwards.
+        // The channel's own buttons, without the mouse's A and B.
+        u16 own = channel.buttons | (report.button & (WPAD_BUTTON_FS_C | WPAD_BUTTON_FS_Z));
+        // The host panel takes HOME: the game never sees it.
+        if (state.home_taken) {
+            const bool home = report.button & WPAD_BUTTON_HOME;
+            if (home && !channel.home_down) state.home_presses |= 1u << index;
+            channel.home_down = home;
+            report.button &= ~WPAD_BUTTON_HOME;
+            own &= ~WPAD_BUTTON_HOME;
+        }
+        // A host card asks something or the host panel is open: the presses
+        // are theirs, and the game sees nothing until every button is up again
+        // afterwards.
         if (state.hold || channel.hold_release) {
             const u16 down = report.button;
             if (state.hold) {
                 if (channel.hold_fresh) channel.hold_seen = down;
                 channel.hold_fresh = false;
                 const u16 pressed = down & ~channel.hold_seen;
-                if (pressed & WPAD_BUTTON_A) ++state.held_a;
-                if (pressed & WPAD_BUTTON_B) ++state.held_b;
+                if (!state.panel_hold) {
+                    if (pressed & WPAD_BUTTON_A) ++state.held_a;
+                    if (pressed & WPAD_BUTTON_B) ++state.held_b;
+                } else {
+                    // Buttons down when the panel opened count once released.
+                    channel.panel_hidden &= own;
+                    const u16 shown = own & ~channel.panel_hidden;
+                    state.panel_down[index] = shown;
+                    state.panel_pressed[index] |= shown & ~channel.own_seen;
+                    state.panel_stick_x[index] = report.fsStickX;
+                    state.panel_stick_y[index] = report.fsStickY;
+                }
                 channel.hold_seen = down;
             } else if (!down) channel.hold_release = false;
             if (state.hold || channel.hold_release) {
                 report.button = 0;
                 report.fsStickX = report.fsStickY = 0;
             }
+            // A button of the game's for a moment (the panel's offline pause).
+            if (state.hold && channel.press_reports > 0) {
+                report.button = channel.press_button;
+                --channel.press_reports;
+            }
         }
+        channel.own_seen = own;
         // Retail WPADiExcludeButton removes opposite right/down bits.
         if ((report.button & (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT)) ==
                 (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT)) report.button &= ~WPAD_BUTTON_RIGHT;
@@ -330,6 +380,21 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
             !RawAccel(event->gsensor.data[2], false, report.accY) ||
             !RawAccel(event->gsensor.data[1], false, report.accZ))
             report.err = WPAD_ERR_CORRUPTED;
+        // Held, the player stands still for the game: the pointer and the
+        // motion of the last report before the hold (no shake, no pointing).
+        if (state.hold && channel.still_known) {
+            report.accX = channel.still.accX;
+            report.accY = channel.still.accY;
+            report.accZ = channel.still.accZ;
+            report.fsAccX = channel.still.fsAccX;
+            report.fsAccY = channel.still.fsAccY;
+            report.fsAccZ = channel.still.fsAccZ;
+            std::memcpy(report.obj, channel.still.obj, sizeof report.obj);
+            report.err = WPAD_ERR_OK;
+        } else if (!state.hold && report.err == WPAD_ERR_OK) {
+            channel.still = report;
+            channel.still_known = true;
+        }
         if (channel.count == kPendingReports) {
             channel.head = (channel.head + 1) % kPendingReports;
             --channel.count;
@@ -572,16 +637,77 @@ void DetachNativeWpadNunchukSource(NativeNunchukSource source) {
     for (const auto& producer : state.nunchuk_producers) any |= producer.source.generation != 0;
     if (!any) state.nunchuk_owner = {};
 }
-void SetNativeWpadHold(bool hold) {
-    auto& state = State();
-    std::lock_guard lock(state.reports);
+namespace {
+// Held while a card or the panel holds; a channel's buttons reach the game
+// again once all are up after the last one let go.
+void ApplyHold(Hardware& state) {
+    const bool hold = state.card_hold || state.panel_hold;
     if (state.hold == hold) return;
     state.hold = hold;
-    state.held_a = state.held_b = 0;
     for (auto& channel : state.channels) {
         channel.hold_fresh = hold;
         channel.hold_release = !hold;
     }
+}
+}
+void SetNativeWpadHold(bool hold) {
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    if (state.card_hold == hold) return;
+    state.card_hold = hold;
+    state.held_a = state.held_b = 0;
+    ApplyHold(state);
+}
+void SetNativeWpadPanelHold(bool hold) {
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    if (state.panel_hold == hold) return;
+    state.panel_hold = hold;
+    state.panel_down = state.panel_pressed = {};
+    state.panel_stick_x = state.panel_stick_y = {};
+    for (auto& channel : state.channels) {
+        channel.press_reports = 0;
+        // What is down as it opens counts once released.
+        channel.panel_hidden = channel.own_seen;
+    }
+    ApplyHold(state);
+}
+void SetNativeWpadHomeTaken(bool taken) {
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    state.home_taken = taken;
+    state.home_presses = 0;
+}
+std::uint32_t TakeNativeWpadHomePresses() {
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    return std::exchange(state.home_presses, 0u);
+}
+NativeWpadPanelButtons TakeNativeWpadPanelButtons() {
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    NativeWpadPanelButtons buttons;
+    for (std::size_t n = 0; n < WPAD_MAX_CONTROLLERS; ++n) {
+        buttons.down[n] = state.panel_down[n];
+        buttons.pressed[n] = state.panel_pressed[n];
+        buttons.stick_x[n] = state.panel_stick_x[n];
+        buttons.stick_y[n] = state.panel_stick_y[n];
+    }
+    state.panel_pressed = {};
+    return buttons;
+}
+int PressNativeWpadButton(int channel, std::uint16_t button) {
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    if (!state.panel_hold || channel < -1 || channel >= WPAD_MAX_CONTROLLERS) return -1;
+    if (channel < 0)
+        for (int n = 0; n < WPAD_MAX_CONTROLLERS && channel < 0; ++n)
+            if (state.channels[n].id) channel = n;
+    if (channel < 0 || !state.channels[channel].id) return -1;
+    // About 100 ms at the desktop devices' 200 reports a second.
+    state.channels[channel].press_reports = 20;
+    state.channels[channel].press_button = button;
+    return channel;
 }
 NativeWpadHeldPresses TakeNativeWpadHeldPresses() {
     auto& state = State();

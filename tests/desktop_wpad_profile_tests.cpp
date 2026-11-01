@@ -681,6 +681,68 @@ void MouseKeysCycle() {
     ShutdownDesktopWpad();
     WPADShutdown();
 }
+void MouseMotion(float x, float y) {
+    SDL_Event e{};
+    e.type = SDL_EVENT_MOUSE_MOTION;
+    e.motion.windowID = SDL_GetWindowID(window);
+    e.motion.which = 1;
+    e.motion.x = x; e.motion.y = y;
+    Check(SDL_PushEvent(&e), "Actual SDL event queue rejected mouse motion");
+}
+// The host panel (F1 or HOME): HOME is the panel's, and while it holds the
+// game sees the player stand still while the panel reads the buttons.
+void PanelHoldCycle() {
+    using namespace mscharged::platform;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.keyboard = settings.mouse = true;
+    settings.pointer_projection = WholeWindow;
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard & mouse did not connect");
+    Check(DesktopKeyboardWpadChannel() == 0, "The keyboard remote's channel is not player 1's");
+    SetNativeWpadHomeTaken(true);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_HOME);
+    std::uint32_t homes = 0;
+    Until([&] { homes |= TakeNativeWpadHomePresses(); return homes == 1u; }, "HOME did not go to the panel");
+    Check(!(Report().button & WPAD_BUTTON_HOME), "HOME still reached the game");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_HOME);
+    Check(WPADControlDpd(0, WPAD_DPD_STANDARD, nullptr) == WPAD_ERR_OK, "Pointer camera request was rejected");
+    Until([&] { return bool(WPADIsDpdEnabled(0)); }, "Pointer camera did not turn on");
+    MouseMotion(100, 100);
+    Until([&] { return Report().obj[0].size != 0; }, "The mouse did not point");
+    const DPDObject pointed = Report().obj[0];
+    SetNativeWpadPanelHold(true);
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    std::uint16_t pressed = 0;
+    Until([&] { pressed |= TakeNativeWpadPanelButtons().pressed[0]; return (pressed & WPAD_BUTTON_A) != 0; },
+          "The panel did not read A");
+    Check(Report().button == 0, "A reached the game while the panel held");
+    MouseMotion(500, 300);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    Check(Report().obj[0].x == pointed.x && Report().obj[0].y == pointed.y, "The game's pointer moved under the panel");
+    Check(PressNativeWpadButton(0, WPAD_BUTTON_1) == 0, "The panel's pause press found no player");
+    Until([&] { return Report().button == WPAD_BUTTON_1; }, "The game did not see the panel's 1");
+    Until([&] { return Report().button == 0; }, "The panel's 1 stayed down");
+    // Closed with Return still down: the game sees it only once released.
+    SetNativeWpadPanelHold(false);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    Check(Report().button == 0, "A button held through the panel reached the game");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    // A few reports with every button up end the hold for the game.
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    Until([&] { return Report().obj[0].x != pointed.x; }, "The pointer stayed still after the panel");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "A did not reach the game after the panel");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    Until([&] { return Report().button == 0; }, "A release after the panel kept A");
+    Check(PressNativeWpadButton(0, WPAD_BUTTON_1) == -1, "A button was pressed without the panel");
+    SetNativeWpadHomeTaken(false);
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
 void NunchukCycle() {
     connects = samples = extension_count = 0;
     mscharged::platform::ConfigureWpadSDL({0,3,false,false});
@@ -1289,6 +1351,7 @@ int main() {
         ControllerFamilyCycle();
         MousePlayerCycle();
         MouseKeysCycle();
+        PanelHoldCycle();
         StickDirectionCycle();
         GyroPointerChecks();
         GyroPadCycle(true);
@@ -1299,7 +1362,7 @@ int main() {
 #endif
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys, stick directions as buttons, the gyro pointer, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys, the host panel's hold, stick directions as buttons, the gyro pointer, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         mscharged::platform::ShutdownHotkeys();
