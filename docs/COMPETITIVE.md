@@ -11,9 +11,10 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 ## How a match feels
 
 1. Open Recharged and go to **Online**; the first time, **Connect Discord**
-   there. The launcher's Online pages hold your profile (**Online
-   settings**), the rules of your challenges (**Match settings**), the game's
-   RANKED **Leaderboard** and your tournaments (**Events**, coming later).
+   on **Player profile**. The launcher's Online pages hold your profile
+   (**Player profile**), the game's RANKED **Leaderboard**, your tournaments
+   (**Events**, coming later), the rules of your challenges (**Match rules**),
+   your **Sidekicks** and the game's own Miis (**Legacy Mii profiles**).
 2. In the game, press **F1** (or HOME) for its online panel: your set, your
    friends online and the players available. Challenge an opponent there, or
    let a tournament pair you with one (the panel's **Events** tab, coming
@@ -37,7 +38,7 @@ with the score.
 
 ## Challenge a friend
 
-- Choose your rule set on **Online → Match settings** in the launcher, or
+- Choose your rule set on **Online → Match rules** in the launcher, or
   under **Your challenges** in the game's online panel (F1), then challenge a
   player from that panel: pick them in the list, then challenge. They get **"Alice challenges you"** with Accept and Decline: on
   a card over the game while they are in its menus, or in a dialog in the
@@ -52,7 +53,7 @@ with the score.
   you to them.
 - A chime plays when someone challenges you or accepts your challenge, and
   the window flashes while it is in the background, so a challenge isn't
-  missed (Online settings → **Challenge sound**).
+  missed (Player profile → **Challenge sound**).
 - A challenge lasts only as long as Recharged is open: close Recharged and
   your open challenges are gone, with nothing to clean up.
 
@@ -65,12 +66,12 @@ settings** then shows how many of your Discord friends play Recharged. In
 the game's online panel (F1), those who have Recharged open show among your
 friends online, with Discord's logo: no need to add them. If your server
 doesn't link them with the sign-in (servers before 1.2.1), **Link** on
-**Online settings** asks Discord for them once.
+**Player profile** asks Discord for them once.
 
 - Your Discord friends list goes from Discord straight to Recharged on your
   computer. Our server only learns which of the accounts in it have a
   Recharged profile; it keeps neither the list nor Discord's keys.
-- **Sign out** on **Online settings** ends it on this computer; Discord's
+- **Sign out** on **Player profile** ends it on this computer; Discord's
   settings (Authorized Apps) end it everywhere.
 - Builds made from source go without Discord friends: they need Discord's
   library, which only the official packages include.
@@ -115,7 +116,7 @@ Every set has one rule set, the same for both players: the competitive
 gameplay tweaks (such as no Mega Strikes, fast terrain and Thunder Island
 walls), the skill level, the game length or goal limit, the number of games
 and the stadium. Tournament organizers choose the rule set of their event; for
-a challenge you pick one from the server's list on **Match settings**. start.gg only pairs the
+a challenge you pick one from the server's list on **Match rules** or in the game. start.gg only pairs the
 players and keeps the scores.
 
 Players of different versions (USA, Europe, Japan, Korea) cannot play against

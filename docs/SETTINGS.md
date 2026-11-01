@@ -474,18 +474,19 @@ writes `rollback_test` or `rollback_log`.
 
 Sets against other Recharged players are played by the rules of the project's
 online server, `https://rechargedwfc.net`. The launcher's **Online** pages set
-them up: **Online settings** (who you are signed in as, your friend code,
+them up: **Player profile** (who you are signed in as, your friend code,
 whether your Discord friends are linked, the challenge sound, the server, and
 Sign out, which also ends the Discord link on this computer), **Leaderboard**
 (the game's RANKED leaderboards on the server: the season's leaders and
 today's, and your own place), **Events** (tournaments, coming later) and
-**Match settings** (the rule set your challenges go out with, kept as
-`[online] challenge_rules`; **Your challenges** in the game's online panel
-changes the same setting). Your friends, the players available and your set
+**Match rules**, whose first card holds the rule set your challenges go out
+with (kept as `[online] challenge_rules`; **Your challenges** in the game's
+online panel changes the same setting), shown in detail. **Sidekicks** and
+**Legacy Mii profiles** (the game's own Miis) are there too. Your friends, the players available and your set
 are in the game's online panel (**F1** or HOME, see Hotkeys). A dot before
 **Online** in the sidebar shows the sign-in: green signed in, red not; signed
-out, Online is one page that shows what playing online brings and **Connect
-Discord**. A private server's `https://` address (from its admins) goes in
+out, **Player profile** shows what playing online brings and **Connect
+Discord**, and the pages that need the sign-in point there. A private server's `https://` address (from its admins) goes in
 `[online] profile_server`; only the file changes it. A set is a series against
 one player, by one of the server's rule sets: skill level, game length or goal
 limit, the games of the series, the stadium, and the *Competitive gameplay*
@@ -532,7 +533,7 @@ Playing someone doesn't make them a friend.
 
 You need no Mii of your own: the launcher makes one from your Discord account,
 named after your Discord name, the same on every computer, when you play while
-signed in. It is an ordinary Mii: it shows on the Miis page and in the game's
+signed in. It is an ordinary Mii: it shows on Legacy Mii profiles and in the game's
 online Mii list, and you can play the game's own online modes with it too.
 
 A set lasts while both have Recharged open; closing it ends your sets that
