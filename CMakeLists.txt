@@ -342,6 +342,8 @@ endif()
 include(cmake/Competitive.cmake)
 # The Discord status (issue #71); the game host links it.
 include(cmake/Discord.cmake)
+# Mii heads from the game image's Mii parts (launcher, game overlay).
+include(cmake/MiiHead.cmake)
 
 if(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC)
     # The game runtime: the host enters original main in a game module.
