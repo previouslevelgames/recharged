@@ -494,7 +494,10 @@ tweaks both teams play with.
    card) goes on from its main menu or online menu, without closing. The game
    signs in to the online server with your own Mii (in the online menu, with
    the Mii it uses) and goes straight to the captain draft against your
-   opponent, where you choose your captain and sidekicks. A game that is
+   opponent, where you choose your captain and sidekicks. It passes the menus
+   on its way unseen: you see the frontend move to the online area, the
+   login's Connecting screen and the draft. (When your Mii from the launcher
+   is not on this computer, you choose a Mii yourself.) A game that is
    elsewhere in its menus says so: back on the main menu or the online menu,
    it goes on. **Not ready** on the Online pages holds the set until you press
    **Ready to play!** again.
@@ -503,7 +506,8 @@ tweaks both teams play with.
    and once they accept, the next set goes on into RANKED. A set that stopped
    (a message in the game, or the games didn't meet) offers **Play it again**,
    your Ready to play! for it. **Not now** (B) leaves it; closing a set's game
-   opens the launcher again.
+   opens the launcher again. A set whose match was broken off before a game
+   ended (a game closed or lost its connection) ends without a result.
 
 Your **friends** are kept on the server, so they follow you to every computer:
 the players you add by Discord username, or with the heart next to them on the
@@ -599,7 +603,11 @@ Each run writes `logs/recharged.log` beside the program: settings, devices,
 graphics adapter, warnings and errors. Attach it to an
 [issue](https://github.com/previouslevelgames/recharged/issues) when reporting a
 problem; it can contain your user name in paths. **Advanced → Log detail** and
-**Verbose console** add more detail.
+**Verbose console** add more detail. With Log detail at *Debug*
+(`[advanced] log_level = debug`) every line begins with its time, and the log
+also gets the WFC library's reports of the online login and of finding and
+connecting to an opponent. The lines of competitive sets (`Competitive:`)
+always have their time.
 
 On Windows and macOS no console or Terminal window opens with the game.
 **Advanced → Diagnostics & analytics → Log window** (`[advanced] log_window`,

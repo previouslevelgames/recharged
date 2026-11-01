@@ -29,6 +29,23 @@ constexpr auto kEndWait = 20s;
 // play! taken back) has its own.
 std::int64_t GoKey(const ProfileMatch& match) { return match.go_at ? match.go_at : match.id; }
 
+// The log's words for a set's stage (ChargedSetStage).
+std::string StageText(int stage, int popup)
+{
+    switch (stage)
+    {
+    case CHARGED_SET_BOOT: return "on its way (title, main menu or online menu)";
+    case CHARGED_SET_MII: return "the main menu went online";
+    case CHARGED_SET_OVERLAY: return "the Mii is chosen";
+    case CHARGED_SET_LOGIN: return "logging in to WFC";
+    case CHARGED_SET_SEARCH: return "searching RANKED for the opponent";
+    case CHARGED_SET_PLAYING: return "the match is set up";
+    case CHARGED_SET_OVER: return "back from the match";
+    case CHARGED_SET_FAILED: return "stopped at popup " + std::to_string(popup);
+    default: return "stage " + std::to_string(stage);
+    }
+}
+
 bool SameRules(const std::optional<ChargedCompetitiveRules>& a, const std::optional<ChargedCompetitiveRules>& b)
 {
     if (a.has_value() != b.has_value()) return false;
@@ -178,6 +195,7 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
     }
 
     // A set's game: done once over, failed or called off.
+    std::string stage_line;
     if (set_)
     {
         if (wfc.set_stage != set_stage_)
@@ -185,6 +203,7 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
             set_stage_ = wfc.set_stage;
             set_popup_ = wfc.set_popup;
             wake = true;
+            stage_line = "set " + std::to_string(set_) + ": " + StageText(set_stage_, set_popup_);
         }
         const bool done = set_stage_ == CHARGED_SET_OVER || set_stage_ == CHARGED_SET_FAILED || set_called_off_;
         if (done && set_done_ == Clock::time_point{})
@@ -195,6 +214,7 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
     }
     lock.unlock();
     if (wake) wake_.notify_all();
+    if (!stage_line.empty()) Said(stage_line);
     return changed;
 }
 
@@ -257,13 +277,16 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
                 end.won += game.my_score > game.opponent_score;
                 end.lost += game.my_score < game.opponent_score;
             }
-        end.how = set_stage_ == CHARGED_SET_OVER   ? SetEnd::How::Over
+        // Back from the match with no game played: the server dissolves it.
+        const bool played = series_match_ == set_ && !series_.empty();
+        end.how = set_stage_ == CHARGED_SET_OVER   ? (played ? SetEnd::How::Over : SetEnd::How::NoResult)
                 : set_stage_ == CHARGED_SET_FAILED ? SetEnd::How::Failed
                                                    : SetEnd::How::CalledOff;
         end.popup = set_popup_;
-        why = end.how == SetEnd::How::Over     ? "the series is over"
-            : end.how == SetEnd::How::Failed ? "it stopped at popup " + std::to_string(set_popup_)
-                                             : "the set was called off";
+        why = end.how == SetEnd::How::Over       ? "the series is over"
+            : end.how == SetEnd::How::NoResult ? "the match ended without a game played"
+            : end.how == SetEnd::How::Failed   ? "it stopped at popup " + std::to_string(set_popup_)
+                                               : "the set was called off";
         // No set's game any more: challenges reach the card again.
         set_ = 0;
         set_stage_ = CHARGED_SET_NONE;

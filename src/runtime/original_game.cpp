@@ -448,6 +448,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         const auto& logLevel=launch.settings.log_level;
         config.logLevel=logLevel=="debug"?LOG_DEBUG:logLevel=="warning"?LOG_WARNING:
             logLevel=="error"?LOG_ERROR:LOG_INFO;
+        // At debug level every log line begins with its time.
+        mscharged::platform::SetSessionLogTimes(logLevel=="debug");
         config.logCallback=mscharged::platform::ConsoleLog;
         config.enableBackendValidation=launch.settings.graphics_validation;
         config.vsync=launch.settings.vsync;
@@ -1304,13 +1306,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 competitive=mscharged::platform::CompetitiveHost::Start(launch.settings.profile_server,
                     mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
                     [](const std::string& text) {
-                        mscharged::platform::SessionLogLine(text);
-                        std::fprintf(stderr,"%s\n",text.c_str());
+                        // On the console and in the log, with the time (at log level
+                        // debug the log gives every line its time).
+                        const std::string time=mscharged::platform::SessionLogTimes() ? std::string()
+                            : mscharged::platform::LogTimeStamp();
+                        std::fprintf(stderr,"%s%s\n",time.c_str(),text.c_str());
                     },&off);
             else off="this build's game module has no competitive play";
             const auto line=competitive ? "Competitive: on, signed in as "+competitive->PlayerName()
                 : "Competitive: off ("+off+")";
-            mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }
         // A set's game (the launcher's Ready to play!, or a set that went
@@ -1320,6 +1324,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive_start"));
         auto endSet=reinterpret_cast<ChargedCompetitiveEndSetFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_competitive_end_set"));
+        // At debug level DWC's own reports of the WFC login, matchmaking and
+        // NAT negotiation, which the game switches off, go to the log.
+        if(launch.settings.log_level=="debug")
+            if(auto dwcReport=reinterpret_cast<ChargedConfigureDwcReportFunction>(
+                   mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_dwc_report")))
+                dwcReport(true);
         if(launch.start_competitive) {
             if(competitive && configureStart
                && configureStart(launch.competitive_mii.data(),unsigned(launch.competitive_mii.size())))
@@ -1327,7 +1337,6 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             else {
                 const std::string line="Competitive: set "+std::to_string(launch.competitive_set)
                     +" cannot start ("+(competitive ? "this build's game module has no sets" : "competitive play is off")+")";
-                mscharged::platform::SessionLogLine(line);
                 std::fprintf(stderr,"%s\n",line.c_str());
             }
         }
@@ -1382,8 +1391,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // set again.
             if(auto end=competitive->TakeSetEnd()) {
                 if(endSet) endSet();
-                afterSet=std::move(end);
                 setStartedHere=false;
+                // Without a game played it has no result: nothing to offer again.
+                if(end->how==mscharged::platform::CompetitiveHost::SetEnd::How::NoResult) {
+                    if(hostOverlay) hostOverlay->ShowMessage("The set against "
+                        +(end->opponent.empty() ? std::string("your opponent") : end->opponent)
+                        +" ended without a result",now);
+                } else afterSet=std::move(end);
             }
             // Started here and not on its way yet: say where it goes on from.
             if(setStartedHere && wfc.set_stage==CHARGED_SET_BOOT) {

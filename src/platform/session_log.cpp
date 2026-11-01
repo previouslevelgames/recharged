@@ -59,6 +59,7 @@ struct Stream
 {
     int pipe_read = -1;
     int console = -1;
+    bool line_start = true; // the log's next byte from it begins a line
 #ifdef _WIN32
     HANDLE wake = nullptr;                             // set by a Drain
     std::atomic<std::uint64_t> asked{0}, answered{0}; // Drain tickets
@@ -79,6 +80,29 @@ struct Log
     bool started = false;
 } g_log;
 
+// SetSessionLogTimes: every line of the log begins with its local time.
+std::atomic<bool> g_times{false};
+
+// "09:12:03.412 ", the local time to the millisecond.
+std::string TimeStamp()
+{
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
+    const int millis = int(std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000);
+    char stamp[32] = "";
+    std::tm local{};
+#ifdef _WIN32
+    if (localtime_s(&local, &seconds) == 0)
+#else
+    if (localtime_r(&seconds, &local))
+#endif
+    {
+        const std::size_t length = std::strftime(stamp, sizeof stamp, "%H:%M:%S", &local);
+        std::snprintf(stamp + length, sizeof stamp - length, ".%03d ", millis);
+    }
+    return stamp;
+}
+
 void WriteLog(const char* data, std::size_t size)
 {
     if (g_log.file < 0 || !size) return;
@@ -92,10 +116,25 @@ void WriteLogUnlocked(const char* data, std::size_t size)
     if (g_log.file >= 0) (void)Write(g_log.file, data, size);
 }
 
-void Copy(const Stream& stream, const char* data, std::size_t size)
+void Copy(Stream& stream, const char* data, std::size_t size)
 {
     if (stream.console >= 0) (void)Write(stream.console, data, size);
-    WriteLog(data, size);
+    if (!g_times)
+    {
+        WriteLog(data, size);
+        return;
+    }
+    // Each line the stream begins gets the time.
+    std::string text;
+    text.reserve(size + 64);
+    const std::string stamp = TimeStamp();
+    for (std::size_t n = 0; n < size; ++n)
+    {
+        if (stream.line_start) text += stamp;
+        text += data[n];
+        stream.line_start = data[n] == '\n';
+    }
+    WriteLog(text.data(), text.size());
 }
 
 #ifdef _WIN32
@@ -586,9 +625,15 @@ void StartSessionLog(const char* version, int argc, char** argv)
 
 fs::path SessionLogPath() { return g_log.file >= 0 ? g_log.path : fs::path(); }
 
+void SetSessionLogTimes(bool on) { g_times = on; }
+
+std::string LogTimeStamp() { return TimeStamp(); }
+
+bool SessionLogTimes() { return g_times; }
+
 void SessionLogLine(const std::string& text)
 {
-    const std::string line = text + "\n";
+    const std::string line = (g_times ? TimeStamp() : std::string()) + text + "\n";
     std::fflush(nullptr);
     Drain();
     WriteLog(line.data(), line.size());

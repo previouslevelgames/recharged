@@ -70,6 +70,9 @@ typedef bool (*ChargedConfigureCompetitiveStartFunction)(const unsigned char* mi
 // Game module entry, between frames: the set is done and the host has
 // finished with it; the game's popups and menus are the player's again.
 typedef void (*ChargedCompetitiveEndSetFunction)(void);
+// Game module entry ([advanced] log_level = debug): DWC's reports of the WFC
+// login, matchmaking and NAT negotiation go to the game's output (the log).
+typedef void (*ChargedConfigureDwcReportFunction)(bool on);
 // Game module entry: fills `snapshot` when `size` matches this build's
 // struct; false otherwise.
 typedef bool (*ChargedWfcSnapshotFunction)(ChargedWfcSnapshot* snapshot, unsigned size);

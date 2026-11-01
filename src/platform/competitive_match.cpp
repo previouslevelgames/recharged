@@ -10,10 +10,12 @@
 // online, the online Mii menu takes the player's own Mii, the login (or the
 // online menu, when the player is already in it) goes on into the RANKED
 // search, the connection check accepts the set's opponent (and nobody else),
-// and popups are answered; one that is not harmless ends the set. Once the
-// set is over or failed, the host ends it (charged_competitive_end_set) and
-// the game stays in its online menus. Everything else stays the retail
-// online flow.
+// and popups are answered; one that is not harmless ends the set. The
+// screens it passes by itself are not drawn and their menu sounds are silent
+// (tweak patch 0048): the player sees the frontend's camera, the WFC login's
+// Connecting screen and the draft. Once the set is over or failed, the host
+// ends it (charged_competitive_end_set) and the game stays in its online
+// menus. Everything else stays the retail online flow.
 #if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE)
 #error Competitive play belongs to the isolated original game module
 #endif
@@ -28,11 +30,13 @@
 #include "Game/NetworkMessages.h"
 #include "Game/NetworkPeer.h"
 #include "Game/NetworkSession.h"
+#include "NL/nlString.h"
 #include "mscharged_competitive.h"
 
 #include <RVLFaceLib/RFL_Database.h>
 #include <dwc/dwc_login.h>
 #include <dwc/dwc_main.h>
+#include <dwc/dwc_report.h>
 
 #include <cstdio>
 #include <cstring>
@@ -51,11 +55,28 @@ unsigned sSetups = 0;
 int sSetStage = CHARGED_SET_NONE;
 RFLCreateID sSetMii{};
 int sSetPopup = -1;
+// The set's Mii is not on this computer: the player chooses one, and every
+// screen stays visible.
+bool sPlayerChoosesMii = false;
+
+// [advanced] log_level = debug: the DWC reports that go to the log: its
+// information, errors and warnings, the login, matchmaking (NAT negotiation,
+// GT2 connections, QR2 requests, server browser updates), the friend list
+// update after the login and the connection test. The game sets the level to
+// 0 when its network session starts, so the snapshot sets it again.
+constexpr u32 kDwcReport = 0x1 | 0x2 | 0x8 | 0x20 | 0x40 | 0x80 | 0x200 | 0x400 | 0x20000 | 0x40000;
+u32 sDwcReport = 0;
 
 bool OnSet() { return sSetStage != CHARGED_SET_NONE; }
 
 // A popup is on top: a step must not push past it (Push with popfirst would
 // pop the popup).
+int TopScene()
+{
+    GameSceneManager* manager = GameSceneManager::Instance();
+    return manager && manager->GetCurrentScene() ? manager->GetSceneType(manager->GetCurrentScene()) : -1;
+}
+
 bool PopupOnTop()
 {
     GameSceneManager* manager = GameSceneManager::Instance();
@@ -108,6 +129,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
 extern "C" __attribute__((visibility("default"))) bool charged_wfc_snapshot(ChargedWfcSnapshot* snapshot, unsigned size)
 {
     if (!snapshot || size != sizeof(ChargedWfcSnapshot)) return false;
+    if (sDwcReport) DWC_SetReportLevel(sDwcReport);
     ChargedWfcSnapshot s{};
     // GameSpy's ticket buffer (GP_LOGIN_TICKET_LEN) fits the snapshot's.
     static_assert(GP_LOGIN_TICKET_LEN < sizeof s.login_ticket);
@@ -155,8 +177,16 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
     std::memcpy(&sSetMii, mii, sizeof sSetMii);
     sSetStage = CHARGED_SET_BOOT;
     sSetPopup = -1;
+    sPlayerChoosesMii = false;
     mscharged_tweak_set_start();
     return true;
+}
+
+// Host entry, at log level debug: DWC's reports go to the log.
+extern "C" __attribute__((visibility("default"))) void charged_configure_dwc_report(bool on)
+{
+    sDwcReport = on ? kDwcReport : 0;
+    DWC_SetReportLevel(sDwcReport);
 }
 
 // Host entry, between frames: the set is over (or failed) and the host has
@@ -166,6 +196,7 @@ extern "C" __attribute__((visibility("default"))) void charged_competitive_end_s
 {
     sSetStage = CHARGED_SET_NONE;
     sSetPopup = -1;
+    sPlayerChoosesMii = false;
 }
 
 extern "C" bool mscharged_competitive_take_main_menu(void)
@@ -190,6 +221,7 @@ extern "C" int mscharged_competitive_mii_position(const int* official_indices, i
     // the player chooses the Mii, and the login still goes on into RANKED.
     std::fputs("Competitive: the set's Mii is not in the Mii database; the player chooses one\n", stderr);
     sSetStage = CHARGED_SET_LOGIN;
+    sPlayerChoosesMii = true;
     return -1;
 }
 
@@ -261,6 +293,37 @@ extern "C" int mscharged_competitive_popup(int type)
         }
         return 0;
     }
+}
+
+// The screens a set's game passes by itself (tweak patch 0048): the title and
+// the main menu once the set is on its way; once the main menu went online
+// also the Mii list, the Mii's card, the navigation bar and the popups over
+// the Mii screens. The Connecting screen and the draft stay. While the walk
+// is on one of them, the menu sounds are silent.
+extern "C" void mscharged_tweak_set_menus_quiet(bool quiet);
+extern "C" bool mscharged_competitive_hides_scene(unsigned long scene)
+{
+    static const unsigned long kTitle = nlStringLowerHash("art/fe/sms2_start.fen");
+    static const unsigned long kMainMenu = nlStringLowerHash("art/fe/main_menu_v3.fen");
+    static const unsigned long kMiiSelect = nlStringLowerHash("art/fe/online_mii_select.fen");
+    static const unsigned long kMiiCard = nlStringLowerHash("art/fe/online_mii_select_overlay.fen");
+    static const unsigned long kNavigation = nlStringLowerHash("art/fe/fe_overlay.fen");
+    static const unsigned long kPopup = nlStringLowerHash("art/fe/popup_menu.fen");
+    const bool walking = sSetStage >= CHARGED_SET_BOOT && sSetStage <= CHARGED_SET_LOGIN && !sPlayerChoosesMii;
+    const bool online = walking && sSetStage >= CHARGED_SET_MII; // the main menu went online
+    const int top = TopScene();
+    GameSceneManager* manager = GameSceneManager::Instance();
+    const bool overMii = manager
+        && (manager->IsOnStack(SCENE_ONLINE_MII_SELECT) || manager->IsOnStack(SCENE_ONLINE_MII_SELECT_OVERLAY));
+    mscharged_tweak_set_menus_quiet(
+        walking
+        && (top == SCENE_TITLE || top == SCENE_MAIN_MENU
+            || (online && top != SCENE_ONLINE_LOGIN && (top != SCENE_POPUP_MENU || overMii))));
+    if (!walking) return false;
+    if (scene == kTitle || scene == kMainMenu) return true;
+    if (!online) return false;
+    return scene == kMiiSelect || scene == kMiiCard || scene == kNavigation
+        || (scene == kPopup && top == SCENE_POPUP_MENU && overMii);
 }
 
 extern "C" void mscharged_competitive_back_from_game(void)

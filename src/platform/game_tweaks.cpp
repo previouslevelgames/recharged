@@ -33,8 +33,9 @@ bool sTrainingSkipGoal;
 int sTrainingAwaySkill = -1;
 bool sTrainingPlayAway;
 // Competitive play: a set's game (competitive_match.cpp) passes the title as
-// Skip intro does.
+// Skip intro does, and its menus' sounds are silent while it passes them.
 bool sSetStart;
+bool sMenusQuiet;
 bool sPerformanceMode;
 // Wider view (display.wider_view, issue #91): the window's picture shape
 // divided by 16:9 while the wider view fills it, 1 otherwise; and whether the
@@ -169,6 +170,13 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
 void mscharged_tweak_set_start(void)
 {
     sSetStart = true;
+}
+
+// Competitive play (competitive_match.cpp): while a set's game passes its
+// menus by itself, their sounds (Menus & HUD) are silent.
+void mscharged_tweak_set_menus_quiet(bool quiet)
+{
+    sMenusQuiet = quiet;
 }
 
 // Host entry (Training): the item of the team that trains (ePowerUpType, -1
@@ -308,6 +316,7 @@ void mscharged_tweak_report_stadium(int stadium)
 
 float mscharged_tweak_sound_volume(const char* bank, unsigned category)
 {
+    if (sMenusQuiet && SoundGroupOf(bank, category) == kMenus) return -200.0f;
     return sSoundMixed ? sSoundDecibels[SoundGroupOf(bank, category)] : 0.0f;
 }
 

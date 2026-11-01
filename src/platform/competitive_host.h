@@ -69,9 +69,10 @@ public:
     {
         enum class How
         {
-            Over,     // the series was played
-            Failed,   // a popup ended it (`popup`)
-            CalledOff // the set stopped waiting for this game
+            Over,      // the series was played
+            NoResult,  // back from the match without a game played (one left)
+            Failed,    // a popup ended it (`popup`)
+            CalledOff  // the set stopped waiting for this game
         };
         std::int64_t match = 0;
         std::string opponent;
