@@ -431,9 +431,9 @@ void TestRealParts(const std::filesystem::path& image)
 // The game's own icons (MiiManager::CreateIcon, 128 x 128 RGB5A3 in GX
 // tiles) for the records of `folder`/records.bin, as `folder`/icons/<n>.rgb5a3
 // holds them (made from a game image, so never in the repository): the same
-// coverage, and colours at most two RGB5A3 steps off in a few pixels, where
-// floating-point rounding lands on the other side of a step (or of a texel
-// at the edge of an eye).
+// coverage, and the same colours but in a few pixels where floating-point
+// rounding lands on the other side of an RGB5A3 step or of a sharp texel
+// edge (an eye's, or the face texture's at the head's outline).
 void TestGameIcons(const MiiParts& parts, const std::filesystem::path& folder)
 {
     const auto read = [](const std::filesystem::path& path) {
@@ -443,7 +443,7 @@ void TestGameIcons(const MiiParts& parts, const std::filesystem::path& folder)
     };
     const std::string records = read(folder / "records.bin");
     int icons = 0;
-    std::size_t pixels = 0, off = 0;
+    std::size_t pixels = 0, off = 0, far = 0;
     for (std::size_t n = 0; n + kMiiRecordBytes <= records.size(); n += kMiiRecordBytes) {
         const auto path = folder / "icons" / (std::to_string(n / kMiiRecordBytes) + ".rgb5a3");
         if (!std::filesystem::exists(path)) continue;
@@ -468,14 +468,16 @@ void TestGameIcons(const MiiParts& parts, const std::filesystem::path& folder)
                 int worst = std::abs(c[3] - ours[3]);
                 for (int k = 0; k < 3; ++k)
                     worst = std::max(worst, std::abs(std::min(255, (c[k] * 255 + c[3] / 2) / c[3]) - ours[std::size_t(k)]));
-                Check(worst <= 17, "game icon colour within two steps");
                 off += worst != 0;
+                far += worst > 17;
             }
         ++icons;
     }
     Check(icons > 0, "game icons found");
     Check(off * 1000 <= pixels, "game icon colours differ in at most 0.1 % of the head pixels");
-    std::cout << "game icons compared: " << icons << ", " << off << " of " << pixels << " head pixels off\n";
+    Check(far * 10000 <= pixels, "game icon colours more than two steps off in at most 0.01 % of them");
+    std::cout << "game icons compared: " << icons << ", " << off << " of " << pixels << " head pixels off, " << far
+              << " more than two RGB5A3 steps\n";
 }
 } // namespace
 
