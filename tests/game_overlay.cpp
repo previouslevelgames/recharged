@@ -600,6 +600,82 @@ void TestMoreTabs()
     }
 }
 
+// The red of the badges (a count's pill, a dot) in the tab strip: vertices
+// of that colour above `bottom` (the strip's lower edge) in the last frame.
+int BadgeVertices(float bottom)
+{
+    int count = 0;
+    const ImDrawData* data = ImGui::GetDrawData();
+    for (int n = 0; data && n < data->CmdListsCount; ++n)
+        for (const ImDrawVert& vertex : data->CmdLists[n]->VtxBuffer)
+        {
+            const int r = int(vertex.col & 0xFF), g = int(vertex.col >> 8 & 0xFF), b = int(vertex.col >> 16 & 0xFF),
+                      a = int(vertex.col >> 24 & 0xFF);
+            if (vertex.pos.y < bottom && a > 200 && r > 240 && g > 70 && g < 140 && b > 85 && b < 150) ++count;
+        }
+    return count;
+}
+
+// A tab's badge or dot shows on the others, not while it is open (its page
+// says what waits there).
+void TestOpenTabBadge()
+{
+    constexpr float strip = 115.0f; // a 1280x720 window's tabs end at about 108
+    const auto more = [](int id, const char* label, int badge, bool dot) {
+        GameOverlayMoreTab tab;
+        tab.tab.id = id;
+        tab.tab.label = label;
+        tab.tab.icon = mscharged::launcher::Icon::Trophy;
+        tab.tab.badge = badge;
+        tab.tab.dot = dot;
+        return tab;
+    };
+    {
+        // Online's: a challenge.
+        Harness h;
+        platform::ProfileMatch set;
+        set.id = 5;
+        set.state = "challenged";
+        set.side = "challenged";
+        set.stage = "invited";
+        set.opponent = Online(12, "Daisy");
+        set.opponent_online = true;
+        h.model.online = Model(set);
+        CHECK(GameOverlayTabs(h.model).front().badge == 1);
+        h.Open();
+        h.Frame();
+        CHECK(BadgeVertices(strip) == 0);
+        CHECK(h.state.Switch(OverlayTab::GameOptions));
+        h.Frame();
+        CHECK(BadgeVertices(strip) > 0);
+        h.Press(ImGuiKey_E);
+        CHECK(h.state.Tab() == OverlayTab::Online && BadgeVertices(strip) == 0);
+    }
+    for (const bool dot : {false, true})
+    {
+        // A more tab's count, or its dot; with five tabs and with seven (icons for the others).
+        for (const int tabs : {5, 7})
+        {
+            Harness h;
+            h.model.online = Model();
+            h.model.more_tabs = {more(100, "Ranked", dot ? 0 : 12, dot), more(101, "Tournaments", 0, false),
+                                 more(102, "Leaderboard", 0, false)};
+            if (tabs == 7)
+                h.model.more_tabs.insert(h.model.more_tabs.end(),
+                                         {more(103, "Stats", 0, false), more(104, "Replays", 0, false)});
+            h.Open();
+            h.Frame();
+            CHECK(BadgeVertices(strip) > 0);
+            CHECK(h.state.Switch(OverlayTab(100)));
+            h.Frame();
+            h.Frame();
+            CHECK(BadgeVertices(strip) == 0);
+            h.Press(ImGuiKey_E);
+            CHECK(int(h.state.Tab()) == 101 && BadgeVertices(strip) > 0);
+        }
+    }
+}
+
 int main()
 {
     TestScreens();
@@ -613,6 +689,7 @@ int main()
     TestPrompt();
     TestFrameDone();
     TestMoreTabs();
+    TestOpenTabBadge();
     if (failures)
     {
         std::fprintf(stderr, "%d overlay input checks failed\n", failures);

@@ -265,7 +265,7 @@ float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayT
             const OverlayTabs::Tab& tab = *shown[n];
             TabCell& cell = cells[n];
             cell.label = launcher::TrackedWidth(candidate.font, labels[n].c_str(), candidate.tracking);
-            const float badge = BadgeWidth(fonts, tab);
+            const float badge = n == open ? 0.0f : BadgeWidth(fonts, tab); // the open tab's page shows it
             const float icon = tab.icon == Icon::None || candidate.no_icons ? 0.0f : candidate.icon;
             cell.content = icon + (icon > 0.0f && cell.label > 0.0f ? candidate.gap : 0.0f) + cell.label
                 + (badge > 0.0f ? (tab.badge > 0 ? Dp(8) : Dp(3)) + badge : 0.0f);
@@ -473,7 +473,7 @@ float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayT
             DrawIcon(draw, tab.icon, {x + icon * 0.5f, middle}, icon, ink);
             x += icon + (cell.label > 0.0f ? look.gap : 0.0f) * shows;
         }
-        const float badge = BadgeWidth(fonts, tab);
+        const float badge = selected ? 0.0f : BadgeWidth(fonts, tab);
         if (shows > 0.01f && cell.label > 0.0f)
         {
             // Cut to what has unfolded (renderers clip in whole pixels: a

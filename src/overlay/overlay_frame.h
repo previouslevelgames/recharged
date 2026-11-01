@@ -67,8 +67,11 @@ struct OverlayTabs
         int id = 0; // the caller's, which stays when tabs come and go (unlike its place)
         std::string label;
         launcher::Icon icon = launcher::Icon::None;
-        int badge = 0;         // things waiting there: a count on the tab (0: none)
-        bool dot = false;      // without a count: a dot (something new there)
+        // Things waiting there: a count on the tab (0: none); or, without
+        // one, a dot (something new there). Neither on the open tab, whose
+        // page shows them.
+        int badge = 0;
+        bool dot = false;
         bool available = true; // false: dimmed; neither a click nor the keys open it
         bool hidden = false;   // not in the strip at all
         std::string hint;      // under the mouse, after the label: why it isn't available
