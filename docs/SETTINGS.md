@@ -539,5 +539,8 @@ file beside the app runs it in Terminal with the output there.
 and process CPU, presents, draws, pipeline creations), and a `.csv.summary.txt`
 with the distribution and longest frames on exit. Each row also names the arena
 being played, and the summary starts with the version and settings, then
-repeats the figures for every arena, so testers can compare arenas. **Frame
+repeats the figures for every arena, so testers can compare arenas. The rows
+and the summary also show where each frame's time goes: the game's own work
+(drawing, the rest of the frame, its sound) and its waits, the graphics
+threads' work, the waits for the GPU and presenting. **Frame
 recordings → Open folder** opens that location.

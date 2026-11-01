@@ -179,6 +179,27 @@ mscharged::runtime::FrameTimingCounters ReadFrameTimingCounters() {
         counters.texture_upload_bytes=load(stats->lastTextureUploadSize);
     }
     counters.fifo_bytes=aurora::gx::fifo::get_buffer_size();
+    // Where the frame time goes: the GX pipeline's phases (switched on with the
+    // frame log) and the game's audio callbacks on the game thread.
+    AuroraGXPhaseTimes gx{};
+    aurora_get_gx_phase_times(&gx);
+    using namespace mscharged::runtime;
+    auto& phases=counters.phases;
+    phases[kPhaseSend]=gx.ownerSendNs; phases[kPhaseUpdate]=gx.ownerUpdateNs;
+    phases[kPhasePriorWait]=gx.ownerPriorWaitNs; phases[kPhaseParseWait]=gx.ownerParseWaitNs;
+    phases[kPhaseDoneWait]=gx.ownerDoneWaitNs; phases[kPhaseRetraceWait]=gx.ownerRetraceWaitNs;
+    phases[kPhaseAudio]=mscharged::platform::GetNativeAIObservationStatus().total_callback_duration_ns;
+    phases[kPhaseFifoParse]=gx.fifoParseNs; phases[kPhaseFifoParseCpu]=gx.fifoParseCpuNs;
+    phases[kPhaseFifoLatch]=gx.fifoLatchNs;
+    phases[kPhaseRender]=gx.renderNs; phases[kPhaseRenderCpu]=gx.renderCpuNs;
+    phases[kPhaseSubmit]=gx.submitNs; phases[kPhaseGpuWait]=gx.gpuWaitNs;
+    phases[kPhaseAcquire]=gx.acquireNs; phases[kPhasePresent]=gx.presentNs;
+    counters.draw_done_frames=gx.drawDoneFrames; counters.empty_draw_done_frames=gx.emptyDrawDoneFrames;
+    for(std::size_t core=0;core<counters.cores.game.size();++core) {
+        counters.cores.game[core]=gx.ownerCores[core];
+        counters.cores.fifo[core]=gx.fifoCores[core];
+        counters.cores.render[core]=gx.renderCores[core];
+    }
     return counters;
 }
 
@@ -1317,6 +1338,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             sessionLog.empty() ? executableDirectory/"logs" : sessionLog.parent_path());
         auto* takeStadium=reinterpret_cast<int(*)()>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_take_stadium"));
+        // The frame log also times the GX pipeline's phases (off otherwise).
+        aurora_set_gx_phase_timing(frameTiming!=nullptr);
         if(frameTiming)
             frameTiming->SetContext(std::string("Session: version ")+mscharged::build::version+" ("
                 +mscharged::build::channel+")\nSettings: "+(shown.fullscreen?"fullscreen":"windowed")+" "
