@@ -2785,6 +2785,21 @@ private:
 #endif
     }
 
+    // Online needs the game image: the game plays online, and the image's Mii
+    // parts draw the Miis. While the chosen image is still being checked it
+    // counts as there.
+    std::string OnlineBlocker() const
+    {
+        if (DiscSelection().empty())
+            return "Choose your game image on the Game page first: playing online and your Mii need it.";
+        if (check_.selection == DiscSelection())
+        {
+            if (!check_.info && !check_.error.empty()) return "Your game image can't be read: " + check_.error;
+            if (check_.info && !SupportedRelease(*check_.info)) return UnplayableReason(*check_.info);
+        }
+        return {};
+    }
+
     void Play(bool& quit, bool training = false)
     {
         if (!PlayBlocker().empty()) return;
@@ -2931,11 +2946,18 @@ private:
                     : online == State::SigningIn || online == State::Connecting ? color::warning
                     : color::danger;
                 const bool is_online = group == NavGroupOf(PageOnlineSettings);
+                // Without a usable game image Online is greyed out, its pages folded.
+                const std::string blocker = is_online ? OnlineBlocker() : std::string();
                 std::vector<NavPage> pages;
-                for (int p = i; p < i + info.count; ++p) pages.push_back({page_names[p], page_icons[p], page_ == p});
+                if (blocker.empty())
+                    for (int p = i; p < i + info.count; ++p) pages.push_back({page_names[p], page_icons[p], page_ == p});
+                ImGui::BeginDisabled(!blocker.empty());
                 const int clicked = NavGroup(info.label, info.icon, open_group == group, pages, width - Dp(24),
                                              row - Dp(4), is_online && competitive_ ? &dot : nullptr,
                                              is_online && signed_in);
+                ImGui::EndDisabled();
+                if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s", blocker.c_str());
                 if (clicked == 0) page_ = group_page_[group];
                 if (clicked > 0) page_ = i + clicked - 1;
             }
@@ -2997,6 +3019,8 @@ private:
         if (page_ == PageControls || (page_ == PagePlay && RemotePlayer())) PollWiimotes();
         const float bar = Dp(74);
         const ImVec2 content{size.x, size.y - bar};
+        // An Online page without a usable game image (it went away): the Game page.
+        if (OnlinePage(page_) && !OnlineBlocker().empty()) page_ = PageGame;
         ImGui::SetCursorPos(origin);
         if (page_ == PagePlay) DrawPlayPage(origin, content, quit);
         else
