@@ -391,6 +391,80 @@ void RunEnsureMii(const fs::path& root) {
           "Renamed Mii's face, create ID or CRC");
 }
 
+// A Mii edited in the launcher: its own slot, its create ID, a database the
+// Mii library loads, a backup; nothing written when nothing changed, and
+// nothing changed for a create ID the database doesn't have.
+void RunReplaceMii(const fs::path& root) {
+    const auto saves = root / "replace-mii", backups = root / "replace-backups";
+    const std::int64_t now = 1760000000;
+    const auto mario = MakeRandomMii("Mario", 1, now), luigi = MakeRandomMii("Luigi", 2, now);
+    Check([&] { try { ReplaceMii(luigi, saves, kTitle, backups); } catch (const MiiNotFound&) { return true; }
+                return false; }(),
+          "A Mii was replaced in a save folder without a database");
+    AddMii(mario, saves, kTitle, backups);
+    AddMii(luigi, saves, kTitle, backups);
+    namespace physical = mscharged::platform::filesystem_detail;
+    auto file = saves / "data";
+    for (const char* name : {"shared2", "menu", "FaceLib", "RFL_DB.dat"}) file /= physical::Component(name);
+    const auto database = Bytes(file);
+
+    // Luigi's face and name edited: the face bits after his create ID.
+    auto edited = luigi;
+    SetMiiRecordName(edited, "Weegee");
+    edited[0x30] = char(edited[0x30] ^ 0x5A);
+    edited[0x22] = char(edited[0x22] ^ 0x21);
+    const auto result = ReplaceMii(edited, saves, kTitle, backups);
+    Check(result.names == std::vector<std::string>{"Weegee"} && !result.backup.empty()
+              && Bytes(result.backup / "RFL_DB.dat") == database && fs::exists(result.backup / "metadata.txt"),
+          "Edited Mii's result or backup");
+    const auto listed = InstalledMiis(saves, kTitle);
+    Check(listed.state == MiiDatabaseState::Ready && listed.miis.size() == 2 && listed.miis[0].record == mario
+              && listed.miis[1].name == "Weegee" && listed.miis[1].record == edited
+              && listed.miis[1].create_id == MiiRecordCreateId(luigi),
+          "Edited Mii not in its own slot with its create ID");
+    InitializeNativeFilesystem({saves, kTitle.title_id, kTitle.uid, kTitle.gid});
+    const auto stored = IosRead(kMiiPath, kMiiDatabaseBytes + 1);
+    ShutdownNativeFilesystem();
+    Check(stored.size() == kMiiDatabaseBytes && MiiCrc(stored) == 0 && stored.compare(4 + 74, 74, edited) == 0
+              && stored.compare(4, 74, mario) == 0,
+          "Edited database fails the Mii library's CRC, or moved a Mii");
+    auto expected = database;
+    expected.replace(4 + 74, 74, edited);
+    Check(stored.compare(kMiiChecked, std::string::npos, expected, kMiiChecked, std::string::npos) == 0
+              && stored.compare(0, 4 + 2 * 74, expected, 0, 4 + 2 * 74) == 0,
+          "The edit changed more than the Mii and the CRC");
+
+    // The same record again: no write, no backup.
+    const auto metadata = Bytes(saves / "metadata.txt");
+    const auto count = std::distance(fs::directory_iterator(backups), fs::directory_iterator());
+    Check(ReplaceMii(edited, saves, kTitle, backups).backup.empty() && Bytes(saves / "metadata.txt") == metadata
+              && std::distance(fs::directory_iterator(backups), fs::directory_iterator()) == count,
+          "An unchanged Mii was written again");
+
+    // Another create ID, a short record, a nameless one: refused, nothing changed.
+    bool missing{};
+    try { ReplaceMii(MakeRandomMii("Toad", 3, now + 8), saves, kTitle, backups); }
+    catch (const MiiNotFound&) { missing = true; }
+    Check(missing, "A Mii with an unknown create ID was replaced");
+    Reject([&] { ReplaceMii(edited.substr(1), saves, kTitle, backups); }, "A short record replaced a Mii");
+    auto nameless = edited;
+    nameless.replace(2, 20, std::string(20, '\0'));
+    Reject([&] { ReplaceMii(nameless, saves, kTitle, backups); }, "A nameless record replaced a Mii");
+    Check(Bytes(saves / "metadata.txt") == metadata && InstalledMiis(saves, kTitle).miis[1].record == edited
+              && std::distance(fs::directory_iterator(backups), fs::directory_iterator()) == count,
+          "A refused edit changed the save folder");
+
+    // A damaged database: not "no such Mii", and left as it is.
+    auto damaged = stored;
+    damaged[0x100] ^= 1;
+    Put(file, damaged);
+    bool not_found{}, refused{};
+    try { ReplaceMii(luigi, saves, kTitle, backups); }
+    catch (const MiiNotFound&) { not_found = true; }
+    catch (const std::runtime_error&) { refused = true; }
+    Check(refused && !not_found && Bytes(file) == damaged, "An edit went into a damaged database");
+}
+
 // The usual CRC-32, table-free (the game's nlChecksum32 uses its table).
 std::uint32_t Crc32(const std::string& bytes, std::size_t begin) {
     std::uint32_t crc = ~0u;
@@ -679,6 +753,18 @@ void RunFriendCodes(const fs::path& root) {
                   && status.miis[n].friend_code == expected[n].code,
               "A Mii's place, colour or friend code differs from the game's online list");
 
+    // An edited Mii keeps its online slot and friend code: its create ID.
+    {
+        auto luigi = status.miis[0].record;
+        const auto original = luigi;
+        luigi[0x30] = char(luigi[0x30] ^ 0x5A);
+        ReplaceMii(luigi, nand, kTitle, root / "backups");
+        const auto edited = InstalledMiis(nand, kTitle);
+        Check(edited.miis[0].record == luigi && edited.miis[0].friend_code == 86899345920ULL,
+              "An edited Mii lost its place or friend code");
+        ReplaceMii(original, nand, kTitle, root / "backups");
+    }
+
     // A damaged online save holds no codes (the game deletes it), and no slots.
     online[0x1234] ^= 1;
     Put(files[2], online);
@@ -759,6 +845,7 @@ int main(int argc, char** argv) {
         RunMiis(fs::path(argv[1]));
         RunAddMii(fs::path(argv[1]));
         RunEnsureMii(fs::path(argv[1]));
+        RunReplaceMii(fs::path(argv[1]));
         RunSidekicks(fs::path(argv[1]));
         RunMatchSettings(fs::path(argv[1]));
         RunFriendCodes(fs::path(argv[1]));

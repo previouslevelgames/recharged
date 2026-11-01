@@ -160,6 +160,30 @@ void FittedNames() {
     for (const char* name : {"0123456789AB", "a\tb", " x ", "\xE3\x80\x80Ab\xEF\xBB\xBF"})
         Check(ValidMiiName(FitMiiName(name)), std::string("Fitted name refused: ") + name);
 }
+// A record's name read back, and a rename that changes nothing but the name.
+void RecordNames() {
+    const auto mario = MakeRandomMii("Mario", 7, 1760000000);
+    Check(MiiRecordName(mario) == "Mario", "Record name read");
+    const std::string accents = "\xC3\xA9t\xC3\xA9 \xE2\x98\x86";
+    auto renamed = mario;
+    SetMiiRecordName(renamed, accents);
+    Check(MiiRecordName(renamed) == accents && Decode(renamed).name[0] == 0xE9, "Renamed record");
+    Check(renamed.substr(22) == mario.substr(22) && renamed.substr(0, 2) == mario.substr(0, 2),
+          "A rename changed more than the name");
+    SetMiiRecordName(renamed, "0123456789");
+    Check(MiiRecordName(renamed) == "0123456789", "Ten-character name");
+    SetMiiRecordName(renamed, "Bo");
+    Check(MiiRecordName(renamed) == "Bo" && renamed.compare(6, 16, std::string(16, '\0')) == 0,
+          "A shorter name left the old one's tail");
+    for (const char* bad : {"", "0123456789A", "\xF0\x9F\x98\x80", "a\x01"}) {
+        bool thrown{};
+        try { SetMiiRecordName(renamed, bad); } catch (const std::invalid_argument&) { thrown = true; }
+        Check(thrown && MiiRecordName(renamed) == "Bo", std::string("Name accepted: ") + bad);
+    }
+    bool thrown{};
+    try { MiiRecordName(mario.substr(1)); } catch (const std::invalid_argument&) { thrown = true; }
+    Check(thrown, "A short record's name");
+}
 } // namespace
 
 int main() {
@@ -170,6 +194,7 @@ int main() {
         KeyedMiis();
         Colours();
         FittedNames();
+        RecordNames();
         std::cout << "mii_maker: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& e) {

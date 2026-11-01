@@ -32,6 +32,12 @@ std::string MakeRandomMii(const std::string& name, std::uint32_t seed, std::int6
 std::array<unsigned char, 8> MiiRecordCreateId(const std::string& record);
 int MiiRecordFavoriteColor(const std::string& record);
 
+// A Mii record's name (UTF-8), and the same record with another name, the
+// rest as it was (a Mii editor's rename). Throw std::invalid_argument for a
+// record of another size, and SetMiiRecordName for a name ValidMiiName rejects.
+std::string MiiRecordName(const std::string& record);
+void SetMiiRecordName(std::string& record, const std::string& name);
+
 // A create ID as 16 lowercase hex digits (the settings file's online.mii),
 // and back: nullopt for anything but 16 hex digits.
 std::string MiiCreateIdText(const std::array<unsigned char, 8>& create_id);

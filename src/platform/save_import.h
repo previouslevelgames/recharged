@@ -150,6 +150,23 @@ struct MiiCreateIdTaken : std::runtime_error {
 MiiImportResult AddMii(const std::string& record, const std::filesystem::path& nand_root, const SaveTitle& title,
                        const std::filesystem::path& backup_parent);
 
+// The database has no Mii with the edited one's create ID (ReplaceMii).
+struct MiiNotFound : std::runtime_error {
+    MiiNotFound() : std::runtime_error("The Mii database has no Mii with this create ID.") {}
+};
+
+// Replace the Mii with `record`'s create ID by `record` (its face or name
+// edited), in its own slot. The create ID is who the Mii is online: the game
+// keys its online save slot, with its WFC profile and friend code, by it, so
+// an edit never changes that. The previous database and the catalog are
+// backed up as for AddMii; nothing is written, and the backup is empty, when
+// the database holds the record already. Throws MiiNotFound when no Mii has
+// that create ID, std::invalid_argument for a record without a name or a
+// create ID, and as AddMii for a damaged database or an unusable save folder;
+// nothing is changed then.
+MiiImportResult ReplaceMii(const std::string& record, const std::filesystem::path& nand_root, const SaveTitle& title,
+                           const std::filesystem::path& backup_parent);
+
 // What EnsureMii did.
 enum class MiiEnsured { Added, Renamed, Unchanged };
 
