@@ -222,6 +222,21 @@ void TestRecords()
     Check(!ValidMiiFace(f), "expression-only eye type");
     Rejects([] { ReadMiiFace(std::string(73, '\0')); }, "short record");
     Check(FavoriteColor(5) == std::array<std::uint8_t, 3>{32, 72, 152}, "favourite colour blue");
+    // Every colour field's swatches cover its range, and nothing beyond.
+    for (const auto& field : kMiiFaceFields) {
+        const std::string name = field.name;
+        if (name.size() < 6 || name.compare(name.size() - 6, 6, "_color") != 0) {
+            Check(!MiiFieldColor(name, 0), "a colour for " + name);
+            continue;
+        }
+        for (int value = field.min; value <= field.max; ++value)
+            Check(MiiFieldColor(name, value).has_value(), "no colour for " + name);
+        Check(!MiiFieldColor(name, field.max + 1) && !MiiFieldColor(name, -1), "a colour past " + name);
+    }
+    Check(MiiFieldColor("favorite_color", 5) == FavoriteColor(5)
+              && MiiFieldColor("eyebrow_color", 7) == MiiFieldColor("hair_color", 7)
+              && MiiFieldColor("face_color", 0) == std::array<std::uint8_t, 3>{240, 216, 196},
+          "field colours");
 }
 
 // ---------------------------------------------------------------- drawing

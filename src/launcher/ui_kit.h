@@ -158,6 +158,11 @@ bool SegmentedIcons(const char* id, int* selected, std::initializer_list<Segment
 // `minimum`..`maximum`.
 bool PercentSlider(const char* id, int* value, float width, const char* zero_label = nullptr, int minimum = 0,
                    int maximum = 100);
+// A slider for a small whole number between a minus and a plus button, with
+// `label` (the value, or a word for it) after them; `reversed` shows the
+// maximum at the left, for values that grow the other way.
+bool StepSlider(const char* id, int* value, int minimum, int maximum, float width, const char* label,
+                bool reversed = false);
 void Chip(const char* text, const ImVec4& color, Icon icon = Icon::None);
 // Small battery gauge (0-100%), coloured by charge, with the percentage after it.
 void BatteryIcon(int percent);

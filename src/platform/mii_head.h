@@ -59,6 +59,13 @@ bool ValidMiiFace(const MiiFace& face);
 // RFLFavoriteColor's RGB (RFL_Model.c cFavoriteColor); index taken modulo 12.
 std::array<std::uint8_t, 3> FavoriteColor(int index);
 
+// The colour a colour value of the face draws in, for an editor's swatches:
+// favorite_color, face_color (the skin), hair_color, eyebrow_color and
+// beard_color (the hair colours), eye_color, mouth_color (the lips) and
+// glasses_color (the frames), as the Mii library draws them (RFL_Model.c,
+// RFLi_Config.h). nullopt for another field or a value outside its range.
+std::optional<std::array<std::uint8_t, 3>> MiiFieldColor(std::string_view field, int value);
+
 // RFLExpression.
 enum class Expression { Normal, Smile, Anger, Sorrow, Surprise, Blink, OpenMouth };
 

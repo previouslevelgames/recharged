@@ -931,6 +931,23 @@ std::array<std::uint8_t, 3> FavoriteColor(int index)
     return {std::uint8_t(c.r), std::uint8_t(c.g), std::uint8_t(c.b)};
 }
 
+std::optional<std::array<std::uint8_t, 3>> MiiFieldColor(std::string_view field, int value)
+{
+    const auto pick = [&](const Rgb* table, std::size_t count) -> std::optional<std::array<std::uint8_t, 3>> {
+        if (value < 0 || std::size_t(value) >= count) return std::nullopt;
+        const Rgb& c = table[value];
+        return std::array<std::uint8_t, 3>{std::uint8_t(c.r), std::uint8_t(c.g), std::uint8_t(c.b)};
+    };
+    if (field == "favorite_color") return pick(kFavoriteColor, std::size(kFavoriteColor));
+    if (field == "face_color") return pick(kFacelineColor, std::size(kFacelineColor));
+    if (field == "hair_color" || field == "eyebrow_color" || field == "beard_color")
+        return pick(kHairColor, std::size(kHairColor));
+    if (field == "eye_color") return pick(kEyeColor1, std::size(kEyeColor1));
+    if (field == "mouth_color") return pick(kMouthColor0, std::size(kMouthColor0));
+    if (field == "glasses_color") return pick(kGlassColor, std::size(kGlassColor));
+    return std::nullopt;
+}
+
 MiiParts::MiiParts(std::vector<std::uint8_t> resource) : bytes_(std::move(resource))
 {
     const std::size_t size = bytes_.size();

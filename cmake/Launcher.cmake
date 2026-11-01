@@ -190,13 +190,18 @@ if(BUILD_TESTING)
     set_tests_properties(launcher_smoke PROPERTIES
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software" TIMEOUT 30)
     # The Online pages with made-up states: Play with a Mii's steps, a Mii
-    # player's profile (with its Sign out asked), a Discord player's.
-    foreach(preview IN ITEMS preview-mii-new preview-mii-go preview-mii-profile-signout preview)
+    # player's profile (with its Sign out asked), the Mii editor (a Mii's
+    # face, its hair, a new Mii's), a Discord player's.
+    foreach(preview IN ITEMS preview-mii-new preview-mii-go preview-mii-profile-signout preview-mii-editor
+            preview-mii-editor-hair preview-mii-new-editor preview)
         add_test(NAME launcher_smoke_${preview}
             COMMAND mscharged --smoke-test --config "${CMAKE_CURRENT_BINARY_DIR}/launcher-test-missing.ini")
         set_tests_properties(launcher_smoke_${preview} PROPERTIES
             ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;RECHARGED_CAPTURE_DISCORD=${preview}"
             TIMEOUT 30)
+        if(preview MATCHES "editor")
+            set_tests_properties(launcher_smoke_${preview} PROPERTIES PASS_REGULAR_EXPRESSION "Mii editor was drawn")
+        endif()
     endforeach()
     add_executable(launcher_ui_metrics_tests tests/launcher_ui_metrics.cpp)
     target_include_directories(launcher_ui_metrics_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")

@@ -1314,6 +1314,91 @@ bool PercentSlider(const char* id, int* value, float width, const char* zero_lab
     return changed;
 }
 
+bool StepSlider(const char* id, int* value, int minimum, int maximum, float width, const char* label, bool reversed)
+{
+    ImGui::PushID(id);
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float height = ImGui::GetFrameHeight(), button = height;
+    const float label_width = std::max(TextSize(fonts.body, label).x, Dp(28)) + Dp(12);
+    const float track_width = std::max(Dp(60), width - label_width - 2 * button - Dp(16));
+    auto* draw = ImGui::GetWindowDrawList();
+    const float alpha = ImGui::GetStyle().Alpha;
+    // Shown: the value as it reads left to right.
+    int shown = reversed ? minimum + maximum - *value : *value;
+    bool changed = false;
+    // The minus and plus buttons: one step left or right as shown.
+    const auto step = [&](const char* button_id, float x, int direction) {
+        ImGui::SetCursorScreenPos({x, pos.y});
+        const bool enabled = direction < 0 ? shown > minimum : shown < maximum;
+        ImGui::BeginDisabled(!enabled);
+        // Held, it repeats.
+        ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
+        const bool pressed = ImGui::InvisibleButton(button_id, {button, height});
+        ImGui::PopItemFlag();
+        const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered() && enabled, 14.0f);
+        ImGui::EndDisabled();
+        const ImVec2 center{x + button * 0.5f, pos.y + height * 0.5f};
+        draw->AddCircleFilled(center, button * 0.42f, Col(Mix(color::field, color::card_hover, hover), alpha));
+        draw->AddCircle(center, button * 0.42f, Col(color::border, (enabled ? 1.0f : 0.5f) * alpha), 0, Dp(1));
+        const ImU32 ink = Col(enabled ? Mix(color::muted, color::text, 0.4f + 0.6f * hover) : color::dim, alpha);
+        const float arm = button * 0.16f;
+        draw->AddLine({center.x - arm, center.y}, {center.x + arm, center.y}, ink, Dp(1.8f));
+        if (direction > 0) draw->AddLine({center.x, center.y - arm}, {center.x, center.y + arm}, ink, Dp(1.8f));
+        if (pressed && enabled)
+        {
+            shown += direction;
+            changed = true;
+        }
+    };
+    step("##less", pos.x, -1);
+
+    // The track: ImGui's slider keeps the input, the knob is drawn here.
+    const float left_edge = pos.x + button + Dp(8);
+    ImGui::SetCursorScreenPos({left_edge, pos.y});
+    const float knob = Dp(16);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, knob);
+    ImGui::SetNextItemWidth(track_width);
+    if (ImGui::SliderInt("##slider", &shown, minimum, maximum, "", ImGuiSliderFlags_AlwaysClamp)) changed = true;
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(5);
+    const bool active = ImGui::IsItemActive();
+    const float lift = Animate(ImGui::GetID("##lift"), active || ImGui::IsItemHovered(), 14.0f);
+    const float left = left_edge + 2.0f + knob * 0.5f, right = left_edge + track_width - 2.0f - knob * 0.5f;
+    const float x = left + (right - left) * std::clamp(float(shown - minimum) / float(std::max(1, maximum - minimum)),
+                                                       0.0f, 1.0f);
+    const float y = pos.y + height * 0.5f, half = Dp(2);
+    draw->AddRectFilled({left, y - half}, {right, y + half}, Col(color::text, 0.12f * alpha), half);
+    // A tick per value when there are few, so steps can be counted.
+    if (maximum - minimum <= 24)
+        for (int v = minimum; v <= maximum; ++v)
+        {
+            const float tx = left + (right - left) * float(v - minimum) / float(std::max(1, maximum - minimum));
+            draw->AddCircleFilled({tx, y}, Dp(1.6f), Col(color::text, 0.22f * alpha));
+        }
+    const float radius = knob * 0.5f * (1.0f + 0.12f * lift);
+    if (lift > 0.01f) draw->AddCircleFilled({x, y}, radius + Dp(5), Col(color::accent, 0.16f * lift * alpha));
+    draw->AddCircleFilled({x, y + Dp(1)}, radius, Col(ImVec4{0, 0, 0, 1}, 0.35f * alpha));
+    draw->AddCircleFilled({x, y}, radius, Col(active ? color::accent_hi : color::text, alpha));
+
+    step("##more", left_edge + track_width + Dp(8), 1);
+    const ImVec2 size = TextSize(fonts.body, label);
+    DrawLabel(draw, fonts.body, {pos.x + width - size.x, y - size.y * 0.5f}, Col(color::text, 0.85f * alpha), label);
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::Dummy({width, height});
+    ImGui::PopID();
+    shown = std::clamp(shown, minimum, maximum);
+    const int next = reversed ? minimum + maximum - shown : shown;
+    changed = changed && next != *value;
+    *value = next;
+    return changed;
+}
+
 void Chip(const char* text, const ImVec4& tint, Icon icon)
 {
     const auto& fonts = CurrentFonts();

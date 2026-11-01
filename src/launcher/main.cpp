@@ -78,6 +78,7 @@
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <iostream>
 #include <map>
@@ -226,16 +227,19 @@ void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_col
     DrawIcon(draw, Icon::Person, center, size * 0.62f, Col(light ? color::window : color::text));
 }
 
-// The Wii's twelve favourite colours as round swatches, `per_row` to a row,
-// the chosen one ringed; true when another is chosen.
-bool MiiColorSwatches(const char* id, int* chosen, float size, int per_row)
+// Round swatches of `count` colours, `per_row` to a row, the chosen one
+// ringed and ticked, each with its name as a tooltip when `names` has them;
+// true when another is chosen.
+bool ColorSwatches(const char* id, int* chosen, int count, const std::function<ImVec4(int)>& colour,
+                   const char* const* names, float size, int per_row, int first = 0)
 {
     bool changed = false;
     auto* draw = ImGui::GetWindowDrawList();
     ImGui::PushID(id);
-    for (int c = 0; c < 12; ++c)
+    for (int n = 0; n < count; ++n)
     {
-        if (c % per_row) ImGui::SameLine(0, Dp(10));
+        const int c = first + n;
+        if (n % per_row) ImGui::SameLine(0, Dp(10));
         ImGui::PushID(c);
         const ImVec2 at = ImGui::GetCursorScreenPos();
         if (ImGui::InvisibleButton("##swatch", {size, size}))
@@ -247,21 +251,149 @@ bool MiiColorSwatches(const char* id, int* chosen, float size, int per_row)
         if (hovered)
         {
             ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-            ImGui::SetTooltip("%s", kMiiColorNames[c]);
+            if (names) ImGui::SetTooltip("%s", names[n]);
         }
+        const ImVec4 fill = colour(c);
         const ImVec2 center{at.x + size * 0.5f, at.y + size * 0.5f};
         const float selected = Animate(ImGui::GetID("##selected"), *chosen == c, 14.0f);
-        draw->AddCircleFilled(center, size * 0.5f - Dp(3) * selected, Col(MiiColor(c)));
+        draw->AddCircleFilled(center, size * 0.5f - Dp(3) * selected, Col(fill));
         draw->AddCircle(center, size * 0.5f - Dp(3) * selected, Col(color::border, hovered ? 1.0f : 0.7f), 0, Dp(1));
         if (selected > 0.0f) draw->AddCircle(center, size * 0.5f, Col(color::accent, selected), 0, Dp(2));
         if (*chosen == c)
         {
-            const ImVec4 fill = MiiColor(c);
             const bool light = 0.2126f * fill.x + 0.7152f * fill.y + 0.0722f * fill.z > 0.6f;
             DrawIcon(draw, Icon::Check, center, size * 0.42f, Col(light ? color::window : color::text));
         }
         ImGui::PopID();
     }
+    ImGui::PopID();
+    return changed;
+}
+
+// The Wii's twelve favourite colours as swatches (ColorSwatches).
+bool MiiColorSwatches(const char* id, int* chosen, float size, int per_row)
+{
+    return ColorSwatches(id, chosen, 12, MiiColor, kMiiColorNames, size, per_row);
+}
+
+// The Mii editor's rows, each a value of the face (kMiiFaceFields): its
+// parts as thumbnails of the head with each of them, colour swatches, a
+// slider (Height: higher to the right, where the value grows downwards), or
+// a switch; and the Mii's name.
+enum class MiiControl { Parts, Colors, Slider, Height, Toggle, Name };
+// The square of the head a part's thumbnails show (centre and half its
+// side, 0..1 of the head picture).
+struct MiiCrop
+{
+    float x = 0.5f, y = 0.5f, half = 0.5f;
+};
+struct MiiEditorRow
+{
+    const char* label;
+    const char* field;
+    MiiControl control;
+    MiiCrop crop = {};
+    const char* needs = nullptr; // a part this row changes, off while it is none
+};
+struct MiiEditorSection
+{
+    const char* name;
+    std::vector<MiiEditorRow> rows;
+};
+
+const std::vector<MiiEditorSection>& MiiEditorSections()
+{
+    using C = MiiControl;
+    const MiiCrop face{0.5f, 0.5f, 0.42f}, hair{0.5f, 0.49f, 0.44f}, brows{0.5f, 0.43f, 0.2f},
+        eyes{0.5f, 0.47f, 0.2f}, nose{0.5f, 0.55f, 0.17f}, mouth{0.5f, 0.63f, 0.19f}, glasses{0.5f, 0.49f, 0.27f},
+        mustache{0.5f, 0.61f, 0.19f}, beard{0.5f, 0.62f, 0.31f};
+    static const std::vector<MiiEditorSection> sections = {
+        {"Face", {{"Shape", "face_type", C::Parts, face}, {"Skin", "face_color", C::Colors},
+                  {"Make-up and features", "face_texture", C::Parts, face}}},
+        {"Hair", {{"Style", "hair_type", C::Parts, hair}, {"Colour", "hair_color", C::Colors},
+                  {"Parted the other way", "hair_flip", C::Toggle}}},
+        {"Eyebrows", {{"Type", "eyebrow_type", C::Parts, brows}, {"Colour", "eyebrow_color", C::Colors},
+                      {"Size", "eyebrow_scale", C::Slider}, {"Rotation", "eyebrow_rotate", C::Slider},
+                      {"Spacing", "eyebrow_x", C::Slider}, {"Height", "eyebrow_y", C::Height}}},
+        {"Eyes", {{"Type", "eye_type", C::Parts, eyes}, {"Colour", "eye_color", C::Colors},
+                  {"Size", "eye_scale", C::Slider}, {"Rotation", "eye_rotate", C::Slider},
+                  {"Spacing", "eye_x", C::Slider}, {"Height", "eye_y", C::Height}}},
+        {"Nose", {{"Type", "nose_type", C::Parts, nose}, {"Size", "nose_scale", C::Slider},
+                  {"Height", "nose_y", C::Height}}},
+        {"Mouth", {{"Type", "mouth_type", C::Parts, mouth}, {"Colour", "mouth_color", C::Colors},
+                   {"Size", "mouth_scale", C::Slider}, {"Height", "mouth_y", C::Height}}},
+        {"Glasses", {{"Type", "glasses_type", C::Parts, glasses},
+                     {"Colour", "glasses_color", C::Colors, {}, "glasses_type"},
+                     {"Size", "glasses_scale", C::Slider, {}, "glasses_type"},
+                     {"Height", "glasses_y", C::Height, {}, "glasses_type"}}},
+        {"Facial hair", {{"Mustache", "mustache_type", C::Parts, mustache}, {"Beard", "beard_type", C::Parts, beard},
+                         {"Colour", "beard_color", C::Colors},
+                         {"Mustache size", "beard_scale", C::Slider, {}, "mustache_type"},
+                         {"Mustache height", "beard_y", C::Height, {}, "mustache_type"}}},
+        {"Mole", {{"Mole", "mole_type", C::Toggle}, {"Size", "mole_scale", C::Slider, {}, "mole_type"},
+                  {"Across", "mole_x", C::Slider, {}, "mole_type"}, {"Height", "mole_y", C::Height, {}, "mole_type"}}},
+        {"Name & colour", {{"Name", nullptr, C::Name}, {"Favourite colour", "favorite_color", C::Colors}}},
+    };
+    return sections;
+}
+
+const mscharged::platform::mii::MiiFaceField& FaceField(std::string_view name)
+{
+    for (const auto& field : mscharged::platform::mii::kMiiFaceFields)
+        if (name == field.name) return field;
+    throw std::logic_error("No Mii face field " + std::string(name));
+}
+
+bool SameFace(const mscharged::platform::mii::MiiFace& a, const mscharged::platform::mii::MiiFace& b)
+{
+    for (const auto& field : mscharged::platform::mii::kMiiFaceFields)
+        if (a.*field.value != b.*field.value) return false;
+    return true;
+}
+
+// Pills that wrap within `width`, the selected one lit; true when another
+// is chosen.
+bool Pills(const char* id, const std::vector<const char*>& labels, int* selected, float width, ImFont* font,
+           float height)
+{
+    bool changed = false;
+    auto* draw = ImGui::GetWindowDrawList();
+    ImGui::PushID(id);
+    const float gap = Dp(6);
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    float x = 0.0f, y = 0.0f;
+    for (int n = 0; n < int(labels.size()); ++n)
+    {
+        const ImVec2 text = TextSize(font, labels[std::size_t(n)]);
+        const float pill = text.x + Dp(26);
+        if (x > 0.0f && x + pill > width)
+        {
+            x = 0.0f;
+            y += height + gap;
+        }
+        ImGui::SetCursorScreenPos({start.x + x, start.y + y});
+        ImGui::PushID(n);
+        if (ImGui::InvisibleButton("##pill", {pill, height}) && *selected != n)
+        {
+            *selected = n;
+            changed = true;
+        }
+        const bool hovered = ImGui::IsItemHovered();
+        if (hovered) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        const float hover = Animate(ImGui::GetItemID(), hovered, 14.0f);
+        const float on = Animate(ImGui::GetID("##on"), *selected == n, 14.0f);
+        const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+        draw->AddRectFilled(min, max, Col(Mix(Mix(color::field, color::card_hover, hover), color::accent_dark, on)),
+                            height * 0.5f);
+        draw->AddRect(min, max, Col(Mix(color::border, color::accent, on), 0.6f + 0.4f * on), height * 0.5f, 0,
+                      Dp(1));
+        DrawLabel(draw, font, {min.x + (pill - text.x) * 0.5f, min.y + (height - text.y) * 0.5f},
+                  Col(Mix(Mix(color::muted, color::text, hover), color::accent_hi, on)), labels[std::size_t(n)]);
+        ImGui::PopID();
+        x += pill + gap;
+    }
+    ImGui::SetCursorScreenPos(start);
+    ImGui::Dummy({width, y + height});
     ImGui::PopID();
     return changed;
 }
@@ -880,6 +1012,8 @@ public:
         }
         if (options_.smoke_test)
             std::cout << "Launcher rendered all " << int(PageCount) << " pages and loaded its resources.\n";
+        if (options_.smoke_test && mii_editor_frames_)
+            std::cout << "The Mii editor was drawn in " << mii_editor_frames_ << " frames.\n";
         return 0;
     }
 
@@ -3126,13 +3260,20 @@ private:
         {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(36, 30));
             ImGui::BeginChild("##page", content, ImGuiChildFlags_AlwaysUseWindowPadding);
+            // The Mii editor opened or closed: the page from its top.
+            if (page_scroll_top_)
+            {
+                ImGui::SetScrollY(0.0f);
+                page_scroll_top_ = false;
+            }
             const float available = ImGui::GetContentRegionAvail().x;
             const float column = std::min(available, Dp(900));
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (available - column) * 0.5f);
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
             ImGui::BeginChild("##column", {column, 0}, ImGuiChildFlags_AutoResizeY);
             ImGui::BeginDisabled(!config_ok_ && page_ != PageAbout);
-            switch (page_)
+            if (mii_editor_.open && mii_editor_.page == page_) MiiEditorPage();
+            else switch (page_)
             {
             case PageGame: GamePage(); break;
             case PageMiis: MiiPage(); break;
@@ -3988,7 +4129,7 @@ private:
                   Icon::Person);
         if (BeginRows("##new_mii_rows"))
         {
-            Row("Name", "Up to 10 characters. The face is random: there is no Mii editor here.");
+            Row("Name", "Up to 10 characters. The face is random: Edit changes it once the Mii is made.");
             const float button = Dp(150);
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - button - Dp(10));
             ImGui::InputTextWithHint("##mii_name", "Mii name", &new_mii_name_);
@@ -4035,8 +4176,8 @@ private:
         EndCard();
     }
 
-    // A Mii of the list: its head on its favourite colour, its name, and its
-    // friend code on a button that copies it.
+    // A Mii of the list: its head on its favourite colour, its name, its
+    // friend code on a button that copies it, and Edit (the Mii editor).
     void MiiRow(const mscharged::platform::InstalledMii& mii, std::size_t index)
     {
         const auto& fonts = CurrentFonts();
@@ -4059,13 +4200,21 @@ private:
                 figure, mii.favorite_color, mii.record);
         if (height < figure) ImGui::Dummy({0.0f, figure - height});
 
+        // Its friend code on a button that copies it, and Edit.
         ImGui::TableSetColumnIndex(1);
-        if (!mii.friend_code) return;
-        const auto code = mscharged::platform::FriendCodeText(mii.friend_code);
         ImGui::PushID(int(index));
-        if (SecondaryButton("copy_code", code.c_str(), {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Copy)
-            && SDL_SetClipboardText(code.c_str()))
-            Notice("Friend code of " + mii.name + " copied: " + code + ".", NoticeKind::Success);
+        const float edit = GhostWidth("Edit", Icon::Sliders), row = ImGui::GetContentRegionAvail().x;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        if (mii.friend_code)
+        {
+            const auto code = mscharged::platform::FriendCodeText(mii.friend_code);
+            if (SecondaryButton("copy_code", code.c_str(), {row - edit - Dp(8), Dp(40)}, true, Icon::Copy)
+                && SDL_SetClipboardText(code.c_str()))
+                Notice("Friend code of " + mii.name + " copied: " + code + ".", NoticeKind::Success);
+        }
+        ImGui::SetCursorScreenPos({at.x + row - edit, at.y});
+        if (GhostButton("edit_mii", "Edit", {edit, Dp(40)}, config_ok_, Icon::Sliders))
+            OpenMiiEditor(false, mii.record, false, false);
         ImGui::PopID();
     }
 
@@ -4417,7 +4566,9 @@ private:
     // "preview-mii-go" / "-error" (step 2, and a refused sign-in), and
     // "preview-mii-profile" / "-connect" / "-taken" / "-signout" (a Mii
     // player's profile, connecting Discord, that Discord account taken, and
-    // Sign out asked for a Mii without a friend code yet).
+    // Sign out asked for a Mii without a friend code yet), the Mii editor on
+    // their Mii with "preview-mii-editor" / "-<section>" ("-hair": another
+    // hairstyle chosen), and on step 1's new Mii with "preview-mii-new-editor".
     void PreviewMiiAccount(const std::string& mode)
     {
         auto& status = competitive_status_;
@@ -4429,7 +4580,8 @@ private:
         const bool first = !preview_applied_;
         preview_applied_ = true;
         const auto& miis = InstalledMiis().miis;
-        if (mode == "preview-welcome" || mode.rfind("preview-mii-profile", 0) != 0)
+        const bool editor = mode.rfind("preview-mii-editor", 0) == 0;
+        if (mode == "preview-welcome" || (mode.rfind("preview-mii-profile", 0) != 0 && !editor))
         {
             status.state = CompetitiveService::State::SignedOut;
             if (mode == "preview-mii-error")
@@ -4454,6 +4606,15 @@ private:
                 wizard_.profile_typed = false;
             }
             if (mode == "preview-mii-go" || mode == "preview-mii-error") wizard_.step = 2;
+            if (mode == "preview-mii-new-editor")
+            {
+                auto record = platform::MakeRandomMii("Bob", wizard_.seed, wizard_.created, wizard_.color);
+                auto face = wizard_.face;
+                face.favorite_color = wizard_.color;
+                platform::mii::WriteMiiFace(face, record);
+                OpenMiiEditor(true, record, false, false);
+                mii_editor_.page = PageOnlineSettings;
+            }
             return;
         }
         status.state = CompetitiveService::State::SignedIn;
@@ -4478,6 +4639,30 @@ private:
             if (first) sign_out_prompt_ = true;
         }
         if (first && !miis.empty()) draft_.online_mii = platform::MiiCreateIdText(miis.front().create_id);
+        if (first && editor)
+        {
+            // The player's Mii, else a made-up one.
+            const std::string record =
+                !miis.empty() ? miis.front().record : platform::MakeRandomMii("Bob", 7, 1760000000, 5);
+            OpenMiiEditor(false, record, miis.empty(), false);
+            mii_editor_.page = PageOnlineSettings;
+            // "-<section>" shows that section ("-facial" Facial hair, "-name" Name & colour).
+            const std::string wanted = mode.size() > 19 ? mode.substr(19) : std::string();
+            const auto& sections = MiiEditorSections();
+            for (std::size_t n = 0; n < sections.size() && !wanted.empty(); ++n)
+            {
+                std::string name = sections[n].name;
+                for (auto& c : name) c = char(std::tolower(static_cast<unsigned char>(c)));
+                if (name.rfind(wanted, 0) == 0) mii_editor_.section = int(n);
+            }
+            if (mode == "preview-mii-editor-hair")
+            {
+                mii_editor_.section = 1;
+                mii_editor_.undo.push_back({mii_editor_.face, mii_editor_.name});
+                mii_editor_.face.hair_type = 33;
+                mii_editor_.face.hair_color = 7;
+            }
+        }
     }
 
     // The player's own Mii as the Online pages show it.
@@ -5443,7 +5628,7 @@ private:
     }
 
     // The wizard's new Mii as its record: the name it gets, the face shown
-    // (rolled) and the favourite colour, its create ID counting
+    // (rolled or edited) and the favourite colour, its create ID counting
     // from `created` (Unix seconds). Throws for a name ValidMiiName refuses.
     std::string WizardNewRecord(std::int64_t created)
     {
@@ -5568,7 +5753,7 @@ private:
         const auto& miis = InstalledMiis();
         if (wizard_.source == 0)
         {
-            // A new Mii: its face (Another face rolls a new one), and its favourite colour.
+            // A new Mii: its face (another one, or edited), and its favourite colour.
             const float figure = Dp(112);
             const ImVec2 at = ImGui::GetCursorScreenPos();
             auto face = wizard_.face;
@@ -5588,11 +5773,15 @@ private:
             if (SecondaryButton("wizard_another_face", "Another face",
                                 {GhostWidth("Another face", Icon::Refresh) + Dp(16), Dp(36)}, true, Icon::Refresh))
                 RollWizardFace(std::random_device{}());
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("wizard_edit_face", "Edit face", {GhostWidth("Edit face", Icon::Sliders) + Dp(16),
+                                Dp(36)}, true, Icon::Sliders))
+                OpenMiiEditor(true, preview, false, false);
             ImGui::Dummy({0, Dp(4)});
             ImGui::PushTextWrapPos(0.0f);
             TextWrappedColored(fonts.caption, color::dim,
-                               "A random face from the Wii's own Mii maker: roll another until you like it. The Mii is "
-                               "made when you go online.");
+                               "A random face from the Wii's own Mii maker: roll another, or edit it. The Mii is made "
+                               "when you go online.");
             ImGui::PopTextWrapPos();
             ImGui::EndGroup();
             const float bottom = std::max(ImGui::GetItemRectMax().y, at.y + figure);
@@ -5846,6 +6035,411 @@ private:
         catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
     }
 
+    // ------------------------------------------------------------ Mii editor
+    // A Mii's face, name and favourite colour edited on the page it was
+    // opened from (MiiEditorPage, until Save or Cancel), drawn as the game
+    // draws its Miis from the game image's Mii parts: no Mii Channel needed.
+    // A new Mii of Play with a Mii's first step takes its face; one of this
+    // computer's is saved in its own slot by its create ID (ReplaceMii), so
+    // it stays who it is online.
+    void OpenMiiEditor(bool for_wizard, const std::string& record, bool add, bool name_locked)
+    {
+        if (record.size() != platform::mii::kMiiRecordBytes) return;
+        MiiEditor editor;
+        editor.open = true;
+        editor.page = page_;
+        editor.target = for_wizard ? MiiEditor::Target::Wizard : MiiEditor::Target::Database;
+        editor.record = record;
+        editor.add = add;
+        editor.name_locked = name_locked;
+        editor.face = editor.original_face = platform::mii::ReadMiiFace(record);
+        editor.name = editor.original_name = for_wizard ? WizardMiiName() : platform::MiiRecordName(record);
+        mii_editor_ = std::move(editor);
+        page_scroll_top_ = true;
+    }
+
+    void CloseMiiEditor()
+    {
+        mii_editor_ = MiiEditor{};
+        page_scroll_top_ = true;
+    }
+
+    // What keeps Save from going: a name the Mii library refuses (a new Mii
+    // of Play with a Mii may have none yet: its first step names it), or a
+    // face it can't draw.
+    std::string MiiEditorBlocker() const
+    {
+        const auto& editor = mii_editor_;
+        const bool unnamed = editor.target == MiiEditor::Target::Wizard && editor.name.empty();
+        if (!unnamed && !platform::ValidMiiName(editor.name))
+            return "A Mii's name has 1 to 10 characters, without emoji.";
+        if (!platform::mii::ValidMiiFace(editor.face)) return "The Mii library can't draw this face.";
+        return {};
+    }
+
+    bool MiiEditorChanged() const
+    {
+        return !SameFace(mii_editor_.face, mii_editor_.original_face) || mii_editor_.name != mii_editor_.original_name;
+    }
+
+    void SaveMiiEditor()
+    {
+        auto& editor = mii_editor_;
+        if (!MiiEditorBlocker().empty()) return;
+        if (editor.target == MiiEditor::Target::Wizard)
+        {
+            wizard_.face = editor.face;
+            wizard_.color = editor.face.favorite_color;
+            if (!editor.name.empty() && editor.name != WizardMiiName())
+            {
+                wizard_.own_mii_name = true;
+                wizard_.mii_name = editor.name;
+            }
+            CloseMiiEditor();
+            return;
+        }
+        auto record = editor.record;
+        platform::mii::WriteMiiFace(editor.face, record);
+        try
+        {
+            if (!editor.name_locked) platform::SetMiiRecordName(record, editor.name);
+            const auto folder = SaveFolder();
+            const auto title = SaveTitleOf(Release());
+            // The player's own Mii, not made here yet, is added with this face.
+            bool added = false;
+            if (editor.add)
+                try
+                {
+                    platform::AddMii(record, folder, title, folder / "backups");
+                    added = true;
+                }
+                catch (const platform::MiiCreateIdTaken&) {}
+            if (!added) platform::ReplaceMii(record, folder, title, folder / "backups");
+            Notice("Mii " + platform::MiiRecordName(record) + " saved.", NoticeKind::Success);
+            CloseMiiEditor();
+        }
+        catch (const platform::MiiNotFound&)
+        {
+            Notice("This Mii is no longer among this computer's Miis, so it was not saved.", NoticeKind::Error);
+        }
+        catch (const std::exception& error)
+        {
+            Notice(std::string("The Mii could not be saved: ") + error.what(), NoticeKind::Error);
+        }
+    }
+
+    // The editor: the Mii's head large with its expression, name and
+    // favourite colour on the left; its parts by section on the right, the
+    // types as thumbnails of the head with each; Cancel, Undo, Start over
+    // and Save under them.
+    void MiiEditorPage()
+    {
+        auto& editor = mii_editor_;
+        const auto& fonts = CurrentFonts();
+        const bool wizard = editor.target == MiiEditor::Target::Wizard;
+        ++mii_editor_frames_;
+        PageHeader(wizard ? "Your new Mii" : "Edit Mii",
+                   wizard ? "Its face, name and favourite colour, drawn as the game draws its Miis. It is made when "
+                            "you go online."
+                          : "Its face, name and favourite colour, drawn as the game draws its Miis. Saving keeps who "
+                            "it is online: its friend code and profile stay.");
+        const MiiEditor::Step before{editor.face, editor.name};
+        BeginCard("##mii_editor", nullptr);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float left = std::clamp(width * 0.32f, Dp(220), Dp(256)), gap = Dp(26);
+
+        // Left: the head, with the expression it shows.
+        const float top = ImGui::GetCursorScreenPos().y;
+        ImGui::BeginGroup();
+        {
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float side = left;
+            const platform::mii::Expression expression{editor.expression};
+            const MiiHeadLook look{HeadPixels(side), MiiHeadBackground::Favorite, expression};
+            MiiFaces::Texture head = mii_faces_ ? mii_faces_->Head(editor.face, look, 2) : nullptr;
+            if (head)
+            {
+                editor.shown = editor.face;
+                editor.shown_expression = editor.expression;
+                editor.has_shown = true;
+            }
+            else if (editor.has_shown && mii_faces_)
+                head = mii_faces_->Cached(editor.shown, {look.size, MiiHeadBackground::Favorite,
+                                                         platform::mii::Expression{editor.shown_expression}});
+            const ImVec2 max{at.x + side, at.y + side};
+            if (head)
+                draw->AddImageRounded(TextureId(head), at, max, {0, 0}, {1, 1}, IM_COL32_WHITE, Dp(18));
+            else
+            {
+                const ImVec4 fill = MiiColor(editor.face.favorite_color);
+                draw->AddRectFilled(at, max, Col(fill), Dp(18));
+                const bool light = 0.2126f * fill.x + 0.7152f * fill.y + 0.0722f * fill.z > 0.6f;
+                const auto parts = mii_faces_ ? mii_faces_->PartsState() : MiiFaces::Parts::None;
+                const bool loading = parts == MiiFaces::Parts::Loading || parts == MiiFaces::Parts::Ready;
+                if (loading)
+                    Spinner({at.x + side * 0.5f, at.y + side * 0.5f}, Dp(18), Col(light ? color::window : color::text));
+                else
+                    DrawIcon(draw, Icon::Person, {at.x + side * 0.5f, at.y + side * 0.5f}, side * 0.5f,
+                             Col(light ? color::window : color::text));
+            }
+            draw->AddRect(at, max, Col(color::border), Dp(18), 0, Dp(1));
+            ImGui::Dummy({side, side});
+            if (mii_faces_ && mii_faces_->PartsState() == MiiFaces::Parts::Failed)
+            {
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + side);
+                TextWrappedColored(fonts.caption, color::warning,
+                                   "The faces come from your game image's Mii parts, which can't be read.");
+                ImGui::PopTextWrapPos();
+            }
+            ImGui::Dummy({0, Dp(4)});
+            Pills("##mii_expression", {"Normal", "Smile", "Angry", "Sad", "Surprised", "Blink", "Open mouth"},
+                  &editor.expression, side, fonts.caption, Dp(26));
+        }
+        ImGui::EndGroup();
+        const float left_height = ImGui::GetItemRectSize().y;
+
+        // Right: the sections, and the chosen one's parts.
+        ImGui::SameLine(0, gap);
+        ImGui::BeginGroup();
+        const float right = ImGui::GetContentRegionAvail().x;
+        const auto& sections = MiiEditorSections();
+        std::vector<const char*> names;
+        for (const auto& section : sections) names.push_back(section.name);
+        Pills("##mii_sections", names, &editor.section, right, fonts.body, Dp(34));
+        ImGui::Dummy({0, Dp(4)});
+        // As tall as the left column: the head stays in view while the parts scroll.
+        const float panel = std::max(Dp(300), top + left_height - ImGui::GetCursorScreenPos().y);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(2, 4));
+        ImGui::BeginChild("##mii_parts", {right, panel}, ImGuiChildFlags_AlwaysUseWindowPadding);
+        if (editor.section_shown != editor.section)
+        {
+            ImGui::SetScrollY(0.0f);
+            editor.section_shown = editor.section;
+        }
+        for (const auto& row : sections[std::size_t(std::clamp(editor.section, 0, int(sections.size()) - 1))].rows)
+            MiiEditorRowControl(row, editor.face);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        ImGui::EndGroup();
+
+        // Under both: Cancel, Undo, Start over, and Save.
+        ImGui::Dummy({0, Dp(14)});
+        const ImVec2 bar = ImGui::GetCursorScreenPos();
+        if (GhostButton("mii_editor_cancel", "Cancel", Dp(110, 42), true, Icon::Close)) CloseMiiEditor();
+        ImGui::SameLine(0, Dp(6));
+        // Undo and Start over are steps of their own, not changes to note.
+        bool stepped = false;
+        if (GhostButton("mii_editor_undo", "Undo", Dp(100, 42), !editor.undo.empty(), Icon::Back))
+        {
+            editor.face = editor.undo.back().face;
+            editor.name = editor.undo.back().name;
+            editor.undo.pop_back();
+            stepped = true;
+        }
+        ImGui::SameLine(0, Dp(6));
+        if (GhostButton("mii_editor_reset", "Start over", Dp(140, 42), MiiEditorChanged(), Icon::Refresh))
+        {
+            editor.undo.push_back({editor.face, editor.name});
+            editor.face = editor.original_face;
+            editor.name = editor.original_name;
+            stepped = true;
+        }
+        const std::string blocker = MiiEditorBlocker();
+        const char* save = wizard ? "Use this face" : "Save";
+        const float save_width = Dp(wizard ? 180 : 140);
+        if (!blocker.empty())
+        {
+            const ImVec2 size = TextSize(fonts.caption, blocker.c_str());
+            DrawLabel(draw, fonts.caption,
+                      {bar.x + width - save_width - Dp(16) - size.x, bar.y + (Dp(42) - size.y) * 0.5f},
+                      Col(color::warning), blocker.c_str());
+        }
+        ImGui::SetCursorScreenPos({bar.x + width - save_width, bar.y});
+        if (PrimaryButton("mii_editor_save", save, {save_width, Dp(42)},
+                          blocker.empty() && (wizard || MiiEditorChanged()), Icon::Check))
+            SaveMiiEditor();
+        EndCard();
+        if (!editor.open) return;
+        if (stepped)
+        {
+            editor.gesture.clear();
+            return;
+        }
+
+        // A change after a pause, or to another value, is a step Undo takes back.
+        std::string changed;
+        if (editor.name != before.name) changed = "name";
+        for (const auto& field : platform::mii::kMiiFaceFields)
+            if (editor.face.*field.value != before.face.*field.value) changed = field.name;
+        if (!changed.empty())
+        {
+            if (changed != editor.gesture || editor.released) editor.undo.push_back(before);
+            if (editor.undo.size() > 200) editor.undo.erase(editor.undo.begin());
+            editor.gesture = changed;
+            editor.released = false;
+        }
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsAnyItemActive()) editor.released = true;
+    }
+
+    // One row of a section: its label, and its thumbnails, swatches, slider or switch.
+    void MiiEditorRowControl(const MiiEditorRow& row, platform::mii::MiiFace& face)
+    {
+        const auto& fonts = CurrentFonts();
+        const float width = ImGui::GetContentRegionAvail().x - Dp(8);
+        if (row.control == MiiControl::Name)
+        {
+            auto& editor = mii_editor_;
+            TextColored(fonts.label, color::text, row.label);
+            ImGui::Dummy({0, Dp(2)});
+            ImGui::SetNextItemWidth(std::min(width, Dp(320)));
+            ImGui::BeginDisabled(editor.name_locked);
+            ImGui::InputTextWithHint("##mii_editor_name", "Mii name", &editor.name);
+            ImGui::EndDisabled();
+            if (editor.name_locked)
+                TextWrappedColored(fonts.caption, color::dim, "Your Discord name names this Mii.");
+            else if (!platform::ValidMiiName(editor.name))
+                TextWrappedColored(fonts.caption, color::warning,
+                                   "A Mii's name has 1 to 10 characters, without emoji.");
+            else
+                TextWrappedColored(fonts.caption, color::dim, "Up to 10 characters: the game shows it with the Mii.");
+            ImGui::Dummy({0, Dp(14)});
+            return;
+        }
+        const auto& field = FaceField(row.field);
+        int& value = face.*field.value;
+        ImGui::PushID(row.field);
+        // Without its part (no glasses, no mole...) the row has nothing to change.
+        const bool off = row.needs && face.*FaceField(row.needs).value == FaceField(row.needs).min;
+        ImGui::BeginDisabled(off);
+        switch (row.control)
+        {
+        case MiiControl::Parts:
+            TextColored(fonts.label, color::text, row.label);
+            ImGui::Dummy({0, Dp(2)});
+            MiiPartGrid(row, face, width);
+            ImGui::Dummy({0, Dp(12)});
+            break;
+        case MiiControl::Colors:
+        {
+            TextColored(fonts.label, color::text, row.label);
+            ImGui::Dummy({0, Dp(2)});
+            const std::string name = row.field;
+            const auto colour = [name](int v) {
+                const auto rgb = platform::mii::MiiFieldColor(name, v).value_or(std::array<std::uint8_t, 3>{});
+                return ImVec4{rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+            };
+            const int count = field.max - field.min + 1;
+            const bool favourite = std::string_view(row.field) == "favorite_color";
+            if (favourite)
+            {
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
+                TextColored(fonts.caption, color::muted, kMiiColorNames[std::clamp(value, 0, 11)]);
+                ImGui::Dummy({0, Dp(2)});
+            }
+            const float swatch = Dp(34);
+            const int per_row = std::clamp(int((width + Dp(10)) / (swatch + Dp(10))), 1, count);
+            ColorSwatches("##colours", &value, count, colour, favourite ? kMiiColorNames : nullptr, swatch,
+                          per_row > 6 && per_row < count ? 6 : per_row, field.min);
+            ImGui::Dummy({0, Dp(12)});
+            break;
+        }
+        case MiiControl::Slider:
+        case MiiControl::Height:
+        {
+            const bool height = row.control == MiiControl::Height;
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float label = Dp(150);
+            const float line = ImGui::GetFrameHeight();
+            DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x, at.y + (line - FontSize(fonts.body)) * 0.5f},
+                      Col(color::text), row.label);
+            ImGui::SetCursorScreenPos({at.x + label, at.y});
+            const int shown = height ? field.max - value + 1 : value - field.min + 1;
+            const std::string text = std::to_string(shown);
+            StepSlider("##slider", &value, field.min, field.max, width - label, text.c_str(), height);
+            ImGui::Dummy({0, Dp(6)});
+            break;
+        }
+        case MiiControl::Toggle:
+        {
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float line = ImGui::GetFrameHeight();
+            DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x, at.y + (line - FontSize(fonts.body)) * 0.5f},
+                      Col(color::text), row.label);
+            ImGui::SetCursorScreenPos({at.x + Dp(150), at.y + (line - Dp(26)) * 0.5f});
+            bool on = value != field.min;
+            if (Toggle("##toggle", &on)) value = on ? field.max : field.min;
+            ImGui::SetCursorScreenPos({at.x, at.y + line});
+            ImGui::Dummy({0, Dp(10)});
+            break;
+        }
+        }
+        ImGui::EndDisabled();
+        ImGui::PopID();
+    }
+
+    // A part's values as tiles, each the head with that value (the square
+    // of the head the part is in), the chosen one ringed. The heads come from
+    // the worker as the tiles show; a tile shows its number until then.
+    void MiiPartGrid(const MiiEditorRow& row, platform::mii::MiiFace& face, float width)
+    {
+        const auto& field = FaceField(row.field);
+        auto* draw = ImGui::GetWindowDrawList();
+        const auto& fonts = CurrentFonts();
+        const float gap = Dp(8);
+        const int columns = std::max(3, int((width + gap) / (Dp(72) + gap)));
+        const float tile = (width - gap * float(columns - 1)) / float(columns), pad = Dp(3);
+        const MiiHeadLook look{HeadPixels((tile - 2 * pad) / (2.0f * row.crop.half)), MiiHeadBackground::Transparent};
+        const ImVec2 uv0{row.crop.x - row.crop.half, row.crop.y - row.crop.half};
+        const ImVec2 uv1{row.crop.x + row.crop.half, row.crop.y + row.crop.half};
+        // Glasses, mustache and beard start with none.
+        const bool none_first = std::string_view(row.field) == "glasses_type"
+            || std::string_view(row.field) == "mustache_type" || std::string_view(row.field) == "beard_type";
+        int& value = face.*field.value;
+        for (int v = field.min; v <= field.max; ++v)
+        {
+            const int n = v - field.min;
+            if (n % columns) ImGui::SameLine(0, gap);
+            ImGui::PushID(v);
+            const ImVec2 min = ImGui::GetCursorScreenPos(), max{min.x + tile, min.y + tile};
+            if (ImGui::InvisibleButton("##part", {tile, tile})) value = v;
+            const bool hovered = ImGui::IsItemHovered();
+            if (hovered) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            const float hover = Animate(ImGui::GetItemID(), hovered, 14.0f);
+            const float chosen = Animate(ImGui::GetID("##chosen"), value == v, 14.0f);
+            if (ImGui::IsRectVisible(min, max))
+            {
+                draw->AddRectFilled(min, max, Col(Mix(Mix(color::field, color::card_hover, hover), color::accent_dark,
+                                                      0.6f * chosen)),
+                                    Dp(10));
+                auto variant = face;
+                variant.*field.value = v;
+                const MiiFaces::Texture head = mii_faces_ ? mii_faces_->Head(variant, look, 0) : nullptr;
+                if (head)
+                    draw->AddImageRounded(TextureId(head), {min.x + pad, min.y + pad}, {max.x - pad, max.y - pad}, uv0,
+                                          uv1, IM_COL32_WHITE, Dp(8));
+                else
+                {
+                    const std::string number = std::to_string(n + 1);
+                    const ImVec2 size = TextSize(fonts.body, number.c_str());
+                    DrawLabel(draw, fonts.body, {min.x + (tile - size.x) * 0.5f, min.y + (tile - size.y) * 0.5f},
+                              Col(color::dim), number.c_str());
+                }
+                if (none_first && v == field.min)
+                {
+                    const ImVec2 size = TextSize(fonts.caption, "None");
+                    const ImVec2 at{min.x + (tile - size.x) * 0.5f, max.y - size.y - Dp(7)};
+                    draw->AddRectFilled({at.x - Dp(7), at.y - Dp(2)}, {at.x + size.x + Dp(7), at.y + size.y + Dp(2)},
+                                        Col(color::window, 0.85f), size.y);
+                    DrawLabel(draw, fonts.caption, at, Col(color::text), "None");
+                }
+                draw->AddRect(min, max, Col(Mix(color::border, color::accent, chosen), 0.6f + 0.4f * chosen), Dp(10), 0,
+                              Dp(1.0f + chosen));
+            }
+            ImGui::PopID();
+        }
+    }
+
     // Online -> Player profile: one card with the player's profile (the
     // initial, or a Mii player's Mii; the name with what they are doing, how
     // they signed in, and Sign out) over rows for their Mii, the friend code,
@@ -6070,6 +6664,16 @@ private:
             const char* label = own && own->here ? "Change" : "Choose";
             if (GhostButton("own_mii_change", label, {GhostWidth(label, Icon::Person), Dp(30)}, true, Icon::Person))
                 choose_mii_prompt_ = true;
+        }
+        // Its face in the Mii editor: a Discord player's own Mii, made from
+        // the account, is added with it when it isn't here yet, and keeps
+        // the Discord name.
+        if (own && (own->here || !chosen_kind) && own->record.size() == platform::mii::kMiiRecordBytes)
+        {
+            ImGui::SameLine(0, Dp(chosen_kind ? 2 : 14));
+            ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, at.y + (line - Dp(30)) * 0.5f});
+            if (GhostButton("own_mii_edit", "Edit", {GhostWidth("Edit", Icon::Sliders), Dp(30)}, true, Icon::Sliders))
+                OpenMiiEditor(false, own->record, !own->here, !chosen_kind);
         }
     }
 
@@ -11438,7 +12042,7 @@ private:
         bool own_mii_name = false;
         std::string mii_name;
         int color = 0;
-        // The new Mii's face: rolled from `seed`; its create ID
+        // The new Mii's face: rolled from `seed`, or edited; its create ID
         // counts from `created` until it is made.
         std::uint32_t seed = 0;
         platform::mii::MiiFace face;
@@ -11447,6 +12051,40 @@ private:
         bool signing_in = false;
     };
     MiiWizard wizard_;
+    // The Mii editor (MiiEditorPage): whether it is open and on which page,
+    // what it edits (Play with a Mii's new Mii, or one of this computer's:
+    // `add` for the player's own Mii not made here yet, `name_locked` for a
+    // Discord player's, named after their Discord name), the Mii as opened,
+    // the face and name being edited, the steps Undo takes back (a step per
+    // value changed, a slider's drag one step), the section and expression
+    // shown, and the head shown until the edited one is drawn.
+    struct MiiEditor
+    {
+        enum class Target { Wizard, Database };
+        struct Step
+        {
+            platform::mii::MiiFace face;
+            std::string name;
+        };
+        bool open = false;
+        int page = 0;
+        Target target = Target::Wizard;
+        std::string record;
+        bool add = false, name_locked = false;
+        platform::mii::MiiFace face, original_face;
+        std::string name, original_name;
+        std::vector<Step> undo;
+        std::string gesture;
+        bool released = true;
+        int section = 0, section_shown = -1;
+        int expression = 0;
+        platform::mii::MiiFace shown;
+        int shown_expression = 0;
+        bool has_shown = false;
+    };
+    MiiEditor mii_editor_;
+    unsigned mii_editor_frames_ = 0; // frames the editor was drawn in (the smoke test tells)
+    bool page_scroll_top_ = false; // the page shown from its top next frame
     bool sign_out_prompt_ = false, choose_mii_prompt_ = false;
     bool preview_applied_ = false; // a development capture's made-up Mii state, set once
     // The Mii made from a Discord account (PlayerOwnMii), for its key and name.
