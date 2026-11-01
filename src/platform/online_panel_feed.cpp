@@ -38,8 +38,8 @@ std::unique_ptr<OnlinePanelFeed> OnlinePanelFeed::Start(const std::string& serve
 
 OnlinePanelFeed::OnlinePanelFeed(std::string server, std::string token, std::string challenge_rules,
                                  std::vector<std::string> discord_friends, Log log)
-    : server_(std::move(server)), token_(std::move(token)), challenge_rules_(std::move(challenge_rules)),
-      discord_ids_(std::move(discord_friends)), log_(std::move(log))
+    : server_(std::move(server)), token_(std::move(token)), discord_ids_(std::move(discord_friends)),
+      log_(std::move(log)), challenge_rules_(std::move(challenge_rules))
 {
     worker_ = std::thread([this] { Run(); });
 }
@@ -95,11 +95,23 @@ void OnlinePanelFeed::Send(std::function<void(ProfileService&)> action, std::str
     wake_.notify_all();
 }
 
+void OnlinePanelFeed::SetChallengeRules(std::string challenge_rules)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    challenge_rules_ = std::move(challenge_rules);
+}
+
+std::string OnlinePanelFeed::ChallengeRules()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return challenge_rules_;
+}
+
 void OnlinePanelFeed::Challenge(std::int64_t player)
 {
     Send(
-        [this, player](ProfileService& api) {
-            // The rule set of [online] challenge_rules, or the server's first.
+        [this, player, rules = ChallengeRules()](ProfileService& api) {
+            // The rule set chosen (at first [online] challenge_rules), or the server's first.
             std::vector<RuleSet> rule_sets;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -109,7 +121,7 @@ void OnlinePanelFeed::Challenge(std::int64_t player)
             if (rule_sets.empty()) throw ProfileError("The server has no rule sets.", 409);
             const RuleSet* chosen = &rule_sets.front();
             for (const auto& rule_set : rule_sets)
-                if (rule_set.name == challenge_rules_) chosen = &rule_set;
+                if (rule_set.name == rules) chosen = &rule_set;
             api.ChallengePlayer(player, chosen->id);
         },
         "The challenge");

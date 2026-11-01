@@ -4408,7 +4408,13 @@ private:
                 challenge_declined_ = match.id;
                 competitive_->Decline();
             }
-            if (blocked) ImGui::SetItemDefaultFocus();
+            // The answer in focus, with its cursor shown, so the first Return
+            // or A answers (without the cursor ImGui spends it on showing it).
+            const auto focus = [] {
+                ImGui::SetItemDefaultFocus();
+                if (ImGui::IsWindowAppearing()) ImGui::SetNavCursorVisible(true);
+            };
+            if (blocked) focus();
             else
             {
                 ImGui::SameLine(0, Dp(10));
@@ -4419,7 +4425,7 @@ private:
                     set_start_error_.clear();
                     competitive_->Accept();
                 }
-                ImGui::SetItemDefaultFocus();
+                focus();
             }
         }
         else if (view == ChallengeView::Accepting) state_line("Accepting...");

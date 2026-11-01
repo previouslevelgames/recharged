@@ -1,10 +1,12 @@
 // The overlay's Online tab data (src/overlay/online_panel_model.cpp) from
 // made-up lists and sets: who is online now and in which order, who is
 // available, what their rows say, who can be challenged, and the set at each
-// of its steps, and what waits for the player (the tab's badge). Offline
-// friends are counted, never listed.
+// of its steps, what waits for the player (the tab's badge), and the rule sets
+// the player's challenges can play by. Offline friends are counted, never
+// listed.
 
 #include "overlay/online_panel_model.h"
+#include "platform/competitive_rules.h"
 
 #include <cstdio>
 #include <iterator>
@@ -369,6 +371,50 @@ void TestSet()
         CHECK(model.set.stage == Stage::None);
     }
 }
+// The server's rule sets for "Your challenges": their names, the chosen one
+// (by name; else the first) and what it plays by, also on a player's screen.
+void TestChallengeRules()
+{
+    auto context = Context();
+    context.challenge_rules = "Competitive: Rookie";
+    // Without rule sets: no choice, the host's line.
+    auto model = MakeOnlinePanelModel({}, std::nullopt, context);
+    CHECK(model.rule_sets.empty() && model.chosen_rules == 0 && model.chosen_rules_are.empty());
+    CHECK(model.challenge_rules == "Competitive: Rookie");
+
+    platform::RuleSet competitive;
+    competitive.id = 2;
+    competitive.name = "Competitive";
+    competitive.rules.skill = "rookie";
+    competitive.rules.limit = "time";
+    competitive.rules.time = 180;
+    competitive.rules.games = 3;
+    competitive.rules.stadium = "random";
+    competitive.rules.tweaks = {"no_mega_strikes"};
+    platform::RuleSet classic = competitive;
+    classic.id = 5;
+    classic.name = "Classic";
+    classic.rules.skill = "professional";
+    classic.rules.time = 300;
+    classic.rules.games = 1;
+    classic.rules.tweaks.clear();
+    context.rule_sets = {competitive, classic};
+    context.chosen_rules = "Classic";
+    model = MakeOnlinePanelModel({}, std::nullopt, context);
+    CHECK(model.rule_sets.size() == 2 && model.rule_sets[0] == "Competitive" && model.rule_sets[1] == "Classic");
+    CHECK(model.chosen_rules == 1);
+    CHECK(model.chosen_rules_are == platform::DescribeRules(classic.rules));
+    CHECK(model.chosen_rules_are.find("Professional") == 0);
+    CHECK(model.challenge_rules == "Classic: " + model.chosen_rules_are);
+    // None chosen, or one the server doesn't have: its first.
+    for (const char* name : {"", "Gone", "classic"})
+    {
+        context.chosen_rules = name;
+        model = MakeOnlinePanelModel({}, std::nullopt, context);
+        CHECK(model.chosen_rules == 0 && model.challenge_rules == "Competitive: " + model.chosen_rules_are);
+        CHECK(model.chosen_rules_are == platform::DescribeRules(competitive.rules));
+    }
+}
 } // namespace
 
 int main()
@@ -378,6 +424,7 @@ int main()
     TestAvailable();
     TestChallengeBlockers();
     TestSet();
+    TestChallengeRules();
     if (failures)
     {
         std::fprintf(stderr, "%d online panel checks failed\n", failures);

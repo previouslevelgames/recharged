@@ -144,24 +144,76 @@ void Caption(const Frame& frame, const std::string& text, const ImVec4& tint, fl
 
 // ------------------------------------------------------------------ main screen
 
-// The player: their picture, name and Discord username, and under them the
-// switch for random games (the whole lower part is the switch).
+// A chevron pointing left (-1) or right (+1), centred on `center`.
+void Chevron(ImDrawList* draw, ImVec2 center, int direction, ImU32 ink)
+{
+    const float arm = Dp(4.5f), dx = arm * 0.5f * float(direction);
+    const ImVec2 points[] = {
+        {center.x - dx, center.y - arm}, {center.x + dx, center.y}, {center.x - dx, center.y + arm}};
+    draw->AddPolyline(points, 3, ink, 0, Dp(1.6f));
+}
+
+// One of the player card's lower parts, from `min` to `max` (the card's
+// whole width): a line over it and, as a `button`, lit as the mouse or the
+// cursor comes. Whether it was pressed; `focused` set.
+bool CardPart(ImDrawList* draw, const char* id, ImVec2 min, ImVec2 max, bool last, bool button, bool& focused,
+              float& hover)
+{
+    const float pad = Dp(16);
+    draw->AddRectFilled({min.x + pad, min.y - Dp(1)}, {max.x - pad, min.y}, Col(color::border, 0.8f));
+    focused = false;
+    hover = 0.0f;
+    if (!button) return false;
+    ImGui::SetCursorScreenPos(min);
+    const bool pressed = ImGui::InvisibleButton(id, {max.x - min.x, max.y - min.y}, ImGuiButtonFlags_EnableNav);
+    const bool hovered = ImGui::IsItemHovered();
+    focused = OverlayNavFocused();
+    OverlayFocusable();
+    hover = launcher::Animate(ImGui::GetID((std::string(id) + "_hover").c_str()), hovered || focused, 12.0f);
+    const float rounding = last ? Dp(16) : 0.0f;
+    if (hover > 0.01f)
+        draw->AddRectFilled(min, max, Col(color::text, 0.04f * hover), rounding,
+                            last ? ImDrawFlags_RoundCornersBottom : ImDrawFlags_None);
+    return pressed;
+}
+
+// The player: their picture, name and Discord username; under them the
+// switch for random games and the rules their challenges play by (each a
+// part of the card; the whole part is the control).
 void DrawYou(Frame& frame, float width)
 {
-    const auto& me = frame.model.me;
+    const auto& model = frame.model;
+    const auto& me = model.me;
     const auto& fonts = frame.fonts;
     auto* draw = ImGui::GetWindowDrawList();
     const ImVec2 at = ImGui::GetCursorScreenPos();
     const float pad = Dp(16), radius = Dp(26);
+    const auto caption_height = [&](const char* text, float wrap) {
+        return fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, text).y;
+    };
+
+    // The switch for random games.
     const char* label = "Available for random games";
     const char* line =
         me.available ? "Others looking for a game can challenge you." : "Find others looking for a game.";
     const float track_w = Dp(40), track_h = Dp(23);
     const float wrap = width - 2 * pad - track_w - Dp(14);
-    const float text = fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, line).y;
+    const float available_h =
+        me.can_set_available ? Dp(12) + FontSize(fonts.label) + Dp(3) + caption_height(line, wrap) + Dp(14) : 0.0f;
+
+    // The rules: their name (left and right through the server's), and what they play by.
+    const bool rules = !model.rule_sets.empty();
+    const int count = int(model.rule_sets.size());
+    const int chosen = rules ? std::clamp(model.chosen_rules, 0, count - 1) : 0;
+    const float rules_line = Dp(30);
+    const char* rules_label = "Your challenges";
+    const float are_h = !rules || model.chosen_rules_are.empty()
+        ? 0.0f
+        : Dp(3) + caption_height(model.chosen_rules_are.c_str(), width - 2 * pad);
+    const float rules_h = rules ? Dp(9) + rules_line + are_h + Dp(13) : 0.0f;
+
     const float top = pad + radius * 2 + pad;
-    const float lower = me.can_set_available ? Dp(12) + FontSize(fonts.label) + Dp(3) + text + Dp(14) : 0.0f;
-    const ImVec2 end{at.x + width, at.y + top + lower};
+    const ImVec2 end{at.x + width, at.y + top + available_h + rules_h};
     ImVec4 fill = color::field;
     fill.w = 0.62f;
     OverlayCard(draw, at, end, Dp(16), fill, color::border);
@@ -178,30 +230,93 @@ void DrawYou(Frame& frame, float width)
                   Col(color::muted), me.detail.c_str());
     draw->PopClipRect();
 
+    float y = at.y + top;
     if (me.can_set_available)
     {
-        const ImVec2 lower_at{at.x, at.y + top};
-        draw->AddRectFilled({at.x + pad, lower_at.y - Dp(1)}, {end.x - pad, lower_at.y}, Col(color::border, 0.8f));
-        ImGui::SetCursorScreenPos(lower_at);
-        const bool pressed = ImGui::InvisibleButton("##available", {width, lower}, ImGuiButtonFlags_EnableNav);
-        const bool hovered = ImGui::IsItemHovered(), focused = OverlayNavFocused();
-        OverlayFocusable();
-        const float hover = launcher::Animate(ImGui::GetID("##available_hover"), hovered || focused, 12.0f);
+        const ImVec2 min{at.x, y}, max{end.x, y + available_h};
+        bool focused = false;
+        float hover = 0.0f;
+        const bool pressed = CardPart(draw, "##available", min, max, !rules, true, focused, hover);
         const float on = launcher::Animate(ImGui::GetID("##available_on"), me.available, 14.0f);
-        if (hover > 0.01f)
-            draw->AddRectFilled(lower_at, end, Col(color::text, 0.04f * hover), Dp(16), ImDrawFlags_RoundCornersBottom);
-        DrawLabel(draw, fonts.label, {at.x + pad, lower_at.y + Dp(12)}, Col(color::text), label);
-        draw->AddText(fonts.caption, FontSize(fonts.caption),
-                      {at.x + pad, lower_at.y + Dp(12) + FontSize(fonts.label) + Dp(3)}, Col(color::muted), line,
-                      nullptr, wrap);
-        const ImVec2 track{end.x - pad - track_w, lower_at.y + (lower - track_h) * 0.5f};
+        DrawLabel(draw, fonts.label, {at.x + pad, y + Dp(12)}, Col(color::text), label);
+        draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x + pad, y + Dp(12) + FontSize(fonts.label) + Dp(3)},
+                      Col(color::muted), line, nullptr, wrap);
+        const ImVec2 track{end.x - pad - track_w, y + (available_h - track_h) * 0.5f};
         draw->AddRectFilled(track, {track.x + track_w, track.y + track_h},
                             Col(Mix(Mix(color::border, color::muted, 0.25f * hover), color::accent, on)),
                             track_h * 0.5f);
         draw->AddCircleFilled({track.x + track_h * 0.5f + (track_w - track_h) * on, track.y + track_h * 0.5f},
                               track_h * 0.5f - Dp(3), Col(Mix(color::text, color::accent_ink, on)));
-        if (focused) OverlayFocusRing(draw, lower_at, end, Dp(16));
+        if (focused) OverlayFocusRing(draw, min, max, rules ? Dp(6) : Dp(16));
         if (pressed) frame.actions.set_available = !me.available;
+        y = max.y;
+    }
+    if (rules)
+    {
+        const ImVec2 min{at.x, y}, max{end.x, y + rules_h};
+        const bool many = count > 1;
+        bool focused = false;
+        float hover = 0.0f;
+        // A choice with others to choose from; else what they play by.
+        const bool pressed = CardPart(draw, "##challenge_rules", min, max, true, many, focused, hover);
+        const ImGuiID id = many ? ImGui::GetItemID() : 0;
+        // The name in a field, with chevrons either side when there are others.
+        const float middle = y + Dp(9) + rules_line * 0.5f;
+        const std::string& name = model.rule_sets[std::size_t(chosen)];
+        const float chevron = many ? Dp(24) : Dp(12);
+        const float most = std::max(Dp(60), (width - 2 * pad) * 0.6f - 2 * chevron);
+        const float name_w = std::min(TextSize(fonts.body, name.c_str()).x, most);
+        const ImVec2 field_min{end.x - pad - name_w - 2 * chevron, middle - rules_line * 0.5f};
+        const ImVec2 field_max{end.x - pad, middle + rules_line * 0.5f};
+        ImVec4 field = Mix(color::field, color::card_hover, 0.35f + 0.4f * hover);
+        field.w = 0.9f;
+        draw->AddRectFilled(field_min, field_max, Col(field), rules_line * 0.5f);
+        draw->AddRect(field_min, field_max, Col(Mix(color::border, color::accent, 0.6f * hover), 0.9f),
+                      rules_line * 0.5f, 0, Dp(1));
+        if (many)
+        {
+            const ImU32 ink = Col(Mix(color::muted, color::text, hover), 0.9f);
+            Chevron(draw, {field_min.x + chevron * 0.55f, middle}, -1, ink);
+            Chevron(draw, {field_max.x - chevron * 0.55f, middle}, 1, ink);
+        }
+        draw->PushClipRect({field_min.x + chevron, field_min.y}, {field_max.x - chevron, field_max.y}, true);
+        DrawLabel(draw, fonts.body, {field_min.x + chevron, middle - FontSize(fonts.body) * 0.5f}, Col(color::text),
+                  name.c_str());
+        draw->PopClipRect();
+        draw->PushClipRect({at.x + pad, min.y}, {field_min.x - Dp(8), field_max.y}, true);
+        DrawLabel(draw, fonts.label, {at.x + pad, middle - FontSize(fonts.label) * 0.5f}, Col(color::text),
+                  rules_label);
+        draw->PopClipRect();
+        if (are_h > 0.0f)
+            draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x + pad, field_max.y + Dp(3)},
+                          Col(color::muted), model.chosen_rules_are.c_str(), nullptr, width - 2 * pad);
+        if (focused) OverlayFocusRing(draw, min, max, Dp(16));
+
+        // A or Enter (or a click) the next; left and right (the keys taken
+        // from the cursor while it is here) through them; a click on the left
+        // chevron the one before.
+        int step = 0;
+        if (many && focused)
+        {
+            for (const ImGuiKey key :
+                 {ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight})
+                ImGui::SetKeyOwner(key, id);
+            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat, id)
+                || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, id))
+                step = -1;
+            else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat, id)
+                     || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, id))
+                step = 1;
+        }
+        if (many && pressed)
+        {
+            const ImVec2 mouse = ImGui::GetIO().MousePos;
+            const bool back = ImGui::IsMouseReleased(ImGuiMouseButton_Left) && mouse.x < field_min.x + chevron
+                && mouse.x >= field_min.x - Dp(6) && mouse.y >= field_min.y && mouse.y <= field_max.y;
+            step = back ? -1 : 1;
+        }
+        if (step != 0)
+            frame.actions.set_challenge_rules = model.rule_sets[std::size_t((chosen + step + count) % count)];
     }
     ImGui::SetCursorScreenPos(at);
     ImGui::Dummy({width, end.y - at.y});

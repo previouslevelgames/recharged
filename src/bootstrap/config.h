@@ -333,6 +333,10 @@ void SaveConfig(ConfigFile& file, const Settings& settings);
 // rest of the file as it is (run overrides such as --no-tweaks never reach it).
 // Throws when the file cannot be read or written, or `tweak` is not listed.
 void SaveGameTweak(const std::filesystem::path& path, GameTweak tweak, bool on);
+// The game's overlay (Online, "Your challenges"): [online] challenge_rules of
+// `path` saved, the rest of the file as it is. Throws when the file cannot be
+// read or written, or `name` has a line break or NUL.
+void SaveChallengeRules(const std::filesystem::path& path, const std::string& name);
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config);
 // game.gamecube_disc's path, empty when none is set.
 std::filesystem::path ResolveGameCubeDiscPath(const Settings& settings, const std::filesystem::path& config);

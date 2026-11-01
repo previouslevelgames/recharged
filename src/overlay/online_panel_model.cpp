@@ -14,6 +14,7 @@ namespace
 using platform::MiiProfile;
 using platform::ProfileMatch;
 using platform::ProfilePlayer;
+using platform::RuleSet;
 
 std::string Lower(std::string text)
 {
@@ -295,6 +296,18 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     model.me.available = me.available;
     model.me.can_set_available = context.random_games;
     model.challenge_rules = context.challenge_rules;
+    for (std::size_t n = 0; n < context.rule_sets.size(); ++n)
+    {
+        const RuleSet& rule_set = context.rule_sets[n];
+        model.rule_sets.push_back(rule_set.name);
+        if (rule_set.name == context.chosen_rules) model.chosen_rules = int(n);
+    }
+    if (!context.rule_sets.empty())
+    {
+        const RuleSet& chosen = context.rule_sets[std::size_t(model.chosen_rules)];
+        model.chosen_rules_are = platform::DescribeRules(chosen.rules);
+        model.challenge_rules = chosen.name + ": " + model.chosen_rules_are;
+    }
     model.message = context.message;
     model.message_tone = context.error ? Tone::Bad : Tone::Neutral;
 

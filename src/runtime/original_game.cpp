@@ -1631,6 +1631,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         std::string overlayPicturesError;
         std::unique_ptr<mscharged::platform::OnlinePanelFeed> panelFeed;
         auto optionTweaks=launch.settings.tweaks;
+        // [online] challenge_rules: chosen in the launcher or on the Online tab.
+        std::string challengeRules=launch.settings.challenge_rules;
         std::optional<unsigned> pendingTweaks;
         std::string overlayNotice;
         bool overlayOpen=false;
@@ -1758,9 +1760,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     if(const auto set=competitive->CurrentSet())
                         context.score=ov::OnlinePanelContext::Score{set->won,set->lost};
                 // The rule set a challenge plays by ([online] challenge_rules, or the first).
+                context.rule_sets=snapshot.rule_sets;
+                context.chosen_rules=challengeRules;
                 const mscharged::platform::RuleSet* rules=nullptr;
                 for(const auto& ruleSet:snapshot.rule_sets)
-                    if(ruleSet.name==launch.settings.challenge_rules) rules=&ruleSet;
+                    if(ruleSet.name==challengeRules) rules=&ruleSet;
                 if(!rules && !snapshot.rule_sets.empty()) rules=&snapshot.rule_sets.front();
                 context.can_challenge=rules!=nullptr;
                 if(rules) context.challenge_rules=rules->name+": "+mscharged::platform::DescribeRules(rules->rules);
@@ -1809,6 +1813,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     // An accept starts the set in this game; a rematch asks the opponent.
                     if(online.accept || online.decline) competitive->Answer(set,online.accept);
                     if(online.rematch) competitive->PlayAgain(set,true);
+                }
+                if(online.set_challenge_rules) {
+                    challengeRules=*online.set_challenge_rules;
+                    if(panelFeed) panelFeed->SetChallengeRules(challengeRules);
+                    try {
+                        mscharged::SaveChallengeRules(launch.config.path,challengeRules);
+                    } catch(const std::exception& error) {
+                        overlayNotice=std::string("Your challenges' rules were not saved: ")+error.what();
+                    }
                 }
                 if(actions.set_option) {
                     const auto change=*actions.set_option;

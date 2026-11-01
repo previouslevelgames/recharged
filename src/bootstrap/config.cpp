@@ -672,6 +672,14 @@ void SaveGameTweak(const std::filesystem::path& path, GameTweak tweak, bool on)
     SaveConfig(file, settings);
 }
 
+void SaveChallengeRules(const std::filesystem::path& path, const std::string& name)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    settings.challenge_rules = name;
+    SaveConfig(file, settings);
+}
+
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config)
 {
     if (settings.disc.empty())

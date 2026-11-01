@@ -563,6 +563,78 @@ void FeedDiscordFriends()
               && sent[2].content_type == "application/json");
     }
 }
+
+// The panel's choice of rules: each challenge goes out with the rule set
+// chosen when it was asked for (by name; one the server doesn't have: its first).
+void FeedChallengeRules()
+{
+    if (!HttpUnavailable().empty()) return;
+    using namespace std::chrono_literals;
+    const auto folder = std::filesystem::temp_directory_path()
+        / ("recharged-feed-rules-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::remove_all(folder);
+    const auto session = ProfileSessionFile(folder, "feed.ini");
+    const std::string me = R"({"id":7,"name":"Nelly","discord":"nelly"})";
+    const std::string lists = R"({"online":[],"recent":[],"friends":[]})";
+    const std::string none = R"({"match":null})";
+    const std::vector<Exchange> exchanges{
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"GET /api/v1/matches/current", 200, none},
+        {"GET /api/v1/rules", 200,
+         R"({"rule_sets":[{"id":2,"name":"Competitive","rules":{"tweaks":[],"skill":"rookie","limit":"time",)"
+         R"("time":180,"goals":5,"games":3,"stadium":"random"},"hash":"abc"},)"
+         R"({"id":5,"name":"Classic","rules":{"tweaks":[],"skill":"legend","limit":"time",)"
+         R"("time":300,"goals":5,"games":1,"stadium":"random"},"hash":"def"}]})"},
+        {"GET /api/v1/server", 200, R"({"version":"1.2.1","sign_in":{"discord":true,"test":false}})"},
+        // Classic, chosen in the panel; then a name the server doesn't have.
+        {"POST /api/v1/matches", 200, kSet},
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"GET /api/v1/matches/current", 200, none},
+        {"POST /api/v1/matches", 200, kSet},
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"GET /api/v1/matches/current", 200, none},
+    };
+    std::vector<Sent> sent;
+    std::string off;
+    {
+        Server server(exchanges, sent);
+        SaveProfileSession(session, {server.Url(), "t0k3n", "Nelly"});
+        auto feed = OnlinePanelFeed::Start(server.Url(), session, "Competitive", {}, {}, &off);
+        CHECK(feed != nullptr);
+        if (feed)
+        {
+            CHECK(feed->ChallengeRules() == "Competitive");
+            const auto wait = [&](std::uint64_t version) {
+                const auto deadline = std::chrono::steady_clock::now() + 30s;
+                while (std::chrono::steady_clock::now() < deadline && feed->Latest().version < version)
+                    std::this_thread::sleep_for(10ms);
+                return feed->Latest().version >= version;
+            };
+            feed->SetOpen(true);
+            CHECK(wait(1) && feed->Latest().rule_sets.size() == 2);
+            feed->SetOpen(false); // only the actions ask now
+            feed->SetChallengeRules("Classic");
+            CHECK(feed->ChallengeRules() == "Classic");
+            feed->Challenge(8);
+            feed->SetChallengeRules("Gone"); // after the ask: the challenge keeps Classic
+            CHECK(wait(2));
+            feed->Challenge(9);
+            CHECK(wait(3));
+            feed.reset();
+        }
+    }
+    std::filesystem::remove_all(folder);
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+    {
+        CHECK(sent[5].body == R"({"opponent_id":8,"rule_set":5})");
+        CHECK(sent[9].body == R"({"opponent_id":9,"rule_set":2})");
+    }
+}
 #endif
 } // namespace
 
@@ -575,6 +647,7 @@ int main()
 #ifndef _WIN32
     Requests();
     FeedDiscordFriends();
+    FeedChallengeRules();
 #endif
     if (failures)
     {

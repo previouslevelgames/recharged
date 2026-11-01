@@ -66,7 +66,13 @@ public:
     };
     Snapshot Latest();
 
-    // The panel's actions, sent in turn on the feed's thread.
+    // The rule set the next challenges play by (its name; empty or unknown:
+    // the server's first), as the player chooses it in the panel. From any thread.
+    void SetChallengeRules(std::string challenge_rules);
+    std::string ChallengeRules();
+
+    // The panel's actions, sent in turn on the feed's thread. A challenge
+    // plays by the rules chosen when it was asked for.
     void Challenge(std::int64_t player);
     void AddFriend(std::int64_t player);
     void RemoveFriend(std::int64_t player);
@@ -87,7 +93,7 @@ private:
     void FetchDiscordFriends(ProfileService& api, std::vector<ProfilePlayer>& players);
     void Send(std::function<void(ProfileService&)> action, std::string what);
 
-    const std::string server_, token_, challenge_rules_;
+    const std::string server_, token_;
     const std::vector<std::string> discord_ids_;
     const Log log_;
     bool discord_failed_ = false; // the feed's thread only
@@ -95,6 +101,7 @@ private:
     std::condition_variable wake_;
     bool stop_ = false, open_ = false, due_ = false;
     std::string activity_ = "game";
+    std::string challenge_rules_;
     std::shared_ptr<class HttpCancel> cancel_;
     struct Pending
     {

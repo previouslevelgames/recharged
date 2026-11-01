@@ -49,6 +49,7 @@ void Merge(GameOverlayActions& all, const GameOverlayActions& a)
     if (a.online.add_mii_friend) o.add_mii_friend = a.online.add_mii_friend;
     if (a.online.remove_mii_friend) o.remove_mii_friend = a.online.remove_mii_friend;
     if (a.online.set_available) o.set_available = a.online.set_available;
+    if (a.online.set_challenge_rules) o.set_challenge_rules = a.online.set_challenge_rules;
     if (a.set_option) all.set_option = a.set_option;
 }
 
@@ -373,6 +374,82 @@ void TestLateLists()
     h.Frame();
     const auto actions = h.Press(ImGuiKey_Enter);
     CHECK(actions.close && h.OnMain());
+}
+
+// The model with the server's rule sets, the player's challenges by `chosen`.
+OnlinePanelModel RulesModel(std::vector<std::string> names, const std::string& chosen)
+{
+    // Friends beside the player's card all down its height.
+    platform::PlayerLists lists;
+    lists.friends = {Online(10, "Mario"), Online(11, "Peach"), Online(12, "Daisy"), Online(13, "Luigi"),
+                     Online(14, "Wario"), Online(15, "Yoshi")};
+    OnlinePanelContext context;
+    context.me.id = 1;
+    context.me.name = "Anosch";
+    for (std::size_t n = 0; n < names.size(); ++n)
+    {
+        platform::RuleSet rule_set;
+        rule_set.id = std::int64_t(n + 1);
+        rule_set.name = names[n];
+        rule_set.rules.skill = "rookie";
+        rule_set.rules.limit = "time";
+        rule_set.rules.time = 180;
+        rule_set.rules.games = 3;
+        rule_set.rules.stadium = "random";
+        context.rule_sets.push_back(rule_set);
+    }
+    context.chosen_rules = chosen;
+    return MakeOnlinePanelModel(lists, std::nullopt, context);
+}
+
+// "Your challenges" on the player's card: A, Enter and a click take the next
+// rule set, left and right (keys and D-pad) go through them, round, and the
+// cursor stays on it; with one rule set nothing to choose, none without.
+void TestChallengeRules()
+{
+    const std::vector<std::string> names{"Competitive", "Classic", "First to 5"};
+    {
+    Harness h;
+    h.model.online = RulesModel(names, "Competitive");
+    h.Open();
+    // From the friends to the player's card beside them, then down to the rules.
+    h.Press(ImGuiKey_DownArrow);
+    h.Press(ImGuiKey_LeftArrow);
+    std::optional<std::string> next;
+    for (int n = 0; n < 4 && !next; ++n)
+    {
+        next = h.Press(ImGuiKey_Enter).online.set_challenge_rules;
+        if (!next) h.Press(ImGuiKey_DownArrow);
+    }
+    CHECK(next == "Classic" && h.OnMain());
+    // The model isn't changed here: each step is from Competitive.
+    CHECK(h.Press(ImGuiKey_RightArrow).online.set_challenge_rules == "Classic");
+    CHECK(h.Press(ImGuiKey_LeftArrow).online.set_challenge_rules == "First to 5");
+    CHECK(h.Press(ImGuiKey_GamepadDpadRight).online.set_challenge_rules == "Classic");
+    CHECK(h.Press(ImGuiKey_GamepadDpadLeft).online.set_challenge_rules == "First to 5");
+    CHECK(h.Press(ImGuiKey_GamepadFaceDown).online.set_challenge_rules == "Classic");
+    // Still on it after left and right: Enter doesn't open a friend.
+    CHECK(h.Press(ImGuiKey_Enter).online.set_challenge_rules == "Classic" && h.OnMain());
+    // The chosen one moves on: from the last, round to the first.
+    h.model.online = RulesModel(names, "First to 5");
+    h.Frame();
+    CHECK(h.Press(ImGuiKey_RightArrow).online.set_challenge_rules == "Competitive");
+    // Up and down still leave it.
+    h.Press(ImGuiKey_UpArrow);
+    CHECK(!h.Press(ImGuiKey_Enter).online.set_challenge_rules);
+    }
+    // One rule set: shown, nothing to choose (the cursor never stops there).
+    Harness one;
+    one.model.online = RulesModel({"Competitive"}, "");
+    CHECK(one.model.online.rule_sets.size() == 1);
+    one.Open();
+    one.Press(ImGuiKey_DownArrow);
+    one.Press(ImGuiKey_LeftArrow);
+    for (int n = 0; n < 4; ++n)
+    {
+        CHECK(!one.Press(ImGuiKey_Enter).online.set_challenge_rules);
+        one.Press(ImGuiKey_DownArrow);
+    }
 }
 
 // The overlay's scale: the picture's height / 720, but in small windows
@@ -703,6 +780,7 @@ int main()
     TestMouse();
     TestResize();
     TestSmallWindows();
+    TestChallengeRules();
     TestLateLists();
     TestPrompt();
     TestFrameDone();

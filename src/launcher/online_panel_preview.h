@@ -24,7 +24,9 @@ namespace mscharged::launcher
 // player's own challenge, "preview-ready" a set before Ready to play!,
 // "preview-ended" a set lost, "preview-match" while a match is played,
 // "preview-empty" nobody online, "preview-error" a message in the footer,
-// "preview-player" and "preview-player-mii" a player's screen,
+// "preview-player" and "preview-player-mii" a player's screen, "preview-rules"
+// the player's challenges by the second of the made-up rule sets (and
+// "preview-rules-player" a player's screen with them),
 // "preview-options" and "preview-options-match" the Game options tab,
 // "preview-tabs" five tabs (made-up Ranked, Tournaments and Leaderboard
 // between Online and Game options, empty pages: they are not in the game)

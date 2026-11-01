@@ -12,11 +12,13 @@
 
 // The overlay's Online tab (game_overlay.h), drawn with ImGui in the
 // overlay's frame (overlay_frame.h). Two screens: the main one (the player,
-// the switch for random games and their set beside the friends online and the
-// players available; one column when the window is narrow), and a player's
-// screen, opened by a row, to challenge them or keep them as a friend. Mouse,
-// keyboard and gamepad (ImGui's navigation) work alike: A or Enter on a row
-// opens the player, B goes back.
+// the switch for random games, the rules their challenges play by and their
+// set beside the friends online and the players available; one column when
+// the window is narrow), and a player's screen, opened by a row, to
+// challenge them or keep them as a friend. Mouse, keyboard and gamepad
+// (ImGui's navigation) work alike: A or Enter on a row opens the player, B
+// goes back; on the challenges' rules, A or Enter takes the next rule set,
+// left and right go through them.
 namespace mscharged::overlay
 {
 // What the player did in the Online tab this frame; the caller acts on it
@@ -29,6 +31,9 @@ struct OnlinePanelActions
     std::optional<std::int32_t> add_mii_friend;    // a Mii profile
     std::optional<std::int32_t> remove_mii_friend; // a Mii profile
     std::optional<bool> set_available; // available for random games, or not
+    // The rule set the player's challenges play by from now on (its name,
+    // one of OnlinePanelModel::rule_sets).
+    std::optional<std::string> set_challenge_rules;
     // The set's (OnlinePanelSet::match): accept or decline its challenge,
     // Ready to play!, withdraw or cancel it, play it again.
     bool accept = false, decline = false, ready = false, cancel = false, rematch = false;
@@ -36,7 +41,7 @@ struct OnlinePanelActions
     bool Any() const
     {
         return challenge || add_friend || remove_friend || add_mii_friend || remove_mii_friend || set_available
-            || accept || decline || ready || cancel || rematch;
+            || set_challenge_rules || accept || decline || ready || cancel || rematch;
     }
 };
 

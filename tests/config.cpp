@@ -555,6 +555,23 @@ int main()
         SaveConfig(rulesFile, rulesFile.settings);
         Require(LoadConfig(path).contents.find("challenge_rules = Competitive") != std::string::npos,
                 "Saving wrote the challenge rules");
+        // The game's overlay saves the challenges' rules alone, the rest of the file as it is.
+        std::ofstream(path) << "; my note\r\n[online]\r\nchallenge_rules = Competitive ; chosen\r\nmystery = 1\r\n"
+                               "[display]\r\nwidth = 1920\r\n";
+        SaveChallengeRules(path, "Best of 5 (Legend)");
+        {
+            const auto overlay = LoadConfig(path);
+            Require(overlay.settings.challenge_rules == "Best of 5 (Legend)" && overlay.settings.width == 1920
+                    && overlay.contents.find("; my note\r\n") != std::string::npos
+                    && overlay.contents.find("mystery = 1\r\n") != std::string::npos
+                    && overlay.contents.find("challenge_rules = Best of 5 (Legend)") != std::string::npos,
+                    "The challenges' rules saved alone");
+            const auto before = overlay.contents;
+            Reject([&] { SaveChallengeRules(path, "Two\nlines"); });
+            Require(LoadConfig(path).contents == before, "A refused name leaves the file");
+            SaveChallengeRules(path, "");
+            Require(LoadConfig(path).settings.challenge_rules.empty(), "And back to the server's first");
+        }
         // [online] challenge_sound: on by default, off kept.
         Require(defaults.challenge_sound, "Challenge sound default");
         std::ofstream(path) << "[online]\nchallenge_sound = false\n";

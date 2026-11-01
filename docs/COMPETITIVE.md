@@ -16,7 +16,9 @@ works as on the Wii, with friend codes, ranked matches and rankings.
    RANKED **Leaderboard** and your tournaments (**Events**, coming later).
 2. In the game, press **F1** (or HOME) for its online panel: your set, your
    friends online and the players available. Challenge an opponent there, or
-   let a tournament pair you with one.
+   let a tournament pair you with one (the panel's **Events** tab, coming
+   later). The game reminds you of the key the first time it shows its main
+   menu.
 3. They accept on a card over their game, or, with only the launcher open,
    in a dialog there.
 4. Both games go **straight into the captain draft** by themselves: the
@@ -35,9 +37,9 @@ with the score.
 
 ## Challenge a friend
 
-- Choose your rule set once on **Online → Match settings**, then challenge a
-  player from the game's online panel (F1): pick them in the list, then
-  challenge. They get **"Alice challenges you"** with Accept and Decline: on
+- Choose your rule set on **Online → Match settings** in the launcher, or
+  under **Your challenges** in the game's online panel (F1), then challenge a
+  player from that panel: pick them in the list, then challenge. They get **"Alice challenges you"** with Accept and Decline: on
   a card over the game while they are in its menus, or in a dialog in the
   launcher when only the launcher is open (others see them as *In the
   launcher*). Accept in the launcher starts the game and goes straight to the
@@ -87,7 +89,8 @@ standings. Recharged takes care of everything from "you have been paired" to
   series.
 - **The result goes in by itself.** Both games send what they saw. When they
   agree, our server enters the result and the game scores on start.gg, the
-  bracket moves on, and your next set shows up on the **Events** page.
+  bracket moves on, and your next set shows up in **Events**, in the game's
+  online panel and on the launcher's Online pages.
 - **Disputes** stay with the tournament's organizers on start.gg, as always.
 
 If you have played online tournaments on start.gg before, for example in

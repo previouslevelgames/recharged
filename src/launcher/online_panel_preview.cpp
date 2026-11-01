@@ -237,6 +237,25 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     me.available = mode_ != "preview-empty";
     context_.challenge_rules =
         "Competitive: Rookie, 3 minutes, best of 3, random stadium, Fast terrain, No Mega Strikes";
+    // The server's rule sets, the player's challenges by the first (the second for "preview-rules").
+    const auto rule_set = [](std::int64_t id, const char* name, const char* skill, const char* limit, int amount,
+                             int games, const char* stadium, std::vector<std::string> tweaks) {
+        platform::RuleSet set;
+        set.id = id;
+        set.name = name;
+        set.rules.skill = skill;
+        set.rules.limit = limit;
+        (set.rules.limit == "time" ? set.rules.time : set.rules.goals) = amount;
+        set.rules.games = games;
+        set.rules.stadium = stadium;
+        set.rules.tweaks = std::move(tweaks);
+        return set;
+    };
+    context_.rule_sets = {
+        rule_set(1, "Competitive", "rookie", "time", 180, 3, "random", {"fast_terrain", "no_mega_strikes"}),
+        rule_set(2, "Classic", "professional", "time", 300, 1, "random", {}),
+        rule_set(3, "First to 5", "legend", "goals", 5, 5, "random", {"thunder_island_walls"})};
+    context_.chosen_rules = mode_.rfind("preview-rules", 0) == 0 ? "Classic" : "Competitive";
 
     auto mario = Online(Player(900010, "Mario", "itsamario"), "launcher");
     mario.avatar_url = "preview:mario";
@@ -351,7 +370,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
             pictures_->Get(player->avatar_url);
         pictures_->Settle(std::chrono::seconds(5));
     }
-    if (mode_ == "preview-player" || mode_ == "preview-player-mii")
+    if (mode_ == "preview-player" || mode_ == "preview-player-mii" || mode_ == "preview-rules-player")
     {
         const bool mii = mode_ == "preview-player-mii";
         state_.online.Push({int(overlay::OnlinePanelScreen::Player), mii ? "m1000000004" : "p900010",
@@ -660,6 +679,11 @@ void OnlinePanelPreview::Apply(const overlay::GameOverlayActions& all)
     {
         std::cout << "Overlay: remove Mii friend " << *actions.remove_mii_friend << '\n';
         mii(*actions.remove_mii_friend, false);
+    }
+    if (actions.set_challenge_rules)
+    {
+        std::cout << "Overlay: challenges by " << *actions.set_challenge_rules << '\n';
+        context_.chosen_rules = *actions.set_challenge_rules;
     }
     if (actions.set_available)
     {

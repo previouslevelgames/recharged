@@ -313,7 +313,8 @@ opens on **Online**: your set (accept, Ready to play!, rematch),
 the friends who have Recharged open (and how many are offline) and, while you
 are available, the players available for random games; a player's row
 challenges them or opens their
-page. **Game options** has the gameplay options that can change while the game
+page. **Events** is the place for tournaments and organised match-ups (coming
+later). **Game options** has the gameplay options that can change while the game
 runs: they are saved at once and count from the next match (online matches
 play by their own rules). L1/R1 (− and + on a Wii Remote), Q/E or a click
 switch tabs, and B goes back a page. While it is open the game behind it is
@@ -479,7 +480,8 @@ Sign out, which also ends the Discord link on this computer), **Leaderboard**
 (the game's RANKED leaderboards on the server: the season's leaders and
 today's, and your own place), **Events** (tournaments, coming later) and
 **Match settings** (the rule set your challenges go out with, kept as
-`[online] challenge_rules`). Your friends, the players available and your set
+`[online] challenge_rules`; **Your challenges** in the game's online panel
+changes the same setting). Your friends, the players available and your set
 are in the game's online panel (**F1** or HOME, see Hotkeys). A dot before
 **Online** in the sidebar shows the sign-in: green signed in, red not; signed
 out, Online is one page that shows what playing online brings and **Connect
@@ -519,7 +521,10 @@ tweaks both teams play with.
    (a message in the game, or the games didn't meet) offers **Play it again**,
    your Ready to play! for it. **Not now** (B) leaves it; closing a set's game
    opens the launcher again. A set whose match was broken off before a game
-   ended (a game closed or lost its connection) ends without a result.
+   ended (a game closed or lost its connection) ends without a result, and so
+   does a set whose second report doesn't come within 5 minutes. A set called
+   off while its games still search for each other leaves the search: the game
+   goes back to the RANKED menu, and nobody else is met.
 
 Your **friends** are kept on the server, so they follow you to every
 computer: a player's screen in the online panel adds them or takes them off.
