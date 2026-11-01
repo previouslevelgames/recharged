@@ -1770,7 +1770,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(rules) context.challenge_rules=rules->name+": "+mscharged::platform::DescribeRules(rules->rules);
                 context.random_games=versionAtLeast(snapshot.server_version,1,2,1);
                 context.loading=panelFeed && !snapshot.loaded;
-                if(!panelFeed) context.message="Sign in on the launcher's Online pages to see your friends here.";
+                if(!panelFeed) context.message="Sign in on the launcher's Player profile page to see your friends here.";
                 else if(!snapshot.error.empty()) {
                     context.message=snapshot.error;
                     context.error=true;

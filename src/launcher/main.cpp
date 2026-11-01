@@ -247,18 +247,17 @@ void DrawMiiFace(ImDrawList* draw, ImVec2 center, float size, unsigned seed, flo
 }
 
 // In the sidebar's order. The pages of a group (kNavGroups) follow each other.
-enum Page { PagePlay, PageGame, PageOnlineSettings, PageLeaderboard, PageEvents, PageMatchSettings,
-            PageDisplay, PageAudio, PageControls,
-            PageGameplay, PageMiis, PageSidekicks, PageRules, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play",     "Game",     "Online settings", "Leaderboard", "Events",
-                                      "Match settings", "Display", "Audio", "Controls",
-                                      "Gameplay", "Miis",     "Sidekicks", "Match rules", "Advanced", "About"};
-constexpr const char* page_ids[] = {"play",     "game",     "online-settings", "leaderboard", "events",
-                                    "match-settings", "display", "audio", "controls",
-                                    "gameplay", "miis",     "sidekicks", "rules",    "advanced", "about"};
-constexpr Icon page_icons[] = {Icon::Play,     Icon::Disc,   Icon::Person,   Icon::Trophy,  Icon::Medal,
-                               Icon::Gear,     Icon::Display,  Icon::Audio,   Icon::Keyboard,
-                               Icon::Target,   Icon::Person, Icon::Pitch,    Icon::Trophy,  Icon::Sliders, Icon::Info};
+enum Page { PagePlay, PageGame, PageOnlineSettings, PageLeaderboard, PageEvents, PageRules, PageSidekicks, PageMiis,
+            PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_names[] = {"Play",        "Game",      "Player profile", "Leaderboard",
+                                      "Events",      "Match rules", "Sidekicks",    "Legacy Mii profiles",
+                                      "Display",     "Audio",     "Controls",       "Gameplay",
+                                      "Advanced",    "About"};
+constexpr const char* page_ids[] = {"play",   "game",  "online-settings", "leaderboard", "events",   "rules", "sidekicks",
+                                    "miis",   "display", "audio",         "controls",    "gameplay", "advanced", "about"};
+constexpr Icon page_icons[] = {Icon::Play,    Icon::Disc,  Icon::Person,   Icon::Trophy,   Icon::Medal,
+                               Icon::Clipboard, Icon::Pitch, Icon::Layers, Icon::Display,  Icon::Audio,
+                               Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
     && std::size(page_icons) == PageCount);
 
@@ -271,8 +270,7 @@ struct NavGroupInfo
     int first;
     int count;
 };
-constexpr NavGroupInfo kNavGroups[] = {{"Online", Icon::Chat, PageOnlineSettings, 4},
-                                       {"Match setup", Icon::Clipboard, PageMiis, 3}};
+constexpr NavGroupInfo kNavGroups[] = {{"Online", Icon::Chat, PageOnlineSettings, 6}};
 constexpr int NavGroupOf(int page)
 {
     for (int group = 0; group < int(std::size(kNavGroups)); ++group)
@@ -292,8 +290,8 @@ constexpr int NavGroupMostPages()
     for (const auto& group : kNavGroups) most = group.count > most ? group.count : most;
     return most;
 }
-static_assert(NavGroupOf(PageMatchSettings) == 0 && NavGroupOf(PageRules) == 1 && NavGroupOf(PageGameplay) == -1
-              && NavGroupOf(PageDisplay) == -1 && NavGroupOf(PageAdvanced) == -1);
+static_assert(NavGroupOf(PageOnlineSettings) == 0 && NavGroupOf(PageRules) == 0 && NavGroupOf(PageMiis) == 0
+              && NavGroupOf(PageGameplay) == -1 && NavGroupOf(PageDisplay) == -1 && NavGroupOf(PageAdvanced) == -1);
 constexpr bool OnlinePage(int page) { return NavGroupOf(page) == 0; }
 
 // The captains (eTeamID order) and the sidekicks (eSidekickID order), as the
@@ -2924,7 +2922,8 @@ private:
                 const NavGroupInfo& info = kNavGroups[group];
                 if (i != info.first) continue;
                 // Online: a dot for the sign-in (green signed in, amber on its
-                // way, red not), and its pages only while signed in.
+                // way, red not). Its pages show signed out too: Match rules,
+                // Sidekicks and the Miis need no sign-in.
                 using State = CompetitiveService::State;
                 const auto online = competitive_status_.state;
                 const bool signed_in = online == State::SignedIn;
@@ -2933,8 +2932,7 @@ private:
                     : color::danger;
                 const bool is_online = group == NavGroupOf(PageOnlineSettings);
                 std::vector<NavPage> pages;
-                if (!is_online || signed_in)
-                    for (int p = i; p < i + info.count; ++p) pages.push_back({page_names[p], page_icons[p], page_ == p});
+                for (int p = i; p < i + info.count; ++p) pages.push_back({page_names[p], page_icons[p], page_ == p});
                 const int clicked = NavGroup(info.label, info.icon, open_group == group, pages, width - Dp(24),
                                              row - Dp(4), is_online && competitive_ ? &dot : nullptr,
                                              is_online && signed_in);
@@ -3019,7 +3017,6 @@ private:
             case PageRules: MatchRulesPage(); break;
             case PageLeaderboard: LeaderboardPage(); break;
             case PageEvents: EventsPage(); break;
-            case PageMatchSettings: MatchSettingsPage(); break;
             case PageOnlineSettings: OnlineSettingsPage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
@@ -3769,7 +3766,9 @@ private:
     // one, or importing Dolphin's.
     void MiiPage()
     {
-        PageHeader("Miis", "Online play needs a Mii. Every Wii game reads them from the same database.");
+        PageHeader("Legacy Mii profiles", "The Miis of the game's own online mode, with their friend codes. Sets need "
+                                          "none: Recharged makes yours from your Discord account. Every Wii game "
+                                          "reads them from the same database.");
         const auto& fonts = CurrentFonts();
         BeginCard("##miis", "Your Miis", "In the order of the game's online list, with each Mii's friend code.",
                   Icon::Person);
@@ -4130,7 +4129,7 @@ private:
             player.discord_id = discord_id;
             return player;
         };
-        // The Discord friends who play Recharged (Online settings counts them).
+        // The Discord friends who play Recharged (Player profile counts them).
         competitive_status_.discord_players = {make(900001, "Daisy", "daisy", "900000000000000001"),
                                                make(900002, "Peach", "peach", "900000000000000002"),
                                                make(900006, "Bowser", "bowser", "900000000000000006")};
@@ -4630,17 +4629,26 @@ private:
         EndCard();
     }
 
-    // Online -> Match settings: the rule set the player's challenges go out
-    // with, chosen from the server's as boxes, and kept in the settings file.
-    void MatchSettingsPage()
+    // Match rules' first card: the server's rule set the player's challenges
+    // go out with, chosen from them as boxes (the game's online panel
+    // chooses it too), the chosen one in detail, kept in the settings file.
+    void ChallengeRulesCard()
     {
-        if (!OnlinePageTop("Match settings", "How the sets you challenge others to are played."))
-            return;
         const auto& fonts = CurrentFonts();
-        BeginCard("##match_settings_rules", "Rules for your challenges",
-                  "Your challenges go out with this rule set; the player you challenge sees it before accepting. A "
-                  "set and all its games keep it.",
+        BeginCard("##challenge_rules", "Rules for your challenges",
+                  "Your challenges go out with one of the server's rule sets, the same for both players; the player "
+                  "you challenge sees it before accepting. Your Challenges in the game's online panel chooses it too.",
                   Icon::Trophy);
+        if (competitive_status_.state != CompetitiveService::State::SignedIn)
+        {
+            TextWrappedColored(fonts.body, color::muted, "Sign in on Player profile to choose them.");
+            ImGui::Dummy({0, Dp(8)});
+            if (GhostButton("challenge_rules_profile", "Player profile", {GhostWidth("Player profile", Icon::Person),
+                            Dp(40)}, true, Icon::Person))
+                page_ = PageOnlineSettings;
+            EndCard();
+            return;
+        }
         const platform::RuleSet* chosen = ChosenRuleSet();
         if (competitive_status_.rule_sets.empty())
             TextWrappedColored(fonts.body, color::muted, "This server has no rule sets yet.");
@@ -4681,6 +4689,39 @@ private:
             ImGui::Dummy({0, Dp(2)});
             ImGui::PopID();
         }
+        // The chosen one in detail, as the presets below show theirs.
+        if (chosen && BeginRows("##challenge_rules_detail"))
+        {
+            const auto& rules = chosen->rules;
+            const auto value = [&](const std::string& text) {
+                const ImVec2 start = ImGui::GetCursorScreenPos();
+                DrawLabel(ImGui::GetWindowDrawList(), fonts.label, start, Col(color::text), text.c_str());
+                ImGui::Dummy({TextSize(fonts.label, text.c_str()).x, FontSize(fonts.label)});
+            };
+            Row("Skill", "Of the computer's players.");
+            value(platform::NameLabel(rules.skill));
+            Row("Each game", rules.limit == "goals" ? "Until a team scores this many." : "On the match clock.");
+            if (rules.limit == "goals") value("First to " + std::to_string(rules.goals) + (rules.goals == 1 ? " goal" : " goals"));
+            else
+                value(rules.time % 60 == 0 ? std::to_string(rules.time / 60) + (rules.time == 60 ? " minute" : " minutes")
+                                           : std::to_string(rules.time / 60) + ":" + (rules.time % 60 < 10 ? "0" : "")
+                                                 + std::to_string(rules.time % 60) + " minutes");
+            Row("Series", "The games of one set.");
+            value(rules.games == 1 ? std::string("One game") : "Best of " + std::to_string(rules.games));
+            Row("Stadium", rules.stadium == "random" ? "A new one each game." : nullptr);
+            value(rules.stadium == "random" ? std::string("Random") : platform::NameLabel(rules.stadium));
+            Row("Gameplay", "Competitive gameplay tweaks both teams play with.");
+            std::string tweaks;
+            for (const auto& key : rules.tweaks)
+            {
+                std::string name = key;
+                for (const auto& info : kGameTweaks)
+                    if (key == info.key) name = info.name;
+                tweaks += (tweaks.empty() ? "" : ", ") + name;
+            }
+            value(tweaks.empty() ? std::string("As in the game") : tweaks);
+            EndRows();
+        }
         EndCard();
     }
 
@@ -4699,17 +4740,20 @@ private:
         catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
     }
 
-    // The top of every Online page: its header, or the sign-in while the
-    // player is signed out. Whether the player is signed in.
+    // The top of an Online page that needs the sign-in: its header, and while
+    // the player is signed out the way to Player profile, where the sign-in
+    // is. Whether the player is signed in.
     bool OnlinePageTop(const char* title, const char* text)
     {
-        if (competitive_status_.state != CompetitiveService::State::SignedIn)
-        {
-            OnlineWelcome();
-            return false;
-        }
         PageHeader(title, text);
-        return true;
+        if (competitive_status_.state == CompetitiveService::State::SignedIn) return true;
+        BeginCard("##sign_in_first", "Sign in first", "Sign in with Discord on Player profile, and this page fills.",
+                  Icon::Person);
+        if (GhostButton("sign_in_profile", "Player profile", {GhostWidth("Player profile", Icon::Person), Dp(40)}, true,
+                        Icon::Person))
+            page_ = PageOnlineSettings;
+        EndCard();
+        return false;
     }
 
     // Online while not signed in: what playing online here brings, and the
@@ -4753,7 +4797,7 @@ private:
              "Press F1 (or HOME) in the game to see who is online and challenge them.", nullptr},
             {Icon::Trophy, "Real sets, fair rules",
              "Best-of series by competitive rules that both players see before they accept.", nullptr},
-            {Icon::Medal, "Tournaments", "Your next tournament game, opponent and rules, right in the launcher.",
+            {Icon::Medal, "Tournaments", "Your next tournament game, opponent and rules, in the game's Events tab.",
              "Soon"},
         };
         const float gap = Dp(12), tile = (width - gap) * 0.5f, pad = Dp(16), badge = Dp(38);
@@ -4872,7 +4916,7 @@ private:
         if (status.state == State::SignedOut && status.info.test) CompetitiveTestSignIn();
     }
 
-    // Online -> Online settings: one card with the player's profile (the
+    // Online -> Player profile: one card with the player's profile (the
     // initial, the name with what they are doing, the Discord username and
     // Sign out) over rows for the friend code, the Discord friends and the
     // server.
@@ -4885,7 +4929,7 @@ private:
             OnlineWelcome();
             return;
         }
-        PageHeader("Online settings", "Your profile, your Discord friends and the server you play on.");
+        PageHeader("Player profile", "Your profile, your Discord friends and the server you play on.");
         const auto& player = status.player;
         const auto& fonts = CurrentFonts();
         BeginCard("##online_profile", nullptr);
@@ -5061,7 +5105,7 @@ private:
         EndCard();
     }
 
-    // The rule set challenges go out with: the one Match settings chose (by
+    // The rule set challenges go out with: the one Match rules chose (by
     // name), else the server's first.
     const platform::RuleSet* ChosenRuleSet() const
     {
@@ -5430,8 +5474,10 @@ private:
     // or online with friends. Default and Competitive are built in.
     void MatchRulesPage()
     {
-        PageHeader("Match rules", "Presets of the match settings and cheats: choose one for your matches on this "
-                                  "computer, or online with friends. Ranked matches keep their own rules.");
+        PageHeader("Match rules", "The rules of your challenges, and presets of the match settings and cheats for "
+                                  "your matches on this computer or online with friends. Ranked matches keep their "
+                                  "own rules.");
+        ChallengeRulesCard();
         using mscharged::platform::GameSaveState;
         using mscharged::platform::MatchMode;
         const auto& save = InstalledMatch();
@@ -10176,7 +10222,7 @@ private:
     NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
     int page_ = PagePlay;
-    int group_page_[std::size(kNavGroups)] = {PageOnlineSettings, PageMiis}; // the page each group's row opens
+    int group_page_[std::size(kNavGroups)] = {PageOnlineSettings}; // the page each group's row opens
     bool close_requested_ = false;
     bool pending_ = false;
     bool region_prompt_ = false;
