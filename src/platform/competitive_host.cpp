@@ -204,6 +204,29 @@ void CompetitiveHost::PlaySet(std::int64_t set)
     Said("set " + std::to_string(set) + ": the game goes straight to RANKED against the set's opponent");
 }
 
+std::optional<CompetitiveHost::SetStatus> CompetitiveHost::CurrentSet()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!set_) return std::nullopt;
+    if (match_ && match_->id == set_)
+    {
+        set_opponent_ = match_->opponent.name;
+        set_games_ = match_->rules.games;
+    }
+    if (set_opponent_.empty()) return std::nullopt;
+    SetStatus status;
+    status.opponent = set_opponent_;
+    status.games = set_games_;
+    // The games this game counted (the game's thread keeps them).
+    if (series_match_ == set_)
+        for (const auto& game : series_)
+        {
+            status.won += game.my_score > game.opponent_score;
+            status.lost += game.my_score < game.opponent_score;
+        }
+    return status;
+}
+
 bool CompetitiveHost::CloseNow()
 {
     std::string why;

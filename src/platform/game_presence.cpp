@@ -128,6 +128,15 @@ std::string MatchMode(const ChargedPresenceSnapshot& s)
     }
 }
 
+// "Set against Bob · games 1-0" (the games only in a longer series).
+std::string SetLine(const SetText& set)
+{
+    std::string line = "Set against " + set.opponent;
+    if (set.games > 1)
+        line += std::string(kSeparator) + "games " + std::to_string(set.won) + "-" + std::to_string(set.lost);
+    return line;
+}
+
 // "Luigi 2 - 1 Bowser", the team played on this machine first.
 std::string Scoreline(const ChargedPresenceSnapshot& s, bool with_score)
 {
@@ -162,7 +171,7 @@ GamePresence::GamePresence(std::string game_title, std::string region, std::stri
 {
 }
 
-discord::Activity GamePresence::Describe(const ChargedPresenceSnapshot& s, std::int64_t now)
+discord::Activity GamePresence::Describe(const ChargedPresenceSnapshot& s, std::int64_t now, const SetText* set)
 {
     discord::Activity activity;
     activity.large_image = "logo";
@@ -172,9 +181,14 @@ discord::Activity GamePresence::Describe(const ChargedPresenceSnapshot& s, std::
     if (s.in_match && s.mode != kDemo)
     {
         const bool paused = Paused(s);
-        activity.details = MatchMode(s);
-        if (const char* stadium = StadiumName(s.stadium); stadium && !s.strikers101)
-            activity.details += kSeparator + std::string(stadium);
+        if (set)
+            activity.details = SetLine(*set);
+        else
+        {
+            activity.details = MatchMode(s);
+            if (const char* stadium = StadiumName(s.stadium); stadium && !s.strikers101)
+                activity.details += kSeparator + std::string(stadium);
+        }
         const int state = s.game_state;
         // Loading (no state yet) and the captains' entrance come before kick-off.
         const bool before = state < kKickoff;
@@ -203,6 +217,13 @@ discord::Activity GamePresence::Describe(const ChargedPresenceSnapshot& s, std::
 
     match_start_ = 0;
     activity.start = session_start_;
+    if (set)
+    {
+        // A set's game outside its matches: signing in, searching, the draft.
+        activity.details = SetLine(*set);
+        activity.state = set->won + set->lost == 0 ? "Getting ready" : "Between games";
+        return activity;
+    }
     for (int n = 0; n < s.scene_count && n < 8; ++n)
         if (const auto menu = MenuFor(s.scenes[n], s))
         {

@@ -42,6 +42,7 @@
 #include "platform/path.h"
 #include "platform/mii_maker.h"
 #include "platform/alert_sound.h"
+#include "platform/discord_presence.h"
 #include "platform/save_import.h"
 #include "platform/shader_cache.h"
 #include "platform/texture_packs.h"
@@ -564,6 +565,7 @@ public:
         for (const auto& level : logo_sizzle_) SDL_DestroyTexture(level.texture);
         if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
         alert_sound_.reset(); // before SDL's audio goes
+        set_presence_.reset();
         if (renderer_) SDL_DestroyRenderer(renderer_);
         if (window_) SDL_DestroyWindow(window_);
         SDL_Quit();
@@ -3933,6 +3935,7 @@ private:
                 Alert();
             }
         }
+        UpdateSetPresence();
         UpdateDiscordFriends();
         // Both pressed Ready to play!: this launcher starts the set's game.
         if (status.match && status.match->stage == "go" && status.match->id != competitive_started_set_ && !capture_)
@@ -3955,6 +3958,46 @@ private:
         }
         if (flash && window_ && !(SDL_GetWindowFlags(window_) & SDL_WINDOW_INPUT_FOCUS))
             SDL_FlashWindow(window_, SDL_FLASH_UNTIL_FOCUSED);
+    }
+
+    // The Discord status while a set waits in the launcher ([discord]
+    // rich_presence): against whom, and what for. Nothing otherwise: the
+    // game shows its own, and a challenge to the player stays private until
+    // they accept.
+    void UpdateSetPresence()
+    {
+        if (capture_) return;
+        const auto& status = competitive_status_;
+        std::optional<platform::discord::Activity> activity;
+        if (status.state == CompetitiveService::State::SignedIn && status.match && status.match->Open()
+            && !(status.match->side == "challenged" && status.match->state == "challenged"))
+        {
+            const auto& match = *status.match;
+            const std::string& them = match.opponent.name;
+            activity.emplace();
+            activity->details = "Set against " + them;
+            activity->state = match.state == "challenged" ? "Waiting for " + them + " to accept"
+                : match.stage == "go"                     ? std::string("Starting the game")
+                : !match.you_ready                        ? std::string("Getting ready")
+                : !match.opponent_ready                   ? "Waiting for " + them + " to be ready"
+                                                          : std::string("Starting the game");
+            activity->large_image = "logo";
+            activity->large_text = "Recharged";
+            activity->start = match.created_at;
+        }
+        if (!set_presence_)
+        {
+            if (!activity || !draft_.discord_status) return;
+            const std::string application = !draft_.discord_application_id.empty()
+                ? draft_.discord_application_id
+                : std::string(mscharged::build::discord_application_id);
+            if (application.empty()) return;
+            platform::DiscordPresence::Options options;
+            options.application_id = application;
+            options.log = [](const std::string& text) { platform::SessionLogLine(text); };
+            set_presence_.emplace(std::move(options));
+        }
+        set_presence_->Show(draft_.discord_status ? activity : std::nullopt);
     }
 
     // The Discord friends follow the sign-in and the server's Discord
@@ -11073,6 +11116,7 @@ private:
     std::int64_t watched_match_ = 0;    // the open set, told when it ends without a result
     std::int64_t alerted_ = 0;          // the last chime: a set's id * 2, + 1 for an accepted challenge
     std::optional<platform::AlertSound> alert_sound_;
+    std::optional<platform::DiscordPresence> set_presence_; // the Discord status of a waiting set
     bool friends_offline_open_ = false; // the Friends page shows its offline friends
     bool preview_opened_ = false;       // a capture's preview set the offline friends' fold
     DiscordFriends::Status discord_status_;

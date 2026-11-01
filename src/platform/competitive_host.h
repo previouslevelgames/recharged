@@ -55,6 +55,16 @@ public:
     // The caller closes the game; true once.
     bool CloseNow();
 
+    // On the game's thread after Observe: the set this game plays, for the
+    // Discord status: the opponent, the games won and lost so far and how
+    // many the series has; none outside a set's game.
+    struct SetStatus
+    {
+        std::string opponent;
+        int won = 0, lost = 0, games = 0;
+    };
+    std::optional<SetStatus> CurrentSet();
+
     // A challenge to this player while the game is in its menus (not in a
     // match, not a set's game): what the host's card asks, or none.
     struct Invitation
@@ -125,6 +135,10 @@ private:
     int set_popup_ = -1;
     int unsent_ = 0;
     bool set_called_off_ = false, set_unready_ = false, set_closed_ = false;
+    // The set's opponent and series length, kept once the server has gone
+    // on from the set (for the Discord status of its last screens).
+    std::string set_opponent_;
+    int set_games_ = 0;
     std::chrono::steady_clock::time_point set_done_{};
 
     // The game's thread only.

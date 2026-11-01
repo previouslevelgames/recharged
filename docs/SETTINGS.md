@@ -422,7 +422,10 @@ named as packs need it.
 
 While the Discord app runs on the same computer, your Discord profile shows
 what you are playing: the menu you are in, or the match with its mode,
-stadium, captains, score and match time. The game talks only to the Discord
+stadium, captains, score and match time. During a set (Online) it shows
+your opponent and the games won so far, and while the set waits in the
+launcher what it waits for (your opponent's answer, getting ready); a
+challenge to you shows only once you accept it. The game talks only to the Discord
 app on your computer, which shows the status to your friends. Switch it off on
 the launcher's **Game** page (`[discord] rich_presence`); Discord's own
 activity privacy setting hides it too. Builds that do not come from the

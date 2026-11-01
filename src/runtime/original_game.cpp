@@ -1232,6 +1232,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         };
         // Once a second, after a game frame: the game's state for the Discord status.
         std::chrono::steady_clock::time_point lastPresence{};
+        std::optional<mscharged::platform::SetText> presenceSet; // a set's game: its opponent and games
         auto observePresence = [&] {
             if(!discordPresence)return;
             const auto now=std::chrono::steady_clock::now();
@@ -1241,7 +1242,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!presenceSnapshot(&snapshot,sizeof snapshot))return;
             const auto unixNow=std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
-            discordPresence->Show(gamePresence->Describe(snapshot,unixNow));
+            discordPresence->Show(gamePresence->Describe(snapshot,unixNow,presenceSet ? &*presenceSet : nullptr));
         };
         // Once a second, after a game frame: the online series for the match reports.
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
@@ -1341,6 +1342,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             std::optional<ChargedCompetitiveRules> rules;
             if(competitive->Observe(wfc,known ? &game : nullptr,rules))
                 configureCompetitive(rules ? &*rules : nullptr,sizeof(ChargedCompetitiveRules));
+            if(const auto set=competitive->CurrentSet())
+                presenceSet=mscharged::platform::SetText{set->opponent,set->won,set->lost,set->games};
+            else presenceSet.reset();
             // The set's game is done: closed as by the window's close button.
             if(competitive->CloseNow()) {
                 SDL_Event quit{};

@@ -288,7 +288,8 @@ these matches (see Picture and sound).
 
 While the Discord app runs on the same computer, your Discord profile shows the
 menu you are in or the match you play, with its mode, stadium, captains, score
-and match time ([settings](SETTINGS.md#discord-status)).
+and match time, and during an online set your opponent and the games won so
+far ([settings](SETTINGS.md#discord-status)).
 
 ## Not supported (yet)
 
