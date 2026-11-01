@@ -97,10 +97,10 @@ private:
 std::optional<std::vector<std::uint8_t>> ReadU8File(const std::vector<std::uint8_t>& archive,
                                                     std::string_view path);
 
-// The Mii parts of a Mario Strikers Charged image (ISO, RVZ or WBFS, any
-// version): its Data/RFLRes01.arc, the archive the game's MiiManager loads.
-// Throws std::runtime_error when the image or the file cannot be read and
-// std::invalid_argument when the file is damaged.
+// The Mii parts of a Mario Strikers Charged image (ISO, RVZ or WBFS): its
+// Data/RFLRes01.arc, the archive the game's MiiManager loads, with the same
+// parts on every version. Throws std::runtime_error when the image or the
+// file cannot be read and std::invalid_argument when the file is damaged.
 MiiParts ReadMiiPartsFromImage(const std::filesystem::path& image);
 
 struct MiiHeadOptions {
@@ -110,14 +110,16 @@ struct MiiHeadOptions {
     // textures).
     int width = 128, height = 128;
     Expression expression = Expression::Normal;
-    // Transparent: RGBA as the Wii's icon holds it, alpha 0 around the head.
-    // Color and Favorite: an opaque image, the head drawn on that colour as
-    // RFLMakeIcon draws it on its background colour.
+    // Transparent: RGBA as the Wii's icon holds it, alpha 0 around the head
+    // (where the head is partly transparent, such as large glasses beyond
+    // it, the colour is given with straight alpha, not blended over black as
+    // the Wii's icon has it). Color and Favorite: an opaque image, the head
+    // drawn on that colour as RFLMakeIcon draws it on its background colour.
     enum class Background { Transparent, Color, Favorite } background = Background::Transparent;
     std::array<std::uint8_t, 3> background_color{};
     // The Wii's precision: 6 bits per channel in the colour buffer and the
-    // RGB5A3 icon texture (5 bits per channel, 4 bits and 3 alpha bits where
-    // the head is not opaque). Off keeps 8 bits per channel throughout.
+    // RGB5A3 icon texture (5 bits per channel; 4 bits and 3 alpha bits where
+    // the alpha is below 224). Off keeps 8 bits per channel throughout.
     bool wii_precision = true;
 };
 
