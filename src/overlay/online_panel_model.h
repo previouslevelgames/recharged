@@ -8,13 +8,12 @@
 #include <vector>
 
 // The online panel the game opens over its blurred picture (F1, or the Wii
-// Remote's HOME button): the game's share of the launcher's Online pages,
-// with less to it. The player and the switch for random games, their set
-// when there is one, the friends online now and, while the player is
-// available, the others available now; a player's screen to challenge them
-// or keep them as a friend. Offline friends, search, chat and the rest stay
-// in the launcher. This is its data, made from what the profile service
-// answers and without any drawing types; online_panel.h draws it with ImGui.
+// Remote's HOME button): where the player plays online. The player and the
+// switch for random games, their set when there is one, the friends online
+// now (and how many are offline) and, while the player is available, the
+// others available now; a player's screen to challenge them or keep them as
+// a friend. This is its data, made from what the profile service answers and
+// without any drawing types; online_panel.h draws it with ImGui.
 namespace mscharged::overlay
 {
 // The colour a status line is drawn in.
@@ -83,6 +82,7 @@ struct OnlinePanelSection
     std::vector<OnlinePanelRow> rows; // free first, then busy, by name
     std::string empty; // what shows without rows
     std::string hint;  // under it, smaller
+    std::string aside; // at the right of its heading, quiet: "3 friends offline"
 };
 
 // The player's set (competitive series): the one still to be played, or the
@@ -131,6 +131,9 @@ struct OnlinePanelModel
     // A line over the lists while nobody can be challenged from this game.
     std::string note;
     std::vector<OnlinePanelSection> sections;
+    // The friends and Discord friends with Recharged who are offline (the
+    // online section's aside says so; none while the lists load).
+    int friends_offline = 0;
     std::string challenge_rules; // what a challenge plays by, on a player's screen
     // For the footer: what the player should know (an action the server
     // refused, the server out of reach).

@@ -2,7 +2,7 @@
 // made-up lists and sets: who is online now and in which order, who is
 // available, what their rows say, who can be challenged, and the set at each
 // of its steps, and what waits for the player (the tab's badge). Offline
-// players are the launcher's, never the game's.
+// friends are counted, never listed.
 
 #include "overlay/online_panel_model.h"
 
@@ -114,12 +114,13 @@ void TestPlayer()
     CHECK(model.note.empty());
     CHECK(model.challenge_rules == "Competitive: Rookie");
     CHECK(model.message == "The server can't be reached." && model.message_tone == Tone::Bad);
-    // Not available: Online now alone, which says nobody is online and where the rest is.
+    // Not available: Online now alone, which says nobody is online (and,
+    // without friends, nothing about friends offline).
     CHECK(model.sections.size() == 1);
     CHECK(model.sections[0].id == OnlinePanelSection::Id::Online);
     CHECK(model.sections[0].rows.empty());
     CHECK(model.sections[0].empty == "None of your friends is online");
-    CHECK(model.sections[0].hint.find("launcher's Online pages") != std::string::npos);
+    CHECK(model.sections[0].hint.empty() && model.sections[0].aside.empty() && model.friends_offline == 0);
     CHECK(OnlinePanelWaiting(model) == 0);
 
     context.loading = true;
@@ -143,14 +144,15 @@ void TestOnlineNow()
 {
     platform::PlayerLists lists;
     lists.friends = {Player(20, "Rosalina"), Online(10, "Mario", "launcher"), Online(11, "luigi", "game", true),
-                     Online(12, "Daisy", "game"), Player(21, "Wario"), Online(13, "Toad", "match")};
+                     Online(12, "Daisy", "game"), Player(21, "Wario"), Online(13, "Toad", "match"),
+                     Player(1, "Anosch")};
     for (auto& player : lists.friends) player.is_friend = true;
     lists.mii_friends = {Mii(502, "Sara", false, "", true), Mii(501, "Tommy", true, "matchmaking", true),
                          Mii(503, "Kai", true, "match", true)};
     auto context = Context();
     auto daisy = lists.friends[3];
     daisy.discord_id = "9001";
-    context.discord_friends = {Player(31, "Bowser"), Online(30, "Peach", "game"), daisy};
+    context.discord_friends = {Player(31, "Bowser"), Online(30, "Peach", "game"), daisy, Player(20, "Rosalina")};
     const auto model = MakeOnlinePanelModel(lists, std::nullopt, context);
     const auto* online = Section(model, OnlinePanelSection::Id::Online);
     CHECK(online != nullptr);
@@ -193,6 +195,25 @@ void TestOnlineNow()
     CHECK(FindRow(model, "p10") == mario);
     CHECK(FindRow(model, "m501") == tommy);
     CHECK(FindRow(model, "p20") == nullptr);
+
+    // Offline: Rosalina (a Discord friend too: once), Wario and Bowser; not
+    // the player, nor Sara (a Mii friend: the game's online mode).
+    CHECK(model.friends_offline == 3);
+    CHECK(online->aside == "3 friends offline");
+    CHECK(online->hint.empty());
+    // One alone; while the lists load, nothing.
+    platform::PlayerLists one;
+    one.friends = {Player(20, "Rosalina"), Online(10, "Mario", "launcher")};
+    auto alone = MakeOnlinePanelModel(one, std::nullopt, Context());
+    CHECK(alone.friends_offline == 1 && alone.sections[0].aside == "1 friend offline");
+    auto loading = Context();
+    loading.loading = true;
+    alone = MakeOnlinePanelModel(one, std::nullopt, loading);
+    CHECK(alone.friends_offline == 0 && alone.sections[0].aside.empty());
+    // Everyone online: nothing.
+    one.friends = {Online(10, "Mario", "launcher")};
+    alone = MakeOnlinePanelModel(one, std::nullopt, Context());
+    CHECK(alone.friends_offline == 0 && alone.sections[0].aside.empty());
 }
 
 void TestAvailable()

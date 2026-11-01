@@ -309,9 +309,19 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     online.id = OnlinePanelSection::Id::Online;
     online.title = "ONLINE NOW";
     online.empty = context.loading ? "Loading..." : "None of your friends is online";
-    if (!context.loading)
-        online.hint = "See your offline friends and find new ones on the launcher's Online pages.";
     std::set<std::int64_t> listed{me.id};
+    // The others are offline: each player once (as the lists below take
+    // them), the player not among them.
+    if (!context.loading)
+    {
+        std::set<std::int64_t> seen{me.id};
+        for (const auto* list : {&lists.friends, &context.discord_friends})
+            for (const auto& player : *list)
+                if (seen.insert(player.id).second && !player.online) ++model.friends_offline;
+        if (model.friends_offline > 0)
+            online.aside = std::to_string(model.friends_offline)
+                + (model.friends_offline == 1 ? " friend offline" : " friends offline");
+    }
     std::set<std::int64_t> discord;
     for (const auto& player : context.discord_friends) discord.insert(player.id);
     for (const auto& player : lists.friends)

@@ -310,8 +310,9 @@ game's overlay (`panel`); HOME on any controller does the same, **F2** opens it
 on Game options (`game_options`), and Escape closes it. Pressed while it is
 open, F1 or F2 shows its tab, or closes the overlay when that tab is shown. It
 opens on **Online**: your set (accept, Ready to play!, rematch),
-the friends who have Recharged open and, while you are available, the players
-available for random games; a player's row challenges them or opens their
+the friends who have Recharged open (and how many are offline) and, while you
+are available, the players available for random games; a player's row
+challenges them or opens their
 page. **Game options** has the gameplay options that can change while the game
 runs: they are saved at once and count from the next match (online matches
 play by their own rules). L1/R1 (− and + on a Wii Remote), Q/E or a click
