@@ -63,6 +63,14 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
     fonts.title = add(30.0f);
     fonts.button = add(22.0f);
     fonts.overline = add(21.0f);
+    {
+        static const ImWchar digits[] = {'0', '9', 0};
+        ImFontConfig config;
+        config.OversampleH = 1;
+        config.OversampleV = 1;
+        fonts.display = io.Fonts->AddFontFromFileTTF(ttf.c_str(), std::round(72.0f * font_raster), &config, digits);
+        if (!fonts.display) throw std::runtime_error("Cannot load the launcher font; rebuild to restore resources");
+    }
     io.FontDefault = fonts.body;
     io.FontGlobalScale = 1.0f / density;
     g_fonts = fonts;

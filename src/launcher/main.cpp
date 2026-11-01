@@ -143,6 +143,8 @@ BuildIdentity CurrentBuild()
 // the launcher it opens again afterwards (an environment variable, as
 // Windows starts that one with this run's command line).
 constexpr const char* kCompetitiveSetVariable = "RECHARGED_COMPETITIVE_SET";
+// From both players ready to the set's game starting: 3, 2, 1.
+constexpr std::uint64_t kSetCountdownMs = 3000;
 
 void SetEnvironment(const char* name, const std::string& value)
 {
@@ -3930,8 +3932,11 @@ private:
         {
             const auto& match = *status.match;
             const bool to_you = match.side == "challenged" && match.state == "challenged";
-            const bool accepted = match.side == "challenger" && match.state == "accepted" && !match.you_ready;
-            const std::int64_t alert = to_you ? match.id * 2 : accepted ? match.id * 2 + 1 : 0;
+            // The set goes (the countdown starts); servers before sets: the
+            // challenge accepted.
+            const bool go = match.stage == "go"
+                || (match.stage.empty() && match.side == "challenger" && match.state == "accepted");
+            const std::int64_t alert = to_you ? match.id * 2 : go ? GoKey(match) * 2 + 1 : 0;
             if (alert && alert != alerted_)
             {
                 alerted_ = alert;
@@ -3941,13 +3946,26 @@ private:
         UpdateSetPresence();
         UpdateDiscordFriends();
         // Both pressed Ready to play!: this launcher starts the set's game.
-        // Each go once: a set that waited for both again and goes again starts
-        // the games again.
+        // Both are ready: 3, 2, 1, then this launcher starts the set's game.
+        // Each go once: a set that waited for both again and goes again
+        // starts the games again.
         if (status.match && status.match->stage == "go" && GoKey(*status.match) != competitive_started_go_ && !capture_)
         {
-            competitive_started_go_ = GoKey(*status.match);
-            competitive_go_ = true;
+            const std::int64_t key = GoKey(*status.match);
+            const std::uint64_t now = SDL_GetTicks();
+            if (countdown_go_ != key)
+            {
+                countdown_go_ = key;
+                countdown_end_ = now + kSetCountdownMs;
+            }
+            if (now >= countdown_end_)
+            {
+                competitive_started_go_ = key;
+                competitive_go_ = true;
+            }
         }
+        else if (!capture_)
+            countdown_go_ = 0;
     }
 
     // The challenge sound ([online] challenge_sound): the chime at the master
@@ -4051,7 +4069,8 @@ private:
     // friend in a match, one Discord sees in the game without a profile, and
     // offline friends and Discord friends. "preview-offline" opens the
     // offline friends, "preview-search" searches for "lu", "preview-set" and
-    // "preview-set-ready" add a set against Mario at its ready step.
+    // "preview-set-ready" add a set against Mario at its ready step,
+    // "preview-set-go" its countdown.
     void PreviewDiscordFriends(const std::string& mode)
     {
         using Presence = DiscordFriends::Presence;
@@ -4176,7 +4195,7 @@ private:
         board.daily.top = {row(1, "Ruffus", "Ruffus", 3, 0, 160, 2, false), row(2, "Kiki", "", 2, 1, 110, 4, false)};
         competitive_status_.leaderboard = board;
         competitive_status_.leaderboard_missing = false;
-        if (mode == "preview-set" || mode == "preview-set-ready")
+        if (mode == "preview-set" || mode == "preview-set-ready" || mode == "preview-set-go")
         {
             platform::ProfileMatch set;
             set.id = 77;
@@ -4194,6 +4213,14 @@ private:
             set.you_ready = mode == "preview-set-ready";
             set.opponent_ready = mode == "preview-set";
             set.opponent_online = true;
+            if (mode == "preview-set-go")
+            {
+                set.stage = "go";
+                set.you_ready = set.opponent_ready = true;
+                set.go_at = now;
+                countdown_go_ = set.go_at;
+                countdown_end_ = SDL_GetTicks() + 2400; // a "3" growing in
+            }
             competitive_status_.match = set;
         }
         if (!preview_opened_)
@@ -5030,6 +5057,12 @@ private:
         }
         if (BeginRows("##set_rows"))
         {
+            if (match.stage == "go" && countdown_go_ == GoKey(match) && competitive_started_go_ != countdown_go_)
+            {
+                EndRows();
+                SetCountdown(match, busy);
+                return;
+            }
             if (match.stage == "go")
             {
                 // Back from a game that ended before the set started: start it
@@ -5056,6 +5089,56 @@ private:
 
     // An accepted set before its game: both players' state side by side, one
     // button that makes the player ready or takes it back, and Cancel set.
+    // Both are ready: a big 3, 2, 1, then the game starts by itself and goes
+    // straight to the captain draft. Cancel set still ends it.
+    void SetCountdown(const platform::ProfileMatch& match, bool busy)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(132);
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const std::uint64_t now = SDL_GetTicks();
+        const std::uint64_t left = countdown_end_ > now ? countdown_end_ - now : 0;
+        const int second = int((left + 999) / 1000);
+        // Each number grows in and fades through its second.
+        const float within = float(left % 1000) / 1000.0f;
+        const float pop = second > 0 ? 0.85f + 0.15f * std::min(1.0f, (1.0f - within) * 5.0f) : 1.0f;
+        draw->AddRectFilled(at, {at.x + width, at.y + height}, Col(Mix(color::field, color::accent, 0.10f)), Dp(14));
+        draw->AddRect(at, {at.x + width, at.y + height}, Col(color::accent, 0.45f), Dp(14), 0, Dp(1.5f));
+        const ImVec2 middle{at.x + Dp(80), at.y + height * 0.5f};
+        draw->AddCircleFilled(middle, Dp(46), Col(color::accent, 0.16f));
+        draw->AddCircle(middle, Dp(46), Col(color::accent, 0.7f), 0, Dp(2));
+        if (second > 0)
+        {
+            const std::string digit = std::to_string(second);
+            const float size = FontSize(fonts.display) * pop;
+            const ImVec2 text = fonts.display->CalcTextSizeA(size, FLT_MAX, 0.0f, digit.c_str());
+            draw->AddText(fonts.display, size, {middle.x - text.x * 0.5f, middle.y - text.y * 0.5f},
+                          Col(color::accent, 0.35f + 0.65f * std::min(1.0f, within * 2.0f + 0.3f)), digit.c_str());
+        }
+        else
+            Spinner(middle, Dp(20), Col(color::accent));
+        const float text_left = at.x + Dp(150);
+        const std::string title = "Both are ready";
+        const std::string line = second > 0 ? "Your game starts in " + std::to_string(second)
+                + (second == 1 ? " second" : " seconds") + ", straight into the captain draft."
+                                             : std::string("Starting your game...");
+        DrawLabel(draw, fonts.heading, {text_left, middle.y - FontSize(fonts.heading) - Dp(4)}, Col(color::text),
+                  title.c_str());
+        draw->PushClipRect({text_left, at.y}, {at.x + width - Dp(170), at.y + height}, true);
+        DrawLabel(draw, fonts.body, {text_left, middle.y + Dp(4)}, Col(color::muted), line.c_str());
+        draw->PopClipRect();
+        ImGui::SetCursorScreenPos({at.x + width - Dp(156), middle.y - Dp(19)});
+        if (GhostButton("cancel_countdown", "Cancel set", Dp(140, 38), !busy, Icon::Close))
+        {
+            countdown_go_ = 0;
+            competitive_started_go_ = GoKey(match); // no start for this go
+            competitive_->CancelMatch();
+        }
+        ImGui::SetCursorScreenPos(at);
+        ImGui::Dummy({width, height});
+    }
+
     void ReadyStep(const platform::ProfileMatch& match, bool busy)
     {
         const auto& fonts = CurrentFonts();
@@ -11135,7 +11218,9 @@ private:
     int leaderboard_board_ = 0;         // the Leaderboard page's board: the season's, or the day's
     bool friends_recent_open_ = false;  // the Friends page shows the players played recently
     std::int64_t watched_match_ = 0;    // the open set, told when it ends without a result
-    std::int64_t alerted_ = 0;          // the last chime: a set's id * 2, + 1 for an accepted challenge
+    std::int64_t alerted_ = 0;          // the last chime: a challenge's id * 2, or a go's GoKey * 2 + 1
+    std::int64_t countdown_go_ = 0;     // the go counting down (GoKey), and when the game starts (SDL ticks)
+    std::uint64_t countdown_end_ = 0;
     std::string set_blocker_;           // why this computer can't play a set now (PlayBlocker), or empty
     std::optional<platform::AlertSound> alert_sound_;
     std::optional<platform::DiscordPresence> set_presence_; // the Discord status of a waiting set
