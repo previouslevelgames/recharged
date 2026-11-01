@@ -60,6 +60,9 @@ struct Fonts
 // pixels per dp; io.FontGlobalScale maps the glyphs back to window units.
 Fonts LoadFonts(const std::string& ttf, float font_raster, float density);
 const Fonts& CurrentFonts();
+// The fonts the widgets draw with, for a host that loads its own (the game's
+// online panel); LoadFonts sets them too.
+void SetCurrentFonts(const Fonts& fonts);
 float FontSize(ImFont* font); // in window units, including FontGlobalScale
 
 // Theme for the current scale (call on a fresh style when the scale changes).

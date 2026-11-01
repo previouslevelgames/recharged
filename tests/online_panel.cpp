@@ -1,0 +1,362 @@
+// The online panel's data (src/online_panel/online_panel_model.cpp) from made-up
+// lists and sets: who is in which list and in which order, what their rows
+// say, who can be challenged, and the set at each of its steps.
+
+#include "online_panel/online_panel_model.h"
+
+#include <cstdio>
+#include <iterator>
+#include <string>
+
+namespace platform = mscharged::platform;
+using namespace mscharged::online_panel;
+
+namespace
+{
+int failures = 0;
+
+void Check(bool ok, const char* what, int line)
+{
+    if (ok) return;
+    std::fprintf(stderr, "online_panel.cpp:%d: %s\n", line, what);
+    ++failures;
+}
+#define CHECK(x) Check((x), #x, __LINE__)
+
+constexpr std::int64_t kNow = 1'800'000'000;
+
+platform::ProfilePlayer Player(std::int64_t id, const char* name)
+{
+    platform::ProfilePlayer player;
+    player.id = id;
+    player.name = name;
+    player.discord = name;
+    return player;
+}
+
+platform::ProfilePlayer Online(std::int64_t id, const char* name, const char* activity, bool busy = false)
+{
+    auto player = Player(id, name);
+    player.online = true;
+    player.activity = activity;
+    player.busy = busy;
+    return player;
+}
+
+platform::ProfilePlayer Offline(std::int64_t id, const char* name, std::int64_t seconds_ago)
+{
+    auto player = Player(id, name);
+    player.last_online = kNow - seconds_ago;
+    return player;
+}
+
+platform::MiiProfile Mii(std::int32_t id, const char* name, bool online, const char* status, bool is_friend)
+{
+    platform::MiiProfile mii;
+    mii.profile_id = id;
+    mii.mii = name;
+    mii.friend_code = "0868-9934-5920";
+    mii.online = online;
+    mii.status = status;
+    mii.last_online = kNow - 3600;
+    mii.is_friend = is_friend;
+    return mii;
+}
+
+OnlinePanelContext Context()
+{
+    OnlinePanelContext context;
+    context.me = Player(1, "Anosch");
+    context.me.discord = "anosch";
+    context.me.avatar_url = "https://cdn.example/a.png";
+    context.now = kNow;
+    return context;
+}
+
+const OnlinePanelSection* Section(const OnlinePanelModel& model, OnlinePanelSection::Id id)
+{
+    for (const auto& section : model.sections)
+        if (section.id == id) return &section;
+    return nullptr;
+}
+
+const OnlinePanelRow* Row(const OnlinePanelSection* section, const std::string& name)
+{
+    if (!section) return nullptr;
+    for (const auto& row : section->rows)
+        if (row.name == name) return &row;
+    return nullptr;
+}
+
+platform::ProfileMatch Set(const char* state, const char* side, const char* stage)
+{
+    platform::ProfileMatch set;
+    set.id = 77;
+    set.state = state;
+    set.side = side;
+    set.stage = stage;
+    set.opponent = Online(10, "Mario", "launcher");
+    set.opponent_online = true;
+    set.rule_set = "Competitive";
+    set.rules.skill = "rookie";
+    set.rules.limit = "time";
+    set.rules.time = 180;
+    set.rules.games = 3;
+    set.rules.stadium = "random";
+    return set;
+}
+
+void TestPlayer()
+{
+    auto context = Context();
+    const auto model = MakeOnlinePanelModel({}, std::nullopt, context);
+    CHECK(model.me.name == "Anosch");
+    CHECK(model.me.detail == "@anosch");
+    CHECK(model.me.image == "https://cdn.example/a.png");
+    CHECK(model.me.initials == "A");
+    CHECK(!model.me.available);
+    CHECK(model.me.can_set_available);
+    CHECK(model.set.stage == OnlinePanelSet::Stage::None);
+    CHECK(model.note.empty());
+    // Only the friends without random games or Mii friends; it says how to get some.
+    CHECK(model.sections.size() == 1);
+    CHECK(model.sections[0].id == OnlinePanelSection::Id::Friends);
+    CHECK(model.sections[0].rows.empty());
+    CHECK(!model.sections[0].empty.empty());
+
+    context.random_games = false;
+    context.me.available = true;
+    const auto old_server = MakeOnlinePanelModel({}, std::nullopt, context);
+    CHECK(!old_server.me.can_set_available);
+    CHECK(!Section(old_server, OnlinePanelSection::Id::Available));
+
+    CHECK(Initials("mario") == "M");
+    CHECK(Initials("\xC3\xA9lodie") == "\xC3\xA9");
+    CHECK(Initials("\xE2\x98\x85star") == "\xE2\x98\x85");
+    CHECK(Initials("") == "?");
+}
+
+void TestFriends()
+{
+    platform::PlayerLists lists;
+    lists.friends = {Offline(20, "Rosalina", 2 * 86400), Online(10, "Mario", "launcher"),
+                     Online(11, "luigi", "game", true), Online(12, "Daisy", "game"), Offline(21, "Wario", 40 * 60),
+                     Online(13, "Toad", "match"), Player(22, "Yoshi")};
+    for (auto& player : lists.friends) player.is_friend = true;
+    lists.friends[1].unread = 3;
+    auto context = Context();
+    auto peach = Online(30, "Peach", "game");
+    auto daisy = lists.friends[3];
+    daisy.discord_id = "9001";
+    context.discord_friends = {Offline(31, "Bowser", 3 * 3600), peach, daisy};
+    const auto model = MakeOnlinePanelModel(lists, std::nullopt, context);
+    const auto* friends = Section(model, OnlinePanelSection::Id::Friends);
+    CHECK(friends != nullptr);
+    if (!friends) return;
+    // Online free first by name (any case), then busy, then offline, the latest first.
+    const char* order[] = {"Daisy", "Mario", "Peach", "luigi", "Toad", "Wario", "Bowser", "Rosalina", "Yoshi"};
+    CHECK(friends->rows.size() == std::size(order));
+    for (std::size_t i = 0; i < std::size(order) && i < friends->rows.size(); ++i)
+        if (friends->rows[i].name != order[i])
+            std::fprintf(stderr, "row %zu: %s, wanted %s\n", i, friends->rows[i].name.c_str(), order[i]), ++failures;
+    CHECK(friends->online == 5);
+
+    const auto* mario = Row(friends, "Mario");
+    CHECK(mario && mario->status == "In the launcher" && mario->tone == Tone::Good);
+    CHECK(mario && mario->presence == Presence::Free && mario->can_challenge && mario->blocked.empty());
+    CHECK(mario && mario->is_friend && mario->can_befriend && !mario->discord);
+    CHECK(mario && mario->unread == 3 && mario->key == "p10" && mario->player_id == 10);
+    const auto* luigi = Row(friends, "luigi");
+    CHECK(luigi && luigi->status == "In a set" && luigi->presence == Presence::Busy && !luigi->can_challenge);
+    CHECK(luigi && luigi->blocked == "In a set" && luigi->initials == "L");
+    const auto* toad = Row(friends, "Toad");
+    CHECK(toad && toad->status == "Playing a match" && toad->blocked == "In a match" && !toad->can_challenge);
+    const auto* wario = Row(friends, "Wario");
+    CHECK(wario && wario->status == "Last online 40 minutes ago" && wario->presence == Presence::Offline);
+    CHECK(wario && wario->tone == Tone::Away && !wario->can_challenge && wario->blocked.empty());
+    const auto* yoshi = Row(friends, "Yoshi");
+    CHECK(yoshi && yoshi->status == "Not online yet");
+    // A friend who is a Discord friend too: once, with Discord's logo, no heart.
+    const auto* daisy_row = Row(friends, "Daisy");
+    CHECK(daisy_row && daisy_row->discord && daisy_row->is_friend && !daisy_row->can_befriend);
+    CHECK(daisy_row && daisy_row->status == "In the game");
+    // Discord friends who aren't friends here: listed, no heart.
+    const auto* peach_row = Row(friends, "Peach");
+    CHECK(peach_row && peach_row->discord && !peach_row->is_friend && !peach_row->can_befriend);
+    CHECK(peach_row && peach_row->can_challenge);
+    const auto* bowser = Row(friends, "Bowser");
+    CHECK(bowser && bowser->discord && bowser->status == "Last online 3 hours ago");
+}
+
+void TestAvailableAndMiis()
+{
+    platform::PlayerLists lists;
+    lists.friends = {Online(10, "Mario", "launcher")};
+    lists.friends[0].is_friend = true;
+    lists.available = {Online(40, "Shy Guy", "launcher"), Online(10, "Mario", "launcher"), Online(41, "Koopa", "match")};
+    lists.game_online = {Mii(500, "Kenji", true, "match", false), Mii(501, "Tommy", true, "menu", true)};
+    lists.mii_friends = {Mii(502, "Sara", false, "", true), Mii(501, "Tommy", true, "matchmaking", true)};
+    auto context = Context();
+    // Not available: no list of available players.
+    auto model = MakeOnlinePanelModel(lists, std::nullopt, context);
+    CHECK(!Section(model, OnlinePanelSection::Id::Available));
+    const auto* miis = Section(model, OnlinePanelSection::Id::MiiFriends);
+    CHECK(miis && miis->rows.size() == 2 && miis->online == 1);
+    CHECK(miis && miis->rows[0].name == "Tommy" && miis->rows[1].name == "Sara");
+    const auto* tommy = Row(miis, "Tommy");
+    CHECK(tommy && tommy->kind == OnlinePanelRow::Kind::Mii && tommy->mii_profile == 501 && tommy->key == "m501");
+    CHECK(tommy && tommy->status == "Looking for a match" && tommy->image == "mii:501");
+    CHECK(tommy && tommy->detail == "0868-9934-5920" && tommy->is_friend && tommy->can_befriend);
+    CHECK(tommy && !tommy->can_challenge);
+    const auto* sara = Row(miis, "Sara");
+    CHECK(sara && sara->status == "Last online 1 hour ago" && sara->presence == Presence::Offline);
+
+    context.me.available = true;
+    model = MakeOnlinePanelModel(lists, std::nullopt, context);
+    CHECK(model.me.available);
+    const auto* available = Section(model, OnlinePanelSection::Id::Available);
+    CHECK(available != nullptr);
+    if (!available) return;
+    // The friends and the Mii friends are in their own lists already.
+    CHECK(available->rows.size() == 3);
+    CHECK(!Row(available, "Mario") && !Row(available, "Tommy"));
+    const auto* shy = Row(available, "Shy Guy");
+    CHECK(shy && shy->can_challenge && shy->can_befriend && !shy->is_friend);
+    const auto* koopa = Row(available, "Koopa");
+    CHECK(koopa && !koopa->can_challenge && koopa->blocked == "In a match");
+    const auto* kenji = Row(available, "Kenji");
+    CHECK(kenji && kenji->kind == OnlinePanelRow::Kind::Mii && kenji->status == "Playing a match");
+    CHECK(kenji && kenji->presence == Presence::Busy && !kenji->is_friend && kenji->can_befriend);
+    CHECK(available->rows[0].name == "Shy Guy");
+
+    // Nobody: it says so.
+    lists.available.clear();
+    lists.game_online.clear();
+    model = MakeOnlinePanelModel(lists, std::nullopt, context);
+    available = Section(model, OnlinePanelSection::Id::Available);
+    CHECK(available && available->rows.empty() && !available->empty.empty());
+}
+
+void TestChallengeBlockers()
+{
+    platform::PlayerLists lists;
+    lists.friends = {Online(10, "Mario", "launcher")};
+    auto context = Context();
+    context.in_match = true;
+    auto model = MakeOnlinePanelModel(lists, std::nullopt, context);
+    const auto* mario = Row(Section(model, OnlinePanelSection::Id::Friends), "Mario");
+    CHECK(mario && !mario->can_challenge && mario->blocked == "You're in a match");
+    CHECK(!model.note.empty());
+
+    context.in_match = false;
+    context.can_challenge = false;
+    model = MakeOnlinePanelModel(lists, std::nullopt, context);
+    mario = Row(Section(model, OnlinePanelSection::Id::Friends), "Mario");
+    CHECK(mario && !mario->can_challenge && !mario->blocked.empty());
+    CHECK(!model.note.empty());
+
+    // An open set: no other challenge. A set that ended: challenges again.
+    context.can_challenge = true;
+    model = MakeOnlinePanelModel(lists, Set("challenged", "challenger", "invited"), context);
+    mario = Row(Section(model, OnlinePanelSection::Id::Friends), "Mario");
+    CHECK(mario && !mario->can_challenge && mario->blocked == "Finish your set first");
+    CHECK(model.note.empty());
+    model = MakeOnlinePanelModel(lists, Set("finished", "challenger", "finished"), context);
+    mario = Row(Section(model, OnlinePanelSection::Id::Friends), "Mario");
+    CHECK(mario && mario->can_challenge);
+}
+
+void TestSet()
+{
+    using Stage = OnlinePanelSet::Stage;
+    auto context = Context();
+    // A challenge to the player.
+    auto model = MakeOnlinePanelModel({}, Set("challenged", "challenged", "invited"), context);
+    CHECK(model.set.stage == Stage::Challenged && model.set.match == 77);
+    CHECK(model.set.title == "Mario challenges you");
+    CHECK(model.set.can_accept && model.set.can_decline && !model.set.can_cancel);
+    CHECK(model.set.games == 0);
+    CHECK(model.set.rules.rfind("Competitive: Rookie", 0) == 0);
+    CHECK(model.set.opponent.name == "Mario" && model.set.opponent.presence == Presence::Free);
+    context.in_match = true;
+    model = MakeOnlinePanelModel({}, Set("challenged", "challenged", "invited"), context);
+    CHECK(!model.set.can_accept && model.set.can_decline);
+    context.in_match = false;
+
+    // The player's challenge.
+    model = MakeOnlinePanelModel({}, Set("challenged", "challenger", "invited"), context);
+    CHECK(model.set.stage == Stage::Waiting && model.set.status == "Waiting for Mario to accept");
+    CHECK(model.set.can_cancel && model.set.cancel_label == "Withdraw" && !model.set.can_accept);
+
+    // Accepted: Ready to play!, then waiting for the opponent.
+    auto set = Set("accepted", "challenger", "open");
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.stage == Stage::Ready && model.set.can_ready && model.set.status == "Ready when you are");
+    CHECK(model.set.can_cancel && model.set.cancel_label == "Cancel set");
+    set.you_ready = true;
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(!model.set.can_ready && model.set.status == "Waiting for Mario to be ready");
+    set.opponent_online = false;
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.tone == Tone::Bad && model.set.status == "Mario has closed Recharged");
+
+    // Playing: the game's count first, else the server's report.
+    set = Set("accepted", "challenger", "playing");
+    set.games = {{2, 1, "mario", "bowser", "the_palace"}};
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.stage == Stage::Playing && model.set.won == 1 && model.set.lost == 0 && model.set.games == 3);
+    CHECK(model.set.status == "Game 2 · best of 3");
+    CHECK(!model.set.can_cancel);
+    context.score = OnlinePanelContext::Score{1, 1};
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.won == 1 && model.set.lost == 1 && model.set.status == "Game 3 · best of 3");
+    context.score.reset();
+    set.reported = true;
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.status == "Waiting for Mario's result");
+
+    // A server before sets.
+    set = Set("accepted", "challenger", "");
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.stage == Stage::Playing && model.set.games == 0 && model.set.can_cancel);
+
+    // Ended: the result and the rematch while the opponent is online.
+    set = Set("finished", "challenged", "finished");
+    set.winner = "you";
+    set.games = {{3, 1, "", "", ""}, {0, 2, "", "", ""}, {2, 1, "", "", ""}};
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.stage == Stage::Ended && model.set.title == "You won the set" && model.set.tone == Tone::Good);
+    CHECK(model.set.won == 2 && model.set.lost == 1 && model.set.can_rematch);
+    set.opponent_online = false;
+    set.opponent.online = false;
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(!model.set.can_rematch);
+    set.state = "disputed";
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.stage == Stage::Ended && model.set.title == "The results differ" && model.set.tone == Tone::Bad);
+
+    // Ended without a result: nothing.
+    for (const char* state : {"declined", "cancelled", "expired"})
+    {
+        set.state = state;
+        model = MakeOnlinePanelModel({}, set, context);
+        CHECK(model.set.stage == Stage::None);
+    }
+}
+} // namespace
+
+int main()
+{
+    TestPlayer();
+    TestFriends();
+    TestAvailableAndMiis();
+    TestChallengeBlockers();
+    TestSet();
+    if (failures)
+    {
+        std::fprintf(stderr, "%d online panel checks failed\n", failures);
+        return 1;
+    }
+    std::printf("Online panel checks passed\n");
+    return 0;
+}

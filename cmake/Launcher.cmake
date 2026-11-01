@@ -93,15 +93,16 @@ if(BUILD_TESTING)
     add_test(NAME discord_friends COMMAND discord_friends_tests)
     set_tests_properties(discord_friends PROPERTIES TIMEOUT 60)
 endif()
-add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launcher/release_notes_view.cpp
-    src/launcher/competitive_service.cpp)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/OnlinePanel.cmake")
+add_executable(mscharged src/launcher/main.cpp src/launcher/release_notes_view.cpp
+    src/launcher/competitive_service.cpp src/launcher/online_panel_preview.cpp)
 # The program players start: recharged (recharged.exe). The target keeps its old name.
 # On Windows it is a Windows (GUI) program, so no console opens with it (#61).
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
     charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_graphics_cards
     charged_texture_packs charged_mii_maker charged_match_presets charged_competitive charged_discord_friends
-    charged_alert_sound charged_discord)
+    charged_alert_sound charged_discord charged_ui_kit charged_online_panel)
 mscharged_discord_social_sdk_beside(mscharged)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
 mscharged_stage_pipeline_catalog(mscharged)

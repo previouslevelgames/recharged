@@ -78,6 +78,7 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
 }
 
 const Fonts& CurrentFonts() { return g_fonts; }
+void SetCurrentFonts(const Fonts& fonts) { g_fonts = fonts; }
 
 float FontSize(ImFont* font)
 {
