@@ -511,9 +511,11 @@ tweaks both teams play with.
      Player profile (or on Events) joins Discord to the same profile later:
      your profile then takes your Discord name and picture, your friends and
      Mii stay. A Discord account that already has a profile of its own can't
-     join it. **Sign out** asks first: once your Mii has played online, logging
-     in with it in the game brings the profile back; before that, signing out
-     loses it for good.
+     join it. **Sign out** asks first: once your Mii has played online, it
+     brings the profile back (**Played with a Mii before? Sign in through the
+     game** under the two choices, `[online] mii_sign_in`: the game signs you
+     in again once that Mii logs in to WFC); before that, signing out loses
+     it for good.
 2. Challenge a player who has Recharged open from the game's online panel.
    They accept or decline on a card over their game while it is in its menus
    (A accepts, B declines; the game waits behind the card), or, with only the

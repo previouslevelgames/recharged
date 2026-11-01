@@ -116,8 +116,10 @@ Discord is not needed to play online. **Player profile** offers two ways in:
   characters) and your Mii, a new one in your favourite colour, one already on
   your computer or yours from Dolphin. This computer keeps you signed in.
   Friends, challenges and sets work the same. Once your Mii has played online,
-  logging in with it in the game brings your profile back if you sign out
-  (before that, signing out loses it).
+  it brings your profile back on any computer or after signing out: choose
+  **Played with a Mii before? Sign in through the game** on Player profile,
+  start the game and go online with that Mii. Before its first online game,
+  signing out loses the profile.
 
 Tournaments and Discord friends need Discord. A Mii player connects it later
 with **Connect Discord** on Player profile and keeps the same profile: friends
