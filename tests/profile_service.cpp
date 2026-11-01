@@ -3,6 +3,7 @@
 // libcurl) the requests themselves against a small HTTP server here.
 #include "platform/competitive_rules.h"
 #include "platform/http_client.h"
+#include "platform/online_panel_feed.h"
 #include "platform/profile_service.h"
 
 #include <chrono>
@@ -11,6 +12,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -455,6 +457,112 @@ void Requests()
         CHECK(std::string(e.what()).find("Only https") != std::string::npos);
     }
 }
+
+// The game's online panel with the Discord friends the launcher gave it: they
+// are looked up with the lists, in parts as large as the server takes; a
+// failed lookup keeps the last list, fails nothing else and is logged once.
+void FeedDiscordFriends()
+{
+    if (!HttpUnavailable().empty()) return;
+    using namespace std::chrono_literals;
+    std::string off;
+    CHECK(!OnlinePanelFeed::Start("", "unused.session", "", {"1"}, {}, &off) && !off.empty());
+    const auto folder = std::filesystem::temp_directory_path()
+        / ("recharged-feed-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::remove_all(folder);
+    const auto session = ProfileSessionFile(folder, "feed.ini");
+    SaveProfileSession(session, {"http://127.0.0.1:1", "t0k3n", "Nelly"});
+    off.clear();
+    CHECK(!OnlinePanelFeed::Start("http://127.0.0.1:2", session, "", {"1"}, {}, &off) && !off.empty());
+
+    std::vector<std::string> ids;
+    for (int i = 0; i < 250; ++i) ids.push_back(std::to_string(900000000000000000LL + i));
+    const std::string me = R"({"id":7,"name":"Nelly","discord":"nelly","discord_id":"80351110224678912"})";
+    const std::string lists = R"({"online":[],"recent":[],"friends":[{"id":9,"name":"Zed","online":false,"friend":true}]})";
+    const std::string none = R"({"match":null})";
+    const std::vector<Exchange> exchanges{
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"POST /api/v1/players/discord", 200,
+         R"({"players":[{"id":9,"name":"Zed","online":false,"discord_id":"900000000000000003"}]})"},
+        {"POST /api/v1/players/discord", 200,
+         R"({"players":[{"id":8,"name":"Sam","online":true,"busy":false,"activity":"game",)"
+         R"("discord_id":"900000000000000210"}]})"},
+        {"GET /api/v1/matches/current", 200, none},
+        {"GET /api/v1/rules", 200,
+         R"({"rule_sets":[{"id":2,"name":"Competitive","rules":{"tweaks":[],"skill":"rookie","limit":"time",)"
+         R"("time":180,"goals":5,"games":3,"stadium":"random"},"hash":"abc"}]})"},
+        {"GET /api/v1/server", 200, R"({"version":"1.2.1","sign_in":{"discord":true,"test":false}})"},
+        // The next two asks: the lookup fails, the lists don't.
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"POST /api/v1/players/discord", 500, R"({"error":"down for a moment"})"},
+        {"GET /api/v1/matches/current", 200, none},
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"POST /api/v1/players/discord", 500, R"({"error":"still down"})"},
+        {"GET /api/v1/matches/current", 200, none},
+    };
+    std::vector<Sent> sent;
+    std::mutex log_mutex;
+    std::vector<std::string> logs;
+    OnlinePanelFeed::Snapshot first, last;
+    {
+        Server server(exchanges, sent);
+        SaveProfileSession(session, {server.Url(), "t0k3n", "Nelly"});
+        auto feed = OnlinePanelFeed::Start(
+            server.Url(), session, "", ids,
+            [&](const std::string& text) {
+                std::lock_guard<std::mutex> lock(log_mutex);
+                logs.push_back(text);
+            },
+            &off);
+        CHECK(feed != nullptr);
+        if (feed)
+        {
+            feed->SetOpen(true);
+            const auto deadline = std::chrono::steady_clock::now() + 30s;
+            while (std::chrono::steady_clock::now() < deadline)
+            {
+                last = feed->Latest();
+                if (last.version == 1 && !first.loaded) first = last;
+                if (last.version >= 3) break;
+                std::this_thread::sleep_for(20ms);
+            }
+            feed.reset();
+        }
+    }
+    std::filesystem::remove_all(folder);
+
+    // The first answer: both parts, online first.
+    CHECK(first.loaded && first.error.empty() && first.discord_friends.size() == 2);
+    if (first.discord_friends.size() == 2)
+    {
+        CHECK(first.discord_friends[0].id == 8 && first.discord_friends[0].online
+              && first.discord_friends[0].activity == "game"
+              && first.discord_friends[0].discord_id == "900000000000000210");
+        CHECK(first.discord_friends[1].id == 9 && !first.discord_friends[1].online);
+    }
+    CHECK(first.lists.friends.size() == 1 && first.server_version == "1.2.1" && first.rule_sets.size() == 1);
+    // The failed lookups keep that list, and the lists still come.
+    CHECK(last.version == 3 && last.error.empty() && last.lists.friends.size() == 1);
+    CHECK(last.discord_friends.size() == 2 && last.discord_friends[0].id == 8);
+    CHECK(logs.size() == 1 && logs[0].find("Down for a moment") != std::string::npos);
+
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+    {
+        auto body = [&](std::size_t from, std::size_t to) {
+            std::string text = "{\"ids\":[";
+            for (std::size_t i = from; i < to; ++i) text += (i > from ? ",\"" : "\"") + ids[i] + "\"";
+            return text + "]}";
+        };
+        CHECK(sent[2].body == body(0, 200) && sent[3].body == body(200, 250));
+        CHECK(sent[2].authorization == "Bearer t0k3n" && sent[2].activity == "game"
+              && sent[2].content_type == "application/json");
+    }
+}
 #endif
 } // namespace
 
@@ -466,6 +574,7 @@ int main()
     LastOnline();
 #ifndef _WIN32
     Requests();
+    FeedDiscordFriends();
 #endif
     if (failures)
     {

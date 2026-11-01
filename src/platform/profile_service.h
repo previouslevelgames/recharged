@@ -344,6 +344,14 @@ private:
     std::shared_ptr<HttpCancel> cancel_;
 };
 
+// The most Discord friends looked up: the first this many of the list.
+inline constexpr std::size_t kDiscordFriendsLookedUp = 1000;
+
+// Which of the player's Discord friends (their Discord account ids) play
+// Recharged: PlayersByDiscord in parts as large as the server takes, online
+// first, then by name. None from a server before 1.2.0, which can't tell.
+std::vector<ProfilePlayer> FindDiscordPlayers(ProfileService& api, const std::vector<std::string>& discord_ids);
+
 // The session a settings file signed in to, kept between runs: the server it
 // belongs to (a token is never sent to another), the token and the player.
 struct SavedProfileSession

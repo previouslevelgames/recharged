@@ -559,6 +559,33 @@ std::vector<ProfilePlayer> ProfileService::PlayersByDiscord(const std::vector<st
     return ParsePlayers(Call("POST", "/api/v1/players/discord", &body).body["players"]);
 }
 
+std::vector<ProfilePlayer> FindDiscordPlayers(ProfileService& api, const std::vector<std::string>& discord_ids)
+{
+    // As many at once as the server takes.
+    constexpr std::size_t kPart = 200;
+    const std::size_t count = std::min(discord_ids.size(), kDiscordFriendsLookedUp);
+    std::vector<ProfilePlayer> found;
+    try
+    {
+        for (std::size_t first = 0; first < count; first += kPart)
+        {
+            const std::vector<std::string> part(discord_ids.begin() + std::ptrdiff_t(first),
+                                                discord_ids.begin() + std::ptrdiff_t(std::min(count, first + kPart)));
+            for (auto& player : api.PlayersByDiscord(part)) found.push_back(std::move(player));
+        }
+    }
+    catch (const ProfileError& e)
+    {
+        // A server before 1.2.0 can't tell.
+        if (e.Status() != 404) throw;
+    }
+    std::sort(found.begin(), found.end(), [](const ProfilePlayer& a, const ProfilePlayer& b) {
+        if (a.online != b.online) return a.online;
+        return a.name < b.name;
+    });
+    return found;
+}
+
 ChatPage ProfileService::Chat(std::int64_t player_id, std::int64_t after)
 {
     std::string path = "/api/v1/chat/" + Integer(player_id);

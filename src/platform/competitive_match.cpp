@@ -61,6 +61,9 @@ bool sPlayerChoosesMii = false;
 // The set started in a running game (not before its main): until the walk
 // takes the main menu, the player is somewhere in the menus.
 bool sStartedInGame = false;
+// The set ended while its game still searched RANKED: the search screen leaves
+// the search (tweak patch 0049), and nobody is met until it has.
+bool sLeaveSearch = false;
 
 // [advanced] log_level = debug: the DWC reports that go to the log: its
 // information, errors and warnings, the login, matchmaking (NAT negotiation,
@@ -153,6 +156,11 @@ extern "C" __attribute__((visibility("default"))) bool charged_wfc_snapshot(Char
                 s.profile_id = unsigned(user->gs_profile_id);
             }
     if (!s.logged_in) std::memset(s.login_ticket, 0, sizeof s.login_ticket);
+    // The search screen is gone (the player left it first): nothing to leave.
+    if (sLeaveSearch)
+        if (GameSceneManager* manager = GameSceneManager::Instance();
+            !manager || !manager->IsOnStack(SCENE_ONLINE_MATCHMAKING_DRAFT))
+            sLeaveSearch = false;
     s.competitive = sActive;
     s.set_stage = sSetStage;
     s.set_popup = sSetPopup;
@@ -191,6 +199,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
     sSetPopup = -1;
     sPlayerChoosesMii = false;
     sStartedInGame = GameSceneManager::Instance() != nullptr;
+    sLeaveSearch = false;
     mscharged_tweak_set_start();
     return true;
 }
@@ -208,11 +217,24 @@ extern "C" __attribute__((visibility("default"))) void charged_configure_dwc_rep
 extern "C" void mscharged_tweak_set_end(void);
 extern "C" __attribute__((visibility("default"))) void charged_competitive_end_set(void)
 {
+    if (sSetStage == CHARGED_SET_SEARCH)
+    {
+        GameSceneManager* manager = GameSceneManager::Instance();
+        sLeaveSearch = manager && manager->IsOnStack(SCENE_ONLINE_MATCHMAKING_DRAFT);
+        if (sLeaveSearch) std::fputs("Competitive: the set ended during its search; the game leaves it\n", stderr);
+    }
     sSetStage = CHARGED_SET_NONE;
     sSetPopup = -1;
     sPlayerChoosesMii = false;
     sStartedInGame = false;
     mscharged_tweak_set_end();
+}
+
+extern "C" bool mscharged_competitive_leave_search(void)
+{
+    if (!sLeaveSearch) return false;
+    sLeaveSearch = false;
+    return true;
 }
 
 extern "C" bool mscharged_competitive_take_main_menu(void)
@@ -287,7 +309,11 @@ extern "C" bool mscharged_competitive_take_online_menu(void)
 
 extern "C" int mscharged_competitive_connection(unsigned first, unsigned second)
 {
-    if (sSetStage != CHARGED_SET_SEARCH || !sPending) return -1;
+    // A set's search meets nobody but the opponent: not before the host's
+    // rules are there, nor after the set ended until the search is left.
+    if (sLeaveSearch) return 1;
+    if (sSetStage != CHARGED_SET_SEARCH) return -1;
+    if (!sPending) return 1;
     return IsOpponent(first) || IsOpponent(second) ? 0 : 1;
 }
 

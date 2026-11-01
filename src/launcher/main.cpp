@@ -2800,6 +2800,7 @@ private:
     {
         frontend_launch_ = EffectiveLaunch();
         frontend_launch_->start_training = training_;
+        frontend_launch_->discord_friends = discord_asked_;
         // A set that goes while the game runs uses the player's own Mii: made
         // now if it isn't there yet. Without it the game lets the player
         // choose a Mii for the set, so Play goes on.
@@ -4260,6 +4261,7 @@ private:
         frontend_launch_->start_competitive = true;
         frontend_launch_->competitive_set = status.match->id;
         frontend_launch_->competitive_mii = mscharged::platform::KeyedMiiCreateId(key);
+        frontend_launch_->discord_friends = discord_asked_;
         // The game and the launcher it opens again afterwards see it.
         SetEnvironment(kCompetitiveSetVariable, std::to_string(GoKey(*status.match)));
         quit = true;
@@ -10281,6 +10283,8 @@ private:
     std::optional<platform::AlertSound> alert_sound_;
     std::optional<platform::DiscordPresence> set_presence_; // the Discord status of a waiting set
     DiscordFriends::Status discord_status_;
+    // The Discord friends' ids the service looks up (the game's online panel
+    // gets them too).
     std::vector<std::string> discord_asked_;
     std::uint64_t discord_errors_ = 0;
     std::string test_player_name_;

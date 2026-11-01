@@ -18,7 +18,9 @@ constexpr auto kRetry = 10s;
 
 std::unique_ptr<OnlinePanelFeed> OnlinePanelFeed::Start(const std::string& server_setting,
                                                         const std::filesystem::path& session_file,
-                                                        std::string challenge_rules, std::string* off)
+                                                        std::string challenge_rules,
+                                                        std::vector<std::string> discord_friends, Log log,
+                                                        std::string* off)
 {
     auto fail = [off](const std::string& reason) -> std::unique_ptr<OnlinePanelFeed> {
         if (off) *off = reason;
@@ -30,11 +32,14 @@ std::unique_ptr<OnlinePanelFeed> OnlinePanelFeed::Start(const std::string& serve
     if (!server) return fail("online.profile_server: " + error);
     const auto session = LoadProfileSession(session_file);
     if (!session || session->server != *server) return fail("not signed in (the launcher's Online pages)");
-    return std::unique_ptr<OnlinePanelFeed>(new OnlinePanelFeed(*server, session->token, std::move(challenge_rules)));
+    return std::unique_ptr<OnlinePanelFeed>(new OnlinePanelFeed(*server, session->token, std::move(challenge_rules),
+                                                                std::move(discord_friends), std::move(log)));
 }
 
-OnlinePanelFeed::OnlinePanelFeed(std::string server, std::string token, std::string challenge_rules)
-    : server_(std::move(server)), token_(std::move(token)), challenge_rules_(std::move(challenge_rules))
+OnlinePanelFeed::OnlinePanelFeed(std::string server, std::string token, std::string challenge_rules,
+                                 std::vector<std::string> discord_friends, Log log)
+    : server_(std::move(server)), token_(std::move(token)), challenge_rules_(std::move(challenge_rules)),
+      discord_ids_(std::move(discord_friends)), log_(std::move(log))
 {
     worker_ = std::thread([this] { Run(); });
 }
@@ -214,19 +219,49 @@ void OnlinePanelFeed::Fetch(ProfileService& api)
 {
     Snapshot fresh;
     fresh.me = api.Me();
-    fresh.lists = api.Players();
-    fresh.match = api.CurrentMatch();
     {
-        // The rule sets and the server's version change rarely: once.
+        // The rule sets and the server's version change rarely: once. The
+        // Discord friends stay as they were if the server can't say now.
         std::lock_guard<std::mutex> lock(mutex_);
         fresh.rule_sets = snapshot_.rule_sets;
         fresh.server_version = snapshot_.server_version;
+        fresh.discord_friends = snapshot_.discord_friends;
     }
+    fresh.lists = api.Players();
+    FetchDiscordFriends(api, fresh.discord_friends);
+    fresh.match = api.CurrentMatch();
     if (fresh.rule_sets.empty()) fresh.rule_sets = api.RuleSets();
     if (fresh.server_version.empty()) fresh.server_version = api.Info().version;
     fresh.loaded = true;
     std::lock_guard<std::mutex> lock(mutex_);
     fresh.version = snapshot_.version + 1;
     snapshot_ = std::move(fresh);
+}
+
+// Which Discord friends play Recharged, with the lists: their online status
+// changes as the friends' does. A failure keeps the last list and doesn't
+// fail the panel's lists.
+void OnlinePanelFeed::FetchDiscordFriends(ProfileService& api, std::vector<ProfilePlayer>& players)
+{
+    if (discord_ids_.empty()) return;
+    std::string failure;
+    try
+    {
+        players = FindDiscordPlayers(api, discord_ids_);
+        discord_failed_ = false;
+        return;
+    }
+    catch (const ProfileError& e)
+    {
+        if (e.Cancelled()) throw;
+        failure = e.what();
+    }
+    catch (const std::exception& e)
+    {
+        failure = e.what();
+    }
+    if (discord_failed_) return;
+    discord_failed_ = true;
+    if (log_) log_("Overlay: which Discord friends play is not known (" + failure + ")");
 }
 } // namespace mscharged::platform

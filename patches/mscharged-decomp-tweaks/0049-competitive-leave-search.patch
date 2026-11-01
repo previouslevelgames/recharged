@@ -1,0 +1,61 @@
+Subject: Competitive play: a set called off during its search leaves it
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+A set's game goes into the RANKED search by itself (0047), where the
+connection check accepts only the set's opponent. When the set is called off
+while the game still searches (the opponent cancelled, or the set ended on
+the server), the check had nothing to go by and the search went on as
+retail's, so a stranger could be met. SHOnlineMatchmakingDraft::Update now
+asks the module (src/platform/competitive_match.cpp) once the search can be
+cancelled, and leaves it as the player's Back does (back to the RANKED menu,
+then the cancel); until then the module's connection check turns everybody
+away.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -71,6 +71,12 @@
+ bool mscharged_competitive_hides_scene(unsigned long scene);
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// The RANKED search screen, while its search can be cancelled: true once a
++// set called off during its search should leave it (tweak patch 0049).
++bool mscharged_competitive_leave_search(void);
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/Game/SH/SHOnlineMatchmakingDraft.cpp b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
+--- a/src/Game/SH/SHOnlineMatchmakingDraft.cpp
++++ b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
+@@ -29,6 +29,9 @@
+ #include "Game/FE/feDPD.h"
+ #include "Game/SH/SHNavigation.h"
+ #include "Game/FE/tlDefault.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ 
+ int gOnlineLocalControllerIndices[2] = { -1, -1 };
+ u8 gOnlineStartMatchmaking;
+@@ -402,6 +405,18 @@
+         mCanCancel = true;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: a set called off while its game searches leaves the
++    // search as the player's Back would, so no stranger is met.
++    if (CanCancelOnlineMatchmaking() && mscharged_competitive_leave_search())
++    {
++        GameSceneManager::Instance()->Push(SCENE_ONLINE_RANKED, SCREEN_BACK, true);
++        CancelOnlineMatchmaking();
++        FEMusic::StartStreamIfDifferent(8);
++        FEAudio::StopAnimAudioEvent(0x89B1FC93, (void*)0x2A);
++        return;
++    }
++#endif
+     for (int i = 0; i < 4; ++i)
+     {
+         TLComponentInstance* pointer = GetPointerInstance(i);

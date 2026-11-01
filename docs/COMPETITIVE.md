@@ -59,9 +59,11 @@ with the score.
 Recharged's own friends list follows you everywhere, but your friends are
 probably on Discord already. Signing in with Discord links them too: Discord's
 page asks for your account and your friends list at once, and **Online
-settings** then shows how many of your Discord friends play Recharged. If
-your server doesn't link them with the sign-in (servers before 1.2.1),
-**Link** on **Online settings** asks Discord for them once.
+settings** then shows how many of your Discord friends play Recharged. In
+the game's online panel (F1), those who have Recharged open show among your
+friends online, with Discord's logo: no need to add them. If your server
+doesn't link them with the sign-in (servers before 1.2.1), **Link** on
+**Online settings** asks Discord for them once.
 
 - Your Discord friends list goes from Discord straight to Recharged on your
   computer. Our server only learns which of the accounts in it have a

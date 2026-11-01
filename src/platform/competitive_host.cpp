@@ -245,6 +245,7 @@ std::optional<CompetitiveHost::SetStatus> CompetitiveHost::CurrentSet()
     if (match_ && match_->id == set_)
     {
         set_opponent_ = match_->opponent.name;
+        set_opponent_avatar_ = match_->opponent.avatar_url;
         set_games_ = match_->rules.games;
     }
     if (set_opponent_.empty()) return std::nullopt;
@@ -278,10 +279,12 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
         if (match_ && match_->id == set_)
         {
             set_opponent_ = match_->opponent.name;
+            set_opponent_avatar_ = match_->opponent.avatar_url;
             set_games_ = match_->rules.games;
         }
         end.match = set_;
         end.opponent = set_opponent_;
+        end.opponent_avatar = set_opponent_avatar_;
         end.games = set_games_;
         if (series_match_ == set_)
             for (const auto& game : series_)
@@ -474,7 +477,7 @@ void CompetitiveHost::Work(ProfileService& api)
         // A challenge to this player: the card's, while the game is not a set's.
         std::optional<Invitation> invitation;
         if (current && current->state == "challenged" && current->side == "challenged")
-            invitation = Invitation{current->id, current->opponent.name,
+            invitation = Invitation{current->id, current->opponent.name, current->opponent.avatar_url,
                                     current->rule_set + ": " + DescribeRules(current->rules),
                                     current->rematch_of != 0};
         if (current && current->state != "accepted") current.reset();

@@ -4,7 +4,9 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace mscharged
 {
@@ -47,6 +49,10 @@ struct ResolvedLaunch
     bool start_competitive = false;
     std::int64_t competitive_set = 0;
     std::array<unsigned char, 8> competitive_mii{};
+    // The player's Discord friends as the launcher knows them (their Discord
+    // account ids; none while Discord isn't linked): the game's online panel
+    // shows those who play Recharged.
+    std::vector<std::string> discord_friends;
 };
 
 // Consume a shared option at argv[index], including its value where required.

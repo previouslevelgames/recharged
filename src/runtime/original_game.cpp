@@ -78,8 +78,10 @@
 #include "runtime/host_panel.h"
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "overlay/game_overlay.h"
+#include "overlay/overlay_images.h"
 #include "overlay/overlay_prompt.h"
 #include "platform/online_panel_feed.h"
+#include <aurora/imgui.h>
 #endif
 #include "runtime/pipeline_warmup.h"
 #include "mscharged/build_version.h"
@@ -1350,6 +1352,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
         }
         std::chrono::steady_clock::time_point lastCompetitive{};
+        // Once a run, at the first main menu: which key opens online play
+        // (set with the overlay; empty without it).
+        std::string panelHint;
+        bool panelHinted=false;
         // The set this game played last, for the card that offers it again.
         std::optional<mscharged::platform::CompetitiveHost::SetEnd> afterSet;
         // A set started in this game that waits for the main menu or the
@@ -1381,6 +1387,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!wfcSnapshot(&wfc,sizeof wfc))return;
             ChargedPresenceSnapshot game{};
             const bool known=presenceSnapshot && presenceSnapshot(&game,sizeof game);
+            // The main menu (SceneList 1) the first time, no set on its way.
+            if(!panelHinted && !panelHint.empty() && hostOverlay && known && !game.in_match && game.scene_count>0
+               && game.scenes[0]==1 && wfc.set_stage==CHARGED_SET_NONE) {
+                panelHinted=true;
+                hostOverlay->ShowMessage(panelHint,now);
+            }
             std::optional<ChargedCompetitiveRules> rules;
             if(competitive->Observe(wfc,known ? &game : nullptr,rules))
                 configureCompetitive(rules ? &*rules : nullptr,sizeof(ChargedCompetitiveRules));
@@ -1449,6 +1461,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             bool shown=false;
             int answer=0;
             std::string opponent, rules, reason;
+            std::string avatar; // the opponent's picture (URL), or empty
             bool hasScore=false;
             int won=0, lost=0, games=0;
         } cardPrompt;
@@ -1489,6 +1502,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     card.note="Accept goes on into RANKED: straight to the captain draft.";
                     cardPrompt.kind=invitation->rematch ? CardPrompt::Kind::Rematch : CardPrompt::Kind::Challenge;
                     cardPrompt.opponent=invitation->from;
+                    cardPrompt.avatar=invitation->avatar;
                     cardPrompt.rules=invitation->rules;
                     if(!cardAsPrompt) hostOverlay->SetCard(card);
                     mscharged::platform::SessionLogLine("Competitive: "+invitation->from
@@ -1524,6 +1538,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         cardPrompt.reason=card.detail;
                     }
                     cardPrompt.opponent=opponent;
+                    cardPrompt.avatar=end.opponent_avatar;
                     cardPrompt.hasScore=end.how==How::Over || end.won+end.lost>0;
                     cardPrompt.won=end.won;
                     cardPrompt.lost=end.lost;
@@ -1608,6 +1623,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // a thread of its own while open) and Game options (saved to the
         // settings file at once; the game gets them between matches).
         mscharged::overlay::GameOverlayState overlayState;
+        // The players' pictures: downloaded on a thread, uploaded to Aurora's
+        // ImGui on the panel's (owner) thread when drawn; initials until then.
+        mscharged::overlay::OverlayImageCache overlayPictures([](int width,int height,const void* rgba) {
+            return aurora_imgui_add_texture(std::uint32_t(width),std::uint32_t(height),rgba);
+        });
+        std::string overlayPicturesError;
         std::unique_ptr<mscharged::platform::OnlinePanelFeed> panelFeed;
         auto optionTweaks=launch.settings.tweaks;
         std::optional<unsigned> pendingTweaks;
@@ -1634,11 +1655,23 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         };
         if(hostPanel) {
             std::string off;
+            // The Discord friends come from the launcher (the game has no
+            // Discord SDK); the feed asks which of them play.
             panelFeed=mscharged::platform::OnlinePanelFeed::Start(launch.settings.profile_server,
                 mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
-                launch.settings.challenge_rules,&off);
+                launch.settings.challenge_rules,launch.discord_friends,
+                [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
             if(!panelFeed) mscharged::platform::SessionLogLine("Overlay: the Online tab is off ("+off+")");
+            else if(!launch.discord_friends.empty())
+                mscharged::platform::SessionLogLine("Overlay: "+std::to_string(launch.discord_friends.size())
+                    +" Discord friends from the launcher");
             cardAsPrompt=true;
+            {
+                const std::string key=mscharged::platform::HotkeyName(hotkeys[mscharged::HotkeyPanel]);
+                const bool none=key.empty() || key==mscharged::kNoHotkey;
+                panelHint="Online: "+(none ? std::string("HOME") : key+" or HOME")
+                    +" opens your friends, challenges and sets";
+            }
             // F1/HOME and F2 while open: the other tab, or closing the one shown.
             hostPanel->SetTabKeys([&](int tab) {
                 const auto want=tab==1 ? mscharged::overlay::OverlayTab::GameOptions
@@ -1663,6 +1696,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     ov::OverlayPrompt prompt;
                     const std::string& who=cardPrompt.opponent;
                     prompt.opponent.name=who;
+                    prompt.opponent.image=cardPrompt.avatar;
+                    prompt.image=overlayPictures.Images();
                     prompt.opponent.initials=ov::Initials(who);
                     prompt.opponent.tint_seed=std::int64_t(std::hash<std::string>{}(who)&0x7FFFFFFF);
                     switch(cardPrompt.kind) {
@@ -1716,6 +1751,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const auto snapshot=panelFeed ? panelFeed->Latest() : mscharged::platform::OnlinePanelFeed::Snapshot{};
                 ov::OnlinePanelContext context;
                 context.me=snapshot.me;
+                context.discord_friends=snapshot.discord_friends;
                 if(context.me.name.empty() && competitive) context.me.name=competitive->PlayerName();
                 context.in_match=inMatch();
                 if(competitive)
@@ -1744,7 +1780,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 style.fonts=hostOverlay->OverlayFonts();
                 style.area_max={width,height};
                 style.appear=std::clamp(shown/0.18f,0.0f,1.0f);
-                style.image=[](const std::string&) { return ImTextureID{}; };
+                style.image=overlayPictures.Images();
+                if(const auto error=overlayPictures.Statistics().last_error; error!=overlayPicturesError) {
+                    overlayPicturesError=error;
+                    if(!error.empty()) mscharged::platform::SessionLogLine("Overlay: a picture failed ("+error+")");
+                }
                 ov::GameOverlayActions actions;
                 ov::DrawGameOverlay(model,overlayState,actions,style);
 

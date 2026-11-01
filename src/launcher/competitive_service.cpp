@@ -28,10 +28,6 @@ constexpr auto kLeaderboardPoll = 60s;
 constexpr auto kLeaderboardShown = 2s;
 constexpr auto kPlayerPoll = 60s;
 constexpr auto kRetry = 15s;
-// The Discord friends looked up with the lists, at most this many, as many
-// at once as the server takes.
-constexpr std::size_t kDiscordFriends = 1000;
-constexpr std::size_t kDiscordLookup = 200;
 } // namespace
 
 CompetitiveService::CompetitiveService(std::filesystem::path session_file, std::filesystem::path discord_link_file)
@@ -322,25 +318,7 @@ void CompetitiveService::Poll(ProfileService& api)
             std::lock_guard<std::mutex> lock(mutex_);
             ids = discord_ids_;
         }
-        discord.emplace();
-        try
-        {
-            for (std::size_t first = 0; first < ids.size(); first += kDiscordLookup)
-            {
-                const std::vector<std::string> part(ids.begin() + std::ptrdiff_t(first),
-                                                    ids.begin() + std::ptrdiff_t(std::min(ids.size(), first + kDiscordLookup)));
-                for (auto& player : api.PlayersByDiscord(part)) discord->push_back(std::move(player));
-            }
-        }
-        catch (const ProfileError& e)
-        {
-            // A server before 1.2.0 can't tell.
-            if (e.Status() != 404) throw;
-        }
-        std::sort(discord->begin(), discord->end(), [](const auto& a, const auto& b) {
-            if (a.online != b.online) return a.online;
-            return a.name < b.name;
-        });
+        discord = platform::FindDiscordPlayers(api, ids);
     }
     // The leaderboards, while their page is shown.
     bool board = false;
@@ -381,7 +359,7 @@ void CompetitiveService::Poll(ProfileService& api)
 
 void CompetitiveService::SetDiscordFriends(std::vector<std::string> discord_ids)
 {
-    if (discord_ids.size() > kDiscordFriends) discord_ids.resize(kDiscordFriends);
+    if (discord_ids.size() > platform::kDiscordFriendsLookedUp) discord_ids.resize(platform::kDiscordFriendsLookedUp);
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (discord_ids == discord_ids_) return;
