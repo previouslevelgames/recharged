@@ -220,15 +220,17 @@ void CustomKeysCycle() {
         const std::array<Hotkey, mscharged::HotkeyCount> defaults = Hotkeys{}.keys;
         Check(defaults[mscharged::HotkeyFullscreen] == Hotkey{SDL_SCANCODE_RETURN, SDL_KMOD_ALT},
               "Fullscreen is not Alt+Return by default");
-        Check(keys(ParseHotkeys(Names{"F12", "G", "T", "F6", "F7", "F11"}),
+        Check(defaults[mscharged::HotkeyPanel] == Hotkey{SDL_SCANCODE_F1}, "The panel is not F1 by default");
+        Check(keys(ParseHotkeys(Names{"F12", "G", "T", "F6", "F7", "F11", "F2"}),
                    {{{SDL_SCANCODE_F12}, {SDL_SCANCODE_G}, {SDL_SCANCODE_T}, {SDL_SCANCODE_F6}, {SDL_SCANCODE_F7},
-                     {SDL_SCANCODE_F11}}}),
+                     {SDL_SCANCODE_F11}, {SDL_SCANCODE_F2}}}),
               "Hotkeys did not parse");
         Check(keys(ParseHotkeys(Names{"Ctrl+Shift+F12", "alt + h", "Control+Keypad +", "Option+Return", "Shift+PageDown",
-                                      "Ctrl+Alt+Enter"}),
+                                      "Ctrl+Alt+Enter", "Shift+F1"}),
                    {{{SDL_SCANCODE_F12, SDL_KMOD_CTRL | SDL_KMOD_SHIFT}, {SDL_SCANCODE_H, SDL_KMOD_ALT},
                      {SDL_SCANCODE_KP_PLUS, SDL_KMOD_CTRL}, {SDL_SCANCODE_RETURN, SDL_KMOD_ALT},
-                     {SDL_SCANCODE_PAGEDOWN, SDL_KMOD_SHIFT}, {SDL_SCANCODE_RETURN, SDL_KMOD_CTRL | SDL_KMOD_ALT}}}),
+                     {SDL_SCANCODE_PAGEDOWN, SDL_KMOD_SHIFT}, {SDL_SCANCODE_RETURN, SDL_KMOD_CTRL | SDL_KMOD_ALT},
+                     {SDL_SCANCODE_F1, SDL_KMOD_SHIFT}}}),
               "Hotkeys with Ctrl, Shift and Alt did not parse");
         Check(keys(ParseHotkeys(Names{"Left Alt", "Mouse 4", "", "Nonsense", "Ctrl+", "Cmd+Q"}), defaults),
               "A modifier, mouse button, unknown name or system key became a hotkey");
@@ -238,8 +240,8 @@ void CustomKeysCycle() {
               "Two hotkeys took the same keys");
         Check(keys(ParseHotkeys(Names{"P", "F", "F", "PageUp", "PageDown", "Alt+Return"}), defaults),
               "A hotkey took another one's default key");
-        Check(keys(ParseHotkeys(Names{"P", "H", "None", "none", "PageDown", "none"}),
-                   {{{SDL_SCANCODE_P}, {SDL_SCANCODE_H}, {}, {}, {SDL_SCANCODE_PAGEDOWN}, {}}}),
+        Check(keys(ParseHotkeys(Names{"P", "H", "None", "none", "PageDown", "none", "none"}),
+                   {{{SDL_SCANCODE_P}, {SDL_SCANCODE_H}, {}, {}, {SDL_SCANCODE_PAGEDOWN}, {}, {}}}),
               "none did not leave a hotkey unused");
         using mscharged::platform::HotkeyName;
         Check(HotkeyName({}) == "none" && HotkeyName({SDL_SCANCODE_PAGEUP}) == "PageUp"
@@ -253,7 +255,8 @@ void CustomKeysCycle() {
         const Hotkeys standard;
         Check(standard.Match(SDL_SCANCODE_RETURN, SDL_KMOD_LALT) == mscharged::HotkeyFullscreen
                   && standard.Match(SDL_SCANCODE_KP_ENTER, SDL_KMOD_RALT) == mscharged::HotkeyFullscreen
-                  && standard.Match(SDL_SCANCODE_P, SDL_KMOD_NUM | SDL_KMOD_CAPS) == mscharged::HotkeyScreenshot,
+                  && standard.Match(SDL_SCANCODE_P, SDL_KMOD_NUM | SDL_KMOD_CAPS) == mscharged::HotkeyScreenshot
+                  && standard.Match(SDL_SCANCODE_F1, SDL_KMOD_NONE) == mscharged::HotkeyPanel,
               "A hotkey press was not its hotkey");
         Check(standard.Match(SDL_SCANCODE_RETURN, SDL_KMOD_NONE) == mscharged::HotkeyCount
                   && standard.Match(SDL_SCANCODE_RETURN, SDL_KMOD_LALT | SDL_KMOD_LSHIFT) == mscharged::HotkeyCount

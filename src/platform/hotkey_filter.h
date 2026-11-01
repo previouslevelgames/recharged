@@ -22,6 +22,9 @@ void SetHotkeys(const Hotkeys& hotkeys);
 // processing, on the window's thread); null leaves it doing nothing. The
 // fullscreen hotkey is ServiceFullscreenHotkey's.
 void SetHotkeyAction(HotkeyIndex hotkey, void (*action)());
+// While a text field of the host panel has the keyboard, only the panel and
+// fullscreen hotkeys act; the other hotkeys' keys type (a P types a P).
+void SetHotkeysTyping(bool typing);
 #if defined(MSCHARGED_AUTOPILOT)
 // Test builds' autopilot (src/platform/autopilot.cpp): what C, P and U held
 // together in the window do, called where the chord's last key comes down;

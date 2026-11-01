@@ -179,7 +179,8 @@ shake_nunchuk = Q
 # stretch: stretches the picture over the window, or gives it back its 16:9 or
 # 4:3 shape; resolution_up and resolution_down: a higher or lower 3D
 # resolution; fullscreen: fullscreen or a window (Alt+Return; Option+Return on
-# a Mac). These four last for the run.
+# a Mac). These four last for the run. panel: opens or closes the online panel
+# over the game, as the Wii Remote's HOME does.
 # show_hud = false: matches start with them hidden, for clean recordings; the
 # Mega Strike meter and its defence stay.
 screenshot = P
@@ -188,6 +189,7 @@ stretch = F
 resolution_up = PageUp
 resolution_down = PageDown
 fullscreen = Alt+Return
+panel = F1
 show_hud = true
 
 # Gamepad profiles ([gamepad_profile1] to [gamepad_profile16]), made on the
