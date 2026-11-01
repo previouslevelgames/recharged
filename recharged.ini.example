@@ -179,7 +179,9 @@ shake_nunchuk = Q
 # stretch: stretches the picture over the window, or gives it back its 16:9 or
 # 4:3 shape; resolution_up and resolution_down: a higher or lower 3D
 # resolution; fullscreen: fullscreen or a window (Alt+Return; Option+Return on
-# a Mac). These four last for the run.
+# a Mac). These four last for the run. panel: opens or closes the game's
+# overlay over the game, as the Wii Remote's HOME does; game_options: the same
+# overlay on its Game options tab.
 # show_hud = false: matches start with them hidden, for clean recordings; the
 # Mega Strike meter and its defence stay.
 screenshot = P
@@ -188,6 +190,8 @@ stretch = F
 resolution_up = PageUp
 resolution_down = PageDown
 fullscreen = Alt+Return
+panel = F1
+game_options = F2
 show_hud = true
 
 # Gamepad profiles ([gamepad_profile1] to [gamepad_profile16]), made on the
@@ -389,9 +393,20 @@ rich_presence = true
 # rollback_log =
 # Competitive play: the address of a Recharged WFC server's profile service
 # (https://, or http:// for a test server on this computer or network).
-# Players sign in to it with Discord on the launcher's Online pages, which
-# show it; only this file changes it. Left out or empty, the project's server.
+# Players sign in to it with Discord or a Mii on the launcher's Online pages,
+# which show it; only this file changes it. Left out or empty, the project's
+# server.
 # profile_server = https://rechargedwfc.net
-# The rule set your challenges go out with, by its name on that server
-# (Online -> Match settings); empty: the server's first.
+# The preset a challenge's setup starts from (one of the server's rule sets
+# or of your presets, Online -> Match rules), by its name: the one sent last;
+# empty: the server's first.
 challenge_rules =
+# A chime (and a flashing window in the background) when someone challenges
+# you or accepts your challenge (Online -> Player profile).
+challenge_sound = true
+# Playing with a Mii (without Discord): your profile's one Mii, by its create
+# ID (chosen with the profile; the launcher finds it again by its friend code).
+mii =
+# Played with a Mii before: true signs you in again through the game, once
+# your Mii logs in to WFC (Player profile sets it; the game clears it).
+mii_sign_in = false

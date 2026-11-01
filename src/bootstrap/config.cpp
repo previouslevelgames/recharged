@@ -97,6 +97,9 @@ Values Encode(const Settings& s)
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
             {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"online.challenge_rules", s.challenge_rules},
+            {"online.challenge_sound", s.challenge_sound ? "true" : "false"},
+            {"online.mii", s.online_mii},
+            {"online.mii_sign_in", s.mii_sign_in ? "true" : "false"},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
@@ -404,6 +407,17 @@ Settings Decode(const Values& values)
     if (s.profile_server.find_first_of("\r\n") != std::string::npos || s.profile_server.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: online.profile_server contains a line break or NUL");
     boolean("online.rollback", s.rollback);
+    boolean("online.challenge_sound", s.challenge_sound);
+    boolean("online.mii_sign_in", s.mii_sign_in);
+    if (const auto it = values.find("online.mii"); it != values.end())
+    {
+        std::string id = it->second;
+        for (auto& c : id) c = char(std::tolower(static_cast<unsigned char>(c)));
+        if (!id.empty()
+            && (id.size() != 16 || id.find_first_not_of("0123456789abcdef") != std::string::npos))
+            throw std::runtime_error("Invalid configuration: online.mii is not a Mii's create ID (16 hex digits)");
+        s.online_mii = id;
+    }
     boolean("online.rollback_test", s.rollback_test);
     if (const auto it = values.find("online.rollback_log"); it != values.end()) s.rollback_log = it->second;
     if (s.rollback_log.find_first_of("\r\n") != std::string::npos || s.rollback_log.find('\0') != std::string::npos)
@@ -658,6 +672,40 @@ void SaveConfig(ConfigFile& file, const Settings& settings)
     file.configured_keys.clear();
     for (const auto& [key, value] : Parse(contents)) file.configured_keys.insert(key);
     file.exists = true;
+}
+
+void SaveGameTweak(const std::filesystem::path& path, GameTweak tweak, bool on)
+{
+    auto file = LoadConfig(path, true);
+    const auto index = GameTweakIndex(tweak);
+    if (index >= file.settings.tweaks.size()) throw std::invalid_argument("Not a gameplay option");
+    auto settings = file.settings;
+    settings.tweaks[index] = on;
+    SaveConfig(file, settings);
+}
+
+void SaveChallengeRules(const std::filesystem::path& path, const std::string& name)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    settings.challenge_rules = name;
+    SaveConfig(file, settings);
+}
+
+void SaveSettings(const std::filesystem::path& path, const std::function<void(Settings&)>& change)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    change(settings);
+    SaveConfig(file, settings);
+}
+
+void SaveMiiSignIn(const std::filesystem::path& path, bool on)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    settings.mii_sign_in = on;
+    SaveConfig(file, settings);
 }
 
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config)

@@ -305,14 +305,38 @@ a match (`hud`), **F** stretches the picture over the window or gives it back
 its shape (`stretch`), **Page Up** and **Page Down** raise and lower the 3D
 resolution (`resolution_up`, `resolution_down`), and **Alt+Enter**
 (Option+Return on a Mac) switches between fullscreen and a window
-(`fullscreen`); the last four last for the run. Click a hotkey, then press the
+(`fullscreen`); the last four last for the run. **F1** opens and closes the
+game's overlay (`panel`); HOME on any controller does the same, **F2** opens it
+on Game options (`game_options`), and Escape closes it. Pressed while it is
+open, F1 or F2 shows its tab, or closes the overlay when that tab is shown. It
+opens on **Online**: your set (accept, Ready to play!, rematch),
+the friends who have Recharged open (and how many are offline) and, while you
+are **Open to challenges** (players who aren't your friends see you then), the
+others who are open to challenges; a player's row
+challenges them (the challenge's setup, see *Online*) or opens their
+page. **Events** is the place for tournaments and organised match-ups (coming
+later). **Game options** has the gameplay options that can change while the game
+runs: they are saved at once and count from the next match (online matches
+play by their own rules). **Settings** has the settings that change at once,
+in a small menu: *Display* (fullscreen, the picture's shape as the stretch
+hotkey has it, the 3D resolution, the performance numbers), *Sound* (master
+volume, mute, the sound levels, the challenge sound) and *Advanced* (reopen the
+launcher after the game); each change is saved to `recharged.ini` at once. A
+opens a section, B goes back to the menu. The controls and the settings that
+need a new start stay in the launcher. While the game is in its menus, the
+top-left corner shows the overlay's keys (F1 or HOME), and a challenge you sent
+from the overlay closes it when it is accepted: the game goes on into the
+set. L1/R1 (− and + on a Wii Remote), Q/E or a click
+switch tabs, and B goes back a page. While it is open the game behind it is
+blurred and gets no input: online matches go on, and in an offline match it
+presses the game's pause. Click a hotkey, then press the
 new key, alone or with Ctrl, Shift or Alt (Control or Option on a Mac); Escape
 cancels and Backspace or Delete leaves it unused. In the file a hotkey is a key
 name after the `Ctrl+`, `Shift+` and `Alt+` it needs (`Ctrl+Shift+F12`), or
 `none`. A hotkey's key does not reach the game, so a key pressed alone cannot
 be a key of keyboard & mouse too; with Ctrl, Shift or Alt it can. The Windows
 and Command keys stay with the system. A settings file whose keyboard & mouse
-keys already use F, Page Up or Page Down keeps them, with that hotkey unused.
+keys already use F, F1, Page Up or Page Down keeps them, with that hotkey unused.
 With **Show the HUD when a match starts** off (`show_hud = false`), every match
 starts without the scoreboard, player markers and captions, for clean
 recordings; the HUD key shows them, and the Mega Strike meter stays.
@@ -368,7 +392,8 @@ there is no save, and so nothing to change.
 match settings and cheats for matches on the console and one for online
 matches with friends, and the preset replaces the one you choose (the backup
 is the same). Every cheat can be chosen, whether the save has unlocked it or
-not. Presets other than Default and Competitive are files in `match-presets/`
+not. Presets other than the built-in Retail ranked and Competitive (read-only;
+**Copy** makes one of your own) are files in `match-presets/`
 beside `recharged.ini`, one per preset, named after it (`quick-3.ini`):
 
 ```ini
@@ -383,6 +408,9 @@ player_cheat = none        # none, devastating, safe, skill_shot, glass_jaw
 powerup_cheat = none       # none, explosives, freezing, shells, giant, accelerator,
                            # peelin_out, heat_seekers, bombs_away, super, infinite,
                            # butterfingers
+stadium = random           # for challenges: random or a stadium (the_palace, ...)
+tweaks = fast_terrain      # for challenges: fast_terrain, no_mega_strikes,
+                           # thunder_island_walls, comma-separated
 ```
 
 Settings left out are a new save's. A file the page cannot read is listed
@@ -422,7 +450,10 @@ named as packs need it.
 
 While the Discord app runs on the same computer, your Discord profile shows
 what you are playing: the menu you are in, or the match with its mode,
-stadium, captains, score and match time. The game talks only to the Discord
+stadium, captains, score and match time. During a set (Online) it shows
+your opponent and the games won so far, and while the set waits in the
+launcher what it waits for (your opponent's answer, getting ready); a
+challenge to you shows only once you accept it. The game talks only to the Discord
 app on your computer, which shows the status to your friends. Switch it off on
 the launcher's **Game** page (`[discord] rich_presence`); Discord's own
 activity privacy setting hides it too. Builds that do not come from the
@@ -455,59 +486,121 @@ writes `rollback_test` or `rollback_log`.
 
 ## Competitive play
 
-The launcher's **Online** pages play sets against other Recharged players by
-the rules of the project's online server, `https://rechargedwfc.net`:
-**Friends** (your friends and your Discord friends, and the players you played
-last), **Leaderboard** (the game's RANKED leaderboards on the server: the
-season's leaders and today's, and your own place), **Events** (tournaments,
-coming later), **Match settings** (the rule
-set your challenges go out with, kept as `[online] challenge_rules`) and
-**Online settings** (who you are signed in as, your friend code, whether your
-Discord friends are linked, the server, and Sign out, which also ends the
-Discord link on this computer). A dot before **Online** in
-the sidebar shows the sign-in: green signed in, red not; signed out, Online is
-one page that shows what playing online brings and **Connect Discord**. Your
-set shows at the top of the Online pages. A private server's `https://`
-address (from its admins) goes in `[online] profile_server`; only the file
-changes it. A set is a series against
-one player, by one of the server's rule sets: skill level, game length or goal
-limit, the games of the series, the stadium, and the *Competitive gameplay*
-tweaks both teams play with.
+Sets against other Recharged players are played by the rules of the project's
+online server, `https://rechargedwfc.net`. The launcher's **Online** pages set
+them up: **Player profile** (who you are signed in as, your Mii, your friend
+code, your Discord friends or Connect Discord, the challenge sound, the
+server, and Sign out, which also ends the Discord link on this computer),
+**Leaderboard** (the game's RANKED leaderboards on the server: the season's
+leaders and today's, and your own place), **Events** (tournaments, coming
+later; they need Discord) and
+**Match rules** (the presets a challenge starts from, see *Match settings*,
+and the server's rule sets) and **Sidekicks**. Your friends, the players available and your set
+are in the game's online panel (**F1** or HOME, see Hotkeys). A dot before
+**Online** in the sidebar shows the sign-in: green signed in, red not; signed
+out, **Player profile** shows what playing online brings and its two ways in,
+**Connect Discord** and **Play with a Mii**, and the pages that need the
+sign-in point there. A private server's `https://` address (from its admins) goes in
+`[online] profile_server`; only the file changes it. A set is a series against
+one player, by the rules its challenge set: game length or goal limit, the
+games of the series, the stadium, the game's stadium, player and power-up
+cheats, and the *Competitive gameplay* tweaks both teams play with (the skill
+level is only for the CPU).
 
-1. Connect Discord on **Online**. The browser opens a page that shows a code;
-   go on only if it is the code the launcher shows.
-2. Challenge a player who has Recharged open: from the Friends or Players page
-   with a click, or by their Discord username. They accept or
-   decline, in the launcher or on a card over their game while it is in its
-   menus (A accepts, B declines; the game waits behind the card). A player in
-   a match shows as *Playing a match* and can be challenged once it is over.
-3. Once they accept, both games start by themselves: a game in which the
-   challenge was accepted closes, and its launcher starts the set's game. The
-   game signs in to the online server with your own Mii and goes straight to
-   the captain draft against your opponent, where you choose your captain and
-   sidekicks. **Not ready** on the Online pages holds the set until you press
-   **Ready to play!** again.
-4. After the series both games report the result, the game closes and the
-   launcher opens again with the result, and **Rematch**.
+1. Sign in on **Online** → **Player profile**, one of two ways (Discord is not
+   needed to play):
+   - **Connect Discord**: the browser opens a page that shows a code; go on
+     only if it is the code the launcher shows. Your profile takes your Discord
+     name and picture, and brings your Discord friends and tournaments.
+   - **Play with a Mii**: no account. Step 1 asks your name (what others see,
+     up to 32 characters) and your Mii: a new one (a random face in the
+     favourite colour you choose: **Another face** rolls a new one, **Edit
+     face** opens the Mii editor; it is named after you, cut to the Mii's 10
+     characters, or **Change** names it yourself), one of this computer's, or
+     yours from Dolphin (they replace this computer's Miis, which are backed up
+     first). Step 2, **Go online**, makes the new Mii and signs you in; this
+     computer keeps you signed in. A profile has one Mii: it is kept as
+     `[online] mii` (its create ID) and plays your sets and online games;
+     **Edit** on Player profile changes its face. Once it has played online,
+     the launcher finds it on any computer by the profile's friend code.
+     Friends, challenges and sets work as with Discord. **Connect Discord** on
+     Player profile (or on Events) joins Discord to the same profile later:
+     your profile then takes your Discord name and picture, your friends and
+     Mii stay. A Discord account that already has a profile of its own can't
+     join it. **Sign out** asks first: once your Mii has played online, it
+     brings the profile back (**Played with a Mii before? Sign in through the
+     game** under the two choices, `[online] mii_sign_in`: the game signs you
+     in again once that Mii logs in to WFC); before that, signing out loses
+     it for good.
+2. Challenge a player who has Recharged open from the game's online panel:
+   **Challenge** opens the challenge's setup. It starts from the preset used
+   last (`[online] challenge_rules`): one of the server's rule sets or one of
+   your own (**Match rules**). Every rule can change there for this challenge
+   only, the preset stays as it is; **Send challenge** sends it, and the
+   player you challenge sees the rules before accepting.
+   They accept or decline on a card over their game while it is in its menus
+   (A accepts, B declines; the game waits behind the card), or, with only the
+   launcher open (*In the launcher*), in a dialog there: its Accept starts the
+   game straight into the set, Decline (Escape, B) says no. A player in a
+   match shows as *Playing a match* and can be challenged once it is over.
+   A chime plays, and the window flashes when it is in the background, when
+   someone challenges you and when your challenge is accepted
+   (`[online] challenge_sound`, on by default; at the master volume, not when
+   muted).
+3. Once they accept, both games go on by themselves: the launcher starts the
+   set's game, and a game that already runs (the challenge was accepted on its
+   card) goes on from its main menu or online menu, without closing. The game
+   signs in to the online server with your own Mii (in the online menu, with
+   the Mii it uses) and goes straight to the captain draft against your
+   opponent, where you choose your captain and sidekicks. It passes the menus
+   on its way unseen: you see the frontend move to the online area, the
+   login's Connecting screen and the draft. (When your Mii from the launcher
+   is not on this computer, you choose a Mii yourself.) A game that is
+   elsewhere in its menus says so: back on the main menu or the online menu,
+   it goes on. **Not ready** in the online panel holds the set until you
+   press **Ready to play!** again.
+4. After the series both games report the result and stay in the online menu,
+   with a card: **Rematch** challenges your opponent again by the same rules,
+   and once they accept, the next set goes on into RANKED. A set that stopped
+   (a message in the game, or the games didn't meet) offers **Play it again**,
+   your Ready to play! for it. **Not now** (B) leaves it; closing a set's game
+   opens the launcher again. A set whose match was broken off before a game
+   ended (a game closed or lost its connection) ends without a result, and so
+   does a set whose second report doesn't come within 5 minutes. A set called
+   off while its games still search for each other leaves the search: the game
+   goes back to the RANKED menu, and nobody else is met.
 
-Your **friends** are kept on the server, so they follow you to every computer:
-the players you add by Discord username, or from *Played recently* on the
-Friends page with **Add to friends** in their **⋯** menu. Playing someone
-doesn't make them a friend: they show under *Played recently*, the latest
-first, until you add them. The list shows who has Recharged
-open or is in a set, and for the others when they were last online. **Remove
-from friends** in a friend's **⋯** menu takes them off.
+Your **friends** are kept on the server, so they follow you to every
+computer: a player's screen in the online panel adds them or takes them off.
+Playing someone doesn't make them a friend.
 
-Friends who have you as a friend too can **chat**: the speech bubble on their
-row opens the conversation, with the number of messages you haven't read yet
-on it, and **Discord** there opens their Discord profile. Messages are one
-line of up to 300 characters; they go through the online server, which keeps
-them 30 days.
+With Discord you need no Mii of your own: the launcher makes one from your
+Discord account, named after your Discord name, the same on every computer,
+when you play while signed in (Player profile shows it as **Your Mii**;
+**Edit** changes its face, the name stays your Discord name). It is an
+ordinary Mii: it shows in the game's online Mii list, and you can play the
+game's own online modes with it too. Playing with a
+Mii, your sets go with the Mii you chose.
 
-You need no Mii of your own: the launcher makes one from your Discord account,
-named after your Discord name, the same on every computer. It is an ordinary
-Mii: it shows on the Miis page and in the game's online Mii list, and you can
-play the game's own online modes with it too.
+### Miis and the Mii editor
+
+The launcher shows every Mii with its face, drawn from the Mii parts on your
+game image just as the game draws its Mii pictures; before the image is
+chosen (or when it can't be read) a Mii shows as a figure on its favourite
+colour.
+
+**Edit** (on Player profile's Your Mii, and **Edit face** for a new Mii)
+opens the **Mii editor**: no Mii Channel needed. The
+head shows large, with the expression you pick under it; the sections beside
+it hold the face (shape, skin, make-up), hair (style, colour, parting),
+eyebrows, eyes, nose, mouth, glasses, facial hair, mole, and the name (up to
+10 characters) and favourite colour. Parts show as pictures of the head with
+each one; sizes and positions are sliders. **Undo** takes back the last
+change, **Start over** goes back to the Mii as it was, **Random** rolls a
+whole new face (name and favourite colour stay), **Cancel** or the back arrow
+leaves it. **Save Mii** writes the Mii into the Wii's Mii database in the save folder (the
+previous database is copied to `backups/` first), in its own place: the Mii
+keeps who it is online, with its friend code and profile.
 
 A set lasts while both have Recharged open; closing it ends your sets that
 have no result yet. Every other game, and the game's own online menu, stay as
@@ -584,7 +677,11 @@ Each run writes `logs/recharged.log` beside the program: settings, devices,
 graphics adapter, warnings and errors. Attach it to an
 [issue](https://github.com/previouslevelgames/recharged/issues) when reporting a
 problem; it can contain your user name in paths. **Advanced → Log detail** and
-**Verbose console** add more detail.
+**Verbose console** add more detail. With Log detail at *Debug*
+(`[advanced] log_level = debug`) every line begins with its time, and the log
+also gets the WFC library's reports of the online login and of finding and
+connecting to an opponent. The lines of competitive sets (`Competitive:`)
+always have their time.
 
 On Windows and macOS no console or Terminal window opens with the game.
 **Advanced → Diagnostics & analytics → Log window** (`[advanced] log_window`,

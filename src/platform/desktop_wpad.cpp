@@ -780,6 +780,11 @@ void ServiceDesktopWpad() {
         Report(*pad, buttons, now, pad->dpd_source.generation ? &pointer : nullptr, &nunchuk);
     }
 }
+int DesktopKeyboardWpadChannel() {
+    auto& state = Get();
+    if (!state.ready || !state.keyboard) return -1;
+    return GetNativeWpadChannel(state.keyboard->virtual_id);
+}
 void ShutdownDesktopWpad() {
     auto& state = Get();
     if (!state.ready) return;

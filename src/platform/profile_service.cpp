@@ -93,8 +93,11 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.discord = value["discord"].Text();
     player.avatar_url = value["avatar_url"].Text();
     player.test = value["test"].Bool();
+    player.account = value["account"].Text();
+    player.friend_code = value["friend_code"].Text();
     for (const auto& profile : value["wfc"].Items()) player.wfc.push_back(ParseWfc(profile));
     player.discord_id = value["discord_id"].Text();
+    player.available = value["available"].Bool();
     player.online = value["online"].Bool();
     player.busy = value["busy"].Bool();
     player.activity = value["activity"].Text();
@@ -115,6 +118,25 @@ ChatMessage ParseChatMessage(const JsonValue& value)
     return message;
 }
 
+std::vector<MiiProfile> ParseMiis(const JsonValue& value)
+{
+    std::vector<MiiProfile> miis;
+    for (const auto& item : value.Items())
+    {
+        MiiProfile mii;
+        mii.profile_id = std::int32_t(item["profile_id"].Integer().value_or(0));
+        mii.mii = item["mii"].Text();
+        mii.game = item["game"].Text();
+        mii.friend_code = item["friend_code"].Text();
+        mii.online = item["online"].Bool();
+        mii.status = item["status"].Text();
+        mii.last_online = item["last_online"].Integer();
+        mii.is_friend = item["friend"].Bool();
+        if (mii.profile_id) miis.push_back(std::move(mii));
+    }
+    return miis;
+}
+
 std::vector<ProfilePlayer> ParsePlayers(const JsonValue& value)
 {
     std::vector<ProfilePlayer> players;
@@ -132,6 +154,10 @@ MatchRules ParseRules(const JsonValue& value)
     rules.goals = int(value["goals"].Integer().value_or(0));
     rules.games = int(value["games"].Integer().value_or(0));
     rules.stadium = value["stadium"].Text();
+    for (auto [field, cheat] : {std::pair{"stadium_cheat", &rules.stadium_cheat},
+                                std::pair{"player_cheat", &rules.player_cheat},
+                                std::pair{"powerup_cheat", &rules.powerup_cheat}})
+        if (const std::string text = value[field].Text(); !text.empty()) *cheat = text;
     return rules;
 }
 
@@ -169,6 +195,7 @@ ProfileMatch ParseMatch(const JsonValue& value)
     match.go_at = value["go_at"].Integer().value_or(0);
     match.playing_at = value["playing_at"].Integer().value_or(0);
     match.rematch_of = value["rematch_of"].Integer().value_or(0);
+    match.random = value["random"].Bool();
     return match;
 }
 
@@ -176,7 +203,8 @@ SignInResult ParseSignIn(const JsonValue& value)
 {
     SignInResult result;
     const std::string& status = value["status"].Text();
-    if (status == "signed_in")
+    // A Mii sign-in's answer may carry the session alone.
+    if (status == "signed_in" || (status.empty() && !value["token"].Text().empty()))
     {
         result.status = SignInResult::Status::SignedIn;
         result.token = value["token"].Text();
@@ -200,6 +228,31 @@ SignInResult ParseSignIn(const JsonValue& value)
     return result;
 }
 } // namespace
+
+std::string RulesJson(const MatchRules& rules)
+{
+    std::string json = "{\"tweaks\":[";
+    for (std::size_t n = 0; n < rules.tweaks.size(); ++n)
+    {
+        if (n) json += ",";
+        AppendJsonString(json, rules.tweaks[n]);
+    }
+    json += "],\"skill\":";
+    AppendJsonString(json, rules.skill.empty() ? std::string("rookie") : rules.skill);
+    json += ",\"limit\":";
+    AppendJsonString(json, rules.limit);
+    json += ",\"time\":" + Integer(rules.time) + ",\"goals\":" + Integer(rules.goals) + ",\"games\":" + Integer(rules.games)
+        + ",\"stadium\":";
+    AppendJsonString(json, rules.stadium);
+    for (const auto& [field, value] : {std::pair{",\"stadium_cheat\":", &rules.stadium_cheat},
+                                       std::pair{",\"player_cheat\":", &rules.player_cheat},
+                                       std::pair{",\"powerup_cheat\":", &rules.powerup_cheat}})
+    {
+        json += field;
+        AppendJsonString(json, *value);
+    }
+    return json + "}";
+}
 
 std::optional<std::string> ProfileServerAddress(std::string_view text, std::string* error)
 {
@@ -311,6 +364,7 @@ ProfileServerInfo ProfileService::Info()
         info.version = answer.body["version"].Text();
         info.discord = answer.body["sign_in"]["discord"].Bool();
         info.test = answer.body["sign_in"]["test"].Bool();
+        info.mii = answer.body["sign_in"]["mii"].Bool();
         info.discord_application = answer.body["discord_application"].Text();
         return info;
     }
@@ -331,6 +385,7 @@ SignInStart ProfileService::StartSignIn()
     start.url = answer.body["url"].Text();
     start.expires_in = int(answer.body["expires_in"].Integer().value_or(600));
     start.poll_interval = std::clamp(int(answer.body["poll_interval"].Integer().value_or(2)), 1, 30);
+    start.link = answer.body["link"].Bool();
     if (start.id.empty() || start.url.empty()) throw ProfileError("The server's answer is not understood", 200);
     // Only a web page goes to the browser, never another kind of link.
     if (start.url.rfind("https://", 0) != 0 && start.url.rfind("http://", 0) != 0)
@@ -349,7 +404,17 @@ SignInResult ProfileService::PollSignIn(const std::string& id)
     }
     catch (const ProfileError& e)
     {
-        if (e.Status() != 404) throw;
+        // Refused in an error's words: a Discord account that has a profile
+        // of its own, when connecting it to a Mii player's.
+        const long code = e.Status();
+        if (code == 400 || code == 403 || code == 409)
+        {
+            SignInResult result;
+            result.status = SignInResult::Status::Refused;
+            result.message = e.what();
+            return result;
+        }
+        if (code != 404) throw;
         SignInResult result;
         result.status = SignInResult::Status::Expired;
         return result;
@@ -362,6 +427,22 @@ SignInResult ProfileService::TestSignIn(const std::string& name)
     AppendJsonString(body, name);
     body += '}';
     return ParseSignIn(Call("POST", "/api/v1/sign-in/test", &body).body);
+}
+
+SignInResult ProfileService::MiiSignIn(const std::string& name)
+{
+    std::string body = "{\"name\":";
+    AppendJsonString(body, name);
+    body += '}';
+    return ParseSignIn(Call("POST", "/api/v1/sign-in/mii", &body).body);
+}
+
+SignInResult ProfileService::WfcSignIn(std::uint32_t profile_id, const std::string& login_ticket)
+{
+    std::string body = "{\"profile_id\":" + std::to_string(profile_id) + ",\"login_ticket\":";
+    AppendJsonString(body, login_ticket);
+    body += '}';
+    return ParseSignIn(Call("POST", "/api/v1/sign-in/wfc", &body).body);
 }
 
 std::vector<RuleSet> ProfileService::RuleSets()
@@ -396,22 +477,68 @@ ProfileMatch ProfileService::Challenge(const std::string& opponent, std::int64_t
     return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
 }
 
+ProfileMatch ProfileService::ChallengePlayer(std::int64_t opponent_id, const MatchRules& rules, const std::string& name)
+{
+    std::string body = "{\"opponent_id\":" + Integer(opponent_id) + ",\"rules\":" + RulesJson(rules);
+    if (!name.empty())
+    {
+        body += ",\"name\":";
+        AppendJsonString(body, name);
+    }
+    body += "}";
+    return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
+}
+
 ProfileMatch ProfileService::ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set)
 {
     const std::string body = "{\"opponent_id\":" + Integer(opponent_id) + ",\"rule_set\":" + Integer(rule_set) + "}";
     return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
 }
 
-std::optional<ProfileMatch> ProfileService::CurrentMatch(int* poll_interval)
+static ProfileSearch ParseSearch(const JsonValue& value)
+{
+    ProfileSearch search;
+    search.rule_set = value["rule_set"].Text();
+    search.rules = ParseRules(value["rules"]);
+    search.since = value["since"].Integer().value_or(0);
+    search.asked = int(value["asked"].Integer().value_or(0));
+    return search;
+}
+
+std::optional<ProfileMatch> ProfileService::CurrentMatch(int* poll_interval, std::optional<ProfileSearch>* search,
+                                                         std::int64_t* server_time)
 {
     const auto answer = Call("GET", "/api/v1/matches/current", nullptr);
     if (poll_interval)
         if (const auto interval = answer.body["poll_interval"].Integer(); interval && *interval >= 1 && *interval <= 60)
             *poll_interval = int(*interval);
+    if (search)
+    {
+        search->reset();
+        if (answer.body["search"].IsObject()) *search = ParseSearch(answer.body["search"]);
+    }
+    if (server_time) *server_time = answer.body["server_time"].Integer().value_or(0);
     const auto& match = answer.body["match"];
     if (!match.IsObject()) return std::nullopt;
     return ParseMatch(match);
 }
+
+ProfileSearch ProfileService::StartSearch(std::int64_t rule_set, const MatchRules& rules, const std::string& name,
+                                          const std::string& game)
+{
+    std::string body = rule_set > 0 ? "{\"rule_set\":" + Integer(rule_set) : "{\"rules\":" + RulesJson(rules);
+    if (rule_set <= 0 && !name.empty())
+    {
+        body += ",\"name\":";
+        AppendJsonString(body, name);
+    }
+    body += ",\"game\":";
+    AppendJsonString(body, game);
+    body += "}";
+    return ParseSearch(Call("POST", "/api/v1/search", &body).body["search"]);
+}
+
+void ProfileService::StopSearch() { Call("DELETE", "/api/v1/search", nullptr); }
 
 Leaderboard ProfileService::RankedLeaderboard()
 {
@@ -450,7 +577,27 @@ PlayerLists ProfileService::Players()
     lists.online = ParsePlayers(answer.body["online"]);
     lists.recent = ParsePlayers(answer.body["recent"]);
     lists.friends = ParsePlayers(answer.body["friends"]);
+    lists.available = ParsePlayers(answer.body["available"]);
+    lists.mii_friends = ParseMiis(answer.body["mii_friends"]);
+    lists.game_online = ParseMiis(answer.body["game_online"]);
     return lists;
+}
+
+std::vector<MiiProfile> ProfileService::AddMiiFriend(std::int32_t profile_id)
+{
+    const std::string body = "{\"profile_id\":" + Integer(profile_id) + "}";
+    return ParseMiis(Call("POST", "/api/v1/friends/miis", &body).body["mii_friends"]);
+}
+
+std::vector<MiiProfile> ProfileService::RemoveMiiFriend(std::int32_t profile_id)
+{
+    return ParseMiis(Call("DELETE", "/api/v1/friends/miis/" + Integer(profile_id), nullptr).body["mii_friends"]);
+}
+
+bool ProfileService::SetAvailable(bool available)
+{
+    const std::string body = std::string("{\"available\":") + (available ? "true" : "false") + "}";
+    return Call("PUT", "/api/v1/me/available", &body).body["available"].Bool();
 }
 
 std::vector<ProfilePlayer> ProfileService::AddFriend(std::int64_t player_id)
@@ -517,6 +664,33 @@ std::vector<ProfilePlayer> ProfileService::PlayersByDiscord(const std::vector<st
     }
     body += "]}";
     return ParsePlayers(Call("POST", "/api/v1/players/discord", &body).body["players"]);
+}
+
+std::vector<ProfilePlayer> FindDiscordPlayers(ProfileService& api, const std::vector<std::string>& discord_ids)
+{
+    // As many at once as the server takes.
+    constexpr std::size_t kPart = 200;
+    const std::size_t count = std::min(discord_ids.size(), kDiscordFriendsLookedUp);
+    std::vector<ProfilePlayer> found;
+    try
+    {
+        for (std::size_t first = 0; first < count; first += kPart)
+        {
+            const std::vector<std::string> part(discord_ids.begin() + std::ptrdiff_t(first),
+                                                discord_ids.begin() + std::ptrdiff_t(std::min(count, first + kPart)));
+            for (auto& player : api.PlayersByDiscord(part)) found.push_back(std::move(player));
+        }
+    }
+    catch (const ProfileError& e)
+    {
+        // A server before 1.2.0 can't tell.
+        if (e.Status() != 404) throw;
+    }
+    std::sort(found.begin(), found.end(), [](const ProfilePlayer& a, const ProfilePlayer& b) {
+        if (a.online != b.online) return a.online;
+        return a.name < b.name;
+    });
+    return found;
 }
 
 ChatPage ProfileService::Chat(std::int64_t player_id, std::int64_t after)

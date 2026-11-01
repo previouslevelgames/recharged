@@ -24,8 +24,9 @@ namespace mscharged::platform
 {
 namespace
 {
-std::filesystem::path g_program, g_prepared;
+std::filesystem::path g_program;
 std::vector<std::string> g_arguments;
+bool g_reopen = false; // the launcher opens again when the game closes
 
 #ifndef _WIN32
 // The game's devices, sockets and files must not stay open in the launcher:
@@ -49,28 +50,22 @@ void CloseDescriptorsOnExec()
 #endif
 } // namespace
 
-void ArmLauncherReopen(const std::filesystem::path& program, int argc, char** argv)
+void ArmLauncherReopen(const std::filesystem::path& program, int argc, char** argv, bool on)
 {
-    g_program = g_prepared = program;
+    g_program = program;
     g_arguments.assign(argv, argv + argc);
+    g_reopen = on;
 }
 
-void PrepareLauncherReopen(const std::filesystem::path& program, int argc, char** argv)
-{
-    g_prepared = program;
-    g_arguments.assign(argv, argv + argc);
-}
+bool LauncherReopenKnown() { return !g_program.empty(); }
 
-bool ArmPreparedLauncherReopen()
-{
-    if (g_prepared.empty()) return false;
-    g_program = g_prepared;
-    return true;
-}
+void SetLauncherReopen(bool on) { g_reopen = on && !g_program.empty(); }
+
+bool LauncherReopenOn() { return g_reopen; }
 
 bool ReopenLauncher(const char* reason)
 {
-    if (g_program.empty()) return false;
+    if (g_program.empty() || !g_reopen) return false;
     std::error_code error;
     if (!std::filesystem::is_regular_file(g_program, error))
     {

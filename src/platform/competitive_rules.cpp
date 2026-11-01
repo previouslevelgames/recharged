@@ -38,7 +38,73 @@ const GameTweakInfo* RuleTweak(const std::string& name)
             if (info.tweak == tweak && name == info.key) return &info;
     return nullptr;
 }
+
+// The cheat's place in its list (its enum value), -1 for one the list hasn't.
+int CheatIndex(const std::vector<RuleChoice>& choices, const std::string& key)
+{
+    const std::string name = key.empty() ? "none" : key;
+    for (std::size_t n = 0; n < choices.size(); ++n)
+        if (name == choices[n].key) return int(n);
+    return -1;
+}
 } // namespace
+
+const std::vector<RuleChoice>& StadiumChoices()
+{
+    static const std::vector<RuleChoice> choices = [] {
+        static std::vector<std::string> labels;
+        std::vector<RuleChoice> list{{"random", "Random"}};
+        labels.reserve(kStadiums.size());
+        for (const char* key : kStadiums) labels.push_back(NameLabel(key));
+        for (std::size_t n = 0; n < kStadiums.size(); ++n) list.push_back({kStadiums[n], labels[n].c_str()});
+        return list;
+    }();
+    return choices;
+}
+
+// The names the game's settings screen shows (the launcher's presets too).
+const std::vector<RuleChoice>& StadiumCheatChoices()
+{
+    static const std::vector<RuleChoice> choices{{"none", "None"},
+                                                 {"secure_stadiums", "Secure Stadiums"},
+                                                 {"power_shortage", "Power Shortage"},
+                                                 {"high_voltage", "High Voltage"},
+                                                 {"field_tilt", "Field Tilt"},
+                                                 {"always_white_ball", "Always White Ball"}};
+    return choices;
+}
+
+const std::vector<RuleChoice>& PlayerCheatChoices()
+{
+    static const std::vector<RuleChoice> choices{{"none", "None"},
+                                                 {"devastating_hits", "Devastating Hits"},
+                                                 {"safe_megastrike", "Safe Megastrike"},
+                                                 {"always_sidekick_skillshot", "Always Sidekick Skillshot"},
+                                                 {"classic_mode", "Classic Mode"}};
+    return choices;
+}
+
+const std::vector<RuleChoice>& PowerupCheatChoices()
+{
+    static const std::vector<RuleChoice> choices{
+        {"none", "None"},           {"explosives", "Explosives"},     {"freezing", "Freezing"},
+        {"shells", "Shells"},       {"giant", "Giant"},               {"accelerator", "Accelerator"},
+        {"peelin_out", "Peelin' Out"}, {"seek_and_destroy", "Seek and Destroy"}, {"bombs_away", "Bombs Away"},
+        {"super_captains", "Super Captains"}, {"infinite", "Infinite"}, {"no_power_ups", "No Power-Ups"}};
+    return choices;
+}
+
+const std::vector<RuleChoice>& RuleTweakChoices()
+{
+    static const std::vector<RuleChoice> choices = [] {
+        std::vector<RuleChoice> list;
+        for (const auto tweak : kRuleTweaks)
+            for (const auto& info : kGameTweaks)
+                if (info.tweak == tweak) list.push_back({info.key, info.name});
+        return list;
+    }();
+    return choices;
+}
 
 std::optional<ChargedCompetitiveRules> ModuleRules(const MatchRules& rules, const ProfilePlayer& opponent,
                                                    std::string* error)
@@ -67,6 +133,11 @@ std::optional<ChargedCompetitiveRules> ModuleRules(const MatchRules& rules, cons
     module.games = rules.games;
     module.stadium = rules.stadium == "random" ? -1 : IndexOf(kStadiums, rules.stadium);
     if (rules.stadium != "random" && module.stadium < 0) return fail("This build does not know the stadium " + rules.stadium);
+    module.stadium_cheat = CheatIndex(StadiumCheatChoices(), rules.stadium_cheat);
+    module.player_cheat = CheatIndex(PlayerCheatChoices(), rules.player_cheat);
+    module.powerup_cheat = CheatIndex(PowerupCheatChoices(), rules.powerup_cheat);
+    if (module.stadium_cheat < 0 || module.player_cheat < 0 || module.powerup_cheat < 0)
+        return fail("This build does not know one of the match's cheats; update Recharged");
     for (const auto& profile : opponent.wfc)
         if (module.opponent_count < int(std::size(module.opponents)) && profile.profile_id > 0
             && profile.profile_id <= 0xFFFFFFFFll)
@@ -94,13 +165,13 @@ std::string NameLabel(std::string_view name)
 
 std::string DescribeRules(const MatchRules& rules)
 {
-    std::string text = NameLabel(rules.skill);
+    std::string text;
     if (rules.limit == "goals")
-        text += ", first to " + std::to_string(rules.goals) + (rules.goals == 1 ? " goal" : " goals");
+        text += "First to " + std::to_string(rules.goals) + (rules.goals == 1 ? " goal" : " goals");
     else if (rules.time % 60 == 0)
-        text += ", " + std::to_string(rules.time / 60) + (rules.time == 60 ? " minute" : " minutes");
+        text += std::to_string(rules.time / 60) + (rules.time == 60 ? " minute" : " minutes");
     else
-        text += ", " + std::to_string(rules.time / 60) + ":" + (rules.time % 60 < 10 ? "0" : "")
+        text += std::to_string(rules.time / 60) + ":" + (rules.time % 60 < 10 ? "0" : "")
             + std::to_string(rules.time % 60) + " minutes";
     text += rules.games == 1 ? ", one game" : ", best of " + std::to_string(rules.games);
     text += rules.stadium == "random" ? std::string(", random stadium") : ", " + NameLabel(rules.stadium);
@@ -110,7 +181,53 @@ std::string DescribeRules(const MatchRules& rules)
         text += ", ";
         text += tweak ? tweak->name : name;
     }
+    for (const auto& [choices, key] : {std::pair{&StadiumCheatChoices(), &rules.stadium_cheat},
+                                       std::pair{&PlayerCheatChoices(), &rules.player_cheat},
+                                       std::pair{&PowerupCheatChoices(), &rules.powerup_cheat}})
+        if (const int index = CheatIndex(*choices, *key); index > 0)
+            text += ", " + std::string((*choices)[std::size_t(index)].label);
+        else if (index < 0)
+            text += ", " + NameLabel(*key);
     return text;
+}
+
+std::u16string ScreenName(std::string_view name)
+{
+    constexpr std::size_t kUnits = 32;
+    std::u16string shown;
+    for (std::size_t n = 0; n < name.size();)
+    {
+        const auto lead = static_cast<unsigned char>(name[n]);
+        const std::size_t length = lead < 0x80 ? 1 : (lead & 0xE0) == 0xC0 ? 2 : (lead & 0xF0) == 0xE0 ? 3
+                                 : (lead & 0xF8) == 0xF0                   ? 4
+                                                                           : 0;
+        if (!length || n + length > name.size()) return {};
+        char32_t c = length == 1 ? lead : lead & (0x7F >> length);
+        for (std::size_t k = 1; k < length; ++k)
+        {
+            const auto next = static_cast<unsigned char>(name[n + k]);
+            if ((next & 0xC0) != 0x80) return {};
+            c = (c << 6) | (next & 0x3F);
+        }
+        n += length;
+        const bool space = c == U' ' || c == U'\t' || c == U'\u00A0' || c == U'\u3000';
+        // The basic plane without control, surrogate, private-use and
+        // invisible format characters (and variation selectors).
+        const bool shows = c >= 0x20 && !(c >= 0x7F && c < 0xA0) && c <= 0xFFFF && !(c >= 0xD800 && c < 0xF900)
+                        && c != 0xAD && !(c >= 0x200B && c <= 0x200F) && !(c >= 0x2028 && c <= 0x202E)
+                        && !(c >= 0x2060 && c <= 0x206F) && !(c >= 0xFE00 && c <= 0xFE0F) && c != 0xFEFF
+                        && c < 0xFFF0;
+        if (space)
+        {
+            if (!shown.empty() && shown.back() != u' ') shown.push_back(u' ');
+        }
+        else if (shows)
+            shown.push_back(char16_t(c));
+        if (shown.size() >= kUnits) break;
+    }
+    if (shown.size() > kUnits) shown.resize(kUnits);
+    while (!shown.empty() && shown.back() == u' ') shown.pop_back();
+    return shown;
 }
 
 std::string CaptainKey(int team)

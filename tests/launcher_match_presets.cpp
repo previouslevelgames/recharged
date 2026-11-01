@@ -31,20 +31,21 @@ void Put(const fs::path& path, const std::string& text) { std::ofstream(path, st
 void BuiltIn()
 {
     const auto& presets = BuiltInMatchPresets();
-    Check(presets.size() == 2 && presets[0].name == "Default" && presets[1].name == "Competitive"
+    Check(presets.size() == 2 && presets[0].name == "Retail ranked" && presets[1].name == "Competitive"
               && presets[0].built_in && presets[1].built_in,
-          "Default and Competitive are the built-in presets");
-    Check(presets[0].settings == MatchSettings{}, "Default is a new save's settings");
-    MatchSettings competitive;
-    competitive.skill = 3;
-    competitive.best_of = 3;
-    competitive.goal_limit = true;
-    competitive.goals = 10;
-    competitive.stadium_cheat = 1;
-    Check(presets[1].settings == competitive, "Competitive: Superstar, best of 3, first to 10 goals, Secure");
+          "Retail ranked and Competitive are the built-in presets");
+    Check(presets[0].settings == MatchSettings{} && presets[1].settings == MatchSettings{},
+          "Both: a new save's settings");
+    Check(presets[0].tweaks.empty() && presets[0].stadium == "random" && presets[1].stadium == "random"
+              && presets[1].tweaks == std::vector<std::string>{"fast_terrain", "no_mega_strikes", "thunder_island_walls"},
+          "Competitive: Fast terrain, No Mega Strikes, Thunder Island walls");
     Check(MatchSummary(presets[0].settings) == "Rookie, best of 3, 3 minutes", MatchSummary(presets[0].settings));
-    Check(MatchSummary(presets[1].settings) == "Superstar, best of 3, first to 10 goals, Secure Stadiums",
-          MatchSummary(presets[1].settings));
+    // As the profile server starts with them.
+    const auto retail = ChallengeRules(presets[0]), competitive = ChallengeRules(presets[1]);
+    Check(retail.skill == "rookie" && retail.limit == "time" && retail.time == 180 && retail.goals == 5
+              && retail.games == 3 && retail.stadium == "random" && retail.tweaks.empty()
+              && retail.stadium_cheat == "none" && competitive.tweaks.size() == 3,
+          "The server's Retail ranked and Competitive rules");
     MatchSettings odd;
     odd.skill = 7;
     odd.time = 150;
@@ -58,7 +59,7 @@ void Names()
 {
     for (const char* name : {"Tournament", "Quick 3", "x", "12345678901234567890123456789012", "Àlex's"})
         Check(ValidMatchPresetName(name), std::string("Valid name refused: ") + name);
-    for (const char* name : {"", " Quick", "Quick ", "default", "COMPETITIVE", "123456789012345678901234567890123",
+    for (const char* name : {"", " Quick", "Quick ", "retail RANKED", "COMPETITIVE", "123456789012345678901234567890123",
                              "a\"b", "a=b", "a[b", "a|b", "a\tb"})
         Check(!ValidMatchPresetName(name), std::string("Invalid name accepted: ") + name);
     Check(SameMatchPresetName("Quick", "qUICK") && !SameMatchPresetName("Quick", "Quick 2"), "Names compare without case");
@@ -92,6 +93,26 @@ void Text()
         Check(parsed && parsed->settings.powerup_cheat == cheat, "Power-up cheat " + std::to_string(cheat) + " read back");
     }
 
+    // For challenges: the stadium and the gameplay tweaks, read back; a
+    // challenge's rules from the preset (9 games play 7).
+    preset.stadium = "the_palace";
+    preset.tweaks = {"no_mega_strikes", "fast_terrain"};
+    parsed = ParseMatchPreset(MatchPresetText(preset));
+    Check(parsed && parsed->stadium == "the_palace" && parsed->tweaks == preset.tweaks, "Stadium and tweaks read back");
+    const auto rules = ChallengeRules(preset);
+    Check(rules.limit == "goals" && rules.goals == 7 && rules.time == 300 && rules.games == 7
+              && rules.stadium == "the_palace" && rules.stadium_cheat == "always_white_ball"
+              && rules.player_cheat == "always_sidekick_skillshot" && rules.powerup_cheat == "no_power_ups"
+              && rules.tweaks == std::vector<std::string>{"fast_terrain", "no_mega_strikes"} && rules.skill == "legend",
+          "A preset as a challenge's rules");
+    Check(!ParseMatchPreset("name = Mine\nstadium = moon\n"), "A stadium the game hasn't");
+    Check(!ParseMatchPreset("name = Mine\ntweaks = fast_terrain, super_team\n"), "A tweak no set has");
+    parsed = ParseMatchPreset("name = Mine\n");
+    Check(parsed && parsed->stadium == "random" && parsed->tweaks.empty(), "Without them: random, none");
+    preset.stadium = "random";
+    preset.tweaks.clear();
+    s.powerup_cheat = 11;
+
     // Keys left out are a new save's; unknown keys (an earlier build's
     // home_powerups) and comments are skipped.
     parsed = ParseMatchPreset("; a comment\n# another\r\nname = Mine\r\nGOALS = 9\nwin_by = Goals\nfuture_key = 1\n"
@@ -116,7 +137,7 @@ void Text()
     Check(!ParseMatchPreset("name = Mine\nskill = godlike\n", &error) && error == "line 2: skill cannot be godlike",
           "An unknown skill: " + error);
     Check(!ParseMatchPreset("name = Mine\nminutes\n", &error) && error == "line 2: no \"key = value\"", error);
-    Check(!ParseMatchPreset("name = \"Default\"\n", &error), "A built-in preset's name in a file");
+    Check(!ParseMatchPreset("name = \"Retail ranked\"\n", &error), "A built-in preset's name in a file");
     Check(!ParseMatchPreset("name = Mine\nbest_of = 4\n"), "A series of 4");
     Check(!ParseMatchPreset("name = Mine\nplayer_cheat = Classic Mode\n"), "A cheat by its label, not its file name");
 }

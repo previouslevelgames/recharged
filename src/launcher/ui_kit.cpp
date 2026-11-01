@@ -63,6 +63,14 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
     fonts.title = add(30.0f);
     fonts.button = add(22.0f);
     fonts.overline = add(21.0f);
+    {
+        static const ImWchar digits[] = {'0', '9', 0};
+        ImFontConfig config;
+        config.OversampleH = 1;
+        config.OversampleV = 1;
+        fonts.display = io.Fonts->AddFontFromFileTTF(ttf.c_str(), std::round(72.0f * font_raster), &config, digits);
+        if (!fonts.display) throw std::runtime_error("Cannot load the launcher font; rebuild to restore resources");
+    }
     io.FontDefault = fonts.body;
     io.FontGlobalScale = 1.0f / density;
     g_fonts = fonts;
@@ -70,6 +78,7 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
 }
 
 const Fonts& CurrentFonts() { return g_fonts; }
+void SetCurrentFonts(const Fonts& fonts) { g_fonts = fonts; }
 
 float FontSize(ImFont* font)
 {
@@ -340,6 +349,24 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->PathStroke(color, 0, t);
         draw->AddTriangleFilled(p(0.18f, -0.42f), p(0.48f, -0.30f), p(0.24f, -0.06f), color);
         break;
+    case Icon::Paint:
+    {
+        // A painter's palette: a round board with a notch for the thumb at the
+        // lower right, and three dots of paint.
+        draw->PathArcTo(c, 0.44f * s, 1.05f, 0.30f + 2.0f * IM_PI, 28);
+        draw->PathBezierQuadraticCurveTo(p(0.10f, 0.20f), p(0.218f, 0.382f));
+        draw->PathStroke(color, 0, t);
+        draw->AddCircleFilled(p(-0.20f, -0.12f), 0.105f * s, color);
+        draw->AddCircleFilled(p(0.10f, -0.22f), 0.105f * s, color);
+        draw->AddCircleFilled(p(-0.14f, 0.20f), 0.105f * s, color);
+        break;
+    }
+    case Icon::Dice:
+        draw->AddRect(p(-0.40f, -0.40f), p(0.40f, 0.40f), color, 0.14f * s, 0, t);
+        draw->AddCircleFilled(p(-0.18f, -0.18f), 0.07f * s, color);
+        draw->AddCircleFilled(c, 0.07f * s, color);
+        draw->AddCircleFilled(p(0.18f, 0.18f), 0.07f * s, color);
+        break;
     case Icon::Mouse:
         draw->AddRect(p(-0.28f, -0.45f), p(0.28f, 0.45f), color, 0.28f * s, 0, t);
         draw->AddLine(p(0.0f, -0.38f), p(0.0f, -0.14f), color, t);
@@ -560,6 +587,31 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddRectFilled(p(-0.15f, -0.46f), p(0.15f, -0.24f), color, s * 0.05f);
         draw->AddLine(p(-0.15f, -0.02f), p(0.15f, -0.02f), color, t);
         draw->AddLine(p(-0.15f, 0.20f), p(0.07f, 0.20f), color, t);
+        break;
+    case Icon::Bracket:
+    {
+        // A tournament's bracket: four lines meeting in two, the two in one.
+        for (const float y : {-0.40f, -0.12f, 0.12f, 0.40f})
+            draw->AddLine(p(-0.46f, y), p(-0.18f, y), color, t);
+        for (const float y : {-0.26f, 0.26f})
+        {
+            const float half = 0.14f;
+            const ImVec2 arm[] = {p(-0.18f, y - half), p(-0.18f, y + half)};
+            draw->AddPolyline(arm, 2, color, 0, t);
+            draw->AddLine(p(-0.18f, y), p(0.10f, y), color, t);
+        }
+        const ImVec2 join[] = {p(0.10f, -0.26f), p(0.10f, 0.26f)};
+        draw->AddPolyline(join, 2, color, 0, t);
+        draw->AddLine(p(0.10f, 0.0f), p(0.30f, 0.0f), color, t);
+        draw->AddCircleFilled(p(0.36f, 0.0f), 0.10f * s, color);
+        break;
+    }
+    case Icon::Podium:
+        // A leaderboard's podium: the winner's block in the middle, higher.
+        draw->AddRectFilled(p(-0.46f, 0.02f), p(-0.17f, 0.42f), color, 0.04f * s);
+        draw->AddRectFilled(p(-0.14f, -0.26f), p(0.14f, 0.42f), color, 0.04f * s);
+        draw->AddRectFilled(p(0.17f, 0.14f), p(0.46f, 0.42f), color, 0.04f * s);
+        draw->AddCircleFilled(p(0.0f, -0.40f), 0.07f * s, color);
         break;
     case Icon::Up:
     case Icon::Down:
@@ -1277,6 +1329,91 @@ bool PercentSlider(const char* id, int* value, float width, const char* zero_lab
     const ImVec2 size = TextSize(fonts.body, text.c_str());
     DrawLabel(draw, fonts.body, {pos.x + width - size.x, y - size.y * 0.5f}, Col(color::text, 0.85f * alpha), text.c_str());
     ImGui::PopID();
+    return changed;
+}
+
+bool StepSlider(const char* id, int* value, int minimum, int maximum, float width, const char* label, bool reversed)
+{
+    ImGui::PushID(id);
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float height = ImGui::GetFrameHeight(), button = height;
+    const float label_width = std::max(TextSize(fonts.body, label).x, Dp(28)) + Dp(12);
+    const float track_width = std::max(Dp(60), width - label_width - 2 * button - Dp(16));
+    auto* draw = ImGui::GetWindowDrawList();
+    const float alpha = ImGui::GetStyle().Alpha;
+    // Shown: the value as it reads left to right.
+    int shown = reversed ? minimum + maximum - *value : *value;
+    bool changed = false;
+    // The minus and plus buttons: one step left or right as shown.
+    const auto step = [&](const char* button_id, float x, int direction) {
+        ImGui::SetCursorScreenPos({x, pos.y});
+        const bool enabled = direction < 0 ? shown > minimum : shown < maximum;
+        ImGui::BeginDisabled(!enabled);
+        // Held, it repeats.
+        ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
+        const bool pressed = ImGui::InvisibleButton(button_id, {button, height});
+        ImGui::PopItemFlag();
+        const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered() && enabled, 14.0f);
+        ImGui::EndDisabled();
+        const ImVec2 center{x + button * 0.5f, pos.y + height * 0.5f};
+        draw->AddCircleFilled(center, button * 0.42f, Col(Mix(color::field, color::card_hover, hover), alpha));
+        draw->AddCircle(center, button * 0.42f, Col(color::border, (enabled ? 1.0f : 0.5f) * alpha), 0, Dp(1));
+        const ImU32 ink = Col(enabled ? Mix(color::muted, color::text, 0.4f + 0.6f * hover) : color::dim, alpha);
+        const float arm = button * 0.16f;
+        draw->AddLine({center.x - arm, center.y}, {center.x + arm, center.y}, ink, Dp(1.8f));
+        if (direction > 0) draw->AddLine({center.x, center.y - arm}, {center.x, center.y + arm}, ink, Dp(1.8f));
+        if (pressed && enabled)
+        {
+            shown += direction;
+            changed = true;
+        }
+    };
+    step("##less", pos.x, -1);
+
+    // The track: ImGui's slider keeps the input, the knob is drawn here.
+    const float left_edge = pos.x + button + Dp(8);
+    ImGui::SetCursorScreenPos({left_edge, pos.y});
+    const float knob = Dp(16);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, knob);
+    ImGui::SetNextItemWidth(track_width);
+    if (ImGui::SliderInt("##slider", &shown, minimum, maximum, "", ImGuiSliderFlags_AlwaysClamp)) changed = true;
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(5);
+    const bool active = ImGui::IsItemActive();
+    const float lift = Animate(ImGui::GetID("##lift"), active || ImGui::IsItemHovered(), 14.0f);
+    const float left = left_edge + 2.0f + knob * 0.5f, right = left_edge + track_width - 2.0f - knob * 0.5f;
+    const float x = left + (right - left) * std::clamp(float(shown - minimum) / float(std::max(1, maximum - minimum)),
+                                                       0.0f, 1.0f);
+    const float y = pos.y + height * 0.5f, half = Dp(2);
+    draw->AddRectFilled({left, y - half}, {right, y + half}, Col(color::text, 0.12f * alpha), half);
+    // A tick per value when there are few, so steps can be counted.
+    if (maximum - minimum <= 24)
+        for (int v = minimum; v <= maximum; ++v)
+        {
+            const float tx = left + (right - left) * float(v - minimum) / float(std::max(1, maximum - minimum));
+            draw->AddCircleFilled({tx, y}, Dp(1.6f), Col(color::text, 0.22f * alpha));
+        }
+    const float radius = knob * 0.5f * (1.0f + 0.12f * lift);
+    if (lift > 0.01f) draw->AddCircleFilled({x, y}, radius + Dp(5), Col(color::accent, 0.16f * lift * alpha));
+    draw->AddCircleFilled({x, y + Dp(1)}, radius, Col(ImVec4{0, 0, 0, 1}, 0.35f * alpha));
+    draw->AddCircleFilled({x, y}, radius, Col(active ? color::accent_hi : color::text, alpha));
+
+    step("##more", left_edge + track_width + Dp(8), 1);
+    const ImVec2 size = TextSize(fonts.body, label);
+    DrawLabel(draw, fonts.body, {pos.x + width - size.x, y - size.y * 0.5f}, Col(color::text, 0.85f * alpha), label);
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::Dummy({width, height});
+    ImGui::PopID();
+    shown = std::clamp(shown, minimum, maximum);
+    const int next = reversed ? minimum + maximum - shown : shown;
+    changed = changed && next != *value;
+    *value = next;
     return changed;
 }
 

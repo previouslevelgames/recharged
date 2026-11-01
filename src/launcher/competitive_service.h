@@ -19,7 +19,7 @@ namespace mscharged::launcher
 {
 // The launcher's side of competitive play, on a background thread: signing in
 // to the WFC server's profile service (online.profile_server), the player's
-// rule sets and current match, and challenges, answers and cancellations.
+// rule sets and current match, the answers to challenges, and cancellations.
 // The launcher polls Snapshot() every frame; requests run one at a time.
 class CompetitiveService
 {
@@ -43,27 +43,25 @@ public:
         std::uint64_t error_serial = 0;
         std::string code, url;       // SigningIn: the code both screens show, the page
         std::uint64_t sign_in = 0;   // a new value: a new page to open in the browser
+        // Signed in with a Mii: Discord being connected to the profile (code
+        // and url as for SigningIn), and why the last try didn't (a Discord
+        // account with a profile of its own).
+        bool connecting_discord = false;
+        std::string connect_error;
+        // Why the last Mii sign-in failed (the server takes no more for now,
+        // no answer...), for the page that asked; empty after a new one.
+        std::string mii_error;
         platform::ProfilePlayer player;
         std::vector<platform::RuleSet> rule_sets;
         std::optional<platform::ProfileMatch> match;
-        platform::PlayerLists lists; // the lobby's: online now, recent opponents, friends
         // The Discord friends (SetDiscordFriends) who have signed in to
-        // Recharged, as the lists show players, by name.
+        // Recharged, by name.
         std::vector<platform::ProfilePlayer> discord_players;
         // The game's RANKED leaderboards, while asked for (WantLeaderboard):
         // none before the first answer; `leaderboard_missing` for a server
         // without them (before 1.2.1).
         std::optional<platform::Leaderboard> leaderboard;
         bool leaderboard_missing = false;
-        // The conversation open in the chat panel (OpenChat): with whom (0:
-        // none), the messages so far (oldest first), whether the first fetch
-        // came, whether the two can write, and a message on its way.
-        struct Chat
-        {
-            std::int64_t with = 0;
-            std::vector<platform::ChatMessage> messages;
-            bool loaded = false, can_send = false, sending = false;
-        } chat;
         bool busy = false;           // an action is running
         std::uint64_t serial = 0;    // changes with every change
     };
@@ -79,24 +77,18 @@ public:
     // The server to use, as online.profile_server has it; a different one
     // starts again (its own saved session, if any).
     void SetServer(const std::string& server);
+    // Signed out: the Discord sign-in. Signed in with a Mii: connects
+    // Discord to that profile (the sign-in with its session), which stays
+    // signed in meanwhile.
     void SignIn();
     void TestSignIn(const std::string& name);
+    // Without Discord: a new profile by `name` (1-32 characters), for the
+    // Mii the player chose; a failure goes to Status::mii_error.
+    void MiiSignIn(const std::string& name);
     void StopSignIn();
     void SignOut();
-    void Challenge(const std::string& opponent, std::int64_t rule_set);
-    void ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set);
-    // The friends list: add a player (from the lists, or by Discord
-    // username) or take one off.
-    void AddFriend(std::int64_t player_id);
-    void AddFriend(const std::string& name);
-    void RemoveFriend(std::int64_t player_id);
-    // The chat panel: the conversation with a friend, followed every two
-    // seconds while open, and a message to them.
-    void OpenChat(std::int64_t player_id);
-    void CloseChat();
-    void SendChat(const std::string& body);
     // The player's Discord friends (DiscordFriends): who of them plays
-    // Recharged is looked up with the lists.
+    // Recharged is looked up now and then.
     void SetDiscordFriends(std::vector<std::string> discord_ids);
     // The Leaderboard page is shown (every frame it is): the leaderboards
     // are fetched now, and again once a minute while it stays.
@@ -109,9 +101,9 @@ public:
         std::function<void(const platform::DiscordTokens& tokens, const std::string& error, bool refused)>;
     void TradeDiscordToken(std::string code, std::string verifier, std::string redirect_uri,
                            std::string refresh_token, DiscordTraded done);
-    // The set's Ready to play! (or taking it back), and playing it again.
+    // The set's Ready to play! (or taking it back): once more after its game
+    // could not start.
     void ReadyToPlay(bool ready);
-    void Rematch();
     void Accept();
     void Decline();
     void CancelMatch();
@@ -149,9 +141,8 @@ private:
     std::string sign_in_id_;       // the sign-in being waited for
     int poll_interval_ = 2;        // seconds between asks while signing in
     std::chrono::steady_clock::time_point next_poll_{};
-    std::chrono::steady_clock::time_point next_me_{}, next_lists_{}, next_chat_{}, next_leaderboard_{};
+    std::chrono::steady_clock::time_point next_me_{}, next_discord_{}, next_leaderboard_{};
     std::chrono::steady_clock::time_point leaderboard_wanted_{}; // the page's last frame
-    std::int64_t chat_seen_ = 0; // the last message a fetch of the open conversation had
     std::vector<std::string> discord_ids_; // SetDiscordFriends
     std::shared_ptr<platform::HttpCancel> cancel_; // the running call's
     bool stop_ = false;

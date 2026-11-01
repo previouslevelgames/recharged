@@ -150,4 +150,4 @@ cmake --preset release -DMSCHARGED_DISCORD_SOCIAL_SDK=/path/to/discord_social_sd
 ```
 
 The build copies the library and its notices beside the program. Without it,
-the launcher simply has no Discord friends.
+Recharged simply has no Discord friends.

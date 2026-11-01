@@ -3,6 +3,7 @@
 // libcurl) the requests themselves against a small HTTP server here.
 #include "platform/competitive_rules.h"
 #include "platform/http_client.h"
+#include "platform/online_panel_feed.h"
 #include "platform/profile_service.h"
 
 #include <chrono>
@@ -11,6 +12,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -119,14 +121,33 @@ void Rules()
     CHECK(module && module->tweaks == ((1u << 2) | (1u << 5) | (1u << 7)) && module->skill == 3 && module->limit == 1
           && module->goals == 3 && module->games == 5 && module->stadium == 10 && module->opponent_count == 2
           && module->opponents[1] == 1000000002u);
+    CHECK(module->stadium_cheat == 0 && module->player_cheat == 0 && module->powerup_cheat == 0);
     CHECK(DescribeRules(rules)
-          == "Superstar, first to 3 goals, best of 5, The Palace, Fast terrain, No Mega Strikes, Thunder Island walls");
+          == "First to 3 goals, best of 5, The Palace, Fast terrain, No Mega Strikes, Thunder Island walls");
+    // The cheats: their enum values for the module, the game's names.
+    rules.stadium_cheat = "field_tilt";
+    rules.player_cheat = "classic_mode";
+    rules.powerup_cheat = "no_power_ups";
+    const auto cheats = ModuleRules(rules, opponent);
+    CHECK(cheats && cheats->stadium_cheat == 4 && cheats->player_cheat == 4 && cheats->powerup_cheat == 11);
+    CHECK(DescribeRules(rules) == "First to 3 goals, best of 5, The Palace, Fast terrain, No Mega Strikes, Thunder "
+                                  "Island walls, Field Tilt, Classic Mode, No Power-Ups");
+    CHECK(RulesJson(rules)
+          == R"({"tweaks":["fast_terrain","no_mega_strikes","thunder_island_walls"],"skill":"superstar","limit":"goals",)"
+             R"("time":180,"goals":3,"games":5,"stadium":"the_palace","stadium_cheat":"field_tilt",)"
+             R"("player_cheat":"classic_mode","powerup_cheat":"no_power_ups"})");
+    rules.powerup_cheat = "butterfingers";
+    CHECK(!ModuleRules(rules, opponent));
+    rules.stadium_cheat = rules.player_cheat = rules.powerup_cheat = "none";
+    CHECK(StadiumCheatChoices().size() == 6 && PlayerCheatChoices().size() == 5 && PowerupCheatChoices().size() == 12
+          && StadiumChoices().size() == 17 && std::string(StadiumChoices()[11].label) == "The Palace"
+          && RuleTweakChoices().size() == 3);
     rules.limit = "time";
     rules.time = 150;
     rules.games = 1;
     rules.stadium = "random";
     rules.tweaks.clear();
-    CHECK(DescribeRules(rules) == "Superstar, 2:30 minutes, one game, random stadium");
+    CHECK(DescribeRules(rules) == "2:30 minutes, one game, random stadium");
     CHECK(ModuleRules(rules, opponent)->stadium == -1);
     std::string error;
     rules.tweaks = {"super_team"};
@@ -138,6 +159,13 @@ void Rules()
           && CaptainKey(-1).empty());
     CHECK(StadiumKey(0) == "battle_dome" && StadiumKey(15) == "sand_tomb" && StadiumKey(16).empty());
     CHECK(NameLabel("bowser_jr") == "Bowser Jr");
+    // Profile names as the game's screens show them.
+    CHECK(ScreenName("Christopher Columbus the Great") == u"Christopher Columbus the Great");
+    CHECK(ScreenName("  Bob \t the\u00a0 Builder  ") == u"Bob the Builder");
+    CHECK(ScreenName("Zo\u00eb \U0001F600 \u200bK\u00e4the\uE000") == u"Zo\u00eb K\u00e4the");
+    CHECK(ScreenName("\U0001F600\U0001F680").empty() && ScreenName("bad \xff byte").empty());
+    CHECK(ScreenName(std::string(40, 'x')) == std::u16string(32, u'x'));
+    CHECK(ScreenName("\xe3\x83\x9e\xe3\x83\xaa\xe3\x82\xaa") == u"\u30DE\u30EA\u30AA");
 }
 
 #ifndef _WIN32
@@ -316,6 +344,13 @@ void Requests()
          R"({"rank":2,"mii":"Nelly","player":"Nelly","wins":3,"losses":null,"points":30,"region":4,"you":true}],)"
          R"("you":{"rank":2,"mii":"Nelly","player":"Nelly","wins":3,"losses":null,"points":30,"region":4,"you":true}},)"
          R"("daily":{"first_day":"2026-10-31","last_day":"2026-10-31","players":0,"top":[],"you":null}})"},
+        // Available for random games (1.2.1).
+        {"PUT /api/v1/me/available", 200, R"({"available":true})"},
+        // Mii friends (1.2.1).
+        {"POST /api/v1/friends/miis", 200,
+         R"({"mii_friends":[{"profile_id":1000000004,"mii":"Tommy","game":"R4QE","friend_code":"3789-5712-2052","online":true,)"
+         R"("status":"matchmaking","last_online":1793000000,"friend":true}]})"},
+        {"DELETE /api/v1/friends/miis/1000000004", 200, R"({"mii_friends":[]})"},
     };
     std::vector<Sent> sent;
     {
@@ -402,6 +437,12 @@ void Requests()
               && board.season.top[0].wins == 5 && board.season.top[1].you && !board.season.top[1].losses
               && board.season.you && board.season.you->rank == 2 && board.season.you->region == 4);
         CHECK(board.daily.players == 0 && board.daily.top.empty() && !board.daily.you);
+        CHECK(api.SetAvailable(true));
+        const auto miis = api.AddMiiFriend(1000000004);
+        CHECK(miis.size() == 1 && miis[0].mii == "Tommy" && miis[0].game == "R4QE" && miis[0].online
+              && miis[0].friend_code == "3789-5712-2052"
+              && miis[0].status == "matchmaking" && miis[0].last_online == 1793000000 && miis[0].is_friend);
+        CHECK(api.RemoveMiiFriend(1000000004).empty());
     }
     CHECK(sent.size() == exchanges.size());
     for (const auto& request : sent) CHECK(request.expected);
@@ -425,6 +466,8 @@ void Requests()
         CHECK(sent[19].body == R"({"code":"c0de","code_verifier":"v","redirect_uri":"http://127.0.0.1:5000/callback"})");
         CHECK(sent[20].body == R"({"refresh_token":"old"})");
         CHECK(sent[21].body == R"({"ids":["41771983423143937","123"]})");
+        CHECK(sent[24].body == R"({"available":true})" && sent[24].content_type == "application/json");
+        CHECK(sent[25].body == R"({"profile_id":1000000004})" && sent[26].body.empty());
     }
 
     // Unencrypted only for addresses ProfileServerAddress lets through.
@@ -440,6 +483,319 @@ void Requests()
         CHECK(std::string(e.what()).find("Only https") != std::string::npos);
     }
 }
+
+// Players without Discord: a Mii sign-in by a profile name (refused while
+// the server takes no more), the account it gives, and connecting Discord
+// to it later with the session, which a Discord account with a profile of
+// its own refuses.
+void MiiAccounts()
+{
+    if (!HttpUnavailable().empty()) return;
+    const std::vector<Exchange> exchanges{
+        {"GET /api/v1/server", 200, R"({"version":"1.2.4","sign_in":{"discord":true,"test":false,"mii":true}})"},
+        {"POST /api/v1/sign-in/mii", 429, R"({"error":"too many new players from here: try again in an hour"})"},
+        {"POST /api/v1/sign-in/mii", 400, R"({"error":"a name has 1 to 32 characters, without control characters"})"},
+        {"POST /api/v1/sign-in/mii", 200,
+         R"({"status":"signed_in","token":"m0","player":{"id":10,"name":"Al","account":"mii","friend_code":null,)"
+         R"("discord_id":null,"wfc":[]}})"},
+        {"POST /api/v1/sign-in/mii", 200,
+         R"({"token":"m1","player":{"id":11,"name":"Bob the Builder","account":"mii","wfc":[]}})"},
+        {"GET /api/v1/me", 200,
+         R"({"id":11,"name":"Bob the Builder","account":"mii","friend_code":"0868-9934-5920",)"
+         R"("wfc":[{"profile_id":1000000000,"game":"R4QE","friend_code":"0868-9934-5920","mii":"Bob"}]})"},
+        {"POST /api/v1/sign-in", 200,
+         R"({"id":"up-1","code":"K7Q2","url":"http://127.0.0.1/sign-in/up-1","expires_in":600,"poll_interval":2,)"
+         R"("link":true})"},
+        {"GET /api/v1/sign-in/up-1", 409, R"({"error":"this Discord account already has a Recharged profile"})"},
+        {"GET /api/v1/sign-in/up-1", 200, R"({"status":"refused","message":"Discord said no"})"},
+        {"GET /api/v1/sign-in/up-1", 200,
+         R"({"status":"signed_in","token":"m2","player":{"id":11,"name":"Bob","discord":"bob","account":"discord"}})"},
+        {"GET /api/v1/me", 200, R"({"id":7,"name":"Nelly","discord":"nelly","test":false})"},
+    };
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        ProfileService api(server.Url());
+        const auto info = api.Info();
+        CHECK(info.mii && info.discord && !info.test);
+        try
+        {
+            api.MiiSignIn("Bob the Builder");
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 429 && !e.SignedOut()
+                  && std::string(e.what()) == "Too many new players from here: try again in an hour");
+        }
+        try
+        {
+            api.MiiSignIn("x\x01");
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 400);
+        }
+        const auto first = api.MiiSignIn("Al");
+        CHECK(first.status == SignInResult::Status::SignedIn && first.token == "m0" && first.player.MiiAccount()
+              && first.player.friend_code.empty() && first.player.discord_id.empty());
+        const auto signed_in = api.MiiSignIn("Bob the Builder");
+        CHECK(signed_in.status == SignInResult::Status::SignedIn && signed_in.token == "m1"
+              && signed_in.player.id == 11 && signed_in.player.MiiAccount() && !signed_in.player.test
+              && signed_in.player.discord.empty() && !signed_in.discord);
+        api.SetToken(signed_in.token);
+        const auto me = api.Me();
+        CHECK(me.MiiAccount() && me.friend_code == "0868-9934-5920" && me.wfc.size() == 1 && me.wfc[0].mii == "Bob");
+        // Connecting Discord: the sign-in with the Mii player's session.
+        const auto start = api.StartSignIn();
+        CHECK(start.id == "up-1" && start.code == "K7Q2" && start.link);
+        const auto taken = api.PollSignIn(start.id);
+        CHECK(taken.status == SignInResult::Status::Refused
+              && taken.message == "This Discord account already has a Recharged profile");
+        const auto refused = api.PollSignIn(start.id);
+        CHECK(refused.status == SignInResult::Status::Refused && refused.message == "Discord said no");
+        const auto connected = api.PollSignIn(start.id);
+        CHECK(connected.status == SignInResult::Status::SignedIn && connected.token == "m2"
+              && connected.player.account == "discord" && !connected.player.MiiAccount());
+        // Servers before Mii accounts say nothing of the account.
+        const auto older = api.Me();
+        CHECK(older.account.empty() && !older.MiiAccount() && older.friend_code.empty());
+    }
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+    {
+        CHECK(sent[1].body == R"({"name":"Bob the Builder"})" && sent[1].content_type == "application/json"
+              && sent[1].authorization.empty());
+        CHECK(sent[2].body == R"({"name":"x\u0001"})");
+        CHECK(sent[4].authorization.empty() && sent[5].authorization == "Bearer m1");
+        CHECK(sent[6].body == "{}" && sent[6].authorization == "Bearer m1");
+        CHECK(sent[7].authorization == "Bearer m1");
+    }
+}
+
+// Signing in again through the game: its WFC login proof, without a session
+// and as the game; a WFC profile that identifies nobody is refused (404).
+void WfcSignIn()
+{
+    if (!HttpUnavailable().empty()) return;
+    const std::vector<Exchange> exchanges{
+        {"POST /api/v1/sign-in/wfc", 404, R"({"error":"no Recharged profile signs in with this WFC profile"})"},
+        {"POST /api/v1/sign-in/wfc", 200,
+         R"({"status":"signed_in","token":"w1","player":{"id":11,"name":"Bob the Builder","account":"mii",)"
+         R"("friend_code":"0868-9934-5920"}})"},
+    };
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        ProfileService api(server.Url());
+        api.SetActivity("game");
+        try
+        {
+            api.WfcSignIn(1000000001u, "lt-other");
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 404);
+        }
+        const auto back = api.WfcSignIn(1000000000u, "lt-\"x\"");
+        CHECK(back.status == SignInResult::Status::SignedIn && back.token == "w1" && back.player.id == 11
+              && back.player.MiiAccount() && back.player.friend_code == "0868-9934-5920");
+    }
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+    {
+        CHECK(sent[0].body == R"({"profile_id":1000000001,"login_ticket":"lt-other"})");
+        CHECK(sent[1].body == R"({"profile_id":1000000000,"login_ticket":"lt-\"x\""})"
+              && sent[1].authorization.empty() && sent[1].activity == "game"
+              && sent[1].content_type == "application/json");
+    }
+}
+
+// The game's online panel with the Discord friends the launcher gave it: they
+// are looked up with the lists, in parts as large as the server takes; a
+// failed lookup keeps the last list, fails nothing else and is logged once.
+void FeedDiscordFriends()
+{
+    if (!HttpUnavailable().empty()) return;
+    using namespace std::chrono_literals;
+    std::string off;
+    CHECK(!OnlinePanelFeed::Start("", "unused.session", "", {"1"}, {}, &off) && !off.empty());
+    const auto folder = std::filesystem::temp_directory_path()
+        / ("recharged-feed-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::remove_all(folder);
+    const auto session = ProfileSessionFile(folder, "feed.ini");
+    SaveProfileSession(session, {"http://127.0.0.1:1", "t0k3n", "Nelly"});
+    off.clear();
+    CHECK(!OnlinePanelFeed::Start("http://127.0.0.1:2", session, "", {"1"}, {}, &off) && !off.empty());
+
+    std::vector<std::string> ids;
+    for (int i = 0; i < 250; ++i) ids.push_back(std::to_string(900000000000000000LL + i));
+    const std::string me = R"({"id":7,"name":"Nelly","discord":"nelly","discord_id":"80351110224678912"})";
+    const std::string lists = R"({"online":[],"recent":[],"friends":[{"id":9,"name":"Zed","online":false,"friend":true}]})";
+    const std::string none = R"({"match":null})";
+    const std::vector<Exchange> exchanges{
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"POST /api/v1/players/discord", 200,
+         R"({"players":[{"id":9,"name":"Zed","online":false,"discord_id":"900000000000000003"}]})"},
+        {"POST /api/v1/players/discord", 200,
+         R"({"players":[{"id":8,"name":"Sam","online":true,"busy":false,"activity":"game",)"
+         R"("discord_id":"900000000000000210"}]})"},
+        {"GET /api/v1/matches/current", 200, none},
+        {"GET /api/v1/rules", 200,
+         R"({"rule_sets":[{"id":2,"name":"Competitive","rules":{"tweaks":[],"skill":"rookie","limit":"time",)"
+         R"("time":180,"goals":5,"games":3,"stadium":"random"},"hash":"abc"}]})"},
+        {"GET /api/v1/server", 200, R"({"version":"1.2.1","sign_in":{"discord":true,"test":false}})"},
+        // The next two asks: the lookup fails, the lists don't.
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"POST /api/v1/players/discord", 500, R"({"error":"down for a moment"})"},
+        {"GET /api/v1/matches/current", 200, none},
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"POST /api/v1/players/discord", 500, R"({"error":"still down"})"},
+        {"GET /api/v1/matches/current", 200, none},
+    };
+    std::vector<Sent> sent;
+    std::mutex log_mutex;
+    std::vector<std::string> logs;
+    OnlinePanelFeed::Snapshot first, last;
+    {
+        Server server(exchanges, sent);
+        SaveProfileSession(session, {server.Url(), "t0k3n", "Nelly"});
+        auto feed = OnlinePanelFeed::Start(
+            server.Url(), session, "", ids,
+            [&](const std::string& text) {
+                std::lock_guard<std::mutex> lock(log_mutex);
+                logs.push_back(text);
+            },
+            &off);
+        CHECK(feed != nullptr);
+        if (feed)
+        {
+            feed->SetOpen(true);
+            const auto deadline = std::chrono::steady_clock::now() + 30s;
+            while (std::chrono::steady_clock::now() < deadline)
+            {
+                last = feed->Latest();
+                if (last.version == 1 && !first.loaded) first = last;
+                if (last.version >= 3) break;
+                std::this_thread::sleep_for(20ms);
+            }
+            feed.reset();
+        }
+    }
+    std::filesystem::remove_all(folder);
+
+    // The first answer: both parts, online first.
+    CHECK(first.loaded && first.error.empty() && first.discord_friends.size() == 2);
+    if (first.discord_friends.size() == 2)
+    {
+        CHECK(first.discord_friends[0].id == 8 && first.discord_friends[0].online
+              && first.discord_friends[0].activity == "game"
+              && first.discord_friends[0].discord_id == "900000000000000210");
+        CHECK(first.discord_friends[1].id == 9 && !first.discord_friends[1].online);
+    }
+    CHECK(first.lists.friends.size() == 1 && first.server_version == "1.2.1" && first.rule_sets.size() == 1);
+    // The failed lookups keep that list, and the lists still come.
+    CHECK(last.version == 3 && last.error.empty() && last.lists.friends.size() == 1);
+    CHECK(last.discord_friends.size() == 2 && last.discord_friends[0].id == 8);
+    CHECK(logs.size() == 1 && logs[0].find("Down for a moment") != std::string::npos);
+
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+    {
+        auto body = [&](std::size_t from, std::size_t to) {
+            std::string text = "{\"ids\":[";
+            for (std::size_t i = from; i < to; ++i) text += (i > from ? ",\"" : "\"") + ids[i] + "\"";
+            return text + "]}";
+        };
+        CHECK(sent[2].body == body(0, 200) && sent[3].body == body(200, 250));
+        CHECK(sent[2].authorization == "Bearer t0k3n" && sent[2].activity == "game"
+              && sent[2].content_type == "application/json");
+    }
+}
+
+// The panel's choice of rules: each challenge goes out with the rule set
+// chosen when it was asked for (by name; one the server doesn't have: its first).
+void FeedChallengeRules()
+{
+    if (!HttpUnavailable().empty()) return;
+    using namespace std::chrono_literals;
+    const auto folder = std::filesystem::temp_directory_path()
+        / ("recharged-feed-rules-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::remove_all(folder);
+    const auto session = ProfileSessionFile(folder, "feed.ini");
+    const std::string me = R"({"id":7,"name":"Nelly","discord":"nelly"})";
+    const std::string lists = R"({"online":[],"recent":[],"friends":[]})";
+    const std::string none = R"({"match":null})";
+    const std::vector<Exchange> exchanges{
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"GET /api/v1/matches/current", 200, none},
+        {"GET /api/v1/rules", 200,
+         R"({"rule_sets":[{"id":2,"name":"Competitive","rules":{"tweaks":[],"skill":"rookie","limit":"time",)"
+         R"("time":180,"goals":5,"games":3,"stadium":"random"},"hash":"abc"},)"
+         R"({"id":5,"name":"Classic","rules":{"tweaks":[],"skill":"legend","limit":"time",)"
+         R"("time":300,"goals":5,"games":1,"stadium":"random"},"hash":"def"}]})"},
+        {"GET /api/v1/server", 200, R"({"version":"1.2.1","sign_in":{"discord":true,"test":false}})"},
+        // By the server's Classic as it is; then by rules of the player's own.
+        {"POST /api/v1/matches", 200, kSet},
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"GET /api/v1/matches/current", 200, none},
+        {"POST /api/v1/matches", 200, kSet},
+        {"GET /api/v1/me", 200, me},
+        {"GET /api/v1/players", 200, lists},
+        {"GET /api/v1/matches/current", 200, none},
+    };
+    std::vector<Sent> sent;
+    std::string off;
+    {
+        Server server(exchanges, sent);
+        SaveProfileSession(session, {server.Url(), "t0k3n", "Nelly"});
+        auto feed = OnlinePanelFeed::Start(server.Url(), session, "Competitive", {}, {}, &off);
+        CHECK(feed != nullptr);
+        if (feed)
+        {
+            CHECK(feed->ChallengeRules() == "Competitive");
+            const auto wait = [&](std::uint64_t version) {
+                const auto deadline = std::chrono::steady_clock::now() + 30s;
+                while (std::chrono::steady_clock::now() < deadline && feed->Latest().version < version)
+                    std::this_thread::sleep_for(10ms);
+                return feed->Latest().version >= version;
+            };
+            feed->SetOpen(true);
+            CHECK(wait(1) && feed->Latest().rule_sets.size() == 2);
+            feed->SetOpen(false); // only the actions ask now
+            feed->SetChallengeRules("Classic");
+            CHECK(feed->ChallengeRules() == "Classic");
+            feed->Challenge(8, 5, {}, "Classic");
+            CHECK(wait(2));
+            MatchRules own = feed->Latest().rule_sets[0].rules;
+            own.stadium_cheat = "field_tilt";
+            feed->Challenge(9, 0, own, "Competitive (changed)");
+            CHECK(wait(3));
+            feed.reset();
+        }
+    }
+    std::filesystem::remove_all(folder);
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+    {
+        CHECK(sent[5].body == R"({"opponent_id":8,"rule_set":5})");
+        CHECK(sent[9].body
+              == R"({"opponent_id":9,"rules":{"tweaks":[],"skill":"rookie","limit":"time","time":180,"goals":5,)"
+                 R"("games":3,"stadium":"random","stadium_cheat":"field_tilt","player_cheat":"none",)"
+                 R"x("powerup_cheat":"none"},"name":"Competitive (changed)"})x");
+    }
+}
 #endif
 } // namespace
 
@@ -451,6 +807,10 @@ int main()
     LastOnline();
 #ifndef _WIN32
     Requests();
+    MiiAccounts();
+    WfcSignIn();
+    FeedDiscordFriends();
+    FeedChallengeRules();
 #endif
     if (failures)
     {

@@ -727,6 +727,8 @@ std::vector<InstalledMii> ListedMiis(const std::string& database, const std::vec
         if (!MiiUsed(record)) continue;
         const unsigned flags = record[0] << 8 | record[1];
         InstalledMii mii{MiiName(record + kMiiNameOffset), int(flags >> kMiiColorShift & kMiiColorMask)};
+        std::copy_n(record + kMiiCreateIdOffset, kMiiCreateIdBytes, mii.create_id.begin());
+        mii.record.assign(reinterpret_cast<const char*>(record), kMiiBytes);
         const auto online = std::find_if(slots.begin(), slots.end(), [&](const OnlineSlot& slot) {
             return std::equal(slot.create_id.begin(), slot.create_id.end(), record + kMiiCreateIdOffset);
         });
@@ -837,6 +839,34 @@ MiiImportResult AddMii(const std::string& record, const fs::path& nand_root, con
     result.names = {MiiName(mii + kMiiNameOffset)};
     result.backup = WriteMiiDatabase(backing, title, database, backup_parent, "before-mii-create-");
     return result;
+}
+
+MiiImportResult ReplaceMii(const std::string& record, const fs::path& nand_root, const SaveTitle& title,
+                           const fs::path& backup_parent) {
+    const auto* mii = reinterpret_cast<const unsigned char*>(record.data());
+    if (record.size() != kMiiBytes || !MiiUsed(mii) || (!mii[kMiiNameOffset] && !mii[kMiiNameOffset + 1]))
+        throw std::invalid_argument("Not a Mii record with a name and a create ID.");
+    auto backing = OpenMiiBacking(nand_root, title);
+    if (backing.database.empty()) throw MiiNotFound();
+    if (!ValidMiiDatabase(backing.database))
+        throw std::runtime_error("The game's Mii database is damaged. Import the Miis from Dolphin instead.");
+    for (std::size_t slot = 0; slot < kMiiSlots; ++slot) {
+        const auto* other = MiiRecord(backing.database, slot);
+        if (!MiiUsed(other)
+            || !std::equal(other + kMiiCreateIdOffset, other + kMiiCreateIdOffset + kMiiCreateIdBytes,
+                           mii + kMiiCreateIdOffset))
+            continue;
+        MiiImportResult result;
+        result.names = {MiiName(mii + kMiiNameOffset)};
+        const std::size_t at = 4 + slot * kMiiBytes;
+        if (backing.database.compare(at, kMiiBytes, record) == 0) return result;
+        auto database = backing.database;
+        database.replace(at, kMiiBytes, record);
+        SetMiiCrc(database);
+        result.backup = WriteMiiDatabase(backing, title, database, backup_parent, "before-mii-edit-");
+        return result;
+    }
+    throw MiiNotFound();
 }
 
 MiiEnsured EnsureMii(const std::string& record, const fs::path& nand_root, const SaveTitle& title,

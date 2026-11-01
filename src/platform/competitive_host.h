@@ -46,14 +46,57 @@ public:
     bool Observe(const ChargedWfcSnapshot& wfc, const ChargedPresenceSnapshot* presence,
                  std::optional<ChargedCompetitiveRules>& rules);
 
-    // This game is set `set`'s (the launcher's Ready to play!): it starts
-    // itself into the set's RANKED search (the module's set stages). A set it
-    // leaves without a result goes back to waiting for Ready to play!.
+    // This game is set `set`'s (the launcher's Ready to play!, or a
+    // TakeSetStart): it starts itself into the set's RANKED search (the
+    // module's set stages). A set it leaves without a result goes back to
+    // waiting for Ready to play!.
     void PlaySet(std::int64_t set);
-    // On the game's thread after Observe: the set's game is done (the series
-    // is over and reported, the set failed, or the server called it off).
-    // The caller closes the game; true once.
-    bool CloseNow();
+    // On the game's thread after Observe: a set that went (both are ready:
+    // the card's accept, a rematch) while this game is in its menus and
+    // plays none. The caller hands the module the player's Mii and calls
+    // PlaySet: the game goes on into RANKED without closing. Once per go.
+    struct SetStart
+    {
+        std::int64_t match = 0;
+        std::string opponent;
+    };
+    std::optional<SetStart> TakeSetStart();
+    // On the game's thread after Observe: the set this game played is done
+    // (the series is over and reported, the set failed, or the server called
+    // it off); the game is no set's any more and stays where it is (the
+    // caller ends the module's set). Once.
+    struct SetEnd
+    {
+        enum class How
+        {
+            Over,      // the series was played
+            NoResult,  // back from the match without a game played (one left)
+            Failed,    // a popup ended it (`popup`)
+            CalledOff  // the set stopped waiting for this game
+        };
+        std::int64_t match = 0;
+        std::string opponent;
+        std::string opponent_avatar; // their picture (URL), or empty
+        int won = 0, lost = 0, games = 0; // the games this game counted
+        How how = How::Over;
+        int popup = -1;
+        bool can_play_again = false; // the server keeps it open for Ready to play!
+    };
+    std::optional<SetEnd> TakeSetEnd();
+    // After a SetEnd: the same set again. `rematch`: a new set by its rules
+    // (the opponent's game asks its player); otherwise the player's Ready to
+    // play! again for a set that stopped.
+    void PlayAgain(std::int64_t match, bool rematch);
+
+    // On the game's thread after Observe: the set this game plays, for the
+    // Discord status: the opponent, the games won and lost so far and how
+    // many the series has; none outside a set's game.
+    struct SetStatus
+    {
+        std::string opponent;
+        int won = 0, lost = 0, games = 0;
+    };
+    std::optional<SetStatus> CurrentSet();
 
     // A challenge to this player while the game is in its menus (not in a
     // match, not a set's game): what the host's card asks, or none.
@@ -61,16 +104,17 @@ public:
     {
         std::int64_t match = 0;
         std::string from;  // the challenger's name
+        std::string avatar; // the challenger's picture (URL), or empty
         std::string rules; // the rule set and what it plays by
+        bool rematch = false; // the set they played last, again
+        bool random = false;  // their search for a random opponent asks this player
     };
     std::optional<Invitation> PendingInvitation();
-    // The card's answer. An accept is also the player's Ready to play!: once
-    // the server has it, RestartForSet() says so.
+    // The card's answer. An accept is also the player's Ready to play!: the
+    // set then goes, and TakeSetStart() starts it in this game.
     void Answer(std::int64_t match, bool accept);
-    // On the game's thread: the accepted set goes, and this game is not the
-    // set's; the caller closes it and opens the launcher, which starts the
-    // set's game. True once.
-    bool RestartForSet();
+    // On the game's thread: the game plays a match (no cards or reminders).
+    bool InMatch();
     // What the host shows in a message (an answer the server did not take),
     // once.
     std::optional<std::string> TakeNotice();
@@ -80,12 +124,16 @@ private:
     void Run();
     void Work(ProfileService& api);
     void Said(const std::string& line);
+    // Wakes the worker for new work (no wake-up gets lost while it works).
+    void Kick();
+    // With mutex_ held: the game is due to say it is ready for match_.
+    bool ReadyDue() const;
 
     const std::string server_, token_, player_;
     const Log log_;
     std::mutex mutex_;
     std::condition_variable wake_;
-    bool stop_ = false;
+    bool stop_ = false, kick_ = false;
     std::shared_ptr<class HttpCancel> cancel_;
     std::thread worker_;
 
@@ -102,11 +150,16 @@ private:
     // from a match's loading until it is unloaded (no challenges then).
     std::string activity_ = "game";
     // A challenge to answer in the game's menus, the card's answer still to
-    // send, the last one sent, and the accepted set the game closes for.
+    // send and the last one sent.
     std::optional<Invitation> invitation_;
     std::int64_t answer_match_ = 0, answered_match_ = 0;
     bool answer_accept_ = false;
-    bool restart_ = false, restart_taken_ = false;
+    // A set that went for this game to start (TakeSetStart), the last go
+    // started (go_at, or the set's id), and a PlayAgain still to send.
+    std::optional<SetStart> set_start_;
+    std::int64_t started_go_ = 0;
+    std::int64_t again_match_ = 0;
+    bool again_rematch_ = false;
     std::optional<std::string> notice_;
     struct Report
     {
@@ -124,7 +177,12 @@ private:
     int set_stage_ = 0;
     int set_popup_ = -1;
     int unsent_ = 0;
-    bool set_called_off_ = false, set_unready_ = false, set_closed_ = false;
+    bool set_called_off_ = false, set_unready_ = false;
+    // The set's opponent and series length, kept once the server has gone
+    // on from the set (for the Discord status of its last screens).
+    std::string set_opponent_;
+    std::string set_opponent_avatar_;
+    int set_games_ = 0;
     std::chrono::steady_clock::time_point set_done_{};
 
     // The game's thread only.

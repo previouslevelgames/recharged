@@ -15,6 +15,10 @@ struct ChargedCompetitiveRules
     int goals;
     int games;   // in the series
     int stadium; // eStadiumID, or -1: the host picks one, as in the game
+    // The game's cheats: eEnvironmentCheat, ePlayerCheat, ePowerupCheat (0 none).
+    int stadium_cheat;
+    int player_cheat;
+    int powerup_cheat;
     // The opponent's WFC profiles: the rules apply only to a RANKED match
     // against one of them.
     unsigned opponents[8];
@@ -42,6 +46,10 @@ struct ChargedWfcSnapshot
     // Online every machine's players have a side, so the presence snapshot's
     // human_sides has both.
     int local_side;
+    // A set's game passes its menus unseen (tweak patch 0048): the host holds
+    // the players' buttons meanwhile, so nobody steps into a screen they
+    // cannot see.
+    int set_unseen;
 };
 
 // How far a set's game got: booting (title, main menu), choosing the Mii and
@@ -63,9 +71,20 @@ enum ChargedSetStage
 #ifdef __cplusplus
 extern "C" {
 #endif
-// Game module entry, before original main: this game is a set's, with the
-// player's own Mii (`mii`: its 8-byte create ID; false when `size` is not 8).
+// Game module entry, before original main or between frames: this game is a
+// set's, with the player's own Mii (`mii`: its 8-byte create ID; false when
+// `size` is not 8).
 typedef bool (*ChargedConfigureCompetitiveStartFunction)(const unsigned char* mii, unsigned size);
+// Game module entry, between frames: the set is done and the host has
+// finished with it; the game's popups and menus are the player's again.
+typedef void (*ChargedCompetitiveEndSetFunction)(void);
+// Game module entry, between frames: the set's players' profile names
+// (UTF-16, ScreenName) for its RANKED screens, this player's and the
+// opponent's (null or empty: the Mii name stays); both null: none.
+typedef void (*ChargedConfigureDisplayNamesFunction)(const unsigned short* own, const unsigned short* opponent);
+// Game module entry ([advanced] log_level = debug): DWC's reports of the WFC
+// login, matchmaking and NAT negotiation go to the game's output (the log).
+typedef void (*ChargedConfigureDwcReportFunction)(bool on);
 // Game module entry: fills `snapshot` when `size` matches this build's
 // struct; false otherwise.
 typedef bool (*ChargedWfcSnapshotFunction)(ChargedWfcSnapshot* snapshot, unsigned size);
@@ -79,6 +98,7 @@ typedef bool (*ChargedConfigureCompetitiveFunction)(const ChargedCompetitiveRule
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace mscharged::platform
 {
@@ -89,13 +109,33 @@ struct ProfilePlayer;
 // naming a rule this build does not know (the server is newer).
 std::optional<ChargedCompetitiveRules> ModuleRules(const MatchRules& rules, const ProfilePlayer& opponent,
                                                    std::string* error = nullptr);
-// "Rookie, 3 minutes, best of 3, random stadium, No Mega Strikes".
+// "3 minutes, best of 3, random stadium, No Mega Strikes, Field Tilt" (the
+// skill only matters against the CPU, so it isn't said).
 std::string DescribeRules(const MatchRules& rules);
+// What a rule offers: the server's key and the name players see, in the
+// game's order (the cheats' first is "none").
+struct RuleChoice
+{
+    const char* key;
+    const char* label;
+};
+const std::vector<RuleChoice>& StadiumChoices(); // "random" first
+const std::vector<RuleChoice>& StadiumCheatChoices();
+const std::vector<RuleChoice>& PlayerCheatChoices();
+const std::vector<RuleChoice>& PowerupCheatChoices();
+// The tweaks a set's rules may switch on (fast_terrain, no_mega_strikes,
+// thunder_island_walls), with their names.
+const std::vector<RuleChoice>& RuleTweakChoices();
 // The server's names (lowercase, '_' between words): eTeamID and eStadiumID,
 // empty for unknown values.
 std::string CaptainKey(int team);
 std::string StadiumKey(int stadium);
 // "the_palace" as shown: "The Palace".
 std::string NameLabel(std::string_view name);
+// A profile name as the game's screens can show it: UTF-16 of the basic
+// plane without control, private-use and invisible characters (emoji and
+// other characters outside it are left out), runs of spaces as one, at most
+// 32 units; empty for none (or invalid UTF-8).
+std::u16string ScreenName(std::string_view name);
 } // namespace mscharged::platform
 #endif

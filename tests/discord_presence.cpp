@@ -166,6 +166,19 @@ void Texts()
     ranked.online = ranked.ranked = 1;
     Require(presence.Describe(ranked, 1110).details == "Online ranked match \xC2\xB7 Thunder Island", "Ranked match");
 
+    // A set's game: the set in place of the match mode, the games so far.
+    mscharged::platform::SetText set{"Bob", 1, 0, 3};
+    const auto in_set = presence.Describe(ranked, 1120, &set);
+    Require(in_set.details == "Set against Bob \xC2\xB7 games 1-0" && in_set.state == "Luigi 2 - 1 Bowser",
+            "Set match: " + in_set.details + " / " + in_set.state);
+    const auto draft = presence.Describe(Menu({50}), 1130, &set);
+    Require(draft.details == "Set against Bob \xC2\xB7 games 1-0" && draft.state == "Between games"
+                && draft.start == 500,
+            "Set between games");
+    mscharged::platform::SetText single{"Bob", 0, 0, 1};
+    const auto first = presence.Describe(Menu({50}), 1140, &single);
+    Require(first.details == "Set against Bob" && first.state == "Getting ready", "Set of one game");
+
     Require(CaptainName(11) && std::string(CaptainName(11)) == "Petey" && !CaptainName(12) && !CaptainName(-1),
             "Captain names");
     Require(StadiumName(16) && std::string(StadiumName(16)) == "The Classroom" && !StadiumName(17), "Stadium names");

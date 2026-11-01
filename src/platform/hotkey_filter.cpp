@@ -23,6 +23,17 @@ std::atomic<bool> sFullscreenPressed{false};
 std::mutex sLock;
 Hotkeys sHotkeys;
 std::bitset<SDL_SCANCODE_COUNT> sHeld;
+// While the host panel's text field has the keyboard only the panel and the
+// fullscreen hotkey act.
+std::atomic<bool> sTyping{false};
+// The hotkey a press is now, with sLock held.
+HotkeyIndex MatchLocked(SDL_Scancode key, SDL_Keymod mod)
+{
+    const HotkeyIndex hotkey = sHotkeys.Match(key, mod);
+    if (sTyping.load() && hotkey != HotkeyPanel && hotkey != HotkeyOptions && hotkey != HotkeyFullscreen)
+        return HotkeyCount;
+    return hotkey;
+}
 // The filter set before ours, which still sees every event ours passes.
 // Written only while ours is not set: SDL calls filters under its own lock.
 SDL_EventFilter sPreviousFilter = nullptr;
@@ -133,7 +144,7 @@ ChordPass PassChordKey(const SDL_KeyboardEvent& key, int index)
             for (const ChordKey& other : sChord) down += other.down;
             if (down == 1)
             {
-                if ((mine.deferred = sHotkeys.Match(key.scancode, key.mod)) == HotkeyCount)
+                if ((mine.deferred = MatchLocked(key.scancode, key.mod)) == HotkeyCount)
                 {
                     mine.press.key = key;
                     mine.released = false;
@@ -212,7 +223,7 @@ bool Pass(const SDL_KeyboardEvent& key)
             return !held;
         }
         if (key.repeat) return !held;
-        hotkey = sHotkeys.Match(key.scancode, key.mod);
+        hotkey = MatchLocked(key.scancode, key.mod);
         // Otherwise a new press: the hotkey's release was never seen (focus moved away).
         sHeld[key.scancode] = hotkey != HotkeyCount;
     }
@@ -286,6 +297,11 @@ void SetHotkeys(const Hotkeys& hotkeys)
 void SetHotkeyAction(HotkeyIndex hotkey, void (*action)())
 {
     if (hotkey < HotkeyCount) sActions[hotkey] = action;
+}
+
+void SetHotkeysTyping(bool typing)
+{
+    sTyping = typing;
 }
 
 #if defined(MSCHARGED_AUTOPILOT)

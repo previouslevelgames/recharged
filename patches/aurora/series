@@ -113,3 +113,5 @@
 0117-present-the-picture-at-its-exact-shape-or-stretched.patch
 0118-build-the-dawn-platform-without-exceptions.patch
 0119-scale-and-offset-the-viewport-depth.patch
+0120-host-overlay-input-for-a-panel.patch
+0121-blur-the-picture-behind-a-host-panel.patch

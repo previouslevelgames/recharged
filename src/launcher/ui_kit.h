@@ -54,11 +54,15 @@ struct Fonts
     ImFont* title = nullptr;    // 30 dp
     ImFont* button = nullptr;   // 22 dp
     ImFont* overline = nullptr; // 21 dp
+    ImFont* display = nullptr;  // 72 dp, digits only (the set's countdown)
 };
 // Rasterizes Roboto at the exact framebuffer pixel size for `font_raster`
 // pixels per dp; io.FontGlobalScale maps the glyphs back to window units.
 Fonts LoadFonts(const std::string& ttf, float font_raster, float density);
 const Fonts& CurrentFonts();
+// The fonts the widgets draw with, for a host that loads its own (the game's
+// online panel); LoadFonts sets them too.
+void SetCurrentFonts(const Fonts& fonts);
 float FontSize(ImFont* font); // in window units, including FontGlobalScale
 
 // Theme for the current scale (call on a fresh style when the scale changes).
@@ -68,7 +72,7 @@ enum class Icon
 {
     None, Play, Disc, Display, Audio, Keyboard, Sliders, Info, Folder, Check, Warning, Error, Refresh, Mouse,
     Gamepad, Copy, Link, Target, Back, GitHub, Download, Flask, Tag, Trophy, Gear, Close, Up, Down, Archive, More,
-    Heart, Bug, Layers, Bulb, Code, Person, Pitch, Clipboard, Medal, Chat
+    Heart, Bug, Layers, Bulb, Code, Person, Pitch, Clipboard, Medal, Chat, Bracket, Podium, Dice, Paint
 };
 void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 center, float size, ImU32 color);
 
@@ -154,6 +158,11 @@ bool SegmentedIcons(const char* id, int* selected, std::initializer_list<Segment
 // `minimum`..`maximum`.
 bool PercentSlider(const char* id, int* value, float width, const char* zero_label = nullptr, int minimum = 0,
                    int maximum = 100);
+// A slider for a small whole number between a minus and a plus button, with
+// `label` (the value, or a word for it) after them; `reversed` shows the
+// maximum at the left, for values that grow the other way.
+bool StepSlider(const char* id, int* value, int minimum, int maximum, float width, const char* label,
+                bool reversed = false);
 void Chip(const char* text, const ImVec4& color, Icon icon = Icon::None);
 // Small battery gauge (0-100%), coloured by charge, with the percentage after it.
 void BatteryIcon(int percent);
