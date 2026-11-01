@@ -154,12 +154,15 @@ std::vector<Mii> DatabaseMiis(const fs::path& path)
     return miis;
 }
 
+// A game image, RFLRes01.arc (a U8 archive) or RFL_Res.dat, by its first bytes.
 MiiParts LoadParts(const fs::path& path)
 {
-    const auto bytes = ReadFile(path);
-    if (bytes.size() >= 4 && bytes[0] == 0x55 && bytes[1] == 0xAA && bytes[2] == 0x38 && bytes[3] == 0x2D)
-        return MiiParts::FromArchive(bytes);
-    if (bytes.size() >= 2 && bytes[0] == 0 && bytes[1] == 18) return MiiParts(bytes);
+    std::ifstream in(path, std::ios::binary);
+    unsigned char magic[4]{};
+    in.read(reinterpret_cast<char*>(magic), 4);
+    if (in && magic[0] == 0x55 && magic[1] == 0xAA && magic[2] == 0x38 && magic[3] == 0x2D)
+        return MiiParts::FromArchive(ReadFile(path));
+    if (in && magic[0] == 0 && magic[1] == 18) return MiiParts(ReadFile(path));
     return ReadMiiPartsFromImage(path);
 }
 
