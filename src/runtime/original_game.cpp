@@ -1776,6 +1776,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // The player's own presets (the launcher's Match rules page, files in
         // match-presets beside the settings file), read as the overlay opens.
         std::vector<mscharged::overlay::OnlinePanelPreset> myPresets;
+        std::vector<mscharged::overlay::OnlinePanelPreset> builtInPresets;
+        for(const auto& preset:mscharged::launcher::BuiltInMatchPresets())
+            builtInPresets.push_back({preset.name,mscharged::launcher::ChallengeRules(preset),0});
         // The 3D resolutions the Settings tab offers, by the height they draw at.
         std::vector<std::string> displayResolutions;
         std::optional<unsigned> pendingTweaks;
@@ -1921,6 +1924,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // player's presets, the one used last ([online] challenge_rules) first.
                 context.rule_sets=snapshot.rule_sets;
                 context.my_presets=myPresets;
+                context.built_in_presets=builtInPresets;
                 context.chosen_rules=challengeRules;
                 context.can_challenge=!snapshot.rule_sets.empty();
                 context.random_games=versionAtLeast(snapshot.server_version,1,2,1);

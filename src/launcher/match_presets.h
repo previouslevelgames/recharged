@@ -12,8 +12,10 @@
 // Match presets: named sets of match settings and cheats (the Matches page),
 // each a small INI file in a folder beside recharged.ini. Choosing one writes
 // it into the game save, for matches on this computer or online with friends.
-// Two are built in and cannot change: Default and Competitive. Independent of
-// SDL/ImGui so it can be unit tested.
+// Two are built in and cannot change: Retail ranked (the game's own ranked
+// rules, also a new save's settings) and Competitive (the same with Fast
+// terrain, No Mega Strikes and Thunder Island walls), as the profile server
+// starts with them. Independent of SDL/ImGui so it can be unit tested.
 namespace mscharged::launcher
 {
 struct MatchPreset
@@ -36,8 +38,9 @@ platform::MatchRules ChallengeRules(const MatchPreset& preset);
 // sets): values the game's settings screen doesn't offer take its nearest.
 MatchPreset PresetFromRules(std::string name, const platform::MatchRules& rules);
 
-// Default: what a new save starts with, no cheats. Competitive: Superstar,
-// best of 3, first to 10 goals, Secure, no other cheat.
+// Retail ranked: Rookie, best of 3, 3 minutes, a random stadium, no cheats
+// (a new save's settings). Competitive: the same, with Fast terrain, No Mega
+// Strikes and Thunder Island walls.
 const std::vector<MatchPreset>& BuiltInMatchPresets();
 
 // Names are compared without case. A preset's name has 1 to 32 characters,

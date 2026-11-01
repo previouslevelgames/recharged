@@ -392,7 +392,8 @@ there is no save, and so nothing to change.
 match settings and cheats for matches on the console and one for online
 matches with friends, and the preset replaces the one you choose (the backup
 is the same). Every cheat can be chosen, whether the save has unlocked it or
-not. Presets other than Default and Competitive are files in `match-presets/`
+not. Presets other than the built-in Retail ranked and Competitive (read-only;
+**Copy** makes one of your own) are files in `match-presets/`
 beside `recharged.ini`, one per preset, named after it (`quick-3.ini`):
 
 ```ini

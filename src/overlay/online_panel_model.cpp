@@ -295,11 +295,22 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     model.me.tint_seed = me.id;
     model.me.available = me.available;
     model.me.can_set_available = context.random_games;
-    for (const RuleSet& rule_set : context.rule_sets)
-        model.presets.push_back({rule_set.name, rule_set.rules, rule_set.id});
-    // The player's own presets only where the server has rule sets to play by.
+    // Only where the server has rule sets to play by: the built-in presets,
+    // the server's other rule sets, the player's own presets.
     if (!context.rule_sets.empty())
+    {
+        for (OnlinePanelPreset preset : context.built_in_presets)
+        {
+            for (const RuleSet& rule_set : context.rule_sets)
+                if (rule_set.name == preset.name && rule_set.rules == preset.rules) preset.rule_set = rule_set.id;
+            model.presets.push_back(std::move(preset));
+        }
+        for (const RuleSet& rule_set : context.rule_sets)
+            if (std::none_of(context.built_in_presets.begin(), context.built_in_presets.end(),
+                             [&](const OnlinePanelPreset& preset) { return preset.name == rule_set.name; }))
+                model.presets.push_back({rule_set.name, rule_set.rules, rule_set.id});
         model.presets.insert(model.presets.end(), context.my_presets.begin(), context.my_presets.end());
+    }
     for (std::size_t n = 0; n < model.presets.size(); ++n)
         if (model.presets[n].name == context.chosen_rules)
         {

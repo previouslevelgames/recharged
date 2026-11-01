@@ -192,6 +192,10 @@ struct OnlinePanelContext
     // ([online] challenge_rules, its name; empty or unknown: the first).
     std::vector<platform::RuleSet> rule_sets;
     std::vector<OnlinePanelPreset> my_presets;
+    // The built-in presets (Retail ranked, Competitive): always first, as
+    // they are; a server's rule set of the same name gives its id when its
+    // rules are the same, and doesn't show itself.
+    std::vector<OnlinePanelPreset> built_in_presets;
     std::string chosen_rules;
     // The server knows searches for a random opponent (1.2.4), the player's
     // search and how long it runs.

@@ -255,9 +255,11 @@ gameplay tweaks both teams play with. A challenge starts from one of them or
 from the server's rule sets (**From the server**, Copy makes one your own).
 Use a preset for matches on this computer or online with friends, and it goes
 into your game save, as if chosen in the game's settings screen; ranked
-matches keep their rules. **Default** (a new save's settings)
-and **Competitive** (Superstar, best of 3, first to 10 goals, Secure Stadiums) are
-built in; the others are files of their own ([saves](SETTINGS.md#saves)).
+matches keep their rules. **Retail ranked** (the game's own ranked rules:
+Rookie, best of 3, 3 minutes, a random stadium, also a new save's settings) and
+**Competitive** (the same with Fast terrain, No Mega Strikes and Thunder Island
+walls) are built in, read-only and always there, in the game's challenge setup
+too; the others are files of their own ([saves](SETTINGS.md#saves)).
 
 It also **updates Recharged**: when a newer release is out it shows the release
 notes and asks, then installs it in place and restarts; only the program's own

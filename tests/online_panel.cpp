@@ -404,6 +404,23 @@ void TestChallengeRules()
           && model.presets[1].name == "Classic" && model.presets[1].rules == classic.rules
           && model.presets[2].name == "Palace tilt" && model.presets[2].rule_set == 0);
     CHECK(model.chosen_preset == 1);
+    // The built-in presets first: by the server's rule set of the same name
+    // when its rules are the same (Competitive, id 2), else as they are
+    // (Retail ranked, none here); the server's Competitive doesn't show twice.
+    {
+        auto with = context;
+        with.built_in_presets = {{"Retail ranked", classic.rules, 0}, {"Competitive", competitive.rules, 0}};
+        const auto built = MakeOnlinePanelModel({}, std::nullopt, with);
+        CHECK(built.presets.size() == 4 && built.presets[0].name == "Retail ranked" && built.presets[0].rule_set == 0
+              && built.presets[1].name == "Competitive" && built.presets[1].rule_set == 2
+              && built.presets[2].name == "Classic" && built.presets[3].name == "Palace tilt");
+        auto other = competitive.rules;
+        other.games = 7;
+        with.built_in_presets = {{"Competitive", other, 0}};
+        const auto changed = MakeOnlinePanelModel({}, std::nullopt, with);
+        CHECK(changed.presets[0].name == "Competitive" && changed.presets[0].rule_set == 0
+              && changed.presets[0].rules.games == 7 && changed.presets.size() == 3);
+    }
     context.chosen_rules = "Palace tilt";
     CHECK(MakeOnlinePanelModel({}, std::nullopt, context).chosen_preset == 2);
     // None chosen, or one there isn't: the first.

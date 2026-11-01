@@ -66,13 +66,11 @@ std::string Quoted(const std::string& text) { return '"' + text + '"'; }
 const std::vector<MatchPreset>& BuiltInMatchPresets()
 {
     static const std::vector<MatchPreset> presets = [] {
-        MatchSettings competitive;
-        competitive.skill = 3;
-        competitive.best_of = 3;
-        competitive.goal_limit = true;
-        competitive.goals = 10;
-        competitive.stadium_cheat = 1;
-        return std::vector<MatchPreset>{{"Default", MatchSettings{}, true, {}}, {"Competitive", competitive, true, {}}};
+        MatchPreset retail{"Retail ranked", MatchSettings{}, true, {}};
+        MatchPreset competitive = retail;
+        competitive.name = "Competitive";
+        competitive.tweaks = {"fast_terrain", "no_mega_strikes", "thunder_island_walls"};
+        return std::vector<MatchPreset>{retail, competitive};
     }();
     return presets;
 }

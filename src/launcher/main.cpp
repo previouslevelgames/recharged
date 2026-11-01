@@ -7077,15 +7077,24 @@ private:
     // and Copy for a preset of the player's own from one.
     void ServerPresetsCard()
     {
-        if (competitive_status_.state != CompetitiveService::State::SignedIn || competitive_status_.rule_sets.empty())
-            return;
+        // The server's own, besides the built-in presets of the same names.
+        std::vector<const platform::RuleSet*> own;
+        if (competitive_status_.state == CompetitiveService::State::SignedIn)
+            for (const auto& set : competitive_status_.rule_sets)
+            {
+                const auto& built_in = launcher::BuiltInMatchPresets();
+                if (std::none_of(built_in.begin(), built_in.end(),
+                                 [&](const launcher::MatchPreset& preset) { return preset.name == set.name; }))
+                    own.push_back(&set);
+            }
+        if (own.empty()) return;
         const auto& fonts = CurrentFonts();
         BeginCard("##server_presets", "From the server",
                   "The rule sets this server offers for challenges, the same for every player. Copy one to change it.",
                   Icon::Trophy);
-        for (std::size_t n = 0; n < competitive_status_.rule_sets.size(); ++n)
+        for (std::size_t n = 0; n < own.size(); ++n)
         {
-            const auto& set = competitive_status_.rule_sets[n];
+            const auto& set = *own[n];
             if (n)
             {
                 ImGui::Dummy({0, Dp(4)});
@@ -7212,7 +7221,7 @@ private:
         // Why the preset cannot be saved, if it cannot.
         std::string blocked;
         if (!launcher::ValidMatchPresetName(preset.name))
-            blocked = "A name of 1 to 32 characters, without \" [ ] = |, and neither Default nor Competitive.";
+            blocked = "A name of 1 to 32 characters, without \" [ ] = |, and neither Retail ranked nor Competitive.";
         for (const auto& other : MatchPresets().presets)
             if (!other.built_in && other.file != preset.file && launcher::SameMatchPresetName(other.name, preset.name))
                 blocked = "Another preset is called " + other.name + ".";

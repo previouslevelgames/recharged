@@ -1,5 +1,6 @@
 #include "launcher/online_panel_preview.h"
 
+#include "launcher/match_presets.h"
 #include "platform/competitive_rules.h"
 
 #include "launcher/ui_kit.h"
@@ -261,6 +262,8 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     palace.rules.stadium = "the_palace";
     palace.rules.stadium_cheat = "field_tilt";
     context_.my_presets = {palace};
+    for (const auto& preset : launcher::BuiltInMatchPresets())
+        context_.built_in_presets.push_back({preset.name, launcher::ChallengeRules(preset), 0});
     // Searches for a random opponent: possible; "preview-searching" shows one running.
     context_.searches = true;
     if (mode_ == "preview-searching")
