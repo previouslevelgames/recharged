@@ -236,7 +236,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     me.avatar_url = "preview:me";
     me.available = mode_ != "preview-empty";
     context_.challenge_rules =
-        "Competitive: Rookie, 3 minutes, best of 3, random stadium, Fast terrain, No Mega Strikes";
+        "Competitive: 3 minutes, best of 3, random stadium, Fast terrain, No Mega Strikes";
     // The server's rule sets, the player's challenges by the first (the second for "preview-rules").
     const auto rule_set = [](std::int64_t id, const char* name, const char* skill, const char* limit, int amount,
                              int games, const char* stadium, std::vector<std::string> tweaks) {
@@ -505,7 +505,7 @@ void OnlinePanelPreview::DrawPrompt()
         return row;
     };
     const std::string rules =
-        "Competitive: Rookie, 3 minutes, best of 3, random stadium, Fast terrain, No Mega Strikes";
+        "Competitive: 3 minutes, best of 3, random stadium, Fast terrain, No Mega Strikes";
     if (mode_ == "preview-prompt-lost")
     {
         prompt.kind = Kind::SetOver;

@@ -299,7 +299,7 @@ void TestSet()
     CHECK(model.set.title == "Mario challenges you");
     CHECK(model.set.can_accept && model.set.can_decline && !model.set.can_cancel);
     CHECK(model.set.games == 0);
-    CHECK(model.set.rules.rfind("Competitive: Rookie", 0) == 0);
+    CHECK(model.set.rules.rfind("Competitive: 3 minutes", 0) == 0);
     CHECK(model.set.opponent.name == "Mario" && model.set.opponent.presence == Presence::Free);
     CHECK(FindRow(model, "p10") == &model.set.opponent);
     context.in_match = true;
@@ -404,7 +404,7 @@ void TestChallengeRules()
     CHECK(model.rule_sets.size() == 2 && model.rule_sets[0] == "Competitive" && model.rule_sets[1] == "Classic");
     CHECK(model.chosen_rules == 1);
     CHECK(model.chosen_rules_are == platform::DescribeRules(classic.rules));
-    CHECK(model.chosen_rules_are.find("Professional") == 0);
+    CHECK(model.chosen_rules_are.find("5 minutes") == 0);
     CHECK(model.challenge_rules == "Classic: " + model.chosen_rules_are);
     // None chosen, or one the server doesn't have: its first.
     for (const char* name : {"", "Gone", "classic"})

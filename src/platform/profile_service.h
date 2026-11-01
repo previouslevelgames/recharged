@@ -162,7 +162,16 @@ struct MatchRules
     int goals = 0;
     int games = 0;       // in the series: 1, 3, 5 or 7
     std::string stadium; // random, or a stadium's name
+    // The game's cheats, by the names its settings screen shows ("none",
+    // "field_tilt", "shells"...): the stadium's, the players' and the
+    // power-ups'. Servers before 1.2.3 send none.
+    std::string stadium_cheat = "none";
+    std::string player_cheat = "none";
+    std::string powerup_cheat = "none";
+    bool operator==(const MatchRules&) const = default;
 };
+// The rules as the server reads them (docs/profiles.md, "Rules").
+std::string RulesJson(const MatchRules& rules);
 
 struct RuleSet
 {
@@ -313,6 +322,9 @@ public:
     ProfilePlayer Me();
     void SignOut();
     ProfileMatch Challenge(const std::string& opponent, std::int64_t rule_set);
+    // A challenge by rules of the player's own (servers 1.2.3 on): `name` is
+    // the preset they come from, empty for none (the server calls it Custom).
+    ProfileMatch ChallengePlayer(std::int64_t opponent_id, const MatchRules& rules, const std::string& name);
     // The same by the player's id, from the lobby's lists.
     ProfileMatch ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set);
     // The friends after adding one (by player id or Discord username) or

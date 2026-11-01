@@ -121,14 +121,33 @@ void Rules()
     CHECK(module && module->tweaks == ((1u << 2) | (1u << 5) | (1u << 7)) && module->skill == 3 && module->limit == 1
           && module->goals == 3 && module->games == 5 && module->stadium == 10 && module->opponent_count == 2
           && module->opponents[1] == 1000000002u);
+    CHECK(module->stadium_cheat == 0 && module->player_cheat == 0 && module->powerup_cheat == 0);
     CHECK(DescribeRules(rules)
-          == "Superstar, first to 3 goals, best of 5, The Palace, Fast terrain, No Mega Strikes, Thunder Island walls");
+          == "First to 3 goals, best of 5, The Palace, Fast terrain, No Mega Strikes, Thunder Island walls");
+    // The cheats: their enum values for the module, the game's names.
+    rules.stadium_cheat = "field_tilt";
+    rules.player_cheat = "classic_mode";
+    rules.powerup_cheat = "no_power_ups";
+    const auto cheats = ModuleRules(rules, opponent);
+    CHECK(cheats && cheats->stadium_cheat == 4 && cheats->player_cheat == 4 && cheats->powerup_cheat == 11);
+    CHECK(DescribeRules(rules) == "First to 3 goals, best of 5, The Palace, Fast terrain, No Mega Strikes, Thunder "
+                                  "Island walls, Field Tilt, Classic Mode, No Power-Ups");
+    CHECK(RulesJson(rules)
+          == R"({"tweaks":["fast_terrain","no_mega_strikes","thunder_island_walls"],"skill":"superstar","limit":"goals",)"
+             R"("time":180,"goals":3,"games":5,"stadium":"the_palace","stadium_cheat":"field_tilt",)"
+             R"("player_cheat":"classic_mode","powerup_cheat":"no_power_ups"})");
+    rules.powerup_cheat = "butterfingers";
+    CHECK(!ModuleRules(rules, opponent));
+    rules.stadium_cheat = rules.player_cheat = rules.powerup_cheat = "none";
+    CHECK(StadiumCheatChoices().size() == 6 && PlayerCheatChoices().size() == 5 && PowerupCheatChoices().size() == 12
+          && StadiumChoices().size() == 17 && std::string(StadiumChoices()[11].label) == "The Palace"
+          && RuleTweakChoices().size() == 3);
     rules.limit = "time";
     rules.time = 150;
     rules.games = 1;
     rules.stadium = "random";
     rules.tweaks.clear();
-    CHECK(DescribeRules(rules) == "Superstar, 2:30 minutes, one game, random stadium");
+    CHECK(DescribeRules(rules) == "2:30 minutes, one game, random stadium");
     CHECK(ModuleRules(rules, opponent)->stadium == -1);
     std::string error;
     rules.tweaks = {"super_team"};

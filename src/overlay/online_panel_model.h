@@ -105,7 +105,7 @@ struct OnlinePanelSet
     std::string title;  // "Mario challenges you", "Your set against Mario", "You won the set"
     std::string status; // what happens now
     Tone tone = Tone::Neutral;
-    std::string rules;  // "Competitive: Rookie, 3 minutes, best of 3, random stadium"
+    std::string rules;  // "Competitive: 3 minutes, best of 3, random stadium"
     // The games won and lost so far, of a series of `games` (best of; 0 shows no score).
     int won = 0, lost = 0, games = 0;
     // What the player can do now (OnlinePanelActions).
@@ -140,7 +140,7 @@ struct OnlinePanelModel
     // the player's card; none: it doesn't show.
     std::vector<std::string> rule_sets;
     int chosen_rules = 0;         // in rule_sets
-    std::string chosen_rules_are; // its rules: "Rookie, 3 minutes, best of 3, random stadium"
+    std::string chosen_rules_are; // its rules: "3 minutes, best of 3, random stadium"
     // For the footer: what the player should know (an action the server
     // refused, the server out of reach).
     std::string message;
@@ -168,7 +168,7 @@ struct OnlinePanelContext
     // This game plays a match (or a set's game): nobody can be challenged from it now.
     bool in_match = false;
     // There are rules to challenge by (the server has a rule set), and what
-    // they play by ("Competitive: Rookie, 3 minutes, best of 3, ..."; with
+    // they play by ("Competitive: 3 minutes, best of 3, ..."; with
     // `rule_sets`, the chosen one's instead).
     bool can_challenge = true;
     std::string challenge_rules;

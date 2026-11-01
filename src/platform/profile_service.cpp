@@ -154,6 +154,10 @@ MatchRules ParseRules(const JsonValue& value)
     rules.goals = int(value["goals"].Integer().value_or(0));
     rules.games = int(value["games"].Integer().value_or(0));
     rules.stadium = value["stadium"].Text();
+    for (auto [field, cheat] : {std::pair{"stadium_cheat", &rules.stadium_cheat},
+                                std::pair{"player_cheat", &rules.player_cheat},
+                                std::pair{"powerup_cheat", &rules.powerup_cheat}})
+        if (const std::string text = value[field].Text(); !text.empty()) *cheat = text;
     return rules;
 }
 
@@ -223,6 +227,31 @@ SignInResult ParseSignIn(const JsonValue& value)
     return result;
 }
 } // namespace
+
+std::string RulesJson(const MatchRules& rules)
+{
+    std::string json = "{\"tweaks\":[";
+    for (std::size_t n = 0; n < rules.tweaks.size(); ++n)
+    {
+        if (n) json += ",";
+        AppendJsonString(json, rules.tweaks[n]);
+    }
+    json += "],\"skill\":";
+    AppendJsonString(json, rules.skill.empty() ? std::string("rookie") : rules.skill);
+    json += ",\"limit\":";
+    AppendJsonString(json, rules.limit);
+    json += ",\"time\":" + Integer(rules.time) + ",\"goals\":" + Integer(rules.goals) + ",\"games\":" + Integer(rules.games)
+        + ",\"stadium\":";
+    AppendJsonString(json, rules.stadium);
+    for (const auto& [field, value] : {std::pair{",\"stadium_cheat\":", &rules.stadium_cheat},
+                                       std::pair{",\"player_cheat\":", &rules.player_cheat},
+                                       std::pair{",\"powerup_cheat\":", &rules.powerup_cheat}})
+    {
+        json += field;
+        AppendJsonString(json, *value);
+    }
+    return json + "}";
+}
 
 std::optional<std::string> ProfileServerAddress(std::string_view text, std::string* error)
 {
@@ -444,6 +473,18 @@ ProfileMatch ProfileService::Challenge(const std::string& opponent, std::int64_t
     std::string body = "{\"opponent\":";
     AppendJsonString(body, opponent);
     body += ",\"rule_set\":" + Integer(rule_set) + "}";
+    return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
+}
+
+ProfileMatch ProfileService::ChallengePlayer(std::int64_t opponent_id, const MatchRules& rules, const std::string& name)
+{
+    std::string body = "{\"opponent_id\":" + Integer(opponent_id) + ",\"rules\":" + RulesJson(rules);
+    if (!name.empty())
+    {
+        body += ",\"name\":";
+        AppendJsonString(body, name);
+    }
+    body += "}";
     return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
 }
 

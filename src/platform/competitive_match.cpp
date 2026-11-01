@@ -687,6 +687,15 @@ extern "C" bool mscharged_competitive_tweak(int tweak)
     return sActive && tweak >= 0 && tweak < 32 && ((sMatch.tweaks >> tweak) & 1u);
 }
 
+extern "C" bool mscharged_competitive_cheats(int* stadium, int* player, int* powerup)
+{
+    if (!sActive) return false;
+    if (stadium) *stadium = sMatch.stadium_cheat;
+    if (player) *player = sMatch.player_cheat;
+    if (powerup) *powerup = sMatch.powerup_cheat;
+    return true;
+}
+
 extern "C" int mscharged_competitive_stadium(int stadium)
 {
     return Applies() && sRules.stadium >= 0 && sRules.stadium <= STAD_SAND_TOMB ? sRules.stadium : stadium;

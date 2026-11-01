@@ -15,6 +15,10 @@ struct ChargedCompetitiveRules
     int goals;
     int games;   // in the series
     int stadium; // eStadiumID, or -1: the host picks one, as in the game
+    // The game's cheats: eEnvironmentCheat, ePlayerCheat, ePowerupCheat (0 none).
+    int stadium_cheat;
+    int player_cheat;
+    int powerup_cheat;
     // The opponent's WFC profiles: the rules apply only to a RANKED match
     // against one of them.
     unsigned opponents[8];
@@ -94,6 +98,7 @@ typedef bool (*ChargedConfigureCompetitiveFunction)(const ChargedCompetitiveRule
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace mscharged::platform
 {
@@ -104,8 +109,23 @@ struct ProfilePlayer;
 // naming a rule this build does not know (the server is newer).
 std::optional<ChargedCompetitiveRules> ModuleRules(const MatchRules& rules, const ProfilePlayer& opponent,
                                                    std::string* error = nullptr);
-// "Rookie, 3 minutes, best of 3, random stadium, No Mega Strikes".
+// "3 minutes, best of 3, random stadium, No Mega Strikes, Field Tilt" (the
+// skill only matters against the CPU, so it isn't said).
 std::string DescribeRules(const MatchRules& rules);
+// What a rule offers: the server's key and the name players see, in the
+// game's order (the cheats' first is "none").
+struct RuleChoice
+{
+    const char* key;
+    const char* label;
+};
+const std::vector<RuleChoice>& StadiumChoices(); // "random" first
+const std::vector<RuleChoice>& StadiumCheatChoices();
+const std::vector<RuleChoice>& PlayerCheatChoices();
+const std::vector<RuleChoice>& PowerupCheatChoices();
+// The tweaks a set's rules may switch on (fast_terrain, no_mega_strikes,
+// thunder_island_walls), with their names.
+const std::vector<RuleChoice>& RuleTweakChoices();
 // The server's names (lowercase, '_' between words): eTeamID and eStadiumID,
 // empty for unknown values.
 std::string CaptainKey(int team);
