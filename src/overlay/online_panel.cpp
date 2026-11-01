@@ -572,12 +572,10 @@ void DrawSection(Frame& frame, const OnlinePanelSection& section, float width)
         }
         if (!section.aside.empty())
         {
-            // At the right, quiet: an offline dot and how many.
+            // At the right, quiet: how many are offline.
             const ImVec2 text = TextSize(frame.fonts.caption, section.aside.c_str());
-            const float right = at.x + width - Dp(4), dot = Dp(3.5f);
-            DrawLabel(draw, frame.fonts.caption, {right - text.x, y}, Col(color::dim), section.aside.c_str());
-            draw->AddCircle({right - text.x - Dp(8), y + FontSize(frame.fonts.caption) * 0.5f + Dp(0.5f)}, dot,
-                            Col(color::dim, 0.9f), 0, Dp(1.3f));
+            DrawLabel(draw, frame.fonts.caption, {at.x + width - Dp(4) - text.x, y}, Col(color::dim),
+                      section.aside.c_str());
         }
         ImGui::Dummy({width, height});
     }
