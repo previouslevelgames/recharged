@@ -855,13 +855,15 @@ OverlayLayout BeginOverlay(const OverlayStyle& style, OverlayScreens& screens, c
 
     // The window: about three quarters of the picture, in its middle; more of
     // a small one (in dp: a small game window, at the overlay's smallest
-    // scale), up to all of it but the margin.
+    // scale), up to all of it but the margin; at most 1.5 times as wide as
+    // the picture is high (a wide screen).
     const float margin = Dp(16);
     const auto share = [](float room, float small, float large, float usual) {
         const float roomy = std::clamp((room - small) / (large - small), 0.0f, 1.0f);
         return usual + (1.0f - usual) * (1.0f - roomy);
     };
-    const float width = std::min(std::clamp(area_w * share(area_w, Dp(760), Dp(1280), 0.72f), Dp(640), Dp(1100)),
+    const float width = std::min(std::clamp(area_w * share(area_w, Dp(760), Dp(1280), 0.72f), Dp(640),
+                                            std::max(Dp(640), area_h * 1.53f)),
                                  area_w - 2 * margin);
     const float height =
         std::min(std::max(area_h * share(area_h, Dp(460), Dp(720), 0.86f), Dp(420)), area_h - 2 * margin);

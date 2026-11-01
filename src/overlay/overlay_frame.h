@@ -34,8 +34,8 @@ namespace mscharged::overlay
 struct OverlayStyle
 {
     // Pixels per design unit (dp): the launcher's UI scale; in the game
-    // OverlayUnit (overlay_unit.h): its picture's height / 720 (a 1280x720
-    // window draws at 1), not too small to read in small windows.
+    // OverlayUnit (overlay_unit.h): its picture's height / 900, not too small
+    // to read in small windows.
     float unit = 1.0f;
     // The fonts at `unit` (AddOnlinePanelFonts): caption, body, label,
     // heading and button are used.

@@ -466,8 +466,8 @@ void OnlinePanelPreview::Draw(ImVec2 size, ImTextureID art_back, ImTextureID art
     style.fonts = CurrentFonts();
     style.appear = appear_;
     style.image = [this](const std::string& key) { return Avatar(key); };
-    // A game window's size: the game's scale for it (its height / 720, not
-    // too small to read), the launcher's fonts scaled to it.
+    // A game window's size: the overlay's scale for it (OverlayUnit), the
+    // launcher's fonts scaled to it.
     ImGuiIO& io = ImGui::GetIO();
     const float font_scale = io.FontGlobalScale;
     if (game_height_ > 0.0f)

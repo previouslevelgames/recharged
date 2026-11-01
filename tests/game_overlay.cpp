@@ -452,13 +452,15 @@ void TestChallengeRules()
     }
 }
 
-// The overlay's scale: the picture's height / 720, but in small windows
+// The overlay's scale: the picture's height / 900, but in small windows
 // never so small that its captions (13 dp) are under 11 pixels, as long as its
 // smallest window fits; and its window then takes more of the picture.
 void TestSmallWindows()
 {
-    CHECK(OverlayUnit(1280, 720) == 1.0f && OverlayUnit(1920, 1080) == 1.5f && OverlayUnit(3840, 2160) == 3.0f);
-    CHECK(OverlayUnit(2560, 1080) == 1.5f && OverlayUnit(7680, 4320) == 4.0f);
+    CHECK(OverlayUnit(1920, 1080) == 1.2f && OverlayUnit(3840, 2160) == 2.4f && OverlayUnit(2560, 1080) == 1.2f);
+    CHECK(OverlayUnit(7680, 4320) == 4.0f);
+    // At 1280x720 the captions keep their 11 pixels.
+    CHECK(OverlayUnit(1280, 720) == 11.0f / 13.0f);
     for (const auto& [width, height] : {std::pair{640.0f, 448.0f}, std::pair{800.0f, 450.0f}, std::pair{854.0f, 480.0f},
                                         std::pair{1024.0f, 576.0f}, std::pair{960.0f, 540.0f}})
     {
@@ -466,7 +468,7 @@ void TestSmallWindows()
         CHECK(std::round(13.0f * unit) >= 11.0f);                           // the captions as AddOnlinePanelFonts makes them
         CHECK(672.0f * unit <= width + 0.01f && 452.0f * unit <= height + 0.01f); // the smallest window fits
     }
-    CHECK(OverlayUnit(800, 450) > 450.0f / 720.0f);
+    CHECK(OverlayUnit(800, 450) > 450.0f / 900.0f);
     // Too small for both: it fits, down to 0.5.
     CHECK(OverlayUnit(480, 360) < 11.0f / 13.0f && 672.0f * OverlayUnit(480, 360) <= 480.01f);
     CHECK(OverlayUnit(320, 240) == 0.5f);
