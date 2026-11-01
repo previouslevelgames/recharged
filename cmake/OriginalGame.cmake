@@ -370,7 +370,7 @@ target_link_libraries(charged_original_game_host PRIVATE
 # The game's overlay in the panel (F1, HOME): the Online and Game options tabs
 # (src/overlay, built with the launcher, through Aurora's ImGui).
 if(TARGET charged_overlay)
-    target_link_libraries(charged_original_game_host PRIVATE charged_overlay)
+    target_link_libraries(charged_original_game_host PRIVATE charged_overlay charged_mii_head)
     target_compile_definitions(charged_original_game_host PRIVATE MSCHARGED_HAS_GAME_OVERLAY=1)
 endif()
 

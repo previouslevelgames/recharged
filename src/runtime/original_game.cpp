@@ -81,6 +81,8 @@
 #include "overlay/game_overlay.h"
 #include "overlay/overlay_images.h"
 #include "overlay/overlay_prompt.h"
+#include "platform/mii_head.h"
+#include "platform/save_import.h"
 #include "platform/online_panel_feed.h"
 #include <aurora/imgui.h>
 #endif
@@ -1732,6 +1734,39 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         std::unique_ptr<mscharged::platform::OnlinePanelFeed> panelFeed;
         bool panelFeedLate=false; // started once more after a sign-in in this game
         auto optionTweaks=launch.settings.tweaks;
+        // The player's own Mii (the one sets use) as the face on the Online
+        // tab's own card when there is no Discord picture: drawn on a thread
+        // from the game image's Mii parts, uploaded to ImGui once.
+        struct OwnMiiFace {
+            std::vector<std::uint8_t> rgba;
+            int width=0, height=0;
+        };
+        std::future<std::optional<OwnMiiFace>> ownMiiFace;
+        ImTextureID ownMiiTexture{};
+        if(std::any_of(launch.competitive_mii.begin(),launch.competitive_mii.end(),[](auto b) { return b!=0; }))
+            ownMiiFace=std::async(std::launch::async,
+                [disc=launch.disc_path,id=launch.competitive_mii,
+                 nand=mscharged::TitleSaveFolder(mscharged::ResolveSaveFolder(launch.settings,launch.config.path,
+                     executableDirectory),release->title_id),
+                 title=mscharged::platform::SaveTitle{release->title_id,0x1001,release->title_group}]()
+                    -> std::optional<OwnMiiFace> {
+                    try {
+                        const auto miis=mscharged::platform::InstalledMiis(nand,title);
+                        for(const auto& mii:miis.miis)
+                            if(mii.create_id==id) {
+                                namespace head=mscharged::platform::mii;
+                                head::MiiHeadOptions options;
+                                options.width=options.height=128;
+                                options.background=head::MiiHeadOptions::Background::Favorite;
+                                auto image=head::RenderMiiHead(head::ReadMiiPartsFromImage(disc),mii.record,options);
+                                return OwnMiiFace{std::move(image.pixels),image.width,image.height};
+                            }
+                    } catch(const std::exception& error) {
+                        mscharged::platform::SessionLogLine(std::string("Overlay: your Mii's face is not drawn (")
+                            +error.what()+")");
+                    }
+                    return std::nullopt;
+                });
         // [online] challenge_rules: chosen in the launcher or on the Online tab.
         std::string challengeRules=launch.settings.challenge_rules;
         std::optional<unsigned> pendingTweaks;
@@ -1888,6 +1923,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 } else context.message=overlayNotice;
                 ov::GameOverlayModel model;
                 model.online=ov::MakeOnlinePanelModel(snapshot.lists,snapshot.match,context);
+                if(ownMiiFace.valid() && ownMiiFace.wait_for(std::chrono::seconds(0))==std::future_status::ready)
+                    if(const auto face=ownMiiFace.get())
+                        ownMiiTexture=aurora_imgui_add_texture(std::uint32_t(face->width),std::uint32_t(face->height),
+                            face->rgba.data());
+                if(ownMiiTexture && model.online.me.image.empty()) model.online.me.image="mii:own";
                 model.options.tweaks=optionTweaks;
                 model.options.in_match=context.in_match;
                 ov::GameOverlayStyle style;
@@ -1895,7 +1935,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 style.fonts=hostOverlay->OverlayFonts();
                 style.area_max={width,height};
                 style.appear=std::clamp(shown/0.18f,0.0f,1.0f);
-                style.image=overlayPictures.Images();
+                style.image=[pictures=overlayPictures.Images(),ownMiiTexture](const std::string& key) {
+                    return key=="mii:own" ? ownMiiTexture : pictures(key);
+                };
                 if(const auto error=overlayPictures.Statistics().last_error; error!=overlayPicturesError) {
                     overlayPicturesError=error;
                     if(!error.empty()) mscharged::platform::SessionLogLine("Overlay: a picture failed ("+error+")");
