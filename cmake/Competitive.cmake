@@ -8,7 +8,7 @@ if(NOT TARGET charged_json)
     target_compile_features(charged_json PUBLIC cxx_std_17)
 endif()
 add_library(charged_competitive STATIC src/platform/profile_service.cpp src/platform/competitive_rules.cpp
-    src/platform/competitive_host.cpp)
+    src/platform/competitive_host.cpp src/platform/online_panel_feed.cpp)
 target_include_directories(charged_competitive PUBLIC src)
 target_compile_features(charged_competitive PUBLIC cxx_std_17)
 target_link_libraries(charged_competitive PUBLIC charged_http charged_json)
