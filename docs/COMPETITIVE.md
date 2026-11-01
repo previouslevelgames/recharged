@@ -14,8 +14,8 @@ works as on the Wii, with friend codes, ranked matches and rankings.
    or **Play with a Mii** on **Player profile** (see *Your Recharged
    profile*). The launcher's Online pages hold your profile
    (**Player profile**), the game's RANKED **Leaderboard**, your tournaments
-   (**Events**, coming later), the rules of your challenges (**Match rules**),
-   your **Sidekicks** and the game's own Miis (**Legacy Mii profiles**).
+   (**Events**, coming later), the rules of your challenges (**Match rules**)
+   and your **Sidekicks**.
 2. In the game, press **F1** (or HOME) for its online panel: your set, your
    friends online and the players available. Challenge an opponent there, or
    let a tournament pair you with one (the panel's **Events** tab, coming

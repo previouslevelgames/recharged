@@ -404,8 +404,8 @@ challenge_rules =
 # A chime (and a flashing window in the background) when someone challenges
 # you or accepts your challenge (Online -> Player profile).
 challenge_sound = true
-# Playing with a Mii (without Discord): the Mii your sets use, by its create
-# ID (Player profile chooses it).
+# Playing with a Mii (without Discord): your profile's one Mii, by its create
+# ID (chosen with the profile; the launcher finds it again by its friend code).
 mii =
 # Played with a Mii before: true signs you in again through the game, once
 # your Mii logs in to WFC (Player profile sets it; the game clears it).

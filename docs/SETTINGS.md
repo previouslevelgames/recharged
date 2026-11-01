@@ -482,8 +482,7 @@ leaders and today's, and your own place), **Events** (tournaments, coming
 later; they need Discord) and
 **Match rules**, whose first card holds the rule set your challenges go out
 with (kept as `[online] challenge_rules`; **Your challenges** in the game's
-online panel changes the same setting), shown in detail. **Sidekicks** and
-**Legacy Mii profiles** (the game's own Miis) are there too. Your friends, the players available and your set
+online panel changes the same setting), shown in detail, and **Sidekicks**. Your friends, the players available and your set
 are in the game's online panel (**F1** or HOME, see Hotkeys). A dot before
 **Online** in the sidebar shows the sign-in: green signed in, red not; signed
 out, **Player profile** shows what playing online brings and its two ways in,
@@ -506,9 +505,10 @@ tweaks both teams play with.
      characters, or **Change** names it yourself), one of this computer's, or
      yours from Dolphin (they replace this computer's Miis, which are backed up
      first). Step 2, **Go online**, makes the new Mii and signs you in; this
-     computer keeps you signed in. The Mii is kept as `[online] mii` (its create
-     ID) and plays your sets; **Change** on Player profile chooses another,
-     **Edit** changes its face.
+     computer keeps you signed in. A profile has one Mii: it is kept as
+     `[online] mii` (its create ID) and plays your sets and online games;
+     **Edit** on Player profile changes its face. Once it has played online,
+     the launcher finds it on any computer by the profile's friend code.
      Friends, challenges and sets work as with Discord. **Connect Discord** on
      Player profile (or on Events) joins Discord to the same profile later:
      your profile then takes your Discord name and picture, your friends and
@@ -559,8 +559,8 @@ With Discord you need no Mii of your own: the launcher makes one from your
 Discord account, named after your Discord name, the same on every computer,
 when you play while signed in (Player profile shows it as **Your Mii**;
 **Edit** changes its face, the name stays your Discord name). It is an
-ordinary Mii: it shows on Legacy Mii profiles and in the game's online Mii
-list, and you can play the game's own online modes with it too. Playing with a
+ordinary Mii: it shows in the game's online Mii list, and you can play the
+game's own online modes with it too. Playing with a
 Mii, your sets go with the Mii you chose.
 
 ### Miis and the Mii editor
@@ -568,18 +568,18 @@ Mii, your sets go with the Mii you chose.
 The launcher shows every Mii with its face, drawn from the Mii parts on your
 game image just as the game draws its Mii pictures; before the image is
 chosen (or when it can't be read) a Mii shows as a figure on its favourite
-colour. **Legacy Mii profiles** lists this computer's Miis with their friend
-codes, makes a new one with a random face, and imports yours from Dolphin.
+colour.
 
-**Edit** (on Legacy Mii profiles, on Player profile's Your Mii, and **Edit
-face** for a new Mii) opens the **Mii editor**: no Mii Channel needed. The
+**Edit** (on Player profile's Your Mii, and **Edit face** for a new Mii)
+opens the **Mii editor**: no Mii Channel needed. The
 head shows large, with the expression you pick under it; the sections beside
 it hold the face (shape, skin, make-up), hair (style, colour, parting),
 eyebrows, eyes, nose, mouth, glasses, facial hair, mole, and the name (up to
 10 characters) and favourite colour. Parts show as pictures of the head with
 each one; sizes and positions are sliders. **Undo** takes back the last
-change, **Start over** goes back to the Mii as it was, **Cancel** leaves it.
-**Save** writes the Mii into the Wii's Mii database in the save folder (the
+change, **Start over** goes back to the Mii as it was, **Random** rolls a
+whole new face (name and favourite colour stay), **Cancel** or the back arrow
+leaves it. **Save Mii** writes the Mii into the Wii's Mii database in the save folder (the
 previous database is copied to `backups/` first), in its own place: the Mii
 keeps who it is online, with its friend code and profile.
 
