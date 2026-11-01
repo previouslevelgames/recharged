@@ -32,6 +32,9 @@ struct MatchPreset
 // A preset as a challenge's rules (a series of 9 plays 7: online sets go up
 // to 7 games).
 platform::MatchRules ChallengeRules(const MatchPreset& preset);
+// A new preset named `name` from a challenge's rules (one of the server's rule
+// sets): values the game's settings screen doesn't offer take its nearest.
+MatchPreset PresetFromRules(std::string name, const platform::MatchRules& rules);
 
 // Default: what a new save starts with, no cheats. Competitive: Superstar,
 // best of 3, first to 10 goals, Secure, no other cheat.

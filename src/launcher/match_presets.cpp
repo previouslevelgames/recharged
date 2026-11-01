@@ -257,6 +257,29 @@ platform::MatchRules ChallengeRules(const MatchPreset& preset)
     return rules;
 }
 
+MatchPreset PresetFromRules(std::string name, const platform::MatchRules& rules)
+{
+    MatchPreset preset;
+    preset.name = std::move(name);
+    auto& s = preset.settings;
+    if (const auto skill = FindToken(kSkillTokens, rules.skill)) s.skill = *skill + 1;
+    s.goal_limit = rules.limit == "goals";
+    s.time = std::clamp((rules.time + 30) / 60, 2, 5) * 60;
+    s.goals = std::clamp(rules.goals, 3, 10);
+    s.best_of = std::clamp(rules.games | 1, 1, 9);
+    const auto index = [](const std::vector<platform::RuleChoice>& choices, const std::string& key) {
+        for (std::size_t n = 0; n < choices.size(); ++n)
+            if (key == choices[n].key) return int(n);
+        return 0;
+    };
+    s.stadium_cheat = index(platform::StadiumCheatChoices(), rules.stadium_cheat);
+    s.player_cheat = index(platform::PlayerCheatChoices(), rules.player_cheat);
+    s.powerup_cheat = index(platform::PowerupCheatChoices(), rules.powerup_cheat);
+    preset.stadium = rules.stadium.empty() ? "random" : rules.stadium;
+    preset.tweaks = rules.tweaks;
+    return preset;
+}
+
 std::string MatchPresetFileName(const std::string& name)
 {
     std::string stem;

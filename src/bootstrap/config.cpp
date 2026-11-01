@@ -692,6 +692,14 @@ void SaveChallengeRules(const std::filesystem::path& path, const std::string& na
     SaveConfig(file, settings);
 }
 
+void SaveSettings(const std::filesystem::path& path, const std::function<void(Settings&)>& change)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    change(settings);
+    SaveConfig(file, settings);
+}
+
 void SaveMiiSignIn(const std::filesystem::path& path, bool on)
 {
     auto file = LoadConfig(path, true);

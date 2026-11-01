@@ -84,7 +84,8 @@ back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
 **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
 window, and **F1** (or HOME on a controller) opens the game's overlay over the
 blurred game: your set, the friends online and the players available on
-**Online**, and the gameplay options on **Game options** (**F2** opens it there). Each can be changed under Controls → Hotkeys, to a key alone or with
+**Online**, the gameplay options on **Game options** (**F2** opens it there), and
+the display and sound settings that change at once on **Settings**. Each can be changed under Controls → Hotkeys, to a key alone or with
 Ctrl, Shift or Alt.
 
 **No HUD** (Controls → Hotkeys → *Show the HUD when a match starts* off):
@@ -247,12 +248,14 @@ to put another one there. The game's sidekick screen then starts from that
 lineup, and what you choose there shows on the page: both are the lineups in
 your own game save ([saves](SETTINGS.md#saves)).
 
-Its **Match rules** page shows the server's rule set your challenges go out
-with, in detail, and keeps presets of the match settings and cheats: skill,
-series, time or goals, and the stadium, player and power-up cheats, all of
-them whether your save has unlocked them or not. Use one for matches on this computer or online with
-friends, and it goes into your game save, as if chosen in the game's settings
-screen; ranked matches keep their rules. **Default** (a new save's settings)
+Its **Match rules** page keeps presets of a match's rules: skill, series,
+time or goals, the stadium, player and power-up cheats (all of them whether
+your save has unlocked them or not), and for challenges the stadium and the
+gameplay tweaks both teams play with. A challenge starts from one of them or
+from the server's rule sets (**From the server**, Copy makes one your own).
+Use a preset for matches on this computer or online with friends, and it goes
+into your game save, as if chosen in the game's settings screen; ranked
+matches keep their rules. **Default** (a new save's settings)
 and **Competitive** (Superstar, best of 3, first to 10 goals, Secure Stadiums) are
 built in; the others are files of their own ([saves](SETTINGS.md#saves)).
 

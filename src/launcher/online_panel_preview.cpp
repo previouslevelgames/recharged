@@ -362,12 +362,24 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         tabs.more_tabs = more_tabs_;
         state_.tabs = overlay::GameOverlayTabs(tabs);
     }
-    overlay::OverlayTab first =
-        mode_.rfind("preview-options", 0) == 0 ? overlay::OverlayTab::GameOptions : overlay::OverlayTab::Online;
+    overlay::OverlayTab first = mode_.rfind("preview-options", 0) == 0 ? overlay::OverlayTab::GameOptions
+        : mode_.rfind("preview-settings", 0) == 0                     ? overlay::OverlayTab::Settings
+                                                                      : overlay::OverlayTab::Online;
+    // The Settings tab: a 16:9 window with the wider view set up, its 3D
+    // resolutions; "preview-settings-sound" opens Sound.
+    settings_.pictures = {"Keep its 16:9 shape", "Stretch to fill", "Wider view in matches"};
+    settings_.resolutions = {"Wii (640 × 448)", "2× (1280 × 896)", "3× (1920 × 1344)", "Window (1920 × 1080)"};
+    settings_.resolution = 3;
+    settings_.sound_volumes[0] = 70;
     if (const char* tab = std::getenv("RECHARGED_CAPTURE_TAB"))
         for (const auto& entry : state_.tabs)
             if (Slug(entry.label) == Slug(tab)) first = overlay::OverlayTab(entry.id);
     state_.Open(first);
+    if (mode_ == "preview-settings-sound")
+    {
+        state_.settings_state.section = 1;
+        state_.settings.Push({int(overlay::GameSettingsScreen::Section), "Sound", "Sound"}, 0);
+    }
     // A capture shows the pictures: they are asked for and loaded before it.
     if (pictures_ && capture_)
     {
@@ -475,6 +487,7 @@ void OnlinePanelPreview::Draw(ImVec2 size, ImTextureID art_back, ImTextureID art
     overlay::GameOverlayModel model;
     model.online = overlay::MakeOnlinePanelModel(lists_, match_, context_);
     model.options = options_;
+    model.settings = settings_;
     model.more_tabs = more_tabs_;
     overlay::GameOverlayStyle style;
     style.unit = UiScale();
@@ -636,6 +649,25 @@ void OnlinePanelPreview::Apply(const overlay::GameOverlayActions& all)
     {
         std::cout << "Overlay: close\n";
         open_ = false;
+    }
+    if (all.set_setting)
+    {
+        // The preview's settings follow the change.
+        const auto& change = *all.set_setting;
+        using overlay::GameSetting;
+        switch (change.setting)
+        {
+        case GameSetting::Fullscreen: settings_.fullscreen = change.value; break;
+        case GameSetting::Picture: settings_.picture = change.value; break;
+        case GameSetting::Resolution: settings_.resolution = change.value; break;
+        case GameSetting::PerformanceNumbers: settings_.performance_numbers = change.value; break;
+        case GameSetting::MasterVolume: settings_.master_volume = change.value; break;
+        case GameSetting::Mute: settings_.mute = change.value; break;
+        case GameSetting::SoundVolume: settings_.sound_volumes[std::size_t(change.group)] = change.value; break;
+        case GameSetting::ChallengeSound: settings_.challenge_sound = change.value; break;
+        case GameSetting::ReopenLauncher: settings_.reopen_launcher = change.value; break;
+        }
+        std::cout << "Overlay: setting " << int(change.setting) << " = " << change.value << '\n';
     }
     if (all.set_option)
     {

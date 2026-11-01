@@ -40,6 +40,8 @@ public:
 
     // A new measurement, in frames per second.
     void SetRate(double rate);
+    // The performance numbers in `corner`, or none (the game's Settings switch them).
+    void SetPerformance(std::optional<OverlayCorner> corner);
     // The network numbers: none outside network sessions (LAT, DLY and RB
     // hidden), a latency alone in one, all three in a match with rollback.
     struct Network {

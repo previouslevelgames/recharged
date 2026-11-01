@@ -397,9 +397,9 @@ rich_presence = true
 # which show it; only this file changes it. Left out or empty, the project's
 # server.
 # profile_server = https://rechargedwfc.net
-# The rule set your challenges go out with, by its name on that server
-# (Online -> Match rules, or Your challenges in the game); empty: the
-# server's first.
+# The preset a challenge's setup starts from (one of the server's rule sets
+# or of your presets, Online -> Match rules), by its name: the one sent last;
+# empty: the server's first.
 challenge_rules =
 # A chime (and a flashing window in the background) when someone challenges
 # you or accepts your challenge (Online -> Player profile).

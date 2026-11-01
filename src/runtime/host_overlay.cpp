@@ -77,6 +77,13 @@ void HostOverlay::SetCard(std::optional<Card> card) { card_ = std::move(card); }
 
 void HostOverlay::SetPanel(HostPanel* panel) { panel_ = panel; }
 
+void HostOverlay::SetPerformance(std::optional<OverlayCorner> corner)
+{
+    performance_ = corner;
+    if (performance_ && !usage_) usage_.emplace();
+    else if (!performance_) usage_.reset();
+}
+
 void HostOverlay::SetHint(std::optional<Hint> hint) { hint_ = std::move(hint); }
 
 void HostOverlay::ClosePanel()

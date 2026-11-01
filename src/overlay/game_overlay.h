@@ -1,6 +1,7 @@
 #pragma once
 
 #include "overlay/game_options.h"
+#include "overlay/game_settings.h"
 #include "overlay/online_panel.h"
 #include "overlay/overlay_frame.h"
 
@@ -27,6 +28,7 @@ enum class OverlayTab : int
     Online = 0,
     GameOptions = 1,
     Events = 2, // tournaments and organised match-ups: a page to come
+    Settings = 3, // the display and sound settings that change at once
 };
 
 // A tab besides the game's own, with its page: the launcher's preview shows
@@ -42,7 +44,8 @@ struct GameOverlayModel
 {
     OnlinePanelModel online;
     GameOptionsModel options;
-    std::vector<GameOverlayMoreTab> more_tabs; // after Online, before Events and Game options (last)
+    GameSettingsModel settings;
+    std::vector<GameOverlayMoreTab> more_tabs; // after Online, before Events, Game options and Settings (last)
 };
 
 // The tabs in their order with their badges (Online's: what waits for the
@@ -55,8 +58,9 @@ struct GameOverlayActions
     bool close = false; // Escape, Close, a click beside the window, B on a tab's first screen
     OnlinePanelActions online;
     std::optional<GameOptionChange> set_option;
+    std::optional<GameSettingChange> set_setting;
 
-    bool Any() const { return close || online.Any() || set_option.has_value(); }
+    bool Any() const { return close || online.Any() || set_option.has_value() || set_setting.has_value(); }
 };
 
 // What the overlay keeps between frames; the host holds one.
@@ -77,8 +81,9 @@ struct GameOverlayState
     OverlayScreens& Screens(OverlayTab which);
 
     OverlayTab tab = OverlayTab::Online;
-    OverlayScreens online, options;
+    OverlayScreens online, options, settings;
     OnlinePanelState online_state; // the Online tab's challenge setup
+    GameSettingsState settings_state;
     std::map<int, OverlayScreens> more; // the more tabs' (GameOverlayMoreTab), by id
     GameOptionsState options_state;
     // The tabs as the overlay last showed them (GameOverlayTabs); before

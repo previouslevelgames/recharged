@@ -34,7 +34,7 @@ if(BUILD_TESTING)
     add_test(NAME overlay_images COMMAND overlay_images_tests)
 endif()
 
-add_library(charged_overlay STATIC src/overlay/overlay_frame.cpp src/overlay/online_panel.cpp
+add_library(charged_overlay STATIC src/overlay/overlay_frame.cpp src/overlay/overlay_rows.cpp src/overlay/game_settings.cpp src/overlay/online_panel.cpp
     src/overlay/game_options.cpp src/overlay/game_overlay.cpp src/overlay/overlay_prompt.cpp)
 target_link_libraries(charged_overlay PUBLIC charged_overlay_model charged_ui_kit charged_overlay_images)
 if(BUILD_TESTING)

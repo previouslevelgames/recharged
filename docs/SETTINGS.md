@@ -311,12 +311,22 @@ on Game options (`game_options`), and Escape closes it. Pressed while it is
 open, F1 or F2 shows its tab, or closes the overlay when that tab is shown. It
 opens on **Online**: your set (accept, Ready to play!, rematch),
 the friends who have Recharged open (and how many are offline) and, while you
-are available, the players available for random games; a player's row
-challenges them or opens their
+are **Open to challenges** (players who aren't your friends see you then), the
+others who are open to challenges; a player's row
+challenges them (the challenge's setup, see *Online*) or opens their
 page. **Events** is the place for tournaments and organised match-ups (coming
 later). **Game options** has the gameplay options that can change while the game
 runs: they are saved at once and count from the next match (online matches
-play by their own rules). L1/R1 (− and + on a Wii Remote), Q/E or a click
+play by their own rules). **Settings** has the settings that change at once,
+in a small menu: *Display* (fullscreen, the picture's shape as the stretch
+hotkey has it, the 3D resolution, the performance numbers), *Sound* (master
+volume, mute, the sound levels, the challenge sound) and *Advanced* (reopen the
+launcher after the game); each change is saved to `recharged.ini` at once. A
+opens a section, B goes back to the menu. The controls and the settings that
+need a new start stay in the launcher. While the game is in its menus, the
+top-left corner shows the overlay's keys (F1 or HOME), and a challenge you sent
+from the overlay closes it when it is accepted: the game goes on into the
+set. L1/R1 (− and + on a Wii Remote), Q/E or a click
 switch tabs, and B goes back a page. While it is open the game behind it is
 blurred and gets no input: online matches go on, and in an offline match it
 presses the game's pause. Click a hotkey, then press the
@@ -397,6 +407,9 @@ player_cheat = none        # none, devastating, safe, skill_shot, glass_jaw
 powerup_cheat = none       # none, explosives, freezing, shells, giant, accelerator,
                            # peelin_out, heat_seekers, bombs_away, super, infinite,
                            # butterfingers
+stadium = random           # for challenges: random or a stadium (the_palace, ...)
+tweaks = fast_terrain      # for challenges: fast_terrain, no_mega_strikes,
+                           # thunder_island_walls, comma-separated
 ```
 
 Settings left out are a new save's. A file the page cannot read is listed
@@ -480,18 +493,18 @@ server, and Sign out, which also ends the Discord link on this computer),
 **Leaderboard** (the game's RANKED leaderboards on the server: the season's
 leaders and today's, and your own place), **Events** (tournaments, coming
 later; they need Discord) and
-**Match rules**, whose first card holds the rule set your challenges go out
-with (kept as `[online] challenge_rules`; **Your challenges** in the game's
-online panel changes the same setting), shown in detail, and **Sidekicks**. Your friends, the players available and your set
+**Match rules** (the presets a challenge starts from, see *Match settings*,
+and the server's rule sets) and **Sidekicks**. Your friends, the players available and your set
 are in the game's online panel (**F1** or HOME, see Hotkeys). A dot before
 **Online** in the sidebar shows the sign-in: green signed in, red not; signed
 out, **Player profile** shows what playing online brings and its two ways in,
 **Connect Discord** and **Play with a Mii**, and the pages that need the
 sign-in point there. A private server's `https://` address (from its admins) goes in
 `[online] profile_server`; only the file changes it. A set is a series against
-one player, by one of the server's rule sets: skill level, game length or goal
-limit, the games of the series, the stadium, and the *Competitive gameplay*
-tweaks both teams play with.
+one player, by the rules its challenge set: game length or goal limit, the
+games of the series, the stadium, the game's stadium, player and power-up
+cheats, and the *Competitive gameplay* tweaks both teams play with (the skill
+level is only for the CPU).
 
 1. Sign in on **Online** → **Player profile**, one of two ways (Discord is not
    needed to play):
@@ -518,7 +531,12 @@ tweaks both teams play with.
      game** under the two choices, `[online] mii_sign_in`: the game signs you
      in again once that Mii logs in to WFC); before that, signing out loses
      it for good.
-2. Challenge a player who has Recharged open from the game's online panel.
+2. Challenge a player who has Recharged open from the game's online panel:
+   **Challenge** opens the challenge's setup. It starts from the preset used
+   last (`[online] challenge_rules`): one of the server's rule sets or one of
+   your own (**Match rules**). Every rule can change there for this challenge
+   only, the preset stays as it is; **Send challenge** sends it, and the
+   player you challenge sees the rules before accepting.
    They accept or decline on a card over their game while it is in its menus
    (A accepts, B declines; the game waits behind the card), or, with only the
    launcher open (*In the launcher*), in a dialog there: its Accept starts the

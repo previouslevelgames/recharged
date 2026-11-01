@@ -9,7 +9,7 @@ namespace
 // The game's own tabs, before the overlay shows them with the model's badges.
 std::vector<OverlayTabs::Tab> OwnTabs()
 {
-    OverlayTabs::Tab online, events, options;
+    OverlayTabs::Tab online, events, options, settings;
     online.id = int(OverlayTab::Online);
     online.label = "Online";
     online.icon = launcher::Icon::Chat;
@@ -19,12 +19,16 @@ std::vector<OverlayTabs::Tab> OwnTabs()
     options.id = int(OverlayTab::GameOptions);
     options.label = "Game options";
     options.icon = launcher::Icon::Sliders;
-    return {online, events, options};
+    settings.id = int(OverlayTab::Settings);
+    settings.label = "Settings";
+    settings.icon = launcher::Icon::Gear;
+    return {online, events, options, settings};
 }
 
 bool OwnTab(int id)
 {
-    return id == int(OverlayTab::Online) || id == int(OverlayTab::Events) || id == int(OverlayTab::GameOptions);
+    return id == int(OverlayTab::Online) || id == int(OverlayTab::Events) || id == int(OverlayTab::GameOptions)
+        || id == int(OverlayTab::Settings);
 }
 
 // Events: where tournaments and organised match-ups will be, for now the
@@ -63,6 +67,7 @@ OverlayScreens::Screen FirstScreen(OverlayTab tab, const std::string& label)
 {
     if (tab == OverlayTab::Online) return OnlinePanelFirstScreen();
     if (tab == OverlayTab::GameOptions) return GameOptionsFirstScreen();
+    if (tab == OverlayTab::Settings) return GameSettingsFirstScreen();
     return {0, {}, label};
 }
 
@@ -82,7 +87,7 @@ std::vector<OverlayTabs::Tab> GameOverlayTabs(const GameOverlayModel& model)
     {
         // Never over the game's own ids.
         if (OwnTab(more.tab.id)) continue;
-        tabs.insert(tabs.end() - 2, more.tab);
+        tabs.insert(tabs.end() - 3, more.tab);
     }
     return tabs;
 }
@@ -91,6 +96,7 @@ OverlayScreens& GameOverlayState::Screens(OverlayTab which)
 {
     if (which == OverlayTab::Online) return online;
     if (which == OverlayTab::GameOptions) return options;
+    if (which == OverlayTab::Settings) return settings;
     return more[int(which)];
 }
 
@@ -98,12 +104,13 @@ void GameOverlayState::Open(OverlayTab which)
 {
     online.Open(OnlinePanelFirstScreen());
     options.Open(GameOptionsFirstScreen());
+    settings.Open(GameSettingsFirstScreen());
     more.clear();
     options_state = {};
     if (tabs.empty()) tabs = OwnTabs();
     // A tab that isn't there (or doesn't open now) opens Online instead.
     tab = OverlayTabOpens(tabs, int(which)) ? which : OverlayTab::Online;
-    if (which != OverlayTab::Online && which != OverlayTab::GameOptions && tab == which)
+    if (which != OverlayTab::Online && which != OverlayTab::GameOptions && which != OverlayTab::Settings && tab == which)
         Screens(which).Open(FirstScreen(which, Label(tabs, which)));
 }
 
@@ -111,7 +118,7 @@ bool GameOverlayState::Switch(OverlayTab which)
 {
     if (tabs.empty()) tabs = OwnTabs();
     if (!OverlayTabOpens(tabs, int(which))) return false;
-    if (online.Empty() || options.Empty())
+    if (online.Empty() || options.Empty() || settings.Empty())
     {
         Open(which);
         return true;
@@ -147,7 +154,7 @@ void DrawGameOverlay(const GameOverlayModel& model, GameOverlayState& state, Gam
     GImGui->ConfigNavWindowingKeyNext = 0;
     GImGui->ConfigNavWindowingKeyPrev = 0;
     state.tabs = GameOverlayTabs(model);
-    if (state.online.Empty() || state.options.Empty()) state.Open(state.tab);
+    if (state.online.Empty() || state.options.Empty() || state.settings.Empty()) state.Open(state.tab);
     // The open tab went (or doesn't open any more): the next one that does.
     if (!OverlayTabOpens(state.tabs, int(state.tab)))
     {
@@ -175,17 +182,19 @@ void DrawGameOverlay(const GameOverlayModel& model, GameOverlayState& state, Gam
     tabs.tabs = state.tabs;
     tabs.current = int(state.tab);
     const bool online = state.tab == OverlayTab::Online, options = state.tab == OverlayTab::GameOptions;
-    const bool events = state.tab == OverlayTab::Events;
-    const GameOverlayMoreTab* more = online || options || events ? nullptr : FindMore(model, state.tab);
+    const bool events = state.tab == OverlayTab::Events, settings = state.tab == OverlayTab::Settings;
+    const GameOverlayMoreTab* more = online || options || events || settings ? nullptr : FindMore(model, state.tab);
     OverlayScreens& screens = state.Screens(state.tab);
     if (screens.Empty()) screens.Open(FirstScreen(state.tab, Label(state.tabs, state.tab)));
     const std::string title = online ? OnlinePanelTitle(model.online, screens)
         : options                    ? GameOptionsTitle(screens)
+        : settings                   ? GameSettingsTitle(screens)
         : more && !more->title.empty() ? more->title
                                        : screens.Top().title;
     const OverlayLayout layout = BeginOverlay(style, screens, title, &tabs);
     if (online) DrawOnlinePanel(model.online, screens, state.online_state, actions.online, style.image, layout);
     else if (options) DrawGameOptions(model.options, state.options_state, screens, actions.set_option, layout);
+    else if (settings) DrawGameSettings(model.settings, state.settings_state, screens, actions.set_setting, layout);
     else if (events) DrawEventsPage(layout);
     else if (more && more->draw) more->draw(layout);
     OverlayFooter footer;

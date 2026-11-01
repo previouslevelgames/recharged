@@ -982,10 +982,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             std::fprintf(stderr,"%s\n",line.c_str());
         }
         // [audio] sound levels: like the master volume a host setting,
-        // whatever the tweak set; the game module's hooks apply them.
+        // whatever the tweak set; the game module's hooks apply them (again
+        // as the overlay's Settings change them).
+        void(*configureSoundVolumes)(const int*,int)=nullptr;
         {
             const auto& volumes=launch.settings.sound_volumes;
-            auto* configureSoundVolumes=reinterpret_cast<void(*)(const int*,int)>(
+            configureSoundVolumes=reinterpret_cast<void(*)(const int*,int)>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_sound_volumes"));
             if(configureSoundVolumes)
                 configureSoundVolumes(volumes.data(),int(volumes.size()));
@@ -1772,6 +1774,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // The player's own presets (the launcher's Match rules page, files in
         // match-presets beside the settings file), read as the overlay opens.
         std::vector<mscharged::overlay::OnlinePanelPreset> myPresets;
+        // The 3D resolutions the Settings tab offers, by the height they draw at.
+        std::vector<std::string> displayResolutions;
         std::optional<unsigned> pendingTweaks;
         std::string overlayNotice;
         bool overlayOpen=false;
@@ -1931,6 +1935,38 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(ownMiiTexture && model.online.me.image.empty()) model.online.me.image="mii:own";
                 model.options.tweaks=optionTweaks;
                 model.options.in_match=context.in_match;
+                // Settings: the display and sound as they are now.
+                {
+                    auto& settings=model.settings;
+                    settings.fullscreen=(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN)!=0;
+                    settings.pictures={std::string("Keep its ")+(widescreen?"16:9":"4:3")+" shape","Stretch to fill"};
+                    if(widerView) settings.pictures.push_back("Wider view in matches");
+                    settings.picture=widerOn ? 2 : stretch ? 1 : 0;
+                    displayResolutions.clear();
+                    if(nativeSend) {
+                        const auto size=aurora_get_window_size();
+                        const auto picture=mscharged::PictureSize(int(size.native_fb_width),int(size.native_fb_height),
+                            int(aspectWidth),int(aspectHeight),fill);
+                        for(const auto value:mscharged::kRenderResolutions) displayResolutions.emplace_back(value);
+                        std::stable_sort(displayResolutions.begin(),displayResolutions.end(),[&](const auto& a,const auto& b) {
+                            return mscharged::RenderHeight(a,picture.height)<mscharged::RenderHeight(b,picture.height);
+                        });
+                        for(std::size_t n=0;n<displayResolutions.size();++n) {
+                            const auto& value=displayResolutions[n];
+                            settings.resolutions.push_back(std::string(mscharged::RenderResolutionLabel(value))+" ("
+                                +std::to_string(mscharged::RenderWidth(value,picture.width))+" \xC3\x97 "
+                                +std::to_string(mscharged::RenderHeight(value,picture.height))+")");
+                            if(value==renderResolution) settings.resolution=int(n);
+                        }
+                    }
+                    settings.performance_numbers=launch.settings.fps_overlay;
+                    settings.master_volume=launch.settings.master_volume;
+                    settings.mute=launch.settings.mute;
+                    settings.sound_volumes=launch.settings.sound_volumes;
+                    settings.challenge_sound=launch.settings.challenge_sound;
+                    settings.reopen_launcher=mscharged::platform::LauncherReopenOn();
+                    settings.reopen_known=mscharged::platform::LauncherReopenKnown();
+                }
                 ov::GameOverlayStyle style;
                 style.unit=unit;
                 style.fonts=hostOverlay->OverlayFonts();
@@ -1991,6 +2027,95 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         auto settings=launch.settings;
                         settings.tweaks=optionTweaks;
                         pendingTweaks=settings.ModuleTweakMask();
+                    }
+                }
+                if(actions.set_setting) {
+                    // A setting of the Settings tab: at once, and saved for the next time.
+                    const auto change=*actions.set_setting;
+                    const bool on=change.value!=0;
+                    using ov::GameSetting;
+                    std::function<void(mscharged::Settings&)> save;
+                    switch(change.setting) {
+                    case GameSetting::Fullscreen:
+                        if(SDL_SetWindowFullscreen(host.window,on)) {
+                            if(on) mscharged::runtime::PlaceFullscreenWindow(host.window);
+                            mscharged::runtime::LockWindowShape(host.window,!on && !stretch && !widerOn,aspectWidth,
+                                aspectHeight);
+                            mscharged::platform::SessionLogLine(std::string("Display: ")+(on?"fullscreen":"windowed")
+                                +" (Settings)");
+                        }
+                        launch.settings.fullscreen=on;
+                        save=[on](mscharged::Settings& s) { s.fullscreen=on; };
+                        break;
+                    case GameSetting::Picture: {
+                        // As the stretch hotkey: the wider view when set up, else stretching.
+                        widerOn=widerView && change.value==2;
+                        stretch=change.value==1;
+                        const bool windowed=!(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN);
+                        mscharged::runtime::LockWindowShape(host.window,windowed && !stretch && !widerOn,aspectWidth,
+                            aspectHeight);
+                        const bool wider=widerOn, stretched=stretch;
+                        const std::string keep=launch.settings.aspect=="stretch"?std::string("auto"):launch.settings.aspect;
+                        launch.settings.aspect=stretched?"stretch":keep;
+                        if(widerView) launch.settings.wider_view=wider;
+                        save=[wider,stretched,keep,canWiden=widerView](mscharged::Settings& s) {
+                            s.aspect=stretched?"stretch":keep;
+                            if(canWiden) s.wider_view=wider;
+                        };
+                        break;
+                    }
+                    case GameSetting::Resolution:
+                        if(change.value>=0 && std::size_t(change.value)<displayResolutions.size()
+                           && displayResolutions[std::size_t(change.value)]!=renderResolution) {
+                            renderResolution=displayResolutions[std::size_t(change.value)];
+                            VISetFrameBufferScale(mscharged::RenderScale(renderResolution));
+                            mscharged::platform::SessionLogLine("Display: 3D resolution "+renderResolution+" (Settings)");
+                            launch.settings.resolution=renderResolution;
+                            save=[value=renderResolution](mscharged::Settings& s) { s.resolution=value; };
+                        }
+                        break;
+                    case GameSetting::PerformanceNumbers:
+                        launch.settings.fps_overlay=on;
+                        hostOverlay->SetPerformance(on ? std::optional(mscharged::runtime::ParseOverlayCorner(
+                            launch.settings.fps_overlay_corner).value_or(mscharged::runtime::OverlayCorner::TopRight))
+                            : std::nullopt);
+                        save=[on](mscharged::Settings& s) { s.fps_overlay=on; };
+                        break;
+                    case GameSetting::MasterVolume:
+                    case GameSetting::Mute:
+                        if(change.setting==GameSetting::Mute) launch.settings.mute=on;
+                        else launch.settings.master_volume=std::clamp(change.value,0,100);
+                        mscharged::platform::SetNativeAIOutputGain(launch.settings.mute ? 0.0f :
+                            float(launch.settings.master_volume)/100.0f);
+                        save=[volume=launch.settings.master_volume,mute=launch.settings.mute](mscharged::Settings& s) {
+                            s.master_volume=volume;
+                            s.mute=mute;
+                        };
+                        break;
+                    case GameSetting::SoundVolume:
+                        if(change.group>=0 && std::size_t(change.group)<launch.settings.sound_volumes.size()) {
+                            launch.settings.sound_volumes[std::size_t(change.group)]=std::clamp(change.value,0,100);
+                            const auto& volumes=launch.settings.sound_volumes;
+                            if(configureSoundVolumes) configureSoundVolumes(volumes.data(),int(volumes.size()));
+                            save=[volumes](mscharged::Settings& s) { s.sound_volumes=volumes; };
+                        }
+                        break;
+                    case GameSetting::ChallengeSound:
+                        launch.settings.challenge_sound=on;
+                        save=[on](mscharged::Settings& s) { s.challenge_sound=on; };
+                        break;
+                    case GameSetting::ReopenLauncher:
+                        mscharged::platform::SetLauncherReopen(on);
+                        launch.settings.reopen_after_game=on;
+                        save=[on](mscharged::Settings& s) { s.reopen_after_game=on; };
+                        break;
+                    }
+                    if(save) {
+                        try {
+                            mscharged::SaveSettings(launch.config.path,save);
+                        } catch(const std::exception& error) {
+                            overlayNotice=std::string("The setting was not saved: ")+error.what();
+                        }
                     }
                 }
             });

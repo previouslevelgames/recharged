@@ -5122,114 +5122,6 @@ private:
     // Match rules' first card: the server's rule set the player's challenges
     // go out with, chosen from them as boxes (the game's online panel
     // chooses it too), the chosen one in detail, kept in the settings file.
-    void ChallengeRulesCard()
-    {
-        const auto& fonts = CurrentFonts();
-        BeginCard("##challenge_rules", "Rules for your challenges",
-                  "Your challenges go out with one of the server's rule sets, the same for both players; the player "
-                  "you challenge sees it before accepting. Your Challenges in the game's online panel chooses it too.",
-                  Icon::Trophy);
-        if (competitive_status_.state != CompetitiveService::State::SignedIn)
-        {
-            TextWrappedColored(fonts.body, color::muted, "Sign in on Player profile to choose them.");
-            ImGui::Dummy({0, Dp(8)});
-            if (GhostButton("challenge_rules_profile", "Player profile", {GhostWidth("Player profile", Icon::Person),
-                            Dp(40)}, true, Icon::Person))
-                page_ = PageOnlineSettings;
-            EndCard();
-            return;
-        }
-        const platform::RuleSet* chosen = ChosenRuleSet();
-        if (competitive_status_.rule_sets.empty())
-            TextWrappedColored(fonts.body, color::muted, "This server has no rule sets yet.");
-        for (const auto& set : competitive_status_.rule_sets)
-        {
-            ImGui::PushID(int(set.id));
-            auto* draw = ImGui::GetWindowDrawList();
-            const ImVec2 start = ImGui::GetCursorScreenPos();
-            const float width = ImGui::GetContentRegionAvail().x, pad = Dp(16), check = Dp(26);
-            const std::string summary = platform::DescribeRules(set.rules);
-            const float wrap = width - 2 * pad - check - Dp(12);
-            const float text = fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, wrap, summary.c_str()).y;
-            const float height = pad + FontSize(fonts.label) + Dp(4) + text + pad;
-            const bool picked = &set == chosen;
-            if (ImGui::InvisibleButton("##rule_set", {width, height}) && !picked) ChooseChallengeRules(set.name);
-            const bool over = ImGui::IsItemHovered();
-            if (over && !picked) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-            const float glow = Animate(ImGui::GetItemID(), over || picked);
-            const ImVec2 end{start.x + width, start.y + height};
-            draw->AddRectFilled(start, end, Col(Mix(color::field, color::border, glow * 0.3f)), Dp(14));
-            draw->AddRect(start, end, picked ? Col(color::accent, 0.85f) : Col(color::border), Dp(14), 0,
-                          picked ? Dp(1.5f) : Dp(1));
-            DrawLabel(draw, fonts.label, {start.x + pad, start.y + pad}, Col(color::text), set.name.c_str());
-            draw->AddText(fonts.caption, FontSize(fonts.caption),
-                          {start.x + pad, start.y + pad + FontSize(fonts.label) + Dp(4)}, Col(color::muted),
-                          summary.c_str(), nullptr, wrap);
-            // The chosen one's check, a ring for the others.
-            const ImVec2 mark{end.x - pad - check * 0.5f, start.y + height * 0.5f};
-            if (picked)
-            {
-                draw->AddCircleFilled(mark, check * 0.5f, Col(color::accent));
-                DrawIcon(draw, Icon::Check, mark, Dp(14), Col(color::accent_ink));
-            }
-            else
-                draw->AddCircle(mark, check * 0.5f - Dp(1), Col(over ? color::muted : color::border), 0, Dp(1.5f));
-            ImGui::SetCursorScreenPos(start);
-            ImGui::Dummy({width, height});
-            ImGui::Dummy({0, Dp(2)});
-            ImGui::PopID();
-        }
-        // The chosen one in detail, as the presets below show theirs.
-        if (chosen && BeginRows("##challenge_rules_detail"))
-        {
-            const auto& rules = chosen->rules;
-            const auto value = [&](const std::string& text) {
-                const ImVec2 start = ImGui::GetCursorScreenPos();
-                DrawLabel(ImGui::GetWindowDrawList(), fonts.label, start, Col(color::text), text.c_str());
-                ImGui::Dummy({TextSize(fonts.label, text.c_str()).x, FontSize(fonts.label)});
-            };
-            Row("Skill", "Of the computer's players.");
-            value(platform::NameLabel(rules.skill));
-            Row("Each game", rules.limit == "goals" ? "Until a team scores this many." : "On the match clock.");
-            if (rules.limit == "goals") value("First to " + std::to_string(rules.goals) + (rules.goals == 1 ? " goal" : " goals"));
-            else
-                value(rules.time % 60 == 0 ? std::to_string(rules.time / 60) + (rules.time == 60 ? " minute" : " minutes")
-                                           : std::to_string(rules.time / 60) + ":" + (rules.time % 60 < 10 ? "0" : "")
-                                                 + std::to_string(rules.time % 60) + " minutes");
-            Row("Series", "The games of one set.");
-            value(rules.games == 1 ? std::string("One game") : "Best of " + std::to_string(rules.games));
-            Row("Stadium", rules.stadium == "random" ? "A new one each game." : nullptr);
-            value(rules.stadium == "random" ? std::string("Random") : platform::NameLabel(rules.stadium));
-            Row("Gameplay", "Competitive gameplay tweaks both teams play with.");
-            std::string tweaks;
-            for (const auto& key : rules.tweaks)
-            {
-                std::string name = key;
-                for (const auto& info : kGameTweaks)
-                    if (key == info.key) name = info.name;
-                tweaks += (tweaks.empty() ? "" : ", ") + name;
-            }
-            value(tweaks.empty() ? std::string("As in the game") : tweaks);
-            EndRows();
-        }
-        EndCard();
-    }
-
-    // The rule set challenges go out with, saved at once without the other
-    // changes not saved yet (as the update choice is).
-    void ChooseChallengeRules(const std::string& name)
-    {
-        draft_.challenge_rules = name;
-        if (!config_ok_) return;
-        try
-        {
-            Settings saved = file_.settings;
-            saved.challenge_rules = name;
-            SaveConfig(file_, saved);
-        }
-        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
-    }
-
     // The top of an Online page that needs the sign-in: its header, and while
     // the player is signed out the way to Player profile, where the sign-in
     // is. Whether the player is signed in.
@@ -6782,16 +6674,6 @@ private:
         EndCard();
     }
 
-    // The rule set challenges go out with: the one Match rules chose (by
-    // name), else the server's first.
-    const platform::RuleSet* ChosenRuleSet() const
-    {
-        const auto& sets = competitive_status_.rule_sets;
-        for (const auto& set : sets)
-            if (set.name == draft_.challenge_rules) return &set;
-        return sets.empty() ? nullptr : &sets.front();
-    }
-
     // The Miis of the save folder in use, read again when a file they come
     // from changes (an import, a new Mii, or the game writing its storage: a
     // Mii's first login puts its profile in the online save).
@@ -7128,10 +7010,10 @@ private:
     // or online with friends. Default and Competitive are built in.
     void MatchRulesPage()
     {
-        PageHeader("Match rules", "The rules of your challenges, and presets of the match settings and cheats for "
-                                  "your matches on this computer or online with friends. Ranked matches keep their "
-                                  "own rules.");
-        ChallengeRulesCard();
+        PageHeader("Match rules", "Presets of a match's rules: a challenge starts from one (in the game, F1, then "
+                                  "Challenge on a player) and can change any rule for that challenge only, and your "
+                                  "matches on this computer or with friends in the game's menus use them too. Ranked "
+                                  "matches keep their own rules.");
         using mscharged::platform::GameSaveState;
         using mscharged::platform::MatchMode;
         const auto& save = InstalledMatch();
@@ -7188,6 +7070,47 @@ private:
         EndCard();
 
         if (preset_edit_) PresetEditor();
+        ServerPresetsCard();
+    }
+
+    // The server's rule sets, which challenges can start from too: their rules,
+    // and Copy for a preset of the player's own from one.
+    void ServerPresetsCard()
+    {
+        if (competitive_status_.state != CompetitiveService::State::SignedIn || competitive_status_.rule_sets.empty())
+            return;
+        const auto& fonts = CurrentFonts();
+        BeginCard("##server_presets", "From the server",
+                  "The rule sets this server offers for challenges, the same for every player. Copy one to change it.",
+                  Icon::Trophy);
+        for (std::size_t n = 0; n < competitive_status_.rule_sets.size(); ++n)
+        {
+            const auto& set = competitive_status_.rule_sets[n];
+            if (n)
+            {
+                ImGui::Dummy({0, Dp(4)});
+                MenuSeparator(ImGui::GetContentRegionAvail().x);
+                ImGui::Dummy({0, Dp(4)});
+            }
+            ImGui::PushID(int(set.id));
+            const float copy_w = Dp(90);
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float width = ImGui::GetContentRegionAvail().x;
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width - copy_w - Dp(16));
+            TextColored(fonts.label, color::text, set.name.c_str());
+            TextWrappedColored(fonts.caption, color::muted, platform::DescribeRules(set.rules).c_str());
+            ImGui::PopTextWrapPos();
+            const ImVec2 below = ImGui::GetCursorScreenPos();
+            ImGui::SetCursorScreenPos({at.x + width - copy_w, at.y});
+            if (SecondaryButton("copy_server_preset", "Copy", {copy_w, Dp(36)}, !preset_edit_, Icon::Copy))
+            {
+                EditPreset(launcher::PresetFromRules(set.name + " copy", set.rules));
+                page_scroll_top_ = true;
+            }
+            ImGui::SetCursorScreenPos(below);
+            ImGui::PopID();
+        }
+        EndCard();
     }
 
     static const char* MatchModeName(mscharged::platform::MatchMode mode)
@@ -7210,7 +7133,13 @@ private:
             ImGui::SameLine(0, Dp(10));
             Chip("Built in", color::info);
         }
-        TextWrappedColored(fonts.caption, color::muted, launcher::MatchSummary(preset.settings).c_str());
+        std::string summary = launcher::MatchSummary(preset.settings);
+        for (const auto& choice : platform::StadiumChoices())
+            if (preset.stadium != "random" && preset.stadium == choice.key) summary += ", " + std::string(choice.label);
+        for (const auto& choice : platform::RuleTweakChoices())
+            if (std::find(preset.tweaks.begin(), preset.tweaks.end(), choice.key) != preset.tweaks.end())
+                summary += ", " + std::string(choice.label);
+        TextWrappedColored(fonts.caption, color::muted, summary.c_str());
         ImGui::Dummy({0, Dp(2)});
 
         for (const auto mode : {MatchMode::Offline, MatchMode::Friends})
@@ -7228,8 +7157,16 @@ private:
         ImGui::SameLine(0, gap * 2);
         if (SecondaryButton("edit", preset.built_in ? "Copy" : "Edit", {edit_w, height}, !preset_edit_,
                             preset.built_in ? Icon::Copy : Icon::Sliders))
-            EditPreset(preset.built_in ? launcher::MatchPreset{preset.name + " copy", preset.settings, false, {}}
-                                       : preset);
+        {
+            auto copy = preset;
+            if (preset.built_in)
+            {
+                copy.name = preset.name + " copy";
+                copy.built_in = false;
+                copy.file.clear();
+            }
+            EditPreset(copy);
+        }
         if (preset.built_in && ImGui::IsItemHovered()) ImGui::SetTooltip("Built-in presets do not change: make a copy.");
         if (!preset.built_in)
         {
@@ -7287,12 +7224,12 @@ private:
             if (!blocked.empty() && !preset.name.empty())
                 TextWrappedColored(fonts.caption, color::warning, blocked.c_str());
 
-            Row("Skill", "How well the computer plays.");
+            Row("Skill", "How well the computer plays: against the CPU only, a challenge has none.");
             int skill = s.skill - 1;
             CheatCombo("##preset_skill", skill, launcher::SkillNames());
             s.skill = skill + 1;
 
-            Row("Series", "Games in a series: best of 1 to 9.");
+            Row("Series", "Games in a series: best of 1 to 9 (a challenge plays up to 7).");
             int series = (s.best_of - 1) / 2;
             if (Segmented("##preset_series", &series, {"1", "3", "5", "7", "9"}, ImGui::GetContentRegionAvail().x))
                 s.best_of = series * 2 + 1;
@@ -7323,6 +7260,37 @@ private:
             CheatCombo("##preset_player", s.player_cheat, launcher::PlayerCheatNames());
             Row("Power-up cheat");
             CheatCombo("##preset_powerup", s.powerup_cheat, launcher::PowerupCheatNames());
+
+            // For challenges: the stadium and the gameplay tweaks both teams play with.
+            Row("Stadium", "For challenges; matches in the game's menus pick theirs there.");
+            {
+                const auto& stadiums = platform::StadiumChoices();
+                std::vector<const char*> names;
+                int chosen = 0;
+                for (std::size_t n = 0; n < stadiums.size(); ++n)
+                {
+                    names.push_back(stadiums[n].label);
+                    if (preset.stadium == stadiums[n].key) chosen = int(n);
+                }
+                CheatCombo("##preset_stadium_pick", chosen, names);
+                preset.stadium = stadiums[std::size_t(chosen)].key;
+            }
+            Row("Gameplay", "For challenges: both teams play with these.");
+            for (const auto& choice : platform::RuleTweakChoices())
+            {
+                const auto found = std::find(preset.tweaks.begin(), preset.tweaks.end(), choice.key);
+                bool on = found != preset.tweaks.end();
+                ImGui::PushID(choice.key);
+                if (Toggle("##preset_tweak", &on))
+                {
+                    if (on) preset.tweaks.push_back(choice.key);
+                    else preset.tweaks.erase(found);
+                }
+                ImGui::SameLine(0, Dp(12));
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (Dp(28) - FontSize(fonts.body)) * 0.5f);
+                TextColored(fonts.body, color::text, choice.label);
+                ImGui::PopID();
+            }
             EndRows();
         }
         ImGui::Dummy({0, Dp(6)});
@@ -12402,14 +12370,20 @@ int main(int argc, char** argv)
         std::optional<ResolvedLaunch> frontend_launch;
         int result;
         fs::path restart, reopen;
+        bool reopen_on = false;
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
             frontend_launch = launcher.FrontendLaunch();
             if (launcher.RestartRequested()) restart = launcher.RestartExecutable();
-            // A set's game always opens the launcher again, into its lobby.
-            else if (frontend_launch && (frontend_launch->settings.reopen_after_game || frontend_launch->start_competitive))
+            // A set's game always opens the launcher again, into its lobby;
+            // otherwise as [launcher] reopen_after_game says (the game's
+            // Settings can switch it while it runs).
+            else if (frontend_launch)
+            {
                 reopen = launcher.RestartExecutable();
+                reopen_on = frontend_launch->settings.reopen_after_game || frontend_launch->start_competitive;
+            }
         } // Destroy the launcher/ImGui/SDL session before Aurora initializes.
         if (!restart.empty())
         {
@@ -12424,7 +12398,7 @@ int main(int argc, char** argv)
         SetAppName();
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
         // [launcher] reopen_after_game: closing the game starts this launcher again.
-        if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(reopen, argc, argv);
+        if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(reopen, argc, argv, reopen_on);
         if (frontend_launch) return RunOriginalGame(argc, argv, &*frontend_launch, true,
             OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #endif

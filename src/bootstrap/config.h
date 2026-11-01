@@ -8,6 +8,7 @@
 
 #include <array>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -349,6 +350,8 @@ void SaveGameTweak(const std::filesystem::path& path, GameTweak tweak, bool on);
 void SaveChallengeRules(const std::filesystem::path& path, const std::string& name);
 // [online] mii_sign_in alone (the game clears it once it signed in again).
 void SaveMiiSignIn(const std::filesystem::path& path, bool on);
+// Settings as `change` leaves them, saved over the file (the game's Settings tab).
+void SaveSettings(const std::filesystem::path& path, const std::function<void(Settings&)>& change);
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config);
 // game.gamecube_disc's path, empty when none is set.
 std::filesystem::path ResolveGameCubeDiscPath(const Settings& settings, const std::filesystem::path& config);

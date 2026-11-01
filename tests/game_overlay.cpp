@@ -12,6 +12,7 @@
 #include "overlay/overlay_unit.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 
 #include <cmath>
 #include <cstdio>
@@ -51,6 +52,7 @@ void Merge(GameOverlayActions& all, const GameOverlayActions& a)
     if (a.online.set_available) o.set_available = a.online.set_available;
     if (a.online.set_challenge_rules) o.set_challenge_rules = a.online.set_challenge_rules;
     if (a.set_option) all.set_option = a.set_option;
+    if (a.set_setting) all.set_setting = a.set_setting;
 }
 
 // One ImGui context of a 1280x720 window, with keyboard and gamepad navigation.
@@ -260,21 +262,28 @@ void TestTabs()
     CHECK(h.state.Tab() == OverlayTab::Events);
     h.Press(ImGuiKey_Tab, true, true);
     CHECK(h.state.Tab() == OverlayTab::Online);
-    // Three tabs: next from the last is the first, previous from the first the last.
+    // Four tabs: next from the last is the first, previous from the first the last.
     h.Press(ImGuiKey_E);
     h.Press(ImGuiKey_E);
     CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    h.Press(ImGuiKey_E);
+    CHECK(h.state.Tab() == OverlayTab::Settings);
     h.Press(ImGuiKey_E);
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.Press(ImGuiKey_Q);
-    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    CHECK(h.state.Tab() == OverlayTab::Settings);
     h.Press(ImGuiKey_E);
-    // Clicks on the tabs at the top: Game options at the right, Events in
-    // the middle, Online at the left.
-    auto actions = h.Click(900, 86);
-    CHECK(!actions.close && h.state.Tab() == OverlayTab::GameOptions);
-    h.Click(640, 86);
-    CHECK(h.state.Tab() == OverlayTab::Events);
+    // Clicks on the tabs at the top, from the left: each one of them opens
+    // (Online at the left, Settings at the right), never closing the overlay.
+    std::vector<OverlayTab> clicked;
+    for (float x = 200; x < 1080; x += 20)
+    {
+        const auto actions = h.Click(x, 86);
+        CHECK(!actions.close);
+        if (clicked.empty() || clicked.back() != h.state.Tab()) clicked.push_back(h.state.Tab());
+    }
+    CHECK(clicked.size() == 4 && clicked[0] == OverlayTab::Online && clicked[1] == OverlayTab::Events
+          && clicked[2] == OverlayTab::GameOptions && clicked[3] == OverlayTab::Settings);
     h.Click(400, 86);
     CHECK(h.state.Tab() == OverlayTab::Online);
 
@@ -465,6 +474,71 @@ void TestChallengeSetup()
     CHECK(!h.Press(ImGuiKey_GamepadFaceRight).online.challenge && h.OnPlayer("p12"));
 }
 
+// The Settings tab: the menu's cursor shows its section; A opens it, its
+// rows change the settings (volumes ten points a step, switches), B goes back
+// to the menu.
+void TestSettings()
+{
+    Harness h;
+    h.model.online = Model();
+    h.model.settings.master_volume = 50;
+    h.model.settings.resolutions = {"Native", "2x", "Window"};
+    h.model.settings.resolution = 2;
+    h.Open(OverlayTab::Settings);
+    CHECK(h.state.Tab() == OverlayTab::Settings && h.state.settings.Top().id == int(GameSettingsScreen::Menu));
+    CHECK(h.state.settings_state.section == 0);
+    h.Press(ImGuiKey_DownArrow);
+    CHECK(h.state.settings_state.section == 1);
+    h.Press(ImGuiKey_Enter);
+    CHECK(h.state.settings.Top().id == int(GameSettingsScreen::Section) && h.state.settings.Top().key == "Sound");
+    auto actions = h.Press(ImGuiKey_RightArrow);
+    CHECK(actions.set_setting && actions.set_setting->setting == GameSetting::MasterVolume
+          && actions.set_setting->value == 60);
+    actions = h.Press(ImGuiKey_LeftArrow);
+    CHECK(actions.set_setting && actions.set_setting->value == 40);
+    h.Press(ImGuiKey_DownArrow);
+    actions = h.Press(ImGuiKey_Enter);
+    CHECK(actions.set_setting && actions.set_setting->setting == GameSetting::Mute && actions.set_setting->value == 1);
+    // A sound level: the third row of its group (Effects after Music).
+    h.Press(ImGuiKey_DownArrow);
+    h.Press(ImGuiKey_DownArrow);
+    actions = h.Press(ImGuiKey_LeftArrow);
+    CHECK(actions.set_setting && actions.set_setting->setting == GameSetting::SoundVolume
+          && actions.set_setting->group == 1 && actions.set_setting->value == 90);
+    // B: back to the menu, on Sound; B again closes.
+    actions = h.Press(ImGuiKey_GamepadFaceRight);
+    CHECK(!actions.close && h.state.settings.Top().id == int(GameSettingsScreen::Menu)
+          && h.state.settings_state.section == 1);
+    // Display: the 3D resolution goes no further than its last.
+    h.Press(ImGuiKey_UpArrow);
+    h.Press(ImGuiKey_Enter);
+    CHECK(h.state.settings.Top().key == "Display");
+    h.Press(ImGuiKey_DownArrow);
+    actions = h.Press(ImGuiKey_RightArrow);
+    CHECK(actions.set_setting && actions.set_setting->setting == GameSetting::Resolution
+          && actions.set_setting->value == 2);
+}
+
+// The Settings tab as a player gets there: Online first, E to Settings,
+// Display, down to Performance numbers.
+void TestSettingsByKeys()
+{
+    {
+        Harness g;
+        g.model.online = Model();
+        g.model.settings.resolutions = {"Native", "Window"};
+        g.model.settings.pictures = {"Keep its shape", "Stretch to fill"};
+        g.Open();
+        for (int n = 0; n < 3; ++n) g.Press(ImGuiKey_E);
+        CHECK(g.state.Tab() == OverlayTab::Settings);
+        g.Press(ImGuiKey_Enter);
+        CHECK(g.state.settings.Top().key == "Display");
+        for (int n = 0; n < 3; ++n) g.Press(ImGuiKey_DownArrow);
+        const auto toggled = g.Press(ImGuiKey_Enter);
+        CHECK(toggled.set_setting && toggled.set_setting->setting == GameSetting::PerformanceNumbers);
+    }
+}
+
 // The overlay's scale: the picture's height / 900, but in small windows
 // never so small that its captions (13 dp) are under 11 pixels, as long as its
 // smallest window fits; and its window then takes more of the picture.
@@ -644,17 +718,18 @@ void TestMoreTabs()
     h.model.more_tabs = {tab(100, "Ranked"), tab(101, "Tournaments", false), tab(102, "Events", true, true),
                          tab(103, "Leaderboard")};
     h.model.more_tabs[0].draw = [&drawn](const OverlayLayout&) { ++drawn; };
-    // Online first, Events and Game options last, the more tabs between;
-    // Online's badge: the challenge.
+    // Online first, Events, Game options and Settings last, the more tabs
+    // between; Online's badge: the challenge.
     const auto tabs = GameOverlayTabs(h.model);
-    CHECK(tabs.size() == 7 && tabs.front().id == int(OverlayTab::Online));
-    CHECK(tabs.back().id == int(OverlayTab::GameOptions) && tabs[5].id == int(OverlayTab::Events));
+    CHECK(tabs.size() == 8 && tabs.front().id == int(OverlayTab::Online));
+    CHECK(tabs.back().id == int(OverlayTab::Settings) && tabs[6].id == int(OverlayTab::GameOptions)
+          && tabs[5].id == int(OverlayTab::Events));
     CHECK(tabs[1].id == 100 && tabs[4].id == 103);
     CHECK(tabs.front().badge == 1 && tabs.back().badge == 0);
     h.Open();
     CHECK(h.state.Tab() == OverlayTab::Online && drawn == 0);
     // The keys: Ranked (its page drawn), over Tournaments and Events to
-    // Leaderboard, Game options, round to Online, and back.
+    // Leaderboard, Events, Game options, Settings, round to Online, and back.
     h.Press(ImGuiKey_E);
     CHECK(int(h.state.Tab()) == 100 && drawn > 0);
     h.Press(ImGuiKey_GamepadR1);
@@ -664,8 +739,12 @@ void TestMoreTabs()
     h.Press(ImGuiKey_E);
     CHECK(h.state.Tab() == OverlayTab::GameOptions);
     h.Press(ImGuiKey_E);
+    CHECK(h.state.Tab() == OverlayTab::Settings);
+    h.Press(ImGuiKey_E);
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.Press(ImGuiKey_Q);
+    CHECK(h.state.Tab() == OverlayTab::Settings);
+    h.Press(ImGuiKey_GamepadL1);
     CHECK(h.state.Tab() == OverlayTab::GameOptions);
     h.Press(ImGuiKey_GamepadL1);
     CHECK(h.state.Tab() == OverlayTab::Events);
@@ -693,7 +772,7 @@ void TestMoreTabs()
     h.Frame();
     CHECK(h.state.Tab() == OverlayTab::Online);
 
-    // Eight tabs, from a narrow window to a wide one, switching on every way
+    // Nine tabs, from a narrow window to a wide one, switching on every way
     // (labels folding into icons as they need): each lands where it should.
     h.model.more_tabs = {tab(100, "Ranked"), tab(101, "Tournaments"), tab(102, "Leaderboard"), tab(103, "Stats"),
                          tab(104, "Replays")};
@@ -703,10 +782,10 @@ void TestMoreTabs()
     {
         h.Frame([width](ImGuiIO& io) { io.DisplaySize = {width, width * 0.5625f}; });
         h.Open();
-        for (int n = 0; n < 8; ++n) h.Press(ImGuiKey_E);
+        for (int n = 0; n < 9; ++n) h.Press(ImGuiKey_E);
         CHECK(h.state.Tab() == OverlayTab::Online);
         h.Press(ImGuiKey_Q);
-        CHECK(h.state.Tab() == OverlayTab::GameOptions);
+        CHECK(h.state.Tab() == OverlayTab::Settings);
     }
 }
 
@@ -759,6 +838,7 @@ void TestOpenTabBadge()
         h.Frame();
         CHECK(BadgeVertices(strip) > 0);
         h.Press(ImGuiKey_E);
+        h.Press(ImGuiKey_E);
         CHECK(h.state.Tab() == OverlayTab::Online && BadgeVertices(strip) == 0);
     }
     for (const bool dot : {false, true})
@@ -796,6 +876,8 @@ int main()
     TestResize();
     TestSmallWindows();
     TestChallengeSetup();
+    TestSettings();
+    TestSettingsByKeys();
     TestLateLists();
     TestPrompt();
     TestFrameDone();

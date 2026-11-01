@@ -40,9 +40,12 @@ with the score.
 
 ## Challenge a friend
 
-- Choose your rule set on **Online → Match rules** in the launcher, or
-  under **Your challenges** in the game's online panel (F1), then challenge a
-  player from that panel: pick them in the list, then challenge. They get **"Alice challenges you"** with Accept and Decline: on
+- Challenge a player from the game's online panel (F1): pick them in the
+  list, then **Challenge**. The challenge's setup starts from a preset: one of
+  the server's rule sets or one of your own (**Online → Match rules** in the
+  launcher). Change any rule for this challenge (series, game length or goals,
+  stadium, cheats, gameplay tweaks), the preset stays as it is, and **Send
+  challenge**. They get **"Alice challenges you"** with Accept and Decline: on
   a card over the game while they are in its menus, or in a dialog in the
   launcher when only the launcher is open (others see them as *In the
   launcher*). Accept in the launcher starts the game and goes straight to the
@@ -50,7 +53,7 @@ with the score.
 - Anyone who is signed in and has Recharged open can be challenged, unless
   they are playing a match.
 - A player's screen in the online panel also adds them to your friends or
-  takes them off. Switch on **Available for random games** there to meet
+  takes them off. Switch on **Open to challenges** there to meet
   players you don't know yet: the others who are available show to you, and
   you to them.
 - A chime plays when someone challenges you or accepts your challenge, and
@@ -135,11 +138,12 @@ already has a Recharged profile can't join another one.
 
 ## The same rules for both players
 
-Every set has one rule set, the same for both players: the competitive
+Every set has one set of rules, the same for both players: the competitive
 gameplay tweaks (such as no Mega Strikes, fast terrain and Thunder Island
-walls), the skill level, the game length or goal limit, the number of games
-and the stadium. Tournament organizers choose the rule set of their event; for
-a challenge you pick one from the server's list on **Match rules** or in the game. start.gg only pairs the
+walls), the game length or goal limit, the number of games, the stadium and
+the game's stadium, player and power-up cheats. Tournament organizers choose
+the rule set of their event; for a challenge you choose them in its setup,
+from a preset. start.gg only pairs the
 players and keeps the scores.
 
 Players of different versions (USA, Europe, Japan, Korea) cannot play against

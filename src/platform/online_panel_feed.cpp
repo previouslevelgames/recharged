@@ -139,7 +139,7 @@ void OnlinePanelFeed::RemoveMiiFriend(std::int32_t profile)
 
 void OnlinePanelFeed::SetAvailable(bool available)
 {
-    Send([available](ProfileService& api) { api.SetAvailable(available); }, "Available for random games");
+    Send([available](ProfileService& api) { api.SetAvailable(available); }, "Open to challenges");
 }
 
 void OnlinePanelFeed::ReadyToPlay(std::int64_t match, bool ready)
