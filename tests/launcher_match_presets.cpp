@@ -92,6 +92,26 @@ void Text()
         Check(parsed && parsed->settings.powerup_cheat == cheat, "Power-up cheat " + std::to_string(cheat) + " read back");
     }
 
+    // For challenges: the stadium and the gameplay tweaks, read back; a
+    // challenge's rules from the preset (9 games play 7).
+    preset.stadium = "the_palace";
+    preset.tweaks = {"no_mega_strikes", "fast_terrain"};
+    parsed = ParseMatchPreset(MatchPresetText(preset));
+    Check(parsed && parsed->stadium == "the_palace" && parsed->tweaks == preset.tweaks, "Stadium and tweaks read back");
+    const auto rules = ChallengeRules(preset);
+    Check(rules.limit == "goals" && rules.goals == 7 && rules.time == 300 && rules.games == 7
+              && rules.stadium == "the_palace" && rules.stadium_cheat == "always_white_ball"
+              && rules.player_cheat == "always_sidekick_skillshot" && rules.powerup_cheat == "no_power_ups"
+              && rules.tweaks == std::vector<std::string>{"fast_terrain", "no_mega_strikes"} && rules.skill == "legend",
+          "A preset as a challenge's rules");
+    Check(!ParseMatchPreset("name = Mine\nstadium = moon\n"), "A stadium the game hasn't");
+    Check(!ParseMatchPreset("name = Mine\ntweaks = fast_terrain, super_team\n"), "A tweak no set has");
+    parsed = ParseMatchPreset("name = Mine\n");
+    Check(parsed && parsed->stadium == "random" && parsed->tweaks.empty(), "Without them: random, none");
+    preset.stadium = "random";
+    preset.tweaks.clear();
+    s.powerup_cheat = 11;
+
     // Keys left out are a new save's; unknown keys (an earlier build's
     // home_powerups) and comments are skipped.
     parsed = ParseMatchPreset("; a comment\n# another\r\nname = Mine\r\nGOALS = 9\nwin_by = Goals\nfuture_key = 1\n"

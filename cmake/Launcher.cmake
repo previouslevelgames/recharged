@@ -75,7 +75,7 @@ target_link_libraries(charged_image_library PUBLIC charged_host charged_json)
 add_library(charged_match_presets STATIC src/launcher/match_presets.cpp)
 target_include_directories(charged_match_presets PUBLIC src)
 target_compile_features(charged_match_presets PUBLIC cxx_std_17)
-target_link_libraries(charged_match_presets PUBLIC charged_host)
+target_link_libraries(charged_match_presets PUBLIC charged_host charged_competitive)
 # New Miis for players without any (the Miis page).
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MiiMaker.cmake")
 # The Discord friends (docs/COMPETITIVE.md), with the Discord Social SDK when

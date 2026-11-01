@@ -1,5 +1,6 @@
 #pragma once
 
+#include "platform/profile_service.h"
 #include "platform/save_import.h"
 
 #include <filesystem>
@@ -21,7 +22,16 @@ struct MatchPreset
     platform::MatchSettings settings;
     bool built_in = false;
     std::filesystem::path file; // the preset's file; empty for a built-in one
+    // For challenges too: the stadium ("random" or one of StadiumChoices'
+    // keys) and the gameplay tweaks both teams play with (RuleTweakChoices'
+    // keys). The skill only counts against the CPU.
+    std::string stadium = "random";
+    std::vector<std::string> tweaks;
 };
+
+// A preset as a challenge's rules (a series of 9 plays 7: online sets go up
+// to 7 games).
+platform::MatchRules ChallengeRules(const MatchPreset& preset);
 
 // Default: what a new save starts with, no cheats. Competitive: Superstar,
 // best of 3, first to 10 goals, Secure, no other cheat.
