@@ -471,33 +471,32 @@ writes `rollback_test` or `rollback_log`.
 
 ## Competitive play
 
-The launcher's **Online** pages play sets against other Recharged players by
-the rules of the project's online server, `https://rechargedwfc.net`:
-**Friends** (your friends and your Discord friends, the players you played
-last and, while you are available for random games, the other available
-players), **Leaderboard** (the game's RANKED leaderboards on the server: the
-season's leaders and today's, and your own place), **Events** (tournaments,
-coming later), **Match settings** (the rule
-set your challenges go out with, kept as `[online] challenge_rules`) and
-**Online settings** (who you are signed in as, your friend code, whether your
-Discord friends are linked, the challenge sound, the server, and Sign out,
-which also ends the Discord link on this computer). A dot before **Online** in
-the sidebar shows the sign-in: green signed in, red not; signed out, Online is
-one page that shows what playing online brings and **Connect Discord**. Your
-set shows at the top of the Online pages. A private server's `https://`
-address (from its admins) goes in `[online] profile_server`; only the file
-changes it. A set is a series against
+Sets against other Recharged players are played by the rules of the project's
+online server, `https://rechargedwfc.net`. The launcher's **Online** pages set
+them up: **Online settings** (who you are signed in as, your friend code,
+whether your Discord friends are linked, the challenge sound, the server, and
+Sign out, which also ends the Discord link on this computer), **Leaderboard**
+(the game's RANKED leaderboards on the server: the season's leaders and
+today's, and your own place), **Events** (tournaments, coming later) and
+**Match settings** (the rule set your challenges go out with, kept as
+`[online] challenge_rules`). Your friends, the players available and your set
+are in the game's online panel (**F1** or HOME, see Hotkeys). A dot before
+**Online** in the sidebar shows the sign-in: green signed in, red not; signed
+out, Online is one page that shows what playing online brings and **Connect
+Discord**. A private server's `https://` address (from its admins) goes in
+`[online] profile_server`; only the file changes it. A set is a series against
 one player, by one of the server's rule sets: skill level, game length or goal
 limit, the games of the series, the stadium, and the *Competitive gameplay*
 tweaks both teams play with.
 
 1. Connect Discord on **Online**. The browser opens a page that shows a code;
    go on only if it is the code the launcher shows.
-2. Challenge a player who has Recharged open: from the Friends or Players page
-   with a click, or by their Discord username. They accept or
-   decline, in the launcher or on a card over their game while it is in its
-   menus (A accepts, B declines; the game waits behind the card). A player in
-   a match shows as *Playing a match* and can be challenged once it is over.
+2. Challenge a player who has Recharged open from the game's online panel.
+   They accept or decline on a card over their game while it is in its menus
+   (A accepts, B declines; the game waits behind the card), or, with only the
+   launcher open (*In the launcher*), in a dialog there: its Accept starts the
+   game straight into the set, Decline (Escape, B) says no. A player in a
+   match shows as *Playing a match* and can be challenged once it is over.
    A chime plays, and the window flashes when it is in the background, when
    someone challenges you and when your challenge is accepted
    (`[online] challenge_sound`, on by default; at the master volume, not when
@@ -512,8 +511,8 @@ tweaks both teams play with.
    login's Connecting screen and the draft. (When your Mii from the launcher
    is not on this computer, you choose a Mii yourself.) A game that is
    elsewhere in its menus says so: back on the main menu or the online menu,
-   it goes on. **Not ready** on the Online pages holds the set until you press
-   **Ready to play!** again.
+   it goes on. **Not ready** in the online panel holds the set until you
+   press **Ready to play!** again.
 4. After the series both games report the result and stay in the online menu,
    with a card: **Rematch** challenges your opponent again by the same rules,
    and once they accept, the next set goes on into RANKED. A set that stopped
@@ -522,24 +521,14 @@ tweaks both teams play with.
    opens the launcher again. A set whose match was broken off before a game
    ended (a game closed or lost its connection) ends without a result.
 
-Your **friends** are kept on the server, so they follow you to every computer:
-the players you add by Discord username, or with the heart next to them on the
-Friends page (*Played recently*, *Available now*). Playing someone
-doesn't make them a friend: they show under *Played recently*, the latest
-first, until you add them. The list shows who has Recharged
-open or is in a set, and for the others when they were last online. The lit
-heart next to a friend takes them off.
-
-Friends who have you as a friend too can **chat**: the speech bubble on their
-row opens the conversation, with the number of messages you haven't read yet
-on it, and **Discord** there opens their Discord profile. Messages are one
-line of up to 300 characters; they go through the online server, which keeps
-them 30 days.
+Your **friends** are kept on the server, so they follow you to every
+computer: a player's screen in the online panel adds them or takes them off.
+Playing someone doesn't make them a friend.
 
 You need no Mii of your own: the launcher makes one from your Discord account,
-named after your Discord name, the same on every computer. It is an ordinary
-Mii: it shows on the Miis page and in the game's online Mii list, and you can
-play the game's own online modes with it too.
+named after your Discord name, the same on every computer, when you play while
+signed in. It is an ordinary Mii: it shows on the Miis page and in the game's
+online Mii list, and you can play the game's own online modes with it too.
 
 A set lasts while both have Recharged open; closing it ends your sets that
 have no result yet. Every other game, and the game's own online menu, stay as

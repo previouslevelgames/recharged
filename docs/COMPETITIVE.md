@@ -11,12 +11,14 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 ## How a match feels
 
 1. Open Recharged and go to **Online**; the first time, **Connect Discord**
-   there. Its **Friends** page shows your friends, your Discord friends and
-   your recent opponents, **Leaderboard** the game's RANKED leaderboards, and
-   **Events** your tournaments (coming later). Your open set shows at the top
-   of each.
-2. Challenge an opponent, or let a tournament pair you with one.
-3. They accept, in the launcher or on a card over their game.
+   there. The launcher's Online pages hold your profile (**Online
+   settings**), the rules of your challenges (**Match settings**), the game's
+   RANKED **Leaderboard** and your tournaments (**Events**, coming later).
+2. In the game, press **F1** (or HOME) for its online panel: your set, your
+   friends online and the players available. Challenge an opponent there, or
+   let a tournament pair you with one.
+3. They accept on a card over their game, or, with only the launcher open,
+   in a dialog there.
 4. Both games go **straight into the captain draft** by themselves: the
    launcher starts one, a game that already runs goes on without closing. No
    intro, no menus, no friend codes to trade, no searching. You pick your
@@ -34,32 +36,21 @@ with the score.
 ## Challenge a friend
 
 - Choose your rule set once on **Online → Match settings**, then challenge a
-  friend with a click, or type a player's Discord name. They get
-  **"Alice challenges you"** with Accept and Decline: in the launcher, or on a
-  card over the game while they are in its menus.
+  player from the game's online panel (F1): pick them in the list, then
+  challenge. They get **"Alice challenges you"** with Accept and Decline: on
+  a card over the game while they are in its menus, or in a dialog in the
+  launcher when only the launcher is open (others see them as *In the
+  launcher*). Accept in the launcher starts the game and goes straight to the
+  set.
 - Anyone who is signed in and has Recharged open can be challenged, unless
-  they are playing a match. The Online pages show who is online and what they
-  do.
-- Add the players you like to play with to your friends, by Discord name in
-  the Friends page's search field, or with the heart next to a recent
-  opponent: playing someone doesn't make them a friend, they show under
-  **Played recently** on the Friends page.
-- Friends who keep each other as friends can chat in the launcher.
+  they are playing a match.
+- A player's screen in the online panel also adds them to your friends or
+  takes them off. Switch on **Available for random games** there to meet
+  players you don't know yet: the others who are available show to you, and
+  you to them.
 - A chime plays when someone challenges you or accepts your challenge, and
   the window flashes while it is in the background, so a challenge isn't
   missed (Online settings → **Challenge sound**).
-- Switch on **Available for random games** on the Friends page to meet players
-  you don't know yet: the others who are available show under **Available
-  now**, and you show to them. Off, nobody sees you there. The players of the
-  game's own online mode who don't use the launcher show there too, by their
-  Mii (a Mii face, their Mii name and friend code), with what they are doing
-  in the game. Typing a friend code in the search field finds that Mii, and
-  **Add Mii friend** keeps them among your friends.
-- The heart keeps a player among your friends: lit for a friend (a click takes
-  them off), grey for anyone else (a click adds them). Mii players added this
-  way show in your list with their Mii face; Discord friends need no heart.
-- Your Discord friends show in the launcher too, with who of them has
-  Recharged open, and you challenge them from there (see below).
 - A challenge lasts only as long as Recharged is open: close Recharged and
   your open challenges are gone, with nothing to clean up.
 
@@ -67,19 +58,10 @@ with the score.
 
 Recharged's own friends list follows you everywhere, but your friends are
 probably on Discord already. Signing in with Discord links them too: Discord's
-page asks for your account and your friends list at once, and the **Friends**
-page then lists all your Discord friends. If your server doesn't link them
-with the sign-in (servers before 1.2.1), **Link** on the Friends page or on
-**Online settings** asks Discord for them once.
-
-The **Friends** page lists your friends and your Discord friends together,
-Discord friends with Discord's mark. Those with Recharged open come first,
-each with what they are doing (in the launcher, in the game, idle, in a match
-or in a set) and **Adhoc Battle!** at the end of the row, greyed while they are in
-a match or a set. The others are folded away under **Offline**: your friends
-with when they last had Recharged open, your Discord friends with what Discord
-says about them. The search field over the list finds a friend, or adds or
-challenges a player by Discord username.
+page asks for your account and your friends list at once, and **Online
+settings** then shows how many of your Discord friends play Recharged. If
+your server doesn't link them with the sign-in (servers before 1.2.1),
+**Link** on **Online settings** asks Discord for them once.
 
 - Your Discord friends list goes from Discord straight to Recharged on your
   computer. Our server only learns which of the accounts in it have a
