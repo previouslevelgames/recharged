@@ -140,6 +140,13 @@ void Rules()
           && CaptainKey(-1).empty());
     CHECK(StadiumKey(0) == "battle_dome" && StadiumKey(15) == "sand_tomb" && StadiumKey(16).empty());
     CHECK(NameLabel("bowser_jr") == "Bowser Jr");
+    // Profile names as the game's screens show them.
+    CHECK(ScreenName("Christopher Columbus the Great") == u"Christopher Columbus the Great");
+    CHECK(ScreenName("  Bob \t the\u00a0 Builder  ") == u"Bob the Builder");
+    CHECK(ScreenName("Zo\u00eb \U0001F600 \u200bK\u00e4the\uE000") == u"Zo\u00eb K\u00e4the");
+    CHECK(ScreenName("\U0001F600\U0001F680").empty() && ScreenName("bad \xff byte").empty());
+    CHECK(ScreenName(std::string(40, 'x')) == std::u16string(32, u'x'));
+    CHECK(ScreenName("\xe3\x83\x9e\xe3\x83\xaa\xe3\x82\xaa") == u"\u30DE\u30EA\u30AA");
 }
 
 #ifndef _WIN32

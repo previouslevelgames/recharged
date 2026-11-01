@@ -113,6 +113,45 @@ std::string DescribeRules(const MatchRules& rules)
     return text;
 }
 
+std::u16string ScreenName(std::string_view name)
+{
+    constexpr std::size_t kUnits = 32;
+    std::u16string shown;
+    for (std::size_t n = 0; n < name.size();)
+    {
+        const auto lead = static_cast<unsigned char>(name[n]);
+        const std::size_t length = lead < 0x80 ? 1 : (lead & 0xE0) == 0xC0 ? 2 : (lead & 0xF0) == 0xE0 ? 3
+                                 : (lead & 0xF8) == 0xF0                   ? 4
+                                                                           : 0;
+        if (!length || n + length > name.size()) return {};
+        char32_t c = length == 1 ? lead : lead & (0x7F >> length);
+        for (std::size_t k = 1; k < length; ++k)
+        {
+            const auto next = static_cast<unsigned char>(name[n + k]);
+            if ((next & 0xC0) != 0x80) return {};
+            c = (c << 6) | (next & 0x3F);
+        }
+        n += length;
+        const bool space = c == U' ' || c == U'\t' || c == U'\u00A0' || c == U'\u3000';
+        // The basic plane without control, surrogate, private-use and
+        // invisible format characters (and variation selectors).
+        const bool shows = c >= 0x20 && !(c >= 0x7F && c < 0xA0) && c <= 0xFFFF && !(c >= 0xD800 && c < 0xF900)
+                        && c != 0xAD && !(c >= 0x200B && c <= 0x200F) && !(c >= 0x2028 && c <= 0x202E)
+                        && !(c >= 0x2060 && c <= 0x206F) && !(c >= 0xFE00 && c <= 0xFE0F) && c != 0xFEFF
+                        && c < 0xFFF0;
+        if (space)
+        {
+            if (!shown.empty() && shown.back() != u' ') shown.push_back(u' ');
+        }
+        else if (shows)
+            shown.push_back(char16_t(c));
+        if (shown.size() >= kUnits) break;
+    }
+    if (shown.size() > kUnits) shown.resize(kUnits);
+    while (!shown.empty() && shown.back() == u' ') shown.pop_back();
+    return shown;
+}
+
 std::string CaptainKey(int team)
 {
     return team >= 0 && team < int(kCaptains.size()) ? kCaptains[std::size_t(team)] : "";

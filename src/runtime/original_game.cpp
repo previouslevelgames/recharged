@@ -1336,6 +1336,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive_start"));
         auto endSet=reinterpret_cast<ChargedCompetitiveEndSetFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_competitive_end_set"));
+        // The set's players by their profile names on its RANKED screens (the
+        // game shows Mii names): this player's and the opponent's, given while
+        // the game plays a set (the module drops them at its end).
+        auto configureNames=reinterpret_cast<ChargedConfigureDisplayNamesFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_display_names"));
+        std::optional<std::pair<std::u16string,std::u16string>> namesGiven;
         // At debug level DWC's own reports of the WFC login, matchmaking and
         // NAT negotiation, which the game switches off, go to the log.
         if(launch.settings.log_level=="debug")
@@ -1397,9 +1403,22 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             std::optional<ChargedCompetitiveRules> rules;
             if(competitive->Observe(wfc,known ? &game : nullptr,rules))
                 configureCompetitive(rules ? &*rules : nullptr,sizeof(ChargedCompetitiveRules));
-            if(const auto set=competitive->CurrentSet())
-                presenceSet=mscharged::platform::SetText{set->opponent,set->won,set->lost,set->games};
+            const auto set=competitive->CurrentSet();
+            if(set) presenceSet=mscharged::platform::SetText{set->opponent,set->won,set->lost,set->games};
             else presenceSet.reset();
+            if(configureNames) {
+                std::optional<std::pair<std::u16string,std::u16string>> names;
+                if(set) names.emplace(mscharged::platform::ScreenName(competitive->PlayerName()),
+                    mscharged::platform::ScreenName(set->opponent));
+                if(names!=namesGiven) {
+                    const auto units=[](const std::u16string& name) {
+                        return name.empty() ? nullptr : reinterpret_cast<const unsigned short*>(name.c_str());
+                    };
+                    if(names) configureNames(units(names->first),units(names->second));
+                    else configureNames(nullptr,nullptr);
+                    namesGiven=std::move(names);
+                }
+            }
             // A set that went while this game is in its menus: it goes on into
             // RANKED from the main menu or the online menu, without closing.
             if(const auto start=competitive->TakeSetStart()) {
@@ -1417,6 +1436,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // set again.
             if(auto end=competitive->TakeSetEnd()) {
                 if(endSet) endSet();
+                namesGiven.reset();
                 setStartedHere=false;
                 using How=mscharged::platform::CompetitiveHost::SetEnd::How;
                 const std::string opponent=end->opponent.empty() ? std::string("your opponent") : end->opponent;

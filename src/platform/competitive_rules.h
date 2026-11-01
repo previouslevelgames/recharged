@@ -74,6 +74,10 @@ typedef bool (*ChargedConfigureCompetitiveStartFunction)(const unsigned char* mi
 // Game module entry, between frames: the set is done and the host has
 // finished with it; the game's popups and menus are the player's again.
 typedef void (*ChargedCompetitiveEndSetFunction)(void);
+// Game module entry, between frames: the set's players' profile names
+// (UTF-16, ScreenName) for its RANKED screens, this player's and the
+// opponent's (null or empty: the Mii name stays); both null: none.
+typedef void (*ChargedConfigureDisplayNamesFunction)(const unsigned short* own, const unsigned short* opponent);
 // Game module entry ([advanced] log_level = debug): DWC's reports of the WFC
 // login, matchmaking and NAT negotiation go to the game's output (the log).
 typedef void (*ChargedConfigureDwcReportFunction)(bool on);
@@ -108,5 +112,10 @@ std::string CaptainKey(int team);
 std::string StadiumKey(int stadium);
 // "the_palace" as shown: "The Palace".
 std::string NameLabel(std::string_view name);
+// A profile name as the game's screens can show it: UTF-16 of the basic
+// plane without control, private-use and invisible characters (emoji and
+// other characters outside it are left out), runs of spaces as one, at most
+// 32 units; empty for none (or invalid UTF-8).
+std::u16string ScreenName(std::string_view name);
 } // namespace mscharged::platform
 #endif
