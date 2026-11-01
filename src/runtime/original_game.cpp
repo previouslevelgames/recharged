@@ -74,6 +74,7 @@
 #include "movie_hardware.h"
 #include "runtime/game_window.h"
 #include "runtime/host_overlay.h"
+#include "runtime/host_panel.h"
 #include "runtime/pipeline_warmup.h"
 #include "mscharged/build_version.h"
 #include "runtime/frame_rate.h"
@@ -768,7 +769,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine("Hotkeys: screenshot "+key(mscharged::HotkeyScreenshot)
                 +", HUD "+key(mscharged::HotkeyHud)+" (matches start with the HUD "+(s.show_hud ? "shown)" : "hidden)")
                 +", stretch "+key(mscharged::HotkeyStretch)+", 3D resolution "+key(mscharged::HotkeyResolutionUp)
-                +"/"+key(mscharged::HotkeyResolutionDown)+", fullscreen "+key(mscharged::HotkeyFullscreen));
+                +"/"+key(mscharged::HotkeyResolutionDown)+", fullscreen "+key(mscharged::HotkeyFullscreen)
+                +", online panel "+key(mscharged::HotkeyPanel)+" (and HOME)");
             for (const auto& device : s.players) {
                 if (device.rfind("gamepad", 0) != 0) continue;
                 const std::size_t pad = std::size_t(device.back() - '1');
@@ -1517,6 +1519,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
             afterSet.reset();
         };
+        bool netplaySession=false;
         auto observeNetplay = [&] {
             if((!hostOverlay && !framePacing) || !netplaySnapshot)return;
             const auto now=std::chrono::steady_clock::now();
@@ -1524,6 +1527,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             lastNetplay=now;
             ChargedNetplaySnapshot snapshot{};
             if(!netplaySnapshot(&snapshot,sizeof snapshot))return;
+            netplaySession=snapshot.network!=0;
             if(framePacing && framePacing->SetRollbackCap(snapshot.rollback!=0)) {
                 const auto line="Frame rate: "+framePacing->Description();
                 mscharged::platform::SessionLogLine(line);
@@ -1540,6 +1544,23 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
             hostOverlay->SetNetwork(network);
         };
+        // The online panel (F1 or HOME) over the blurred game. Online the game
+        // goes on; in an offline match in play it presses the game's pause.
+        std::optional<mscharged::runtime::HostPanel> hostPanel;
+        if(hostOverlay && interactive) {
+            hostPanel.emplace(host.window);
+            hostPanel->SetPauseRule([&] {
+                ChargedPresenceSnapshot game{};
+                if(netplaySession || !presenceSnapshot || !presenceSnapshot(&game,sizeof game))return false;
+                // Not online, nor the title screen's demo (mode 2), nor with the
+                // computer playing both teams (none of this machine's pads pause).
+                if(!game.in_match || game.online || game.mode==2 || !game.human_sides)return false;
+                // Paused already (its pause menu is open), and only in play.
+                if(game.match_menu)return false;
+                return game.game_state==1 || game.game_state==5 || game.game_state==6; // kick-off, play, overtime
+            });
+            hostOverlay->SetPanel(&*hostPanel);
+        }
         // The persisted launcher toggle is authoritative; recordings live with
         // the session log (logs/ beside this executable), independently of the
         // working directory.
@@ -1658,6 +1679,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const auto now=std::chrono::steady_clock::now();
             if(framePacing) framePacing->Update(now);
             serviceChallengeCard(now);
+            if(hostPanel) hostPanel->Service(now);
             if(hostOverlay) {
                 if(const auto rate=frameRate.Sample(frames,now)) hostOverlay->SetRate(*rate);
                 const auto size=aurora_get_window_size();

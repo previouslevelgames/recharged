@@ -81,8 +81,9 @@ come from the reconstructed source, unchanged.
 **Hotkeys** work whoever plays: **P** saves a screenshot, **H** shows or hides
 the HUD in a match, **F** stretches the picture over the window or gives it
 back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
-and **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
-window. Each can be changed under Controls → Hotkeys, to a key alone or with
+**Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
+window, and **F1** (or HOME on a controller) opens the online panel over the
+game. Each can be changed under Controls → Hotkeys, to a key alone or with
 Ctrl, Shift or Alt.
 
 **No HUD** (Controls → Hotkeys → *Show the HUD when a match starts* off):

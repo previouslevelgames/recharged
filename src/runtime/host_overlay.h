@@ -15,6 +15,8 @@ struct ImFont;
 
 namespace mscharged::runtime {
 
+class HostPanel;
+
 // What the host draws over the presented picture, in windowed and fullscreen
 // mode: the performance overlay (display.fps_overlay: FPS | GPU % | CPU %, then
 // in network sessions LAT (round trip, ms) and in network matches with rollback
@@ -60,9 +62,12 @@ public:
         bool operator==(const Card&) const = default;
     };
     void SetCard(std::optional<Card> card);
+    // The host panel (F1 or HOME), drawn while open in place of the card,
+    // under the performance numbers and messages; null for none.
+    void SetPanel(HostPanel* panel);
     // Rebuild only when a displayed value, the message's fade or the window's
-    // pixel size changes. Unknown measurements show N/A, including during the
-    // first sample window.
+    // pixel size changes, and every call while the panel is open. Unknown
+    // measurements show N/A, including during the first sample window.
     void Update(std::uint32_t surface_width, std::uint32_t surface_height, Clock::time_point now);
 
 private:
@@ -76,6 +81,8 @@ private:
     Network network_;
     std::string message_;
     std::optional<Card> card_, shownCard_;
+    HostPanel* panel_ = nullptr;
+    bool shownPanel_ = false;
     Clock::time_point messageShown_{};
     std::array<std::optional<int>, kMaxPerformanceMetrics> shownValues_{};
     std::size_t shownCount_ = 0;

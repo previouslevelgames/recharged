@@ -305,14 +305,18 @@ a match (`hud`), **F** stretches the picture over the window or gives it back
 its shape (`stretch`), **Page Up** and **Page Down** raise and lower the 3D
 resolution (`resolution_up`, `resolution_down`), and **Alt+Enter**
 (Option+Return on a Mac) switches between fullscreen and a window
-(`fullscreen`); the last four last for the run. Click a hotkey, then press the
+(`fullscreen`); the last four last for the run. **F1** opens and closes the
+online panel over the game (`panel`); HOME on any controller does the same, and
+Escape or B closes it. While it is open the game behind it is blurred and gets
+no input: online matches go on, and in an offline match it presses the game's
+pause. Click a hotkey, then press the
 new key, alone or with Ctrl, Shift or Alt (Control or Option on a Mac); Escape
 cancels and Backspace or Delete leaves it unused. In the file a hotkey is a key
 name after the `Ctrl+`, `Shift+` and `Alt+` it needs (`Ctrl+Shift+F12`), or
 `none`. A hotkey's key does not reach the game, so a key pressed alone cannot
 be a key of keyboard & mouse too; with Ctrl, Shift or Alt it can. The Windows
 and Command keys stay with the system. A settings file whose keyboard & mouse
-keys already use F, Page Up or Page Down keeps them, with that hotkey unused.
+keys already use F, F1, Page Up or Page Down keeps them, with that hotkey unused.
 With **Show the HUD when a match starts** off (`show_hud = false`), every match
 starts without the scoreboard, player markers and captions, for clean
 recordings; the HUD key shows them, and the Mega Strike meter stays.

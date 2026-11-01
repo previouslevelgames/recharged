@@ -336,6 +336,7 @@ target_link_libraries(mscharged_original_game_vi PRIVATE aurora::vi)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SystemUsage.cmake")
 add_library(charged_original_game_host OBJECT
     src/runtime/original_game.cpp src/runtime/frame_timing_log.cpp src/runtime/host_overlay.cpp
+    src/runtime/host_panel.cpp
     src/runtime/game_window.cpp
     src/runtime/texture_pack_loading.cpp src/platform/hd_recolour.cpp
     src/runtime/host_frame_pacing.cpp

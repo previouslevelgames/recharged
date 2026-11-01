@@ -1,6 +1,7 @@
 #include "runtime/host_overlay.h"
 
 #include "platform/path.h"
+#include "runtime/host_panel.h"
 
 #include <aurora/imgui.h>
 #include <imgui.h>
@@ -69,6 +70,8 @@ void HostOverlay::ShowMessage(std::string text, Clock::time_point now)
 }
 
 void HostOverlay::SetCard(std::optional<Card> card) { card_ = std::move(card); }
+
+void HostOverlay::SetPanel(HostPanel* panel) { panel_ = panel; }
 
 void HostOverlay::BuildFonts(float size, float unit)
 {
@@ -204,21 +207,26 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         }
         if (opacity == 0) message_.clear();
     }
-    const bool showing = performance_ || opacity > 0 || card_;
+    const bool panel = panel_ && panel_->IsOpen();
+    const bool showing = performance_ || opacity > 0 || card_ || panel;
     if (!showing) {
         if (drawn_) aurora_imgui_clear_overlay();
         drawn_ = false;
         return;
     }
-    if (drawn_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_ && opacity == shownOpacity_
-        && card_ == shownCard_ && surface_width == shownWidth_ && surface_height == shownHeight_)
+    // The panel is a live ImGui window: every frame while open.
+    if (drawn_ && !panel && !shownPanel_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_
+        && opacity == shownOpacity_ && card_ == shownCard_ && surface_width == shownWidth_
+        && surface_height == shownHeight_)
         return;
     const auto size = FpsOverlayFontSize(surface_width, surface_height);
     const float unit = std::clamp(float(surface_height) / 720.0f, 0.5f, 4.0f);
     if (size != builtSize_ || unit != builtUnit_) BuildFonts(size, unit);
     aurora_imgui_begin_overlay(surface_width, surface_height);
-    // The card first: the performance numbers and messages stay on top.
-    if (card_) DrawCard(float(surface_width), float(surface_height), unit);
+    // The panel or the card first: the performance numbers and messages stay
+    // on top.
+    if (panel) panel_->Draw(float(surface_width), float(surface_height), {cardText_, cardBold_, unit});
+    else if (card_) DrawCard(float(surface_width), float(surface_height), unit);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     const float shadow = std::max(1.0f, std::round(size / 15.0f));
     std::optional<FpsOverlayLayout> performanceLayout;
@@ -266,6 +274,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     shownCount_ = count;
     shownMessage_ = message_;
     shownCard_ = card_;
+    shownPanel_ = panel;
     shownOpacity_ = opacity;
     shownWidth_ = surface_width;
     shownHeight_ = surface_height;
