@@ -24,4 +24,10 @@ if(BUILD_TESTING)
     # MSCHARGED_TEST_DISC (a Charged image) adds checks with the real parts,
     # MSCHARGED_TEST_MII_REFERENCE a comparison with the game's own icons.
     set_tests_properties(mii_head PROPERTIES TIMEOUT 120)
+
+    # Contact sheets of Miis, and comparisons with the game's own icons
+    # (mii_head_sheet --help).
+    add_executable(mii_head_sheet tools/mii_head/mii_head_sheet.cpp)
+    target_link_libraries(mii_head_sheet PRIVATE charged_mii_head charged_mii_maker)
+    target_compile_features(mii_head_sheet PRIVATE cxx_std_20)
 endif()
