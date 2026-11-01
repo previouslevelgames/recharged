@@ -11,7 +11,8 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 ## How a match feels
 
 1. Open Recharged and go to **Online**; the first time, **Connect Discord**
-   on **Player profile**. The launcher's Online pages hold your profile
+   or **Play with a Mii** on **Player profile** (see *Your Recharged
+   profile*). The launcher's Online pages hold your profile
    (**Player profile**), the game's RANKED **Leaderboard**, your tournaments
    (**Events**, coming later), the rules of your challenges (**Match rules**),
    your **Sidekicks** and the game's own Miis (**Legacy Mii profiles**).
@@ -61,8 +62,8 @@ with the score.
 
 Recharged's own friends list follows you everywhere, but your friends are
 probably on Discord already. Signing in with Discord links them too: Discord's
-page asks for your account and your friends list at once, and **Online
-settings** then shows how many of your Discord friends play Recharged. In
+page asks for your account and your friends list at once, and **Player
+profile** then shows how many of your Discord friends play Recharged. In
 the game's online panel (F1), those who have Recharged open show among your
 friends online, with Discord's logo: no need to add them. If your server
 doesn't link them with the sign-in (servers before 1.2.1), **Link** on
@@ -102,13 +103,26 @@ this is needed: the meeting, the rules and the report happen automatically.
 
 ## Your Recharged profile
 
-- You sign in with your **Discord** account. The sign-in happens in your
-  browser, so Recharged never sees your password.
-- Your name in Recharged is your Discord name.
-- The profile is you, not your PC: sign in on any computer you play on.
-- From Discord, Recharged gets only your account's ID, name and picture:
-  nothing about your messages, friends or servers. Only if you connect
-  Discord friends does the launcher read your friends list (see above).
+Discord is not needed to play online. **Player profile** offers two ways in:
+
+- **Connect Discord.** The sign-in happens in your browser, so Recharged never
+  sees your password. Your name in Recharged is your Discord name, and your
+  Mii is made from it. The profile is you, not your PC: sign in on any
+  computer you play on. From Discord, Recharged gets only your account's ID,
+  name and picture: nothing about your messages, friends or servers. Only if
+  you connect Discord friends does the launcher read your friends list (see
+  above).
+- **Play with a Mii.** No account: choose the name others see (up to 32
+  characters) and your Mii, a new one in your favourite colour, one already on
+  your computer or yours from Dolphin. This computer keeps you signed in.
+  Friends, challenges and sets work the same. Once your Mii has played online,
+  logging in with it in the game brings your profile back if you sign out
+  (before that, signing out loses it).
+
+Tournaments and Discord friends need Discord. A Mii player connects it later
+with **Connect Discord** on Player profile and keeps the same profile: friends
+and Mii stay, the name and picture become Discord's. A Discord account that
+already has a Recharged profile can't join another one.
 
 ## The same rules for both players
 
