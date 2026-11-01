@@ -87,9 +87,9 @@ public:
         std::function<void(const platform::DiscordTokens& tokens, const std::string& error, bool refused)>;
     void TradeDiscordToken(std::string code, std::string verifier, std::string redirect_uri,
                            std::string refresh_token, DiscordTraded done);
-    // The set's Ready to play! (or taking it back), and playing it again.
+    // The set's Ready to play! (or taking it back): once more after its game
+    // could not start.
     void ReadyToPlay(bool ready);
-    void Rematch();
     void Accept();
     void Decline();
     void CancelMatch();

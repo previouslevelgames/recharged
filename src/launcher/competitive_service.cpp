@@ -494,16 +494,6 @@ void CompetitiveService::ReadyToPlay(bool ready)
     }, true);
 }
 
-void CompetitiveService::Rematch()
-{
-    Post([this](ProfileService& api) {
-        const auto current = Snapshot().match;
-        if (!current) return;
-        const auto match = api.Rematch(current->id);
-        Change([&](Status& status) { status.match = match; });
-    }, true);
-}
-
 void CompetitiveService::Accept()
 {
     Post([this](ProfileService& api) {

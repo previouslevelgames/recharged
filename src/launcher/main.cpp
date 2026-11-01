@@ -2862,6 +2862,7 @@ private:
         DrawPlayPrompt(quit);
         DrawImportPrompt();
         DrawRegionPrompt();
+        DrawChallengeDialog();
         DrawWelcome();
         DrawUpdateDialog();
         // The new files are in place: restart into them (unsaved settings are
@@ -3904,8 +3905,12 @@ private:
             if (OnlinePage(page_) && !status.error.empty()) Notice(status.error, NoticeKind::Error);
         }
         // A challenge or set seen open that ends without a result: told once
-        // as it ends (only results keep a card).
-        if (status.match && status.match->Open()) watched_match_ = status.match->id;
+        // as it ends.
+        if (status.match && status.match->Open())
+        {
+            watched_match_ = status.match->id;
+            watched_invite_ = status.match->state == "challenged";
+        }
         else if (status.match && status.match->id == watched_match_)
         {
             watched_match_ = 0;
@@ -3918,7 +3923,9 @@ private:
                 text = sent ? them + " didn't answer your challenge in time." : "The challenge from " + them + " ran out.";
             else if (match.stage == "dissolved" || match.state == "dissolved")
                 text = "The set against " + them + " ended: a player closed Recharged.";
-            else if (match.state == "cancelled") text = "The set against " + them + " was cancelled.";
+            else if (match.state == "cancelled")
+                text = watched_invite_ && !sent ? them + " withdrew the challenge."
+                                                : "The set against " + them + " was cancelled.";
             if (!text.empty() && !capture_) Notice(text, NoticeKind::Info);
         }
         // A challenge to the player, and their challenge accepted (now their
@@ -3932,7 +3939,9 @@ private:
             // challenge accepted.
             const bool go = match.stage == "go"
                 || (match.stage.empty() && match.side == "challenger" && match.state == "accepted");
-            const std::int64_t alert = to_you ? match.id * 2 : go ? GoKey(match) * 2 + 1 : 0;
+            // (Not for a challenge accepted here: that Accept was just pressed.)
+            const bool accepted_here = challenge_accepted_ == match.id;
+            const std::int64_t alert = to_you ? match.id * 2 : go && !accepted_here ? GoKey(match) * 2 + 1 : 0;
             if (alert && alert != alerted_)
             {
                 alerted_ = alert;
@@ -4061,8 +4070,7 @@ private:
     }
 
     // Made-up online data for a development capture: a profile, Discord
-    // friends and leaderboards. "preview-set" and "preview-set-ready" add a
-    // set against Mario at its ready step, "preview-set-go" its countdown.
+    // friends and leaderboards, and with "preview-challenge..." a challenge.
     void PreviewDiscordFriends(const std::string& mode)
     {
         using Presence = DiscordFriends::Presence;
@@ -4143,13 +4151,17 @@ private:
         board.daily.top = {row(1, "Ruffus", "Ruffus", 3, 0, 160, 2, false), row(2, "Kiki", "", 2, 1, 110, 4, false)};
         competitive_status_.leaderboard = board;
         competitive_status_.leaderboard_missing = false;
-        if (mode == "preview-set" || mode == "preview-set-ready" || mode == "preview-set-go")
+        // A challenge from Mario in the dialog: "preview-challenge", or
+        // "preview-rematch" for a rematch; "preview-challenge-wait" after its
+        // Accept while Mario takes his Ready to play! back, "preview-challenge-go"
+        // its countdown.
+        if (mode.rfind("preview-challenge", 0) == 0 || mode == "preview-rematch")
         {
             platform::ProfileMatch set;
             set.id = 77;
-            set.state = "accepted";
-            set.side = "challenger";
-            set.stage = "open";
+            set.state = "challenged";
+            set.side = "challenged";
+            set.stage = "invited";
             set.opponent = mario;
             set.rule_set = "Competitive";
             set.rules.skill = "rookie";
@@ -4158,16 +4170,22 @@ private:
             set.rules.games = 3;
             set.rules.stadium = "random";
             set.rules.tweaks = {"fast_terrain", "no_mega_strikes", "thunder_island_walls"};
-            set.you_ready = mode == "preview-set-ready";
-            set.opponent_ready = mode == "preview-set";
             set.opponent_online = true;
-            if (mode == "preview-set-go")
+            set.created_at = now;
+            if (mode == "preview-rematch") set.rematch_of = 76;
+            if (mode == "preview-challenge-wait" || mode == "preview-challenge-go")
             {
-                set.stage = "go";
-                set.you_ready = set.opponent_ready = true;
+                set.state = "accepted";
+                set.stage = mode == "preview-challenge-go" ? "go" : "open";
+                set.you_ready = true;
+                set.opponent_ready = mode == "preview-challenge-go";
+                challenge_accepted_ = set.id;
+            }
+            if (mode == "preview-challenge-go")
+            {
                 set.go_at = now;
                 countdown_go_ = set.go_at;
-                countdown_end_ = SDL_GetTicks() + 2400; // a "3" growing in
+                countdown_end_ = SDL_GetTicks() + 2400; // a "3"
             }
             competitive_status_.match = set;
         }
@@ -4194,6 +4212,7 @@ private:
         if (!status.match) return;
         if (const auto blocker = PlayBlocker(); !blocker.empty())
         {
+            set_start_error_ = blocker;
             Notice("The set's game can't start: " + blocker, NoticeKind::Error);
             competitive_->ReadyToPlay(false);
             return;
@@ -4209,7 +4228,8 @@ private:
         }
         catch (const std::exception& e)
         {
-            Notice(std::string("Your Mii for the set could not be made: ") + e.what(), NoticeKind::Error);
+            set_start_error_ = std::string("Your Mii for the set could not be made: ") + e.what();
+            Notice(set_start_error_, NoticeKind::Error);
             competitive_->ReadyToPlay(false);
             return;
         }
@@ -4220,6 +4240,194 @@ private:
         // The game and the launcher it opens again afterwards see it.
         SetEnvironment(kCompetitiveSetVariable, std::to_string(GoKey(*status.match)));
         quit = true;
+    }
+
+    // What the challenge dialog shows: nothing, a challenge to answer, the
+    // Accept on its way, an accepted set that waits (for the opponent's
+    // Ready to play!, or after its game could not start), or the countdown
+    // to the set's game.
+    enum class ChallengeView { None, Invite, Accepting, Waiting, Starting };
+
+    ChallengeView CurrentChallengeView() const
+    {
+        const auto& status = competitive_status_;
+        if (status.state != CompetitiveService::State::SignedIn || !status.match || !status.match->Open())
+            return ChallengeView::None;
+        const auto& match = *status.match;
+        if (match.stage == "go" && countdown_go_ == GoKey(match) && competitive_started_go_ != countdown_go_)
+            return ChallengeView::Starting;
+        if (match.state == "challenged" && match.side == "challenged")
+        {
+            if (challenge_declined_ == match.id) return ChallengeView::None;
+            return challenge_accepted_ == match.id && status.busy ? ChallengeView::Accepting : ChallengeView::Invite;
+        }
+        if (challenge_accepted_ == match.id && match.state == "accepted" && match.stage != "playing")
+            return ChallengeView::Waiting;
+        return ChallengeView::None;
+    }
+
+    // A challenge to the player (or a rematch they are asked for), over any
+    // page as a card over the dimmed launcher: Accept starts the game
+    // straight into the set, Decline (Escape, B) answers no. After Accept it
+    // stays until the game starts. It opens when no other dialog is open,
+    // and once answered no it does not come back for that challenge.
+    void DrawChallengeDialog()
+    {
+        const ChallengeView view = CurrentChallengeView();
+        if (view != ChallengeView::None
+            && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+            ImGui::OpenPopup("Challenge");
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const float width = std::min(Dp(560), viewport->Size.x - Dp(48));
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({width, 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(30, 26));
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4{0, 0, 0, 0});
+        if (ImGui::BeginPopupModal("Challenge", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
+            | ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
+            if (view == ChallengeView::None) ImGui::CloseCurrentPopup();
+            else DrawChallengeContents(view, *competitive_status_.match);
+            ImGui::PopStyleVar();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+    }
+
+    void DrawChallengeContents(ChallengeView view, const platform::ProfileMatch& match)
+    {
+        const auto& fonts = CurrentFonts();
+        const auto& status = competitive_status_;
+        const bool asked = view == ChallengeView::Invite || view == ChallengeView::Accepting;
+        const bool rematch = match.rematch_of != 0;
+        const ImVec4 tint = color::accent;
+        auto* draw = ImGui::GetWindowDrawList();
+        DrawDialogCard(tint);
+        const float right_edge = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+
+        // Header: a trophy in a soft halo, what it is, who, and the rules.
+        const std::string& them = match.opponent.name;
+        const char* overline = rematch ? "REMATCH" : asked ? "CHALLENGE" : "SET";
+        const std::string headline = !asked                ? "Your set against " + them
+            : rematch                                       ? them + " wants a rematch"
+                                                            : them + " challenges you";
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        const float disc = Dp(46);
+        DialogBadge(draw, {top.x + disc * 0.5f, top.y + Dp(2) + disc * 0.5f}, disc, Icon::Trophy, tint);
+        ImGui::SetCursorScreenPos({top.x + disc + Dp(20), top.y});
+        ImGui::BeginGroup();
+        DrawTracked(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(tint, 0.95f), overline, Dp(1.4f));
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(5)});
+        TextColored(fonts.heading, color::text, headline.c_str());
+        ImGui::Dummy({0, Dp(3)});
+        TextWrappedColored(fonts.body, Mix(color::muted, color::text, 0.45f),
+                           (match.rule_set.empty() ? std::string("A set") : match.rule_set).c_str());
+        ImGui::Dummy({0, Dp(2)});
+        TextWrappedColored(fonts.caption, color::muted, (platform::DescribeRules(match.rules) + ".").c_str());
+        ImGui::EndGroup();
+        ImGui::SetCursorScreenPos({top.x, std::max(top.y + disc + Dp(4), ImGui::GetItemRectMax().y)});
+        ImGui::Dummy({0, Dp(18)});
+
+        // What happens, or what holds it up.
+        const bool blocked = !set_blocker_.empty();
+        if (view == ChallengeView::Invite)
+        {
+            if (blocked) Callout("The game can't start here. " + set_blocker_, color::warning, Icon::Warning);
+            else
+                TextWrappedColored(fonts.body, color::text, "Accept starts the game and goes straight to the set.");
+            if (challenge_accepted_ == match.id && status.error_serial != challenge_errors_ && !status.error.empty())
+            {
+                ImGui::Dummy({0, Dp(10)});
+                Callout(status.error, color::danger, Icon::Error);
+            }
+            ImGui::Dummy({0, Dp(18)});
+        }
+        else if (view == ChallengeView::Waiting && !match.you_ready)
+        {
+            Callout(set_start_error_.empty() ? std::string("Your game couldn't start.")
+                                             : "Your game couldn't start. " + set_start_error_,
+                    color::warning, Icon::Warning);
+            ImGui::Dummy({0, Dp(18)});
+        }
+        else if (view == ChallengeView::Waiting && !match.opponent_online)
+        {
+            Callout(them + " has closed Recharged. The set ends in a minute unless they come back.", color::warning,
+                    Icon::Warning);
+            ImGui::Dummy({0, Dp(18)});
+        }
+
+        // Footer: the state at the left, the actions at the right.
+        DialogDivider();
+        ImGui::Dummy({0, Dp(18)});
+        const float row = ImGui::GetCursorScreenPos().y, height = Dp(40);
+        const auto align_right = [&](float width) { ImGui::SetCursorScreenPos({right_edge - width, row}); };
+        const auto state_line = [&](const std::string& text) {
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            Spinner({pos.x + Dp(8), pos.y + height * 0.5f}, Dp(7), Col(tint));
+            DrawLabel(draw, fonts.body, {pos.x + Dp(26), pos.y + (height - FontSize(fonts.body)) * 0.5f},
+                      Col(color::text), text.c_str());
+        };
+        const bool busy = status.busy;
+        if (view == ChallengeView::Invite)
+        {
+            const char *decline = "Decline", *accept = "Accept";
+            const float decline_width = GhostWidth(decline, Icon::Close);
+            const float accept_width = blocked ? 0.0f : PrimaryWidth(accept, Icon::Play);
+            align_right(decline_width + (blocked ? 0.0f : Dp(10) + accept_width));
+            if (GhostButton("challenge_decline", decline, {decline_width, height}, !busy, Icon::Close)
+                || (CancelPressed() && !busy))
+            {
+                challenge_declined_ = match.id;
+                competitive_->Decline();
+            }
+            if (blocked) ImGui::SetItemDefaultFocus();
+            else
+            {
+                ImGui::SameLine(0, Dp(10));
+                if (PrimaryButton("challenge_accept", accept, {accept_width, height}, !busy, Icon::Play))
+                {
+                    challenge_accepted_ = match.id;
+                    challenge_errors_ = status.error_serial;
+                    set_start_error_.clear();
+                    competitive_->Accept();
+                }
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        else if (view == ChallengeView::Accepting) state_line("Accepting...");
+        else if (view == ChallengeView::Starting)
+        {
+            const std::uint64_t now = SDL_GetTicks();
+            const int seconds = int(((countdown_end_ > now ? countdown_end_ - now : 0) + 999) / 1000);
+            state_line(seconds > 0 ? "Starting the game in " + std::to_string(seconds) + "..."
+                                   : std::string("Starting the game..."));
+        }
+        else
+        {
+            const char *cancel = "Cancel set", *again = "Try again";
+            const bool retry = !match.you_ready && !blocked;
+            if (match.you_ready) state_line("Waiting for " + them + " to be ready...");
+            const float cancel_width = GhostWidth(cancel, Icon::Close);
+            const float again_width = retry ? PrimaryWidth(again, Icon::Play) : 0.0f;
+            align_right(cancel_width + (retry ? Dp(10) + again_width : 0.0f));
+            if (GhostButton("challenge_cancel", cancel, {cancel_width, height}, !busy, Icon::Close))
+                competitive_->CancelMatch();
+            if (retry)
+            {
+                ImGui::SameLine(0, Dp(10));
+                if (PrimaryButton("challenge_again", again, {again_width, height}, !busy, Icon::Play))
+                {
+                    set_start_error_.clear();
+                    competitive_->ReadyToPlay(true);
+                }
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::SetCursorScreenPos({ImGui::GetWindowPos().x + ImGui::GetStyle().WindowPadding.x, row});
+        ImGui::Dummy({1.0f, height});
     }
 
     // Nothing on its way from the profile service or Discord (for
@@ -4460,8 +4668,8 @@ private:
         catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
     }
 
-    // The top of every Online page: its header, the server and the
-    // player's sign-in, and their set. Whether the player is signed in.
+    // The top of every Online page: its header, or the sign-in while the
+    // player is signed out. Whether the player is signed in.
     bool OnlinePageTop(const char* title, const char* text)
     {
         if (competitive_status_.state != CompetitiveService::State::SignedIn)
@@ -4470,7 +4678,6 @@ private:
             return false;
         }
         PageHeader(title, text);
-        CompetitiveMatchCard();
         return true;
     }
 
@@ -4821,255 +5028,6 @@ private:
             || (entered && usable))
             competitive_->TestSignIn(test_player_name_);
         EndCard();
-    }
-
-    // The set to play while there is one; else the last one's result.
-    void CompetitiveMatchCard()
-    {
-        const auto& status = competitive_status_;
-        const bool busy = status.busy;
-        const auto& match = status.match;
-        if (!match || !match->Open())
-        {
-            // Only a result is worth a card (with its rematch): a challenge or
-            // set that ended without one is told once as it ends.
-            if (match && (match->state == "finished" || match->state == "disputed")) LastSetCard(*match, busy);
-            return;
-        }
-        const std::string opponent = match->opponent.name;
-        const std::string rules = match->rule_set + ": " + platform::DescribeRules(match->rules);
-        BeginCard("##competitive_match", ("Your set against " + opponent).c_str(), (rules + ".").c_str(),
-                  Icon::Trophy);
-        if (match->state == "challenged" && match->side == "challenger")
-        {
-            if (BeginRows("##match_rows"))
-            {
-                Row(("Waiting for " + opponent).c_str(),
-                    "Once they accept, both games start. A challenge without an answer ends after 10 minutes.");
-                if (SecondaryButton("withdraw", "Withdraw", Dp(140, 38), !busy)) competitive_->CancelMatch();
-                EndRows();
-            }
-        }
-        else if (match->state == "challenged")
-        {
-            if (BeginRows("##match_rows"))
-            {
-                Row((opponent + " challenges you").c_str(),
-                    set_blocker_.empty() ? "Accept, and both games start." : set_blocker_.c_str());
-                const float width = (ImGui::GetContentRegionAvail().x - Dp(10)) * 0.5f;
-                if (PrimaryButton("accept", "Accept", {width, Dp(40)}, !busy && set_blocker_.empty(), Icon::Check))
-                    competitive_->Accept();
-                ImGui::SameLine(0, Dp(10));
-                if (SecondaryButton("decline", "Decline", {width, Dp(40)}, !busy, Icon::Close))
-                    competitive_->Decline();
-                EndRows();
-            }
-        }
-        else if (!match->stage.empty())
-            SetRows(*match, busy);
-        else
-        {
-            // A server before sets: both start the game themselves.
-            if (BeginRows("##match_rows"))
-            {
-                Row(("Against " + opponent).c_str(), "Start the game yourselves (see below).");
-                if (SecondaryButton("cancel_match", "Cancel match", Dp(160, 38), !busy)) competitive_->CancelMatch();
-                EndRows();
-            }
-            Callout(match->reported
-                        ? "Your game reported the result. Waiting for " + opponent + "'s."
-                        : "Start the game, go online and choose RANKED. " + opponent
-                              + " does the same: there your games find only each other, play by these rules, and "
-                                "report the result. "
-                              + (match->paired ? "Both games are ready." : "Waiting for both games to be online."),
-                    match->paired ? color::accent : color::info, Icon::Play);
-        }
-        EndCard();
-    }
-
-    // How the last set ended (within the hour), and its rematch.
-    void LastSetCard(const platform::ProfileMatch& match, bool busy)
-    {
-        std::string title, text = "Against " + match.opponent.name + " (" + match.rule_set + ")";
-        if (match.state == "finished")
-            title = match.winner == "you" ? "You won" : match.winner == "opponent" ? "You lost" : "A draw";
-        else if (match.state == "disputed") title = "The reports differ";
-        else if (match.state == "declined") title = "Challenge declined";
-        else if (match.state == "expired") title = "Ended without a result";
-        else if (match.state == "dissolved") title = "Ended: a player closed Recharged";
-        else title = "Cancelled";
-        for (const auto& game : match.games)
-            text += ". " + std::to_string(game.my_score) + "-" + std::to_string(game.opponent_score) + " "
-                + platform::NameLabel(game.my_captain) + " vs " + platform::NameLabel(game.opponent_captain) + ", "
-                + platform::NameLabel(game.stadium);
-        if (match.state == "disputed") text += ". The two games saw different results; nothing was counted.";
-        BeginCard("##competitive_last", nullptr);
-        if (BeginRows("##last_match"))
-        {
-            Row(("Last set: " + title).c_str(), (text + ".").c_str());
-            const bool ended = match.state == "finished" || match.state == "disputed";
-            if (ended && !match.stage.empty()
-                && PrimaryButton("rematch", "Rematch", Dp(160, 40),
-                                 !busy && match.opponent_online && set_blocker_.empty(), Icon::Play))
-                competitive_->Rematch();
-            EndRows();
-        }
-        EndCard();
-    }
-
-    // An accepted set: both press Ready to play!, then both launchers start
-    // the game, which goes through the online login straight to the draft.
-    void SetRows(const platform::ProfileMatch& match, bool busy)
-    {
-        const std::string& opponent = match.opponent.name;
-        if (match.stage == "open")
-        {
-            ReadyStep(match, busy);
-            return;
-        }
-        if (BeginRows("##set_rows"))
-        {
-            if (match.stage == "go" && countdown_go_ == GoKey(match) && competitive_started_go_ != countdown_go_)
-            {
-                EndRows();
-                SetCountdown(match, busy);
-                return;
-            }
-            if (match.stage == "go")
-            {
-                // Back from a game that ended before the set started: start it
-                // again, or end the set.
-                Row("Your game closed before the set began",
-                    set_blocker_.empty() ? "Start it again: it goes straight to the captain draft."
-                                         : set_blocker_.c_str());
-                const float width = (ImGui::GetContentRegionAvail().x - Dp(10)) * 0.5f;
-                if (PrimaryButton("start_set", "Start the game", {width, Dp(40)}, !busy && set_blocker_.empty(),
-                                  Icon::Play))
-                    competitive_go_ = true;
-                ImGui::SameLine(0, Dp(10));
-                if (SecondaryButton("cancel_go", "Cancel set", {width, Dp(40)}, !busy, Icon::Close))
-                    competitive_->CancelMatch();
-            }
-            else
-            {
-                Row("Playing", match.reported ? ("Your game reported the result. Waiting for " + opponent + "'s.").c_str()
-                                              : "Your games are playing this set.");
-            }
-            EndRows();
-        }
-    }
-
-    // An accepted set before its game: both players' state side by side, one
-    // button that makes the player ready or takes it back, and Cancel set.
-    // Both are ready: a big 3, 2, 1, then the game starts by itself and goes
-    // straight to the captain draft. Cancel set still ends it.
-    void SetCountdown(const platform::ProfileMatch& match, bool busy)
-    {
-        const auto& fonts = CurrentFonts();
-        auto* draw = ImGui::GetWindowDrawList();
-        const float width = ImGui::GetContentRegionAvail().x, height = Dp(132);
-        const ImVec2 at = ImGui::GetCursorScreenPos();
-        const std::uint64_t now = SDL_GetTicks();
-        const std::uint64_t left = countdown_end_ > now ? countdown_end_ - now : 0;
-        const int second = int((left + 999) / 1000);
-        // Each number grows in and fades through its second.
-        const float within = float(left % 1000) / 1000.0f;
-        const float pop = second > 0 ? 0.85f + 0.15f * std::min(1.0f, (1.0f - within) * 5.0f) : 1.0f;
-        draw->AddRectFilled(at, {at.x + width, at.y + height}, Col(Mix(color::field, color::accent, 0.10f)), Dp(14));
-        draw->AddRect(at, {at.x + width, at.y + height}, Col(color::accent, 0.45f), Dp(14), 0, Dp(1.5f));
-        const ImVec2 middle{at.x + Dp(80), at.y + height * 0.5f};
-        draw->AddCircleFilled(middle, Dp(46), Col(color::accent, 0.16f));
-        draw->AddCircle(middle, Dp(46), Col(color::accent, 0.7f), 0, Dp(2));
-        if (second > 0)
-        {
-            const std::string digit = std::to_string(second);
-            const float size = FontSize(fonts.display) * pop;
-            const ImVec2 text = fonts.display->CalcTextSizeA(size, FLT_MAX, 0.0f, digit.c_str());
-            draw->AddText(fonts.display, size, {middle.x - text.x * 0.5f, middle.y - text.y * 0.5f},
-                          Col(color::accent, 0.35f + 0.65f * std::min(1.0f, within * 2.0f + 0.3f)), digit.c_str());
-        }
-        else
-            Spinner(middle, Dp(20), Col(color::accent));
-        const float text_left = at.x + Dp(150);
-        const std::string title = "Both are ready";
-        const std::string line = second > 0 ? "Your game starts in " + std::to_string(second)
-                + (second == 1 ? " second" : " seconds") + ", straight into the captain draft."
-                                             : std::string("Starting your game...");
-        DrawLabel(draw, fonts.heading, {text_left, middle.y - FontSize(fonts.heading) - Dp(4)}, Col(color::text),
-                  title.c_str());
-        draw->PushClipRect({text_left, at.y}, {at.x + width - Dp(170), at.y + height}, true);
-        DrawLabel(draw, fonts.body, {text_left, middle.y + Dp(4)}, Col(color::muted), line.c_str());
-        draw->PopClipRect();
-        ImGui::SetCursorScreenPos({at.x + width - Dp(156), middle.y - Dp(19)});
-        if (GhostButton("cancel_countdown", "Cancel set", Dp(140, 38), !busy, Icon::Close))
-        {
-            countdown_go_ = 0;
-            competitive_started_go_ = GoKey(match); // no start for this go
-            competitive_->CancelMatch();
-        }
-        ImGui::SetCursorScreenPos(at);
-        ImGui::Dummy({width, height});
-    }
-
-    void ReadyStep(const platform::ProfileMatch& match, bool busy)
-    {
-        const auto& fonts = CurrentFonts();
-        auto* draw = ImGui::GetWindowDrawList();
-        const float width = ImGui::GetContentRegionAvail().x, gap = Dp(10), height = Dp(48);
-        const float half = (width - gap) * 0.5f;
-        // One player's box: the name, and their state at the right.
-        const auto side = [&](ImVec2 at, const std::string& name, bool ready, const char* waiting, ImVec4 waiting_tint) {
-            const ImVec2 end{at.x + half, at.y + height};
-            draw->AddRectFilled(at, end, Col(ready ? Mix(color::field, color::accent, 0.08f) : color::field), Dp(12));
-            draw->AddRect(at, end, Col(ready ? color::accent : color::border, ready ? 0.6f : 1.0f), Dp(12));
-            const float middle = at.y + height * 0.5f;
-            const char* state = ready ? "Ready" : waiting;
-            const ImVec4 tint = ready ? color::accent : waiting_tint;
-            const ImVec2 state_size = TextSize(fonts.body, state);
-            const float icon = Dp(18), state_left = end.x - Dp(14) - state_size.x;
-            draw->PushClipRect(at, {state_left - icon - Dp(16), end.y}, true);
-            DrawLabel(draw, fonts.label, {at.x + Dp(16), middle - FontSize(fonts.label) * 0.5f}, Col(color::text),
-                      name.c_str());
-            draw->PopClipRect();
-            const ImVec2 mark{state_left - Dp(8) - icon * 0.5f, middle};
-            if (ready)
-            {
-                draw->AddCircleFilled(mark, icon * 0.5f, Col(color::accent));
-                DrawIcon(draw, Icon::Check, mark, Dp(12), Col(color::accent_ink));
-            }
-            else
-                draw->AddCircle(mark, icon * 0.5f - Dp(1), Col(waiting_tint, 0.8f), 0, Dp(1.5f));
-            DrawLabel(draw, fonts.body, {state_left, middle - state_size.y * 0.5f}, Col(tint), state);
-        };
-        const ImVec2 at = ImGui::GetCursorScreenPos();
-        side(at, "You", match.you_ready, "Not ready", color::muted);
-        side({at.x + half + gap, at.y}, match.opponent.name, match.opponent_ready,
-             match.opponent_online ? "Not yet" : "Left", match.opponent_online ? color::muted : color::warning);
-        ImGui::Dummy({width, height});
-        ImGui::Dummy({0, Dp(4)});
-
-        // The button that makes you ready, or takes it back; Cancel set.
-        const float cancel = Dp(140);
-        const ImVec2 button{width - cancel - gap, Dp(42)};
-        if (!match.you_ready)
-        {
-            if (PrimaryButton("ready_to_play", "Ready to play!", button, !busy && set_blocker_.empty(), Icon::Play,
-                              true))
-                competitive_->ReadyToPlay(true);
-            if (!set_blocker_.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s", set_blocker_.c_str());
-        }
-        else if (SecondaryButton("not_ready", "Ready  -  click to undo", button, !busy, Icon::Check))
-            competitive_->ReadyToPlay(false);
-        ImGui::SameLine(0, gap);
-        if (GhostButton("cancel_set", "Cancel set", {cancel, Dp(42)}, !busy, Icon::Close)) competitive_->CancelMatch();
-
-        ImGui::Dummy({0, Dp(2)});
-        const std::string hint = !match.opponent_online
-            ? match.opponent.name + " has closed Recharged. The set ends in a minute unless they come back."
-            : "Both ready: the game starts by itself, signs in with your own Mii and goes straight to the captain "
-              "draft. The launcher opens again after the set.";
-        TextWrappedColored(fonts.caption, match.opponent_online ? color::muted : color::warning, hint.c_str());
     }
 
     // The rule set challenges go out with: the one Match settings chose (by
@@ -10286,10 +10244,17 @@ private:
     std::unique_ptr<DiscordFriends> discord_friends_;
     int leaderboard_board_ = 0;         // the Leaderboard page's board: the season's, or the day's
     std::int64_t watched_match_ = 0;    // the open set, told when it ends without a result
+    bool watched_invite_ = false;       // it was still a challenge when last seen
     std::int64_t alerted_ = 0;          // the last chime: a challenge's id * 2, or a go's GoKey * 2 + 1
     std::int64_t countdown_go_ = 0;     // the go counting down (GoKey), and when the game starts (SDL ticks)
     std::uint64_t countdown_end_ = 0;
     std::string set_blocker_;           // why this computer can't play a set now (PlayBlocker), or empty
+    // The challenge dialog: the challenge declined (it does not come back),
+    // the one accepted here and the last failure before its Accept, and why
+    // the set's game could not start.
+    std::int64_t challenge_declined_ = 0, challenge_accepted_ = 0;
+    std::uint64_t challenge_errors_ = 0;
+    std::string set_start_error_;
     std::optional<platform::AlertSound> alert_sound_;
     std::optional<platform::DiscordPresence> set_presence_; // the Discord status of a waiting set
     DiscordFriends::Status discord_status_;
