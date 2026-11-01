@@ -56,6 +56,14 @@ with the score.
   takes them off. Switch on **Open to challenges** there to meet
   players you don't know yet: the others who are available show to you, and
   you to them.
+- No one to challenge? **Find an opponent** on your own card in the online
+  panel searches for one by the rules you set up, as for a challenge: you
+  searched, so your rules count. The server asks one player at a time who is
+  open to challenges (or searching too) and plays the same version of the
+  game; they get a **Random challenge** card with Accept and Decline, and 30
+  seconds to answer before the next one is asked. Your card shows how long
+  you have searched and how many players were asked; **Stop** ends the
+  search. Only players who have been online in the game once can be found.
 - A chime plays when someone challenges you or accepts your challenge, and
   the window flashes while it is in the background, so a challenge isn't
   missed (Player profile → **Challenge sound**).
