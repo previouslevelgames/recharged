@@ -214,19 +214,21 @@ int WrapCoord(int i, int size, int mode)
 Rgba Sample(const Texture& texture, float s, float t)
 {
     const int w = texture.width, h = texture.height;
-    const auto at = [&](int x, int y) -> const Rgba& {
-        return texture.texels[std::size_t(WrapCoord(y, h, texture.wrap_t)) * w + WrapCoord(x, w, texture.wrap_s)];
-    };
     const float fs = s * float(w) * 128.0f, ft = t * float(h) * 128.0f;
-    if (!(std::abs(fs) < 1e9f) || !(std::abs(ft) < 1e9f)) return at(0, 0);
+    if (!(std::abs(fs) < 1e9f) || !(std::abs(ft) < 1e9f)) return texture.texels[0];
     int is = int(fs), it = int(ft);
-    if (!texture.linear) return at(is >> 7, it >> 7);
+    if (!texture.linear)
+        return texture.texels[std::size_t(WrapCoord(it >> 7, h, texture.wrap_t)) * w
+                              + WrapCoord(is >> 7, w, texture.wrap_s)];
     is -= 64, it -= 64;
-    const int x0 = is >> 7, y0 = it >> 7, wx = is & 127, wy = it & 127;
-    const Rgba& c00 = at(x0, y0);
-    const Rgba& c10 = at(x0 + 1, y0);
-    const Rgba& c01 = at(x0, y0 + 1);
-    const Rgba& c11 = at(x0 + 1, y0 + 1);
+    const int wx = is & 127, wy = it & 127;
+    const int x0 = WrapCoord(is >> 7, w, texture.wrap_s), x1 = WrapCoord((is >> 7) + 1, w, texture.wrap_s);
+    const std::size_t row0 = std::size_t(WrapCoord(it >> 7, h, texture.wrap_t)) * w,
+                      row1 = std::size_t(WrapCoord((it >> 7) + 1, h, texture.wrap_t)) * w;
+    const Rgba& c00 = texture.texels[row0 + x0];
+    const Rgba& c10 = texture.texels[row0 + x1];
+    const Rgba& c01 = texture.texels[row1 + x0];
+    const Rgba& c11 = texture.texels[row1 + x1];
     const int w00 = (128 - wx) * (128 - wy), w10 = wx * (128 - wy), w01 = (128 - wx) * wy, w11 = wx * wy;
     const auto mix = [&](int Rgba::*channel) {
         return (c00.*channel * w00 + c10.*channel * w10 + c01.*channel * w01 + c11.*channel * w11) >> 14;
