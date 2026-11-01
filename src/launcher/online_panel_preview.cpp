@@ -1,5 +1,7 @@
 #include "launcher/online_panel_preview.h"
 
+#include "platform/competitive_rules.h"
+
 #include "launcher/ui_kit.h"
 #include "overlay/overlay_unit.h"
 #include "platform/http_client.h"
@@ -235,8 +237,6 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     me = Player(900000, "Anosch", "anosch");
     me.avatar_url = "preview:me";
     me.available = mode_ != "preview-empty";
-    context_.challenge_rules =
-        "Competitive: 3 minutes, best of 3, random stadium, Fast terrain, No Mega Strikes";
     // The server's rule sets, the player's challenges by the first (the second for "preview-rules").
     const auto rule_set = [](std::int64_t id, const char* name, const char* skill, const char* limit, int amount,
                              int games, const char* stadium, std::vector<std::string> tweaks) {
@@ -256,6 +256,11 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         rule_set(2, "Classic", "professional", "time", 300, 1, "random", {}),
         rule_set(3, "First to 5", "legend", "goals", 5, 5, "random", {"thunder_island_walls"})};
     context_.chosen_rules = mode_.rfind("preview-rules", 0) == 0 ? "Classic" : "Competitive";
+    // One of the player's own presets: Palace with Field Tilt.
+    overlay::OnlinePanelPreset palace{"Palace tilt", context_.rule_sets[0].rules, 0};
+    palace.rules.stadium = "the_palace";
+    palace.rules.stadium_cheat = "field_tilt";
+    context_.my_presets = {palace};
 
     auto mario = Online(Player(900010, "Mario", "itsamario"), "launcher");
     mario.avatar_url = "preview:mario";
@@ -376,6 +381,16 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         state_.online.Push({int(overlay::OnlinePanelScreen::Player), mii ? "m1000000004" : "p900010",
                             mii ? "Tommy" : "Mario"},
                            0);
+    }
+    // A challenge to Mario being set up: Competitive, with Field Tilt.
+    if (mode_ == "preview-setup")
+    {
+        auto& setup = state_.online_state;
+        setup.setup_for = "p900010";
+        setup.preset = 0;
+        setup.rules = context_.rule_sets[0].rules;
+        setup.rules.stadium_cheat = "field_tilt";
+        state_.online.Push({int(overlay::OnlinePanelScreen::Setup), "p900010", "Challenge Mario"}, 0);
     }
 }
 
@@ -630,8 +645,11 @@ void OnlinePanelPreview::Apply(const overlay::GameOverlayActions& all)
     }
     if (actions.challenge)
     {
-        std::cout << "Overlay: challenge player " << *actions.challenge << '\n';
-        if (const auto* player = find(*actions.challenge)) match_ = Set(*player, "challenged", "challenger", "invited");
+        const auto& challenge = *actions.challenge;
+        std::cout << "Overlay: challenge player " << challenge.player << " by " << challenge.name
+                  << (challenge.rule_set ? " (the server's)" : "") << ": " << platform::DescribeRules(challenge.rules)
+                  << '\n';
+        if (const auto* player = find(challenge.player)) match_ = Set(*player, "challenged", "challenger", "invited");
         context_.score.reset();
     }
     if (actions.add_friend)

@@ -1,5 +1,7 @@
 #include "overlay/online_panel.h"
 
+#include "platform/competitive_rules.h"
+
 #include "imgui_internal.h"
 
 #include <algorithm>
@@ -58,6 +60,7 @@ struct Frame
     const OnlinePanelModel& model;
     const OverlayImages& images;
     OverlayScreens& screens;
+    OnlinePanelState& state;
     OnlinePanelActions& actions;
     const launcher::Fonts& fonts;
     bool first_row = true; // the first row is the main screen's preferred item
@@ -178,8 +181,7 @@ bool CardPart(ImDrawList* draw, const char* id, ImVec2 min, ImVec2 max, bool las
 }
 
 // The player: their picture, name and Discord username; under them the
-// switch for random games and the rules their challenges play by (each a
-// part of the card; the whole part is the control).
+// switch for random games (a part of the card; the whole part is the control).
 void DrawYou(Frame& frame, float width)
 {
     const auto& model = frame.model;
@@ -201,19 +203,8 @@ void DrawYou(Frame& frame, float width)
     const float available_h =
         me.can_set_available ? Dp(12) + FontSize(fonts.label) + Dp(3) + caption_height(line, wrap) + Dp(14) : 0.0f;
 
-    // The rules: their name (left and right through the server's), and what they play by.
-    const bool rules = !model.rule_sets.empty();
-    const int count = int(model.rule_sets.size());
-    const int chosen = rules ? std::clamp(model.chosen_rules, 0, count - 1) : 0;
-    const float rules_line = Dp(30);
-    const char* rules_label = "Your challenges";
-    const float are_h = !rules || model.chosen_rules_are.empty()
-        ? 0.0f
-        : Dp(3) + caption_height(model.chosen_rules_are.c_str(), width - 2 * pad);
-    const float rules_h = rules ? Dp(9) + rules_line + are_h + Dp(13) : 0.0f;
-
     const float top = pad + radius * 2 + pad;
-    const ImVec2 end{at.x + width, at.y + top + available_h + rules_h};
+    const ImVec2 end{at.x + width, at.y + top + available_h};
     ImVec4 fill = color::field;
     fill.w = 0.62f;
     OverlayCard(draw, at, end, Dp(16), fill, color::border);
@@ -236,7 +227,7 @@ void DrawYou(Frame& frame, float width)
         const ImVec2 min{at.x, y}, max{end.x, y + available_h};
         bool focused = false;
         float hover = 0.0f;
-        const bool pressed = CardPart(draw, "##available", min, max, !rules, true, focused, hover);
+        const bool pressed = CardPart(draw, "##available", min, max, true, true, focused, hover);
         const float on = launcher::Animate(ImGui::GetID("##available_on"), me.available, 14.0f);
         DrawLabel(draw, fonts.label, {at.x + pad, y + Dp(12)}, Col(color::text), label);
         draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x + pad, y + Dp(12) + FontSize(fonts.label) + Dp(3)},
@@ -247,76 +238,9 @@ void DrawYou(Frame& frame, float width)
                             track_h * 0.5f);
         draw->AddCircleFilled({track.x + track_h * 0.5f + (track_w - track_h) * on, track.y + track_h * 0.5f},
                               track_h * 0.5f - Dp(3), Col(Mix(color::text, color::accent_ink, on)));
-        if (focused) OverlayFocusRing(draw, min, max, rules ? Dp(6) : Dp(16));
+        if (focused) OverlayFocusRing(draw, min, max, Dp(16));
         if (pressed) frame.actions.set_available = !me.available;
         y = max.y;
-    }
-    if (rules)
-    {
-        const ImVec2 min{at.x, y}, max{end.x, y + rules_h};
-        const bool many = count > 1;
-        bool focused = false;
-        float hover = 0.0f;
-        // A choice with others to choose from; else what they play by.
-        const bool pressed = CardPart(draw, "##challenge_rules", min, max, true, many, focused, hover);
-        const ImGuiID id = many ? ImGui::GetItemID() : 0;
-        // The name in a field, with chevrons either side when there are others.
-        const float middle = y + Dp(9) + rules_line * 0.5f;
-        const std::string& name = model.rule_sets[std::size_t(chosen)];
-        const float chevron = many ? Dp(24) : Dp(12);
-        const float most = std::max(Dp(60), (width - 2 * pad) * 0.6f - 2 * chevron);
-        const float name_w = std::min(TextSize(fonts.body, name.c_str()).x, most);
-        const ImVec2 field_min{end.x - pad - name_w - 2 * chevron, middle - rules_line * 0.5f};
-        const ImVec2 field_max{end.x - pad, middle + rules_line * 0.5f};
-        ImVec4 field = Mix(color::field, color::card_hover, 0.35f + 0.4f * hover);
-        field.w = 0.9f;
-        draw->AddRectFilled(field_min, field_max, Col(field), rules_line * 0.5f);
-        draw->AddRect(field_min, field_max, Col(Mix(color::border, color::accent, 0.6f * hover), 0.9f),
-                      rules_line * 0.5f, 0, Dp(1));
-        if (many)
-        {
-            const ImU32 ink = Col(Mix(color::muted, color::text, hover), 0.9f);
-            Chevron(draw, {field_min.x + chevron * 0.55f, middle}, -1, ink);
-            Chevron(draw, {field_max.x - chevron * 0.55f, middle}, 1, ink);
-        }
-        draw->PushClipRect({field_min.x + chevron, field_min.y}, {field_max.x - chevron, field_max.y}, true);
-        DrawLabel(draw, fonts.body, {field_min.x + chevron, middle - FontSize(fonts.body) * 0.5f}, Col(color::text),
-                  name.c_str());
-        draw->PopClipRect();
-        draw->PushClipRect({at.x + pad, min.y}, {field_min.x - Dp(8), field_max.y}, true);
-        DrawLabel(draw, fonts.label, {at.x + pad, middle - FontSize(fonts.label) * 0.5f}, Col(color::text),
-                  rules_label);
-        draw->PopClipRect();
-        if (are_h > 0.0f)
-            draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x + pad, field_max.y + Dp(3)},
-                          Col(color::muted), model.chosen_rules_are.c_str(), nullptr, width - 2 * pad);
-        if (focused) OverlayFocusRing(draw, min, max, Dp(16));
-
-        // A or Enter (or a click) the next; left and right (the keys taken
-        // from the cursor while it is here) through them; a click on the left
-        // chevron the one before.
-        int step = 0;
-        if (many && focused)
-        {
-            for (const ImGuiKey key :
-                 {ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight})
-                ImGui::SetKeyOwner(key, id);
-            if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat, id)
-                || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, id))
-                step = -1;
-            else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat, id)
-                     || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, id))
-                step = 1;
-        }
-        if (many && pressed)
-        {
-            const ImVec2 mouse = ImGui::GetIO().MousePos;
-            const bool back = ImGui::IsMouseReleased(ImGuiMouseButton_Left) && mouse.x < field_min.x + chevron
-                && mouse.x >= field_min.x - Dp(6) && mouse.y >= field_min.y && mouse.y <= field_max.y;
-            step = back ? -1 : 1;
-        }
-        if (step != 0)
-            frame.actions.set_challenge_rules = model.rule_sets[std::size_t((chosen + step + count) % count)];
     }
     ImGui::SetCursorScreenPos(at);
     ImGui::Dummy({width, end.y - at.y});
@@ -464,6 +388,18 @@ void DrawSet(Frame& frame, float width)
 // name (Discord's logo, a Mii tag) over the status, and at the right a quick
 // Challenge for the mouse and the chevron to their screen. The row is what
 // navigation moves through: A or Enter (or a click) opens their screen.
+// Opens a challenge's setup for `row`'s player: the preset chosen last, with
+// its rules.
+void OpenSetup(Frame& frame, const OnlinePanelRow& row, ImGuiID back)
+{
+    const auto& presets = frame.model.presets;
+    auto& state = frame.state;
+    state.setup_for = row.key;
+    state.preset = presets.empty() ? 0 : std::clamp(frame.model.chosen_preset, 0, int(presets.size()) - 1);
+    state.rules = presets.empty() ? platform::MatchRules{} : presets[std::size_t(state.preset)].rules;
+    frame.screens.Push({int(OnlinePanelScreen::Setup), row.key, "Challenge " + row.name}, back);
+}
+
 void DrawRow(Frame& frame, const OnlinePanelRow& row, float width, bool line)
 {
     const auto& fonts = frame.fonts;
@@ -518,7 +454,7 @@ void DrawRow(Frame& frame, const OnlinePanelRow& row, float width, bool line)
         if (over) ImGui::SetTooltip("Challenge %s to a set", row.name.c_str());
         edge -= Dp(10);
     }
-    if (challenge) frame.actions.challenge = row.player_id;
+    if (challenge) OpenSetup(frame, row, row_id);
     else if (open)
         frame.screens.Push({int(OnlinePanelScreen::Player), row.key, row.name}, row_id);
 
@@ -731,10 +667,7 @@ void DrawPlayer(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow*
         ImGui::SetCursorScreenPos({bx, at.y});
         if (OverlayButton("challenge", "Challenge to a set", Icon::Trophy, {button_w, button_h}, OverlayLook::Primary,
                           row->can_challenge, true))
-        {
-            actions.challenge = row->player_id;
-            frame.screens.Pop(); // back to the lists, where the set shows
-        }
+            OpenSetup(frame, *row, ImGui::GetItemID());
         bx += button_w + gap;
     }
     if (row->can_befriend)
@@ -762,8 +695,277 @@ void DrawPlayer(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow*
                 width);
     else if (!row->can_challenge && !row->blocked.empty())
         Caption(frame, row->blocked + ": no challenge now.", color::warning, width);
-    else if (!frame.model.challenge_rules.empty())
-        Caption(frame, "The set plays by your rules: " + frame.model.challenge_rules + ".", color::muted, width);
+    else if (row->can_challenge)
+        Caption(frame, "Choose the rules next: a preset, changed as you like for this challenge.", color::muted,
+                width);
+    ImGui::Dummy({width, Dp(16)});
+    EndOverlayScroll();
+}
+
+// One rule of a challenge's setup: its label at the left, its value in a
+// field with chevrons at the right; the whole row is the control (A, Enter
+// or a click the next value, left and right through them, a click on the
+// left chevron the one before). The step taken: -1, 0 or 1.
+int ChoiceRow(Frame& frame, const char* id, const char* label, const std::string& value, float width)
+{
+    const auto& fonts = frame.fonts;
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float height = Dp(46), pad = Dp(16), field_h = Dp(30), chevron = Dp(24);
+    const ImVec2 max{at.x + width, at.y + height};
+    ImGui::PushID(id);
+    const bool pressed = ImGui::InvisibleButton("##rule", {width, height}, ImGuiButtonFlags_EnableNav);
+    const ImGuiID item = ImGui::GetItemID();
+    const bool hovered = ImGui::IsItemHovered();
+    const bool focused = OverlayNavFocused();
+    OverlayFocusable();
+    const float hover = launcher::Animate(ImGui::GetID("##hover"), hovered || focused, 12.0f);
+    if (hover > 0.01f) draw->AddRectFilled(at, max, Col(color::text, 0.04f * hover), Dp(10));
+    const float middle = at.y + height * 0.5f;
+    const float most = std::max(Dp(90), width * 0.56f);
+    const float value_w = std::min(TextSize(fonts.body, value.c_str()).x, most - 2 * chevron);
+    const ImVec2 field_min{max.x - pad - value_w - 2 * chevron, middle - field_h * 0.5f};
+    const ImVec2 field_max{max.x - pad, middle + field_h * 0.5f};
+    ImVec4 field = Mix(color::field, color::card_hover, 0.35f + 0.4f * hover);
+    field.w = 0.9f;
+    draw->AddRectFilled(field_min, field_max, Col(field), field_h * 0.5f);
+    draw->AddRect(field_min, field_max, Col(Mix(color::border, color::accent, 0.6f * hover), 0.9f), field_h * 0.5f, 0,
+                  Dp(1));
+    const ImU32 ink = Col(Mix(color::muted, color::text, hover), 0.9f);
+    Chevron(draw, {field_min.x + chevron * 0.55f, middle}, -1, ink);
+    Chevron(draw, {field_max.x - chevron * 0.55f, middle}, 1, ink);
+    draw->PushClipRect({field_min.x + chevron, field_min.y}, {field_max.x - chevron, field_max.y}, true);
+    DrawLabel(draw, fonts.body, {field_min.x + chevron, middle - FontSize(fonts.body) * 0.5f}, Col(color::text),
+              value.c_str());
+    draw->PopClipRect();
+    draw->PushClipRect({at.x + pad, at.y}, {field_min.x - Dp(8), max.y}, true);
+    DrawLabel(draw, fonts.label, {at.x + pad, middle - FontSize(fonts.label) * 0.5f}, Col(color::text), label);
+    draw->PopClipRect();
+    if (focused) OverlayFocusRing(draw, at, max, Dp(10));
+    int step = 0;
+    if (focused)
+    {
+        for (const ImGuiKey key :
+             {ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight})
+            ImGui::SetKeyOwner(key, item);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat, item)
+            || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, item))
+            step = -1;
+        else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat, item)
+                 || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, item))
+            step = 1;
+    }
+    if (pressed)
+    {
+        const ImVec2 mouse = ImGui::GetIO().MousePos;
+        const bool back = ImGui::IsMouseReleased(ImGuiMouseButton_Left) && mouse.x < field_min.x + chevron
+            && mouse.x >= field_min.x - Dp(6) && mouse.y >= field_min.y && mouse.y <= field_max.y;
+        step = back ? -1 : 1;
+    }
+    ImGui::PopID();
+    return step;
+}
+
+// A gameplay tweak of the setup: its name and a switch; whether it was pressed.
+bool SwitchRow(Frame& frame, const char* id, const char* label, bool on, float width)
+{
+    const auto& fonts = frame.fonts;
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float height = Dp(46), pad = Dp(16), track_w = Dp(40), track_h = Dp(23);
+    const ImVec2 max{at.x + width, at.y + height};
+    ImGui::PushID(id);
+    const bool pressed = ImGui::InvisibleButton("##tweak", {width, height}, ImGuiButtonFlags_EnableNav);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool focused = OverlayNavFocused();
+    OverlayFocusable();
+    const float hover = launcher::Animate(ImGui::GetID("##hover"), hovered || focused, 12.0f);
+    const float lit = launcher::Animate(ImGui::GetID("##on"), on, 14.0f);
+    if (hover > 0.01f) draw->AddRectFilled(at, max, Col(color::text, 0.04f * hover), Dp(10));
+    const float middle = at.y + height * 0.5f;
+    DrawLabel(draw, fonts.label, {at.x + pad, middle - FontSize(fonts.label) * 0.5f}, Col(color::text), label);
+    const ImVec2 track{max.x - pad - track_w, middle - track_h * 0.5f};
+    draw->AddRectFilled(track, {track.x + track_w, track.y + track_h},
+                        Col(Mix(Mix(color::border, color::muted, 0.25f * hover), color::accent, lit)), track_h * 0.5f);
+    draw->AddCircleFilled({track.x + track_h * 0.5f + (track_w - track_h) * lit, track.y + track_h * 0.5f},
+                          track_h * 0.5f - Dp(3), Col(Mix(color::text, color::accent_ink, lit)));
+    if (focused) OverlayFocusRing(draw, at, max, Dp(10));
+    ImGui::PopID();
+    return pressed;
+}
+
+// A group of the setup's rules: its name over a card that holds them
+// (`rows` draws them, one under the other).
+template <typename Rows> void SetupGroup(Frame& frame, const char* title, float width, Rows&& rows)
+{
+    auto* draw = ImGui::GetWindowDrawList();
+    {
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float height = Dp(38);
+        launcher::DrawTracked(draw, frame.fonts.caption,
+                              {at.x + Dp(4), at.y + height - FontSize(frame.fonts.caption) - Dp(9)}, Col(color::dim),
+                              title, Dp(1.5f));
+        ImGui::Dummy({width, height});
+    }
+    const ImVec2 top = ImGui::GetCursorScreenPos();
+    draw->ChannelsSplit(2);
+    draw->ChannelsSetCurrent(1);
+    ImGui::Dummy({width, Dp(4)});
+    rows();
+    ImGui::Dummy({width, Dp(4)});
+    const float bottom = ImGui::GetCursorScreenPos().y;
+    draw->ChannelsSetCurrent(0);
+    ImVec4 fill = color::field;
+    fill.w = 0.62f;
+    OverlayCard(draw, top, {top.x + width, bottom}, Dp(16), fill, color::border);
+    draw->ChannelsMerge();
+}
+
+// "3 minutes", "2:30 minutes", "1 minute".
+std::string GameLength(int seconds)
+{
+    if (seconds % 60 == 0) return std::to_string(seconds / 60) + (seconds == 60 ? " minute" : " minutes");
+    return std::to_string(seconds / 60) + ":" + (seconds % 60 < 10 ? "0" : "") + std::to_string(seconds % 60)
+        + " minutes";
+}
+
+// The next of `values` after `current`, `step` places on, round at the ends
+// (the first when `current` isn't one of them).
+template <typename T> T Next(const std::vector<T>& values, const T& current, int step)
+{
+    const auto found = std::find(values.begin(), values.end(), current);
+    const int n = int(values.size());
+    if (found == values.end() || n == 0) return n ? values.front() : current;
+    return values[std::size_t((int(found - values.begin()) + step + n) % n)];
+}
+
+// A cheat's row: its choices by key, shown by their names.
+void CheatRow(Frame& frame, const char* id, const char* label, const std::vector<platform::RuleChoice>& choices,
+              std::string& key, float width)
+{
+    std::vector<std::string> keys;
+    std::string shown = key;
+    for (const auto& choice : choices)
+    {
+        keys.push_back(choice.key);
+        if (key == choice.key) shown = choice.label;
+    }
+    if (const int step = ChoiceRow(frame, id, label, shown, width)) key = Next(keys, key, step);
+}
+
+// A challenge's setup: the preset it starts from, all its rules to change for
+// this challenge only, and Send challenge.
+void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* row)
+{
+    const auto& model = frame.model;
+    auto& state = frame.state;
+    const float width = std::min(layout.max.x - layout.min.x, Dp(640));
+    const float x = layout.min.x + ((layout.max.x - layout.min.x) - width) * 0.5f;
+    BeginOverlayScroll(("##setup_" + frame.screens.Top().key).c_str(), {x, layout.min.y}, {x + width, layout.max.y});
+    ImGui::Dummy({width, Dp(12)});
+    if (!row || model.presets.empty() || state.setup_for != row->key)
+    {
+        Caption(frame, !row ? "Not online any more." : "This server has no rules to play sets by yet.", color::muted,
+                width);
+        EndOverlayScroll();
+        return;
+    }
+    const int count = int(model.presets.size());
+    state.preset = std::clamp(state.preset, 0, count - 1);
+    const OnlinePanelPreset& preset = model.presets[std::size_t(state.preset)];
+    auto& rules = state.rules;
+
+    SetupGroup(frame, "PRESET", width, [&] {
+        if (const int step = ChoiceRow(frame, "preset", "Start from", preset.name, width))
+        {
+            state.preset = (state.preset + step + count) % count;
+            rules = model.presets[std::size_t(state.preset)].rules;
+        }
+    });
+    SetupGroup(frame, "THE MATCH", width, [&] {
+        if (const int step = ChoiceRow(frame, "games", "Series",
+                                       rules.games == 1 ? std::string("One game") : "Best of " + std::to_string(rules.games),
+                                       width))
+            rules.games = Next(std::vector<int>{1, 3, 5, 7}, rules.games, step);
+        if (ChoiceRow(frame, "limit", "A game ends", rules.limit == "goals" ? "On goals" : "On time", width))
+            rules.limit = rules.limit == "goals" ? "time" : "goals";
+        if (rules.limit == "goals")
+        {
+            if (const int step = ChoiceRow(frame, "goals", "Goals to win", std::to_string(rules.goals), width))
+                rules.goals = Next(std::vector<int>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, rules.goals, step);
+        }
+        else
+        {
+            std::vector<int> lengths{60, 120, 180, 240, 300};
+            if (std::find(lengths.begin(), lengths.end(), rules.time) == lengths.end())
+            {
+                lengths.push_back(rules.time);
+                std::sort(lengths.begin(), lengths.end());
+            }
+            if (const int step = ChoiceRow(frame, "time", "Game length", GameLength(rules.time), width))
+                rules.time = Next(lengths, rules.time, step);
+        }
+        std::vector<std::string> stadiums;
+        std::string stadium = rules.stadium;
+        for (const auto& choice : platform::StadiumChoices())
+        {
+            stadiums.push_back(choice.key);
+            if (rules.stadium == choice.key) stadium = choice.label;
+        }
+        if (const int step = ChoiceRow(frame, "stadium", "Stadium", stadium, width))
+            rules.stadium = Next(stadiums, rules.stadium, step);
+    });
+    SetupGroup(frame, "CHEATS", width, [&] {
+        CheatRow(frame, "stadium_cheat", "Stadium", platform::StadiumCheatChoices(), rules.stadium_cheat, width);
+        CheatRow(frame, "player_cheat", "Players", platform::PlayerCheatChoices(), rules.player_cheat, width);
+        CheatRow(frame, "powerup_cheat", "Power-ups", platform::PowerupCheatChoices(), rules.powerup_cheat, width);
+    });
+    SetupGroup(frame, "GAMEPLAY", width, [&] {
+        for (const auto& tweak : platform::RuleTweakChoices())
+        {
+            const auto found = std::find(rules.tweaks.begin(), rules.tweaks.end(), tweak.key);
+            const bool on = found != rules.tweaks.end();
+            if (SwitchRow(frame, tweak.key, tweak.label, on, width))
+            {
+                if (on) rules.tweaks.erase(found);
+                else
+                {
+                    rules.tweaks.push_back(tweak.key);
+                    std::sort(rules.tweaks.begin(), rules.tweaks.end());
+                }
+            }
+        }
+    });
+
+    // Send, by the server's rule set itself while nothing changed (servers
+    // before 1.2.3 take only theirs).
+    ImGui::Dummy({width, Dp(18)});
+    const bool changed = !(rules == preset.rules);
+    const float button_w = std::min(Dp(260), width);
+    ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x + width - button_w, ImGui::GetCursorScreenPos().y});
+    if (OverlayButton("send", "Send challenge", Icon::Trophy, {button_w, Dp(46)}, OverlayLook::Primary,
+                      row->can_challenge))
+    {
+        OnlinePanelChallenge challenge;
+        challenge.player = row->player_id;
+        challenge.name = preset.name;
+        if (changed && preset.name.size() + 10 <= 48) challenge.name += " (changed)";
+        challenge.rules = rules;
+        challenge.rule_set = changed ? 0 : preset.rule_set;
+        frame.actions.challenge = challenge;
+        frame.actions.set_challenge_rules = preset.name;
+        while (!frame.screens.Empty() && frame.screens.Top().id != int(OnlinePanelScreen::Main)
+               && frame.screens.Pop()) {}
+    }
+    ImGui::Dummy({width, Dp(10)});
+    if (!row->can_challenge && !row->blocked.empty())
+        Caption(frame, row->blocked + ": no challenge now.", color::warning, width);
+    else
+        Caption(frame,
+                changed ? "Changed for this challenge only: the preset stays as it is. " + row->name
+                        + " sees the rules before accepting."
+                        : row->name + " sees the rules before accepting.",
+                color::muted, width);
     ImGui::Dummy({width, Dp(16)});
     EndOverlayScroll();
 }
@@ -781,18 +983,21 @@ void DrawPlayerPicture(ImDrawList* draw, ImVec2 center, float radius, const Onli
 
 std::string OnlinePanelTitle(const OnlinePanelModel& model, const OverlayScreens& screens)
 {
-    if (screens.Empty() || screens.Top().id != int(OnlinePanelScreen::Player)) return "Online";
+    if (screens.Empty() || screens.Top().id == int(OnlinePanelScreen::Main)) return "Online";
     const OnlinePanelRow* row = FindRow(model, screens.Top().key);
+    if (screens.Top().id == int(OnlinePanelScreen::Setup)) return row ? "Challenge " + row->name : screens.Top().title;
     return row ? row->name : screens.Top().title;
 }
 
-void DrawOnlinePanel(const OnlinePanelModel& model, OverlayScreens& screens, OnlinePanelActions& actions,
-                     const OverlayImages& images, const OverlayLayout& layout)
+void DrawOnlinePanel(const OnlinePanelModel& model, OverlayScreens& screens, OnlinePanelState& state,
+                     OnlinePanelActions& actions, const OverlayImages& images, const OverlayLayout& layout)
 {
     if (screens.Empty()) return;
-    Frame frame{model, images, screens, actions, launcher::CurrentFonts()};
+    Frame frame{model, images, screens, state, actions, launcher::CurrentFonts()};
     if (screens.Top().id == int(OnlinePanelScreen::Player))
         DrawPlayer(frame, layout, FindRow(model, screens.Top().key));
+    else if (screens.Top().id == int(OnlinePanelScreen::Setup))
+        DrawSetup(frame, layout, FindRow(model, screens.Top().key));
     else DrawMain(frame, layout);
 }
 } // namespace mscharged::overlay

@@ -184,7 +184,7 @@ void DrawGameOverlay(const GameOverlayModel& model, GameOverlayState& state, Gam
         : more && !more->title.empty() ? more->title
                                        : screens.Top().title;
     const OverlayLayout layout = BeginOverlay(style, screens, title, &tabs);
-    if (online) DrawOnlinePanel(model.online, screens, actions.online, style.image, layout);
+    if (online) DrawOnlinePanel(model.online, screens, state.online_state, actions.online, style.image, layout);
     else if (options) DrawGameOptions(model.options, state.options_state, screens, actions.set_option, layout);
     else if (events) DrawEventsPage(layout);
     else if (more && more->draw) more->draw(layout);

@@ -744,7 +744,7 @@ void FeedChallengeRules()
          R"({"id":5,"name":"Classic","rules":{"tweaks":[],"skill":"legend","limit":"time",)"
          R"("time":300,"goals":5,"games":1,"stadium":"random"},"hash":"def"}]})"},
         {"GET /api/v1/server", 200, R"({"version":"1.2.1","sign_in":{"discord":true,"test":false}})"},
-        // Classic, chosen in the panel; then a name the server doesn't have.
+        // By the server's Classic as it is; then by rules of the player's own.
         {"POST /api/v1/matches", 200, kSet},
         {"GET /api/v1/me", 200, me},
         {"GET /api/v1/players", 200, lists},
@@ -775,10 +775,11 @@ void FeedChallengeRules()
             feed->SetOpen(false); // only the actions ask now
             feed->SetChallengeRules("Classic");
             CHECK(feed->ChallengeRules() == "Classic");
-            feed->Challenge(8);
-            feed->SetChallengeRules("Gone"); // after the ask: the challenge keeps Classic
+            feed->Challenge(8, 5, {}, "Classic");
             CHECK(wait(2));
-            feed->Challenge(9);
+            MatchRules own = feed->Latest().rule_sets[0].rules;
+            own.stadium_cheat = "field_tilt";
+            feed->Challenge(9, 0, own, "Competitive (changed)");
             CHECK(wait(3));
             feed.reset();
         }
@@ -789,7 +790,10 @@ void FeedChallengeRules()
     if (sent.size() == exchanges.size())
     {
         CHECK(sent[5].body == R"({"opponent_id":8,"rule_set":5})");
-        CHECK(sent[9].body == R"({"opponent_id":9,"rule_set":2})");
+        CHECK(sent[9].body
+              == R"({"opponent_id":9,"rules":{"tweaks":[],"skill":"rookie","limit":"time","time":180,"goals":5,)"
+                 R"("games":3,"stadium":"random","stadium_cheat":"field_tilt","player_cheat":"none",)"
+                 R"x("powerup_cheat":"none"},"name":"Competitive (changed)"})x");
     }
 }
 #endif

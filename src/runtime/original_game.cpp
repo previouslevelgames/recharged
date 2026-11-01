@@ -78,6 +78,7 @@
 #include "runtime/host_overlay.h"
 #include "runtime/host_panel.h"
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "launcher/match_presets.h"
 #include "overlay/game_overlay.h"
 #include "overlay/overlay_images.h"
 #include "overlay/overlay_prompt.h"
@@ -1768,6 +1769,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 });
         // [online] challenge_rules: chosen in the launcher or on the Online tab.
         std::string challengeRules=launch.settings.challenge_rules;
+        // The player's own presets (the launcher's Match rules page, files in
+        // match-presets beside the settings file), read as the overlay opens.
+        std::vector<mscharged::overlay::OnlinePanelPreset> myPresets;
         std::optional<unsigned> pendingTweaks;
         std::string overlayNotice;
         bool overlayOpen=false;
@@ -1905,15 +1909,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(competitive)
                     if(const auto set=competitive->CurrentSet())
                         context.score=ov::OnlinePanelContext::Score{set->won,set->lost};
-                // The rule set a challenge plays by ([online] challenge_rules, or the first).
+                // What a challenge starts from: the server's rule sets and the
+                // player's presets, the one used last ([online] challenge_rules) first.
                 context.rule_sets=snapshot.rule_sets;
+                context.my_presets=myPresets;
                 context.chosen_rules=challengeRules;
-                const mscharged::platform::RuleSet* rules=nullptr;
-                for(const auto& ruleSet:snapshot.rule_sets)
-                    if(ruleSet.name==challengeRules) rules=&ruleSet;
-                if(!rules && !snapshot.rule_sets.empty()) rules=&snapshot.rule_sets.front();
-                context.can_challenge=rules!=nullptr;
-                if(rules) context.challenge_rules=rules->name+": "+mscharged::platform::DescribeRules(rules->rules);
+                context.can_challenge=!snapshot.rule_sets.empty();
                 context.random_games=versionAtLeast(snapshot.server_version,1,2,1);
                 context.loading=panelFeed && !snapshot.loaded;
                 if(!panelFeed) context.message="Sign in on the launcher's Player profile page to see your friends here.";
@@ -1951,7 +1952,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const std::int64_t set=model.online.set.match;
                 if(panelFeed) {
                     if(online.challenge) {
-                        panelFeed->Challenge(*online.challenge);
+                        const auto& challenge=*online.challenge;
+                        panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name);
                         overlayNotice="Challenge sent";
                     }
                     if(online.add_friend) panelFeed->AddFriend(*online.add_friend);
@@ -2138,6 +2140,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                                                                  : mscharged::overlay::OverlayTab::Online);
                     overlayOpened=now;
                     overlayNotice.clear();
+                    // The player's presets as they are now (the launcher may have changed them).
+                    myPresets.clear();
+                    for(const auto& preset:mscharged::launcher::LoadMatchPresets(
+                            launch.config.path.parent_path()/"match-presets").presets)
+                        if(!preset.built_in)
+                            myPresets.push_back({preset.name,mscharged::launcher::ChallengeRules(preset),0});
                 }
                 if(panelFeed) panelFeed->SetOpen(overlayOpen);
             }

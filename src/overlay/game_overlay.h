@@ -78,6 +78,7 @@ struct GameOverlayState
 
     OverlayTab tab = OverlayTab::Online;
     OverlayScreens online, options;
+    OnlinePanelState online_state; // the Online tab's challenge setup
     std::map<int, OverlayScreens> more; // the more tabs' (GameOverlayMoreTab), by id
     GameOptionsState options_state;
     // The tabs as the overlay last showed them (GameOverlayTabs); before

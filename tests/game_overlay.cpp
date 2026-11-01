@@ -135,6 +135,11 @@ struct Harness
             && state.online.Top().key == key;
     }
     bool OnMain() const { return !state.online.Empty() && state.online.Top().id == int(OnlinePanelScreen::Main); }
+    bool OnSetup(const char* key) const
+    {
+        return !state.online.Empty() && state.online.Top().id == int(OnlinePanelScreen::Setup)
+            && state.online.Top().key == key;
+    }
 };
 
 platform::ProfilePlayer Online(std::int64_t id, const char* name)
@@ -155,6 +160,14 @@ OnlinePanelModel Model(const std::optional<platform::ProfileMatch>& match = std:
     OnlinePanelContext context;
     context.me.id = 1;
     context.me.name = "Anosch";
+    platform::RuleSet competitive;
+    competitive.id = 1;
+    competitive.name = "Competitive";
+    competitive.rules.limit = "time";
+    competitive.rules.time = 180;
+    competitive.rules.games = 3;
+    competitive.rules.stadium = "random";
+    context.rule_sets = {competitive};
     return MakeOnlinePanelModel(lists, match, context);
 }
 
@@ -165,12 +178,17 @@ void TestScreens()
     h.Open();
     CHECK(h.state.Tab() == OverlayTab::Online && h.OnMain());
     // A row opens its player; their screen's cursor is on Challenge, which
-    // challenges and goes back to the list.
+    // opens the challenge's setup; its Send challenge (under the eleven rules)
+    // challenges by the server's rule set as it is and goes back to the list.
     auto actions = h.Press(ImGuiKey_Enter);
     CHECK(!actions.Any());
     CHECK(h.OnPlayer("p10"));
     actions = h.Press(ImGuiKey_Enter);
-    CHECK(actions.online.challenge && *actions.online.challenge == 10);
+    CHECK(!actions.online.challenge && h.OnSetup("p10"));
+    for (int n = 0; n < 11; ++n) h.Press(ImGuiKey_DownArrow);
+    actions = h.Press(ImGuiKey_Enter);
+    CHECK(actions.online.challenge && actions.online.challenge->player == 10 && actions.online.challenge->rule_set == 1
+          && actions.online.challenge->name == "Competitive" && actions.online.set_challenge_rules == "Competitive");
     CHECK(h.OnMain());
     // Back on the list the cursor is on Mario again: Enter opens him again.
     h.Press(ImGuiKey_Enter);
@@ -402,54 +420,49 @@ OnlinePanelModel RulesModel(std::vector<std::string> names, const std::string& c
     return MakeOnlinePanelModel(lists, std::nullopt, context);
 }
 
-// "Your challenges" on the player's card: A, Enter and a click take the next
-// rule set, left and right (keys and D-pad) go through them, round, and the
-// cursor stays on it; with one rule set nothing to choose, none without.
-void TestChallengeRules()
+// A challenge's setup: it opens with the preset chosen last; left and right
+// (and A) on a rule go through its values; Send challenge sends the changed
+// rules (no rule set), named after the preset, and remembers the preset.
+void TestChallengeSetup()
 {
     const std::vector<std::string> names{"Competitive", "Classic", "First to 5"};
-    {
     Harness h;
     h.model.online = RulesModel(names, "Competitive");
     h.Open();
-    // From the friends to the player's card beside them, then down to the rules.
-    h.Press(ImGuiKey_DownArrow);
+    // Daisy first (by name).
+    h.Press(ImGuiKey_Enter);
+    CHECK(h.OnPlayer("p12"));
+    h.Press(ImGuiKey_Enter);
+    CHECK(h.OnSetup("p12") && h.state.online_state.preset == 0 && h.state.online_state.rules.games == 3);
+    // The preset: Classic, its rules; left goes back.
+    CHECK(!h.Press(ImGuiKey_RightArrow).online.Any());
+    CHECK(h.state.online_state.preset == 1 && h.state.online_state.rules == h.model.online.presets[1].rules);
     h.Press(ImGuiKey_LeftArrow);
-    std::optional<std::string> next;
-    for (int n = 0; n < 4 && !next; ++n)
-    {
-        next = h.Press(ImGuiKey_Enter).online.set_challenge_rules;
-        if (!next) h.Press(ImGuiKey_DownArrow);
-    }
-    CHECK(next == "Classic" && h.OnMain());
-    // The model isn't changed here: each step is from Competitive.
-    CHECK(h.Press(ImGuiKey_RightArrow).online.set_challenge_rules == "Classic");
-    CHECK(h.Press(ImGuiKey_LeftArrow).online.set_challenge_rules == "First to 5");
-    CHECK(h.Press(ImGuiKey_GamepadDpadRight).online.set_challenge_rules == "Classic");
-    CHECK(h.Press(ImGuiKey_GamepadDpadLeft).online.set_challenge_rules == "First to 5");
-    CHECK(h.Press(ImGuiKey_GamepadFaceDown).online.set_challenge_rules == "Classic");
-    // Still on it after left and right: Enter doesn't open a friend.
-    CHECK(h.Press(ImGuiKey_Enter).online.set_challenge_rules == "Classic" && h.OnMain());
-    // The chosen one moves on: from the last, round to the first.
-    h.model.online = RulesModel(names, "First to 5");
-    h.Frame();
-    CHECK(h.Press(ImGuiKey_RightArrow).online.set_challenge_rules == "Competitive");
-    // Up and down still leave it.
-    h.Press(ImGuiKey_UpArrow);
-    CHECK(!h.Press(ImGuiKey_Enter).online.set_challenge_rules);
-    }
-    // One rule set: shown, nothing to choose (the cursor never stops there).
-    Harness one;
-    one.model.online = RulesModel({"Competitive"}, "");
-    CHECK(one.model.online.rule_sets.size() == 1);
-    one.Open();
-    one.Press(ImGuiKey_DownArrow);
-    one.Press(ImGuiKey_LeftArrow);
-    for (int n = 0; n < 4; ++n)
-    {
-        CHECK(!one.Press(ImGuiKey_Enter).online.set_challenge_rules);
-        one.Press(ImGuiKey_DownArrow);
-    }
+    h.Press(ImGuiKey_LeftArrow);
+    CHECK(h.state.online_state.preset == 2);
+    h.Press(ImGuiKey_RightArrow);
+    h.Press(ImGuiKey_RightArrow);
+    // The series: best of 5, of 7; A the next (one game, round).
+    h.Press(ImGuiKey_DownArrow);
+    h.Press(ImGuiKey_RightArrow);
+    CHECK(h.state.online_state.rules.games == 5);
+    h.Press(ImGuiKey_GamepadDpadRight);
+    CHECK(h.state.online_state.rules.games == 7);
+    h.Press(ImGuiKey_GamepadFaceDown);
+    CHECK(h.state.online_state.rules.games == 1 && h.OnSetup("p12"));
+    h.Press(ImGuiKey_LeftArrow);
+    CHECK(h.state.online_state.rules.games == 7);
+    // Down to Send challenge (ten rules on).
+    for (int n = 0; n < 10; ++n) h.Press(ImGuiKey_DownArrow);
+    const auto actions = h.Press(ImGuiKey_Enter);
+    CHECK(actions.online.challenge && actions.online.challenge->player == 12 && actions.online.challenge->rule_set == 0
+          && actions.online.challenge->name == "Classic (changed)" && actions.online.challenge->rules.games == 7);
+    CHECK(actions.online.set_challenge_rules == "Classic" && h.OnMain());
+    // Back says nothing: the setup's B goes to the player.
+    h.Press(ImGuiKey_Enter);
+    h.Press(ImGuiKey_Enter);
+    CHECK(h.OnSetup("p12"));
+    CHECK(!h.Press(ImGuiKey_GamepadFaceRight).online.challenge && h.OnPlayer("p12"));
 }
 
 // The overlay's scale: the picture's height / 900, but in small windows
@@ -782,7 +795,7 @@ int main()
     TestMouse();
     TestResize();
     TestSmallWindows();
-    TestChallengeRules();
+    TestChallengeSetup();
     TestLateLists();
     TestPrompt();
     TestFrameDone();

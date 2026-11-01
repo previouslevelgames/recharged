@@ -124,6 +124,15 @@ struct OnlinePanelPlayer
     bool can_set_available = false; // the server knows random games (1.2.1)
 };
 
+// What a challenge can start from: one of the server's rule sets or one of
+// the player's own presets (the launcher's Match rules page).
+struct OnlinePanelPreset
+{
+    std::string name;
+    platform::MatchRules rules;
+    std::int64_t rule_set = 0; // the server's rule set's id; 0 for the player's own
+};
+
 struct OnlinePanelModel
 {
     OnlinePanelPlayer me;
@@ -134,13 +143,10 @@ struct OnlinePanelModel
     // The friends and Discord friends with Recharged who are offline (the
     // online section's aside says so; none while the lists load).
     int friends_offline = 0;
-    std::string challenge_rules; // what a challenge plays by, on a player's screen
-    // The rule sets the player's challenges can play by (their names, the
-    // server's order) and the one they play by now, for "Your challenges" on
-    // the player's card; none: it doesn't show.
-    std::vector<std::string> rule_sets;
-    int chosen_rules = 0;         // in rule_sets
-    std::string chosen_rules_are; // its rules: "3 minutes, best of 3, random stadium"
+    // What a challenge can start from (the server's rule sets, then the
+    // player's presets) and the one its setup opens with: the last one used.
+    std::vector<OnlinePanelPreset> presets;
+    int chosen_preset = 0;
     // For the footer: what the player should know (an action the server
     // refused, the server out of reach).
     std::string message;
@@ -167,15 +173,13 @@ struct OnlinePanelContext
     std::optional<Score> score;
     // This game plays a match (or a set's game): nobody can be challenged from it now.
     bool in_match = false;
-    // There are rules to challenge by (the server has a rule set), and what
-    // they play by ("Competitive: 3 minutes, best of 3, ..."; with
-    // `rule_sets`, the chosen one's instead).
+    // There are rules to challenge by (the server has a rule set).
     bool can_challenge = true;
-    std::string challenge_rules;
-    // The server's rule sets, and the one the player's challenges play by
-    // ([online] challenge_rules, its name; empty or not the server's: the
-    // first): the player chooses it in the panel.
+    // The server's rule sets and the player's own presets (the launcher's
+    // Match rules page), and the one a challenge's setup opens with
+    // ([online] challenge_rules, its name; empty or unknown: the first).
     std::vector<platform::RuleSet> rule_sets;
+    std::vector<OnlinePanelPreset> my_presets;
     std::string chosen_rules;
     // The server knows random games (1.2.1): the switch in the panel.
     bool random_games = true;

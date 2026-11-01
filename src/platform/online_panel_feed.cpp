@@ -107,22 +107,12 @@ std::string OnlinePanelFeed::ChallengeRules()
     return challenge_rules_;
 }
 
-void OnlinePanelFeed::Challenge(std::int64_t player)
+void OnlinePanelFeed::Challenge(std::int64_t player, std::int64_t rule_set, MatchRules rules, std::string name)
 {
     Send(
-        [this, player, rules = ChallengeRules()](ProfileService& api) {
-            // The rule set chosen (at first [online] challenge_rules), or the server's first.
-            std::vector<RuleSet> rule_sets;
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                rule_sets = snapshot_.rule_sets;
-            }
-            if (rule_sets.empty()) rule_sets = api.RuleSets();
-            if (rule_sets.empty()) throw ProfileError("The server has no rule sets.", 409);
-            const RuleSet* chosen = &rule_sets.front();
-            for (const auto& rule_set : rule_sets)
-                if (rule_set.name == rules) chosen = &rule_set;
-            api.ChallengePlayer(player, chosen->id);
+        [player, rule_set, rules = std::move(rules), name = std::move(name)](ProfileService& api) {
+            if (rule_set > 0) api.ChallengePlayer(player, rule_set);
+            else api.ChallengePlayer(player, rules, name);
         },
         "The challenge");
 }

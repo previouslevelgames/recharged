@@ -102,7 +102,6 @@ platform::ProfileMatch Set(const char* state, const char* side, const char* stag
 void TestPlayer()
 {
     auto context = Context();
-    context.challenge_rules = "Competitive: Rookie";
     context.message = "The server can't be reached.";
     context.error = true;
     const auto model = MakeOnlinePanelModel({}, std::nullopt, context);
@@ -114,7 +113,6 @@ void TestPlayer()
     CHECK(model.me.can_set_available);
     CHECK(model.set.stage == OnlinePanelSet::Stage::None);
     CHECK(model.note.empty());
-    CHECK(model.challenge_rules == "Competitive: Rookie");
     CHECK(model.message == "The server can't be reached." && model.message_tone == Tone::Bad);
     // Not available: Online now alone, which says nobody is online (and,
     // without friends, nothing about friends offline).
@@ -371,16 +369,18 @@ void TestSet()
         CHECK(model.set.stage == Stage::None);
     }
 }
-// The server's rule sets for "Your challenges": their names, the chosen one
-// (by name; else the first) and what it plays by, also on a player's screen.
+// What a challenge starts from: the server's rule sets, then the player's
+// own presets (only where the server has rule sets), the one chosen last (by
+// name; else the first) for its setup.
 void TestChallengeRules()
 {
     auto context = Context();
-    context.challenge_rules = "Competitive: Rookie";
-    // Without rule sets: no choice, the host's line.
+    OnlinePanelPreset mine{"Palace tilt", {}, 0};
+    mine.rules.stadium = "the_palace";
+    context.my_presets = {mine};
+    // Without rule sets: nothing to start from.
     auto model = MakeOnlinePanelModel({}, std::nullopt, context);
-    CHECK(model.rule_sets.empty() && model.chosen_rules == 0 && model.chosen_rules_are.empty());
-    CHECK(model.challenge_rules == "Competitive: Rookie");
+    CHECK(model.presets.empty() && model.chosen_preset == 0);
 
     platform::RuleSet competitive;
     competitive.id = 2;
@@ -394,25 +394,23 @@ void TestChallengeRules()
     platform::RuleSet classic = competitive;
     classic.id = 5;
     classic.name = "Classic";
-    classic.rules.skill = "professional";
     classic.rules.time = 300;
     classic.rules.games = 1;
     classic.rules.tweaks.clear();
     context.rule_sets = {competitive, classic};
     context.chosen_rules = "Classic";
     model = MakeOnlinePanelModel({}, std::nullopt, context);
-    CHECK(model.rule_sets.size() == 2 && model.rule_sets[0] == "Competitive" && model.rule_sets[1] == "Classic");
-    CHECK(model.chosen_rules == 1);
-    CHECK(model.chosen_rules_are == platform::DescribeRules(classic.rules));
-    CHECK(model.chosen_rules_are.find("5 minutes") == 0);
-    CHECK(model.challenge_rules == "Classic: " + model.chosen_rules_are);
-    // None chosen, or one the server doesn't have: its first.
+    CHECK(model.presets.size() == 3 && model.presets[0].name == "Competitive" && model.presets[0].rule_set == 2
+          && model.presets[1].name == "Classic" && model.presets[1].rules == classic.rules
+          && model.presets[2].name == "Palace tilt" && model.presets[2].rule_set == 0);
+    CHECK(model.chosen_preset == 1);
+    context.chosen_rules = "Palace tilt";
+    CHECK(MakeOnlinePanelModel({}, std::nullopt, context).chosen_preset == 2);
+    // None chosen, or one there isn't: the first.
     for (const char* name : {"", "Gone", "classic"})
     {
         context.chosen_rules = name;
-        model = MakeOnlinePanelModel({}, std::nullopt, context);
-        CHECK(model.chosen_rules == 0 && model.challenge_rules == "Competitive: " + model.chosen_rules_are);
-        CHECK(model.chosen_rules_are == platform::DescribeRules(competitive.rules));
+        CHECK(MakeOnlinePanelModel({}, std::nullopt, context).chosen_preset == 0);
     }
 }
 } // namespace
