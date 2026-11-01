@@ -676,7 +676,7 @@ int main()
         // which an old [gameplay] no_hud still sets until the next save.
         {
             Require(defaults.hotkeys
-                        == std::array<std::string, HotkeyCount>{"P", "H", "F", "PageUp", "PageDown", "Alt+Return", "F1"}
+                        == std::array<std::string, HotkeyCount>{"P", "H", "F", "PageUp", "PageDown", "Alt+Return", "F1", "F2"}
                     && defaults.show_hud && defaults.ModuleTweakMask() == defaults.GameTweakMask(), "Hotkey defaults");
             Require(GameTweakIndex(GameTweak::NoHud) == kGameTweaks.size(), "No HUD is listed as a tweak");
             std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nno_hud = true\nskip_intro = true\n";
@@ -712,7 +712,7 @@ int main()
             Require(older.hotkeys[HotkeyStretch] == kNoHotkey && older.hotkeys[HotkeyResolutionDown] == kNoHotkey
                     && older.hotkeys[HotkeyResolutionUp] == "PageUp" && older.hotkeys[HotkeyScreenshot] == "P"
                     && older.hotkeys[HotkeyHud] == "H" && older.hotkeys[HotkeyFullscreen] == "Alt+Return"
-                    && older.hotkeys[HotkeyPanel] == "F1",
+                    && older.hotkeys[HotkeyPanel] == "F1" && older.hotkeys[HotkeyOptions] == "F2",
                     "A new hotkey took an older INI's keyboard key");
             std::ofstream(path) << "[keyboard]\nc = F\n[hotkeys]\nstretch = F\nresolution_up = none\n";
             const auto named = LoadConfig(path).settings;

@@ -42,8 +42,8 @@ constexpr ImU32 kButtonActive = IM_COL32(44, 60, 92, 255);
 // most this many times (well after the pause menu would have appeared).
 constexpr auto kPauseRetry = std::chrono::milliseconds(1200);
 constexpr int kPausePresses = 10;
-// F1 presses (the hotkey filter's action, on the window's thread).
-std::atomic<int> sHotkeyPresses{0};
+// F1 and F2 presses (the hotkey filter's actions, on the window's thread).
+std::atomic<int> sHotkeyPresses{0}, sOptionsPresses{0};
 
 // The players' buttons as ImGui's gamepad keys.
 struct ControllerKey {
@@ -150,8 +150,9 @@ HostPanel::HostPanel(SDL_Window* window) : window_(window)
         .userdata = this,
         .enabled = false,
     });
-    sHotkeyPresses = 0;
+    sHotkeyPresses = sOptionsPresses = 0;
     platform::SetHotkeyAction(HotkeyPanel, [] { ++sHotkeyPresses; });
+    platform::SetHotkeyAction(HotkeyOptions, [] { ++sOptionsPresses; });
     platform::SetNativeWpadHomeTaken(true);
     // RECHARGED_CAPTURE_PANEL=SECONDS[,OPEN] opens the panel once, that long
     // after start, and closes it after OPEN seconds.
@@ -170,12 +171,15 @@ HostPanel::~HostPanel()
     Close();
     platform::SetNativeWpadHomeTaken(false);
     platform::SetHotkeyAction(HotkeyPanel, nullptr);
+    platform::SetHotkeyAction(HotkeyOptions, nullptr);
     if (layer_) aurora::input::unregister_layer(layer_);
 }
 
 void HostPanel::SetContent(Content content) { content_ = std::move(content); }
 
 void HostPanel::SetOverlay(Overlay overlay) { overlay_ = std::move(overlay); }
+
+void HostPanel::SetTabKeys(std::function<bool(int tab)> handler) { tabKey_ = std::move(handler); }
 
 void HostPanel::SetPauseRule(std::function<bool()> rule) { pauseRule_ = std::move(rule); }
 
@@ -251,10 +255,14 @@ void HostPanel::Close()
 void HostPanel::Service(Clock::time_point now)
 {
     const bool hotkey = sHotkeyPresses.exchange(0) > 0;
+    const bool optionsKey = sOptionsPresses.exchange(0) > 0;
     std::uint32_t homes = platform::TakeNativeWpadHomePresses();
     if (!captureDone_ && now >= captureAt_) {
         captureDone_ = true;
-        if (!open_) OpenFrom(-1);
+        if (!open_) {
+            openedTab_ = 0;
+            OpenFrom(-1);
+        }
         if (captureOpen_.count() > 0) captureClose_ = now + captureOpen_;
         return;
     }
@@ -266,7 +274,9 @@ void HostPanel::Service(Clock::time_point now)
         // Closed, the overlay's frames read no input: what Aurora's ImGui
         // layer queued meanwhile would only pile up.
         ImGui::GetIO().ClearEventsQueue();
-        if (hotkey) OpenFrom(-1);
+        // F1 and HOME open on the first tab, F2 on Game options.
+        openedTab_ = optionsKey && !hotkey && !homes ? 1 : 0;
+        if (hotkey || optionsKey) OpenFrom(-1);
         else if (homes) OpenFrom(LowestChannel(homes));
         return;
     }
@@ -279,7 +289,14 @@ void HostPanel::Service(Clock::time_point now)
     bool back = false;
     for (int n = 0; n < 4 && !overlay_; ++n)
         if (n != keyboardChannel_ && (buttons.pressed[n] & WPAD_BUTTON_B)) back = true;
-    if (closeRequested_ || hotkey || homes || back) {
+    // F1 or HOME (the first tab) and F2 (Game options) while open: the
+    // overlay switches to that tab, or closes when it shows it already.
+    bool keyCloses = false;
+    if (hotkey || homes || optionsKey) {
+        const int tab = optionsKey && !hotkey && !homes ? 1 : 0;
+        keyCloses = !tabKey_ || tabKey_(tab);
+    }
+    if (closeRequested_ || keyCloses || back) {
         Close();
         return;
     }

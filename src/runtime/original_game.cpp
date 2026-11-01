@@ -775,7 +775,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 +", HUD "+key(mscharged::HotkeyHud)+" (matches start with the HUD "+(s.show_hud ? "shown)" : "hidden)")
                 +", stretch "+key(mscharged::HotkeyStretch)+", 3D resolution "+key(mscharged::HotkeyResolutionUp)
                 +"/"+key(mscharged::HotkeyResolutionDown)+", fullscreen "+key(mscharged::HotkeyFullscreen)
-                +", online panel "+key(mscharged::HotkeyPanel)+" (and HOME)");
+                +", online panel "+key(mscharged::HotkeyPanel)+" (and HOME), game options "
+                +key(mscharged::HotkeyOptions));
             for (const auto& device : s.players) {
                 if (device.rfind("gamepad", 0) != 0) continue;
                 const std::size_t pad = std::size_t(device.back() - '1');
@@ -1597,6 +1598,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
                 launch.settings.challenge_rules,&off);
             if(!panelFeed) mscharged::platform::SessionLogLine("Overlay: the Online tab is off ("+off+")");
+            // F1/HOME and F2 while open: the other tab, or closing the one shown.
+            hostPanel->SetTabKeys([&](int tab) {
+                const auto want=tab==1 ? mscharged::overlay::OverlayTab::GameOptions
+                                       : mscharged::overlay::OverlayTab::Online;
+                if(overlayState.Tab()==want)return true;
+                overlayState.Switch(want);
+                return false;
+            });
             hostPanel->SetOverlay([&](float width,float height,float unit) {
                 namespace ov=mscharged::overlay;
                 if(panelFeed) if(auto notice=panelFeed->TakeNotice()) overlayNotice=*notice;
@@ -1800,7 +1809,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(hostPanel && hostPanel->IsOpen()!=overlayOpen) {
                 overlayOpen=hostPanel->IsOpen();
                 if(overlayOpen) {
-                    overlayState.Open(mscharged::overlay::OverlayTab::Online);
+                    overlayState.Open(hostPanel->OpenedTab()==1 ? mscharged::overlay::OverlayTab::GameOptions
+                                                                 : mscharged::overlay::OverlayTab::Online);
                     overlayOpened=now;
                     overlayNotice.clear();
                 }

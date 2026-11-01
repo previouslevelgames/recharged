@@ -30,7 +30,8 @@ std::atomic<bool> sTyping{false};
 HotkeyIndex MatchLocked(SDL_Scancode key, SDL_Keymod mod)
 {
     const HotkeyIndex hotkey = sHotkeys.Match(key, mod);
-    if (sTyping.load() && hotkey != HotkeyPanel && hotkey != HotkeyFullscreen) return HotkeyCount;
+    if (sTyping.load() && hotkey != HotkeyPanel && hotkey != HotkeyOptions && hotkey != HotkeyFullscreen)
+        return HotkeyCount;
     return hotkey;
 }
 // The filter set before ours, which still sees every event ours passes.

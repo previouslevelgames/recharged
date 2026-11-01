@@ -84,7 +84,7 @@ back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
 **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
 window, and **F1** (or HOME on a controller) opens the game's overlay over the
 blurred game: your set, the friends online and the players available on
-**Online**, and the gameplay options on **Game options**. Each can be changed under Controls → Hotkeys, to a key alone or with
+**Online**, and the gameplay options on **Game options** (**F2** opens it there). Each can be changed under Controls → Hotkeys, to a key alone or with
 Ctrl, Shift or Alt.
 
 **No HUD** (Controls → Hotkeys → *Show the HUD when a match starts* off):

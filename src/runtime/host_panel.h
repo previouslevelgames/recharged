@@ -65,6 +65,11 @@ public:
     void RequestClose() { closeRequested_ = true; }
     // Whether a controller's HOME opened it (rather than F1, the keyboard).
     bool OpenedByController() const { return byController_; }
+    // The overlay's tab it opened for: 0 (F1, HOME), 1 (F2, Game options).
+    int OpenedTab() const { return openedTab_; }
+    // F1/HOME (tab 0) or F2 (tab 1) pressed while open: true closes the
+    // panel, false when the overlay switched to that tab. Without one, they close.
+    void SetTabKeys(std::function<bool(int tab)> handler);
     // Asked when the panel opens, then about once a second while open until
     // it says false: true presses the game's pause (its 1 button) for an
     // offline match in play that is not paused yet; never online.
@@ -91,6 +96,8 @@ private:
     SDL_Window* window_;
     Content content_;
     Overlay overlay_;
+    std::function<bool(int)> tabKey_;
+    int openedTab_ = 0;
     std::function<bool()> pauseRule_;
     std::uint64_t layer_ = 0;
     bool open_ = false;

@@ -306,8 +306,10 @@ its shape (`stretch`), **Page Up** and **Page Down** raise and lower the 3D
 resolution (`resolution_up`, `resolution_down`), and **Alt+Enter**
 (Option+Return on a Mac) switches between fullscreen and a window
 (`fullscreen`); the last four last for the run. **F1** opens and closes the
-game's overlay (`panel`); HOME on any controller does the same, and Escape
-closes it. It opens on **Online**: your set (accept, Ready to play!, rematch),
+game's overlay (`panel`); HOME on any controller does the same, **F2** opens it
+on Game options (`game_options`), and Escape closes it. Pressed while it is
+open, F1 or F2 shows its tab, or closes the overlay when that tab is shown. It
+opens on **Online**: your set (accept, Ready to play!, rematch),
 the friends who have Recharged open and, while you are available, the players
 available for random games; a player's row challenges them or opens their
 page. **Game options** has the gameplay options that can change while the game
