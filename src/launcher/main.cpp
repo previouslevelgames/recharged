@@ -8690,6 +8690,8 @@ private:
             hotkey(HotkeyStretch);
             hotkey(HotkeyResolutionUp);
             hotkey(HotkeyResolutionDown);
+            hotkey(HotkeyPanel);
+            hotkey(HotkeyOptions);
             hotkey(HotkeyHud);
             const std::string key = hotkeys[HotkeyHud].key ? platform::HotkeyLabel(hotkeys[HotkeyHud])
                                                            : std::string("its hotkey");
