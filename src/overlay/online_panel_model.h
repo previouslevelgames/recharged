@@ -8,11 +8,14 @@
 #include <vector>
 
 // The online panel the game opens over its blurred picture (F1, or the Wii
-// Remote's HOME button): the signed-in player, their set, their friends, the
-// players available for random games and their Mii friends. This is its data,
-// made from what the profile service answers and without any drawing types;
-// online_panel.h draws it with ImGui.
-namespace mscharged::online_panel
+// Remote's HOME button): the game's share of the launcher's Online pages,
+// with less to it. The player and the switch for random games, their set
+// when there is one, the friends online now and, while the player is
+// available, the others available now; a player's screen to challenge them
+// or keep them as a friend. Offline friends, search, chat and the rest stay
+// in the launcher. This is its data, made from what the profile service
+// answers and without any drawing types; online_panel.h draws it with ImGui.
+namespace mscharged::overlay
 {
 // The colour a status line is drawn in.
 enum class Tone
@@ -24,13 +27,12 @@ enum class Tone
     Bad,     // red: a set lost or failed
 };
 
-// Whether a row's player has Recharged (or a Mii the game's online mode) open:
-// the dot on their picture.
+// The dot on a player's picture.
 enum class Presence
 {
     Free,    // online, free to play
     Busy,    // online, in a set or a match: no challenge now
-    Offline, // closed; the status line says when it was open last
+    Offline, // closed (only a set's opponent shows so)
 };
 
 // One player in a list.
@@ -44,44 +46,43 @@ struct OnlinePanelRow
     Kind kind = Kind::Player;
     std::int64_t player_id = 0;
     std::int32_t mii_profile = 0;
-    // Unique in the panel ("p<player id>", "m<Mii profile>"): the row's ImGui id.
+    // Unique in the panel ("p<player id>", "m<Mii profile>"): the row's ImGui
+    // id, and which player a player's screen shows.
     std::string key;
     std::string name;
     // The picture, for OnlinePanelStyle::image: a player's avatar URL,
     // "mii:<profile id>" for a Mii; empty for none. Without a texture for it
     // the panel draws `initials` on a colour picked by `tint_seed`.
     std::string image;
-    std::string initials;     // the name's first character, in capitals
+    std::string initials; // the name's first character, in capitals
     std::int64_t tint_seed = 0;
-    Presence presence = Presence::Offline;
-    std::string status; // "In the game", "In a set", "Last online 5 minutes ago"
-    Tone tone = Tone::Away;
-    std::string detail;    // a Mii's friend code
+    Presence presence = Presence::Free;
+    std::string status; // "In the game", "In a set", "Playing a match"
+    Tone tone = Tone::Good;
+    std::string detail;    // "@discord username", or a Mii's friend code
     bool discord = false;  // a Discord friend: Discord's logo after the name
-    bool is_friend = false; // the heart is lit
-    // The heart can be pressed: it adds the player or Mii to the friends, or
-    // takes them off. Discord friends have none (they are friends already).
+    bool is_friend = false;
+    // Add or Remove friend (Mii friend for a Mii) on their screen. Discord
+    // friends have neither: they are friends already.
     bool can_befriend = false;
     bool can_challenge = false; // to a set, by the player's rules
-    // Online but no challenge now: why ("In a set", "Finish your set first").
+    // No challenge now: why ("In a set", "Finish your set first"; a Mii's
+    // is about the game's online mode).
     std::string blocked;
-    int unread = 0; // their chat messages not read yet
 };
 
 struct OnlinePanelSection
 {
     enum class Id
     {
-        Friends,    // friends and Discord friends who play Recharged
-        Available,  // others available for random games, and the game's online players
-        MiiFriends, // the Mii profiles kept as friends
+        Online,    // friends, Discord friends and Mii friends online now
+        Available, // others available for random games, and the game's online players
     };
-    Id id = Id::Friends;
-    std::string title; // "FRIENDS"
-    // Online first (free, then busy, by name), then offline (the latest online first).
-    std::vector<OnlinePanelRow> rows;
-    std::size_t online = 0; // the rows online, at the start
-    std::string empty;      // what shows without rows
+    Id id = Id::Online;
+    std::string title; // "ONLINE NOW"
+    std::vector<OnlinePanelRow> rows; // free first, then busy, by name
+    std::string empty; // what shows without rows
+    std::string hint;  // under it, smaller
 };
 
 // The player's set (competitive series): the one still to be played, or the
@@ -130,6 +131,11 @@ struct OnlinePanelModel
     // A line over the lists while nobody can be challenged from this game.
     std::string note;
     std::vector<OnlinePanelSection> sections;
+    std::string challenge_rules; // what a challenge plays by, on a player's screen
+    // For the footer: what the player should know (an action the server
+    // refused, the server out of reach).
+    std::string message;
+    Tone message_tone = Tone::Neutral;
 };
 
 // What the game knows besides the server's lists and set.
@@ -138,11 +144,10 @@ struct OnlinePanelContext
     // The signed-in player (GET /api/v1/me; at least the name): name, Discord
     // username, avatar and whether they are available for random games.
     platform::ProfilePlayer me;
-    std::int64_t now = 0; // Unix seconds, for "Last online ..."
     // Recharged players who are the player's Discord friends, as POST
-    // /api/v1/players/discord answers (each with its discord_id): merged into
-    // the friends with Discord's logo. The game has no Discord Social SDK:
-    // whatever list of them the server gives it.
+    // /api/v1/players/discord answers: those online join the friends, with
+    // Discord's logo. The game has no Discord Social SDK: whatever list of
+    // them the server gives it.
     std::vector<platform::ProfilePlayer> discord_friends;
     // The running set's games as this game counted them
     // (CompetitiveHost::CurrentSet); without it the server's report counts.
@@ -153,10 +158,17 @@ struct OnlinePanelContext
     std::optional<Score> score;
     // This game plays a match (or a set's game): nobody can be challenged from it now.
     bool in_match = false;
-    // There are rules to challenge by (the server has a rule set).
+    // There are rules to challenge by (the server has a rule set), and what
+    // they play by ("Competitive: Rookie, 3 minutes, best of 3, ...").
     bool can_challenge = true;
+    std::string challenge_rules;
     // The server knows random games (1.2.1): the switch in the panel.
     bool random_games = true;
+    // The lists haven't come yet: they say "Loading...".
+    bool loading = false;
+    // For the footer (the feed's notice or error); `error` draws it in red.
+    std::string message;
+    bool error = false;
 };
 
 // The panel's data from the lobby's lists (ProfileService::Players()) and the
@@ -165,6 +177,9 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
                                       const std::optional<platform::ProfileMatch>& match,
                                       const OnlinePanelContext& context);
 
+// The row of `key` in the lists (or the set's opponent), for a player's screen; null when gone.
+const OnlinePanelRow* FindRow(const OnlinePanelModel& model, const std::string& key);
+
 // A name's first character in capitals (a whole UTF-8 character), "?" for none.
 std::string Initials(const std::string& name);
-} // namespace mscharged::online_panel
+} // namespace mscharged::overlay

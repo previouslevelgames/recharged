@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
@@ -111,7 +112,14 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     const char* mode = std::getenv("RECHARGED_CAPTURE_DISCORD");
     mode_ = mode && std::string(mode).rfind("preview", 0) == 0 ? mode : "preview";
     const auto now = std::int64_t(std::time(nullptr));
-    context_.now = now;
+    // The window of a 1280x720 game (a small one for "preview-narrow"), at
+    // the launcher's scale.
+    if (SDL_Window* window = renderer ? SDL_GetRenderWindow(renderer) : nullptr)
+    {
+        const bool narrow = mode_.size() >= 7 && mode_.compare(mode_.size() - 7, 7, "-narrow") == 0;
+        SDL_SetWindowSize(window, int(std::lround((narrow ? 860.0f : 1280.0f) * UiScale())),
+                          int(std::lround((narrow ? 640.0f : 720.0f) * UiScale())));
+    }
     struct Look
     {
         const char* key;
@@ -124,18 +132,21 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         {"preview:wario", {240, 210, 40, 255}, {150, 70, 200, 255}, {230, 190, 20, 255}, {50, 30, 20, 255}},
     };
     for (const Look& look : looks)
-        if (SDL_Texture* texture = renderer ? MakeAvatar(renderer, look.top, look.bottom, look.shirt, look.hair) : nullptr)
-            avatars_[look.key] = TextureId(texture);
+    {
+        SDL_Texture* texture = renderer ? MakeAvatar(renderer, look.top, look.bottom, look.shirt, look.hair) : nullptr;
+        if (texture) avatars_[look.key] = TextureId(texture);
+    }
 
     ProfilePlayer& me = context_.me;
     me = Player(900000, "Anosch", "anosch");
     me.avatar_url = "preview:me";
     me.available = mode_ != "preview-empty";
+    context_.challenge_rules =
+        "Competitive: Rookie, 3 minutes, best of 3, random stadium, Fast terrain, No Mega Strikes";
 
     auto mario = Online(Player(900010, "Mario", "itsamario"), "launcher");
     mario.avatar_url = "preview:mario";
-    mario.is_friend = mario.chat = true;
-    mario.unread = 2;
+    mario.is_friend = true;
     auto daisy = Online(Player(900001, "Daisy", "daisy"), "game");
     daisy.is_friend = true;
     daisy.discord_id = "900000000000000001";
@@ -157,7 +168,6 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     bowser.last_online = now - 3 * 3600;
     auto shy = Online(Player(900030, "Shy Guy", "shyguy"), "launcher");
     auto koopa = Online(Player(900020, "Koopa", "koopa"), "game");
-    koopa.last_online = now - 26 * 3600;
 
     if (mode_ != "preview-empty")
     {
@@ -169,7 +179,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         lists_.mii_friends = {Mii(1000000004, "Tommy", "4123-0987-1288", true, "matchmaking", now, true),
                               Mii(1000000007, "Sara", "0868-9934-5920", false, "", now - 5 * 3600, true)};
     }
-    if (mode_ == "preview")
+    if (mode_ == "preview" || mode_ == "preview-narrow")
     {
         // The last set, won 2-1.
         ProfileMatch set = Set(koopa, "finished", "challenger", "finished");
@@ -183,7 +193,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     {
         match_ = Set(mario, "accepted", "challenger", "playing");
         match_->you_ready = match_->opponent_ready = true;
-        context_.score = online_panel::OnlinePanelContext::Score{1, 0};
+        context_.score = overlay::OnlinePanelContext::Score{1, 0};
     }
     else if (mode_ == "preview-invite") match_ = Set(peach, "challenged", "challenged", "invited");
     else if (mode_ == "preview-waiting") match_ = Set(shy, "challenged", "challenger", "invited");
@@ -199,8 +209,28 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         set.games = {{1, 2, "wario", "mario", "the_palace"}, {0, 1, "wario", "mario", "vice"}};
         match_ = set;
     }
-    else if (mode_ == "preview-offline") state_.offline_open = true;
-    else if (mode_ == "preview-match") context_.in_match = true;
+    else if (mode_ == "preview-match" || mode_ == "preview-options-match")
+    {
+        context_.in_match = true;
+        options_.in_match = true;
+    }
+    else if (mode_ == "preview-error")
+    {
+        context_.message = "The server didn't answer. Trying again...";
+        context_.error = true;
+    }
+    // Some options on, as a player might have them.
+    for (const GameTweak tweak : {GameTweak::FastTerrain, GameTweak::NoMegaStrikes, GameTweak::FastMenus})
+        options_.tweaks[GameTweakIndex(tweak)] = true;
+    state_.Open(mode_.rfind("preview-options", 0) == 0 ? overlay::OverlayTab::GameOptions
+                                                         : overlay::OverlayTab::Online);
+    if (mode_ == "preview-player" || mode_ == "preview-player-mii")
+    {
+        const bool mii = mode_ == "preview-player-mii";
+        state_.online.Push({int(overlay::OnlinePanelScreen::Player), mii ? "m1000000004" : "p900010",
+                            mii ? "Tommy" : "Mario"},
+                           0);
+    }
 }
 
 ImTextureID OnlinePanelPreview::Avatar(const std::string& key) const
@@ -252,36 +282,46 @@ void OnlinePanelPreview::DrawBackdrop(ImVec2 size, ImTextureID back, ImTextureID
 void OnlinePanelPreview::Draw(ImVec2 size, ImTextureID art_back, ImTextureID art_front, ImVec2 art_size)
 {
     DrawBackdrop(size, art_back, art_front, art_size);
-    if (!open_)
+    // F1 opens Online and F2 Game options, as in the game; the open tab's key closes it.
+    for (const auto& [key, tab] : {std::pair{ImGuiKey_F1, overlay::OverlayTab::Online},
+                                   std::pair{ImGuiKey_F2, overlay::OverlayTab::GameOptions}})
     {
-        const char* hint = "Press F1 to open the online panel";
-        const ImVec2 text = TextSize(CurrentFonts().heading, hint);
-        DrawLabel(ImGui::GetWindowDrawList(), CurrentFonts().heading,
-                  {(size.x - text.x) * 0.5f, (size.y - text.y) * 0.5f}, Col(color::text), hint);
-        if (ImGui::IsKeyPressed(ImGuiKey_F1, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false))
+        if (!ImGui::IsKeyPressed(key, false)) continue;
+        if (open_ && state_.Tab() == tab) open_ = false;
+        else if (open_) state_.Switch(tab);
+        else
         {
             open_ = true;
             appear_ = 0.0f;
-            state_.focus = true;
+            state_.Open(tab);
         }
+    }
+    if (!open_)
+    {
+        const char* hint = "F1: Online    F2: Game options";
+        const ImVec2 text = TextSize(CurrentFonts().heading, hint);
+        DrawLabel(ImGui::GetWindowDrawList(), CurrentFonts().heading,
+                  {(size.x - text.x) * 0.5f, (size.y - text.y) * 0.5f}, Col(color::text), hint);
         return;
     }
     appear_ = capture_ ? 1.0f : std::min(1.0f, appear_ + ImGui::GetIO().DeltaTime / 0.22f);
-    context_.now = std::int64_t(std::time(nullptr));
-    const auto model = online_panel::MakeOnlinePanelModel(lists_, match_, context_);
-    online_panel::OnlinePanelStyle style;
+    overlay::GameOverlayModel model;
+    model.online = overlay::MakeOnlinePanelModel(lists_, match_, context_);
+    model.options = options_;
+    overlay::GameOverlayStyle style;
     style.unit = UiScale();
     style.fonts = CurrentFonts();
     style.appear = appear_;
     style.image = [this](const std::string& key) { return Avatar(key); };
-    online_panel::OnlinePanelActions actions;
-    online_panel::DrawOnlinePanel(model, state_, actions, style);
+    overlay::GameOverlayActions actions;
+    overlay::DrawGameOverlay(model, state_, actions, style);
     if (actions.Any()) Apply(actions);
 }
 
-// What a press does to the made-up players, as the server would answer it.
-void OnlinePanelPreview::Apply(const online_panel::OnlinePanelActions& actions)
+// What a press does to the made-up data, as the server and the host would answer it.
+void OnlinePanelPreview::Apply(const overlay::GameOverlayActions& all)
 {
+    const overlay::OnlinePanelActions& actions = all.online;
     const auto find = [this](std::int64_t id) -> const ProfilePlayer* {
         for (const auto* list : {&lists_.friends, &lists_.available, &context_.discord_friends})
             for (const auto& player : *list)
@@ -293,20 +333,26 @@ void OnlinePanelPreview::Apply(const online_panel::OnlinePanelActions& actions)
             for (auto& player : *list)
                 if (player.id == id) player.is_friend = on;
     };
-    if (actions.close)
+    if (all.close)
     {
-        std::cout << "Online panel: close\n";
+        std::cout << "Overlay: close\n";
         open_ = false;
+    }
+    if (all.set_option)
+    {
+        const auto& info = kGameTweaks[GameTweakIndex(all.set_option->tweak)];
+        std::cout << "Overlay: " << info.name << (all.set_option->on ? " on" : " off") << '\n';
+        options_.tweaks[GameTweakIndex(all.set_option->tweak)] = all.set_option->on;
     }
     if (actions.challenge)
     {
-        std::cout << "Online panel: challenge player " << *actions.challenge << '\n';
+        std::cout << "Overlay: challenge player " << *actions.challenge << '\n';
         if (const auto* player = find(*actions.challenge)) match_ = Set(*player, "challenged", "challenger", "invited");
         context_.score.reset();
     }
     if (actions.add_friend)
     {
-        std::cout << "Online panel: add friend " << *actions.add_friend << '\n';
+        std::cout << "Overlay: add friend " << *actions.add_friend << '\n';
         if (const auto* player = find(*actions.add_friend))
         {
             ProfilePlayer added = *player;
@@ -317,7 +363,7 @@ void OnlinePanelPreview::Apply(const online_panel::OnlinePanelActions& actions)
     }
     if (actions.remove_friend)
     {
-        std::cout << "Online panel: remove friend " << *actions.remove_friend << '\n';
+        std::cout << "Overlay: remove friend " << *actions.remove_friend << '\n';
         const std::int64_t id = *actions.remove_friend;
         lists_.friends.erase(std::remove_if(lists_.friends.begin(), lists_.friends.end(),
                                             [id](const ProfilePlayer& player) { return player.id == id; }),
@@ -325,54 +371,58 @@ void OnlinePanelPreview::Apply(const online_panel::OnlinePanelActions& actions)
         befriend(id, false);
     }
     const auto mii = [this](std::int32_t id, bool on) {
-        for (auto& profile : lists_.game_online)
-            if (profile.profile_id == id)
-            {
-                profile.is_friend = on;
-                if (on) lists_.mii_friends.push_back(profile);
-            }
-        if (!on)
-            lists_.mii_friends.erase(std::remove_if(lists_.mii_friends.begin(), lists_.mii_friends.end(),
-                                                    [id](const MiiProfile& profile) { return profile.profile_id == id; }),
+        for (auto* list : {&lists_.game_online, &lists_.mii_friends})
+            for (auto& profile : *list)
+                if (profile.profile_id == id) profile.is_friend = on;
+        if (on)
+        {
+            for (const auto& profile : lists_.game_online)
+                if (profile.profile_id == id) lists_.mii_friends.push_back(profile);
+        }
+        else
+        {
+            const auto gone = [id](const MiiProfile& profile) { return profile.profile_id == id; };
+            lists_.mii_friends.erase(std::remove_if(lists_.mii_friends.begin(), lists_.mii_friends.end(), gone),
                                      lists_.mii_friends.end());
+        }
     };
     if (actions.add_mii_friend)
     {
-        std::cout << "Online panel: add Mii friend " << *actions.add_mii_friend << '\n';
+        std::cout << "Overlay: add Mii friend " << *actions.add_mii_friend << '\n';
         mii(*actions.add_mii_friend, true);
     }
     if (actions.remove_mii_friend)
     {
-        std::cout << "Online panel: remove Mii friend " << *actions.remove_mii_friend << '\n';
+        std::cout << "Overlay: remove Mii friend " << *actions.remove_mii_friend << '\n';
         mii(*actions.remove_mii_friend, false);
     }
     if (actions.set_available)
     {
-        std::cout << "Online panel: available for random games " << (*actions.set_available ? "on" : "off") << '\n';
+        std::cout << "Overlay: available for random games " << (*actions.set_available ? "on" : "off") << '\n';
         context_.me.available = *actions.set_available;
     }
     if (match_)
     {
         if (actions.accept)
         {
-            std::cout << "Online panel: accept set " << match_->id << '\n';
+            std::cout << "Overlay: accept set " << match_->id << '\n';
             match_->state = "accepted";
             match_->stage = "open";
             match_->you_ready = true;
         }
         if (actions.ready)
         {
-            std::cout << "Online panel: ready for set " << match_->id << '\n';
+            std::cout << "Overlay: ready for set " << match_->id << '\n';
             match_->you_ready = true;
         }
         if (actions.rematch)
         {
-            std::cout << "Online panel: rematch of set " << match_->id << '\n';
+            std::cout << "Overlay: rematch of set " << match_->id << '\n';
             match_ = Set(match_->opponent, "challenged", "challenger", "invited");
         }
         if (actions.decline || actions.cancel)
         {
-            std::cout << "Online panel: " << (actions.decline ? "decline" : "cancel") << " set " << match_->id << '\n';
+            std::cout << "Overlay: " << (actions.decline ? "decline" : "cancel") << " set " << match_->id << '\n';
             match_.reset();
         }
     }

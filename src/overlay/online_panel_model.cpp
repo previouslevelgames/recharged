@@ -1,4 +1,4 @@
-#include "online_panel/online_panel_model.h"
+#include "overlay/online_panel_model.h"
 
 #include "platform/competitive_rules.h"
 
@@ -7,7 +7,7 @@
 #include <set>
 #include <tuple>
 
-namespace mscharged::online_panel
+namespace mscharged::overlay
 {
 namespace
 {
@@ -22,7 +22,7 @@ std::string Lower(std::string text)
 }
 
 // What a Recharged player is doing, as the launcher's lists say it.
-OnlinePanelRow PlayerRow(const ProfilePlayer& player, std::int64_t now)
+OnlinePanelRow PlayerRow(const ProfilePlayer& player)
 {
     OnlinePanelRow row;
     row.kind = OnlinePanelRow::Kind::Player;
@@ -32,13 +32,14 @@ OnlinePanelRow PlayerRow(const ProfilePlayer& player, std::int64_t now)
     row.image = player.avatar_url;
     row.initials = Initials(row.name);
     row.tint_seed = player.id;
+    if (!player.discord.empty()) row.detail = "@" + player.discord;
     row.is_friend = player.is_friend;
-    row.unread = player.unread;
     if (!player.online)
     {
         row.presence = Presence::Offline;
-        row.status = platform::DescribeLastOnline(now, player.last_online);
+        row.status = "Offline";
         row.tone = Tone::Away;
+        row.blocked = "Offline";
     }
     else if (player.busy)
     {
@@ -64,8 +65,9 @@ OnlinePanelRow PlayerRow(const ProfilePlayer& player, std::int64_t now)
     return row;
 }
 
-// A player of the game's online mode, from DWC's status.
-OnlinePanelRow MiiRow(const MiiProfile& mii, std::int64_t now)
+// A player of the game's online mode, from DWC's status. Sets are for
+// Recharged players: a Mii is played in the game's own online menu.
+OnlinePanelRow MiiRow(const MiiProfile& mii)
 {
     OnlinePanelRow row;
     row.kind = OnlinePanelRow::Kind::Mii;
@@ -78,13 +80,8 @@ OnlinePanelRow MiiRow(const MiiProfile& mii, std::int64_t now)
     row.detail = mii.friend_code;
     row.is_friend = mii.is_friend;
     row.can_befriend = true;
-    if (!mii.online)
-    {
-        row.presence = Presence::Offline;
-        row.status = platform::DescribeLastOnline(now, mii.last_online);
-        row.tone = Tone::Away;
-    }
-    else if (mii.status == "match")
+    row.blocked = "Play them in the game's online menu";
+    if (mii.status == "match")
     {
         row.presence = Presence::Busy;
         row.status = "Playing a match";
@@ -99,28 +96,13 @@ OnlinePanelRow MiiRow(const MiiProfile& mii, std::int64_t now)
     return row;
 }
 
-// Online first (free, then busy, by name), then offline: the latest online first.
-void SortRows(std::vector<OnlinePanelRow>& rows, const std::vector<std::optional<std::int64_t>>& last_online)
+// Free first, then busy, by name.
+void SortRows(std::vector<OnlinePanelRow>& rows)
 {
-    std::vector<std::size_t> order(rows.size());
-    for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
-    const auto key = [&](std::size_t i) {
-        const auto& row = rows[i];
-        const bool offline = row.presence == Presence::Offline;
-        const std::int64_t last = offline && i < last_online.size() && last_online[i] ? *last_online[i] : 0;
-        return std::make_tuple(offline, row.presence == Presence::Busy, -last, Lower(row.name));
-    };
-    std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return key(a) < key(b); });
-    std::vector<OnlinePanelRow> sorted;
-    sorted.reserve(rows.size());
-    for (const std::size_t i : order) sorted.push_back(std::move(rows[i]));
-    rows = std::move(sorted);
-}
-
-std::size_t CountOnline(const std::vector<OnlinePanelRow>& rows)
-{
-    return std::size_t(std::count_if(rows.begin(), rows.end(),
-                                     [](const OnlinePanelRow& row) { return row.presence != Presence::Offline; }));
+    std::stable_sort(rows.begin(), rows.end(), [](const OnlinePanelRow& a, const OnlinePanelRow& b) {
+        return std::make_tuple(a.presence == Presence::Busy, Lower(a.name))
+            < std::make_tuple(b.presence == Presence::Busy, Lower(b.name));
+    });
 }
 
 // The games this player won and lost in the server's report of a set.
@@ -139,7 +121,7 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
 {
     OnlinePanelSet set;
     set.match = match.id;
-    set.opponent = PlayerRow(match.opponent, context.now);
+    set.opponent = PlayerRow(match.opponent);
     if (match.opponent_online && set.opponent.presence == Presence::Offline)
     {
         // The set knows they are online even when its copy of them is short.
@@ -284,8 +266,7 @@ std::string ChallengeBlocker(const std::optional<ProfileMatch>& match, const Onl
 
 void Challengeable(OnlinePanelRow& row, const std::string& blocker)
 {
-    if (row.kind != OnlinePanelRow::Kind::Player || row.presence == Presence::Offline) return;
-    if (row.presence == Presence::Busy) return; // their own reason, already in `blocked`
+    if (row.kind != OnlinePanelRow::Kind::Player || row.presence != Presence::Free) return;
     if (!blocker.empty()) row.blocked = blocker;
     else row.can_challenge = true;
 }
@@ -313,93 +294,85 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     model.me.tint_seed = me.id;
     model.me.available = me.available;
     model.me.can_set_available = context.random_games;
+    model.challenge_rules = context.challenge_rules;
+    model.message = context.message;
+    model.message_tone = context.error ? Tone::Bad : Tone::Neutral;
 
     if (match) model.set = MakeSet(*match, context);
     const std::string blocker = ChallengeBlocker(match, context);
     if (context.in_match) model.note = "You're in a match: challenges wait until it ends.";
     else if (!context.can_challenge) model.note = "This server has no rules to play sets by yet.";
 
-    // The friends, with the Discord friends who play Recharged.
-    OnlinePanelSection friends;
-    friends.id = OnlinePanelSection::Id::Friends;
-    friends.title = "FRIENDS";
-    friends.empty = "No friends yet. Add players with the heart, or on the launcher's Friends page.";
-    std::vector<std::optional<std::int64_t>> last_online;
+    // Online now: the friends with Recharged open, the Discord friends who
+    // play it, and the Mii friends in the game's online mode.
+    OnlinePanelSection online;
+    online.id = OnlinePanelSection::Id::Online;
+    online.title = "ONLINE NOW";
+    online.empty = context.loading ? "Loading..." : "None of your friends is online";
+    if (!context.loading)
+        online.hint = "See your offline friends and find new ones on the launcher's Online pages.";
     std::set<std::int64_t> listed{me.id};
     std::set<std::int64_t> discord;
     for (const auto& player : context.discord_friends) discord.insert(player.id);
     for (const auto& player : lists.friends)
     {
-        if (!listed.insert(player.id).second) continue;
-        OnlinePanelRow row = PlayerRow(player, context.now);
+        if (!listed.insert(player.id).second || !player.online) continue;
+        OnlinePanelRow row = PlayerRow(player);
         row.discord = discord.count(player.id) != 0;
         row.can_befriend = !row.discord;
         Challengeable(row, blocker);
-        friends.rows.push_back(std::move(row));
-        last_online.push_back(player.last_online);
+        online.rows.push_back(std::move(row));
     }
     for (const auto& player : context.discord_friends)
     {
-        if (!listed.insert(player.id).second) continue;
-        OnlinePanelRow row = PlayerRow(player, context.now);
+        if (!listed.insert(player.id).second || !player.online) continue;
+        OnlinePanelRow row = PlayerRow(player);
         row.discord = true;
         Challengeable(row, blocker);
-        friends.rows.push_back(std::move(row));
-        last_online.push_back(player.last_online);
+        online.rows.push_back(std::move(row));
     }
-    SortRows(friends.rows, last_online);
-    friends.online = CountOnline(friends.rows);
-    model.sections.push_back(std::move(friends));
+    std::set<std::int32_t> miis;
+    for (const auto& mii : lists.mii_friends)
+    {
+        if (!miis.insert(mii.profile_id).second || !mii.online) continue;
+        online.rows.push_back(MiiRow(mii));
+    }
+    SortRows(online.rows);
+    model.sections.push_back(std::move(online));
 
     // While the player is available: the others available, then the game's
     // own online players by their Mii.
-    std::set<std::int32_t> mii_friends;
-    for (const auto& mii : lists.mii_friends) mii_friends.insert(mii.profile_id);
     if (me.available && context.random_games)
     {
         OnlinePanelSection available;
         available.id = OnlinePanelSection::Id::Available;
         available.title = "AVAILABLE NOW";
-        available.empty = "Nobody else is available right now.";
-        std::vector<std::optional<std::int64_t>> last;
+        available.empty = context.loading ? "Loading..." : "Nobody else is available right now";
         for (const auto& player : lists.available)
         {
-            if (!listed.insert(player.id).second) continue;
-            OnlinePanelRow row = PlayerRow(player, context.now);
+            if (!player.online || !listed.insert(player.id).second) continue;
+            OnlinePanelRow row = PlayerRow(player);
             row.can_befriend = true;
             Challengeable(row, blocker);
             available.rows.push_back(std::move(row));
-            last.push_back(player.last_online);
         }
         for (const auto& mii : lists.game_online)
         {
-            if (mii_friends.count(mii.profile_id)) continue;
-            available.rows.push_back(MiiRow(mii, context.now));
-            last.push_back(mii.last_online);
+            if (!mii.online || !miis.insert(mii.profile_id).second) continue;
+            available.rows.push_back(MiiRow(mii));
         }
-        SortRows(available.rows, last);
-        available.online = CountOnline(available.rows);
+        SortRows(available.rows);
         model.sections.push_back(std::move(available));
-    }
-
-    // The Mii friends (players of the game's online mode), when there are any.
-    if (!lists.mii_friends.empty())
-    {
-        OnlinePanelSection miis;
-        miis.id = OnlinePanelSection::Id::MiiFriends;
-        miis.title = "MII FRIENDS";
-        std::vector<std::optional<std::int64_t>> last;
-        std::set<std::int32_t> seen;
-        for (const auto& mii : lists.mii_friends)
-        {
-            if (!seen.insert(mii.profile_id).second) continue;
-            miis.rows.push_back(MiiRow(mii, context.now));
-            last.push_back(mii.last_online);
-        }
-        SortRows(miis.rows, last);
-        miis.online = CountOnline(miis.rows);
-        model.sections.push_back(std::move(miis));
     }
     return model;
 }
-} // namespace mscharged::online_panel
+
+const OnlinePanelRow* FindRow(const OnlinePanelModel& model, const std::string& key)
+{
+    for (const auto& section : model.sections)
+        for (const auto& row : section.rows)
+            if (row.key == key) return &row;
+    if (model.set.stage != OnlinePanelSet::Stage::None && model.set.opponent.key == key) return &model.set.opponent;
+    return nullptr;
+}
+} // namespace mscharged::overlay
