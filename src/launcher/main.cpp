@@ -6960,7 +6960,6 @@ private:
     {
         if (!copy.empty()) save_backed_up_ = SaveFolder();
         lineups_folder_.clear();
-        match_save_folder_.clear();
     }
 
     // The lineups of the save folder in use, read again when it or its
@@ -7005,201 +7004,220 @@ private:
         return text;
     }
 
-    // Match presets: named match settings and cheats, each in a file of the
-    // presets folder, written into the game save for matches on this computer
-    // or online with friends. Default and Competitive are built in.
+    // Match rules: presets of a battle's rules, which a challenge or a search
+    // for an opponent starts from (the game's online panel, F1). Retail ranked
+    // and Competitive are built in, the server may offer rule sets of its own,
+    // and the player's are files in match-presets beside the settings file.
     void MatchRulesPage()
     {
-        PageHeader("Match rules", "Presets of a match's rules: a challenge starts from one (in the game, F1, then "
-                                  "Challenge on a player) and can change any rule for that challenge only, and your "
-                                  "matches on this computer or with friends in the game's menus use them too. Ranked "
-                                  "matches keep their own rules.");
-        using mscharged::platform::GameSaveState;
-        using mscharged::platform::MatchMode;
-        const auto& save = InstalledMatch();
-        GameSaveCallout(save.state, save.error, "its match settings");
-        const bool ready = save.state == GameSaveState::Ready;
+        PageHeader("Match rules", "The rules your battles start from. Challenging a friend or searching for an "
+                                  "opponent (in the game, F1), you pick one and can still change any rule for that "
+                                  "battle. Ranked matches and tournaments bring their own rules.");
+        const auto& fonts = CurrentFonts();
         const auto& list = MatchPresets();
+        BeginCard("##match_presets", "Presets", "Built in, from the server and your own.", Icon::Trophy);
 
-        BeginCard("##match_save", "In the game save",
-                  "The settings the game starts with. Its settings screen changes them too.", Icon::Folder);
-        if (BeginRows("##match_save_rows"))
-        {
-            for (const auto mode : {MatchMode::Offline, MatchMode::Friends})
+        PresetGroupTitle("BUILT IN");
+        int row = 0;
+        for (const auto& preset : list.presets)
+            if (preset.built_in)
             {
-                const auto& settings = save.modes[std::size_t(mode)];
-                const std::string summary = ready ? launcher::MatchSummary(settings) : std::string("-");
-                Row(MatchModeName(mode), summary.c_str());
-                if (ready)
-                {
-                    const auto* preset = launcher::FindMatchPreset(list.presets, settings);
-                    Chip(preset ? preset->name.c_str() : "Your own settings", preset ? color::accent : color::muted,
-                         preset ? Icon::Check : Icon::None);
-                }
+                if (PresetListRow(row++, preset.name, launcher::ChallengeRules(preset), PresetKind::BuiltIn))
+                    CopyPreset(preset.name, launcher::ChallengeRules(preset));
             }
-            EndRows();
-        }
-        EndCard();
 
-        BeginCard("##match_presets", "Presets",
-                  "Use one for matches on this computer or with friends: it goes straight into the game save.",
-                  Icon::Trophy);
+        // The server's own rule sets, besides those named as the built-in ones.
+        std::vector<const platform::RuleSet*> from_server;
+        if (competitive_status_.state == CompetitiveService::State::SignedIn)
+            for (const auto& set : competitive_status_.rule_sets)
+                if (std::none_of(list.presets.begin(), list.presets.end(), [&](const launcher::MatchPreset& preset) {
+                        return preset.built_in && preset.name == set.name;
+                    }))
+                    from_server.push_back(&set);
+        if (!from_server.empty())
+        {
+            PresetGroupTitle("FROM THE SERVER");
+            for (const auto* set : from_server)
+                if (PresetListRow(row++, set->name, set->rules, PresetKind::Server)) CopyPreset(set->name, set->rules);
+        }
+
+        PresetGroupTitle("YOURS");
+        bool own = false;
         for (std::size_t n = 0; n < list.presets.size(); ++n)
         {
-            if (n)
+            const auto& preset = list.presets[n];
+            if (preset.built_in) continue;
+            own = true;
+            const int id = row++;
+            switch (PresetListRow(id, preset.name, launcher::ChallengeRules(preset), PresetKind::Own, int(n)))
             {
-                ImGui::Dummy({0, Dp(4)});
-                MenuSeparator(ImGui::GetContentRegionAvail().x);
-                ImGui::Dummy({0, Dp(4)});
+            case 1: CopyPreset(preset.name, launcher::ChallengeRules(preset)); break;
+            case 2: EditPreset(preset); break;
+            case 3:
+                try
+                {
+                    launcher::DeleteMatchPreset(preset);
+                    Notice("Preset " + preset.name + " deleted.", NoticeKind::Success);
+                }
+                catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); }
+                preset_delete_ = -1;
+                presets_loaded_ = false;
+                break;
+            default: break;
             }
-            PresetRow(list.presets[n], int(n), save, ready);
         }
+        if (!own)
+            TextWrappedColored(fonts.caption, color::muted, "None yet: copy one above, or make a new one.");
         ImGui::Dummy({0, Dp(10)});
         if (SecondaryButton("new_match_preset", "New preset", {Dp(160), Dp(40)}, !preset_edit_, Icon::Copy))
         {
-            launcher::MatchPreset fresh;
-            fresh.settings = ready ? save.modes[0] : launcher::BuiltInMatchPresets()[0].settings;
+            launcher::MatchPreset fresh = launcher::BuiltInMatchPresets()[0];
+            fresh.name.clear();
+            fresh.built_in = false;
             EditPreset(fresh);
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("A new preset, from the settings for matches on this computer.");
-        const std::string folder = "Files in " + PathUtf8(MatchPresetsFolder()) + ".";
+        const std::string folder = "Your presets are files in " + PathUtf8(MatchPresetsFolder()) + ".";
         ImGui::Dummy({0, Dp(4)});
-        TextWrappedColored(CurrentFonts().caption, color::dim, folder.c_str());
+        TextWrappedColored(fonts.caption, color::dim, folder.c_str());
         for (const auto& skipped : list.skipped)
-            TextWrappedColored(CurrentFonts().caption, color::warning, ("Not a preset: " + skipped).c_str());
+            TextWrappedColored(fonts.caption, color::warning, ("Not a preset: " + skipped).c_str());
         EndCard();
 
         if (preset_edit_) PresetEditor();
-        ServerPresetsCard();
     }
 
-    // The server's rule sets, which challenges can start from too: their rules,
-    // and Copy for a preset of the player's own from one.
-    void ServerPresetsCard()
+    enum class PresetKind
     {
-        // The server's own, besides the built-in presets of the same names.
-        std::vector<const platform::RuleSet*> own;
-        if (competitive_status_.state == CompetitiveService::State::SignedIn)
-            for (const auto& set : competitive_status_.rule_sets)
-            {
-                const auto& built_in = launcher::BuiltInMatchPresets();
-                if (std::none_of(built_in.begin(), built_in.end(),
-                                 [&](const launcher::MatchPreset& preset) { return preset.name == set.name; }))
-                    own.push_back(&set);
-            }
-        if (own.empty()) return;
+        BuiltIn,
+        Server,
+        Own,
+    };
+
+    // A group's name in the presets list, in small tracked capitals.
+    void PresetGroupTitle(const char* title)
+    {
         const auto& fonts = CurrentFonts();
-        BeginCard("##server_presets", "From the server",
-                  "The rule sets this server offers for challenges, the same for every player. Copy one to change it.",
-                  Icon::Trophy);
-        for (std::size_t n = 0; n < own.size(); ++n)
-        {
-            const auto& set = *own[n];
-            if (n)
-            {
-                ImGui::Dummy({0, Dp(4)});
-                MenuSeparator(ImGui::GetContentRegionAvail().x);
-                ImGui::Dummy({0, Dp(4)});
-            }
-            ImGui::PushID(int(set.id));
-            const float copy_w = Dp(90);
-            const ImVec2 at = ImGui::GetCursorScreenPos();
-            const float width = ImGui::GetContentRegionAvail().x;
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width - copy_w - Dp(16));
-            TextColored(fonts.label, color::text, set.name.c_str());
-            TextWrappedColored(fonts.caption, color::muted, platform::DescribeRules(set.rules).c_str());
-            ImGui::PopTextWrapPos();
-            const ImVec2 below = ImGui::GetCursorScreenPos();
-            ImGui::SetCursorScreenPos({at.x + width - copy_w, at.y});
-            if (SecondaryButton("copy_server_preset", "Copy", {copy_w, Dp(36)}, !preset_edit_, Icon::Copy))
-            {
-                EditPreset(launcher::PresetFromRules(set.name + " copy", set.rules));
-                page_scroll_top_ = true;
-            }
-            ImGui::SetCursorScreenPos(below);
-            ImGui::PopID();
-        }
-        EndCard();
+        ImGui::Dummy({0, Dp(6)});
+        DrawTracked(ImGui::GetWindowDrawList(), fonts.caption, ImGui::GetCursorScreenPos(), Col(color::dim), title,
+                    Dp(1.4f));
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(8)});
     }
 
-    static const char* MatchModeName(mscharged::platform::MatchMode mode)
+    // The rules as short chips: the series, how a game ends, the stadium, the
+    // gameplay tweaks and the cheats.
+    struct RuleChip
     {
-        return mode == mscharged::platform::MatchMode::Offline ? "On this computer" : "Online with friends";
-    }
-
-    // One preset: its name and settings, then the buttons that put it in the
-    // game save, and Edit and Delete (Copy for a built-in one).
-    void PresetRow(const launcher::MatchPreset& preset, int index, const mscharged::platform::MatchSaveStatus& save,
-                   bool ready)
+        std::string text;
+        ImVec4 tint;
+        bool plain = true; // white text; else in its tint
+    };
+    static std::vector<RuleChip> RuleChips(const platform::MatchRules& rules)
     {
-        using mscharged::platform::MatchMode;
-        const auto& fonts = CurrentFonts();
-        ImGui::PushID(index);
-        const float gap = Dp(8), use_w = Dp(150), edit_w = Dp(90), height = Dp(36);
-        TextColored(fonts.label, color::text, preset.name.c_str());
-        if (preset.built_in)
-        {
-            ImGui::SameLine(0, Dp(10));
-            Chip("Built in", color::info);
-        }
-        std::string summary = launcher::MatchSummary(preset.settings);
+        std::vector<RuleChip> chips;
+        chips.push_back({rules.games == 1 ? std::string("One game") : "Best of " + std::to_string(rules.games),
+                         color::muted});
+        if (rules.limit == "goals")
+            chips.push_back({"First to " + std::to_string(rules.goals) + (rules.goals == 1 ? " goal" : " goals"),
+                             color::muted});
+        else
+            chips.push_back({rules.time % 60 == 0
+                                 ? std::to_string(rules.time / 60) + (rules.time == 60 ? " minute" : " minutes")
+                                 : std::to_string(rules.time) + " seconds",
+                             color::muted});
+        std::string stadium = "Random stadium";
         for (const auto& choice : platform::StadiumChoices())
-            if (preset.stadium != "random" && preset.stadium == choice.key) summary += ", " + std::string(choice.label);
+            if (rules.stadium != "random" && rules.stadium == choice.key) stadium = choice.label;
+        chips.push_back({stadium, color::muted});
         for (const auto& choice : platform::RuleTweakChoices())
-            if (std::find(preset.tweaks.begin(), preset.tweaks.end(), choice.key) != preset.tweaks.end())
-                summary += ", " + std::string(choice.label);
-        TextWrappedColored(fonts.caption, color::muted, summary.c_str());
-        ImGui::Dummy({0, Dp(2)});
+            if (std::find(rules.tweaks.begin(), rules.tweaks.end(), choice.key) != rules.tweaks.end())
+                chips.push_back({choice.label, color::accent, false});
+        for (const auto& [choices, key] : {std::pair{&platform::StadiumCheatChoices(), &rules.stadium_cheat},
+                                           std::pair{&platform::PlayerCheatChoices(), &rules.player_cheat},
+                                           std::pair{&platform::PowerupCheatChoices(), &rules.powerup_cheat}})
+            for (const auto& choice : *choices)
+                if (*key != "none" && *key == choice.key) chips.push_back({choice.label, color::warning, false});
+        return chips;
+    }
 
-        for (const auto mode : {MatchMode::Offline, MatchMode::Friends})
+    // One preset of the list: its name (and where it comes from), its rules
+    // as chips, wrapping, and its buttons at the right: Copy, and for the
+    // player's own Edit and Delete (pressed twice). Returns the button pressed:
+    // 1 Copy, 2 Edit, 3 Delete (confirmed), 0 none.
+    int PresetListRow(int id, const std::string& name, const platform::MatchRules& rules, PresetKind kind,
+                      int index = -1)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        ImGui::PushID(id);
+        const float width = ImGui::GetContentRegionAvail().x, pad = Dp(14), gap = Dp(6), height = Dp(34);
+        const bool own = kind == PresetKind::Own;
+        const float copy_w = Dp(86), edit_w = Dp(80), delete_w = Dp(96);
+        const float buttons = copy_w + (own ? gap + edit_w + gap + delete_w : 0.0f);
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+        draw->ChannelsSplit(2);
+        draw->ChannelsSetCurrent(1);
+        // The name.
+        const float text_right = start.x + width - pad - buttons - Dp(16);
+        ImGui::SetCursorScreenPos({start.x + pad, start.y + pad});
+        TextColored(fonts.label, color::text, name.c_str());
+        // The rules, as chips that wrap.
+        const auto chips = RuleChips(rules);
+        float x = start.x + pad, y = start.y + pad + FontSize(fonts.label) + Dp(8);
+        const float chip_h = FontSize(fonts.caption) + Dp(8);
+        for (const auto& [text, tint, plain] : chips)
         {
-            const bool used = ready && save.modes[std::size_t(mode)] == preset.settings;
-            if (mode == MatchMode::Friends) ImGui::SameLine(0, gap);
-            const char* label = mode == MatchMode::Offline ? "This computer" : "With friends";
-            if (SecondaryButton(mode == MatchMode::Offline ? "use_offline" : "use_friends", label, {use_w, height},
-                                ready && !used, used ? Icon::Check : Icon::Play))
-                UsePreset(preset, mode);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(used ? "%s: the game save has these settings." : "Use for matches %s.",
-                                  used ? MatchModeName(mode) : Lowercase(MatchModeName(mode)).c_str());
-        }
-        ImGui::SameLine(0, gap * 2);
-        if (SecondaryButton("edit", preset.built_in ? "Copy" : "Edit", {edit_w, height}, !preset_edit_,
-                            preset.built_in ? Icon::Copy : Icon::Sliders))
-        {
-            auto copy = preset;
-            if (preset.built_in)
+            const float w = TextSize(fonts.caption, text.c_str()).x + Dp(16);
+            if (x + w > text_right && x > start.x + pad)
             {
-                copy.name = preset.name + " copy";
-                copy.built_in = false;
-                copy.file.clear();
+                x = start.x + pad;
+                y += chip_h + Dp(5);
             }
-            EditPreset(copy);
+            draw->AddRectFilled({x, y}, {x + w, y + chip_h}, Col(tint, 0.12f), chip_h * 0.5f);
+            draw->AddRect({x, y}, {x + w, y + chip_h}, Col(tint, 0.35f), chip_h * 0.5f, 0, Dp(1));
+            DrawLabel(draw, fonts.caption, {x + Dp(8), y + Dp(4)}, Col(plain ? color::text : tint), text.c_str());
+            x += w + Dp(6);
         }
-        if (preset.built_in && ImGui::IsItemHovered()) ImGui::SetTooltip("Built-in presets do not change: make a copy.");
-        if (!preset.built_in)
+        const float bottom = std::max(y + chip_h, start.y + pad + height) + pad;
+        // The buttons, in the middle at the right.
+        int pressed = 0;
+        float bx = start.x + width - pad - buttons;
+        const float by = start.y + (bottom - start.y - height) * 0.5f;
+        ImGui::SetCursorScreenPos({bx, by});
+        if (SecondaryButton("copy", "Copy", {copy_w, height}, !preset_edit_, Icon::Copy)) pressed = 1;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("A preset of your own from %s.", name.c_str());
+        if (own)
         {
-            ImGui::SameLine(0, gap);
+            bx += copy_w + gap;
+            ImGui::SetCursorScreenPos({bx, by});
+            if (SecondaryButton("edit", "Edit", {edit_w, height}, !preset_edit_, Icon::Paint)) pressed = 2;
+            bx += edit_w + gap;
+            ImGui::SetCursorScreenPos({bx, by});
             const bool armed = preset_delete_ == index;
-            if (SecondaryButton("delete", armed ? "Confirm" : "Delete", {edit_w + Dp(6), height}, !preset_edit_,
+            if (SecondaryButton("delete", armed ? "Confirm" : "Delete", {delete_w, height}, !preset_edit_,
                                 armed ? Icon::Warning : Icon::Close))
             {
-                if (!armed) preset_delete_ = index;
-                else
-                {
-                    try
-                    {
-                        launcher::DeleteMatchPreset(preset);
-                        Notice("Preset " + preset.name + " deleted.", NoticeKind::Success);
-                    }
-                    catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); }
-                    preset_delete_ = -1;
-                    presets_loaded_ = false;
-                }
+                if (armed) pressed = 3;
+                else preset_delete_ = index;
             }
             if (armed && ImGui::IsItemHovered()) ImGui::SetTooltip("Click again to delete its file.");
         }
+        // The row's card, under it all.
+        draw->ChannelsSetCurrent(0);
+        draw->AddRectFilled(start, {start.x + width, bottom}, Col(color::field, 0.55f), Dp(12));
+        draw->AddRect(start, {start.x + width, bottom}, Col(color::border, 0.9f), Dp(12), 0, Dp(1));
+        draw->ChannelsMerge();
+        ImGui::SetCursorScreenPos(start);
+        ImGui::Dummy({width, bottom - start.y});
+        ImGui::Dummy({0, Dp(6)});
         ImGui::PopID();
+        return pressed;
+    }
+
+    // A preset of the player's own from `name`'s rules, in the editor.
+    void CopyPreset(const std::string& name, const platform::MatchRules& rules)
+    {
+        EditPreset(launcher::PresetFromRules(name + " copy", rules));
+        page_scroll_top_ = true;
     }
 
     void EditPreset(const launcher::MatchPreset& preset)
@@ -7217,7 +7235,7 @@ private:
         const auto& fonts = CurrentFonts();
         const bool fresh = preset.file.empty();
         BeginCard("##preset_editor", fresh ? "New preset" : "Edit preset",
-                  "Saved as a file of its own; the game save changes when you use it.", Icon::Sliders);
+                  "A file of its own in match-presets: your battles can start from it.", Icon::Paint);
         // Why the preset cannot be saved, if it cannot.
         std::string blocked;
         if (!launcher::ValidMatchPresetName(preset.name))
@@ -7233,14 +7251,9 @@ private:
             if (!blocked.empty() && !preset.name.empty())
                 TextWrappedColored(fonts.caption, color::warning, blocked.c_str());
 
-            Row("Skill", "How well the computer plays: against the CPU only, a challenge has none.");
-            int skill = s.skill - 1;
-            CheatCombo("##preset_skill", skill, launcher::SkillNames());
-            s.skill = skill + 1;
-
-            Row("Series", "Games in a series: best of 1 to 9 (a challenge plays up to 7).");
-            int series = (s.best_of - 1) / 2;
-            if (Segmented("##preset_series", &series, {"1", "3", "5", "7", "9"}, ImGui::GetContentRegionAvail().x))
+            Row("Series", "Games in a series: one, or best of 3, 5 or 7.");
+            int series = std::min((s.best_of - 1) / 2, 3);
+            if (Segmented("##preset_series", &series, {"1", "3", "5", "7"}, ImGui::GetContentRegionAvail().x))
                 s.best_of = series * 2 + 1;
 
             Row("Win by", s.goal_limit ? "The first team to the goals wins." : "The team ahead when time runs out wins.");
@@ -7271,7 +7284,7 @@ private:
             CheatCombo("##preset_powerup", s.powerup_cheat, launcher::PowerupCheatNames());
 
             // For challenges: the stadium and the gameplay tweaks both teams play with.
-            Row("Stadium", "For challenges; matches in the game's menus pick theirs there.");
+            Row("Stadium", "Random: the host's game picks one, as in the game.");
             {
                 const auto& stadiums = platform::StadiumChoices();
                 std::vector<const char*> names;
@@ -7284,7 +7297,7 @@ private:
                 CheatCombo("##preset_stadium_pick", chosen, names);
                 preset.stadium = stadiums[std::size_t(chosen)].key;
             }
-            Row("Gameplay", "For challenges: both teams play with these.");
+            Row("Gameplay", "Both teams play with these.");
             for (const auto& choice : platform::RuleTweakChoices())
             {
                 const auto found = std::find(preset.tweaks.begin(), preset.tweaks.end(), choice.key);
@@ -7332,19 +7345,6 @@ private:
         }
     }
 
-    void UsePreset(const launcher::MatchPreset& preset, mscharged::platform::MatchMode mode)
-    {
-        fs::path copy;
-        try
-        {
-            copy = mscharged::platform::WriteMatchSettings(SaveFolder(), SaveTitleOf(Release()), mode, preset.settings,
-                                                           SaveBackupParent());
-            Notice(preset.name + " is in use " + Lowercase(MatchModeName(mode)) + ".", NoticeKind::Success);
-        }
-        catch (const std::exception& e) { Notice(std::string("Using the preset failed: ") + e.what(), NoticeKind::Error); }
-        GameSaveWritten(copy);
-    }
-
     // The presets folder: match-presets beside the settings file.
     fs::path MatchPresetsFolder() const { return file_.path.parent_path() / "match-presets"; }
 
@@ -7365,22 +7365,6 @@ private:
             preset_delete_ = -1;
         }
         return presets_;
-    }
-
-    // The match settings of the save folder in use, read again as the lineups are.
-    const mscharged::platform::MatchSaveStatus& InstalledMatch()
-    {
-        const auto folder = SaveFolder();
-        std::error_code error;
-        const auto changed = fs::last_write_time(folder / "metadata.txt", error);
-        const auto time = error ? fs::file_time_type{} : changed;
-        if (folder != match_save_folder_ || time != match_save_time_)
-        {
-            match_save_folder_ = folder;
-            match_save_time_ = time;
-            match_save_ = mscharged::platform::InstalledMatchSettings(folder, SaveTitleOf(Release()));
-        }
-        return match_save_;
     }
 
     // The checked disc's release, or the USA one before a disc is known.
@@ -12002,9 +11986,6 @@ private:
     fs::file_time_type presets_time_;
     launcher::MatchPresetList presets_;
     bool presets_loaded_ = false;
-    fs::path match_save_folder_;
-    fs::file_time_type match_save_time_;
-    mscharged::platform::MatchSaveStatus match_save_;
     std::optional<launcher::MatchPreset> preset_edit_;
     int preset_delete_ = -1;
     // Update check and installation (#50).

@@ -388,18 +388,17 @@ one the game, Dolphin and a Wii read. The first change of each launcher session
 copies the save to `backups/` in the save folder. Until the game has saved once
 there is no save, and so nothing to change.
 
-**Match rules** writes a preset into the same save: the game keeps one set of
-match settings and cheats for matches on the console and one for online
-matches with friends, and the preset replaces the one you choose (the backup
-is the same). Every cheat can be chosen, whether the save has unlocked it or
-not. Presets other than the built-in Retail ranked and Competitive (read-only;
-**Copy** makes one of your own) are files in `match-presets/`
-beside `recharged.ini`, one per preset, named after it (`quick-3.ini`):
+**Match rules** keeps presets of a battle's rules, which a challenge or a
+search for an opponent starts from (see *Online*); they don't touch the game
+save, whose own match settings the game's settings screen changes. Every cheat
+can be chosen, whether the save has unlocked it or not. Besides the built-in
+Retail ranked and Competitive and the server's own rule sets (all read-only;
+**Copy** makes one of your own), presets are files in `match-presets/` beside
+`recharged.ini`, one per preset, named after it (`quick-3.ini`):
 
 ```ini
 name = "Quick 3"
-skill = superstar          # rookie, professional, superstar, legend, megastriker
-best_of = 3                # 1, 3, 5, 7 or 9
+best_of = 3                # 1, 3, 5 or 7 (9 plays 7)
 win_by = goals             # time or goals
 minutes = 3                # 2 to 5, with win_by = time
 goals = 3                  # 3 to 10, with win_by = goals
@@ -408,9 +407,9 @@ player_cheat = none        # none, devastating, safe, skill_shot, glass_jaw
 powerup_cheat = none       # none, explosives, freezing, shells, giant, accelerator,
                            # peelin_out, heat_seekers, bombs_away, super, infinite,
                            # butterfingers
-stadium = random           # for challenges: random or a stadium (the_palace, ...)
-tweaks = fast_terrain      # for challenges: fast_terrain, no_mega_strikes,
-                           # thunder_island_walls, comma-separated
+stadium = random           # random or a stadium (the_palace, ...)
+tweaks = fast_terrain      # fast_terrain, no_mega_strikes, thunder_island_walls,
+                           # comma-separated
 ```
 
 Settings left out are a new save's. A file the page cannot read is listed
