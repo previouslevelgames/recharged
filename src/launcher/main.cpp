@@ -4035,6 +4035,9 @@ private:
         competitive_->SetServer(platform::ProfileServerAddress(draft_.profile_server).value_or(std::string()));
         competitive_status_ = competitive_->Snapshot();
         UpdateMiiWizard();
+        // Signed in here: the game has nobody to sign in again.
+        if (competitive_status_.state == CompetitiveService::State::SignedIn && draft_.mii_sign_in && !capture_)
+            SetMiiSignIn(false);
         const auto& status = competitive_status_;
         if (status.sign_in != competitive_opened_)
         {
@@ -5100,7 +5103,10 @@ private:
         };
         switch (status.state)
         {
-        case State::SignedOut: OnlineChoices(width); break;
+        case State::SignedOut:
+            OnlineChoices(width);
+            MiiComeBack(width);
+            break;
         case State::SigningIn:
         {
             centred(fonts.heading, color::text, "Finish in your browser");
@@ -5215,6 +5221,54 @@ private:
     // The welcome's two ways in, side by side: Connect Discord (the profile
     // and Mii from the Discord account, Discord friends and tournaments) and
     // Play with a Mii (no account), each with its button.
+    // Played with a Mii before (on another computer, or the session went):
+    // the game signs the player in again once their Mii logs in to WFC
+    // ([online] mii_sign_in, which the game clears then).
+    void MiiComeBack(float width)
+    {
+        if (!competitive_status_.info.mii) return;
+        const auto& fonts = CurrentFonts();
+        ImGui::Dummy({0, Dp(14)});
+        const float left = ImGui::GetCursorPosX();
+        if (!draft_.mii_sign_in)
+        {
+            const char* question = "Played with a Mii before?";
+            const char* button = "Sign in through the game";
+            const float button_width = GhostWidth(button, Icon::Person), height = Dp(36);
+            const float total = TextSize(fonts.body, question).x + Dp(8) + button_width;
+            ImGui::SetCursorPosX(left + std::max(0.0f, (width - total) * 0.5f));
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x, at.y + (height - FontSize(fonts.body)) * 0.5f},
+                      Col(color::muted), question);
+            ImGui::SetCursorScreenPos({at.x + TextSize(fonts.body, question).x + Dp(8), at.y});
+            if (GhostButton("mii_come_back", button, {button_width, height}, config_ok_, Icon::Person))
+                SetMiiSignIn(true);
+            return;
+        }
+        Callout("Start the game and go online with your Mii (Online on the main menu): once it has logged in, the "
+                "game signs you in again with the profile that Mii plays for.",
+                color::info, Icon::Person);
+        ImGui::Dummy({0, Dp(6)});
+        const char* stop = "Never mind";
+        ImGui::SetCursorPosX(left + std::max(0.0f, (width - GhostWidth(stop, Icon::Close)) * 0.5f));
+        if (GhostButton("mii_come_back_stop", stop, {GhostWidth(stop, Icon::Close), Dp(36)}, config_ok_, Icon::Close))
+            SetMiiSignIn(false);
+    }
+
+    // [online] mii_sign_in, saved at once without the other changes not saved yet.
+    void SetMiiSignIn(bool on)
+    {
+        draft_.mii_sign_in = on;
+        if (!config_ok_) return;
+        try
+        {
+            Settings saved = file_.settings;
+            saved.mii_sign_in = on;
+            SaveConfig(file_, saved);
+        }
+        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+    }
+
     void OnlineChoices(float width)
     {
         const auto& status = competitive_status_;
