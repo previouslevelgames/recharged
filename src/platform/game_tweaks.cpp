@@ -164,6 +164,15 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
     sHudHidden = mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_HUD);
 }
 
+// Host entry while the game runs (the overlay's Game options, between
+// matches): the enabled tweaks change; the title, menus and HUD keep their
+// state. Each tweak reads its bit where it acts, so most take effect from the
+// next match.
+__attribute__((visibility("default"))) void charged_set_tweaks(unsigned mask)
+{
+    sEnabled = mask;
+}
+
 // Competitive play (competitive_match.cpp, at the host's
 // charged_configure_competitive_start): the title is passed at once, as by
 // Skip intro, and the main menu then goes online by itself.

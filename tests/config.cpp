@@ -69,6 +69,21 @@ int main()
         Reject([&] { SaveConfig(file, settings); });
         Require(LoadConfig(path).contents == saved, "Invalid settings must not overwrite the file");
         settings.master_volume = 65;
+        // The game's overlay saves one gameplay option and leaves the rest.
+        SaveGameTweak(path, GameTweak::FastTerrain, true);
+        {
+            const auto overlay = LoadConfig(path);
+            Require(overlay.settings.tweaks[GameTweakIndex(GameTweak::FastTerrain)]
+                && !overlay.settings.tweaks[GameTweakIndex(GameTweak::NoMegaStrikes)]
+                && overlay.settings.width == 1920 && overlay.settings.master_volume == 65
+                && overlay.contents.find("; keep my comment\r\n") != std::string::npos
+                && overlay.contents.find("option = keep me\r\n") != std::string::npos,
+                "An overlay option saved alone");
+            SaveGameTweak(path, GameTweak::FastTerrain, false);
+            Require(!LoadConfig(path).settings.tweaks[GameTweakIndex(GameTweak::FastTerrain)], "And off again");
+            Reject([&] { SaveGameTweak(path, GameTweak::NoHud, true); });
+            file = LoadConfig(path);
+        }
         std::ofstream(path, std::ios::app) << "; edited elsewhere\r\n";
         Reject([&] { SaveConfig(file, settings); });
         Require(LoadConfig(path).contents.find("edited elsewhere") != std::string::npos, "External edits survive");

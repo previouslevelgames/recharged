@@ -662,6 +662,16 @@ void SaveConfig(ConfigFile& file, const Settings& settings)
     file.exists = true;
 }
 
+void SaveGameTweak(const std::filesystem::path& path, GameTweak tweak, bool on)
+{
+    auto file = LoadConfig(path, true);
+    const auto index = GameTweakIndex(tweak);
+    if (index >= file.settings.tweaks.size()) throw std::invalid_argument("Not a gameplay option");
+    auto settings = file.settings;
+    settings.tweaks[index] = on;
+    SaveConfig(file, settings);
+}
+
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config)
 {
     if (settings.disc.empty())
