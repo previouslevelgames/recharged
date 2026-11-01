@@ -52,6 +52,15 @@ public:
     void SetNetwork(const Network& network);
     // Shows `text` for a moment, replacing the message shown before.
     void ShowMessage(std::string text, Clock::time_point now);
+    // A lasting hint in the top-left corner (the online panel's key while the
+    // game is in its menus): its keys as keycaps, then `text`. Hidden while
+    // the panel or a card is open; messages show below it. None hides it.
+    struct Hint {
+        std::vector<std::string> keys;
+        std::string text;
+        bool operator==(const Hint&) const = default;
+    };
+    void SetHint(std::optional<Hint> hint);
     // A card in the middle of the dimmed picture that asks the player
     // something (a challenge from another player): the A and B buttons'
     // answers. None hides it. The host holds the players' buttons meanwhile.
@@ -91,6 +100,7 @@ private:
     Network network_;
     std::string message_;
     std::optional<Card> card_, shownCard_;
+    std::optional<Hint> hint_, shownHint_;
     HostPanel* panel_ = nullptr;
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
     launcher::Fonts overlayFonts_{};

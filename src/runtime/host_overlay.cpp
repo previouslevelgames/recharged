@@ -77,6 +77,8 @@ void HostOverlay::SetCard(std::optional<Card> card) { card_ = std::move(card); }
 
 void HostOverlay::SetPanel(HostPanel* panel) { panel_ = panel; }
 
+void HostOverlay::SetHint(std::optional<Hint> hint) { hint_ = std::move(hint); }
+
 void HostOverlay::ClosePanel()
 {
     if (panel_ && panel_->IsOpen()) panel_->Close();
@@ -221,7 +223,8 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         if (opacity == 0) message_.clear();
     }
     const bool panel = panel_ && panel_->IsOpen();
-    const bool showing = performance_ || opacity > 0 || card_ || panel;
+    const std::optional<Hint> hint = panel || card_ ? std::nullopt : hint_;
+    const bool showing = performance_ || opacity > 0 || card_ || panel || hint;
     if (!showing) {
         if (drawn_) aurora_imgui_clear_overlay();
         drawn_ = false;
@@ -229,7 +232,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     }
     // The panel is a live ImGui window: every frame while open.
     if (drawn_ && !panel && !shownPanel_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_
-        && opacity == shownOpacity_ && card_ == shownCard_ && surface_width == shownWidth_
+        && opacity == shownOpacity_ && card_ == shownCard_ && hint == shownHint_ && surface_width == shownWidth_
         && surface_height == shownHeight_)
         return;
     const auto size = FpsOverlayFontSize(surface_width, surface_height);
@@ -271,12 +274,40 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         }
         performanceLayout = layout;
     }
-    if (opacity > 0) {
-        const float messageSize = MessageFontSize(size);
-        const float width = messageFont_->CalcTextSizeA(messageSize, FLT_MAX, 0, message_.c_str()).x;
-        const bool belowPerformance = performance_ && *performance_ == OverlayCorner::TopLeft;
+    const float messageSize = MessageFontSize(size);
+    const bool belowPerformance = performance_ && *performance_ == OverlayCorner::TopLeft;
+    // The hint: its keys as keycaps, then its text, on a quieter panel.
+    float below = 0; // how far a message moves down for it
+    if (hint) {
+        const float pad = std::round(messageSize * 0.4f), gap = std::round(messageSize * 0.45f);
+        const auto measure = [&](const std::string& text) {
+            return messageFont_->CalcTextSizeA(messageSize, FLT_MAX, 0, text.c_str()).x;
+        };
+        float width = measure(hint->text);
+        for (const auto& key : hint->keys) width += measure(key) + 2 * pad + gap;
         const auto layout = LayoutOverlayMessage(surface_width, surface_height, messageSize, width,
                                                  belowPerformance ? &*performanceLayout : nullptr);
+        draw->AddRectFilled({layout.left, layout.top}, {layout.right, layout.bottom}, IM_COL32(16, 18, 22, 150),
+                            std::round(messageSize * 0.35f));
+        float x = layout.text_x;
+        const float cap = std::round(messageSize * 0.25f);
+        for (const auto& key : hint->keys) {
+            const float w = measure(key) + 2 * pad;
+            draw->AddRect({x, layout.text_y - cap}, {x + w, layout.text_y + messageSize + cap}, kDivider,
+                          std::round(messageSize * 0.25f), 0, std::max(1.0f, std::round(messageSize / 14.0f)));
+            draw->AddText(messageFont_, messageSize, {x + pad, layout.text_y}, kNumber, key.c_str());
+            x += w + gap;
+        }
+        draw->AddText(messageFont_, messageSize, {x, layout.text_y}, kLabel, hint->text.c_str());
+        below = layout.bottom - layout.top + std::round(messageSize * 0.4f);
+    }
+    if (opacity > 0) {
+        const float width = messageFont_->CalcTextSizeA(messageSize, FLT_MAX, 0, message_.c_str()).x;
+        auto layout = LayoutOverlayMessage(surface_width, surface_height, messageSize, width,
+                                           belowPerformance ? &*performanceLayout : nullptr);
+        layout.top += below;
+        layout.bottom += below;
+        layout.text_y += below;
         draw->AddRectFilled({layout.left, layout.top}, {layout.right, layout.bottom},
                             WithAlpha(IM_COL32(16, 18, 22, 190), opacity), std::round(messageSize * 0.35f));
         draw->AddText(messageFont_, messageSize, {layout.text_x, layout.text_y}, WithAlpha(kNumber, opacity),
@@ -288,6 +319,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     shownCount_ = count;
     shownMessage_ = message_;
     shownCard_ = card_;
+    shownHint_ = hint;
     shownPanel_ = panel;
     shownOpacity_ = opacity;
     shownWidth_ = surface_width;

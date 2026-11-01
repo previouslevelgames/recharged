@@ -1361,10 +1361,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
         }
         std::chrono::steady_clock::time_point lastCompetitive{};
-        // Once a run, at the first main menu: which key opens online play
-        // (set with the overlay; empty without it).
-        std::string panelHint;
-        bool panelHinted=false;
+        // While the game is in its menus: which keys open the online panel, in
+        // the top-left corner (set with the overlay; none without it).
+        std::optional<mscharged::runtime::HostOverlay::Hint> panelHint;
+        std::chrono::steady_clock::time_point panelHintChecked{};
         // The set this game played last, for the card that offers it again.
         std::optional<mscharged::platform::CompetitiveHost::SetEnd> afterSet;
         // A set started in this game that waits for the main menu or the
@@ -1396,12 +1396,6 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!wfcSnapshot(&wfc,sizeof wfc))return;
             ChargedPresenceSnapshot game{};
             const bool known=presenceSnapshot && presenceSnapshot(&game,sizeof game);
-            // The main menu (SceneList 1) the first time, no set on its way.
-            if(!panelHinted && !panelHint.empty() && hostOverlay && known && !game.in_match && game.scene_count>0
-               && game.scenes[0]==1 && wfc.set_stage==CHARGED_SET_NONE) {
-                panelHinted=true;
-                hostOverlay->ShowMessage(panelHint,now);
-            }
             std::optional<ChargedCompetitiveRules> rules;
             if(competitive->Observe(wfc,known ? &game : nullptr,rules))
                 configureCompetitive(rules ? &*rules : nullptr,sizeof(ChargedCompetitiveRules));
@@ -1812,8 +1806,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             {
                 const std::string key=mscharged::platform::HotkeyName(hotkeys[mscharged::HotkeyPanel]);
                 const bool none=key.empty() || key==mscharged::kNoHotkey;
-                panelHint="Online: "+(none ? std::string("HOME") : key+" or HOME")
-                    +" opens your friends, challenges and sets";
+                panelHint=mscharged::runtime::HostOverlay::Hint{
+                    none ? std::vector<std::string>{"HOME"} : std::vector<std::string>{key,"HOME"},
+                    "Online: friends, challenges and sets"};
             }
             // F1/HOME and F2 while open: the other tab, or closing the one shown.
             hostPanel->SetTabKeys([&](int tab) {
@@ -2147,6 +2142,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(panelFeed) panelFeed->SetOpen(overlayOpen);
             }
             if(overlayOpen && panelFeed) panelFeed->SetActivity(inMatch() ? "match" : "game");
+            // The panel's keys in the corner while the game is in its menus
+            // (the title's demo matches count as menus), a few times a second.
+            if(hostOverlay && panelHint && now-panelHintChecked>=std::chrono::milliseconds(250)) {
+                panelHintChecked=now;
+                ChargedPresenceSnapshot game{};
+                const bool menus=presenceSnapshot && presenceSnapshot(&game,sizeof game) && game.scene_count>0
+                    && !(game.in_match && game.mode!=2);
+                hostOverlay->SetHint(menus ? panelHint : std::nullopt);
+            }
             // Changed game options reach the game between matches.
             if(pendingTweaks && setTweaks && !inMatch()) {
                 setTweaks(*pendingTweaks);
