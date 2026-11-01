@@ -58,6 +58,9 @@ int sSetPopup = -1;
 // The set's Mii is not on this computer: the player chooses one, and every
 // screen stays visible.
 bool sPlayerChoosesMii = false;
+// The set started in a running game (not before its main): until the walk
+// takes the main menu, the player is somewhere in the menus.
+bool sStartedInGame = false;
 
 // [advanced] log_level = debug: the DWC reports that go to the log: its
 // information, errors and warnings, the login, matchmaking (NAT negotiation,
@@ -68,6 +71,14 @@ constexpr u32 kDwcReport = 0x1 | 0x2 | 0x8 | 0x20 | 0x40 | 0x80 | 0x200 | 0x400 
 u32 sDwcReport = 0;
 
 bool OnSet() { return sSetStage != CHARGED_SET_NONE; }
+
+// The walk drives the screens unseen: once the main menu went online, or from
+// the start in a game the launcher started for the set, until the search.
+bool Unseen()
+{
+    return sSetStage >= CHARGED_SET_BOOT && sSetStage <= CHARGED_SET_LOGIN && !sPlayerChoosesMii
+        && (sSetStage >= CHARGED_SET_MII || !sStartedInGame);
+}
 
 // A popup is on top: a step must not push past it (Push with popfirst would
 // pop the popup).
@@ -145,6 +156,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_wfc_snapshot(Char
     s.competitive = sActive;
     s.set_stage = sSetStage;
     s.set_popup = sSetPopup;
+    s.set_unseen = Unseen() ? 1 : 0;
     s.competitive_setups = sSetups;
     s.competitive_games = sActive ? sMatch.games : 0;
     // StartNetworkedGame gives each machine's players a side by their network
@@ -178,6 +190,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
     sSetStage = CHARGED_SET_BOOT;
     sSetPopup = -1;
     sPlayerChoosesMii = false;
+    sStartedInGame = GameSceneManager::Instance() != nullptr;
     mscharged_tweak_set_start();
     return true;
 }
@@ -192,11 +205,14 @@ extern "C" __attribute__((visibility("default"))) void charged_configure_dwc_rep
 // Host entry, between frames: the set is over (or failed) and the host has
 // done with it; the game is no set's any more, and its popups and menus are
 // the player's again.
+extern "C" void mscharged_tweak_set_end(void);
 extern "C" __attribute__((visibility("default"))) void charged_competitive_end_set(void)
 {
     sSetStage = CHARGED_SET_NONE;
     sSetPopup = -1;
     sPlayerChoosesMii = false;
+    sStartedInGame = false;
+    mscharged_tweak_set_end();
 }
 
 extern "C" bool mscharged_competitive_take_main_menu(void)
@@ -277,7 +293,14 @@ extern "C" int mscharged_competitive_connection(unsigned first, unsigned second)
 
 extern "C" int mscharged_competitive_popup(int type)
 {
-    if (!OnSet()) return -1;
+    // Only while the walk drives the screens: not once the set is over or
+    // failed, not while the player chooses the Mii, and in a running game not
+    // before the walk took the main menu. Never a popup that deletes what the
+    // player keeps (the Mii's online profile, a friend).
+    if (!OnSet() || sSetStage == CHARGED_SET_OVER || sSetStage == CHARGED_SET_FAILED || sPlayerChoosesMii
+        || (sSetStage == CHARGED_SET_BOOT && sStartedInGame) || type == POPUP_PROFILE_UNLINK_WARNING
+        || type == POPUP_NETWORK_DELETE_FRIEND)
+        return -1;
     switch (type)
     {
     case POPUP_LOW_BATTERY:
@@ -285,12 +308,9 @@ extern "C" int mscharged_competitive_popup(int type)
     case POPUP_ONLINE_NO_COPY:               // the online save is new
         return 0;
     default:
-        if (sSetStage != CHARGED_SET_OVER && sSetStage != CHARGED_SET_FAILED)
-        {
-            std::fprintf(stderr, "Competitive: popup %d ended the set\n", type);
-            sSetPopup = type;
-            sSetStage = CHARGED_SET_FAILED;
-        }
+        std::fprintf(stderr, "Competitive: popup %d ended the set\n", type);
+        sSetPopup = type;
+        sSetStage = CHARGED_SET_FAILED;
         return 0;
     }
 }
@@ -301,6 +321,7 @@ extern "C" int mscharged_competitive_popup(int type)
 // the Mii screens. The Connecting screen and the draft stay. While the walk
 // is on one of them, the menu sounds are silent.
 extern "C" void mscharged_tweak_set_menus_quiet(bool quiet);
+extern "C" bool mscharged_tweak_title_pending(void);
 extern "C" bool mscharged_competitive_hides_scene(unsigned long scene)
 {
     static const unsigned long kTitle = nlStringLowerHash("art/fe/sms2_start.fen");
@@ -310,17 +331,22 @@ extern "C" bool mscharged_competitive_hides_scene(unsigned long scene)
     static const unsigned long kNavigation = nlStringLowerHash("art/fe/fe_overlay.fen");
     static const unsigned long kPopup = nlStringLowerHash("art/fe/popup_menu.fen");
     const bool walking = sSetStage >= CHARGED_SET_BOOT && sSetStage <= CHARGED_SET_LOGIN && !sPlayerChoosesMii;
-    const bool online = walking && sSetStage >= CHARGED_SET_MII; // the main menu went online
+    if (!walking)
+    {
+        mscharged_tweak_set_menus_quiet(false);
+        return false;
+    }
+    const bool online = sSetStage >= CHARGED_SET_MII; // the main menu went online
     const int top = TopScene();
     GameSceneManager* manager = GameSceneManager::Instance();
     const bool overMii = manager
         && (manager->IsOnStack(SCENE_ONLINE_MII_SELECT) || manager->IsOnStack(SCENE_ONLINE_MII_SELECT_OVERLAY));
-    mscharged_tweak_set_menus_quiet(
-        walking
-        && (top == SCENE_TITLE || top == SCENE_MAIN_MENU
-            || (online && top != SCENE_ONLINE_LOGIN && (top != SCENE_POPUP_MENU || overMii))));
-    if (!walking) return false;
-    if (scene == kTitle || scene == kMainMenu) return true;
+    mscharged_tweak_set_menus_quiet(top == SCENE_TITLE || top == SCENE_MAIN_MENU
+                                    || (online && top != SCENE_ONLINE_LOGIN && (top != SCENE_POPUP_MENU || overMii)));
+    // The title only while the set passes it (a title already passed stays
+    // the player's).
+    if (scene == kTitle) return mscharged_tweak_title_pending();
+    if (scene == kMainMenu) return true;
     if (!online) return false;
     return scene == kMiiSelect || scene == kMiiCard || scene == kNavigation
         || (scene == kPopup && top == SCENE_POPUP_MENU && overMii);

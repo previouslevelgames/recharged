@@ -188,6 +188,13 @@ void mscharged_tweak_set_menus_quiet(bool quiet)
     sMenusQuiet = quiet;
 }
 
+// Competitive play: the set is over; the title is the player's again.
+void mscharged_tweak_set_end(void)
+{
+    sSetStart = false;
+    sMenusQuiet = false;
+}
+
 // Host entry (Training): the item of the team that trains (ePowerUpType, -1
 // none); with `start`, the launcher's Start training: the title is passed at
 // once, as by Skip intro, into a match of `captain` (eTeamID) in `stadium`

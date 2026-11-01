@@ -42,6 +42,10 @@ struct ChargedWfcSnapshot
     // Online every machine's players have a side, so the presence snapshot's
     // human_sides has both.
     int local_side;
+    // A set's game passes its menus unseen (tweak patch 0048): the host holds
+    // the players' buttons meanwhile, so nobody steps into a screen they
+    // cannot see.
+    int set_unseen;
 };
 
 // How far a set's game got: booting (title, main menu), choosing the Mii and

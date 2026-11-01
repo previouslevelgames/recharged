@@ -1347,6 +1347,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // online menu (the player is somewhere else in the menus).
         bool setStartedHere=false;
         std::chrono::steady_clock::time_point setWaiting{}, setReminded{};
+        // The players' buttons are held while a card asks something or the
+        // set's game passes its menus unseen.
+        bool cardHold=false, walkHold=false;
+        auto holdButtons = [&] { mscharged::platform::SetNativeWpadHold(cardHold || walkHold); };
         std::optional<mscharged::platform::AlertSound> challengeSound;
         // [online] challenge_sound: the chime at the master volume (not muted),
         // and the window flashes while it is in the background.
@@ -1392,15 +1396,24 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(auto end=competitive->TakeSetEnd()) {
                 if(endSet) endSet();
                 setStartedHere=false;
-                // Without a game played it has no result: nothing to offer again.
-                if(end->how==mscharged::platform::CompetitiveHost::SetEnd::How::NoResult) {
-                    if(hostOverlay) hostOverlay->ShowMessage("The set against "
-                        +(end->opponent.empty() ? std::string("your opponent") : end->opponent)
-                        +" ended without a result",now);
+                using How=mscharged::platform::CompetitiveHost::SetEnd::How;
+                const std::string opponent=end->opponent.empty() ? std::string("your opponent") : end->opponent;
+                // Without a game played it has no result, and a stopped set the
+                // server no longer keeps cannot be played again: only a message.
+                if(end->how==How::NoResult) {
+                    if(hostOverlay) hostOverlay->ShowMessage("The set against "+opponent+" ended without a result",now);
+                } else if(end->how!=How::Over && !end->can_play_again) {
+                    if(hostOverlay) hostOverlay->ShowMessage("The set against "+opponent+" stopped",now);
                 } else afterSet=std::move(end);
             }
-            // Started here and not on its way yet: say where it goes on from.
-            if(setStartedHere && wfc.set_stage==CHARGED_SET_BOOT) {
+            // The set's game passes its menus unseen: nobody steps into them.
+            if(walkHold!=(wfc.set_unseen!=0)) {
+                walkHold=wfc.set_unseen!=0;
+                holdButtons();
+            }
+            // Started here and not on its way yet: say where it goes on from
+            // (not during a match).
+            if(setStartedHere && wfc.set_stage==CHARGED_SET_BOOT && !competitive->InMatch()) {
                 if(setWaiting==std::chrono::steady_clock::time_point{}) setWaiting=now;
                 else if(hostOverlay && now-setWaiting>=std::chrono::seconds(6)
                         && now-setReminded>=std::chrono::seconds(15)) {
@@ -1431,7 +1444,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 kind=CardKind::Challenge;
                 match=invitation->match;
                 afterSet.reset();
-            } else if(afterSet) {
+            } else if(afterSet && !competitive->InMatch()) {
+                // The last set again, once back in the menus.
                 kind=CardKind::AfterSet;
                 match=afterSet->match;
             }
@@ -1439,7 +1453,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 cardKind=kind;
                 cardMatch=match;
                 cardShown=now;
-                mscharged::platform::SetNativeWpadHold(kind!=CardKind::None);
+                cardHold=kind!=CardKind::None;
+                holdButtons();
                 mscharged::runtime::HostOverlay::Card card;
                 if(kind==CardKind::Challenge) {
                     card.kicker=invitation->rematch ? "REMATCH" : "CHALLENGE";

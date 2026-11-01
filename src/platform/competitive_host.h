@@ -79,6 +79,7 @@ public:
         int won = 0, lost = 0, games = 0; // the games this game counted
         How how = How::Over;
         int popup = -1;
+        bool can_play_again = false; // the server keeps it open for Ready to play!
     };
     std::optional<SetEnd> TakeSetEnd();
     // After a SetEnd: the same set again. `rematch`: a new set by its rules
@@ -109,6 +110,8 @@ public:
     // The card's answer. An accept is also the player's Ready to play!: the
     // set then goes, and TakeSetStart() starts it in this game.
     void Answer(std::int64_t match, bool accept);
+    // On the game's thread: the game plays a match (no cards or reminders).
+    bool InMatch();
     // What the host shows in a message (an answer the server did not take),
     // once.
     std::optional<std::string> TakeNotice();
@@ -118,6 +121,8 @@ private:
     void Run();
     void Work(ProfileService& api);
     void Said(const std::string& line);
+    // Wakes the worker for new work (no wake-up gets lost while it works).
+    void Kick();
     // With mutex_ held: the game is due to say it is ready for match_.
     bool ReadyDue() const;
 
@@ -125,7 +130,7 @@ private:
     const Log log_;
     std::mutex mutex_;
     std::condition_variable wake_;
-    bool stop_ = false;
+    bool stop_ = false, kick_ = false;
     std::shared_ptr<class HttpCancel> cancel_;
     std::thread worker_;
 

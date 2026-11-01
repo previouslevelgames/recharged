@@ -88,6 +88,15 @@ CompetitiveHost::~CompetitiveHost()
     worker_.join();
 }
 
+void CompetitiveHost::Kick()
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        kick_ = true;
+    }
+    wake_.notify_all();
+}
+
 void CompetitiveHost::Said(const std::string& line)
 {
     // Each different line once in a row: a server that stays away is not a flood.
@@ -213,7 +222,7 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
         }
     }
     lock.unlock();
-    if (wake) wake_.notify_all();
+    if (wake) Kick();
     if (!stage_line.empty()) Said(stage_line);
     return changed;
 }
@@ -225,7 +234,7 @@ void CompetitiveHost::PlaySet(std::int64_t set)
         set_ = set;
         next_match_ = {};
     }
-    wake_.notify_all();
+    Kick();
     Said("set " + std::to_string(set) + ": the game goes straight to RANKED against the set's opponent");
 }
 
@@ -261,7 +270,10 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
         if (!set_ || set_done_ == Clock::time_point{}) return std::nullopt;
         // The last report out, and a set left without one waiting again.
         const bool reported = unsent_ == 0 && reports_.empty();
-        const bool settled = set_stage_ == CHARGED_SET_OVER ? reported : set_unready_;
+        // A played series: also the server's result (both reports), so a
+        // rematch can be asked at once.
+        const bool final = !match_ || match_->id != set_ || match_->state != "accepted";
+        const bool settled = set_stage_ == CHARGED_SET_OVER ? reported && final : set_unready_;
         if (!settled && Clock::now() - set_done_ < kEndWait) return std::nullopt;
         if (match_ && match_->id == set_)
         {
@@ -283,6 +295,8 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
                 : set_stage_ == CHARGED_SET_FAILED ? SetEnd::How::Failed
                                                    : SetEnd::How::CalledOff;
         end.popup = set_popup_;
+        // Ready to play! again only for a set the server keeps open.
+        end.can_play_again = match_ && match_->id == set_ && match_->stage == "open";
         why = end.how == SetEnd::How::Over       ? "the series is over"
             : end.how == SetEnd::How::NoResult ? "the match ended without a game played"
             : end.how == SetEnd::How::Failed   ? "it stopped at popup " + std::to_string(set_popup_)
@@ -296,7 +310,7 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
         paired_ = false;
         next_match_ = {};
     }
-    wake_.notify_all();
+    Kick();
     Said("set " + std::to_string(end.match) + " is done, " + why + "; the game stays open");
     return end;
 }
@@ -318,7 +332,7 @@ void CompetitiveHost::PlayAgain(std::int64_t match, bool rematch)
         again_match_ = match;
         again_rematch_ = rematch;
     }
-    wake_.notify_all();
+    Kick();
 }
 
 bool CompetitiveHost::ReadyDue() const
@@ -326,7 +340,9 @@ bool CompetitiveHost::ReadyDue() const
     // Only a set's game says it is ready for its set (that counts as the
     // player's Ready to play!); before sets, any game for the accepted match.
     return match_ && rules_ && proven_profile_ && proven_profile_ == login_profile_
-        && (match_->stage.empty() || match_->id == set_);
+        && (match_->stage.empty()
+            || (match_->id == set_ && !set_called_off_ && !set_unready_ && set_stage_ != CHARGED_SET_FAILED
+                && set_stage_ != CHARGED_SET_OVER));
 }
 
 void CompetitiveHost::Run()
@@ -372,7 +388,9 @@ void CompetitiveHost::Run()
         cancel_.reset();
         if (stop_) break;
         // Woken early by a new login or a series to report.
-        wake_.wait_until(lock, next);
+        // Woken early by new work (kick_), or at the next due call.
+        wake_.wait_until(lock, next, [this] { return stop_ || kick_; });
+        kick_ = false;
     }
 }
 
@@ -529,7 +547,7 @@ void CompetitiveHost::Work(ProfileService& api)
             if (e.Status() == 0) throw;
         }
         std::lock_guard<std::mutex> lock(mutex_);
-        set_unready_ = true;
+        if (set_ == unready) set_unready_ = true;
     }
 
     // The game's WFC login: the proof makes its friend code the player's.
@@ -570,7 +588,19 @@ void CompetitiveHost::Work(ProfileService& api)
     }
     if (ready)
     {
-        const auto answer = api.Ready(match->id, profile, match->rules_hash);
+        ReadyAnswer answer;
+        try
+        {
+            answer = api.Ready(match->id, profile, match->rules_hash);
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled()) throw;
+            Said(std::string("the server did not take the game's ready: ") + e.what());
+            std::lock_guard<std::mutex> lock(mutex_);
+            next_ready_ = Clock::now() + kReadyEvery;
+            answer = {};
+        }
         bool paired_now;
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -633,7 +663,13 @@ void CompetitiveHost::Answer(std::int64_t match, bool accept)
         answer_match_ = answered_match_ = match;
         answer_accept_ = accept;
     }
-    wake_.notify_all();
+    Kick();
+}
+
+bool CompetitiveHost::InMatch()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return activity_ == "match";
 }
 
 std::optional<std::string> CompetitiveHost::TakeNotice()
