@@ -68,6 +68,8 @@ public:
     // The host panel (F1 or HOME), drawn while open in place of the card,
     // under the performance numbers and messages; null for none.
     void SetPanel(HostPanel* panel);
+    // Closes the host panel if it is open (a set going on into the game).
+    void ClosePanel();
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
     // The game overlay's fonts (src/overlay), at the panel's unit; none
     // without the overlay's font file (ImGui's own font then).

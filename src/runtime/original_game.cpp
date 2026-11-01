@@ -1430,7 +1430,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     afterSet.reset();
                     setStartedHere=true;
                     alert();
-                    if(hostOverlay) hostOverlay->ShowMessage("Set against "+start->opponent+": off to RANKED",now);
+                    // The panel it was challenged or accepted from closes: the
+                    // game goes on into the set.
+                    if(hostOverlay) {
+                        hostOverlay->ClosePanel();
+                        hostOverlay->ShowMessage("Set against "+start->opponent+": off to RANKED",now);
+                    }
                 } else mscharged::platform::SessionLogLine("Competitive: set "+std::to_string(start->match)
                     +" cannot start here (this build's game module has no sets)");
             }

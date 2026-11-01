@@ -77,6 +77,11 @@ void HostOverlay::SetCard(std::optional<Card> card) { card_ = std::move(card); }
 
 void HostOverlay::SetPanel(HostPanel* panel) { panel_ = panel; }
 
+void HostOverlay::ClosePanel()
+{
+    if (panel_ && panel_->IsOpen()) panel_->Close();
+}
+
 void HostOverlay::BuildFonts(float size, float unit)
 {
     ImGuiIO& io = ImGui::GetIO();
