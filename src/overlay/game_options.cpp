@@ -177,8 +177,9 @@ void DrawDescription(const GameOptionsModel& model, GameTweak tweak, float width
     const float height = pad + kicker + FontSize(fonts.button) + Dp(14) + description + Dp(18) + Dp(1) + Dp(14)
         + timing_h + pad;
     const ImVec2 end{at.x + width, at.y + height};
-    draw->AddRectFilled(at, end, Col(color::field, 0.7f), Dp(16));
-    draw->AddRect(at, end, Col(color::border), Dp(16), 0, Dp(1));
+    ImVec4 fill = color::field;
+    fill.w = 0.58f;
+    OverlayCard(draw, at, end, Dp(16), fill, color::border);
     float y = at.y + pad;
     if (group)
     {

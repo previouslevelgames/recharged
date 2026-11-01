@@ -165,6 +165,9 @@ void OverlayFade(ImDrawList* draw, ImVec2 min, ImVec2 max, const ImVec4& first, 
                  ImDrawFlags flags = 0);
 // The window's own colour, for what blends into it.
 ImVec4 OverlaySurface();
+// A card: `fill` a little lighter at its top, and a contour of `edge` lit
+// from above.
+void OverlayCard(ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding, const ImVec4& fill, const ImVec4& edge);
 
 // The fonts the overlay uses, added to `atlas` from TrueType data (the
 // launcher's Roboto) at `unit` pixels per dp, for a host whose atlas holds

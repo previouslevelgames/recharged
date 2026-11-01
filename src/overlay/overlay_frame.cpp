@@ -62,6 +62,20 @@ constexpr int kStyleVars = 9;
 constexpr const char* kWindowName = "##recharged_overlay";
 constexpr int kStyleColors = 10;
 
+// The vertices drawn since `start` coloured from `top` to `bottom` by their
+// height, keeping the shape's own anti-aliased edge: its alpha multiplies.
+void ShadeVertical(ImDrawList* draw, int start, float y0, float y1, const ImVec4& top, const ImVec4& bottom)
+{
+    const float height = std::max(1.0f, y1 - y0);
+    for (int i = start; i < draw->VtxBuffer.Size; ++i)
+    {
+        ImDrawVert& vertex = draw->VtxBuffer[i];
+        ImVec4 tint = Mix(top, bottom, (vertex.pos.y - y0) / height);
+        tint.w *= float((vertex.col >> IM_COL32_A_SHIFT) & 0xFF) / 255.0f;
+        vertex.col = ImGui::ColorConvertFloat4ToU32(tint);
+    }
+}
+
 // Lines and outlines anti-aliased by their geometry, not by ImGui's baked line
 // texture: that one needs a renderer that filters the font atlas linearly
 // (SDL's software renderer doesn't, and draws them jagged).
@@ -105,17 +119,36 @@ void DrawKeyCap(const launcher::Fonts& fonts, ImDrawList* draw, ImVec2 pos, cons
               Col(color::text), key);
 }
 
-// The tabs: a bar across the top of the window, the tabs spread evenly over
-// it in tracked capitals, the open one a slanted block of the accent; at its
-// ends the keys that switch them; a line of the accent under it. For the
-// mouse (the keys switch them). Its height.
+// A parallelogram leaning right in [min, max], its top edge `slant` right of
+// its bottom edge's ends.
+void Slanted(ImVec2 out[4], ImVec2 min, ImVec2 max, float slant)
+{
+    out[0] = {min.x + slant, min.y};
+    out[1] = {max.x + slant, min.y};
+    out[2] = {max.x - slant, max.y};
+    out[3] = {min.x - slant, max.y};
+}
+
+// The tabs: a bar of frosted glass across the top of the window, the tabs
+// spread evenly over it in tracked capitals, the open one a slanted block of
+// the accent with a glow, a sheen and a bright contour, sliding to the tab
+// opened; at its ends the keys that switch them; a line of the accent under
+// it. For the mouse (the keys switch them). Its height.
 float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayTabs& tabs, float top)
 {
     auto* draw = ImGui::GetWindowDrawList();
     const float height = Dp(58), rounding = Dp(22), line = Dp(2);
     const ImVec2 bar_min{g.window_min.x, top}, bar_max{g.window_max.x, top + height};
-    draw->AddRectFilled(bar_min, bar_max, Col(Mix(color::window, ImVec4{0, 0, 0, 1}, 0.30f), 0.92f), rounding,
-                        ImDrawFlags_RoundCornersTop);
+    {
+        // The glass: darker than the window, lighter at its top, a shade
+        // above the line under it.
+        ImVec4 upper = Mix(color::window, color::card, 0.55f), lower = color::window;
+        upper.w = 0.42f;
+        lower.w = 0.72f;
+        OverlayFade(draw, bar_min, bar_max, upper, lower, rounding, ImDrawFlags_RoundCornersTop);
+        ImVec4 clear{0, 0, 0, 0}, shade{0, 0, 0, 0.30f};
+        OverlayFade(draw, {bar_min.x, bar_max.y - Dp(14)}, bar_max, clear, shade, 0.0f);
+    }
     const float middle = top + height * 0.5f;
 
     // The keys at both ends: the previous tab's at the left, the next's at the right.
@@ -141,9 +174,43 @@ float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayT
     }
 
     // The tabs, each an equal share of the bar between the keys.
+    const std::size_t count = std::max<std::size_t>(1, tabs.tabs.size());
     const float x0 = bar_min.x + edge + ends, x1 = bar_max.x - edge - ends;
-    const float cell = (x1 - x0) / float(std::max<std::size_t>(1, tabs.tabs.size()));
-    const float inset_y = Dp(9), slant = Dp(9), tracking = Dp(1.8f);
+    const float cell = (x1 - x0) / float(count);
+    const float inset_y = Dp(9), slant = Dp(9), pad = Dp(6), tracking = Dp(1.8f);
+    // Where the open tab's block is, in tabs: it slides to the tab opened
+    // (eased out, about a tenth of a second); in place as the overlay appears.
+    float* slide = ImGui::GetStateStorage()->GetFloatRef(ImGui::GetID("##overlay_tab_slide"), float(tabs.current));
+    if (ImGui::IsWindowAppearing()) *slide = float(tabs.current);
+    *slide += (float(tabs.current) - *slide) * (1.0f - std::exp(-ImGui::GetIO().DeltaTime * 24.0f));
+    if (std::fabs(*slide - float(tabs.current)) < 0.002f) *slide = float(tabs.current);
+
+    // The open tab's block: its glow, its gradient, a sheen on its upper
+    // half, its contour.
+    {
+        ImVec2 block[4];
+        const float bx = x0 + cell * *slide;
+        Slanted(block, {bx + pad, top + inset_y}, {bx + cell - pad, top + height - inset_y}, slant);
+        for (int i = 3; i >= 1; --i)
+        {
+            const float grow = Dp(2.5f * float(i));
+            ImVec2 glow[4];
+            Slanted(glow, {bx + pad - grow, top + inset_y - grow * 0.6f},
+                    {bx + cell - pad + grow, top + height - inset_y + grow * 0.6f}, slant);
+            draw->AddConvexPolyFilled(glow, 4, Col(color::accent, 0.07f * float(4 - i)));
+        }
+        int start = draw->VtxBuffer.Size;
+        draw->AddConvexPolyFilled(block, 4, IM_COL32_WHITE);
+        ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, block[3], block[1],
+                                                      Col(color::accent_hi), Col(color::accent));
+        const float half = top + height * 0.5f;
+        const ImVec2 sheen[4] = {block[0], block[1], {bx + cell - pad, half}, {bx + pad, half}};
+        start = draw->VtxBuffer.Size;
+        draw->AddConvexPolyFilled(sheen, 4, IM_COL32_WHITE);
+        ShadeVertical(draw, start, block[0].y, half, ImVec4{1, 1, 1, 0.30f}, ImVec4{1, 1, 1, 0.0f});
+        draw->AddPolyline(block, 4, Col(Mix(color::accent_hi, ImVec4{1, 1, 1, 1}, 0.55f), 0.85f),
+                          ImDrawFlags_Closed, Dp(1));
+    }
     for (std::size_t n = 0; n < tabs.tabs.size(); ++n)
     {
         const bool selected = int(n) == tabs.current;
@@ -152,20 +219,16 @@ float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayT
         ImGui::SetCursorScreenPos(at);
         if (ImGui::InvisibleButton("##overlay_tab", {max.x - at.x, max.y - at.y}) && !selected) tabs.clicked = int(n);
         const bool hovered = ImGui::IsItemHovered();
-        const float lit = launcher::Animate(ImGui::GetID("##lit"), selected, 16.0f);
         const float hover = launcher::Animate(ImGui::GetID("##hover"), hovered && !selected, 12.0f);
         ImGui::PopID();
-        // A parallelogram, leaning right.
-        const float pad = Dp(6);
-        const ImVec2 quad[4] = {{at.x + pad + slant, at.y}, {max.x - pad + slant, at.y}, {max.x - pad - slant, max.y},
-                                {at.x + pad - slant, max.y}};
-        if (hover > 0.01f) draw->AddConvexPolyFilled(quad, 4, Col(color::text, 0.06f * hover));
-        if (lit > 0.01f)
+        // Lit as much as the block covers it.
+        const float lit = std::clamp(1.0f - std::fabs(*slide - float(n)), 0.0f, 1.0f);
+        if (hover > 0.01f)
         {
-            const int start = draw->VtxBuffer.Size;
-            draw->AddConvexPolyFilled(quad, 4, Col(ImVec4{1, 1, 1, 1}, lit));
-            ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, draw->VtxBuffer.Size, quad[3], quad[1],
-                                                          Col(color::accent_hi), Col(color::accent));
+            ImVec2 quad[4];
+            Slanted(quad, {at.x + pad, at.y}, {max.x - pad, max.y}, slant);
+            draw->AddConvexPolyFilled(quad, 4, Col(color::text, 0.05f * hover * (1.0f - lit)));
+            draw->AddPolyline(quad, 4, Col(color::text, 0.14f * hover * (1.0f - lit)), ImDrawFlags_Closed, Dp(1));
         }
         std::string label = tabs.tabs[n].label;
         for (auto& c : label) c = char(std::toupper(static_cast<unsigned char>(c)));
@@ -175,9 +238,13 @@ float DrawTabs(const OverlayStyle& style, const launcher::Fonts& fonts, OverlayT
                               {(at.x + max.x - text_w) * 0.5f, middle - FontSize(fonts.heading) * 0.5f}, ink,
                               label.c_str(), tracking);
     }
-    // The accent line under the bar.
+    // The accent line under the bar, with a faint glow below it.
     draw->AddRectFilled({bar_min.x + Dp(1), bar_max.y - line}, {bar_max.x - Dp(1), bar_max.y},
                         Col(color::accent, 0.85f));
+    ImVec4 glow = color::accent, none = color::accent;
+    glow.w = 0.10f;
+    none.w = 0.0f;
+    OverlayFade(draw, {bar_min.x + Dp(1), bar_max.y}, {bar_max.x - Dp(1), bar_max.y + Dp(12)}, glow, none, 0.0f);
     return height;
 }
 } // namespace
@@ -228,15 +295,23 @@ void OverlayFade(ImDrawList* draw, ImVec2 min, ImVec2 max, const ImVec4& first, 
 {
     const int start = draw->VtxBuffer.Size;
     draw->AddRectFilled(min, max, IM_COL32_WHITE, rounding, flags);
-    const float height = std::max(1.0f, max.y - min.y);
-    for (int i = start; i < draw->VtxBuffer.Size; ++i)
-    {
-        ImDrawVert& vertex = draw->VtxBuffer[i];
-        vertex.col = Col(Mix(first, second, (vertex.pos.y - min.y) / height));
-    }
+    ShadeVertical(draw, start, min.y, max.y, first, second);
 }
 
 ImVec4 OverlaySurface() { return Mix(color::window, color::card, 0.45f); }
+
+void OverlayCard(ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding, const ImVec4& fill, const ImVec4& edge)
+{
+    ImVec4 upper = Mix(fill, ImVec4{1, 1, 1, 1}, 0.05f);
+    upper.w = fill.w;
+    OverlayFade(draw, min, max, upper, fill, rounding);
+    const int start = draw->VtxBuffer.Size;
+    draw->AddRect(min, max, IM_COL32_WHITE, rounding, 0, Dp(1));
+    ImVec4 lit = Mix(edge, ImVec4{1, 1, 1, 1}, 0.28f), shade = edge;
+    lit.w = edge.w;
+    shade.w = edge.w * 0.65f;
+    ShadeVertical(draw, start, min.y, max.y, lit, shade);
+}
 
 void OverlayFocusable(bool preferred)
 {
@@ -409,27 +484,38 @@ OverlayLayout BeginOverlay(const OverlayStyle& style, OverlayScreens& screens, c
     SmoothLines();
     auto* draw = ImGui::GetWindowDrawList();
 
-    // The veil, the window's shadow, its glass and a glow at its top.
+    // The veil; the window's shadow, soft and below it; its frosted glass,
+    // lighter at the top, with a glow there; its contour, lit from above.
     if (style.dim > 0.0f) draw->AddRectFilled(g.area_min, g.area_max, Col(ImVec4{0, 0, 0, 1}, style.dim * eased));
     const float rounding = Dp(22);
-    for (int i = 0; i < 10; ++i)
+    for (int i = 0; i < 12; ++i)
     {
-        const float grow = Dp(2.0f + 3.5f * float(i));
-        draw->AddRectFilled({g.window_min.x - grow, g.window_min.y - grow * 0.5f},
-                            {g.window_max.x + grow, g.window_max.y + grow * 1.2f},
-                            Col(ImVec4{0, 0, 0, 1}, 0.06f * (1.0f - float(i) / 10.0f) * eased), rounding + grow);
+        const float t = float(i) / 12.0f, grow = Dp(1.5f + 3.5f * float(i));
+        draw->AddRectFilled({g.window_min.x - grow, g.window_min.y - grow * 0.4f + Dp(6)},
+                            {g.window_max.x + grow, g.window_max.y + grow + Dp(12)},
+                            Col(ImVec4{0, 0, 0, 1}, 0.07f * (1.0f - t) * (1.0f - t) * eased), rounding + grow);
     }
     const ImVec4 surface = OverlaySurface();
-    draw->AddRectFilled(g.window_min, g.window_max, Col(surface, 0.96f), rounding);
     {
-        ImVec4 glow = Mix(surface, color::accent, 0.10f), none = surface;
-        glow.w = 0.96f;
+        ImVec4 top = Mix(surface, color::card_hover, 0.45f), bottom = surface;
+        top.w = 0.80f;
+        bottom.w = 0.90f;
+        OverlayFade(draw, g.window_min, g.window_max, top, bottom, rounding);
+        ImVec4 glow = Mix(surface, color::accent, 0.22f), none = glow;
+        glow.w = 0.45f;
         none.w = 0.0f;
         OverlayFade(draw, {g.window_min.x + Dp(1), g.window_min.y + Dp(1)},
-                    {g.window_max.x - Dp(1), g.window_min.y + Dp(180)}, glow, none, rounding - Dp(1),
+                    {g.window_max.x - Dp(1), g.window_min.y + Dp(200)}, glow, none, rounding - Dp(1),
                     ImDrawFlags_RoundCornersTop);
     }
-    draw->AddRect(g.window_min, g.window_max, Col(color::border), rounding, 0, Dp(1));
+    {
+        const int start = draw->VtxBuffer.Size;
+        draw->AddRect(g.window_min, g.window_max, IM_COL32_WHITE, rounding, 0, Dp(1));
+        ImVec4 lit = Mix(color::border, ImVec4{1, 1, 1, 1}, 0.45f), shade = color::border;
+        lit.w = 0.95f;
+        shade.w = 0.55f;
+        ShadeVertical(draw, start, g.window_min.y, g.window_max.y, lit, shade);
+    }
 
     // The tabs, then the title line: the back arrow (from the second screen
     // on) and the title. With tabs, a tab's first screen has no title line.
@@ -499,7 +585,7 @@ void EndOverlayScroll()
     const float bottom = at.y + ImGui::GetWindowHeight();
     ImVec4 clear = OverlaySurface(), solid = clear;
     clear.w = 0.0f;
-    solid.w = 0.96f;
+    solid.w = 0.88f;
     if (ImGui::GetScrollY() < ImGui::GetScrollMaxY() - 1.0f)
         OverlayFade(draw, {at.x, bottom - Dp(32)}, {at.x + width, bottom}, clear, solid, 0.0f);
     if (ImGui::GetScrollY() > 1.0f) OverlayFade(draw, at, {at.x + width, at.y + Dp(20)}, solid, clear, 0.0f);

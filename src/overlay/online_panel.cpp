@@ -162,8 +162,9 @@ void DrawYou(Frame& frame, float width)
     const float top = pad + radius * 2 + pad;
     const float lower = me.can_set_available ? Dp(12) + FontSize(fonts.label) + Dp(3) + text + Dp(14) : 0.0f;
     const ImVec2 end{at.x + width, at.y + top + lower};
-    draw->AddRectFilled(at, end, Col(color::field, 0.85f), Dp(16));
-    draw->AddRect(at, end, Col(color::border), Dp(16), 0, Dp(1));
+    ImVec4 fill = color::field;
+    fill.w = 0.62f;
+    OverlayCard(draw, at, end, Dp(16), fill, color::border);
 
     const ImVec2 center{at.x + pad + radius, at.y + pad + radius};
     DrawPicture(frame, draw, center, radius, me.image, me.initials, me.tint_seed, false);
@@ -258,7 +259,15 @@ void DrawSet(Frame& frame, float width)
     const ImVec2 end{at.x + width, at.y + height};
     launcher::FillGradient(draw, at, end, Col(Mix(color::field, tint, 0.14f)), Col(Mix(color::field, tint, 0.04f)),
                            Dp(16), true);
-    draw->AddRect(at, end, Col(tint, 0.45f), Dp(16), 0, Dp(1));
+    {
+        // A sheen over its upper part, and its contour lit from above.
+        ImVec4 sheen{1, 1, 1, 0.05f}, clear{1, 1, 1, 0.0f};
+        OverlayFade(draw, {at.x + Dp(1), at.y + Dp(1)}, {end.x - Dp(1), at.y + Dp(60)}, sheen, clear, Dp(15),
+                    ImDrawFlags_RoundCornersTop);
+        ImVec4 edge = tint;
+        edge.w = 0.55f;
+        OverlayCard(draw, at, end, Dp(16), ImVec4{0, 0, 0, 0}, edge);
+    }
 
     float y = at.y + pad;
     launcher::DrawTracked(draw, fonts.caption, {at.x + pad, y}, Col(tint), kicker, Dp(1.6f));
