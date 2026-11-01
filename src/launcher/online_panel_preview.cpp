@@ -1,6 +1,7 @@
 #include "launcher/online_panel_preview.h"
 
 #include "launcher/ui_kit.h"
+#include "overlay/overlay_unit.h"
 #include "platform/http_client.h"
 
 #include <algorithm>
@@ -199,6 +200,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
             // Smaller than the launcher lets its window be, as a game's may be.
             SDL_SetWindowMinimumSize(window, 0, 0);
             SDL_SetWindowSize(window, game_width, game_height);
+            game_width_ = float(game_width);
             game_height_ = float(game_height);
         }
         else
@@ -445,13 +447,13 @@ void OnlinePanelPreview::Draw(ImVec2 size, ImTextureID art_back, ImTextureID art
     style.fonts = CurrentFonts();
     style.appear = appear_;
     style.image = [this](const std::string& key) { return Avatar(key); };
-    // A game window's size: the game's scale for it (its height / 720), the
-    // launcher's fonts scaled to it.
+    // A game window's size: the game's scale for it (its height / 720, not
+    // too small to read), the launcher's fonts scaled to it.
     ImGuiIO& io = ImGui::GetIO();
     const float font_scale = io.FontGlobalScale;
     if (game_height_ > 0.0f)
     {
-        style.unit = std::clamp(game_height_ / 720.0f, 0.5f, 4.0f);
+        style.unit = overlay::OverlayUnit(game_width_, game_height_);
         io.FontGlobalScale = font_scale * style.unit / UiScale();
     }
     overlay::GameOverlayActions actions;
@@ -562,9 +564,18 @@ void OnlinePanelPreview::DrawPrompt()
     overlay::OverlayStyle style;
     style.unit = UiScale();
     style.fonts = CurrentFonts();
+    // A game window's size: its scale, as for the overlay.
+    ImGuiIO& io = ImGui::GetIO();
+    const float font_scale = io.FontGlobalScale;
+    if (game_height_ > 0.0f)
+    {
+        style.unit = overlay::OverlayUnit(game_width_, game_height_);
+        io.FontGlobalScale = font_scale * style.unit / UiScale();
+    }
     if (capture_ && prompt_state_.shown < 1.0f) prompt_state_.shown = 1.0f; // captures show it in place
     overlay::OverlayPromptActions actions;
     overlay::DrawOverlayPrompt(prompt, prompt_state_, actions, style);
+    io.FontGlobalScale = font_scale;
     if (actions.primary || actions.secondary)
     {
         std::cout << "Prompt: " << (actions.primary ? prompt.primary : prompt.secondary) << '\n';

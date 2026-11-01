@@ -9,9 +9,11 @@
 
 #include "overlay/game_overlay.h"
 #include "overlay/overlay_prompt.h"
+#include "overlay/overlay_unit.h"
 
 #include "imgui.h"
 
+#include <cmath>
 #include <cstdio>
 #include <functional>
 
@@ -55,6 +57,7 @@ struct Harness
 {
     GameOverlayModel model;
     GameOverlayState state;
+    float unit = 1.0f; // the style's
 
     Harness()
     {
@@ -81,6 +84,7 @@ struct Harness
         ImGui::NewFrame();
         GameOverlayActions actions;
         GameOverlayStyle style;
+        style.unit = unit;
         style.image = [](const std::string&) { return ImTextureID(0); };
         DrawGameOverlay(model, state, actions, style);
         ImGui::Render();
@@ -359,6 +363,36 @@ void TestLateLists()
     CHECK(actions.close && h.OnMain());
 }
 
+// The overlay's scale: the picture's height / 720, but in small windows
+// never so small that its captions (13 dp) are under 11 pixels, as long as its
+// smallest window fits; and its window then takes more of the picture.
+void TestSmallWindows()
+{
+    CHECK(OverlayUnit(1280, 720) == 1.0f && OverlayUnit(1920, 1080) == 1.5f && OverlayUnit(3840, 2160) == 3.0f);
+    CHECK(OverlayUnit(2560, 1080) == 1.5f && OverlayUnit(7680, 4320) == 4.0f);
+    for (const auto& [width, height] : {std::pair{640.0f, 448.0f}, std::pair{800.0f, 450.0f}, std::pair{854.0f, 480.0f},
+                                        std::pair{1024.0f, 576.0f}, std::pair{960.0f, 540.0f}})
+    {
+        const float unit = OverlayUnit(width, height);
+        CHECK(std::round(13.0f * unit) >= 11.0f);                           // the captions as AddOnlinePanelFonts makes them
+        CHECK(672.0f * unit <= width + 0.01f && 452.0f * unit <= height + 0.01f); // the smallest window fits
+    }
+    CHECK(OverlayUnit(800, 450) > 450.0f / 720.0f);
+    // Too small for both: it fits, down to 0.5.
+    CHECK(OverlayUnit(480, 360) < 11.0f / 13.0f && 672.0f * OverlayUnit(480, 360) <= 480.01f);
+    CHECK(OverlayUnit(320, 240) == 0.5f);
+
+    // In a 640x448 window, the overlay's window reaches near its edges: a
+    // click 20 pixels in is on it (it doesn't close), one in the corner beside it.
+    Harness h;
+    h.model.online = Model();
+    h.Frame([](ImGuiIO& io) { io.DisplaySize = {640, 448}; });
+    h.unit = OverlayUnit(640, 448);
+    h.Open();
+    CHECK(!h.Click(20, 224).close && !h.Click(620, 224).close && !h.Click(320, 428).close);
+    CHECK(h.Click(3, 3).close);
+}
+
 // The prompt after a set or for a challenge: A, Enter and clicks on its
 // buttons, B, Escape and a click beside it; the cursor on the primary button
 // as it opens.
@@ -574,6 +608,7 @@ int main()
     TestGameOptions();
     TestMouse();
     TestResize();
+    TestSmallWindows();
     TestLateLists();
     TestPrompt();
     TestFrameDone();

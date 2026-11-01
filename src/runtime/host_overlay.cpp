@@ -3,6 +3,7 @@
 #include "overlay/overlay_frame.h"
 #endif
 
+#include "overlay/overlay_unit.h"
 #include "platform/path.h"
 #include "runtime/host_panel.h"
 
@@ -227,7 +228,8 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         && surface_height == shownHeight_)
         return;
     const auto size = FpsOverlayFontSize(surface_width, surface_height);
-    const float unit = std::clamp(float(surface_height) / 720.0f, 0.5f, 4.0f);
+    // 1/720 of the picture's height, never so small that the text can't be read.
+    const float unit = overlay::OverlayUnit(float(surface_width), float(surface_height));
     if (size != builtSize_ || unit != builtUnit_) BuildFonts(size, unit);
     aurora_imgui_begin_overlay(surface_width, surface_height);
     // The panel or the card first: the performance numbers and messages stay

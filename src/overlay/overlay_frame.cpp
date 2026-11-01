@@ -853,10 +853,18 @@ OverlayLayout BeginOverlay(const OverlayStyle& style, OverlayScreens& screens, c
     const float appear = std::clamp(style.appear, 0.0f, 1.0f);
     const float eased = 1.0f - (1.0f - appear) * (1.0f - appear) * (1.0f - appear);
 
-    // The window: about three quarters of the picture, in its middle.
+    // The window: about three quarters of the picture, in its middle; more of
+    // a small one (in dp: a small game window, at the overlay's smallest
+    // scale), up to all of it but the margin.
     const float margin = Dp(16);
-    const float width = std::min(std::clamp(area_w * 0.72f, Dp(640), Dp(1100)), area_w - 2 * margin);
-    const float height = std::min(std::max(area_h * 0.86f, Dp(420)), area_h - 2 * margin);
+    const auto share = [](float room, float small, float large, float usual) {
+        const float roomy = std::clamp((room - small) / (large - small), 0.0f, 1.0f);
+        return usual + (1.0f - usual) * (1.0f - roomy);
+    };
+    const float width = std::min(std::clamp(area_w * share(area_w, Dp(760), Dp(1280), 0.72f), Dp(640), Dp(1100)),
+                                 area_w - 2 * margin);
+    const float height =
+        std::min(std::max(area_h * share(area_h, Dp(460), Dp(720), 0.86f), Dp(420)), area_h - 2 * margin);
     const float rise = (1.0f - eased) * Dp(28);
     g.window_min = {g.area_min.x + (area_w - width) * 0.5f, g.area_min.y + (area_h - height) * 0.5f + rise};
     g.window_max = {g.window_min.x + width, g.window_min.y + height};
