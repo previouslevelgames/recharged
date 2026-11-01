@@ -501,12 +501,14 @@ tweaks both teams play with.
      name and picture, and brings your Discord friends and tournaments.
    - **Play with a Mii**: no account. Step 1 asks your name (what others see,
      up to 32 characters) and your Mii: a new one (a random face in the
-     favourite colour you choose; it is named after you, cut to the Mii's 10
+     favourite colour you choose: **Another face** rolls a new one, **Edit
+     face** opens the Mii editor; it is named after you, cut to the Mii's 10
      characters, or **Change** names it yourself), one of this computer's, or
      yours from Dolphin (they replace this computer's Miis, which are backed up
      first). Step 2, **Go online**, makes the new Mii and signs you in; this
      computer keeps you signed in. The Mii is kept as `[online] mii` (its create
-     ID) and plays your sets; **Change** on Player profile chooses another.
+     ID) and plays your sets; **Change** on Player profile chooses another,
+     **Edit** changes its face.
      Friends, challenges and sets work as with Discord. **Connect Discord** on
      Player profile (or on Events) joins Discord to the same profile later:
      your profile then takes your Discord name and picture, your friends and
@@ -555,10 +557,31 @@ Playing someone doesn't make them a friend.
 
 With Discord you need no Mii of your own: the launcher makes one from your
 Discord account, named after your Discord name, the same on every computer,
-when you play while signed in (Player profile shows it as **Your Mii**). It is
-an ordinary Mii: it shows on Legacy Mii profiles and in the game's online Mii
+when you play while signed in (Player profile shows it as **Your Mii**;
+**Edit** changes its face, the name stays your Discord name). It is an
+ordinary Mii: it shows on Legacy Mii profiles and in the game's online Mii
 list, and you can play the game's own online modes with it too. Playing with a
 Mii, your sets go with the Mii you chose.
+
+### Miis and the Mii editor
+
+The launcher shows every Mii with its face, drawn from the Mii parts on your
+game image just as the game draws its Mii pictures; before the image is
+chosen (or when it can't be read) a Mii shows as a figure on its favourite
+colour. **Legacy Mii profiles** lists this computer's Miis with their friend
+codes, makes a new one with a random face, and imports yours from Dolphin.
+
+**Edit** (on Legacy Mii profiles, on Player profile's Your Mii, and **Edit
+face** for a new Mii) opens the **Mii editor**: no Mii Channel needed. The
+head shows large, with the expression you pick under it; the sections beside
+it hold the face (shape, skin, make-up), hair (style, colour, parting),
+eyebrows, eyes, nose, mouth, glasses, facial hair, mole, and the name (up to
+10 characters) and favourite colour. Parts show as pictures of the head with
+each one; sizes and positions are sliders. **Undo** takes back the last
+change, **Start over** goes back to the Mii as it was, **Cancel** leaves it.
+**Save** writes the Mii into the Wii's Mii database in the save folder (the
+previous database is copied to `backups/` first), in its own place: the Mii
+keeps who it is online, with its friend code and profile.
 
 A set lasts while both have Recharged open; closing it ends your sets that
 have no result yet. Every other game, and the game's own online menu, stay as
