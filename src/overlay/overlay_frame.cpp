@@ -42,8 +42,6 @@ struct Current
     bool active = false;
     OverlayScreens* screens = nullptr;
     std::uint64_t changes = 0; // the stack as it began: claims only for that screen
-    float saved_unit = 1.0f;
-    launcher::Fonts saved_fonts;
     ImVec2 area_min, area_max, window_min, window_max;
     float footer_top = 0.0f;
     std::string close_key;
@@ -92,13 +90,15 @@ bool CanClaim()
         && (g.screens->focus_pending || g.screens->restore != 0);
 }
 
-void Claim(ImGuiID id, ImGuiWindow* window)
+// `fallback`: not the item the screen prefers (for want of it).
+void Claim(ImGuiID id, ImGuiWindow* window, bool fallback = false)
 {
     ImGui::SetFocusID(id, window);
     ImGui::SetNavCursorVisible(true);
     g.claimed = true;
     g.screens->focus_pending = false;
     g.screens->restore = 0;
+    g.screens->auto_focus = fallback ? id : 0;
 }
 
 // The key cap of the footer's Close.
@@ -257,6 +257,7 @@ void OverlayScreens::Open(Screen first)
     stack.push_back({std::move(first), 0});
     focus_pending = true;
     restore = 0;
+    auto_focus = 0;
     ++changes;
 }
 
@@ -266,6 +267,7 @@ void OverlayScreens::Push(Screen screen, ImGuiID back_focus)
     stack.push_back({std::move(screen), 0});
     focus_pending = true;
     restore = 0;
+    auto_focus = 0;
     ++changes;
 }
 
@@ -275,6 +277,7 @@ bool OverlayScreens::Pop()
     stack.pop_back();
     restore = stack.back().back_focus;
     focus_pending = true;
+    auto_focus = 0;
     ++changes;
     return true;
 }
@@ -315,6 +318,14 @@ void OverlayCard(ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding, const
 
 void OverlayFocusable(bool preferred)
 {
+    // The preferred item showed late (the lists came after the overlay
+    // opened): it takes the cursor if the player hasn't moved it since.
+    if (preferred && g.active && g.screens && g.screens->auto_focus && !g.claimed
+        && g.screens->changes == g.changes && GImGui->NavId == g.screens->auto_focus)
+    {
+        Claim(ImGui::GetItemID(), ImGui::GetCurrentWindow());
+        return;
+    }
     if (!CanClaim() || g.claimed) return;
     const ImGuiID id = ImGui::GetItemID();
     if (!id) return;
@@ -412,45 +423,34 @@ bool OverlayButton(const char* id, const char* label, Icon icon, ImVec2 size, Ov
 
 // ------------------------------------------------------------------ frame
 
-OverlayLayout BeginOverlay(const OverlayStyle& style, OverlayScreens& screens, const std::string& title,
-                           OverlayTabs* tabs)
+namespace
 {
-    IM_ASSERT(!g.active && "BeginOverlay without EndOverlay");
-    g = Current{};
-    g.active = true;
-    g.screens = &screens;
-    g.changes = screens.changes;
-    g.close_key = style.close_key.empty() ? "Esc" : style.close_key;
+// The layer being drawn: what it changed, to put back.
+struct Layer
+{
+    bool active = false;
+    float saved_unit = 1.0f;
+    launcher::Fonts saved_fonts;
+};
+Layer layer;
+} // namespace
+
+OverlayArea BeginOverlayLayer(const char* id, const OverlayStyle& style, bool front)
+{
+    IM_ASSERT(!layer.active && "BeginOverlayLayer without EndOverlayLayer");
+    layer.active = true;
     // The launcher's widgets read their scale and fonts from ui_kit: the
-    // overlay's until EndOverlay, the caller's back after it.
-    g.saved_unit = launcher::UiScale();
-    g.saved_fonts = launcher::CurrentFonts();
+    // overlay's until EndOverlayLayer, the caller's back after it.
+    layer.saved_unit = launcher::UiScale();
+    layer.saved_fonts = launcher::CurrentFonts();
     const launcher::Fonts fonts = Complete(style.fonts);
     launcher::SetUiScale(style.unit);
     launcher::SetCurrentFonts(fonts);
 
-    const ImGuiIO& io = ImGui::GetIO();
-    g.area_min = style.area_min;
-    g.area_max = style.area_max;
-    if (g.area_max.x <= g.area_min.x || g.area_max.y <= g.area_min.y)
-    {
-        g.area_min = {0, 0};
-        g.area_max = io.DisplaySize;
-    }
-    const float area_w = g.area_max.x - g.area_min.x, area_h = g.area_max.y - g.area_min.y;
-    const float appear = std::clamp(style.appear, 0.0f, 1.0f);
-    const float eased = 1.0f - (1.0f - appear) * (1.0f - appear) * (1.0f - appear);
-
-    // The window: about three quarters of the picture, in its middle.
-    const float margin = Dp(16);
-    const float width = std::min(std::clamp(area_w * 0.72f, Dp(640), Dp(1100)), area_w - 2 * margin);
-    const float height = std::min(std::max(area_h * 0.86f, Dp(420)), area_h - 2 * margin);
-    const float rise = (1.0f - eased) * Dp(28);
-    g.window_min = {g.area_min.x + (area_w - width) * 0.5f, g.area_min.y + (area_h - height) * 0.5f + rise};
-    g.window_max = {g.window_min.x + width, g.window_min.y + height};
-
-    ImGui::SetNextWindowPos(g.area_min);
-    ImGui::SetNextWindowSize({area_w, area_h});
+    OverlayArea area{style.area_min, style.area_max};
+    if (area.max.x <= area.min.x || area.max.y <= area.min.y) area = {{0, 0}, ImGui::GetIO().DisplaySize};
+    ImGui::SetNextWindowPos(area.min);
+    ImGui::SetNextWindowSize({area.max.x - area.min.x, area.max.y - area.min.y});
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, 0});
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -474,48 +474,92 @@ OverlayLayout BeginOverlay(const OverlayStyle& style, OverlayScreens& screens, c
     };
     for (const auto& [index, value] : colors) ImGui::PushStyleColor(index, value);
     ImGui::PushFont(fonts.body);
-    // Not focused by ImGui as it appears: that would put its cursor on the
-    // first item (the back arrow); OverlayFocusable puts it where it belongs.
-    ImGui::Begin(kWindowName, nullptr,
+    ImGui::Begin(id, nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings
                      | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar
                      | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoFocusOnAppearing);
-    if (screens.focus_pending) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+    if (front) ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
     SmoothLines();
-    auto* draw = ImGui::GetWindowDrawList();
+    return area;
+}
 
-    // The veil; the window's shadow, soft and below it; its frosted glass,
-    // lighter at the top, with a glow there; its contour, lit from above.
-    if (style.dim > 0.0f) draw->AddRectFilled(g.area_min, g.area_max, Col(ImVec4{0, 0, 0, 1}, style.dim * eased));
-    const float rounding = Dp(22);
+void EndOverlayLayer()
+{
+    IM_ASSERT(layer.active && "EndOverlayLayer without BeginOverlayLayer");
+    ImGui::End();
+    ImGui::PopFont();
+    ImGui::PopStyleColor(kStyleColors);
+    ImGui::PopStyleVar(kStyleVars);
+    launcher::SetUiScale(layer.saved_unit);
+    launcher::SetCurrentFonts(layer.saved_fonts);
+    layer.active = false;
+}
+
+void OverlayGlass(ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding, float appear, const ImVec4& glow_tint)
+{
+    // The shadow, soft and below; the frosted glass, lighter at the top,
+    // with a glow there; the contour, lit from above.
     for (int i = 0; i < 12; ++i)
     {
         const float t = float(i) / 12.0f, grow = Dp(1.5f + 3.5f * float(i));
-        draw->AddRectFilled({g.window_min.x - grow, g.window_min.y - grow * 0.4f + Dp(6)},
-                            {g.window_max.x + grow, g.window_max.y + grow + Dp(12)},
-                            Col(ImVec4{0, 0, 0, 1}, 0.07f * (1.0f - t) * (1.0f - t) * eased), rounding + grow);
+        draw->AddRectFilled({min.x - grow, min.y - grow * 0.4f + Dp(6)}, {max.x + grow, max.y + grow + Dp(12)},
+                            Col(ImVec4{0, 0, 0, 1}, 0.07f * (1.0f - t) * (1.0f - t) * appear), rounding + grow);
     }
     const ImVec4 surface = OverlaySurface();
-    {
-        ImVec4 top = Mix(surface, color::card_hover, 0.45f), bottom = surface;
-        top.w = 0.80f;
-        bottom.w = 0.90f;
-        OverlayFade(draw, g.window_min, g.window_max, top, bottom, rounding);
-        ImVec4 glow = Mix(surface, color::accent, 0.22f), none = glow;
-        glow.w = 0.45f;
-        none.w = 0.0f;
-        OverlayFade(draw, {g.window_min.x + Dp(1), g.window_min.y + Dp(1)},
-                    {g.window_max.x - Dp(1), g.window_min.y + Dp(200)}, glow, none, rounding - Dp(1),
-                    ImDrawFlags_RoundCornersTop);
-    }
-    {
-        const int start = draw->VtxBuffer.Size;
-        draw->AddRect(g.window_min, g.window_max, IM_COL32_WHITE, rounding, 0, Dp(1));
-        ImVec4 lit = Mix(color::border, ImVec4{1, 1, 1, 1}, 0.45f), shade = color::border;
-        lit.w = 0.95f;
-        shade.w = 0.55f;
-        ShadeVertical(draw, start, g.window_min.y, g.window_max.y, lit, shade);
-    }
+    ImVec4 top = Mix(surface, color::card_hover, 0.45f), bottom = surface;
+    top.w = 0.80f;
+    bottom.w = 0.90f;
+    OverlayFade(draw, min, max, top, bottom, rounding);
+    ImVec4 glow = Mix(surface, glow_tint, 0.22f), none = glow;
+    glow.w = 0.45f;
+    none.w = 0.0f;
+    OverlayFade(draw, {min.x + Dp(1), min.y + Dp(1)}, {max.x - Dp(1), std::min(max.y, min.y + Dp(200))}, glow, none,
+                rounding - Dp(1), ImDrawFlags_RoundCornersTop);
+    const int start = draw->VtxBuffer.Size;
+    draw->AddRect(min, max, IM_COL32_WHITE, rounding, 0, Dp(1));
+    ImVec4 lit = Mix(color::border, ImVec4{1, 1, 1, 1}, 0.45f), shade = color::border;
+    lit.w = 0.95f;
+    shade.w = 0.55f;
+    ShadeVertical(draw, start, min.y, max.y, lit, shade);
+}
+
+float OverlayKeyCapWidth(const char* key) { return KeyCapWidth(launcher::CurrentFonts(), key); }
+
+void OverlayKeyCap(ImDrawList* draw, ImVec2 pos, const char* key, float lit)
+{
+    DrawKeyCap(launcher::CurrentFonts(), draw, pos, key, lit);
+}
+
+OverlayLayout BeginOverlay(const OverlayStyle& style, OverlayScreens& screens, const std::string& title,
+                           OverlayTabs* tabs)
+{
+    IM_ASSERT(!g.active && "BeginOverlay without EndOverlay");
+    g = Current{};
+    g.active = true;
+    g.screens = &screens;
+    g.changes = screens.changes;
+    g.close_key = style.close_key.empty() ? "Esc" : style.close_key;
+    // Not focused by ImGui as it appears: that would put its cursor on the
+    // first item (the back arrow); OverlayFocusable puts it where it belongs.
+    const OverlayArea area = BeginOverlayLayer(kWindowName, style, screens.focus_pending);
+    const launcher::Fonts& fonts = launcher::CurrentFonts();
+    g.area_min = area.min;
+    g.area_max = area.max;
+    const float area_w = g.area_max.x - g.area_min.x, area_h = g.area_max.y - g.area_min.y;
+    const float appear = std::clamp(style.appear, 0.0f, 1.0f);
+    const float eased = 1.0f - (1.0f - appear) * (1.0f - appear) * (1.0f - appear);
+
+    // The window: about three quarters of the picture, in its middle.
+    const float margin = Dp(16);
+    const float width = std::min(std::clamp(area_w * 0.72f, Dp(640), Dp(1100)), area_w - 2 * margin);
+    const float height = std::min(std::max(area_h * 0.86f, Dp(420)), area_h - 2 * margin);
+    const float rise = (1.0f - eased) * Dp(28);
+    g.window_min = {g.area_min.x + (area_w - width) * 0.5f, g.area_min.y + (area_h - height) * 0.5f + rise};
+    g.window_max = {g.window_min.x + width, g.window_min.y + height};
+
+    auto* draw = ImGui::GetWindowDrawList();
+    if (style.dim > 0.0f) draw->AddRectFilled(g.area_min, g.area_max, Col(ImVec4{0, 0, 0, 1}, style.dim * eased));
+    OverlayGlass(draw, g.window_min, g.window_max, Dp(22), eased, color::accent);
 
     // The tabs, then the title line: the back arrow (from the second screen
     // on) and the title. With tabs, a tab's first screen has no title line.
@@ -665,16 +709,13 @@ OverlayResult EndOverlay(const OverlayFooter& footer)
     if (!g.claimed && CanClaim())
     {
         if (g.preferred_id) Claim(g.preferred_id, g.preferred_window);
-        else if (g.first_id) Claim(g.first_id, g.first_window);
-        else if (close_id) Claim(close_id, ImGui::GetCurrentWindow());
+        else if (g.first_id) Claim(g.first_id, g.first_window, true);
+        else if (close_id) Claim(close_id, ImGui::GetCurrentWindow(), true);
     }
+    // The player moved the cursor: it stays where they put it.
+    if (screens.auto_focus && GImGui->NavId != screens.auto_focus) screens.auto_focus = 0;
 
-    ImGui::End();
-    ImGui::PopFont();
-    ImGui::PopStyleColor(kStyleColors);
-    ImGui::PopStyleVar(kStyleVars);
-    launcher::SetUiScale(g.saved_unit);
-    launcher::SetCurrentFonts(g.saved_fonts);
+    EndOverlayLayer();
     g.active = false;
     g.screens = nullptr;
     return result;

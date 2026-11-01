@@ -65,13 +65,13 @@ struct Frame
 
 // A player's picture: their texture when the host has one, else their
 // initials on their colour; a Mii a face on a rounded square instead.
-void DrawPicture(const Frame& frame, ImDrawList* draw, ImVec2 center, float radius, const std::string& image,
-                 const std::string& initials, std::int64_t seed, bool mii)
+void DrawPicture(const OverlayImages& images, const launcher::Fonts& fonts, ImDrawList* draw, ImVec2 center,
+                 float radius, const std::string& image, const std::string& initials, std::int64_t seed, bool mii)
 {
     const ImVec2 min{center.x - radius, center.y - radius}, max{center.x + radius, center.y + radius};
     const float rounding = mii ? radius * 0.48f : radius;
     ImTextureID texture = 0;
-    if (!image.empty() && frame.images) texture = frame.images(image);
+    if (!image.empty() && images) texture = images(image);
     if (texture)
     {
         draw->AddImageRounded(texture, min, max, {0, 0}, {1, 1}, IM_COL32_WHITE, rounding);
@@ -103,7 +103,7 @@ void DrawPicture(const Frame& frame, ImDrawList* draw, ImVec2 center, float radi
         return;
     }
     draw->AddCircleFilled(center, radius, Col(SeedTint(seed)));
-    ImFont* font = radius >= Dp(30) ? frame.fonts.button : radius >= Dp(19) ? frame.fonts.heading : frame.fonts.label;
+    ImFont* font = radius >= Dp(30) ? fonts.button : radius >= Dp(19) ? fonts.heading : fonts.label;
     const float size = radius >= Dp(30) ? FontSize(font) * radius / Dp(24) : FontSize(font);
     const ImVec2 text = font->CalcTextSizeA(size, FLT_MAX, 0.0f, initials.c_str());
     draw->AddText(font, size, {center.x - text.x * 0.5f, center.y - text.y * 0.5f}, Col(color::text), initials.c_str());
@@ -167,7 +167,7 @@ void DrawYou(Frame& frame, float width)
     OverlayCard(draw, at, end, Dp(16), fill, color::border);
 
     const ImVec2 center{at.x + pad + radius, at.y + pad + radius};
-    DrawPicture(frame, draw, center, radius, me.image, me.initials, me.tint_seed, false);
+    DrawPicture(frame.images, frame.fonts, draw, center, radius, me.image, me.initials, me.tint_seed, false);
     PresenceDot(draw, center, radius, Presence::Free, Mix(color::field, OverlaySurface(), 0.15f));
     const float left = center.x + radius + Dp(14);
     const float block = FontSize(fonts.heading) + (me.detail.empty() ? 0.0f : Dp(2) + FontSize(fonts.caption));
@@ -273,7 +273,8 @@ void DrawSet(Frame& frame, float width)
     launcher::DrawTracked(draw, fonts.caption, {at.x + pad, y}, Col(tint), kicker, Dp(1.6f));
     y += kicker_h;
     const ImVec2 center{at.x + pad + radius, y + radius};
-    DrawPicture(frame, draw, center, radius, set.opponent.image, set.opponent.initials, set.opponent.tint_seed, false);
+    DrawPicture(frame.images, frame.fonts, draw, center, radius, set.opponent.image, set.opponent.initials,
+                set.opponent.tint_seed, false);
     PresenceDot(draw, center, radius, set.opponent.presence, Mix(color::field, tint, 0.10f));
     const float left = center.x + radius + Dp(12), right = end.x - pad - score_width;
     const float block = FontSize(fonts.label) + Dp(3) + FontSize(fonts.caption);
@@ -370,7 +371,7 @@ void DrawRow(Frame& frame, const OnlinePanelRow& row, float width, bool line)
 
     const float radius = Dp(20);
     const ImVec2 center{start.x + Dp(12) + radius, start.y + height * 0.5f};
-    DrawPicture(frame, draw, center, radius, row.image, row.initials, row.tint_seed, mii);
+    DrawPicture(frame.images, frame.fonts, draw, center, radius, row.image, row.initials, row.tint_seed, mii);
     PresenceDot(draw, center, radius, row.presence, surface);
 
     // From the right: the chevron, then Challenge when it fits.
@@ -577,7 +578,7 @@ void DrawPlayer(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow*
         const ImVec2 at = ImGui::GetCursorScreenPos();
         const float radius = Dp(48);
         const ImVec2 center{at.x + radius, at.y + radius};
-        DrawPicture(frame, draw, center, radius, row->image, row->initials, row->tint_seed, mii);
+        DrawPicture(frame.images, frame.fonts, draw, center, radius, row->image, row->initials, row->tint_seed, mii);
         PresenceDot(draw, center, radius, row->presence, OverlaySurface());
         const float left = center.x + radius + Dp(22);
         const float block = FontSize(fonts.heading) + Dp(6) + FontSize(fonts.body) + Dp(12) + Dp(19);
@@ -647,6 +648,14 @@ void DrawPlayer(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow*
 } // namespace
 
 OverlayScreens::Screen OnlinePanelFirstScreen() { return {int(OnlinePanelScreen::Main), {}, "Online"}; }
+
+void DrawPlayerPicture(ImDrawList* draw, ImVec2 center, float radius, const OnlinePanelRow& row,
+                       const OverlayImages& images, const ImVec4& surface)
+{
+    DrawPicture(images, launcher::CurrentFonts(), draw, center, radius, row.image, row.initials, row.tint_seed,
+                row.kind == OnlinePanelRow::Kind::Mii);
+    PresenceDot(draw, center, radius, row.presence, surface);
+}
 
 std::string OnlinePanelTitle(const OnlinePanelModel& model, const OverlayScreens& screens)
 {

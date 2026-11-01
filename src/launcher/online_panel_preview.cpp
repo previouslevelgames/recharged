@@ -282,6 +282,11 @@ void OnlinePanelPreview::DrawBackdrop(ImVec2 size, ImTextureID back, ImTextureID
 void OnlinePanelPreview::Draw(ImVec2 size, ImTextureID art_back, ImTextureID art_front, ImVec2 art_size)
 {
     DrawBackdrop(size, art_back, art_front, art_size);
+    if (mode_.rfind("preview-prompt", 0) == 0)
+    {
+        DrawPrompt();
+        return;
+    }
     // F1 opens Online and F2 Game options, as in the game; the open tab's key closes it.
     for (const auto& [key, tab] : {std::pair{ImGuiKey_F1, overlay::OverlayTab::Online},
                                    std::pair{ImGuiKey_F2, overlay::OverlayTab::GameOptions}})
@@ -316,6 +321,117 @@ void OnlinePanelPreview::Draw(ImVec2 size, ImTextureID art_back, ImTextureID art
     overlay::GameOverlayActions actions;
     overlay::DrawGameOverlay(model, state_, actions, style);
     if (actions.Any()) Apply(actions);
+}
+
+// A prompt as the game shows it after a set or for a challenge; its answers
+// go to the console, and it shows again.
+void OnlinePanelPreview::DrawPrompt()
+{
+    using Kind = overlay::OverlayPrompt::Kind;
+    overlay::OverlayPrompt prompt;
+    const auto person = [&](const char* name, std::int64_t id, const char* image) {
+        ProfilePlayer player = Online(Player(id, name, name), "game");
+        player.avatar_url = image;
+        return player;
+    };
+    const auto row = [](const ProfilePlayer& player) {
+        overlay::OnlinePanelRow row;
+        row.name = player.name;
+        row.image = player.avatar_url;
+        row.initials = overlay::Initials(player.name);
+        row.tint_seed = player.id;
+        row.presence = overlay::Presence::Free;
+        row.status = "In the game";
+        row.tone = overlay::Tone::Good;
+        return row;
+    };
+    const std::string rules =
+        "Competitive: Rookie, 3 minutes, best of 3, random stadium, Fast terrain, No Mega Strikes";
+    if (mode_ == "preview-prompt-lost")
+    {
+        prompt.kind = Kind::SetOver;
+        prompt.kicker = "SET OVER";
+        prompt.title = "You lost the set";
+        prompt.opponent = row(person("Mario", 900010, "preview:mario"));
+        prompt.has_score = true;
+        prompt.won = 1;
+        prompt.lost = 2;
+        prompt.games = 3;
+        prompt.detail = rules;
+        prompt.primary = "Rematch";
+        prompt.secondary = "Not now";
+        prompt.note = "A rematch asks Mario to play the same set again.";
+    }
+    else if (mode_ == "preview-prompt-stopped")
+    {
+        prompt.kind = Kind::SetStopped;
+        prompt.kicker = "SET STOPPED";
+        prompt.title = "The set stopped";
+        prompt.opponent = row(person("Daisy", 900001, ""));
+        prompt.opponent.status = "Left the game";
+        prompt.opponent.tone = overlay::Tone::Busy;
+        prompt.opponent.presence = overlay::Presence::Busy;
+        prompt.has_score = true;
+        prompt.won = 1;
+        prompt.lost = 1;
+        prompt.games = 3;
+        prompt.detail = "The connection to Daisy was lost in game 3. Nothing was counted.";
+        prompt.primary = "Play it again";
+        prompt.secondary = "Not now";
+    }
+    else if (mode_ == "preview-prompt-challenge")
+    {
+        prompt.kind = Kind::Challenge;
+        prompt.kicker = "CHALLENGE";
+        prompt.title = "Peach challenges you";
+        prompt.opponent = row(person("Peach", 900002, "preview:peach"));
+        prompt.opponent.status = "In the launcher";
+        prompt.detail = rules;
+        prompt.primary = "Accept";
+        prompt.secondary = "Decline";
+        prompt.note = "Accept, and your game goes straight to the set.";
+    }
+    else if (mode_ == "preview-prompt-rematch")
+    {
+        prompt.kind = Kind::Rematch;
+        prompt.kicker = "REMATCH";
+        prompt.title = "Koopa wants a rematch";
+        prompt.opponent = row(person("Koopa", 900020, ""));
+        prompt.has_score = true;
+        prompt.won = 2;
+        prompt.lost = 1;
+        prompt.games = 3;
+        prompt.detail = "The same set again: " + rules + ".";
+        prompt.primary = "Accept";
+        prompt.secondary = "Decline";
+    }
+    else
+    {
+        prompt.kind = Kind::SetOver;
+        prompt.kicker = "SET OVER";
+        prompt.title = "You won the set";
+        prompt.opponent = row(person("Koopa", 900020, ""));
+        prompt.has_score = true;
+        prompt.won = 2;
+        prompt.lost = 1;
+        prompt.games = 3;
+        prompt.detail = rules;
+        prompt.primary = "Rematch";
+        prompt.secondary = "Not now";
+        prompt.note = "A rematch asks Koopa to play the same set again.";
+    }
+    prompt.image = [this](const std::string& key) { return Avatar(key); };
+    overlay::OverlayStyle style;
+    style.unit = UiScale();
+    style.fonts = CurrentFonts();
+    if (capture_ && prompt_state_.shown < 1.0f) prompt_state_.shown = 1.0f; // captures show it in place
+    overlay::OverlayPromptActions actions;
+    overlay::DrawOverlayPrompt(prompt, prompt_state_, actions, style);
+    if (actions.primary || actions.secondary)
+    {
+        std::cout << "Prompt: " << (actions.primary ? prompt.primary : prompt.secondary) << '\n';
+        prompt_state_.Open();
+    }
 }
 
 // What a press does to the made-up data, as the server and the host would answer it.

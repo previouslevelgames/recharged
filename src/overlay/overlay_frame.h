@@ -64,6 +64,25 @@ struct OverlayTabs
     int clicked = -1; // set by BeginOverlay: a tab the mouse picked
 };
 
+// The overlay's layer: an ImGui window over the style's area (an empty one
+// meaning the whole display), transparent, in the overlay's style, with the
+// launcher's widgets at its scale and fonts until EndOverlayLayer. `front`
+// brings it in front of other windows (as it opens). BeginOverlay and the
+// prompt (overlay_prompt.h) draw in one.
+struct OverlayArea
+{
+    ImVec2 min, max;
+};
+OverlayArea BeginOverlayLayer(const char* id, const OverlayStyle& style, bool front);
+void EndOverlayLayer();
+// The overlay's window in [min, max]: its soft shadow (faded by `appear`,
+// 0..1), its frosted glass with a glow of `glow` at the top, its contour lit
+// from above.
+void OverlayGlass(ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding, float appear, const ImVec4& glow);
+// A key's cap ("Esc", "A"), 22 dp tall; `lit` 0..1 brightens it.
+float OverlayKeyCapWidth(const char* key);
+void OverlayKeyCap(ImDrawList* draw, ImVec2 pos, const char* key, float lit = 0.0f);
+
 // The overlay's screens, the first at the bottom; the caller keeps them
 // between frames.
 struct OverlayScreens
@@ -95,6 +114,10 @@ struct OverlayScreens
     std::vector<Entry> stack;
     bool focus_pending = true; // the top screen's first (or preferred) item takes the cursor
     ImGuiID restore = 0;       // or this one: the screen is back
+    // An item the frame gave the cursor for want of the preferred one (the
+    // lists still loading): while the cursor stays there, the preferred item
+    // takes it once it shows.
+    ImGuiID auto_focus = 0;
     std::uint64_t changes = 0; // each Open, Push and Pop
 };
 

@@ -52,6 +52,12 @@ enum class OnlinePanelScreen
 // every frame for each picture on screen; may start loading it.
 using OverlayImages = std::function<ImTextureID(const std::string& key)>;
 
+// A player's picture as the lists draw it: their texture, else their
+// initials on their colour (a Mii a face), with the dot of their presence
+// ringed in `surface`, the colour it sits on.
+void DrawPlayerPicture(ImDrawList* draw, ImVec2 center, float radius, const OnlinePanelRow& row,
+                       const OverlayImages& images, const ImVec4& surface);
+
 // The tab's first screen.
 OverlayScreens::Screen OnlinePanelFirstScreen();
 // The title of the screen on top of `screens`.

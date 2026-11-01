@@ -1,6 +1,7 @@
 #pragma once
 
 #include "overlay/game_overlay.h"
+#include "overlay/overlay_prompt.h"
 
 #include <SDL3/SDL.h>
 
@@ -22,7 +23,9 @@ namespace mscharged::launcher
 // "preview-empty" nobody online, "preview-error" a message in the footer,
 // "preview-player" and "preview-player-mii" a player's screen,
 // "preview-options" and "preview-options-match" the Game options tab, and
-// "preview-narrow" (or any state ending in "-narrow") a small window. The overlay's actions
+// "preview-narrow" (or any state ending in "-narrow") a small window; the
+// prompts "preview-prompt-won", "-lost", "-stopped", "-challenge" and
+// "-rematch". The overlay's actions
 // change the made-up data and go to the console; Escape closes it, F1 opens
 // Online and F2 Game options (the open tab's key closes it).
 class OnlinePanelPreview
@@ -38,6 +41,7 @@ public:
 
 private:
     void Apply(const overlay::GameOverlayActions& actions);
+    void DrawPrompt();
     void DrawBackdrop(ImVec2 size, ImTextureID back, ImTextureID front, ImVec2 art_size) const;
     ImTextureID Avatar(const std::string& key) const;
 
@@ -48,6 +52,7 @@ private:
     overlay::OnlinePanelContext context_;
     overlay::GameOptionsModel options_;
     overlay::GameOverlayState state_;
+    overlay::OverlayPromptState prompt_state_;
     std::map<std::string, ImTextureID> avatars_;
     bool open_ = true;
     float appear_ = 0.0f;

@@ -22,7 +22,7 @@ target_compile_features(charged_ui_kit PUBLIC cxx_std_17)
 target_link_libraries(charged_ui_kit PUBLIC charged_launcher_ui)
 
 add_library(charged_overlay STATIC src/overlay/overlay_frame.cpp src/overlay/online_panel.cpp
-    src/overlay/game_options.cpp src/overlay/game_overlay.cpp)
+    src/overlay/game_options.cpp src/overlay/game_overlay.cpp src/overlay/overlay_prompt.cpp)
 target_link_libraries(charged_overlay PUBLIC charged_overlay_model charged_ui_kit)
 if(BUILD_TESTING)
     add_executable(game_overlay_tests tests/game_overlay.cpp)

@@ -7,6 +7,7 @@
 // frames are built and thrown away.
 
 #include "overlay/game_overlay.h"
+#include "overlay/overlay_prompt.h"
 
 #include "imgui.h"
 
@@ -325,6 +326,118 @@ void TestResize()
     CHECK(h.OnPlayer("p10"));
 }
 
+// The lists come after the overlay opened: the cursor, put on what there was
+// (the switch, or Close), moves to the first row, unless the player moved it.
+void TestLateLists()
+{
+    platform::PlayerLists none;
+    OnlinePanelContext loading;
+    loading.me.id = 1;
+    loading.me.name = "Anosch";
+    loading.loading = true;
+    for (const bool random_games : {false, true})
+    {
+        Harness h;
+        loading.random_games = random_games; // without it, nothing but Close to put the cursor on
+        h.model.online = MakeOnlinePanelModel(none, std::nullopt, loading);
+        h.Open();
+        h.model.online = Model();
+        h.Frame();
+        h.Press(ImGuiKey_Enter);
+        CHECK(h.OnPlayer("p10"));
+    }
+    // The player moved the cursor (to Close) before the lists came: it stays.
+    Harness h;
+    loading.random_games = true;
+    h.model.online = MakeOnlinePanelModel(none, std::nullopt, loading);
+    h.Open();
+    h.Press(ImGuiKey_DownArrow);
+    h.model.online = Model();
+    h.Frame();
+    const auto actions = h.Press(ImGuiKey_Enter);
+    CHECK(actions.close && h.OnMain());
+}
+
+// The prompt after a set or for a challenge: A, Enter and clicks on its
+// buttons, B, Escape and a click beside it; the cursor on the primary button
+// as it opens.
+void TestPrompt()
+{
+    Harness h;
+    OverlayPrompt prompt;
+    prompt.kind = OverlayPrompt::Kind::SetOver;
+    prompt.kicker = "SET OVER";
+    prompt.title = "You won the set";
+    prompt.opponent.name = "Koopa";
+    prompt.opponent.initials = "K";
+    prompt.has_score = true;
+    prompt.won = 2;
+    prompt.lost = 1;
+    prompt.games = 3;
+    prompt.primary = "Rematch";
+    prompt.secondary = "Not now";
+    OverlayPromptState state;
+    const auto frame = [&](const std::function<void(ImGuiIO&)>& input = {}) {
+        if (input) input(ImGui::GetIO());
+        ImGui::NewFrame();
+        OverlayPromptActions actions;
+        DrawOverlayPrompt(prompt, state, actions, OverlayStyle{});
+        ImGui::Render();
+        return actions;
+    };
+    const auto press = [&](ImGuiKey key) {
+        OverlayPromptActions all;
+        for (const auto& a : {frame([key](ImGuiIO& io) { io.AddKeyEvent(key, true); }),
+                              frame([key](ImGuiIO& io) { io.AddKeyEvent(key, false); }), frame()})
+        {
+            all.primary |= a.primary;
+            all.secondary |= a.secondary;
+        }
+        return all;
+    };
+    const auto click = [&](float x, float y) {
+        OverlayPromptActions all;
+        for (const auto& a : {frame([x, y](ImGuiIO& io) { io.AddMousePosEvent(x, y); }),
+                              frame([](ImGuiIO& io) { io.AddMouseButtonEvent(0, true); }),
+                              frame([](ImGuiIO& io) { io.AddMouseButtonEvent(0, false); }),
+                              frame([](ImGuiIO& io) { io.AddMousePosEvent(-1, -1); })})
+        {
+            all.primary |= a.primary;
+            all.secondary |= a.secondary;
+        }
+        return all;
+    };
+    // Its entrance (a fifth of a second), then the keys.
+    state.Open();
+    for (int i = 0; i < 20; ++i) frame();
+    auto actions = press(ImGuiKey_Enter);
+    CHECK(actions.primary && !actions.secondary);
+    actions = press(ImGuiKey_GamepadFaceDown);
+    CHECK(actions.primary && !actions.secondary);
+    actions = press(ImGuiKey_GamepadFaceRight);
+    CHECK(actions.secondary && !actions.primary);
+    actions = press(ImGuiKey_Escape);
+    CHECK(actions.secondary && !actions.primary);
+    // Left: the secondary button, which A presses; opened again, the primary has the cursor.
+    press(ImGuiKey_GamepadDpadLeft);
+    actions = press(ImGuiKey_GamepadFaceDown);
+    CHECK(actions.secondary && !actions.primary);
+    state.Open();
+    for (int i = 0; i < 20; ++i) frame();
+    actions = press(ImGuiKey_Enter);
+    CHECK(actions.primary && !actions.secondary);
+    // Clicks (the default font: the prompt is 560 wide and 251 tall in the
+    // middle of 1280x720, its buttons 48 tall from y 409.5).
+    actions = click(760, 430);
+    CHECK(actions.primary && !actions.secondary);
+    actions = click(500, 430);
+    CHECK(actions.secondary && !actions.primary);
+    actions = click(640, 270);
+    CHECK(!actions.primary && !actions.secondary);
+    actions = click(100, 100);
+    CHECK(actions.secondary && !actions.primary);
+}
+
 // The frame alone: a screen with Done, and nothing else to put the cursor on.
 void TestFrameDone()
 {
@@ -361,6 +474,8 @@ int main()
     TestGameOptions();
     TestMouse();
     TestResize();
+    TestLateLists();
+    TestPrompt();
     TestFrameDone();
     if (failures)
     {
