@@ -40,6 +40,13 @@ struct ProfilePlayer
     std::string discord; // the Discord username others challenge
     std::string avatar_url;
     bool test = false; // a test server's player, signed in by name
+    // How they signed in: "discord", "mii" (with a Mii's name, no Discord)
+    // or "test"; empty from servers before Mii accounts (then Discord, or
+    // test when `test`). MiiAccount() tells.
+    std::string account;
+    // A Mii player's friend code, once their game logged in to WFC (also in
+    // `wfc`); empty otherwise.
+    std::string friend_code;
     std::vector<WfcProfile> wfc; // the latest first
     // GET /api/v1/me only: the Discord account id (digits; empty for test
     // players), which never changes: the player's Mii is made from it.
@@ -60,6 +67,8 @@ struct ProfilePlayer
     // GET /api/v1/me only: available for random games (servers from 1.2.1).
     bool available = false;
     int unread = 0;
+
+    bool MiiAccount() const { return account == "mii"; }
 };
 
 // A message between two friends (GET /api/v1/chat/<id>).
@@ -207,6 +216,7 @@ struct ProfileServerInfo
     std::string version;
     bool discord = false; // Discord sign-in
     bool test = false;    // sign-in by name (test servers)
+    bool mii = false;     // sign-in with a Mii's name, no Discord (servers from 1.2.4)
     // The Discord application the server signs in to (digits): the one the
     // launcher's Discord Social SDK uses. Empty without Discord sign-in, and
     // from servers before 1.2.0.
@@ -229,6 +239,9 @@ struct SignInStart
     std::string url;  // the page the browser opens
     int expires_in = 600;
     int poll_interval = 2;
+    // Started with a Mii player's session: the server joins Discord to that
+    // profile (false from servers that can't, and without a session).
+    bool link = false;
 };
 
 struct SignInResult
@@ -279,11 +292,17 @@ public:
     // Recharged-Activity header); the launcher's say nothing.
     void SetActivity(std::string activity) { activity_ = std::move(activity); }
 
-    // Without a session.
+    // Without a session. StartSignIn with the session of a Mii player
+    // connects Discord to their profile; PollSignIn then refuses a Discord
+    // account that has a profile of its own.
     ProfileServerInfo Info();
     SignInStart StartSignIn();
     SignInResult PollSignIn(const std::string& id);
     SignInResult TestSignIn(const std::string& name);
+    // A player without Discord, by their profile name (1-32 characters): a
+    // new profile each time (POST /api/v1/sign-in/mii). A ProfileError with
+    // Status() 429 when the server takes no more for now.
+    SignInResult MiiSignIn(const std::string& name);
     std::vector<RuleSet> RuleSets();
 
     // With the session's token.

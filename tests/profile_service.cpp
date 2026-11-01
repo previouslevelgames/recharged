@@ -458,6 +458,97 @@ void Requests()
     }
 }
 
+// Players without Discord: a Mii sign-in by a profile name (refused while
+// the server takes no more), the account it gives, and connecting Discord
+// to it later with the session, which a Discord account with a profile of
+// its own refuses.
+void MiiAccounts()
+{
+    if (!HttpUnavailable().empty()) return;
+    const std::vector<Exchange> exchanges{
+        {"GET /api/v1/server", 200, R"({"version":"1.2.4","sign_in":{"discord":true,"test":false,"mii":true}})"},
+        {"POST /api/v1/sign-in/mii", 429, R"({"error":"too many new players from here: try again in an hour"})"},
+        {"POST /api/v1/sign-in/mii", 400, R"({"error":"a name has 1 to 32 characters, without control characters"})"},
+        {"POST /api/v1/sign-in/mii", 200,
+         R"({"status":"signed_in","token":"m0","player":{"id":10,"name":"Al","account":"mii","friend_code":null,)"
+         R"("discord_id":null,"wfc":[]}})"},
+        {"POST /api/v1/sign-in/mii", 200,
+         R"({"token":"m1","player":{"id":11,"name":"Bob the Builder","account":"mii","wfc":[]}})"},
+        {"GET /api/v1/me", 200,
+         R"({"id":11,"name":"Bob the Builder","account":"mii","friend_code":"0868-9934-5920",)"
+         R"("wfc":[{"profile_id":1000000000,"game":"R4QE","friend_code":"0868-9934-5920","mii":"Bob"}]})"},
+        {"POST /api/v1/sign-in", 200,
+         R"({"id":"up-1","code":"K7Q2","url":"http://127.0.0.1/sign-in/up-1","expires_in":600,"poll_interval":2,)"
+         R"("link":true})"},
+        {"GET /api/v1/sign-in/up-1", 409, R"({"error":"this Discord account already has a Recharged profile"})"},
+        {"GET /api/v1/sign-in/up-1", 200, R"({"status":"refused","message":"Discord said no"})"},
+        {"GET /api/v1/sign-in/up-1", 200,
+         R"({"status":"signed_in","token":"m2","player":{"id":11,"name":"Bob","discord":"bob","account":"discord"}})"},
+        {"GET /api/v1/me", 200, R"({"id":7,"name":"Nelly","discord":"nelly","test":false})"},
+    };
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        ProfileService api(server.Url());
+        const auto info = api.Info();
+        CHECK(info.mii && info.discord && !info.test);
+        try
+        {
+            api.MiiSignIn("Bob the Builder");
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 429 && !e.SignedOut()
+                  && std::string(e.what()) == "Too many new players from here: try again in an hour");
+        }
+        try
+        {
+            api.MiiSignIn("x\x01");
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 400);
+        }
+        const auto first = api.MiiSignIn("Al");
+        CHECK(first.status == SignInResult::Status::SignedIn && first.token == "m0" && first.player.MiiAccount()
+              && first.player.friend_code.empty() && first.player.discord_id.empty());
+        const auto signed_in = api.MiiSignIn("Bob the Builder");
+        CHECK(signed_in.status == SignInResult::Status::SignedIn && signed_in.token == "m1"
+              && signed_in.player.id == 11 && signed_in.player.MiiAccount() && !signed_in.player.test
+              && signed_in.player.discord.empty() && !signed_in.discord);
+        api.SetToken(signed_in.token);
+        const auto me = api.Me();
+        CHECK(me.MiiAccount() && me.friend_code == "0868-9934-5920" && me.wfc.size() == 1 && me.wfc[0].mii == "Bob");
+        // Connecting Discord: the sign-in with the Mii player's session.
+        const auto start = api.StartSignIn();
+        CHECK(start.id == "up-1" && start.code == "K7Q2" && start.link);
+        const auto taken = api.PollSignIn(start.id);
+        CHECK(taken.status == SignInResult::Status::Refused
+              && taken.message == "This Discord account already has a Recharged profile");
+        const auto refused = api.PollSignIn(start.id);
+        CHECK(refused.status == SignInResult::Status::Refused && refused.message == "Discord said no");
+        const auto connected = api.PollSignIn(start.id);
+        CHECK(connected.status == SignInResult::Status::SignedIn && connected.token == "m2"
+              && connected.player.account == "discord" && !connected.player.MiiAccount());
+        // Servers before Mii accounts say nothing of the account.
+        const auto older = api.Me();
+        CHECK(older.account.empty() && !older.MiiAccount() && older.friend_code.empty());
+    }
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+    {
+        CHECK(sent[1].body == R"({"name":"Bob the Builder"})" && sent[1].content_type == "application/json"
+              && sent[1].authorization.empty());
+        CHECK(sent[2].body == R"({"name":"x\u0001"})");
+        CHECK(sent[4].authorization.empty() && sent[5].authorization == "Bearer m1");
+        CHECK(sent[6].body == "{}" && sent[6].authorization == "Bearer m1");
+        CHECK(sent[7].authorization == "Bearer m1");
+    }
+}
+
 // The game's online panel with the Discord friends the launcher gave it: they
 // are looked up with the lists, in parts as large as the server takes; a
 // failed lookup keeps the last list, fails nothing else and is logged once.
@@ -646,6 +737,7 @@ int main()
     LastOnline();
 #ifndef _WIN32
     Requests();
+    MiiAccounts();
     FeedDiscordFriends();
     FeedChallengeRules();
 #endif

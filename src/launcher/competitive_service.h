@@ -43,6 +43,14 @@ public:
         std::uint64_t error_serial = 0;
         std::string code, url;       // SigningIn: the code both screens show, the page
         std::uint64_t sign_in = 0;   // a new value: a new page to open in the browser
+        // Signed in with a Mii: Discord being connected to the profile (code
+        // and url as for SigningIn), and why the last try didn't (a Discord
+        // account with a profile of its own).
+        bool connecting_discord = false;
+        std::string connect_error;
+        // Why the last Mii sign-in failed (the server takes no more for now,
+        // no answer...), for the page that asked; empty after a new one.
+        std::string mii_error;
         platform::ProfilePlayer player;
         std::vector<platform::RuleSet> rule_sets;
         std::optional<platform::ProfileMatch> match;
@@ -69,8 +77,14 @@ public:
     // The server to use, as online.profile_server has it; a different one
     // starts again (its own saved session, if any).
     void SetServer(const std::string& server);
+    // Signed out: the Discord sign-in. Signed in with a Mii: connects
+    // Discord to that profile (the sign-in with its session), which stays
+    // signed in meanwhile.
     void SignIn();
     void TestSignIn(const std::string& name);
+    // Without Discord: a new profile by `name` (1-32 characters), for the
+    // Mii the player chose; a failure goes to Status::mii_error.
+    void MiiSignIn(const std::string& name);
     void StopSignIn();
     void SignOut();
     // The player's Discord friends (DiscordFriends): who of them plays

@@ -28,6 +28,22 @@ constexpr auto kLeaderboardPoll = 60s;
 constexpr auto kLeaderboardShown = 2s;
 constexpr auto kPlayerPoll = 60s;
 constexpr auto kRetry = 15s;
+
+// A Mii sign-in's failure, as the page tells it.
+std::string MiiSignInError(const ProfileError& error)
+{
+    switch (error.Status())
+    {
+    case 0: return "The server doesn't answer. Check your internet connection, then try again.";
+    case 404: return "This server can't sign in players with a Mii yet.";
+    default:
+        // The server's own words (a name it refuses, how long to wait), else
+        // what its status says.
+        if (std::string(error.what()).rfind("The server answered", 0) != 0) return error.what();
+        if (error.Status() == 429) return "Too many new players from your network just now. Try again later.";
+        return error.what();
+    }
+}
 } // namespace
 
 CompetitiveService::CompetitiveService(std::filesystem::path session_file, std::filesystem::path discord_link_file)
@@ -185,6 +201,10 @@ void CompetitiveService::SignedOutHere(const char* reason)
     status_.state = State::SignedOut;
     status_.player = {};
     status_.match.reset();
+    status_.connecting_discord = false;
+    status_.connect_error.clear();
+    status_.code.clear();
+    status_.url.clear();
     // The next player's place on them differs.
     status_.leaderboard.reset();
     next_leaderboard_ = {};
@@ -240,6 +260,9 @@ void CompetitiveService::Signed(ProfileService& api, const std::string& token, c
     status_.code.clear();
     status_.url.clear();
     status_.error.clear();
+    status_.connecting_discord = false;
+    status_.connect_error.clear();
+    status_.mii_error.clear();
     ++status_.serial;
     next_me_ = Clock::now() + kPlayerPoll;
     next_discord_ = Clock::now();
@@ -250,14 +273,16 @@ void CompetitiveService::Poll(ProfileService& api)
 {
     State state;
     std::string id;
-    bool me, discord_due;
+    bool me, discord_due, connecting;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         state = status_.state;
         id = sign_in_id_;
+        connecting = status_.connecting_discord && !id.empty();
         me = Clock::now() >= next_me_;
         discord_due = Clock::now() >= next_discord_;
-        next_poll_ = Clock::now() + (state == State::SigningIn ? std::chrono::seconds(poll_interval_) : kMatchPoll);
+        next_poll_ = Clock::now()
+            + (state == State::SigningIn || connecting ? std::chrono::seconds(poll_interval_) : kMatchPoll);
     }
     if (state == State::Unavailable)
     {
@@ -305,6 +330,42 @@ void CompetitiveService::Poll(ProfileService& api)
         return;
     }
     if (state != State::SignedIn) return;
+    // Discord being connected to a Mii player's profile: its sign-in, then
+    // the usual asks while it waits.
+    if (connecting)
+    {
+        const auto result = api.PollSignIn(id);
+        if (result.status == SignInResult::Status::SignedIn)
+        {
+            if (result.discord)
+            {
+                try
+                {
+                    platform::SaveDiscordLink(discord_link_file_, {api.Server(), result.discord->refresh_token});
+                }
+                catch (const std::exception& e)
+                {
+                    platform::SessionLogLine(std::string("Discord friends: the link is not kept: ") + e.what());
+                }
+            }
+            Signed(api, result.token, result.player);
+            return;
+        }
+        if (result.status != SignInResult::Status::Waiting)
+        {
+            Change([&](Status& status) {
+                status.connecting_discord = false;
+                status.code.clear();
+                status.url.clear();
+                status.connect_error = result.status == SignInResult::Status::Expired
+                    ? "Connecting Discord took too long. Try again."
+                    : (result.message.empty() ? "Discord wasn't connected." : result.message);
+            });
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (running_ == generation_) sign_in_id_.clear();
+            connecting = false;
+        }
+    }
     int interval = 0;
     const auto match = api.CurrentMatch(&interval);
     std::optional<platform::ProfilePlayer> player;
@@ -354,7 +415,7 @@ void CompetitiveService::Poll(ProfileService& api)
     if (me) next_me_ = Clock::now() + kPlayerPoll;
     if (discord_due) next_discord_ = Clock::now() + kDiscordPoll;
     if (board) next_leaderboard_ = Clock::now() + kLeaderboardPoll;
-    if (interval) next_poll_ = Clock::now() + std::chrono::seconds(interval);
+    if (interval && !connecting) next_poll_ = Clock::now() + std::chrono::seconds(interval);
 }
 
 void CompetitiveService::SetDiscordFriends(std::vector<std::string> discord_ids)
@@ -412,13 +473,27 @@ void CompetitiveService::TradeDiscordToken(std::string code, std::string verifie
 void CompetitiveService::SignIn()
 {
     Post([this](ProfileService& api) {
+        // Signed in (with a Mii), the session goes with it: Discord joins
+        // that profile, which stays signed in meanwhile.
+        Change([](Status& status) { status.connect_error.clear(); });
+        const bool linking = Snapshot().state == State::SignedIn;
         const auto start = api.StartSignIn();
+        // A server that would not join Discord to this profile would sign
+        // in another one instead.
+        if (linking && !start.link)
+        {
+            Change([](Status& status) {
+                status.connect_error = "This server can't connect Discord to a Mii profile yet.";
+            });
+            return;
+        }
         std::lock_guard<std::mutex> lock(mutex_);
         if (running_ != generation_) return;
         sign_in_id_ = start.id;
         poll_interval_ = start.poll_interval;
         next_poll_ = Clock::now() + std::chrono::seconds(start.poll_interval);
-        status_.state = State::SigningIn;
+        if (status_.state == State::SignedIn) status_.connecting_discord = true;
+        else status_.state = State::SigningIn;
         status_.code = start.code;
         status_.url = start.url;
         ++status_.sign_in;
@@ -435,9 +510,41 @@ void CompetitiveService::TestSignIn(const std::string& name)
     }, true);
 }
 
+void CompetitiveService::MiiSignIn(const std::string& name)
+{
+    Post([this, name](ProfileService& api) {
+        Change([](Status& status) { status.mii_error.clear(); });
+        SignInResult result;
+        try
+        {
+            result = api.MiiSignIn(name);
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled()) throw;
+            Change([&](Status& status) { status.mii_error = MiiSignInError(e); });
+            return;
+        }
+        if (result.status == SignInResult::Status::SignedIn) Signed(api, result.token, result.player);
+        else
+            Change([&](Status& status) {
+                status.mii_error = result.message.empty() ? "The sign-in was refused." : result.message;
+            });
+    }, true);
+}
+
 void CompetitiveService::StopSignIn()
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (status_.state == State::SignedIn && status_.connecting_discord)
+    {
+        sign_in_id_.clear();
+        status_.connecting_discord = false;
+        status_.code.clear();
+        status_.url.clear();
+        ++status_.serial;
+        return;
+    }
     if (status_.state != State::SigningIn) return;
     sign_in_id_.clear();
     status_.state = State::SignedOut;

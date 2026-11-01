@@ -93,6 +93,8 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.discord = value["discord"].Text();
     player.avatar_url = value["avatar_url"].Text();
     player.test = value["test"].Bool();
+    player.account = value["account"].Text();
+    player.friend_code = value["friend_code"].Text();
     for (const auto& profile : value["wfc"].Items()) player.wfc.push_back(ParseWfc(profile));
     player.discord_id = value["discord_id"].Text();
     player.available = value["available"].Bool();
@@ -196,7 +198,8 @@ SignInResult ParseSignIn(const JsonValue& value)
 {
     SignInResult result;
     const std::string& status = value["status"].Text();
-    if (status == "signed_in")
+    // A Mii sign-in's answer may carry the session alone.
+    if (status == "signed_in" || (status.empty() && !value["token"].Text().empty()))
     {
         result.status = SignInResult::Status::SignedIn;
         result.token = value["token"].Text();
@@ -331,6 +334,7 @@ ProfileServerInfo ProfileService::Info()
         info.version = answer.body["version"].Text();
         info.discord = answer.body["sign_in"]["discord"].Bool();
         info.test = answer.body["sign_in"]["test"].Bool();
+        info.mii = answer.body["sign_in"]["mii"].Bool();
         info.discord_application = answer.body["discord_application"].Text();
         return info;
     }
@@ -351,6 +355,7 @@ SignInStart ProfileService::StartSignIn()
     start.url = answer.body["url"].Text();
     start.expires_in = int(answer.body["expires_in"].Integer().value_or(600));
     start.poll_interval = std::clamp(int(answer.body["poll_interval"].Integer().value_or(2)), 1, 30);
+    start.link = answer.body["link"].Bool();
     if (start.id.empty() || start.url.empty()) throw ProfileError("The server's answer is not understood", 200);
     // Only a web page goes to the browser, never another kind of link.
     if (start.url.rfind("https://", 0) != 0 && start.url.rfind("http://", 0) != 0)
@@ -369,7 +374,17 @@ SignInResult ProfileService::PollSignIn(const std::string& id)
     }
     catch (const ProfileError& e)
     {
-        if (e.Status() != 404) throw;
+        // Refused in an error's words: a Discord account that has a profile
+        // of its own, when connecting it to a Mii player's.
+        const long code = e.Status();
+        if (code == 400 || code == 403 || code == 409)
+        {
+            SignInResult result;
+            result.status = SignInResult::Status::Refused;
+            result.message = e.what();
+            return result;
+        }
+        if (code != 404) throw;
         SignInResult result;
         result.status = SignInResult::Status::Expired;
         return result;
@@ -382,6 +397,14 @@ SignInResult ProfileService::TestSignIn(const std::string& name)
     AppendJsonString(body, name);
     body += '}';
     return ParseSignIn(Call("POST", "/api/v1/sign-in/test", &body).body);
+}
+
+SignInResult ProfileService::MiiSignIn(const std::string& name)
+{
+    std::string body = "{\"name\":";
+    AppendJsonString(body, name);
+    body += '}';
+    return ParseSignIn(Call("POST", "/api/v1/sign-in/mii", &body).body);
 }
 
 std::vector<RuleSet> ProfileService::RuleSets()
