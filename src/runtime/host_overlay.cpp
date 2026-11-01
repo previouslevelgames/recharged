@@ -1,4 +1,7 @@
 #include "runtime/host_overlay.h"
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "overlay/overlay_frame.h"
+#endif
 
 #include "platform/path.h"
 #include "runtime/host_panel.h"
@@ -100,6 +103,10 @@ void HostOverlay::BuildFonts(float size, float unit)
         config.FontBuilderFlags |= ImGuiFreeTypeBuilderFlags_Bold;
         number_ = add(size);
         cardBold_ = addCard(std::round(26.0f * unit));
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+        overlayFonts_ = fontData_.empty() ? launcher::Fonts{}
+            : overlay::AddOnlinePanelFonts(*io.Fonts, fontData_.data(), static_cast<int>(fontData_.size()), unit);
+#endif
         if (io.Fonts->Build() || fontData_.empty()) break;
         std::fprintf(stderr, "Host overlay: unreadable font; using the built-in font.\n");
         fontData_.clear();

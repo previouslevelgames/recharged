@@ -367,6 +367,12 @@ target_link_libraries(charged_original_game_host PRIVATE
     charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_competitive charged_alert_sound
     charged_texture_packs
     ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
+# The game's overlay in the panel (F1, HOME): the Online and Game options tabs
+# (src/overlay, built with the launcher, through Aurora's ImGui).
+if(TARGET charged_overlay)
+    target_link_libraries(charged_original_game_host PRIVATE charged_overlay)
+    target_compile_definitions(charged_original_game_host PRIVATE MSCHARGED_HAS_GAME_OVERLAY=1)
+endif()
 
 # The autopilot's sound (test and dev builds): one sound of the disc's banks
 # that the host decodes and plays itself (src/platform/bank_cue.cpp).

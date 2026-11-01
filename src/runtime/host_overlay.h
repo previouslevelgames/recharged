@@ -1,6 +1,9 @@
 #pragma once
 
 #include "runtime/fps_overlay_layout.h"
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "launcher/ui_kit.h"
+#endif
 #include "platform/system_usage.h"
 
 #include <array>
@@ -65,6 +68,11 @@ public:
     // The host panel (F1 or HOME), drawn while open in place of the card,
     // under the performance numbers and messages; null for none.
     void SetPanel(HostPanel* panel);
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+    // The game overlay's fonts (src/overlay), at the panel's unit; none
+    // without the overlay's font file (ImGui's own font then).
+    const launcher::Fonts& OverlayFonts() const { return overlayFonts_; }
+#endif
     // Rebuild only when a displayed value, the message's fade or the window's
     // pixel size changes, and every call while the panel is open. Unknown
     // measurements show N/A, including during the first sample window.
@@ -82,6 +90,9 @@ private:
     std::string message_;
     std::optional<Card> card_, shownCard_;
     HostPanel* panel_ = nullptr;
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+    launcher::Fonts overlayFonts_{};
+#endif
     bool shownPanel_ = false;
     Clock::time_point messageShown_{};
     std::array<std::optional<int>, kMaxPerformanceMetrics> shownValues_{};

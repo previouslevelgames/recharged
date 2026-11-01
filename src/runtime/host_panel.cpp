@@ -175,6 +175,8 @@ HostPanel::~HostPanel()
 
 void HostPanel::SetContent(Content content) { content_ = std::move(content); }
 
+void HostPanel::SetOverlay(Overlay overlay) { overlay_ = std::move(overlay); }
+
 void HostPanel::SetPauseRule(std::function<bool()> rule) { pauseRule_ = std::move(rule); }
 
 void HostPanel::Open() { OpenFrom(-1); }
@@ -273,8 +275,9 @@ void HostPanel::Service(Clock::time_point now)
     platform::SetHotkeysTyping(typing_);
     if (typing_ && keyboardChannel_ >= 0) homes &= ~(1u << keyboardChannel_);
     const auto buttons = platform::TakeNativeWpadPanelButtons();
+    // B closes the panel's own card; the overlay takes it as a key (back).
     bool back = false;
-    for (int n = 0; n < 4; ++n)
+    for (int n = 0; n < 4 && !overlay_; ++n)
         if (n != keyboardChannel_ && (buttons.pressed[n] & WPAD_BUTTON_B)) back = true;
     if (closeRequested_ || hotkey || homes || back) {
         Close();
@@ -294,15 +297,19 @@ void HostPanel::FeedControllers(const platform::NativeWpadPanelButtons& buttons)
     // The keyboard & mouse player's keys reach ImGui as keys and clicks; its
     // WPAD buttons (Return as A, a click as A) would press twice.
     ImGuiIO& io = ImGui::GetIO();
-    for (std::size_t k = 0; k < std::size(kControllerKeys); ++k) {
+    // With the overlay, B is its key too (back a screen).
+    constexpr ControllerKey kBack{WPAD_BUTTON_B, ImGuiKey_GamepadFaceRight};
+    const std::size_t keys = std::size(kControllerKeys) + (overlay_ ? 1 : 0);
+    for (std::size_t k = 0; k < keys; ++k) {
+        const ControllerKey& entry = k < std::size(kControllerKeys) ? kControllerKeys[k] : kBack;
         bool down = false, pressed = false;
         for (int n = 0; n < 4; ++n) {
             if (n == keyboardChannel_) continue;
-            down |= (buttons.down[n] & kControllerKeys[k].bit) != 0;
-            pressed |= (buttons.pressed[n] & kControllerKeys[k].bit) != 0;
+            down |= (buttons.down[n] & entry.bit) != 0;
+            pressed |= (buttons.pressed[n] & entry.bit) != 0;
         }
         const bool was = controllerDown_ & (1u << k);
-        const ImGuiKey key = kControllerKeys[k].key;
+        const ImGuiKey key = entry.key;
         if (pressed) {
             // Pressed since the last frame: released first if it was down,
             // and a short tap is released again (ImGui sees one per frame).
@@ -332,6 +339,13 @@ void HostPanel::FeedControllers(const platform::NativeWpadPanelButtons& buttons)
 
 void HostPanel::Draw(float width, float height, const Fonts& fonts)
 {
+    if (overlay_) {
+        overlay_(width, height, fonts.unit);
+        if (justOpened_ && byController_) ImGui::SetNavCursorVisible(true);
+        justOpened_ = false;
+        typing_ = ImGui::GetIO().WantTextInput;
+        return;
+    }
     const float u = fonts.unit;
     ImDrawList* back = ImGui::GetBackgroundDrawList();
     // Over the blurred picture: a little darker, then the card's soft shadow.

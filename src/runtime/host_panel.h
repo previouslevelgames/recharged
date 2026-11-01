@@ -45,6 +45,12 @@ public:
     // + GamepadL1 and GamepadR1, the Nunchuk's C and Z GamepadL2 and GamepadR2,
     // its stick GamepadLStick*. B always closes the panel.
     using Content = std::function<void(const Fonts& fonts)>;
+    // Or the game's whole overlay (src/overlay): drawn over the picture
+    // (`width` x `height` surface pixels, `unit` pixels per 1/720 of its
+    // height) instead of the panel's own card, each frame while open. B then
+    // goes to it as ImGuiKey_GamepadFaceRight (back a screen, or closing it on
+    // a first screen: RequestClose) instead of closing the panel.
+    using Overlay = std::function<void(float width, float height, float unit)>;
 
     // window: the game window, for the mouse position when the panel opens.
     explicit HostPanel(SDL_Window* window);
@@ -54,6 +60,11 @@ public:
 
     // None shows a placeholder line.
     void SetContent(Content content);
+    void SetOverlay(Overlay overlay);
+    // The overlay closes the panel (its Close, Escape, B on a first screen).
+    void RequestClose() { closeRequested_ = true; }
+    // Whether a controller's HOME opened it (rather than F1, the keyboard).
+    bool OpenedByController() const { return byController_; }
     // Asked when the panel opens, then about once a second while open until
     // it says false: true presses the game's pause (its 1 button) for an
     // offline match in play that is not paused yet; never online.
@@ -79,6 +90,7 @@ private:
 
     SDL_Window* window_;
     Content content_;
+    Overlay overlay_;
     std::function<bool()> pauseRule_;
     std::uint64_t layer_ = 0;
     bool open_ = false;

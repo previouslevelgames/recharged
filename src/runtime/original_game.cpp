@@ -30,6 +30,7 @@
 #include <atomic>
 #include <array>
 #include <algorithm>
+#include <tuple>
 #include <vector>
 #include <filesystem>
 #include <fstream>
@@ -75,6 +76,10 @@
 #include "runtime/game_window.h"
 #include "runtime/host_overlay.h"
 #include "runtime/host_panel.h"
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "overlay/game_overlay.h"
+#include "platform/online_panel_feed.h"
+#endif
 #include "runtime/pipeline_warmup.h"
 #include "mscharged/build_version.h"
 #include "runtime/frame_rate.h"
@@ -1561,6 +1566,116 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             });
             hostOverlay->SetPanel(&*hostPanel);
         }
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+        // The game's overlay in the panel: the Online tab (the player's set,
+        // friends online, players available, with its data from the server on
+        // a thread of its own while open) and Game options (saved to the
+        // settings file at once; the game gets them between matches).
+        mscharged::overlay::GameOverlayState overlayState;
+        std::unique_ptr<mscharged::platform::OnlinePanelFeed> panelFeed;
+        auto optionTweaks=launch.settings.tweaks;
+        std::optional<unsigned> pendingTweaks;
+        std::string overlayNotice;
+        bool overlayOpen=false;
+        std::chrono::steady_clock::time_point overlayOpened{};
+        auto setTweaks=reinterpret_cast<void(*)(unsigned)>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_set_tweaks"));
+        // A match (not the title screen's demo) is played.
+        auto inMatch=[&] {
+            ChargedPresenceSnapshot game{};
+            return presenceSnapshot && presenceSnapshot(&game,sizeof game) && game.in_match && game.mode!=2;
+        };
+        // The server's version is at least major.minor.patch ("1.2.1").
+        auto versionAtLeast=[](const std::string& text,int major,int minor,int patch) {
+            int parts[3]={0,0,0};
+            if(std::sscanf(text.c_str(),"%d.%d.%d",&parts[0],&parts[1],&parts[2])<2)return false;
+            return std::tie(parts[0],parts[1],parts[2])>=std::tie(major,minor,patch);
+        };
+        if(hostPanel) {
+            std::string off;
+            panelFeed=mscharged::platform::OnlinePanelFeed::Start(launch.settings.profile_server,
+                mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
+                launch.settings.challenge_rules,&off);
+            if(!panelFeed) mscharged::platform::SessionLogLine("Overlay: the Online tab is off ("+off+")");
+            hostPanel->SetOverlay([&](float width,float height,float unit) {
+                namespace ov=mscharged::overlay;
+                if(panelFeed) if(auto notice=panelFeed->TakeNotice()) overlayNotice=*notice;
+                const auto snapshot=panelFeed ? panelFeed->Latest() : mscharged::platform::OnlinePanelFeed::Snapshot{};
+                ov::OnlinePanelContext context;
+                context.me=snapshot.me;
+                if(context.me.name.empty() && competitive) context.me.name=competitive->PlayerName();
+                context.in_match=inMatch();
+                if(competitive)
+                    if(const auto set=competitive->CurrentSet())
+                        context.score=ov::OnlinePanelContext::Score{set->won,set->lost};
+                // The rule set a challenge plays by ([online] challenge_rules, or the first).
+                const mscharged::platform::RuleSet* rules=nullptr;
+                for(const auto& ruleSet:snapshot.rule_sets)
+                    if(ruleSet.name==launch.settings.challenge_rules) rules=&ruleSet;
+                if(!rules && !snapshot.rule_sets.empty()) rules=&snapshot.rule_sets.front();
+                context.can_challenge=rules!=nullptr;
+                if(rules) context.challenge_rules=rules->name+": "+mscharged::platform::DescribeRules(rules->rules);
+                context.random_games=versionAtLeast(snapshot.server_version,1,2,1);
+                context.loading=panelFeed && !snapshot.loaded;
+                if(!panelFeed) context.message="Sign in on the launcher's Online pages to see your friends here.";
+                else if(!snapshot.error.empty()) {
+                    context.message=snapshot.error;
+                    context.error=true;
+                } else context.message=overlayNotice;
+                ov::GameOverlayModel model;
+                model.online=ov::MakeOnlinePanelModel(snapshot.lists,snapshot.match,context);
+                model.options.tweaks=optionTweaks;
+                model.options.in_match=context.in_match;
+                ov::GameOverlayStyle style;
+                style.unit=unit;
+                style.fonts=hostOverlay->OverlayFonts();
+                style.area_max={width,height};
+                const float shown=std::chrono::duration<float>(std::chrono::steady_clock::now()-overlayOpened).count();
+                style.appear=std::clamp(shown/0.18f,0.0f,1.0f);
+                style.image=[](const std::string&) { return ImTextureID{}; };
+                ov::GameOverlayActions actions;
+                ov::DrawGameOverlay(model,overlayState,actions,style);
+
+                // What the player did.
+                if(actions.close) hostPanel->RequestClose();
+                const auto& online=actions.online;
+                const std::int64_t set=model.online.set.match;
+                if(panelFeed) {
+                    if(online.challenge) {
+                        panelFeed->Challenge(*online.challenge);
+                        overlayNotice="Challenge sent";
+                    }
+                    if(online.add_friend) panelFeed->AddFriend(*online.add_friend);
+                    if(online.remove_friend) panelFeed->RemoveFriend(*online.remove_friend);
+                    if(online.add_mii_friend) panelFeed->AddMiiFriend(*online.add_mii_friend);
+                    if(online.remove_mii_friend) panelFeed->RemoveMiiFriend(*online.remove_mii_friend);
+                    if(online.set_available) panelFeed->SetAvailable(*online.set_available);
+                    if(online.ready) panelFeed->ReadyToPlay(set,true);
+                    if(online.cancel) panelFeed->Cancel(set);
+                }
+                if(competitive) {
+                    // An accept starts the set in this game; a rematch asks the opponent.
+                    if(online.accept || online.decline) competitive->Answer(set,online.accept);
+                    if(online.rematch) competitive->PlayAgain(set,true);
+                }
+                if(actions.set_option) {
+                    const auto change=*actions.set_option;
+                    const std::size_t index=mscharged::GameTweakIndex(change.tweak);
+                    if(index<optionTweaks.size()) {
+                        optionTweaks[index]=change.on;
+                        try {
+                            mscharged::SaveGameTweak(launch.config.path,change.tweak,change.on);
+                        } catch(const std::exception& error) {
+                            overlayNotice=std::string("The option was not saved: ")+error.what();
+                        }
+                        auto settings=launch.settings;
+                        settings.tweaks=optionTweaks;
+                        pendingTweaks=settings.ModuleTweakMask();
+                    }
+                }
+            });
+        }
+#endif
         // The persisted launcher toggle is authoritative; recordings live with
         // the session log (logs/ beside this executable), independently of the
         // working directory.
@@ -1680,6 +1795,25 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(framePacing) framePacing->Update(now);
             serviceChallengeCard(now);
             if(hostPanel) hostPanel->Service(now);
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+            // The overlay opens on the Online tab; its data comes while it is open.
+            if(hostPanel && hostPanel->IsOpen()!=overlayOpen) {
+                overlayOpen=hostPanel->IsOpen();
+                if(overlayOpen) {
+                    overlayState.Open(mscharged::overlay::OverlayTab::Online);
+                    overlayOpened=now;
+                    overlayNotice.clear();
+                }
+                if(panelFeed) panelFeed->SetOpen(overlayOpen);
+            }
+            if(overlayOpen && panelFeed) panelFeed->SetActivity(inMatch() ? "match" : "game");
+            // Changed game options reach the game between matches.
+            if(pendingTweaks && setTweaks && !inMatch()) {
+                setTweaks(*pendingTweaks);
+                pendingTweaks.reset();
+                mscharged::platform::SessionLogLine("Game options: changed in the overlay");
+            }
+#endif
             if(hostOverlay) {
                 if(const auto rate=frameRate.Sample(frames,now)) hostOverlay->SetRate(*rate);
                 const auto size=aurora_get_window_size();

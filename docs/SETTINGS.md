@@ -306,10 +306,16 @@ its shape (`stretch`), **Page Up** and **Page Down** raise and lower the 3D
 resolution (`resolution_up`, `resolution_down`), and **Alt+Enter**
 (Option+Return on a Mac) switches between fullscreen and a window
 (`fullscreen`); the last four last for the run. **F1** opens and closes the
-online panel over the game (`panel`); HOME on any controller does the same, and
-Escape or B closes it. While it is open the game behind it is blurred and gets
-no input: online matches go on, and in an offline match it presses the game's
-pause. Click a hotkey, then press the
+game's overlay (`panel`); HOME on any controller does the same, and Escape
+closes it. It opens on **Online**: your set (accept, Ready to play!, rematch),
+the friends who have Recharged open and, while you are available, the players
+available for random games; a player's row challenges them or opens their
+page. **Game options** has the gameplay options that can change while the game
+runs: they are saved at once and count from the next match (online matches
+play by their own rules). L1/R1 (− and + on a Wii Remote), Q/E or a click
+switch tabs, and B goes back a page. While it is open the game behind it is
+blurred and gets no input: online matches go on, and in an offline match it
+presses the game's pause. Click a hotkey, then press the
 new key, alone or with Ctrl, Shift or Alt (Control or Option on a Mac); Escape
 cancels and Backspace or Delete leaves it unused. In the file a hotkey is a key
 name after the `Ctrl+`, `Shift+` and `Alt+` it needs (`Ctrl+Shift+F12`), or
