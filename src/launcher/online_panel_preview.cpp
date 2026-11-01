@@ -329,7 +329,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
             more_tabs_.push_back(MoreTab(104, "Replays", Icon::Play));
             more_tabs_.back().tab.available = false;
             more_tabs_.back().tab.hint = "Coming later";
-            more_tabs_.push_back(MoreTab(105, "Events", Icon::Trophy));
+            more_tabs_.push_back(MoreTab(105, "Clubs", Icon::Person));
             more_tabs_.back().tab.hidden = true;
         }
     }

@@ -26,6 +26,7 @@ enum class OverlayTab : int
 {
     Online = 0,
     GameOptions = 1,
+    Events = 2, // tournaments and organised match-ups: a page to come
 };
 
 // A tab besides the game's own, with its page: the launcher's preview shows
@@ -41,7 +42,7 @@ struct GameOverlayModel
 {
     OnlinePanelModel online;
     GameOptionsModel options;
-    std::vector<GameOverlayMoreTab> more_tabs; // between Online and Game options, which stays last
+    std::vector<GameOverlayMoreTab> more_tabs; // after Online, before Events and Game options (last)
 };
 
 // The tabs in their order with their badges (Online's: what waits for the

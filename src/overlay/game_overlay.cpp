@@ -9,14 +9,46 @@ namespace
 // The game's own tabs, before the overlay shows them with the model's badges.
 std::vector<OverlayTabs::Tab> OwnTabs()
 {
-    OverlayTabs::Tab online, options;
+    OverlayTabs::Tab online, events, options;
     online.id = int(OverlayTab::Online);
     online.label = "Online";
     online.icon = launcher::Icon::Chat;
+    events.id = int(OverlayTab::Events);
+    events.label = "Events";
+    events.icon = launcher::Icon::Trophy;
     options.id = int(OverlayTab::GameOptions);
     options.label = "Game options";
     options.icon = launcher::Icon::Sliders;
-    return {online, options};
+    return {online, events, options};
+}
+
+bool OwnTab(int id)
+{
+    return id == int(OverlayTab::Online) || id == int(OverlayTab::Events) || id == int(OverlayTab::GameOptions);
+}
+
+// Events: where tournaments and organised match-ups will be, for now the
+// promise of them.
+void DrawEventsPage(const OverlayLayout& layout)
+{
+    using namespace launcher;
+    auto* draw = ImGui::GetWindowDrawList();
+    const Fonts& fonts = CurrentFonts();
+    const ImVec2 center{(layout.min.x + layout.max.x) * 0.5f, (layout.min.y + layout.max.y) * 0.5f - Dp(40)};
+    draw->AddCircleFilled(center, Dp(44), Col(color::text, 0.05f));
+    draw->AddCircle(center, Dp(44), Col(color::border), 0, Dp(1));
+    DrawIcon(draw, Icon::Trophy, center, Dp(40), Col(color::muted));
+    float y = center.y + Dp(62);
+    const auto line = [&](ImFont* font, ImU32 colour, const char* text, float after) {
+        const ImVec2 size = TextSize(font, text);
+        DrawLabel(draw, font, {center.x - size.x * 0.5f, y}, colour, text);
+        y += size.y + after;
+    };
+    line(fonts.heading, Col(color::text), "Tournaments and match-ups", Dp(10));
+    line(fonts.body, Col(color::muted), "Sign up for events, follow your bracket and play your next set from here.",
+         Dp(4));
+    line(fonts.body, Col(color::muted), "Results go in by themselves, as in your sets with friends.", Dp(16));
+    line(fonts.caption, Col(color::dim), "COMING LATER", 0);
 }
 
 const GameOverlayMoreTab* FindMore(const GameOverlayModel& model, OverlayTab tab)
@@ -49,8 +81,8 @@ std::vector<OverlayTabs::Tab> GameOverlayTabs(const GameOverlayModel& model)
     for (const auto& more : model.more_tabs)
     {
         // Never over the game's own ids.
-        if (more.tab.id == int(OverlayTab::Online) || more.tab.id == int(OverlayTab::GameOptions)) continue;
-        tabs.insert(tabs.end() - 1, more.tab);
+        if (OwnTab(more.tab.id)) continue;
+        tabs.insert(tabs.end() - 2, more.tab);
     }
     return tabs;
 }
@@ -143,7 +175,8 @@ void DrawGameOverlay(const GameOverlayModel& model, GameOverlayState& state, Gam
     tabs.tabs = state.tabs;
     tabs.current = int(state.tab);
     const bool online = state.tab == OverlayTab::Online, options = state.tab == OverlayTab::GameOptions;
-    const GameOverlayMoreTab* more = online || options ? nullptr : FindMore(model, state.tab);
+    const bool events = state.tab == OverlayTab::Events;
+    const GameOverlayMoreTab* more = online || options || events ? nullptr : FindMore(model, state.tab);
     OverlayScreens& screens = state.Screens(state.tab);
     if (screens.Empty()) screens.Open(FirstScreen(state.tab, Label(state.tabs, state.tab)));
     const std::string title = online ? OnlinePanelTitle(model.online, screens)
@@ -153,6 +186,7 @@ void DrawGameOverlay(const GameOverlayModel& model, GameOverlayState& state, Gam
     const OverlayLayout layout = BeginOverlay(style, screens, title, &tabs);
     if (online) DrawOnlinePanel(model.online, screens, actions.online, style.image, layout);
     else if (options) DrawGameOptions(model.options, state.options_state, screens, actions.set_option, layout);
+    else if (events) DrawEventsPage(layout);
     else if (more && more->draw) more->draw(layout);
     OverlayFooter footer;
     if (online)

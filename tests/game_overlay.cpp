@@ -224,38 +224,46 @@ void TestTabs()
     Harness h;
     h.model.online = Model();
     h.Open();
-    // Every way to the other tab and back.
+    // Every way to the next tab (Events) and back.
     h.Press(ImGuiKey_E);
-    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    CHECK(h.state.Tab() == OverlayTab::Events);
     h.Press(ImGuiKey_Q);
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.Press(ImGuiKey_GamepadR1);
-    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    CHECK(h.state.Tab() == OverlayTab::Events);
     h.Press(ImGuiKey_GamepadL1);
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.Press(ImGuiKey_GamepadR2);
-    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    CHECK(h.state.Tab() == OverlayTab::Events);
     h.Press(ImGuiKey_GamepadL2);
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.Press(ImGuiKey_Tab, true);
-    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    CHECK(h.state.Tab() == OverlayTab::Events);
     h.Press(ImGuiKey_Tab, true, true);
     CHECK(h.state.Tab() == OverlayTab::Online);
-    // Two tabs: next from the last is the first.
+    // Three tabs: next from the last is the first, previous from the first the last.
     h.Press(ImGuiKey_E);
+    h.Press(ImGuiKey_E);
+    CHECK(h.state.Tab() == OverlayTab::GameOptions);
     h.Press(ImGuiKey_E);
     CHECK(h.state.Tab() == OverlayTab::Online);
-    // A click on Game options (right of the middle of the tabs at the top).
-    auto actions = h.Click(700, 86);
+    h.Press(ImGuiKey_Q);
+    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    h.Press(ImGuiKey_E);
+    // Clicks on the tabs at the top: Game options at the right, Events in
+    // the middle, Online at the left.
+    auto actions = h.Click(900, 86);
     CHECK(!actions.close && h.state.Tab() == OverlayTab::GameOptions);
-    h.Click(570, 86);
+    h.Click(640, 86);
+    CHECK(h.state.Tab() == OverlayTab::Events);
+    h.Click(400, 86);
     CHECK(h.state.Tab() == OverlayTab::Online);
 
     // Each tab keeps its screens while the overlay is open.
     h.Press(ImGuiKey_Enter);
     CHECK(h.OnPlayer("p10"));
     h.Press(ImGuiKey_E);
-    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    CHECK(h.state.Tab() == OverlayTab::Events);
     h.Press(ImGuiKey_Q);
     CHECK(h.state.Tab() == OverlayTab::Online && h.OnPlayer("p10"));
     // ... and B there goes back to the list, not to the other tab.
@@ -273,9 +281,13 @@ void TestTabs()
     h.Frame();
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.state.NextTab();
-    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    CHECK(h.state.Tab() == OverlayTab::Events);
     h.state.PreviousTab();
     CHECK(h.state.Tab() == OverlayTab::Online);
+    h.Open(OverlayTab::Events);
+    CHECK(h.state.Tab() == OverlayTab::Events && h.OnMain());
+    // B on its only screen closes, as on any tab's first screen.
+    CHECK(h.Press(ImGuiKey_GamepadFaceRight).close);
 }
 
 void TestGameOptions()
@@ -540,10 +552,12 @@ void TestMoreTabs()
     h.model.more_tabs = {tab(100, "Ranked"), tab(101, "Tournaments", false), tab(102, "Events", true, true),
                          tab(103, "Leaderboard")};
     h.model.more_tabs[0].draw = [&drawn](const OverlayLayout&) { ++drawn; };
-    // Online first, Game options last, the more tabs between; Online's badge: the challenge.
+    // Online first, Events and Game options last, the more tabs between;
+    // Online's badge: the challenge.
     const auto tabs = GameOverlayTabs(h.model);
-    CHECK(tabs.size() == 6 && tabs.front().id == int(OverlayTab::Online));
-    CHECK(tabs.back().id == int(OverlayTab::GameOptions) && tabs[1].id == 100 && tabs[4].id == 103);
+    CHECK(tabs.size() == 7 && tabs.front().id == int(OverlayTab::Online));
+    CHECK(tabs.back().id == int(OverlayTab::GameOptions) && tabs[5].id == int(OverlayTab::Events));
+    CHECK(tabs[1].id == 100 && tabs[4].id == 103);
     CHECK(tabs.front().badge == 1 && tabs.back().badge == 0);
     h.Open();
     CHECK(h.state.Tab() == OverlayTab::Online && drawn == 0);
@@ -554,11 +568,15 @@ void TestMoreTabs()
     h.Press(ImGuiKey_GamepadR1);
     CHECK(int(h.state.Tab()) == 103);
     h.Press(ImGuiKey_E);
+    CHECK(h.state.Tab() == OverlayTab::Events);
+    h.Press(ImGuiKey_E);
     CHECK(h.state.Tab() == OverlayTab::GameOptions);
     h.Press(ImGuiKey_E);
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.Press(ImGuiKey_Q);
     CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    h.Press(ImGuiKey_GamepadL1);
+    CHECK(h.state.Tab() == OverlayTab::Events);
     h.Press(ImGuiKey_GamepadL1);
     CHECK(int(h.state.Tab()) == 103);
     // B on a more tab's only screen closes.
@@ -575,7 +593,7 @@ void TestMoreTabs()
     // The open tab stops opening: the next that does. It goes: from the start.
     h.model.more_tabs[3].tab.available = false;
     h.Frame();
-    CHECK(h.state.Tab() == OverlayTab::GameOptions);
+    CHECK(h.state.Tab() == OverlayTab::Events);
     h.state.Switch(OverlayTab(100));
     h.Frame();
     CHECK(int(h.state.Tab()) == 100);
@@ -583,7 +601,7 @@ void TestMoreTabs()
     h.Frame();
     CHECK(h.state.Tab() == OverlayTab::Online);
 
-    // Seven tabs, from a narrow window to a wide one, switching on every way
+    // Eight tabs, from a narrow window to a wide one, switching on every way
     // (labels folding into icons as they need): each lands where it should.
     h.model.more_tabs = {tab(100, "Ranked"), tab(101, "Tournaments"), tab(102, "Leaderboard"), tab(103, "Stats"),
                          tab(104, "Replays")};
@@ -593,7 +611,7 @@ void TestMoreTabs()
     {
         h.Frame([width](ImGuiIO& io) { io.DisplaySize = {width, width * 0.5625f}; });
         h.Open();
-        for (int n = 0; n < 7; ++n) h.Press(ImGuiKey_E);
+        for (int n = 0; n < 8; ++n) h.Press(ImGuiKey_E);
         CHECK(h.state.Tab() == OverlayTab::Online);
         h.Press(ImGuiKey_Q);
         CHECK(h.state.Tab() == OverlayTab::GameOptions);
