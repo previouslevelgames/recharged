@@ -393,12 +393,20 @@ rich_presence = true
 # rollback_log =
 # Competitive play: the address of a Recharged WFC server's profile service
 # (https://, or http:// for a test server on this computer or network).
-# Players sign in to it with Discord on the launcher's Online pages, which
-# show it; only this file changes it. Left out or empty, the project's server.
+# Players sign in to it with Discord or a Mii on the launcher's Online pages,
+# which show it; only this file changes it. Left out or empty, the project's
+# server.
 # profile_server = https://rechargedwfc.net
 # The rule set your challenges go out with, by its name on that server
-# (Online -> Match settings); empty: the server's first.
+# (Online -> Match rules, or Your challenges in the game); empty: the
+# server's first.
 challenge_rules =
 # A chime (and a flashing window in the background) when someone challenges
-# you or accepts your challenge (Online -> Online settings).
+# you or accepts your challenge (Online -> Player profile).
 challenge_sound = true
+# Playing with a Mii (without Discord): the Mii your sets use, by its create
+# ID (Player profile chooses it).
+mii =
+# Played with a Mii before: true signs you in again through the game, once
+# your Mii logs in to WFC (Player profile sets it; the game clears it).
+mii_sign_in = false

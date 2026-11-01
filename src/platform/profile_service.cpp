@@ -407,6 +407,14 @@ SignInResult ProfileService::MiiSignIn(const std::string& name)
     return ParseSignIn(Call("POST", "/api/v1/sign-in/mii", &body).body);
 }
 
+SignInResult ProfileService::WfcSignIn(std::uint32_t profile_id, const std::string& login_ticket)
+{
+    std::string body = "{\"profile_id\":" + std::to_string(profile_id) + ",\"login_ticket\":";
+    AppendJsonString(body, login_ticket);
+    body += '}';
+    return ParseSignIn(Call("POST", "/api/v1/sign-in/wfc", &body).body);
+}
+
 std::vector<RuleSet> ProfileService::RuleSets()
 {
     std::vector<RuleSet> sets;

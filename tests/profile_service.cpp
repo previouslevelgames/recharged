@@ -549,6 +549,46 @@ void MiiAccounts()
     }
 }
 
+// Signing in again through the game: its WFC login proof, without a session
+// and as the game; a WFC profile that identifies nobody is refused (404).
+void WfcSignIn()
+{
+    if (!HttpUnavailable().empty()) return;
+    const std::vector<Exchange> exchanges{
+        {"POST /api/v1/sign-in/wfc", 404, R"({"error":"no Recharged profile signs in with this WFC profile"})"},
+        {"POST /api/v1/sign-in/wfc", 200,
+         R"({"status":"signed_in","token":"w1","player":{"id":11,"name":"Bob the Builder","account":"mii",)"
+         R"("friend_code":"0868-9934-5920"}})"},
+    };
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        ProfileService api(server.Url());
+        api.SetActivity("game");
+        try
+        {
+            api.WfcSignIn(1000000001u, "lt-other");
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 404);
+        }
+        const auto back = api.WfcSignIn(1000000000u, "lt-\"x\"");
+        CHECK(back.status == SignInResult::Status::SignedIn && back.token == "w1" && back.player.id == 11
+              && back.player.MiiAccount() && back.player.friend_code == "0868-9934-5920");
+    }
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+    {
+        CHECK(sent[0].body == R"({"profile_id":1000000001,"login_ticket":"lt-other"})");
+        CHECK(sent[1].body == R"({"profile_id":1000000000,"login_ticket":"lt-\"x\""})"
+              && sent[1].authorization.empty() && sent[1].activity == "game"
+              && sent[1].content_type == "application/json");
+    }
+}
+
 // The game's online panel with the Discord friends the launcher gave it: they
 // are looked up with the lists, in parts as large as the server takes; a
 // failed lookup keeps the last list, fails nothing else and is logged once.
@@ -738,6 +778,7 @@ int main()
 #ifndef _WIN32
     Requests();
     MiiAccounts();
+    WfcSignIn();
     FeedDiscordFriends();
     FeedChallengeRules();
 #endif

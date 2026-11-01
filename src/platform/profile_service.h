@@ -303,6 +303,10 @@ public:
     // new profile each time (POST /api/v1/sign-in/mii). A ProfileError with
     // Status() 429 when the server takes no more for now.
     SignInResult MiiSignIn(const std::string& name);
+    // The game, logged in to WFC as `profile_id` with `login_ticket`: the
+    // profile that WFC profile identifies (a player who plays with a Mii),
+    // with a new session. 404 when it identifies nobody.
+    SignInResult WfcSignIn(std::uint32_t profile_id, const std::string& login_ticket);
     std::vector<RuleSet> RuleSets();
 
     // With the session's token.

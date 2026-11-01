@@ -99,6 +99,7 @@ Values Encode(const Settings& s)
             {"online.challenge_rules", s.challenge_rules},
             {"online.challenge_sound", s.challenge_sound ? "true" : "false"},
             {"online.mii", s.online_mii},
+            {"online.mii_sign_in", s.mii_sign_in ? "true" : "false"},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
@@ -407,6 +408,7 @@ Settings Decode(const Values& values)
         throw std::runtime_error("Invalid configuration: online.profile_server contains a line break or NUL");
     boolean("online.rollback", s.rollback);
     boolean("online.challenge_sound", s.challenge_sound);
+    boolean("online.mii_sign_in", s.mii_sign_in);
     if (const auto it = values.find("online.mii"); it != values.end())
     {
         std::string id = it->second;
@@ -687,6 +689,14 @@ void SaveChallengeRules(const std::filesystem::path& path, const std::string& na
     auto file = LoadConfig(path, true);
     auto settings = file.settings;
     settings.challenge_rules = name;
+    SaveConfig(file, settings);
+}
+
+void SaveMiiSignIn(const std::filesystem::path& path, bool on)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    settings.mii_sign_in = on;
     SaveConfig(file, settings);
 }
 
