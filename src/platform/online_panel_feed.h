@@ -2,6 +2,7 @@
 
 #include "platform/profile_service.h"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
@@ -57,6 +58,11 @@ public:
         ProfilePlayer me;
         PlayerLists lists;
         std::optional<ProfileMatch> match;
+        // The player's search for a random opponent, and the server's clock
+        // when the feed last asked (Unix seconds) and the feed's then.
+        std::optional<ProfileSearch> search;
+        std::int64_t server_time = 0;
+        std::chrono::steady_clock::time_point fetched{};
         // The Discord friends who play Recharged (FindDiscordPlayers); the
         // last list while the server can't say.
         std::vector<ProfilePlayer> discord_friends;
@@ -82,6 +88,10 @@ public:
     void SetAvailable(bool available);
     void ReadyToPlay(std::int64_t match, bool ready);
     void Cancel(std::int64_t match);
+    // Search for a random opponent (as Challenge, without a player; `game`
+    // the first four characters of the game's id), and stop searching.
+    void StartSearch(std::int64_t rule_set, MatchRules rules, std::string name, std::string game);
+    void StopSearch();
     // A short message for the player about an action the server did not
     // take, once.
     std::optional<std::string> TakeNotice();

@@ -45,6 +45,8 @@ void Merge(GameOverlayActions& all, const GameOverlayActions& a)
     o.cancel |= a.online.cancel;
     o.rematch |= a.online.rematch;
     if (a.online.challenge) o.challenge = a.online.challenge;
+    if (a.online.search) o.search = a.online.search;
+    o.stop_search |= a.online.stop_search;
     if (a.online.add_friend) o.add_friend = a.online.add_friend;
     if (a.online.remove_friend) o.remove_friend = a.online.remove_friend;
     if (a.online.add_mii_friend) o.add_mii_friend = a.online.add_mii_friend;
@@ -474,6 +476,27 @@ void TestChallengeSetup()
     CHECK(!h.Press(ImGuiKey_GamepadFaceRight).online.challenge && h.OnPlayer("p12"));
 }
 
+// A search's setup: Find an opponent (under the rules) sends a search, no
+// player, by the server's rule set as it is.
+void TestSearchSetup()
+{
+    Harness h;
+    h.model.online = RulesModel({"Competitive", "Classic"}, "Classic");
+    h.model.online.can_search = true;
+    h.Open();
+    h.state.online_state.setup_for = "search";
+    h.state.online_state.preset = 1;
+    h.state.online_state.rules = h.model.online.presets[1].rules;
+    h.state.online.Push({int(OnlinePanelScreen::Setup), "search", "Find an opponent"}, 0);
+    h.Frame();
+    h.Frame();
+    for (int n = 0; n < 11; ++n) h.Press(ImGuiKey_DownArrow);
+    const auto actions = h.Press(ImGuiKey_Enter);
+    CHECK(actions.online.search && actions.online.search->player == 0 && actions.online.search->name == "Classic"
+          && actions.online.search->rule_set == 2 && !actions.online.challenge);
+    CHECK(h.OnMain());
+}
+
 // The Settings tab: the menu's cursor shows its section; A opens it, its
 // rows change the settings (volumes ten points a step, switches), B goes back
 // to the menu.
@@ -876,6 +899,7 @@ int main()
     TestResize();
     TestSmallWindows();
     TestChallengeSetup();
+    TestSearchSetup();
     TestSettings();
     TestSettingsByKeys();
     TestLateLists();

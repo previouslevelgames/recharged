@@ -261,6 +261,17 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     palace.rules.stadium = "the_palace";
     palace.rules.stadium_cheat = "field_tilt";
     context_.my_presets = {palace};
+    // Searches for a random opponent: possible; "preview-searching" shows one running.
+    context_.searches = true;
+    if (mode_ == "preview-searching")
+    {
+        platform::ProfileSearch search;
+        search.rule_set = "Palace tilt";
+        search.rules = palace.rules;
+        search.asked = 3;
+        context_.search = search;
+        context_.search_seconds = 42;
+    }
 
     auto mario = Online(Player(900010, "Mario", "itsamario"), "launcher");
     mario.avatar_url = "preview:mario";
@@ -668,6 +679,19 @@ void OnlinePanelPreview::Apply(const overlay::GameOverlayActions& all)
         case GameSetting::ReopenLauncher: settings_.reopen_launcher = change.value; break;
         }
         std::cout << "Overlay: setting " << int(change.setting) << " = " << change.value << '\n';
+    }
+    if (actions.search)
+    {
+        std::cout << "Overlay: search by " << actions.search->name << '\n';
+        platform::ProfileSearch search;
+        search.rule_set = actions.search->name;
+        search.rules = actions.search->rules;
+        context_.search = search;
+    }
+    if (actions.stop_search)
+    {
+        std::cout << "Overlay: stop the search\n";
+        context_.search.reset();
     }
     if (all.set_option)
     {

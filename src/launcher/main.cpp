@@ -4796,7 +4796,7 @@ private:
 
         // Header: a trophy in a soft halo, what it is, who, and the rules.
         const std::string& them = match.opponent.name;
-        const char* overline = rematch ? "REMATCH" : asked ? "CHALLENGE" : "SET";
+        const char* overline = rematch ? "REMATCH" : asked ? (match.random ? "RANDOM CHALLENGE" : "CHALLENGE") : "SET";
         const std::string headline = !asked                ? "Your set against " + them
             : rematch                                       ? them + " wants a rematch"
                                                             : them + " challenges you";

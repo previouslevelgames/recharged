@@ -479,7 +479,7 @@ void CompetitiveHost::Work(ProfileService& api)
         if (current && current->state == "challenged" && current->side == "challenged")
             invitation = Invitation{current->id, current->opponent.name, current->opponent.avatar_url,
                                     current->rule_set + ": " + DescribeRules(current->rules),
-                                    current->rematch_of != 0};
+                                    current->rematch_of != 0, current->random};
         if (current && current->state != "accepted") current.reset();
         std::optional<ChargedCompetitiveRules> rules;
         if (current)

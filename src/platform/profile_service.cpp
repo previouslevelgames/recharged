@@ -195,6 +195,7 @@ ProfileMatch ParseMatch(const JsonValue& value)
     match.go_at = value["go_at"].Integer().value_or(0);
     match.playing_at = value["playing_at"].Integer().value_or(0);
     match.rematch_of = value["rematch_of"].Integer().value_or(0);
+    match.random = value["random"].Bool();
     return match;
 }
 
@@ -494,16 +495,50 @@ ProfileMatch ProfileService::ChallengePlayer(std::int64_t opponent_id, std::int6
     return ParseMatch(Call("POST", "/api/v1/matches", &body).body);
 }
 
-std::optional<ProfileMatch> ProfileService::CurrentMatch(int* poll_interval)
+static ProfileSearch ParseSearch(const JsonValue& value)
+{
+    ProfileSearch search;
+    search.rule_set = value["rule_set"].Text();
+    search.rules = ParseRules(value["rules"]);
+    search.since = value["since"].Integer().value_or(0);
+    search.asked = int(value["asked"].Integer().value_or(0));
+    return search;
+}
+
+std::optional<ProfileMatch> ProfileService::CurrentMatch(int* poll_interval, std::optional<ProfileSearch>* search,
+                                                         std::int64_t* server_time)
 {
     const auto answer = Call("GET", "/api/v1/matches/current", nullptr);
     if (poll_interval)
         if (const auto interval = answer.body["poll_interval"].Integer(); interval && *interval >= 1 && *interval <= 60)
             *poll_interval = int(*interval);
+    if (search)
+    {
+        search->reset();
+        if (answer.body["search"].IsObject()) *search = ParseSearch(answer.body["search"]);
+    }
+    if (server_time) *server_time = answer.body["server_time"].Integer().value_or(0);
     const auto& match = answer.body["match"];
     if (!match.IsObject()) return std::nullopt;
     return ParseMatch(match);
 }
+
+ProfileSearch ProfileService::StartSearch(std::int64_t rule_set, const MatchRules& rules, const std::string& name,
+                                          const std::string& game)
+{
+    std::string body = rule_set > 0 ? "{\"rule_set\":" + Integer(rule_set) : "{\"rules\":" + RulesJson(rules);
+    if (rule_set <= 0 && !name.empty())
+    {
+        body += ",\"name\":";
+        AppendJsonString(body, name);
+    }
+    body += ",\"game\":";
+    AppendJsonString(body, game);
+    body += "}";
+    return ParseSearch(Call("POST", "/api/v1/search", &body).body["search"]);
+}
+
+void ProfileService::StopSearch() { Call("DELETE", "/api/v1/search", nullptr); }
 
 Leaderboard ProfileService::RankedLeaderboard()
 {

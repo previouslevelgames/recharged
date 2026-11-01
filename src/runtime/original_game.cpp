@@ -1566,6 +1566,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             int answer=0;
             std::string opponent, rules, reason;
             std::string avatar; // the opponent's picture (URL), or empty
+            bool random=false;  // a search for a random opponent asks the player
             bool hasScore=false;
             int won=0, lost=0, games=0;
         } cardPrompt;
@@ -1598,13 +1599,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 cardPrompt.shown=kind!=CardKind::None && cardAsPrompt;
                 mscharged::runtime::HostOverlay::Card card;
                 if(kind==CardKind::Challenge) {
-                    card.kicker=invitation->rematch ? "REMATCH" : "CHALLENGE";
+                    card.kicker=invitation->rematch ? "REMATCH" : invitation->random ? "RANDOM CHALLENGE" : "CHALLENGE";
                     card.title=invitation->from+(invitation->rematch ? " wants a rematch" : " challenges you");
                     card.detail=invitation->rules+".";
                     card.accept="Accept";
                     card.decline="Decline";
                     card.note="Accept goes on into RANKED: straight to the captain draft.";
                     cardPrompt.kind=invitation->rematch ? CardPrompt::Kind::Rematch : CardPrompt::Kind::Challenge;
+                    cardPrompt.random=invitation->random;
                     cardPrompt.opponent=invitation->from;
                     cardPrompt.avatar=invitation->avatar;
                     cardPrompt.rules=invitation->rules;
@@ -1851,12 +1853,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     case Kind::Rematch: {
                         const bool rematch=cardPrompt.kind==Kind::Rematch;
                         prompt.kind=rematch ? ov::OverlayPrompt::Kind::Rematch : ov::OverlayPrompt::Kind::Challenge;
-                        prompt.kicker=rematch ? "REMATCH" : "CHALLENGE";
+                        prompt.kicker=rematch ? "REMATCH" : cardPrompt.random ? "RANDOM CHALLENGE" : "CHALLENGE";
                         prompt.title=who+(rematch ? " wants a rematch" : " challenges you");
                         prompt.detail=cardPrompt.rules;
                         prompt.primary="Accept";
                         prompt.secondary="Decline";
-                        prompt.note="Accept, and your game goes straight to the set.";
+                        prompt.note=cardPrompt.random
+                            ? "They searched for an opponent by these rules. Accept, and your game goes straight to the set."
+                            : "Accept, and your game goes straight to the set.";
                         break;
                     }
                     case Kind::SetOver:
@@ -1920,6 +1924,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 context.chosen_rules=challengeRules;
                 context.can_challenge=!snapshot.rule_sets.empty();
                 context.random_games=versionAtLeast(snapshot.server_version,1,2,1);
+                // A search for a random opponent (servers 1.2.4 on), and how long it runs.
+                context.searches=versionAtLeast(snapshot.server_version,1,2,4);
+                context.search=snapshot.search;
+                if(snapshot.search)
+                    context.search_seconds=int(snapshot.server_time-snapshot.search->since
+                        +std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()
+                            -snapshot.fetched).count());
                 context.loading=panelFeed && !snapshot.loaded;
                 if(!panelFeed) context.message="Sign in on the launcher's Player profile page to see your friends here.";
                 else if(!snapshot.error.empty()) {
@@ -1991,6 +2002,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         const auto& challenge=*online.challenge;
                         panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name);
                         overlayNotice="Challenge sent";
+                    }
+                    if(online.search) {
+                        const auto& search=*online.search;
+                        panelFeed->StartSearch(search.rule_set,search.rules,search.name,std::string(release->game_id,4));
+                        overlayNotice="Searching for an opponent";
+                    }
+                    if(online.stop_search) {
+                        panelFeed->StopSearch();
+                        overlayNotice="The search stopped";
                     }
                     if(online.add_friend) panelFeed->AddFriend(*online.add_friend);
                     if(online.remove_friend) panelFeed->RemoveFriend(*online.remove_friend);

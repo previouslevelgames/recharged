@@ -413,6 +413,37 @@ void TestChallengeRules()
         CHECK(MakeOnlinePanelModel({}, std::nullopt, context).chosen_preset == 0);
     }
 }
+
+// A search for a random opponent: possible with a server that knows them and
+// rules to play by, not in a match or with a set to play; while it runs, how
+// long and how many were asked.
+void TestSearch()
+{
+    auto context = Context();
+    platform::RuleSet competitive;
+    competitive.id = 2;
+    competitive.name = "Competitive";
+    context.rule_sets = {competitive};
+    CHECK(!MakeOnlinePanelModel({}, std::nullopt, context).can_search);
+    context.searches = true;
+    auto model = MakeOnlinePanelModel({}, std::nullopt, context);
+    CHECK(model.can_search && !model.search.active);
+    context.in_match = true;
+    CHECK(!MakeOnlinePanelModel({}, std::nullopt, context).can_search);
+    context.in_match = false;
+    platform::ProfileMatch set;
+    set.id = 4;
+    set.state = "accepted";
+    CHECK(!MakeOnlinePanelModel({}, set, context).can_search);
+    platform::ProfileSearch search;
+    search.rule_set = "Palace";
+    search.asked = 2;
+    context.search = search;
+    context.search_seconds = 75;
+    model = MakeOnlinePanelModel({}, std::nullopt, context);
+    CHECK(model.search.active && model.search.rules == "Palace" && model.search.seconds == 75
+          && model.search.asked == 2 && !model.can_search);
+}
 } // namespace
 
 int main()
@@ -423,6 +454,7 @@ int main()
     TestChallengeBlockers();
     TestSet();
     TestChallengeRules();
+    TestSearch();
     if (failures)
     {
         std::fprintf(stderr, "%d online panel checks failed\n", failures);

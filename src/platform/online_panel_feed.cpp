@@ -152,6 +152,20 @@ void OnlinePanelFeed::Cancel(std::int64_t match)
     Send([match](ProfileService& api) { api.Cancel(match); }, "Cancelling the set");
 }
 
+void OnlinePanelFeed::StartSearch(std::int64_t rule_set, MatchRules rules, std::string name, std::string game)
+{
+    Send(
+        [rule_set, rules = std::move(rules), name = std::move(name), game = std::move(game)](ProfileService& api) {
+            api.StartSearch(rule_set, rules, name, game);
+        },
+        "The search for an opponent");
+}
+
+void OnlinePanelFeed::StopSearch()
+{
+    Send([](ProfileService& api) { api.StopSearch(); }, "Stopping the search");
+}
+
 void OnlinePanelFeed::Run()
 {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -231,7 +245,8 @@ void OnlinePanelFeed::Fetch(ProfileService& api)
     }
     fresh.lists = api.Players();
     FetchDiscordFriends(api, fresh.discord_friends);
-    fresh.match = api.CurrentMatch();
+    fresh.match = api.CurrentMatch(nullptr, &fresh.search, &fresh.server_time);
+    fresh.fetched = std::chrono::steady_clock::now();
     if (fresh.rule_sets.empty()) fresh.rule_sets = api.RuleSets();
     if (fresh.server_version.empty()) fresh.server_version = api.Info().version;
     fresh.loaded = true;

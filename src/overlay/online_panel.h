@@ -37,11 +37,14 @@ struct OnlinePanelChallenge
 struct OnlinePanelActions
 {
     std::optional<OnlinePanelChallenge> challenge;
+    // A search for a random opponent by these rules (`player` 0), or its stop.
+    std::optional<OnlinePanelChallenge> search;
+    bool stop_search = false;
     std::optional<std::int64_t> add_friend;    // a player's id
     std::optional<std::int64_t> remove_friend; // a player's id
     std::optional<std::int32_t> add_mii_friend;    // a Mii profile
     std::optional<std::int32_t> remove_mii_friend; // a Mii profile
-    std::optional<bool> set_available; // available for random games, or not
+    std::optional<bool> set_available; // open to challenges, or not
     // The preset a challenge's setup opens with from now on (its name, one
     // of OnlinePanelModel::presets): the one a challenge was sent with.
     std::optional<std::string> set_challenge_rules;
@@ -51,8 +54,9 @@ struct OnlinePanelActions
 
     bool Any() const
     {
-        return challenge || add_friend || remove_friend || add_mii_friend || remove_mii_friend || set_available
-            || set_challenge_rules || accept || decline || ready || cancel || rematch;
+        return challenge || search || stop_search || add_friend || remove_friend || add_mii_friend
+            || remove_mii_friend || set_available || set_challenge_rules || accept || decline || ready || cancel
+            || rematch;
     }
 };
 
@@ -61,7 +65,7 @@ enum class OnlinePanelScreen
 {
     Main = 0,
     Player = 1, // Screen::key: the player's OnlinePanelRow::key
-    Setup = 2,  // a challenge to the player of Screen::key
+    Setup = 2,  // a challenge to the player of Screen::key; "search": a search for a random opponent
 };
 
 // What the tab keeps between frames: the challenge being set up, its player's

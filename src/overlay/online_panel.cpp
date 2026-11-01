@@ -172,8 +172,23 @@ bool CardPart(ImDrawList* draw, const char* id, ImVec2 min, ImVec2 max, bool las
     return pressed;
 }
 
+// The key of the setup screen of a search for a random opponent.
+constexpr const char* kSearchSetup = "search";
+
+// Opens the setup for a search for a random opponent: the preset chosen last.
+void OpenSearchSetup(Frame& frame, ImGuiID back)
+{
+    const auto& presets = frame.model.presets;
+    auto& state = frame.state;
+    state.setup_for = kSearchSetup;
+    state.preset = presets.empty() ? 0 : std::clamp(frame.model.chosen_preset, 0, int(presets.size()) - 1);
+    state.rules = presets.empty() ? platform::MatchRules{} : presets[std::size_t(state.preset)].rules;
+    frame.screens.Push({int(OnlinePanelScreen::Setup), kSearchSetup, "Find an opponent"}, back);
+}
+
 // The player: their picture, name and Discord username; under them the
-// switch for random games (a part of the card; the whole part is the control).
+// switch Open to challenges and the search for a random opponent (each a part
+// of the card; the whole part is the control).
 void DrawYou(Frame& frame, float width)
 {
     const auto& model = frame.model;
@@ -195,8 +210,29 @@ void DrawYou(Frame& frame, float width)
     const float available_h =
         me.can_set_available ? Dp(12) + FontSize(fonts.label) + Dp(3) + caption_height(line, wrap) + Dp(14) : 0.0f;
 
+    // Searching for a random opponent: how long, by which rules, Stop; else
+    // the way to start one.
+    const auto& search = model.search;
+    const bool searching = search.active, can_search = !searching && model.can_search;
+    std::string search_line;
+    if (searching)
+    {
+        const int seconds = search.seconds;
+        search_line = std::to_string(seconds / 60) + (seconds % 60 < 10 ? ":0" : ":") + std::to_string(seconds % 60)
+            + "  ·  " + search.rules + "  ·  "
+            + (search.asked == 0 ? std::string("nobody asked yet")
+                                 : std::to_string(search.asked) + (search.asked == 1 ? " player asked" : " players asked"));
+    }
+    else if (can_search)
+        search_line = "Your rules go to players open to challenges, until one accepts.";
+    const float stop_w = Dp(76);
+    const float search_wrap = width - 2 * pad - (searching ? stop_w : Dp(20)) - Dp(14);
+    const float search_h = searching || can_search
+        ? Dp(12) + FontSize(fonts.label) + Dp(3) + caption_height(search_line.c_str(), search_wrap) + Dp(14)
+        : 0.0f;
+
     const float top = pad + radius * 2 + pad;
-    const ImVec2 end{at.x + width, at.y + top + available_h};
+    const ImVec2 end{at.x + width, at.y + top + available_h + search_h};
     ImVec4 fill = color::field;
     fill.w = 0.62f;
     OverlayCard(draw, at, end, Dp(16), fill, color::border);
@@ -219,7 +255,7 @@ void DrawYou(Frame& frame, float width)
         const ImVec2 min{at.x, y}, max{end.x, y + available_h};
         bool focused = false;
         float hover = 0.0f;
-        const bool pressed = CardPart(draw, "##available", min, max, true, true, focused, hover);
+        const bool pressed = CardPart(draw, "##available", min, max, search_h == 0.0f, true, focused, hover);
         const float on = launcher::Animate(ImGui::GetID("##available_on"), me.available, 14.0f);
         DrawLabel(draw, fonts.label, {at.x + pad, y + Dp(12)}, Col(color::text), label);
         draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x + pad, y + Dp(12) + FontSize(fonts.label) + Dp(3)},
@@ -230,9 +266,42 @@ void DrawYou(Frame& frame, float width)
                             track_h * 0.5f);
         draw->AddCircleFilled({track.x + track_h * 0.5f + (track_w - track_h) * on, track.y + track_h * 0.5f},
                               track_h * 0.5f - Dp(3), Col(Mix(color::text, color::accent_ink, on)));
-        if (focused) OverlayFocusRing(draw, min, max, Dp(16));
+        if (focused) OverlayFocusRing(draw, min, max, search_h == 0.0f ? Dp(16) : Dp(6));
         if (pressed) frame.actions.set_available = !me.available;
         y = max.y;
+    }
+    if (search_h > 0.0f)
+    {
+        const ImVec2 min{at.x, y}, max{end.x, y + search_h};
+        bool focused = false;
+        float hover = 0.0f;
+        const bool pressed = CardPart(draw, "##search", min, max, true, true, focused, hover);
+        const ImGuiID item = ImGui::GetItemID();
+        DrawLabel(draw, fonts.label, {at.x + pad, y + Dp(12)}, Col(searching ? color::accent : color::text),
+                  searching ? "Searching for an opponent" : "Find an opponent");
+        draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x + pad, y + Dp(12) + FontSize(fonts.label) + Dp(3)},
+                      Col(color::muted), search_line.c_str(), nullptr, search_wrap);
+        const float middle = y + search_h * 0.5f;
+        if (searching)
+        {
+            // Stop, as a small field at the right; the whole part stops.
+            const ImVec2 field_min{end.x - pad - stop_w, middle - Dp(15)}, field_max{end.x - pad, middle + Dp(15)};
+            ImVec4 field = Mix(color::field, color::card_hover, 0.35f + 0.4f * hover);
+            field.w = 0.9f;
+            draw->AddRectFilled(field_min, field_max, Col(field), Dp(15));
+            draw->AddRect(field_min, field_max, Col(Mix(color::border, color::danger, 0.6f * hover), 0.9f), Dp(15), 0,
+                          Dp(1));
+            const ImVec2 size = TextSize(fonts.body, "Stop");
+            DrawLabel(draw, fonts.body, {field_min.x + (stop_w - size.x) * 0.5f, middle - size.y * 0.5f},
+                      Col(color::text), "Stop");
+        }
+        else OverlayChevron(draw, {end.x - pad - Dp(6), middle}, 1, Col(Mix(color::muted, color::text, hover)));
+        if (focused) OverlayFocusRing(draw, min, max, Dp(16));
+        if (pressed)
+        {
+            if (searching) frame.actions.stop_search = true;
+            else OpenSearchSetup(frame, item);
+        }
     }
     ImGui::SetCursorScreenPos(at);
     ImGui::Dummy({width, end.y - at.y});
@@ -728,7 +797,7 @@ void CheatRow(const char* id, const char* label, const std::vector<platform::Rul
 
 // A challenge's setup: the preset it starts from, all its rules to change for
 // this challenge only, and Send challenge.
-void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* row)
+void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* row, bool search)
 {
     const auto& model = frame.model;
     auto& state = frame.state;
@@ -736,10 +805,10 @@ void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* 
     const float x = layout.min.x + ((layout.max.x - layout.min.x) - width) * 0.5f;
     BeginOverlayScroll(("##setup_" + frame.screens.Top().key).c_str(), {x, layout.min.y}, {x + width, layout.max.y});
     ImGui::Dummy({width, Dp(12)});
-    if (!row || model.presets.empty() || state.setup_for != row->key)
+    if ((!search && !row) || model.presets.empty() || state.setup_for != (search ? kSearchSetup : row->key))
     {
-        Caption(frame, !row ? "Not online any more." : "This server has no rules to play sets by yet.", color::muted,
-                width);
+        Caption(frame, !search && !row ? "Not online any more." : "This server has no rules to play sets by yet.",
+                color::muted, width);
         EndOverlayScroll();
         return;
     }
@@ -816,29 +885,32 @@ void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* 
     const bool changed = !(rules == preset.rules);
     const float button_w = std::min(Dp(260), width);
     ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x + width - button_w, ImGui::GetCursorScreenPos().y});
-    if (OverlayButton("send", "Send challenge", Icon::Trophy, {button_w, Dp(46)}, OverlayLook::Primary,
-                      row->can_challenge))
+    const bool can = search ? model.can_search : row->can_challenge;
+    if (OverlayButton("send", search ? "Find an opponent" : "Send challenge", search ? Icon::Target : Icon::Trophy,
+                      {button_w, Dp(46)}, OverlayLook::Primary, can))
     {
         OnlinePanelChallenge challenge;
-        challenge.player = row->player_id;
+        challenge.player = search ? 0 : row->player_id;
         challenge.name = preset.name;
         if (changed && preset.name.size() + 10 <= 48) challenge.name += " (changed)";
         challenge.rules = rules;
         challenge.rule_set = changed ? 0 : preset.rule_set;
-        frame.actions.challenge = challenge;
+        if (search) frame.actions.search = challenge;
+        else frame.actions.challenge = challenge;
         frame.actions.set_challenge_rules = preset.name;
         while (!frame.screens.Empty() && frame.screens.Top().id != int(OnlinePanelScreen::Main)
                && frame.screens.Pop()) {}
     }
     ImGui::Dummy({width, Dp(10)});
-    if (!row->can_challenge && !row->blocked.empty())
-        Caption(frame, row->blocked + ": no challenge now.", color::warning, width);
-    else
+    const std::string kept = changed ? "Changed for this one only: the preset stays as it is. " : "";
+    if (search)
         Caption(frame,
-                changed ? "Changed for this challenge only: the preset stays as it is. " + row->name
-                        + " sees the rules before accepting."
-                        : row->name + " sees the rules before accepting.",
+                kept + "Players open to challenges get these rules, one after the other; the first who accepts "
+                       "plays you. Your card shows the search, with Stop.",
                 color::muted, width);
+    else if (!row->can_challenge && !row->blocked.empty())
+        Caption(frame, row->blocked + ": no challenge now.", color::warning, width);
+    else Caption(frame, kept + row->name + " sees the rules before accepting.", color::muted, width);
     ImGui::Dummy({width, Dp(16)});
     EndOverlayScroll();
 }
@@ -858,7 +930,11 @@ std::string OnlinePanelTitle(const OnlinePanelModel& model, const OverlayScreens
 {
     if (screens.Empty() || screens.Top().id == int(OnlinePanelScreen::Main)) return "Online";
     const OnlinePanelRow* row = FindRow(model, screens.Top().key);
-    if (screens.Top().id == int(OnlinePanelScreen::Setup)) return row ? "Challenge " + row->name : screens.Top().title;
+    if (screens.Top().id == int(OnlinePanelScreen::Setup))
+    {
+        if (screens.Top().key == kSearchSetup) return "Find an opponent";
+        return row ? "Challenge " + row->name : screens.Top().title;
+    }
     return row ? row->name : screens.Top().title;
 }
 
@@ -870,7 +946,7 @@ void DrawOnlinePanel(const OnlinePanelModel& model, OverlayScreens& screens, Onl
     if (screens.Top().id == int(OnlinePanelScreen::Player))
         DrawPlayer(frame, layout, FindRow(model, screens.Top().key));
     else if (screens.Top().id == int(OnlinePanelScreen::Setup))
-        DrawSetup(frame, layout, FindRow(model, screens.Top().key));
+        DrawSetup(frame, layout, FindRow(model, screens.Top().key), screens.Top().key == kSearchSetup);
     else DrawMain(frame, layout);
 }
 } // namespace mscharged::overlay

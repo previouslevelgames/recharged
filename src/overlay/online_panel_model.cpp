@@ -308,6 +308,15 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
         }
     model.message = context.message;
     model.message_tone = context.error ? Tone::Bad : Tone::Neutral;
+    if (context.search)
+    {
+        model.search.active = true;
+        model.search.rules = context.search->rule_set;
+        model.search.seconds = std::max(0, context.search_seconds);
+        model.search.asked = context.search->asked;
+    }
+    model.can_search = context.searches && !context.search && !context.in_match && !model.presets.empty()
+        && !(match && match->Open());
 
     if (match) model.set = MakeSet(*match, context);
     const std::string blocker = ChallengeBlocker(match, context);
@@ -367,8 +376,8 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     {
         OnlinePanelSection available;
         available.id = OnlinePanelSection::Id::Available;
-        available.title = "AVAILABLE NOW";
-        available.empty = context.loading ? "Loading..." : "Nobody else is available right now";
+        available.title = "OPEN TO CHALLENGES";
+        available.empty = context.loading ? "Loading..." : "Nobody else is open to challenges right now";
         for (const auto& player : lists.available)
         {
             if (!player.online || !listed.insert(player.id).second) continue;

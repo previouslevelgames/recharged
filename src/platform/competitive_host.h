@@ -107,6 +107,7 @@ public:
         std::string avatar; // the challenger's picture (URL), or empty
         std::string rules; // the rule set and what it plays by
         bool rematch = false; // the set they played last, again
+        bool random = false;  // their search for a random opponent asks this player
     };
     std::optional<Invitation> PendingInvitation();
     // The card's answer. An accept is also the player's Ready to play!: the

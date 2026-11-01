@@ -181,6 +181,17 @@ struct RuleSet
     std::string hash;
 };
 
+// The player's search for a random opponent (docs/profiles.md, "Random
+// opponents"): the rules' name and the rules, when it started (Unix seconds)
+// and how many players it asked.
+struct ProfileSearch
+{
+    std::string rule_set;
+    MatchRules rules;
+    std::int64_t since = 0;
+    int asked = 0;
+};
+
 // One game of a series, as one side saw it.
 struct MatchGame
 {
@@ -215,6 +226,7 @@ struct ProfileMatch
     bool opponent_online = false; // the opponent has Recharged open
     std::int64_t go_at = 0, playing_at = 0; // unix seconds, 0: not yet
     std::int64_t rematch_of = 0; // the set this one plays again
+    bool random = false;         // a search sent it (a random opponent, servers 1.2.3 on)
 
     // Still to be played: challenged or accepted.
     bool Open() const { return state == "challenged" || state == "accepted"; }
@@ -344,7 +356,17 @@ public:
     ChatMessage SendChat(std::int64_t player_id, const std::string& body);
     // The set still to be played, or the last one that ended; `poll_interval`
     // gets how soon (seconds) the server wants to be asked again.
-    std::optional<ProfileMatch> CurrentMatch(int* poll_interval = nullptr);
+    // `search`: the player's search for a random opponent (none when they
+    // don't search), `server_time` the server's clock (Unix seconds).
+    std::optional<ProfileMatch> CurrentMatch(int* poll_interval = nullptr,
+                                             std::optional<ProfileSearch>* search = nullptr,
+                                             std::int64_t* server_time = nullptr);
+    // Search for a random opponent by one of the server's rule sets as it is
+    // (`rule_set`), else by `rules` under `name`; `game` the first four
+    // characters of the game's id (R4QE). And stop searching.
+    ProfileSearch StartSearch(std::int64_t rule_set, const MatchRules& rules, const std::string& name,
+                              const std::string& game);
+    void StopSearch();
     PlayerLists Players();
     // 404 from a server before 1.2.1.
     Leaderboard RankedLeaderboard();

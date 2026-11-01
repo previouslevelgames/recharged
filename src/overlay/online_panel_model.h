@@ -75,7 +75,7 @@ struct OnlinePanelSection
     enum class Id
     {
         Online,    // friends, Discord friends and Mii friends online now
-        Available, // others available for random games, and the game's online players
+        Available, // others open to challenges, and the game's online players
     };
     Id id = Id::Online;
     std::string title; // "ONLINE NOW"
@@ -120,7 +120,7 @@ struct OnlinePanelPlayer
     std::string image;  // the avatar URL, as a row's
     std::string initials;
     std::int64_t tint_seed = 0;
-    bool available = false;         // available for random games
+    bool available = false;         // open to challenges
     bool can_set_available = false; // the server knows random games (1.2.1)
 };
 
@@ -131,6 +131,15 @@ struct OnlinePanelPreset
     std::string name;
     platform::MatchRules rules;
     std::int64_t rule_set = 0; // the server's rule set's id; 0 for the player's own
+};
+
+// The player's search for a random opponent, as their card shows it.
+struct OnlinePanelSearch
+{
+    bool active = false;
+    std::string rules; // the rules' name
+    int seconds = 0;   // how long it searches
+    int asked = 0;     // players asked so far
 };
 
 struct OnlinePanelModel
@@ -147,6 +156,9 @@ struct OnlinePanelModel
     // player's presets) and the one its setup opens with: the last one used.
     std::vector<OnlinePanelPreset> presets;
     int chosen_preset = 0;
+    // Searching for a random opponent, or whether the player can start.
+    OnlinePanelSearch search;
+    bool can_search = false;
     // For the footer: what the player should know (an action the server
     // refused, the server out of reach).
     std::string message;
@@ -157,7 +169,7 @@ struct OnlinePanelModel
 struct OnlinePanelContext
 {
     // The signed-in player (GET /api/v1/me; at least the name): name, Discord
-    // username, avatar and whether they are available for random games.
+    // username, avatar and whether they are open to challenges.
     platform::ProfilePlayer me;
     // Recharged players who are the player's Discord friends, as POST
     // /api/v1/players/discord answers: those online join the friends, with
@@ -181,6 +193,11 @@ struct OnlinePanelContext
     std::vector<platform::RuleSet> rule_sets;
     std::vector<OnlinePanelPreset> my_presets;
     std::string chosen_rules;
+    // The server knows searches for a random opponent (1.2.4), the player's
+    // search and how long it runs.
+    bool searches = false;
+    std::optional<platform::ProfileSearch> search;
+    int search_seconds = 0;
     // The server knows random games (1.2.1): the switch in the panel.
     bool random_games = true;
     // The lists haven't come yet: they say "Loading...".
