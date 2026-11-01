@@ -540,6 +540,15 @@ int main()
         SaveConfig(rulesFile, rulesFile.settings);
         Require(LoadConfig(path).contents.find("challenge_rules = Competitive") != std::string::npos,
                 "Saving wrote the challenge rules");
+        // [online] challenge_sound: on by default, off kept.
+        Require(defaults.challenge_sound, "Challenge sound default");
+        std::ofstream(path) << "[online]\nchallenge_sound = false\n";
+        auto soundFile = LoadConfig(path);
+        Require(!soundFile.settings.challenge_sound, "Challenge sound read");
+        soundFile.settings.challenge_sound = true;
+        SaveConfig(soundFile, soundFile.settings);
+        Require(LoadConfig(path).contents.find("challenge_sound = true") != std::string::npos,
+                "Saving wrote the challenge sound");
         std::ofstream(path) << "[online]\nrollback = true\nrollback_test = true\nrollback_delay = 9\nrollback_log = rb.txt\n";
         auto rollbackFile = LoadConfig(path);
         Require(rollbackFile.settings.rollback && rollbackFile.settings.rollback_test

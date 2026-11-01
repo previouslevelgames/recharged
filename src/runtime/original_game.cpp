@@ -1,4 +1,5 @@
 #include "platform/graphics_stats.h"
+#include "platform/alert_sound.h"
 #include "platform/app_icon.h"
 #include "platform/hotkey_filter.h"
 #include "platform/screenshot_hotkey.h"
@@ -1352,6 +1353,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // closes and the launcher starts the set's game), B declines.
         std::int64_t cardMatch=0;
         std::chrono::steady_clock::time_point cardShown{};
+        std::optional<mscharged::platform::AlertSound> challengeSound;
         auto serviceChallengeCard = [&](std::chrono::steady_clock::time_point now) {
             if(!competitive || !hostOverlay)return;
             if(const auto notice=competitive->TakeNotice()) hostOverlay->ShowMessage(*notice,now);
@@ -1383,6 +1385,16 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     hostOverlay->SetCard(card);
                     mscharged::platform::SessionLogLine("Competitive: "+invitation->from+" challenges you (match "
                         +std::to_string(match)+")");
+                    // [online] challenge_sound: the chime at the master volume (not
+                    // muted), and the window flashes while it is in the background.
+                    if(launch.settings.challenge_sound) {
+                        if(!launch.settings.mute) {
+                            if(!challengeSound) challengeSound.emplace();
+                            challengeSound->Play(float(launch.settings.master_volume)/100.0f);
+                        }
+                        if(host.window && !(SDL_GetWindowFlags(host.window)&SDL_WINDOW_INPUT_FOCUS))
+                            SDL_FlashWindow(host.window,SDL_FLASH_UNTIL_FOCUSED);
+                    }
                 } else hostOverlay->SetCard(std::nullopt);
             }
             if(!cardMatch)return;

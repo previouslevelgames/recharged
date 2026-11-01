@@ -41,6 +41,7 @@
 #include "platform/app_icon.h"
 #include "platform/path.h"
 #include "platform/mii_maker.h"
+#include "platform/alert_sound.h"
 #include "platform/save_import.h"
 #include "platform/shader_cache.h"
 #include "platform/texture_packs.h"
@@ -562,6 +563,7 @@ public:
         for (const auto& level : logo_) SDL_DestroyTexture(level.texture);
         for (const auto& level : logo_sizzle_) SDL_DestroyTexture(level.texture);
         if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
+        alert_sound_.reset(); // before SDL's audio goes
         if (renderer_) SDL_DestroyRenderer(renderer_);
         if (window_) SDL_DestroyWindow(window_);
         SDL_Quit();
@@ -3916,6 +3918,21 @@ private:
             }
             if (!status.lists.friends.empty()) chat_unread_known_ = true;
         }
+        // A challenge to the player, and their challenge accepted (now their
+        // Ready to play! is due): a chime, and the window flashes while it is
+        // in the background. Once each.
+        if (status.match && status.match->Open() && !capture_)
+        {
+            const auto& match = *status.match;
+            const bool to_you = match.side == "challenged" && match.state == "challenged";
+            const bool accepted = match.side == "challenger" && match.state == "accepted" && !match.you_ready;
+            const std::int64_t alert = to_you ? match.id * 2 : accepted ? match.id * 2 + 1 : 0;
+            if (alert && alert != alerted_)
+            {
+                alerted_ = alert;
+                Alert();
+            }
+        }
         UpdateDiscordFriends();
         // Both pressed Ready to play!: this launcher starts the set's game.
         if (status.match && status.match->stage == "go" && status.match->id != competitive_started_set_ && !capture_)
@@ -3923,6 +3940,21 @@ private:
             competitive_started_set_ = status.match->id;
             competitive_go_ = true;
         }
+    }
+
+    // The challenge sound ([online] challenge_sound): the chime at the master
+    // volume (not when muted), and the window flashes while it is in the
+    // background.
+    void Alert(bool flash = true)
+    {
+        if (!draft_.challenge_sound) return;
+        if (!draft_.mute)
+        {
+            if (!alert_sound_) alert_sound_.emplace();
+            alert_sound_->Play(float(draft_.master_volume) / 100.0f);
+        }
+        if (flash && window_ && !(SDL_GetWindowFlags(window_) & SDL_WINDOW_INPUT_FOCUS))
+            SDL_FlashWindow(window_, SDL_FLASH_UNTIL_FOCUSED);
     }
 
     // The Discord friends follow the sign-in and the server's Discord
@@ -4783,6 +4815,17 @@ private:
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
                 if (DiscordButton("link_discord_friends", "Link", Dp(96, 32))) discord_friends_->Connect();
             }
+
+            // The challenge sound, with a way to hear it.
+            Row("Challenge sound", "A chime when someone challenges you or accepts your challenge, and the window "
+                                   "flashes while it is in the background.");
+            if (Toggle("##challenge_sound", &draft_.challenge_sound)) dirty_ = true;
+            ImGui::SameLine(0, Dp(16));
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(4));
+            if (GhostButton("hear_chime", "Play", Dp(86, 30), draft_.challenge_sound && !draft_.mute, Icon::Play))
+                Alert(false);
+            if (draft_.mute && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Recharged is muted (Audio).");
 
             // The server: only the settings file changes it.
             std::string host = status.server;
@@ -11028,6 +11071,8 @@ private:
     int leaderboard_board_ = 0;         // the Leaderboard page's board: the season's, or the day's
     bool friends_recent_open_ = false;  // the Friends page shows the players played recently
     std::int64_t watched_match_ = 0;    // the open set, told when it ends without a result
+    std::int64_t alerted_ = 0;          // the last chime: a set's id * 2, + 1 for an accepted challenge
+    std::optional<platform::AlertSound> alert_sound_;
     bool friends_offline_open_ = false; // the Friends page shows its offline friends
     bool preview_opened_ = false;       // a capture's preview set the offline friends' fold
     DiscordFriends::Status discord_status_;

@@ -464,8 +464,8 @@ season's leaders and today's, and your own place), **Events** (tournaments,
 coming later), **Match settings** (the rule
 set your challenges go out with, kept as `[online] challenge_rules`) and
 **Online settings** (who you are signed in as, your friend code, whether your
-Discord friends are linked, the server, and Sign out, which also ends the
-Discord link on this computer). A dot before **Online** in
+Discord friends are linked, the challenge sound, the server, and Sign out,
+which also ends the Discord link on this computer). A dot before **Online** in
 the sidebar shows the sign-in: green signed in, red not; signed out, Online is
 one page that shows what playing online brings and **Connect Discord**. Your
 set shows at the top of the Online pages. A private server's `https://`
@@ -482,6 +482,10 @@ tweaks both teams play with.
    decline, in the launcher or on a card over their game while it is in its
    menus (A accepts, B declines; the game waits behind the card). A player in
    a match shows as *Playing a match* and can be challenged once it is over.
+   A chime plays, and the window flashes when it is in the background, when
+   someone challenges you and when your challenge is accepted
+   (`[online] challenge_sound`, on by default; at the master volume, not when
+   muted).
 3. Once they accept, both games start by themselves: a game in which the
    challenge was accepted closes, and its launcher starts the set's game. The
    game signs in to the online server with your own Mii and goes straight to

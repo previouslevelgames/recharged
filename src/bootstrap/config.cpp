@@ -97,6 +97,7 @@ Values Encode(const Settings& s)
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
             {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"online.challenge_rules", s.challenge_rules},
+            {"online.challenge_sound", s.challenge_sound ? "true" : "false"},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
@@ -404,6 +405,7 @@ Settings Decode(const Values& values)
     if (s.profile_server.find_first_of("\r\n") != std::string::npos || s.profile_server.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: online.profile_server contains a line break or NUL");
     boolean("online.rollback", s.rollback);
+    boolean("online.challenge_sound", s.challenge_sound);
     boolean("online.rollback_test", s.rollback_test);
     if (const auto it = values.find("online.rollback_log"); it != values.end()) s.rollback_log = it->second;
     if (s.rollback_log.find_first_of("\r\n") != std::string::npos || s.rollback_log.find('\0') != std::string::npos)

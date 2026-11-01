@@ -43,6 +43,9 @@ with the score.
   opponent: playing someone doesn't make them a friend, they show under
   **Played recently** on the Friends page.
 - Friends who keep each other as friends can chat in the launcher.
+- A chime plays when someone challenges you or accepts your challenge, and
+  the window flashes while it is in the background, so a challenge isn't
+  missed (Online settings → **Challenge sound**).
 - Switch on **Available for random games** on the Friends page to meet players
   you don't know yet: the others who are available show under **Available
   now**, and you show to them. Off, nobody sees you there. The players of the

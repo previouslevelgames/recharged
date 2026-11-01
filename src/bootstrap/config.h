@@ -255,6 +255,11 @@ struct Settings
     // server) the player's challenges go out with, from the launcher's Online
     // -> Match settings. Empty, or a name the server doesn't have: its first.
     std::string challenge_rules;
+    // [online] challenge_sound (on by default): a chime, and a flashing
+    // window when it is in the background, for a challenge to the player
+    // and for their challenge accepted (at the master volume; not when
+    // muted).
+    bool challenge_sound = true;
     // [online] rollback (on by default): network matches predict the inputs
     // still on their way and roll back when they differ, instead of waiting
     // for them. Every machine in the match must have it on (the input delay

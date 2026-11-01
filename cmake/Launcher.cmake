@@ -100,7 +100,8 @@ add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launc
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
     charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_graphics_cards
-    charged_texture_packs charged_mii_maker charged_match_presets charged_competitive charged_discord_friends)
+    charged_texture_packs charged_mii_maker charged_match_presets charged_competitive charged_discord_friends
+    charged_alert_sound)
 mscharged_discord_social_sdk_beside(mscharged)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
 mscharged_stage_pipeline_catalog(mscharged)

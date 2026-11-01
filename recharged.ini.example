@@ -395,3 +395,6 @@ rich_presence = true
 # The rule set your challenges go out with, by its name on that server
 # (Online -> Match settings); empty: the server's first.
 challenge_rules =
+# A chime (and a flashing window in the background) when someone challenges
+# you or accepts your challenge (Online -> Online settings).
+challenge_sound = true
