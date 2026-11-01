@@ -581,6 +581,26 @@ int main()
         SaveConfig(soundFile, soundFile.settings);
         Require(LoadConfig(path).contents.find("challenge_sound = true") != std::string::npos,
                 "Saving wrote the challenge sound");
+        // [online] mii: none by default; a create ID read in lowercase and
+        // saved, anything else refused.
+        Require(defaults.online_mii.empty(), "Online Mii default");
+        std::ofstream(path) << "[online]\nmii = 82C6FC69A1B2C3D4\n";
+        auto miiFile = LoadConfig(path);
+        Require(miiFile.settings.online_mii == "82c6fc69a1b2c3d4", "Online Mii read");
+        miiFile.settings.online_mii = "80ae6afc5551b321";
+        SaveConfig(miiFile, miiFile.settings);
+        Require(LoadConfig(path).contents.find("mii = 80ae6afc5551b321") != std::string::npos
+                    && LoadConfig(path).settings.online_mii == "80ae6afc5551b321",
+                "Saving wrote the online Mii");
+        miiFile = LoadConfig(path);
+        miiFile.settings.online_mii.clear();
+        SaveConfig(miiFile, miiFile.settings);
+        Require(LoadConfig(path).settings.online_mii.empty(), "The online Mii cleared");
+        for (const char* bad : {"82c6fc69", "82c6fc69a1b2c3d4ff", "82c6fc69a1b2c3dz", "Nelly"})
+        {
+            std::ofstream(path) << "[online]\nmii = " << bad << "\n";
+            Reject([&] { LoadConfig(path); });
+        }
         std::ofstream(path) << "[online]\nrollback = true\nrollback_test = true\nrollback_delay = 9\nrollback_log = rb.txt\n";
         auto rollbackFile = LoadConfig(path);
         Require(rollbackFile.settings.rollback && rollbackFile.settings.rollback_test

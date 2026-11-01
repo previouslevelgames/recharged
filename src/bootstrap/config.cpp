@@ -98,6 +98,7 @@ Values Encode(const Settings& s)
             {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"online.challenge_rules", s.challenge_rules},
             {"online.challenge_sound", s.challenge_sound ? "true" : "false"},
+            {"online.mii", s.online_mii},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
@@ -406,6 +407,15 @@ Settings Decode(const Values& values)
         throw std::runtime_error("Invalid configuration: online.profile_server contains a line break or NUL");
     boolean("online.rollback", s.rollback);
     boolean("online.challenge_sound", s.challenge_sound);
+    if (const auto it = values.find("online.mii"); it != values.end())
+    {
+        std::string id = it->second;
+        for (auto& c : id) c = char(std::tolower(static_cast<unsigned char>(c)));
+        if (!id.empty()
+            && (id.size() != 16 || id.find_first_not_of("0123456789abcdef") != std::string::npos))
+            throw std::runtime_error("Invalid configuration: online.mii is not a Mii's create ID (16 hex digits)");
+        s.online_mii = id;
+    }
     boolean("online.rollback_test", s.rollback_test);
     if (const auto it = values.find("online.rollback_log"); it != values.end()) s.rollback_log = it->second;
     if (s.rollback_log.find_first_of("\r\n") != std::string::npos || s.rollback_log.find('\0') != std::string::npos)

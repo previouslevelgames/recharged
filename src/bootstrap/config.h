@@ -260,6 +260,11 @@ struct Settings
     // and for their challenge accepted (at the master volume; not when
     // muted).
     bool challenge_sound = true;
+    // [online] mii: the Mii a player who plays online with a Mii (without
+    // Discord) plays their sets with, by its create ID (16 hex digits,
+    // written in lowercase); Player profile chooses it. Empty: none chosen,
+    // and a Discord player's Mii is made from their Discord name.
+    std::string online_mii;
     // [online] rollback (on by default): network matches predict the inputs
     // still on their way and roll back when they differ, instead of waiting
     // for them. Every machine in the match must have it on (the input delay
