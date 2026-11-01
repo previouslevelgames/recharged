@@ -31,3 +31,18 @@ if(BUILD_TESTING)
     target_link_libraries(mii_head_sheet PRIVATE charged_mii_head charged_mii_maker)
     target_compile_features(mii_head_sheet PRIVATE cxx_std_20)
 endif()
+
+# The launcher's Mii heads: parts read and heads drawn on a worker thread,
+# textures made by the host (launcher/mii_faces.h).
+find_package(Threads REQUIRED)
+add_library(charged_mii_faces STATIC src/launcher/mii_faces.cpp)
+target_include_directories(charged_mii_faces PUBLIC src)
+target_compile_features(charged_mii_faces PUBLIC cxx_std_17)
+target_link_libraries(charged_mii_faces PUBLIC charged_mii_head Threads::Threads)
+if(BUILD_TESTING)
+    add_executable(mii_faces_tests tests/mii_faces.cpp)
+    target_link_libraries(mii_faces_tests PRIVATE charged_mii_faces charged_mii_maker)
+    add_test(NAME mii_faces COMMAND mii_faces_tests)
+    # MSCHARGED_TEST_DISC (a Charged image) adds a check with its real parts.
+    set_tests_properties(mii_faces PROPERTIES TIMEOUT 60)
+endif()

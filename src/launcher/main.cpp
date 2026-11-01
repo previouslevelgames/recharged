@@ -17,6 +17,7 @@
 #include "launcher/image_library.h"
 #include "launcher/issue_reporters.h"
 #include "launcher/match_presets.h"
+#include "launcher/mii_faces.h"
 #include "launcher/online_panel_preview.h"
 #include "launcher/player_lineup.h"
 #include "launcher/release_banner.h"
@@ -41,6 +42,7 @@
 #endif
 #include "platform/app_icon.h"
 #include "platform/path.h"
+#include "platform/mii_head.h"
 #include "platform/mii_maker.h"
 #include "platform/alert_sound.h"
 #include "platform/discord_presence.h"
@@ -222,16 +224,6 @@ void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_col
     // Dark ink on the light colours (white, yellow, yellow-green).
     const bool light = 0.2126f * fill.x + 0.7152f * fill.y + 0.0722f * fill.z > 0.6f;
     DrawIcon(draw, Icon::Person, center, size * 0.62f, Col(light ? color::window : color::text));
-}
-
-// The player's own Mii on the Online pages. `record` is its 74-byte Mii
-// record (mii_maker.h; empty when there is none yet): the head picture the
-// launcher will draw from it goes here. Until then, its figure on its
-// favourite colour.
-void DrawOwnMii(ImDrawList* draw, ImVec2 center, float size, int favorite_color, const std::string& record)
-{
-    (void)record; // the Mii's head picture, drawn from its record, comes here
-    DrawMiiFigure(draw, center, size, favorite_color);
 }
 
 // The Wii's twelve favourite colours as round swatches, `per_row` to a row,
@@ -643,6 +635,7 @@ public:
     {
         wii_probe_.Close();
         remote_lights_.reset(); // a remote that still rumbles stops first
+        mii_faces_.reset();     // its textures, before the renderer goes
         if (renderer_ui_ready_) ImGui_ImplSDLRenderer3_Shutdown();
         if (window_ui_ready_) ImGui_ImplSDL3_Shutdown();
         if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
@@ -700,6 +693,7 @@ public:
         renderer_ = SDL_CreateRenderer(window_, nullptr);
         Require(renderer_ != nullptr, "Cannot create launcher renderer");
         SDL_SetRenderVSync(renderer_, 1);
+        StartMiiFaces();
         metrics_ = CurrentMetrics();
         ApplyWindowMetrics(true);
 
@@ -848,6 +842,7 @@ public:
                 ApplyWindowMetrics(false);
             }
             SetUiScale(metrics_.ui);
+            UpdateMiiFaces();
             ImGui_ImplSDLRenderer3_NewFrame();
             ImGui_ImplSDL3_NewFrame();
             ImGui::NewFrame();
@@ -865,7 +860,8 @@ public:
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
             const bool update_settled = update_preview_ || (!UpdateBusy() && !(update_capture_install_ && update_.offer));
             const bool settled = !pending_ && !searching_ && !library_scanning_ && !candidate_pending_
-                && !texture_scanning_ && update_settled && CompetitiveSettled();
+                && !texture_scanning_ && update_settled && CompetitiveSettled()
+                && (!mii_faces_ || mii_faces_->Settled());
             settled_frames = settled ? settled_frames + 1 : 0;
             if (!options_.screenshot.empty() && frame >= 12 && (settled_frames >= 3 || frame > 600))
             {
@@ -3889,6 +3885,78 @@ private:
         EndCard();
     }
 
+    // ------------------------------------------------------------- Mii heads
+    // The Miis' heads: the game image's Mii parts read and heads drawn on a
+    // worker (MiiFaces), shown as SDL textures.
+    void StartMiiFaces()
+    {
+        MiiFaces::Hooks hooks;
+        hooks.make = [renderer = renderer_](const platform::mii::RgbaImage& image) -> MiiFaces::Texture {
+            SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC,
+                                                     image.width, image.height);
+            if (!texture) return nullptr;
+            if (!SDL_UpdateTexture(texture, nullptr, image.pixels.data(), image.width * 4))
+            {
+                SDL_DestroyTexture(texture);
+                return nullptr;
+            }
+            SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+            return texture;
+        };
+        hooks.free = [](MiiFaces::Texture texture) { SDL_DestroyTexture(static_cast<SDL_Texture*>(texture)); };
+        mii_faces_ = std::make_unique<MiiFaces>(std::move(hooks));
+    }
+
+    // Every frame, before drawing: the game image in use (its parts draw the
+    // heads, read when the first head is asked for) and the heads drawn since.
+    // An image without parts is logged once; its Miis keep their figures.
+    void UpdateMiiFaces()
+    {
+        if (!mii_faces_) return;
+        // Miis show on the Online pages only.
+        if (OnlinePage(page_)) mii_faces_->SetImage(config_ok_ ? EffectiveLaunch().disc_path : fs::path());
+        mii_faces_->Update();
+        const bool failed = mii_faces_->PartsState() == MiiFaces::Parts::Failed;
+        if (failed && !mii_faces_failed_)
+            platform::SessionLogLine("Mii faces: the game image's Mii parts can't be read: " + mii_faces_->Error());
+        mii_faces_failed_ = failed;
+    }
+
+    // The pixel size a head is drawn at for `size` window units: 64, 128 or
+    // 256, whichever covers it on this display.
+    static int HeadPixels(float size)
+    {
+        const float pixels = size * std::max(1.0f, ImGui::GetIO().DisplayFramebufferScale.x);
+        return pixels <= 64.5f ? 64 : pixels <= 128.5f ? 128 : 256;
+    }
+
+    static ImTextureID TextureId(MiiFaces::Texture texture)
+    {
+        return static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(texture));
+    }
+
+    // A Mii in a disc `size` wide: its head on its favourite colour, drawn
+    // from its 74-byte record with the game image's Mii parts as the Wii draws
+    // its Mii icons; until the head is drawn (or without the parts, or a
+    // record) its figure on that colour.
+    void DrawMii(ImDrawList* draw, ImVec2 center, float size, int favorite_color, const std::string& record,
+                 int priority = 1)
+    {
+        const MiiFaces::Texture head = mii_faces_ && record.size() == platform::mii::kMiiRecordBytes
+            ? mii_faces_->Head(record, {HeadPixels(size)}, priority)
+            : nullptr;
+        if (!head)
+        {
+            DrawMiiFigure(draw, center, size, favorite_color);
+            return;
+        }
+        const float half = size * 0.5f;
+        draw->AddImageRounded(TextureId(head), {center.x - half, center.y - half}, {center.x + half, center.y + half},
+                              {0, 0}, {1, 1}, IM_COL32_WHITE, half);
+        draw->AddCircle(center, half, Col(color::border), 0, Dp(1));
+    }
+
     // The Miis the game finds in its Wii storage: their friend codes, making
     // one, or importing Dolphin's.
     void MiiPage()
@@ -3967,9 +4035,8 @@ private:
         EndCard();
     }
 
-    // A Mii of the list: its figure on its favourite colour (the launcher
-    // cannot draw its face), its name, and its friend code on a button that
-    // copies it.
+    // A Mii of the list: its head on its favourite colour, its name, and its
+    // friend code on a button that copies it.
     void MiiRow(const mscharged::platform::InstalledMii& mii, std::size_t index)
     {
         const auto& fonts = CurrentFonts();
@@ -3988,8 +4055,8 @@ private:
         ImGui::EndGroup();
         ImGui::PopTextWrapPos();
         const float height = ImGui::GetItemRectSize().y;
-        DrawMiiFigure(ImGui::GetWindowDrawList(), {start.x + figure * 0.5f, start.y + std::max(height, figure) * 0.5f},
-                      figure, mii.favorite_color);
+        DrawMii(ImGui::GetWindowDrawList(), {start.x + figure * 0.5f, start.y + std::max(height, figure) * 0.5f},
+                figure, mii.favorite_color, mii.record);
         if (height < figure) ImGui::Dummy({0.0f, figure - height});
 
         ImGui::TableSetColumnIndex(1);
@@ -4370,8 +4437,8 @@ private:
             if (!first || mode == "preview-welcome") return;
             StartMiiWizard();
             wizard_.source = 0;
-            wizard_.seed = 7;
             wizard_.color = 5;
+            RollWizardFace(7);
             wizard_.profile_name = "Bob the Builder";
             wizard_.profile_typed = true;
             if (mode == "preview-mii-name")
@@ -5358,11 +5425,33 @@ private:
     {
         wizard_ = MiiWizard{};
         wizard_.step = 1;
-        wizard_.seed = std::random_device{}();
-        wizard_.color = int(wizard_.seed % 12);
+        wizard_.created = std::int64_t(std::time(nullptr));
+        const std::uint32_t seed = std::random_device{}();
+        wizard_.color = int(seed % 12);
+        RollWizardFace(seed);
         // Miis here already: the list first.
         const auto& miis = InstalledMiis();
         if (miis.state == platform::MiiDatabaseState::Ready && !miis.miis.empty()) wizard_.source = 1;
+    }
+
+    // A new random face for the wizard's new Mii, from the Wii's own Mii
+    // maker (its favourite colour stays the wizard's).
+    void RollWizardFace(std::uint32_t seed)
+    {
+        wizard_.seed = seed;
+        wizard_.face = platform::mii::ReadMiiFace(platform::MakeRandomMii("Mii", seed, wizard_.created));
+    }
+
+    // The wizard's new Mii as its record: the name it gets, the face shown
+    // (rolled) and the favourite colour, its create ID counting
+    // from `created` (Unix seconds). Throws for a name ValidMiiName refuses.
+    std::string WizardNewRecord(std::int64_t created)
+    {
+        auto record = platform::MakeRandomMii(WizardMiiName(), wizard_.seed, created, wizard_.color);
+        auto face = wizard_.face;
+        face.favorite_color = wizard_.color;
+        platform::mii::WriteMiiFace(face, record);
+        return record;
     }
 
     // The Mii of this computer the wizard has chosen, if it is still there.
@@ -5479,18 +5568,14 @@ private:
         const auto& miis = InstalledMiis();
         if (wizard_.source == 0)
         {
-            // A new Mii: its figure, and its favourite colour.
-            const float figure = Dp(92);
+            // A new Mii: its face (Another face rolls a new one), and its favourite colour.
+            const float figure = Dp(112);
             const ImVec2 at = ImGui::GetCursorScreenPos();
-            std::string preview;
-            try
-            {
-                const std::string name = WizardMiiName();
-                if (platform::ValidMiiName(name))
-                    preview = platform::MakeRandomMii(name, wizard_.seed, std::int64_t(std::time(nullptr)), wizard_.color);
-            }
-            catch (const std::exception&) {}
-            DrawOwnMii(draw, {at.x + figure * 0.5f, at.y + figure * 0.5f}, figure, wizard_.color, preview);
+            auto face = wizard_.face;
+            face.favorite_color = wizard_.color;
+            std::string preview(platform::mii::kMiiRecordBytes, '\0');
+            platform::mii::WriteMiiFace(face, preview);
+            DrawMii(draw, {at.x + figure * 0.5f, at.y + figure * 0.5f}, figure, wizard_.color, preview, 2);
             ImGui::SetCursorScreenPos({at.x + figure + Dp(24), at.y});
             ImGui::BeginGroup();
             TextColored(fonts.label, color::text, "Favourite colour");
@@ -5499,11 +5584,15 @@ private:
             ImGui::Dummy({0, Dp(2)});
             const float swatches = ImGui::GetContentRegionAvail().x;
             MiiColorSwatches("##wizard_colour", &wizard_.color, Dp(30), swatches >= Dp(30 * 12 + 10 * 11) ? 12 : 6);
+            ImGui::Dummy({0, Dp(6)});
+            if (SecondaryButton("wizard_another_face", "Another face",
+                                {GhostWidth("Another face", Icon::Refresh) + Dp(16), Dp(36)}, true, Icon::Refresh))
+                RollWizardFace(std::random_device{}());
             ImGui::Dummy({0, Dp(4)});
             ImGui::PushTextWrapPos(0.0f);
             TextWrappedColored(fonts.caption, color::dim,
-                               "The face is random, from the Wii's own Mii maker: there is no Mii editor here. The Mii "
-                               "is made when you go online.");
+                               "A random face from the Wii's own Mii maker: roll another until you like it. The Mii is "
+                               "made when you go online.");
             ImGui::PopTextWrapPos();
             ImGui::EndGroup();
             const float bottom = std::max(ImGui::GetItemRectMax().y, at.y + figure);
@@ -5607,7 +5696,7 @@ private:
                                 Dp(12));
             draw->AddRect(min, max, Col(Mix(color::border, color::accent, active), 0.6f + 0.4f * active), Dp(12), 0,
                           Dp(1.0f + 0.5f * active));
-            DrawOwnMii(draw, {min.x + Dp(12) + figure * 0.5f, min.y + height * 0.5f}, figure, mii.favorite_color,
+            DrawMii(draw, {min.x + Dp(12) + figure * 0.5f, min.y + height * 0.5f}, figure, mii.favorite_color,
                        mii.record);
             const float text = min.x + Dp(12) + figure + Dp(12);
             const float block = FontSize(fonts.label) + Dp(2) + FontSize(fonts.caption);
@@ -5641,14 +5730,14 @@ private:
         if (!chosen && platform::ValidMiiName(mii_name))
             try
             {
-                record = platform::MakeRandomMii(mii_name, wizard_.seed, std::int64_t(std::time(nullptr)), wizard_.color);
+                record = WizardNewRecord(wizard_.created);
             }
             catch (const std::exception&) {}
         const int colour = chosen ? chosen->favorite_color : wizard_.color;
         {
             const ImVec2 at = ImGui::GetCursorScreenPos();
             const float figure = Dp(72), width = ImGui::GetContentRegionAvail().x;
-            DrawOwnMii(draw, {at.x + figure * 0.5f, at.y + figure * 0.5f}, figure, colour, record);
+            DrawMii(draw, {at.x + figure * 0.5f, at.y + figure * 0.5f}, figure, colour, record);
             const float left = at.x + figure + Dp(20);
             const float block = FontSize(fonts.title) + Dp(4) + FontSize(fonts.body);
             const float top = at.y + (figure - block) * 0.5f;
@@ -5702,11 +5791,11 @@ private:
             {
                 const auto folder = SaveFolder();
                 std::string record;
-                // A create ID already there is made again: another one.
+                // A create ID already there is made again: another one, the
+                // same face.
                 for (int attempt = 0;; ++attempt)
                 {
-                    record = platform::MakeRandomMii(WizardMiiName(), wizard_.seed + std::uint32_t(attempt),
-                                                     std::int64_t(std::time(nullptr)), wizard_.color);
+                    record = WizardNewRecord(std::int64_t(std::time(nullptr)) + 4 * attempt);
                     try
                     {
                         platform::AddMii(record, folder, SaveTitleOf(Release()), folder / "backups");
@@ -5784,7 +5873,7 @@ private:
         const float width = ImGui::GetContentRegionAvail().x, height = Dp(64), avatar = Dp(58);
         const ImVec2 center{at.x + avatar * 0.5f, at.y + height * 0.5f};
         if (mii_account)
-            DrawOwnMii(draw, center, avatar, own ? own->color : 0, own ? own->record : std::string());
+            DrawMii(draw, center, avatar, own ? own->color : 0, own ? own->record : std::string());
         else
         {
             draw->AddCircleFilled(center, avatar * 0.5f, Col(color::accent, 0.16f));
@@ -5963,7 +6052,7 @@ private:
         const float figure = Dp(30), line = std::max(figure, FontSize(fonts.label));
         if (own && (own->here || !chosen_kind))
         {
-            DrawOwnMii(draw, {at.x + figure * 0.5f, at.y + line * 0.5f}, figure, own->color, own->record);
+            DrawMii(draw, {at.x + figure * 0.5f, at.y + line * 0.5f}, figure, own->color, own->record);
             DrawLabel(draw, fonts.label, {at.x + figure + Dp(10), at.y + (line - FontSize(fonts.label)) * 0.5f},
                       Col(color::text), own->name.c_str());
             ImGui::Dummy({figure + Dp(10) + TextSize(fonts.label, own->name.c_str()).x, line});
@@ -11325,6 +11414,10 @@ private:
     fs::path import_source_;
     ImportKind import_kind_ = ImportKind::Save;
     bool import_prompt_ = false;
+    // The Miis' heads (MiiFaces), and whether the game image's parts failed
+    // when last seen (logged once).
+    std::unique_ptr<MiiFaces> mii_faces_;
+    bool mii_faces_failed_ = false;
     // The Miis of the save folder in use and the times of their files when read.
     fs::path miis_folder_;
     std::vector<fs::file_time_type> miis_times_;
@@ -11345,7 +11438,11 @@ private:
         bool own_mii_name = false;
         std::string mii_name;
         int color = 0;
+        // The new Mii's face: rolled from `seed`; its create ID
+        // counts from `created` until it is made.
         std::uint32_t seed = 0;
+        platform::mii::MiiFace face;
+        std::int64_t created = 0;
         std::optional<std::array<unsigned char, 8>> chosen;
         bool signing_in = false;
     };
