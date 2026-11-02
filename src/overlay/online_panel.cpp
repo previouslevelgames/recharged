@@ -1070,18 +1070,17 @@ void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* 
         }
     }
     {
-        // Its keys, beside a line saying so.
+        // Its keys hang from its lower edge at the right.
         auto* draw = ImGui::GetWindowDrawList();
-        const ImVec2 at{ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y + Dp(8)};
-        float x = at.x;
+        const float caps = OverlayKeyCapWidth("Y") + Dp(4) + OverlayKeyCapWidth("F");
+        float x = button_min.x + button.x - Dp(12) - caps;
+        const float y = button_min.y + button.y - Dp(11);
         for (const char* key : {"Y", "F"})
         {
-            OverlayKeyCap(draw, {x, at.y}, key);
-            x += OverlayKeyCapWidth(key) + Dp(5);
+            OverlayKeyCap(draw, {x, y}, key);
+            x += OverlayKeyCapWidth(key) + Dp(4);
         }
-        DrawLabel(draw, fonts.caption, {x + Dp(3), at.y + (Dp(22) - FontSize(fonts.caption)) * 0.5f},
-                  Col(color::dim), "from anywhere on this screen");
-        ImGui::Dummy({side, Dp(8) + Dp(22)});
+        ImGui::Dummy({side, Dp(11)});
     }
     ImGui::Dummy({side, Dp(12)});
     if (searching)
