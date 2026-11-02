@@ -3279,6 +3279,7 @@ private:
             ImGui::BeginChild("##column", {column, 0}, ImGuiChildFlags_AutoResizeY);
             ImGui::BeginDisabled(!config_ok_ && page_ != PageAbout);
             if (mii_editor_.open && mii_editor_.page == page_) MiiEditorPage();
+            else if (preset_edit_ && page_ == PageRules) PresetEditorPage();
             else switch (page_)
             {
             case PageGame: GamePage(); break;
@@ -6251,40 +6252,46 @@ private:
     // favourite colour on the left; its parts by section on the right, the
     // types as thumbnails of the head with each; Cancel, Undo, Start over
     // and Save under them.
+    // An editor's page header (the Mii editor, a match preset's): a back
+    // button before the title, which leaves as Cancel does, and its text.
+    // Whether back was pressed.
+    bool EditorHeader(const char* id, const char* title, const char* text)
+    {
+        const auto& fonts = CurrentFonts();
+        const float back = Dp(40);
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const bool pressed = ImGui::InvisibleButton(id, {back, back});
+        const bool over = ImGui::IsItemHovered();
+        if (over) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        if (over) ImGui::SetTooltip("Back without saving");
+        auto* header = ImGui::GetWindowDrawList();
+        const ImVec2 center{at.x + back * 0.5f, at.y + back * 0.5f};
+        header->AddCircleFilled(center, back * 0.5f, Col(color::text, over ? 0.12f : 0.05f));
+        header->AddCircle(center, back * 0.5f - Dp(0.5f), Col(color::border), 0, Dp(1));
+        DrawIcon(header, Icon::Back, center, Dp(18), Col(over ? color::text : color::muted));
+        ImGui::SameLine(0, Dp(14));
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (back - FontSize(fonts.title)) * 0.5f - Dp(2));
+        TextColored(fonts.title, color::text, title);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(2));
+        TextWrappedColored(fonts.body, color::muted, text);
+        ImGui::Dummy({0, Dp(8)});
+        return pressed;
+    }
+
     void MiiEditorPage()
     {
         auto& editor = mii_editor_;
         const auto& fonts = CurrentFonts();
         const bool wizard = editor.target == MiiEditor::Target::Wizard;
         ++mii_editor_frames_;
-        // The title with a back button before it: back leaves as Cancel does.
+        if (EditorHeader("##mii_editor_back", wizard ? "Your new Mii" : "Edit Mii",
+                         wizard ? "Its face, name and favourite colour, drawn as the game draws its Miis. It is made "
+                                  "when you go online."
+                                : "Its face, name and favourite colour, drawn as the game draws its Miis. Saving keeps "
+                                  "who it is online: its friend code and profile stay."))
         {
-            const float back = Dp(40);
-            const ImVec2 at = ImGui::GetCursorScreenPos();
-            const bool pressed = ImGui::InvisibleButton("##mii_editor_back", {back, back});
-            const bool over = ImGui::IsItemHovered();
-            if (over) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-            if (over) ImGui::SetTooltip("Back without saving");
-            auto* header = ImGui::GetWindowDrawList();
-            const ImVec2 center{at.x + back * 0.5f, at.y + back * 0.5f};
-            header->AddCircleFilled(center, back * 0.5f, Col(color::text, over ? 0.12f : 0.05f));
-            header->AddCircle(center, back * 0.5f - Dp(0.5f), Col(color::border), 0, Dp(1));
-            DrawIcon(header, Icon::Back, center, Dp(18), Col(over ? color::text : color::muted));
-            ImGui::SameLine(0, Dp(14));
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (back - FontSize(fonts.title)) * 0.5f - Dp(2));
-            TextColored(fonts.title, color::text, wizard ? "Your new Mii" : "Edit Mii");
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(2));
-            TextWrappedColored(fonts.body, color::muted,
-                               wizard ? "Its face, name and favourite colour, drawn as the game draws its Miis. It is "
-                                        "made when you go online."
-                                      : "Its face, name and favourite colour, drawn as the game draws its Miis. Saving "
-                                        "keeps who it is online: its friend code and profile stay.");
-            ImGui::Dummy({0, Dp(8)});
-            if (pressed)
-            {
-                CloseMiiEditor();
-                return;
-            }
+            CloseMiiEditor();
+            return;
         }
         const MiiEditor::Step before{editor.face, editor.name};
         BeginCard("##mii_editor", nullptr);
@@ -7487,12 +7494,39 @@ private:
     // and the player's are files in match-presets beside the settings file.
     void MatchRulesPage()
     {
-        PageHeader("Match rules", "The rules your battles start from. Challenging a friend or searching for an "
-                                  "opponent (in the game, F1), you pick one and can still change any rule for that "
-                                  "battle. Ranked matches and tournaments bring their own rules.");
         const auto& fonts = CurrentFonts();
+        {
+            // The title, and New preset at its right.
+            const char* label = "New preset";
+            const float button_w = GhostWidth(label, Icon::Copy) + Dp(24), button_h = Dp(40);
+            const ImVec2 top = ImGui::GetCursorScreenPos();
+            const float right = ImGui::GetContentRegionAvail().x;
+            // As PageHeader, its text beside the button.
+            TextColored(fonts.title, color::text, "Match rules");
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(4));
+            ImGui::PushFont(fonts.body);
+            ImGui::PushStyleColor(ImGuiCol_Text, color::muted);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + right - button_w - Dp(24));
+            ImGui::TextUnformatted("The rules your battles start from. Challenging a friend or searching for an "
+                                   "opponent (in the game, F1), you pick one and can still change any rule for that "
+                                   "battle. Ranked matches and tournaments bring their own rules.");
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+            ImGui::Dummy({0, Dp(8)});
+            const ImVec2 after = ImGui::GetCursorScreenPos();
+            ImGui::SetCursorScreenPos({top.x + right - button_w, top.y + Dp(2)});
+            if (PrimaryButton("new_match_preset", label, {button_w, button_h}, true, Icon::Copy))
+            {
+                launcher::MatchPreset fresh = launcher::BuiltInMatchPresets()[0];
+                fresh.name.clear();
+                fresh.built_in = false;
+                EditPreset(fresh);
+            }
+            ImGui::SetCursorScreenPos(after);
+        }
         const auto& list = MatchPresets();
-        BeginCard("##match_presets", "Presets", "Built in, from the server and your own.", Icon::Trophy);
+        BeginCard("##match_presets", nullptr);
 
         PresetGroupTitle("BUILT IN");
         int row = 0;
@@ -7545,22 +7579,12 @@ private:
         }
         if (!own)
             TextWrappedColored(fonts.caption, color::muted, "None yet: copy one above, or make a new one.");
-        ImGui::Dummy({0, Dp(10)});
-        if (SecondaryButton("new_match_preset", "New preset", {Dp(160), Dp(40)}, !preset_edit_, Icon::Copy))
-        {
-            launcher::MatchPreset fresh = launcher::BuiltInMatchPresets()[0];
-            fresh.name.clear();
-            fresh.built_in = false;
-            EditPreset(fresh);
-        }
         const std::string folder = "Your presets are files in " + PathUtf8(MatchPresetsFolder()) + ".";
         ImGui::Dummy({0, Dp(4)});
         TextWrappedColored(fonts.caption, color::dim, folder.c_str());
         for (const auto& skipped : list.skipped)
             TextWrappedColored(fonts.caption, color::warning, ("Not a preset: " + skipped).c_str());
         EndCard();
-
-        if (preset_edit_) PresetEditor();
     }
 
     enum class PresetKind
@@ -7574,10 +7598,10 @@ private:
     void PresetGroupTitle(const char* title)
     {
         const auto& fonts = CurrentFonts();
-        ImGui::Dummy({0, Dp(6)});
+        ImGui::Dummy({0, Dp(4)});
         DrawTracked(ImGui::GetWindowDrawList(), fonts.caption, ImGui::GetCursorScreenPos(), Col(color::dim), title,
                     Dp(1.4f));
-        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(8)});
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(6)});
     }
 
     // The rules as short chips: the series, how a game ends, the stadium, the
@@ -7626,28 +7650,46 @@ private:
         const auto& fonts = CurrentFonts();
         auto* draw = ImGui::GetWindowDrawList();
         ImGui::PushID(id);
-        const float width = ImGui::GetContentRegionAvail().x, pad = Dp(14), gap = Dp(6), height = Dp(34);
+        const float width = ImGui::GetContentRegionAvail().x, pad = Dp(10), gap = Dp(6), height = Dp(30);
         const bool own = kind == PresetKind::Own;
         const float copy_w = Dp(86), edit_w = Dp(80), delete_w = Dp(96);
         const float buttons = copy_w + (own ? gap + edit_w + gap + delete_w : 0.0f);
         const ImVec2 start = ImGui::GetCursorScreenPos();
         draw->ChannelsSplit(2);
         draw->ChannelsSetCurrent(1);
-        // The name.
+        // The name, and for rules that stay as they are a padlock: they come
+        // with Recharged or from the server, and a copy is the player's.
         const float text_right = start.x + width - pad - buttons - Dp(16);
-        ImGui::SetCursorScreenPos({start.x + pad, start.y + pad});
+        ImGui::SetCursorScreenPos({start.x + pad + Dp(4), start.y + pad});
         TextColored(fonts.label, color::text, name.c_str());
+        if (!own)
+        {
+            const char* tag = kind == PresetKind::BuiltIn ? "Fixed" : "From the server";
+            const ImVec2 size = TextSize(fonts.caption, tag);
+            const float tag_h = FontSize(fonts.caption) + Dp(6);
+            const ImVec2 tag_at{start.x + pad + Dp(4) + TextSize(fonts.label, name.c_str()).x + Dp(10),
+                                start.y + pad + (FontSize(fonts.label) - tag_h) * 0.5f};
+            const ImVec2 tag_end{tag_at.x + Dp(22) + size.x + Dp(8), tag_at.y + tag_h};
+            draw->AddRectFilled(tag_at, tag_end, Col(color::text, 0.06f), tag_h * 0.5f);
+            DrawIcon(draw, Icon::Lock, {tag_at.x + Dp(12), tag_at.y + tag_h * 0.5f}, Dp(11), Col(color::muted));
+            DrawLabel(draw, fonts.caption, {tag_at.x + Dp(22), tag_at.y + (tag_h - size.y) * 0.5f}, Col(color::muted),
+                      tag);
+            if (ImGui::IsMouseHoveringRect(tag_at, tag_end))
+                ImGui::SetTooltip(kind == PresetKind::BuiltIn
+                                      ? "These rules come with Recharged and stay as they are. Copy them to change them."
+                                      : "Your server's rules: they stay as the server has them. Copy them to change them.");
+        }
         // The rules, as chips that wrap.
         const auto chips = RuleChips(rules);
-        float x = start.x + pad, y = start.y + pad + FontSize(fonts.label) + Dp(8);
+        float x = start.x + pad + Dp(4), y = start.y + pad + FontSize(fonts.label) + Dp(6);
         const float chip_h = FontSize(fonts.caption) + Dp(8);
         for (const auto& [text, tint, plain] : chips)
         {
             const float w = TextSize(fonts.caption, text.c_str()).x + Dp(16);
-            if (x + w > text_right && x > start.x + pad)
+            if (x + w > text_right && x > start.x + pad + Dp(4))
             {
-                x = start.x + pad;
-                y += chip_h + Dp(5);
+                x = start.x + pad + Dp(4);
+                y += chip_h + Dp(4);
             }
             draw->AddRectFilled({x, y}, {x + w, y + chip_h}, Col(tint, 0.12f), chip_h * 0.5f);
             draw->AddRect({x, y}, {x + w, y + chip_h}, Col(tint, 0.35f), chip_h * 0.5f, 0, Dp(1));
@@ -7685,7 +7727,6 @@ private:
         draw->ChannelsMerge();
         ImGui::SetCursorScreenPos(start);
         ImGui::Dummy({width, bottom - start.y});
-        ImGui::Dummy({0, Dp(6)});
         ImGui::PopID();
         return pressed;
     }
@@ -7703,16 +7744,24 @@ private:
         preset_delete_ = -1;
     }
 
-    // The preset being made or changed: its name, the settings of the game's
-    // settings screen and the cheats, all offered whether unlocked or not.
-    void PresetEditor()
+    // The preset being made or changed, on a page of its own (as the Mii
+    // editor): its name, the settings of the game's settings screen and the
+    // cheats, all offered whether unlocked or not; back or Cancel leave it,
+    // Save keeps it.
+    void PresetEditorPage()
     {
         auto& preset = *preset_edit_;
         auto& s = preset.settings;
         const auto& fonts = CurrentFonts();
         const bool fresh = preset.file.empty();
-        BeginCard("##preset_editor", fresh ? "New preset" : "Edit preset",
-                  "A file of its own in match-presets: your battles can start from it.", Icon::Paint);
+        if (EditorHeader("##preset_editor_back", fresh ? "New preset" : "Edit preset",
+                         "Rules your battles can start from: a file of its own in match-presets."))
+        {
+            preset_edit_.reset();
+            page_scroll_top_ = true;
+            return;
+        }
+        BeginCard("##preset_editor", nullptr);
         // Why the preset cannot be saved, if it cannot.
         std::string blocked;
         if (!launcher::ValidMatchPresetName(preset.name))
@@ -7792,21 +7841,41 @@ private:
             }
             EndRows();
         }
-        ImGui::Dummy({0, Dp(6)});
-        if (PrimaryButton("save_preset", "Save preset", {Dp(160), Dp(42)}, blocked.empty(), Icon::Check))
+        // Cancel and Save at the right, as in the Mii editor; why it can't be
+        // saved before them.
+        ImGui::Dummy({0, Dp(14)});
+        const float button = Dp(36), end_button = Dp(124);
+        const ImVec2 bar = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float right_start = bar.x + width - end_button * 2 - Dp(8);
+        if (!blocked.empty() && preset.name.empty())
+        {
+            const char* hint = "Give it a name to save it.";
+            const ImVec2 size = TextSize(fonts.caption, hint);
+            DrawLabel(ImGui::GetWindowDrawList(), fonts.caption,
+                      {right_start - Dp(14) - size.x, bar.y + (button - size.y) * 0.5f}, Col(color::warning), hint);
+        }
+        ImGui::SetCursorScreenPos({right_start, bar.y});
+        bool leave = false;
+        if (SecondaryButton("cancel_preset", "Cancel", {end_button, button}, true, Icon::Close)) leave = true;
+        ImGui::SameLine(0, Dp(8));
+        if (PrimaryButton("save_preset", "Save", {end_button, button}, blocked.empty(), Icon::Check))
         {
             try
             {
                 launcher::SaveMatchPreset(MatchPresetsFolder(), preset, MatchPresets().presets);
                 Notice("Preset " + preset.name + " saved.", NoticeKind::Success);
-                preset_edit_.reset();
+                leave = true;
             }
             catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); }
             presets_loaded_ = false;
         }
-        ImGui::SameLine(0, Dp(10));
-        if (SecondaryButton("cancel_preset", "Cancel", {Dp(110), Dp(42)})) preset_edit_.reset();
         EndCard();
+        if (leave)
+        {
+            preset_edit_.reset();
+            page_scroll_top_ = true;
+        }
     }
 
     // A choice among names (a cheat, the skill) as a dropdown.

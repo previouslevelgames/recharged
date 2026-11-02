@@ -361,6 +361,16 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddCircleFilled(p(-0.14f, 0.20f), 0.105f * s, color);
         break;
     }
+    case Icon::Lock:
+        // A padlock (rules that stay as they are): the shackle over its body.
+        draw->PathArcTo(p(0.0f, -0.10f), 0.20f * s, IM_PI, 2.0f * IM_PI, 12);
+        draw->PathLineTo(p(0.20f, 0.02f));
+        draw->PathStroke(color, 0, t);
+        draw->PathLineTo(p(-0.20f, 0.02f));
+        draw->PathLineTo(p(-0.20f, -0.10f));
+        draw->PathStroke(color, 0, t);
+        draw->AddRectFilled(p(-0.34f, 0.0f), p(0.34f, 0.44f), color, 0.08f * s);
+        break;
     case Icon::Dice:
         draw->AddRect(p(-0.40f, -0.40f), p(0.40f, 0.40f), color, 0.14f * s, 0, t);
         draw->AddCircleFilled(p(-0.18f, -0.18f), 0.07f * s, color);
