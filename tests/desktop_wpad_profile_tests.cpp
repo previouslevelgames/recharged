@@ -1226,6 +1226,22 @@ void FullscreenShortcutCycle() {
     mscharged::platform::SetHotkeyAction(mscharged::HotkeyScreenshot, nullptr);
     mscharged::platform::SetHotkeys({});
 
+    // In the Recharged Game Menu F is the menu's (its search), not Stretch;
+    // closed, F stretches again.
+    mscharged::platform::SetHotkeyAction(mscharged::HotkeyStretch, [] { ++gHotkeyActions; });
+    const int stretched = gHotkeyActions;
+    mscharged::platform::SetHotkeysInMenu(true);
+    Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_F, SDL_KMOD_NONE), "F was taken out in the menu");
+    Check(Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_F, SDL_KMOD_NONE), "F's release was taken out in the menu");
+    for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+    Check(gHotkeyActions == stretched, "F stretched in the menu");
+    mscharged::platform::SetHotkeysInMenu(false);
+    Check(!Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_F, SDL_KMOD_NONE), "F reached the game outside the menu");
+    Check(!Key(SDL_EVENT_KEY_UP, SDL_SCANCODE_F, SDL_KMOD_NONE), "F's release reached the game outside the menu");
+    for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+    Check(gHotkeyActions == stretched + 1, "F did not stretch outside the menu");
+    mscharged::platform::SetHotkeyAction(mscharged::HotkeyStretch, nullptr);
+
     // After shutdown Alt+Enter is A again.
     mscharged::platform::ShutdownHotkeys();
     Check(Key(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN, SDL_KMOD_LALT), "Alt+Enter was taken out after shutdown");

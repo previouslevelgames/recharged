@@ -237,6 +237,7 @@ void HostPanel::Close()
     open_ = false;
     platform::SetNativeWpadPanelHold(false);
     platform::SetHotkeysTyping(false);
+    platform::SetHotkeysInMenu(false);
     aurora_set_video_output_blur(false);
     if (layer_) aurora::input::set_layer_enabled(layer_, false);
     aurora_imgui_set_overlay_input(false);
@@ -283,6 +284,7 @@ void HostPanel::Service(Clock::time_point now)
     // While a text field has the keyboard, the keyboard's own HOME key and
     // the other hotkeys' keys type.
     platform::SetHotkeysTyping(typing_);
+    platform::SetHotkeysInMenu(bool(overlay_));
     if (typing_ && keyboardChannel_ >= 0) homes &= ~(1u << keyboardChannel_);
     const auto buttons = platform::TakeNativeWpadPanelButtons();
     // B closes the panel's own card; the overlay takes it as a key (back).

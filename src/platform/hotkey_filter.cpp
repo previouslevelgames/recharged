@@ -26,12 +26,15 @@ std::bitset<SDL_SCANCODE_COUNT> sHeld;
 // While the host panel's text field has the keyboard only the panel and the
 // fullscreen hotkey act.
 std::atomic<bool> sTyping{false};
+// While the Recharged Game Menu is open, also the screenshot hotkey acts.
+std::atomic<bool> sInMenu{false};
 // The hotkey a press is now, with sLock held.
 HotkeyIndex MatchLocked(SDL_Scancode key, SDL_Keymod mod)
 {
     const HotkeyIndex hotkey = sHotkeys.Match(key, mod);
-    if (sTyping.load() && hotkey != HotkeyPanel && hotkey != HotkeyOptions && hotkey != HotkeyFullscreen)
-        return HotkeyCount;
+    const bool own = hotkey == HotkeyPanel || hotkey == HotkeyOptions || hotkey == HotkeyFullscreen;
+    if (sTyping.load() && !own) return HotkeyCount;
+    if (sInMenu.load() && !own && hotkey != HotkeyScreenshot) return HotkeyCount;
     return hotkey;
 }
 // The filter set before ours, which still sees every event ours passes.
@@ -302,6 +305,11 @@ void SetHotkeyAction(HotkeyIndex hotkey, void (*action)())
 void SetHotkeysTyping(bool typing)
 {
     sTyping = typing;
+}
+
+void SetHotkeysInMenu(bool in_menu)
+{
+    sInMenu = in_menu;
 }
 
 #if defined(MSCHARGED_AUTOPILOT)
