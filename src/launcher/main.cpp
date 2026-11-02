@@ -462,17 +462,18 @@ void DrawMiiFace(ImDrawList* draw, ImVec2 center, float size, unsigned seed, flo
 }
 
 // In the sidebar's order. The pages of a group (kNavGroups) follow each other.
-enum Page { PagePlay, PageGame, PageOnlineSettings, PageLeaderboard, PageEvents, PageRules, PageSidekicks,
+// The leaderboards and events are the Recharged Game Menu's (its Ranked and
+// Events tabs).
+enum Page { PagePlay, PageGame, PageOnlineSettings, PageRules, PageSidekicks,
             PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play",        "Game",      "Player profile", "Leaderboard",
-                                      "Events",      "Match rules", "Sidekicks",
+constexpr const char* page_names[] = {"Play",        "Game",      "Player profile", "Match rules", "Sidekicks",
                                       "Display",     "Audio",     "Controls",       "Gameplay",
                                       "Advanced",    "About"};
-constexpr const char* page_ids[] = {"play",   "game",  "online-settings", "leaderboard", "events",   "rules", "sidekicks",
-                                    "display", "audio",         "controls",    "gameplay", "advanced", "about"};
-constexpr Icon page_icons[] = {Icon::Play,    Icon::Disc,  Icon::Person,   Icon::Trophy,   Icon::Medal,
-                               Icon::Clipboard, Icon::Pitch, Icon::Display,  Icon::Audio,
-                               Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
+constexpr const char* page_ids[] = {"play",    "game",  "online-settings", "rules",    "sidekicks",
+                                    "display", "audio", "controls",        "gameplay", "advanced", "about"};
+constexpr Icon page_icons[] = {Icon::Play,     Icon::Disc,   Icon::Person,  Icon::Clipboard, Icon::Pitch,
+                               Icon::Display,  Icon::Audio,  Icon::Keyboard, Icon::Target,  Icon::Sliders,
+                               Icon::Info};
 static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
     && std::size(page_icons) == PageCount);
 
@@ -485,7 +486,7 @@ struct NavGroupInfo
     int first;
     int count;
 };
-constexpr NavGroupInfo kNavGroups[] = {{"Online", Icon::Chat, PageOnlineSettings, 5}};
+constexpr NavGroupInfo kNavGroups[] = {{"Online", Icon::Chat, PageOnlineSettings, 3}};
 constexpr int NavGroupOf(int page)
 {
     for (int group = 0; group < int(std::size(kNavGroups)); ++group)
@@ -3285,8 +3286,6 @@ private:
             case PageGame: GamePage(); break;
             case PageSidekicks: SidekicksPage(); break;
             case PageRules: MatchRulesPage(); break;
-            case PageLeaderboard: LeaderboardPage(); break;
-            case PageEvents: EventsPage(); break;
             case PageOnlineSettings: OnlineSettingsPage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
@@ -4322,8 +4321,8 @@ private:
         }
     }
 
-    // Made-up online data for a development capture: a profile, Discord
-    // friends and leaderboards, and with "preview-challenge..." a challenge.
+    // Made-up online data for a development capture: a profile and Discord
+    // friends, and with "preview-challenge..." a challenge.
     void PreviewDiscordFriends(const std::string& mode)
     {
         using Presence = DiscordFriends::Presence;
@@ -4383,34 +4382,6 @@ private:
         auto mario = make(900010, "Mario", "itsamario", "");
         mario.online = true;
         mario.activity = "launcher";
-        // A leaderboard: the season's with the player on it, and the day's.
-        platform::Leaderboard board;
-        board.season.first_day = "2026-10-01";
-        board.season.last_day = "2026-10-31";
-        board.season.players = 23;
-        const auto row = [](int rank, const char* mii, const char* who, int wins, int losses, int points, int region,
-                            bool you) {
-            platform::LeaderboardEntry entry;
-            entry.rank = rank;
-            entry.mii = mii;
-            entry.player = who;
-            entry.wins = wins;
-            entry.losses = losses;
-            entry.points = points;
-            entry.region = region;
-            entry.you = you;
-            return entry;
-        };
-        board.season.top = {row(1, "Ruffus", "Ruffus", 21, 4, 1220, 2, false),
-                            row(2, "Anosch", "Anosch", 18, 6, 1010, 2, true),
-                            row(3, "Kiki", "", 15, 9, 880, 4, false), row(4, "Nelly", "Nelly", 12, 7, 790, 4, false),
-                            row(5, "Takumi", "", 10, 10, 640, 1, false), row(5, "Bo", "Bo", 9, 5, 640, 2, false)};
-        board.season.you = board.season.top[1];
-        board.daily.first_day = board.daily.last_day = "2026-10-31";
-        board.daily.players = 4;
-        board.daily.top = {row(1, "Ruffus", "Ruffus", 3, 0, 160, 2, false), row(2, "Kiki", "", 2, 1, 110, 4, false)};
-        competitive_status_.leaderboard = board;
-        competitive_status_.leaderboard_missing = false;
         // A challenge from Mario in the dialog: "preview-challenge", or
         // "preview-rematch" for a rematch; "preview-challenge-wait" after its
         // Accept while Mario takes his Ready to play! back, "preview-challenge-go"
@@ -4994,182 +4965,6 @@ private:
         const bool discord_settled = !discord_friends_ || discord == DiscordFriends::State::Missing
             || (discord != DiscordFriends::State::Connecting && (discord != DiscordFriends::State::Off || !discord_due));
         return status.state != CompetitiveService::State::Connecting && !status.busy && discord_settled;
-    }
-
-    // Online -> Leaderboard: the game's RANKED leaderboards on this server,
-    // as its LEADERBOARD menu shows them: the season's leaders and today's,
-    // the player's own place over them.
-    void LeaderboardPage()
-    {
-        if (!OnlinePageTop("Leaderboard", "The game's RANKED leaderboards on this server: the season's leaders and "
-                                          "today's, as its own LEADERBOARD menu shows them."))
-            return;
-        competitive_->WantLeaderboard();
-        const auto& status = competitive_status_;
-        const auto& fonts = CurrentFonts();
-        BeginCard("##leaderboard", nullptr);
-        auto* draw = ImGui::GetWindowDrawList();
-        const float width = ImGui::GetContentRegionAvail().x;
-        if (status.leaderboard_missing || !status.leaderboard)
-        {
-            TextWrappedColored(fonts.body, color::muted,
-                               status.leaderboard_missing ? "This server has no leaderboards for the launcher yet."
-                                                          : "Loading the leaderboards...");
-            EndCard();
-            return;
-        }
-        // Season leaders | Daily leaders, and the board's days at the right.
-        Segmented("##leaderboard_board", &leaderboard_board_, {"Season leaders", "Daily leaders"}, Dp(320));
-        const bool daily = leaderboard_board_ == 1;
-        const platform::LeaderboardBoard& board = daily ? status.leaderboard->daily : status.leaderboard->season;
-        {
-            const auto day = [](const std::string& date) {
-                // YYYY-MM-DD as "Oct 31".
-                static constexpr const char* months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-                if (date.size() != 10) return date;
-                const int month = std::atoi(date.substr(5, 2).c_str()), number = std::atoi(date.substr(8, 2).c_str());
-                return month >= 1 && month <= 12 ? std::string(months[month - 1]) + " " + std::to_string(number) : date;
-            };
-            const std::string when = (daily ? "Today, " + day(board.first_day)
-                                             : day(board.first_day) + " - " + day(board.last_day))
-                + "  ·  " + std::to_string(board.players) + (board.players == 1 ? " player" : " players");
-            const ImVec2 last = ImGui::GetItemRectMax();
-            const ImVec2 size = TextSize(fonts.body, when.c_str());
-            DrawLabel(draw, fonts.body, {ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - Dp(22) - size.x,
-                                         last.y - (ImGui::GetItemRectSize().y + size.y) * 0.5f},
-                      Col(color::muted), when.c_str());
-        }
-        ImGui::Dummy({0, Dp(12)});
-
-        // The columns: rank, the Mii (and its player), W, L, points.
-        const float rank_width = Dp(56), number = Dp(64), points = Dp(84);
-        const auto columns = [&](float left) {
-            const float points_x = left + width - points;
-            return std::array<float, 4>{left + rank_width, points_x - 2 * number, points_x - number, points_x};
-        };
-        const auto row = [&](const platform::LeaderboardEntry& entry, bool highlight) {
-            const ImVec2 at = ImGui::GetCursorScreenPos();
-            const float height = Dp(44);
-            const auto x = columns(at.x);
-            if (highlight)
-                draw->AddRectFilled({at.x - Dp(10), at.y}, {at.x + width + Dp(10), at.y + height},
-                                    Col(Mix(color::card, color::accent, 0.10f)), Dp(10));
-            const float middle = at.y + height * 0.5f;
-            // The rank: the first three in gold, silver and bronze.
-            static const ImVec4 medals[] = {{1.0f, 0.80f, 0.30f, 1}, {0.80f, 0.84f, 0.90f, 1}, {0.86f, 0.58f, 0.36f, 1}};
-            const std::string rank = "#" + std::to_string(entry.rank);
-            const ImVec4 rank_tint = entry.rank >= 1 && entry.rank <= 3 ? medals[entry.rank - 1] : color::muted;
-            DrawLabel(draw, fonts.label, {at.x + Dp(4), middle - FontSize(fonts.label) * 0.5f}, Col(rank_tint),
-                      rank.c_str());
-            const std::string mii = entry.mii.empty() ? std::string("?") : entry.mii;
-            draw->PushClipRect({x[0], at.y}, {x[1] - Dp(12), at.y + height}, true);
-            DrawLabel(draw, fonts.label, {x[0], middle - FontSize(fonts.label) * 0.5f},
-                      Col(entry.you ? color::accent : color::text), mii.c_str());
-            float after = x[0] + TextSize(fonts.label, mii.c_str()).x + Dp(10);
-            if (!entry.player.empty() && entry.player != entry.mii)
-            {
-                const std::string who = entry.player;
-                DrawLabel(draw, fonts.body, {after, middle - FontSize(fonts.body) * 0.5f}, Col(color::dim), who.c_str());
-                after += TextSize(fonts.body, who.c_str()).x + Dp(10);
-            }
-            const char* region = entry.region == 1 ? "JP" : entry.region == 2 ? "US" : entry.region == 4 ? "EU"
-                : entry.region == 8                ? "KR"
-                                                   : nullptr;
-            if (region)
-            {
-                const ImVec2 tag = TextSize(fonts.caption, region);
-                const ImVec2 tag_at{after, middle - Dp(9)};
-                draw->AddRectFilled(tag_at, {tag_at.x + tag.x + Dp(12), tag_at.y + Dp(18)}, Col(color::border, 0.8f),
-                                    Dp(5));
-                DrawLabel(draw, fonts.caption, {tag_at.x + Dp(6), tag_at.y + (Dp(18) - tag.y) * 0.5f},
-                          Col(color::muted), region);
-            }
-            draw->PopClipRect();
-            const auto right = [&](float column_end, const std::string& text, ImFont* font, const ImVec4& tint) {
-                const ImVec2 size = TextSize(font, text.c_str());
-                DrawLabel(draw, font, {column_end - size.x, middle - size.y * 0.5f}, Col(tint), text.c_str());
-            };
-            right(x[2] - Dp(12), entry.wins ? std::to_string(*entry.wins) : "-", fonts.body, color::text);
-            right(x[3] - Dp(12), entry.losses ? std::to_string(*entry.losses) : "-", fonts.body, color::text);
-            right(at.x + width, std::to_string(entry.points), fonts.label, color::text);
-            ImGui::Dummy({width, height});
-        };
-        const auto heading = [&]() {
-            const ImVec2 at = ImGui::GetCursorScreenPos();
-            const auto x = columns(at.x);
-            const float tracking = Dp(1.2f);
-            DrawTracked(draw, fonts.caption, {at.x + Dp(4), at.y}, Col(color::dim), "RANK", tracking);
-            DrawTracked(draw, fonts.caption, {x[0], at.y}, Col(color::dim), "PLAYER", tracking);
-            const auto right = [&](float column_end, const char* text) {
-                DrawTracked(draw, fonts.caption, {column_end - TrackedWidth(fonts.caption, text, tracking), at.y},
-                            Col(color::dim), text, tracking);
-            };
-            right(x[2] - Dp(12), "W");
-            right(x[3] - Dp(12), "L");
-            right(at.x + width, "PTS");
-            ImGui::Dummy({width, FontSize(fonts.caption) + Dp(6)});
-        };
-
-        // You, over the leaders, under the retail menu's heading.
-        if (board.you)
-        {
-            DrawTracked(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(color::dim),
-                        daily ? "MY DAILY RANKING" : "MY SEASON RANKING", Dp(1.2f));
-            ImGui::Dummy({width, FontSize(fonts.caption) + Dp(6)});
-            row(*board.you, true);
-        }
-        else
-            TextWrappedColored(fonts.body, color::muted,
-                               daily ? "You haven't played RANKED today: play it in the game's online menu."
-                                     : "You haven't played RANKED this season: play it in the game's online menu.");
-        ImGui::Dummy({0, Dp(6)});
-        {
-            const ImVec2 line = ImGui::GetCursorScreenPos();
-            draw->AddRectFilled(line, {line.x + width, line.y + Dp(1)}, Col(color::border));
-            ImGui::Dummy({width, Dp(10)});
-        }
-        if (board.top.empty())
-            TextWrappedColored(fonts.body, color::muted,
-                               daily ? "Nobody has played RANKED today yet." : "Nobody has played RANKED this season yet.");
-        else
-        {
-            heading();
-            for (const auto& entry : board.top) row(entry, entry.you);
-        }
-        EndCard();
-    }
-
-    // Online -> Events: tournaments and organised match-ups, still to come.
-    void EventsPage()
-    {
-        const bool signed_in = OnlinePageTop("Events", "Tournaments and match-ups that organisers set up for you.");
-        // Tournaments sign players in with Discord: a Mii player connects it
-        // to their profile first.
-        if (signed_in && competitive_status_.player.MiiAccount())
-        {
-            const auto& status = competitive_status_;
-            BeginCard("##events_discord", "Tournaments need Discord",
-                      "Tournaments know their players by Discord. Connect it to your profile: your name, friends and "
-                      "Mii stay.",
-                      Icon::Medal);
-            if (status.connecting_discord)
-                TextWrappedColored(CurrentFonts().body, color::muted,
-                                   "Connecting Discord: finish in your browser, with the code on Player profile.");
-            else if (!status.info.discord)
-                TextWrappedColored(CurrentFonts().body, color::muted, "This server offers no Discord sign-in.");
-            else if (DiscordButton("events_connect", "Connect Discord", Dp(220, 42)) && !status.busy)
-            {
-                competitive_->SignIn();
-                page_ = PageOnlineSettings;
-            }
-            EndCard();
-        }
-        BeginCard("##online_events", "Coming later",
-                  "Tournaments on start.gg and match-ups set up by an organiser will show up here: your next set, "
-                  "your opponent and the rules. You play it like an accepted challenge.",
-                  Icon::Medal);
-        EndCard();
     }
 
     // Match rules' first card: the server's rule set the player's challenges
@@ -12560,7 +12355,6 @@ private:
     // showed last, the friends whose players were asked for and the last
     // failure told.
     std::unique_ptr<DiscordFriends> discord_friends_;
-    int leaderboard_board_ = 0;         // the Leaderboard page's board: the season's, or the day's
     std::int64_t watched_match_ = 0;    // the open set, told when it ends without a result
     bool watched_invite_ = false;       // it was still a challenge when last seen
     std::int64_t alerted_ = 0;          // the last chime: a challenge's id * 2, or a go's GoKey * 2 + 1

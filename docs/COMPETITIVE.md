@@ -13,9 +13,9 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 1. Open Recharged and go to **Online**; the first time, **Connect Discord**
    or **Play with a Mii** on **Player profile** (see *Your Recharged
    profile*). The launcher's Online pages hold your profile
-   (**Player profile**), the game's RANKED **Leaderboard**, your tournaments
-   (**Events**, coming later), the rules of your challenges (**Match rules**)
-   and your **Sidekicks**.
+   (**Player profile**), the rules of your challenges (**Match rules**) and
+   your **Sidekicks**; the RANKED leaderboards and your tournaments are in the
+   game's Recharged Game Menu (its **Ranked** and **Events** tabs).
 2. In the game, press **F1** (or HOME) for the **Recharged Game Menu**: on
    its **Online** tab your set, your friends online and the players
    available. Challenge an opponent there, or let a tournament pair you with

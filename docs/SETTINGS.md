@@ -497,12 +497,10 @@ online server, `https://rechargedwfc.net`. The launcher's **Online** pages set
 them up: **Player profile** (who you are signed in as, your Mii, your friend
 code, your Discord friends or Connect Discord, the challenge sound, the
 server, and Sign out, which also ends the Discord link on this computer),
-**Leaderboard** (the game's RANKED leaderboards on the server: the season's
-leaders and today's, and your own place), **Events** (tournaments, coming
-later; they need Discord) and
 **Match rules** (the presets a challenge starts from, see *Match settings*,
-and the server's rule sets) and **Sidekicks**. Your friends, the players available and your set
-are in the Recharged Game Menu (**F1** or HOME, see Hotkeys). A dot before
+and the server's rule sets) and **Sidekicks**. Your friends, the players
+available, your set, the RANKED leaderboards and the events are in the
+Recharged Game Menu (**F1** or HOME, see Hotkeys). A dot before
 **Online** in the sidebar shows the sign-in: green signed in, red not; signed
 out, **Player profile** shows what playing online brings and its two ways in,
 **Connect Discord** and **Play with a Mii**, and the pages that need the
