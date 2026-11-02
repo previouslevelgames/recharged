@@ -219,16 +219,188 @@ void DrawBoardChoice(RankedState& state, float width)
     ImGui::Dummy({width, 0.0f});
 }
 
-// One board: its days and players, the column heads, the leaders.
+// A row's name: the Mii, its player when another name, its region; clipped
+// before `right`.
+void DrawName(ImDrawList* draw, const LeaderboardEntry& entry, ImVec2 at, float right, bool centred)
+{
+    const auto& fonts = launcher::CurrentFonts();
+    const std::string mii = entry.mii.empty() ? std::string("?") : entry.mii;
+    const char* region = entry.region == 1 ? "JP" : entry.region == 2 ? "US" : entry.region == 4 ? "EU"
+        : entry.region == 8                ? "KR"
+                                           : nullptr;
+    const float mii_w = TextSize(fonts.label, mii.c_str()).x;
+    const float region_w = region ? TextSize(fonts.caption, region).x + Dp(12) + Dp(8) : 0.0f;
+    float x = centred ? std::max(at.x, (at.x + right - mii_w - region_w) * 0.5f) : at.x;
+    draw->PushClipRect({at.x, at.y - Dp(4)}, {right, at.y + Dp(40)}, true);
+    DrawLabel(draw, fonts.label, {x, at.y}, Col(entry.you ? color::accent : color::text), mii.c_str());
+    x += mii_w + Dp(8);
+    if (region)
+    {
+        const ImVec2 tag = TextSize(fonts.caption, region);
+        const float top = at.y + (FontSize(fonts.label) - Dp(16)) * 0.5f;
+        draw->AddRectFilled({x, top}, {x + tag.x + Dp(12), top + Dp(16)}, Col(color::border, 0.8f), Dp(5));
+        DrawLabel(draw, fonts.caption, {x + Dp(6), top + (Dp(16) - tag.y) * 0.5f}, Col(color::muted), region);
+    }
+    draw->PopClipRect();
+}
+
+// "17-10", and how many of its games it won as a bar under it.
+void DrawRecord(ImDrawList* draw, const LeaderboardEntry& entry, ImVec2 center, float bar)
+{
+    const auto& fonts = launcher::CurrentFonts();
+    const std::string record = (entry.wins ? std::to_string(*entry.wins) : std::string("-")) + "\xE2\x80\x93"
+        + (entry.losses ? std::to_string(*entry.losses) : std::string("-"));
+    const ImVec2 size = TextSize(fonts.body, record.c_str());
+    DrawLabel(draw, fonts.body, {center.x - size.x * 0.5f, center.y - size.y}, Col(color::text), record.c_str());
+    const int played = entry.wins.value_or(0) + entry.losses.value_or(0);
+    const ImVec2 min{center.x - bar * 0.5f, center.y + Dp(4)};
+    draw->AddRectFilled(min, {min.x + bar, min.y + Dp(3)}, Col(color::danger, 0.35f), Dp(2));
+    if (played > 0)
+        draw->AddRectFilled(min, {min.x + bar * float(entry.wins.value_or(0)) / float(played), min.y + Dp(3)},
+                            Col(color::accent, 0.85f), Dp(2));
+}
+
+// The first three on a podium: second, first, third, the first highest, each
+// in its medal's colour.
+void DrawPodium(const LeaderboardBoard& board, float width)
+{
+    const auto& fonts = launcher::CurrentFonts();
+    auto* draw = ImGui::GetWindowDrawList();
+    const int count = int(std::min<std::size_t>(board.top.size(), 3));
+    const float gap = Dp(10), each = (width - gap * 2) / 3, top = Dp(176), step = Dp(10);
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float floor = at.y + top;
+    // Places from the left: second, first, third.
+    constexpr int kOrder[3] = {1, 0, 2};
+    for (int slot = 0; slot < 3; ++slot)
+    {
+        const int place = kOrder[slot];
+        if (place >= count) continue;
+        const LeaderboardEntry& entry = board.top[std::size_t(place)];
+        const ImVec4 medal = RankTint(entry.rank);
+        const float height = top - (place == 0 ? 0.0f : step) - (place == 2 ? step : 0.0f);
+        const ImVec2 min{at.x + float(slot) * (each + gap), floor - height};
+        const ImVec2 max{min.x + each, floor};
+        // The first glows.
+        if (place == 0)
+            for (int ring = 3; ring >= 1; --ring)
+                draw->AddRect({min.x - float(ring) * Dp(2), min.y - float(ring) * Dp(2)},
+                              {max.x + float(ring) * Dp(2), max.y + float(ring) * Dp(2)},
+                              Col(medal, 0.06f * float(4 - ring)), Dp(14) + float(ring) * Dp(2), 0, Dp(2));
+        launcher::FillGradient(draw, min, max, Col(Mix(color::field, medal, place == 0 ? 0.30f : 0.20f)),
+                               Col(color::field), Dp(14), false);
+        draw->AddRect(min, max, Col(entry.you ? color::accent : medal, entry.you ? 0.9f : 0.55f), Dp(14), 0,
+                      Dp(entry.you ? 2.0f : 1.0f));
+        // The medal with its place.
+        const float radius = place == 0 ? Dp(17) : Dp(14);
+        const ImVec2 center{(min.x + max.x) * 0.5f, min.y + Dp(14) + radius};
+        draw->AddCircleFilled(center, radius + Dp(3), Col(medal, 0.20f));
+        draw->AddCircleFilled(center, radius, Col(medal));
+        draw->AddCircle(center, radius - Dp(2.5f), Col(ImVec4{1, 1, 1, 0.45f}), 0, Dp(1));
+        const std::string rank = std::to_string(entry.rank);
+        const ImVec2 rank_size = TextSize(fonts.heading, rank.c_str());
+        DrawLabel(draw, fonts.heading, {center.x - rank_size.x * 0.5f, center.y - rank_size.y * 0.5f},
+                  Col(ImVec4{0.10f, 0.08f, 0.04f, 1}), rank.c_str());
+        float y = center.y + radius + Dp(10);
+        DrawName(draw, entry, {min.x + Dp(10), y}, max.x - Dp(10), true);
+        y += FontSize(fonts.label) + Dp(2);
+        if (!entry.player.empty() && entry.player != entry.mii)
+        {
+            const ImVec2 size = TextSize(fonts.caption, entry.player.c_str());
+            draw->PushClipRect({min.x + Dp(8), y}, {max.x - Dp(8), y + FontSize(fonts.caption) + Dp(2)}, true);
+            DrawLabel(draw, fonts.caption, {std::max(min.x + Dp(8), (min.x + max.x - size.x) * 0.5f), y},
+                      Col(color::dim), entry.player.c_str());
+            draw->PopClipRect();
+        }
+        // The points, large, and the record at the foot.
+        const std::string points = std::to_string(entry.points);
+        const ImVec2 points_size = TextSize(fonts.title, points.c_str());
+        const float points_y = max.y - Dp(14) - FontSize(fonts.caption) - Dp(4) - points_size.y;
+        const float pts_w = TextSize(fonts.caption, " pts").x;
+        const float points_x = (min.x + max.x - points_size.x - pts_w) * 0.5f;
+        DrawLabel(draw, fonts.title, {points_x, points_y}, Col(color::text), points.c_str());
+        DrawLabel(draw, fonts.caption,
+                  {points_x + points_size.x, points_y + points_size.y - FontSize(fonts.caption) - Dp(3)},
+                  Col(color::muted), " pts");
+        const std::string record = (entry.wins ? std::to_string(*entry.wins) : std::string("-")) + " won  \xC2\xB7  "
+            + (entry.losses ? std::to_string(*entry.losses) : std::string("-")) + " lost";
+        const ImVec2 record_size = TextSize(fonts.caption, record.c_str());
+        DrawLabel(draw, fonts.caption, {(min.x + max.x - record_size.x) * 0.5f, max.y - Dp(12) - record_size.y},
+                  Col(color::muted), record.c_str());
+    }
+    ImGui::Dummy({width, top});
+}
+
+// One row of the table: the rank's badge, the name, the record, the points
+// with a bar against the leader's.
+void DrawRow(const LeaderboardEntry& entry, int leader, float width, bool pinned)
+{
+    const auto& fonts = launcher::CurrentFonts();
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float height = Dp(44), middle = at.y + height * 0.5f;
+    const ImVec2 end{at.x + width, at.y + height};
+    const bool hovered = ImGui::IsMouseHoveringRect(at, end) && ImGui::IsWindowHovered();
+    if (entry.you)
+    {
+        draw->AddRectFilled(at, end, Col(color::accent, 0.12f), Dp(12));
+        draw->AddRect(at, end, Col(color::accent, 0.6f), Dp(12), 0, Dp(1.5f));
+    }
+    else if (hovered) draw->AddRectFilled(at, end, Col(color::text, 0.05f), Dp(12));
+    else if (!pinned) draw->AddRectFilled(at, end, Col(color::field, 0.35f), Dp(12));
+    // The rank in a badge.
+    const std::string rank = std::to_string(entry.rank);
+    const ImVec2 rank_size = TextSize(fonts.label, rank.c_str());
+    const float badge_w = std::max(Dp(34), rank_size.x + Dp(14));
+    const ImVec2 badge{at.x + Dp(8), middle - Dp(13)};
+    draw->AddRectFilled(badge, {badge.x + badge_w, badge.y + Dp(26)}, Col(color::text, 0.07f), Dp(8));
+    DrawLabel(draw, fonts.label, {badge.x + (badge_w - rank_size.x) * 0.5f, middle - rank_size.y * 0.5f},
+              Col(color::muted), rank.c_str());
+    // The name (and its player), then YOU.
+    const float points_w = Dp(76), record_w = Dp(70);
+    const float name_x = badge.x + badge_w + Dp(12), name_right = at.x + width - points_w - record_w - Dp(12);
+    const bool player = !entry.player.empty() && entry.player != entry.mii;
+    const float name_y = player ? middle - FontSize(fonts.label) + Dp(1) : middle - FontSize(fonts.label) * 0.5f;
+    DrawName(draw, entry, {name_x, name_y}, name_right - (entry.you ? Dp(44) : 0.0f), false);
+    if (player)
+    {
+        draw->PushClipRect({name_x, middle}, {name_right, at.y + height}, true);
+        DrawLabel(draw, fonts.caption, {name_x, middle + Dp(2)}, Col(color::dim), entry.player.c_str());
+        draw->PopClipRect();
+    }
+    if (entry.you)
+    {
+        const ImVec2 tag = TextSize(fonts.caption, "YOU");
+        const ImVec2 tag_at{name_right - tag.x - Dp(14), middle - Dp(9)};
+        draw->AddRectFilled(tag_at, {tag_at.x + tag.x + Dp(14), tag_at.y + Dp(18)}, Col(color::accent, 0.9f), Dp(9));
+        DrawLabel(draw, fonts.caption, {tag_at.x + Dp(7), tag_at.y + (Dp(18) - tag.y) * 0.5f},
+                  Col(color::accent_ink), "YOU");
+    }
+    // The record, and the points against the leader's.
+    DrawRecord(draw, entry, {at.x + width - points_w - record_w * 0.5f, middle + Dp(3)}, Dp(44));
+    const std::string points = std::to_string(entry.points);
+    const ImVec2 size = TextSize(fonts.label, points.c_str());
+    const float right = at.x + width - Dp(12);
+    DrawLabel(draw, fonts.label, {right - size.x, middle - size.y + Dp(2)}, Col(color::text), points.c_str());
+    const float bar = points_w - Dp(20);
+    const float share = leader > 0 ? std::clamp(float(entry.points) / float(leader), 0.0f, 1.0f) : 0.0f;
+    draw->AddRectFilled({right - bar, middle + Dp(6)}, {right, middle + Dp(9)}, Col(color::text, 0.08f), Dp(2));
+    draw->AddRectFilled({right - bar * share, middle + Dp(6)}, {right, middle + Dp(9)}, Col(color::accent, 0.6f),
+                        Dp(2));
+    ImGui::Dummy({width, height});
+}
+
+// One board: its days and players, the podium, the others as a table, and
+// the player's own row at the end when it isn't among them.
 void DrawBoard(const LeaderboardBoard& board, bool daily, float width)
 {
     const auto& fonts = launcher::CurrentFonts();
     auto* draw = ImGui::GetWindowDrawList();
     const std::string when = (daily ? "Today, " + Day(board.first_day) : Day(board.first_day) + " - "
                                                                               + Day(board.last_day))
-        + "  ·  " + std::to_string(board.players) + (board.players == 1 ? " player" : " players");
+        + "  \xC2\xB7  " + std::to_string(board.players) + (board.players == 1 ? " player" : " players");
     DrawLabel(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(color::muted), when.c_str());
-    ImGui::Dummy({width, FontSize(fonts.caption) + Dp(12)});
+    ImGui::Dummy({width, FontSize(fonts.caption) + Dp(10)});
     if (board.top.empty())
     {
         DrawLabel(draw, fonts.body, ImGui::GetCursorScreenPos(), Col(color::muted),
@@ -236,67 +408,48 @@ void DrawBoard(const LeaderboardBoard& board, bool daily, float width)
         ImGui::Dummy({width, FontSize(fonts.body)});
         return;
     }
-    // The columns: rank, the Mii (and its player), won, lost, points.
-    const float rank_width = Dp(48), number = Dp(46), points = Dp(64);
-    const auto columns = [&](float left) {
-        const float points_x = left + width - points;
-        return std::array<float, 4>{left + rank_width, points_x - 2 * number, points_x - number, points_x};
-    };
+    // The podium needs room for three cards; else everyone in the table.
+    const bool podium = width >= Dp(360);
+    std::size_t first = 0;
+    if (podium)
     {
-        const ImVec2 at = ImGui::GetCursorScreenPos();
-        const auto x = columns(at.x);
-        const auto head = [&](float left, float right, const char* text) {
-            const float w = TextSize(fonts.caption, text).x;
-            DrawLabel(draw, fonts.caption, {right > 0 ? right - w : left, at.y}, Col(color::dim), text);
-        };
-        head(at.x + Dp(8), 0, "RANK");
-        head(x[0], 0, "PLAYER");
-        head(0, x[2] - Dp(10), "W");
-        head(0, x[3] - Dp(10), "L");
-        head(0, at.x + width - Dp(8), "PTS");
-        ImGui::Dummy({width, FontSize(fonts.caption) + Dp(6)});
+        ImGui::Dummy({width, Dp(6)});
+        DrawPodium(board, width);
+        ImGui::Dummy({width, Dp(12)});
+        first = std::min<std::size_t>(board.top.size(), 3);
     }
-    for (const LeaderboardEntry& entry : board.top)
+    const int leader = board.top.front().points;
+    if (first < board.top.size())
     {
+        // The column heads.
         const ImVec2 at = ImGui::GetCursorScreenPos();
-        const float height = Dp(38), middle = at.y + height * 0.5f;
-        const auto x = columns(at.x);
-        if (entry.you) draw->AddRectFilled(at, {at.x + width, at.y + height}, Col(color::accent, 0.12f), Dp(10));
-        const std::string rank = "#" + std::to_string(entry.rank);
-        DrawLabel(draw, fonts.label, {at.x + Dp(8), middle - FontSize(fonts.label) * 0.5f}, Col(RankTint(entry.rank)),
-                  rank.c_str());
-        const std::string mii = entry.mii.empty() ? std::string("?") : entry.mii;
-        draw->PushClipRect({x[0], at.y}, {x[1] - Dp(8), at.y + height}, true);
-        DrawLabel(draw, fonts.label, {x[0], middle - FontSize(fonts.label) * 0.5f},
-                  Col(entry.you ? color::accent : color::text), mii.c_str());
-        float after = x[0] + TextSize(fonts.label, mii.c_str()).x + Dp(8);
-        if (!entry.player.empty() && entry.player != entry.mii)
-        {
-            DrawLabel(draw, fonts.caption, {after, middle - FontSize(fonts.caption) * 0.5f}, Col(color::dim),
-                      entry.player.c_str());
-            after += TextSize(fonts.caption, entry.player.c_str()).x + Dp(8);
-        }
-        const char* region = entry.region == 1 ? "JP" : entry.region == 2 ? "US" : entry.region == 4 ? "EU"
-            : entry.region == 8                ? "KR"
-                                               : nullptr;
-        if (region)
-        {
-            const ImVec2 tag = TextSize(fonts.caption, region);
-            const ImVec2 tag_at{after, middle - Dp(9)};
-            draw->AddRectFilled(tag_at, {tag_at.x + tag.x + Dp(12), tag_at.y + Dp(18)}, Col(color::border, 0.8f),
-                                Dp(5));
-            DrawLabel(draw, fonts.caption, {tag_at.x + Dp(6), tag_at.y + (Dp(18) - tag.y) * 0.5f}, Col(color::muted),
-                      region);
-        }
-        draw->PopClipRect();
-        const auto right = [&](float column_end, const std::string& text, ImFont* font) {
-            const ImVec2 size = TextSize(font, text.c_str());
-            DrawLabel(draw, font, {column_end - size.x, middle - size.y * 0.5f}, Col(color::text), text.c_str());
+        const auto head = [&](float x, const char* text, bool right) {
+            const float w = launcher::TrackedWidth(fonts.caption, text, Dp(1.2f));
+            launcher::DrawTracked(draw, fonts.caption, {right ? x - w : x - w * 0.5f, at.y}, Col(color::dim), text,
+                                  Dp(1.2f));
         };
-        right(x[2] - Dp(10), entry.wins ? std::to_string(*entry.wins) : "-", fonts.body);
-        right(x[3] - Dp(10), entry.losses ? std::to_string(*entry.losses) : "-", fonts.body);
-        right(at.x + width - Dp(8), std::to_string(entry.points), fonts.label);
-        ImGui::Dummy({width, height});
+        launcher::DrawTracked(draw, fonts.caption, {at.x + Dp(8), at.y}, Col(color::dim), "RANK", Dp(1.2f));
+        launcher::DrawTracked(draw, fonts.caption, {at.x + Dp(62), at.y}, Col(color::dim), "PLAYER", Dp(1.2f));
+        head(at.x + width - Dp(76) - Dp(35), "W / L", false);
+        head(at.x + width - Dp(12), "POINTS", true);
+        ImGui::Dummy({width, FontSize(fonts.caption) + Dp(4)});
+    }
+    bool shown = false;
+    for (std::size_t n = first; n < board.top.size(); ++n)
+    {
+        DrawRow(board.top[n], leader, width, false);
+        shown |= board.top[n].you;
+    }
+    for (std::size_t n = 0; n < first; ++n) shown |= board.top[n].you;
+    if (board.you && !shown)
+    {
+        // Further down: the player's own row, after a gap.
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        for (int dot = 0; dot < 3; ++dot)
+            draw->AddCircleFilled({at.x + width * 0.5f + float(dot - 1) * Dp(8), at.y + Dp(8)}, Dp(1.8f),
+                                  Col(color::dim));
+        ImGui::Dummy({width, Dp(16)});
+        DrawRow(*board.you, leader, width, true);
     }
 }
 

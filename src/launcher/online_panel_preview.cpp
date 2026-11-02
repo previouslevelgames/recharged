@@ -413,11 +413,14 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         boards.season.first_day = "2026-11-01";
         boards.season.last_day = "2026-11-30";
         boards.season.players = 48;
-        boards.season.top = {entry(1, "Raulaso", "", 31, 6, 1840, 4),     entry(2, "Kenji", "", 27, 9, 1655, 1),
-                             entry(3, "Birnen", "einBirnenbaum", 22, 8, 1490, 4),
-                             entry(4, "Lou", "", 19, 11, 1302, 2),        entry(5, "Anosch", "Anosch", 17, 10, 1215, 4, true),
-                             entry(6, "Tommy", "", 15, 12, 1090, 2),      entry(7, "Sara", "", 12, 12, 940, 4),
-                             entry(8, "Mischief", "", 9, 14, 760, 2)};
+        boards.season.top = {entry(1, "Raulaso", "", 31, 6, 1840, 4),
+                             entry(2, "\xE3\x83\x9E\xE3\x83\xAA\xE3\x82\xAA", "", 27, 9, 1655, 1),
+                             entry(3, "Birnen\xE2\x84\xA2", "einBirnenbaum", 22, 8, 1490, 4),
+                             entry(4, "\xC5\x81ukasz", "", 19, 11, 1302, 4),
+                             entry(5, "Anosch", "Anosch", 17, 10, 1215, 4, true),
+                             entry(6, "Tommy", "", 15, 12, 1090, 2),
+                             entry(7, "\xE2\x98\x85Sara\xE2\x99\xAA", "", 12, 12, 940, 4),
+                             entry(8, "\xEC\xB2\xA0\xEC\x88\x98", "", 9, 14, 760, 8)};
         boards.season.you = boards.season.top[4];
         boards.daily.first_day = boards.daily.last_day = "2026-11-02";
         boards.daily.players = 6;

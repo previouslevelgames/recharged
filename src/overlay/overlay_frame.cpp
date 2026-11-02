@@ -1050,12 +1050,17 @@ OverlayResult EndOverlay(const OverlayFooter& footer)
 
 launcher::Fonts AddOnlinePanelFonts(ImFontAtlas& atlas, void* ttf, int ttf_size, float unit)
 {
-    // Latin-1 and the punctuation the overlay writes (dashes, dots, quotes).
+    // Latin-1 and the punctuation the overlay writes (dashes, dots, quotes),
+    // and all the font has for players' names: Latin Extended, Greek,
+    // Cyrillic, the general punctuation, currency and letterlike symbols (™).
     static ImVector<ImWchar> ranges;
     if (ranges.empty())
     {
+        static const ImWchar kNames[] = {0x0100, 0x024F, 0x0370, 0x03FF, 0x0400, 0x052F, 0x2000, 0x206F,
+                                         0x20A0, 0x20CF, 0x2100, 0x214F, 0};
         ImFontGlyphRangesBuilder builder;
         builder.AddRanges(atlas.GetGlyphRangesDefault());
+        builder.AddRanges(kNames);
         builder.AddText("\xE2\x80\x93\xE2\x80\x94\xE2\x80\xA2\xE2\x80\xA6\xE2\x80\x98\xE2\x80\x99\xE2\x80\x9C"
                         "\xE2\x80\x9D");
         builder.BuildRanges(&ranges);
