@@ -283,7 +283,9 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     }
     const float messageSize = MessageFontSize(size);
     const bool belowPerformance = performance_ && *performance_ == OverlayCorner::TopLeft;
-    // The hint: its keys as keycaps, then its text, on a quieter panel.
+    // The hint: its keys as keycaps, then its text, on a band from the
+    // picture's left edge, taller than a message, that fades out to the right
+    // past its text.
     float below = 0; // how far a message moves down for it
     if (hint) {
         const float pad = std::round(messageSize * 0.4f), gap = std::round(messageSize * 0.45f);
@@ -294,19 +296,24 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         for (const auto& key : hint->keys) width += measure(key) + 2 * pad + gap;
         const auto layout = LayoutOverlayMessage(surface_width, surface_height, messageSize, width,
                                                  belowPerformance ? &*performanceLayout : nullptr);
-        draw->AddRectFilled({layout.left, layout.top}, {layout.right, layout.bottom}, IM_COL32(16, 18, 22, 150),
-                            std::round(messageSize * 0.35f));
+        const float grow = std::round(messageSize * 0.5f);
+        const float top = layout.top, bottom = layout.bottom + 2 * grow, text_y = layout.text_y + grow;
+        const float solid = layout.right + std::round(messageSize * 1.5f);
+        const float feather = std::round(messageSize * 7.0f);
+        constexpr ImU32 band = IM_COL32(16, 18, 22, 150), clear = IM_COL32(16, 18, 22, 0);
+        draw->AddRectFilled({0, top}, {solid, bottom}, band);
+        draw->AddRectFilledMultiColor({solid, top}, {solid + feather, bottom}, band, clear, clear, band);
         float x = layout.text_x;
         const float cap = std::round(messageSize * 0.25f);
         for (const auto& key : hint->keys) {
             const float w = measure(key) + 2 * pad;
-            draw->AddRect({x, layout.text_y - cap}, {x + w, layout.text_y + messageSize + cap}, kDivider,
+            draw->AddRect({x, text_y - cap}, {x + w, text_y + messageSize + cap}, kDivider,
                           std::round(messageSize * 0.25f), 0, std::max(1.0f, std::round(messageSize / 14.0f)));
-            draw->AddText(messageFont_, messageSize, {x + pad, layout.text_y}, kNumber, key.c_str());
+            draw->AddText(messageFont_, messageSize, {x + pad, text_y}, kNumber, key.c_str());
             x += w + gap;
         }
-        draw->AddText(messageFont_, messageSize, {x, layout.text_y}, kLabel, hint->text.c_str());
-        below = layout.bottom - layout.top + std::round(messageSize * 0.4f);
+        draw->AddText(messageFont_, messageSize, {x, text_y}, kLabel, hint->text.c_str());
+        below = bottom - top + std::round(messageSize * 0.4f);
     }
     if (opacity > 0) {
         const float width = messageFont_->CalcTextSizeA(messageSize, FLT_MAX, 0, message_.c_str()).x;
