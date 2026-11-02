@@ -119,11 +119,12 @@ Discord is not needed to play online. **Player profile** offers two ways in:
 
 - **Connect Discord.** The sign-in happens in your browser, so Recharged never
   sees your password. Your name in Recharged is your Discord name, and your
-  Mii is made from it. The profile is you, not your PC: sign in on any
-  computer you play on. From Discord, Recharged gets only your account's ID,
-  name and picture: nothing about your messages, friends or servers. Only if
-  you connect Discord friends does the launcher read your friends list (see
-  above).
+  Mii is made from it; if this computer has Miis already, Recharged first asks
+  whether one of them plays for you. The profile is you, not your PC: sign in
+  on any computer you play on. From Discord, Recharged gets only your
+  account's ID, name and picture: nothing about your messages, friends or
+  servers. Only if you connect Discord friends does the launcher read your
+  friends list (see above).
 - **Play with a Mii.** No account: choose the name others see (up to 32
   characters) and your Mii, a new one in your favourite colour (roll another
   face, or make it your own in the Mii editor), one already on your computer

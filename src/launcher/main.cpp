@@ -3126,6 +3126,7 @@ private:
         DrawPlayPrompt(quit);
         DrawImportPrompt();
         DrawSignOutPrompt();
+        DrawMiiReusePrompt();
         DrawRegionPrompt();
         DrawChallengeDialog();
         DrawWelcome();
@@ -4450,7 +4451,8 @@ private:
     // "preview-mii-go" / "-error" (step 2, and a refused sign-in), and
     // "preview-mii-profile" / "-connect" / "-taken" / "-signout" (a Mii
     // player's profile, connecting Discord, that Discord account taken, and
-    // Sign out asked for a Mii without a friend code yet), the Mii editor on
+    // Sign out asked for a Mii without a friend code yet), "preview-mii-reuse"
+    // (a Discord player asked which Mii plays for them), the Mii editor on
     // their Mii with "preview-mii-editor" / "-<section>" ("-hair": another
     // hairstyle chosen), and on step 1's new Mii with "preview-mii-new-editor".
     void PreviewMiiAccount(const std::string& mode)
@@ -4465,6 +4467,23 @@ private:
         preview_applied_ = true;
         const auto& miis = InstalledMiis().miis;
         const bool editor = mode.rfind("preview-mii-editor", 0) == 0;
+        if (mode == "preview-mii-reuse")
+        {
+            // A Discord player without a Mii yet, on a computer with Miis.
+            status.state = CompetitiveService::State::SignedIn;
+            status.player = {};
+            status.player.id = 900021;
+            status.player.name = "Anosch";
+            status.player.discord = ".anosch";
+            status.player.discord_id = "80351110224678912";
+            status.player.account = "discord";
+            if (first)
+            {
+                draft_.online_mii.clear();
+                mii_reuse_preview_ = true;
+            }
+            return;
+        }
         if (mode == "preview-welcome" || (mode.rfind("preview-mii-profile", 0) != 0 && !editor))
         {
             status.state = CompetitiveService::State::SignedOut;
@@ -6522,7 +6541,7 @@ private:
             : !own || !own->here ? "Not on this computer. Bring the game's data folder from the computer you play on: "
                                    "once your Mii has played online, Recharged finds it by its friend code."
             : competitive_status_.player.MiiAccount() ? "Your profile's Mii: it plays your sets and online games."
-                                                      : "Plays your sets: the Mii you chose before connecting Discord.";
+                                                      : "Plays your sets: the Mii of this computer you chose.";
         Row("Your Mii", description);
         auto* draw = ImGui::GetWindowDrawList();
         const ImVec2 at = ImGui::GetCursorScreenPos();
@@ -6635,6 +6654,151 @@ private:
             ImGui::EndPopup();
         }
         ImGui::PopStyleVar();
+    }
+
+    // A player whose Mii would be made from their account (a Discord or test
+    // player without a Mii of their own) on a computer that has Miis already
+    // is asked once per sign-in which plays for them: one of those
+    // (online.mii), or a new one made from the account now. Nothing is asked
+    // when that Mii is here already (signed in here before).
+    void DrawMiiReusePrompt()
+    {
+        constexpr const char* kTitle = "Play with a Mii you have?";
+        const std::string key = PlayerMiiKey();
+        const Uint64 now = SDL_GetTicks();
+        // Asked while no other window (a challenge, the update) is open: it would close it.
+        if (!key.empty() && key != mii_reuse_asked_ && (!capture_ || mii_reuse_preview_)
+            && (!mii_reuse_checked_ || now - mii_reuse_checked_ >= 1000)
+            && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+        {
+            mii_reuse_checked_ = now;
+            const auto& miis = InstalledMiis();
+            if (miis.state == platform::MiiDatabaseState::Ready && !miis.miis.empty())
+            {
+                mii_reuse_asked_ = key;
+                const auto made = platform::KeyedMiiCreateId(key);
+                const bool here = std::any_of(miis.miis.begin(), miis.miis.end(),
+                                              [&](const platform::InstalledMii& mii) { return mii.create_id == made; });
+                if (!here)
+                {
+                    mii_reuse_choice_ = miis.miis.front().create_id;
+                    ImGui::OpenPopup(kTitle);
+                }
+            }
+        }
+        const auto& fonts = CurrentFonts();
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        ImGui::SetNextWindowSizeConstraints({Dp(480), 0}, {Dp(560), FLT_MAX});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar
+                                                        | ImGuiWindowFlags_NoMove))
+        {
+            const auto& miis = InstalledMiis().miis;
+            const auto& player = competitive_status_.player;
+            TextColored(fonts.heading, color::text, kTitle);
+            ImGui::Dummy({0, Dp(2)});
+            const std::string from = !player.discord_id.empty() ? "your Discord name" : "your name";
+            const std::string text = miis.size() == 1
+                ? "Your profile plays online with a Mii. This computer has one already: play with it, or make a new "
+                  "one from " + from + "."
+                : "Your profile plays online with a Mii. This computer has " + std::to_string(miis.size())
+                    + " already: play with one of them, or make a new one from " + from + ".";
+            TextWrappedColored(fonts.body, color::muted, text.c_str());
+            ImGui::Dummy({0, Dp(8)});
+            if (miis.size() == 1) MiiLine(miis.front());
+            else MiiCombo("##mii_reuse", miis, mii_reuse_choice_);
+            ImGui::Dummy({0, Dp(12)});
+            const bool chosen = mii_reuse_choice_ && std::any_of(miis.begin(), miis.end(), [&](const auto& mii) {
+                return mii.create_id == *mii_reuse_choice_;
+            });
+            if (PrimaryButton("mii_reuse_use", "Use this Mii", Dp(170, 42), chosen, Icon::Check))
+            {
+                ImGui::CloseCurrentPopup();
+                ChooseOnlineMii(platform::MiiCreateIdText(*mii_reuse_choice_));
+            }
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("mii_reuse_new", "Make a new one", Dp(170, 42), true, Icon::Person))
+            {
+                ImGui::CloseCurrentPopup();
+                try
+                {
+                    EnsurePlayerMii();
+                }
+                catch (const std::exception& e)
+                {
+                    Notice(std::string("Your Mii could not be made: ") + e.what(), NoticeKind::Error);
+                }
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
+    }
+
+    // A Mii of this computer on one line: its figure, name and friend code,
+    // drawn into the rectangle from `min` to `max`.
+    void DrawMiiLine(ImDrawList* draw, ImVec2 min, ImVec2 max, const platform::InstalledMii& mii)
+    {
+        const auto& fonts = CurrentFonts();
+        const float figure = std::min(Dp(34), max.y - min.y - Dp(6)), mid = (min.y + max.y) * 0.5f;
+        DrawMii(draw, {min.x + figure * 0.5f, mid}, figure, mii.favorite_color, mii.record);
+        const float text = min.x + figure + Dp(12);
+        const float block = FontSize(fonts.label) + Dp(2) + FontSize(fonts.caption);
+        DrawClipped(draw, fonts.label, {text, mid - block * 0.5f}, max.x - text, color::text, mii.name);
+        DrawClipped(draw, fonts.caption, {text, mid - block * 0.5f + FontSize(fonts.label) + Dp(2)}, max.x - text,
+                    color::muted,
+                    mii.friend_code ? "Friend code " + platform::FriendCodeText(mii.friend_code)
+                                    : std::string("No friend code yet"));
+    }
+
+    // One Mii as a field of its own (a prompt's only choice).
+    void MiiLine(const platform::InstalledMii& mii)
+    {
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(52);
+        const ImVec2 min = ImGui::GetCursorScreenPos(), max{min.x + width, min.y + height};
+        draw->AddRectFilled(min, max, Col(color::field), Dp(12));
+        draw->AddRect(min, max, Col(color::border), Dp(12));
+        DrawMiiLine(draw, {min.x + Dp(12), min.y}, {max.x - Dp(12), max.y}, mii);
+        ImGui::Dummy({width, height});
+    }
+
+    // This computer's Miis as a dropdown, each with its figure, name and
+    // friend code; `chosen` takes the one picked.
+    void MiiCombo(const char* id, const std::vector<platform::InstalledMii>& miis,
+                  std::optional<std::array<unsigned char, 8>>& chosen)
+    {
+        const platform::InstalledMii* shown = nullptr;
+        for (const auto& mii : miis)
+            if (chosen && mii.create_id == *chosen) shown = &mii;
+        const float row = Dp(52), width = ImGui::GetContentRegionAvail().x;
+        ImGui::SetNextItemWidth(width);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {Dp(12), (row - ImGui::GetFontSize()) * 0.5f});
+        const bool open = ImGui::BeginCombo(id, nullptr, ImGuiComboFlags_CustomPreview | ImGuiComboFlags_HeightLarge);
+        ImGui::PopStyleVar();
+        if (open)
+        {
+            for (std::size_t n = 0; n < miis.size(); ++n)
+            {
+                const auto& mii = miis[n];
+                ImGui::PushID(int(n));
+                const bool selected = shown == &mii;
+                if (ImGui::Selectable("##mii", selected, 0, {0, row})) chosen = mii.create_id;
+                if (selected) ImGui::SetItemDefaultFocus();
+                DrawMiiLine(ImGui::GetWindowDrawList(), {ImGui::GetItemRectMin().x + Dp(6), ImGui::GetItemRectMin().y},
+                            {ImGui::GetItemRectMax().x - Dp(6), ImGui::GetItemRectMax().y}, mii);
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        if (shown && ImGui::BeginComboPreview())
+        {
+            // The preview starts inside the frame's padding; its room ends
+            // before the arrow, a square as high as the frame.
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float top = at.y - (row - ImGui::GetFontSize()) * 0.5f;
+            DrawMiiLine(ImGui::GetWindowDrawList(), {at.x, top}, {at.x + width - row - Dp(24), top + row}, *shown);
+            ImGui::EndComboPreview();
+        }
     }
 
     // A set's go, one value each time it goes: when it went (servers with
@@ -11967,6 +12131,13 @@ private:
     unsigned mii_editor_frames_ = 0; // frames the editor was drawn in (the smoke test tells)
     bool page_scroll_top_ = false; // the page shown from its top next frame
     bool sign_out_prompt_ = false;
+    // Which Mii plays for a player whose Mii would be made from the account
+    // (DrawMiiReusePrompt): the player key asked for (once per sign-in), when
+    // it was looked at last, and the Mii chosen in the prompt.
+    std::string mii_reuse_asked_;
+    Uint64 mii_reuse_checked_ = 0;
+    std::optional<std::array<unsigned char, 8>> mii_reuse_choice_;
+    bool mii_reuse_preview_ = false; // a development capture asks it
     bool preview_applied_ = false; // a development capture's made-up Mii state, set once
     // The Mii made from a Discord account (PlayerOwnMii), for its key and name.
     std::string keyed_mii_for_, keyed_mii_record_;
