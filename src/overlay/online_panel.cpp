@@ -232,14 +232,18 @@ void DrawYou(Frame& frame, float width)
 
     // The switch for random games.
     const char* label = "Open to challenges";
-    const char* line = me.available ? "Players who aren't your friends can see you and challenge you."
-                                    : "Only your friends see you.";
+    const char* on_line = "Players who aren't your friends can see you and challenge you.";
+    const char* off_line = "Only your friends see you.";
+    const char* line = me.available ? on_line : off_line;
     const float track_w = Dp(40), track_h = Dp(23);
     // Each part's badge at the left, its words beside it.
     const float badge = Dp(17), text_x = at.x + pad + badge * 2 + Dp(12);
     const float wrap = width - 2 * pad - badge * 2 - Dp(12) - track_w - Dp(14);
+    // As high as the longer of its lines: switching moves nothing below it.
     const float available_h = me.can_set_available
-        ? std::max(Dp(12) + FontSize(fonts.label) + Dp(3) + caption_height(line, wrap) + Dp(14), badge * 2 + Dp(24))
+        ? std::max(Dp(12) + FontSize(fonts.label) + Dp(3)
+                       + std::max(caption_height(on_line, wrap), caption_height(off_line, wrap)) + Dp(14),
+                   badge * 2 + Dp(24))
         : 0.0f;
 
     // Searching for a random opponent: how long, by which rules, Stop; else
@@ -255,12 +259,16 @@ void DrawYou(Frame& frame, float width)
             + (search.asked == 0 ? std::string("nobody asked yet")
                                  : std::to_string(search.asked) + (search.asked == 1 ? " player asked" : " players asked"));
     }
-    else if (can_search)
-        search_line = "Your rules go to players open to challenges, until one accepts.";
+    const char* invite = "Your rules go to players open to challenges, until one accepts.";
+    if (!searching && can_search) search_line = invite;
     const float stop_w = Dp(76);
     const float search_wrap = width - 2 * pad - badge * 2 - Dp(12) - (searching ? stop_w : Dp(20)) - Dp(14);
+    // As high for the search as before it (two lines at least).
     const float search_h = searching || can_search
-        ? std::max(Dp(12) + FontSize(fonts.label) + Dp(3) + caption_height(search_line.c_str(), search_wrap) + Dp(14),
+        ? std::max(Dp(12) + FontSize(fonts.label) + Dp(3)
+                       + std::max({caption_height(search_line.c_str(), search_wrap), caption_height(invite, search_wrap),
+                                   FontSize(fonts.caption) * 2})
+                       + Dp(14),
                    badge * 2 + Dp(24))
         : 0.0f;
 
@@ -341,14 +349,25 @@ void DrawYou(Frame& frame, float width)
         }
         else OverlayChevron(draw, {end.x - pad - Dp(6), middle}, 1, Col(Mix(color::accent, color::text, hover)));
         if (focused) OverlayFocusRing(draw, min, max, Dp(16));
-        if (pressed)
+        // Its keys hang from its lower edge at the right, as on the search's
+        // screen: Y (or F) presses it from anywhere on this screen.
+        float x = max.x - Dp(12) - (OverlayKeyCapWidth("Y") + Dp(4) + OverlayKeyCapWidth("F"));
+        for (const char* key : {"Y", "F"})
+        {
+            OverlayKeyCap(draw, {x, max.y - Dp(11)}, key);
+            x += OverlayKeyCapWidth(key) + Dp(4);
+        }
+        const bool shortcut = !ImGui::GetIO().WantTextInput
+            && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp, false) || ImGui::IsKeyPressed(ImGuiKey_F, false));
+        if (pressed || shortcut)
         {
             if (searching) frame.actions.stop_search = true;
             else OpenSearchSetup(frame, item);
         }
     }
     ImGui::SetCursorScreenPos(at);
-    ImGui::Dummy({width, end.y - at.y});
+    // The keys hang below the card.
+    ImGui::Dummy({width, end.y - at.y + (search_h > 0.0f ? Dp(11) : 0.0f)});
 }
 
 // Games won (left, the accent) and lost (right) of a best-of series, as pips.
@@ -1165,7 +1184,7 @@ void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* 
     if (search) Ping(ImGui::GetWindowDrawList(), button_min, {button_min.x + button.x, button_min.y + button.y},
                      std::min(button.y * 0.5f, Dp(10)), searching);
     const bool can = search ? model.can_search || searching : row->can_challenge;
-    const char* label = !search ? "Send challenge" : searching ? "Stop searching" : "Find an opponent";
+    const char* label = !search ? "Send challenge" : searching ? "Stop searching" : "Find an opponent NOW!";
     // The cursor starts on it; Y (or F) presses it from anywhere on the
     // screen, as left and right change the rules' values.
     const bool shortcut = can && !ImGui::GetIO().WantTextInput

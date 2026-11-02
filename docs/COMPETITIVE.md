@@ -64,7 +64,8 @@ with the score.
   game; they get a **Random challenge** card with Accept and Decline, and 30
   seconds to answer before the next one is asked. Your card shows how long
   you have searched and how many players were asked; **Stop** ends the
-  search. The search's screen keeps **Find an opponent** at its top left and
+  search. Y (or F) does the same from anywhere on the panel's first screen.
+  The search's screen keeps **Find an opponent NOW!** at its top left and
   its rules side by side; while it searches, the rules are greyed out and
   stay as they went. Only players who have been online in the game once can
   be found.
