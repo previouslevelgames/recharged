@@ -784,10 +784,10 @@ void CompetitiveHost::Work(ProfileService& api)
                 reports_.insert(reports_.begin(), reports.begin() + std::ptrdiff_t(n), reports.end());
                 throw;
             }
-            // A server before 1.2.8 doesn't know a game that broke off: the
-            // series without it.
+            // A server before 1.2.8 doesn't know a game that broke off (it
+            // answers 422 for the unknown fields): the series without it.
             auto& games = reports[n].games;
-            if (e.Status() == 400 && !games.empty() && games.back().interrupted)
+            if ((e.Status() == 400 || e.Status() == 422) && !games.empty() && games.back().interrupted)
             {
                 games.pop_back();
                 if (!games.empty())
