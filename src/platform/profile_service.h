@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace mscharged::platform
@@ -328,6 +329,11 @@ public:
     // profile that WFC profile identifies (a player who plays with a Mii),
     // with a new session. 404 when it identifies nobody.
     SignInResult WfcSignIn(std::uint32_t profile_id, const std::string& login_ticket);
+    // Of these WFC profiles (a game save's Miis, at most 32), those that play
+    // for a profile already, and how it signs in again: "game" (that Mii's
+    // WFC login, WfcSignIn) or its account ("discord", "test"). No names. 404
+    // from a server before 1.2.4.
+    std::vector<std::pair<std::uint32_t, std::string>> KnownWfc(const std::vector<std::uint32_t>& profile_ids);
     std::vector<RuleSet> RuleSets();
 
     // With the session's token.
@@ -426,6 +432,23 @@ std::optional<SavedProfileSession> LoadProfileSession(const std::filesystem::pat
 // Readable by this user only, where the system has such permissions.
 void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSession& session);
 void ForgetProfileSession(const std::filesystem::path& file);
+
+// The profiles that signed in with a settings file, remembered after signing
+// out: the launcher offers one again (by name) for a Mii of the game save
+// with one of its friend codes, instead of a second profile for that Mii.
+struct KnownProfile
+{
+    std::string server;
+    std::int64_t player_id = 0;
+    std::string name;
+    std::string account;                   // "mii", "discord" or "test"
+    std::vector<std::string> friend_codes; // its WFC profiles', as shown ("0868-9934-5920")
+};
+// <data folder>/online/<settings file name>.profiles, the latest first.
+std::filesystem::path KnownProfilesFile(const std::filesystem::path& data_folder,
+                                        const std::filesystem::path& config);
+std::vector<KnownProfile> LoadKnownProfiles(const std::filesystem::path& file);
+void SaveKnownProfiles(const std::filesystem::path& file, const std::vector<KnownProfile>& profiles);
 
 // The Discord friends' link of a settings file, kept between runs like the
 // session: the server that traded the Discord Social SDK's tokens and the

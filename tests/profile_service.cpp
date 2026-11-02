@@ -102,6 +102,27 @@ void Sessions()
     CHECK(!LoadDiscordLink(link));
     ForgetProfileSession(link);
     CHECK(!std::filesystem::exists(link));
+
+    // The profiles that signed in here, beside the session, kept in order.
+    const auto known = KnownProfilesFile(folder, "/games/recharged/second.ini");
+    CHECK(known == folder / "online" / "second.profiles");
+    CHECK(LoadKnownProfiles(known).empty());
+    SaveKnownProfiles(known, {{"https://wfc.example.com", 11, "Bob \"the\" Builder", "mii", {"0868-9934-5920"}},
+                              {"https://wfc.example.com", 12, "Anosch", "discord", {"0310-6477-1073", "1234-5678-9012"}},
+                              {"https://other.example.com", 13, "Sam", "test", {}}});
+    const auto profiles = LoadKnownProfiles(known);
+    CHECK(profiles.size() == 3);
+    if (profiles.size() == 3)
+    {
+        CHECK(profiles[0].server == "https://wfc.example.com" && profiles[0].player_id == 11
+              && profiles[0].name == "Bob \"the\" Builder" && profiles[0].account == "mii"
+              && profiles[0].friend_codes == std::vector<std::string>{"0868-9934-5920"});
+        CHECK(profiles[1].account == "discord" && profiles[1].friend_codes.size() == 2
+              && profiles[1].friend_codes[1] == "1234-5678-9012");
+        CHECK(profiles[2].name == "Sam" && profiles[2].friend_codes.empty());
+    }
+    { std::ofstream(known) << "{\"profiles\":[{\"server\":\"\",\"id\":5},{\"server\":\"x\",\"id\":0}]}"; }
+    CHECK(LoadKnownProfiles(known).empty());
     std::filesystem::remove_all(folder);
 }
 
@@ -615,6 +636,44 @@ void WfcSignIn()
     }
 }
 
+// Signed out: which of the game save's Miis play for a profile already.
+void KnownWfc()
+{
+    if (!HttpUnavailable().empty()) return;
+    const std::vector<Exchange> exchanges{
+        {"POST /api/v1/sign-in/wfc/known", 200,
+         R"({"profiles":[{"profile_id":1000000000,"sign_in":"game"},{"profile_id":1000000002,"sign_in":"discord"},)"
+         R"({"profile_id":-4,"sign_in":"game"}]})"},
+        {"POST /api/v1/sign-in/wfc/known", 404, R"({"error":"not found"})"},
+    };
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        ProfileService api(server.Url());
+        const auto known = api.KnownWfc({1000000000u, 1000000001u, 1000000002u});
+        CHECK(known.size() == 2);
+        if (known.size() == 2)
+            CHECK(known[0].first == 1000000000u && known[0].second == "game" && known[1].first == 1000000002u
+                  && known[1].second == "discord");
+        try
+        {
+            api.KnownWfc({7u});
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 404);
+        }
+    }
+    CHECK(sent.size() == exchanges.size());
+    if (sent.size() == exchanges.size())
+    {
+        CHECK(sent[0].body == R"({"profile_ids":[1000000000,1000000001,1000000002]})"
+              && sent[0].authorization.empty());
+        CHECK(sent[1].body == R"({"profile_ids":[7]})");
+    }
+}
+
 // The game's online panel with the Discord friends the launcher gave it: they
 // are looked up with the lists, in parts as large as the server takes; a
 // failed lookup keeps the last list, fails nothing else and is logged once.
@@ -809,6 +868,7 @@ int main()
     Requests();
     MiiAccounts();
     WfcSignIn();
+    KnownWfc();
     FeedDiscordFriends();
     FeedChallengeRules();
 #endif

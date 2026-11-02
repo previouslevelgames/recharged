@@ -78,6 +78,7 @@ void CompetitiveService::SetServer(const std::string& server)
         status_.state = server.empty() ? State::NoServer : State::Connecting;
         token_.clear();
         sign_in_id_.clear();
+        known_asking_.clear();
         if (!server.empty())
             tasks_.push_back({generation_, [this](ProfileService& api) { Connect(api); }, false});
     }
@@ -205,9 +206,13 @@ void CompetitiveService::SignedOutHere(const char* reason)
     status_.connect_error.clear();
     status_.code.clear();
     status_.url.clear();
-    // The next player's place on them differs.
+    // The next player's place on them differs, and the game save's Miis
+    // may play for this player now: asked again.
     status_.leaderboard.reset();
     next_leaderboard_ = {};
+    status_.known_miis.clear();
+    status_.known_asked.clear();
+    known_asking_.clear();
     if (reason)
     {
         status_.error = reason;
@@ -431,6 +436,35 @@ void CompetitiveService::SetDiscordFriends(std::vector<std::string> discord_ids)
         ++status_.serial;
     }
     wake_.notify_all();
+}
+
+void CompetitiveService::LookUpMiis(std::vector<std::uint32_t> profile_ids)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (profile_ids == known_asking_) return;
+        known_asking_ = profile_ids;
+    }
+    Post(
+        [this, profile_ids](ProfileService& api) {
+            std::vector<std::pair<std::uint32_t, std::string>> known;
+            try
+            {
+                if (!profile_ids.empty()) known = api.KnownWfc(profile_ids);
+            }
+            catch (const ProfileError& e)
+            {
+                // A server before 1.2.4 can't tell, nor one out of reach:
+                // no answer, and the launcher goes by what it remembers.
+                if (e.Cancelled()) throw;
+                return;
+            }
+            Change([&](Status& status) {
+                status.known_miis = std::move(known);
+                status.known_asked = profile_ids;
+            });
+        },
+        false);
 }
 
 void CompetitiveService::WantLeaderboard()

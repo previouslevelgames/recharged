@@ -445,6 +445,23 @@ SignInResult ProfileService::WfcSignIn(std::uint32_t profile_id, const std::stri
     return ParseSignIn(Call("POST", "/api/v1/sign-in/wfc", &body).body);
 }
 
+std::vector<std::pair<std::uint32_t, std::string>> ProfileService::KnownWfc(
+    const std::vector<std::uint32_t>& profile_ids)
+{
+    std::string body = "{\"profile_ids\":[";
+    for (std::size_t i = 0; i < profile_ids.size(); ++i)
+        body += (i ? "," : "") + std::to_string(profile_ids[i]);
+    body += "]}";
+    const auto answer = Call("POST", "/api/v1/sign-in/wfc/known", &body);
+    std::vector<std::pair<std::uint32_t, std::string>> known;
+    for (const auto& profile : answer.body["profiles"].Items())
+    {
+        const auto id = profile["profile_id"].Integer().value_or(0);
+        if (id > 0 && id <= 0xFFFFFFFFll) known.emplace_back(std::uint32_t(id), profile["sign_in"].Text());
+    }
+    return known;
+}
+
 std::vector<RuleSet> ProfileService::RuleSets()
 {
     std::vector<RuleSet> sets;
@@ -913,6 +930,55 @@ void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSes
     text += ",\"player\":";
     AppendJsonString(text, session.player_name);
     text += "}\n";
+    WritePrivateFile(file, text);
+}
+
+std::filesystem::path KnownProfilesFile(const std::filesystem::path& data_folder,
+                                        const std::filesystem::path& config)
+{
+    auto file = ProfileSessionFile(data_folder, config);
+    return file.replace_extension(".profiles");
+}
+
+std::vector<KnownProfile> LoadKnownProfiles(const std::filesystem::path& file)
+{
+    std::vector<KnownProfile> profiles;
+    const auto document = ReadJsonFile(file);
+    if (!document) return profiles;
+    for (const auto& value : (*document)["profiles"].Items())
+    {
+        KnownProfile profile;
+        profile.server = value["server"].Text();
+        profile.player_id = value["id"].Integer().value_or(0);
+        profile.name = value["name"].Text();
+        profile.account = value["account"].Text();
+        for (const auto& code : value["friend_codes"].Items()) profile.friend_codes.push_back(code.Text());
+        if (!profile.server.empty() && profile.player_id > 0) profiles.push_back(std::move(profile));
+    }
+    return profiles;
+}
+
+void SaveKnownProfiles(const std::filesystem::path& file, const std::vector<KnownProfile>& profiles)
+{
+    std::string text = "{\"profiles\":[";
+    for (std::size_t n = 0; n < profiles.size(); ++n)
+    {
+        const auto& profile = profiles[n];
+        text += n ? ",\n{\"server\":" : "\n{\"server\":";
+        AppendJsonString(text, profile.server);
+        text += ",\"id\":" + std::to_string(profile.player_id) + ",\"name\":";
+        AppendJsonString(text, profile.name);
+        text += ",\"account\":";
+        AppendJsonString(text, profile.account);
+        text += ",\"friend_codes\":[";
+        for (std::size_t i = 0; i < profile.friend_codes.size(); ++i)
+        {
+            if (i) text += ',';
+            AppendJsonString(text, profile.friend_codes[i]);
+        }
+        text += "]}";
+    }
+    text += "\n]}\n";
     WritePrivateFile(file, text);
 }
 

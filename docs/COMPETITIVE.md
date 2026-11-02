@@ -135,6 +135,13 @@ Discord is not needed to play online. **Player profile** offers two ways in:
   start the game and go online with that Mii. Before its first online game,
   signing out loses the profile.
 
+One Mii plays for one profile. Signed out, Player profile shows the Miis of
+your game save that play for a profile already (**Welcome back**), with the
+profile's name when it signed in on this computer: **Sign in with** that Mii
+brings it back through the game, or **Connect Discord** for a Discord
+profile. Play with a Mii doesn't make a second profile for such a Mii, so
+nobody turns up twice on the leaderboards.
+
 Your Mii shows with its face on Player profile, drawn from your game image as
 the game draws it. **Edit** there opens the launcher's Mii editor (no Mii
 Channel needed): change the face, the name and the favourite colour, and the
