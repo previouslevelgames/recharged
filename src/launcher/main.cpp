@@ -3006,8 +3006,10 @@ private:
         const auto settings = EffectiveLaunch().settings;
         try { ResolveGraphicsBackend(settings.backend); }
         catch (const std::invalid_argument& error) { return error.what(); }
-        if (settings.aspect != "auto" && settings.aspect != "4:3" && settings.aspect != "16:9")
-            return "Choose Automatic, 4:3 or 16:9 as the aspect ratio on the Display page.";
+        // The values the game takes (an older settings file's auto too).
+        if (settings.aspect != "auto" && settings.aspect != "4:3" && settings.aspect != "16:9"
+            && settings.aspect != "stretch")
+            return "Choose 16:9, 4:3 or Stretch as the aspect ratio on the Display page.";
         // A language this release does not have starts as Automatic (the Game page says so).
         return {};
 #endif
