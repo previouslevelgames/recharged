@@ -141,7 +141,7 @@ void Rules()
     rules.stadium_cheat = rules.player_cheat = rules.powerup_cheat = "none";
     CHECK(StadiumCheatChoices().size() == 6 && PlayerCheatChoices().size() == 5 && PowerupCheatChoices().size() == 12
           && StadiumChoices().size() == 17 && std::string(StadiumChoices()[11].label) == "The Palace"
-          && RuleTweakChoices().size() == 3);
+          && RuleTweakChoices().size() == 4);
     rules.limit = "time";
     rules.time = 150;
     rules.games = 1;
