@@ -309,6 +309,11 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
                                       const OnlinePanelContext& context)
 {
     OnlinePanelModel model;
+    if (context.signed_out)
+    {
+        model.signed_out = true;
+        return model;
+    }
     const ProfilePlayer& me = context.me;
     model.me.name = me.name.empty() ? me.discord : me.name;
     if (!me.discord.empty()) model.me.detail = "@" + me.discord;

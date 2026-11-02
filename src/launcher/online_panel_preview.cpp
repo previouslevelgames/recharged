@@ -354,6 +354,13 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         context_.message = "The server didn't answer. Trying again...";
         context_.error = true;
     }
+    else if (mode_ == "preview-signed-out")
+    {
+        // No player profile: what the game has without a session.
+        context_ = {};
+        context_.signed_out = true;
+        lists_ = {};
+    }
     // Some options on, as a player might have them.
     for (const GameTweak tweak : {GameTweak::FastTerrain, GameTweak::NoMegaStrikes, GameTweak::FastMenus})
         options_.tweaks[GameTweakIndex(tweak)] = true;

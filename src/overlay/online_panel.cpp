@@ -715,6 +715,143 @@ void DrawMain(Frame& frame, const OverlayLayout& layout)
     EndOverlayScroll();
 }
 
+// ------------------------------------------------------------------ signed out
+
+// What a player profile brings, as the launcher's welcome says it.
+struct Benefit
+{
+    Icon icon;
+    const char* title;
+    const char* text;
+    const char* tag;
+};
+constexpr Benefit kBenefits[] = {
+    {Icon::Play, "Online in one click",
+     "Skip the Wii's friend codes and setup: your profile is ready in a minute, with Discord or a Mii.", nullptr},
+    {Icon::Chat, "Challenges over the game",
+     "See who is online right here and challenge them, without leaving the game.", nullptr},
+    {Icon::Trophy, "Real sets, fair rules",
+     "Best-of series by competitive rules that both players see before they accept.", nullptr},
+    {Icon::Medal, "Tournaments", "Your next tournament game, opponent and rules, in the Events tab. With Discord.",
+     "Soon"},
+};
+
+// The invitation: play online the easy way, made on the launcher's Player
+// profile page.
+void DrawInvitation(const Frame& frame, float width)
+{
+    const auto& fonts = frame.fonts;
+    auto* draw = ImGui::GetWindowDrawList();
+    const float pad = Dp(20), badge = Dp(52), text_width = width - pad * 2;
+    const char* title = "Play online, the easy way";
+    const char* intro = "Connect Discord, or play with a Mii: no friend codes, no setup.";
+    const char* how = "Make your player profile on the launcher's Player profile page. Your friends and "
+                      "challenges show here from the game's next start.";
+    const auto wrapped = [&](ImFont* font, const char* text, float wrap) {
+        return font->CalcTextSizeA(FontSize(font), FLT_MAX, wrap, text).y;
+    };
+    const float how_width = text_width - Dp(26);
+    const float height = pad + badge + Dp(16) + wrapped(fonts.heading, title, text_width) + Dp(6)
+        + wrapped(fonts.body, intro, text_width) + Dp(16) + Dp(12) + wrapped(fonts.caption, how, how_width) + Dp(12)
+        + pad;
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const ImVec2 end{at.x + width, at.y + height};
+    // A soft accent glow at the top, as the launcher's welcome has it.
+    draw->AddRectFilled(at, end, Col(color::field, 0.85f), Dp(16));
+    draw->AddRectFilledMultiColor({at.x + Dp(1), at.y + Dp(1)}, {end.x - Dp(1), at.y + Dp(110)},
+                                  Col(color::accent, 0.10f), Col(color::accent, 0.10f), Col(color::accent, 0.0f),
+                                  Col(color::accent, 0.0f));
+    draw->AddRect(at, end, Col(color::border, 0.8f), Dp(16));
+    float y = at.y + pad;
+    const ImVec2 icon{at.x + pad + badge * 0.5f, y + badge * 0.5f};
+    draw->AddCircleFilled(icon, badge * 0.5f, Col(color::accent, 0.16f));
+    DrawIcon(draw, Icon::Person, icon, Dp(24), Col(color::accent));
+    y += badge + Dp(16);
+    draw->AddText(fonts.heading, FontSize(fonts.heading), {at.x + pad, y}, Col(color::text), title, nullptr,
+                  text_width);
+    y += wrapped(fonts.heading, title, text_width) + Dp(6);
+    draw->AddText(fonts.body, FontSize(fonts.body), {at.x + pad, y}, Col(color::muted), intro, nullptr, text_width);
+    y += wrapped(fonts.body, intro, text_width) + Dp(16);
+    // Where to make it: a note in the info colour.
+    const float note_h = Dp(12) + wrapped(fonts.caption, how, how_width) + Dp(12);
+    draw->AddRectFilled({at.x + pad, y}, {end.x - pad, y + note_h}, Col(color::info, 0.10f), Dp(10));
+    DrawIcon(draw, Icon::Info, {at.x + pad + Dp(14), y + Dp(12) + FontSize(fonts.caption) * 0.5f}, Dp(14),
+             Col(color::info));
+    draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x + pad + Dp(26), y + Dp(12)}, Col(color::text), how,
+                  nullptr, how_width - Dp(12));
+    ImGui::Dummy({width, height});
+}
+
+// What a profile brings, one row each.
+void DrawBenefits(const Frame& frame, float width)
+{
+    const auto& fonts = frame.fonts;
+    auto* draw = ImGui::GetWindowDrawList();
+    const float pad = Dp(16), badge = Dp(38), text_width = width - pad * 2 - badge - Dp(14);
+    DrawLabel(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(color::dim), "WHAT A PLAYER PROFILE BRINGS");
+    ImGui::Dummy({width, FontSize(fonts.caption) + Dp(8)});
+    for (const Benefit& benefit : kBenefits)
+    {
+        const float text = fonts.body->CalcTextSizeA(FontSize(fonts.body), FLT_MAX, text_width, benefit.text).y;
+        const float height = pad + FontSize(fonts.label) + Dp(6) + text + pad;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const ImVec2 end{at.x + width, at.y + height};
+        const ImVec4 tint = benefit.tag ? color::info : color::accent;
+        draw->AddRectFilled(at, end, Col(color::field, 0.7f), Dp(14));
+        draw->AddRect(at, end, Col(color::border, 0.8f), Dp(14));
+        const ImVec2 icon{at.x + pad + badge * 0.5f, at.y + pad + badge * 0.5f};
+        draw->AddRectFilled({icon.x - badge * 0.5f, icon.y - badge * 0.5f}, {icon.x + badge * 0.5f, icon.y + badge * 0.5f},
+                            Col(tint, 0.14f), Dp(10));
+        DrawIcon(draw, benefit.icon, icon, Dp(19), Col(tint));
+        const float left = at.x + pad + badge + Dp(14);
+        DrawLabel(draw, fonts.label, {left, at.y + pad}, Col(color::text), benefit.title);
+        if (benefit.tag)
+        {
+            const float x = left + TextSize(fonts.label, benefit.title).x + Dp(10);
+            const ImVec2 tag = TextSize(fonts.caption, benefit.tag);
+            const ImVec2 tag_at{x, at.y + pad + (FontSize(fonts.label) - Dp(20)) * 0.5f};
+            draw->AddRectFilled(tag_at, {tag_at.x + tag.x + Dp(16), tag_at.y + Dp(20)}, Col(color::info, 0.16f), Dp(10));
+            DrawLabel(draw, fonts.caption, {tag_at.x + Dp(8), tag_at.y + (Dp(20) - tag.y) * 0.5f}, Col(color::info),
+                      benefit.tag);
+        }
+        draw->AddText(fonts.body, FontSize(fonts.body), {left, at.y + pad + FontSize(fonts.label) + Dp(6)},
+                      Col(color::muted), benefit.text, nullptr, text_width);
+        ImGui::Dummy({width, height});
+        ImGui::Dummy({width, Dp(8)});
+    }
+}
+
+// Without a player profile: the invitation at the left, what a profile
+// brings at the right, split as the main screen; nothing to press (the
+// launcher makes the profile).
+void DrawSignedOut(const Frame& frame, const OverlayLayout& layout)
+{
+    const float width = layout.max.x - layout.min.x;
+    const bool wide = width >= Dp(700);
+    OverlayLayoutIs(wide ? 2 : 1);
+    if (wide)
+    {
+        const float left = OverlaySplitLeft(width);
+        BeginOverlayScroll("##signed_out_you", layout.min, {layout.min.x + left, layout.max.y});
+        ImGui::Dummy({left, Dp(20)});
+        DrawInvitation(frame, left);
+        EndOverlayScroll();
+        OverlaySplitDivider(layout, left);
+        const ImVec2 pane{layout.min.x + left + OverlaySplitGap(), layout.min.y};
+        BeginOverlayScroll("##signed_out_benefits", pane, layout.max);
+        ImGui::Dummy({layout.max.x - pane.x, Dp(20)});
+        DrawBenefits(frame, layout.max.x - pane.x);
+        EndOverlayScroll();
+        return;
+    }
+    BeginOverlayScroll("##signed_out_column", layout.min, layout.max);
+    ImGui::Dummy({width, Dp(18)});
+    DrawInvitation(frame, width);
+    ImGui::Dummy({width, Dp(16)});
+    DrawBenefits(frame, width);
+    EndOverlayScroll();
+}
+
 // ------------------------------------------------------------------ player screen
 
 // A player's screen: their picture, status and tags, then Challenge and the
@@ -1153,7 +1290,8 @@ void DrawOnlinePanel(const OnlinePanelModel& model, OverlayScreens& screens, Onl
 {
     if (screens.Empty()) return;
     Frame frame{model, images, screens, state, actions, launcher::CurrentFonts()};
-    if (screens.Top().id == int(OnlinePanelScreen::Player))
+    if (model.signed_out) DrawSignedOut(frame, layout);
+    else if (screens.Top().id == int(OnlinePanelScreen::Player))
         DrawPlayer(frame, layout, FindRow(model, screens.Top().key));
     else if (screens.Top().id == int(OnlinePanelScreen::Setup))
         DrawSetup(frame, layout, FindRow(model, screens.Top().key), screens.Top().key == kSearchSetup);

@@ -1937,8 +1937,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         +std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()
                             -snapshot.fetched).count());
                 context.loading=panelFeed && !snapshot.loaded;
-                if(!panelFeed) context.message="Sign in on the launcher's Player profile page to see your friends here.";
-                else if(!snapshot.error.empty()) {
+                // Without a player profile the tab invites to make one.
+                context.signed_out=!panelFeed;
+                if(panelFeed && !snapshot.error.empty()) {
                     context.message=snapshot.error;
                     context.error=true;
                 } else context.message=overlayNotice;

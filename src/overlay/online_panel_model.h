@@ -163,6 +163,8 @@ struct OnlinePanelModel
     // refused, the server out of reach).
     std::string message;
     Tone message_tone = Tone::Neutral;
+    // No player profile: the tab says what one brings and where to make it.
+    bool signed_out = false;
 };
 
 // What the game knows besides the server's lists and set.
@@ -209,6 +211,9 @@ struct OnlinePanelContext
     // For the footer (the feed's notice or error); `error` draws it in red.
     std::string message;
     bool error = false;
+    // No player profile on this computer (the launcher's Player profile
+    // page makes one): nothing but what one brings.
+    bool signed_out = false;
 };
 
 // The panel's data from the lobby's lists (ProfileService::Players()) and the

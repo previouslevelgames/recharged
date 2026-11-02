@@ -579,6 +579,30 @@ void TestSettingsByKeys()
     }
 }
 
+// Without a player profile: the Online tab only invites to make one (nothing
+// to press), and the other tabs work as ever.
+void TestSignedOut()
+{
+    Harness h;
+    h.model.online.signed_out = true;
+    h.model.settings.master_volume = 50;
+    h.Open();
+    CHECK(h.state.Tab() == OverlayTab::Online);
+    GameOverlayActions actions;
+    for (const ImGuiKey key : {ImGuiKey_DownArrow, ImGuiKey_RightArrow, ImGuiKey_GamepadFaceUp, ImGuiKey_F})
+    {
+        actions = h.Press(key);
+        CHECK(!actions.online.Any() && h.state.Tab() == OverlayTab::Online);
+    }
+    for (int n = 0; n < 3; ++n) h.Press(ImGuiKey_E);
+    CHECK(h.state.Tab() == OverlayTab::Settings);
+    h.Press(ImGuiKey_DownArrow);
+    h.Press(ImGuiKey_RightArrow);
+    actions = h.Press(ImGuiKey_RightArrow);
+    CHECK(actions.set_setting && actions.set_setting->setting == GameSetting::MasterVolume
+          && actions.set_setting->value == 55);
+}
+
 // The overlay's scale: the picture's height / 900, but in small windows
 // never so small that its captions (13 dp) are under 11 pixels, as long as its
 // smallest window fits; and its window then takes more of the picture.
@@ -919,6 +943,7 @@ int main()
     TestSearchSetup();
     TestSettings();
     TestSettingsByKeys();
+    TestSignedOut();
     TestLateLists();
     TestPrompt();
     TestFrameDone();
