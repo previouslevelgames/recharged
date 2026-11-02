@@ -1410,6 +1410,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!wfcSnapshot(&wfc,sizeof wfc))return;
             ChargedPresenceSnapshot game{};
             const bool known=presenceSnapshot && presenceSnapshot(&game,sizeof game);
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            // How the online series' games ended: one that broke off is
+            // reported with its score then.
+            if(onlineMatchSnapshot) {
+                ChargedOnlineMatchSnapshot online{};
+                if(onlineMatchSnapshot(&online,sizeof online)) competitive->ObserveOnline(online);
+            }
+#endif
             std::optional<ChargedCompetitiveRules> rules;
             if(competitive->Observe(wfc,known ? &game : nullptr,rules))
                 configureCompetitive(rules ? &*rules : nullptr,sizeof(ChargedCompetitiveRules));

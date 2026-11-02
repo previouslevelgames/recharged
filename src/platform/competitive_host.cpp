@@ -3,7 +3,9 @@
 #include "platform/http_client.h"
 #include "platform/match_kind.h"
 
+#include <algorithm>
 #include <cstring>
+#include <iterator>
 
 namespace mscharged::platform
 {
@@ -149,6 +151,7 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
         series_.clear();
         series_match_ = match_ ? match_->id : 0;
         series_games_ = wfc.competitive_games;
+        series_time_ = rules_ && rules_->limit == 0 ? rules_->time : 0;
         game_recorded_ = false;
         series_done_ = series_match_ == 0 || series_games_ < 1;
     }
@@ -177,6 +180,7 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
                 const int needed = series_games_ / 2 + 1;
                 if (won >= needed || lost >= needed || int(series_.size()) >= series_games_)
                 {
+                    MarkBrokenOff();
                     reports_.push_back({series_match_, series_});
                     ++unsent_;
                     series_done_ = true;
@@ -189,7 +193,9 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
     }
     else if (!series_done_ && !(presence && presence->in_match))
     {
-        // Left before the series ended: what was played, if anything.
+        // Left before the series ended: what was played, if anything, and a
+        // game that broke off.
+        MarkBrokenOff();
         if (!series_.empty())
         {
             reports_.push_back({series_match_, series_});
@@ -351,6 +357,38 @@ std::optional<CompetitiveHost::SetStart> CompetitiveHost::TakeSetStart()
     // A set this game already plays (the launcher's).
     if (set_) return std::nullopt;
     return start;
+}
+
+void CompetitiveHost::ObserveOnline(const ChargedOnlineMatchSnapshot& online)
+{
+    online_ = online;
+    online_known_ = true;
+}
+
+void CompetitiveHost::MarkBrokenOff()
+{
+    if (!online_known_ || online_.games < 1 || online_.games > int(std::size(online_.game))) return;
+    const ChargedOnlineGame& last = online_.game[online_.games - 1];
+    if (last.ending != 2 && last.ending != 4) return;
+    // Only the game the series has in hand, or the one after it.
+    const std::size_t index = std::size_t(online_.games - 1);
+    if (index > series_.size()) return;
+    const int mine = online_.side == 1 ? 1 : 0, theirs = 1 - mine;
+    MatchGame game;
+    game.my_score = last.scores[mine];
+    game.opponent_score = last.scores[theirs];
+    game.my_captain = CaptainKey(last.captains[mine]);
+    game.opponent_captain = CaptainKey(last.captains[theirs]);
+    game.stadium = StadiumKey(last.stadium);
+    if (game.my_captain.empty() || game.opponent_captain.empty() || game.stadium.empty()) return;
+    game.interrupted = true;
+    game.played = series_time_ > 0 ? std::clamp(last.seconds / float(series_time_), 0.0f, 1.0f) : 0.0f;
+    if (index == series_.size()) series_.push_back(game);
+    else series_[index] = game;
+    if (log_)
+        log_("Competitive: the series' game " + std::to_string(index + 1) + " broke off at "
+             + std::to_string(game.my_score) + "-" + std::to_string(game.opponent_score) + " ("
+             + std::to_string(int(game.played * 100.0f + 0.5f)) + "% of its clock)");
 }
 
 void CompetitiveHost::CallOff(std::int64_t match)
@@ -745,6 +783,18 @@ void CompetitiveHost::Work(ProfileService& api)
                 std::lock_guard<std::mutex> lock(mutex_);
                 reports_.insert(reports_.begin(), reports.begin() + std::ptrdiff_t(n), reports.end());
                 throw;
+            }
+            // A server before 1.2.8 doesn't know a game that broke off: the
+            // series without it.
+            auto& games = reports[n].games;
+            if (e.Status() == 400 && !games.empty() && games.back().interrupted)
+            {
+                games.pop_back();
+                if (!games.empty())
+                {
+                    --n;
+                    continue;
+                }
             }
             Said(std::string("the result was not taken: ") + e.what());
         }

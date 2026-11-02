@@ -8,6 +8,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <cstdio>
 #include <ctime>
 #include <fstream>
 #include <mutex>
@@ -868,6 +869,15 @@ ProfileMatch ProfileService::Report(std::int64_t match, const std::vector<MatchG
         AppendJsonString(body, game.opponent_captain);
         body += ",\"stadium\":";
         AppendJsonString(body, game.stadium);
+        // Only a game that broke off says so: older servers refuse fields
+        // they don't know.
+        if (game.interrupted)
+        {
+            char played[32];
+            std::snprintf(played, sizeof played, "%.3f", std::clamp(double(game.played), 0.0, 1.0));
+            body += ",\"interrupted\":true,\"played\":";
+            body += played;
+        }
         body += '}';
     }
     body += "]}";

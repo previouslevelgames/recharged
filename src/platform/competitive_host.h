@@ -1,6 +1,7 @@
 #pragma once
 
 #include "platform/competitive_rules.h"
+#include "platform/online_match_snapshot.h"
 #include "platform/presence_snapshot.h"
 #include "platform/profile_service.h"
 
@@ -93,6 +94,9 @@ public:
     // After a SetEnd: the player doesn't play a stopped set again now; the
     // server calls it off, so neither player keeps it.
     void CallOff(std::int64_t match);
+    // On the game's thread, before Observe: the game's online series
+    // (charged_online_match_snapshot), for a game that broke off.
+    void ObserveOnline(const ChargedOnlineMatchSnapshot& online);
 
     // On the game's thread after Observe: the set this game plays, for the
     // Discord status: the opponent, the games won and lost so far and how
@@ -205,5 +209,14 @@ private:
     int series_games_ = 0;
     std::vector<MatchGame> series_;
     bool game_recorded_ = false, series_done_ = true;
+    // The series' game length (a time limit), for a game that broke off.
+    int series_time_ = 0;
+    // The game's online series (ObserveOnline): how each game ended.
+    ChargedOnlineMatchSnapshot online_{};
+    bool online_known_ = false;
+    // With the series about to be reported: its last game as broken off,
+    // when the online series says it ended by a lost connection or out of
+    // sync (added when the series has no game for it yet).
+    void MarkBrokenOff();
 };
 } // namespace mscharged::platform

@@ -206,6 +206,11 @@ struct MatchGame
     std::string my_captain;
     std::string opponent_captain;
     std::string stadium;
+    // The game broke off at this score (a lost connection, or out of sync):
+    // the series' last game, with how much of its clock went (0 to 1). The
+    // server counts it once a third was played (servers from 1.2.8 on).
+    bool interrupted = false;
+    float played = 0.0f;
 };
 
 // A match as one of its players sees it.
