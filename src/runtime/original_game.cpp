@@ -1600,6 +1600,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             bool shown=false;
             int answer=0;
             std::string opponent, rules, reason;
+            std::string title;  // a stopped set's own title, or empty
             std::string avatar; // the opponent's picture (URL), or empty
             bool random=false;  // a search for a random opponent asks the player
             bool hasScore=false;
@@ -1666,10 +1667,31 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         card.decline="Not now";
                         card.note="Once they accept, the game goes on into RANKED.";
                         cardPrompt.kind=CardPrompt::Kind::SetOver;
+                    } else if(end.how==How::OpponentLeft || end.how==How::OpponentGone) {
+                        // The opponent's Back, launcher or closed game: a
+                        // line from the dressing room, the same for a set.
+                        static const char* const kGone[]={
+                            " left the field in tears…"," ran crying to the dressing room…",
+                            " took the ball and went home…"," saw your lineup and fled the pitch…",
+                            " heard the Kritters were coming and ran…"};
+                        card.kicker="SET STOPPED";
+                        card.title=opponent+kGone[std::uint64_t(end.match)%std::size(kGone)];
+                        card.detail=end.how==How::OpponentGone
+                            ? opponent+"'s game closed before your games met, so the set stopped."
+                            : opponent+" left before your games met, so the set stopped.";
+                        card.accept="Play it again";
+                        card.decline="Not now";
+                        card.note="Play it again is your Ready to play!: the set goes once "+opponent
+                            +" is ready too.";
+                        cardPrompt.kind=CardPrompt::Kind::SetStopped;
+                        cardPrompt.reason=card.detail;
+                        cardPrompt.title=card.title;
                     } else {
                         card.kicker="SET STOPPED";
-                        card.title="The set against "+opponent+" stopped";
+                        card.title=end.how==How::Left ? "You left the set against "+opponent
+                            : "The set against "+opponent+" stopped";
                         card.detail=end.how==How::Failed ? std::string("A message in the game ended it.")
+                            : end.how==How::Left ? "You left the search; "+opponent+"'s game was told."
                             : opponent+" isn't ready any more, or your games didn't meet in time.";
                         card.accept="Play it again";
                         card.decline="Not now";
@@ -1677,6 +1699,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                             +" is ready too.";
                         cardPrompt.kind=CardPrompt::Kind::SetStopped;
                         cardPrompt.reason=card.detail;
+                        cardPrompt.title=card.title;
                     }
                     cardPrompt.opponent=opponent;
                     cardPrompt.avatar=end.opponent_avatar;
@@ -1913,7 +1936,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     case Kind::SetStopped:
                         prompt.kind=ov::OverlayPrompt::Kind::SetStopped;
                         prompt.kicker="SET STOPPED";
-                        prompt.title="The set stopped";
+                        prompt.title=cardPrompt.title.empty() ? std::string("The set stopped") : cardPrompt.title;
                         prompt.detail=cardPrompt.reason;
                         prompt.primary="Play it again";
                         prompt.secondary="Not now";

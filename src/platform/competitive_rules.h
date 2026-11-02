@@ -57,7 +57,8 @@ struct ChargedWfcSnapshot
 
 // How far a set's game got: booting (title, main menu), choosing the Mii and
 // logging in, searching RANKED for the opponent, playing; over (back from the
-// game) or failed (a popup that is not harmless; set_popup says which).
+// game), failed (a popup that is not harmless; set_popup says which) or left
+// (the player's Back left the search).
 enum ChargedSetStage
 {
     CHARGED_SET_NONE,
@@ -69,6 +70,7 @@ enum ChargedSetStage
     CHARGED_SET_PLAYING,
     CHARGED_SET_OVER,
     CHARGED_SET_FAILED,
+    CHARGED_SET_LEFT,
 };
 
 #ifdef __cplusplus

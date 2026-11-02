@@ -69,10 +69,13 @@ public:
     {
         enum class How
         {
-            Over,      // the series was played
-            NoResult,  // back from the match without a game played (one left)
-            Failed,    // a popup ended it (`popup`)
-            CalledOff  // the set stopped waiting for this game
+            Over,         // the series was played
+            NoResult,     // back from the match without a game played (one left)
+            Failed,       // a popup ended it (`popup`)
+            CalledOff,    // the set stopped waiting for this game
+            Left,         // this player left its search (Back)
+            OpponentLeft, // the opponent left its search or took their Ready to play! back
+            OpponentGone  // the opponent closed Recharged
         };
         std::int64_t match = 0;
         std::string opponent;
@@ -134,6 +137,9 @@ private:
     std::mutex mutex_;
     std::condition_variable wake_;
     bool stop_ = false, kick_ = false;
+    // The game closes while its set waits for it: the worker's last call takes
+    // the player's Ready to play! back (withdrawn_ once it is through).
+    bool withdraw_on_stop_ = false, withdrawn_ = false;
     std::shared_ptr<class HttpCancel> cancel_;
     std::thread worker_;
 
@@ -179,6 +185,8 @@ private:
     int set_popup_ = -1;
     int unsent_ = 0;
     bool set_called_off_ = false, set_unready_ = false;
+    // Why it was called off, as the server showed the opponent then.
+    SetEnd::How called_off_how_ = SetEnd::How::CalledOff;
     // The set's opponent and series length, kept once the server has gone
     // on from the set (for the Discord status of its last screens).
     std::string set_opponent_;

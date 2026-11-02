@@ -578,6 +578,15 @@ extern "C" bool mscharged_competitive_leave_search(void)
     return true;
 }
 
+extern "C" void mscharged_competitive_search_back(void)
+{
+    // A set's search the player left: the host withdraws the player's Ready
+    // to play! at once, and the opponent's game leaves the set.
+    if (sRankedWalk || sSetStage != CHARGED_SET_SEARCH) return;
+    sSetStage = CHARGED_SET_LEFT;
+    std::fputs("Competitive: the player left the set's search\n", stderr);
+}
+
 extern "C" bool mscharged_competitive_take_main_menu(void)
 {
     if (sSetStage != CHARGED_SET_BOOT || PopupOnTop()) return false;
@@ -665,11 +674,12 @@ extern "C" int mscharged_competitive_connection(unsigned first, unsigned second)
 
 extern "C" int mscharged_competitive_popup(int type)
 {
-    // Only while the walk drives the screens: not once the set is over or
-    // failed, not while the player chooses the Mii, and in a running game not
+    // Only while the walk drives the screens: not once the set is over,
+    // failed or left, not while the player chooses the Mii, and in a running game not
     // before the walk took the main menu. Never a popup that deletes what the
     // player keeps (the Mii's online profile, a friend).
-    if (!OnSet() || sSetStage == CHARGED_SET_OVER || sSetStage == CHARGED_SET_FAILED || sPlayerChoosesMii
+    if (!OnSet() || sSetStage == CHARGED_SET_OVER || sSetStage == CHARGED_SET_FAILED || sSetStage == CHARGED_SET_LEFT
+        || sPlayerChoosesMii
         || (sSetStage == CHARGED_SET_BOOT && sStartedInGame) || type == POPUP_PROFILE_UNLINK_WARNING
         || type == POPUP_NETWORK_DELETE_FRIEND)
         return -1;

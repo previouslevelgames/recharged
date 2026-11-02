@@ -17,6 +17,12 @@ constexpr auto kReadyEvery = 10s;
 constexpr auto kMatchEvery = 10s;
 // In the game's menus a challenge reaches the card sooner.
 constexpr auto kMenuMatchEvery = 4s;
+// A set's game on its way to the opponent's checks the set often: when the
+// opponent leaves it, this game leaves it within seconds.
+constexpr auto kSetWaitEvery = 2s;
+// A closing game takes this long at most to take the player's Ready to play!
+// back.
+constexpr auto kWithdrawWait = 2s;
 constexpr auto kRetry = 15s;
 // cGame's eGameState.
 constexpr int kGamePreGame = 0, kGameKickoff = 1, kGameEnd = 3, kGamePlay = 5;
@@ -43,6 +49,7 @@ std::string StageText(int stage, int popup)
     case CHARGED_SET_PLAYING: return "the match is set up";
     case CHARGED_SET_OVER: return "back from the match";
     case CHARGED_SET_FAILED: return "stopped at popup " + std::to_string(popup);
+    case CHARGED_SET_LEFT: return "the player left the search (Back)";
     default: return "stage " + std::to_string(stage);
     }
 }
@@ -81,8 +88,16 @@ CompetitiveHost::CompetitiveHost(std::string server, std::string token, std::str
 CompetitiveHost::~CompetitiveHost()
 {
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::mutex> lock(mutex_);
         stop_ = true;
+        // A set still waiting for this game: the opponent's game hears at once
+        // that this one is gone, not only once the server gives up on it.
+        withdraw_on_stop_ = set_ && !set_unready_ && set_stage_ != CHARGED_SET_PLAYING && set_stage_ != CHARGED_SET_OVER;
+        if (withdraw_on_stop_)
+        {
+            wake_.notify_all();
+            wake_.wait_for(lock, kWithdrawWait, [this] { return withdrawn_; });
+        }
         if (cancel_) cancel_->Cancel();
     }
     wake_.notify_all();
@@ -218,7 +233,8 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
             wake = true;
             stage_line = "set " + std::to_string(set_) + ": " + StageText(set_stage_, set_popup_);
         }
-        const bool done = set_stage_ == CHARGED_SET_OVER || set_stage_ == CHARGED_SET_FAILED || set_called_off_;
+        const bool done = set_stage_ == CHARGED_SET_OVER || set_stage_ == CHARGED_SET_FAILED
+                       || set_stage_ == CHARGED_SET_LEFT || set_called_off_;
         if (done && set_done_ == Clock::time_point{})
         {
             set_done_ = Clock::now();
@@ -300,19 +316,24 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
         const bool played = series_match_ == set_ && !series_.empty();
         end.how = set_stage_ == CHARGED_SET_OVER   ? (played ? SetEnd::How::Over : SetEnd::How::NoResult)
                 : set_stage_ == CHARGED_SET_FAILED ? SetEnd::How::Failed
-                                                   : SetEnd::How::CalledOff;
+                : set_stage_ == CHARGED_SET_LEFT   ? SetEnd::How::Left
+                                                   : called_off_how_;
         end.popup = set_popup_;
         // Ready to play! again only for a set the server keeps open.
         end.can_play_again = match_ && match_->id == set_ && match_->stage == "open";
-        why = end.how == SetEnd::How::Over       ? "the series is over"
-            : end.how == SetEnd::How::NoResult ? "the match ended without a game played"
-            : end.how == SetEnd::How::Failed   ? "it stopped at popup " + std::to_string(set_popup_)
-                                               : "the set was called off";
+        why = end.how == SetEnd::How::Over         ? "the series is over"
+            : end.how == SetEnd::How::NoResult     ? "the match ended without a game played"
+            : end.how == SetEnd::How::Failed       ? "it stopped at popup " + std::to_string(set_popup_)
+            : end.how == SetEnd::How::Left         ? "the player left its search"
+            : end.how == SetEnd::How::OpponentLeft ? "the opponent left it"
+            : end.how == SetEnd::How::OpponentGone ? "the opponent closed Recharged"
+                                                   : "the set was called off";
         // No set's game any more: challenges reach the card again.
         set_ = 0;
         set_stage_ = CHARGED_SET_NONE;
         set_popup_ = -1;
         set_called_off_ = set_unready_ = false;
+        called_off_how_ = SetEnd::How::CalledOff;
         set_done_ = {};
         paired_ = false;
         next_match_ = {};
@@ -349,7 +370,7 @@ bool CompetitiveHost::ReadyDue() const
     return match_ && rules_ && proven_profile_ && proven_profile_ == login_profile_
         && (match_->stage.empty()
             || (match_->id == set_ && !set_called_off_ && !set_unready_ && set_stage_ != CHARGED_SET_FAILED
-                && set_stage_ != CHARGED_SET_OVER));
+                && set_stage_ != CHARGED_SET_OVER && set_stage_ != CHARGED_SET_LEFT));
 }
 
 void CompetitiveHost::Run()
@@ -399,6 +420,27 @@ void CompetitiveHost::Run()
         wake_.wait_until(lock, next, [this] { return stop_ || kick_; });
         kick_ = false;
     }
+    // The game closes during its set's way to the opponent's: the player's
+    // Ready to play! goes back, so the opponent's game leaves the set now.
+    if (!withdraw_on_stop_) return;
+    const std::int64_t set = set_;
+    auto cancel = std::make_shared<HttpCancel>();
+    cancel_ = cancel;
+    lock.unlock();
+    try
+    {
+        ProfileService api(server_, token_);
+        api.SetCancel(cancel);
+        api.ReadyToPlay(set, false);
+        Said("set " + std::to_string(set) + ": the game closes; Ready to play! taken back");
+    }
+    catch (const std::exception&)
+    {
+        // Too late or refused: the server gives up on the game by itself.
+    }
+    lock.lock();
+    withdrawn_ = true;
+    wake_.notify_all();
 }
 
 void CompetitiveHost::Work(ProfileService& api)
@@ -501,7 +543,10 @@ void CompetitiveHost::Work(ProfileService& api)
             rules_ = rules;
             ++rules_version_;
         }
-        next_match_ = Clock::now() + (activity_ == "game" && !set_ ? kMenuMatchEvery : kMatchEvery);
+        next_match_ = Clock::now()
+                    + (set_ && set_stage_ <= CHARGED_SET_SEARCH ? kSetWaitEvery
+                       : activity_ == "game" && !set_          ? kMenuMatchEvery
+                                                               : kMatchEvery);
         if (news)
         {
             next_ready_ = {};
@@ -517,9 +562,18 @@ void CompetitiveHost::Work(ProfileService& api)
         // Ready to play! back, the games never met, the set ended) before
         // the games met.
         std::lock_guard<std::mutex> relock(mutex_);
-        if (set_ && set_stage_ < CHARGED_SET_PLAYING
+        if (set_ && set_stage_ < CHARGED_SET_PLAYING && !set_called_off_
             && (!current || current->id != set_ || current->stage == "open" || current->stage == "invited"))
+        {
             set_called_off_ = true;
+            // The opponent's doing, as far as the server shows it: Recharged
+            // closed, or their Ready to play! taken back (their Back, their
+            // launcher) while this player's still counts.
+            called_off_how_ = !current || current->id != set_ ? SetEnd::How::CalledOff
+                            : !current->opponent_online       ? SetEnd::How::OpponentGone
+                            : current->you_ready && !current->opponent_ready ? SetEnd::How::OpponentLeft
+                                                                             : SetEnd::How::CalledOff;
+        }
         // A set that went: this game plays it, unless it plays one already
         // (then that go counts as started) or is in a match.
         if (current && current->stage == "go")
@@ -539,7 +593,8 @@ void CompetitiveHost::Work(ProfileService& api)
     std::int64_t unready = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (set_ && !set_unready_ && (set_stage_ == CHARGED_SET_FAILED || set_called_off_) && unsent_ == 0)
+        if (set_ && !set_unready_
+            && (set_stage_ == CHARGED_SET_FAILED || set_stage_ == CHARGED_SET_LEFT || set_called_off_) && unsent_ == 0)
             unready = set_;
     }
     if (unready)
