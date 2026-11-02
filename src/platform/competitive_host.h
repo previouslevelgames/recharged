@@ -90,6 +90,9 @@ public:
     // (the opponent's game asks its player); otherwise the player's Ready to
     // play! again for a set that stopped.
     void PlayAgain(std::int64_t match, bool rematch);
+    // After a SetEnd: the player doesn't play a stopped set again now; the
+    // server calls it off, so neither player keeps it.
+    void CallOff(std::int64_t match);
 
     // On the game's thread after Observe: the set this game plays, for the
     // Discord status: the opponent, the games won and lost so far and how
@@ -137,8 +140,8 @@ private:
     std::mutex mutex_;
     std::condition_variable wake_;
     bool stop_ = false, kick_ = false;
-    // The game closes while its set waits for it: the worker's last call takes
-    // the player's Ready to play! back (withdrawn_ once it is through).
+    // The game closes while its set waits for it: the worker's last call calls
+    // the set off (withdrawn_ once it is through).
     bool withdraw_on_stop_ = false, withdrawn_ = false;
     std::shared_ptr<class HttpCancel> cancel_;
     std::thread worker_;
@@ -167,6 +170,7 @@ private:
     std::int64_t started_go_ = 0;
     std::int64_t again_match_ = 0;
     bool again_rematch_ = false;
+    std::int64_t call_off_match_ = 0; // CallOff still to send
     std::optional<std::string> notice_;
     struct Report
     {

@@ -353,6 +353,15 @@ std::optional<CompetitiveHost::SetStart> CompetitiveHost::TakeSetStart()
     return start;
 }
 
+void CompetitiveHost::CallOff(std::int64_t match)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        call_off_match_ = match;
+    }
+    Kick();
+}
+
 void CompetitiveHost::PlayAgain(std::int64_t match, bool rematch)
 {
     {
@@ -420,8 +429,8 @@ void CompetitiveHost::Run()
         wake_.wait_until(lock, next, [this] { return stop_ || kick_; });
         kick_ = false;
     }
-    // The game closes during its set's way to the opponent's: the player's
-    // Ready to play! goes back, so the opponent's game leaves the set now.
+    // The game closes during its set's way to the opponent's: the set is
+    // called off, so the opponent's game leaves it now and both are free.
     if (!withdraw_on_stop_) return;
     const std::int64_t set = set_;
     auto cancel = std::make_shared<HttpCancel>();
@@ -431,8 +440,8 @@ void CompetitiveHost::Run()
     {
         ProfileService api(server_, token_);
         api.SetCancel(cancel);
-        api.ReadyToPlay(set, false);
-        Said("set " + std::to_string(set) + ": the game closes; Ready to play! taken back");
+        api.Cancel(set);
+        Said("set " + std::to_string(set) + ": the game closes; the set is called off");
     }
     catch (const std::exception&)
     {
@@ -459,6 +468,27 @@ void CompetitiveHost::Work(ProfileService& api)
         again = again_match_;
         rematch = again_rematch_;
         again_match_ = 0;
+    }
+    std::int64_t call_off = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        call_off = call_off_match_;
+        call_off_match_ = 0;
+    }
+    if (call_off)
+    {
+        try
+        {
+            api.Cancel(call_off);
+            Said("called off match " + std::to_string(call_off) + " (Not now)");
+        }
+        catch (const ProfileError& e)
+        {
+            // Ended already, or played: nothing to call off.
+            if (e.Cancelled()) throw;
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        next_match_ = {};
     }
     if (answer)
     {
@@ -526,6 +556,13 @@ void CompetitiveHost::Work(ProfileService& api)
             invitation = Invitation{current->id, current->opponent.name, current->opponent.avatar_url,
                                     current->rule_set + ": " + DescribeRules(current->rules),
                                     current->rematch_of != 0, current->random};
+        // This game's set as the server ended it (the opponent called it off,
+        // or closed Recharged), before the match it no longer is goes.
+        std::string set_ended;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (current && set_ && current->id == set_ && current->state != "accepted") set_ended = current->state;
+        }
         if (current && current->state != "accepted") current.reset();
         std::optional<ChargedCompetitiveRules> rules;
         if (current)
@@ -569,7 +606,9 @@ void CompetitiveHost::Work(ProfileService& api)
             // The opponent's doing, as far as the server shows it: Recharged
             // closed, or their Ready to play! taken back (their Back, their
             // launcher) while this player's still counts.
-            called_off_how_ = !current || current->id != set_ ? SetEnd::How::CalledOff
+            called_off_how_ = set_ended == "cancelled" ? SetEnd::How::OpponentLeft
+                            : set_ended == "dissolved" ? SetEnd::How::OpponentGone
+                            : !current || current->id != set_ ? SetEnd::How::CalledOff
                             : !current->opponent_online       ? SetEnd::How::OpponentGone
                             : current->you_ready && !current->opponent_ready ? SetEnd::How::OpponentLeft
                                                                              : SetEnd::How::CalledOff;
@@ -589,19 +628,23 @@ void CompetitiveHost::Work(ProfileService& api)
     }
 
     // A set's game that stopped or was called off before a result: the
-    // player's Ready to play! is taken back, so the set waits for both again.
+    // player's Ready to play! is taken back, so the set waits for both again;
+    // a player who left its search calls it off, which frees both players.
     std::int64_t unready = 0;
+    bool left = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (set_ && !set_unready_
             && (set_stage_ == CHARGED_SET_FAILED || set_stage_ == CHARGED_SET_LEFT || set_called_off_) && unsent_ == 0)
             unready = set_;
+        left = set_stage_ == CHARGED_SET_LEFT;
     }
     if (unready)
     {
         try
         {
-            api.ReadyToPlay(unready, false);
+            if (left) api.Cancel(unready);
+            else api.ReadyToPlay(unready, false);
         }
         catch (const ProfileError& e)
         {

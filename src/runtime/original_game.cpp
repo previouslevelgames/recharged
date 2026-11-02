@@ -1603,6 +1603,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             int answer=0;
             std::string opponent, rules, reason;
             std::string title;  // a stopped set's own title, or empty
+            std::string primary, note; // a stopped set's first button and its note, or empty
             std::string avatar; // the opponent's picture (URL), or empty
             bool random=false;  // a search for a random opponent asks the player
             bool hasScore=false;
@@ -1681,13 +1682,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         card.detail=end.how==How::OpponentGone
                             ? opponent+"'s game closed before your games met, so the set stopped."
                             : opponent+" left before your games met, so the set stopped.";
-                        card.accept="Play it again";
+                        card.accept="Rematch";
                         card.decline="Not now";
-                        card.note="Play it again is your Ready to play!: the set goes once "+opponent
-                            +" is ready too.";
+                        card.note="The same set again: "+opponent+" gets the challenge.";
                         cardPrompt.kind=CardPrompt::Kind::SetStopped;
                         cardPrompt.reason=card.detail;
                         cardPrompt.title=card.title;
+                        cardPrompt.primary=card.accept;
+                        cardPrompt.note=card.note;
                     } else {
                         card.kicker="SET STOPPED";
                         card.title=end.how==How::Left ? "You left the set against "+opponent
@@ -1695,13 +1697,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         card.detail=end.how==How::Failed ? std::string("A message in the game ended it.")
                             : end.how==How::Left ? "You left the search; "+opponent+"'s game was told."
                             : opponent+" isn't ready any more, or your games didn't meet in time.";
-                        card.accept="Play it again";
+                        // Left: the set is called off, so it goes again as a
+                        // rematch; else it waits, and Not now calls it off.
+                        const bool left=end.how==How::Left;
+                        card.accept=left ? "Rematch" : "Play it again";
                         card.decline="Not now";
-                        card.note="Play it again is your Ready to play!: the set goes once "+opponent
-                            +" is ready too.";
+                        card.note=left ? "The same set again: "+opponent+" gets the challenge."
+                            : "Play it again is your Ready to play!: the set goes once "+opponent
+                                +" is ready too. Not now calls it off.";
                         cardPrompt.kind=CardPrompt::Kind::SetStopped;
                         cardPrompt.reason=card.detail;
                         cardPrompt.title=card.title;
+                        cardPrompt.primary=card.accept;
+                        cardPrompt.note=card.note;
                     }
                     cardPrompt.opponent=opponent;
                     cardPrompt.avatar=end.opponent_avatar;
@@ -1732,12 +1740,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 return;
             }
             using How=mscharged::platform::CompetitiveHost::SetEnd::How;
-            const bool rematch=afterSet->how==How::Over;
+            // A set that was played or called off goes again as a rematch (a
+            // new challenge); one that only stopped, by Ready to play! again.
+            const How how=afterSet->how;
+            const bool rematch=how==How::Over || how==How::Left || how==How::OpponentLeft || how==How::OpponentGone;
             const std::string opponent=afterSet->opponent.empty() ? std::string("your opponent") : afterSet->opponent;
             if(accept) {
                 competitive->PlayAgain(cardMatch,rematch);
                 hostOverlay->ShowMessage((rematch ? "Rematch asked: waiting for " : "Ready again: waiting for ")
                     +opponent,now);
+            } else if(how==How::CalledOff || how==How::Failed) {
+                // Not now: the stopped set is called off, so neither player
+                // keeps it and both can take another challenge at once.
+                competitive->CallOff(cardMatch);
             }
             afterSet.reset();
         };
@@ -1940,9 +1955,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         prompt.kicker="SET STOPPED";
                         prompt.title=cardPrompt.title.empty() ? std::string("The set stopped") : cardPrompt.title;
                         prompt.detail=cardPrompt.reason;
-                        prompt.primary="Play it again";
+                        prompt.primary=cardPrompt.primary.empty() ? std::string("Play it again") : cardPrompt.primary;
                         prompt.secondary="Not now";
-                        prompt.note="Play it again is your Ready to play!: the set goes once "+who+" is ready too.";
+                        prompt.note=cardPrompt.note.empty()
+                            ? "Play it again is your Ready to play!: the set goes once "+who+" is ready too."
+                            : cardPrompt.note;
                         break;
                     }
                     prompt.has_score=cardPrompt.hasScore;
