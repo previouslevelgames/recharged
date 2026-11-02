@@ -2134,7 +2134,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         save=[on](mscharged::Settings& s) { s.reopen_after_game=on; };
                         break;
                     }
-                    if(save) {
+                    // A slider being dragged saves once it is let go.
+                    if(save && !change.live) {
                         try {
                             mscharged::SaveSettings(launch.config.path,save);
                         } catch(const std::exception& error) {

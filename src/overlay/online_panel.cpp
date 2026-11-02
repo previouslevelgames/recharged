@@ -673,7 +673,7 @@ void DrawMain(Frame& frame, const OverlayLayout& layout)
     OverlayLayoutIs(wide ? 2 : 1);
     if (wide)
     {
-        const float left = std::clamp(width * 0.38f, Dp(300), Dp(380)), gap = Dp(32);
+        const float left = OverlaySplitLeft(width), gap = OverlaySplitGap();
         BeginOverlayScroll("##main_you", layout.min, {layout.min.x + left, layout.max.y});
         ImGui::Dummy({left, Dp(20)});
         DrawYou(frame, left);
@@ -689,9 +689,7 @@ void DrawMain(Frame& frame, const OverlayLayout& layout)
         }
         ImGui::Dummy({left, Dp(16)});
         EndOverlayScroll();
-        const float divider = layout.min.x + left + gap * 0.5f;
-        ImGui::GetWindowDrawList()->AddRectFilled({divider, layout.min.y + Dp(20)},
-                                                  {divider + Dp(1), layout.max.y - Dp(20)}, Col(color::border, 0.7f));
+        OverlaySplitDivider(layout, left);
         const ImVec2 lists{layout.min.x + left + gap, layout.min.y};
         BeginOverlayScroll("##main_lists", lists, layout.max);
         ImGui::Dummy({layout.max.x - lists.x, Dp(10)});

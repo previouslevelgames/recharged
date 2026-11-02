@@ -5,6 +5,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 
+#include <optional>
 #include <string>
 
 // Rows of choices and switches in groups, for the overlay's lists of settings
@@ -20,6 +21,11 @@ int OverlayChoiceRow(const char* id, const char* label, const std::string& value
                      bool interactive = true);
 // A row with its label and a switch at the right: whether it was pressed.
 bool OverlaySwitchRow(const char* id, const char* label, bool on, float width, bool interactive = true);
+// A row with its label and a slider for 0 to 100 % at the right: its new
+// value while it changes. A press on the track and a drag set it (`done`
+// false until the drag lets go, then once more with `done` true); left and
+// right step by 5 (`done` true).
+std::optional<int> OverlaySliderRow(const char* id, const char* label, int value, float width, bool& done);
 // A chevron pointing left (-1) or right (+1), centred on `center`.
 void OverlayChevron(ImDrawList* draw, ImVec2 center, int direction, ImU32 ink);
 

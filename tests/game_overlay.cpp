@@ -507,9 +507,9 @@ void TestSearchSetup()
     CHECK(actions.online.stop_search && !actions.online.search && h.OnSetup("search"));
 }
 
-// The Settings tab: the menu's cursor shows its section; A opens it, its
-// rows change the settings (volumes ten points a step, switches), B goes back
-// to the menu.
+// The Settings tab: one screen, a section always shown (Display first); the
+// menu's cursor shows its section, right goes into its rows (volumes are
+// sliders: five points a step), left comes back to its menu item, B closes.
 void TestSettings()
 {
     Harness h;
@@ -519,41 +519,48 @@ void TestSettings()
     h.model.settings.resolution = 2;
     h.Open(OverlayTab::Settings);
     CHECK(h.state.Tab() == OverlayTab::Settings && h.state.settings.Top().id == int(GameSettingsScreen::Menu));
-    CHECK(h.state.settings_state.section == 0);
+    CHECK(h.state.settings_state.section == 0 && !h.state.settings.CanGoBack());
     h.Press(ImGuiKey_DownArrow);
     CHECK(h.state.settings_state.section == 1);
-    h.Press(ImGuiKey_Enter);
-    CHECK(h.state.settings.Top().id == int(GameSettingsScreen::Section) && h.state.settings.Top().key == "Sound");
+    // Into Sound: Master volume, a slider.
     auto actions = h.Press(ImGuiKey_RightArrow);
+    CHECK(!actions.set_setting && h.state.settings_state.section == 1);
+    actions = h.Press(ImGuiKey_RightArrow);
     CHECK(actions.set_setting && actions.set_setting->setting == GameSetting::MasterVolume
-          && actions.set_setting->value == 60);
+          && actions.set_setting->value == 55 && !actions.set_setting->live);
     actions = h.Press(ImGuiKey_LeftArrow);
-    CHECK(actions.set_setting && actions.set_setting->value == 40);
+    CHECK(actions.set_setting && actions.set_setting->value == 45);
     h.Press(ImGuiKey_DownArrow);
     actions = h.Press(ImGuiKey_Enter);
     CHECK(actions.set_setting && actions.set_setting->setting == GameSetting::Mute && actions.set_setting->value == 1);
-    // A sound level: the third row of its group (Effects after Music).
+    // A sound level: the second of its group (Effects after Music).
     h.Press(ImGuiKey_DownArrow);
     h.Press(ImGuiKey_DownArrow);
     actions = h.Press(ImGuiKey_LeftArrow);
     CHECK(actions.set_setting && actions.set_setting->setting == GameSetting::SoundVolume
-          && actions.set_setting->group == 1 && actions.set_setting->value == 90);
-    // B: back to the menu, on Sound; B again closes.
-    actions = h.Press(ImGuiKey_GamepadFaceRight);
-    CHECK(!actions.close && h.state.settings.Top().id == int(GameSettingsScreen::Menu)
-          && h.state.settings_state.section == 1);
+          && actions.set_setting->group == 1 && actions.set_setting->value == 95);
+    // Up to Mute, a switch: left goes back to the menu, on Sound (not the
+    // item nearest), and its section stays.
+    h.Press(ImGuiKey_UpArrow);
+    h.Press(ImGuiKey_UpArrow);
+    h.Press(ImGuiKey_LeftArrow);
+    h.Frame();
+    CHECK(h.state.settings_state.section == 1);
     // Display: the 3D resolution goes no further than its last.
     h.Press(ImGuiKey_UpArrow);
-    h.Press(ImGuiKey_Enter);
-    CHECK(h.state.settings.Top().key == "Display");
+    CHECK(h.state.settings_state.section == 0);
+    h.Press(ImGuiKey_RightArrow);
     h.Press(ImGuiKey_DownArrow);
     actions = h.Press(ImGuiKey_RightArrow);
     CHECK(actions.set_setting && actions.set_setting->setting == GameSetting::Resolution
           && actions.set_setting->value == 2);
+    // B closes: there is nothing to go back to.
+    actions = h.Press(ImGuiKey_GamepadFaceRight);
+    CHECK(actions.close);
 }
 
 // The Settings tab as a player gets there: Online first, E to Settings,
-// Display, down to Performance numbers.
+// Display shown, right into it, down to Performance numbers.
 void TestSettingsByKeys()
 {
     {
@@ -563,9 +570,9 @@ void TestSettingsByKeys()
         g.model.settings.pictures = {"Keep its shape", "Stretch to fill"};
         g.Open();
         for (int n = 0; n < 3; ++n) g.Press(ImGuiKey_E);
-        CHECK(g.state.Tab() == OverlayTab::Settings);
-        g.Press(ImGuiKey_Enter);
-        CHECK(g.state.settings.Top().key == "Display");
+        CHECK(g.state.Tab() == OverlayTab::Settings && g.state.settings_state.section == 0);
+        g.Frame();
+        g.Press(ImGuiKey_RightArrow);
         for (int n = 0; n < 3; ++n) g.Press(ImGuiKey_DownArrow);
         const auto toggled = g.Press(ImGuiKey_Enter);
         CHECK(toggled.set_setting && toggled.set_setting->setting == GameSetting::PerformanceNumbers);

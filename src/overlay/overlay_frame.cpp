@@ -829,6 +829,17 @@ void OverlayGlass(ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding, floa
 
 float OverlayKeyCapWidth(const char* key) { return KeyCapWidth(launcher::CurrentFonts(), key); }
 
+float OverlaySplitLeft(float width) { return std::clamp(width * 0.38f, Dp(300), Dp(380)); }
+
+float OverlaySplitGap() { return Dp(32); }
+
+void OverlaySplitDivider(const OverlayLayout& layout, float left)
+{
+    const float divider = layout.min.x + left + OverlaySplitGap() * 0.5f;
+    ImGui::GetWindowDrawList()->AddRectFilled({divider, layout.min.y + Dp(20)},
+                                              {divider + Dp(1), layout.max.y - Dp(20)}, Col(color::border, 0.7f));
+}
+
 void OverlayKeyCap(ImDrawList* draw, ImVec2 pos, const char* key, float lit)
 {
     DrawKeyCap(launcher::CurrentFonts(), draw, pos, key, lit);

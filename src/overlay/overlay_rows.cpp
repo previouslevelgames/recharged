@@ -3,6 +3,8 @@
 #include "launcher/ui_kit.h"
 
 #include <algorithm>
+#include <cmath>
+#include <string>
 
 namespace mscharged::overlay
 {
@@ -107,6 +109,90 @@ int OverlayChoiceRow(const char* id, const char* label, const std::string& value
         step = back ? -1 : 1;
     }
     return step;
+}
+
+std::optional<int> OverlaySliderRow(const char* id, const char* label, int value, float width, bool& done)
+{
+    done = false;
+    const auto& fonts = launcher::CurrentFonts();
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float height = Dp(kRowHeight), pad = Dp(16);
+    const ImVec2 max{at.x + width, at.y + height};
+    ImGuiID item;
+    bool focused;
+    float hover;
+    RowControl(id, at, width, true, item, focused, hover);
+    const bool active = ImGui::IsItemActive(), released = ImGui::IsItemDeactivated();
+    const float middle = at.y + height * 0.5f;
+    const float value_w = TextSize(fonts.body, "100 %").x;
+    const float x1 = max.x - pad - value_w - Dp(16);
+    const float x0 = x1 - std::clamp(width * 0.42f, Dp(120), Dp(260));
+
+    std::optional<int> result;
+    ImGui::PushID(id);
+    const ImGuiID dragging_key = ImGui::GetID("##dragging");
+    ImGui::PopID();
+    ImGuiStorage* storage = ImGui::GetStateStorage();
+    bool dragging = storage->GetBool(dragging_key, false);
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    // A press on the track takes the knob; the drag then follows anywhere.
+    if (active && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouse.x >= x0 - Dp(12) && mouse.x <= x1 + Dp(12))
+        dragging = true;
+    if (dragging && active && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+    {
+        const int held = int(std::lround(std::clamp((mouse.x - x0) / (x1 - x0), 0.0f, 1.0f) * 100.0f));
+        if (held != value) result = held;
+    }
+    if (dragging && (released || !active))
+    {
+        // Let go: the value as it is now, done.
+        if (!result) result = value;
+        done = true;
+        dragging = false;
+    }
+    storage->SetBool(dragging_key, dragging);
+    if (focused && !dragging)
+    {
+        for (const ImGuiKey key :
+             {ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight})
+            ImGui::SetKeyOwner(key, item);
+        int step = 0;
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat, item)
+            || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, item))
+            step = -1;
+        else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat, item)
+                 || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, item))
+            step = 1;
+        // To the next multiple of 5 that way.
+        const int next = std::clamp(step > 0 ? (value / 5 + 1) * 5 : step < 0 ? (value + 4) / 5 * 5 - 5 : value, 0, 100);
+        if (step && next != value)
+        {
+            result = next;
+            done = true;
+        }
+    }
+
+    const int shown = result ? *result : value;
+    const float lit = launcher::Animate(ImGui::GetID((std::string(id) + "##lit").c_str()), hover > 0.5f || dragging,
+                                        14.0f);
+    const float track_h = Dp(6), knob = Dp(8) + Dp(2) * lit;
+    const float x = x0 + (x1 - x0) * float(shown) / 100.0f;
+    draw->AddRectFilled({x0, middle - track_h * 0.5f}, {x1, middle + track_h * 0.5f},
+                        Col(Mix(color::border, color::muted, 0.25f * hover)), track_h * 0.5f);
+    if (shown > 0)
+        draw->AddRectFilled({x0, middle - track_h * 0.5f}, {x, middle + track_h * 0.5f}, Col(color::accent),
+                            track_h * 0.5f);
+    draw->AddCircleFilled({x, middle}, knob, Col(color::text));
+    draw->AddCircle({x, middle}, knob, Col(color::accent, 0.5f + 0.5f * lit), 0, Dp(1.5f));
+    const std::string percent = std::to_string(shown) + " %";
+    DrawLabel(draw, fonts.body, {max.x - pad - TextSize(fonts.body, percent.c_str()).x, middle - FontSize(fonts.body) * 0.5f},
+              Col(color::text), percent.c_str());
+    draw->PushClipRect({at.x + pad, at.y}, {x0 - Dp(14), max.y}, true);
+    DrawLabel(draw, fonts.label, {at.x + pad, middle - FontSize(fonts.label) * 0.5f}, Col(color::text), label);
+    draw->PopClipRect();
+    if (focused) OverlayFocusRing(draw, at, max, Dp(10));
+    return result;
 }
 
 bool OverlaySwitchRow(const char* id, const char* label, bool on, float width, bool interactive)

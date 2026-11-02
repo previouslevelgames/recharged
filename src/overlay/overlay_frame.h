@@ -172,6 +172,14 @@ void OverlayFocusable(bool preferred = false);
 // the cursor lands on its preferred item again.
 void OverlayLayoutIs(int layout);
 
+// The tabs' two parts (Online, Game options, Settings), alike on each so that
+// nothing jumps from tab to tab: the left part's width for content `width`
+// wide (from 700 dp; below, one column), the gap after it, and the divider
+// line in that gap.
+float OverlaySplitLeft(float width);
+float OverlaySplitGap();
+void OverlaySplitDivider(const OverlayLayout& layout, float left);
+
 // A scrolling part of the content in [min, max] (its scroll bar in the
 // window's margin at the right); its content is `max.x - min.x` wide.
 void BeginOverlayScroll(const char* id, ImVec2 min, ImVec2 max);

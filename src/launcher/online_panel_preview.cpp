@@ -390,11 +390,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         for (const auto& entry : state_.tabs)
             if (Slug(entry.label) == Slug(tab)) first = overlay::OverlayTab(entry.id);
     state_.Open(first);
-    if (mode_ == "preview-settings-sound")
-    {
-        state_.settings_state.section = 1;
-        state_.settings.Push({int(overlay::GameSettingsScreen::Section), "Sound", "Sound"}, 0);
-    }
+    if (mode_ == "preview-settings-sound") state_.settings_state.section = 1;
     // A capture shows the pictures: they are asked for and loaded before it.
     if (pictures_ && capture_)
     {
