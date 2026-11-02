@@ -149,6 +149,7 @@ private:
     // What the game is doing, for the server's lists: "game", or "match"
     // from a match's loading until it is unloaded (no challenges then).
     std::string activity_ = "game";
+    std::string match_kind_; // in a match: its kind (MatchKindOf)
     // A challenge to answer in the game's menus, the card's answer still to
     // send and the last one sent.
     std::optional<Invitation> invitation_;

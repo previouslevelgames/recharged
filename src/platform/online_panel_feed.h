@@ -46,8 +46,9 @@ public:
 
     // The panel opened or closed: it asks the server only while open.
     void SetOpen(bool open);
-    // What the game does, for the server's lists ("game" or "match").
-    void SetActivity(std::string activity);
+    // What the game does, for the server's lists ("game" or "match"), and
+    // in a match its kind (MatchKindOf).
+    void SetActivity(std::string activity, std::string match_kind = {});
 
     // The last answers. `loaded` once the first arrived; `version` grows with
     // each, so the caller can tell a new one.
@@ -111,7 +112,7 @@ private:
     std::mutex mutex_;
     std::condition_variable wake_;
     bool stop_ = false, open_ = false, due_ = false;
-    std::string activity_ = "game";
+    std::string activity_ = "game", match_kind_;
     std::string challenge_rules_;
     std::shared_ptr<class HttpCancel> cancel_;
     struct Pending

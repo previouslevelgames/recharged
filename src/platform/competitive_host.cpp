@@ -1,6 +1,7 @@
 #include "platform/competitive_host.h"
 
 #include "platform/http_client.h"
+#include "platform/match_kind.h"
 
 #include <cstring>
 
@@ -188,12 +189,15 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
     if (presence)
     {
         const char* activity = presence->in_match && presence->mode != kModeDemo ? "match" : "game";
+        const char* kind = MatchKindOf(*presence);
         if (activity_ != activity)
         {
             activity_ = activity;
             next_match_ = {};
             wake = true;
         }
+        // A new kind says so with the next heartbeat.
+        match_kind_ = kind ? kind : "";
     }
 
     const bool changed = rules_version_ != rules_seen_;
@@ -406,7 +410,7 @@ void CompetitiveHost::Work(ProfileService& api)
     bool accept = false, rematch = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        api.SetActivity(activity_);
+        api.SetActivity(activity_, match_kind_);
         answer = answer_match_;
         accept = answer_accept_;
         answer_match_ = 0;

@@ -541,7 +541,9 @@ level is only for the CPU).
    (A accepts, B declines; the game waits behind the card), or, with only the
    launcher open (*In the launcher*), in a dialog there: its Accept starts the
    game straight into the set, Decline (Escape, B) says no. A player in a
-   match shows as *Playing a match* and can be challenged once it is over.
+   match shows what it is (*Ranked match*, *Friend match*, *Match vs CPU*,
+   *Road to the Striker Cup*, *Strikers 101* and so on; an older Recharged
+   just *Playing a match*) and can be challenged once it is over.
    A chime plays, and the window flashes when it is in the background, when
    someone challenges you and when your challenge is accepted
    (`[online] challenge_sound`, on by default; at the master volume, not when

@@ -22,6 +22,25 @@ std::string Lower(std::string text)
     return text;
 }
 
+// A match by its kind (the server's `match`): what the game plays; any
+// other (an older game or server) just a match.
+std::string MatchText(const std::string& kind)
+{
+    static const std::pair<const char*, const char*> kTexts[] = {
+        {"ranked", "Ranked match"},
+        {"friends", "Friend match"},
+        {"tournament", "Online tournament"},
+        {"cpu", "Match vs CPU"},
+        {"local", "Local match"},
+        {"cup", "Road to the Striker Cup"},
+        {"challenge", "Striker Challenge"},
+        {"training", "Strikers 101"},
+    };
+    for (const auto& [name, text] : kTexts)
+        if (kind == name) return text;
+    return "Playing a match";
+}
+
 // What a Recharged player is doing, as the launcher's lists say it.
 OnlinePanelRow PlayerRow(const ProfilePlayer& player)
 {
@@ -51,7 +70,7 @@ OnlinePanelRow PlayerRow(const ProfilePlayer& player)
     else if (player.activity == "match")
     {
         row.presence = Presence::Busy;
-        row.status = "Playing a match";
+        row.status = MatchText(player.match_kind);
         row.blocked = "In a match";
         row.tone = Tone::Busy;
     }
@@ -85,13 +104,16 @@ OnlinePanelRow MiiRow(const MiiProfile& mii)
     if (mii.status == "match")
     {
         row.presence = Presence::Busy;
-        row.status = "Playing a match";
+        row.status = MatchText(mii.match_kind);
         row.tone = Tone::Busy;
     }
     else
     {
         row.presence = Presence::Free;
-        row.status = mii.status == "matchmaking" ? "Looking for a match" : "In the online menu";
+        row.status = mii.status != "matchmaking" ? "In the online menu"
+            : mii.match_kind == "ranked"        ? "Looking for a ranked match"
+            : mii.match_kind == "friends"       ? "In a friend room"
+                                                : "Looking for a match";
         row.tone = Tone::Good;
     }
     return row;

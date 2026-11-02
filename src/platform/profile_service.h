@@ -59,6 +59,9 @@ struct ProfilePlayer
     // game, outside a match) or "match" (a match in the game: nobody can
     // challenge them); empty from servers before 1.2.0.
     std::string activity;
+    // In a match, its kind (MatchKindOf); empty from games before 1.2.1 and
+    // servers before 1.2.5.
+    std::string match_kind;
     std::optional<std::int64_t> last_online;
     bool is_friend = false;
     // Both keep each other as friends: they can write each other; their
@@ -125,6 +128,8 @@ struct MiiProfile
     std::string friend_code; // as the game shows it, "0868-9934-5920"
     bool online = false;
     std::string status; // online: menu, matchmaking or match
+    // Matchmaking or in a match: "ranked" or "friends" (servers from 1.2.5).
+    std::string match_kind;
     std::optional<std::int64_t> last_online; // the last login (Unix seconds)
     bool is_friend = false;
 };
@@ -311,8 +316,13 @@ public:
     // Lets another thread stop the running call.
     void SetCancel(std::shared_ptr<HttpCancel> cancel) { cancel_ = std::move(cancel); }
     // The game's requests say what it is doing ("game" or "match", the
-    // Recharged-Activity header); the launcher's say nothing.
-    void SetActivity(std::string activity) { activity_ = std::move(activity); }
+    // Recharged-Activity header) and in a match its kind (MatchKindOf, the
+    // Recharged-Match header); the launcher's say nothing.
+    void SetActivity(std::string activity, std::string match_kind = {})
+    {
+        activity_ = std::move(activity);
+        match_kind_ = std::move(match_kind);
+    }
 
     // Without a session. StartSignIn with the session of a Mii player
     // connects Discord to their profile; PollSignIn then refuses a Discord
@@ -403,7 +413,7 @@ private:
 
     std::string server_;
     std::string token_;
-    std::string activity_;
+    std::string activity_, match_kind_;
     std::shared_ptr<HttpCancel> cancel_;
 };
 

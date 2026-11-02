@@ -101,6 +101,7 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.online = value["online"].Bool();
     player.busy = value["busy"].Bool();
     player.activity = value["activity"].Text();
+    player.match_kind = value["match"].Text();
     player.last_online = value["last_online"].Integer();
     player.is_friend = value["friend"].Bool();
     player.chat = value["chat"].Bool();
@@ -130,6 +131,7 @@ std::vector<MiiProfile> ParseMiis(const JsonValue& value)
         mii.friend_code = item["friend_code"].Text();
         mii.online = item["online"].Bool();
         mii.status = item["status"].Text();
+        mii.match_kind = item["match"].Text();
         mii.last_online = item["last_online"].Integer();
         mii.is_friend = item["friend"].Bool();
         if (mii.profile_id) miis.push_back(std::move(mii));
@@ -317,6 +319,7 @@ ProfileService::Answer ProfileService::Call(const char* method, const std::strin
     }
     if (!token_.empty()) request.headers.push_back("Authorization: Bearer " + token_);
     if (!activity_.empty()) request.headers.push_back("Recharged-Activity: " + activity_);
+    if (!match_kind_.empty()) request.headers.push_back("Recharged-Match: " + match_kind_);
     request.connect_timeout = 10;
     request.stall_timeout = 20;
     request.max_size = 1u << 20;

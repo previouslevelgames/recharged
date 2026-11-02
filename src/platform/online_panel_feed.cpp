@@ -66,10 +66,11 @@ void OnlinePanelFeed::SetOpen(bool open)
     wake_.notify_all();
 }
 
-void OnlinePanelFeed::SetActivity(std::string activity)
+void OnlinePanelFeed::SetActivity(std::string activity, std::string match_kind)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     activity_ = std::move(activity);
+    match_kind_ = std::move(match_kind);
 }
 
 OnlinePanelFeed::Snapshot OnlinePanelFeed::Latest()
@@ -186,12 +187,12 @@ void OnlinePanelFeed::Run()
         if (!fetch) continue; // closed while it waited
         auto cancel = std::make_shared<HttpCancel>();
         cancel_ = cancel;
-        const std::string activity = activity_;
+        const std::string activity = activity_, match_kind = match_kind_;
         lock.unlock();
 
         ProfileService api(server_, token_);
         api.SetCancel(cancel);
-        api.SetActivity(activity);
+        api.SetActivity(activity, match_kind);
         std::optional<std::string> notice;
         for (auto& pending : actions)
         {

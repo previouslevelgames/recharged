@@ -84,6 +84,7 @@
 #include "overlay/overlay_prompt.h"
 #include "platform/mii_head.h"
 #include "platform/save_import.h"
+#include "platform/match_kind.h"
 #include "platform/online_panel_feed.h"
 #include <aurora/imgui.h>
 #endif
@@ -2299,7 +2300,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 }
                 if(panelFeed) panelFeed->SetOpen(overlayOpen);
             }
-            if(overlayOpen && panelFeed) panelFeed->SetActivity(inMatch() ? "match" : "game");
+            if(overlayOpen && panelFeed) {
+                ChargedPresenceSnapshot game{};
+                const char* kind=presenceSnapshot && presenceSnapshot(&game,sizeof game)
+                    ? mscharged::platform::MatchKindOf(game) : nullptr;
+                panelFeed->SetActivity(inMatch() ? "match" : "game",kind ? kind : "");
+            }
             // The panel's keys in the corner while the game is in its menus
             // (the title's demo matches count as menus), a few times a second.
             if(hostOverlay && panelHint && now-panelHintChecked>=std::chrono::milliseconds(250)) {
