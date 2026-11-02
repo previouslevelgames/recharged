@@ -468,12 +468,16 @@ void TestChallengeSetup()
     CHECK(h.state.online_state.rules.games == 7);
     h.Press(ImGuiKey_GamepadFaceDown);
     CHECK(h.state.online_state.rules.games == 1 && h.OnSetup("p12"));
+    // Left stops at the first, as the launcher's segmented choices do.
     h.Press(ImGuiKey_LeftArrow);
-    CHECK(h.state.online_state.rules.games == 7);
+    CHECK(h.state.online_state.rules.games == 1);
+    h.Press(ImGuiKey_RightArrow);
+    h.Press(ImGuiKey_RightArrow);
+    CHECK(h.state.online_state.rules.games == 5);
     // Y sends from the rules (F as well).
     const auto actions = h.Press(ImGuiKey_GamepadFaceUp);
     CHECK(actions.online.challenge && actions.online.challenge->player == 12 && actions.online.challenge->rule_set == 0
-          && actions.online.challenge->name == "Classic (changed)" && actions.online.challenge->rules.games == 7);
+          && actions.online.challenge->name == "Classic (changed)" && actions.online.challenge->rules.games == 5);
     CHECK(actions.online.set_challenge_rules == "Classic" && h.OnMain());
     // Back says nothing: the setup's B goes to the player.
     h.Press(ImGuiKey_Enter);

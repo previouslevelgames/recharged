@@ -111,6 +111,76 @@ int OverlayChoiceRow(const char* id, const char* label, const std::string& value
     return step;
 }
 
+int OverlaySegmentedRow(const char* id, const char* label, const std::vector<std::string>& options, int selected,
+                        float width, bool interactive)
+{
+    const auto& fonts = launcher::CurrentFonts();
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float height = Dp(kRowHeight), pad = Dp(12), field_h = Dp(30);
+    const ImVec2 max{at.x + width, at.y + height};
+    ImGuiID item;
+    bool focused;
+    float hover;
+    const bool pressed = RowControl(id, at, width, interactive, item, focused, hover);
+    const float middle = at.y + height * 0.5f;
+    const int count = int(options.size());
+    if (count == 0) return -1;
+    // The options share the row's right part, at most so wide each.
+    float widest = 0.0f;
+    for (const auto& option : options) widest = std::max(widest, TextSize(fonts.body, option.c_str()).x);
+    const float label_w = std::min(TextSize(fonts.label, label).x + Dp(16), width * 0.42f);
+    const float each = std::min(std::max(widest + Dp(18), Dp(34)), (width - pad * 2 - label_w) / float(count));
+    const ImVec2 field_min{max.x - pad - each * float(count), middle - field_h * 0.5f};
+    const ImVec2 field_max{max.x - pad, middle + field_h * 0.5f};
+    ImVec4 field = Mix(color::field, color::card_hover, 0.25f + 0.3f * hover);
+    field.w = 0.9f;
+    draw->AddRectFilled(field_min, field_max, Col(field), Dp(8));
+    int hovered = -1;
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    if (interactive && mouse.y >= field_min.y && mouse.y <= field_max.y && mouse.x >= field_min.x
+        && mouse.x < field_max.x)
+        hovered = std::clamp(int((mouse.x - field_min.x) / each), 0, count - 1);
+    for (int n = 0; n < count; ++n)
+    {
+        const ImVec2 min{field_min.x + float(n) * each, field_min.y};
+        const ImVec2 cell_max{min.x + each, field_max.y};
+        const bool chosen = n == selected;
+        if (chosen)
+        {
+            draw->AddRectFilled({min.x + Dp(2), min.y + Dp(2)}, {cell_max.x - Dp(2), cell_max.y - Dp(2)},
+                                Col(Mix(color::field, color::accent_dark, 0.7f)), Dp(6));
+            draw->AddRect({min.x + Dp(2), min.y + Dp(2)}, {cell_max.x - Dp(2), cell_max.y - Dp(2)},
+                          Col(color::accent, 0.7f), Dp(6), 0, Dp(1));
+        }
+        else if (n == hovered) draw->AddRectFilled(min, cell_max, Col(color::text, 0.05f), Dp(6));
+        const ImVec2 size = TextSize(fonts.body, options[std::size_t(n)].c_str());
+        DrawLabel(draw, fonts.body, {min.x + (each - size.x) * 0.5f, middle - size.y * 0.5f},
+                  Col(chosen ? color::text : Mix(color::muted, color::text, n == hovered ? 0.5f : 0.0f)),
+                  options[std::size_t(n)].c_str());
+    }
+    draw->PushClipRect({at.x + pad, at.y}, {field_min.x - Dp(8), max.y}, true);
+    DrawLabel(draw, fonts.label, {at.x + pad, middle - FontSize(fonts.label) * 0.5f}, Col(color::text), label);
+    draw->PopClipRect();
+    if (focused) OverlayFocusRing(draw, at, max, Dp(10));
+    int picked = -1;
+    if (focused)
+    {
+        for (const ImGuiKey key :
+             {ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight})
+            ImGui::SetKeyOwner(key, item);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat, item)
+            || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, item))
+            picked = std::max(0, selected - 1);
+        else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat, item)
+                 || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, item))
+            picked = std::min(count - 1, selected + 1);
+    }
+    if (pressed)
+        picked = ImGui::IsMouseReleased(ImGuiMouseButton_Left) && hovered >= 0 ? hovered : (selected + 1) % count;
+    return picked == selected ? -1 : picked;
+}
+
 std::optional<int> OverlaySliderRow(const char* id, const char* label, int value, float width, bool& done)
 {
     done = false;

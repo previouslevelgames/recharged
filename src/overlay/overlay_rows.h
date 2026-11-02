@@ -7,6 +7,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 // Rows of choices and switches in groups, for the overlay's lists of settings
 // (a challenge's setup, the Settings tab): a row is one control the whole
@@ -26,6 +27,12 @@ bool OverlaySwitchRow(const char* id, const char* label, bool on, float width, b
 // false until the drag lets go, then once more with `done` true); left and
 // right step by 5 (`done` true).
 std::optional<int> OverlaySliderRow(const char* id, const char* label, int value, float width, bool& done);
+// A row with its label and a segmented choice at the right, as the launcher's
+// (one of `options`, `selected` lit): the one picked now, or -1. A click picks
+// one; left and right step to the next one (not round), A to the next one
+// round.
+int OverlaySegmentedRow(const char* id, const char* label, const std::vector<std::string>& options, int selected,
+                        float width, bool interactive);
 // A chevron pointing left (-1) or right (+1), centred on `center`.
 void OverlayChevron(ImDrawList* draw, ImVec2 center, int direction, ImU32 ink);
 

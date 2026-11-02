@@ -1043,34 +1043,40 @@ void DrawRules(Frame& frame, platform::MatchRules& rules, float width, bool inte
             rules = model.presets[std::size_t(state.preset)].rules;
         }
     });
+    // As the launcher's preset editor has them: Series, Win by, Time or
+    // Goals (the game's own choices, and a rule set's other value besides),
+    // Stadium; then the cheats.
+    const auto segmented = [&](const char* id, const char* label, std::vector<int> values, int& value,
+                               const auto& text) {
+        if (std::find(values.begin(), values.end(), value) == values.end())
+        {
+            values.push_back(value);
+            std::sort(values.begin(), values.end());
+        }
+        std::vector<std::string> options;
+        int selected = 0;
+        for (std::size_t n = 0; n < values.size(); ++n)
+        {
+            options.push_back(text(values[n]));
+            if (values[n] == value) selected = int(n);
+        }
+        const int picked = OverlaySegmentedRow(id, label, options, selected, half, interactive);
+        if (picked >= 0) value = values[std::size_t(picked)];
+    };
     const auto match = [&] {
-        OverlayRowGroup("THE MATCH", half, [&] {
-            if (const int step = OverlayChoiceRow(
-                    "games", "Series",
-                    rules.games == 1 ? std::string("One game") : "Best of " + std::to_string(rules.games), half,
-                    interactive))
-                rules.games = Next(std::vector<int>{1, 3, 5, 7}, rules.games, step);
-            if (OverlayChoiceRow("limit", "A game ends", rules.limit == "goals" ? "On goals" : "On time", half,
-                                 interactive))
-                rules.limit = rules.limit == "goals" ? "time" : "goals";
+        OverlayRowGroup("MATCH", half, [&] {
+            segmented("games", "Series", {1, 3, 5, 7}, rules.games, [](int n) { return std::to_string(n); });
+            int limit = rules.limit == "goals" ? 1 : 0;
+            const int picked =
+                OverlaySegmentedRow("limit", "Win by", {"Time", "Goals"}, limit, half, interactive);
+            if (picked >= 0) rules.limit = picked == 1 ? "goals" : "time";
             if (rules.limit == "goals")
-            {
-                if (const int step =
-                        OverlayChoiceRow("goals", "Goals to win", std::to_string(rules.goals), half, interactive))
-                    rules.goals = Next(std::vector<int>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, rules.goals, step);
-            }
+                segmented("goals", "Goals", {3, 4, 5, 6, 7, 8, 9, 10}, rules.goals,
+                          [](int n) { return std::to_string(n); });
             else
-            {
-                std::vector<int> lengths{60, 120, 180, 240, 300};
-                if (std::find(lengths.begin(), lengths.end(), rules.time) == lengths.end())
-                {
-                    lengths.push_back(rules.time);
-                    std::sort(lengths.begin(), lengths.end());
-                }
-                if (const int step =
-                        OverlayChoiceRow("time", "Game length", GameLength(rules.time), half, interactive))
-                    rules.time = Next(lengths, rules.time, step);
-            }
+                segmented("time", "Time", {120, 180, 240, 300}, rules.time, [](int seconds) {
+                    return seconds % 60 == 0 ? std::to_string(seconds / 60) + " min" : GameLength(seconds);
+                });
             std::vector<std::string> stadiums;
             std::string stadium = rules.stadium;
             for (const auto& choice : platform::StadiumChoices())
@@ -1084,11 +1090,11 @@ void DrawRules(Frame& frame, platform::MatchRules& rules, float width, bool inte
     };
     const auto cheats = [&] {
         OverlayRowGroup("CHEATS", half, [&] {
-            CheatRow("stadium_cheat", "Stadium", platform::StadiumCheatChoices(), rules.stadium_cheat, half,
+            CheatRow("stadium_cheat", "Stadium cheat", platform::StadiumCheatChoices(), rules.stadium_cheat, half,
                      interactive);
-            CheatRow("player_cheat", "Players", platform::PlayerCheatChoices(), rules.player_cheat, half,
+            CheatRow("player_cheat", "Player cheat", platform::PlayerCheatChoices(), rules.player_cheat, half,
                      interactive);
-            CheatRow("powerup_cheat", "Power-ups", platform::PowerupCheatChoices(), rules.powerup_cheat, half,
+            CheatRow("powerup_cheat", "Power-up cheat", platform::PowerupCheatChoices(), rules.powerup_cheat, half,
                      interactive);
         });
     };
