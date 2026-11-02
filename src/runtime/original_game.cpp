@@ -408,6 +408,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::SessionLogLine("Game: " + std::string(release->title) + ", "
             + mscharged::ReleaseLabel(*release) + " (" + release->game_id + ")"
             + (releaseNote.empty() ? "" : ". " + releaseNote));
+        // Sets pair only players of one version: the server hears which.
+        mscharged::platform::ProfileService::SetPlayedGame(std::string(release->game_id,4));
         const std::string languageLabel = languageChoice.automatic
             ? "Automatic (" + std::string(languageChoice.language->label) + ")" : languageChoice.language->label;
         mscharged::platform::SessionLogLine(languageChoice.unavailable

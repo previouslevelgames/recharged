@@ -323,6 +323,11 @@ public:
         activity_ = std::move(activity);
         match_kind_ = std::move(match_kind);
     }
+    // Every request of this program says which game it plays (the
+    // Recharged-Game header: the first four characters of the game's id, such
+    // as R4QE): sets pair only players of one version, as RANKED does. Empty
+    // says nothing (the launcher before its image is checked).
+    static void SetPlayedGame(std::string game);
 
     // Without a session. StartSignIn with the session of a Mii player
     // connects Discord to their profile; PollSignIn then refuses a Discord

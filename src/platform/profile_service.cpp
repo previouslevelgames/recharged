@@ -10,6 +10,7 @@
 #include <charconv>
 #include <ctime>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <system_error>
 
@@ -304,6 +305,19 @@ ProfileService::ProfileService(std::string server, std::string token)
     if (ProfileServerAddress(server_) != server_) throw ProfileError("Not a profile server address: " + server_, 0);
 }
 
+namespace
+{
+std::mutex gPlayedGameMutex;
+std::string gPlayedGame; // SetPlayedGame
+} // namespace
+
+void ProfileService::SetPlayedGame(std::string game)
+{
+    if (game.size() > 4) game.resize(4);
+    std::lock_guard<std::mutex> lock(gPlayedGameMutex);
+    gPlayedGame = std::move(game);
+}
+
 ProfileService::Answer ProfileService::Call(const char* method, const std::string& path, const std::string* body)
 {
     HttpRequest request;
@@ -320,6 +334,10 @@ ProfileService::Answer ProfileService::Call(const char* method, const std::strin
     if (!token_.empty()) request.headers.push_back("Authorization: Bearer " + token_);
     if (!activity_.empty()) request.headers.push_back("Recharged-Activity: " + activity_);
     if (!match_kind_.empty()) request.headers.push_back("Recharged-Match: " + match_kind_);
+    {
+        std::lock_guard<std::mutex> lock(gPlayedGameMutex);
+        if (!gPlayedGame.empty()) request.headers.push_back("Recharged-Game: " + gPlayedGame);
+    }
     request.connect_timeout = 10;
     request.stall_timeout = 20;
     request.max_size = 1u << 20;

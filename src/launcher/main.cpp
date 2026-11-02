@@ -4135,6 +4135,8 @@ private:
         // What keeps this computer from playing a set (no game image...), for
         // the buttons that would start one.
         set_blocker_ = PlayBlocker();
+        // The game this computer's sets play (the checked image's version).
+        platform::ProfileService::SetPlayedGame(check_.info ? check_.info->game_id.substr(0, 4) : std::string());
         competitive_->SetServer(platform::ProfileServerAddress(draft_.profile_server).value_or(std::string()));
         competitive_status_ = competitive_->Snapshot();
         UpdateMiiWizard();

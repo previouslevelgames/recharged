@@ -201,7 +201,7 @@ struct Exchange
 // What the client sent.
 struct Sent
 {
-    std::string body, authorization, content_type, activity, match_kind;
+    std::string body, authorization, content_type, activity, match_kind, game;
     bool expected = false;
 };
 
@@ -263,6 +263,7 @@ private:
             sent.content_type = header("Content-Type: ");
             sent.activity = header("Recharged-Activity: ");
             sent.match_kind = header("Recharged-Match: ");
+            sent.game = header("Recharged-Game: ");
             sent.expected = line == exchange.request;
             const std::string answer = sent.expected ? exchange.answer : "{\"error\":\"unexpected " + line + "\"}";
             const std::string reply = "HTTP/1.1 " + std::to_string(sent.expected ? exchange.status : 599)
@@ -433,7 +434,9 @@ void Requests()
         const auto removed = api.RemoveFriend(8);
         CHECK(removed.size() == 1 && removed[0].id == 9 && removed[0].chat && removed[0].unread == 2);
         api.SetActivity("match", "ranked");
+        ProfileService::SetPlayedGame("R4QP01"); // the game's id: its first four characters go
         const auto page = api.Chat(9, 5);
+        ProfileService::SetPlayedGame({});
         CHECK(page.can_send && page.messages.size() == 1 && page.messages[0].id == 6 && !page.messages[0].mine
               && page.messages[0].body == "hi" && page.messages[0].sent_at == 1793000100);
         const auto written = api.SendChat(9, "yo \"x\"");
@@ -487,6 +490,7 @@ void Requests()
         CHECK(sent[15].body == R"({"name":"b\"o"})");
         CHECK(sent[16].authorization == "Bearer t0k3n" && sent[16].activity == "game" && sent[15].activity.empty());
         CHECK(sent[16].match_kind.empty() && sent[17].activity == "match" && sent[17].match_kind == "ranked");
+        CHECK(sent[16].game.empty() && sent[17].game == "R4QP" && sent[18].game.empty());
         CHECK(sent[18].body == R"({"body":"yo \"x\""})");
         CHECK(sent[19].body == R"({"code":"c0de","code_verifier":"v","redirect_uri":"http://127.0.0.1:5000/callback"})");
         CHECK(sent[20].body == R"({"refresh_token":"old"})");
