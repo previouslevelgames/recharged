@@ -264,9 +264,10 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     context_.my_presets = {palace};
     for (const auto& preset : launcher::BuiltInMatchPresets())
         context_.built_in_presets.push_back({preset.name, launcher::ChallengeRules(preset), 0});
-    // Searches for a random opponent: possible; "preview-searching" shows one running.
+    // Searches for a random opponent: possible; "preview-searching" shows one
+    // running (on the search's setup with "preview-search-running").
     context_.searches = true;
-    if (mode_ == "preview-searching")
+    if (mode_ == "preview-searching" || mode_ == "preview-search-running")
     {
         platform::ProfileSearch search;
         search.rule_set = "Palace tilt";
@@ -407,6 +408,19 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         state_.online.Push({int(overlay::OnlinePanelScreen::Player), mii ? "m1000000004" : "p900010",
                             mii ? "Tommy" : "Mario"},
                            0);
+    }
+    // The search's setup ("search", as the panel keys it): Palace tilt, the
+    // preset chosen last; "preview-search-running" with the search running.
+    if (mode_ == "preview-search-setup" || mode_ == "preview-search-running")
+    {
+        auto& setup = state_.online_state;
+        setup.setup_for = "search";
+        setup.preset = 0;
+        const auto presets = overlay::MakeOnlinePanelModel(lists_, match_, context_).presets;
+        for (std::size_t n = 0; n < presets.size(); ++n)
+            if (presets[n].name == "Palace tilt") setup.preset = int(n);
+        setup.rules = presets.empty() ? platform::MatchRules{} : presets[std::size_t(setup.preset)].rules;
+        state_.online.Push({int(overlay::OnlinePanelScreen::Setup), "search", "Find an opponent"}, 0);
     }
     // A challenge to Mario being set up: Competitive, with Field Tilt.
     if (mode_ == "preview-setup")

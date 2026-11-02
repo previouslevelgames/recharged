@@ -182,14 +182,14 @@ void TestScreens()
     h.Open();
     CHECK(h.state.Tab() == OverlayTab::Online && h.OnMain());
     // A row opens its player; their screen's cursor is on Challenge, which
-    // opens the challenge's setup; its Send challenge (under the eleven rules)
-    // challenges by the server's rule set as it is and goes back to the list.
+    // opens the challenge's setup; its cursor is on Send challenge (beside
+    // the rules), which challenges by the server's rule set as it is and goes
+    // back to the list.
     auto actions = h.Press(ImGuiKey_Enter);
     CHECK(!actions.Any());
     CHECK(h.OnPlayer("p10"));
     actions = h.Press(ImGuiKey_Enter);
     CHECK(!actions.online.challenge && h.OnSetup("p10"));
-    for (int n = 0; n < 11; ++n) h.Press(ImGuiKey_DownArrow);
     actions = h.Press(ImGuiKey_Enter);
     CHECK(actions.online.challenge && actions.online.challenge->player == 10 && actions.online.challenge->rule_set == 1
           && actions.online.challenge->name == "Competitive" && actions.online.set_challenge_rules == "Competitive");
@@ -445,6 +445,8 @@ void TestChallengeSetup()
     CHECK(h.OnPlayer("p12"));
     h.Press(ImGuiKey_Enter);
     CHECK(h.OnSetup("p12") && h.state.online_state.preset == 0 && h.state.online_state.rules.games == 3);
+    // Right from Send challenge: the preset beside it, unchanged.
+    CHECK(!h.Press(ImGuiKey_RightArrow).online.Any() && h.state.online_state.preset == 0);
     // The preset: Classic, its rules; left goes back.
     CHECK(!h.Press(ImGuiKey_RightArrow).online.Any());
     CHECK(h.state.online_state.preset == 1 && h.state.online_state.rules == h.model.online.presets[1].rules);
@@ -463,9 +465,8 @@ void TestChallengeSetup()
     CHECK(h.state.online_state.rules.games == 1 && h.OnSetup("p12"));
     h.Press(ImGuiKey_LeftArrow);
     CHECK(h.state.online_state.rules.games == 7);
-    // Down to Send challenge (ten rules on).
-    for (int n = 0; n < 10; ++n) h.Press(ImGuiKey_DownArrow);
-    const auto actions = h.Press(ImGuiKey_Enter);
+    // Y sends from the rules (F as well).
+    const auto actions = h.Press(ImGuiKey_GamepadFaceUp);
     CHECK(actions.online.challenge && actions.online.challenge->player == 12 && actions.online.challenge->rule_set == 0
           && actions.online.challenge->name == "Classic (changed)" && actions.online.challenge->rules.games == 7);
     CHECK(actions.online.set_challenge_rules == "Classic" && h.OnMain());
@@ -476,8 +477,9 @@ void TestChallengeSetup()
     CHECK(!h.Press(ImGuiKey_GamepadFaceRight).online.challenge && h.OnPlayer("p12"));
 }
 
-// A search's setup: Find an opponent (under the rules) sends a search, no
-// player, by the server's rule set as it is.
+// A search's setup: Find an opponent (beside the rules, the cursor on it)
+// sends a search, no player, by the server's rule set as it is, and the
+// screen shows it running: Stop searching, the rules not to be changed.
 void TestSearchSetup()
 {
     Harness h;
@@ -490,11 +492,19 @@ void TestSearchSetup()
     h.state.online.Push({int(OnlinePanelScreen::Setup), "search", "Find an opponent"}, 0);
     h.Frame();
     h.Frame();
-    for (int n = 0; n < 11; ++n) h.Press(ImGuiKey_DownArrow);
-    const auto actions = h.Press(ImGuiKey_Enter);
+    auto actions = h.Press(ImGuiKey_Enter);
     CHECK(actions.online.search && actions.online.search->player == 0 && actions.online.search->name == "Classic"
           && actions.online.search->rule_set == 2 && !actions.online.challenge);
-    CHECK(h.OnMain());
+    CHECK(h.OnSetup("search"));
+    // The server has it: the rules stay, F stops it.
+    h.model.online.search.active = true;
+    h.model.online.can_search = false;
+    h.Frame();
+    h.Press(ImGuiKey_RightArrow);
+    h.Press(ImGuiKey_RightArrow);
+    CHECK(h.state.online_state.preset == 1 && h.state.online_state.rules == h.model.online.presets[1].rules);
+    actions = h.Press(ImGuiKey_F);
+    CHECK(actions.online.stop_search && !actions.online.search && h.OnSetup("search"));
 }
 
 // The Settings tab: the menu's cursor shows its section; A opens it, its
