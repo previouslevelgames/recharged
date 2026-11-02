@@ -59,7 +59,7 @@ struct ProfilePlayer
     // game, outside a match) or "match" (a match in the game: nobody can
     // challenge them); empty from servers before 1.2.0.
     std::string activity;
-    // In a match, its kind (MatchKindOf); empty from games before 1.2.1 and
+    // In a match, its kind (MatchKindOf); empty from older games and from
     // servers before 1.2.5.
     std::string match_kind;
     std::optional<std::int64_t> last_online;
