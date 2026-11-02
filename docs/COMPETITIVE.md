@@ -156,12 +156,12 @@ already has a Recharged profile can't join another one.
 
 Every set has one set of rules, the same for both players: the competitive
 gameplay tweaks (such as no Mega Strikes, fast terrain and Thunder Island
-walls, or mirror match: both players may draft the same captain, and the
-away team wears an away kit), the game length or goal limit, the number of games, the stadium and
-the game's stadium, player and power-up cheats. Tournament organizers choose
-the rule set of their event; for a challenge you choose them in its setup,
-from a preset. start.gg only pairs the
-players and keeps the scores.
+walls, or mirror match: both players may draft the same captain, and each sees
+their own team in its usual kit and the opponent's in the away kit), the game
+length or goal limit, the number of games, the stadium and the game's stadium,
+player and power-up cheats. Tournament organizers choose the rule set of their
+event; for a challenge you choose them in its setup, from a preset. start.gg
+only pairs the players and keeps the scores.
 
 Players of different versions (USA, Europe, Japan, Korea) cannot play against
 each other, because the versions of the game differ inside. Every tournament

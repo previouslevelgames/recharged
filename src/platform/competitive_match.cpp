@@ -146,6 +146,24 @@ bool AgainstOpponent()
 
 bool Applies() { return sPending && RankedOnline() && AgainstOpponent(); }
 
+// This machine's side in the online match: 0 home, 1 away; -1 while the
+// sides are not set (the draft resets them). StartNetworkedGame gives each
+// machine's players a side by their network player id (machine * 4 +
+// player): this machine's first player's. The main menu's Online sets only
+// mIsOnlineMode, so the mode stays -1 after a fresh start until
+// InitializeOnlineMatch: no game info to read yet.
+short LocalSide()
+{
+    const GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
+    if (!info || !info->mIsOnlineMode || !g_pNetworkSession || g_pNetworkSession->mLocalMachineId < 0
+        || g_pNetworkSession->mLocalMachineId >= 4 || info->mCurrentMode < 0
+        || info->mCurrentMode >= GameInfoManager::GM_NUM_MODES || !info->mGameInfo[info->mCurrentMode])
+        return -1;
+    const auto player = GetNetworkPlayerId(0, s8(g_pNetworkSession->mLocalMachineId));
+    const short side = info->GetPlayingSide((unsigned short)player);
+    return side == 0 || side == 1 ? side : -1;
+}
+
 // The set's players by their profile names (charged_configure_display_names):
 // this player's (0) and the opponent's (1), empty for none. A new pair gets a
 // new version.
@@ -366,20 +384,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_wfc_snapshot(Char
     s.set_unseen = Unseen() ? 1 : 0;
     s.competitive_setups = sSetups;
     s.competitive_games = sActive ? sMatch.games : 0;
-    // StartNetworkedGame gives each machine's players a side by their network
-    // player id (machine * 4 + player): this machine's first player's. The
-    // main menu's Online sets only mIsOnlineMode, so the mode stays -1 after
-    // a fresh start until InitializeOnlineMatch: no game info to read yet.
-    s.local_side = -1;
-    const GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
-    if (info && info->mIsOnlineMode && g_pNetworkSession && g_pNetworkSession->mLocalMachineId >= 0
-        && g_pNetworkSession->mLocalMachineId < 4 && info->mCurrentMode >= 0
-        && info->mCurrentMode < GameInfoManager::GM_NUM_MODES && info->mGameInfo[info->mCurrentMode])
-    {
-        const auto player = GetNetworkPlayerId(0, s8(g_pNetworkSession->mLocalMachineId));
-        const short side = info->GetPlayingSide((unsigned short)player);
-        if (side == 0 || side == 1) s.local_side = side;
-    }
+    s.local_side = LocalSide();
     *snapshot = s;
     return true;
 }
@@ -709,6 +714,20 @@ extern "C" bool mscharged_competitive_mirror_match(void)
     if (!RankedOnline()) return false;
     return mscharged_competitive_draft_mirror()
         || (sActive && ((sMatch.tweaks >> MSCHARGED_TWEAK_MIRROR_MATCH) & 1u));
+}
+
+// The side whose team wears the away kit in a mirror match (tweak patch
+// 0053). Offline, one screen shows both teams: the away team's. In a set's
+// mirror match each player sees their own team in its usual kit (the
+// players' choice, 2026-11-02): from the match's start the opponent's side.
+// In the draft, whose screens show this player's team on side 0, side 1.
+extern "C" int mscharged_competitive_mirror_dressed_side(void)
+{
+    if (!mscharged_competitive_mirror_match()) return 1;
+    const NetworkDraft* draft = NetworkDraft::Instance();
+    if (draft && draft->mState >= NET_DRAFT_CAPTAINS && draft->mState <= NET_DRAFT_FINAL_COUNTDOWN) return 1;
+    const short side = LocalSide();
+    return side == 0 || side == 1 ? 1 - side : 1;
 }
 
 extern "C" bool mscharged_competitive_cheats(int* stadium, int* player, int* powerup)

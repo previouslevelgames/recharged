@@ -209,7 +209,8 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   own kit (Mario blue, Luigi sky blue, Wario blue, Waluigi orange). Peach
   wears her blue kit; its menu pictures and Mega Strike hand are made the
   same way. Online matches are unchanged, unless a battle's rules have Mirror
-  match: then both players can draft the same captain
+  match: then both players can draft the same captain, and each sees their
+  own team in its usual kit and the opponent's in the away kit
   ([competitive play](COMPETITIVE.md)).
 - **Blue Peach**: Peach's team wears her blue and yellow kit on the field
   (Peach, her sidekicks and her goalie). The game has it on the disc but only
