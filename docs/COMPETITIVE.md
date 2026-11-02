@@ -13,12 +13,13 @@ works as on the Wii, with friend codes, ranked matches and rankings.
 1. Open Recharged and go to **Online**; the first time, **Connect Discord**
    or **Play with a Mii** on **Player profile** (see *Your Recharged
    profile*). The launcher's Online pages hold your profile
-   (**Player profile**), the game's RANKED **Leaderboard**, your tournaments
-   (**Events**, coming later), the rules of your challenges (**Match rules**)
-   and your **Sidekicks**.
-2. In the game, press **F1** (or HOME) for its online panel: your set, your
-   friends online and the players available. Challenge an opponent there, or
-   let a tournament pair you with one (the panel's **Events** tab, coming
+   (**Player profile**), the rules of your challenges (**Match rules**) and
+   your **Sidekicks**; the RANKED leaderboards and your tournaments are in the
+   game's Recharged Game Menu (its **Ranked** and **Events** tabs).
+2. In the game, press **F1** (or HOME) for the **Recharged Game Menu**: on
+   its **Online** tab your set, your friends online and the players
+   available. Challenge an opponent there, or let a tournament pair you with
+   one (the menu's **Events** tab, coming
    later). The game reminds you of the key the first time it shows its main
    menu.
 3. They accept on a card over their game, or, with only the launcher open,
@@ -40,7 +41,7 @@ with the score.
 
 ## Challenge a friend
 
-- Challenge a player from the game's online panel (F1): pick them in the
+- Challenge a player from the Recharged Game Menu (F1): pick them in the
   list, then **Challenge**. The challenge's setup starts from a preset: one of
   the server's rule sets or one of your own (**Online → Match rules** in the
   launcher). Change any rule for this challenge (series, game length or goals,
@@ -52,10 +53,22 @@ with the score.
   set.
 - Anyone who is signed in and has Recharged open can be challenged, unless
   they are playing a match.
-- A player's screen in the online panel also adds them to your friends or
+- A player's screen in the Recharged Game Menu also adds them to your friends or
   takes them off. Switch on **Open to challenges** there to meet
   players you don't know yet: the others who are available show to you, and
   you to them.
+- No one to challenge? **Find an opponent** on your own card in the online
+  panel searches for one by the rules you set up, as for a challenge: you
+  searched, so your rules count. The server asks one player at a time who is
+  open to challenges (or searching too) and plays the same version of the
+  game; they get a **Random challenge** card with Accept and Decline, and 30
+  seconds to answer before the next one is asked. Your card shows how long
+  you have searched and how many players were asked; **Stop** ends the
+  search. Y (or F) does the same from anywhere on the panel's first screen.
+  The search's screen keeps **Find an opponent NOW!** at its top left and
+  its rules side by side; while it searches, the rules are greyed out and
+  stay as they went. Only players who have been online in the game once can
+  be found.
 - A chime plays when someone challenges you or accepts your challenge, and
   the window flashes while it is in the background, so a challenge isn't
   missed (Player profile → **Challenge sound**).
@@ -68,7 +81,7 @@ Recharged's own friends list follows you everywhere, but your friends are
 probably on Discord already. Signing in with Discord links them too: Discord's
 page asks for your account and your friends list at once, and **Player
 profile** then shows how many of your Discord friends play Recharged. In
-the game's online panel (F1), those who have Recharged open show among your
+the Recharged Game Menu (F1), those who have Recharged open show among your
 friends online, with Discord's logo: no need to add them. If your server
 doesn't link them with the sign-in (servers before 1.2.1), **Link** on
 **Player profile** asks Discord for them once.
@@ -95,8 +108,8 @@ standings. Recharged takes care of everything from "you have been paired" to
   series.
 - **The result goes in by itself.** Both games send what they saw. When they
   agree, our server enters the result and the game scores on start.gg, the
-  bracket moves on, and your next set shows up in **Events**, in the game's
-  online panel and on the launcher's Online pages.
+  bracket moves on, and your next set shows up in **Events**, in the
+  Recharged Game Menu and on the launcher's Online pages.
 - **Disputes** stay with the tournament's organizers on start.gg, as always.
 
 If you have played online tournaments on start.gg before, for example in
@@ -111,11 +124,12 @@ Discord is not needed to play online. **Player profile** offers two ways in:
 
 - **Connect Discord.** The sign-in happens in your browser, so Recharged never
   sees your password. Your name in Recharged is your Discord name, and your
-  Mii is made from it. The profile is you, not your PC: sign in on any
-  computer you play on. From Discord, Recharged gets only your account's ID,
-  name and picture: nothing about your messages, friends or servers. Only if
-  you connect Discord friends does the launcher read your friends list (see
-  above).
+  Mii is made from it; if this computer has Miis already, Recharged first asks
+  whether one of them plays for you. The profile is you, not your PC: sign in
+  on any computer you play on. From Discord, Recharged gets only your
+  account's ID, name and picture: nothing about your messages, friends or
+  servers. Only if you connect Discord friends does the launcher read your
+  friends list (see above).
 - **Play with a Mii.** No account: choose the name others see (up to 32
   characters) and your Mii, a new one in your favourite colour (roll another
   face, or make it your own in the Mii editor), one already on your computer
@@ -125,6 +139,13 @@ Discord is not needed to play online. **Player profile** offers two ways in:
   **Played with a Mii before? Sign in through the game** on Player profile,
   start the game and go online with that Mii. Before its first online game,
   signing out loses the profile.
+
+One Mii plays for one profile. Signed out, Player profile shows the Miis of
+your game save that play for a profile already (**Welcome back**), with the
+profile's name when it signed in on this computer: **Sign in with** that Mii
+brings it back through the game, or **Connect Discord** for a Discord
+profile. Play with a Mii doesn't make a second profile for such a Mii, so
+nobody turns up twice on the leaderboards.
 
 Your Mii shows with its face on Player profile, drawn from your game image as
 the game draws it. **Edit** there opens the launcher's Mii editor (no Mii
@@ -140,11 +161,12 @@ already has a Recharged profile can't join another one.
 
 Every set has one set of rules, the same for both players: the competitive
 gameplay tweaks (such as no Mega Strikes, fast terrain and Thunder Island
-walls), the game length or goal limit, the number of games, the stadium and
-the game's stadium, player and power-up cheats. Tournament organizers choose
-the rule set of their event; for a challenge you choose them in its setup,
-from a preset. start.gg only pairs the
-players and keeps the scores.
+walls, or mirror match: both players may draft the same captain, and each sees
+their own team in its usual kit and the opponent's in the away kit), the game
+length or goal limit, the number of games, the stadium and the game's stadium,
+player and power-up cheats. Tournament organizers choose the rule set of their
+event; for a challenge you choose them in its setup, from a preset. start.gg
+only pairs the players and keeps the scores.
 
 Players of different versions (USA, Europe, Japan, Korea) cannot play against
 each other, because the versions of the game differ inside. Every tournament

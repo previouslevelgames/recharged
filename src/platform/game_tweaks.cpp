@@ -305,8 +305,14 @@ unsigned long mscharged_tweak_rev1_ingame_texture_budget(unsigned long size)
     return sRev1Data ? 0x966666 : size;
 }
 
+// Competitive play (competitive_match.cpp): the set's rules have Mirror match.
+extern "C" bool mscharged_competitive_mirror_match(void);
+
 bool mscharged_tweak_enabled(int tweak)
 {
+    // A set's draft and games play Mirror match by its rules, whatever the
+    // player's own setting: both games dress the away team alike.
+    if (tweak == MSCHARGED_TWEAK_MIRROR_MATCH && mscharged_competitive_mirror_match()) return true;
     return tweak >= 0 && tweak < 32 && (sEnabled & (1u << tweak)) != 0;
 }
 

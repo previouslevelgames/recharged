@@ -10,6 +10,7 @@
 #include <charconv>
 #include <ctime>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <system_error>
 
@@ -101,6 +102,7 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.online = value["online"].Bool();
     player.busy = value["busy"].Bool();
     player.activity = value["activity"].Text();
+    player.match_kind = value["match"].Text();
     player.last_online = value["last_online"].Integer();
     player.is_friend = value["friend"].Bool();
     player.chat = value["chat"].Bool();
@@ -130,6 +132,7 @@ std::vector<MiiProfile> ParseMiis(const JsonValue& value)
         mii.friend_code = item["friend_code"].Text();
         mii.online = item["online"].Bool();
         mii.status = item["status"].Text();
+        mii.match_kind = item["match"].Text();
         mii.last_online = item["last_online"].Integer();
         mii.is_friend = item["friend"].Bool();
         if (mii.profile_id) miis.push_back(std::move(mii));
@@ -302,6 +305,19 @@ ProfileService::ProfileService(std::string server, std::string token)
     if (ProfileServerAddress(server_) != server_) throw ProfileError("Not a profile server address: " + server_, 0);
 }
 
+namespace
+{
+std::mutex gPlayedGameMutex;
+std::string gPlayedGame; // SetPlayedGame
+} // namespace
+
+void ProfileService::SetPlayedGame(std::string game)
+{
+    if (game.size() > 4) game.resize(4);
+    std::lock_guard<std::mutex> lock(gPlayedGameMutex);
+    gPlayedGame = std::move(game);
+}
+
 ProfileService::Answer ProfileService::Call(const char* method, const std::string& path, const std::string* body)
 {
     HttpRequest request;
@@ -317,6 +333,11 @@ ProfileService::Answer ProfileService::Call(const char* method, const std::strin
     }
     if (!token_.empty()) request.headers.push_back("Authorization: Bearer " + token_);
     if (!activity_.empty()) request.headers.push_back("Recharged-Activity: " + activity_);
+    if (!match_kind_.empty()) request.headers.push_back("Recharged-Match: " + match_kind_);
+    {
+        std::lock_guard<std::mutex> lock(gPlayedGameMutex);
+        if (!gPlayedGame.empty()) request.headers.push_back("Recharged-Game: " + gPlayedGame);
+    }
     request.connect_timeout = 10;
     request.stall_timeout = 20;
     request.max_size = 1u << 20;
@@ -443,6 +464,23 @@ SignInResult ProfileService::WfcSignIn(std::uint32_t profile_id, const std::stri
     AppendJsonString(body, login_ticket);
     body += '}';
     return ParseSignIn(Call("POST", "/api/v1/sign-in/wfc", &body).body);
+}
+
+std::vector<std::pair<std::uint32_t, std::string>> ProfileService::KnownWfc(
+    const std::vector<std::uint32_t>& profile_ids)
+{
+    std::string body = "{\"profile_ids\":[";
+    for (std::size_t i = 0; i < profile_ids.size(); ++i)
+        body += (i ? "," : "") + std::to_string(profile_ids[i]);
+    body += "]}";
+    const auto answer = Call("POST", "/api/v1/sign-in/wfc/known", &body);
+    std::vector<std::pair<std::uint32_t, std::string>> known;
+    for (const auto& profile : answer.body["profiles"].Items())
+    {
+        const auto id = profile["profile_id"].Integer().value_or(0);
+        if (id > 0 && id <= 0xFFFFFFFFll) known.emplace_back(std::uint32_t(id), profile["sign_in"].Text());
+    }
+    return known;
 }
 
 std::vector<RuleSet> ProfileService::RuleSets()
@@ -913,6 +951,55 @@ void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSes
     text += ",\"player\":";
     AppendJsonString(text, session.player_name);
     text += "}\n";
+    WritePrivateFile(file, text);
+}
+
+std::filesystem::path KnownProfilesFile(const std::filesystem::path& data_folder,
+                                        const std::filesystem::path& config)
+{
+    auto file = ProfileSessionFile(data_folder, config);
+    return file.replace_extension(".profiles");
+}
+
+std::vector<KnownProfile> LoadKnownProfiles(const std::filesystem::path& file)
+{
+    std::vector<KnownProfile> profiles;
+    const auto document = ReadJsonFile(file);
+    if (!document) return profiles;
+    for (const auto& value : (*document)["profiles"].Items())
+    {
+        KnownProfile profile;
+        profile.server = value["server"].Text();
+        profile.player_id = value["id"].Integer().value_or(0);
+        profile.name = value["name"].Text();
+        profile.account = value["account"].Text();
+        for (const auto& code : value["friend_codes"].Items()) profile.friend_codes.push_back(code.Text());
+        if (!profile.server.empty() && profile.player_id > 0) profiles.push_back(std::move(profile));
+    }
+    return profiles;
+}
+
+void SaveKnownProfiles(const std::filesystem::path& file, const std::vector<KnownProfile>& profiles)
+{
+    std::string text = "{\"profiles\":[";
+    for (std::size_t n = 0; n < profiles.size(); ++n)
+    {
+        const auto& profile = profiles[n];
+        text += n ? ",\n{\"server\":" : "\n{\"server\":";
+        AppendJsonString(text, profile.server);
+        text += ",\"id\":" + std::to_string(profile.player_id) + ",\"name\":";
+        AppendJsonString(text, profile.name);
+        text += ",\"account\":";
+        AppendJsonString(text, profile.account);
+        text += ",\"friend_codes\":[";
+        for (std::size_t i = 0; i < profile.friend_codes.size(); ++i)
+        {
+            if (i) text += ',';
+            AppendJsonString(text, profile.friend_codes[i]);
+        }
+        text += "]}";
+    }
+    text += "\n]}\n";
     WritePrivateFile(file, text);
 }
 

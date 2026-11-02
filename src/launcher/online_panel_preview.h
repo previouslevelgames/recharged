@@ -66,6 +66,7 @@ private:
     overlay::OnlinePanelContext context_;
     overlay::GameOptionsModel options_;
     overlay::GameSettingsModel settings_;
+    overlay::RankedModel ranked_;
     overlay::GameOverlayState state_;
     overlay::OverlayPromptState prompt_state_;
     std::map<std::string, ImTextureID> avatars_;

@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace mscharged::platform
@@ -58,6 +59,9 @@ struct ProfilePlayer
     // game, outside a match) or "match" (a match in the game: nobody can
     // challenge them); empty from servers before 1.2.0.
     std::string activity;
+    // In a match, its kind (MatchKindOf); empty from older games and from
+    // servers before 1.2.5.
+    std::string match_kind;
     std::optional<std::int64_t> last_online;
     bool is_friend = false;
     // Both keep each other as friends: they can write each other; their
@@ -124,6 +128,8 @@ struct MiiProfile
     std::string friend_code; // as the game shows it, "0868-9934-5920"
     bool online = false;
     std::string status; // online: menu, matchmaking or match
+    // Matchmaking or in a match: "ranked" or "friends" (servers from 1.2.5).
+    std::string match_kind;
     std::optional<std::int64_t> last_online; // the last login (Unix seconds)
     bool is_friend = false;
 };
@@ -310,8 +316,18 @@ public:
     // Lets another thread stop the running call.
     void SetCancel(std::shared_ptr<HttpCancel> cancel) { cancel_ = std::move(cancel); }
     // The game's requests say what it is doing ("game" or "match", the
-    // Recharged-Activity header); the launcher's say nothing.
-    void SetActivity(std::string activity) { activity_ = std::move(activity); }
+    // Recharged-Activity header) and in a match its kind (MatchKindOf, the
+    // Recharged-Match header); the launcher's say nothing.
+    void SetActivity(std::string activity, std::string match_kind = {})
+    {
+        activity_ = std::move(activity);
+        match_kind_ = std::move(match_kind);
+    }
+    // Every request of this program says which game it plays (the
+    // Recharged-Game header: the first four characters of the game's id, such
+    // as R4QE): sets pair only players of one version, as RANKED does. Empty
+    // says nothing (the launcher before its image is checked).
+    static void SetPlayedGame(std::string game);
 
     // Without a session. StartSignIn with the session of a Mii player
     // connects Discord to their profile; PollSignIn then refuses a Discord
@@ -328,6 +344,11 @@ public:
     // profile that WFC profile identifies (a player who plays with a Mii),
     // with a new session. 404 when it identifies nobody.
     SignInResult WfcSignIn(std::uint32_t profile_id, const std::string& login_ticket);
+    // Of these WFC profiles (a game save's Miis, at most 32), those that play
+    // for a profile already, and how it signs in again: "game" (that Mii's
+    // WFC login, WfcSignIn) or its account ("discord", "test"). No names. 404
+    // from a server before 1.2.4.
+    std::vector<std::pair<std::uint32_t, std::string>> KnownWfc(const std::vector<std::uint32_t>& profile_ids);
     std::vector<RuleSet> RuleSets();
 
     // With the session's token.
@@ -397,7 +418,7 @@ private:
 
     std::string server_;
     std::string token_;
-    std::string activity_;
+    std::string activity_, match_kind_;
     std::shared_ptr<HttpCancel> cancel_;
 };
 
@@ -426,6 +447,23 @@ std::optional<SavedProfileSession> LoadProfileSession(const std::filesystem::pat
 // Readable by this user only, where the system has such permissions.
 void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSession& session);
 void ForgetProfileSession(const std::filesystem::path& file);
+
+// The profiles that signed in with a settings file, remembered after signing
+// out: the launcher offers one again (by name) for a Mii of the game save
+// with one of its friend codes, instead of a second profile for that Mii.
+struct KnownProfile
+{
+    std::string server;
+    std::int64_t player_id = 0;
+    std::string name;
+    std::string account;                   // "mii", "discord" or "test"
+    std::vector<std::string> friend_codes; // its WFC profiles', as shown ("0868-9934-5920")
+};
+// <data folder>/online/<settings file name>.profiles, the latest first.
+std::filesystem::path KnownProfilesFile(const std::filesystem::path& data_folder,
+                                        const std::filesystem::path& config);
+std::vector<KnownProfile> LoadKnownProfiles(const std::filesystem::path& file);
+void SaveKnownProfiles(const std::filesystem::path& file, const std::vector<KnownProfile>& profiles);
 
 // The Discord friends' link of a settings file, kept between runs like the
 // session: the server that traded the Discord Social SDK's tokens and the

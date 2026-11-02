@@ -93,6 +93,10 @@ __attribute__((visibility("default"))) bool charged_configure_super_team(const v
 
 int mscharged_tweak_super_team(int team, int characterClass)
 {
+    // Against another player online (friends, RANKED, sets, tournaments) both
+    // teams are the captains and sidekicks the players picked.
+    const GameInfoManager* info = GameInfoManager::Instance();
+    if (info && info->IsOnline()) return 0;
     return sReady && mscharged_tweak_enabled(MSCHARGED_TWEAK_SUPER_TEAM) && team >= 0 && team < 2
         && (sSides & (1 << team)) && characterClass >= 0 && characterClass < 20
         && !mscharged::platform::SuperTeamKeepsLook(characterClass);

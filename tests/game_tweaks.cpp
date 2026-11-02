@@ -26,6 +26,8 @@ extern "C" void charged_toggle_hud(void);
 // original frame.
 unsigned gTvFormat;
 extern "C" unsigned int VIGetTvFormat(void) { return gTvFormat; }
+// Competitive play (competitive_match.cpp): no set here.
+extern "C" bool mscharged_competitive_mirror_match(void) { return false; }
 // The original match (Game.cpp), present while a match runs.
 class cGame;
 cGame* g_pGame;

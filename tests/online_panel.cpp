@@ -7,10 +7,13 @@
 
 #include "overlay/online_panel_model.h"
 #include "platform/competitive_rules.h"
+#include "platform/match_kind.h"
 
 #include <cstdio>
 #include <iterator>
 #include <string>
+#include <tuple>
+#include <utility>
 
 namespace platform = mscharged::platform;
 using namespace mscharged::overlay;
@@ -463,9 +466,92 @@ void TestSearch()
 }
 } // namespace
 
+// What a match is: its kind as the server says it; an older game or server
+// says none.
+void TestMatchKinds()
+{
+    platform::PlayerLists lists;
+    const std::pair<const char*, const char*> kinds[] = {
+        {"ranked", "Ranked match"},   {"friends", "Friend match"},
+        {"tournament", "Online tournament"}, {"cpu", "Match vs CPU"},
+        {"local", "Local match"},     {"cup", "Road to the Striker Cup"},
+        {"challenge", "Striker Challenge"}, {"training", "Strikers 101"},
+        {"", "Playing a match"},      {"golf", "Playing a match"},
+    };
+    std::int64_t id = 10;
+    for (const auto& [kind, text] : kinds)
+    {
+        auto player = Online(id, (std::string("P") + std::to_string(id)).c_str(), "match");
+        player.match_kind = kind;
+        lists.friends.push_back(player);
+        ++id;
+    }
+    // Miis: whom DWC's matchmaking was with.
+    const std::tuple<const char*, const char*, const char*> miis[] = {
+        {"match", "ranked", "Ranked match"},
+        {"match", "friends", "Friend match"},
+        {"match", "", "Playing a match"},
+        {"matchmaking", "ranked", "Looking for a ranked match"},
+        {"matchmaking", "friends", "In a friend room"},
+        {"matchmaking", "", "Looking for a match"},
+        {"menu", "", "In the online menu"},
+    };
+    std::int32_t profile = 600;
+    for (const auto& [status, kind, text] : miis)
+    {
+        auto mii = Mii(profile, (std::string("M") + std::to_string(profile)).c_str(), true, status, true);
+        mii.match_kind = kind;
+        lists.mii_friends.push_back(mii);
+        ++profile;
+    }
+    const auto model = MakeOnlinePanelModel(lists, std::nullopt, Context());
+    const auto* online = Section(model, OnlinePanelSection::Id::Online);
+    CHECK(online != nullptr);
+    if (!online) return;
+    id = 10;
+    for (const auto& [kind, text] : kinds)
+    {
+        const auto* row = Row(online, (std::string("P") + std::to_string(id++)).c_str());
+        CHECK(row && row->status == text && row->presence == Presence::Busy && row->blocked == "In a match");
+    }
+    profile = 600;
+    for (const auto& [status, kind, text] : miis)
+    {
+        const auto* row = Row(online, (std::string("M") + std::to_string(profile++)).c_str());
+        CHECK(row && row->status == text);
+    }
+
+    // What the game sends, from its snapshot.
+    const auto kind_of = [](int mode, int online, int ranked, int lesson, int sides) {
+        ChargedPresenceSnapshot s{};
+        s.in_match = 1;
+        s.mode = mode;
+        s.online = online;
+        s.ranked = ranked;
+        s.strikers101 = lesson;
+        s.human_sides = sides;
+        const char* kind = platform::MatchKindOf(s);
+        return std::string(kind ? kind : "-");
+    };
+    CHECK(kind_of(2, 0, 0, 0, 0) == "-"); // the title screen's demo
+    CHECK(kind_of(0, 1, 1, 0, 1) == "ranked");
+    CHECK(kind_of(0, 1, 0, 0, 2) == "friends");
+    CHECK(kind_of(1, 1, 0, 0, 1) == "tournament");
+    CHECK(kind_of(0, 0, 0, 1, 1) == "training");
+    CHECK(kind_of(3, 0, 0, 0, 1) == "cup");
+    CHECK(kind_of(4, 0, 0, 0, 1) == "challenge");
+    CHECK(kind_of(0, 0, 0, 0, 1) == "cpu");
+    CHECK(kind_of(0, 0, 0, 0, 0) == "cpu"); // CPU vs CPU
+    CHECK(kind_of(0, 0, 0, 0, 3) == "local");
+    ChargedPresenceSnapshot menus{};
+    menus.mode = 0;
+    CHECK(platform::MatchKindOf(menus) == nullptr);
+}
+
 int main()
 {
     TestPlayer();
+    TestMatchKinds();
     TestOnlineNow();
     TestAvailable();
     TestChallengeBlockers();

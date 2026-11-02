@@ -84,6 +84,7 @@
 #include "overlay/overlay_prompt.h"
 #include "platform/mii_head.h"
 #include "platform/save_import.h"
+#include "platform/match_kind.h"
 #include "platform/online_panel_feed.h"
 #include <aurora/imgui.h>
 #endif
@@ -407,6 +408,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         mscharged::platform::SessionLogLine("Game: " + std::string(release->title) + ", "
             + mscharged::ReleaseLabel(*release) + " (" + release->game_id + ")"
             + (releaseNote.empty() ? "" : ". " + releaseNote));
+        // Sets pair only players of one version: the server hears which.
+        mscharged::platform::ProfileService::SetPlayedGame(std::string(release->game_id,4));
         const std::string languageLabel = languageChoice.automatic
             ? "Automatic (" + std::string(languageChoice.language->label) + ")" : languageChoice.language->label;
         mscharged::platform::SessionLogLine(languageChoice.unavailable
@@ -782,7 +785,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 +", HUD "+key(mscharged::HotkeyHud)+" (matches start with the HUD "+(s.show_hud ? "shown)" : "hidden)")
                 +", stretch "+key(mscharged::HotkeyStretch)+", 3D resolution "+key(mscharged::HotkeyResolutionUp)
                 +"/"+key(mscharged::HotkeyResolutionDown)+", fullscreen "+key(mscharged::HotkeyFullscreen)
-                +", online panel "+key(mscharged::HotkeyPanel)+" (and HOME), game options "
+                +", game menu "+key(mscharged::HotkeyPanel)+" (and HOME), game options "
                 +key(mscharged::HotkeyOptions));
             for (const auto& device : s.players) {
                 if (device.rfind("gamepad", 0) != 0) continue;
@@ -1341,6 +1344,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive_start"));
         auto endSet=reinterpret_cast<ChargedCompetitiveEndSetFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_competitive_end_set"));
+        // The Recharged Game Menu's Play RANKED: the game goes by itself into a
+        // retail RANKED search against anybody, as a set's game into its set's.
+        auto startRanked=reinterpret_cast<ChargedStartRankedFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_start_ranked"));
+        auto stopRanked=reinterpret_cast<ChargedStopRankedFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_stop_ranked"));
+        int rankedStage=CHARGED_SET_NONE;
+        std::chrono::steady_clock::time_point rankedChecked{}, rankedSince{}, rankedReminded{};
         // The set's players by their profile names on its RANKED screens (the
         // game shows Mii names): this player's and the opponent's, given while
         // the game plays a set (the module drops them at its end).
@@ -1469,6 +1480,32 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 }
             } else setWaiting={};
         };
+        // Play RANKED's way there: the buttons are held while the game passes
+        // its menus unseen, and the player hears where it goes on from.
+        auto observeRanked = [&] {
+            if(!startRanked || !wfcSnapshot)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-rankedChecked<std::chrono::milliseconds(250))return;
+            rankedChecked=now;
+            ChargedWfcSnapshot wfc{};
+            if(!wfcSnapshot(&wfc,sizeof wfc))return;
+            if(wfc.ranked_stage!=rankedStage) {
+                if(rankedStage!=CHARGED_SET_NONE && wfc.ranked_stage==CHARGED_SET_NONE)
+                    mscharged::platform::SessionLogLine("Ranked: the game is in RANKED (or the way there stopped)");
+                rankedStage=wfc.ranked_stage;
+                rankedSince=now;
+            }
+            if(walkHold!=(wfc.set_unseen!=0)) {
+                walkHold=wfc.set_unseen!=0;
+                holdButtons();
+            }
+            if(rankedStage==CHARGED_SET_BOOT && hostOverlay && now-rankedSince>=std::chrono::seconds(6)
+               && now-rankedReminded>=std::chrono::seconds(15)) {
+                rankedReminded=now;
+                hostOverlay->ShowMessage("RANKED waits: go back to the main menu or the online menu,"
+                    " and the game takes you there",now);
+            }
+        };
         // [online] mii_sign_in: a player who played with a Mii before signs in
         // again here. Once a Mii is logged in to WFC (and there is no session),
         // the server gives back the profile that Mii's online account
@@ -1565,6 +1602,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             bool shown=false;
             int answer=0;
             std::string opponent, rules, reason;
+            std::string title;  // a stopped set's own title, or empty
             std::string avatar; // the opponent's picture (URL), or empty
             bool random=false;  // a search for a random opponent asks the player
             bool hasScore=false;
@@ -1631,10 +1669,31 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         card.decline="Not now";
                         card.note="Once they accept, the game goes on into RANKED.";
                         cardPrompt.kind=CardPrompt::Kind::SetOver;
+                    } else if(end.how==How::OpponentLeft || end.how==How::OpponentGone) {
+                        // The opponent's Back, launcher or closed game: a
+                        // line from the dressing room, the same for a set.
+                        static const char* const kGone[]={
+                            " left the field in tears…"," ran crying to the dressing room…",
+                            " took the ball and went home…"," saw your lineup and fled the pitch…",
+                            " heard the Kritters were coming and ran…"};
+                        card.kicker="SET STOPPED";
+                        card.title=opponent+kGone[std::uint64_t(end.match)%std::size(kGone)];
+                        card.detail=end.how==How::OpponentGone
+                            ? opponent+"'s game closed before your games met, so the set stopped."
+                            : opponent+" left before your games met, so the set stopped.";
+                        card.accept="Play it again";
+                        card.decline="Not now";
+                        card.note="Play it again is your Ready to play!: the set goes once "+opponent
+                            +" is ready too.";
+                        cardPrompt.kind=CardPrompt::Kind::SetStopped;
+                        cardPrompt.reason=card.detail;
+                        cardPrompt.title=card.title;
                     } else {
                         card.kicker="SET STOPPED";
-                        card.title="The set against "+opponent+" stopped";
+                        card.title=end.how==How::Left ? "You left the set against "+opponent
+                            : "The set against "+opponent+" stopped";
                         card.detail=end.how==How::Failed ? std::string("A message in the game ended it.")
+                            : end.how==How::Left ? "You left the search; "+opponent+"'s game was told."
                             : opponent+" isn't ready any more, or your games didn't meet in time.";
                         card.accept="Play it again";
                         card.decline="Not now";
@@ -1642,6 +1701,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                             +" is ready too.";
                         cardPrompt.kind=CardPrompt::Kind::SetStopped;
                         cardPrompt.reason=card.detail;
+                        cardPrompt.title=card.title;
                     }
                     cardPrompt.opponent=opponent;
                     cardPrompt.avatar=end.opponent_avatar;
@@ -1821,7 +1881,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const bool none=key.empty() || key==mscharged::kNoHotkey;
                 panelHint=mscharged::runtime::HostOverlay::Hint{
                     none ? std::vector<std::string>{"HOME"} : std::vector<std::string>{key,"HOME"},
-                    "Online: friends, challenges and sets"};
+                    "Recharged Game Menu"};
             }
             // F1/HOME and F2 while open: the other tab, or closing the one shown.
             hostPanel->SetTabKeys([&](int tab) {
@@ -1878,7 +1938,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     case Kind::SetStopped:
                         prompt.kind=ov::OverlayPrompt::Kind::SetStopped;
                         prompt.kicker="SET STOPPED";
-                        prompt.title="The set stopped";
+                        prompt.title=cardPrompt.title.empty() ? std::string("The set stopped") : cardPrompt.title;
                         prompt.detail=cardPrompt.reason;
                         prompt.primary="Play it again";
                         prompt.secondary="Not now";
@@ -1936,13 +1996,35 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         +std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()
                             -snapshot.fetched).count());
                 context.loading=panelFeed && !snapshot.loaded;
-                if(!panelFeed) context.message="Sign in on the launcher's Player profile page to see your friends here.";
-                else if(!snapshot.error.empty()) {
+                // Without a player profile the tab invites to make one.
+                context.signed_out=!panelFeed;
+                if(panelFeed && !snapshot.error.empty()) {
                     context.message=snapshot.error;
                     context.error=true;
                 } else context.message=overlayNotice;
                 ov::GameOverlayModel model;
                 model.online=ov::MakeOnlinePanelModel(snapshot.lists,snapshot.match,context);
+                // Ranked: Play RANKED (the player's own Mii, else one they
+                // choose in the game), and the leaderboards while it is shown.
+                const bool ownMii=std::any_of(launch.competitive_mii.begin(),launch.competitive_mii.end(),
+                    [](auto b) { return b!=0; });
+                {
+                    auto& ranked=model.ranked;
+                    ranked.going=rankedStage!=CHARGED_SET_NONE;
+                    ranked.waiting=rankedStage==CHARGED_SET_BOOT
+                        && std::chrono::steady_clock::now()-rankedSince>=std::chrono::seconds(2);
+                    ranked.own_mii=ownMii;
+                    if(!startRanked) ranked.blocked="This game can't go to RANKED by itself.";
+                    else if(context.in_match) ranked.blocked="You're in a match: RANKED waits until it is over.";
+                    else if(competitive && competitive->CurrentSet())
+                        ranked.blocked="Your set goes on: RANKED waits until it is over.";
+                    else if(snapshot.search) ranked.blocked="You're searching for an opponent: stop that first.";
+                    ranked.can_play=ranked.blocked.empty() && !ranked.going;
+                    ranked.signed_out=!panelFeed;
+                    ranked.boards=snapshot.leaderboard;
+                    ranked.missing=snapshot.leaderboard_missing;
+                }
+                if(panelFeed) panelFeed->WantLeaderboard(overlayState.Tab()==ov::OverlayTab::Ranked);
                 if(ownMiiFace.valid() && ownMiiFace.wait_for(std::chrono::seconds(0))==std::future_status::ready)
                     if(const auto face=ownMiiFace.get())
                         ownMiiTexture=aurora_imgui_add_texture(std::uint32_t(face->width),std::uint32_t(face->height),
@@ -1954,25 +2036,32 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 {
                     auto& settings=model.settings;
                     settings.fullscreen=(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN)!=0;
-                    settings.pictures={std::string("Keep its ")+(widescreen?"16:9":"4:3")+" shape","Stretch to fill"};
-                    if(widerView) settings.pictures.push_back("Wider view in matches");
+                    settings.pictures={widescreen ? "16:9" : "4:3","Stretch"};
+                    if(widerView) settings.pictures.push_back("Wider view");
                     settings.picture=widerOn ? 2 : stretch ? 1 : 0;
+                    settings.picture_about=std::string(widescreen ? "16:9" : "4:3")+" keeps the game's shape,"
+                        " Stretch fills the window"+(widerView ? ", Wider view shows more of the stadium in matches." : ".");
                     displayResolutions.clear();
                     if(nativeSend) {
                         const auto size=aurora_get_window_size();
                         const auto picture=mscharged::PictureSize(int(size.native_fb_width),int(size.native_fb_height),
                             int(aspectWidth),int(aspectHeight),fill);
-                        for(const auto value:mscharged::kRenderResolutions) displayResolutions.emplace_back(value);
-                        std::stable_sort(displayResolutions.begin(),displayResolutions.end(),[&](const auto& a,const auto& b) {
-                            return mscharged::RenderHeight(a,picture.height)<mscharged::RenderHeight(b,picture.height);
-                        });
+                        // As the launcher has them: Full, Native, 2x, 3x, 4x.
+                        displayResolutions.emplace_back("window");
+                        for(const auto value:mscharged::kRenderResolutions)
+                            if(value!="window") displayResolutions.emplace_back(value);
                         for(std::size_t n=0;n<displayResolutions.size();++n) {
                             const auto& value=displayResolutions[n];
-                            settings.resolutions.push_back(std::string(mscharged::RenderResolutionLabel(value))+" ("
-                                +std::to_string(mscharged::RenderWidth(value,picture.width))+" \xC3\x97 "
-                                +std::to_string(mscharged::RenderHeight(value,picture.height))+")");
+                            settings.resolutions.emplace_back(mscharged::RenderResolutionLabel(value));
                             if(value==renderResolution) settings.resolution=int(n);
                         }
+                        const auto drawn=[&](std::string_view value) {
+                            return std::to_string(mscharged::RenderWidth(value,picture.width))+" \xC3\x97 "
+                                +std::to_string(mscharged::RenderHeight(value,picture.height));
+                        };
+                        settings.resolution_about="How sharp the game draws its 3D: Full at the window's size ("
+                            +drawn("window")+"), Native at the Wii's "+drawn("native")
+                            +", 2x to 4x at its multiples, for slower graphics cards.";
                     }
                     settings.performance_numbers=launch.settings.fps_overlay;
                     settings.master_volume=launch.settings.master_volume;
@@ -1999,6 +2088,22 @@ int mscharged::RunOriginalGame(int argc, char** argv,
 
                 // What the player did.
                 if(actions.close) hostPanel->RequestClose();
+                if(actions.ranked.play && startRanked && model.ranked.can_play) {
+                    if(startRanked(ownMii ? launch.competitive_mii.data() : nullptr,
+                                   ownMii ? unsigned(launch.competitive_mii.size()) : 0u)) {
+                        mscharged::platform::SessionLogLine(std::string("Ranked: Play RANKED")
+                            +(ownMii ? " with the player's own Mii" : ", the player chooses the Mii"));
+                        rankedStage=CHARGED_SET_BOOT;
+                        rankedSince=std::chrono::steady_clock::now();
+                        hostPanel->RequestClose();
+                        hostOverlay->ShowMessage("Off to RANKED",std::chrono::steady_clock::now());
+                    } else overlayNotice="RANKED can't start now";
+                }
+                if(actions.ranked.stop && stopRanked) {
+                    stopRanked();
+                    mscharged::platform::SessionLogLine("Ranked: the way to RANKED stopped");
+                    rankedStage=CHARGED_SET_NONE;
+                }
                 const auto& online=actions.online;
                 const std::int64_t set=model.online.set.match;
                 if(panelFeed) {
@@ -2134,7 +2239,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         save=[on](mscharged::Settings& s) { s.reopen_after_game=on; };
                         break;
                     }
-                    if(save) {
+                    // A slider being dragged saves once it is let go.
+                    if(save && !change.live) {
                         try {
                             mscharged::SaveSettings(launch.config.path,save);
                         } catch(const std::exception& error) {
@@ -2298,7 +2404,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 }
                 if(panelFeed) panelFeed->SetOpen(overlayOpen);
             }
-            if(overlayOpen && panelFeed) panelFeed->SetActivity(inMatch() ? "match" : "game");
+            if(overlayOpen && panelFeed) {
+                ChargedPresenceSnapshot game{};
+                const char* kind=presenceSnapshot && presenceSnapshot(&game,sizeof game)
+                    ? mscharged::platform::MatchKindOf(game) : nullptr;
+                panelFeed->SetActivity(inMatch() ? "match" : "game",kind ? kind : "");
+            }
             // The panel's keys in the corner while the game is in its menus
             // (the title's demo matches count as menus), a few times a second.
             if(hostOverlay && panelHint && now-panelHintChecked>=std::chrono::milliseconds(250)) {
@@ -2338,7 +2449,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -2427,7 +2538,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}

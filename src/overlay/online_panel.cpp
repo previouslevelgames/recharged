@@ -172,6 +172,35 @@ bool CardPart(ImDrawList* draw, const char* id, ImVec2 min, ImVec2 max, bool las
     return pressed;
 }
 
+// A radar's ping going out of a round badge at `center`: rings that grow and
+// fade, then a pause; two half a period apart while `busy`.
+void PingRound(ImDrawList* draw, ImVec2 center, float radius, bool busy)
+{
+    const double period = busy ? 1.8 : 2.8;
+    const float strength = busy ? 0.5f : 0.32f;
+    for (int ring = 0; ring < (busy ? 2 : 1); ++ring)
+    {
+        const float t = float(std::fmod(ImGui::GetTime() / period + 0.5 * ring, 1.0)) / 0.7f;
+        if (t >= 1.0f) continue;
+        const float out = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
+        draw->AddCircle(center, radius + Dp(1) + Dp(13) * out, Col(color::accent, strength * (1.0f - t) * (1.0f - t)),
+                        0, Dp(1.5f));
+    }
+}
+
+// The badge of Open to challenges, as a status reads: `on` (0..1) green
+// with a check, open to challenges; off red with a bar, as Do not disturb.
+void AvailabilityBadge(ImDrawList* draw, ImVec2 center, float radius, float on)
+{
+    const ImVec4 tint = Mix(color::danger, color::success, on);
+    draw->AddCircleFilled(center, radius, Col(tint, 0.16f));
+    draw->AddCircle(center, radius - Dp(0.5f), Col(tint, 0.55f), 0, Dp(1.2f));
+    if (on > 0.01f) launcher::DrawIcon(draw, Icon::Check, center, radius * 1.05f, Col(tint, on));
+    if (on < 0.99f)
+        draw->AddLine({center.x - radius * 0.45f, center.y}, {center.x + radius * 0.45f, center.y},
+                      Col(tint, 1.0f - on), Dp(2.6f));
+}
+
 // The key of the setup screen of a search for a random opponent.
 constexpr const char* kSearchSetup = "search";
 
@@ -203,12 +232,19 @@ void DrawYou(Frame& frame, float width)
 
     // The switch for random games.
     const char* label = "Open to challenges";
-    const char* line = me.available ? "Players who aren't your friends can see you and challenge you."
-                                    : "Only your friends see you.";
+    const char* on_line = "Players who aren't your friends can see you and challenge you.";
+    const char* off_line = "Only your friends see you.";
+    const char* line = me.available ? on_line : off_line;
     const float track_w = Dp(40), track_h = Dp(23);
-    const float wrap = width - 2 * pad - track_w - Dp(14);
-    const float available_h =
-        me.can_set_available ? Dp(12) + FontSize(fonts.label) + Dp(3) + caption_height(line, wrap) + Dp(14) : 0.0f;
+    // Each part's badge at the left, its words beside it.
+    const float badge = Dp(17), text_x = at.x + pad + badge * 2 + Dp(12);
+    const float wrap = width - 2 * pad - badge * 2 - Dp(12) - track_w - Dp(14);
+    // As high as the longer of its lines: switching moves nothing below it.
+    const float available_h = me.can_set_available
+        ? std::max(Dp(12) + FontSize(fonts.label) + Dp(3)
+                       + std::max(caption_height(on_line, wrap), caption_height(off_line, wrap)) + Dp(14),
+                   badge * 2 + Dp(24))
+        : 0.0f;
 
     // Searching for a random opponent: how long, by which rules, Stop; else
     // the way to start one.
@@ -223,12 +259,17 @@ void DrawYou(Frame& frame, float width)
             + (search.asked == 0 ? std::string("nobody asked yet")
                                  : std::to_string(search.asked) + (search.asked == 1 ? " player asked" : " players asked"));
     }
-    else if (can_search)
-        search_line = "Your rules go to players open to challenges, until one accepts.";
+    const char* invite = "Your rules go to players open to challenges, until one accepts.";
+    if (!searching && can_search) search_line = invite;
     const float stop_w = Dp(76);
-    const float search_wrap = width - 2 * pad - (searching ? stop_w : Dp(20)) - Dp(14);
+    const float search_wrap = width - 2 * pad - badge * 2 - Dp(12) - (searching ? stop_w : Dp(20)) - Dp(14);
+    // As high for the search as before it (two lines at least).
     const float search_h = searching || can_search
-        ? Dp(12) + FontSize(fonts.label) + Dp(3) + caption_height(search_line.c_str(), search_wrap) + Dp(14)
+        ? std::max(Dp(12) + FontSize(fonts.label) + Dp(3)
+                       + std::max({caption_height(search_line.c_str(), search_wrap), caption_height(invite, search_wrap),
+                                   FontSize(fonts.caption) * 2})
+                       + Dp(14),
+                   badge * 2 + Dp(24))
         : 0.0f;
 
     const float top = pad + radius * 2 + pad;
@@ -257,8 +298,9 @@ void DrawYou(Frame& frame, float width)
         float hover = 0.0f;
         const bool pressed = CardPart(draw, "##available", min, max, search_h == 0.0f, true, focused, hover);
         const float on = launcher::Animate(ImGui::GetID("##available_on"), me.available, 14.0f);
-        DrawLabel(draw, fonts.label, {at.x + pad, y + Dp(12)}, Col(color::text), label);
-        draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x + pad, y + Dp(12) + FontSize(fonts.label) + Dp(3)},
+        AvailabilityBadge(draw, {at.x + pad + badge, y + available_h * 0.5f}, badge, on);
+        DrawLabel(draw, fonts.label, {text_x, y + Dp(12)}, Col(color::text), label);
+        draw->AddText(fonts.caption, FontSize(fonts.caption), {text_x, y + Dp(12) + FontSize(fonts.label) + Dp(3)},
                       Col(color::muted), line, nullptr, wrap);
         const ImVec2 track{end.x - pad - track_w, y + (available_h - track_h) * 0.5f};
         draw->AddRectFilled(track, {track.x + track_w, track.y + track_h},
@@ -275,13 +317,23 @@ void DrawYou(Frame& frame, float width)
         const ImVec2 min{at.x, y}, max{end.x, y + search_h};
         bool focused = false;
         float hover = 0.0f;
+        // The step to take: lit in the accent, its badge sending a radar's
+        // ping out (faster while the search runs).
+        draw->AddRectFilled({min.x + Dp(1), min.y}, {max.x - Dp(1), max.y - Dp(1)}, Col(color::accent, 0.07f), Dp(15),
+                            ImDrawFlags_RoundCornersBottom);
         const bool pressed = CardPart(draw, "##search", min, max, true, true, focused, hover);
         const ImGuiID item = ImGui::GetItemID();
-        DrawLabel(draw, fonts.label, {at.x + pad, y + Dp(12)}, Col(searching ? color::accent : color::text),
-                  searching ? "Searching for an opponent" : "Find an opponent");
-        draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x + pad, y + Dp(12) + FontSize(fonts.label) + Dp(3)},
-                      Col(color::muted), search_line.c_str(), nullptr, search_wrap);
         const float middle = y + search_h * 0.5f;
+        const ImVec2 center{at.x + pad + badge, middle};
+        draw->PushClipRect(min, max, true);
+        PingRound(draw, center, badge, searching);
+        draw->PopClipRect();
+        draw->AddCircleFilled(center, badge, Col(Mix(color::accent, color::accent_hi, 0.3f * hover)));
+        launcher::DrawIcon(draw, Icon::Target, center, badge * 1.15f, Col(color::accent_ink));
+        DrawLabel(draw, fonts.label, {text_x, y + Dp(12)}, Col(color::accent),
+                  searching ? "Searching for an opponent" : "Find an opponent");
+        draw->AddText(fonts.caption, FontSize(fonts.caption), {text_x, y + Dp(12) + FontSize(fonts.label) + Dp(3)},
+                      Col(color::muted), search_line.c_str(), nullptr, search_wrap);
         if (searching)
         {
             // Stop, as a small field at the right; the whole part stops.
@@ -295,16 +347,27 @@ void DrawYou(Frame& frame, float width)
             DrawLabel(draw, fonts.body, {field_min.x + (stop_w - size.x) * 0.5f, middle - size.y * 0.5f},
                       Col(color::text), "Stop");
         }
-        else OverlayChevron(draw, {end.x - pad - Dp(6), middle}, 1, Col(Mix(color::muted, color::text, hover)));
+        else OverlayChevron(draw, {end.x - pad - Dp(6), middle}, 1, Col(Mix(color::accent, color::text, hover)));
         if (focused) OverlayFocusRing(draw, min, max, Dp(16));
-        if (pressed)
+        // Its keys hang from its lower edge at the right, as on the search's
+        // screen: Y (or F) presses it from anywhere on this screen.
+        float x = max.x - Dp(12) - (OverlayKeyCapWidth("Y") + Dp(4) + OverlayKeyCapWidth("F"));
+        for (const char* key : {"Y", "F"})
+        {
+            OverlayKeyCap(draw, {x, max.y - Dp(11)}, key);
+            x += OverlayKeyCapWidth(key) + Dp(4);
+        }
+        const bool shortcut = !ImGui::GetIO().WantTextInput
+            && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp, false) || ImGui::IsKeyPressed(ImGuiKey_F, false));
+        if (pressed || shortcut)
         {
             if (searching) frame.actions.stop_search = true;
             else OpenSearchSetup(frame, item);
         }
     }
     ImGui::SetCursorScreenPos(at);
-    ImGui::Dummy({width, end.y - at.y});
+    // The keys hang below the card.
+    ImGui::Dummy({width, end.y - at.y + (search_h > 0.0f ? Dp(11) : 0.0f)});
 }
 
 // Games won (left, the accent) and lost (right) of a best-of series, as pips.
@@ -629,7 +692,7 @@ void DrawMain(Frame& frame, const OverlayLayout& layout)
     OverlayLayoutIs(wide ? 2 : 1);
     if (wide)
     {
-        const float left = std::clamp(width * 0.38f, Dp(300), Dp(380)), gap = Dp(32);
+        const float left = OverlaySplitLeft(width), gap = OverlaySplitGap();
         BeginOverlayScroll("##main_you", layout.min, {layout.min.x + left, layout.max.y});
         ImGui::Dummy({left, Dp(20)});
         DrawYou(frame, left);
@@ -645,9 +708,7 @@ void DrawMain(Frame& frame, const OverlayLayout& layout)
         }
         ImGui::Dummy({left, Dp(16)});
         EndOverlayScroll();
-        const float divider = layout.min.x + left + gap * 0.5f;
-        ImGui::GetWindowDrawList()->AddRectFilled({divider, layout.min.y + Dp(20)},
-                                                  {divider + Dp(1), layout.max.y - Dp(20)}, Col(color::border, 0.7f));
+        OverlaySplitDivider(layout, left);
         const ImVec2 lists{layout.min.x + left + gap, layout.min.y};
         BeginOverlayScroll("##main_lists", lists, layout.max);
         ImGui::Dummy({layout.max.x - lists.x, Dp(10)});
@@ -670,6 +731,143 @@ void DrawMain(Frame& frame, const OverlayLayout& layout)
     }
     ImGui::Dummy({width, Dp(10)});
     DrawLists(frame, width);
+    EndOverlayScroll();
+}
+
+// ------------------------------------------------------------------ signed out
+
+// What a player profile brings, as the launcher's welcome says it.
+struct Benefit
+{
+    Icon icon;
+    const char* title;
+    const char* text;
+    const char* tag;
+};
+constexpr Benefit kBenefits[] = {
+    {Icon::Play, "Online in one click",
+     "Skip the Wii's friend codes and setup: your profile is ready in a minute, with Discord or a Mii.", nullptr},
+    {Icon::Chat, "Challenges over the game",
+     "See who is online right here and challenge them, without leaving the game.", nullptr},
+    {Icon::Trophy, "Real sets, fair rules",
+     "Best-of series by competitive rules that both players see before they accept.", nullptr},
+    {Icon::Medal, "Tournaments", "Your next tournament game, opponent and rules, in the Events tab. With Discord.",
+     "Soon"},
+};
+
+// The invitation: play online the easy way, made on the launcher's Player
+// profile page.
+void DrawInvitation(const Frame& frame, float width)
+{
+    const auto& fonts = frame.fonts;
+    auto* draw = ImGui::GetWindowDrawList();
+    const float pad = Dp(20), badge = Dp(52), text_width = width - pad * 2;
+    const char* title = "Play online, the easy way";
+    const char* intro = "Connect Discord, or play with a Mii: no friend codes, no setup.";
+    const char* how = "Make your player profile on the launcher's Player profile page. Your friends and "
+                      "challenges show here from the game's next start.";
+    const auto wrapped = [&](ImFont* font, const char* text, float wrap) {
+        return font->CalcTextSizeA(FontSize(font), FLT_MAX, wrap, text).y;
+    };
+    const float how_width = text_width - Dp(26);
+    const float height = pad + badge + Dp(16) + wrapped(fonts.heading, title, text_width) + Dp(6)
+        + wrapped(fonts.body, intro, text_width) + Dp(16) + Dp(12) + wrapped(fonts.caption, how, how_width) + Dp(12)
+        + pad;
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const ImVec2 end{at.x + width, at.y + height};
+    // A soft accent glow at the top, as the launcher's welcome has it.
+    draw->AddRectFilled(at, end, Col(color::field, 0.85f), Dp(16));
+    draw->AddRectFilledMultiColor({at.x + Dp(1), at.y + Dp(1)}, {end.x - Dp(1), at.y + Dp(110)},
+                                  Col(color::accent, 0.10f), Col(color::accent, 0.10f), Col(color::accent, 0.0f),
+                                  Col(color::accent, 0.0f));
+    draw->AddRect(at, end, Col(color::border, 0.8f), Dp(16));
+    float y = at.y + pad;
+    const ImVec2 icon{at.x + pad + badge * 0.5f, y + badge * 0.5f};
+    draw->AddCircleFilled(icon, badge * 0.5f, Col(color::accent, 0.16f));
+    DrawIcon(draw, Icon::Person, icon, Dp(24), Col(color::accent));
+    y += badge + Dp(16);
+    draw->AddText(fonts.heading, FontSize(fonts.heading), {at.x + pad, y}, Col(color::text), title, nullptr,
+                  text_width);
+    y += wrapped(fonts.heading, title, text_width) + Dp(6);
+    draw->AddText(fonts.body, FontSize(fonts.body), {at.x + pad, y}, Col(color::muted), intro, nullptr, text_width);
+    y += wrapped(fonts.body, intro, text_width) + Dp(16);
+    // Where to make it: a note in the info colour.
+    const float note_h = Dp(12) + wrapped(fonts.caption, how, how_width) + Dp(12);
+    draw->AddRectFilled({at.x + pad, y}, {end.x - pad, y + note_h}, Col(color::info, 0.10f), Dp(10));
+    DrawIcon(draw, Icon::Info, {at.x + pad + Dp(14), y + Dp(12) + FontSize(fonts.caption) * 0.5f}, Dp(14),
+             Col(color::info));
+    draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x + pad + Dp(26), y + Dp(12)}, Col(color::text), how,
+                  nullptr, how_width - Dp(12));
+    ImGui::Dummy({width, height});
+}
+
+// What a profile brings, one row each.
+void DrawBenefits(const Frame& frame, float width)
+{
+    const auto& fonts = frame.fonts;
+    auto* draw = ImGui::GetWindowDrawList();
+    const float pad = Dp(16), badge = Dp(38), text_width = width - pad * 2 - badge - Dp(14);
+    DrawLabel(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(color::dim), "WHAT A PLAYER PROFILE BRINGS");
+    ImGui::Dummy({width, FontSize(fonts.caption) + Dp(8)});
+    for (const Benefit& benefit : kBenefits)
+    {
+        const float text = fonts.body->CalcTextSizeA(FontSize(fonts.body), FLT_MAX, text_width, benefit.text).y;
+        const float height = pad + FontSize(fonts.label) + Dp(6) + text + pad;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const ImVec2 end{at.x + width, at.y + height};
+        const ImVec4 tint = benefit.tag ? color::info : color::accent;
+        draw->AddRectFilled(at, end, Col(color::field, 0.7f), Dp(14));
+        draw->AddRect(at, end, Col(color::border, 0.8f), Dp(14));
+        const ImVec2 icon{at.x + pad + badge * 0.5f, at.y + pad + badge * 0.5f};
+        draw->AddRectFilled({icon.x - badge * 0.5f, icon.y - badge * 0.5f}, {icon.x + badge * 0.5f, icon.y + badge * 0.5f},
+                            Col(tint, 0.14f), Dp(10));
+        DrawIcon(draw, benefit.icon, icon, Dp(19), Col(tint));
+        const float left = at.x + pad + badge + Dp(14);
+        DrawLabel(draw, fonts.label, {left, at.y + pad}, Col(color::text), benefit.title);
+        if (benefit.tag)
+        {
+            const float x = left + TextSize(fonts.label, benefit.title).x + Dp(10);
+            const ImVec2 tag = TextSize(fonts.caption, benefit.tag);
+            const ImVec2 tag_at{x, at.y + pad + (FontSize(fonts.label) - Dp(20)) * 0.5f};
+            draw->AddRectFilled(tag_at, {tag_at.x + tag.x + Dp(16), tag_at.y + Dp(20)}, Col(color::info, 0.16f), Dp(10));
+            DrawLabel(draw, fonts.caption, {tag_at.x + Dp(8), tag_at.y + (Dp(20) - tag.y) * 0.5f}, Col(color::info),
+                      benefit.tag);
+        }
+        draw->AddText(fonts.body, FontSize(fonts.body), {left, at.y + pad + FontSize(fonts.label) + Dp(6)},
+                      Col(color::muted), benefit.text, nullptr, text_width);
+        ImGui::Dummy({width, height});
+        ImGui::Dummy({width, Dp(8)});
+    }
+}
+
+// Without a player profile: the invitation at the left, what a profile
+// brings at the right, split as the main screen; nothing to press (the
+// launcher makes the profile).
+void DrawSignedOut(const Frame& frame, const OverlayLayout& layout)
+{
+    const float width = layout.max.x - layout.min.x;
+    const bool wide = width >= Dp(700);
+    OverlayLayoutIs(wide ? 2 : 1);
+    if (wide)
+    {
+        const float left = OverlaySplitLeft(width);
+        BeginOverlayScroll("##signed_out_you", layout.min, {layout.min.x + left, layout.max.y});
+        ImGui::Dummy({left, Dp(20)});
+        DrawInvitation(frame, left);
+        EndOverlayScroll();
+        OverlaySplitDivider(layout, left);
+        const ImVec2 pane{layout.min.x + left + OverlaySplitGap(), layout.min.y};
+        BeginOverlayScroll("##signed_out_benefits", pane, layout.max);
+        ImGui::Dummy({layout.max.x - pane.x, Dp(20)});
+        DrawBenefits(frame, layout.max.x - pane.x);
+        EndOverlayScroll();
+        return;
+    }
+    BeginOverlayScroll("##signed_out_column", layout.min, layout.max);
+    ImGui::Dummy({width, Dp(18)});
+    DrawInvitation(frame, width);
+    ImGui::Dummy({width, Dp(16)});
+    DrawBenefits(frame, width);
     EndOverlayScroll();
 }
 
@@ -783,7 +981,7 @@ template <typename T> T Next(const std::vector<T>& values, const T& current, int
 
 // A cheat's row: its choices by key, shown by their names.
 void CheatRow(const char* id, const char* label, const std::vector<platform::RuleChoice>& choices,
-              std::string& key, float width)
+              std::string& key, float width, bool interactive)
 {
     std::vector<std::string> keys;
     std::string shown = key;
@@ -792,21 +990,177 @@ void CheatRow(const char* id, const char* label, const std::vector<platform::Rul
         keys.push_back(choice.key);
         if (key == choice.key) shown = choice.label;
     }
-    if (const int step = OverlayChoiceRow(id, label, shown, width)) key = Next(keys, key, step);
+    if (const int step = OverlayChoiceRow(id, label, shown, width, interactive)) key = Next(keys, key, step);
 }
 
-// A challenge's setup: the preset it starts from, all its rules to change for
-// this challenge only, and Send challenge.
+// A radar's ping going out of the box from `min` to `max`: a ring that grows
+// and fades, then a pause; two rings half a period apart while `busy` (the
+// search runs). It draws the eye to the button without moving it.
+void Ping(ImDrawList* draw, ImVec2 min, ImVec2 max, float rounding, bool busy)
+{
+    const double period = busy ? 1.8 : 2.8;
+    const float strength = busy ? 0.45f : 0.28f;
+    for (int ring = 0; ring < (busy ? 2 : 1); ++ring)
+    {
+        // Out over the first 70 % of the period.
+        const float t = float(std::fmod(ImGui::GetTime() / period + 0.5 * ring, 1.0)) / 0.7f;
+        if (t >= 1.0f) continue;
+        const float out = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
+        const float grow = Dp(2) + Dp(16) * out;
+        draw->AddRect({min.x - grow, min.y - grow}, {max.x + grow, max.y + grow},
+                      Col(color::accent, strength * (1.0f - t) * (1.0f - t)), rounding + grow, 0, Dp(1.5f));
+    }
+}
+
+// What the screen draws from the vertex `from` of `draw` on, faded: the
+// rules while a search runs on them.
+void Fade(ImDrawList* draw, int from, float alpha)
+{
+    for (int n = from; n < draw->VtxBuffer.Size; ++n)
+    {
+        ImU32& col = draw->VtxBuffer[n].col;
+        const ImU32 a = ImU32(float((col >> IM_COL32_A_SHIFT) & 0xFF) * alpha);
+        col = (col & ~IM_COL32_A_MASK) | (a << IM_COL32_A_SHIFT);
+    }
+}
+
+// The rules of a challenge or search, all of them to change for this one
+// only: the preset first, the match and the cheats side by side, the
+// gameplay two to a row (one column where the room is too narrow).
+void DrawRules(Frame& frame, platform::MatchRules& rules, float width, bool interactive)
+{
+    const auto& model = frame.model;
+    auto& state = frame.state;
+    const int count = int(model.presets.size());
+    const OnlinePanelPreset& preset = model.presets[std::size_t(state.preset)];
+    const bool two = width >= Dp(720);
+    const float gap = Dp(20), half = two ? (width - gap) * 0.5f : width;
+
+    OverlayRowGroup("PRESET", width, [&] {
+        if (const int step = OverlayChoiceRow("preset", "Start from", preset.name, width, interactive))
+        {
+            state.preset = (state.preset + step + count) % count;
+            rules = model.presets[std::size_t(state.preset)].rules;
+        }
+    });
+    // As the launcher's preset editor has them: Series, Win by, Time or
+    // Goals (the game's own choices, and a rule set's other value besides),
+    // Stadium; then the cheats.
+    const auto segmented = [&](const char* id, const char* label, std::vector<int> values, int& value,
+                               const auto& text) {
+        if (std::find(values.begin(), values.end(), value) == values.end())
+        {
+            values.push_back(value);
+            std::sort(values.begin(), values.end());
+        }
+        std::vector<std::string> options;
+        int selected = 0;
+        for (std::size_t n = 0; n < values.size(); ++n)
+        {
+            options.push_back(text(values[n]));
+            if (values[n] == value) selected = int(n);
+        }
+        const int picked = OverlaySegmentedRow(id, label, options, selected, half, interactive);
+        if (picked >= 0) value = values[std::size_t(picked)];
+    };
+    const auto match = [&] {
+        OverlayRowGroup("MATCH", half, [&] {
+            segmented("games", "Series", {1, 3, 5, 7}, rules.games, [](int n) { return std::to_string(n); });
+            int limit = rules.limit == "goals" ? 1 : 0;
+            const int picked =
+                OverlaySegmentedRow("limit", "Win by", {"Time", "Goals"}, limit, half, interactive);
+            if (picked >= 0) rules.limit = picked == 1 ? "goals" : "time";
+            if (rules.limit == "goals")
+                segmented("goals", "Goals", {3, 4, 5, 6, 7, 8, 9, 10}, rules.goals,
+                          [](int n) { return std::to_string(n); });
+            else
+                segmented("time", "Time", {120, 180, 240, 300}, rules.time, [](int seconds) {
+                    return seconds % 60 == 0 ? std::to_string(seconds / 60) + " min" : GameLength(seconds);
+                });
+            std::vector<std::string> stadiums;
+            std::string stadium = rules.stadium;
+            for (const auto& choice : platform::StadiumChoices())
+            {
+                stadiums.push_back(choice.key);
+                if (rules.stadium == choice.key) stadium = choice.label;
+            }
+            if (const int step = OverlayChoiceRow("stadium", "Stadium", stadium, half, interactive))
+                rules.stadium = Next(stadiums, rules.stadium, step);
+        });
+    };
+    const auto cheats = [&] {
+        OverlayRowGroup("CHEATS", half, [&] {
+            CheatRow("stadium_cheat", "Stadium cheat", platform::StadiumCheatChoices(), rules.stadium_cheat, half,
+                     interactive);
+            CheatRow("player_cheat", "Player cheat", platform::PlayerCheatChoices(), rules.player_cheat, half,
+                     interactive);
+            CheatRow("powerup_cheat", "Power-up cheat", platform::PowerupCheatChoices(), rules.powerup_cheat, half,
+                     interactive);
+        });
+    };
+    if (two)
+    {
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        ImGui::BeginGroup();
+        match();
+        ImGui::EndGroup();
+        const float bottom = ImGui::GetItemRectMax().y;
+        ImGui::SetCursorScreenPos({at.x + half + gap, at.y});
+        ImGui::BeginGroup();
+        cheats();
+        ImGui::EndGroup();
+        ImGui::SetCursorScreenPos({at.x, std::max(bottom, ImGui::GetItemRectMax().y)});
+    }
+    else
+    {
+        match();
+        cheats();
+    }
+    OverlayRowGroup("GAMEPLAY", width, [&] {
+        const auto& tweaks = platform::RuleTweakChoices();
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+        float line_h = 0.0f, bottom = start.y;
+        for (std::size_t n = 0; n < tweaks.size(); ++n)
+        {
+            const auto& tweak = tweaks[n];
+            const std::size_t column = two ? n % 2 : 0, line = two ? n / 2 : n;
+            ImGui::SetCursorScreenPos({start.x + float(column) * (half + gap), start.y + float(line) * line_h});
+            const auto found = std::find(rules.tweaks.begin(), rules.tweaks.end(), tweak.key);
+            const bool on = found != rules.tweaks.end();
+            if (OverlaySwitchRow(tweak.key, tweak.label, on, half, interactive))
+            {
+                if (on) rules.tweaks.erase(found);
+                else
+                {
+                    rules.tweaks.push_back(tweak.key);
+                    std::sort(rules.tweaks.begin(), rules.tweaks.end());
+                }
+            }
+            line_h = ImGui::GetItemRectSize().y;
+            bottom = std::max(bottom, ImGui::GetItemRectMax().y);
+        }
+        ImGui::SetCursorScreenPos({start.x, bottom});
+    });
+}
+
+// A challenge's or a search's setup: its action at the left, which never
+// scrolls away (Send challenge; Find an opponent with a radar's ping, then
+// the search running and Stop), and the rules beside it, to change for this
+// one only. While the search runs its rules stay as they went: greyed, not
+// to be changed.
 void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* row, bool search)
 {
     const auto& model = frame.model;
     auto& state = frame.state;
-    const float width = std::min(layout.max.x - layout.min.x, Dp(640));
-    const float x = layout.min.x + ((layout.max.x - layout.min.x) - width) * 0.5f;
-    BeginOverlayScroll(("##setup_" + frame.screens.Top().key).c_str(), {x, layout.min.y}, {x + width, layout.max.y});
-    ImGui::Dummy({width, Dp(12)});
+    const auto& fonts = frame.fonts;
+    const float total = layout.max.x - layout.min.x;
     if ((!search && !row) || model.presets.empty() || state.setup_for != (search ? kSearchSetup : row->key))
     {
+        const float width = std::min(total, Dp(640));
+        const float x = layout.min.x + (total - width) * 0.5f;
+        BeginOverlayScroll(("##setup_" + frame.screens.Top().key).c_str(), {x, layout.min.y},
+                           {x + width, layout.max.y});
+        ImGui::Dummy({width, Dp(12)});
         Caption(frame, !search && !row ? "Not online any more." : "This server has no rules to play sets by yet.",
                 color::muted, width);
         EndOverlayScroll();
@@ -816,101 +1170,119 @@ void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* 
     state.preset = std::clamp(state.preset, 0, count - 1);
     const OnlinePanelPreset& preset = model.presets[std::size_t(state.preset)];
     auto& rules = state.rules;
+    const bool changed = !(rules == preset.rules);
 
-    OverlayRowGroup("PRESET", width, [&] {
-        if (const int step = OverlayChoiceRow("preset", "Start from", preset.name, width))
+    // A search runs from its request until the server has it (and the panel
+    // shows it) or tells why not.
+    const double now = ImGui::GetTime();
+    if (model.search.active || now - state.search_sent > 10.0) state.search_sent = -100.0;
+    const bool searching = search && (model.search.active || state.search_sent > 0.0);
+
+    // The action's column at the left; the rules beside it, as wide as fits.
+    const float side = std::clamp(total * 0.26f, Dp(210), Dp(280)), gap = Dp(28);
+    const float width = std::min(total - side - gap, Dp(880));
+    const float left = layout.min.x + (total - side - gap - width) * 0.5f;
+    const ImVec2 column{left, layout.min.y + Dp(12) + Dp(38) + Dp(4)};
+    ImGui::SetCursorScreenPos(column);
+    ImGui::BeginGroup();
+    const ImVec2 button{side, Dp(52)};
+    const ImVec2 button_min = ImGui::GetCursorScreenPos();
+    if (search) Ping(ImGui::GetWindowDrawList(), button_min, {button_min.x + button.x, button_min.y + button.y},
+                     std::min(button.y * 0.5f, Dp(10)), searching);
+    const bool can = search ? model.can_search || searching : row->can_challenge;
+    const char* label = !search ? "Send challenge" : searching ? "Stop searching" : "Find an opponent NOW!";
+    // The cursor starts on it; Y (or F) presses it from anywhere on the
+    // screen, as left and right change the rules' values.
+    const bool shortcut = can && !ImGui::GetIO().WantTextInput
+        && (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceUp, false) || ImGui::IsKeyPressed(ImGuiKey_F, false));
+    if (OverlayButton("send", label, !search ? Icon::Trophy : searching ? Icon::Close : Icon::Target, button,
+                      searching ? OverlayLook::Secondary : OverlayLook::Primary, can, true)
+        || shortcut)
+    {
+        if (searching)
         {
-            state.preset = (state.preset + step + count) % count;
-            rules = model.presets[std::size_t(state.preset)].rules;
-        }
-    });
-    OverlayRowGroup("THE MATCH", width, [&] {
-        if (const int step = OverlayChoiceRow("games", "Series",
-                                       rules.games == 1 ? std::string("One game") : "Best of " + std::to_string(rules.games),
-                                       width))
-            rules.games = Next(std::vector<int>{1, 3, 5, 7}, rules.games, step);
-        if (OverlayChoiceRow("limit", "A game ends", rules.limit == "goals" ? "On goals" : "On time", width))
-            rules.limit = rules.limit == "goals" ? "time" : "goals";
-        if (rules.limit == "goals")
-        {
-            if (const int step = OverlayChoiceRow("goals", "Goals to win", std::to_string(rules.goals), width))
-                rules.goals = Next(std::vector<int>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, rules.goals, step);
+            frame.actions.stop_search = true;
+            state.search_sent = -100.0;
         }
         else
         {
-            std::vector<int> lengths{60, 120, 180, 240, 300};
-            if (std::find(lengths.begin(), lengths.end(), rules.time) == lengths.end())
+            // Send, by the server's rule set itself while nothing changed
+            // (servers before 1.2.3 take only theirs).
+            OnlinePanelChallenge challenge;
+            challenge.player = search ? 0 : row->player_id;
+            challenge.name = preset.name;
+            if (changed && preset.name.size() + 10 <= 48) challenge.name += " (changed)";
+            challenge.rules = rules;
+            challenge.rule_set = changed ? 0 : preset.rule_set;
+            frame.actions.set_challenge_rules = preset.name;
+            if (search)
             {
-                lengths.push_back(rules.time);
-                std::sort(lengths.begin(), lengths.end());
+                // The search shows here, the rules kept as they went.
+                frame.actions.search = challenge;
+                state.search_sent = now;
             }
-            if (const int step = OverlayChoiceRow("time", "Game length", GameLength(rules.time), width))
-                rules.time = Next(lengths, rules.time, step);
-        }
-        std::vector<std::string> stadiums;
-        std::string stadium = rules.stadium;
-        for (const auto& choice : platform::StadiumChoices())
-        {
-            stadiums.push_back(choice.key);
-            if (rules.stadium == choice.key) stadium = choice.label;
-        }
-        if (const int step = OverlayChoiceRow("stadium", "Stadium", stadium, width))
-            rules.stadium = Next(stadiums, rules.stadium, step);
-    });
-    OverlayRowGroup("CHEATS", width, [&] {
-        CheatRow("stadium_cheat", "Stadium", platform::StadiumCheatChoices(), rules.stadium_cheat, width);
-        CheatRow("player_cheat", "Players", platform::PlayerCheatChoices(), rules.player_cheat, width);
-        CheatRow("powerup_cheat", "Power-ups", platform::PowerupCheatChoices(), rules.powerup_cheat, width);
-    });
-    OverlayRowGroup("GAMEPLAY", width, [&] {
-        for (const auto& tweak : platform::RuleTweakChoices())
-        {
-            const auto found = std::find(rules.tweaks.begin(), rules.tweaks.end(), tweak.key);
-            const bool on = found != rules.tweaks.end();
-            if (OverlaySwitchRow(tweak.key, tweak.label, on, width))
+            else
             {
-                if (on) rules.tweaks.erase(found);
-                else
-                {
-                    rules.tweaks.push_back(tweak.key);
-                    std::sort(rules.tweaks.begin(), rules.tweaks.end());
-                }
+                frame.actions.challenge = challenge;
+                while (!frame.screens.Empty() && frame.screens.Top().id != int(OnlinePanelScreen::Main)
+                       && frame.screens.Pop()) {}
+                ImGui::EndGroup();
+                return;
             }
         }
-    });
-
-    // Send, by the server's rule set itself while nothing changed (servers
-    // before 1.2.3 take only theirs).
-    ImGui::Dummy({width, Dp(18)});
-    const bool changed = !(rules == preset.rules);
-    const float button_w = std::min(Dp(260), width);
-    ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x + width - button_w, ImGui::GetCursorScreenPos().y});
-    const bool can = search ? model.can_search : row->can_challenge;
-    if (OverlayButton("send", search ? "Find an opponent" : "Send challenge", search ? Icon::Target : Icon::Trophy,
-                      {button_w, Dp(46)}, OverlayLook::Primary, can))
-    {
-        OnlinePanelChallenge challenge;
-        challenge.player = search ? 0 : row->player_id;
-        challenge.name = preset.name;
-        if (changed && preset.name.size() + 10 <= 48) challenge.name += " (changed)";
-        challenge.rules = rules;
-        challenge.rule_set = changed ? 0 : preset.rule_set;
-        if (search) frame.actions.search = challenge;
-        else frame.actions.challenge = challenge;
-        frame.actions.set_challenge_rules = preset.name;
-        while (!frame.screens.Empty() && frame.screens.Top().id != int(OnlinePanelScreen::Main)
-               && frame.screens.Pop()) {}
     }
-    ImGui::Dummy({width, Dp(10)});
-    const std::string kept = changed ? "Changed for this one only: the preset stays as it is. " : "";
-    if (search)
+    {
+        // Its keys hang from its lower edge at the right.
+        auto* draw = ImGui::GetWindowDrawList();
+        const float caps = OverlayKeyCapWidth("Y") + Dp(4) + OverlayKeyCapWidth("F");
+        float x = button_min.x + button.x - Dp(12) - caps;
+        const float y = button_min.y + button.y - Dp(11);
+        for (const char* key : {"Y", "F"})
+        {
+            OverlayKeyCap(draw, {x, y}, key);
+            x += OverlayKeyCapWidth(key) + Dp(4);
+        }
+        ImGui::Dummy({side, Dp(11)});
+    }
+    ImGui::Dummy({side, Dp(12)});
+    if (searching)
+    {
+        DrawLabel(ImGui::GetWindowDrawList(), fonts.label, ImGui::GetCursorScreenPos(), Col(color::accent),
+                  "Searching for an opponent");
+        ImGui::Dummy({side, FontSize(fonts.label) + Dp(4)});
+        const int seconds = model.search.seconds;
+        const int asked = model.search.asked;
         Caption(frame,
-                kept + "Players open to challenges get these rules, one after the other; the first who accepts "
-                       "plays you. Your card shows the search, with Stop.",
-                color::muted, width);
-    else if (!row->can_challenge && !row->blocked.empty())
-        Caption(frame, row->blocked + ": no challenge now.", color::warning, width);
-    else Caption(frame, kept + row->name + " sees the rules before accepting.", color::muted, width);
+                std::to_string(seconds / 60) + (seconds % 60 < 10 ? ":0" : ":") + std::to_string(seconds % 60)
+                    + "  ·  "
+                    + (asked == 0 ? std::string("nobody asked yet")
+                                  : std::to_string(asked) + (asked == 1 ? " player asked" : " players asked")),
+                color::text, side);
+        ImGui::Dummy({side, Dp(8)});
+        Caption(frame, "The rules stay as they went until you stop.", color::muted, side);
+    }
+    else
+    {
+        const std::string kept = changed ? "Changed for this one only: the preset stays as it is. " : "";
+        if (search)
+            Caption(frame,
+                    kept + "Players open to challenges get these rules, one after the other; the first who accepts "
+                           "plays you.",
+                    color::muted, side);
+        else if (!row->can_challenge && !row->blocked.empty())
+            Caption(frame, row->blocked + ": no challenge now.", color::warning, side);
+        else Caption(frame, kept + row->name + " sees the rules before accepting.", color::muted, side);
+    }
+    ImGui::EndGroup();
+
+    const ImVec2 rules_min{left + side + gap, layout.min.y};
+    BeginOverlayScroll(("##setup_" + frame.screens.Top().key).c_str(), rules_min,
+                       {rules_min.x + width, layout.max.y});
+    ImGui::Dummy({width, Dp(12)});
+    auto* draw = ImGui::GetWindowDrawList();
+    const int from = draw->VtxBuffer.Size;
+    DrawRules(frame, rules, width, !searching);
+    if (searching) Fade(draw, from, 0.4f);
     ImGui::Dummy({width, Dp(16)});
     EndOverlayScroll();
 }
@@ -943,7 +1315,8 @@ void DrawOnlinePanel(const OnlinePanelModel& model, OverlayScreens& screens, Onl
 {
     if (screens.Empty()) return;
     Frame frame{model, images, screens, state, actions, launcher::CurrentFonts()};
-    if (screens.Top().id == int(OnlinePanelScreen::Player))
+    if (model.signed_out) DrawSignedOut(frame, layout);
+    else if (screens.Top().id == int(OnlinePanelScreen::Player))
         DrawPlayer(frame, layout, FindRow(model, screens.Top().key));
     else if (screens.Top().id == int(OnlinePanelScreen::Setup))
         DrawSetup(frame, layout, FindRow(model, screens.Top().key), screens.Top().key == kSearchSetup);

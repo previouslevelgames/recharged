@@ -66,10 +66,22 @@ void OnlinePanelFeed::SetOpen(bool open)
     wake_.notify_all();
 }
 
-void OnlinePanelFeed::SetActivity(std::string activity)
+void OnlinePanelFeed::WantLeaderboard(bool want)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (want == want_leaderboard_) return;
+        want_leaderboard_ = want;
+        if (want) due_ = true;
+    }
+    if (want) wake_.notify_all();
+}
+
+void OnlinePanelFeed::SetActivity(std::string activity, std::string match_kind)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     activity_ = std::move(activity);
+    match_kind_ = std::move(match_kind);
 }
 
 OnlinePanelFeed::Snapshot OnlinePanelFeed::Latest()
@@ -186,12 +198,12 @@ void OnlinePanelFeed::Run()
         if (!fetch) continue; // closed while it waited
         auto cancel = std::make_shared<HttpCancel>();
         cancel_ = cancel;
-        const std::string activity = activity_;
+        const std::string activity = activity_, match_kind = match_kind_;
         lock.unlock();
 
         ProfileService api(server_, token_);
         api.SetCancel(cancel);
-        api.SetActivity(activity);
+        api.SetActivity(activity, match_kind);
         std::optional<std::string> notice;
         for (auto& pending : actions)
         {
@@ -235,6 +247,7 @@ void OnlinePanelFeed::Fetch(ProfileService& api)
 {
     Snapshot fresh;
     fresh.me = api.Me();
+    bool leaderboard = false;
     {
         // The rule sets and the server's version change rarely: once. The
         // Discord friends stay as they were if the server can't say now.
@@ -242,6 +255,10 @@ void OnlinePanelFeed::Fetch(ProfileService& api)
         fresh.rule_sets = snapshot_.rule_sets;
         fresh.server_version = snapshot_.server_version;
         fresh.discord_friends = snapshot_.discord_friends;
+        fresh.leaderboard = snapshot_.leaderboard;
+        fresh.leaderboard_missing = snapshot_.leaderboard_missing;
+        fresh.leaderboard_fetched = snapshot_.leaderboard_fetched;
+        leaderboard = want_leaderboard_;
     }
     fresh.lists = api.Players();
     FetchDiscordFriends(api, fresh.discord_friends);
@@ -249,6 +266,23 @@ void OnlinePanelFeed::Fetch(ProfileService& api)
     fresh.fetched = std::chrono::steady_clock::now();
     if (fresh.rule_sets.empty()) fresh.rule_sets = api.RuleSets();
     if (fresh.server_version.empty()) fresh.server_version = api.Info().version;
+    // The leaderboards change with the RANKED games played: once a minute.
+    const auto now = std::chrono::steady_clock::now();
+    if (leaderboard && !fresh.leaderboard_missing
+        && (!fresh.leaderboard || now - fresh.leaderboard_fetched >= std::chrono::minutes(1)))
+    {
+        try
+        {
+            fresh.leaderboard = api.RankedLeaderboard();
+            fresh.leaderboard_fetched = now;
+        }
+        catch (const ProfileError& e)
+        {
+            // A server before 1.2.1 has none.
+            if (e.Status() != 404) throw;
+            fresh.leaderboard_missing = true;
+        }
+    }
     fresh.loaded = true;
     std::lock_guard<std::mutex> lock(mutex_);
     fresh.version = snapshot_.version + 1;

@@ -36,12 +36,18 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
 {
     auto& io = ImGui::GetIO();
     io.Fonts->Clear();
-    // Latin-1 plus the typographic punctuation and arrows used by the launcher.
+    // Latin-1 plus the typographic punctuation and arrows used by the
+    // launcher, and all the font has for players' names: Latin Extended,
+    // Greek, Cyrillic, the general punctuation, currency and letterlike
+    // symbols (™).
     static ImVector<ImWchar> ranges;
     if (ranges.empty())
     {
+        static const ImWchar kNames[] = {0x0100, 0x024F, 0x0370, 0x03FF, 0x0400, 0x052F, 0x2000, 0x206F,
+                                         0x20A0, 0x20CF, 0x2100, 0x214F, 0};
         ImFontGlyphRangesBuilder builder;
         builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
+        builder.AddRanges(kNames);
         builder.AddText("\xE2\x80\x93\xE2\x80\x94\xE2\x80\xA2\xE2\x80\xA6\xE2\x86\x90\xE2\x86\x91\xE2\x86\x92"
                         "\xE2\x86\x93\xE2\x88\x92\xE2\x80\x98\xE2\x80\x99\xE2\x80\x9C\xE2\x80\x9D");
         builder.BuildRanges(&ranges);
@@ -361,6 +367,16 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddCircleFilled(p(-0.14f, 0.20f), 0.105f * s, color);
         break;
     }
+    case Icon::Lock:
+        // A padlock (rules that stay as they are): the shackle over its body.
+        draw->PathArcTo(p(0.0f, -0.10f), 0.20f * s, IM_PI, 2.0f * IM_PI, 12);
+        draw->PathLineTo(p(0.20f, 0.02f));
+        draw->PathStroke(color, 0, t);
+        draw->PathLineTo(p(-0.20f, 0.02f));
+        draw->PathLineTo(p(-0.20f, -0.10f));
+        draw->PathStroke(color, 0, t);
+        draw->AddRectFilled(p(-0.34f, 0.0f), p(0.34f, 0.44f), color, 0.08f * s);
+        break;
     case Icon::Dice:
         draw->AddRect(p(-0.40f, -0.40f), p(0.40f, 0.40f), color, 0.14f * s, 0, t);
         draw->AddCircleFilled(p(-0.18f, -0.18f), 0.07f * s, color);

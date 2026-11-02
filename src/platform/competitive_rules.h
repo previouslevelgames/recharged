@@ -48,13 +48,17 @@ struct ChargedWfcSnapshot
     int local_side;
     // A set's game passes its menus unseen (tweak patch 0048): the host holds
     // the players' buttons meanwhile, so nobody steps into a screen they
-    // cannot see.
+    // cannot see. The ranked walk too.
     int set_unseen;
+    // The ranked walk (charged_start_ranked): where it is (ChargedSetStage,
+    // from BOOT to LOGIN; NONE once the RANKED search began or without one).
+    int ranked_stage;
 };
 
 // How far a set's game got: booting (title, main menu), choosing the Mii and
 // logging in, searching RANKED for the opponent, playing; over (back from the
-// game) or failed (a popup that is not harmless; set_popup says which).
+// game), failed (a popup that is not harmless; set_popup says which) or left
+// (the player's Back left the search).
 enum ChargedSetStage
 {
     CHARGED_SET_NONE,
@@ -66,6 +70,7 @@ enum ChargedSetStage
     CHARGED_SET_PLAYING,
     CHARGED_SET_OVER,
     CHARGED_SET_FAILED,
+    CHARGED_SET_LEFT,
 };
 
 #ifdef __cplusplus
@@ -78,6 +83,16 @@ typedef bool (*ChargedConfigureCompetitiveStartFunction)(const unsigned char* mi
 // Game module entry, between frames: the set is done and the host has
 // finished with it; the game's popups and menus are the player's again.
 typedef void (*ChargedCompetitiveEndSetFunction)(void);
+// Game module entry, between frames: the Recharged Game Menu's Play RANKED.
+// The game goes by itself into a retail RANKED search against anybody, as
+// a set's game does into its set's: from the title, the main menu or the
+// online menu, whichever comes up next. `mii` is the Mii that plays (its
+// 8-byte create ID), or null for the player to choose it on the online Mii
+// menu. False while a set's game starts, or for another `size`.
+typedef bool (*ChargedStartRankedFunction)(const unsigned char* mii, unsigned size);
+// Game module entry, between frames: the ranked walk stops where it is; the
+// screens are the player's again.
+typedef void (*ChargedStopRankedFunction)(void);
 // Game module entry, between frames: the set's players' profile names
 // (UTF-16, ScreenName) for its RANKED screens, this player's and the
 // opponent's (null or empty: the Mii name stays); both null: none.
@@ -124,7 +139,7 @@ const std::vector<RuleChoice>& StadiumCheatChoices();
 const std::vector<RuleChoice>& PlayerCheatChoices();
 const std::vector<RuleChoice>& PowerupCheatChoices();
 // The tweaks a set's rules may switch on (fast_terrain, no_mega_strikes,
-// thunder_island_walls), with their names.
+// thunder_island_walls, mirror_match), with their names.
 const std::vector<RuleChoice>& RuleTweakChoices();
 // The server's names (lowercase, '_' between words): eTeamID and eStadiumID,
 // empty for unknown values.

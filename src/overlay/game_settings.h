@@ -10,22 +10,27 @@
 
 // The overlay's Settings tab (game_overlay.h): the display and sound settings
 // that change at once while the game runs, in sections (Display, Sound,
-// Advanced) of a small menu at the left. The first screen shows the chosen
-// section beside the menu; A (or a click) opens it, B goes back to the menu.
-// The host saves each change (recharged.ini) and applies it. Settings that
-// need the game started again stay in the launcher, and so do the controls.
+// Advanced) of a menu at the left, split as the other tabs. One section is
+// always shown, the first at the start: the cursor on a menu item shows its
+// section, whose rows are beside it; B closes the overlay. The host applies
+// each change and saves it (recharged.ini). Settings that need the game
+// started again stay in the launcher, and so do the controls.
 namespace mscharged::overlay
 {
 struct GameSettingsModel
 {
     bool fullscreen = false;
-    // The picture's shape: its choices' names (keep its shape, stretch to
-    // fill, the wider view when set up) and the one used.
+    // The picture's shape: its choices' short names, as the launcher's (16:9
+    // or 4:3, Stretch, the wider view when set up), the one used, and what
+    // they do.
     std::vector<std::string> pictures;
     int picture = 0;
-    // The 3D resolution: its choices' names and the one used.
+    std::string picture_about;
+    // The 3D resolution: its choices' short names (Full, Native, 2x...), the
+    // one used, and what they draw at.
     std::vector<std::string> resolutions;
     int resolution = 0;
+    std::string resolution_about;
     bool performance_numbers = false; // FPS, GPU and CPU over the picture
     int master_volume = 100;          // 0-100 %
     bool mute = false;
@@ -49,25 +54,28 @@ enum class GameSetting
 };
 
 // A setting changed in the tab; switches carry their new state in `value` (0 or 1).
+// `live`: a slider being dragged: applied now, saved once it is let go.
 struct GameSettingChange
 {
     GameSetting setting;
     int value = 0;
     int group = 0;
+    bool live = false;
 };
 
-// The tab's screens (OverlayScreens::Screen::id): the menu, and a section
-// opened from it (Screen::key: its name).
+// The tab's screen (OverlayScreens::Screen::id): the menu with its section.
 enum class GameSettingsScreen
 {
     Menu = 0,
-    Section = 1,
 };
 
-// What the tab keeps between frames: the section the menu shows.
+// What the tab keeps between frames: the section shown, and whether the
+// cursor was on the menu (coming from the section it lands on that one).
 struct GameSettingsState
 {
     int section = 0; // Display, Sound, Advanced
+    bool menu_focused = false;
+    bool enter_section = false; // right on its menu item: the cursor goes to its first row
 };
 
 OverlayScreens::Screen GameSettingsFirstScreen();

@@ -22,6 +22,10 @@
 // search and draft screen show their profile names instead
 // (charged_configure_display_names, tweak patch 0050), made to fit the row;
 // nothing sent changes.
+//
+// A set whose rules have Mirror match lets both players draft one captain
+// (tweak patch 0052), and its games dress the away team as the offline tweak
+// does: game_tweaks.cpp counts the tweak as on for them.
 #if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE)
 #error Competitive play belongs to the isolated original game module
 #endif
@@ -43,6 +47,7 @@
 #include "NL/nlString.h"
 #include "NL/platvmath.h"
 #include "mscharged_competitive.h"
+#include "mscharged_tweaks.h"
 
 #include <RVLFaceLib/RFL_Database.h>
 #include <dwc/dwc_login.h>
@@ -52,6 +57,8 @@
 #include <cstdio>
 #include <cstring>
 #include <iterator>
+
+extern "C" void mscharged_tweak_set_end(void);
 
 namespace
 {
@@ -75,6 +82,10 @@ bool sStartedInGame = false;
 // The set ended while its game still searched RANKED: the search screen leaves
 // the search (tweak patch 0049), and nobody is met until it has.
 bool sLeaveSearch = false;
+// The walk is the Recharged Game Menu's Play RANKED (charged_start_ranked),
+// not a set's: it ends where the retail RANKED search begins, against
+// anybody, and a popup it doesn't know is the player's to answer.
+bool sRankedWalk = false;
 
 // [advanced] log_level = debug: the DWC reports that go to the log: its
 // information, errors and warnings, the login, matchmaking (NAT negotiation,
@@ -85,6 +96,17 @@ constexpr u32 kDwcReport = 0x1 | 0x2 | 0x8 | 0x20 | 0x40 | 0x80 | 0x200 | 0x400 
 u32 sDwcReport = 0;
 
 bool OnSet() { return sSetStage != CHARGED_SET_NONE; }
+
+// The ranked walk is done (the search began) or stopped: the screens and the
+// title are the player's again.
+void EndRankedWalk()
+{
+    sRankedWalk = false;
+    sSetStage = CHARGED_SET_NONE;
+    sPlayerChoosesMii = false;
+    sStartedInGame = false;
+    mscharged_tweak_set_end();
+}
 
 // The walk drives the screens unseen: once the main menu went online, or from
 // the start in a game the launcher started for the set, until the search.
@@ -140,6 +162,24 @@ bool AgainstOpponent()
 }
 
 bool Applies() { return sPending && RankedOnline() && AgainstOpponent(); }
+
+// This machine's side in the online match: 0 home, 1 away; -1 while the
+// sides are not set (the draft resets them). StartNetworkedGame gives each
+// machine's players a side by their network player id (machine * 4 +
+// player): this machine's first player's. The main menu's Online sets only
+// mIsOnlineMode, so the mode stays -1 after a fresh start until
+// InitializeOnlineMatch: no game info to read yet.
+short LocalSide()
+{
+    const GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
+    if (!info || !info->mIsOnlineMode || !g_pNetworkSession || g_pNetworkSession->mLocalMachineId < 0
+        || g_pNetworkSession->mLocalMachineId >= 4 || info->mCurrentMode < 0
+        || info->mCurrentMode >= GameInfoManager::GM_NUM_MODES || !info->mGameInfo[info->mCurrentMode])
+        return -1;
+    const auto player = GetNetworkPlayerId(0, s8(g_pNetworkSession->mLocalMachineId));
+    const short side = info->GetPlayingSide((unsigned short)player);
+    return side == 0 || side == 1 ? side : -1;
+}
 
 // The set's players by their profile names (charged_configure_display_names):
 // this player's (0) and the opponent's (1), empty for none. A new pair gets a
@@ -356,25 +396,13 @@ extern "C" __attribute__((visibility("default"))) bool charged_wfc_snapshot(Char
             !manager || !manager->IsOnStack(SCENE_ONLINE_MATCHMAKING_DRAFT))
             sLeaveSearch = false;
     s.competitive = sActive;
-    s.set_stage = sSetStage;
+    s.set_stage = sRankedWalk ? CHARGED_SET_NONE : sSetStage;
+    s.ranked_stage = sRankedWalk ? sSetStage : CHARGED_SET_NONE;
     s.set_popup = sSetPopup;
     s.set_unseen = Unseen() ? 1 : 0;
     s.competitive_setups = sSetups;
     s.competitive_games = sActive ? sMatch.games : 0;
-    // StartNetworkedGame gives each machine's players a side by their network
-    // player id (machine * 4 + player): this machine's first player's. The
-    // main menu's Online sets only mIsOnlineMode, so the mode stays -1 after
-    // a fresh start until InitializeOnlineMatch: no game info to read yet.
-    s.local_side = -1;
-    const GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
-    if (info && info->mIsOnlineMode && g_pNetworkSession && g_pNetworkSession->mLocalMachineId >= 0
-        && g_pNetworkSession->mLocalMachineId < 4 && info->mCurrentMode >= 0
-        && info->mCurrentMode < GameInfoManager::GM_NUM_MODES && info->mGameInfo[info->mCurrentMode])
-    {
-        const auto player = GetNetworkPlayerId(0, s8(g_pNetworkSession->mLocalMachineId));
-        const short side = info->GetPlayingSide((unsigned short)player);
-        if (side == 0 || side == 1) s.local_side = side;
-    }
+    s.local_side = LocalSide();
     *snapshot = s;
     return true;
 }
@@ -389,6 +417,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
 {
     if (!mii || size != sizeof sSetMii) return false;
     std::memcpy(&sSetMii, mii, sizeof sSetMii);
+    sRankedWalk = false;
     sSetStage = CHARGED_SET_BOOT;
     sSetPopup = -1;
     sPlayerChoosesMii = false;
@@ -396,6 +425,30 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
     sLeaveSearch = false;
     mscharged_tweak_set_start();
     return true;
+}
+
+// Host entry, between frames: the Recharged Game Menu's Play RANKED. The set's
+// walk without a set: the game goes by itself into the retail RANKED search
+// for one player, against anybody, with `mii` (null: the player chooses it).
+extern "C" __attribute__((visibility("default"))) bool charged_start_ranked(const unsigned char* mii, unsigned size)
+{
+    if (OnSet() && !sRankedWalk) return false; // a set's game is on its way
+    if (mii && size != sizeof sSetMii) return false;
+    if (mii) std::memcpy(&sSetMii, mii, sizeof sSetMii);
+    else std::memset(&sSetMii, 0, sizeof sSetMii);
+    sRankedWalk = true;
+    sSetStage = CHARGED_SET_BOOT;
+    sSetPopup = -1;
+    sPlayerChoosesMii = false;
+    sStartedInGame = GameSceneManager::Instance() != nullptr;
+    sLeaveSearch = false;
+    mscharged_tweak_set_start();
+    return true;
+}
+
+extern "C" __attribute__((visibility("default"))) void charged_stop_ranked(void)
+{
+    if (sRankedWalk) EndRankedWalk();
 }
 
 // Host entry, at log level debug: DWC's reports go to the log.
@@ -525,6 +578,15 @@ extern "C" bool mscharged_competitive_leave_search(void)
     return true;
 }
 
+extern "C" void mscharged_competitive_search_back(void)
+{
+    // A set's search the player left: the host withdraws the player's Ready
+    // to play! at once, and the opponent's game leaves the set.
+    if (sRankedWalk || sSetStage != CHARGED_SET_SEARCH) return;
+    sSetStage = CHARGED_SET_LEFT;
+    std::fputs("Competitive: the player left the set's search\n", stderr);
+}
+
 extern "C" bool mscharged_competitive_take_main_menu(void)
 {
     if (sSetStage != CHARGED_SET_BOOT || PopupOnTop()) return false;
@@ -543,9 +605,11 @@ extern "C" int mscharged_competitive_mii_position(const int* official_indices, i
                 sSetStage = CHARGED_SET_OVERLAY;
                 return position;
             }
-    // Not on this computer (a game the launcher did not start for the set):
-    // the player chooses the Mii, and the login still goes on into RANKED.
-    std::fputs("Competitive: the set's Mii is not in the Mii database; the player chooses one\n", stderr);
+    // Not on this computer (a game the launcher did not start for the set),
+    // or Play RANKED without one: the player chooses the Mii, and the login
+    // still goes on into RANKED.
+    if (sRankedWalk) std::fputs("Ranked: the player chooses the Mii\n", stderr);
+    else std::fputs("Competitive: the set's Mii is not in the Mii database; the player chooses one\n", stderr);
     sSetStage = CHARGED_SET_LOGIN;
     sPlayerChoosesMii = true;
     return -1;
@@ -582,7 +646,9 @@ extern "C" bool mscharged_competitive_ranked_waits(void)
 extern "C" bool mscharged_competitive_take_ranked(void)
 {
     if (sSetStage != CHARGED_SET_LOGIN) return false;
-    sSetStage = CHARGED_SET_SEARCH;
+    // The ranked walk ends where the retail search begins.
+    if (sRankedWalk) EndRankedWalk();
+    else sSetStage = CHARGED_SET_SEARCH;
     return true;
 }
 
@@ -591,7 +657,8 @@ extern "C" bool mscharged_competitive_take_ranked(void)
 extern "C" bool mscharged_competitive_take_online_menu(void)
 {
     if (sSetStage != CHARGED_SET_BOOT || PopupOnTop()) return false;
-    sSetStage = CHARGED_SET_SEARCH;
+    if (sRankedWalk) EndRankedWalk();
+    else sSetStage = CHARGED_SET_SEARCH;
     return true;
 }
 
@@ -607,11 +674,12 @@ extern "C" int mscharged_competitive_connection(unsigned first, unsigned second)
 
 extern "C" int mscharged_competitive_popup(int type)
 {
-    // Only while the walk drives the screens: not once the set is over or
-    // failed, not while the player chooses the Mii, and in a running game not
+    // Only while the walk drives the screens: not once the set is over,
+    // failed or left, not while the player chooses the Mii, and in a running game not
     // before the walk took the main menu. Never a popup that deletes what the
     // player keeps (the Mii's online profile, a friend).
-    if (!OnSet() || sSetStage == CHARGED_SET_OVER || sSetStage == CHARGED_SET_FAILED || sPlayerChoosesMii
+    if (!OnSet() || sSetStage == CHARGED_SET_OVER || sSetStage == CHARGED_SET_FAILED || sSetStage == CHARGED_SET_LEFT
+        || sPlayerChoosesMii
         || (sSetStage == CHARGED_SET_BOOT && sStartedInGame) || type == POPUP_PROFILE_UNLINK_WARNING
         || type == POPUP_NETWORK_DELETE_FRIEND)
         return -1;
@@ -622,6 +690,13 @@ extern "C" int mscharged_competitive_popup(int type)
     case POPUP_ONLINE_NO_COPY:               // the online save is new
         return 0;
     default:
+        // Play RANKED: the walk stops, and the player answers.
+        if (sRankedWalk)
+        {
+            std::fprintf(stderr, "Ranked: popup %d stops the walk to RANKED\n", type);
+            EndRankedWalk();
+            return -1;
+        }
         std::fprintf(stderr, "Competitive: popup %d ended the set\n", type);
         sSetPopup = type;
         sSetStage = CHARGED_SET_FAILED;
@@ -685,6 +760,39 @@ extern "C" const MschargedCompetitiveSettings* mscharged_competitive_begin(void)
 extern "C" bool mscharged_competitive_tweak(int tweak)
 {
     return sActive && tweak >= 0 && tweak < 32 && ((sMatch.tweaks >> tweak) & 1u);
+}
+
+// The set's rules have Mirror match and this RANKED match's draft is against
+// the set's opponent: the captain the other player picked stays available.
+// The host's rules, as the match is not set up yet.
+extern "C" bool mscharged_competitive_draft_mirror(void)
+{
+    return Applies() && ((sRules.tweaks >> MSCHARGED_TWEAK_MIRROR_MATCH) & 1u);
+}
+
+// Mirror match for the tweak's hooks (game_tweaks.cpp): from the set's draft
+// (both teams may then have one captain) through the screens after its
+// match, which keeps the rules it started with. Only in RANKED: once the
+// game leaves online play, Mirror match is the player's own setting again.
+extern "C" bool mscharged_competitive_mirror_match(void)
+{
+    if (!RankedOnline()) return false;
+    return mscharged_competitive_draft_mirror()
+        || (sActive && ((sMatch.tweaks >> MSCHARGED_TWEAK_MIRROR_MATCH) & 1u));
+}
+
+// The side whose team wears the away kit in a mirror match (tweak patch
+// 0053). Offline, one screen shows both teams: the away team's. In a set's
+// mirror match each player sees their own team in its usual kit (the
+// players' choice, 2026-11-02): from the match's start the opponent's side.
+// In the draft, whose screens show this player's team on side 0, side 1.
+extern "C" int mscharged_competitive_mirror_dressed_side(void)
+{
+    if (!mscharged_competitive_mirror_match()) return 1;
+    const NetworkDraft* draft = NetworkDraft::Instance();
+    if (draft && draft->mState >= NET_DRAFT_CAPTAINS && draft->mState <= NET_DRAFT_FINAL_COUNTDOWN) return 1;
+    const short side = LocalSide();
+    return side == 0 || side == 1 ? 1 - side : 1;
 }
 
 extern "C" bool mscharged_competitive_cheats(int* stadium, int* player, int* powerup)

@@ -251,16 +251,14 @@ void DrawGameOptions(const GameOptionsModel& model, GameOptionsState& state, Ove
     if (wide)
     {
         // The list at the left, the option the cursor is on described at the right.
-        const float list = std::clamp(width * 0.48f, Dp(320), Dp(460)), gap = Dp(32);
+        const float list = OverlaySplitLeft(width), gap = OverlaySplitGap();
         BeginOverlayScroll("##options_list", layout.min, {layout.min.x + list, layout.max.y});
         ImGui::Dummy({list, Dp(20)});
         DrawNotes(model, list);
         ImGui::Dummy({list, Dp(6)});
         DrawList(model, state, list, false, change);
         EndOverlayScroll();
-        const float divider = layout.min.x + list + gap * 0.5f;
-        ImGui::GetWindowDrawList()->AddRectFilled({divider, layout.min.y + Dp(20)},
-                                                  {divider + Dp(1), layout.max.y - Dp(20)}, Col(color::border, 0.7f));
+        OverlaySplitDivider(layout, list);
         const ImVec2 pane{layout.min.x + list + gap, layout.min.y};
         BeginOverlayScroll("##options_about", pane, layout.max);
         ImGui::Dummy({layout.max.x - pane.x, Dp(20)});

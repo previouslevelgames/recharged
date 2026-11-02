@@ -3,6 +3,9 @@
 #include "launcher/ui_kit.h"
 
 #include <algorithm>
+#include <cfloat>
+#include <cmath>
+#include <string>
 
 namespace mscharged::overlay
 {
@@ -21,18 +24,20 @@ constexpr float kRowHeight = 46.0f;
 // The row's control: a button the whole row, reached by the keyboard and the
 // gamepad, lit as the mouse or the cursor comes; or, not interactive, room
 // for it. Whether it was pressed, its id, whether it has the cursor and how lit.
-bool RowControl(const char* id, ImVec2 at, float width, bool interactive, ImGuiID& item, bool& focused, float& hover)
+bool RowControl(const char* id, ImVec2 at, float width, bool interactive, ImGuiID& item, bool& focused, float& hover,
+                float height = 0.0f)
 {
     item = 0;
     focused = false;
     hover = 0.0f;
+    if (height <= 0.0f) height = Dp(kRowHeight);
     if (!interactive)
     {
-        ImGui::Dummy({width, Dp(kRowHeight)});
+        ImGui::Dummy({width, height});
         return false;
     }
     ImGui::PushID(id);
-    const bool pressed = ImGui::InvisibleButton("##row", {width, Dp(kRowHeight)}, ImGuiButtonFlags_EnableNav);
+    const bool pressed = ImGui::InvisibleButton("##row", {width, height}, ImGuiButtonFlags_EnableNav);
     item = ImGui::GetItemID();
     const bool hovered = ImGui::IsItemHovered();
     focused = OverlayNavFocused();
@@ -40,9 +45,32 @@ bool RowControl(const char* id, ImVec2 at, float width, bool interactive, ImGuiI
     hover = launcher::Animate(ImGui::GetID("##hover"), hovered || focused, 12.0f);
     ImGui::PopID();
     auto* draw = ImGui::GetWindowDrawList();
-    if (hover > 0.01f)
-        draw->AddRectFilled(at, {at.x + width, at.y + Dp(kRowHeight)}, Col(color::text, 0.04f * hover), Dp(10));
+    if (hover > 0.01f) draw->AddRectFilled(at, {at.x + width, at.y + height}, Col(color::text, 0.04f * hover), Dp(10));
     return pressed;
+}
+
+// A row's height with its label and, if any, its description wrapped to
+// `text_width` under it.
+float RowHeight(const char* about, float text_width)
+{
+    if (!about || !*about) return Dp(kRowHeight);
+    const auto& fonts = launcher::CurrentFonts();
+    const float text = fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, text_width, about).y;
+    return std::max(Dp(kRowHeight), Dp(11) + FontSize(fonts.label) + Dp(3) + text + Dp(12));
+}
+
+// The row's label, in its middle, or at its top with the description under it.
+void RowLabel(ImDrawList* draw, ImVec2 at, float height, const char* label, const char* about, float text_width)
+{
+    const auto& fonts = launcher::CurrentFonts();
+    if (!about || !*about)
+    {
+        DrawLabel(draw, fonts.label, {at.x, at.y + (height - FontSize(fonts.label)) * 0.5f}, Col(color::text), label);
+        return;
+    }
+    DrawLabel(draw, fonts.label, {at.x, at.y + Dp(11)}, Col(color::text), label);
+    draw->AddText(fonts.caption, FontSize(fonts.caption), {at.x, at.y + Dp(11) + FontSize(fonts.label) + Dp(3)},
+                  Col(color::muted), about, nullptr, text_width);
 }
 } // namespace
 
@@ -109,22 +137,181 @@ int OverlayChoiceRow(const char* id, const char* label, const std::string& value
     return step;
 }
 
-bool OverlaySwitchRow(const char* id, const char* label, bool on, float width, bool interactive)
+int OverlaySegmentedRow(const char* id, const char* label, const std::vector<std::string>& options, int selected,
+                        float width, bool interactive, const char* about)
 {
     const auto& fonts = launcher::CurrentFonts();
     auto* draw = ImGui::GetWindowDrawList();
     const ImVec2 at = ImGui::GetCursorScreenPos();
-    const float height = Dp(kRowHeight), pad = Dp(16), track_w = Dp(40), track_h = Dp(23);
+    const float pad = Dp(16), field_h = Dp(30);
+    const int count = int(options.size());
+    if (count == 0) return -1;
+    // The options share the row's right part, at most so wide each (with a
+    // description: at most 55 % of the row, its words beside them).
+    float widest = 0.0f;
+    for (const auto& option : options) widest = std::max(widest, TextSize(fonts.body, option.c_str()).x);
+    const bool described = about && *about;
+    const float label_w = described ? width * 0.45f : std::min(TextSize(fonts.label, label).x + Dp(16), width * 0.42f);
+    const float each = std::min(std::max(widest + Dp(18), Dp(34)), (width - pad * 2 - label_w) / float(count));
+    const float text_width = width - pad * 2 - each * float(count) - Dp(16);
+    const float height = RowHeight(about, text_width);
     const ImVec2 max{at.x + width, at.y + height};
     ImGuiID item;
     bool focused;
     float hover;
-    const bool pressed = RowControl(id, at, width, interactive, item, focused, hover);
+    const bool pressed = RowControl(id, at, width, interactive, item, focused, hover, height);
+    const float middle = at.y + height * 0.5f;
+    const ImVec2 field_min{max.x - pad - each * float(count), middle - field_h * 0.5f};
+    const ImVec2 field_max{max.x - pad, middle + field_h * 0.5f};
+    ImVec4 field = Mix(color::field, color::card_hover, 0.25f + 0.3f * hover);
+    field.w = 0.9f;
+    draw->AddRectFilled(field_min, field_max, Col(field), Dp(8));
+    int hovered = -1;
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    if (interactive && mouse.y >= field_min.y && mouse.y <= field_max.y && mouse.x >= field_min.x
+        && mouse.x < field_max.x)
+        hovered = std::clamp(int((mouse.x - field_min.x) / each), 0, count - 1);
+    for (int n = 0; n < count; ++n)
+    {
+        const ImVec2 min{field_min.x + float(n) * each, field_min.y};
+        const ImVec2 cell_max{min.x + each, field_max.y};
+        const bool chosen = n == selected;
+        if (chosen)
+        {
+            draw->AddRectFilled({min.x + Dp(2), min.y + Dp(2)}, {cell_max.x - Dp(2), cell_max.y - Dp(2)},
+                                Col(Mix(color::field, color::accent_dark, 0.7f)), Dp(6));
+            draw->AddRect({min.x + Dp(2), min.y + Dp(2)}, {cell_max.x - Dp(2), cell_max.y - Dp(2)},
+                          Col(color::accent, 0.7f), Dp(6), 0, Dp(1));
+        }
+        else if (n == hovered) draw->AddRectFilled(min, cell_max, Col(color::text, 0.05f), Dp(6));
+        const ImVec2 size = TextSize(fonts.body, options[std::size_t(n)].c_str());
+        DrawLabel(draw, fonts.body, {min.x + (each - size.x) * 0.5f, middle - size.y * 0.5f},
+                  Col(chosen ? color::text : Mix(color::muted, color::text, n == hovered ? 0.5f : 0.0f)),
+                  options[std::size_t(n)].c_str());
+    }
+    draw->PushClipRect({at.x + pad, at.y}, {field_min.x - Dp(8), max.y}, true);
+    RowLabel(draw, {at.x + pad, at.y}, height, label, about, text_width);
+    draw->PopClipRect();
+    if (focused) OverlayFocusRing(draw, at, max, Dp(10));
+    int picked = -1;
+    if (focused)
+    {
+        for (const ImGuiKey key :
+             {ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight})
+            ImGui::SetKeyOwner(key, item);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat, item)
+            || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, item))
+            picked = std::max(0, selected - 1);
+        else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat, item)
+                 || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, item))
+            picked = std::min(count - 1, selected + 1);
+    }
+    if (pressed)
+        picked = ImGui::IsMouseReleased(ImGuiMouseButton_Left) && hovered >= 0 ? hovered : (selected + 1) % count;
+    return picked == selected ? -1 : picked;
+}
+
+std::optional<int> OverlaySliderRow(const char* id, const char* label, int value, float width, bool& done)
+{
+    done = false;
+    const auto& fonts = launcher::CurrentFonts();
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float height = Dp(kRowHeight), pad = Dp(16);
+    const ImVec2 max{at.x + width, at.y + height};
+    ImGuiID item;
+    bool focused;
+    float hover;
+    RowControl(id, at, width, true, item, focused, hover);
+    const bool active = ImGui::IsItemActive(), released = ImGui::IsItemDeactivated();
+    const float middle = at.y + height * 0.5f;
+    const float value_w = TextSize(fonts.body, "100 %").x;
+    const float x1 = max.x - pad - value_w - Dp(16);
+    const float x0 = x1 - std::clamp(width * 0.42f, Dp(120), Dp(260));
+
+    std::optional<int> result;
+    ImGui::PushID(id);
+    const ImGuiID dragging_key = ImGui::GetID("##dragging");
+    ImGui::PopID();
+    ImGuiStorage* storage = ImGui::GetStateStorage();
+    bool dragging = storage->GetBool(dragging_key, false);
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    // A press on the track takes the knob; the drag then follows anywhere.
+    if (active && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouse.x >= x0 - Dp(12) && mouse.x <= x1 + Dp(12))
+        dragging = true;
+    if (dragging && active && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+    {
+        const int held = int(std::lround(std::clamp((mouse.x - x0) / (x1 - x0), 0.0f, 1.0f) * 100.0f));
+        if (held != value) result = held;
+    }
+    if (dragging && (released || !active))
+    {
+        // Let go: the value as it is now, done.
+        if (!result) result = value;
+        done = true;
+        dragging = false;
+    }
+    storage->SetBool(dragging_key, dragging);
+    if (focused && !dragging)
+    {
+        for (const ImGuiKey key :
+             {ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight})
+            ImGui::SetKeyOwner(key, item);
+        int step = 0;
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat, item)
+            || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, item))
+            step = -1;
+        else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat, item)
+                 || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, item))
+            step = 1;
+        // To the next multiple of 5 that way.
+        const int next = std::clamp(step > 0 ? (value / 5 + 1) * 5 : step < 0 ? (value + 4) / 5 * 5 - 5 : value, 0, 100);
+        if (step && next != value)
+        {
+            result = next;
+            done = true;
+        }
+    }
+
+    const int shown = result ? *result : value;
+    const float lit = launcher::Animate(ImGui::GetID((std::string(id) + "##lit").c_str()), hover > 0.5f || dragging,
+                                        14.0f);
+    const float track_h = Dp(6), knob = Dp(8) + Dp(2) * lit;
+    const float x = x0 + (x1 - x0) * float(shown) / 100.0f;
+    draw->AddRectFilled({x0, middle - track_h * 0.5f}, {x1, middle + track_h * 0.5f},
+                        Col(Mix(color::border, color::muted, 0.25f * hover)), track_h * 0.5f);
+    if (shown > 0)
+        draw->AddRectFilled({x0, middle - track_h * 0.5f}, {x, middle + track_h * 0.5f}, Col(color::accent),
+                            track_h * 0.5f);
+    draw->AddCircleFilled({x, middle}, knob, Col(color::text));
+    draw->AddCircle({x, middle}, knob, Col(color::accent, 0.5f + 0.5f * lit), 0, Dp(1.5f));
+    const std::string percent = std::to_string(shown) + " %";
+    DrawLabel(draw, fonts.body, {max.x - pad - TextSize(fonts.body, percent.c_str()).x, middle - FontSize(fonts.body) * 0.5f},
+              Col(color::text), percent.c_str());
+    draw->PushClipRect({at.x + pad, at.y}, {x0 - Dp(14), max.y}, true);
+    DrawLabel(draw, fonts.label, {at.x + pad, middle - FontSize(fonts.label) * 0.5f}, Col(color::text), label);
+    draw->PopClipRect();
+    if (focused) OverlayFocusRing(draw, at, max, Dp(10));
+    return result;
+}
+
+bool OverlaySwitchRow(const char* id, const char* label, bool on, float width, bool interactive, const char* about)
+{
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float pad = Dp(16), track_w = Dp(40), track_h = Dp(23);
+    const float text_width = width - pad * 2 - track_w - Dp(20);
+    const float height = RowHeight(about, text_width);
+    const ImVec2 max{at.x + width, at.y + height};
+    ImGuiID item;
+    bool focused;
+    float hover;
+    const bool pressed = RowControl(id, at, width, interactive, item, focused, hover, height);
     ImGui::PushID(id);
     const float lit = launcher::Animate(ImGui::GetID("##on"), on, 14.0f);
     ImGui::PopID();
     const float middle = at.y + height * 0.5f;
-    DrawLabel(draw, fonts.label, {at.x + pad, middle - FontSize(fonts.label) * 0.5f}, Col(color::text), label);
+    RowLabel(draw, {at.x + pad, at.y}, height, label, about, text_width);
     const ImVec2 track{max.x - pad - track_w, middle - track_h * 0.5f};
     draw->AddRectFilled(track, {track.x + track_w, track.y + track_h},
                         Col(Mix(Mix(color::border, color::muted, 0.25f * hover), color::accent, lit)), track_h * 0.5f);

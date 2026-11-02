@@ -23,9 +23,6 @@ namespace
 // Recharged open, and only a player with Recharged open can be challenged.
 constexpr auto kMatchPoll = 4s;
 constexpr auto kDiscordPoll = 30s;
-// The leaderboards, while their page is shown (it says so every frame).
-constexpr auto kLeaderboardPoll = 60s;
-constexpr auto kLeaderboardShown = 2s;
 constexpr auto kPlayerPoll = 60s;
 constexpr auto kRetry = 15s;
 
@@ -78,6 +75,7 @@ void CompetitiveService::SetServer(const std::string& server)
         status_.state = server.empty() ? State::NoServer : State::Connecting;
         token_.clear();
         sign_in_id_.clear();
+        known_asking_.clear();
         if (!server.empty())
             tasks_.push_back({generation_, [this](ProfileService& api) { Connect(api); }, false});
     }
@@ -205,9 +203,10 @@ void CompetitiveService::SignedOutHere(const char* reason)
     status_.connect_error.clear();
     status_.code.clear();
     status_.url.clear();
-    // The next player's place on them differs.
-    status_.leaderboard.reset();
-    next_leaderboard_ = {};
+    // The game save's Miis may play for this player now: asked again.
+    status_.known_miis.clear();
+    status_.known_asked.clear();
+    known_asking_.clear();
     if (reason)
     {
         status_.error = reason;
@@ -381,40 +380,15 @@ void CompetitiveService::Poll(ProfileService& api)
         }
         discord = platform::FindDiscordPlayers(api, ids);
     }
-    // The leaderboards, while their page is shown.
-    bool board = false;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        board = Clock::now() - leaderboard_wanted_ < kLeaderboardShown && Clock::now() >= next_leaderboard_
-            && !status_.leaderboard_missing;
-    }
-    std::optional<platform::Leaderboard> leaderboard;
-    bool leaderboard_missing = false;
-    if (board)
-    {
-        try
-        {
-            leaderboard = api.RankedLeaderboard();
-        }
-        catch (const ProfileError& e)
-        {
-            // A server before 1.2.1 has none.
-            if (e.Status() != 404) throw;
-            leaderboard_missing = true;
-        }
-    }
     Change([&](Status& status) {
         status.match = match;
         if (player) status.player = *player;
         if (discord) status.discord_players = std::move(*discord);
-        if (leaderboard) status.leaderboard = std::move(*leaderboard);
-        if (leaderboard_missing) status.leaderboard_missing = true;
         status.error.clear();
     });
     std::lock_guard<std::mutex> lock(mutex_);
     if (me) next_me_ = Clock::now() + kPlayerPoll;
     if (discord_due) next_discord_ = Clock::now() + kDiscordPoll;
-    if (board) next_leaderboard_ = Clock::now() + kLeaderboardPoll;
     if (interval && !connecting) next_poll_ = Clock::now() + std::chrono::seconds(interval);
 }
 
@@ -433,17 +407,33 @@ void CompetitiveService::SetDiscordFriends(std::vector<std::string> discord_ids)
     wake_.notify_all();
 }
 
-void CompetitiveService::WantLeaderboard()
+void CompetitiveService::LookUpMiis(std::vector<std::uint32_t> profile_ids)
 {
-    bool first = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        // Opened (again): fetched at once when due.
-        first = Clock::now() - leaderboard_wanted_ >= kLeaderboardShown && Clock::now() >= next_leaderboard_;
-        leaderboard_wanted_ = Clock::now();
-        if (first) next_poll_ = Clock::now();
+        if (profile_ids == known_asking_) return;
+        known_asking_ = profile_ids;
     }
-    if (first) wake_.notify_all();
+    Post(
+        [this, profile_ids](ProfileService& api) {
+            std::vector<std::pair<std::uint32_t, std::string>> known;
+            try
+            {
+                if (!profile_ids.empty()) known = api.KnownWfc(profile_ids);
+            }
+            catch (const ProfileError& e)
+            {
+                // A server before 1.2.4 can't tell, nor one out of reach:
+                // no answer, and the launcher goes by what it remembers.
+                if (e.Cancelled()) throw;
+                return;
+            }
+            Change([&](Status& status) {
+                status.known_miis = std::move(known);
+                status.known_asked = profile_ids;
+            });
+        },
+        false);
 }
 
 void CompetitiveService::TradeDiscordToken(std::string code, std::string verifier, std::string redirect_uri,

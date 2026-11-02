@@ -1,0 +1,62 @@
+Subject: Competitive play: a set's Mirror match
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+The online draft lets the drafting player pick only a captain nobody has
+yet: NetworkDraft::IsCaptainTaken greys out the other team's captain, refuses
+him, and the random pick when the time runs out skips him. A set's rules may
+have Mirror match (src/platform/competitive_rules.cpp), the same in both
+games. In the draft of a RANKED match against the set's opponent whose rules
+have it (mscharged_competitive_draft_mirror, src/platform/competitive_match.cpp),
+only "no captain" counts as taken, so both players may pick one captain. The
+other machine takes any picked captain, as in retail.
+
+The match then loads one captain on both teams. Through the set's draft and
+games, the Mirror match tweak's own hooks (0015) count the tweak as on
+(src/platform/game_tweaks.cpp), so both games dress the away team in its
+away kit, made where the disc has none. Every other online draft is retail.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -102,6 +102,13 @@
+ bool mscharged_competitive_cheats(int* stadium, int* player, int* powerup);
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// A set's Mirror match (tweak patch 0052): true while this RANKED match's
++// draft is against the set's opponent and the set's rules have Mirror
++// match. The captain the other player picked stays available.
++bool mscharged_competitive_draft_mirror(void);
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/Game/NetworkDraft.cpp b/src/Game/NetworkDraft.cpp
+--- a/src/Game/NetworkDraft.cpp
++++ b/src/Game/NetworkDraft.cpp
+@@ -20,6 +20,9 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include "platform/wii_qsort.h"
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ 
+ static NetworkDraft* sNetworkDraft;
+ 
+@@ -584,7 +587,13 @@
+     }
+     for (int team = 0; team < mTeamCount; ++team)
+     {
+-        if (mTeams[team].mCaptain == captain)
++        if (mTeams[team].mCaptain == captain
++#if defined(MSCHARGED_TWEAKS)
++            // Competitive play: a set with Mirror match lets both players
++            // draft one captain.
++            && !mscharged_competitive_draft_mirror()
++#endif
++        )
+         {
+             return true;
+         }

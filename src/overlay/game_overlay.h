@@ -4,6 +4,7 @@
 #include "overlay/game_settings.h"
 #include "overlay/online_panel.h"
 #include "overlay/overlay_frame.h"
+#include "overlay/ranked_tab.h"
 
 #include <functional>
 #include <map>
@@ -29,6 +30,7 @@ enum class OverlayTab : int
     GameOptions = 1,
     Events = 2, // tournaments and organised match-ups: a page to come
     Settings = 3, // the display and sound settings that change at once
+    Ranked = 4, // the game's online RANKED: play it, and its leaderboards
 };
 
 // A tab besides the game's own, with its page: the launcher's preview shows
@@ -43,9 +45,10 @@ struct GameOverlayMoreTab
 struct GameOverlayModel
 {
     OnlinePanelModel online;
+    RankedModel ranked;
     GameOptionsModel options;
     GameSettingsModel settings;
-    std::vector<GameOverlayMoreTab> more_tabs; // after Online, before Events, Game options and Settings (last)
+    std::vector<GameOverlayMoreTab> more_tabs; // after Online and Ranked, before Events, Game options and Settings (last)
 };
 
 // The tabs in their order with their badges (Online's: what waits for the
@@ -57,10 +60,14 @@ struct GameOverlayActions
 {
     bool close = false; // Escape, Close, a click beside the window, B on a tab's first screen
     OnlinePanelActions online;
+    RankedActions ranked;
     std::optional<GameOptionChange> set_option;
     std::optional<GameSettingChange> set_setting;
 
-    bool Any() const { return close || online.Any() || set_option.has_value() || set_setting.has_value(); }
+    bool Any() const
+    {
+        return close || online.Any() || ranked.Any() || set_option.has_value() || set_setting.has_value();
+    }
 };
 
 // What the overlay keeps between frames; the host holds one.
@@ -81,8 +88,9 @@ struct GameOverlayState
     OverlayScreens& Screens(OverlayTab which);
 
     OverlayTab tab = OverlayTab::Online;
-    OverlayScreens online, options, settings;
+    OverlayScreens online, ranked, options, settings;
     OnlinePanelState online_state; // the Online tab's challenge setup
+    RankedState ranked_state;
     GameSettingsState settings_state;
     std::map<int, OverlayScreens> more; // the more tabs' (GameOverlayMoreTab), by id
     GameOptionsState options_state;

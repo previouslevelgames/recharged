@@ -57,11 +57,12 @@ public:
         // The Discord friends (SetDiscordFriends) who have signed in to
         // Recharged, by name.
         std::vector<platform::ProfilePlayer> discord_players;
-        // The game's RANKED leaderboards, while asked for (WantLeaderboard):
-        // none before the first answer; `leaderboard_missing` for a server
-        // without them (before 1.2.1).
-        std::optional<platform::Leaderboard> leaderboard;
-        bool leaderboard_missing = false;
+        // Signed out (LookUpMiis): which of the game save's Miis (their WFC
+        // profiles, `known_asked`: the list answered) play for a profile
+        // already, and how it signs in again ("game", "discord", "test").
+        // No answer (`known_asked` empty) from a server before 1.2.4.
+        std::vector<std::pair<std::uint32_t, std::string>> known_miis;
+        std::vector<std::uint32_t> known_asked;
         bool busy = false;           // an action is running
         std::uint64_t serial = 0;    // changes with every change
     };
@@ -90,9 +91,9 @@ public:
     // The player's Discord friends (DiscordFriends): who of them plays
     // Recharged is looked up now and then.
     void SetDiscordFriends(std::vector<std::string> discord_ids);
-    // The Leaderboard page is shown (every frame it is): the leaderboards
-    // are fetched now, and again once a minute while it stays.
-    void WantLeaderboard();
+    // Signed out: asks which of these WFC profiles (the game save's Miis)
+    // play for a profile already (Status::known_miis), once per list.
+    void LookUpMiis(std::vector<std::uint32_t> profile_ids);
     // Trades the Discord Social SDK's code (with its verifier and redirect)
     // or refresh token for its tokens; `done` gets them on the worker, or
     // the failure's words and whether Discord refused (the link has to be
@@ -136,13 +137,13 @@ private:
     std::deque<Queued> tasks_;
     Status status_;
     std::string token_;
+    std::vector<std::uint32_t> known_asking_; // LookUpMiis' list, asked or being asked
     std::uint64_t generation_ = 0; // SetServer starts a new one; older work is dropped
     std::uint64_t running_ = 0;    // the generation of the task the worker runs
     std::string sign_in_id_;       // the sign-in being waited for
     int poll_interval_ = 2;        // seconds between asks while signing in
     std::chrono::steady_clock::time_point next_poll_{};
-    std::chrono::steady_clock::time_point next_me_{}, next_discord_{}, next_leaderboard_{};
-    std::chrono::steady_clock::time_point leaderboard_wanted_{}; // the page's last frame
+    std::chrono::steady_clock::time_point next_me_{}, next_discord_{};
     std::vector<std::string> discord_ids_; // SetDiscordFriends
     std::shared_ptr<platform::HttpCancel> cancel_; // the running call's
     bool stop_ = false;

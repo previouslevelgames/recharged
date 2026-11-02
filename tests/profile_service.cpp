@@ -102,6 +102,27 @@ void Sessions()
     CHECK(!LoadDiscordLink(link));
     ForgetProfileSession(link);
     CHECK(!std::filesystem::exists(link));
+
+    // The profiles that signed in here, beside the session, kept in order.
+    const auto known = KnownProfilesFile(folder, "/games/recharged/second.ini");
+    CHECK(known == folder / "online" / "second.profiles");
+    CHECK(LoadKnownProfiles(known).empty());
+    SaveKnownProfiles(known, {{"https://wfc.example.com", 11, "Bob \"the\" Builder", "mii", {"0868-9934-5920"}},
+                              {"https://wfc.example.com", 12, "Anosch", "discord", {"0310-6477-1073", "1234-5678-9012"}},
+                              {"https://other.example.com", 13, "Sam", "test", {}}});
+    const auto profiles = LoadKnownProfiles(known);
+    CHECK(profiles.size() == 3);
+    if (profiles.size() == 3)
+    {
+        CHECK(profiles[0].server == "https://wfc.example.com" && profiles[0].player_id == 11
+              && profiles[0].name == "Bob \"the\" Builder" && profiles[0].account == "mii"
+              && profiles[0].friend_codes == std::vector<std::string>{"0868-9934-5920"});
+        CHECK(profiles[1].account == "discord" && profiles[1].friend_codes.size() == 2
+              && profiles[1].friend_codes[1] == "1234-5678-9012");
+        CHECK(profiles[2].name == "Sam" && profiles[2].friend_codes.empty());
+    }
+    { std::ofstream(known) << "{\"profiles\":[{\"server\":\"\",\"id\":5},{\"server\":\"x\",\"id\":0}]}"; }
+    CHECK(LoadKnownProfiles(known).empty());
     std::filesystem::remove_all(folder);
 }
 
@@ -141,7 +162,7 @@ void Rules()
     rules.stadium_cheat = rules.player_cheat = rules.powerup_cheat = "none";
     CHECK(StadiumCheatChoices().size() == 6 && PlayerCheatChoices().size() == 5 && PowerupCheatChoices().size() == 12
           && StadiumChoices().size() == 17 && std::string(StadiumChoices()[11].label) == "The Palace"
-          && RuleTweakChoices().size() == 3);
+          && RuleTweakChoices().size() == 4);
     rules.limit = "time";
     rules.time = 150;
     rules.games = 1;
@@ -180,7 +201,7 @@ struct Exchange
 // What the client sent.
 struct Sent
 {
-    std::string body, authorization, content_type, activity;
+    std::string body, authorization, content_type, activity, match_kind, game;
     bool expected = false;
 };
 
@@ -241,6 +262,8 @@ private:
             sent.authorization = header("Authorization: ");
             sent.content_type = header("Content-Type: ");
             sent.activity = header("Recharged-Activity: ");
+            sent.match_kind = header("Recharged-Match: ");
+            sent.game = header("Recharged-Game: ");
             sent.expected = line == exchange.request;
             const std::string answer = sent.expected ? exchange.answer : "{\"error\":\"unexpected " + line + "\"}";
             const std::string reply = "HTTP/1.1 " + std::to_string(sent.expected ? exchange.status : 599)
@@ -314,7 +337,7 @@ void Requests()
         {"GET /api/v1/me", 401, R"({"error":"signed out"})"},
         {"GET /api/v1/players", 200,
          R"({"online":[{"id":8,"name":"Sam","discord":"sam","test":false,"online":true,"busy":false,)"
-         R"("activity":"match","last_online":1793000000,"friend":false}],"recent":[],)"
+         R"("activity":"match","match":"cpu","last_online":1793000000,"friend":false}],"recent":[],)"
          R"("friends":[{"id":9,"name":"Bo","online":false,"busy":false,"last_online":null,"friend":true}]})"},
         {"POST /api/v1/matches", 201, kSet},
         {"POST /api/v1/matches/12/ready-to-play", 200, kSet},
@@ -390,7 +413,8 @@ void Requests()
         }
         const auto lists = api.Players();
         CHECK(lists.online.size() == 1 && lists.online[0].id == 8 && lists.online[0].online && !lists.online[0].busy
-              && lists.online[0].activity == "match" && lists.online[0].last_online == 1793000000
+              && lists.online[0].activity == "match" && lists.online[0].match_kind == "cpu"
+              && lists.online[0].last_online == 1793000000
               && !lists.online[0].is_friend && lists.recent.empty());
         CHECK(lists.friends.size() == 1 && lists.friends[0].id == 9 && lists.friends[0].is_friend
               && !lists.friends[0].online && lists.friends[0].activity.empty() && !lists.friends[0].last_online);
@@ -409,7 +433,10 @@ void Requests()
         api.SetActivity("game");
         const auto removed = api.RemoveFriend(8);
         CHECK(removed.size() == 1 && removed[0].id == 9 && removed[0].chat && removed[0].unread == 2);
+        api.SetActivity("match", "ranked");
+        ProfileService::SetPlayedGame("R4QP01"); // the game's id: its first four characters go
         const auto page = api.Chat(9, 5);
+        ProfileService::SetPlayedGame({});
         CHECK(page.can_send && page.messages.size() == 1 && page.messages[0].id == 6 && !page.messages[0].mine
               && page.messages[0].body == "hi" && page.messages[0].sent_at == 1793000100);
         const auto written = api.SendChat(9, "yo \"x\"");
@@ -462,6 +489,8 @@ void Requests()
         CHECK(sent[14].body == R"({"player_id":8})" && sent[14].content_type == "application/json");
         CHECK(sent[15].body == R"({"name":"b\"o"})");
         CHECK(sent[16].authorization == "Bearer t0k3n" && sent[16].activity == "game" && sent[15].activity.empty());
+        CHECK(sent[16].match_kind.empty() && sent[17].activity == "match" && sent[17].match_kind == "ranked");
+        CHECK(sent[16].game.empty() && sent[17].game == "R4QP" && sent[18].game.empty());
         CHECK(sent[18].body == R"({"body":"yo \"x\""})");
         CHECK(sent[19].body == R"({"code":"c0de","code_verifier":"v","redirect_uri":"http://127.0.0.1:5000/callback"})");
         CHECK(sent[20].body == R"({"refresh_token":"old"})");
@@ -612,6 +641,44 @@ void WfcSignIn()
         CHECK(sent[1].body == R"({"profile_id":1000000000,"login_ticket":"lt-\"x\""})"
               && sent[1].authorization.empty() && sent[1].activity == "game"
               && sent[1].content_type == "application/json");
+    }
+}
+
+// Signed out: which of the game save's Miis play for a profile already.
+void KnownWfc()
+{
+    if (!HttpUnavailable().empty()) return;
+    const std::vector<Exchange> exchanges{
+        {"POST /api/v1/sign-in/wfc/known", 200,
+         R"({"profiles":[{"profile_id":1000000000,"sign_in":"game"},{"profile_id":1000000002,"sign_in":"discord"},)"
+         R"({"profile_id":-4,"sign_in":"game"}]})"},
+        {"POST /api/v1/sign-in/wfc/known", 404, R"({"error":"not found"})"},
+    };
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        ProfileService api(server.Url());
+        const auto known = api.KnownWfc({1000000000u, 1000000001u, 1000000002u});
+        CHECK(known.size() == 2);
+        if (known.size() == 2)
+            CHECK(known[0].first == 1000000000u && known[0].second == "game" && known[1].first == 1000000002u
+                  && known[1].second == "discord");
+        try
+        {
+            api.KnownWfc({7u});
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 404);
+        }
+    }
+    CHECK(sent.size() == exchanges.size());
+    if (sent.size() == exchanges.size())
+    {
+        CHECK(sent[0].body == R"({"profile_ids":[1000000000,1000000001,1000000002]})"
+              && sent[0].authorization.empty());
+        CHECK(sent[1].body == R"({"profile_ids":[7]})");
     }
 }
 
@@ -809,6 +876,7 @@ int main()
     Requests();
     MiiAccounts();
     WfcSignIn();
+    KnownWfc();
     FeedDiscordFriends();
     FeedChallengeRules();
 #endif

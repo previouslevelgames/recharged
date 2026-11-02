@@ -76,6 +76,9 @@ struct OnlinePanelState
     std::string setup_for;
     int preset = 0;
     platform::MatchRules rules;
+    // When the search's setup asked for the search (ImGui::GetTime()), until
+    // the panel shows it running; negative: not waiting for one.
+    double search_sent = -100.0;
 };
 
 // The texture for a picture's key (OnlinePanelRow::image: an avatar's URL,

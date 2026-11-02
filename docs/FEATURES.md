@@ -82,9 +82,10 @@ come from the reconstructed source, unchanged.
 the HUD in a match, **F** stretches the picture over the window or gives it
 back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
 **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
-window, and **F1** (or HOME on a controller) opens the game's overlay over the
+window, and **F1** (or HOME on a controller) opens the **Recharged Game Menu** over the
 blurred game: your set, the friends online and the players available on
-**Online**, the gameplay options on **Game options** (**F2** opens it there), and
+**Online**, a RANKED match from anywhere in the menus and the leaderboards on
+**Ranked**, the gameplay options on **Game options** (**F2** opens it there), and
 the display and sound settings that change at once on **Settings**. Each can be changed under Controls → Hotkeys, to a key alone or with
 Ctrl, Shift or Alt.
 
@@ -208,7 +209,10 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   or for Mario, Luigi, Wario and Waluigi, who have none, one made from their
   own kit (Mario blue, Luigi sky blue, Wario blue, Waluigi orange). Peach
   wears her blue kit; its menu pictures and Mega Strike hand are made the
-  same way. Online matches are unchanged.
+  same way. Online matches are unchanged, unless a battle's rules have Mirror
+  match: then both players can draft the same captain, and each sees their
+  own team in its usual kit and the opponent's in the away kit
+  ([competitive play](COMPETITIVE.md)).
 - **Blue Peach**: Peach's team wears her blue and yellow kit on the field
   (Peach, her sidekicks and her goalie). The game has it on the disc but only
   uses it against a captain of her colours, and nobody else is pink. Her menu
@@ -248,18 +252,16 @@ to put another one there. The game's sidekick screen then starts from that
 lineup, and what you choose there shows on the page: both are the lineups in
 your own game save ([saves](SETTINGS.md#saves)).
 
-Its **Match rules** page keeps presets of a match's rules: skill, series,
-time or goals, the stadium, player and power-up cheats (all of them whether
-your save has unlocked them or not), and for challenges the stadium and the
-gameplay tweaks both teams play with. A challenge starts from one of them or
-from the server's rule sets (**From the server**, Copy makes one your own).
-Use a preset for matches on this computer or online with friends, and it goes
-into your game save, as if chosen in the game's settings screen; ranked
-matches keep their rules. **Retail ranked** (the game's own ranked rules:
-Rookie, best of 3, 3 minutes, a random stadium, also a new save's settings) and
-**Competitive** (the same with Fast terrain, No Mega Strikes and Thunder Island
-walls) are built in, read-only and always there, in the game's challenge setup
-too; the others are files of their own ([saves](SETTINGS.md#saves)).
+Its **Match rules** page keeps presets of a battle's rules: series, time or
+goals, the stadium, the gameplay tweaks both teams play with and the stadium,
+player and power-up cheats (all of them whether your save has unlocked them or
+not). A challenge or a search for an opponent starts from one and can still
+change any rule; ranked matches and tournaments bring their own rules.
+**Retail ranked** (the game's own ranked rules: best of 3, 3 minutes, a random
+stadium) and **Competitive** (best of 3, first to 10 goals, a random stadium,
+with Fast terrain, No Mega Strikes and Thunder Island walls) are built in,
+read-only and always there, with the server's own rule sets (**Copy** makes
+one your own); yours are files of their own ([saves](SETTINGS.md#saves)).
 
 It also **updates Recharged**: when a newer release is out it shows the release
 notes and asks, then installs it in place and restarts; only the program's own

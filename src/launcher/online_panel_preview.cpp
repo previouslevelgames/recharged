@@ -253,7 +253,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         return set;
     };
     context_.rule_sets = {
-        rule_set(1, "Competitive", "rookie", "time", 180, 3, "random", {"fast_terrain", "no_mega_strikes"}),
+        rule_set(1, "Competitive", "rookie", "goals", 10, 3, "random", {"fast_terrain", "no_mega_strikes"}),
         rule_set(2, "Classic", "professional", "time", 300, 1, "random", {}),
         rule_set(3, "First to 5", "legend", "goals", 5, 5, "random", {"thunder_island_walls"})};
     context_.chosen_rules = mode_.rfind("preview-rules", 0) == 0 ? "Classic" : "Competitive";
@@ -264,9 +264,10 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     context_.my_presets = {palace};
     for (const auto& preset : launcher::BuiltInMatchPresets())
         context_.built_in_presets.push_back({preset.name, launcher::ChallengeRules(preset), 0});
-    // Searches for a random opponent: possible; "preview-searching" shows one running.
+    // Searches for a random opponent: possible; "preview-searching" shows one
+    // running (on the search's setup with "preview-search-running").
     context_.searches = true;
-    if (mode_ == "preview-searching")
+    if (mode_ == "preview-searching" || mode_ == "preview-search-running")
     {
         platform::ProfileSearch search;
         search.rule_set = "Palace tilt";
@@ -353,21 +354,27 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         context_.message = "The server didn't answer. Trying again...";
         context_.error = true;
     }
+    else if (mode_ == "preview-signed-out")
+    {
+        // No player profile: what the game has without a session.
+        context_ = {};
+        context_.signed_out = true;
+        lists_ = {};
+    }
     // Some options on, as a player might have them.
     for (const GameTweak tweak : {GameTweak::FastTerrain, GameTweak::NoMegaStrikes, GameTweak::FastMenus})
         options_.tweaks[GameTweakIndex(tweak)] = true;
     // Tabs to come, with made-up badges (ids from 100: never the game's).
     if (mode_.rfind("preview-tabs", 0) == 0)
     {
-        more_tabs_ = {MoreTab(100, "Ranked", Icon::Medal, 0, true), MoreTab(101, "Tournaments", Icon::Bracket, 2),
-                      MoreTab(102, "Leaderboard", Icon::Podium)};
+        more_tabs_ = {MoreTab(100, "Clubs", Icon::Person, 0, true), MoreTab(101, "Tournaments", Icon::Bracket, 2),
+                      MoreTab(102, "Stats", Icon::Target)};
         if (mode_.rfind("preview-tabs-max", 0) == 0)
         {
-            more_tabs_.push_back(MoreTab(103, "Stats", Icon::Target));
-            more_tabs_.push_back(MoreTab(104, "Replays", Icon::Play));
+            more_tabs_.push_back(MoreTab(103, "Replays", Icon::Play));
             more_tabs_.back().tab.available = false;
             more_tabs_.back().tab.hint = "Coming later";
-            more_tabs_.push_back(MoreTab(105, "Clubs", Icon::Person));
+            more_tabs_.push_back(MoreTab(104, "Teams", Icon::Person));
             more_tabs_.back().tab.hidden = true;
         }
     }
@@ -378,22 +385,66 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     }
     overlay::OverlayTab first = mode_.rfind("preview-options", 0) == 0 ? overlay::OverlayTab::GameOptions
         : mode_.rfind("preview-settings", 0) == 0                     ? overlay::OverlayTab::Settings
+        : mode_.rfind("preview-ranked", 0) == 0                       ? overlay::OverlayTab::Ranked
                                                                       : overlay::OverlayTab::Online;
+    // The Ranked tab: Play RANKED with the player's own Mii, the leaderboards
+    // with the player on both; "preview-ranked-going" on the way there,
+    // "preview-ranked-out" without a player profile.
+    ranked_.own_mii = true;
+    ranked_.can_play = mode_ != "preview-ranked-going";
+    ranked_.going = mode_ == "preview-ranked-going";
+    ranked_.signed_out = mode_ == "preview-ranked-out";
+    if (!ranked_.signed_out)
+    {
+        const auto entry = [](int rank, const char* mii, const char* player, int wins, int losses, int points,
+                              int region, bool you = false) {
+            platform::LeaderboardEntry row;
+            row.rank = rank;
+            row.mii = mii;
+            row.player = player;
+            row.wins = wins;
+            row.losses = losses;
+            row.points = points;
+            row.region = region;
+            row.you = you;
+            return row;
+        };
+        platform::Leaderboard boards;
+        boards.season.first_day = "2026-11-01";
+        boards.season.last_day = "2026-11-30";
+        boards.season.players = 48;
+        boards.season.top = {entry(1, "Raulaso", "", 31, 6, 1840, 4),
+                             entry(2, "\xE3\x83\x9E\xE3\x83\xAA\xE3\x82\xAA", "", 27, 9, 1655, 1),
+                             entry(3, "Birnen\xE2\x84\xA2", "einBirnenbaum", 22, 8, 1490, 4),
+                             entry(4, "\xC5\x81ukasz", "", 19, 11, 1302, 4),
+                             entry(5, "Anosch", "Anosch", 17, 10, 1215, 4, true),
+                             entry(6, "Tommy", "", 15, 12, 1090, 2),
+                             entry(7, "\xE2\x98\x85Sara\xE2\x99\xAA", "", 12, 12, 940, 4),
+                             entry(8, "\xEC\xB2\xA0\xEC\x88\x98", "", 9, 14, 760, 8)};
+        boards.season.you = boards.season.top[4];
+        boards.daily.first_day = boards.daily.last_day = "2026-11-02";
+        boards.daily.players = 6;
+        boards.daily.top = {entry(1, "Kenji", "", 4, 0, 210, 1), entry(2, "Anosch", "Anosch", 3, 1, 160, 4, true),
+                            entry(3, "Lou", "", 2, 2, 95, 2)};
+        boards.daily.you = boards.daily.top[1];
+        ranked_.boards = boards;
+    }
     // The Settings tab: a 16:9 window with the wider view set up, its 3D
     // resolutions; "preview-settings-sound" opens Sound.
-    settings_.pictures = {"Keep its 16:9 shape", "Stretch to fill", "Wider view in matches"};
-    settings_.resolutions = {"Wii (640 × 448)", "2× (1280 × 896)", "3× (1920 × 1344)", "Window (1920 × 1080)"};
-    settings_.resolution = 3;
+    settings_.pictures = {"16:9", "Stretch", "Wider view"};
+    settings_.picture_about =
+        "16:9 keeps the game's shape, Stretch fills the window, Wider view shows more of the stadium in matches.";
+    settings_.resolutions = {"Full", "Native", "2x", "3x", "4x"};
+    settings_.resolution = 0;
+    settings_.resolution_about = "How sharp the game draws its 3D: Full at the window's size (1920 \xC3\x97 1080), "
+                                 "Native at the Wii's 640 \xC3\x97 448, 2x to 4x at its multiples, for slower "
+                                 "graphics cards.";
     settings_.sound_volumes[0] = 70;
     if (const char* tab = std::getenv("RECHARGED_CAPTURE_TAB"))
         for (const auto& entry : state_.tabs)
             if (Slug(entry.label) == Slug(tab)) first = overlay::OverlayTab(entry.id);
     state_.Open(first);
-    if (mode_ == "preview-settings-sound")
-    {
-        state_.settings_state.section = 1;
-        state_.settings.Push({int(overlay::GameSettingsScreen::Section), "Sound", "Sound"}, 0);
-    }
+    if (mode_ == "preview-settings-sound") state_.settings_state.section = 1;
     // A capture shows the pictures: they are asked for and loaded before it.
     if (pictures_ && capture_)
     {
@@ -407,6 +458,19 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         state_.online.Push({int(overlay::OnlinePanelScreen::Player), mii ? "m1000000004" : "p900010",
                             mii ? "Tommy" : "Mario"},
                            0);
+    }
+    // The search's setup ("search", as the panel keys it): Palace tilt, the
+    // preset chosen last; "preview-search-running" with the search running.
+    if (mode_ == "preview-search-setup" || mode_ == "preview-search-running")
+    {
+        auto& setup = state_.online_state;
+        setup.setup_for = "search";
+        setup.preset = 0;
+        const auto presets = overlay::MakeOnlinePanelModel(lists_, match_, context_).presets;
+        for (std::size_t n = 0; n < presets.size(); ++n)
+            if (presets[n].name == "Palace tilt") setup.preset = int(n);
+        setup.rules = presets.empty() ? platform::MatchRules{} : presets[std::size_t(setup.preset)].rules;
+        state_.online.Push({int(overlay::OnlinePanelScreen::Setup), "search", "Find an opponent"}, 0);
     }
     // A challenge to Mario being set up: Competitive, with Field Tilt.
     if (mode_ == "preview-setup")
@@ -502,6 +566,7 @@ void OnlinePanelPreview::Draw(ImVec2 size, ImTextureID art_back, ImTextureID art
     model.online = overlay::MakeOnlinePanelModel(lists_, match_, context_);
     model.options = options_;
     model.settings = settings_;
+    model.ranked = ranked_;
     model.more_tabs = more_tabs_;
     overlay::GameOverlayStyle style;
     style.unit = UiScale();
@@ -547,7 +612,7 @@ void OnlinePanelPreview::DrawPrompt()
         return row;
     };
     const std::string rules =
-        "Competitive: 3 minutes, best of 3, random stadium, Fast terrain, No Mega Strikes";
+        "Competitive: First to 10 goals, best of 3, random stadium, Fast terrain, No Mega Strikes";
     if (mode_ == "preview-prompt-lost")
     {
         prompt.kind = Kind::SetOver;
@@ -647,6 +712,9 @@ void OnlinePanelPreview::DrawPrompt()
 // What a press does to the made-up data, as the server and the host would answer it.
 void OnlinePanelPreview::Apply(const overlay::GameOverlayActions& all)
 {
+    // Play RANKED: on the way there; Stop: back.
+    if (all.ranked.play) ranked_.going = true, ranked_.can_play = false;
+    if (all.ranked.stop) ranked_.going = false, ranked_.can_play = true;
     const overlay::OnlinePanelActions& actions = all.online;
     const auto find = [this](std::int64_t id) -> const ProfilePlayer* {
         for (const auto* list : {&lists_.friends, &lists_.available, &context_.discord_friends})
