@@ -306,9 +306,9 @@ its shape (`stretch`), **Page Up** and **Page Down** raise and lower the 3D
 resolution (`resolution_up`, `resolution_down`), and **Alt+Enter**
 (Option+Return on a Mac) switches between fullscreen and a window
 (`fullscreen`); the last four last for the run. **F1** opens and closes the
-game's overlay (`panel`); HOME on any controller does the same, **F2** opens it
-on Game options (`game_options`), and Escape closes it. Pressed while it is
-open, F1 or F2 shows its tab, or closes the overlay when that tab is shown. It
+**Recharged Game Menu** (`panel`); HOME on any controller does the same, **F2**
+opens it on Game options (`game_options`), and Escape closes it. Pressed while
+it is open, F1 or F2 shows its tab, or closes the menu when that tab is shown. It
 opens on **Online**: your set (accept, Ready to play!, rematch),
 the friends who have Recharged open (and how many are offline) and, while you
 are **Open to challenges** (players who aren't your friends see you then), the
@@ -318,14 +318,15 @@ page. **Events** is the place for tournaments and organised match-ups (coming
 later). **Game options** has the gameplay options that can change while the game
 runs: they are saved at once and count from the next match (online matches
 play by their own rules). **Settings** has the settings that change at once,
-in a small menu: *Display* (fullscreen, the picture's shape as the stretch
-hotkey has it, the 3D resolution, the performance numbers), *Sound* (master
-volume, mute, the sound levels, the challenge sound) and *Advanced* (reopen the
-launcher after the game); each change is saved to `recharged.ini` at once. A
-opens a section, B goes back to the menu. The controls and the settings that
-need a new start stay in the launcher. While the game is in its menus, the
-top-left corner shows the overlay's keys (F1 or HOME), and a challenge you sent
-from the overlay closes it when it is accepted: the game goes on into the
+in sections: *Display* (fullscreen, the picture's shape as the stretch hotkey
+has it, the 3D resolution, the performance numbers), *Sound* (master volume,
+mute, the sound levels as sliders, the challenge sound) and *Advanced* (reopen
+the launcher after the game); each change is saved to `recharged.ini` at once.
+The section the cursor is on in the list shows beside it (Display at first),
+and right goes into it. The controls and the settings that need a new start
+stay in the launcher. While the game is in its menus, the top-left corner
+shows the menu's keys (F1 or HOME), and a challenge you sent from the menu
+closes it when it is accepted: the game goes on into the
 set. L1/R1 (− and + on a Wii Remote), Q/E or a click
 switch tabs, and B goes back a page. While it is open the game behind it is
 blurred and gets no input: online matches go on, and in an offline match it
@@ -495,7 +496,7 @@ leaders and today's, and your own place), **Events** (tournaments, coming
 later; they need Discord) and
 **Match rules** (the presets a challenge starts from, see *Match settings*,
 and the server's rule sets) and **Sidekicks**. Your friends, the players available and your set
-are in the game's online panel (**F1** or HOME, see Hotkeys). A dot before
+are in the Recharged Game Menu (**F1** or HOME, see Hotkeys). A dot before
 **Online** in the sidebar shows the sign-in: green signed in, red not; signed
 out, **Player profile** shows what playing online brings and its two ways in,
 **Connect Discord** and **Play with a Mii**, and the pages that need the
@@ -531,7 +532,7 @@ level is only for the CPU).
      game** under the two choices, `[online] mii_sign_in`: the game signs you
      in again once that Mii logs in to WFC); before that, signing out loses
      it for good.
-2. Challenge a player who has Recharged open from the game's online panel:
+2. Challenge a player who has Recharged open from the Recharged Game Menu:
    **Challenge** opens the challenge's setup. It starts from the preset used
    last (`[online] challenge_rules`): one of the server's rule sets or one of
    your own (**Match rules**). Every rule can change there for this challenge
@@ -558,7 +559,7 @@ level is only for the CPU).
    login's Connecting screen and the draft. (When your Mii from the launcher
    is not on this computer, you choose a Mii yourself.) A game that is
    elsewhere in its menus says so: back on the main menu or the online menu,
-   it goes on. **Not ready** in the online panel holds the set until you
+   it goes on. **Not ready** in the Recharged Game Menu holds the set until you
    press **Ready to play!** again.
 4. After the series both games report the result and stay in the online menu,
    with a card: **Rematch** challenges your opponent again by the same rules,
@@ -572,7 +573,7 @@ level is only for the CPU).
    goes back to the RANKED menu, and nobody else is met.
 
 Your **friends** are kept on the server, so they follow you to every
-computer: a player's screen in the online panel adds them or takes them off.
+computer: a player's screen in the Recharged Game Menu adds them or takes them off.
 Playing someone doesn't make them a friend.
 
 With Discord you need no Mii of your own: the launcher makes one from your

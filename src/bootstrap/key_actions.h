@@ -64,8 +64,8 @@ inline constexpr std::array<KeyAction, HotkeyCount> kHotkeys{{
     {"resolution_up", "Higher 3D resolution", "Sharper, for this run.", "PageUp"},
     {"resolution_down", "Lower 3D resolution", "Faster, for this run.", "PageDown"},
     {"fullscreen", "Fullscreen or window", "For this run.", "Alt+Return"},
-    {"panel", "Online panel", "Opens it over the game, as HOME does; Escape closes it.", "F1"},
-    {"game_options", "Game options", "Opens the game's overlay on its Game options tab.", "F2"},
+    {"panel", "Recharged Game Menu", "Opens it over the game, as HOME does; Escape closes it.", "F1"},
+    {"game_options", "Game options", "Opens the Recharged Game Menu on its Game options tab.", "F2"},
 }};
 // The value that leaves a hotkey without a key.
 inline constexpr const char* kNoHotkey = "none";

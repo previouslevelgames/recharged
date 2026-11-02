@@ -16,9 +16,10 @@ works as on the Wii, with friend codes, ranked matches and rankings.
    (**Player profile**), the game's RANKED **Leaderboard**, your tournaments
    (**Events**, coming later), the rules of your challenges (**Match rules**)
    and your **Sidekicks**.
-2. In the game, press **F1** (or HOME) for its online panel: your set, your
-   friends online and the players available. Challenge an opponent there, or
-   let a tournament pair you with one (the panel's **Events** tab, coming
+2. In the game, press **F1** (or HOME) for the **Recharged Game Menu**: on
+   its **Online** tab your set, your friends online and the players
+   available. Challenge an opponent there, or let a tournament pair you with
+   one (the menu's **Events** tab, coming
    later). The game reminds you of the key the first time it shows its main
    menu.
 3. They accept on a card over their game, or, with only the launcher open,
@@ -40,7 +41,7 @@ with the score.
 
 ## Challenge a friend
 
-- Challenge a player from the game's online panel (F1): pick them in the
+- Challenge a player from the Recharged Game Menu (F1): pick them in the
   list, then **Challenge**. The challenge's setup starts from a preset: one of
   the server's rule sets or one of your own (**Online → Match rules** in the
   launcher). Change any rule for this challenge (series, game length or goals,
@@ -52,7 +53,7 @@ with the score.
   set.
 - Anyone who is signed in and has Recharged open can be challenged, unless
   they are playing a match.
-- A player's screen in the online panel also adds them to your friends or
+- A player's screen in the Recharged Game Menu also adds them to your friends or
   takes them off. Switch on **Open to challenges** there to meet
   players you don't know yet: the others who are available show to you, and
   you to them.
@@ -79,7 +80,7 @@ Recharged's own friends list follows you everywhere, but your friends are
 probably on Discord already. Signing in with Discord links them too: Discord's
 page asks for your account and your friends list at once, and **Player
 profile** then shows how many of your Discord friends play Recharged. In
-the game's online panel (F1), those who have Recharged open show among your
+the Recharged Game Menu (F1), those who have Recharged open show among your
 friends online, with Discord's logo: no need to add them. If your server
 doesn't link them with the sign-in (servers before 1.2.1), **Link** on
 **Player profile** asks Discord for them once.
@@ -106,8 +107,8 @@ standings. Recharged takes care of everything from "you have been paired" to
   series.
 - **The result goes in by itself.** Both games send what they saw. When they
   agree, our server enters the result and the game scores on start.gg, the
-  bracket moves on, and your next set shows up in **Events**, in the game's
-  online panel and on the launcher's Online pages.
+  bracket moves on, and your next set shows up in **Events**, in the
+  Recharged Game Menu and on the launcher's Online pages.
 - **Disputes** stay with the tournament's organizers on start.gg, as always.
 
 If you have played online tournaments on start.gg before, for example in

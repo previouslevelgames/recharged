@@ -783,7 +783,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 +", HUD "+key(mscharged::HotkeyHud)+" (matches start with the HUD "+(s.show_hud ? "shown)" : "hidden)")
                 +", stretch "+key(mscharged::HotkeyStretch)+", 3D resolution "+key(mscharged::HotkeyResolutionUp)
                 +"/"+key(mscharged::HotkeyResolutionDown)+", fullscreen "+key(mscharged::HotkeyFullscreen)
-                +", online panel "+key(mscharged::HotkeyPanel)+" (and HOME), game options "
+                +", game menu "+key(mscharged::HotkeyPanel)+" (and HOME), game options "
                 +key(mscharged::HotkeyOptions));
             for (const auto& device : s.players) {
                 if (device.rfind("gamepad", 0) != 0) continue;
@@ -1822,7 +1822,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const bool none=key.empty() || key==mscharged::kNoHotkey;
                 panelHint=mscharged::runtime::HostOverlay::Hint{
                     none ? std::vector<std::string>{"HOME"} : std::vector<std::string>{key,"HOME"},
-                    "Online: friends, challenges and sets"};
+                    "Recharged Game Menu"};
             }
             // F1/HOME and F2 while open: the other tab, or closing the one shown.
             hostPanel->SetTabKeys([&](int tab) {
