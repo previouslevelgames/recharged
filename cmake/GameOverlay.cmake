@@ -35,7 +35,7 @@ if(BUILD_TESTING)
 endif()
 
 add_library(charged_overlay STATIC src/overlay/overlay_frame.cpp src/overlay/overlay_rows.cpp src/overlay/game_settings.cpp src/overlay/online_panel.cpp
-    src/overlay/game_options.cpp src/overlay/game_overlay.cpp src/overlay/overlay_prompt.cpp)
+    src/overlay/game_options.cpp src/overlay/game_overlay.cpp src/overlay/overlay_prompt.cpp src/overlay/ranked_tab.cpp)
 target_link_libraries(charged_overlay PUBLIC charged_overlay_model charged_ui_kit charged_overlay_images)
 if(BUILD_TESTING)
     add_executable(game_overlay_tests tests/game_overlay.cpp)

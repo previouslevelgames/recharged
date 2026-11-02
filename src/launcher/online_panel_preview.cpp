@@ -367,15 +367,14 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     // Tabs to come, with made-up badges (ids from 100: never the game's).
     if (mode_.rfind("preview-tabs", 0) == 0)
     {
-        more_tabs_ = {MoreTab(100, "Ranked", Icon::Medal, 0, true), MoreTab(101, "Tournaments", Icon::Bracket, 2),
-                      MoreTab(102, "Leaderboard", Icon::Podium)};
+        more_tabs_ = {MoreTab(100, "Clubs", Icon::Person, 0, true), MoreTab(101, "Tournaments", Icon::Bracket, 2),
+                      MoreTab(102, "Stats", Icon::Target)};
         if (mode_.rfind("preview-tabs-max", 0) == 0)
         {
-            more_tabs_.push_back(MoreTab(103, "Stats", Icon::Target));
-            more_tabs_.push_back(MoreTab(104, "Replays", Icon::Play));
+            more_tabs_.push_back(MoreTab(103, "Replays", Icon::Play));
             more_tabs_.back().tab.available = false;
             more_tabs_.back().tab.hint = "Coming later";
-            more_tabs_.push_back(MoreTab(105, "Clubs", Icon::Person));
+            more_tabs_.push_back(MoreTab(104, "Teams", Icon::Person));
             more_tabs_.back().tab.hidden = true;
         }
     }
@@ -386,7 +385,47 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     }
     overlay::OverlayTab first = mode_.rfind("preview-options", 0) == 0 ? overlay::OverlayTab::GameOptions
         : mode_.rfind("preview-settings", 0) == 0                     ? overlay::OverlayTab::Settings
+        : mode_.rfind("preview-ranked", 0) == 0                       ? overlay::OverlayTab::Ranked
                                                                       : overlay::OverlayTab::Online;
+    // The Ranked tab: Play RANKED with the player's own Mii, the leaderboards
+    // with the player on both; "preview-ranked-going" on the way there,
+    // "preview-ranked-out" without a player profile.
+    ranked_.own_mii = true;
+    ranked_.can_play = mode_ != "preview-ranked-going";
+    ranked_.going = mode_ == "preview-ranked-going";
+    ranked_.signed_out = mode_ == "preview-ranked-out";
+    if (!ranked_.signed_out)
+    {
+        const auto entry = [](int rank, const char* mii, const char* player, int wins, int losses, int points,
+                              int region, bool you = false) {
+            platform::LeaderboardEntry row;
+            row.rank = rank;
+            row.mii = mii;
+            row.player = player;
+            row.wins = wins;
+            row.losses = losses;
+            row.points = points;
+            row.region = region;
+            row.you = you;
+            return row;
+        };
+        platform::Leaderboard boards;
+        boards.season.first_day = "2026-11-01";
+        boards.season.last_day = "2026-11-30";
+        boards.season.players = 48;
+        boards.season.top = {entry(1, "Raulaso", "", 31, 6, 1840, 4),     entry(2, "Kenji", "", 27, 9, 1655, 1),
+                             entry(3, "Birnen", "einBirnenbaum", 22, 8, 1490, 4),
+                             entry(4, "Lou", "", 19, 11, 1302, 2),        entry(5, "Anosch", "Anosch", 17, 10, 1215, 4, true),
+                             entry(6, "Tommy", "", 15, 12, 1090, 2),      entry(7, "Sara", "", 12, 12, 940, 4),
+                             entry(8, "Mischief", "", 9, 14, 760, 2)};
+        boards.season.you = boards.season.top[4];
+        boards.daily.first_day = boards.daily.last_day = "2026-11-02";
+        boards.daily.players = 6;
+        boards.daily.top = {entry(1, "Kenji", "", 4, 0, 210, 1), entry(2, "Anosch", "Anosch", 3, 1, 160, 4, true),
+                            entry(3, "Lou", "", 2, 2, 95, 2)};
+        boards.daily.you = boards.daily.top[1];
+        ranked_.boards = boards;
+    }
     // The Settings tab: a 16:9 window with the wider view set up, its 3D
     // resolutions; "preview-settings-sound" opens Sound.
     settings_.pictures = {"Keep its 16:9 shape", "Stretch to fill", "Wider view in matches"};
@@ -519,6 +558,7 @@ void OnlinePanelPreview::Draw(ImVec2 size, ImTextureID art_back, ImTextureID art
     model.online = overlay::MakeOnlinePanelModel(lists_, match_, context_);
     model.options = options_;
     model.settings = settings_;
+    model.ranked = ranked_;
     model.more_tabs = more_tabs_;
     overlay::GameOverlayStyle style;
     style.unit = UiScale();
@@ -664,6 +704,9 @@ void OnlinePanelPreview::DrawPrompt()
 // What a press does to the made-up data, as the server and the host would answer it.
 void OnlinePanelPreview::Apply(const overlay::GameOverlayActions& all)
 {
+    // Play RANKED: on the way there; Stop: back.
+    if (all.ranked.play) ranked_.going = true, ranked_.can_play = false;
+    if (all.ranked.stop) ranked_.going = false, ranked_.can_play = true;
     const overlay::OnlinePanelActions& actions = all.online;
     const auto find = [this](std::int64_t id) -> const ProfilePlayer* {
         for (const auto* list : {&lists_.friends, &lists_.available, &context_.discord_friends})

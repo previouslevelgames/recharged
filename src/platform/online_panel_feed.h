@@ -46,6 +46,9 @@ public:
 
     // The panel opened or closed: it asks the server only while open.
     void SetOpen(bool open);
+    // The Ranked tab is shown: the leaderboards come with the lists (at once
+    // when it opens).
+    void WantLeaderboard(bool want);
     // What the game does, for the server's lists ("game" or "match"), and
     // in a match its kind (MatchKindOf).
     void SetActivity(std::string activity, std::string match_kind = {});
@@ -70,6 +73,12 @@ public:
         std::vector<RuleSet> rule_sets;
         std::string server_version;
         std::string error; // the last call that failed, for the panel's footer
+        // The game's RANKED leaderboards, while the Ranked tab wants them
+        // (asked at most once a minute); `leaderboard_missing` for a server
+        // without them (before 1.2.1).
+        std::optional<Leaderboard> leaderboard;
+        bool leaderboard_missing = false;
+        std::chrono::steady_clock::time_point leaderboard_fetched{};
     };
     Snapshot Latest();
 
@@ -111,7 +120,7 @@ private:
     bool discord_failed_ = false; // the feed's thread only
     std::mutex mutex_;
     std::condition_variable wake_;
-    bool stop_ = false, open_ = false, due_ = false;
+    bool stop_ = false, open_ = false, due_ = false, want_leaderboard_ = false;
     std::string activity_ = "game", match_kind_;
     std::string challenge_rules_;
     std::shared_ptr<class HttpCancel> cancel_;

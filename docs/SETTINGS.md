@@ -314,7 +314,13 @@ the friends who have Recharged open (and how many are offline) and, while you
 are **Open to challenges** (players who aren't your friends see you then), the
 others who are open to challenges; a player's row
 challenges them (the challenge's setup, see *Online*) or opens their
-page. **Events** is the place for tournaments and organised match-ups (coming
+page. **Ranked** is the game's online RANKED from anywhere in its menus:
+**Play RANKED** takes the game by itself (with your own Mii, or one you choose
+there) into a RANKED search against anybody, as its online menu's RANKED
+would; from another menu it goes on once you are back on the main menu or the
+online menu, and **Stop** stops the way there. Beside it your place this season
+and today, and the season's and today's leaders (with a player profile).
+**Events** is the place for tournaments and organised match-ups (coming
 later). **Game options** has the gameplay options that can change while the game
 runs: they are saved at once and count from the next match (online matches
 play by their own rules). **Settings** has the settings that change at once,

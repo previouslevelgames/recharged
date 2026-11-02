@@ -58,6 +58,8 @@
 #include <cstring>
 #include <iterator>
 
+extern "C" void mscharged_tweak_set_end(void);
+
 namespace
 {
 // The host's rules (sPending), and the ones of the match set up last (sMatch).
@@ -80,6 +82,10 @@ bool sStartedInGame = false;
 // The set ended while its game still searched RANKED: the search screen leaves
 // the search (tweak patch 0049), and nobody is met until it has.
 bool sLeaveSearch = false;
+// The walk is the Recharged Game Menu's Play RANKED (charged_start_ranked),
+// not a set's: it ends where the retail RANKED search begins, against
+// anybody, and a popup it doesn't know is the player's to answer.
+bool sRankedWalk = false;
 
 // [advanced] log_level = debug: the DWC reports that go to the log: its
 // information, errors and warnings, the login, matchmaking (NAT negotiation,
@@ -90,6 +96,17 @@ constexpr u32 kDwcReport = 0x1 | 0x2 | 0x8 | 0x20 | 0x40 | 0x80 | 0x200 | 0x400 
 u32 sDwcReport = 0;
 
 bool OnSet() { return sSetStage != CHARGED_SET_NONE; }
+
+// The ranked walk is done (the search began) or stopped: the screens and the
+// title are the player's again.
+void EndRankedWalk()
+{
+    sRankedWalk = false;
+    sSetStage = CHARGED_SET_NONE;
+    sPlayerChoosesMii = false;
+    sStartedInGame = false;
+    mscharged_tweak_set_end();
+}
 
 // The walk drives the screens unseen: once the main menu went online, or from
 // the start in a game the launcher started for the set, until the search.
@@ -379,7 +396,8 @@ extern "C" __attribute__((visibility("default"))) bool charged_wfc_snapshot(Char
             !manager || !manager->IsOnStack(SCENE_ONLINE_MATCHMAKING_DRAFT))
             sLeaveSearch = false;
     s.competitive = sActive;
-    s.set_stage = sSetStage;
+    s.set_stage = sRankedWalk ? CHARGED_SET_NONE : sSetStage;
+    s.ranked_stage = sRankedWalk ? sSetStage : CHARGED_SET_NONE;
     s.set_popup = sSetPopup;
     s.set_unseen = Unseen() ? 1 : 0;
     s.competitive_setups = sSetups;
@@ -399,6 +417,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
 {
     if (!mii || size != sizeof sSetMii) return false;
     std::memcpy(&sSetMii, mii, sizeof sSetMii);
+    sRankedWalk = false;
     sSetStage = CHARGED_SET_BOOT;
     sSetPopup = -1;
     sPlayerChoosesMii = false;
@@ -406,6 +425,30 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
     sLeaveSearch = false;
     mscharged_tweak_set_start();
     return true;
+}
+
+// Host entry, between frames: the Recharged Game Menu's Play RANKED. The set's
+// walk without a set: the game goes by itself into the retail RANKED search
+// for one player, against anybody, with `mii` (null: the player chooses it).
+extern "C" __attribute__((visibility("default"))) bool charged_start_ranked(const unsigned char* mii, unsigned size)
+{
+    if (OnSet() && !sRankedWalk) return false; // a set's game is on its way
+    if (mii && size != sizeof sSetMii) return false;
+    if (mii) std::memcpy(&sSetMii, mii, sizeof sSetMii);
+    else std::memset(&sSetMii, 0, sizeof sSetMii);
+    sRankedWalk = true;
+    sSetStage = CHARGED_SET_BOOT;
+    sSetPopup = -1;
+    sPlayerChoosesMii = false;
+    sStartedInGame = GameSceneManager::Instance() != nullptr;
+    sLeaveSearch = false;
+    mscharged_tweak_set_start();
+    return true;
+}
+
+extern "C" __attribute__((visibility("default"))) void charged_stop_ranked(void)
+{
+    if (sRankedWalk) EndRankedWalk();
 }
 
 // Host entry, at log level debug: DWC's reports go to the log.
@@ -553,9 +596,11 @@ extern "C" int mscharged_competitive_mii_position(const int* official_indices, i
                 sSetStage = CHARGED_SET_OVERLAY;
                 return position;
             }
-    // Not on this computer (a game the launcher did not start for the set):
-    // the player chooses the Mii, and the login still goes on into RANKED.
-    std::fputs("Competitive: the set's Mii is not in the Mii database; the player chooses one\n", stderr);
+    // Not on this computer (a game the launcher did not start for the set),
+    // or Play RANKED without one: the player chooses the Mii, and the login
+    // still goes on into RANKED.
+    if (sRankedWalk) std::fputs("Ranked: the player chooses the Mii\n", stderr);
+    else std::fputs("Competitive: the set's Mii is not in the Mii database; the player chooses one\n", stderr);
     sSetStage = CHARGED_SET_LOGIN;
     sPlayerChoosesMii = true;
     return -1;
@@ -592,7 +637,9 @@ extern "C" bool mscharged_competitive_ranked_waits(void)
 extern "C" bool mscharged_competitive_take_ranked(void)
 {
     if (sSetStage != CHARGED_SET_LOGIN) return false;
-    sSetStage = CHARGED_SET_SEARCH;
+    // The ranked walk ends where the retail search begins.
+    if (sRankedWalk) EndRankedWalk();
+    else sSetStage = CHARGED_SET_SEARCH;
     return true;
 }
 
@@ -601,7 +648,8 @@ extern "C" bool mscharged_competitive_take_ranked(void)
 extern "C" bool mscharged_competitive_take_online_menu(void)
 {
     if (sSetStage != CHARGED_SET_BOOT || PopupOnTop()) return false;
-    sSetStage = CHARGED_SET_SEARCH;
+    if (sRankedWalk) EndRankedWalk();
+    else sSetStage = CHARGED_SET_SEARCH;
     return true;
 }
 
@@ -632,6 +680,13 @@ extern "C" int mscharged_competitive_popup(int type)
     case POPUP_ONLINE_NO_COPY:               // the online save is new
         return 0;
     default:
+        // Play RANKED: the walk stops, and the player answers.
+        if (sRankedWalk)
+        {
+            std::fprintf(stderr, "Ranked: popup %d stops the walk to RANKED\n", type);
+            EndRankedWalk();
+            return -1;
+        }
         std::fprintf(stderr, "Competitive: popup %d ended the set\n", type);
         sSetPopup = type;
         sSetStage = CHARGED_SET_FAILED;

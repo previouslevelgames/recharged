@@ -53,6 +53,8 @@ void Merge(GameOverlayActions& all, const GameOverlayActions& a)
     if (a.online.remove_mii_friend) o.remove_mii_friend = a.online.remove_mii_friend;
     if (a.online.set_available) o.set_available = a.online.set_available;
     if (a.online.set_challenge_rules) o.set_challenge_rules = a.online.set_challenge_rules;
+    all.ranked.play |= a.ranked.play;
+    all.ranked.stop |= a.ranked.stop;
     if (a.set_option) all.set_option = a.set_option;
     if (a.set_setting) all.set_setting = a.set_setting;
 }
@@ -247,25 +249,27 @@ void TestTabs()
     Harness h;
     h.model.online = Model();
     h.Open();
-    // Every way to the next tab (Events) and back.
+    // Every way to the next tab (Ranked) and back.
     h.Press(ImGuiKey_E);
-    CHECK(h.state.Tab() == OverlayTab::Events);
+    CHECK(h.state.Tab() == OverlayTab::Ranked);
     h.Press(ImGuiKey_Q);
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.Press(ImGuiKey_GamepadR1);
-    CHECK(h.state.Tab() == OverlayTab::Events);
+    CHECK(h.state.Tab() == OverlayTab::Ranked);
     h.Press(ImGuiKey_GamepadL1);
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.Press(ImGuiKey_GamepadR2);
-    CHECK(h.state.Tab() == OverlayTab::Events);
+    CHECK(h.state.Tab() == OverlayTab::Ranked);
     h.Press(ImGuiKey_GamepadL2);
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.Press(ImGuiKey_Tab, true);
-    CHECK(h.state.Tab() == OverlayTab::Events);
+    CHECK(h.state.Tab() == OverlayTab::Ranked);
     h.Press(ImGuiKey_Tab, true, true);
     CHECK(h.state.Tab() == OverlayTab::Online);
-    // Four tabs: next from the last is the first, previous from the first the last.
+    // Five tabs: next from the last is the first, previous from the first the last.
     h.Press(ImGuiKey_E);
+    h.Press(ImGuiKey_E);
+    CHECK(h.state.Tab() == OverlayTab::Events);
     h.Press(ImGuiKey_E);
     CHECK(h.state.Tab() == OverlayTab::GameOptions);
     h.Press(ImGuiKey_E);
@@ -284,8 +288,9 @@ void TestTabs()
         CHECK(!actions.close);
         if (clicked.empty() || clicked.back() != h.state.Tab()) clicked.push_back(h.state.Tab());
     }
-    CHECK(clicked.size() == 4 && clicked[0] == OverlayTab::Online && clicked[1] == OverlayTab::Events
-          && clicked[2] == OverlayTab::GameOptions && clicked[3] == OverlayTab::Settings);
+    CHECK(clicked.size() == 5 && clicked[0] == OverlayTab::Online && clicked[1] == OverlayTab::Ranked
+          && clicked[2] == OverlayTab::Events && clicked[3] == OverlayTab::GameOptions
+          && clicked[4] == OverlayTab::Settings);
     h.Click(400, 86);
     CHECK(h.state.Tab() == OverlayTab::Online);
 
@@ -293,7 +298,7 @@ void TestTabs()
     h.Press(ImGuiKey_Enter);
     CHECK(h.OnPlayer("p10"));
     h.Press(ImGuiKey_E);
-    CHECK(h.state.Tab() == OverlayTab::Events);
+    CHECK(h.state.Tab() == OverlayTab::Ranked);
     h.Press(ImGuiKey_Q);
     CHECK(h.state.Tab() == OverlayTab::Online && h.OnPlayer("p10"));
     // ... and B there goes back to the list, not to the other tab.
@@ -311,7 +316,7 @@ void TestTabs()
     h.Frame();
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.state.NextTab();
-    CHECK(h.state.Tab() == OverlayTab::Events);
+    CHECK(h.state.Tab() == OverlayTab::Ranked);
     h.state.PreviousTab();
     CHECK(h.state.Tab() == OverlayTab::Online);
     h.Open(OverlayTab::Events);
@@ -569,7 +574,7 @@ void TestSettingsByKeys()
         g.model.settings.resolutions = {"Native", "Window"};
         g.model.settings.pictures = {"Keep its shape", "Stretch to fill"};
         g.Open();
-        for (int n = 0; n < 3; ++n) g.Press(ImGuiKey_E);
+        for (int n = 0; n < 4; ++n) g.Press(ImGuiKey_E);
         CHECK(g.state.Tab() == OverlayTab::Settings && g.state.settings_state.section == 0);
         g.Frame();
         g.Press(ImGuiKey_RightArrow);
@@ -577,6 +582,55 @@ void TestSettingsByKeys()
         const auto toggled = g.Press(ImGuiKey_Enter);
         CHECK(toggled.set_setting && toggled.set_setting->setting == GameSetting::PerformanceNumbers);
     }
+}
+
+// The Ranked tab: Play RANKED (the cursor starts on it), or why not; Stop on
+// the way there; the season's leaders or today's.
+void TestRanked()
+{
+    Harness h;
+    h.model.online = Model();
+    auto& ranked = h.model.ranked;
+    ranked.can_play = true;
+    ranked.own_mii = true;
+    platform::Leaderboard boards;
+    platform::LeaderboardEntry row;
+    row.rank = 1;
+    row.mii = "Kenji";
+    row.points = 1200;
+    boards.season.top = {row};
+    boards.daily.top = {row};
+    ranked.boards = boards;
+    h.Open(OverlayTab::Ranked);
+    CHECK(h.state.Tab() == OverlayTab::Ranked);
+    auto actions = h.Press(ImGuiKey_Enter);
+    CHECK(actions.ranked.play && !actions.ranked.stop && !actions.close);
+    // Not now: the button doesn't press.
+    ranked.can_play = false;
+    ranked.blocked = "You're in a match: RANKED waits until it is over.";
+    actions = h.Press(ImGuiKey_Enter);
+    CHECK(!actions.ranked.play);
+    // On the way: Stop.
+    ranked.blocked.clear();
+    ranked.going = true;
+    h.Open(OverlayTab::Ranked);
+    actions = h.Press(ImGuiKey_Enter);
+    CHECK(actions.ranked.stop && !actions.ranked.play);
+    // The boards: right to Season leaders, right again to Daily leaders, A
+    // the other one.
+    ranked.going = false;
+    ranked.can_play = true;
+    h.Open(OverlayTab::Ranked);
+    CHECK(h.state.ranked_state.board == 0);
+    h.Press(ImGuiKey_RightArrow);
+    actions = h.Press(ImGuiKey_RightArrow);
+    CHECK(h.state.ranked_state.board == 1 && !actions.ranked.play);
+    actions = h.Press(ImGuiKey_Enter);
+    CHECK(h.state.ranked_state.board == 0 && !actions.ranked.play);
+    // Left from the season's: back on Play RANKED.
+    h.Press(ImGuiKey_LeftArrow);
+    actions = h.Press(ImGuiKey_Enter);
+    CHECK(actions.ranked.play);
 }
 
 // Without a player profile: the Online tab only invites to make one (nothing
@@ -594,7 +648,7 @@ void TestSignedOut()
         actions = h.Press(key);
         CHECK(!actions.online.Any() && h.state.Tab() == OverlayTab::Online);
     }
-    for (int n = 0; n < 3; ++n) h.Press(ImGuiKey_E);
+    for (int n = 0; n < 4; ++n) h.Press(ImGuiKey_E);
     CHECK(h.state.Tab() == OverlayTab::Settings);
     h.Press(ImGuiKey_DownArrow);
     h.Press(ImGuiKey_RightArrow);
@@ -779,21 +833,23 @@ void TestMoreTabs()
     set.opponent_online = true;
     h.model.online = Model(set);
     int drawn = 0;
-    h.model.more_tabs = {tab(100, "Ranked"), tab(101, "Tournaments", false), tab(102, "Events", true, true),
-                         tab(103, "Leaderboard")};
+    h.model.more_tabs = {tab(100, "Clubs"), tab(101, "Tournaments", false), tab(102, "Events", true, true),
+                         tab(103, "Stats")};
     h.model.more_tabs[0].draw = [&drawn](const OverlayLayout&) { ++drawn; };
-    // Online first, Events, Game options and Settings last, the more tabs
-    // between; Online's badge: the challenge.
+    // Online and Ranked first, Events, Game options and Settings last, the
+    // more tabs between; Online's badge: the challenge.
     const auto tabs = GameOverlayTabs(h.model);
-    CHECK(tabs.size() == 8 && tabs.front().id == int(OverlayTab::Online));
-    CHECK(tabs.back().id == int(OverlayTab::Settings) && tabs[6].id == int(OverlayTab::GameOptions)
-          && tabs[5].id == int(OverlayTab::Events));
-    CHECK(tabs[1].id == 100 && tabs[4].id == 103);
+    CHECK(tabs.size() == 9 && tabs.front().id == int(OverlayTab::Online) && tabs[1].id == int(OverlayTab::Ranked));
+    CHECK(tabs.back().id == int(OverlayTab::Settings) && tabs[7].id == int(OverlayTab::GameOptions)
+          && tabs[6].id == int(OverlayTab::Events));
+    CHECK(tabs[2].id == 100 && tabs[5].id == 103);
     CHECK(tabs.front().badge == 1 && tabs.back().badge == 0);
     h.Open();
     CHECK(h.state.Tab() == OverlayTab::Online && drawn == 0);
-    // The keys: Ranked (its page drawn), over Tournaments and Events to
-    // Leaderboard, Events, Game options, Settings, round to Online, and back.
+    // The keys: Ranked, Clubs (its page drawn), over Tournaments and Events
+    // to Stats, Events, Game options, Settings, round to Online, and back.
+    h.Press(ImGuiKey_E);
+    CHECK(h.state.Tab() == OverlayTab::Ranked);
     h.Press(ImGuiKey_E);
     CHECK(int(h.state.Tab()) == 100 && drawn > 0);
     h.Press(ImGuiKey_GamepadR1);
@@ -836,9 +892,9 @@ void TestMoreTabs()
     h.Frame();
     CHECK(h.state.Tab() == OverlayTab::Online);
 
-    // Nine tabs, from a narrow window to a wide one, switching on every way
+    // Ten tabs, from a narrow window to a wide one, switching on every way
     // (labels folding into icons as they need): each lands where it should.
-    h.model.more_tabs = {tab(100, "Ranked"), tab(101, "Tournaments"), tab(102, "Leaderboard"), tab(103, "Stats"),
+    h.model.more_tabs = {tab(100, "Clubs"), tab(101, "Tournaments"), tab(102, "Leaderboard"), tab(103, "Stats"),
                          tab(104, "Replays")};
     h.model.more_tabs[2].tab.badge = 12;
     h.model.more_tabs[3].tab.dot = true;
@@ -846,7 +902,7 @@ void TestMoreTabs()
     {
         h.Frame([width](ImGuiIO& io) { io.DisplaySize = {width, width * 0.5625f}; });
         h.Open();
-        for (int n = 0; n < 9; ++n) h.Press(ImGuiKey_E);
+        for (int n = 0; n < 10; ++n) h.Press(ImGuiKey_E);
         CHECK(h.state.Tab() == OverlayTab::Online);
         h.Press(ImGuiKey_Q);
         CHECK(h.state.Tab() == OverlayTab::Settings);
@@ -912,7 +968,7 @@ void TestOpenTabBadge()
         {
             Harness h;
             h.model.online = Model();
-            h.model.more_tabs = {more(100, "Ranked", dot ? 0 : 12, dot), more(101, "Tournaments", 0, false),
+            h.model.more_tabs = {more(100, "Clubs", dot ? 0 : 12, dot), more(101, "Tournaments", 0, false),
                                  more(102, "Leaderboard", 0, false)};
             if (tabs == 7)
                 h.model.more_tabs.insert(h.model.more_tabs.end(),
@@ -944,6 +1000,7 @@ int main()
     TestSettings();
     TestSettingsByKeys();
     TestSignedOut();
+    TestRanked();
     TestLateLists();
     TestPrompt();
     TestFrameDone();

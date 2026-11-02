@@ -1342,6 +1342,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive_start"));
         auto endSet=reinterpret_cast<ChargedCompetitiveEndSetFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_competitive_end_set"));
+        // The Recharged Game Menu's Play RANKED: the game goes by itself into a
+        // retail RANKED search against anybody, as a set's game into its set's.
+        auto startRanked=reinterpret_cast<ChargedStartRankedFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_start_ranked"));
+        auto stopRanked=reinterpret_cast<ChargedStopRankedFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_stop_ranked"));
+        int rankedStage=CHARGED_SET_NONE;
+        std::chrono::steady_clock::time_point rankedChecked{}, rankedSince{}, rankedReminded{};
         // The set's players by their profile names on its RANKED screens (the
         // game shows Mii names): this player's and the opponent's, given while
         // the game plays a set (the module drops them at its end).
@@ -1469,6 +1477,32 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         " and the game takes you to RANKED",now);
                 }
             } else setWaiting={};
+        };
+        // Play RANKED's way there: the buttons are held while the game passes
+        // its menus unseen, and the player hears where it goes on from.
+        auto observeRanked = [&] {
+            if(!startRanked || !wfcSnapshot)return;
+            const auto now=std::chrono::steady_clock::now();
+            if(now-rankedChecked<std::chrono::milliseconds(250))return;
+            rankedChecked=now;
+            ChargedWfcSnapshot wfc{};
+            if(!wfcSnapshot(&wfc,sizeof wfc))return;
+            if(wfc.ranked_stage!=rankedStage) {
+                if(rankedStage!=CHARGED_SET_NONE && wfc.ranked_stage==CHARGED_SET_NONE)
+                    mscharged::platform::SessionLogLine("Ranked: the game is in RANKED (or the way there stopped)");
+                rankedStage=wfc.ranked_stage;
+                rankedSince=now;
+            }
+            if(walkHold!=(wfc.set_unseen!=0)) {
+                walkHold=wfc.set_unseen!=0;
+                holdButtons();
+            }
+            if(rankedStage==CHARGED_SET_BOOT && hostOverlay && now-rankedSince>=std::chrono::seconds(6)
+               && now-rankedReminded>=std::chrono::seconds(15)) {
+                rankedReminded=now;
+                hostOverlay->ShowMessage("RANKED waits: go back to the main menu or the online menu,"
+                    " and the game takes you there",now);
+            }
         };
         // [online] mii_sign_in: a player who played with a Mii before signs in
         // again here. Once a Mii is logged in to WFC (and there is no session),
@@ -1945,6 +1979,27 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 } else context.message=overlayNotice;
                 ov::GameOverlayModel model;
                 model.online=ov::MakeOnlinePanelModel(snapshot.lists,snapshot.match,context);
+                // Ranked: Play RANKED (the player's own Mii, else one they
+                // choose in the game), and the leaderboards while it is shown.
+                const bool ownMii=std::any_of(launch.competitive_mii.begin(),launch.competitive_mii.end(),
+                    [](auto b) { return b!=0; });
+                {
+                    auto& ranked=model.ranked;
+                    ranked.going=rankedStage!=CHARGED_SET_NONE;
+                    ranked.waiting=rankedStage==CHARGED_SET_BOOT
+                        && std::chrono::steady_clock::now()-rankedSince>=std::chrono::seconds(2);
+                    ranked.own_mii=ownMii;
+                    if(!startRanked) ranked.blocked="This game can't go to RANKED by itself.";
+                    else if(context.in_match) ranked.blocked="You're in a match: RANKED waits until it is over.";
+                    else if(competitive && competitive->CurrentSet())
+                        ranked.blocked="Your set goes on: RANKED waits until it is over.";
+                    else if(snapshot.search) ranked.blocked="You're searching for an opponent: stop that first.";
+                    ranked.can_play=ranked.blocked.empty() && !ranked.going;
+                    ranked.signed_out=!panelFeed;
+                    ranked.boards=snapshot.leaderboard;
+                    ranked.missing=snapshot.leaderboard_missing;
+                }
+                if(panelFeed) panelFeed->WantLeaderboard(overlayState.Tab()==ov::OverlayTab::Ranked);
                 if(ownMiiFace.valid() && ownMiiFace.wait_for(std::chrono::seconds(0))==std::future_status::ready)
                     if(const auto face=ownMiiFace.get())
                         ownMiiTexture=aurora_imgui_add_texture(std::uint32_t(face->width),std::uint32_t(face->height),
@@ -2001,6 +2056,22 @@ int mscharged::RunOriginalGame(int argc, char** argv,
 
                 // What the player did.
                 if(actions.close) hostPanel->RequestClose();
+                if(actions.ranked.play && startRanked && model.ranked.can_play) {
+                    if(startRanked(ownMii ? launch.competitive_mii.data() : nullptr,
+                                   ownMii ? unsigned(launch.competitive_mii.size()) : 0u)) {
+                        mscharged::platform::SessionLogLine(std::string("Ranked: Play RANKED")
+                            +(ownMii ? " with the player's own Mii" : ", the player chooses the Mii"));
+                        rankedStage=CHARGED_SET_BOOT;
+                        rankedSince=std::chrono::steady_clock::now();
+                        hostPanel->RequestClose();
+                        hostOverlay->ShowMessage("Off to RANKED",std::chrono::steady_clock::now());
+                    } else overlayNotice="RANKED can't start now";
+                }
+                if(actions.ranked.stop && stopRanked) {
+                    stopRanked();
+                    mscharged::platform::SessionLogLine("Ranked: the way to RANKED stopped");
+                    rankedStage=CHARGED_SET_NONE;
+                }
                 const auto& online=actions.online;
                 const std::int64_t set=model.online.set.match;
                 if(panelFeed) {
@@ -2346,7 +2417,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -2435,7 +2506,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}
