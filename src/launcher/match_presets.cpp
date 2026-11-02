@@ -69,6 +69,8 @@ const std::vector<MatchPreset>& BuiltInMatchPresets()
         MatchPreset retail{"Retail ranked", MatchSettings{}, true, {}};
         MatchPreset competitive = retail;
         competitive.name = "Competitive";
+        competitive.settings.goal_limit = true;
+        competitive.settings.goals = 10;
         competitive.tweaks = {"fast_terrain", "no_mega_strikes", "thunder_island_walls"};
         return std::vector<MatchPreset>{retail, competitive};
     }();

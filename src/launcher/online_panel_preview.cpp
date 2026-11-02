@@ -253,7 +253,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         return set;
     };
     context_.rule_sets = {
-        rule_set(1, "Competitive", "rookie", "time", 180, 3, "random", {"fast_terrain", "no_mega_strikes"}),
+        rule_set(1, "Competitive", "rookie", "goals", 10, 3, "random", {"fast_terrain", "no_mega_strikes"}),
         rule_set(2, "Classic", "professional", "time", 300, 1, "random", {}),
         rule_set(3, "First to 5", "legend", "goals", 5, 5, "random", {"thunder_island_walls"})};
     context_.chosen_rules = mode_.rfind("preview-rules", 0) == 0 ? "Classic" : "Competitive";
@@ -612,7 +612,7 @@ void OnlinePanelPreview::DrawPrompt()
         return row;
     };
     const std::string rules =
-        "Competitive: 3 minutes, best of 3, random stadium, Fast terrain, No Mega Strikes";
+        "Competitive: First to 10 goals, best of 3, random stadium, Fast terrain, No Mega Strikes";
     if (mode_ == "preview-prompt-lost")
     {
         prompt.kind = Kind::SetOver;

@@ -258,10 +258,10 @@ player and power-up cheats (all of them whether your save has unlocked them or
 not). A challenge or a search for an opponent starts from one and can still
 change any rule; ranked matches and tournaments bring their own rules.
 **Retail ranked** (the game's own ranked rules: best of 3, 3 minutes, a random
-stadium) and **Competitive** (the same with Fast terrain, No Mega Strikes and
-Thunder Island walls) are built in, read-only and always there, with the
-server's own rule sets (**Copy** makes one your own); yours are files of their
-own ([saves](SETTINGS.md#saves)).
+stadium) and **Competitive** (best of 3, first to 10 goals, a random stadium,
+with Fast terrain, No Mega Strikes and Thunder Island walls) are built in,
+read-only and always there, with the server's own rule sets (**Copy** makes
+one your own); yours are files of their own ([saves](SETTINGS.md#saves)).
 
 It also **updates Recharged**: when a newer release is out it shows the release
 notes and asks, then installs it in place and restarts; only the program's own

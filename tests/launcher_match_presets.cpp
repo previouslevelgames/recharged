@@ -34,17 +34,22 @@ void BuiltIn()
     Check(presets.size() == 2 && presets[0].name == "Retail ranked" && presets[1].name == "Competitive"
               && presets[0].built_in && presets[1].built_in,
           "Retail ranked and Competitive are the built-in presets");
-    Check(presets[0].settings == MatchSettings{} && presets[1].settings == MatchSettings{},
-          "Both: a new save's settings");
+    MatchSettings first_to_10;
+    first_to_10.goal_limit = true;
+    first_to_10.goals = 10;
+    Check(presets[0].settings == MatchSettings{} && presets[1].settings == first_to_10,
+          "Retail ranked: a new save's settings; Competitive: first to 10 goals");
     Check(presets[0].tweaks.empty() && presets[0].stadium == "random" && presets[1].stadium == "random"
               && presets[1].tweaks == std::vector<std::string>{"fast_terrain", "no_mega_strikes", "thunder_island_walls"},
           "Competitive: Fast terrain, No Mega Strikes, Thunder Island walls");
     Check(MatchSummary(presets[0].settings) == "Rookie, best of 3, 3 minutes", MatchSummary(presets[0].settings));
+    Check(MatchSummary(presets[1].settings) == "Rookie, best of 3, first to 10 goals", MatchSummary(presets[1].settings));
     // As the profile server starts with them.
     const auto retail = ChallengeRules(presets[0]), competitive = ChallengeRules(presets[1]);
     Check(retail.skill == "rookie" && retail.limit == "time" && retail.time == 180 && retail.goals == 5
               && retail.games == 3 && retail.stadium == "random" && retail.tweaks.empty()
-              && retail.stadium_cheat == "none" && competitive.tweaks.size() == 3,
+              && retail.stadium_cheat == "none" && competitive.limit == "goals" && competitive.goals == 10
+              && competitive.games == 3 && competitive.tweaks.size() == 3,
           "The server's Retail ranked and Competitive rules");
     MatchSettings odd;
     odd.skill = 7;

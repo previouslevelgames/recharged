@@ -4350,8 +4350,8 @@ private:
                 set.id = 1;
                 set.name = "Competitive";
                 set.rules.skill = "rookie";
-                set.rules.limit = "time";
-                set.rules.time = 180;
+                set.rules.limit = "goals";
+                set.rules.goals = 10;
                 set.rules.games = 3;
                 set.rules.stadium = "random";
                 competitive_status_.rule_sets = {set};
