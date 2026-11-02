@@ -1457,9 +1457,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const std::string opponent=end->opponent.empty() ? std::string("your opponent") : end->opponent;
                 // Without a game played it has no result, and a stopped set the
                 // server no longer keeps cannot be played again: only a message.
+                // A set a player left or called off goes again as a rematch.
+                const bool rematch=end->how==How::Left || end->how==How::OpponentLeft
+                    || end->how==How::OpponentGone;
                 if(end->how==How::NoResult) {
                     if(hostOverlay) hostOverlay->ShowMessage("The set against "+opponent+" ended without a result",now);
-                } else if(end->how!=How::Over && !end->can_play_again) {
+                } else if(end->how!=How::Over && !rematch && !end->can_play_again) {
                     if(hostOverlay) hostOverlay->ShowMessage("The set against "+opponent+" stopped",now);
                 } else afterSet=std::move(end);
             }
