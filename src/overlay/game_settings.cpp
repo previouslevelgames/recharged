@@ -56,23 +56,23 @@ void DrawSection(const GameSettingsModel& model, int section, std::optional<Game
                 change = GameSettingChange{GameSetting::Fullscreen, model.fullscreen ? 0 : 1};
             if (model.pictures.size() > 1)
             {
-                const int count = int(model.pictures.size());
-                const int now = std::clamp(model.picture, 0, count - 1);
-                if (const int step = OverlayChoiceRow("picture", "Picture", model.pictures[std::size_t(now)], width,
-                                                      interactive))
-                    change = GameSettingChange{GameSetting::Picture, (now + step + count) % count};
+                const int now = std::clamp(model.picture, 0, int(model.pictures.size()) - 1);
+                const int picked = OverlaySegmentedRow("picture", "Picture", model.pictures, now, width, interactive,
+                                                       model.picture_about.c_str());
+                if (picked >= 0) change = GameSettingChange{GameSetting::Picture, picked};
             }
         });
         OverlayRowGroup("RENDERING", width, [&] {
             if (!model.resolutions.empty())
             {
-                const int count = int(model.resolutions.size());
-                const int now = std::clamp(model.resolution, 0, count - 1);
-                if (const int step = OverlayChoiceRow("resolution", "3D resolution",
-                                                      model.resolutions[std::size_t(now)], width, interactive))
-                    change = GameSettingChange{GameSetting::Resolution, std::clamp(now + step, 0, count - 1)};
+                const int now = std::clamp(model.resolution, 0, int(model.resolutions.size()) - 1);
+                const int picked = OverlaySegmentedRow("resolution", "3D resolution", model.resolutions, now, width,
+                                                       interactive, model.resolution_about.c_str());
+                if (picked >= 0) change = GameSettingChange{GameSetting::Resolution, picked};
             }
-            if (OverlaySwitchRow("performance", "Performance numbers", model.performance_numbers, width, interactive))
+            if (OverlaySwitchRow("performance", "Performance numbers", model.performance_numbers, width, interactive,
+                                 "The frame rate and how busy the graphics card and processor are, in a corner of "
+                                 "the picture."))
                 change = GameSettingChange{GameSetting::PerformanceNumbers, model.performance_numbers ? 0 : 1};
         });
     }
@@ -95,7 +95,8 @@ void DrawSection(const GameSettingsModel& model, int section, std::optional<Game
             }
         });
         OverlayRowGroup("ONLINE", width, [&] {
-            if (OverlaySwitchRow("chime", "Challenge sound", model.challenge_sound, width, interactive))
+            if (OverlaySwitchRow("chime", "Challenge sound", model.challenge_sound, width, interactive,
+                                 "A chime when someone challenges you or accepts your challenge."))
                 change = GameSettingChange{GameSetting::ChallengeSound, model.challenge_sound ? 0 : 1};
         });
     }

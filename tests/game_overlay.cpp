@@ -555,14 +555,16 @@ void TestSettings()
     h.Press(ImGuiKey_LeftArrow);
     h.Frame();
     CHECK(h.state.settings_state.section == 1);
-    // Display: the 3D resolution goes no further than its last.
+    // Display: the 3D resolution goes no further than its last; left the one before.
     h.Press(ImGuiKey_UpArrow);
     CHECK(h.state.settings_state.section == 0);
     h.Press(ImGuiKey_RightArrow);
     h.Press(ImGuiKey_DownArrow);
     actions = h.Press(ImGuiKey_RightArrow);
+    CHECK(!actions.set_setting);
+    actions = h.Press(ImGuiKey_LeftArrow);
     CHECK(actions.set_setting && actions.set_setting->setting == GameSetting::Resolution
-          && actions.set_setting->value == 2);
+          && actions.set_setting->value == 1);
     // B closes: there is nothing to go back to.
     actions = h.Press(ImGuiKey_GamepadFaceRight);
     CHECK(actions.close);

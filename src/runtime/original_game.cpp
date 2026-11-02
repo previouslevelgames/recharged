@@ -2011,25 +2011,32 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 {
                     auto& settings=model.settings;
                     settings.fullscreen=(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN)!=0;
-                    settings.pictures={std::string("Keep its ")+(widescreen?"16:9":"4:3")+" shape","Stretch to fill"};
-                    if(widerView) settings.pictures.push_back("Wider view in matches");
+                    settings.pictures={widescreen ? "16:9" : "4:3","Stretch"};
+                    if(widerView) settings.pictures.push_back("Wider view");
                     settings.picture=widerOn ? 2 : stretch ? 1 : 0;
+                    settings.picture_about=std::string(widescreen ? "16:9" : "4:3")+" keeps the game's shape,"
+                        " Stretch fills the window"+(widerView ? ", Wider view shows more of the stadium in matches." : ".");
                     displayResolutions.clear();
                     if(nativeSend) {
                         const auto size=aurora_get_window_size();
                         const auto picture=mscharged::PictureSize(int(size.native_fb_width),int(size.native_fb_height),
                             int(aspectWidth),int(aspectHeight),fill);
-                        for(const auto value:mscharged::kRenderResolutions) displayResolutions.emplace_back(value);
-                        std::stable_sort(displayResolutions.begin(),displayResolutions.end(),[&](const auto& a,const auto& b) {
-                            return mscharged::RenderHeight(a,picture.height)<mscharged::RenderHeight(b,picture.height);
-                        });
+                        // As the launcher has them: Full, Native, 2x, 3x, 4x.
+                        displayResolutions.emplace_back("window");
+                        for(const auto value:mscharged::kRenderResolutions)
+                            if(value!="window") displayResolutions.emplace_back(value);
                         for(std::size_t n=0;n<displayResolutions.size();++n) {
                             const auto& value=displayResolutions[n];
-                            settings.resolutions.push_back(std::string(mscharged::RenderResolutionLabel(value))+" ("
-                                +std::to_string(mscharged::RenderWidth(value,picture.width))+" \xC3\x97 "
-                                +std::to_string(mscharged::RenderHeight(value,picture.height))+")");
+                            settings.resolutions.emplace_back(mscharged::RenderResolutionLabel(value));
                             if(value==renderResolution) settings.resolution=int(n);
                         }
+                        const auto drawn=[&](std::string_view value) {
+                            return std::to_string(mscharged::RenderWidth(value,picture.width))+" \xC3\x97 "
+                                +std::to_string(mscharged::RenderHeight(value,picture.height));
+                        };
+                        settings.resolution_about="How sharp the game draws its 3D: Full at the window's size ("
+                            +drawn("window")+"), Native at the Wii's "+drawn("native")
+                            +", 2x to 4x at its multiples, for slower graphics cards.";
                     }
                     settings.performance_numbers=launch.settings.fps_overlay;
                     settings.master_volume=launch.settings.master_volume;

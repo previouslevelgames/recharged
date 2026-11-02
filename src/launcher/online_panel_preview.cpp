@@ -431,9 +431,14 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     }
     // The Settings tab: a 16:9 window with the wider view set up, its 3D
     // resolutions; "preview-settings-sound" opens Sound.
-    settings_.pictures = {"Keep its 16:9 shape", "Stretch to fill", "Wider view in matches"};
-    settings_.resolutions = {"Wii (640 × 448)", "2× (1280 × 896)", "3× (1920 × 1344)", "Window (1920 × 1080)"};
-    settings_.resolution = 3;
+    settings_.pictures = {"16:9", "Stretch", "Wider view"};
+    settings_.picture_about =
+        "16:9 keeps the game's shape, Stretch fills the window, Wider view shows more of the stadium in matches.";
+    settings_.resolutions = {"Full", "Native", "2x", "3x", "4x"};
+    settings_.resolution = 0;
+    settings_.resolution_about = "How sharp the game draws its 3D: Full at the window's size (1920 \xC3\x97 1080), "
+                                 "Native at the Wii's 640 \xC3\x97 448, 2x to 4x at its multiples, for slower "
+                                 "graphics cards.";
     settings_.sound_volumes[0] = 70;
     if (const char* tab = std::getenv("RECHARGED_CAPTURE_TAB"))
         for (const auto& entry : state_.tabs)

@@ -20,13 +20,17 @@ namespace mscharged::overlay
 struct GameSettingsModel
 {
     bool fullscreen = false;
-    // The picture's shape: its choices' names (keep its shape, stretch to
-    // fill, the wider view when set up) and the one used.
+    // The picture's shape: its choices' short names, as the launcher's (16:9
+    // or 4:3, Stretch, the wider view when set up), the one used, and what
+    // they do.
     std::vector<std::string> pictures;
     int picture = 0;
-    // The 3D resolution: its choices' names and the one used.
+    std::string picture_about;
+    // The 3D resolution: its choices' short names (Full, Native, 2x...), the
+    // one used, and what they draw at.
     std::vector<std::string> resolutions;
     int resolution = 0;
+    std::string resolution_about;
     bool performance_numbers = false; // FPS, GPU and CPU over the picture
     int master_volume = 100;          // 0-100 %
     bool mute = false;

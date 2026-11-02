@@ -21,7 +21,9 @@ namespace mscharged::overlay
 int OverlayChoiceRow(const char* id, const char* label, const std::string& value, float width,
                      bool interactive = true);
 // A row with its label and a switch at the right: whether it was pressed.
-bool OverlaySwitchRow(const char* id, const char* label, bool on, float width, bool interactive = true);
+// `about`: a short description under the label (the row grows to fit it).
+bool OverlaySwitchRow(const char* id, const char* label, bool on, float width, bool interactive = true,
+                      const char* about = nullptr);
 // A row with its label and a slider for 0 to 100 % at the right: its new
 // value while it changes. A press on the track and a drag set it (`done`
 // false until the drag lets go, then once more with `done` true); left and
@@ -32,7 +34,7 @@ std::optional<int> OverlaySliderRow(const char* id, const char* label, int value
 // one; left and right step to the next one (not round), A to the next one
 // round.
 int OverlaySegmentedRow(const char* id, const char* label, const std::vector<std::string>& options, int selected,
-                        float width, bool interactive);
+                        float width, bool interactive, const char* about = nullptr);
 // A chevron pointing left (-1) or right (+1), centred on `center`.
 void OverlayChevron(ImDrawList* draw, ImVec2 center, int direction, ImU32 ink);
 
