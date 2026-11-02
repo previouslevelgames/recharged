@@ -22,6 +22,10 @@
 // search and draft screen show their profile names instead
 // (charged_configure_display_names, tweak patch 0050), made to fit the row;
 // nothing sent changes.
+//
+// A set whose rules have Mirror match lets both players draft one captain
+// (tweak patch 0052), and its games dress the away team as the offline tweak
+// does: game_tweaks.cpp counts the tweak as on for them.
 #if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE)
 #error Competitive play belongs to the isolated original game module
 #endif
@@ -43,6 +47,7 @@
 #include "NL/nlString.h"
 #include "NL/platvmath.h"
 #include "mscharged_competitive.h"
+#include "mscharged_tweaks.h"
 
 #include <RVLFaceLib/RFL_Database.h>
 #include <dwc/dwc_login.h>
@@ -685,6 +690,25 @@ extern "C" const MschargedCompetitiveSettings* mscharged_competitive_begin(void)
 extern "C" bool mscharged_competitive_tweak(int tweak)
 {
     return sActive && tweak >= 0 && tweak < 32 && ((sMatch.tweaks >> tweak) & 1u);
+}
+
+// The set's rules have Mirror match and this RANKED match's draft is against
+// the set's opponent: the captain the other player picked stays available.
+// The host's rules, as the match is not set up yet.
+extern "C" bool mscharged_competitive_draft_mirror(void)
+{
+    return Applies() && ((sRules.tweaks >> MSCHARGED_TWEAK_MIRROR_MATCH) & 1u);
+}
+
+// Mirror match for the tweak's hooks (game_tweaks.cpp): from the set's draft
+// (both teams may then have one captain) through the screens after its
+// match, which keeps the rules it started with. Only in RANKED: once the
+// game leaves online play, Mirror match is the player's own setting again.
+extern "C" bool mscharged_competitive_mirror_match(void)
+{
+    if (!RankedOnline()) return false;
+    return mscharged_competitive_draft_mirror()
+        || (sActive && ((sMatch.tweaks >> MSCHARGED_TWEAK_MIRROR_MATCH) & 1u));
 }
 
 extern "C" bool mscharged_competitive_cheats(int* stadium, int* player, int* powerup)

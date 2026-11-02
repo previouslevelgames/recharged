@@ -409,7 +409,7 @@ powerup_cheat = none       # none, explosives, freezing, shells, giant, accelera
                            # butterfingers
 stadium = random           # random or a stadium (the_palace, ...)
 tweaks = fast_terrain      # fast_terrain, no_mega_strikes, thunder_island_walls,
-                           # comma-separated
+                           # mirror_match, comma-separated
 ```
 
 Settings left out are a new save's. A file the page cannot read is listed

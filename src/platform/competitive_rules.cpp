@@ -21,8 +21,8 @@ constexpr std::array<const char*, 16> kStadiums{
 constexpr std::array<const char*, 12> kCaptains{"mario", "bowser", "daisy", "donkey_kong", "luigi", "peach",
                                                 "waluigi", "wario", "yoshi", "bowser_jr", "diddy_kong", "petey"};
 // The tweaks a rule set may switch on (the server's TWEAKS).
-constexpr std::array<GameTweak, 3> kRuleTweaks{GameTweak::FastTerrain, GameTweak::NoMegaStrikes,
-                                               GameTweak::ThunderIslandWalls};
+constexpr std::array<GameTweak, 4> kRuleTweaks{GameTweak::FastTerrain, GameTweak::NoMegaStrikes,
+                                               GameTweak::ThunderIslandWalls, GameTweak::MirrorMatch};
 
 template <std::size_t N> int IndexOf(const std::array<const char*, N>& names, const std::string& name)
 {

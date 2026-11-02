@@ -124,7 +124,7 @@ const std::vector<RuleChoice>& StadiumCheatChoices();
 const std::vector<RuleChoice>& PlayerCheatChoices();
 const std::vector<RuleChoice>& PowerupCheatChoices();
 // The tweaks a set's rules may switch on (fast_terrain, no_mega_strikes,
-// thunder_island_walls), with their names.
+// thunder_island_walls, mirror_match), with their names.
 const std::vector<RuleChoice>& RuleTweakChoices();
 // The server's names (lowercase, '_' between words): eTeamID and eStadiumID,
 // empty for unknown values.
