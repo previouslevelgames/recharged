@@ -15,7 +15,9 @@
 // (tweak patch 0048): the player sees the frontend's camera, the WFC login's
 // Connecting screen and the draft. Once the set is over or failed, the host
 // ends it (charged_competitive_end_set) and the game stays in its online
-// menus. Everything else stays the retail online flow.
+// menus; one whose popup ended it (the connection to the opponent's game was
+// lost) leaves them for the main menu (tweak patch 0055). Everything else
+// stays the retail online flow.
 //
 // The game shows its players by their Mii names (10 characters, also what
 // the network carries). During a set, its two players' rows on the RANKED
@@ -82,6 +84,10 @@ bool sStartedInGame = false;
 // The set ended while its game still searched RANKED: the search screen leaves
 // the search (tweak patch 0049), and nobody is met until it has.
 bool sLeaveSearch = false;
+// The set's popup ended it (its connection to the opponent's game was lost):
+// back in the online menu, the game leaves for the main menu (tweak patch
+// 0055). Gone with the game's WFC login.
+bool sLeaveOnline = false;
 // The walk is the Recharged Game Menu's Play RANKED (charged_start_ranked),
 // not a set's: it ends where the retail RANKED search begins, against
 // anybody, and a popup it doesn't know is the player's to answer.
@@ -389,7 +395,11 @@ extern "C" __attribute__((visibility("default"))) bool charged_wfc_snapshot(Char
                 s.logged_in = s.login_ticket[0] != '\0';
                 s.profile_id = unsigned(user->gs_profile_id);
             }
-    if (!s.logged_in) std::memset(s.login_ticket, 0, sizeof s.login_ticket);
+    if (!s.logged_in)
+    {
+        std::memset(s.login_ticket, 0, sizeof s.login_ticket);
+        sLeaveOnline = false;
+    }
     // The search screen is gone (the player left it first): nothing to leave.
     if (sLeaveSearch)
         if (GameSceneManager* manager = GameSceneManager::Instance();
@@ -423,6 +433,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_configure_competi
     sPlayerChoosesMii = false;
     sStartedInGame = GameSceneManager::Instance() != nullptr;
     sLeaveSearch = false;
+    sLeaveOnline = false;
     mscharged_tweak_set_start();
     return true;
 }
@@ -442,6 +453,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_start_ranked(cons
     sPlayerChoosesMii = false;
     sStartedInGame = GameSceneManager::Instance() != nullptr;
     sLeaveSearch = false;
+    sLeaveOnline = false;
     mscharged_tweak_set_start();
     return true;
 }
@@ -489,6 +501,7 @@ extern "C" __attribute__((visibility("default"))) void charged_competitive_end_s
         sLeaveSearch = manager && manager->IsOnStack(SCENE_ONLINE_MATCHMAKING_DRAFT);
         if (sLeaveSearch) std::fputs("Competitive: the set ended during its search; the game leaves it\n", stderr);
     }
+    sLeaveOnline = sSetStage == CHARGED_SET_FAILED && !sRankedWalk;
     sSetStage = CHARGED_SET_NONE;
     sSetPopup = -1;
     sPlayerChoosesMii = false;
@@ -575,6 +588,14 @@ extern "C" bool mscharged_competitive_leave_search(void)
 {
     if (!sLeaveSearch) return false;
     sLeaveSearch = false;
+    return true;
+}
+
+extern "C" bool mscharged_competitive_leave_online(void)
+{
+    if (!sLeaveOnline || OnSet() || PopupOnTop()) return false;
+    sLeaveOnline = false;
+    std::fputs("Competitive: the set lost its connection; the game leaves the online menus\n", stderr);
     return true;
 }
 
