@@ -591,6 +591,15 @@ extern "C" bool mscharged_competitive_leave_search(void)
     return true;
 }
 
+// QR2 (tweak patch 0056): while the walk's game searches RANKED, each change
+// of its matchmaking state goes to the master server at once, not 10 seconds
+// after the last heartbeat: the search waits for its own listing, and the
+// opponent's for its reservation. The master server is Recharged's.
+extern "C" int mscharged_competitive_announce_now(void)
+{
+    return sSetStage == CHARGED_SET_SEARCH ? 1 : 0;
+}
+
 extern "C" bool mscharged_competitive_leave_online(void)
 {
     if (!sLeaveOnline || OnSet() || PopupOnTop()) return false;
