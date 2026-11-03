@@ -1,7 +1,7 @@
 #pragma once
 
 #include "bootstrap/sound_groups.h"
-#include "overlay/overlay_frame.h"
+#include "overlay/overlay_rows.h"
 
 #include <array>
 #include <optional>
@@ -69,13 +69,10 @@ enum class GameSettingsScreen
     Menu = 0,
 };
 
-// What the tab keeps between frames: the section shown, and whether the
-// cursor was on the menu (coming from the section it lands on that one).
-struct GameSettingsState
+// What the tab keeps between frames: its menu's (overlay_rows.h), whose
+// sections are Display, Sound and Advanced.
+struct GameSettingsState : OverlaySectionState
 {
-    int section = 0; // Display, Sound, Advanced
-    bool menu_focused = false;
-    bool enter_section = false; // right on its menu item: the cursor goes to its first row
 };
 
 OverlayScreens::Screen GameSettingsFirstScreen();

@@ -327,14 +327,137 @@ namespace
 ImVec2 sGroupTop;
 } // namespace
 
+void OverlayCaption(const char* text, float width)
+{
+    const auto& fonts = launcher::CurrentFonts();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float height = fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, width, text).y;
+    ImGui::GetWindowDrawList()->AddText(fonts.caption, FontSize(fonts.caption), at, Col(color::muted), text, nullptr,
+                                        width);
+    ImGui::Dummy({width, height});
+}
+
+void OverlaySectionMenu(const std::vector<OverlaySection>& sections, OverlaySectionState& state, float width,
+                        bool row)
+{
+    const auto& fonts = launcher::CurrentFonts();
+    auto* draw = ImGui::GetWindowDrawList();
+    const int count = int(sections.size());
+    if (count == 0) return;
+    state.section = std::clamp(state.section, 0, count - 1);
+    const float height = Dp(46), gap = Dp(6);
+    const float item_w = row ? (width - gap * float(count - 1)) / float(count) : width;
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    ImGuiID shown = 0;
+    int focused_item = -1;
+    for (int n = 0; n < count; ++n)
+    {
+        const OverlaySection& section = sections[std::size_t(n)];
+        const ImVec2 min = row ? ImVec2{at.x + float(n) * (item_w + gap), at.y}
+                               : ImVec2{at.x, at.y + float(n) * (height + gap)};
+        const ImVec2 max{min.x + item_w, min.y + height};
+        ImGui::SetCursorScreenPos(min);
+        ImGui::PushID(n);
+        const bool pressed = ImGui::InvisibleButton("##section", {item_w, height}, ImGuiButtonFlags_EnableNav);
+        if (n == state.section) shown = ImGui::GetItemID();
+        const bool hovered = ImGui::IsItemHovered();
+        const bool focused = OverlayNavFocused();
+        OverlayFocusable(n == state.section);
+        ImGui::PopID();
+        if (focused) focused_item = n;
+        if (pressed)
+        {
+            state.section = n;
+            // A (or Enter) from the cursor goes into the section; a click only shows it.
+            if (focused) state.enter_section = true;
+        }
+        const bool chosen = n == state.section;
+        const float lit = launcher::Animate(ImGui::GetID(("##section_lit" + std::to_string(n)).c_str()),
+                                            chosen || hovered, 12.0f);
+        ImVec4 fill = Mix(color::field, color::accent_dark, chosen ? 0.55f : 0.0f);
+        fill.w = chosen ? 0.9f : 0.35f + 0.3f * lit;
+        draw->AddRectFilled(min, max, Col(fill), Dp(12));
+        if (chosen) draw->AddRect(min, max, Col(color::accent, 0.55f), Dp(12), 0, Dp(1));
+        const ImU32 ink = Col(chosen ? color::text : Mix(color::muted, color::text, lit));
+        launcher::DrawIcon(draw, section.icon, {min.x + Dp(26), min.y + height * 0.5f}, Dp(18), ink);
+        const char* name = row && section.short_name ? section.short_name : section.name;
+        float right = max.x - Dp(12);
+        if (!section.badge.empty())
+        {
+            // The badge at the right, when it leaves the name its room.
+            const ImVec2 size = TextSize(fonts.caption, section.badge.c_str());
+            const float badge_w = size.x + Dp(16), badge_h = Dp(20);
+            const float left = max.x - Dp(12) - badge_w;
+            if (left > min.x + Dp(48) + TextSize(fonts.label, name).x + Dp(8))
+            {
+                const ImVec2 badge{left, min.y + (height - badge_h) * 0.5f};
+                draw->AddRectFilled(badge, {badge.x + badge_w, badge.y + badge_h},
+                                    Col(color::accent, chosen ? 0.22f : 0.14f), badge_h * 0.5f);
+                DrawLabel(draw, fonts.caption, {badge.x + Dp(8), badge.y + (badge_h - size.y) * 0.5f},
+                          Col(color::accent), section.badge.c_str());
+                right = left - Dp(6);
+            }
+        }
+        draw->PushClipRect(min, {right, max.y}, true);
+        DrawLabel(draw, fonts.label, {min.x + Dp(48), min.y + (height - FontSize(fonts.label)) * 0.5f}, ink, name);
+        draw->PopClipRect();
+        if (focused) OverlayFocusRing(draw, min, max, Dp(12));
+    }
+    // Left from one of the section's rows: to the item shown.
+    if (state.back_to_menu && shown)
+    {
+        ImGui::SetFocusID(shown, ImGui::GetCurrentWindow());
+        ImGui::SetNavCursorVisible(true);
+    }
+    state.back_to_menu = false;
+    // The cursor moved along the menu: its section shows. It came from the
+    // section: back to the item shown.
+    if (focused_item >= 0 && focused_item != state.section)
+    {
+        if (state.menu_focused) state.section = focused_item;
+        else if (shown)
+        {
+            ImGui::SetFocusID(shown, ImGui::GetCurrentWindow());
+            ImGui::SetNavCursorVisible(true);
+        }
+    }
+    // Into the section: its rows needn't be level with the item (the
+    // cursor only goes sideways to items level with it).
+    if (focused_item >= 0 && focused_item == state.section && !row
+        && (ImGui::IsKeyPressed(ImGuiKey_RightArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight)
+            || ImGui::IsKeyPressed(ImGuiKey_GamepadLStickRight)))
+        state.enter_section = true;
+    state.menu_focused = focused_item >= 0;
+    ImGui::SetCursorScreenPos({at.x, at.y + (row ? height : float(count) * (height + gap))});
+    ImGui::Dummy({width, 0.0f});
+}
+
+void OverlaySectionRowBack(OverlaySectionState& state)
+{
+    if (ImGui::IsItemFocused()
+        && (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft)
+            || ImGui::IsKeyPressed(ImGuiKey_GamepadLStickLeft)))
+        state.back_to_menu = true;
+}
+
+void OverlayEnterSection(OverlaySectionState& state)
+{
+    if (!state.enter_section) return;
+    ImGui::SetKeyboardFocusHere();
+    ImGui::SetNavCursorVisible(true);
+    state.enter_section = false;
+}
+
 void OverlayRowGroupBegin(const char* title, float width)
 {
     const auto& fonts = launcher::CurrentFonts();
     auto* draw = ImGui::GetWindowDrawList();
     const ImVec2 at = ImGui::GetCursorScreenPos();
-    const float height = Dp(38);
-    launcher::DrawTracked(draw, fonts.caption, {at.x + Dp(4), at.y + height - FontSize(fonts.caption) - Dp(9)},
-                          Col(color::dim), title, Dp(1.5f));
+    const bool titled = title && *title;
+    const float height = titled ? Dp(38) : Dp(8);
+    if (titled)
+        launcher::DrawTracked(draw, fonts.caption, {at.x + Dp(4), at.y + height - FontSize(fonts.caption) - Dp(9)},
+                              Col(color::dim), title, Dp(1.5f));
     ImGui::Dummy({width, height});
     sGroupTop = ImGui::GetCursorScreenPos();
     draw->ChannelsSplit(2);

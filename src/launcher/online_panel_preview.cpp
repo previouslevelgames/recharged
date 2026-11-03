@@ -455,7 +455,8 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         ranked_.boards = boards;
     }
     // The Settings tab: a 16:9 window with the wider view set up, its 3D
-    // resolutions; "preview-settings-sound" opens Sound.
+    // resolutions; "preview-settings-sound" opens Sound; "preview-options-competitive"
+    // opens Game options on Competitive gameplay.
     settings_.pictures = {"16:9", "Stretch", "Wider view"};
     settings_.picture_about =
         "16:9 keeps the game's shape, Stretch fills the window, Wider view shows more of the stadium in matches.";
@@ -470,6 +471,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
             if (Slug(entry.label) == Slug(tab)) first = overlay::OverlayTab(entry.id);
     state_.Open(first);
     if (mode_ == "preview-settings-sound") state_.settings_state.section = 1;
+    if (mode_ == "preview-options-competitive") state_.options_state.section = 2;
     // A capture shows the pictures: they are asked for and loaded before it.
     if (pictures_ && capture_)
     {

@@ -323,14 +323,17 @@ online menu, and **Stop** stops the way there. Beside it your place this season
 and today, and the season's and today's leaders (with a player profile).
 **Events** is the place for tournaments and organised match-ups (coming
 later). **Game options** has the gameplay options that can change while the game
-runs: they are saved at once and count from the next match (online matches
-play by their own rules). **Settings** has the settings that change at once,
-in sections: *Display* (fullscreen, the picture's shape as the stretch hotkey
-has it, the 3D resolution, the performance numbers), *Sound* (master volume,
-mute, the sound levels as sliders, the challenge sound) and *Advanced* (reopen
-the launcher after the game); each change is saved to `recharged.ini` at once.
-The section the cursor is on in the list shows beside it (Display at first),
-and right goes into it. The controls and the settings that need a new start
+runs, in the launcher Gameplay page's categories (*Menus & startup*, *Matches &
+unlocks*, *Competitive gameplay*, each with how many of its options are on):
+the category the cursor is on shows its switches beside it, and right or A goes
+into them. They are saved at once and count from the next match (Fast menus at
+once; online matches play by their own rules). **Settings** has the settings
+that change at once, in sections: *Display* (fullscreen, the picture's shape
+as the stretch hotkey has it, the 3D resolution, the performance numbers),
+*Sound* (master volume, mute, the sound levels as sliders, the challenge
+sound) and *Advanced* (reopen the launcher after the game); each change is
+saved to `recharged.ini` at once. The section the cursor is on in the list
+shows beside it (Display at first), and right or A goes into it. The controls and the settings that need a new start
 stay in the launcher. While the game is in its menus, the top-left corner
 shows the menu's keys (F1 or HOME), and a challenge you sent from the menu
 closes it when it is accepted: the game goes on into the
