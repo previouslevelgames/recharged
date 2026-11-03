@@ -302,6 +302,9 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     bowser.last_online = now - 3 * 3600;
     auto shy = Online(Player(900030, "Shy Guy", "shyguy"), "launcher");
     auto koopa = Online(Player(900020, "Koopa", "koopa"), "game");
+    // Koopa plays the European game, this computer the US one: tagged EU.
+    koopa.game = "R4QP";
+    context_.game = "R4QE";
     for (ProfilePlayer* player : {&daisy, &luigi, &rosalina, &bowser, &shy, &koopa}) *player = picture(*player);
 
     if (mode_ != "preview-empty")
