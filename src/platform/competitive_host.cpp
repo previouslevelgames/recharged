@@ -27,7 +27,7 @@ constexpr auto kSetWaitEvery = 2s;
 constexpr auto kWithdrawWait = 2s;
 constexpr auto kRetry = 15s;
 // cGame's eGameState.
-constexpr int kGamePreGame = 0, kGameKickoff = 1, kGameEnd = 3, kGamePlay = 5;
+constexpr int kGamePreGame = 0, kGameKickoff = 1, kGameEnd = 3, kGameUnloading = 4, kGamePlay = 5;
 // GameInfoManager::eGameMode: the title screen's demo match.
 constexpr int kModeDemo = 2;
 // A set's game waits this long for its last report before it ends the set
@@ -95,7 +95,16 @@ CompetitiveHost::~CompetitiveHost()
         // A set still waiting for this game: the opponent's game hears at once
         // that this one is gone, not only once the server gives up on it.
         withdraw_on_stop_ = set_ && !set_unready_ && set_stage_ != CHARGED_SET_PLAYING && set_stage_ != CHARGED_SET_OVER;
-        if (withdraw_on_stop_)
+        // During its match: the series with the game in play broken off, so
+        // the server settles the set now and both players are free.
+        if (!series_done_ && series_match_ != 0 && playing_)
+        {
+            auto games = series_;
+            games.push_back(*playing_);
+            reports_.push_back({series_match_, games});
+            series_done_ = true;
+        }
+        if (withdraw_on_stop_ || !reports_.empty())
         {
             wake_.notify_all();
             wake_.wait_for(lock, kWithdrawWait, [this] { return withdrawn_; });
@@ -154,12 +163,27 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
         series_time_ = rules_ && rules_->limit == 0 ? rules_->time : 0;
         game_recorded_ = false;
         series_done_ = series_match_ == 0 || series_games_ < 1;
+        playing_.reset();
     }
     if (in_series && !series_done_)
     {
         const int state = presence->game_state;
+        if (state != kGameEnd && state >= 0 && state != kGameUnloading && (wfc.local_side == 0 || wfc.local_side == 1))
+        {
+            const int mine = wfc.local_side, theirs = 1 - mine;
+            MatchGame game;
+            game.my_score = presence->scores[mine];
+            game.opponent_score = presence->scores[theirs];
+            game.my_captain = CaptainKey(presence->teams[mine]);
+            game.opponent_captain = CaptainKey(presence->teams[theirs]);
+            game.stadium = StadiumKey(presence->stadium);
+            game.interrupted = true;
+            game.played = series_time_ > 0 ? std::clamp(presence->game_time / float(series_time_), 0.0f, 1.0f) : 0.0f;
+            if (!game.my_captain.empty() && !game.opponent_captain.empty() && !game.stadium.empty()) playing_ = game;
+        }
         if (state == kGameEnd && !game_recorded_ && (wfc.local_side == 0 || wfc.local_side == 1))
         {
+            playing_.reset();
             const int mine = wfc.local_side, theirs = 1 - mine;
             MatchGame game;
             game.my_score = presence->scores[mine];
@@ -469,7 +493,12 @@ void CompetitiveHost::Run()
     }
     // The game closes during its set's way to the opponent's: the set is
     // called off, so the opponent's game leaves it now and both are free.
-    if (!withdraw_on_stop_) return;
+    // During the match or after it: the series goes out now, with the game
+    // the close broke off, so the server settles the set at once.
+    std::vector<Report> reports;
+    reports.swap(reports_);
+    const bool withdraw = withdraw_on_stop_;
+    if (!withdraw && reports.empty()) return;
     const std::int64_t set = set_;
     auto cancel = std::make_shared<HttpCancel>();
     cancel_ = cancel;
@@ -478,8 +507,17 @@ void CompetitiveHost::Run()
     {
         ProfileService api(server_, token_);
         api.SetCancel(cancel);
-        api.Cancel(set);
-        Said("set " + std::to_string(set) + ": the game closes; the set is called off");
+        if (withdraw)
+        {
+            api.Cancel(set);
+            Said("set " + std::to_string(set) + ": the game closes; the set is called off");
+        }
+        for (const auto& report : reports)
+        {
+            const auto settled = api.Report(report.match, report.games);
+            Said("set " + std::to_string(report.match) + ": the game closes; its series is reported ("
+                 + settled.state + ")");
+        }
     }
     catch (const std::exception&)
     {

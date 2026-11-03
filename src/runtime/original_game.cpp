@@ -125,6 +125,10 @@ namespace {
 // Aurora's FIFO retains every recorded command until a drain; publishing only
 // hands bytes to the worker. Bound that backlog between source frames.
 constexpr std::uint32_t kFifoDrainBytes=64u<<20;
+// The run's competitive play, stopped when the game powers off: that path
+// ends the process without unwinding, so its last calls (a set called off, a
+// series reported) would never go out.
+std::unique_ptr<mscharged::platform::CompetitiveHost>* sCompetitive=nullptr;
 #if defined(MSCHARGED_AUTOPILOT)
 // Test builds' autopilot (src/platform/autopilot.cpp): C, P and U held
 // together hand the first player to a bot and back. Unannounced: no log line,
@@ -1165,6 +1169,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             auto removal=terminalVerifier->Policy();
             // The opt-in frame timing log completes before the process ends.
             removal.before_removal=[](void*){
+                if(sCompetitive) sCompetitive->reset();
                 mscharged::runtime::FrameTimingLog::FinishForProcessExit();
                 mscharged::runtime::LogGraphicsPipelineStats();
                 // The power-off path ends with TerminateProcessNow: hand the last lines to the log and console.
@@ -1320,6 +1325,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto configureCompetitive=reinterpret_cast<ChargedConfigureCompetitiveFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive"));
         std::unique_ptr<mscharged::platform::CompetitiveHost> competitive;
+        sCompetitive=&competitive;
+        struct CompetitiveForPowerOff { ~CompetitiveForPowerOff() { sCompetitive=nullptr; } } competitiveForPowerOff;
         {
             std::string off;
             if(wfcSnapshot && configureCompetitive)

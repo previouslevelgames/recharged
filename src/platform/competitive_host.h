@@ -145,7 +145,8 @@ private:
     std::condition_variable wake_;
     bool stop_ = false, kick_ = false;
     // The game closes while its set waits for it: the worker's last call calls
-    // the set off (withdrawn_ once it is through).
+    // the set off; during its match, its last call reports the series with
+    // the game in play as broken off (withdrawn_ once they are through).
     bool withdraw_on_stop_ = false, withdrawn_ = false;
     std::shared_ptr<class HttpCancel> cancel_;
     std::thread worker_;
@@ -211,6 +212,9 @@ private:
     bool game_recorded_ = false, series_done_ = true;
     // The series' game length (a time limit), for a game that broke off.
     int series_time_ = 0;
+    // The series' game in play as the last Observe saw it (score, clock):
+    // broken off if this game closes during it.
+    std::optional<MatchGame> playing_;
     // The game's online series (ObserveOnline): how each game ended.
     ChargedOnlineMatchSnapshot online_{};
     bool online_known_ = false;
