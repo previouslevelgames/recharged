@@ -128,7 +128,7 @@ namespace {
 constexpr std::uint32_t kFifoDrainBytes=64u<<20;
 // The run's competitive play, stopped when the game powers off: that path
 // ends the process without unwinding, so its last calls (a set called off, a
-// series reported) would never go out.
+// series reported) would never go out. They get a few seconds, never more.
 std::unique_ptr<mscharged::platform::CompetitiveHost>* sCompetitive=nullptr;
 #if defined(MSCHARGED_AUTOPILOT)
 // Test builds' autopilot (src/platform/autopilot.cpp): C, P and U held
@@ -1174,7 +1174,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             auto removal=terminalVerifier->Policy();
             // The opt-in frame timing log completes before the process ends.
             removal.before_removal=[](void*){
-                if(sCompetitive) sCompetitive->reset();
+                // The last calls get a few seconds; a stuck one doesn't hold the close.
+                if(sCompetitive && *sCompetitive && !(*sCompetitive)->StopForExit(std::chrono::seconds(1)))
+                    mscharged::platform::SessionLogLine("Competitive: the game closes without waiting for the server");
                 mscharged::runtime::FrameTimingLog::FinishForProcessExit();
                 mscharged::runtime::LogGraphicsPipelineStats();
                 // The power-off path ends with TerminateProcessNow: hand the last lines to the log and console.

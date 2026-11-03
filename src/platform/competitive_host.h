@@ -37,6 +37,12 @@ public:
                                                   std::string* off);
     ~CompetitiveHost();
     CompetitiveHost(const CompetitiveHost&) = delete;
+    // The game powers off: the process ends without unwinding. The last calls
+    // (a set called off, a series reported) get their time, then this waits
+    // at most `wait` for the worker to end; one still busy (a call that
+    // won't give up) is left to the process's end instead of being joined.
+    // True when it ended.
+    bool StopForExit(std::chrono::milliseconds wait);
     CompetitiveHost& operator=(const CompetitiveHost&) = delete;
 
     const std::string& PlayerName() const { return player_; }
@@ -149,6 +155,9 @@ private:
     // the set off; during its match, its last call reports the series with
     // the game in play as broken off (withdrawn_ once they are through).
     bool withdraw_on_stop_ = false, withdrawn_ = false;
+    bool finished_ = false; // the worker is done
+    // Stops the worker: its last calls go out (or time out); no join.
+    void Stop();
     std::shared_ptr<class HttpCancel> cancel_;
     std::thread worker_;
 

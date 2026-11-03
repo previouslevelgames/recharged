@@ -89,8 +89,22 @@ CompetitiveHost::CompetitiveHost(std::string server, std::string token, std::str
 
 CompetitiveHost::~CompetitiveHost()
 {
+    Stop();
+    worker_.join();
+}
+
+bool CompetitiveHost::StopForExit(std::chrono::milliseconds wait)
+{
+    Stop();
+    std::unique_lock<std::mutex> lock(mutex_);
+    return wake_.wait_for(lock, wait, [this] { return finished_; });
+}
+
+void CompetitiveHost::Stop()
+{
     {
         std::unique_lock<std::mutex> lock(mutex_);
+        if (stop_) return;
         stop_ = true;
         // A set still waiting for this game: the opponent's game hears at once
         // that this one is gone, not only once the server gives up on it.
@@ -112,7 +126,6 @@ CompetitiveHost::~CompetitiveHost()
         if (cancel_) cancel_->Cancel();
     }
     wake_.notify_all();
-    worker_.join();
 }
 
 void CompetitiveHost::Kick()
@@ -465,6 +478,19 @@ bool CompetitiveHost::ReadyDue() const
 
 void CompetitiveHost::Run()
 {
+    // However it ends: StopForExit waits for this, not for a join.
+    struct Finished
+    {
+        CompetitiveHost& host;
+        ~Finished()
+        {
+            {
+                std::lock_guard<std::mutex> lock(host.mutex_);
+                host.finished_ = true;
+            }
+            host.wake_.notify_all();
+        }
+    } finished{*this};
     std::unique_lock<std::mutex> lock(mutex_);
     while (!stop_)
     {
