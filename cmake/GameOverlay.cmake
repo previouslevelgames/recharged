@@ -5,7 +5,7 @@
 # widgets (charged_overlay), in the game through Aurora and in the launcher's
 # preview (--page online-panel).
 include_guard(GLOBAL)
-add_library(charged_overlay_model STATIC src/overlay/online_panel_model.cpp)
+add_library(charged_overlay_model STATIC src/overlay/online_panel_model.cpp src/overlay/flags.cpp)
 target_include_directories(charged_overlay_model PUBLIC src)
 target_compile_features(charged_overlay_model PUBLIC cxx_std_17)
 target_link_libraries(charged_overlay_model PUBLIC charged_competitive)

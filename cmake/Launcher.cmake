@@ -167,6 +167,13 @@ add_custom_command(TARGET mscharged POST_BUILD
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/robot_goalie.map"
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/README.md"
             "$<TARGET_FILE_DIR:mscharged>/assets/gameplay"
+    # The flags beside players' names, in the game menu and the launcher.
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:mscharged>/assets/flags"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/flags.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/README.md"
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/LICENSE-flag-icons"
+            "$<TARGET_FILE_DIR:mscharged>/assets/flags"
     VERBATIM)
 # Resource edits must refresh the copied files even without a C++ source edit.
 set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
@@ -181,6 +188,9 @@ set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/LICENSES/Apache-2.0.txt"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/robot_goalie.map"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/README.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/flags.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/README.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/LICENSE-flag-icons"
     "${MSCHARGED_IMGUI_PREPARED}/misc/fonts/Roboto-Medium.ttf"
     "${MSCHARGED_AURORA_PREPARED}/assets/aurora.png")
 

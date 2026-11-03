@@ -5,6 +5,7 @@
 #include "platform/competitive_rules.h"
 
 #include "launcher/ui_kit.h"
+#include "overlay/flags.h"
 #include "overlay/overlay_unit.h"
 #include "platform/http_client.h"
 
@@ -228,6 +229,18 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         if (texture) avatars_[look.key] = TextureId(texture);
     }
 
+    // The flags' atlas beside the program, as the game's host has it.
+    if (const char* base = SDL_GetBasePath(); base && renderer)
+        if (SDL_Surface* atlas = SDL_LoadPNG((std::string(base) + "assets/flags/flags.png").c_str()))
+        {
+            if (SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, atlas))
+            {
+                SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+                avatars_[std::string(overlay::kFlagAtlas)] = TextureId(texture);
+            }
+            SDL_DestroySurface(atlas);
+        }
+
     // Pictures as the game draws them (RECHARGED_CAPTURE_AVATARS).
     if (const char* source = std::getenv("RECHARGED_CAPTURE_AVATARS")) pictures_ = PictureCache(renderer, source);
     const auto picture = [this](ProfilePlayer player) {
@@ -238,6 +251,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     ProfilePlayer& me = context_.me;
     me = Player(900000, "Anosch", "anosch");
     me.avatar_url = "preview:me";
+    me.country = "CH";
     me.available = mode_ != "preview-empty";
     // The server's rule sets, the player's challenges by the first (the second for "preview-rules").
     const auto rule_set = [](std::int64_t id, const char* name, const char* skill, const char* limit, int amount,
@@ -280,9 +294,11 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
 
     auto mario = Online(Player(900010, "Mario", "itsamario"), "launcher");
     mario.avatar_url = "preview:mario";
+    mario.country = "IT";
     mario.is_friend = true;
     auto daisy = Online(Player(900001, "Daisy", "daisy"), "game");
     daisy.is_friend = true;
+    daisy.country = "AT";
     daisy.discord_id = "900000000000000001";
     auto luigi = Online(Player(900003, "Luigi", "luigi"), "game");
     luigi.busy = true;
@@ -296,6 +312,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     wario.last_online = now - 40 * 60;
     auto peach = Online(Player(900002, "Peach", "peach"), "match");
     peach.avatar_url = "preview:peach";
+    peach.country = "FR";
     peach.discord_id = "900000000000000002";
     auto bowser = Player(900006, "Bowser", "bowser");
     bowser.discord_id = "900000000000000006";
@@ -304,6 +321,7 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     auto koopa = Online(Player(900020, "Koopa", "koopa"), "game");
     // Koopa plays the European game, this computer the US one: tagged EU.
     koopa.game = "R4QP";
+    koopa.country = "DE";
     context_.game = "R4QE";
     for (ProfilePlayer* player : {&daisy, &luigi, &rosalina, &bowser, &shy, &koopa}) *player = picture(*player);
 

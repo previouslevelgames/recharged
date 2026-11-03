@@ -508,6 +508,9 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
         # The robot goalie map of the tweak "Robot goalies" (texture coordinates only).
         copy(source, "assets/gameplay/robot_goalie.map")
         copy(source, "assets/gameplay/README.md")
+        # The flags beside players' names (flag-icons, MIT).
+        for flags in ("flags.png", "README.md", "LICENSE-flag-icons"):
+            copy(source, Path("assets/flags") / flags)
         for public in PUBLIC_FILES:
             copy(source, public)
 

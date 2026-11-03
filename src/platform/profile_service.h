@@ -65,6 +65,13 @@ struct ProfilePlayer
     // While online: the game their Recharged plays ("R4QE", "R4QP", ...),
     // when it says (servers from 1.2.8 on).
     std::string game;
+    // The flag beside their name: a country's two capital letters, empty for
+    // none (servers from 1.2.11 on).
+    std::string country;
+    // GET /api/v1/me only: the country the server finds from where the
+    // player connects (empty when unknown), and their choice for the flag:
+    // "auto" (that one), "none" or a country's letters.
+    std::string country_detected, country_choice;
     std::optional<std::int64_t> last_online;
     bool is_friend = false;
     // Both keep each other as friends: they can write each other; their
@@ -383,6 +390,11 @@ public:
     // Available for random games, or not: the answer's value. 404 from a
     // server before 1.2.1.
     bool SetAvailable(bool available);
+    // The flag beside the player's name: "auto" (the country they connect
+    // from), "none" or a country's two capital letters. Answers the flag
+    // shown (country), the country found and the choice. 404 from a server
+    // before 1.2.11.
+    ProfilePlayer ChooseCountry(const std::string& choice);
     // The Mii friends after adding or taking one off.
     std::vector<MiiProfile> AddMiiFriend(std::int32_t profile_id);
     std::vector<MiiProfile> RemoveMiiFriend(std::int32_t profile_id);

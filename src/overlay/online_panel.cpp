@@ -1,5 +1,7 @@
 #include "overlay/online_panel.h"
 
+#include "overlay/flags.h"
+
 #include "overlay/overlay_rows.h"
 #include "platform/competitive_rules.h"
 
@@ -66,6 +68,23 @@ struct Frame
     const launcher::Fonts& fonts;
     bool first_row = true; // the first row is the main screen's preferred item
 };
+
+// A player's flag (a country's two letters), `height` tall, its left edge at
+// `at.x` and its middle at `at.y`; how wide it is, 0 without one (no country,
+// or no atlas from the host).
+float DrawFlag(const OverlayImages& images, ImDrawList* draw, ImVec2 at, float height, const std::string& country)
+{
+    const int cell = FlagCell(country);
+    if (cell < 0 || !images) return 0.0f;
+    const ImTextureID atlas = images(std::string(kFlagAtlas));
+    if (!atlas) return 0.0f;
+    const FlagUv uv = FlagCellUv(cell);
+    const float width = height * float(kFlagWidth) / float(kFlagHeight);
+    const ImVec2 min{at.x, at.y - height * 0.5f}, max{at.x + width, at.y + height * 0.5f};
+    draw->AddImageRounded(atlas, min, max, {uv.u0, uv.v0}, {uv.u1, uv.v1}, IM_COL32_WHITE, Dp(2));
+    draw->AddRect(min, max, Col(ImVec4{1, 1, 1, 1}, 0.14f), Dp(2), 0, Dp(1));
+    return width;
+}
 
 // A player's picture: their texture when the host has one, else their
 // initials on their colour; a Mii a face on a rounded square instead.
@@ -285,6 +304,10 @@ void DrawYou(Frame& frame, float width)
     const float block = FontSize(fonts.heading) + (me.detail.empty() ? 0.0f : Dp(2) + FontSize(fonts.caption));
     draw->PushClipRect({left, at.y}, {end.x - pad, at.y + top}, true);
     DrawLabel(draw, fonts.heading, {left, center.y - block * 0.5f}, Col(color::text), me.name.c_str());
+    DrawFlag(frame.images, draw,
+             {left + TextSize(fonts.heading, me.name.c_str()).x + Dp(10),
+              center.y - block * 0.5f + FontSize(fonts.heading) * 0.5f},
+             Dp(15), me.country);
     if (!me.detail.empty())
         DrawLabel(draw, fonts.caption, {left, center.y - block * 0.5f + FontSize(fonts.heading) + Dp(2)},
                   Col(color::muted), me.detail.c_str());
@@ -439,6 +462,10 @@ void DrawSet(Frame& frame, float width)
     DrawPicture(frame.images, frame.fonts, draw, center, radius, set.opponent.image, set.opponent.initials,
                 set.opponent.tint_seed, false);
     PresenceDot(draw, center, radius, set.opponent.presence, Mix(color::field, tint, 0.10f));
+    // The opponent's flag on their picture, opposite the dot: the title is
+    // about the set, not them.
+    DrawFlag(frame.images, draw, {center.x - radius - Dp(3), center.y + radius * 0.68f}, Dp(11),
+             set.opponent.country);
     const float left = center.x + radius + Dp(12), right = end.x - pad - score_width;
     const float block = FontSize(fonts.label) + Dp(3) + FontSize(fonts.caption);
     draw->PushClipRect({left, y}, {right - Dp(6), y + radius * 2}, true);
@@ -591,6 +618,8 @@ void DrawRow(Frame& frame, const OnlinePanelRow& row, float width, bool line)
     DrawLabel(draw, fonts.label, {left, top}, Col(color::text), row.name.c_str());
     float after = left + name.x + Dp(8);
     const float mark_y = top + FontSize(fonts.label) * 0.5f;
+    if (const float flag = DrawFlag(frame.images, draw, {after, mark_y}, Dp(13), row.country); flag > 0.0f)
+        after += flag + Dp(8);
     if (row.discord)
     {
         const float mark = Dp(15);

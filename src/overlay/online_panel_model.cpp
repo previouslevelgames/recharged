@@ -52,6 +52,7 @@ OnlinePanelRow PlayerRow(const ProfilePlayer& player)
     row.image = player.avatar_url;
     row.initials = Initials(row.name);
     row.tint_seed = player.id;
+    row.country = player.country;
     if (!player.discord.empty()) row.detail = "@" + player.discord;
     row.is_friend = player.is_friend;
     if (!player.online)
@@ -340,6 +341,7 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     if (!me.discord.empty()) model.me.detail = "@" + me.discord;
     model.me.image = me.avatar_url;
     model.me.initials = Initials(model.me.name);
+    model.me.country = me.country;
     model.me.tint_seed = me.id;
     model.me.available = me.available;
     model.me.can_set_available = context.random_games;

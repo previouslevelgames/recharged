@@ -5,6 +5,7 @@
 // the player's challenges can play by. Offline friends are counted, never
 // listed.
 
+#include "overlay/flags.h"
 #include "overlay/online_panel_model.h"
 #include "platform/competitive_rules.h"
 #include "platform/match_kind.h"
@@ -580,9 +581,42 @@ void TestMatchKinds()
     CHECK(platform::MatchKindOf(menus) == nullptr);
 }
 
+void TestFlags()
+{
+    // Every ISO country's flag, in the atlas's order: by its letters.
+    const auto& countries = FlagCountries();
+    CHECK(countries.size() > 240);
+    bool sorted = true;
+    for (std::size_t n = 1; n < countries.size(); ++n)
+        sorted = sorted && std::string(countries[n - 1].code) < countries[n].code;
+    CHECK(sorted);
+    CHECK(FlagCell("AD") == 0);
+    CHECK(FlagCell("CH") > 0 && FlagName("CH") == "Switzerland");
+    CHECK(FlagName("AT") == "Austria");
+    for (const char* none : {"", "C", "ch", "CHE", "ZZ", "EU"}) CHECK(FlagCell(none) == -1);
+    // Cells run 16 to a row, 32x24 pixels, in an atlas 512 wide.
+    const FlagUv first = FlagCellUv(0), seventeenth = FlagCellUv(17);
+    CHECK(first.u0 == 0.0f && first.v0 == 0.0f && first.u1 == 32.0f / 512.0f);
+    CHECK(seventeenth.u0 == 32.0f / 512.0f && seventeenth.v0 == first.v1);
+
+    // A player's country reaches their row and the own card.
+    platform::PlayerLists lists;
+    auto birnen = Online(10, "Birnen", "game");
+    birnen.country = "AT";
+    lists.friends = {birnen, Online(11, "Kiki", "game")};
+    auto context = Context();
+    context.me.country = "CH";
+    const auto model = MakeOnlinePanelModel(lists, std::nullopt, context);
+    const auto* online = Section(model, OnlinePanelSection::Id::Online);
+    CHECK(Row(online, "Birnen") && Row(online, "Birnen")->country == "AT");
+    CHECK(Row(online, "Kiki") && Row(online, "Kiki")->country.empty());
+    CHECK(model.me.country == "CH");
+}
+
 int main()
 {
     TestPlayer();
+    TestFlags();
     TestMatchKinds();
     TestOnlineNow();
     TestAvailable();

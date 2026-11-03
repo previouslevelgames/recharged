@@ -108,6 +108,9 @@ public:
     void Accept();
     void Decline();
     void CancelMatch();
+    // The flag beside the player's name: "auto", "none" or a country's two
+    // capital letters (ProfileService::ChooseCountry).
+    void ChooseCountry(std::string choice);
     Status Snapshot() const;
 
 private:

@@ -107,6 +107,9 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.activity = value["activity"].Text();
     player.match_kind = value["match"].Text();
     player.game = value["game"].Text();
+    player.country = value["country"].Text();
+    player.country_detected = value["country_detected"].Text();
+    player.country_choice = value["country_choice"].Text();
     player.last_online = value["last_online"].Integer();
     player.is_friend = value["friend"].Bool();
     player.chat = value["chat"].Bool();
@@ -643,6 +646,14 @@ bool ProfileService::SetAvailable(bool available)
 {
     const std::string body = std::string("{\"available\":") + (available ? "true" : "false") + "}";
     return Call("PUT", "/api/v1/me/available", &body).body["available"].Bool();
+}
+
+ProfilePlayer ProfileService::ChooseCountry(const std::string& choice)
+{
+    std::string body = "{\"country\":";
+    AppendJsonString(body, choice);
+    body += '}';
+    return ParsePlayer(Call("PUT", "/api/v1/me/country", &body).body);
 }
 
 std::vector<ProfilePlayer> ProfileService::AddFriend(std::int64_t player_id)

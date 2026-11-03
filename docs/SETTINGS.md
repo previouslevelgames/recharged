@@ -496,8 +496,8 @@ writes `rollback_test` or `rollback_log`.
 Sets against other Recharged players are played by the rules of the project's
 online server, `https://rechargedwfc.net`. The launcher's **Online** pages set
 them up: **Player profile** (who you are signed in as, your Mii, your friend
-code, your Discord friends or Connect Discord, the challenge sound, the
-server, and Sign out, which also ends the Discord link on this computer),
+code, your Discord friends or Connect Discord, your flag, the challenge sound,
+the server, and Sign out, which also ends the Discord link on this computer),
 **Match rules** (the presets a challenge starts from, see *Match settings*,
 and the server's rule sets) and **Sidekicks**. Your friends, the players
 available, your set, the RANKED leaderboards and the events are in the

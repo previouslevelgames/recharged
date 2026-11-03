@@ -34,6 +34,7 @@ notices for everything it includes:
 | `LICENSES/toolchain/` (Windows) | The LLVM-MinGW C++ runtime (`libc++`, `libunwind`) and mingw-w64 runtime and winpthreads notices |
 | `LICENSES/dxc/`, `LICENSES/windows-sdk/` (Windows) | The notices of the bundled Microsoft DirectX shader compilers |
 | `assets/launcher/` | Launcher artwork with its provenance, and the Roboto font with the Apache 2.0 text |
+| `assets/flags/` | The flags beside players' names, drawn from [flag-icons](https://github.com/lipis/flag-icons) with its MIT license |
 | `LICENSES/discord-social-sdk/` | The open source notices of the Discord Social SDK, in packages that include it (see below) |
 | `SOURCE-MANIFEST.json` | The exact source commits, patches and file hashes of the build |
 

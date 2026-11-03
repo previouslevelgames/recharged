@@ -34,6 +34,7 @@
 #include <vector>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <future>
 #include <memory>
 #include <optional>
@@ -55,6 +56,7 @@
 #include "platform/launcher_reopen.h"
 #include "platform/competitive_host.h"
 #include "platform/game_folder_lock.h"
+#include "overlay/flags.h"
 #include "platform/wpad_sdl.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
@@ -1850,6 +1852,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         };
         std::future<std::optional<OwnMiiFace>> ownMiiFace;
         ImTextureID ownMiiTexture{};
+        // The flags beside players' names: one atlas (overlay/flags.h),
+        // uploaded the first time the menu draws.
+        ImTextureID flagTexture{};
+        bool flagTried=false;
         if(std::any_of(launch.competitive_mii.begin(),launch.competitive_mii.end(),[](auto b) { return b!=0; }))
             ownMiiFace=std::async(std::launch::async,
                 [disc=launch.disc_path,id=launch.competitive_mii,
@@ -2122,8 +2128,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 style.fonts=hostOverlay->OverlayFonts();
                 style.area_max={width,height};
                 style.appear=std::clamp(shown/0.18f,0.0f,1.0f);
-                style.image=[pictures=overlayPictures.Images(),ownMiiTexture](const std::string& key) {
-                    return key=="mii:own" ? ownMiiTexture : pictures(key);
+                if(!flagTried) {
+                    flagTried=true;
+                    std::ifstream file(executableDirectory/"assets"/"flags"/"flags.png",std::ios::binary);
+                    const std::string bytes{std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>()};
+                    mscharged::overlay::OverlayImage atlas;
+                    if(!bytes.empty() && mscharged::overlay::DecodeOverlayPng(bytes,atlas))
+                        flagTexture=aurora_imgui_add_texture(std::uint32_t(atlas.width),std::uint32_t(atlas.height),
+                            atlas.rgba.data());
+                    if(!flagTexture) mscharged::platform::SessionLogLine("Overlay: no flags (assets/flags/flags.png)");
+                }
+                style.image=[pictures=overlayPictures.Images(),ownMiiTexture,flagTexture](const std::string& key) {
+                    return key=="mii:own" ? ownMiiTexture : key==mscharged::overlay::kFlagAtlas ? flagTexture
+                        : pictures(key);
                 };
                 if(const auto error=overlayPictures.Statistics().last_error; error!=overlayPicturesError) {
                     overlayPicturesError=error;
