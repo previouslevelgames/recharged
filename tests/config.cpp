@@ -609,6 +609,18 @@ int main()
         {
             std::ofstream(path) << "[online]\nmii = " << bad << "\n";
             Reject([&] { LoadConfig(path); });
+            std::ofstream(path) << "[online]\nmii_sign_in_with = " << bad << "\n";
+            Reject([&] { LoadConfig(path); });
+        }
+        // [online] mii_sign_in_with: the Mii picked for it, kept over a save.
+        Require(defaults.mii_sign_in_with.empty(), "No Mii picked to sign in with by default");
+        std::ofstream(path) << "[online]\nmii_sign_in = true\nmii_sign_in_with = 82C6FC69A1B2C3D4\n";
+        {
+            auto picked = LoadConfig(path);
+            Require(picked.settings.mii_sign_in_with == "82c6fc69a1b2c3d4", "The Mii picked to sign in with read");
+            SaveConfig(picked, picked.settings);
+            Require(LoadConfig(path).settings.mii_sign_in_with == "82c6fc69a1b2c3d4",
+                    "The Mii picked to sign in with saved");
         }
         std::ofstream(path) << "[online]\nrollback = true\nrollback_test = true\nrollback_delay = 9\nrollback_log = rb.txt\n";
         auto rollbackFile = LoadConfig(path);

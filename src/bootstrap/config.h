@@ -271,6 +271,10 @@ struct Settings
     // game asks the server for the profile that Mii's online account
     // identifies, saves its session and sets this back to false.
     bool mii_sign_in = false;
+    // [online] mii_sign_in_with: the Mii of the game save the player picked
+    // for that (its create ID, as online_mii), so the launcher names it after
+    // a restart too. Only read while mii_sign_in is true; empty: none picked.
+    std::string mii_sign_in_with;
     // [online] rollback (on by default): network matches predict the inputs
     // still on their way and roll back when they differ, instead of waiting
     // for them. Every machine in the match must have it on (the input delay

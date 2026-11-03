@@ -410,3 +410,6 @@ mii =
 # Played with a Mii before: true signs you in again through the game, once
 # your Mii logs in to WFC (Player profile sets it; the game clears it).
 mii_sign_in = false
+# The Mii of your game save picked for that, by its create ID (the launcher
+# names it while mii_sign_in is true).
+mii_sign_in_with =
