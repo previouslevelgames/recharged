@@ -19,7 +19,7 @@ its profile, before their own checks, which differ between the releases.
 Making codes stays as it was, so every player keeps the code they see, and
 a friend of another release goes through the original states: a friend
 code until both have added each other, which DWC then turns into the
-friend's profile id. A mistyped code is now taken by chance about four
+friend's profile id. A mistyped code is now taken by chance about five
 times out of 128 instead of once.
 
 The roster's check for the player's own code compares whole codes; their
@@ -58,7 +58,7 @@ index 142c9f9..4a6e90e 100644
  #include <stdio.h>
  #include <string.h>
  
-@@ -302,8 +305,73 @@ u64 DWC_Acc_CreateFriendKey(int gs_profile_id,
+@@ -302,8 +305,76 @@ u64 DWC_Acc_CreateFriendKey(int gs_profile_id,
  }
  #endif
  
@@ -68,10 +68,13 @@ index 142c9f9..4a6e90e 100644
 +// release that made it, which need not be this game's. Each release makes
 +// its codes as DWC_CreateFriendKey does there: CRC-8, the Korean one MD5.
 +// Making codes stays as it was, so every player keeps the code they see.
++// The Korean game builds the other releases' DWC (tweak patch 0060) and
++// makes CRC-8 codes too; its MD5 codes stay valid for friends saved before.
 +static const u32 sMschargedFriendKeyCrcReleases[] = {
 +    0x52345145, // R4QE
 +    0x52345150, // R4QP
 +    0x5234514A, // R4QJ
++    0x5234514B, // R4QK
 +};
 +
 +static const u32 sMschargedFriendKeyMd5Release = 0x5234514B; // R4QK
