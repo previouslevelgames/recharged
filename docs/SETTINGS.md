@@ -580,9 +580,15 @@ level is only for the CPU).
    counts at its score then once a third of it was played and a goal was
    scored: a third of its clock, or for a goal limit a third of the goals by
    the leader. Before that it doesn't count, and a set without a game that
-   counts ends without a result. When the other player's game went away, or
-   their report doesn't come within 5 minutes, the set is settled from the
-   one report.
+   counts ends without a result. A game that closes during the match reports
+   the game it broke off, so the set ends at once for both; the other game,
+   after the game's own message that the connection was lost, goes back to the
+   main menu. When the other player's game went away without a report, the
+   set is settled from the one report a minute later, or once their report
+   hasn't come within 5 minutes.
+5. One game runs per game folder: while one runs, a second Recharged of the
+   same folder doesn't start the game. A second game of yours in a set (from
+   another folder or computer) takes the set over, and the first leaves it.
 
 Your **friends** are kept on the server, so they follow you to every
 computer: a player's screen in the Recharged Game Menu adds them or takes them off.
