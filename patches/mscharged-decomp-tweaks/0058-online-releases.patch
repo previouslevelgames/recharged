@@ -13,11 +13,14 @@ Machines of different releases then have to simulate by the same rules
 (tweak patch 0057). Each machine's draft entry (NetworkDraftMachineInfo,
 which every machine sends its host in matchmaking and friend matches) now
 carries its own simulation profile; the host picks the match's profile with
-mscharged_sim_resolve (their own one when all share it, else the European
-revision 2's) and sends it with the draft (NetMessageDraft), and every
-machine, the host too, takes it when the draft arrives, long before the
-match loads and its rollback starts. Leaving online or LAN play puts the
-module's own profile back.
+mscharged_sim_resolve and sends it with the draft (NetMessageDraft): a
+RANKED match of the game's own always plays by the European revision 2's
+rules, so its points mean the same between any two players; any other, a
+friend match or a competitive set's game (which meets in RANKED but puts no
+points), by the machines' own when all share it, else by revision 2's.
+Every machine, the host too, takes it when the draft arrives, long before
+the match loads and its rollback starts. Leaving online or LAN play puts
+the module's own profile back.
 
 diff --git a/include/Game/NetworkMessages.h b/include/Game/NetworkMessages.h
 index b361690..983574e 100644
@@ -159,13 +162,19 @@ index 13f9cfb..b5169d4 100644
  #include "NL/nlSingleton.inl"
  #include "NL/nlFunction.inl"
  #include "NL/nlBindMember.inl"
-@@ -336,6 +340,26 @@ void NetworkSession::SendGameStartToEveryone()
+@@ -336,6 +340,33 @@ void NetworkSession::SendGameStartToEveryone()
      }
  }
  
 +#if defined(MSCHARGED_TWEAKS)
++// Competitive play (src/platform/competitive_match.cpp): nonzero when the
++// draft is a set's game, between the player and the set's opponent.
++extern "C" int mscharged_competitive_set_draft(const NetMessageDraft* message);
++
 +// The host picks a network match's simulation profile from its machines'
-+// own (their draft entries) and sends it with the draft.
++// own (their draft entries) and whether the match is the game's own RANKED
++// (a set's game meets in RANKED too, but plays as friends do), and sends it
++// with the draft.
 +static void ChooseDraftSimProfile(NetMessageDraft* message)
 +{
 +    unsigned char natives[8];
@@ -178,7 +187,8 @@ index 13f9cfb..b5169d4 100644
 +    {
 +        natives[i] = message->mEntries[i].mSimProfile;
 +    }
-+    message->mSimProfile = (u8)mscharged_sim_resolve(natives, count);
++    const int ranked = IsOnlineRankedMatch() && !mscharged_competitive_set_draft(message);
++    message->mSimProfile = (u8)mscharged_sim_resolve(natives, count, ranked ? 1 : 0);
 +}
 +
 +#endif
@@ -186,7 +196,7 @@ index 13f9cfb..b5169d4 100644
  void NetworkSession::SendDraftToEveryone(
      int count, NetworkDraftMachineInfo* entries, bool unused, bool chooseSides)
  {
-@@ -347,6 +371,9 @@ void NetworkSession::SendDraftToEveryone(
+@@ -347,6 +378,9 @@ void NetworkSession::SendDraftToEveryone(
      {
          message.mEntries[entry] = entries[entry];
      }
@@ -196,7 +206,7 @@ index 13f9cfb..b5169d4 100644
  
      for (int machine = 0; machine < count; ++machine)
      {
-@@ -373,6 +400,9 @@ void NetworkSession::SendDraftToEveryone(
+@@ -373,6 +407,9 @@ void NetworkSession::SendDraftToEveryone(
  
  void NetworkSession::SendDraftToEveryone(NetMessageDraft* message)
  {
@@ -206,7 +216,7 @@ index 13f9cfb..b5169d4 100644
      for (int machine = 0; machine < message->mMachineCount; ++machine)
      {
          u8 buffer[0x200];
-@@ -661,6 +691,9 @@ void NetworkSession::InitializeLAN()
+@@ -661,6 +698,9 @@ void NetworkSession::InitializeLAN()
      }
  
      mSessionMode = NET_MODE_LAN;
@@ -216,7 +226,7 @@ index 13f9cfb..b5169d4 100644
      gNetworkMessageRegistry->RegisterReceiver(NETMSG_GAME_START, this);
      gNetworkMessageRegistry->RegisterReceiver(NETMSG_LOADED_GAME, this);
      gNetworkMessageRegistry->RegisterReceiver(NETMSG_LOADED_GAME_CLIENT, this);
-@@ -686,6 +719,9 @@ void NetworkSession::InitializeLAN()
+@@ -686,6 +726,9 @@ void NetworkSession::InitializeLAN()
  
  void NetworkSession::ShutdownLAN()
  {
@@ -226,7 +236,7 @@ index 13f9cfb..b5169d4 100644
      NetworkDraft::Instance()->Reset(false);
      mStatsReporter->Close();
      NetworkStatsManager::Instance()->Reset(false);
-@@ -734,6 +770,9 @@ void NetworkSession::InitializeOnline()
+@@ -734,6 +777,9 @@ void NetworkSession::InitializeOnline()
  #endif
  
      DWC_Init(DWC_SVR_RELEASE, "mschargedwii", gameCode, NetworkAlloc, NetworkFree);
@@ -236,7 +246,7 @@ index 13f9cfb..b5169d4 100644
      DWC_SetReportLevel(0);
      mDWCInitialized = 1;
      mSessionMode = NET_MODE_ONLINE;
-@@ -1452,6 +1491,9 @@ void NetworkSession::UpdateLogin()
+@@ -1452,6 +1498,9 @@ void NetworkSession::UpdateLogin()
  
  void NetworkSession::ShutdownOnline()
  {
@@ -246,7 +256,7 @@ index 13f9cfb..b5169d4 100644
  #if defined(VERSION_R4QK01)
      bool shutdownSocket = true;
  #endif
-@@ -1803,6 +1845,10 @@ int NetworkSession::ProcessMessage(
+@@ -1803,6 +1852,10 @@ int NetworkSession::ProcessMessage(
          break;
  
      case NETMSG_DRAFT:
@@ -257,7 +267,7 @@ index 13f9cfb..b5169d4 100644
          if (((NetMessageDraft*)message)->mChooseSides != 0)
          {
              SHOnlineFriendsChooseSides* scene = (SHOnlineFriendsChooseSides*)
-@@ -2635,8 +2681,17 @@ void NetworkSession::DisconnectOnlineMatch()
+@@ -2635,8 +2688,17 @@ void NetworkSession::DisconnectOnlineMatch()
      }
  }
  

@@ -1,8 +1,8 @@
 // The game module's simulation profile (src/platform/sim_profile.cpp), built
 // as the module of every release: outside network matches each simulates by
-// its own release's rules; a draft of one release keeps them, a draft of
-// several takes the European revision 2's; and a module never takes rules it
-// cannot simulate.
+// its own release's rules; a friend match of one release keeps them, one of
+// several takes the European revision 2's, as RANKED always does; and a
+// module never takes rules it cannot simulate.
 #include "mscharged_sim_profile.h"
 
 #include <cstdio>
@@ -17,10 +17,10 @@ void Check(bool value, const char* message)
     if (!value) throw std::runtime_error(message);
 }
 
-unsigned Resolve(unsigned a, unsigned b)
+unsigned Resolve(unsigned a, unsigned b, bool ranked = false)
 {
     const unsigned char natives[2] = {static_cast<unsigned char>(a), static_cast<unsigned char>(b)};
-    return mscharged_sim_resolve(natives, 2);
+    return mscharged_sim_resolve(natives, 2, ranked ? 1 : 0);
 }
 } // namespace
 
@@ -41,6 +41,11 @@ int main()
               "Japan and Korea do not fall back to the European revision 2");
         Check(Resolve(0, MSCHARGED_SIM_R4QE01) == MSCHARGED_SIM_R4QE01, "A machine that does not say decides");
         Check(Resolve(0, 0) == MSCHARGED_SIM_NATIVE, "A LAN draft leaves the module's own rules");
+        Check(Resolve(MSCHARGED_SIM_R4QE01, MSCHARGED_SIM_R4QE01, true) == MSCHARGED_SIM_CANONICAL
+                  && Resolve(MSCHARGED_SIM_R4QK01, MSCHARGED_SIM_R4QK01, true) == MSCHARGED_SIM_CANONICAL,
+              "RANKED between machines of one release leaves the European revision 2");
+        Check(Resolve(MSCHARGED_SIM_R4QE01, MSCHARGED_SIM_R4QJ01, true) == MSCHARGED_SIM_CANONICAL,
+              "RANKED between releases leaves the European revision 2");
 
         mscharged_sim_set_profile(MSCHARGED_SIM_CANONICAL);
         Check(mscharged_sim_profile() == MSCHARGED_SIM_CANONICAL, "A module refuses the canonical rules");

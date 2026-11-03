@@ -34,8 +34,16 @@ extern "C" unsigned int mscharged_sim_profile(void)
     return sProfile;
 }
 
-extern "C" unsigned int mscharged_sim_resolve(const unsigned char* natives, int count)
+extern "C" unsigned int mscharged_sim_resolve(const unsigned char* natives, int count, int ranked)
 {
+    // The game's own RANKED plays by one rule set for everybody, so its
+    // points mean the same whoever plays whom. A set's game, which puts no
+    // points, comes as a friend match (tweak patch 0058).
+    if (ranked)
+    {
+        std::fprintf(stderr, "Simulation: a RANKED match, by the rules of %s\n", Name(MSCHARGED_SIM_CANONICAL));
+        return MSCHARGED_SIM_CANONICAL;
+    }
     // Machines that did not say (a LAN draft, which only machines of one
     // release join) leave the others' choice.
     unsigned shared = 0;

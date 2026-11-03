@@ -61,7 +61,7 @@ new file mode 100644
 index 0000000..aae2b2b
 --- /dev/null
 +++ b/include/mscharged_sim_profile.h
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,86 @@
 +#if defined(MSCHARGED_TWEAKS)
 +#ifndef MSCHARGED_SIM_PROFILE_H
 +#define MSCHARGED_SIM_PROFILE_H
@@ -132,8 +132,9 @@ index 0000000..aae2b2b
 +unsigned int mscharged_sim_profile(void);
 +// The draft's choice of a network match's profile (tweak patch 0058), from
 +// the profiles of all its machines (zero for a machine that did not say):
-+// their own profile when all share it, else the canonical one.
-+unsigned int mscharged_sim_resolve(const unsigned char* natives, int count);
++// the game's own RANKED (`ranked`) plays by the canonical one; any other,
++// by their own profile when all share it, else by the canonical one.
++unsigned int mscharged_sim_resolve(const unsigned char* natives, int count, int ranked);
 +// Simulate by `profile` from now on. A profile this module cannot simulate
 +// is refused: it keeps its own, and the match goes out of sync.
 +void mscharged_sim_set_profile(unsigned int profile);
