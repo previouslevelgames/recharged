@@ -2005,6 +2005,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 context.discord_friends=snapshot.discord_friends;
                 if(context.me.name.empty() && competitive) context.me.name=competitive->PlayerName();
                 context.in_match=inMatch();
+                context.game=std::string(release->game_id,4);
                 if(competitive)
                     if(const auto set=competitive->CurrentSet())
                         context.score=ov::OnlinePanelContext::Score{set->won,set->lost};

@@ -62,6 +62,9 @@ struct ProfilePlayer
     // In a match, its kind (MatchKindOf); empty from older games and from
     // servers before 1.2.5.
     std::string match_kind;
+    // While online: the game their Recharged plays ("R4QE", "R4QP", ...),
+    // when it says (servers from 1.2.8 on).
+    std::string game;
     std::optional<std::int64_t> last_online;
     bool is_friend = false;
     // Both keep each other as friends: they can write each other; their
@@ -241,6 +244,14 @@ struct ProfileMatch
 
     // Still to be played: challenged or accepted.
     bool Open() const { return state == "challenged" || state == "accepted"; }
+    // Keeps the player from another set: a challenge waiting for its answer,
+    // or a set that goes or plays. A stopped set (stage "open") doesn't
+    // (servers from 1.2.8 on; before them, every open match).
+    bool Busy() const
+    {
+        return state == "challenged"
+            || (state == "accepted" && (stage.empty() || stage == "go" || stage == "playing"));
+    }
 };
 
 struct ProfileServerInfo

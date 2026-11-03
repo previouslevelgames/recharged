@@ -106,6 +106,7 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.busy = value["busy"].Bool();
     player.activity = value["activity"].Text();
     player.match_kind = value["match"].Text();
+    player.game = value["game"].Text();
     player.last_online = value["last_online"].Integer();
     player.is_friend = value["friend"].Bool();
     player.chat = value["chat"].Bool();

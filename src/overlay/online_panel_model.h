@@ -68,6 +68,9 @@ struct OnlinePanelRow
     // No challenge now: why ("In a set", "Finish your set first"; a Mii's
     // is about the game's online mode).
     std::string blocked;
+    // Another version of the game than the player's ("EU", "US", "JP",
+    // "KR"): RANKED never pairs the two, so no set.
+    std::string version;
 };
 
 struct OnlinePanelSection
@@ -173,6 +176,9 @@ struct OnlinePanelContext
     // The signed-in player (GET /api/v1/me; at least the name): name, Discord
     // username, avatar and whether they are open to challenges.
     platform::ProfilePlayer me;
+    // The game this computer plays ("R4QE", ...): players of another version
+    // can't be challenged. Empty: not known.
+    std::string game;
     // Recharged players who are the player's Discord friends, as POST
     // /api/v1/players/discord answers: those online join the friends, with
     // Discord's logo. The game has no Discord Social SDK: whatever list of
