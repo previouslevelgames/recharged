@@ -1475,7 +1475,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // A set a player left or called off goes again as a rematch.
                 const bool rematch=end->how==How::Left || end->how==How::OpponentLeft
                     || end->how==How::OpponentGone;
-                if(end->how==How::NoResult) {
+                if(end->how==How::Replaced) {
+                    // A second Recharged of the player's took the set: this game has no part in it.
+                    if(hostOverlay) hostOverlay->ShowMessage("Your other Recharged plays the set against "+opponent,now);
+                } else if(end->how==How::NoResult) {
                     if(hostOverlay) hostOverlay->ShowMessage("The set against "+opponent+" ended without a result",now);
                 } else if(end->how!=How::Over && !rematch && !end->can_play_again) {
                     if(hostOverlay) hostOverlay->ShowMessage("The set against "+opponent+" stopped",now);

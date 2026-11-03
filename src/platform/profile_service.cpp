@@ -858,6 +858,7 @@ ReadyAnswer ProfileService::Ready(std::int64_t match, std::int64_t profile_id, c
     ReadyAnswer ready;
     ready.paired = answer.body["paired"].Bool();
     ready.other_release = answer.body["other_release"].Bool();
+    ready.replaced = answer.body["replaced"].Bool();
     return ready;
 }
 

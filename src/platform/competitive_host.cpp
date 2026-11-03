@@ -324,7 +324,8 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
         // A played series: also the server's result (both reports), so a
         // rematch can be asked at once.
         const bool final = !match_ || match_->id != set_ || match_->state != "accepted";
-        const bool settled = set_stage_ == CHARGED_SET_OVER ? reported && final : set_unready_;
+        const bool settled = set_stage_ == CHARGED_SET_OVER ? reported && final
+                           : set_unready_ || (set_called_off_ && called_off_how_ == SetEnd::How::Replaced);
         if (!settled && Clock::now() - set_done_ < kEndWait) return std::nullopt;
         if (match_ && match_->id == set_)
         {
@@ -357,6 +358,7 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
             : end.how == SetEnd::How::Left         ? "the player left its search"
             : end.how == SetEnd::How::OpponentLeft ? "the opponent left it"
             : end.how == SetEnd::How::OpponentGone ? "the opponent closed Recharged"
+            : end.how == SetEnd::How::Replaced     ? "another game of this player took it"
                                                    : "the set was called off";
         // No set's game any more: challenges reach the card again.
         set_ = 0;
@@ -791,7 +793,20 @@ void CompetitiveHost::Work(ProfileService& api)
             // Paired: the opponent's friend codes now include its game's.
             if (paired_now) next_match_ = {};
         }
-        if (answer.other_release) Said("the opponent plays another release of the game: no match possible");
+        // Another game of this player's took the set (a second Recharged):
+        // this one leaves it, and nobody meets it in RANKED meanwhile.
+        if (answer.replaced)
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (match->id == set_ && !set_called_off_)
+            {
+                set_called_off_ = true;
+                called_off_how_ = SetEnd::How::Replaced;
+                if (set_done_ == Clock::time_point{}) set_done_ = Clock::now();
+            }
+        }
+        if (answer.replaced) Said("another game of this player took the set");
+        else if (answer.other_release) Said("the opponent plays another release of the game: no match possible");
         else if (paired_now) Said("both games are ready: choose RANKED");
     }
 

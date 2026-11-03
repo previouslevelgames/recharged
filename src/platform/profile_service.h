@@ -303,6 +303,7 @@ struct ReadyAnswer
 {
     bool paired = false;
     bool other_release = false; // both are ready, but on releases that can't play each other
+    bool replaced = false;      // another game of this player took the set (server 1.2.9)
 };
 
 // A call the server refused (Status() its HTTP status, Message() its words)

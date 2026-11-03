@@ -76,7 +76,8 @@ public:
             CalledOff,    // the set stopped waiting for this game
             Left,         // this player left its search (Back)
             OpponentLeft, // the opponent left its search or took their Ready to play! back
-            OpponentGone  // the opponent closed Recharged
+            OpponentGone, // the opponent closed Recharged
+            Replaced      // another game of this player took the set
         };
         std::int64_t match = 0;
         std::string opponent;
