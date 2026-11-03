@@ -1,5 +1,7 @@
 #include "platform/profile_service.h"
 
+#include "platform/name_glyphs.h"
+
 #include "platform/http_client.h"
 #include "platform/json.h"
 #include "platform/path.h"
@@ -353,6 +355,9 @@ ProfileService::Answer ProfileService::Call(const char* method, const std::strin
         throw ProfileError(e.Cancelled() ? "Cancelled" : std::string("No answer from the server: ") + e.what(), 0,
                            e.Cancelled());
     }
+    // Names in it (players, Miis, leaderboards, chats) may need characters
+    // the shipped font lacks: the fonts add them.
+    NoteNameGlyphs(response.body);
     Answer answer;
     answer.status = response.status;
     const bool success = response.status >= 200 && response.status < 300;

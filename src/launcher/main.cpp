@@ -22,6 +22,7 @@
 #include "launcher/player_lineup.h"
 #include "launcher/release_banner.h"
 #include "launcher/release_notes.h"
+#include "launcher/fallback_fonts.h"
 #include "launcher/ui_kit.h"
 #include "launcher/ui_metrics.h"
 #include "launcher/update_check.h"
@@ -30,6 +31,7 @@
 #include "mscharged/build_version.h"
 #include "platform/competitive_rules.h"
 #include "platform/parse_float.h"
+#include "platform/name_glyphs.h"
 #include "platform/profile_service.h"
 #include "platform/window_fit.h"
 #include "platform/disc.h"
@@ -974,6 +976,9 @@ public:
                 RebuildScale();
                 ApplyWindowMetrics(false);
             }
+            // A name with characters the fonts lack arrived: they are added.
+            else if (platform::NameGlyphsVersion() != NameGlyphsBuilt())
+                RebuildScale();
             SetUiScale(metrics_.ui);
             UpdateMiiFaces();
             ImGui_ImplSDLRenderer3_NewFrame();

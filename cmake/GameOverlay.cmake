@@ -16,10 +16,10 @@ if(BUILD_TESTING)
 endif()
 
 # The launcher's palette and widgets (pure ImGui), shared by the launcher and the overlay.
-add_library(charged_ui_kit STATIC src/launcher/ui_kit.cpp)
+add_library(charged_ui_kit STATIC src/launcher/ui_kit.cpp src/launcher/fallback_fonts.cpp)
 target_include_directories(charged_ui_kit PUBLIC src)
 target_compile_features(charged_ui_kit PUBLIC cxx_std_17)
-target_link_libraries(charged_ui_kit PUBLIC charged_launcher_ui)
+target_link_libraries(charged_ui_kit PUBLIC charged_launcher_ui charged_name_glyphs)
 
 # Players' pictures (their avatars): downloaded (charged_http) and decoded
 # (SDL's PNG) on a thread of its own, made textures by the host when drawn.
