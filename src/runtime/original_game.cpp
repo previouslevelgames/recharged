@@ -54,6 +54,7 @@
 #include "platform/session_log.h"
 #include "platform/launcher_reopen.h"
 #include "platform/competitive_host.h"
+#include "platform/game_folder_lock.h"
 #include "platform/wpad_sdl.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
@@ -439,6 +440,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         const auto dataDirectory = std::filesystem::absolute(mscharged::DataFolder(executableDirectory));
         mscharged::platform::SessionLogLine("Data: "+mscharged::PathUtf8(dataDirectory));
         std::filesystem::create_directories(dataDirectory);
+        // Two games of one folder would share its save, and both would take
+        // the player's competitive sets.
+        Check(mscharged::platform::LockGameFolder(dataDirectory),
+            "Recharged already runs a game from this folder. Close it first, or switch to its window.");
         // Aurora reads its paths as UTF-8; string() would give Windows' ANSI code page (#97).
         const auto dataPath = mscharged::PathUtf8(dataDirectory);
         AuroraConfig config{};
