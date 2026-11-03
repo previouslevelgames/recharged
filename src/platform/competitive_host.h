@@ -219,9 +219,14 @@ private:
     // The game's online series (ObserveOnline): how each game ended.
     ChargedOnlineMatchSnapshot online_{};
     bool online_known_ = false;
-    // With the series about to be reported: its last game as broken off,
-    // when the online series says it ended by a lost connection or out of
-    // sync (added when the series has no game for it yet).
-    void MarkBrokenOff();
+    // Its number when this series was set up: this series' is a later one.
+    unsigned series_online_before_ = 0;
+    // With the series about to be reported: its games as the game reported
+    // each end (its online series), when that holds at least the games
+    // counted here. This host looks once a second and can miss a game's end
+    // screen (a sync error right after the whistle unloads the match within
+    // it); the last game is broken off when it ended by a lost connection or
+    // out of sync.
+    void TakeOnlineGames();
 };
 } // namespace mscharged::platform

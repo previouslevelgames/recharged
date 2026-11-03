@@ -164,6 +164,7 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
         game_recorded_ = false;
         series_done_ = series_match_ == 0 || series_games_ < 1;
         playing_.reset();
+        series_online_before_ = online_known_ ? online_.series : 0;
     }
     if (in_series && !series_done_)
     {
@@ -204,7 +205,7 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
                 const int needed = series_games_ / 2 + 1;
                 if (won >= needed || lost >= needed || int(series_.size()) >= series_games_)
                 {
-                    MarkBrokenOff();
+                    TakeOnlineGames();
                     reports_.push_back({series_match_, series_});
                     ++unsent_;
                     series_done_ = true;
@@ -217,9 +218,9 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
     }
     else if (!series_done_ && !(presence && presence->in_match))
     {
-        // Left before the series ended: what was played, if anything, and a
-        // game that broke off.
-        MarkBrokenOff();
+        // Left before the series ended (or its last end screen went by
+        // unseen): what was played, if anything, and a game that broke off.
+        TakeOnlineGames();
         if (!series_.empty())
         {
             reports_.push_back({series_match_, series_});
@@ -391,30 +392,46 @@ void CompetitiveHost::ObserveOnline(const ChargedOnlineMatchSnapshot& online)
     online_known_ = true;
 }
 
-void CompetitiveHost::MarkBrokenOff()
+void CompetitiveHost::TakeOnlineGames()
 {
-    if (!online_known_ || online_.games < 1 || online_.games > int(std::size(online_.game))) return;
-    const ChargedOnlineGame& last = online_.game[online_.games - 1];
-    if (last.ending != 2 && last.ending != 4) return;
-    // Only the game the series has in hand, or the one after it.
-    const std::size_t index = std::size_t(online_.games - 1);
-    if (index > series_.size()) return;
+    // This series' own record: begun after it was set up, holding at least
+    // the games counted here.
+    if (!online_known_ || online_.series <= series_online_before_ || online_.games < 1
+        || online_.games > int(std::size(online_.game)) || std::size_t(online_.games) < series_.size())
+        return;
     const int mine = online_.side == 1 ? 1 : 0, theirs = 1 - mine;
-    MatchGame game;
-    game.my_score = last.scores[mine];
-    game.opponent_score = last.scores[theirs];
-    game.my_captain = CaptainKey(last.captains[mine]);
-    game.opponent_captain = CaptainKey(last.captains[theirs]);
-    game.stadium = StadiumKey(last.stadium);
-    if (game.my_captain.empty() || game.opponent_captain.empty() || game.stadium.empty()) return;
-    game.interrupted = true;
-    game.played = series_time_ > 0 ? std::clamp(last.seconds / float(series_time_), 0.0f, 1.0f) : 0.0f;
-    if (index == series_.size()) series_.push_back(game);
-    else series_[index] = game;
-    if (log_)
-        log_("Competitive: the series' game " + std::to_string(index + 1) + " broke off at "
-             + std::to_string(game.my_score) + "-" + std::to_string(game.opponent_score) + " ("
-             + std::to_string(int(game.played * 100.0f + 0.5f)) + "% of its clock)");
+    std::vector<MatchGame> games;
+    for (int index = 0; index < online_.games; ++index)
+    {
+        const ChargedOnlineGame& seen = online_.game[index];
+        MatchGame game;
+        game.my_score = seen.scores[mine];
+        game.opponent_score = seen.scores[theirs];
+        game.my_captain = CaptainKey(seen.captains[mine]);
+        game.opponent_captain = CaptainKey(seen.captains[theirs]);
+        game.stadium = StadiumKey(seen.stadium);
+        if (game.my_captain.empty() || game.opponent_captain.empty() || game.stadium.empty()) return;
+        if (seen.ending == 2 || seen.ending == 4)
+        {
+            // Only the last game can have broken off.
+            if (index != online_.games - 1) return;
+            game.interrupted = true;
+            game.played = series_time_ > 0 ? std::clamp(seen.seconds / float(series_time_), 0.0f, 1.0f) : 0.0f;
+        }
+        games.push_back(game);
+    }
+    for (std::size_t index = 0; index < games.size() && log_; ++index)
+    {
+        const MatchGame& game = games[index];
+        const std::string score = std::to_string(game.my_score) + "-" + std::to_string(game.opponent_score);
+        if (game.interrupted)
+            log_("Competitive: the series' game " + std::to_string(index + 1) + " broke off at " + score + " ("
+                 + std::to_string(int(game.played * 100.0f + 0.5f)) + "% of its clock)");
+        else if (index >= series_.size())
+            log_("Competitive: the series' game " + std::to_string(index + 1) + " ended " + score
+                 + " (its end screen went by unseen)");
+    }
+    series_ = std::move(games);
 }
 
 void CompetitiveHost::CallOff(std::int64_t match)
