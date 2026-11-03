@@ -1,5 +1,7 @@
 #include "platform/profile_service.h"
 
+#include "platform/name_glyphs.h"
+
 #include "platform/http_client.h"
 #include "platform/json.h"
 #include "platform/path.h"
@@ -8,6 +10,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <cstdio>
 #include <ctime>
 #include <fstream>
 #include <mutex>
@@ -103,6 +106,7 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.busy = value["busy"].Bool();
     player.activity = value["activity"].Text();
     player.match_kind = value["match"].Text();
+    player.game = value["game"].Text();
     player.last_online = value["last_online"].Integer();
     player.is_friend = value["friend"].Bool();
     player.chat = value["chat"].Bool();
@@ -352,6 +356,9 @@ ProfileService::Answer ProfileService::Call(const char* method, const std::strin
         throw ProfileError(e.Cancelled() ? "Cancelled" : std::string("No answer from the server: ") + e.what(), 0,
                            e.Cancelled());
     }
+    // Names in it (players, Miis, leaderboards, chats) may need characters
+    // the shipped font lacks: the fonts add them.
+    NoteNameGlyphs(response.body);
     Answer answer;
     answer.status = response.status;
     const bool success = response.status >= 200 && response.status < 300;
@@ -851,6 +858,7 @@ ReadyAnswer ProfileService::Ready(std::int64_t match, std::int64_t profile_id, c
     ReadyAnswer ready;
     ready.paired = answer.body["paired"].Bool();
     ready.other_release = answer.body["other_release"].Bool();
+    ready.replaced = answer.body["replaced"].Bool();
     return ready;
 }
 
@@ -868,6 +876,15 @@ ProfileMatch ProfileService::Report(std::int64_t match, const std::vector<MatchG
         AppendJsonString(body, game.opponent_captain);
         body += ",\"stadium\":";
         AppendJsonString(body, game.stadium);
+        // Only a game that broke off says so: older servers refuse fields
+        // they don't know.
+        if (game.interrupted)
+        {
+            char played[32];
+            std::snprintf(played, sizeof played, "%.3f", std::clamp(double(game.played), 0.0, 1.0));
+            body += ",\"interrupted\":true,\"played\":";
+            body += played;
+        }
         body += '}';
     }
     body += "]}";

@@ -1,4 +1,7 @@
 #include "runtime/host_overlay.h"
+
+#include "launcher/fallback_fonts.h"
+#include "platform/name_glyphs.h"
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "overlay/overlay_frame.h"
 #endif
@@ -22,9 +25,11 @@ namespace mscharged::runtime {
 namespace {
 // Printable ASCII and the multiplication sign of sizes (1920 × 1080).
 constexpr ImWchar kGlyphs[] = {0x0020, 0x007E, 0x00D7, 0x00D7, 0};
-// The card shows players' names: Latin letters with accents, and dashes,
-// quotes and the ellipsis.
-constexpr ImWchar kCardGlyphs[] = {0x0020, 0x017F, 0x2010, 0x2027, 0};
+// The card shows players' names: what the font has for them (Latin letters
+// with accents, Greek, Cyrillic), the general punctuation, currency and
+// letterlike symbols; other characters come from the system's fonts.
+constexpr ImWchar kCardGlyphs[] = {0x0020, 0x024F, 0x0370, 0x03FF, 0x0400, 0x052F, 0x2000, 0x206F,
+                                   0x20A0, 0x20CF, 0x2100, 0x214F, 0};
 // The card, in units of 1/720 of the picture's height: the launcher's colours.
 constexpr ImU32 kDim = IM_COL32(4, 7, 12, 178);
 constexpr ImU32 kCard = IM_COL32(18, 25, 41, 250);
@@ -97,6 +102,8 @@ void HostOverlay::BuildFonts(float size, float unit)
     for (;;) {
         io.Fonts->Clear();
         io.Fonts->Flags |= ImFontAtlasFlags_NoMouseCursors;
+        // Players' names may need characters the font lacks: from the system's fonts.
+        launcher::PrepareNameGlyphs();
         ImFontConfig config;
         config.FontDataOwnedByAtlas = false;
         config.FontBuilderFlags = ImGuiFreeTypeBuilderFlags_LightHinting;
@@ -109,11 +116,14 @@ void HostOverlay::BuildFonts(float size, float unit)
         const auto addCard = [&](float pixels) {
             config.SizePixels = pixels;
             if (fontData_.empty()) return io.Fonts->AddFontDefault(&config);
-            return io.Fonts->AddFontFromMemoryTTF(fontData_.data(), static_cast<int>(fontData_.size()), pixels,
-                                                  &config, kCardGlyphs);
+            ImFont* font = io.Fonts->AddFontFromMemoryTTF(fontData_.data(), static_cast<int>(fontData_.size()),
+                                                          pixels, &config, kCardGlyphs);
+            // Names on the card and in the messages.
+            if (font) launcher::MergeNameGlyphs(*io.Fonts, pixels);
+            return font;
         };
         label_ = add(size);
-        messageFont_ = add(MessageFontSize(size));
+        messageFont_ = addCard(MessageFontSize(size));
         cardText_ = addCard(std::round(17.0f * unit));
         config.FontBuilderFlags |= ImGuiFreeTypeBuilderFlags_Bold;
         number_ = add(size);
@@ -245,7 +255,9 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     const auto size = FpsOverlayFontSize(surface_width, surface_height);
     // 1/900 of the picture's height, never so small that the text can't be read.
     const float unit = overlay::OverlayUnit(float(surface_width), float(surface_height));
-    if (size != builtSize_ || unit != builtUnit_) BuildFonts(size, unit);
+    // Rebuilt for another size, or for characters of names they lack.
+    if (size != builtSize_ || unit != builtUnit_ || platform::NameGlyphsVersion() != launcher::NameGlyphsBuilt())
+        BuildFonts(size, unit);
     aurora_imgui_begin_overlay(surface_width, surface_height);
     // The panel or the card first: the performance numbers and messages stay
     // on top.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "platform/competitive_rules.h"
+#include "platform/online_match_snapshot.h"
 #include "platform/presence_snapshot.h"
 #include "platform/profile_service.h"
 
@@ -36,6 +37,12 @@ public:
                                                   std::string* off);
     ~CompetitiveHost();
     CompetitiveHost(const CompetitiveHost&) = delete;
+    // The game powers off: the process ends without unwinding. The last calls
+    // (a set called off, a series reported) get their time, then this waits
+    // at most `wait` for the worker to end; one still busy (a call that
+    // won't give up) is left to the process's end instead of being joined.
+    // True when it ended.
+    bool StopForExit(std::chrono::milliseconds wait);
     CompetitiveHost& operator=(const CompetitiveHost&) = delete;
 
     const std::string& PlayerName() const { return player_; }
@@ -75,7 +82,8 @@ public:
             CalledOff,    // the set stopped waiting for this game
             Left,         // this player left its search (Back)
             OpponentLeft, // the opponent left its search or took their Ready to play! back
-            OpponentGone  // the opponent closed Recharged
+            OpponentGone, // the opponent closed Recharged
+            Replaced      // another game of this player took the set
         };
         std::int64_t match = 0;
         std::string opponent;
@@ -90,6 +98,12 @@ public:
     // (the opponent's game asks its player); otherwise the player's Ready to
     // play! again for a set that stopped.
     void PlayAgain(std::int64_t match, bool rematch);
+    // After a SetEnd: the player doesn't play a stopped set again now; the
+    // server calls it off, so neither player keeps it.
+    void CallOff(std::int64_t match);
+    // On the game's thread, before Observe: the game's online series
+    // (charged_online_match_snapshot), for a game that broke off.
+    void ObserveOnline(const ChargedOnlineMatchSnapshot& online);
 
     // On the game's thread after Observe: the set this game plays, for the
     // Discord status: the opponent, the games won and lost so far and how
@@ -137,9 +151,13 @@ private:
     std::mutex mutex_;
     std::condition_variable wake_;
     bool stop_ = false, kick_ = false;
-    // The game closes while its set waits for it: the worker's last call takes
-    // the player's Ready to play! back (withdrawn_ once it is through).
+    // The game closes while its set waits for it: the worker's last call calls
+    // the set off; during its match, its last call reports the series with
+    // the game in play as broken off (withdrawn_ once they are through).
     bool withdraw_on_stop_ = false, withdrawn_ = false;
+    bool finished_ = false; // the worker is done
+    // Stops the worker: its last calls go out (or time out); no join.
+    void Stop();
     std::shared_ptr<class HttpCancel> cancel_;
     std::thread worker_;
 
@@ -167,6 +185,7 @@ private:
     std::int64_t started_go_ = 0;
     std::int64_t again_match_ = 0;
     bool again_rematch_ = false;
+    std::int64_t call_off_match_ = 0; // CallOff still to send
     std::optional<std::string> notice_;
     struct Report
     {
@@ -201,5 +220,22 @@ private:
     int series_games_ = 0;
     std::vector<MatchGame> series_;
     bool game_recorded_ = false, series_done_ = true;
+    // The series' game length (a time limit), for a game that broke off.
+    int series_time_ = 0;
+    // The series' game in play as the last Observe saw it (score, clock):
+    // broken off if this game closes during it.
+    std::optional<MatchGame> playing_;
+    // The game's online series (ObserveOnline): how each game ended.
+    ChargedOnlineMatchSnapshot online_{};
+    bool online_known_ = false;
+    // Its number when this series was set up: this series' is a later one.
+    unsigned series_online_before_ = 0;
+    // With the series about to be reported: its games as the game reported
+    // each end (its online series), when that holds at least the games
+    // counted here. This host looks once a second and can miss a game's end
+    // screen (a sync error right after the whistle unloads the match within
+    // it); the last game is broken off when it ended by a lost connection or
+    // out of sync.
+    void TakeOnlineGames();
 };
 } // namespace mscharged::platform

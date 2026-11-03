@@ -282,15 +282,36 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
 std::string ChallengeBlocker(const std::optional<ProfileMatch>& match, const OnlinePanelContext& context)
 {
     if (context.in_match) return "You're in a match";
-    if (match && match->Open()) return "Finish your set first";
+    if (match && match->Busy()) return "Finish your set first";
     if (!context.can_challenge) return "No rules to play by";
     return {};
 }
 
-void Challengeable(OnlinePanelRow& row, const std::string& blocker)
+// A game id's version as the panel tags it ("EU"), and as a sentence names it.
+std::string VersionTag(const std::string& game)
 {
-    if (row.kind != OnlinePanelRow::Kind::Player || row.presence != Presence::Free) return;
-    if (!blocker.empty()) row.blocked = blocker;
+    const char region = game.size() >= 4 ? game[3] : '?';
+    return region == 'E' ? "US" : region == 'P' ? "EU" : region == 'J' ? "JP" : region == 'K' ? "KR" : game;
+}
+std::string VersionName(const std::string& game)
+{
+    const char region = game.size() >= 4 ? game[3] : '?';
+    return region == 'E' ? "the American version" : region == 'P' ? "the European version"
+         : region == 'J' ? "the Japanese version" : region == 'K' ? "the Korean version" : game;
+}
+
+// Whether `player`'s row can be challenged to a set from this game: free, of
+// this game's version (RANKED never pairs two), and the player free too.
+void Challengeable(OnlinePanelRow& row, const ProfilePlayer& player, const std::string& blocker,
+                   const OnlinePanelContext& context)
+{
+    if (row.kind != OnlinePanelRow::Kind::Player) return;
+    const bool other = player.game.size() >= 4 && context.game.size() >= 4
+        && player.game.compare(0, 4, context.game, 0, 4) != 0;
+    if (other) row.version = VersionTag(player.game);
+    if (row.presence != Presence::Free) return;
+    if (other) row.blocked = "Plays " + VersionName(player.game);
+    else if (!blocker.empty()) row.blocked = blocker;
     else row.can_challenge = true;
 }
 } // namespace
@@ -354,7 +375,7 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
         model.search.asked = context.search->asked;
     }
     model.can_search = context.searches && !context.search && !context.in_match && !model.presets.empty()
-        && !(match && match->Open());
+        && !(match && match->Busy());
 
     if (match) model.set = MakeSet(*match, context);
     const std::string blocker = ChallengeBlocker(match, context);
@@ -388,7 +409,7 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
         OnlinePanelRow row = PlayerRow(player);
         row.discord = discord.count(player.id) != 0;
         row.can_befriend = !row.discord;
-        Challengeable(row, blocker);
+        Challengeable(row, player, blocker, context);
         online.rows.push_back(std::move(row));
     }
     for (const auto& player : context.discord_friends)
@@ -396,7 +417,7 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
         if (!listed.insert(player.id).second || !player.online) continue;
         OnlinePanelRow row = PlayerRow(player);
         row.discord = true;
-        Challengeable(row, blocker);
+        Challengeable(row, player, blocker, context);
         online.rows.push_back(std::move(row));
     }
     std::set<std::int32_t> miis;
@@ -421,7 +442,7 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
             if (!player.online || !listed.insert(player.id).second) continue;
             OnlinePanelRow row = PlayerRow(player);
             row.can_befriend = true;
-            Challengeable(row, blocker);
+            Challengeable(row, player, blocker, context);
             available.rows.push_back(std::move(row));
         }
         for (const auto& mii : lists.game_online)

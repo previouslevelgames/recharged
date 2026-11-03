@@ -36,32 +36,8 @@ The same setting skips the match's introduction: FrontEnd::EnterStartScreen
 begins the training match straight at the kickoff, as it does for the
 Strikers 101 lessons.
 
-diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
-index fb8f8f9..a4cccff 100644
---- a/include/mscharged_tweaks.h
-+++ b/include/mscharged_tweaks.h
-@@ -215,6 +215,19 @@ void mscharged_tweak_super_team_spent(unsigned long header, unsigned long data);
- // its captain (eTeamID) and stadium (eStadiumID).
- int mscharged_tweak_training_item(void);
- bool mscharged_tweak_take_training_start(int* captain, int* stadium);
-+// Training's opponent: its captain (eTeamID, -1 for the default one), how many
-+// of its four fielders play (0 to 4), whether its goalie plays, and whether a
-+// goal goes straight to the kickoff, without its celebration.
-+int mscharged_tweak_training_away_captain(void);
-+int mscharged_tweak_training_away_fielders(void);
-+bool mscharged_tweak_training_away_goalie(void);
-+bool mscharged_tweak_training_skip_goal(void);
-+// And its skill (0 training, 1 rookie to 5 mega striker, as the game's Gameplay
-+// options number them; -1 for the game's own setting).
-+int mscharged_tweak_training_away_skill(void);
-+// Whether the pad that starts the match plays the away team (the home one
-+// otherwise).
-+bool mscharged_tweak_training_play_away(void);
- 
- #ifdef __cplusplus
- }
 diff --git a/src/Game/Character.cpp b/src/Game/Character.cpp
-index e68875e..6b8726c 100644
+index e68875e..82372b0 100644
 --- a/src/Game/Character.cpp
 +++ b/src/Game/Character.cpp
 @@ -30,6 +30,7 @@
@@ -72,41 +48,36 @@ index e68875e..6b8726c 100644
  #include "Game/AnimInventory.h"
  #include "Game/CharacterTweaks.h"
  #include "Game/Ball.h"
-@@ -1861,8 +1862,18 @@ void OnCharactersGoalScored(GoalScoredData* pEventData)
-     {
+@@ -1862,6 +1863,13 @@ void OnCharactersGoalScored(GoalScoredData* pEventData)
          PlaySound(11, 0x8CEE6665UL, NULL, NULL);
      }
--    if (!GetTweakBool("/user/no_presentation", false)
--        && g_pTeams[0] != NULL && g_pTeams[1] != NULL)
-+    bool bPresentation = !GetTweakBool("/user/no_presentation", false);
+     if (!GetTweakBool("/user/no_presentation", false)
 +#if defined(MSCHARGED_TWEAKS)
-+    // Port tweak "Training": a goal that goes straight to the kickoff
-+    // (Presentation::OnGoalScored) leaves the players their pads, which the
-+    // kickoff has just given back.
-+    if (pEventData != NULL && pEventData->uGoalType != GOAL_MEGA_STRIKE && GetTrainingSide() >= 0
-+        && mscharged_tweak_training_skip_goal())
-+    {
-+        bPresentation = false;
-+    }
++        // Port tweak "Training": a goal that goes straight to the kickoff
++        // (Presentation::OnGoalScored) leaves the players their pads, which
++        // the kickoff has just given back.
++        && !(pEventData != NULL && pEventData->uGoalType != GOAL_MEGA_STRIKE && GetTrainingSide() >= 0
++             && mscharged_tweak_training_skip_goal())
 +#endif
-+    if (bPresentation && g_pTeams[0] != NULL && g_pTeams[1] != NULL)
+         && g_pTeams[0] != NULL && g_pTeams[1] != NULL)
      {
          for (s32 i = 0; i < 2; i++)
-         {
 diff --git a/src/Game/FE/feManager.cpp b/src/Game/FE/feManager.cpp
-index c468b03..ad95fbc 100644
+index c468b03..342da99 100644
 --- a/src/Game/FE/feManager.cpp
 +++ b/src/Game/FE/feManager.cpp
-@@ -46,6 +46,8 @@
+@@ -46,6 +46,10 @@
  #include "Game/InputManager.h"
  #include "Game/OverlayManager.h"
  #include "Game/EventRegistry.h"
++#if defined(MSCHARGED_TWEAKS)
 +#include "Game/Team.h"
++#endif
 +#include "mscharged_tweaks.h"
  #include "NL/nlFunction.inl"
  
  cAnimCamera* FrontEnd::m_pPauseMenuCamera = 0;
-@@ -119,6 +121,14 @@ void FrontEnd::EnterStartScreen(bool bStraightToKickoff)
+@@ -119,6 +123,14 @@ void FrontEnd::EnterStartScreen(bool bStraightToKickoff)
          isInStrikers101 = true;
      }
      sInitialModePauseMenuShown = 0;
@@ -204,7 +175,24 @@ diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
 index f2a8b39..0c2b825 100644
 --- a/src/Game/SH/SHTitleScreen.cpp
 +++ b/src/Game/SH/SHTitleScreen.cpp
-@@ -159,17 +159,24 @@ static void StartTrainingMatch(int pad, int captain, int stadium)
+@@ -142,51 +142,58 @@ inline void TitleScene::InitializePointerButtons()
+ 
+ #if defined(MSCHARGED_TWEAKS)
+ // Port tweak "Training": the launcher's Start training goes from the title
+ // straight into an offline Domination match, as the demo match does, with the
+ // pad that passed the title on the home side and the save's match settings.
+ // Both captains field the sidekicks of their lineups in the save; the away
+ // team, which nobody plays, vanishes (cTeam::ResetCharacters). The match
+ // waits for the save, which the main menu reads otherwise: sTrainingPad is
+ // the pad that asked for it, -1 for none.
+ static int sTrainingPad = -1;
+ static int sTrainingCaptain;
+ static int sTrainingStadium;
+ 
+ static void StartTrainingMatch(int pad, int captain, int stadium)
+ {
+     GameInfoManager* gameInfo = GameInfoManager::Instance();
+     gameInfo->mUserInfo.mGameplayOptions.OnSettingsUpdated();
      gameInfo->mUserInfo.mCheatOptions.OnSettingsUpdated();
      gameInfo->SetMode(GameInfoManager::GM_FRIENDLY, false);
      g_bTrainingMatch = true;
@@ -235,6 +223,23 @@ index f2a8b39..0c2b825 100644
      GameSceneManager::Instance()->PushLoadingScene(true);
  }
  #endif
+ 
+ void TitleScene::Update(float dt)
+ {
+     BaseSceneHandler::Update(dt);
+     m_fTimeElapsed += dt;
+ #if defined(MSCHARGED_TWEAKS)
+     // Port tweak "Skip intro": the title takes input at once, and passes
+     // itself with a single press of A (below), once per launch.
+     if (mscharged_tweak_title_pending() && m_fTimeElapsed < 1.5f)
+         m_fTimeElapsed = 1.5f;
+ #endif
+     if (m_fTimeElapsed < 1.5f)
+         return;
+ 
+     if (!mInitialized)
+     {
+         InitializePointerButtons();
 diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
 index b2fac20..5eb18c7 100644
 --- a/src/Game/Team.cpp

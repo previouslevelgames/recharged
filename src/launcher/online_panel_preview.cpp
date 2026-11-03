@@ -1,6 +1,7 @@
 #include "launcher/online_panel_preview.h"
 
 #include "launcher/match_presets.h"
+#include "platform/name_glyphs.h"
 #include "platform/competitive_rules.h"
 
 #include "launcher/ui_kit.h"
@@ -301,6 +302,9 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     bowser.last_online = now - 3 * 3600;
     auto shy = Online(Player(900030, "Shy Guy", "shyguy"), "launcher");
     auto koopa = Online(Player(900020, "Koopa", "koopa"), "game");
+    // Koopa plays the European game, this computer the US one: tagged EU.
+    koopa.game = "R4QP";
+    context_.game = "R4QE";
     for (ProfilePlayer* player : {&daisy, &luigi, &rosalina, &bowser, &shy, &koopa}) *player = picture(*player);
 
     if (mode_ != "preview-empty")
@@ -427,6 +431,9 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
         boards.daily.top = {entry(1, "Kenji", "", 4, 0, 210, 1), entry(2, "Anosch", "Anosch", 3, 1, 160, 4, true),
                             entry(3, "Lou", "", 2, 2, 95, 2)};
         boards.daily.you = boards.daily.top[1];
+        // As the profile server's answers are: the fonts add what the names need.
+        for (const auto* top : {&boards.season.top, &boards.daily.top})
+            for (const auto& row : *top) platform::NoteNameGlyphs(row.mii + row.player);
         ranked_.boards = boards;
     }
     // The Settings tab: a 16:9 window with the wider view set up, its 3D

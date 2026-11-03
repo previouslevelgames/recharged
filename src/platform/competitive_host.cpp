@@ -3,7 +3,9 @@
 #include "platform/http_client.h"
 #include "platform/match_kind.h"
 
+#include <algorithm>
 #include <cstring>
+#include <iterator>
 
 namespace mscharged::platform
 {
@@ -25,7 +27,7 @@ constexpr auto kSetWaitEvery = 2s;
 constexpr auto kWithdrawWait = 2s;
 constexpr auto kRetry = 15s;
 // cGame's eGameState.
-constexpr int kGamePreGame = 0, kGameKickoff = 1, kGameEnd = 3, kGamePlay = 5;
+constexpr int kGamePreGame = 0, kGameKickoff = 1, kGameEnd = 3, kGameUnloading = 4, kGamePlay = 5;
 // GameInfoManager::eGameMode: the title screen's demo match.
 constexpr int kModeDemo = 2;
 // A set's game waits this long for its last report before it ends the set
@@ -87,13 +89,36 @@ CompetitiveHost::CompetitiveHost(std::string server, std::string token, std::str
 
 CompetitiveHost::~CompetitiveHost()
 {
+    Stop();
+    worker_.join();
+}
+
+bool CompetitiveHost::StopForExit(std::chrono::milliseconds wait)
+{
+    Stop();
+    std::unique_lock<std::mutex> lock(mutex_);
+    return wake_.wait_for(lock, wait, [this] { return finished_; });
+}
+
+void CompetitiveHost::Stop()
+{
     {
         std::unique_lock<std::mutex> lock(mutex_);
+        if (stop_) return;
         stop_ = true;
         // A set still waiting for this game: the opponent's game hears at once
         // that this one is gone, not only once the server gives up on it.
         withdraw_on_stop_ = set_ && !set_unready_ && set_stage_ != CHARGED_SET_PLAYING && set_stage_ != CHARGED_SET_OVER;
-        if (withdraw_on_stop_)
+        // During its match: the series with the game in play broken off, so
+        // the server settles the set now and both players are free.
+        if (!series_done_ && series_match_ != 0 && playing_)
+        {
+            auto games = series_;
+            games.push_back(*playing_);
+            reports_.push_back({series_match_, games});
+            series_done_ = true;
+        }
+        if (withdraw_on_stop_ || !reports_.empty())
         {
             wake_.notify_all();
             wake_.wait_for(lock, kWithdrawWait, [this] { return withdrawn_; });
@@ -101,7 +126,6 @@ CompetitiveHost::~CompetitiveHost()
         if (cancel_) cancel_->Cancel();
     }
     wake_.notify_all();
-    worker_.join();
 }
 
 void CompetitiveHost::Kick()
@@ -149,14 +173,31 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
         series_.clear();
         series_match_ = match_ ? match_->id : 0;
         series_games_ = wfc.competitive_games;
+        series_time_ = rules_ && rules_->limit == 0 ? rules_->time : 0;
         game_recorded_ = false;
         series_done_ = series_match_ == 0 || series_games_ < 1;
+        playing_.reset();
+        series_online_before_ = online_known_ ? online_.series : 0;
     }
     if (in_series && !series_done_)
     {
         const int state = presence->game_state;
+        if (state != kGameEnd && state >= 0 && state != kGameUnloading && (wfc.local_side == 0 || wfc.local_side == 1))
+        {
+            const int mine = wfc.local_side, theirs = 1 - mine;
+            MatchGame game;
+            game.my_score = presence->scores[mine];
+            game.opponent_score = presence->scores[theirs];
+            game.my_captain = CaptainKey(presence->teams[mine]);
+            game.opponent_captain = CaptainKey(presence->teams[theirs]);
+            game.stadium = StadiumKey(presence->stadium);
+            game.interrupted = true;
+            game.played = series_time_ > 0 ? std::clamp(presence->game_time / float(series_time_), 0.0f, 1.0f) : 0.0f;
+            if (!game.my_captain.empty() && !game.opponent_captain.empty() && !game.stadium.empty()) playing_ = game;
+        }
         if (state == kGameEnd && !game_recorded_ && (wfc.local_side == 0 || wfc.local_side == 1))
         {
+            playing_.reset();
             const int mine = wfc.local_side, theirs = 1 - mine;
             MatchGame game;
             game.my_score = presence->scores[mine];
@@ -177,6 +218,7 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
                 const int needed = series_games_ / 2 + 1;
                 if (won >= needed || lost >= needed || int(series_.size()) >= series_games_)
                 {
+                    TakeOnlineGames();
                     reports_.push_back({series_match_, series_});
                     ++unsent_;
                     series_done_ = true;
@@ -189,7 +231,9 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
     }
     else if (!series_done_ && !(presence && presence->in_match))
     {
-        // Left before the series ended: what was played, if anything.
+        // Left before the series ended (or its last end screen went by
+        // unseen): what was played, if anything, and a game that broke off.
+        TakeOnlineGames();
         if (!series_.empty())
         {
             reports_.push_back({series_match_, series_});
@@ -294,7 +338,8 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
         // A played series: also the server's result (both reports), so a
         // rematch can be asked at once.
         const bool final = !match_ || match_->id != set_ || match_->state != "accepted";
-        const bool settled = set_stage_ == CHARGED_SET_OVER ? reported && final : set_unready_;
+        const bool settled = set_stage_ == CHARGED_SET_OVER ? reported && final
+                           : set_unready_ || (set_called_off_ && called_off_how_ == SetEnd::How::Replaced);
         if (!settled && Clock::now() - set_done_ < kEndWait) return std::nullopt;
         if (match_ && match_->id == set_)
         {
@@ -327,6 +372,7 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
             : end.how == SetEnd::How::Left         ? "the player left its search"
             : end.how == SetEnd::How::OpponentLeft ? "the opponent left it"
             : end.how == SetEnd::How::OpponentGone ? "the opponent closed Recharged"
+            : end.how == SetEnd::How::Replaced     ? "another game of this player took it"
                                                    : "the set was called off";
         // No set's game any more: challenges reach the card again.
         set_ = 0;
@@ -353,6 +399,63 @@ std::optional<CompetitiveHost::SetStart> CompetitiveHost::TakeSetStart()
     return start;
 }
 
+void CompetitiveHost::ObserveOnline(const ChargedOnlineMatchSnapshot& online)
+{
+    online_ = online;
+    online_known_ = true;
+}
+
+void CompetitiveHost::TakeOnlineGames()
+{
+    // This series' own record: begun after it was set up, holding at least
+    // the games counted here.
+    if (!online_known_ || online_.series <= series_online_before_ || online_.games < 1
+        || online_.games > int(std::size(online_.game)) || std::size_t(online_.games) < series_.size())
+        return;
+    const int mine = online_.side == 1 ? 1 : 0, theirs = 1 - mine;
+    std::vector<MatchGame> games;
+    for (int index = 0; index < online_.games; ++index)
+    {
+        const ChargedOnlineGame& seen = online_.game[index];
+        MatchGame game;
+        game.my_score = seen.scores[mine];
+        game.opponent_score = seen.scores[theirs];
+        game.my_captain = CaptainKey(seen.captains[mine]);
+        game.opponent_captain = CaptainKey(seen.captains[theirs]);
+        game.stadium = StadiumKey(seen.stadium);
+        if (game.my_captain.empty() || game.opponent_captain.empty() || game.stadium.empty()) return;
+        if (seen.ending == 2 || seen.ending == 4)
+        {
+            // Only the last game can have broken off.
+            if (index != online_.games - 1) return;
+            game.interrupted = true;
+            game.played = series_time_ > 0 ? std::clamp(seen.seconds / float(series_time_), 0.0f, 1.0f) : 0.0f;
+        }
+        games.push_back(game);
+    }
+    for (std::size_t index = 0; index < games.size() && log_; ++index)
+    {
+        const MatchGame& game = games[index];
+        const std::string score = std::to_string(game.my_score) + "-" + std::to_string(game.opponent_score);
+        if (game.interrupted)
+            log_("Competitive: the series' game " + std::to_string(index + 1) + " broke off at " + score + " ("
+                 + std::to_string(int(game.played * 100.0f + 0.5f)) + "% of its clock)");
+        else if (index >= series_.size())
+            log_("Competitive: the series' game " + std::to_string(index + 1) + " ended " + score
+                 + " (its end screen went by unseen)");
+    }
+    series_ = std::move(games);
+}
+
+void CompetitiveHost::CallOff(std::int64_t match)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        call_off_match_ = match;
+    }
+    Kick();
+}
+
 void CompetitiveHost::PlayAgain(std::int64_t match, bool rematch)
 {
     {
@@ -375,6 +478,19 @@ bool CompetitiveHost::ReadyDue() const
 
 void CompetitiveHost::Run()
 {
+    // However it ends: StopForExit waits for this, not for a join.
+    struct Finished
+    {
+        CompetitiveHost& host;
+        ~Finished()
+        {
+            {
+                std::lock_guard<std::mutex> lock(host.mutex_);
+                host.finished_ = true;
+            }
+            host.wake_.notify_all();
+        }
+    } finished{*this};
     std::unique_lock<std::mutex> lock(mutex_);
     while (!stop_)
     {
@@ -420,9 +536,14 @@ void CompetitiveHost::Run()
         wake_.wait_until(lock, next, [this] { return stop_ || kick_; });
         kick_ = false;
     }
-    // The game closes during its set's way to the opponent's: the player's
-    // Ready to play! goes back, so the opponent's game leaves the set now.
-    if (!withdraw_on_stop_) return;
+    // The game closes during its set's way to the opponent's: the set is
+    // called off, so the opponent's game leaves it now and both are free.
+    // During the match or after it: the series goes out now, with the game
+    // the close broke off, so the server settles the set at once.
+    std::vector<Report> reports;
+    reports.swap(reports_);
+    const bool withdraw = withdraw_on_stop_;
+    if (!withdraw && reports.empty()) return;
     const std::int64_t set = set_;
     auto cancel = std::make_shared<HttpCancel>();
     cancel_ = cancel;
@@ -431,8 +552,17 @@ void CompetitiveHost::Run()
     {
         ProfileService api(server_, token_);
         api.SetCancel(cancel);
-        api.ReadyToPlay(set, false);
-        Said("set " + std::to_string(set) + ": the game closes; Ready to play! taken back");
+        if (withdraw)
+        {
+            api.Cancel(set);
+            Said("set " + std::to_string(set) + ": the game closes; the set is called off");
+        }
+        for (const auto& report : reports)
+        {
+            const auto settled = api.Report(report.match, report.games);
+            Said("set " + std::to_string(report.match) + ": the game closes; its series is reported ("
+                 + settled.state + ")");
+        }
     }
     catch (const std::exception&)
     {
@@ -459,6 +589,27 @@ void CompetitiveHost::Work(ProfileService& api)
         again = again_match_;
         rematch = again_rematch_;
         again_match_ = 0;
+    }
+    std::int64_t call_off = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        call_off = call_off_match_;
+        call_off_match_ = 0;
+    }
+    if (call_off)
+    {
+        try
+        {
+            api.Cancel(call_off);
+            Said("called off match " + std::to_string(call_off) + " (Not now)");
+        }
+        catch (const ProfileError& e)
+        {
+            // Ended already, or played: nothing to call off.
+            if (e.Cancelled()) throw;
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        next_match_ = {};
     }
     if (answer)
     {
@@ -526,6 +677,13 @@ void CompetitiveHost::Work(ProfileService& api)
             invitation = Invitation{current->id, current->opponent.name, current->opponent.avatar_url,
                                     current->rule_set + ": " + DescribeRules(current->rules),
                                     current->rematch_of != 0, current->random};
+        // This game's set as the server ended it (the opponent called it off,
+        // or closed Recharged), before the match it no longer is goes.
+        std::string set_ended;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (current && set_ && current->id == set_ && current->state != "accepted") set_ended = current->state;
+        }
         if (current && current->state != "accepted") current.reset();
         std::optional<ChargedCompetitiveRules> rules;
         if (current)
@@ -569,7 +727,9 @@ void CompetitiveHost::Work(ProfileService& api)
             // The opponent's doing, as far as the server shows it: Recharged
             // closed, or their Ready to play! taken back (their Back, their
             // launcher) while this player's still counts.
-            called_off_how_ = !current || current->id != set_ ? SetEnd::How::CalledOff
+            called_off_how_ = set_ended == "cancelled" ? SetEnd::How::OpponentLeft
+                            : set_ended == "dissolved" ? SetEnd::How::OpponentGone
+                            : !current || current->id != set_ ? SetEnd::How::CalledOff
                             : !current->opponent_online       ? SetEnd::How::OpponentGone
                             : current->you_ready && !current->opponent_ready ? SetEnd::How::OpponentLeft
                                                                              : SetEnd::How::CalledOff;
@@ -589,19 +749,23 @@ void CompetitiveHost::Work(ProfileService& api)
     }
 
     // A set's game that stopped or was called off before a result: the
-    // player's Ready to play! is taken back, so the set waits for both again.
+    // player's Ready to play! is taken back, so the set waits for both again;
+    // a player who left its search calls it off, which frees both players.
     std::int64_t unready = 0;
+    bool left = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (set_ && !set_unready_
             && (set_stage_ == CHARGED_SET_FAILED || set_stage_ == CHARGED_SET_LEFT || set_called_off_) && unsent_ == 0)
             unready = set_;
+        left = set_stage_ == CHARGED_SET_LEFT;
     }
     if (unready)
     {
         try
         {
-            api.ReadyToPlay(unready, false);
+            if (left) api.Cancel(unready);
+            else api.ReadyToPlay(unready, false);
         }
         catch (const ProfileError& e)
         {
@@ -672,7 +836,20 @@ void CompetitiveHost::Work(ProfileService& api)
             // Paired: the opponent's friend codes now include its game's.
             if (paired_now) next_match_ = {};
         }
-        if (answer.other_release) Said("the opponent plays another release of the game: no match possible");
+        // Another game of this player's took the set (a second Recharged):
+        // this one leaves it, and nobody meets it in RANKED meanwhile.
+        if (answer.replaced)
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (match->id == set_ && !set_called_off_)
+            {
+                set_called_off_ = true;
+                called_off_how_ = SetEnd::How::Replaced;
+                if (set_done_ == Clock::time_point{}) set_done_ = Clock::now();
+            }
+        }
+        if (answer.replaced) Said("another game of this player took the set");
+        else if (answer.other_release) Said("the opponent plays another release of the game: no match possible");
         else if (paired_now) Said("both games are ready: choose RANKED");
     }
 
@@ -702,6 +879,18 @@ void CompetitiveHost::Work(ProfileService& api)
                 std::lock_guard<std::mutex> lock(mutex_);
                 reports_.insert(reports_.begin(), reports.begin() + std::ptrdiff_t(n), reports.end());
                 throw;
+            }
+            // A server before 1.2.8 doesn't know a game that broke off (it
+            // answers 422 for the unknown fields): the series without it.
+            auto& games = reports[n].games;
+            if ((e.Status() == 400 || e.Status() == 422) && !games.empty() && games.back().interrupted)
+            {
+                games.pop_back();
+                if (!games.empty())
+                {
+                    --n;
+                    continue;
+                }
             }
             Said(std::string("the result was not taken: ") + e.what());
         }

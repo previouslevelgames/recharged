@@ -1,5 +1,7 @@
 #include "overlay/overlay_frame.h"
 
+#include "launcher/fallback_fonts.h"
+
 #include "imgui_internal.h"
 
 #include <algorithm>
@@ -1071,7 +1073,10 @@ launcher::Fonts AddOnlinePanelFonts(ImFontAtlas& atlas, void* ttf, int ttf_size,
         config.OversampleH = 2;
         config.OversampleV = 1;
         config.PixelSnapH = false;
-        return atlas.AddFontFromMemoryTTF(ttf, ttf_size, std::round(dp * unit), &config, ranges.Data);
+        ImFont* font = atlas.AddFontFromMemoryTTF(ttf, ttf_size, std::round(dp * unit), &config, ranges.Data);
+        // Players' names may need characters it lacks (the caller prepared them).
+        if (font) launcher::MergeNameGlyphs(atlas, std::round(dp * unit));
+        return font;
     };
     launcher::Fonts fonts;
     fonts.caption = add(13.0f);

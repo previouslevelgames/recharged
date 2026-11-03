@@ -1,5 +1,7 @@
 #include "launcher/ui_kit.h"
 
+#include "launcher/fallback_fonts.h"
+
 #include "imgui_internal.h"
 
 #include <algorithm>
@@ -36,6 +38,8 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
 {
     auto& io = ImGui::GetIO();
     io.Fonts->Clear();
+    // Players' names may need characters it lacks: those from the system's fonts.
+    PrepareNameGlyphs();
     // Latin-1 plus the typographic punctuation and arrows used by the
     // launcher, and all the font has for players' names: Latin Extended,
     // Greek, Cyrillic, the general punctuation, currency and letterlike
@@ -59,6 +63,7 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
         config.PixelSnapH = false;
         ImFont* font = io.Fonts->AddFontFromFileTTF(ttf.c_str(), std::round(dp * font_raster), &config, ranges.Data);
         if (!font) throw std::runtime_error("Cannot load the launcher font; rebuild to restore resources");
+        MergeNameGlyphs(*io.Fonts, std::round(dp * font_raster));
         return font;
     };
     Fonts fonts;

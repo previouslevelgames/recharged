@@ -54,6 +54,7 @@
 #include "platform/session_log.h"
 #include "platform/launcher_reopen.h"
 #include "platform/competitive_host.h"
+#include "platform/game_folder_lock.h"
 #include "platform/wpad_sdl.h"
 #include "platform/discord_presence.h"
 #include "platform/game_presence.h"
@@ -125,6 +126,10 @@ namespace {
 // Aurora's FIFO retains every recorded command until a drain; publishing only
 // hands bytes to the worker. Bound that backlog between source frames.
 constexpr std::uint32_t kFifoDrainBytes=64u<<20;
+// The run's competitive play, stopped when the game powers off: that path
+// ends the process without unwinding, so its last calls (a set called off, a
+// series reported) would never go out. They get a few seconds, never more.
+std::unique_ptr<mscharged::platform::CompetitiveHost>* sCompetitive=nullptr;
 #if defined(MSCHARGED_AUTOPILOT)
 // Test builds' autopilot (src/platform/autopilot.cpp): C, P and U held
 // together hand the first player to a bot and back. Unannounced: no log line,
@@ -435,6 +440,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         const auto dataDirectory = std::filesystem::absolute(mscharged::DataFolder(executableDirectory));
         mscharged::platform::SessionLogLine("Data: "+mscharged::PathUtf8(dataDirectory));
         std::filesystem::create_directories(dataDirectory);
+        // Two games of one folder would share its save, and both would take
+        // the player's competitive sets.
+        Check(mscharged::platform::LockGameFolder(dataDirectory),
+            "Recharged already runs a game from this folder. Close it first, or switch to its window.");
         // Aurora reads its paths as UTF-8; string() would give Windows' ANSI code page (#97).
         const auto dataPath = mscharged::PathUtf8(dataDirectory);
         AuroraConfig config{};
@@ -1165,6 +1174,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             auto removal=terminalVerifier->Policy();
             // The opt-in frame timing log completes before the process ends.
             removal.before_removal=[](void*){
+                // The last calls get a few seconds; a stuck one doesn't hold the close.
+                if(sCompetitive && *sCompetitive && !(*sCompetitive)->StopForExit(std::chrono::seconds(1)))
+                    mscharged::platform::SessionLogLine("Competitive: the game closes without waiting for the server");
                 mscharged::runtime::FrameTimingLog::FinishForProcessExit();
                 mscharged::runtime::LogGraphicsPipelineStats();
                 // The power-off path ends with TerminateProcessNow: hand the last lines to the log and console.
@@ -1320,6 +1332,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto configureCompetitive=reinterpret_cast<ChargedConfigureCompetitiveFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive"));
         std::unique_ptr<mscharged::platform::CompetitiveHost> competitive;
+        sCompetitive=&competitive;
+        struct CompetitiveForPowerOff { ~CompetitiveForPowerOff() { sCompetitive=nullptr; } } competitiveForPowerOff;
         {
             std::string off;
             if(wfcSnapshot && configureCompetitive)
@@ -1410,6 +1424,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!wfcSnapshot(&wfc,sizeof wfc))return;
             ChargedPresenceSnapshot game{};
             const bool known=presenceSnapshot && presenceSnapshot(&game,sizeof game);
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            // How the online series' games ended: one that broke off is
+            // reported with its score then.
+            if(onlineMatchSnapshot) {
+                ChargedOnlineMatchSnapshot online{};
+                if(onlineMatchSnapshot(&online,sizeof online)) competitive->ObserveOnline(online);
+            }
+#endif
             std::optional<ChargedCompetitiveRules> rules;
             if(competitive->Observe(wfc,known ? &game : nullptr,rules))
                 configureCompetitive(rules ? &*rules : nullptr,sizeof(ChargedCompetitiveRules));
@@ -1457,9 +1479,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const std::string opponent=end->opponent.empty() ? std::string("your opponent") : end->opponent;
                 // Without a game played it has no result, and a stopped set the
                 // server no longer keeps cannot be played again: only a message.
-                if(end->how==How::NoResult) {
+                // A set a player left or called off goes again as a rematch.
+                const bool rematch=end->how==How::Left || end->how==How::OpponentLeft
+                    || end->how==How::OpponentGone;
+                if(end->how==How::Replaced) {
+                    // A second Recharged of the player's took the set: this game has no part in it.
+                    if(hostOverlay) hostOverlay->ShowMessage("Your other Recharged plays the set against "+opponent,now);
+                } else if(end->how==How::NoResult) {
                     if(hostOverlay) hostOverlay->ShowMessage("The set against "+opponent+" ended without a result",now);
-                } else if(end->how!=How::Over && !end->can_play_again) {
+                } else if(end->how!=How::Over && !rematch && !end->can_play_again) {
                     if(hostOverlay) hostOverlay->ShowMessage("The set against "+opponent+" stopped",now);
                 } else afterSet=std::move(end);
             }
@@ -1603,6 +1631,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             int answer=0;
             std::string opponent, rules, reason;
             std::string title;  // a stopped set's own title, or empty
+            std::string primary, note; // a stopped set's first button and its note, or empty
             std::string avatar; // the opponent's picture (URL), or empty
             bool random=false;  // a search for a random opponent asks the player
             bool hasScore=false;
@@ -1681,13 +1710,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         card.detail=end.how==How::OpponentGone
                             ? opponent+"'s game closed before your games met, so the set stopped."
                             : opponent+" left before your games met, so the set stopped.";
-                        card.accept="Play it again";
+                        card.accept="Rematch";
                         card.decline="Not now";
-                        card.note="Play it again is your Ready to play!: the set goes once "+opponent
-                            +" is ready too.";
+                        card.note="The same set again: "+opponent+" gets the challenge.";
                         cardPrompt.kind=CardPrompt::Kind::SetStopped;
                         cardPrompt.reason=card.detail;
                         cardPrompt.title=card.title;
+                        cardPrompt.primary=card.accept;
+                        cardPrompt.note=card.note;
                     } else {
                         card.kicker="SET STOPPED";
                         card.title=end.how==How::Left ? "You left the set against "+opponent
@@ -1695,13 +1725,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         card.detail=end.how==How::Failed ? std::string("A message in the game ended it.")
                             : end.how==How::Left ? "You left the search; "+opponent+"'s game was told."
                             : opponent+" isn't ready any more, or your games didn't meet in time.";
-                        card.accept="Play it again";
+                        // Left: the set is called off, so it goes again as a
+                        // rematch; else it waits, and Not now calls it off.
+                        const bool left=end.how==How::Left;
+                        card.accept=left ? "Rematch" : "Play it again";
                         card.decline="Not now";
-                        card.note="Play it again is your Ready to play!: the set goes once "+opponent
-                            +" is ready too.";
+                        card.note=left ? "The same set again: "+opponent+" gets the challenge."
+                            : "Play it again is your Ready to play!: the set goes once "+opponent
+                                +" is ready too. Not now calls it off.";
                         cardPrompt.kind=CardPrompt::Kind::SetStopped;
                         cardPrompt.reason=card.detail;
                         cardPrompt.title=card.title;
+                        cardPrompt.primary=card.accept;
+                        cardPrompt.note=card.note;
                     }
                     cardPrompt.opponent=opponent;
                     cardPrompt.avatar=end.opponent_avatar;
@@ -1732,12 +1768,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 return;
             }
             using How=mscharged::platform::CompetitiveHost::SetEnd::How;
-            const bool rematch=afterSet->how==How::Over;
+            // A set that was played or called off goes again as a rematch (a
+            // new challenge); one that only stopped, by Ready to play! again.
+            const How how=afterSet->how;
+            const bool rematch=how==How::Over || how==How::Left || how==How::OpponentLeft || how==How::OpponentGone;
             const std::string opponent=afterSet->opponent.empty() ? std::string("your opponent") : afterSet->opponent;
             if(accept) {
                 competitive->PlayAgain(cardMatch,rematch);
                 hostOverlay->ShowMessage((rematch ? "Rematch asked: waiting for " : "Ready again: waiting for ")
                     +opponent,now);
+            } else if(how==How::CalledOff || how==How::Failed) {
+                // Not now: the stopped set is called off, so neither player
+                // keeps it and both can take another challenge at once.
+                competitive->CallOff(cardMatch);
             }
             afterSet.reset();
         };
@@ -1940,9 +1983,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         prompt.kicker="SET STOPPED";
                         prompt.title=cardPrompt.title.empty() ? std::string("The set stopped") : cardPrompt.title;
                         prompt.detail=cardPrompt.reason;
-                        prompt.primary="Play it again";
+                        prompt.primary=cardPrompt.primary.empty() ? std::string("Play it again") : cardPrompt.primary;
                         prompt.secondary="Not now";
-                        prompt.note="Play it again is your Ready to play!: the set goes once "+who+" is ready too.";
+                        prompt.note=cardPrompt.note.empty()
+                            ? "Play it again is your Ready to play!: the set goes once "+who+" is ready too."
+                            : cardPrompt.note;
                         break;
                     }
                     prompt.has_score=cardPrompt.hasScore;
@@ -1977,6 +2022,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 context.discord_friends=snapshot.discord_friends;
                 if(context.me.name.empty() && competitive) context.me.name=competitive->PlayerName();
                 context.in_match=inMatch();
+                context.game=std::string(release->game_id,4);
                 if(competitive)
                     if(const auto set=competitive->CurrentSet())
                         context.score=ov::OnlinePanelContext::Score{set->won,set->lost};

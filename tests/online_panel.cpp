@@ -287,6 +287,38 @@ void TestChallengeBlockers()
     model = MakeOnlinePanelModel(lists, Set("finished", "challenger", "finished"), context);
     mario = Row(Section(model, OnlinePanelSection::Id::Online), "Mario");
     CHECK(mario && mario->can_challenge);
+    // A stopped set (a player left before the games met) keeps nobody from
+    // another one; one that goes does.
+    model = MakeOnlinePanelModel(lists, Set("accepted", "challenger", "open"), context);
+    mario = Row(Section(model, OnlinePanelSection::Id::Online), "Mario");
+    CHECK(mario && mario->can_challenge);
+    model = MakeOnlinePanelModel(lists, Set("accepted", "challenger", "go"), context);
+    mario = Row(Section(model, OnlinePanelSection::Id::Online), "Mario");
+    CHECK(mario && !mario->can_challenge && mario->blocked == "Finish your set first");
+}
+
+void TestVersions()
+{
+    // This game is the US one: a player of the European one is tagged and
+    // can't be challenged (RANKED never pairs the two); a US one can; one
+    // whose Recharged doesn't say can, as before.
+    platform::PlayerLists lists;
+    auto eu = Online(10, "Birnen", "game");
+    eu.game = "R4QP";
+    auto us = Online(11, "Kiki", "game");
+    us.game = "R4QE";
+    lists.friends = {eu, us, Online(12, "Lou", "launcher")};
+    auto context = Context();
+    context.game = "R4QE";
+    const auto model = MakeOnlinePanelModel(lists, std::nullopt, context);
+    const auto* online = Section(model, OnlinePanelSection::Id::Online);
+    const auto* birnen = Row(online, "Birnen");
+    CHECK(birnen && birnen->version == "EU" && !birnen->can_challenge
+          && birnen->blocked == "Plays the European version");
+    const auto* kiki = Row(online, "Kiki");
+    CHECK(kiki && kiki->version.empty() && kiki->can_challenge);
+    const auto* lou = Row(online, "Lou");
+    CHECK(lou && lou->version.empty() && lou->can_challenge);
 }
 
 void TestSet()
@@ -555,6 +587,7 @@ int main()
     TestOnlineNow();
     TestAvailable();
     TestChallengeBlockers();
+    TestVersions();
     TestSet();
     TestChallengeRules();
     TestSearch();

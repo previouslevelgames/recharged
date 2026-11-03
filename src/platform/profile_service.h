@@ -62,6 +62,9 @@ struct ProfilePlayer
     // In a match, its kind (MatchKindOf); empty from older games and from
     // servers before 1.2.5.
     std::string match_kind;
+    // While online: the game their Recharged plays ("R4QE", "R4QP", ...),
+    // when it says (servers from 1.2.8 on).
+    std::string game;
     std::optional<std::int64_t> last_online;
     bool is_friend = false;
     // Both keep each other as friends: they can write each other; their
@@ -206,6 +209,11 @@ struct MatchGame
     std::string my_captain;
     std::string opponent_captain;
     std::string stadium;
+    // The game broke off at this score (a lost connection, or out of sync):
+    // the series' last game, with how much of its clock went (0 to 1). The
+    // server counts it once a third was played (servers from 1.2.8 on).
+    bool interrupted = false;
+    float played = 0.0f;
 };
 
 // A match as one of its players sees it.
@@ -236,6 +244,14 @@ struct ProfileMatch
 
     // Still to be played: challenged or accepted.
     bool Open() const { return state == "challenged" || state == "accepted"; }
+    // Keeps the player from another set: a challenge waiting for its answer,
+    // or a set that goes or plays. A stopped set (stage "open") doesn't
+    // (servers from 1.2.8 on; before them, every open match).
+    bool Busy() const
+    {
+        return state == "challenged"
+            || (state == "accepted" && (stage.empty() || stage == "go" || stage == "playing"));
+    }
 };
 
 struct ProfileServerInfo
@@ -287,6 +303,7 @@ struct ReadyAnswer
 {
     bool paired = false;
     bool other_release = false; // both are ready, but on releases that can't play each other
+    bool replaced = false;      // another game of this player took the set (server 1.2.9)
 };
 
 // A call the server refused (Status() its HTTP status, Message() its words)

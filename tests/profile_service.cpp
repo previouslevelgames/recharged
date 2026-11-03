@@ -391,7 +391,10 @@ void Requests()
               && match.opponent.wfc[0].friend_code == "0868-9934-5920" && match.rules.games == 3 && match.Open()
               && match.winner.empty());
         CHECK(api.Ready(12, 1000000000, "abc").paired);
-        api.Report(12, {{3, 1, "mario", "bowser", "the_palace"}});
+        MatchGame broke_off{1, 0, "mario", "bowser", "vice"};
+        broke_off.interrupted = true;
+        broke_off.played = 0.4f;
+        api.Report(12, {{3, 1, "mario", "bowser", "the_palace"}, broke_off});
         try
         {
             api.Accept(12);
@@ -480,7 +483,9 @@ void Requests()
         CHECK(sent[2].body == R"({"opponent":"sam","rule_set":2})" && sent[2].authorization == "Bearer t0k3n");
         CHECK(sent[3].body == R"({"profile_id":1000000000,"rules_hash":"abc"})");
         CHECK(sent[4].body == R"({"games":[{"my_score":3,"opponent_score":1,"my_captain":"mario",)"
-                              R"("opponent_captain":"bowser","stadium":"the_palace"}]})");
+                              R"("opponent_captain":"bowser","stadium":"the_palace"},{"my_score":1,"opponent_score":0,)"
+                              R"("my_captain":"mario","opponent_captain":"bowser","stadium":"vice",)"
+                              R"("interrupted":true,"played":0.400}]})");
         CHECK(sent[5].body == "{}");
         CHECK(sent[6].body.empty() && sent[6].content_type.empty());
         CHECK(sent[9].body == R"({"opponent_id":8,"rule_set":2})");

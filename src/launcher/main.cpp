@@ -22,6 +22,7 @@
 #include "launcher/player_lineup.h"
 #include "launcher/release_banner.h"
 #include "launcher/release_notes.h"
+#include "launcher/fallback_fonts.h"
 #include "launcher/ui_kit.h"
 #include "launcher/ui_metrics.h"
 #include "launcher/update_check.h"
@@ -30,6 +31,7 @@
 #include "mscharged/build_version.h"
 #include "platform/competitive_rules.h"
 #include "platform/parse_float.h"
+#include "platform/name_glyphs.h"
 #include "platform/profile_service.h"
 #include "platform/window_fit.h"
 #include "platform/disc.h"
@@ -974,6 +976,9 @@ public:
                 RebuildScale();
                 ApplyWindowMetrics(false);
             }
+            // A name with characters the fonts lack arrived: they are added.
+            else if (platform::NameGlyphsVersion() != NameGlyphsBuilt())
+                RebuildScale();
             SetUiScale(metrics_.ui);
             UpdateMiiFaces();
             ImGui_ImplSDLRenderer3_NewFrame();
@@ -5176,8 +5181,7 @@ private:
             if (PrimaryButton("mii_back_sign_in", label.c_str(), {GhostWidth(label.c_str(), Icon::Person) + Dp(28),
                               Dp(44)}, config_ok_, Icon::Person))
             {
-                mii_back_ = mii.create_id;
-                SetMiiSignIn(true);
+                SetMiiSignIn(true, platform::MiiCreateIdText(mii.create_id));
             }
         }
         else if (competitive_status_.info.discord
@@ -5371,9 +5375,9 @@ private:
             return;
         }
         std::string with = "your Mii";
-        if (mii_back_)
+        if (!draft_.mii_sign_in_with.empty())
             for (const auto& mii : InstalledMiis().miis)
-                if (mii.create_id == *mii_back_) with = mii.name;
+                if (platform::MiiCreateIdText(mii.create_id) == draft_.mii_sign_in_with) with = mii.name;
         Callout("Press Play and go online with " + with + " (Online on the main menu): once it has logged in, the "
                 "game signs you in again with the profile that Mii plays for.",
                 color::info, Icon::Person);
@@ -5381,21 +5385,22 @@ private:
         const char* stop = "Never mind";
         ImGui::SetCursorPosX(left + std::max(0.0f, (width - GhostWidth(stop, Icon::Close)) * 0.5f));
         if (GhostButton("mii_come_back_stop", stop, {GhostWidth(stop, Icon::Close), Dp(36)}, config_ok_, Icon::Close))
-        {
-            mii_back_.reset();
             SetMiiSignIn(false);
-        }
     }
 
     // [online] mii_sign_in, saved at once without the other changes not saved yet.
-    void SetMiiSignIn(bool on)
+    // `with`: the game save's Mii picked for it (its create ID), which the
+    // hint names, after a restart too; empty for none.
+    void SetMiiSignIn(bool on, const std::string& with = {})
     {
         draft_.mii_sign_in = on;
+        draft_.mii_sign_in_with = on ? with : std::string();
         if (!config_ok_) return;
         try
         {
             Settings saved = file_.settings;
             saved.mii_sign_in = on;
+            saved.mii_sign_in_with = draft_.mii_sign_in_with;
             SaveConfig(file_, saved);
         }
         catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
@@ -5710,8 +5715,7 @@ private:
                                                 {GhostWidth(label.c_str(), Icon::Person) + Dp(16), Dp(36)}, config_ok_,
                                                 Icon::Person))
                             {
-                                mii_back_ = mii->create_id;
-                                SetMiiSignIn(true);
+                                SetMiiSignIn(true, platform::MiiCreateIdText(mii->create_id));
                                 wizard_.step = 0;
                             }
                         }
@@ -12326,7 +12330,7 @@ private:
     std::uint64_t known_profiles_serial_ = 0;
     // Signed out: the Mii of the game save whose profile the welcome offers
     // (its dropdown), and the one chosen to sign in again through the game.
-    std::optional<std::array<unsigned char, 8>> mii_back_choice_, mii_back_;
+    std::optional<std::array<unsigned char, 8>> mii_back_choice_;
     bool preview_applied_ = false; // a development capture's made-up Mii state, set once
     // The Mii made from a Discord account (PlayerOwnMii), for its key and name.
     std::string keyed_mii_for_, keyed_mii_record_;

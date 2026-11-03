@@ -273,6 +273,7 @@ add_library(charged_host STATIC
     src/platform/save_import.cpp
     src/platform/sha1.cpp
     src/platform/shader_cache.cpp
+    src/platform/game_folder_lock.cpp
 )
 target_include_directories(charged_host PUBLIC src)
 target_compile_features(charged_host PUBLIC cxx_std_17)
@@ -430,6 +431,9 @@ if(BUILD_TESTING)
     target_link_libraries(shader_cache_tests PRIVATE charged_host)
     add_test(NAME shader_cache COMMAND shader_cache_tests)
     set_tests_properties(shader_cache PROPERTIES TIMEOUT 30)
+    add_executable(game_folder_lock_tests tests/game_folder_lock.cpp)
+    target_link_libraries(game_folder_lock_tests PRIVATE charged_host)
+    add_test(NAME game_folder_lock COMMAND game_folder_lock_tests)
     add_executable(launch_options_tests tests/launch_options.cpp)
     target_link_libraries(launch_options_tests PRIVATE charged_host)
     add_test(NAME launch_options COMMAND launch_options_tests)
