@@ -314,7 +314,8 @@ the friends who have Recharged open (and how many are offline) and, while you
 are **Open to challenges** (players who aren't your friends see you then), the
 others who are open to challenges; a player's row
 challenges them (the challenge's setup, see *Online*) or opens their
-page. **Ranked** is the game's online RANKED from anywhere in its menus:
+page. A player on another version of the game carries its tag (US, EU, JP,
+KR) and can't be challenged: the versions never meet online. **Ranked** is the game's online RANKED from anywhere in its menus:
 **Play RANKED** takes the game by itself (with your own Mii, or one you choose
 there) into a RANKED search against anybody, as its online menu's RANKED
 would; from another menu it goes on once you are back on the main menu or the
@@ -570,13 +571,18 @@ level is only for the CPU).
    and once they accept, the next set goes on into RANKED. A set that stopped
    (a message in the game, or the games didn't meet) offers **Play it again**,
    your Ready to play! for it. **Not now** (B) leaves it; closing a set's game
-   opens the launcher again. A set whose match was broken off before a game
-   ended (a game closed or lost its connection) ends without a result, and so
-   does a set whose second report doesn't come within 5 minutes. When one
-   player leaves before the games met (**Back** in the search, **Not ready**,
-   or closing the game), the other game hears it within seconds: it leaves the
-   search and the online menus for the main menu, nobody else is met, and its
-   card tells who left.
+   opens the launcher again. When one player leaves the set (**Back** in the
+   search, **Not ready**, or closing the game), it is called off for both: the
+   other game hears it within seconds, leaves the search and the online menus
+   for the main menu, nobody else is met, and its card tells who left, with
+   **Rematch** to ask them again. Both can challenge someone else at once.
+   A game broken off during the match (a game closed or lost its connection)
+   counts at its score then once a third of it was played and a goal was
+   scored: a third of its clock, or for a goal limit a third of the goals by
+   the leader. Before that it doesn't count, and a set without a game that
+   counts ends without a result. When the other player's game went away, or
+   their report doesn't come within 5 minutes, the set is settled from the
+   one report.
 
 Your **friends** are kept on the server, so they follow you to every
 computer: a player's screen in the Recharged Game Menu adds them or takes them off.
