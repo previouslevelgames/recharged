@@ -715,6 +715,84 @@ void RunFind(const fs::path& root) {
 }
 } // namespace
 
+// A save folder whose catalog could not be written (#123): its folders are
+// there, its catalog (metadata.txt) is not. With only empty folders the game
+// and the imports set it up again; files without a catalog are refused and
+// stay as they are; a failed import leaves no files behind.
+void RunOrphans(const fs::path& root) {
+    const auto base = root / "orphans", backups = base / "backups";
+    fs::remove_all(base);
+    const NativeFilesystemSettings settings{{}, kTitle.title_id, kTitle.uid, kTitle.gid};
+    const auto start = [&](const fs::path& nand) {
+        auto with = settings;
+        with.root = nand;
+        InitializeNativeFilesystem(with);
+    };
+
+    // The first start cannot write its catalog (a folder in the staging
+    // file's place), so its folders stay behind without one.
+    const auto first = base / "first-start";
+    fs::create_directories(first / "metadata.txt.tmp");
+    Reject([&] { start(first); }, "A catalog that cannot be written was accepted");
+    Check(!GetNativeIOSStatus().devices && fs::is_directory(first / "data") && !fs::exists(first / "metadata.txt"),
+          "The failed first start installed the device or wrote a catalog");
+    // The next start sets the folder up again, with the empty folders a failed
+    // Mii import would add, and the game can then save into it.
+    fs::remove(first / "metadata.txt.tmp");
+    fs::create_directories(first / "data" / "extra" / "empty");
+    start(first);
+    Check(fs::exists(first / "metadata.txt") && !fs::exists(first / "data" / "extra"),
+          "The empty folders were not set up again");
+    IosCreate(9, kHome + "/probe");
+    ShutdownNativeFilesystem();
+    start(first);
+    Check(Attr(kHome + "/probe").uid == kTitle.uid, "The set-up folder lost a file the game made");
+    ShutdownNativeFilesystem();
+
+    // Files without a catalog, however deep, are refused and left alone.
+    const auto files = base / "files";
+    Put(files / "data" / "title" / "stray", "x");
+    bool refused{};
+    try { start(files); } catch (const std::exception& error) {
+        refused = std::string(error.what()).find("has files but no catalog") != std::string::npos;
+    }
+    Check(refused && !GetNativeIOSStatus().devices, "A save folder with files but no catalog was not refused");
+    Check(Bytes(files / "data" / "title" / "stray") == "x" && !fs::exists(files / "metadata.txt"),
+          "The refused save folder was changed");
+    const auto source = DolphinSaveFolder(base / "dolphin-user", kTitle.title_id);
+    const auto save = Pattern(5, 35616);
+    Put(source / "Strikers2", save);
+    Reject([&] { ImportDolphinSave(source, files, kTitle, "Strikers2", backups); },
+           "An import took over files without a catalog");
+    Check(Bytes(files / "data" / "title" / "stray") == "x", "The refused import changed the save folder");
+
+    // An import whose catalog cannot be written takes its files back; the
+    // next one sets the folder up.
+    const auto import = base / "import";
+    fs::create_directories(import / "metadata.txt.import");
+    Reject([&] { ImportDolphinSave(source, import, kTitle, "Strikers2", backups); },
+           "An import with a catalog that cannot be written succeeded");
+    Check(!filesystem_detail::HoldsFiles(import / "data") && !fs::exists(import / "metadata.txt"),
+          "The failed import left files behind");
+    fs::remove(import / "metadata.txt.import");
+    ImportDolphinSave(source, import, kTitle, "Strikers2", backups);
+    start(import);
+    Check(IosRead(kHome + "/Strikers2") == save, "The import after a failed one differs through the IOS device");
+    ShutdownNativeFilesystem();
+
+    // The same for a new Mii: its database goes when the catalog does not come.
+    const auto miis = base / "miis";
+    fs::create_directories(miis / "metadata.txt.import");
+    Reject([&] { AddMii(MakeRandomMii("Mario", 1, 1760000000), miis, kTitle, backups); },
+           "A new Mii with a catalog that cannot be written was added");
+    Check(!filesystem_detail::HoldsFiles(miis / "data"), "The failed new Mii left its database behind");
+    Check(InstalledMiis(miis, kTitle).state == MiiDatabaseState::Missing, "The failed new Mii's folder is not new");
+    fs::remove(miis / "metadata.txt.import");
+    Check(AddMii(MakeRandomMii("Mario", 1, 1760000000), miis, kTitle, backups).names
+              == std::vector<std::string>{"Mario"},
+          "A new Mii after a failed one");
+}
+
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("usage: save_import_tests DATA_DIRECTORY");
@@ -726,6 +804,7 @@ int main(int argc, char** argv) {
         RunMatchSettings(fs::path(argv[1]));
         RunFriendCodes(fs::path(argv[1]));
         RunFind(fs::path(argv[1]));
+        RunOrphans(fs::path(argv[1]));
         std::cout << "save_import: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& e) {
