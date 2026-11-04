@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <limits>
 #include <system_error>
+#include <vector>
 
 #ifdef _WIN32
 #ifndef _WIN32_WINNT
@@ -23,7 +24,6 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#include <vector>
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -63,6 +63,13 @@ inline int WindowsErrno(DWORD error) {
     }
 }
 inline int Fail() { errno=WindowsErrno(GetLastError());return -1; }
+// The system's own code of the last failure, for messages: errno alone folds
+// several Windows errors into one (sharing violation and access denied both
+// read "permission denied").
+inline std::string ErrorDetail() {
+    const auto code=GetLastError();
+    return code?" (Win32 error "+std::to_string(code)+")":std::string();
+}
 inline void ThrowLast(const fs::path& path={}) {
     const auto code=GetLastError();const auto error=WindowsErrno(code);
     throw std::system_error(error,std::generic_category(),"Win32 error "+std::to_string(code)+" at "+::mscharged::PathUtf8(path));
@@ -205,19 +212,21 @@ inline bool Exists(const fs::path& path) {
     if(errno==ENOENT)return false;
     throw std::system_error(errno,std::generic_category());
 }
-inline bool IsEmpty(const fs::path& path) {
-    PathGuard guard(path,true);WIN32_FIND_DATAW data{};
+// A folder's entries, without "." and "..".
+inline std::vector<fs::path> Children(const fs::path& path) {
+    PathGuard guard(path,true);WIN32_FIND_DATAW data{};std::vector<fs::path> children;
     const auto find=FindFirstFileW(WindowsPath(path/L"*").c_str(),&data);
     if(find==INVALID_HANDLE_VALUE) {
-        if(GetLastError()==ERROR_FILE_NOT_FOUND)return true;ThrowLast();
+        if(GetLastError()==ERROR_FILE_NOT_FOUND)return children;ThrowLast(path);
     }
-    bool empty=true;DWORD error{};
-    do {
-        if(std::wcscmp(data.cFileName,L".")&&std::wcscmp(data.cFileName,L"..")){empty=false;break;}
-    }while(FindNextFileW(find,&data));
-    if(empty)error=GetLastError();FindClose(find);
-    if(empty&&error!=ERROR_NO_MORE_FILES){SetLastError(error);ThrowLast(path);}
-    return empty;
+    try {
+        do {
+            if(std::wcscmp(data.cFileName,L".")&&std::wcscmp(data.cFileName,L".."))children.push_back(path/data.cFileName);
+        }while(FindNextFileW(find,&data));
+    }catch(...){FindClose(find);throw;}
+    const auto error=GetLastError();FindClose(find);
+    if(error!=ERROR_NO_MORE_FILES){SetLastError(error);ThrowLast(path);}
+    return children;
 }
 inline std::string ReadCatalog(const fs::path& path) {
     const auto file=Open(path,1);if(!Valid(file))throw std::system_error(errno,std::generic_category());
@@ -255,7 +264,49 @@ inline fs::path PrepareRoot(const fs::path& root){fs::create_directories(root);r
 inline void MakeDirs(const fs::path& path){fs::create_directories(path);}
 inline File OpenStaging(const fs::path& path){return ::open(path.c_str(),O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC|O_NOFOLLOW,0600);}
 inline bool Exists(const fs::path& path){return fs::exists(path);}
-inline bool IsEmpty(const fs::path& path){return fs::is_empty(path);}
+inline std::vector<fs::path> Children(const fs::path& path) {
+    std::vector<fs::path> children;
+    for(const auto& entry:fs::directory_iterator(path))children.push_back(entry.path());
+    return children;
+}
 inline int ErrorNumber(const std::error_code& error){return error.value();}
+inline std::string ErrorDetail(){return {};}
 #endif
+
+// A save folder (backing) without its catalog (metadata.txt) is what a first
+// start or an import leaves when writing the catalog failed: its folders are
+// there, the catalog is not (#123). With only empty folders nothing is lost and
+// it is set up again; files without a catalog are never taken over.
+
+// Whether `path` holds anything but empty folders: a file, a link or reparse
+// point (never followed), or a file in its place. A missing path holds
+// nothing; a tree deeper than any Wii path counts as holding files.
+inline bool HoldsFiles(const fs::path& path,int depth=0) {
+    Info info{};
+    if(Stat(path,info)) {
+        if(errno==ENOENT)return false;
+        if(errno==ELOOP)return true;
+        throw std::system_error(errno,std::generic_category(),::mscharged::PathUtf8(path));
+    }
+    if(!info.directory||depth>16)return true;
+    for(const auto& child:Children(path))if(HoldsFiles(child,depth+1))return true;
+    return false;
+}
+// Removes `path` and the folders in it, deepest first. Only empty folders
+// are removed: a file that appears meanwhile makes this fail instead.
+inline void RemoveEmptyFolders(const fs::path& path,int depth=0) {
+    Info info{};
+    if(Stat(path,info)) {
+        if(errno==ENOENT)return;
+        throw std::system_error(errno,std::generic_category(),::mscharged::PathUtf8(path));
+    }
+    if(!info.directory||depth>16)throw std::system_error(ENOTEMPTY,std::generic_category(),::mscharged::PathUtf8(path));
+    for(const auto& child:Children(path))RemoveEmptyFolders(child,depth+1);
+    if(Remove(path,true))throw std::system_error(errno,std::generic_category(),::mscharged::PathUtf8(path)+ErrorDetail());
+}
+// The error for a save folder that holds files but no catalog.
+inline std::string NoCatalogMessage(const fs::path& root) {
+    return "The save folder "+::mscharged::PathUtf8(root)+" has files but no catalog (metadata.txt). "
+           "Move that folder elsewhere to start with new saves.";
+}
 } // namespace mscharged::platform::filesystem_detail

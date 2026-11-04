@@ -133,18 +133,23 @@ void Persist(Device& d,const std::map<std::string,Metadata>& entries) {
         text<<std::quoted(path)<<' '<<m.uid<<' '<<m.gid<<' '<<unsigned(m.owner)<<' '<<unsigned(m.group)<<' '<<unsigned(m.other)<<' '<<unsigned(m.attr)<<' '<<m.directory<<' '<<m.order<<'\n';
     const auto bytes=text.str();auto temporary=d.metadata;temporary+=".tmp";
     const auto fd=physical::OpenStaging(temporary);
-    if(!physical::Valid(fd))throw std::system_error(errno,std::generic_category());
-    std::size_t written{};int failure{};
+    if(!physical::Valid(fd))throw std::system_error(errno,std::generic_category(),
+        "Cannot write "+mscharged::PathUtf8(temporary)+physical::ErrorDetail());
+    std::size_t written{};int failure{};std::string detail;
+    const auto failed=[&](int error){failure=error;detail=physical::ErrorDetail();};
     while(written<bytes.size()) {
         const auto result=physical::Write(fd,bytes.data()+written,bytes.size()-written);
         if(result<0&&errno==EINTR)continue;
-        if(result<=0){failure=result<0?errno:EIO;break;}
+        if(result<=0){failed(result<0?errno:EIO);break;}
         written+=static_cast<std::size_t>(result);
     }
-    if(!failure&&physical::Sync(fd))failure=errno;
-    if(physical::Close(fd)&&!failure)failure=errno;
-    if(!failure&&physical::Replace(temporary,d.metadata))failure=errno;
-    if(failure){physical::Remove(temporary,false);throw std::system_error(failure,std::generic_category());}
+    if(!failure&&physical::Sync(fd))failed(errno);
+    if(physical::Close(fd)&&!failure)failed(errno);
+    if(!failure&&physical::Replace(temporary,d.metadata))failed(errno);
+    if(failure){
+        physical::Remove(temporary,false);
+        throw std::system_error(failure,std::generic_category(),"Cannot write "+mscharged::PathUtf8(d.metadata)+detail);
+    }
 }
 std::vector<std::string> Children(const Device& d,const std::string& path) {
     std::vector<std::string> children;
@@ -391,7 +396,10 @@ void InitializeNativeFilesystem(NativeFilesystemSettings settings) {
 #endif
         if(physical::Exists(d.metadata))Load(d);
         else {
-            if(physical::Exists(d.data)&&!physical::IsEmpty(d.data))throw std::runtime_error("Native IOS refuses backing without its persistent ownership metadata");
+            // No catalog: a new backing, or one whose first catalog write
+            // failed (#123). Only empty folders are set up again.
+            if(physical::HoldsFiles(d.data))throw std::runtime_error(physical::NoCatalogMessage(d.settings.root));
+            physical::RemoveEmptyFolders(d.data);
             physical::MakeDirs(d.data);d.next_order=1;
             const std::array<std::string,6> paths={"/","/tmp","/title",Parent(Parent(d.home)),Parent(d.home),d.home};
             for(const auto& path:paths) {
