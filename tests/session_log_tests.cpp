@@ -2,12 +2,14 @@
 // recorded with its signal and call stack before the process ends as it would.
 #include "platform/session_log.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -40,6 +42,17 @@ int Child(const std::string& directory, const char* mode, char* program)
         std::fprintf(stderr, "stderr before %s\n", mode);
         mscharged::platform::SessionLogLine("log-only line");
         if (std::string(mode) == "crash") *(volatile int*)nullptr = 1;
+        if (std::string(mode) == "freeze")
+        {
+            // A frame, a stop longer than the first report's 5 s, frames again.
+            mscharged::platform::FrameFinished();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5600));
+            mscharged::platform::FrameFinished();
+            std::this_thread::sleep_for(std::chrono::milliseconds(600));
+            // Stopped: a later stop is not reported.
+            mscharged::platform::StopFreezeWatch();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5600));
+        }
         if (std::string(mode) == "fatal")
         {
             mscharged::platform::ReportFatalError("fatal test message");
@@ -87,7 +100,17 @@ int main(int, char** argv)
         Require(text.find("Call stack:") != std::string::npos && text.find("#01 ") != std::string::npos,
                 "Crash stack missing");
 #endif
-        std::printf("Session log: console copy, log-only lines, normal/fatal exits, previous log and crash report pass.\n");
+        status = Child(directory, "freeze", argv[0]);
+        Require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "Freeze run did not exit 0");
+        text = Read(log);
+        const auto freeze = text.find("*** Freeze: no frame has finished for 5 s (after frame 1)");
+        const auto over = text.find("Freeze over: a frame finished again after 5.");
+        Require(freeze != std::string::npos, "Freeze not logged");
+        Require(over != std::string::npos && over > freeze, "End of the freeze not logged");
+        Require(text.find("*** Freeze", freeze + 1) == std::string::npos, "Freeze logged after the watch stopped");
+
+        std::printf("Session log: console copy, log-only lines, normal/fatal exits, previous log, crash and freeze "
+                    "reports pass.\n");
         return 0;
     }
     catch (const std::exception& error)

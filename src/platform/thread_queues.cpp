@@ -424,6 +424,7 @@ void Complete(Threads& state, NativeThread& native, void* result) {
     native.changed.notify_all();
 }
 void Run(const std::shared_ptr<NativeThread>& native) noexcept {
+    mscharged::ReserveStackForCrashReports();
     OSContext* prior_context = OSGetCurrentContext();
     void* result{};
     try {
