@@ -1,3 +1,8 @@
+// GetCurrentThreadStackLimits (the freeze watch) needs Windows 8's API level,
+// chosen before any header lets the MinGW CRT pick a lower one.
+#if defined(_WIN32) && !defined(_WIN32_WINNT)
+#define _WIN32_WINNT 0x0602
+#endif
 #include "platform/session_log.h"
 #include "platform/path.h"
 
@@ -6,6 +11,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <csignal>
 #include <cstdarg>
 #include <cstdint>
@@ -18,6 +24,7 @@
 #include <mutex>
 #include <system_error>
 #include <thread>
+#include <vector>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -342,6 +349,25 @@ void Location(DWORD64 address, char* out, std::size_t size)
                   (unsigned long long)(address - reinterpret_cast<DWORD64>(module)));
 }
 
+// One frame up the stack `context` describes.
+void Unwind(CONTEXT& context)
+{
+    DWORD64 image = 0;
+    if (const auto* function = RtlLookupFunctionEntry(context.Rip, &image, nullptr))
+    {
+        void* handler_data = nullptr;
+        DWORD64 establisher = 0;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, image, context.Rip, const_cast<PRUNTIME_FUNCTION>(function), &context,
+                         &handler_data, &establisher, nullptr);
+    }
+    else
+    {
+        // A leaf function: the return address is on top of the stack.
+        context.Rip = *reinterpret_cast<DWORD64*>(context.Rsp);
+        context.Rsp += 8;
+    }
+}
+
 void WriteStack(CONTEXT context)
 {
     CrashWrite("Call stack:\n");
@@ -351,24 +377,11 @@ void WriteStack(CONTEXT context)
         Location(context.Rip, where, sizeof where);
         std::snprintf(line, sizeof line, "  #%02d %s\n", frame, where);
         CrashWrite(line);
-        DWORD64 image = 0;
-        if (const auto* function = RtlLookupFunctionEntry(context.Rip, &image, nullptr))
-        {
-            void* handler_data = nullptr;
-            DWORD64 establisher = 0;
-            RtlVirtualUnwind(UNW_FLAG_NHANDLER, image, context.Rip, const_cast<PRUNTIME_FUNCTION>(function), &context,
-                             &handler_data, &establisher, nullptr);
-        }
-        else
-        {
-            // A leaf function: the return address is on top of the stack.
-            context.Rip = *reinterpret_cast<DWORD64*>(context.Rsp);
-            context.Rsp += 8;
-        }
+        Unwind(context);
     }
 }
 
-void WriteDump(EXCEPTION_POINTERS* info)
+void WriteDump(EXCEPTION_POINTERS* info, DWORD thread)
 {
     using DumpFn = BOOL(WINAPI*)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE, PMINIDUMP_EXCEPTION_INFORMATION,
                                  PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
@@ -379,7 +392,7 @@ void WriteDump(EXCEPTION_POINTERS* info)
     const HANDLE file = CreateFileW(g_log.dump.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
                                     FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return;
-    MINIDUMP_EXCEPTION_INFORMATION exception{GetCurrentThreadId(), info, FALSE};
+    MINIDUMP_EXCEPTION_INFORMATION exception{thread, info, FALSE};
     // Full memory info: the address-space layout, e.g. what filled the
     // region below 2 GB that the Wii arenas and game DLLs need.
     const auto type = MINIDUMP_TYPE(MiniDumpWithThreadInfo | MiniDumpWithIndirectlyReferencedMemory
@@ -428,6 +441,22 @@ const char* ExceptionName(DWORD code)
     }
 }
 
+// A stack overflow leaves the crashing thread only the stack it reserved
+// (InstallCrashHandlers): the minidump and the dialog need more and run on a
+// thread of their own.
+struct DumpJob
+{
+    EXCEPTION_POINTERS* info;
+    DWORD thread;
+};
+
+DWORD WINAPI DumpAndTell(void* job)
+{
+    WriteDump(static_cast<DumpJob*>(job)->info, static_cast<DumpJob*>(job)->thread);
+    CrashDialog("crashed.");
+    return 0;
+}
+
 LONG WINAPI CrashFilter(EXCEPTION_POINTERS* info)
 {
     if (g_crashing.exchange(true)) return EXCEPTION_CONTINUE_SEARCH;
@@ -448,8 +477,16 @@ LONG WINAPI CrashFilter(EXCEPTION_POINTERS* info)
         CrashWrite(line);
     }
     WriteStack(*info->ContextRecord);
-    WriteDump(info);
-    CrashDialog("crashed.");
+    DumpJob job{info, GetCurrentThreadId()};
+    const HANDLE helper = record.ExceptionCode == EXCEPTION_STACK_OVERFLOW
+        ? CreateThread(nullptr, 0, DumpAndTell, &job, 0, nullptr) : nullptr;
+    if (helper)
+    {
+        WaitForSingleObject(helper, INFINITE);
+        CloseHandle(helper);
+    }
+    else
+        DumpAndTell(&job);
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
@@ -462,12 +499,17 @@ void AbortHandler(int)
     CONTEXT context{};
     RtlCaptureContext(&context);
     WriteStack(context);
-    WriteDump(nullptr);
+    WriteDump(nullptr, GetCurrentThreadId());
     CrashDialog("stopped unexpectedly.");
 }
 
 void InstallCrashHandlers()
 {
+    // Stack the system keeps free for CrashFilter when the stack overflows;
+    // without it the report itself overflows and nothing is written. Game
+    // threads reserve the same (ReserveStackForCrashReports in thread.cpp).
+    ULONG guarantee = 32 * 1024;
+    SetThreadStackGuarantee(&guarantee);
     SetUnhandledExceptionFilter(CrashFilter);
     std::signal(SIGABRT, AbortHandler);
     // No Windows error-reporting or abort() dialog after ours.
@@ -528,6 +570,154 @@ void InstallCrashHandlers()
     for (const int number : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) sigaction(number, &action, nullptr);
 }
 #endif
+
+// --- Freezes ------------------------------------------------------------
+
+// A game that stops finishing frames and is then closed, by the player or by
+// Windows ("not responding"), ends without a crash report (#121). The freeze
+// watch notes such a stop in the log while it lasts: after 5 s and again
+// after 20 s, on Windows with the main thread's call stack each time.
+constexpr double kFreezeReports[] = {5, 20};
+
+struct FreezeWatch
+{
+    std::atomic<std::uint64_t> frames{0};
+    std::mutex mutex;
+    std::condition_variable wake;
+    bool stopped = false;
+#ifdef _WIN32
+    HANDLE thread = nullptr; // the thread that finishes the frames
+    std::uintptr_t stack_low = 0, stack_high = 0;
+    std::vector<unsigned char> copy; // room for its whole stack
+#endif
+};
+
+// Never destroyed: the watcher may still run while the process ends.
+FreezeWatch& Watch()
+{
+    static auto* watch = new FreezeWatch;
+    return *watch;
+}
+
+#ifdef _WIN32
+// The watched thread's return addresses. While it is suspended nothing here
+// may take a lock it could hold (heap, loader, log), or a short stop would
+// become a freeze: its registers and stack are only copied, and the copy is
+// unwound once it runs again.
+int FreezeStack(FreezeWatch& watch, DWORD64* frames, int capacity)
+{
+    CONTEXT context{};
+    context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+    std::uintptr_t top = 0;
+    std::size_t size = 0;
+    if (SuspendThread(watch.thread) == DWORD(-1)) return 0;
+    if (GetThreadContext(watch.thread, &context) && context.Rsp >= watch.stack_low && context.Rsp < watch.stack_high)
+    {
+        top = context.Rsp;
+        size = watch.stack_high - top;
+        std::memcpy(watch.copy.data(), reinterpret_cast<const void*>(top), size);
+    }
+    ResumeThread(watch.thread);
+    if (!size) return 0;
+    // Addresses within the stack (frame pointers, saved registers) now lead
+    // into the copy, which has room below the copied part for the whole stack.
+    const auto base = reinterpret_cast<std::uintptr_t>(watch.copy.data());
+    const auto moved = [&](DWORD64 value) { return value >= top && value < top + size ? value - top + base : value; };
+    for (std::size_t offset = 0; offset + 8 <= size; offset += 8)
+    {
+        DWORD64 value;
+        std::memcpy(&value, watch.copy.data() + offset, 8);
+        value = moved(value);
+        std::memcpy(watch.copy.data() + offset, &value, 8);
+    }
+    for (DWORD64* value : {&context.Rsp, &context.Rbp, &context.Rbx, &context.Rsi, &context.Rdi, &context.R12,
+                           &context.R13, &context.R14, &context.R15})
+        *value = moved(*value);
+    int count = 0;
+    while (count < capacity && context.Rip && context.Rsp >= base && context.Rsp + 8 <= base + size)
+    {
+        frames[count++] = context.Rip;
+        Unwind(context);
+    }
+    return count;
+}
+#endif
+
+void ReportFreeze(FreezeWatch& watch, double seconds, std::uint64_t frames)
+{
+    std::string text = Line("\n*** Freeze: no frame has finished for %.0f s (after frame %llu)", seconds,
+                            (unsigned long long)frames);
+#ifdef _WIN32
+    DWORD64 stack[64];
+    const int count = watch.stack_high ? FreezeStack(watch, stack, 64) : 0;
+    if (count) text += "\nMain thread's call stack:";
+    for (int n = 0; n < count; ++n)
+    {
+        char where[MAX_PATH + 32];
+        Location(stack[n], where, sizeof where);
+        text += Line("\n  #%02d %s", n, where);
+    }
+#else
+    (void)watch;
+#endif
+    SessionLogLine(text);
+}
+
+void WatchFreezes(FreezeWatch* watch)
+{
+    using Clock = std::chrono::steady_clock;
+    std::uint64_t seen = watch->frames;
+    auto since = Clock::now();
+    std::size_t reports = 0;
+    std::unique_lock lock(watch->mutex);
+    while (!watch->stopped)
+    {
+        watch->wake.wait_for(lock, std::chrono::milliseconds(250));
+        if (watch->stopped || g_crashing) return;
+        const auto frames = watch->frames.load(std::memory_order_relaxed);
+        const double stalled = std::chrono::duration<double>(Clock::now() - since).count();
+        if (frames != seen)
+        {
+            seen = frames;
+            since = Clock::now();
+            if (!reports) continue;
+            reports = 0;
+            lock.unlock();
+            SessionLogLine(Line("Freeze over: a frame finished again after %.1f s", stalled));
+            lock.lock();
+        }
+        else if (reports < std::size(kFreezeReports) && stalled >= kFreezeReports[reports])
+        {
+            ++reports;
+            lock.unlock();
+            ReportFreeze(*watch, stalled, frames);
+            lock.lock();
+        }
+    }
+}
+
+void StartFreezeWatch(FreezeWatch& watch)
+{
+#ifdef _WIN32
+    ULONG_PTR low = 0, high = 0;
+    GetCurrentThreadStackLimits(&low, &high);
+    if (high > low
+        && DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &watch.thread,
+                           THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, 0))
+    {
+        try
+        {
+            watch.copy.assign(std::size_t(high - low), 0);
+            watch.stack_low = low;
+            watch.stack_high = high;
+        }
+        catch (const std::bad_alloc&)
+        {
+        }
+    }
+#endif
+    try { std::thread(WatchFreezes, &watch).detach(); } catch (const std::system_error&) {}
+}
 
 void Terminate()
 {
@@ -687,6 +877,22 @@ void LogSessionDisplays(SDL_Window* window)
     SessionLogLine(text.substr(0, text.size() - 1));
 }
 
+void FrameFinished()
+{
+    auto& watch = Watch();
+    if (watch.frames.fetch_add(1, std::memory_order_relaxed) == 0) StartFreezeWatch(watch);
+}
+
+void StopFreezeWatch()
+{
+    auto& watch = Watch();
+    {
+        std::lock_guard lock(watch.mutex);
+        watch.stopped = true;
+    }
+    watch.wake.notify_all();
+}
+
 void FlushSessionLog()
 {
     std::fflush(nullptr);
@@ -695,6 +901,7 @@ void FlushSessionLog()
 
 void EndSessionLog(const char* reason)
 {
+    StopFreezeWatch();
     if (g_log.file < 0) return;
     FlushSessionLog();
     const std::string line = std::string("\n=== Session ended: ") + reason + " ===\n";
@@ -724,6 +931,7 @@ void EndSessionLog(const char* reason)
 
 void ReportFatalError(const std::string& message)
 {
+    StopFreezeWatch(); // the error box stops the frames
     std::fprintf(stderr, "%s\n", message.c_str());
     FlushSessionLog();
 #ifdef _WIN32

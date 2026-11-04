@@ -16,7 +16,8 @@ namespace mscharged::platform
 // It also records crashes: on Windows an unhandled exception, elsewhere a
 // fatal signal, is logged with its cause and the call stack as module +
 // offset, which the release's debug symbols turn back into source lines.
-// Windows also writes recharged-crash.dmp (a minidump) beside the log.
+// Windows also writes recharged-crash.dmp (a minidump) beside the log, also
+// after a stack overflow (the stack keeps room for the report).
 //
 // RECHARGED_LOG_DIR selects another folder; RECHARGED_LOG_DIR=off disables
 // the log. Call once, early in main, on the main thread.
@@ -42,6 +43,16 @@ void SessionLogText(const char* text);
 
 // Displays, the video driver and the window, for the log only.
 void LogSessionDisplays(SDL_Window* window);
+
+// The freeze watch: call after each frame the game finishes, on the thread
+// that runs the frames. The first call starts a watcher that notes in the log
+// when no frame has finished for 5 s (and again at 20 s), on Windows with that
+// thread's call stack, and when frames come again. A game that freezes and is
+// then closed still leaves where it stood.
+void FrameFinished();
+
+// No frames are expected any more (shutdown, an error box): the watch ends.
+void StopFreezeWatch();
 
 // Writes everything printed so far to the log; call before TerminateProcessNow.
 void FlushSessionLog();

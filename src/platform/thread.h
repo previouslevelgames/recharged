@@ -13,4 +13,8 @@ struct ThreadStackLimits
 };
 
 ThreadStackLimits CurrentThreadStackLimits();
+
+// On Windows: keeps stack free for the crash report when the calling thread's
+// stack overflows (session_log.cpp does the same for the main thread).
+void ReserveStackForCrashReports();
 }
