@@ -549,10 +549,15 @@ level is only for the CPU).
    They accept or decline on a card over their game while it is in its menus
    (A accepts, B declines; the game waits behind the card), or, with only the
    launcher open (*In the launcher*), in a dialog there: its Accept starts the
-   game straight into the set, Decline (Escape, B) says no. A player in a
-   match shows what it is (*Ranked match*, *Friend match*, *Match vs CPU*,
-   *Road to the Striker Cup*, *Strikers 101* and so on; an older Recharged
-   just *Playing a match*) and can be challenged once it is over.
+   game straight into the set, Decline (Escape, B) says no. The list says what
+   each player does, the mode first and then where in it: *Domination ·
+   choosing teams*, *Striker Cup · Cup Central*, *Strikers 101 · in a lesson*,
+   *Ranked · looking for a match*, *Vs CPU · playing* and so on (an older
+   Recharged just *In the game* or *Playing a match*). A set says its step
+   against the opponent: *Set · challenged by Mario*, then *Set vs Mario ·
+   connecting*, *choosing teams*, *game 2 of 3* and *between games* (servers
+   from 1.2.12 on). A player in a match, in an online draft or in a set can be
+   challenged once it is over.
    A chime plays, and the window flashes when it is in the background, when
    someone challenges you and when your challenge is accepted
    (`[online] challenge_sound`, on by default; at the master volume, not when

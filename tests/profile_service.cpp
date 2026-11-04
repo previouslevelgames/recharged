@@ -201,7 +201,7 @@ struct Exchange
 // What the client sent.
 struct Sent
 {
-    std::string body, authorization, content_type, activity, match_kind, game;
+    std::string body, authorization, content_type, activity, match_kind, game, screen, set_game;
     bool expected = false;
 };
 
@@ -264,6 +264,8 @@ private:
             sent.activity = header("Recharged-Activity: ");
             sent.match_kind = header("Recharged-Match: ");
             sent.game = header("Recharged-Game: ");
+            sent.screen = header("Recharged-Screen: ");
+            sent.set_game = header("Recharged-Set-Game: ");
             sent.expected = line == exchange.request;
             const std::string answer = sent.expected ? exchange.answer : "{\"error\":\"unexpected " + line + "\"}";
             const std::string reply = "HTTP/1.1 " + std::to_string(sent.expected ? exchange.status : 599)
@@ -337,7 +339,9 @@ void Requests()
         {"GET /api/v1/me", 401, R"({"error":"signed out"})"},
         {"GET /api/v1/players", 200,
          R"({"online":[{"id":8,"name":"Sam","discord":"sam","test":false,"online":true,"busy":false,)"
-         R"("activity":"match","match":"cpu","last_online":1793000000,"friend":false}],"recent":[],)"
+         R"("activity":"match","match":"cpu","last_online":1793000000,"friend":false,"screen":"cup_team",)"
+         R"("searching":true,"set":{"stage":"playing","challenger":true,"opponent":"Bo","games":3,"game":2}}],)"
+         R"("recent":[],)"
          R"("friends":[{"id":9,"name":"Bo","online":false,"busy":false,"last_online":null,"friend":true}]})"},
         {"POST /api/v1/matches", 201, kSet},
         {"POST /api/v1/matches/12/ready-to-play", 200, kSet},
@@ -421,6 +425,12 @@ void Requests()
               && !lists.online[0].is_friend && lists.recent.empty());
         CHECK(lists.friends.size() == 1 && lists.friends[0].id == 9 && lists.friends[0].is_friend
               && !lists.friends[0].online && lists.friends[0].activity.empty() && !lists.friends[0].last_online);
+        // What their game shows, their search and their set (servers from 1.2.12 on).
+        CHECK(lists.online[0].screen == "cup_team" && lists.online[0].searching && lists.online[0].set
+              && lists.online[0].set->stage == "playing" && lists.online[0].set->challenger
+              && lists.online[0].set->opponent == "Bo" && lists.online[0].set->games == 3
+              && lists.online[0].set->game == 2);
+        CHECK(lists.friends[0].screen.empty() && !lists.friends[0].searching && !lists.friends[0].set);
         const auto set = api.ChallengePlayer(8, 2);
         CHECK(set.stage == "go" && set.you_ready && set.opponent_ready && set.opponent_online
               && set.go_at == 1792771200 && set.playing_at == 0 && set.rematch_of == 11 && set.reason.empty());
@@ -433,10 +443,10 @@ void Requests()
         const auto added = api.AddFriend(std::int64_t(8));
         CHECK(added.size() == 1 && added[0].id == 8 && added[0].is_friend);
         CHECK(api.AddFriend(std::string("b\"o")).size() == 2);
-        api.SetActivity("game");
+        api.SetActivity("game", {}, "online");
         const auto removed = api.RemoveFriend(8);
         CHECK(removed.size() == 1 && removed[0].id == 9 && removed[0].chat && removed[0].unread == 2);
-        api.SetActivity("match", "ranked");
+        api.SetActivity("match", "ranked", {}, 2);
         ProfileService::SetPlayedGame("R4QP01"); // the game's id: its first four characters go
         const auto page = api.Chat(9, 5);
         ProfileService::SetPlayedGame({});
@@ -496,6 +506,8 @@ void Requests()
         CHECK(sent[16].authorization == "Bearer t0k3n" && sent[16].activity == "game" && sent[15].activity.empty());
         CHECK(sent[16].match_kind.empty() && sent[17].activity == "match" && sent[17].match_kind == "ranked");
         CHECK(sent[16].game.empty() && sent[17].game == "R4QP" && sent[18].game.empty());
+        CHECK(sent[16].screen == "online" && sent[16].set_game.empty() && sent[15].screen.empty());
+        CHECK(sent[17].screen.empty() && sent[17].set_game == "2");
         CHECK(sent[18].body == R"({"body":"yo \"x\""})");
         CHECK(sent[19].body == R"({"code":"c0de","code_verifier":"v","redirect_uri":"http://127.0.0.1:5000/callback"})");
         CHECK(sent[20].body == R"({"refresh_token":"old"})");

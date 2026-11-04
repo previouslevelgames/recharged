@@ -297,11 +297,14 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     mario.country = "IT";
     mario.is_friend = true;
     auto daisy = Online(Player(900001, "Daisy", "daisy"), "game");
+    daisy.screen = "cup";
     daisy.is_friend = true;
     daisy.country = "AT";
     daisy.discord_id = "900000000000000001";
-    auto luigi = Online(Player(900003, "Luigi", "luigi"), "game");
+    // Luigi plays the second game of a set against Yoshi.
+    auto luigi = Online(Player(900003, "Luigi", "luigi"), "match");
     luigi.busy = true;
+    luigi.set = platform::ListedSet{"playing", false, "Yoshi", 3, 2};
     luigi.is_friend = true;
     auto rosalina = Player(900011, "Rosalina", "rosalina");
     rosalina.is_friend = true;
@@ -311,14 +314,18 @@ OnlinePanelPreview::OnlinePanelPreview(SDL_Renderer* renderer, bool capture) : c
     wario.is_friend = true;
     wario.last_online = now - 40 * 60;
     auto peach = Online(Player(900002, "Peach", "peach"), "match");
+    peach.match_kind = "cpu";
     peach.avatar_url = "preview:peach";
     peach.country = "FR";
     peach.discord_id = "900000000000000002";
     auto bowser = Player(900006, "Bowser", "bowser");
     bowser.discord_id = "900000000000000006";
     bowser.last_online = now - 3 * 3600;
-    auto shy = Online(Player(900030, "Shy Guy", "shyguy"), "launcher");
+    auto shy = Online(Player(900030, "Shy Guy", "shyguy"), "game");
+    shy.screen = "menus";
+    shy.searching = true;
     auto koopa = Online(Player(900020, "Koopa", "koopa"), "game");
+    koopa.screen = "domination";
     // Koopa plays the European game, this computer the US one: tagged EU.
     koopa.game = "R4QP";
     koopa.country = "DE";

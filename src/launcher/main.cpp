@@ -7041,10 +7041,10 @@ private:
         if (match->state == "challenged")
             return match->side == "challenger" ? std::pair{"Challenge sent", color::info}
                                                : std::pair{"Challenged", color::warning};
-        if (match->stage == "go") return {"Starting", color::accent};
+        if (match->stage == "go") return {"Connecting", color::accent};
         if (match->stage == "playing") return {"Playing", color::accent};
         if (match->stage == "open" && match->you_ready) return {"Ready", color::success};
-        return {"In a set", color::info};
+        return {"Getting ready", color::info};
     }
 
     // A test server's sign-in by name, for a second game on this computer

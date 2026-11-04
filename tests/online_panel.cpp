@@ -8,9 +8,11 @@
 #include "overlay/flags.h"
 #include "overlay/online_panel_model.h"
 #include "platform/competitive_rules.h"
+#include "platform/game_screen.h"
 #include "platform/match_kind.h"
 
 #include <cstdio>
+#include <initializer_list>
 #include <iterator>
 #include <string>
 #include <tuple>
@@ -189,7 +191,7 @@ void TestOnlineNow()
     // Mii friends: the game's online mode, never a set.
     const auto* tommy = Row(online, "Tommy");
     CHECK(tommy && tommy->kind == OnlinePanelRow::Kind::Mii && tommy->mii_profile == 501 && tommy->key == "m501");
-    CHECK(tommy && tommy->status == "Looking for a match" && tommy->image == "mii:501");
+    CHECK(tommy && tommy->status == "Online \xC2\xB7 looking for a match" && tommy->image == "mii:501");
     CHECK(tommy && tommy->detail == "0868-9934-5920" && tommy->is_friend && tommy->can_befriend);
     CHECK(tommy && !tommy->can_challenge && !tommy->blocked.empty());
     const auto* kai = Row(online, "Kai");
@@ -505,11 +507,16 @@ void TestMatchKinds()
 {
     platform::PlayerLists lists;
     const std::pair<const char*, const char*> kinds[] = {
-        {"ranked", "Ranked match"},   {"friends", "Friend match"},
-        {"tournament", "Online tournament"}, {"cpu", "Match vs CPU"},
-        {"local", "Local match"},     {"cup", "Road to the Striker Cup"},
-        {"challenge", "Striker Challenge"}, {"training", "Strikers 101"},
-        {"", "Playing a match"},      {"golf", "Playing a match"},
+        {"ranked", "Ranked \xC2\xB7 playing"},
+        {"friends", "Friend match \xC2\xB7 playing"},
+        {"tournament", "Online tournament \xC2\xB7 playing"},
+        {"cpu", "Vs CPU \xC2\xB7 playing"},
+        {"local", "Local match \xC2\xB7 playing"},
+        {"cup", "Striker Cup \xC2\xB7 playing"},
+        {"challenge", "Striker Challenge \xC2\xB7 playing"},
+        {"training", "Strikers 101 \xC2\xB7 in a lesson"},
+        {"", "Playing a match"},
+        {"golf", "Playing a match"},
     };
     std::int64_t id = 10;
     for (const auto& [kind, text] : kinds)
@@ -521,13 +528,13 @@ void TestMatchKinds()
     }
     // Miis: whom DWC's matchmaking was with.
     const std::tuple<const char*, const char*, const char*> miis[] = {
-        {"match", "ranked", "Ranked match"},
-        {"match", "friends", "Friend match"},
+        {"match", "ranked", "Ranked \xC2\xB7 playing"},
+        {"match", "friends", "Friend match \xC2\xB7 playing"},
         {"match", "", "Playing a match"},
-        {"matchmaking", "ranked", "Looking for a ranked match"},
-        {"matchmaking", "friends", "In a friend room"},
-        {"matchmaking", "", "Looking for a match"},
-        {"menu", "", "In the online menu"},
+        {"matchmaking", "ranked", "Ranked \xC2\xB7 looking for a match"},
+        {"matchmaking", "friends", "Friend match \xC2\xB7 in a room"},
+        {"matchmaking", "", "Online \xC2\xB7 looking for a match"},
+        {"menu", "", "Online \xC2\xB7 in the menus"},
     };
     std::int32_t profile = 600;
     for (const auto& [status, kind, text] : miis)
@@ -581,6 +588,136 @@ void TestMatchKinds()
     CHECK(platform::MatchKindOf(menus) == nullptr);
 }
 
+// What a player's row says from their game's screens, their search and their
+// set at each of its steps; and the screens the game sends, from its snapshot.
+void TestScreensAndSets()
+{
+    const std::string dot = " \xC2\xB7 ";
+    platform::PlayerLists lists;
+    const std::pair<const char*, std::string> screens[] = {
+        {"starting", "Starting the game"},
+        {"menus", "In the menus"},
+        {"domination", "Domination" + dot + "choosing teams"},
+        {"cup", "Striker Cup" + dot + "Cup Central"},
+        {"cup_team", "Striker Cup" + dot + "choosing a team"},
+        {"challenges", "Striker Challenges" + dot + "choosing one"},
+        {"lessons", "Strikers 101" + dot + "choosing a lesson"},
+        {"results", "Looking at the results"},
+        {"online", "Online" + dot + "in the menus"},
+        {"ranked", "Ranked" + dot + "looking for a match"},
+        {"room", "Friend match" + dot + "in a room"},
+        {"golf", "In the game"}, // a screen this build doesn't know
+    };
+    std::int64_t id = 100;
+    for (const auto& [screen, text] : screens)
+    {
+        auto player = Online(id, ("S" + std::to_string(id)).c_str(), "game");
+        player.screen = screen;
+        lists.friends.push_back(player);
+        ++id;
+    }
+    // The online draft: a match is about to start, no challenge now.
+    auto draft = Online(200, "Drafting", "game");
+    draft.screen = "draft";
+    lists.friends.push_back(draft);
+    auto searching = Online(201, "Searching", "game");
+    searching.screen = "menus";
+    searching.searching = true;
+    lists.friends.push_back(searching);
+
+    // Sets, each from its player's side, against Mario.
+    struct Case
+    {
+        const char* stage;
+        bool challenger;
+        const char* activity;
+        const char* screen;
+        int games, game;
+        bool busy;
+        std::string text;
+    };
+    const Case sets[] = {
+        {"invited", true, "game", "menus", 3, 0, true, "Set" + dot + "waiting for Mario's answer"},
+        {"invited", false, "launcher", "", 3, 0, true, "Set" + dot + "challenged by Mario"},
+        {"open", false, "game", "online", 3, 0, false, "Set vs Mario" + dot + "getting ready"},
+        {"go", false, "launcher", "", 3, 0, true, "Set vs Mario" + dot + "connecting"},
+        {"playing", false, "game", "ranked", 3, 0, true, "Set vs Mario" + dot + "connecting"},
+        {"playing", false, "game", "draft", 3, 0, true, "Set vs Mario" + dot + "choosing teams"},
+        {"playing", false, "match", "", 3, 2, true, "Set vs Mario" + dot + "game 2 of 3"},
+        {"playing", false, "match", "", 1, 1, true, "Set vs Mario" + dot + "playing"},
+        {"playing", false, "match", "", 3, 0, true, "Set vs Mario" + dot + "playing"}, // an older game
+        {"playing", false, "game", "online", 3, 1, true, "Set vs Mario" + dot + "between games"},
+    };
+    id = 300;
+    for (const auto& set : sets)
+    {
+        auto player = Online(id, ("T" + std::to_string(id)).c_str(), set.activity, set.busy);
+        player.screen = set.screen;
+        player.set = platform::ListedSet{set.stage, set.challenger, "Mario", set.games, set.game};
+        lists.friends.push_back(player);
+        ++id;
+    }
+
+    const auto model = MakeOnlinePanelModel(lists, std::nullopt, Context());
+    const auto* online = Section(model, OnlinePanelSection::Id::Online);
+    CHECK(online != nullptr);
+    if (!online) return;
+    id = 100;
+    for (const auto& [screen, text] : screens)
+    {
+        const auto* row = Row(online, "S" + std::to_string(id++));
+        CHECK(row && row->status == text && row->presence == Presence::Free && row->can_challenge);
+        if (row && row->status != text) std::fprintf(stderr, "  %s: %s\n", screen, row->status.c_str());
+    }
+    const auto* drafting = Row(online, "Drafting");
+    CHECK(drafting && drafting->status == "Online match" + dot + "choosing teams");
+    CHECK(drafting && drafting->presence == Presence::Busy && drafting->blocked == "In an online match");
+    const auto* searcher = Row(online, "Searching");
+    CHECK(searcher && searcher->status == "Looking for an opponent" && searcher->can_challenge);
+    id = 300;
+    for (const auto& set : sets)
+    {
+        const auto* row = Row(online, "T" + std::to_string(id++));
+        CHECK(row && row->status == set.text);
+        if (row && row->status != set.text) std::fprintf(stderr, "  %s\n", row->status.c_str());
+        // A set that stopped before its games met keeps nobody from a challenge.
+        CHECK(row && (row->presence == Presence::Busy) == set.busy && row->can_challenge == !set.busy);
+        CHECK(row && row->blocked == (set.busy ? "In a set" : ""));
+    }
+
+    // The screens the game sends, from its snapshot's scene stack, top first.
+    const auto screen_of = [](std::initializer_list<int> scenes, int online = 0, int in_match = 0, int mode = 0) {
+        ChargedPresenceSnapshot s{};
+        for (const int scene : scenes) s.scenes[s.scene_count++] = scene;
+        s.online = online;
+        s.in_match = in_match;
+        s.mode = mode;
+        const char* screen = platform::ScreenOf(s);
+        return std::string(screen ? screen : "-");
+    };
+    CHECK(screen_of({0}) == "starting");  // the title screen
+    CHECK(screen_of({22}) == "starting"); // the intro movie
+    CHECK(screen_of({1}) == "menus");
+    CHECK(screen_of({10, 1}) == "menus"); // a popup on the main menu
+    CHECK(screen_of({3}) == "domination"); // Domination's sidekicks
+    CHECK(screen_of({27}) == "domination"); // its match options
+    CHECK(screen_of({27}, 1) == "room");    // a friend match's, online
+    CHECK(screen_of({7}) == "cup_team");
+    CHECK(screen_of({32}) == "cup");
+    CHECK(screen_of({33}) == "results");
+    CHECK(screen_of({75}) == "challenges");
+    CHECK(screen_of({86}) == "lessons");
+    CHECK(screen_of({40}) == "online");
+    CHECK(screen_of({54}) == "online"); // choosing a Mii
+    CHECK(screen_of({41}) == "ranked");
+    CHECK(screen_of({49}) == "draft");
+    CHECK(screen_of({50}) == "draft");
+    CHECK(screen_of({53}) == "room");
+    CHECK(screen_of({0}, 0, 1, 2) == "starting"); // the title screen's demo match
+    CHECK(screen_of({}, 1, 1, 0) == "-");         // in a match: its kind says it
+    CHECK(screen_of({}) == "menus");              // nothing known
+}
+
 void TestFlags()
 {
     // Every ISO country's flag, in the atlas's order: by its letters.
@@ -618,6 +755,7 @@ int main()
     TestPlayer();
     TestFlags();
     TestMatchKinds();
+    TestScreensAndSets();
     TestOnlineNow();
     TestAvailable();
     TestChallengeBlockers();

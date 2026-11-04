@@ -1,5 +1,7 @@
 #include "platform/game_presence.h"
 
+#include "platform/game_screen.h"
+
 #include <cstdlib>
 #include <iterator>
 #include <optional>
@@ -221,7 +223,10 @@ discord::Activity GamePresence::Describe(const ChargedPresenceSnapshot& s, std::
     {
         // A set's game outside its matches: signing in, searching, the draft.
         activity.details = SetLine(*set);
-        activity.state = set->won + set->lost == 0 ? "Getting ready" : "Between games";
+        const char* screen = ScreenOf(s);
+        activity.state = screen && std::string(screen) == "draft" ? "Choosing teams"
+            : set->won + set->lost == 0                         ? "Connecting"
+                                                                : "Between games";
         return activity;
     }
     for (int n = 0; n < s.scene_count && n < 8; ++n)

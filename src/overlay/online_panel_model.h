@@ -56,7 +56,7 @@ struct OnlinePanelRow
     std::string initials; // the name's first character, in capitals
     std::int64_t tint_seed = 0;
     Presence presence = Presence::Free;
-    std::string status; // "In the game", "In a set", "Playing a match"
+    std::string status; // "Domination · choosing teams", "Set vs Mario · game 2 of 3"
     Tone tone = Tone::Good;
     std::string detail;    // "@discord username", or a Mii's friend code
     bool discord = false;  // a Discord friend: Discord's logo after the name

@@ -34,6 +34,17 @@ struct WfcProfile
     std::string mii;
 };
 
+// A listed player's set still to be played, or playing (the lists' `set`,
+// servers from 1.2.12 on).
+struct ListedSet
+{
+    std::string stage;       // "invited", "open", "go" or "playing" (ProfileMatch::stage)
+    bool challenger = false; // they sent the challenge
+    std::string opponent;    // the opponent's name
+    int games = 1;           // the games of its series
+    int game = 0;            // the game their game plays, or last played; 0 when it doesn't say
+};
+
 struct ProfilePlayer
 {
     std::int64_t id = 0;
@@ -68,6 +79,13 @@ struct ProfilePlayer
     // The flag beside their name: a country's two capital letters, empty for
     // none (servers from 1.2.11 on).
     std::string country;
+    // While online, outside a match: the screens their game shows (ScreenOf);
+    // empty from older games and servers.
+    std::string screen;
+    // While online: they search for a random opponent, and their set to play
+    // or playing (servers from 1.2.12 on).
+    bool searching = false;
+    std::optional<ListedSet> set;
     // GET /api/v1/me only: the country the server finds from where the
     // player connects (empty when unknown), and their choice for the flag:
     // "auto" (that one), "none" or a country's letters.
@@ -340,12 +358,17 @@ public:
     // Lets another thread stop the running call.
     void SetCancel(std::shared_ptr<HttpCancel> cancel) { cancel_ = std::move(cancel); }
     // The game's requests say what it is doing ("game" or "match", the
-    // Recharged-Activity header) and in a match its kind (MatchKindOf, the
-    // Recharged-Match header); the launcher's say nothing.
-    void SetActivity(std::string activity, std::string match_kind = {})
+    // Recharged-Activity header), in a match its kind (MatchKindOf, the
+    // Recharged-Match header), outside one its screens (ScreenOf, the
+    // Recharged-Screen header) and in a set the game of its series it plays
+    // or last played (Recharged-Set-Game, 0 for none); the launcher's say
+    // nothing.
+    void SetActivity(std::string activity, std::string match_kind = {}, std::string screen = {}, int set_game = 0)
     {
         activity_ = std::move(activity);
         match_kind_ = std::move(match_kind);
+        screen_ = std::move(screen);
+        set_game_ = set_game;
     }
     // Every request of this program says which game it plays (the
     // Recharged-Game header: the first four characters of the game's id, such
@@ -447,7 +470,8 @@ private:
 
     std::string server_;
     std::string token_;
-    std::string activity_, match_kind_;
+    std::string activity_, match_kind_, screen_;
+    int set_game_ = 0;
     std::shared_ptr<HttpCancel> cancel_;
 };
 
