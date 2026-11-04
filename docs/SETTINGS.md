@@ -323,14 +323,17 @@ online menu, and **Stop** stops the way there. Beside it your place this season
 and today, and the season's and today's leaders (with a player profile).
 **Events** is the place for tournaments and organised match-ups (coming
 later). **Game options** has the gameplay options that can change while the game
-runs: they are saved at once and count from the next match (online matches
-play by their own rules). **Settings** has the settings that change at once,
-in sections: *Display* (fullscreen, the picture's shape as the stretch hotkey
-has it, the 3D resolution, the performance numbers), *Sound* (master volume,
-mute, the sound levels as sliders, the challenge sound) and *Advanced* (reopen
-the launcher after the game); each change is saved to `recharged.ini` at once.
-The section the cursor is on in the list shows beside it (Display at first),
-and right goes into it. The controls and the settings that need a new start
+runs, in the launcher Gameplay page's categories (*Menus & startup*, *Matches &
+unlocks*, *Competitive gameplay*, each with how many of its options are on):
+the category the cursor is on shows its switches beside it, and right or A goes
+into them. They are saved at once and count from the next match (Fast menus at
+once; online matches play by their own rules). **Settings** has the settings
+that change at once, in sections: *Display* (fullscreen, the picture's shape
+as the stretch hotkey has it, the 3D resolution, the performance numbers),
+*Sound* (master volume, mute, the sound levels as sliders, the challenge
+sound) and *Advanced* (reopen the launcher after the game); each change is
+saved to `recharged.ini` at once. The section the cursor is on in the list
+shows beside it (Display at first), and right or A goes into it. The controls and the settings that need a new start
 stay in the launcher. While the game is in its menus, the top-left corner
 shows the menu's keys (F1 or HOME), and a challenge you sent from the menu
 closes it when it is accepted: the game goes on into the
@@ -496,8 +499,8 @@ writes `rollback_test` or `rollback_log`.
 Sets against other Recharged players are played by the rules of the project's
 online server, `https://rechargedwfc.net`. The launcher's **Online** pages set
 them up: **Player profile** (who you are signed in as, your Mii, your friend
-code, your Discord friends or Connect Discord, the challenge sound, the
-server, and Sign out, which also ends the Discord link on this computer),
+code, your Discord friends or Connect Discord, your flag, the challenge sound,
+the server, and Sign out, which also ends the Discord link on this computer),
 **Match rules** (the presets a challenge starts from, see *Match settings*,
 and the server's rule sets) and **Sidekicks**. Your friends, the players
 available, your set, the RANKED leaderboards and the events are in the
@@ -546,10 +549,15 @@ level is only for the CPU).
    They accept or decline on a card over their game while it is in its menus
    (A accepts, B declines; the game waits behind the card), or, with only the
    launcher open (*In the launcher*), in a dialog there: its Accept starts the
-   game straight into the set, Decline (Escape, B) says no. A player in a
-   match shows what it is (*Ranked match*, *Friend match*, *Match vs CPU*,
-   *Road to the Striker Cup*, *Strikers 101* and so on; an older Recharged
-   just *Playing a match*) and can be challenged once it is over.
+   game straight into the set, Decline (Escape, B) says no. The list says what
+   each player does, the mode first and then where in it: *Domination ·
+   choosing teams*, *Striker Cup · Cup Central*, *Strikers 101 · in a lesson*,
+   *Ranked · looking for a match*, *Vs CPU · playing* and so on (an older
+   Recharged just *In the game* or *Playing a match*). A set says its step
+   against the opponent: *Set · challenged by Mario*, then *Set vs Mario ·
+   connecting*, *choosing teams*, *game 2 of 3* and *between games* (servers
+   from 1.2.12 on). A player in a match, in an online draft or in a set can be
+   challenged once it is over.
    A chime plays, and the window flashes when it is in the background, when
    someone challenges you and when your challenge is accepted
    (`[online] challenge_sound`, on by default; at the master volume, not when

@@ -34,21 +34,11 @@ constexpr Section kSections[] = {
 };
 constexpr int kSectionCount = int(std::size(kSections));
 
-void Caption(const char* text, float width)
-{
-    const auto& fonts = launcher::CurrentFonts();
-    const ImVec2 at = ImGui::GetCursorScreenPos();
-    const float height = fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, width, text).y;
-    ImGui::GetWindowDrawList()->AddText(fonts.caption, FontSize(fonts.caption), at, Col(color::muted), text, nullptr,
-                                        width);
-    ImGui::Dummy({width, height});
-}
-
 // The section's settings, one row each.
 void DrawSection(const GameSettingsModel& model, int section, std::optional<GameSettingChange>& change, float width)
 {
     constexpr bool interactive = true;
-    Caption(kSections[section].about, width);
+    OverlayCaption(kSections[section].about, width);
     if (section == 0)
     {
         OverlayRowGroup("WINDOW", width, [&] {
@@ -108,72 +98,20 @@ void DrawSection(const GameSettingsModel& model, int section, std::optional<Game
                                      interactive))
                     change = GameSettingChange{GameSetting::ReopenLauncher, model.reopen_launcher ? 0 : 1};
             });
-        else Caption("The game started without the launcher: closing it opens nothing.", width);
+        else OverlayCaption("The game started without the launcher: closing it opens nothing.", width);
     }
     ImGui::Dummy({width, Dp(16)});
 }
 
-// The menu: the sections, the one shown lit; a column at the left, or in one
-// column a row above its section. The cursor on an item shows its section,
-// and right (down in a row) goes into it; coming back, the cursor lands on its
-// item rather than on whichever is nearest.
+// The menu's items: the sections' names and icons.
 void DrawMenu(GameSettingsState& state, float width, bool row)
 {
-    const auto& fonts = launcher::CurrentFonts();
-    auto* draw = ImGui::GetWindowDrawList();
-    const float height = Dp(46), gap = Dp(6);
-    const float item_w = row ? (width - gap * float(kSectionCount - 1)) / float(kSectionCount) : width;
-    const ImVec2 at = ImGui::GetCursorScreenPos();
-    ImGuiID shown = 0;
-    int focused_item = -1;
-    for (int n = 0; n < kSectionCount; ++n)
-    {
-        const ImVec2 min = row ? ImVec2{at.x + float(n) * (item_w + gap), at.y}
-                               : ImVec2{at.x, at.y + float(n) * (height + gap)};
-        const ImVec2 max{min.x + item_w, min.y + height};
-        ImGui::SetCursorScreenPos(min);
-        ImGui::PushID(n);
-        const bool pressed = ImGui::InvisibleButton("##section", {item_w, height}, ImGuiButtonFlags_EnableNav);
-        if (n == state.section) shown = ImGui::GetItemID();
-        const bool hovered = ImGui::IsItemHovered();
-        const bool focused = OverlayNavFocused();
-        OverlayFocusable(n == state.section);
-        ImGui::PopID();
-        if (focused) focused_item = n;
-        if (pressed) state.section = n;
-        const bool chosen = n == state.section;
-        const float lit = launcher::Animate(ImGui::GetID(("##section_lit" + std::to_string(n)).c_str()),
-                                            chosen || hovered, 12.0f);
-        ImVec4 fill = Mix(color::field, color::accent_dark, chosen ? 0.55f : 0.0f);
-        fill.w = chosen ? 0.9f : 0.35f + 0.3f * lit;
-        draw->AddRectFilled(min, max, Col(fill), Dp(12));
-        if (chosen) draw->AddRect(min, max, Col(color::accent, 0.55f), Dp(12), 0, Dp(1));
-        const ImU32 ink = Col(chosen ? color::text : Mix(color::muted, color::text, lit));
-        DrawIcon(draw, kSections[n].icon, {min.x + Dp(26), min.y + height * 0.5f}, Dp(18), ink);
-        DrawLabel(draw, fonts.label, {min.x + Dp(48), min.y + (height - FontSize(fonts.label)) * 0.5f}, ink,
-                  kSections[n].name);
-        if (focused) OverlayFocusRing(draw, min, max, Dp(12));
-    }
-    // The cursor moved along the menu: its section shows. It came from the
-    // section: back to the item shown.
-    if (focused_item >= 0 && focused_item != state.section)
-    {
-        if (state.menu_focused) state.section = focused_item;
-        else if (shown)
-        {
-            ImGui::SetFocusID(shown, ImGui::GetCurrentWindow());
-            ImGui::SetNavCursorVisible(true);
-        }
-    }
-    // Into the section: its rows needn't be level with the item (the
-    // cursor only goes sideways to items level with it).
-    if (focused_item >= 0 && focused_item == state.section && !row
-        && (ImGui::IsKeyPressed(ImGuiKey_RightArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight)
-            || ImGui::IsKeyPressed(ImGuiKey_GamepadLStickRight)))
-        state.enter_section = true;
-    state.menu_focused = focused_item >= 0;
-    ImGui::SetCursorScreenPos({at.x, at.y + (row ? height : float(kSectionCount) * (height + gap))});
-    ImGui::Dummy({width, 0.0f});
+    static const std::vector<OverlaySection> sections = [] {
+        std::vector<OverlaySection> items;
+        for (const Section& section : kSections) items.push_back({section.name, section.icon});
+        return items;
+    }();
+    OverlaySectionMenu(sections, state, width, row);
 }
 } // namespace
 
@@ -204,12 +142,7 @@ void DrawGameSettings(const GameSettingsModel& model, GameSettingsState& state, 
                            {pane.x + width, layout.max.y});
         ImGui::Dummy({width, Dp(14)});
         // Right from its menu item: the cursor on the section's first row.
-        if (state.enter_section)
-        {
-            ImGui::SetKeyboardFocusHere();
-            ImGui::SetNavCursorVisible(true);
-            state.enter_section = false;
-        }
+        OverlayEnterSection(state);
         DrawSection(model, state.section, change, width);
         EndOverlayScroll();
         return;

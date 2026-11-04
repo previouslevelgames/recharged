@@ -1,6 +1,7 @@
 #include "platform/competitive_host.h"
 
 #include "platform/http_client.h"
+#include "platform/game_screen.h"
 #include "platform/match_kind.h"
 
 #include <algorithm>
@@ -255,9 +256,16 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
             next_match_ = {};
             wake = true;
         }
-        // A new kind says so with the next heartbeat.
+        // A new kind, screen or game of a set says so with the next heartbeat.
         match_kind_ = kind ? kind : "";
+        const char* screen = ScreenOf(*presence);
+        screen_ = screen ? screen : "";
     }
+    // The set's game: the games counted so far, and the one being played.
+    if (!series_done_ && series_match_ != 0)
+        set_game_ = int(series_.size()) + (in_series && !game_recorded_ ? 1 : 0);
+    else
+        set_game_ = 0;
 
     const bool changed = rules_version_ != rules_seen_;
     if (changed)
@@ -582,7 +590,7 @@ void CompetitiveHost::Work(ProfileService& api)
     bool accept = false, rematch = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        api.SetActivity(activity_, match_kind_);
+        api.SetActivity(activity_, match_kind_, screen_, set_game_);
         answer = answer_match_;
         accept = answer_accept_;
         answer_match_ = 0;

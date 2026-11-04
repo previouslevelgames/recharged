@@ -22,23 +22,76 @@ std::string Lower(std::string text)
     return text;
 }
 
-// A match by its kind (the server's `match`): what the game plays; any
-// other (an older game or server) just a match.
+// The rows say what a player is doing in the game's words: the mode first,
+// then where in it ("Striker Cup · choosing a team").
+constexpr const char* kStep = " \xC2\xB7 "; // " · "
+
+// A match by its kind (the server's `match`); any other (an older game or
+// server) just a match.
 std::string MatchText(const std::string& kind)
 {
     static const std::pair<const char*, const char*> kTexts[] = {
-        {"ranked", "Ranked match"},
+        {"ranked", "Ranked"},
         {"friends", "Friend match"},
         {"tournament", "Online tournament"},
-        {"cpu", "Match vs CPU"},
+        {"cpu", "Vs CPU"},
         {"local", "Local match"},
-        {"cup", "Road to the Striker Cup"},
+        {"cup", "Striker Cup"},
         {"challenge", "Striker Challenge"},
-        {"training", "Strikers 101"},
     };
+    if (kind == "training") return std::string("Strikers 101") + kStep + "in a lesson";
     for (const auto& [name, text] : kTexts)
-        if (kind == name) return text;
+        if (kind == name) return text + std::string(kStep) + "playing";
     return "Playing a match";
+}
+
+// The screens a player's game shows (the server's `screen`, ScreenOf), or
+// nothing for one this build doesn't know.
+std::string ScreenText(const std::string& screen)
+{
+    struct Text
+    {
+        const char* screen;
+        const char* mode;
+        const char* step; // none: the mode says it all
+    };
+    static const Text kTexts[] = {
+        {"starting", "Starting the game", nullptr},
+        {"menus", "In the menus", nullptr},
+        {"domination", "Domination", "choosing teams"},
+        {"cup", "Striker Cup", "Cup Central"},
+        {"cup_team", "Striker Cup", "choosing a team"},
+        {"challenges", "Striker Challenges", "choosing one"},
+        {"lessons", "Strikers 101", "choosing a lesson"},
+        {"results", "Looking at the results", nullptr},
+        {"online", "Online", "in the menus"},
+        {"ranked", "Ranked", "looking for a match"},
+        {"room", "Friend match", "in a room"},
+        {"draft", "Online match", "choosing teams"},
+    };
+    for (const auto& text : kTexts)
+        if (screen == text.screen) return text.step ? text.mode + std::string(kStep) + text.step : text.mode;
+    return {};
+}
+
+// Where a set is, as its player's row says it: the challenge, then the set
+// against its opponent ("Set vs Mario · game 2 of 3").
+std::string SetText(const platform::ListedSet& set, const ProfilePlayer& player)
+{
+    if (set.stage == "invited")
+        return std::string("Set") + kStep
+            + (set.challenger ? "waiting for " + set.opponent + "'s answer" : "challenged by " + set.opponent);
+    const std::string set_vs = "Set vs " + set.opponent + kStep;
+    if (set.stage == "open") return set_vs + "getting ready";
+    // Both are ready: the games start, sign in and look for each other.
+    if (set.stage != "playing") return set_vs + "connecting";
+    if (player.activity == "match")
+        return set_vs
+            + (set.game > 0 && set.games > 1
+                   ? "game " + std::to_string(set.game) + " of " + std::to_string(set.games)
+                   : std::string("playing"));
+    if (player.screen == "draft") return set_vs + "choosing teams";
+    return set_vs + (set.game > 0 ? "between games" : "connecting");
 }
 
 // What a Recharged player is doing, as the launcher's lists say it.
@@ -52,35 +105,40 @@ OnlinePanelRow PlayerRow(const ProfilePlayer& player)
     row.image = player.avatar_url;
     row.initials = Initials(row.name);
     row.tint_seed = player.id;
+    row.country = player.country;
     if (!player.discord.empty()) row.detail = "@" + player.discord;
     row.is_friend = player.is_friend;
+    const auto busy = [&](std::string status, const char* why) {
+        row.presence = Presence::Busy;
+        row.status = std::move(status);
+        row.blocked = why;
+        row.tone = Tone::Busy;
+    };
     if (!player.online)
     {
         row.presence = Presence::Offline;
         row.status = "Offline";
         row.tone = Tone::Away;
         row.blocked = "Offline";
+        return row;
     }
-    else if (player.busy)
-    {
-        row.presence = Presence::Busy;
-        row.status = row.blocked = "In a set";
-        row.tone = Tone::Busy;
-    }
-    else if (player.activity == "match")
-    {
-        row.presence = Presence::Busy;
-        row.status = MatchText(player.match_kind);
-        row.blocked = "In a match";
-        row.tone = Tone::Busy;
-    }
+    // A set that stopped before its games met (the server's `open`) keeps
+    // nobody from a challenge, as the server has it (`busy`).
+    if (player.set && player.busy) busy(SetText(*player.set, player), "In a set");
+    else if (player.busy) busy("In a set", "In a set"); // a server before 1.2.12
+    else if (player.activity == "match") busy(MatchText(player.match_kind), "In a match");
+    else if (player.screen == "draft") busy(ScreenText(player.screen), "In an online match");
     else
     {
         row.presence = Presence::Free;
-        row.status = player.activity == "game" ? "In the game"
-            : player.activity == "launcher"   ? "In the launcher"
-                                              : "Online";
         row.tone = Tone::Good;
+        if (player.set) row.status = SetText(*player.set, player);
+        else if (player.searching) row.status = "Looking for an opponent";
+        else if (const std::string screen = ScreenText(player.screen); !screen.empty()) row.status = screen;
+        else
+            row.status = player.activity == "game" ? "In the game"
+                : player.activity == "launcher"   ? "In the launcher"
+                                                  : "Online";
     }
     return row;
 }
@@ -110,10 +168,10 @@ OnlinePanelRow MiiRow(const MiiProfile& mii)
     else
     {
         row.presence = Presence::Free;
-        row.status = mii.status != "matchmaking" ? "In the online menu"
-            : mii.match_kind == "ranked"        ? "Looking for a ranked match"
-            : mii.match_kind == "friends"       ? "In a friend room"
-                                                : "Looking for a match";
+        row.status = mii.status != "matchmaking" ? ScreenText("online")
+            : mii.match_kind == "ranked"        ? ScreenText("ranked")
+            : mii.match_kind == "friends"       ? ScreenText("room")
+                                                : std::string("Online") + kStep + "looking for a match";
         row.tone = Tone::Good;
     }
     return row;
@@ -340,6 +398,7 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     if (!me.discord.empty()) model.me.detail = "@" + me.discord;
     model.me.image = me.avatar_url;
     model.me.initials = Initials(model.me.name);
+    model.me.country = me.country;
     model.me.tint_seed = me.id;
     model.me.available = me.available;
     model.me.can_set_available = context.random_games;

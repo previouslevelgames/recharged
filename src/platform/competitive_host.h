@@ -174,6 +174,10 @@ private:
     // from a match's loading until it is unloaded (no challenges then).
     std::string activity_ = "game";
     std::string match_kind_; // in a match: its kind (MatchKindOf)
+    std::string screen_;     // outside one: the screens it shows (ScreenOf)
+    // In a set: the game of its series being played, or last played between
+    // two; 0 outside a set's series.
+    int set_game_ = 0;
     // A challenge to answer in the game's menus, the card's answer still to
     // send and the last one sent.
     std::optional<Invitation> invitation_;

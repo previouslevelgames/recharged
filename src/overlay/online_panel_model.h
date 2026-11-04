@@ -56,7 +56,7 @@ struct OnlinePanelRow
     std::string initials; // the name's first character, in capitals
     std::int64_t tint_seed = 0;
     Presence presence = Presence::Free;
-    std::string status; // "In the game", "In a set", "Playing a match"
+    std::string status; // "Domination · choosing teams", "Set vs Mario · game 2 of 3"
     Tone tone = Tone::Good;
     std::string detail;    // "@discord username", or a Mii's friend code
     bool discord = false;  // a Discord friend: Discord's logo after the name
@@ -71,6 +71,9 @@ struct OnlinePanelRow
     // Another version of the game than the player's ("EU", "US", "JP",
     // "KR"): RANKED never pairs the two, so no set.
     std::string version;
+    // The flag beside the name: a country's two letters (overlay/flags.h),
+    // empty for none.
+    std::string country;
 };
 
 struct OnlinePanelSection
@@ -123,6 +126,7 @@ struct OnlinePanelPlayer
     std::string image;  // the avatar URL, as a row's
     std::string initials;
     std::int64_t tint_seed = 0;
+    std::string country;            // the flag beside the name, as a row's
     bool available = false;         // open to challenges
     bool can_set_available = false; // the server knows random games (1.2.1)
 };

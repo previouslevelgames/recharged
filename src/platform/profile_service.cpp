@@ -107,6 +107,21 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.activity = value["activity"].Text();
     player.match_kind = value["match"].Text();
     player.game = value["game"].Text();
+    player.country = value["country"].Text();
+    player.country_detected = value["country_detected"].Text();
+    player.country_choice = value["country_choice"].Text();
+    player.screen = value["screen"].Text();
+    player.searching = value["searching"].Bool();
+    if (const auto& set = value["set"]; !set["stage"].Text().empty())
+    {
+        ListedSet listed;
+        listed.stage = set["stage"].Text();
+        listed.challenger = set["challenger"].Bool();
+        listed.opponent = set["opponent"].Text();
+        listed.games = int(set["games"].Integer().value_or(1));
+        listed.game = int(set["game"].Integer().value_or(0));
+        player.set = listed;
+    }
     player.last_online = value["last_online"].Integer();
     player.is_friend = value["friend"].Bool();
     player.chat = value["chat"].Bool();
@@ -338,6 +353,8 @@ ProfileService::Answer ProfileService::Call(const char* method, const std::strin
     if (!token_.empty()) request.headers.push_back("Authorization: Bearer " + token_);
     if (!activity_.empty()) request.headers.push_back("Recharged-Activity: " + activity_);
     if (!match_kind_.empty()) request.headers.push_back("Recharged-Match: " + match_kind_);
+    if (!screen_.empty()) request.headers.push_back("Recharged-Screen: " + screen_);
+    if (set_game_ > 0) request.headers.push_back("Recharged-Set-Game: " + std::to_string(set_game_));
     {
         std::lock_guard<std::mutex> lock(gPlayedGameMutex);
         if (!gPlayedGame.empty()) request.headers.push_back("Recharged-Game: " + gPlayedGame);
@@ -643,6 +660,14 @@ bool ProfileService::SetAvailable(bool available)
 {
     const std::string body = std::string("{\"available\":") + (available ? "true" : "false") + "}";
     return Call("PUT", "/api/v1/me/available", &body).body["available"].Bool();
+}
+
+ProfilePlayer ProfileService::ChooseCountry(const std::string& choice)
+{
+    std::string body = "{\"country\":";
+    AppendJsonString(body, choice);
+    body += '}';
+    return ParsePlayer(Call("PUT", "/api/v1/me/country", &body).body);
 }
 
 std::vector<ProfilePlayer> ProfileService::AddFriend(std::int64_t player_id)

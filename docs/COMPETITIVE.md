@@ -74,6 +74,10 @@ with the score.
   missed (Player profile → **Challenge sound**).
 - A challenge lasts only as long as Recharged is open: close Recharged and
   your open challenges are gone, with nothing to clean up.
+- A flag beside a player's name shows their country: the one the server finds
+  from where they connect, unless they chose another or none (Player profile →
+  **Flag**; servers from 1.2.11 on). For the flag the server keeps only the
+  country, not the address.
 
 ## Discord friends
 

@@ -331,14 +331,29 @@ void TestGameOptions()
     h.model.online = Model();
     h.model.options.in_match = true;
     h.Open(OverlayTab::GameOptions);
-    // The cursor on the first option (Fast terrain, off by default): Enter switches it on.
-    auto actions = h.Press(ImGuiKey_Enter);
+    // The cursor on the menu's first category, Menus & startup; right goes
+    // into it: Fast menus (off by default), which Enter switches on.
+    CHECK(h.state.options_state.section == 0);
+    auto actions = h.Press(ImGuiKey_RightArrow);
+    CHECK(!actions.set_option && h.state.options_state.section == 0);
+    actions = h.Press(ImGuiKey_Enter);
+    CHECK(actions.set_option && actions.set_option->tweak == GameTweak::FastMenus && actions.set_option->on);
+    // Left goes back to its category; down the menu shows the next ones.
+    h.Press(ImGuiKey_LeftArrow);
+    h.Frame();
+    CHECK(h.state.options_state.section == 0);
+    h.Press(ImGuiKey_DownArrow);
+    CHECK(h.state.options_state.section == 1);
+    h.Press(ImGuiKey_DownArrow);
+    CHECK(h.state.options_state.section == 2);
+    // A on Competitive gameplay goes into it too: Fast terrain, then Secure stadiums.
+    actions = h.Press(ImGuiKey_GamepadFaceDown);
+    CHECK(!actions.set_option && h.state.options_state.section == 2);
+    actions = h.Press(ImGuiKey_GamepadFaceDown);
     CHECK(actions.set_option && actions.set_option->tweak == GameTweak::FastTerrain && actions.set_option->on);
-    // The next one down is Secure stadiums; A on it.
     h.Press(ImGuiKey_DownArrow);
     actions = h.Press(ImGuiKey_GamepadFaceDown);
     CHECK(actions.set_option && actions.set_option->tweak == GameTweak::SecureStadiums);
-    CHECK(h.state.options_state.shown && *h.state.options_state.shown == GameTweak::SecureStadiums);
     // A switched-on option switches off.
     h.model.options.tweaks[mscharged::GameTweakIndex(GameTweak::SecureStadiums)] = true;
     h.Frame();

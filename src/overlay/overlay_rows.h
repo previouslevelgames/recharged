@@ -35,11 +35,41 @@ std::optional<int> OverlaySliderRow(const char* id, const char* label, int value
 // round.
 int OverlaySegmentedRow(const char* id, const char* label, const std::vector<std::string>& options, int selected,
                         float width, bool interactive, const char* about = nullptr);
+// A tab's menu of sections (Settings, Game options): a column at the left
+// with the section shown beside it, or in one column a row above it. The
+// cursor on an item shows its section; right, or A on it, goes into its rows
+// (OverlayEnterSection); coming back, the cursor lands on the item shown,
+// not on whichever is nearest.
+struct OverlaySection
+{
+    const char* name;
+    launcher::Icon icon;
+    const char* short_name = nullptr; // in a row, when the name is long
+    std::string badge;                // small, at the item's right ("2 on"); empty for none
+};
+struct OverlaySectionState
+{
+    int section = 0;            // the section shown
+    bool menu_focused = false;  // the cursor was on the menu
+    bool enter_section = false; // right or A on its item: the cursor goes to its first row
+    bool back_to_menu = false;  // left from a row: the cursor goes to the item shown
+};
+void OverlaySectionMenu(const std::vector<OverlaySection>& sections, OverlaySectionState& state, float width,
+                        bool row);
+// Before the section's first row: the cursor onto it, when the menu sent it.
+void OverlayEnterSection(OverlaySectionState& state);
+// After a row of a section whose rows don't take left and right (switches):
+// left on it goes back to the menu's item shown, wherever the items are.
+void OverlaySectionRowBack(OverlaySectionState& state);
+
 // A chevron pointing left (-1) or right (+1), centred on `center`.
 void OverlayChevron(ImDrawList* draw, ImVec2 center, int direction, ImU32 ink);
 
-// A group's name in small tracked capitals, then a card that holds its rows
-// (`rows` draws them, one under the other).
+// A short text in small muted letters, wrapped to `width`.
+void OverlayCaption(const char* text, float width);
+
+// A group's name in small tracked capitals (none when empty), then a card
+// that holds its rows (`rows` draws them, one under the other).
 void OverlayRowGroupBegin(const char* title, float width);
 void OverlayRowGroupEnd(float width);
 template <typename Rows> void OverlayRowGroup(const char* title, float width, Rows&& rows)

@@ -29,6 +29,7 @@
 #include "launcher/update_install.h"
 #include "launcher/update_service.h"
 #include "mscharged/build_version.h"
+#include "overlay/flags.h"
 #include "platform/competitive_rules.h"
 #include "platform/parse_float.h"
 #include "platform/name_glyphs.h"
@@ -785,6 +786,7 @@ public:
         for (const auto& level : logo_) SDL_DestroyTexture(level.texture);
         for (const auto& level : logo_sizzle_) SDL_DestroyTexture(level.texture);
         if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
+        if (flags_) SDL_DestroyTexture(flags_);
         alert_sound_.reset(); // before SDL's audio goes
         set_presence_.reset();
         if (renderer_) SDL_DestroyRenderer(renderer_);
@@ -883,6 +885,13 @@ public:
             aurora_logo_height_ = float(logo->h);
             aurora_logo_ = SDL_CreateTextureFromSurface(renderer_, logo.get());
             if (aurora_logo_) SDL_SetTextureScaleMode(aurora_logo_, SDL_SCALEMODE_LINEAR);
+        }
+        // The flags beside players' names (overlay/flags.h); without them the
+        // Flag row goes by names alone.
+        if (SurfacePtr flags{SDL_LoadPNG(PathUtf8(base_ / "assets/flags/flags.png").c_str()), SDL_DestroySurface})
+        {
+            flags_ = SDL_CreateTextureFromSurface(renderer_, flags.get());
+            if (flags_) SDL_SetTextureScaleMode(flags_, SDL_SCALEMODE_LINEAR);
         }
         // The welcome guide opens at the first start (never in development captures).
         LoadWelcome(resources / "welcome.md");
@@ -4350,6 +4359,8 @@ private:
             competitive_status_.player.discord_id = "80351110224678912";
             competitive_status_.player.account = "discord";
             competitive_status_.player.wfc = {{1000000000, "R4QE", "0868-9934-5920", "Anosch"}};
+            competitive_status_.player.country = competitive_status_.player.country_detected = "CH";
+            competitive_status_.player.country_choice = "auto";
             if (competitive_status_.info.version.empty()) competitive_status_.info.version = "1.2.1";
             if (competitive_status_.server.empty()) competitive_status_.server = draft_.profile_server;
             if (competitive_status_.rule_sets.empty())
@@ -6587,6 +6598,13 @@ private:
                 OwnMiiRow(own);
             }
 
+            // The flag beside the name (servers from 1.2.11 on say the choice).
+            if (!player.country_choice.empty())
+            {
+                Row("Flag", "Beside your name for other players: the country you connect from, or one you choose.");
+                FlagCombo(player, status.busy);
+            }
+
             // The challenge sound, with a way to hear it.
             Row("Challenge sound", "A chime when someone challenges you or accepts your challenge, and the window "
                                    "flashes while it is in the background.");
@@ -6924,6 +6942,94 @@ private:
         }
     }
 
+    // A country's flag, `height` tall, its left edge at `at.x` and its middle
+    // at `at.y`: how wide it is, 0 without one.
+    float DrawFlag(ImDrawList* draw, ImVec2 at, float height, std::string_view country) const
+    {
+        const int cell = overlay::FlagCell(country);
+        if (cell < 0 || !flags_) return 0.0f;
+        const auto uv = overlay::FlagCellUv(cell);
+        const float width = height * float(overlay::kFlagWidth) / float(overlay::kFlagHeight);
+        const ImVec2 min{at.x, at.y - height * 0.5f}, max{at.x + width, at.y + height * 0.5f};
+        draw->AddImageRounded(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(flags_)), min, max,
+                              {uv.u0, uv.v0}, {uv.u1, uv.v1}, IM_COL32_WHITE, Dp(2));
+        draw->AddRect(min, max, Col(color::text, 0.14f), Dp(2), 0, Dp(1));
+        return width;
+    }
+
+    // The flag beside the player's name as a dropdown: Automatic (the
+    // country found from where they connect), No flag, or a country; typing
+    // a country's first letters goes to it.
+    void FlagCombo(const platform::ProfilePlayer& player, bool busy)
+    {
+        const auto& fonts = CurrentFonts();
+        const auto& countries = overlay::FlagCountries();
+        const std::string detected(overlay::FlagName(player.country_detected));
+        const std::string automatic = detected.empty() ? "Automatic (no country found)" : "Automatic: " + detected;
+        const std::string& choice = player.country_choice;
+        const std::string preview = choice == "auto" ? automatic
+            : choice == "none"                      ? std::string("No flag")
+                                                    : std::string(overlay::FlagName(choice));
+        // A line: the flag (or the room for one), then the words.
+        const float flag_h = Dp(16), flag_w = flag_h * float(overlay::kFlagWidth) / float(overlay::kFlagHeight);
+        const auto line = [&](ImDrawList* draw, ImVec2 min, ImVec2 max, std::string_view country,
+                              const std::string& text, bool muted) {
+            const float middle = (min.y + max.y) * 0.5f;
+            DrawFlag(draw, {min.x, middle}, flag_h, country);
+            draw->PushClipRect(min, max, true);
+            DrawLabel(draw, fonts.body, {min.x + flag_w + Dp(10), middle - FontSize(fonts.body) * 0.5f},
+                      Col(muted ? color::muted : color::text), text.c_str());
+            draw->PopClipRect();
+        };
+        const float row = Dp(34), width = std::min(ImGui::GetContentRegionAvail().x, Dp(360));
+        ImGui::SetNextItemWidth(width);
+        ImGui::BeginDisabled(busy);
+        const ImGuiComboFlags flags = ImGuiComboFlags(ImGuiComboFlags_CustomPreview) | ImGuiComboFlags_HeightLarge;
+        if (ImGui::BeginCombo("##flag", nullptr, flags))
+        {
+            std::optional<std::string> picked;
+            const auto option = [&](const char* id, std::string_view key, std::string_view country,
+                                    const std::string& text, bool muted, bool focus) {
+                const bool selected = choice == key;
+                if (focus) ImGui::SetKeyboardFocusHere();
+                if (ImGui::Selectable(id, selected, 0, {0, row})) picked = std::string(key);
+                if (selected && !focus) ImGui::SetItemDefaultFocus();
+                line(ImGui::GetWindowDrawList(), {ImGui::GetItemRectMin().x + Dp(6), ImGui::GetItemRectMin().y},
+                     {ImGui::GetItemRectMax().x - Dp(6), ImGui::GetItemRectMax().y}, country, text, muted);
+            };
+            // Typing goes to the first country whose name starts so.
+            int typed = -1;
+            if (ImGuiTypingSelectRequest* request = ImGui::GetTypingSelectRequest())
+                typed = ImGui::TypingSelectFindMatch(
+                    request, int(countries.size()),
+                    [](void* list, int n) {
+                        return (*static_cast<const std::vector<overlay::FlagCountry>*>(list))[std::size_t(n)].name;
+                    },
+                    const_cast<std::vector<overlay::FlagCountry>*>(&countries), -1);
+            option("##auto", "auto", player.country_detected, automatic, false, false);
+            option("##none", "none", {}, "No flag", true, false);
+            ImGui::Separator();
+            for (std::size_t n = 0; n < countries.size(); ++n)
+            {
+                ImGui::PushID(int(n));
+                option("##country", countries[n].code, countries[n].code, countries[n].name, false, int(n) == typed);
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+            if (picked && *picked != choice) competitive_->ChooseCountry(*picked);
+        }
+        if (ImGui::BeginComboPreview())
+        {
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float top = at.y - (ImGui::GetFrameHeight() - ImGui::GetFontSize()) * 0.5f;
+            line(ImGui::GetWindowDrawList(), {at.x, top}, {at.x + width - ImGui::GetFrameHeight() - Dp(16), top + ImGui::GetFrameHeight()},
+                 choice == "auto" ? std::string_view(player.country_detected) : std::string_view(choice), preview,
+                 choice == "none");
+            ImGui::EndComboPreview();
+        }
+        ImGui::EndDisabled();
+    }
+
     // A set's go, one value each time it goes: when it went (servers with
     // sets), else the set.
     static std::int64_t GoKey(const platform::ProfileMatch& match) { return match.go_at ? match.go_at : match.id; }
@@ -6935,10 +7041,10 @@ private:
         if (match->state == "challenged")
             return match->side == "challenger" ? std::pair{"Challenge sent", color::info}
                                                : std::pair{"Challenged", color::warning};
-        if (match->stage == "go") return {"Starting", color::accent};
+        if (match->stage == "go") return {"Connecting", color::accent};
         if (match->stage == "playing") return {"Playing", color::accent};
         if (match->stage == "open" && match->you_ready) return {"Ready", color::success};
-        return {"In a set", color::info};
+        return {"Getting ready", color::info};
     }
 
     // A test server's sign-in by name, for a second game on this computer
@@ -12124,6 +12230,7 @@ private:
     } sizzle_;
     SDL_Texture* aurora_logo_ = nullptr;
     float aurora_logo_width_ = 1, aurora_logo_height_ = 1;
+    SDL_Texture* flags_ = nullptr; // assets/flags/flags.png
     // Open standard gamepads (gamepad1-4 order); gamepad_ is the first.
     std::vector<SDL_Gamepad*> pads_;
     SDL_Gamepad* gamepad_ = nullptr;

@@ -589,6 +589,18 @@ void CompetitiveService::Decline()
     }, true);
 }
 
+void CompetitiveService::ChooseCountry(std::string choice)
+{
+    Post([this, choice](ProfileService& api) {
+        const auto answer = api.ChooseCountry(choice);
+        Change([&](Status& status) {
+            status.player.country = answer.country;
+            status.player.country_detected = answer.country_detected;
+            status.player.country_choice = answer.country_choice;
+        });
+    }, true);
+}
+
 void CompetitiveService::CancelMatch()
 {
     Post([this](ProfileService& api) {
