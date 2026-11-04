@@ -75,4 +75,12 @@ ThreadStackLimits CurrentThreadStackLimits()
     if (!low || high <= low) throw std::runtime_error("Invalid native thread stack limits");
     return {low, high};
 }
+
+void ReserveStackForCrashReports()
+{
+#if defined(_WIN32)
+    ULONG guarantee = 32 * 1024;
+    SetThreadStackGuarantee(&guarantee);
+#endif
+}
 }

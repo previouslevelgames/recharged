@@ -1176,6 +1176,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             auto removal=terminalVerifier->Policy();
             // The opt-in frame timing log completes before the process ends.
             removal.before_removal=[](void*){
+                mscharged::platform::StopFreezeWatch();
                 // The last calls get a few seconds; a stuck one doesn't hold the close.
                 if(sCompetitive && *sCompetitive && !(*sCompetitive)->StopForExit(std::chrono::seconds(1)))
                     mscharged::platform::SessionLogLine("Competitive: the game closes without waiting for the server");
@@ -2513,6 +2514,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
                 frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
+                mscharged::platform::FrameFinished(); // the freeze watch (#121)
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -2602,6 +2604,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
             frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
+            mscharged::platform::FrameFinished(); // the freeze watch (#121)
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}
@@ -2612,6 +2615,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             quiet=mscharged::platform::GetQueuedPipelineCount()?0:quiet+1;
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+        mscharged::platform::StopFreezeWatch(); // no frames follow
         // Explicit terminal join: no queued GX or presentation work outlives the loop.
         if(nativeSend){AuroraGXSync(); aurora::gfx::synchronize();}
         Check(snapshot && encoded && draws &&
