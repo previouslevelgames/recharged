@@ -133,8 +133,7 @@ void Persist(Device& d,const std::map<std::string,Metadata>& entries) {
         text<<std::quoted(path)<<' '<<m.uid<<' '<<m.gid<<' '<<unsigned(m.owner)<<' '<<unsigned(m.group)<<' '<<unsigned(m.other)<<' '<<unsigned(m.attr)<<' '<<m.directory<<' '<<m.order<<'\n';
     const auto bytes=text.str();auto temporary=d.metadata;temporary+=".tmp";
     const auto fd=physical::OpenStaging(temporary);
-    if(!physical::Valid(fd))throw std::system_error(errno,std::generic_category(),
-        "Cannot write "+mscharged::PathUtf8(temporary)+physical::ErrorDetail());
+    if(!physical::Valid(fd)){const auto error=errno;throw physical::WriteError(error,temporary,physical::ErrorDetail());}
     std::size_t written{};int failure{};std::string detail;
     const auto failed=[&](int error){failure=error;detail=physical::ErrorDetail();};
     while(written<bytes.size()) {
@@ -148,7 +147,7 @@ void Persist(Device& d,const std::map<std::string,Metadata>& entries) {
     if(!failure&&physical::Replace(temporary,d.metadata))failed(errno);
     if(failure){
         physical::Remove(temporary,false);
-        throw std::system_error(failure,std::generic_category(),"Cannot write "+mscharged::PathUtf8(d.metadata)+detail);
+        throw physical::WriteError(failure,d.metadata,detail);
     }
 }
 std::vector<std::string> Children(const Device& d,const std::string& path) {
