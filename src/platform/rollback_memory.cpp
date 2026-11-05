@@ -11,6 +11,10 @@
 
 #include "Game/FriendManager.h"
 #include "Game/NetworkStatsManager.h"
+#include "NL/plat/WiiRemotePad.h"
+#include "NL/plat/WiiFreestylePad.h"
+#include "NL/plat/WiiClassicPad.h"
+#include "NL/plat/GameCubePad.h"
 
 // The DWC heap (NetworkSession.cpp).
 extern void* gNetworkMemoryPool;
@@ -53,6 +57,12 @@ void ExcludeAllocation(const void* pointer, std::size_t bytes, const char* name)
         Exclude(pointer, bytes, name);
     else if (!sState->stats.starts) // once, not at every start of the tracking
         Log("rollback: %s at %p is no allocation the registry knows; not excluded\n", name, pointer);
+}
+
+template <typename T> void ExcludePool(nlArrayAllocator<T>& pool, const char* name)
+{
+    Exclude(&pool, sizeof pool, name);
+    Exclude(pool.m_pMemory, 8 * sizeof(T), name);
 }
 
 void Keep(const void* base, std::size_t bytes)
@@ -149,6 +159,12 @@ void FindRanges(FixedUpdateTask* task, unsigned long taskBytes)
     if (PadManager* pads = g_pPadManager)
     {
         ExcludeAllocation(pads, sizeof(PadManager), "PadManager");
+        ExcludePool(gPlatPadAllocator, "cPlatPad pool");
+        ExcludePool(gGameCubePadAllocator, "GameCubePad pool");
+        ExcludePool(gWiiRemotePadAllocator, "WiiRemotePad pool");
+        ExcludePool(gWiiFreestylePadAllocator, "WiiFreestylePad pool");
+        ExcludePool(gWiiClassicPadAllocator, "WiiClassicPad pool");
+
         if (pads->m_aPads)
         {
             ExcludeAllocation(pads->m_aPads, 0, "PadManager pads");
