@@ -472,6 +472,21 @@ if(BUILD_TESTING)
     target_compile_definitions(game_tweaks_tests PRIVATE MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 MSCHARGED_TWEAKS=1)
     target_compile_features(game_tweaks_tests PRIVATE cxx_std_17)
     add_test(NAME game_tweaks COMMAND game_tweaks_tests)
+    # The rules a network match between releases plays by, in the module of
+    # every release (tweak patches 0057 and 0058).
+    foreach(_variant IN ITEMS us:R4QE01 eu:R4QP01_REV2 jp:R4QJ01 kr:R4QK01)
+        string(REPLACE ":" ";" _variant "${_variant}")
+        list(GET _variant 0 _suffix)
+        list(GET _variant 1 _version)
+        add_executable(sim_profile_${_suffix}_tests tests/sim_profile.cpp src/platform/sim_profile.cpp)
+        add_dependencies(sim_profile_${_suffix}_tests verify_prepared)
+        target_include_directories(sim_profile_${_suffix}_tests PRIVATE "${MSCHARGED_PREPARED}/include")
+        target_compile_definitions(sim_profile_${_suffix}_tests PRIVATE
+            MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 MSCHARGED_TWEAKS=1)
+        set_target_properties(sim_profile_${_suffix}_tests PROPERTIES MSCHARGED_GAME_VERSION ${_version})
+        target_compile_features(sim_profile_${_suffix}_tests PRIVATE cxx_std_17)
+        add_test(NAME sim_profile_${_suffix} COMMAND sim_profile_${_suffix}_tests)
+    endforeach()
     # The autopilot's sticks and shakes, read back the way the game reads the pad.
     add_executable(autopilot_pad_tests tests/autopilot_pad.cpp)
     target_include_directories(autopilot_pad_tests PRIVATE src)

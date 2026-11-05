@@ -1,0 +1,163 @@
+Subject: Port: friends between the releases, by a friend code of any release
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+A friend code is a GameSpy profile id under 7 bits of a hash over that id
+and the game code of the release that made it (DWC_CreateFriendKey): a
+CRC-8 in the USA's, Europe's and Japan's DWC, an MD5 in Korea's, whose
+DWC_Acc_CreateFriendKey and DWC_Acc_CheckFriendKey take the generator as a
+third argument. DWC checks a code with its own game's game code only: the
+friend roster refuses another release's code as invalid
+(FriendManager::AddFriendKey), and DWC_GetGsProfileId would find no
+profile in it anyway, so DWC would never ask the server for that friend
+(addbuddy), nor match their status or accept their request.
+
+Online, the port's games of every release meet (tweak patch 0058), and the
+WFC server pairs friends by profile id alone. DWC_CheckFriendKey,
+DWC_Acc_FriendKeyToGsProfileId and DWC_GetGsProfileId, which every check
+of a code goes through, now first take a code that any release makes for
+its profile, before their own checks, which differ between the releases.
+Making codes stays as it was, so every player keeps the code they see, and
+a friend of another release goes through the original states: a friend
+code until both have added each other, which DWC then turns into the
+friend's profile id. A mistyped code is now taken by chance about five
+times out of 128 instead of once.
+
+The roster's check for the player's own code compares whole codes; their
+own profile under another release's code is now taken as their own too.
+
+diff --git a/src/Game/FriendManager.cpp b/src/Game/FriendManager.cpp
+index c521368..df5bb23 100644
+--- a/src/Game/FriendManager.cpp
++++ b/src/Game/FriendManager.cpp
+@@ -111,6 +111,14 @@ bool FriendManager::AddFriendKey(unsigned long long friendKey)
+     u64 ownFriendKey = DWC_CreateFriendKey(userData);
+     GameInfoManager::GetInstance()->ValidateSaveSlot(gNetworkSaveSlotIndex);
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // DWC takes a friend code of any release (tweak patch 0059): this
++    // game's own profile under another release's code is still its own.
++    if ((u32)friendKey == (u32)ownFriendKey && ownFriendKey != 0)
++    {
++        friendKey = ownFriendKey;
++    }
++#endif
+     if (friendKey == ownFriendKey)
+     {
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+diff --git a/src/RVL_SDK/dwc/dwc_account.c b/src/RVL_SDK/dwc/dwc_account.c
+index 142c9f9..4a6e90e 100644
+--- a/src/RVL_SDK/dwc/dwc_account.c
++++ b/src/RVL_SDK/dwc/dwc_account.c
+@@ -10,6 +10,9 @@
+ #endif
+ #include <nitro/math/rand.h>
+ #include <revolution/os/OSTime.h>
++#if defined(MSCHARGED_TWEAKS)
++#include <revolution/net/NETDigest.h>
++#endif
+ #include <stdio.h>
+ #include <string.h>
+ 
+@@ -302,8 +305,76 @@ u64 DWC_Acc_CreateFriendKey(int gs_profile_id,
+ }
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Friends between the releases (tweak patch 0059): a friend code is a
++// profile id under 7 bits of a hash over that id and the game code of the
++// release that made it, which need not be this game's. Each release makes
++// its codes as DWC_CreateFriendKey does there: CRC-8, the Korean one MD5.
++// Making codes stays as it was, so every player keeps the code they see.
++// The Korean game builds the other releases' DWC (tweak patch 0060) and
++// makes CRC-8 codes too; its MD5 codes stay valid for friends saved before.
++static const u32 sMschargedFriendKeyCrcReleases[] = {
++    0x52345145, // R4QE
++    0x52345150, // R4QP
++    0x5234514A, // R4QJ
++    0x5234514B, // R4QK
++};
++
++static const u32 sMschargedFriendKeyMd5Release = 0x5234514B; // R4QK
++
++static BOOL DWCi_Acc_MschargedIsReleaseFriendKey(u64 friendkey)
++{
++    u32 code[2];
++    u32 reversed[2];
++    u32 hash = (u32)(friendkey >> 32);
++    u32 i;
++
++    // The original checks refuse negative profile ids; every release's
++    // hash has 7 bits.
++    if ((friendkey & 0x80000000) || (u32)friendkey == 0 || hash > 0x7f)
++    {
++        return FALSE;
++    }
++
++    code[0] = (u32)friendkey;
++    for (i = 0; i < sizeof(sMschargedFriendKeyCrcReleases) / sizeof(sMschargedFriendKeyCrcReleases[0]); ++i)
++    {
++        MATHCRC8Table table;
++
++        code[1] = sMschargedFriendKeyCrcReleases[i];
++        MATH_CRC8InitTable(&table);
++        DWCi_Np_ToLE(code, reversed, sizeof(code));
++        if ((MATH_CalcCRC8(&table, reversed, sizeof(reversed)) & 0x7f) == hash)
++        {
++            return TRUE;
++        }
++    }
++
++    {
++        NETMD5Context context;
++        u8 digest[16];
++
++        code[1] = sMschargedFriendKeyMd5Release;
++        DWCi_Np_ToLE(code, reversed, sizeof(code));
++        NETMD5Init(&context);
++        NETMD5Update(&context, reversed, sizeof(reversed));
++        NETMD5GetDigest(&context, digest);
++        return (u32)(digest[0] >> 1) == hash;
++    }
++}
++#endif
++
+ BOOL DWC_CheckFriendKey(const DWCAccUserData* userdata, u64 friendkey)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // A code of another release names its profile as well: DWC then asks
++    // the server for it (addbuddy) and keeps it as any friend code until
++    // the friendship is mutual.
++    if (DWCi_Acc_MschargedIsReleaseFriendKey(friendkey))
++    {
++        return TRUE;
++    }
++#endif
+ #if defined(VERSION_R4QK01)
+     return DWC_Acc_CheckFriendKey(friendkey, userdata->gamecode, DWCi_FRIENDKEY_GENERATOR_MD5);
+ #else
+@@ -356,6 +424,12 @@ BOOL DWC_Acc_CheckFriendKey(u64 friendkey,
+ int DWC_Acc_FriendKeyToGsProfileId(u64 friendkey,
+     u32 gamecode)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    if (DWCi_Acc_MschargedIsReleaseFriendKey(friendkey))
++    {
++        return (int)(friendkey & 0xffffffff);
++    }
++#endif
+ #if defined(VERSION_R4QK01)
+     int i;
+ 
+@@ -643,6 +717,12 @@ int DWC_GetGsProfileId(const DWCAccUserData* userdata,
+     {
+         u64 friend_key = DWCi_Acc_GetFriendKey(&frienddata->friend_key);
+ 
++#if defined(MSCHARGED_TWEAKS)
++        if (DWCi_Acc_MschargedIsReleaseFriendKey(friend_key))
++        {
++            return (int)(friend_key & 0xffffffff);
++        }
++#endif
+ #if defined(VERSION_R4QK01)
+         return DWC_Acc_FriendKeyToGsProfileId(friend_key, userdata->gamecode);
+ #else

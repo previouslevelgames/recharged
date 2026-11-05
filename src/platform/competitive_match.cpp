@@ -584,6 +584,17 @@ extern "C" bool mscharged_competitive_fit_text(void* text, void* matrix)
     return true;
 }
 
+// The draft's choice of the match's simulation profile (tweak patch 0058):
+// a set's game meets in RANKED, but puts no points (the WFC server keeps them
+// off the boards), so it plays by the rules of a friend match.
+extern "C" int mscharged_competitive_set_draft(const NetMessageDraft* message)
+{
+    if (!message || message->mMachineCount != 2) return 0;
+    for (int machine = 0; machine < 2; ++machine)
+        if (IsOpponent(message->mEntries[machine].mProfileId)) return 1;
+    return 0;
+}
+
 extern "C" bool mscharged_competitive_leave_search(void)
 {
     if (!sLeaveSearch) return false;
