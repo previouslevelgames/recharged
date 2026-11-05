@@ -8,6 +8,7 @@
 #include "platform/save_import.h"
 #include <revolution/ipc.h>
 
+#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -733,7 +734,10 @@ void RunOrphans(const fs::path& root) {
     // file's place), so its folders stay behind without one.
     const auto first = base / "first-start";
     fs::create_directories(first / "metadata.txt.tmp");
-    Reject([&] { start(first); }, "A catalog that cannot be written was accepted");
+    std::string message;
+    try { start(first); } catch (const filesystem_detail::WriteError& error) { message = error.what(); }
+    Check(message.rfind("Cannot write ", 0) == 0 && message.find("metadata.txt.tmp") != std::string::npos,
+          "A catalog that cannot be written was accepted, or its error does not name the file");
     Check(!GetNativeIOSStatus().devices && fs::is_directory(first / "data") && !fs::exists(first / "metadata.txt"),
           "The failed first start installed the device or wrote a catalog");
     // The next start sets the folder up again, with the empty folders a failed
@@ -793,6 +797,51 @@ void RunOrphans(const fs::path& root) {
           "A new Mii after a failed one");
 }
 
+// A refused create or rename on Windows is tried again for about a second,
+// as security software may hold a file it scans for a moment (#123); other
+// errors count at once. A write that stays refused says what may cause it.
+void RunRefusedRetry() {
+    using filesystem_detail::RetryRefused;
+    unsigned attempts{}, waited{};
+    std::vector<unsigned> waits;
+    const auto wait = [&](unsigned milliseconds) {
+        waits.push_back(milliseconds);
+        waited += milliseconds;
+    };
+    const auto failing = [&](int error, unsigned failures) {
+        return [&, error, failures] {
+            if (++attempts > failures) return true;
+            errno = error;
+            return false;
+        };
+    };
+    Check(RetryRefused(failing(EACCES, 3), wait) && attempts == 4 && waits == std::vector<unsigned>{10, 20, 40},
+          "A refusal that passes was not tried again");
+    attempts = waited = 0;
+    waits.clear();
+    errno = 0;
+    Check(!RetryRefused(failing(EACCES, 100), wait) && errno == EACCES,
+          "A lasting refusal did not fail with its error");
+    Check(attempts == filesystem_detail::RefusedRetryDelays.size() + 1 && waited >= 1000 && waited <= 1100,
+          "A lasting refusal was not tried for about a second");
+    attempts = waited = 0;
+    waits.clear();
+    Check(!RetryRefused(failing(ENOENT, 100), wait) && errno == ENOENT && attempts == 1 && waits.empty(),
+          "An error other than a refusal was tried again");
+
+    const filesystem_detail::WriteError refused(EACCES, fs::path("saves") / "metadata.txt", " (Win32 error 5)");
+    const std::string message = refused.what();
+    Check(refused.code().value() == EACCES && message.rfind("Cannot write ", 0) == 0
+              && message.find("metadata.txt (Win32 error 5): ") != std::string::npos,
+          "A write error lost its code, path or detail");
+#ifdef _WIN32
+    Check(message.find("Controlled folder access") != std::string::npos,
+          "A refused write on Windows does not name its likely cause");
+#else
+    Check(message.find("Controlled folder access") == std::string::npos, "A POSIX write error names Windows software");
+#endif
+}
+
 int main(int argc, char** argv) {
     try {
         if (argc != 2) throw std::runtime_error("usage: save_import_tests DATA_DIRECTORY");
@@ -805,6 +854,7 @@ int main(int argc, char** argv) {
         RunFriendCodes(fs::path(argv[1]));
         RunFind(fs::path(argv[1]));
         RunOrphans(fs::path(argv[1]));
+        RunRefusedRetry();
         std::cout << "save_import: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& e) {

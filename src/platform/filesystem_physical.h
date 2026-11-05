@@ -3,6 +3,7 @@
 // Physical storage only. IOS names, metadata, permissions and callback delivery
 // remain in filesystem_device.cpp. A Windows catalog never imports POSIX names.
 #include "platform/path.h"
+#include <array>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -33,6 +34,21 @@
 namespace mscharged::platform::filesystem_detail {
 namespace fs = std::filesystem;
 struct Info { std::int64_t size{}; bool directory{},regular{}; };
+
+// Security software may hold a file while it scans it, mostly one just written,
+// so creating or renaming that file fails for a moment with "access denied" or
+// a sharing violation (#123). Windows retries those for about a second:
+// `attempt` returns whether it worked and sets errno when not; `wait` sleeps
+// the given milliseconds. errno keeps the last failure.
+inline constexpr std::array<unsigned,8> RefusedRetryDelays{10,20,40,80,160,250,250,250};
+template<class Attempt,class Wait> bool RetryRefused(Attempt&& attempt,Wait&& wait) {
+    for(const auto delay:RefusedRetryDelays) {
+        if(attempt())return true;
+        if(errno!=EACCES)return false;
+        wait(delay);
+    }
+    return attempt();
+}
 #ifdef _WIN32
 using File = HANDLE;
 inline File InvalidFile() { return INVALID_HANDLE_VALUE; }
@@ -182,9 +198,14 @@ inline int Remove(const fs::path& path,bool directory) {
     PathGuard guard(path);CheckPath(path);
     return (directory?RemoveDirectoryW(WindowsPath(path).c_str()):DeleteFileW(WindowsPath(path).c_str()))?0:Fail();
 }
+inline void WaitRefused(unsigned milliseconds) { Sleep(milliseconds); }
 inline int Replace(const fs::path& old_path,const fs::path& new_path) {
     PathGuard old_guard(old_path),new_guard(new_path);CheckPath(old_path);CheckPath(new_path);
-    return MoveFileExW(WindowsPath(old_path).c_str(),WindowsPath(new_path).c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)?0:Fail();
+    const auto from=WindowsPath(old_path),to=WindowsPath(new_path);
+    return RetryRefused([&]{
+        if(MoveFileExW(from.c_str(),to.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))return true;
+        Fail();return false;
+    },WaitRefused)?0:-1;
 }
 inline fs::path PrepareRoot(const fs::path& root) {
     const auto result=fs::absolute(root).lexically_normal();
@@ -203,8 +224,12 @@ inline fs::path PrepareRoot(const fs::path& root) {
 }
 inline void MakeDirs(const fs::path& path){(void)PrepareRoot(path);}
 inline File OpenStaging(const fs::path& path) {
-    auto file=Open(path,2,false,true);
-    if(!Valid(file)&&errno==ENOENT)file=Open(path,2,true);
+    auto file=InvalidFile();
+    RetryRefused([&]{
+        file=Open(path,2,false,true);
+        if(!Valid(file)&&errno==ENOENT)file=Open(path,2,true);
+        return Valid(file);
+    },WaitRefused);
     return file;
 }
 inline bool Exists(const fs::path& path) {
@@ -272,6 +297,29 @@ inline std::vector<fs::path> Children(const fs::path& path) {
 inline int ErrorNumber(const std::error_code& error){return error.value();}
 inline std::string ErrorDetail(){return {};}
 #endif
+
+// A file that could not be written: its path, the system's own code (detail,
+// from ErrorDetail) and, when Windows still refuses after the retries, what
+// usually causes it (#123). code() stays the errno value.
+class WriteError : public std::system_error {
+public:
+    WriteError(int error,const fs::path& path,const std::string& detail)
+        :std::system_error(error,std::generic_category()),
+         message_("Cannot write "+::mscharged::PathUtf8(path)+detail+": "+code().message()+Hint(error)) {}
+    const char* what() const noexcept override { return message_.c_str(); }
+
+private:
+    static std::string Hint([[maybe_unused]] int error) {
+#ifdef _WIN32
+        if(error==EACCES)
+            return ". Security software, such as Controlled folder access in Windows Security or an "
+                   "antivirus, may block recharged.exe in this folder: allow recharged.exe there, or move "
+                   "the Recharged folder elsewhere, for example to C:\\Games.";
+#endif
+        return {};
+    }
+    std::string message_;
+};
 
 // A save folder (backing) without its catalog (metadata.txt) is what a first
 // start or an import leaves when writing the catalog failed: its folders are

@@ -126,8 +126,10 @@ void WriteAtomically(const fs::path& target, const std::string& bytes) {
     auto staging = target;
     staging += ".import";
     const auto file = physical::OpenStaging(staging);
-    if (!physical::Valid(file))
-        throw std::system_error(errno, std::generic_category(), PathUtf8(staging) + physical::ErrorDetail());
+    if (!physical::Valid(file)) {
+        const auto error = errno;
+        throw physical::WriteError(error, staging, physical::ErrorDetail());
+    }
     std::size_t written = 0;
     int failure = 0;
     std::string detail;
@@ -146,7 +148,7 @@ void WriteAtomically(const fs::path& target, const std::string& bytes) {
     if (!failure && physical::Replace(staging, target)) failed(errno);
     if (failure) {
         physical::Remove(staging, false);
-        throw std::system_error(failure, std::generic_category(), PathUtf8(target) + detail);
+        throw physical::WriteError(failure, target, detail);
     }
 }
 
