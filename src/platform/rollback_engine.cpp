@@ -214,6 +214,17 @@ FrameRecord& Frame(std::uint64_t frame)
 
 namespace
 {
+// The audio's transitions and sounds as the match now wants them
+// (mscharged_rollback_audio.h): those a replayed step started or ended
+// otherwise than its first run, and the one-shot sounds only the replay
+// played, late.
+void ApplyAudio()
+{
+    mscharged_rollback_audio_reconcile();
+    mscharged_rollback_audio_reconcile_tracked_sounds();
+    mscharged_rollback_audio_play_late_sounds();
+}
+
 void BeginFrameRecord()
 {
     State& s = *sState;
@@ -242,6 +253,15 @@ bool Start(FixedUpdateTask* task, unsigned long taskBytes, unsigned (*checksum)(
         return false;
     }
     if (s.options.compareEvery) BuildWatched();
+    // A reconciliation the last tracking left waiting (it stopped before its
+    // undone steps ran again, which they did since, outside it). Before the
+    // sounds that ended leave the tables: one an undone step ended may be one
+    // the match wants.
+    if (s.net.audioAfter)
+    {
+        s.net.audioAfter = 0;
+        ApplyAudio();
+    }
     // The tracked sounds that ended by themselves leave the audio's tables
     // before the first save: nothing goes back before it.
     mscharged_rollback_audio_tracking_start();
@@ -296,17 +316,14 @@ void Stop(const char* why)
 
 namespace
 {
-// The audio's transitions and tracked sounds as the match now wants them
-// (mscharged_rollback_audio.h): those a replayed step started or ended
-// otherwise than its first run. Not while steps a rollback undid wait to run
-// again: their sounds would end and start again for the frames until then.
+// After a rollback. Not while steps a rollback undid wait to run again: their
+// sounds would end and start again for the frames until then.
 void ReconcileAudio()
 {
     State& s = *sState;
     if (s.net.audioAfter > s.latest) return;
     s.net.audioAfter = 0;
-    mscharged_rollback_audio_reconcile();
-    mscharged_rollback_audio_reconcile_tracked_sounds();
+    ApplyAudio();
 }
 
 // Replays frames `first` to `last` as one, their tasks `firstTask` to
@@ -536,6 +553,7 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     const unsigned ran = s.options.netplay ? std::max(s.net.lastInputFrame, s.latest) : s.latest;
     s.replayEnd = replayEnd;
     s.resimulating = true;
+    mscharged_rollback_audio_replay_start();
     unsigned next = target + 1;
     const int fixedIndex = fixedIndexOf();
     const int lastTask = s.tasks.count - 1;
