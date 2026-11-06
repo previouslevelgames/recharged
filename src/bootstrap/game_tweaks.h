@@ -74,11 +74,12 @@ inline constexpr std::array<GameTweakInfo, 14> kGameTweaks{{
     {GameTweak::BluePeach, "blue_peach", "Blue Peach",
      "Peach's team wears her unused blue and yellow kit on the field: Peach, her sidekicks and her goalie. The game "
      "has no blue menu pictures, Mega Strike hand, banners or crowd for it, so those stay pink."},
-    {GameTweak::FairBallContests, "fair_ball_contests", "Fair ball contests",
-     "When players of both teams reach a loose ball at once, neither team wins more often. The game updates the "
+    {GameTweak::FairBallContests, "fair_ball_contests", "Feder's fair ball contests",
+     "When players of both teams reach a loose ball at once, the defending team (the one whose goal is on the "
+     "ball's side of the field) takes it. On the Wii the home was favoured instead: the Wii game updates the "
      "players in an order it shuffles at kickoff, slightly in the home team's favour, and settles one-timers, "
-     "first-time shots off rebounds and pass receptions with the home team always first; this shuffles the order "
-     "fairly, again every step, and uses it for those too. On by default; online matches always play with it.",
+     "first-time shots off rebounds and pass receptions with the home team always first. Named after Feder, who "
+     "made a Gecko code for this on the Wii. On by default; online matches always play with it.",
      true},
     {GameTweak::RobotGoalies, "robot_goalies", "Robot goalies",
      "Both goalies wear the robot Kritter skin of the Super Team from Super Mario Strikers, which the game's disc "
