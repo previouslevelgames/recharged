@@ -269,8 +269,9 @@ show_hud = true
 # super_team: the captain and sidekicks of super_team_side (away, home or both)
 # become the robots of the Super Team from Super Mario Strikers, fitted to each
 # character. Needs [game] gamecube_disc. Bowser, Petey and Boo keep their look.
-# fair_ball_contests: when players of both teams reach a loose ball at once,
-# neither team wins it more often (the game's player order slightly favours
+# fair_ball_contests: Feder's fair ball contests. When players of both teams
+# reach a loose ball at once, the defending team (whose goal is on the ball's
+# side of the field) takes it (on the Wii the player order slightly favours
 # the home team, and one-timers, first-time shots off rebounds and pass
 # receptions always favour it). On by default; online matches always play
 # with it.
