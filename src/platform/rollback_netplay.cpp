@@ -660,7 +660,7 @@ extern "C" int mscharged_rollback_network_reset(void)
     s.net.lastInputFrame = 0;
     std::fill(std::begin(s.net.firstPredicted), std::end(s.net.firstPredicted), 0u);
     s.net.haveLastReal = false;
-    s.net.waitThrough = s.net.undoFrom = 0;
+    s.net.waitThrough = s.net.undoFrom = s.net.audioAfter = 0;
     s.net.captured = s.net.haveConfirmed = false;
     s.net.remoteCount = 0;
     // No step's checksum yet: an empty slot must not pass for step 0's (or for
