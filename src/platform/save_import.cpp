@@ -126,23 +126,49 @@ void WriteAtomically(const fs::path& target, const std::string& bytes) {
     auto staging = target;
     staging += ".import";
     const auto file = physical::OpenStaging(staging);
-    if (!physical::Valid(file)) throw std::system_error(errno, std::generic_category(), PathUtf8(staging));
+    if (!physical::Valid(file)) {
+        const auto error = errno;
+        throw physical::WriteError(error, staging, physical::ErrorDetail());
+    }
     std::size_t written = 0;
     int failure = 0;
+    std::string detail;
+    const auto failed = [&](int error) {
+        failure = error;
+        detail = physical::ErrorDetail();
+    };
     while (written < bytes.size()) {
         const auto result = physical::Write(file, bytes.data() + written, bytes.size() - written);
         if (result < 0 && errno == EINTR) continue;
-        if (result <= 0) { failure = result < 0 ? errno : EIO; break; }
+        if (result <= 0) { failed(result < 0 ? errno : EIO); break; }
         written += static_cast<std::size_t>(result);
     }
-    if (!failure && physical::Sync(file)) failure = errno;
-    if (physical::Close(file) && !failure) failure = errno;
-    if (!failure && physical::Replace(staging, target)) failure = errno;
+    if (!failure && physical::Sync(file)) failed(errno);
+    if (physical::Close(file) && !failure) failed(errno);
+    if (!failure && physical::Replace(staging, target)) failed(errno);
     if (failure) {
         physical::Remove(staging, false);
-        throw std::system_error(failure, std::generic_category(), PathUtf8(target));
+        throw physical::WriteError(failure, target, detail);
     }
 }
+
+// Files a catalog does not list yet, removed again unless that catalog is
+// written (Keep): a backing then never holds files its catalog lacks, and a
+// new one with only empty folders counts as new on the next try (#123).
+class NewFiles {
+public:
+    NewFiles() = default;
+    NewFiles(const NewFiles&) = delete;
+    NewFiles& operator=(const NewFiles&) = delete;
+    ~NewFiles() {
+        for (const auto& file : files_) try { physical::Remove(file, false); } catch (...) {}
+    }
+    void Add(const fs::path& file) { files_.push_back(file); }
+    void Keep() { files_.clear(); }
+
+private:
+    std::vector<fs::path> files_;
+};
 
 // RFLiCalculateCRC (RFL_Database.c).
 std::uint16_t MiiCrc(const std::string& bytes, std::size_t size) {
@@ -244,13 +270,16 @@ Catalog NewCatalog(const fs::path& data, const SaveTitle& title) {
 }
 
 // The catalog of the backing at `root`, or an empty one (`existing` false)
-// when the backing is new. A backing with files but no catalog is not used.
-Catalog ExistingCatalog(const fs::path& root, const SaveTitle& title, bool& existing) {
+// when the backing is new. A backing with files but no catalog is not used;
+// one with only empty folders counts as new (#123), and `reset` removes those
+// folders so that they are made again.
+Catalog ExistingCatalog(const fs::path& root, const SaveTitle& title, bool& existing, bool reset = false) {
     const auto data = root / "data", metadata = root / "metadata.txt";
     existing = physical::Exists(metadata);
-    if (!existing && physical::Exists(data) && !physical::IsEmpty(data))
-        throw std::runtime_error("The save folder " + PathUtf8(root) + " has files but no catalog (metadata.txt).");
-    return existing ? LoadCatalog(metadata, title) : Catalog{};
+    if (existing) return LoadCatalog(metadata, title);
+    if (physical::HoldsFiles(data)) throw std::runtime_error(physical::NoCatalogMessage(root));
+    if (reset) physical::RemoveEmptyFolders(data);
+    return {};
 }
 
 std::string CatalogText(const Catalog& catalog, const SaveTitle& title) {
@@ -390,7 +419,7 @@ SaveImportResult ImportDolphinSave(const fs::path& source, const fs::path& nand_
     const auto root = physical::PrepareRoot(nand_root);
     const auto data = root / "data", metadata = root / "metadata.txt";
     bool existing{};
-    auto catalog = ExistingCatalog(root, title, existing);
+    auto catalog = ExistingCatalog(root, title, existing, true);
     const auto home = Home(title.title_id);
     if (existing) {
         const auto entry = catalog.entries.find(home);
@@ -416,15 +445,18 @@ SaveImportResult ImportDolphinSave(const fs::path& source, const fs::path& nand_
         catalog = NewCatalog(data, title);
     }
 
+    NewFiles added;
     for (const auto& [name, bytes] : files) {
         const auto path = home + '/' + name;
+        const bool listed = catalog.entries.count(path) != 0;
+        if (!listed) added.Add(Physical(data, path));
         WriteAtomically(Physical(data, path), bytes);
         // New files get the permissions the game gives its own (owner read/write).
-        if (!catalog.entries.count(path))
-            catalog.entries.emplace(path, Entry{title.uid, title.gid, 3, 0, 0, 0, 0, catalog.next++});
+        if (!listed) catalog.entries.emplace(path, Entry{title.uid, title.gid, 3, 0, 0, 0, 0, catalog.next++});
         result.files.push_back(name);
     }
     WriteAtomically(metadata, CatalogText(catalog, title));
+    added.Keep();
     return result;
 }
 
@@ -479,7 +511,7 @@ void CheckMiiEntries(const Catalog& catalog) {
 MiiBacking OpenMiiBacking(const fs::path& nand_root, const SaveTitle& title) {
     const auto root = physical::PrepareRoot(nand_root);
     MiiBacking backing{root / "data", root / "metadata.txt"};
-    backing.catalog = ExistingCatalog(root, title, backing.existing);
+    backing.catalog = ExistingCatalog(root, title, backing.existing, true);
     CheckMiiEntries(backing.catalog);
     // A database the catalog has but the disk lost holds nothing to keep.
     const auto file = Physical(backing.data, kMiiDatabase);
@@ -512,9 +544,12 @@ fs::path WriteMiiDatabase(MiiBacking& backing, const SaveTitle& title, const std
         physical::MakeDirs(Physical(backing.data, path));
         catalog.entries.emplace(path, Entry{0, 0, 3, 3, 3, 0, 1, catalog.next++});
     }
+    NewFiles added;
+    if (!replacing) added.Add(Physical(backing.data, kMiiDatabase));
     WriteAtomically(Physical(backing.data, kMiiDatabase), database);
     if (!replacing) catalog.entries.emplace(kMiiDatabase, Entry{0, 0, 3, 3, 3, 0, 0, catalog.next++});
     WriteAtomically(backing.metadata, CatalogText(catalog, title));
+    added.Keep();
     return backup;
 }
 
