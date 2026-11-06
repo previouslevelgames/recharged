@@ -41,11 +41,20 @@ int main() {
     Check(top[0].x == 0 && top[0].y == 767 && top[0].size == 0, "an object on the top row was kept");
     Check(top[1].x == 0x20 && top[1].y == 762 && top[1].size == 12, "the neighbour of a dropped object was lost");
 
+    // A remote can send objects outside the 1024x768 sensor (a noisy report);
+    // they are dropped like missing ones instead of reaching WPAD out of range.
+    const std::uint8_t outside[10]{0xf4, 0x84, 0xd0, 0x20, 0x05, 0x10, 0xff, 0xcf, 0xff, 0xff};
+    const auto clipped = DecodeWiimoteBasicIr(outside);
+    Check(clipped[0].x == 0 && clipped[0].y == 767 && clipped[0].size == 0, "an object outside the sensor was kept");
+    Check(clipped[1].x == 0x20 && clipped[1].y == 762 && clipped[1].size == 12,
+          "the neighbour of an object outside the sensor was lost");
+    Check(clipped[2].size == 0, "an object with a valid x and y 1023 was kept");
+
     // Second group's high bits use the same layout.
-    const std::uint8_t second[10]{0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0x02, 0xe4, 0x03, 0x04};
+    const std::uint8_t second[10]{0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0x02, 0xb4, 0x03, 0x04};
     const auto group = DecodeWiimoteBasicIr(second);
     Check(group[0].size == 0 && group[1].size == 0, "an empty first group produced objects");
-    Check(group[2].x == (0x01 | 2 << 8) && group[2].y == 767 - (0x02 | 3 << 8), "third object bits");
+    Check(group[2].x == (0x01 | 3 << 8) && group[2].y == 767 - (0x02 | 2 << 8), "third object bits");
     Check(group[3].x == (0x03 | 0 << 8) && group[3].y == 767 - (0x04 | 1 << 8), "fourth object bits");
 
     // KPAD's pointer centre for the screen centre (the desktop mouse camera).
