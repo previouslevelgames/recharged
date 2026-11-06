@@ -242,6 +242,9 @@ bool Start(FixedUpdateTask* task, unsigned long taskBytes, unsigned (*checksum)(
         return false;
     }
     if (s.options.compareEvery) BuildWatched();
+    // The tracked sounds that ended by themselves leave the audio's tables
+    // before the first save: nothing goes back before it.
+    mscharged_rollback_audio_tracking_start();
     const unsigned frame = static_cast<unsigned>(task->GetFrame());
     mscharged::platform::BeginGameAllocationCheckpoint(Excluded);
     Step& step = s.steps[frame % kRing];
@@ -293,6 +296,19 @@ void Stop(const char* why)
 
 namespace
 {
+// The audio's transitions and tracked sounds as the match now wants them
+// (mscharged_rollback_audio.h): those a replayed step started or ended
+// otherwise than its first run. Not while steps a rollback undid wait to run
+// again: their sounds would end and start again for the frames until then.
+void ReconcileAudio()
+{
+    State& s = *sState;
+    if (s.net.audioAfter > s.latest) return;
+    s.net.audioAfter = 0;
+    mscharged_rollback_audio_reconcile();
+    mscharged_rollback_audio_reconcile_tracked_sounds();
+}
+
 // Replays frames `first` to `last` as one, their tasks `firstTask` to
 // `lastTask` as the task manager ran them, each with the frames' time added
 // up, and the steps in them from `next` (the steps with their inputs, a save
@@ -560,9 +576,6 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     RollbackRedeliverMegaStrikeMeter(s.received, s.receivedCount);
     s.stats.meterRedelivered += s.receivedCount;
     s.resimulating = false;
-    // The audio transitions as the replay left the match wanting them: those a
-    // replayed step started or ended otherwise than its first run.
-    mscharged_rollback_audio_reconcile();
     s.saveFrom = 0;
     if (next != s.replayEnd + 1) Log("REPLAY MISSED STEPS %u to %u\n", next, s.replayEnd);
     if (s.options.netplay && s.replayEnd < ran)
@@ -573,10 +586,12 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
         s.latest = s.replayEnd;
         s.net.lastInputFrame = s.replayEnd;
         s.net.waitThrough = std::max(s.net.waitThrough, ran);
+        s.net.audioAfter = std::max(s.net.audioAfter, ran);
         for (unsigned& first : s.net.firstPredicted)
             if (first > s.replayEnd) first = 0;
         fixed->mAccumulatedDeltaT += static_cast<float>(ran - s.replayEnd) * g_fFixedUpdateTick;
     }
+    ReconcileAudio();
     ++s.stats.rollbacks;
     ++s.stats.byDepth[std::min(depth, kMaxDepth)];
     Record(NowNs() - start, s.stats.rollbackNs, s.stats.maxRollbackNs);
@@ -840,6 +855,7 @@ extern "C" void mscharged_rollback_between_steps(int (*replay)(const MschargedRo
     s.haveInputs = false;
     s.latest = frame;
     ++s.stored;
+    if (s.net.audioAfter) ReconcileAudio();
     // No rollback returns past the oldest step kept: the registry forgets the journal before it.
     const unsigned oldest = frame - static_cast<unsigned>(std::min(s.stored, kRing) - 1);
     mscharged::platform::TrimGameAllocationCheckpoint(s.steps[oldest % kRing].mark);
