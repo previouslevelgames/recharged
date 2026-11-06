@@ -133,8 +133,8 @@ play.
 
 ## Optional tweaks
 
-Off by default, except Fair ball contests and Match point; with all of them
-off the game plays as on the Wii. Four fixes of the original game are always
+Off by default, except Feder's fair ball contests and Match point; with all
+of them off the game plays as on the Wii. Four fixes of the original game are always
 on: a goal net no longer stays dented after a
 goal ([#19](https://github.com/previouslevelgames/recharged/issues/19)),
 electrocuted players flash with the game's lightning texture instead of a
@@ -190,16 +190,18 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   Your team starts every kickoff with the chosen item and keeps every item it
   uses, in a match to 10 goals that never ends on them (leave it from the
   pause menu). Every other match is unchanged.
-- **Fair ball contests**: when players of both teams reach a loose ball in
-  the same instant, the one the game updates first takes it. The game
+- **Feder's fair ball contests**: when players of both teams reach a loose
+  ball in the same instant, the one the Wii game updates first takes it. It
   shuffles that order at every kickoff in a way that puts the home team
   first slightly more often (52 % of the time on average, up to 55 %).
   One-timers, first-time shots and passes off a loose ball (a rebound off
   the goalie or the post) and pass receptions are settled after the physics
-  step instead, always home team first. With this option the order is
-  shuffled fairly, again every simulation step, and used for those too.
-  On by default, as it is recommended to every player; online matches always
-  play with it.
+  step instead, always home team first. With this option the defending
+  team goes first, the one whose goal is on the ball's side of the field,
+  again every simulation step and for those contests too (at kickoff, with
+  the ball on the center line, the order is only shuffled). Named after
+  Feder, who made a Gecko code for this on the Wii. On by default, as it is
+  recommended to every player; online matches always play with it.
 - **Mirror match**: both teams can pick the same captain in Domination. The
   away team wears an away kit, in the menus as on the field: the game's own,
   or for Mario, Luigi, Wario and Waluigi, who have none, one made from their

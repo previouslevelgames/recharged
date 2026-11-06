@@ -31,8 +31,8 @@ index 742219a..614179a 100644
 --- a/include/Game/Game.h
 +++ b/include/Game/Game.h
 @@ -102,6 +102,11 @@ public:
-     // Port tweak "Fair ball contests": this step's update order, or NULL when
-     // the tweak is off or no kickoff has set the order yet.
+     // Port tweak "Feder's fair ball contests": this step's update order, or
+     // NULL when the tweak is off or no kickoff has set the order yet.
      cPlayer* const* FairBallContestsOrder() const;
 +#endif
 +#if defined(MSCHARGED_TWEAKS)
