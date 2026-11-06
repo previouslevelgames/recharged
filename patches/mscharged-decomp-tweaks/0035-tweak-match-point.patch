@@ -21,7 +21,8 @@ goal from winning changes nothing. In a match to one goal, both are from the
 first kickoff.
 
 None of it touches the match: the music is the audio's, which no rollback
-restores and a replayed frame does not start again, the lights draw from
+restores (after a rollback the audio starts or stops it as the match then
+wants, patch 0046), the lights draw from
 the effects' own random seed (gEffectsRandomSeed), and the HUD reads the
 scores. Two games playing each other may differ in it.
 
