@@ -1,5 +1,5 @@
 Subject: [PATCH] Restore original game camera and material view decisions
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Use the original view and active game camera in game-module rendering. Restore
 source light-texture requests and specular cache values; restrict standalone

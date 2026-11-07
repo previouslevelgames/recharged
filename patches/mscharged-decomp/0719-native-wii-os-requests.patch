@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Declare the Wii OS requests the online SDK sources use natively
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility
 
 DWC sleeps through OSSleepTicks but includes only OSThread.h, whose

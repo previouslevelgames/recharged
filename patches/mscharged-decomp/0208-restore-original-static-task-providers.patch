@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original frontend pointer task and native static providers
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Restore literal feDPD source and isolate pointer/timing extracts from the original
 module. Use one native SDK GX/VI/DVD declaration ABI, retain genuine Wii

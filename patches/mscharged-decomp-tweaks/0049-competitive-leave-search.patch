@@ -1,5 +1,5 @@
 Subject: Competitive play: a set called off during its search leaves it
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A set's game goes into the RANKED search by itself (0047), where the
 connection check accepts only the set's opponent. When the set is called off

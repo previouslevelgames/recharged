@@ -1,5 +1,5 @@
 Subject: [PATCH] Preserve original 3D sound owner bit positions and pool entries natively
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native audio ABI contract (shared audio service; flagged for
 the internal audio owner). Depends on the original AudioSystem/XSoundHandle
 sources only.

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Read the online lobby's connection AID through the native transport word
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility
 
 NetworkLobby reads a connection's AID as the byte at offset 0x27 of the

@@ -1,6 +1,6 @@
 Subject: Share original save-state and option-default steps
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Native preferences reuse scoped state fragments without defining global game save
 readiness. NAND, normal save data, error UI and banner operations stay unselected.

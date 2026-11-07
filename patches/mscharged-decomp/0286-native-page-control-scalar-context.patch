@@ -1,6 +1,6 @@
 Subject: Adapt original page-control scalar callback contexts for native compilers
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 The original producer encodes only button index zero or one in void*.
 Native pointer-width casts carry that scalar value without changing unsigned

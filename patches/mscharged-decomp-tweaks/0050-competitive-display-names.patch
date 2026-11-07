@@ -1,5 +1,5 @@
 Subject: Competitive play: a set's players by their profile names
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 The game shows its online players by their Mii names, at most 10 characters
 (also what the network carries). During a set, the rows of the RANKED search

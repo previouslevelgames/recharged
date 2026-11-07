@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Bind shadow volume arrays through their actual byte domains
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 The original stadium shadow volumes count faces in EFB alpha: front faces add
 4/255, back faces subtract it, and the blend pass darkens every pixel whose

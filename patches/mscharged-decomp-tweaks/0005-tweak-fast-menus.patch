@@ -1,5 +1,5 @@
 Subject: Tweak: fast menus
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 With "Fast menus" enabled menu transitions are skipped, outside matches and
 the boot screens. In a match its menus count too: the pause menu and the

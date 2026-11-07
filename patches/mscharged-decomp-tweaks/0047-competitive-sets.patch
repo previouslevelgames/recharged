@@ -1,5 +1,5 @@
 Subject: Competitive play: a set's game starts itself into its RANKED search
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A competitive set starts once both players pressed Ready to play!: in the
 launcher's lobby, both launchers start the game with the set handed over, and

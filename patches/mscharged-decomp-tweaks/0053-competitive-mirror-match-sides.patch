@@ -1,5 +1,5 @@
 Subject: Competitive play: each player sees their own team in its kit
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 In a mirror match (tweak patch 0015) one captain is on both teams, and the
 away team wears his away kit: on the field and in the menus, the overlays,

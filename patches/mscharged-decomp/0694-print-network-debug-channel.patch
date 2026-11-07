@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Print the network debug channel under the LAN and online admissions or RECHARGED_NET_DEBUG
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: explicit original-source diagnostic admission
 
 Retail compiles tDebugPrintManager::Print to nothing. Native builds print the

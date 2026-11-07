@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Compute DWC's SHA-1 in its big-endian word order natively
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native byte-order compatibility
 
 MATH_CalcSHA1 loads the message's 32-bit words and stores the digest's

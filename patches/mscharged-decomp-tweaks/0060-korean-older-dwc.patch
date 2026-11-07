@@ -1,5 +1,5 @@
 Subject: Port: the Korean game online with the other releases' DWC
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 The Korean release links a newer DWC and GameSpy (RVL SDK 0x4302_145, May
 2009) than the other releases (0x4199_60831, 2007). Their matchmaking is a

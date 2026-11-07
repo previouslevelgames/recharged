@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Adapt the Korean SDK sources natively
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility
 
 The Korean release builds some SDK files from its own copies (R4QK01/), with

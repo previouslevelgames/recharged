@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original frontend navigation and canonical Mii GX declaration
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Restore whole original SHNavigation.cpp exactly, preserving original UI, pointer
 and transition decisions. Retained extracted helper headers cannot enter the

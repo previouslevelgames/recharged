@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Convert the native HUD clock the way MWCC does
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility; same fix as patch 0700.
 
 HUDClock::Update converts the remaining match time to unsigned long three

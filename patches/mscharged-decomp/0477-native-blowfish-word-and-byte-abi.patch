@@ -1,5 +1,5 @@
 Subject: [PATCH] Preserve original cipher words and PowerPC byte ABI natively
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 diff --git a/include/NL/blowfish.h b/include/NL/blowfish.h
 index c3ea603..28a9b47 100644

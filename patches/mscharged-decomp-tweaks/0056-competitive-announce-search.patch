@@ -1,5 +1,5 @@
 Subject: Competitive play: a set's game announces its search at once
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 DWC's RANKED search first waits until the master server lists the game's own
 session with its matchmaking keys, which the game sends in a state-changed

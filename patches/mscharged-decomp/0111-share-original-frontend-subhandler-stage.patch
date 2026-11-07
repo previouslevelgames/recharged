@@ -1,6 +1,6 @@
 Subject: Share original inherited empty frontend subhandler stage
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Selected Main/Options native visual owners call the same inherited stage;
 full SceneCreated and FEScene state6 remain separate dependencies.

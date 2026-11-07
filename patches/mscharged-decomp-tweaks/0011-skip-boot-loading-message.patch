@@ -1,5 +1,5 @@
 Subject: Port: start without the boot loading message
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A presentation change of the port, always on and without a switch (owner
 decision, 2026-10-14). It lives in the tweak series so the faithful series

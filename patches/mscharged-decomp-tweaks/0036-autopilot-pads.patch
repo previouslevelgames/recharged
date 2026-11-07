@@ -1,5 +1,5 @@
 Subject: Port: the test builds' autopilot plays through the pads
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Test builds (MSCHARGED_AUTOPILOT) can hand the first local player to a bot:
 C, P and U held together in the game window. The bot is the port's

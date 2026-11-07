@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Read the banner captain's character class by member
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility; same kind of fix as patch 0699.
 
 StadiumWorldDrawable::UpdateModelMaterials picks the team banner texture.

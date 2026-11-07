@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Prepare native CPU-skinned position and normal layouts
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 diff --git a/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp b/src/NL/glx/GXBlackTextureAlphaMaterialProgramRender.cpp
 index c0e276f..82b989d 100644

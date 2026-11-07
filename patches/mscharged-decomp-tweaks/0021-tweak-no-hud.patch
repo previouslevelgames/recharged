@@ -1,5 +1,5 @@
 Subject: Tweak: no HUD
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 For clean recordings and screenshots (issue #58), "No HUD" starts matches
 without their overlays; the host's H key shows or hides them during a match

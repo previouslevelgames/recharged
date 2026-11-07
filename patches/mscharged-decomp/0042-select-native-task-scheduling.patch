@@ -1,6 +1,6 @@
 Subject: Select original task scheduling and explicit movie service boundary
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Restore the complete original task algorithm for production. Borrowed-task
 registration, constructor zeroing, extra scheduler checks and absent-service

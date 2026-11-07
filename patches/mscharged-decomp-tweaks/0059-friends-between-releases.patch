@@ -1,5 +1,5 @@
 Subject: Port: friends between the releases, by a friend code of any release
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A friend code is a GameSpy profile id under 7 bits of a hash over that id
 and the game code of the release that made it (DWC_CreateFriendKey): a

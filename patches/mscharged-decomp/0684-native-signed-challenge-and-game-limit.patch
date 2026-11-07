@@ -1,5 +1,5 @@
 Subject: Preserve signed Wii32 challenge and game-limit values
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Native-only declaration transport. Console tokens, numeric constants, source
 branches and serialized data remain unchanged. Apply after the refreshed469

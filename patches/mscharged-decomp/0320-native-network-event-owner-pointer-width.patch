@@ -1,6 +1,6 @@
 From: mscharged native port
 Subject: [PATCH] Retain genuine NetworkSession event-owner pointer width
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 The two original session fields are real event owner addresses. Use the
 existing native EventOwnerHandle ABI before original Add, preserving all

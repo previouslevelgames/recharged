@@ -1,4 +1,4 @@
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Purpose: Original RFL InitTexRes serialized dimensions and image offset/count transport; preserve raw pixels, requests and budgets.
 
 diff --git a/src/RVL_SDK/rfl/RFL_Model.c b/src/RVL_SDK/rfl/RFL_Model.c

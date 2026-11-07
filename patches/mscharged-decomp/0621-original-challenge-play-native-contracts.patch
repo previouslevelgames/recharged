@@ -1,5 +1,5 @@
 Subject: Native compiler contracts of the original lesson and Challenge play units
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler contract; no game behavior change.
 
 Retail MWCC emits header inline functions out of line, so units that see only

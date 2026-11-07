@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Restore original frontend material program decisions
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: R02 source-fidelity correction; retire prior native game-side behavior changes.
 Preserve original registry Add behavior, constructor order, empty destructors
 and fixed signed16 / 1024 VertexColourTexture UV format. Canonical GX/FIFO

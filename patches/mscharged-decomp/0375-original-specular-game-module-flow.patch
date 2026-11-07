@@ -1,6 +1,6 @@
 From: mscharged-port original-source fidelity
 Subject: Retire standalone Specular preview decisions from original game modules
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Original game modules use the actual source view, skinnedVertices condition,
 display lists and cached matrix wrapper. Bind the source-selected arrays with

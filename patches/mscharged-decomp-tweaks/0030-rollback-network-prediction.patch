@@ -1,5 +1,5 @@
 Subject: Diagnostic: rollback network matches predict the inputs on their way
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Rollback study, after tweak patch 0029. Network matches with rollback
 (RECHARGED_ROLLBACK): the network router lets the port decide whether a step

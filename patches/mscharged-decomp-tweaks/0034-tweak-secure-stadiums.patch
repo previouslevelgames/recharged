@@ -1,5 +1,5 @@
 Subject: Tweak: secure stadiums
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 The game's Secure Stadium cheat (ENV_CHEAT_SECURE) stops every stadium's
 weather: GameInfoManager::IsRule0x4Equal1 is the one test, and with it

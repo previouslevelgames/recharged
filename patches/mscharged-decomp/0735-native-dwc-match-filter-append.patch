@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Append DWC's added match filter without an overlapping snprintf
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native libc compatibility
 
 DWCi_SBUpdateAsync adds the game's filter to the default match filter

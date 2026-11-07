@@ -1,6 +1,6 @@
 From: mscharged-port native preparation
 Subject: [PATCH] Preserve original retail HBM assertions and lower native debug hardware
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 diff --git a/libs/RVL_SDK/include/revolution/hbm/HBMAssert.hpp b/libs/RVL_SDK/include/revolution/hbm/HBMAssert.hpp
 index bce1a33..21ad96e 100644

@@ -1,5 +1,5 @@
 Subject: Preserve original Variant scalar words and native pointer aliases
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Use Wii32 numeric storage/conversion/multiplication and retain full native
 pointer hashes, including the original TEAM/BALL pointer aliases. Reset still

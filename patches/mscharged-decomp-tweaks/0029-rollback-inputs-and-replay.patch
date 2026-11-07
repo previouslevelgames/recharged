@@ -1,5 +1,5 @@
 Subject: Diagnostic: rollback inputs, replay and outgoing deterministic data
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Rollback study. Under RECHARGED_ROLLBACK_TEST the port's rollback (in the
 game module) saves the match after every fixed step and goes back a few

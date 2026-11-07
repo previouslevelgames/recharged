@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Draw the Mii icons of the online scenes
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native admission; the icons draw as on the console.
 
 Patch 0740 admitted the online scenes with MiiManager::CreateIcon returning

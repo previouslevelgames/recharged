@@ -1,7 +1,7 @@
 From: native port compatibility
 Subject: [PATCH] retain original software skin live pointers and numeric vertex bytes
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Native GAME_MODULE only: full-width live frame output pointers remain separate
 from the existing48-byte Wii RLG wire records. Scoped owned Float3 CPU views

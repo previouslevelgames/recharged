@@ -1,5 +1,5 @@
 Subject: Competitive play: a set that lost its connection leaves the online menus
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A set's game whose connection to the opponent's broke (the game's popup
 ended the set) came back to the online menu and stayed online in WFC, where

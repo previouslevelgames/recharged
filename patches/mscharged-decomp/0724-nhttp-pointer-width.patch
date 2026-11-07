@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Keep NHTTP's post-send buffer address at pointer width
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility
 
 NHTTP hands the POST body buffer from the connection callback to its

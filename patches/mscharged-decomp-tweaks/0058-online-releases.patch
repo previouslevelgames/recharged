@@ -1,5 +1,5 @@
 Subject: Port: online play between the releases, by the draft's simulation profile
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 The original keeps the releases apart online: GetNetworkVersionWord makes
 its word of the region and build number, and matchmaking (the AP key and

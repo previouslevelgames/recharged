@@ -1,5 +1,5 @@
 Subject: [PATCH] Adapt original multi-texture and shadowed writer native streams
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Retain original layouts, allocations, source selectors and cursor algorithms.
 Transport exact four-byte colours and Wii numeric RGBA channel bytes; publish

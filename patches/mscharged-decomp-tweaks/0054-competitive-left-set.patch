@@ -1,5 +1,5 @@
 Subject: Competitive play: a player who leaves a set's search ends it for both
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A set's two games search RANKED for each other (0047). When one player left
 that search with Back, nothing told the other game: it searched on until the

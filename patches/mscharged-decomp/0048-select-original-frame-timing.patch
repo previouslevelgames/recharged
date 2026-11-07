@@ -1,6 +1,6 @@
 Subject: Add separately selected frame timing diagnostics
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Add timing/history diagnostic copies selected separately from the complete
 original FrameCounter, Histogram and TimeRegions sources. Preserve all original

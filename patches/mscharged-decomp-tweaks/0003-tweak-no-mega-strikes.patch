@@ -1,5 +1,5 @@
 Subject: Tweak: no Mega Strikes
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 SetupGameFromConfig builds each match's own copy of the gameplay settings
 (mCurGameGameplayOptions), which nothing saves. With "No Mega Strikes" enabled,

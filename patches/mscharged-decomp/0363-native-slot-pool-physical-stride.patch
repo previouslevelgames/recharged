@@ -1,6 +1,6 @@
 From: mscharged-port native data ABI compatibility
 Subject: [PATCH] Align physical source slot strides for native intrusive pointers
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Round only physical slot storage to the native intrusive free-list alignment
 in both whole original block allocation and block retirement. Preserve payload
