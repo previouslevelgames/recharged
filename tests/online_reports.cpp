@@ -2,6 +2,7 @@
 // each result, the report bodies the host makes of the module's series and
 // error codes, and the sender (paths, order, retries, dropping, stopping, the
 // server's answers) against a fake server.
+#include "platform/host_os.h"
 #include "platform/http_client.h"
 #include "platform/json.h"
 #include "platform/online_reports.h"
@@ -26,6 +27,7 @@ namespace
 {
 int sChecks = 0;
 const std::string kBuild = "1.1.0+g0123456789ab";
+const std::string kOs = "Linux (SteamOS), x86_64";
 const std::string kReports = "/api/v1/wfc/reports";
 const std::string kErrors = "/api/v1/wfc/errors";
 
@@ -171,18 +173,18 @@ void TestEvents()
 {
     auto s = Series(1, 3);
     s.profile_id = 0;
-    Require(OnlineMatchEvents(nullptr, s, "R4QE", kBuild, 7).empty(), "no profile, no reports");
+    Require(OnlineMatchEvents(nullptr, s, "R4QE", kBuild, kOs, 7).empty(), "no profile, no reports");
     s = ChargedOnlineMatchSnapshot{};
-    Require(OnlineMatchEvents(nullptr, s, "R4QE", kBuild, 7).empty(), "no series, no reports");
+    Require(OnlineMatchEvents(nullptr, s, "R4QE", kBuild, kOs, 7).empty(), "no series, no reports");
 
     // A series seen as it begins, then game by game, then its end.
     s = Series(1, 3);
-    auto events = Parse(OnlineMatchEvents(nullptr, s, "R4QE", kBuild, 1761500000));
+    auto events = Parse(OnlineMatchEvents(nullptr, s, "R4QE", kBuild, kOs, 1761500000));
     Require(events.size() == 1, "a new series: its start");
     const JsonValue& start = events[0];
     Require(start["event"].Text() == "start" && start["profile_id"].Integer() == 1000000042
                 && start["release"].Text() == "R4QE" && start["build"].Text() == kBuild
-                && start["series"].Integer() == 1761500000 && start["mode"].Text() == "ranked"
+                && start["os"].Text() == kOs && start["series"].Integer() == 1761500000 && start["mode"].Text() == "ranked"
                 && start["best_of"].Integer() == 3 && start["side"].Text() == "home",
             "the start's fields");
     Require(start["mii"].Text() == "Anosch" && start["opponent_mii"].Text() == "Sam", "the start's Miis");
@@ -200,7 +202,7 @@ void TestEvents()
 
     auto last = s;
     Add(s, Game(3, 1, 0, 10, 179.6f));
-    events = Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, 1761500000));
+    events = Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, kOs, 1761500000));
     Require(events.size() == 1 && events[0]["event"].Text() == "game", "one game ended: its report");
     const JsonValue& game = events[0]["game"];
     Require(game["number"].Integer() == 1 && game["score"]["home"].Integer() == 3
@@ -212,20 +214,20 @@ void TestEvents()
                 && events[0]["build"].Text() == kBuild,
             "a game report: same series and build, no reason or cause");
     Require(!Has(game, "sync"), "a game that ended normally has no sync check");
-    Require(OnlineMatchEvents(&s, s, "R4QE", kBuild, 1761500000).empty(), "nothing new, no reports");
+    Require(OnlineMatchEvents(&s, s, "R4QE", kBuild, kOs, 1761500000).empty(), "nothing new, no reports");
 
     // Two games and the end seen at once.
     last = s;
     Add(s, Game(0, 2, 0, 15));
     Add(s, Game(2, 1, 0, -1));
-    events = Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, 1761500000));
+    events = Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, kOs, 1761500000));
     Require(events.size() == 3 && events[0]["game"]["number"].Integer() == 2
                 && events[0]["game"]["stadium"].Text() == "sand_tomb" && events[1]["game"]["number"].Integer() == 3
                 && events[1]["game"]["stadium"].Text() == "unknown" && events[2]["event"].Text() == "end"
                 && events[2]["reason"].Text() == "decided" && events[2]["cause"].Text() == "decided"
                 && events[2]["game"].IsNull() && events[2]["build"].Text() == kBuild,
             "two games and a decided end");
-    Require(OnlineMatchEvents(&s, s, "R4QE", kBuild, 1761500000).empty(), "an end is reported once");
+    Require(OnlineMatchEvents(&s, s, "R4QE", kBuild, kOs, 1761500000).empty(), "an end is reported once");
 
     // A new series number begins another: start, games, end at once.
     last = s;
@@ -233,7 +235,7 @@ void TestEvents()
     s.ranked = 0;
     s.side = 1;
     Add(s, Game(1, 2, 4), 4);
-    events = Parse(OnlineMatchEvents(&last, s, "R4QP", kBuild, 1761500900));
+    events = Parse(OnlineMatchEvents(&last, s, "R4QP", kBuild, kOs, 1761500900));
     Require(events.size() == 3 && events[0]["event"].Text() == "start" && events[0]["mode"].Text() == "friends"
                 && events[0]["release"].Text() == "R4QP" && events[0]["series"].Integer() == 1761500900,
             "a new series begins with its start");
@@ -255,7 +257,7 @@ void TestEvents()
     s.sidekicks[1][0] = 8;
     s.sidekicks[1][1] = -1;
     s.sidekicks[1][2] = -1;
-    events = Parse(OnlineMatchEvents(nullptr, s, "R4QE", kBuild, 5));
+    events = Parse(OnlineMatchEvents(nullptr, s, "R4QE", kBuild, kOs, 5));
     Require(events[0]["mii"].Text() == "Zo\xc3\xab \"Z\"", "a UTF-8 name with quotes");
     Require(events[0]["opponent_mii"].Text() == std::string(sizeof s.mii[1], 'x'), "a name filling its buffer");
     Require(events[0]["captains"]["home"].Text() == "unknown" && events[0]["captains"]["away"].Text() == "unknown",
@@ -267,7 +269,7 @@ void TestEvents()
     s = Series(4, 1);
     last = s;
     Add(s, Game(1, 0, 7, 16, -3.0f));
-    events = Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, 6));
+    events = Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, kOs, 6));
     Require(events[0]["game"]["ending"].Text() == "normal" && events[0]["game"]["stadium"].Text() == "unknown"
                 && events[0]["game"]["seconds"].Integer() == 0,
             "odd values reported as normal, unknown, 0");
@@ -279,7 +281,7 @@ JsonValue End(int bestOf, void (*stop)(ChargedOnlineMatchSnapshot&))
     auto s = Series(1, bestOf);
     const auto last = s;
     stop(s);
-    const auto events = Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, 9));
+    const auto events = Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, kOs, 9));
     Require(!events.empty() && events.back()["event"].Text() == "end", "the series ended");
     return events.back();
 }
@@ -318,7 +320,7 @@ void TestDiagnostics()
         game.sync_check = check;
         game.sync_frame = 4812;
         Add(s, game, 2);
-        const auto events = Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, 10));
+        const auto events = Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, kOs, 10));
         const JsonValue& sync = events[0]["game"]["sync"];
         Require(events[0]["game"]["ending"].Text() == "desync" && sync["check"].Text() == checks[check - 1]
                     && sync["frame"].Integer() == 4812 && sync.Names().size() == 2,
@@ -328,7 +330,7 @@ void TestDiagnostics()
         auto s = Series(3, 3);
         const auto last = s;
         Add(s, game, result);
-        return Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, 11))[0]["game"];
+        return Parse(OnlineMatchEvents(&last, s, "R4QE", kBuild, kOs, 11))[0]["game"];
     };
     auto game = Game(1, 0);
     game.sync_check = 2;
@@ -345,10 +347,22 @@ void TestDiagnostics()
     Require(!Has(gameOf(game, 2), "sync"), "no frame: none");
 
     // The build as the server keeps it: printable, at most 64 characters.
-    auto events = Parse(OnlineMatchEvents(nullptr, Series(4, 1), "R4QE", std::string(70, '7') + "\n", 12));
+    auto events = Parse(OnlineMatchEvents(nullptr, Series(4, 1), "R4QE", std::string(70, '7') + "\n", kOs, 12));
     Require(events[0]["build"].Text() == std::string(64, '7'), "a long build name cut to 64 characters");
-    events = Parse(OnlineMatchEvents(nullptr, Series(4, 1), "R4QE", "1.1.0\t+g1\x01", 12));
+    events = Parse(OnlineMatchEvents(nullptr, Series(4, 1), "R4QE", "1.1.0\t+g1\x01", kOs, 12));
     Require(events[0]["build"].Text() == "1.1.0+g1", "control characters left out");
+    // The operating system the same way, and left out when unknown.
+    events = Parse(OnlineMatchEvents(nullptr, Series(4, 1), "R4QE", kBuild, std::string(70, 'w') + "\t", 12));
+    Require(events[0]["os"].Text() == std::string(64, 'w'), "a long system name cut to 64 characters");
+    events = Parse(OnlineMatchEvents(nullptr, Series(4, 1), "R4QE", kBuild, "\x01\n", 12));
+    Require(!Has(events[0], "os"), "no system name: no os");
+    // This computer's: printable, short enough, with its architecture.
+    const std::string os = HostOsName();
+    std::cout << "This computer: " << os << "\n";
+    Require(!os.empty() && os.size() <= 64
+                && std::all_of(os.begin(), os.end(), [](char c) { return c >= 0x20 && c < 0x7F; })
+                && os.find(", ") != std::string::npos,
+            "this computer's system name");
 
     // An error code: its number, the session state then and the profile.
     ChargedOnlineError error{1, 86420, 2, 1000000000};
@@ -553,7 +567,7 @@ void TestSender()
         std::vector<std::string> log;
         std::mutex logMutex;
         {
-            OnlineReports reports("R4QE", kBuild, server.Send(), [&](const std::string& line) {
+            OnlineReports reports("R4QE", kBuild, kOs, server.Send(), [&](const std::string& line) {
                 std::lock_guard lock(logMutex);
                 log.push_back(line);
             }, 10ms);
@@ -592,7 +606,7 @@ void TestSender()
     {
         FakeServer server;
         {
-            OnlineReports reports("R4QE", kBuild, server.Send(), nullptr, 10ms);
+            OnlineReports reports("R4QE", kBuild, kOs, server.Send(), nullptr, 10ms);
             ChargedOnlineMatchSnapshot s{};
             s.error = {1, 20110, 1, 0};
             reports.Observe(s);
@@ -629,7 +643,7 @@ void TestSender()
                 std::lock_guard lock(logMutex);
                 log.push_back(line);
             };
-            OnlineReports reports("R4QE", kBuild, OnlineReports::HttpSend("192.0.2.7", keep, http.Request()), keep,
+            OnlineReports reports("R4QE", kBuild, kOs, OnlineReports::HttpSend("192.0.2.7", keep, http.Request()), keep,
                                   10ms);
             ChargedOnlineMatchSnapshot s = Series(1, 3);
             s.error = {1, 86420, 2, 0};
@@ -653,7 +667,7 @@ void TestSender()
         std::vector<std::string> log;
         std::mutex logMutex;
         {
-            OnlineReports reports("R4QE", kBuild, server.Send(), [&](const std::string& line) {
+            OnlineReports reports("R4QE", kBuild, kOs, server.Send(), [&](const std::string& line) {
                 std::lock_guard lock(logMutex);
                 log.push_back(line);
             }, 5ms);
@@ -675,7 +689,7 @@ void TestSender()
         std::atomic<bool> sending{false}, cancelled{false};
         auto started = std::chrono::steady_clock::now();
         {
-            OnlineReports reports("R4QE", kBuild, [&](const std::string&, const std::string&,
+            OnlineReports reports("R4QE", kBuild, kOs, [&](const std::string&, const std::string&,
                                                       const std::shared_ptr<HttpCancel>& cancel) {
                 sending = true;
                 const auto until = std::chrono::steady_clock::now() + 30s;

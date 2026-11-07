@@ -14,7 +14,8 @@ const std::uint8_t kWiimoteIrBlock2[5][2] = {{0xfd, 0x05}, {0xb3, 0x04}, {0x63, 
 NativeDpdObservation DecodeWiimoteBasicIr(const std::uint8_t* ir) {
     // Two 5-byte groups of two objects with 10-bit coordinates, converted like
     // original WPADHIDParser (WPAD_DPD_BASIC): x as sent, y = 767 - sent y;
-    // x 1023 or y 767 means no object (0, 767, size 0), a present one has size 12.
+    // x 1023 or y 767 means no object (0, 767, size 0), a present one has size 12;
+    // a sent y past the sensor's 768 rows (a noisy report) is no object either.
     NativeDpdObservation dots{};
     for (int group = 0; group < 2; ++group) {
         const std::uint8_t* bytes = ir + group * 5;
@@ -24,7 +25,7 @@ NativeDpdObservation DecodeWiimoteBasicIr(const std::uint8_t* ir) {
             auto& object = dots[group * 2 + n];
             object.trace_id = static_cast<std::uint8_t>(group * 2 + n);
             const int flipped = 767 - y[n];
-            const bool absent = x[n] == 1023 || flipped == 767;
+            const bool absent = x[n] == 1023 || flipped == 767 || flipped < 0;
             object.x = static_cast<std::int16_t>(absent ? 0 : x[n]);
             object.y = static_cast<std::int16_t>(absent ? 767 : flipped);
             object.size = absent ? 0 : 12;
