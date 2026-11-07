@@ -558,3 +558,4 @@
 0760-native-nand-forward-declarations.patch
 0761-native-nhttp-host-os-first.patch
 0762-native-korean-sdk-copies.patch
+0763-native-dwc-sb-command-identifier.patch
