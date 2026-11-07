@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Match the goalie loose-ball pickup event on LP64
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility; same fix as GoalieSave in 0612.
 
 LooseBallCallback finds the pickup event (0xCF84E7CD) of each goalie

@@ -1,4 +1,4 @@
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 diff --git a/libs/MSL_C/include/stddef.h b/libs/MSL_C/include/stddef.h
 index bded4c3..014d9d1 100644

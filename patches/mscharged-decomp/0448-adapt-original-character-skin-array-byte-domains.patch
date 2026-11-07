@@ -1,7 +1,7 @@
 From: native GX array data transport
 Subject: [PATCH] preserve original character skin array bindings with owned byte domains
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Original game-module attributes, addresses and literal strides remain source-owned.
 The existing native hardware boundary supplies exact completed extent and endian;

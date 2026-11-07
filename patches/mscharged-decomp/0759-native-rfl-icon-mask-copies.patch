@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Forget a Mii icon's mask copies before its model buffer is freed
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native graphics ownership; the icons draw as before.
 
 RFLiMakeIcon builds a model in a temporary buffer, whose expression masks

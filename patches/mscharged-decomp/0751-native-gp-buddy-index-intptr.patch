@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Pass the GP buddy and block indices through intptr_t
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility; no game behavior change.
 
 gpiDeleteBuddy hands the removed buddy's index to gpiFixBuddyIndices

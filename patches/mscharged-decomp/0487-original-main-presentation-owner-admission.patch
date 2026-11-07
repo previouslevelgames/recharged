@@ -1,4 +1,4 @@
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Purpose: Admit only the original GetPresentation request at its existing main position under a default-off selected-source diagnostic. Normal/native-default/console logic is unchanged. Depends on genuine source network/registry initialization (0481); no function/script selection, ReplayChoreo, Fixed task, readiness or game-body change.
 
 diff --git a/src/Game/main.cpp b/src/Game/main.cpp

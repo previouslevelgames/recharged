@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Parse friend code digits into a writable buffer
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler contract; no game behavior change.
 
 SHOnlineFriendCodeEntry::ParseFriendKey converts each entered digit with

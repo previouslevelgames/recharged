@@ -1,6 +1,6 @@
 Subject: Preserve the original camera transition fabs expression on native hosts
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Upstream now owns the Thwomp event as ThwompObject* plus eThwompState,
 produces it from thwomp->mState and consumes THWOMP_STATE_FALLING. Retire

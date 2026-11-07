@@ -1,6 +1,6 @@
 Subject: [PATCH] restore original pose methods and native borrowed callback ABI
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Original modules retain source constructor/array ownership/copy/Pose/Replay
 and callback methods. Preserve first callback word borrowed native addresses;

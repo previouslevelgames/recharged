@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Preserve Wii RLG bytes beneath original native weight and skin consumers
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 diff --git a/src/Game/GL/ShaderSkinMesh.cpp b/src/Game/GL/ShaderSkinMesh.cpp
 index 55845ce..027a3f9 100644

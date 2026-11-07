@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Zero the native Variant pointer member before a narrow store
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility
 
 Variant(eVariantType, T) stores sizeof(T) bytes: one for a bool, four for

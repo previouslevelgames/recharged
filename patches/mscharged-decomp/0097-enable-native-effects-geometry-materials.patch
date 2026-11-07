@@ -1,6 +1,6 @@
 Subject: Connect original effects geometry materials to native GX
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Retain the original FloatTexturedColour and ConstantColour TEV/alpha recipes.
 Use typed Aurora state, bounded host vertex arrays, indexed FIFO writes and

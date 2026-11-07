@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Rollback: an overlay's image waits for the steps still predicted
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A rollback cannot go back past a disc read into the match's memory: the
 read's buffer and the object waiting for it would go back with the match

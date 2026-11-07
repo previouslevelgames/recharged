@@ -1,5 +1,5 @@
 Subject: Match native global game delete definitions to the standard exception specification
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 diff --git a/src/NL/nlMemory.cpp b/src/NL/nlMemory.cpp
 index 18ac34f..d42d95e 100644

@@ -1,5 +1,5 @@
 Subject: Rollback: the fields of the match's checksum, for a desync
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A desync says that the machines' checksums differ, not what differs. The
 match's checksum (FixedUpdateTask::CalculateChecksum) is one CRC over the

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Rollback: a step's deterministic data goes out once, from whichever run queues it
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Tweak patch 0029 dropped every deterministic data packet a replayed step
 queued, as having gone out when the step first ran. With predicted inputs

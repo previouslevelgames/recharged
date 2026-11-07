@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Share dynamic material state for automatic native pipeline preparation
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Refreshed for decomp 9046e67a: upstream gave the glxConfigure*Lighting
 functions C++ linkage; the wrappers follow.

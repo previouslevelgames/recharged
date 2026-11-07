@@ -1,6 +1,6 @@
 From: mscharged-port native integration
 Subject: [PATCH] Admit the literal original FEDPD task in the selected frontend diagnostic
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Temporary diagnostic exclusion retirement only. Preserve the existing task
 constructor, AddTasks statement position, priority13 and state mask5.

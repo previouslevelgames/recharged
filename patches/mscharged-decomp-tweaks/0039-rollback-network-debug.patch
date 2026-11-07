@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Diagnostic: the network messages a rollback replay prints and drops
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A diagnostic for the network channel (patch 0694): while a rollback
 replays steps, what the game prints on DC_NETWORK says "[net replay] "

@@ -1,6 +1,6 @@
 Subject: Restore original Audio and Visual Options with native scalar and Wii16 ABI
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Restore the full Matching TU instead of historical0112/0114/0116/0118 game
 method extractions. Native scalar contexts preserve authored numeric indexes.

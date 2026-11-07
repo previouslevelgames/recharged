@@ -1,5 +1,5 @@
 Subject: Adapt original HOME layout resources to native byte order
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Convert authored BRLYT0.8 scalar/relative-offset records beneath the original
 Layout::Build. Preserve original header predicates, block walk, constructors,

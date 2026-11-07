@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Declare the forward NAND calls with their 32-bit results
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 nand_fwd.h declares NANDGetHomeDir and NANDMove with the Wii's long, which is
 32 bits there; nand.h declares the same functions with s32. Natively a long is

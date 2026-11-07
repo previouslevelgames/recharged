@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Read native float positions for model bounding boxes (issue #18)
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native data transport (Wii byte order), same kind of fix as 0601 and 0617.
 
 GetAABBDimensions builds a model's bounding box from its position stream with

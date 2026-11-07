@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Use the inline GetOverlayManager body in the Striker Times overlay
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler compatibility; apply after 0643.
 
 Retail fePopupMenu.cpp keeps an out-of-line copy of the inline

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Adapt the online SDK sources to the native OS headers
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility
 
 DWC computes its server browser timeouts from OS_BUS_CLOCK_SPEED, the Wii

@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Keep GameSpy's started OSThread for by-value thread IDs natively
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native compiler/ABI compatibility
 
 GSIThreadID embeds the OSThread that gsiStartThread creates, but

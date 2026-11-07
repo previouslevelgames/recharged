@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Substitute strlen+itoa with snprintf
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Changed strlen+itoa to a safe snprintf. itoa was only present in MWCC's libc
 and isn't standard C/C++.

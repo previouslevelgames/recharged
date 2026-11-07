@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Rollback: a replay draws nothing
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A rollback replays whole frames, GameRenderTask included, so that the
 presentation it took back with the match (the darkening after a goal, the

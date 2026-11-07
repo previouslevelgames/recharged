@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Keep DWC ranking words in their little-endian wire order natively
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native byte-order compatibility
 
 The DWC ranking protocol carries little-endian words, the DS's order, and

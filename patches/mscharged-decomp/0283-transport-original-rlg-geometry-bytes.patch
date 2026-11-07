@@ -1,6 +1,6 @@
 From: mscharged-port native adaptation
 Subject: [PATCH] Preserve original RLG wire vertices and numeric CPU indices
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Keep original source allocation, copy size, cache flush and geometry loading
 order. Native transport publishes unchanged Wii vertex wire and decodes each

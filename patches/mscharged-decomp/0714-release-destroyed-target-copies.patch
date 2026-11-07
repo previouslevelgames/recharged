@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Release a destroyed target's EFB copies in native GX
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 On the console a target's EFB copies are written into the target's memory, so
 destroying a target needs no GX call. Native GX keeps copies in host textures

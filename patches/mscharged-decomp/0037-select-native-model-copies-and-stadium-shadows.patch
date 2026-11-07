@@ -1,5 +1,5 @@
 Subject: Select diagnostic model duplication and stadium shadow submission
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Leave the original production duplication bodies in glModel.cpp. Retain the
 transitional ScenePreview-only copy with the actual GLMaterialProgram type and

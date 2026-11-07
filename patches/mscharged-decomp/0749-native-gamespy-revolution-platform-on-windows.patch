@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Keep GameSpy on its Revolution platform code in Windows builds
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native platform selection; no change on the Wii or POSIX hosts.
 
 GameSpy picks its platform code with the compiler's platform macros, and

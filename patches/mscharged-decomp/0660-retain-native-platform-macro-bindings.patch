@@ -1,5 +1,5 @@
 Subject: Avoid native platform macro redefinitions with the original bindings intact
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 diff --git a/src/NL/nlAVLTree.cpp b/src/NL/nlAVLTree.cpp
 index ecc7bb1..90a3fac 100644

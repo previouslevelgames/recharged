@@ -1,5 +1,5 @@
 Subject: Tweak: training opponent
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Training's opponent, the team nobody plays, no longer always vanishes but
 the launcher chooses it.

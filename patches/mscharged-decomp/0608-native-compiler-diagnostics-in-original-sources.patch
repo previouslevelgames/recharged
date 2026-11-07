@@ -1,5 +1,5 @@
 Subject: Express four original source constructs in host-valid C++
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Native-only spellings of original constructs that host compilers reject or
 diagnose without a flag. Every value, linkage and call stays the same; the

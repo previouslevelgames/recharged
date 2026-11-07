@@ -1,5 +1,5 @@
 Subject: Preserve original HOME GUI member offsets on native hosts
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Use the actual native link-member offsets in the two original GUI list
 initializers. Preserve their u16 offset contract, source algorithms and console

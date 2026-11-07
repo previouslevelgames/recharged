@@ -1,5 +1,5 @@
 Subject: Preserve full native NL async file callback contexts
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Use the existing nlFileAsyncParam carrier for nlAsyncFileBuffer and NisPlayer callbacks.
 Retain original callback bodies, request choices, synchronous branch, numeric sizes and console signatures.

@@ -1,5 +1,5 @@
 Subject: Preserve native retarget byte cursor width
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Keep the pointer-derived local byte cursor at native pointer width on LLP64.
 Retain the original signature fields, record stride, count, lookup loop and first-match decision.

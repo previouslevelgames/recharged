@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Wait for prepared pipelines before publishing frontend models
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 diff --git a/src/Game/FE/feModelManager.cpp b/src/Game/FE/feModelManager.cpp
 index 84bb924..fe9502e 100644

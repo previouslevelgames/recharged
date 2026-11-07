@@ -1,5 +1,5 @@
 Subject: [PATCH] Preserve original snapshot and ball packed-word bit positions natively
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Reverse only little-endian native bitfield declaration order. Retain original
 32-bit raw masks, field widths, methods, replay word and unused bits. Console

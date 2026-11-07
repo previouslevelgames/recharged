@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Admit the original in-game frame updates under the match-loading diagnostic
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 E13 admission of original BeginFrameTask::Run blocks that the frontend task
 diagnostic omits, under the explicit MSCHARGED_DIAGNOSTIC_FRONTEND_MATCH_LOADING

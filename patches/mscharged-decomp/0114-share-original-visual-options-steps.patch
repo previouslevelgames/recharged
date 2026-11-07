@@ -1,6 +1,6 @@
 Subject: Share original visual options interaction and settings steps
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Selected original scene15 bodies delegate to retained typed native visual
 owners. Full GameInfo, game-save, global DPD/NAV and camera are not supplied.

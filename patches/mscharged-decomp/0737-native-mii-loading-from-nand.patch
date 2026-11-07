@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Translate loaded Miis into native endianness at load time
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 diff --git a/src/RVL_SDK/rfl/RFL_Database.c b/src/RVL_SDK/rfl/RFL_Database.c
 index ce65374..5ff6563 100644

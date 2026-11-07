@@ -1,5 +1,5 @@
 Subject: Fix: load the electrocution overlay texture (issue #33)
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A fix of the original game, always on and without a switch (owner decision,
 2026-10-12). It lives in the tweak series so the faithful series stays retail.

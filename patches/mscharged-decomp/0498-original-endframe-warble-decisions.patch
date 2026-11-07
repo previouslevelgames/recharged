@@ -1,7 +1,7 @@
 From: original source diagnostic integration
 Subject: [PATCH] Retain original end-frame warble target and clear decisions
 
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 The full source view creator leaves the warble target/colour clear configured
 for its later original per-frame enable/disable decisions. Admit that literal

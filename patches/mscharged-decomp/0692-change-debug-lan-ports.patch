@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Change debug LAN default ports
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 Classification: native platform adaptation
 
 Retail's debug LAN code uses UDP port 1000 for connections and 1001 for

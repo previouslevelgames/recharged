@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Give the European goalie tackle launch a defined scale
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 In the European builds Goalie::HitAttackTarget leaves the impact scale unset
 for the pursue-deke types it skips (4, 7 and a stale type): retail scales the

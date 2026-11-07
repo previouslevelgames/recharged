@@ -1,5 +1,5 @@
 Subject: Declare the port's opt-in tweak hooks
-Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 Opt-in game tweaks are the first changes of the port's mod phase: the player
 turns them on in [gameplay] of recharged.ini, and each is off by default. This
