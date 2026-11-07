@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Discover graphics pipelines from selected original resources
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: fda4bebccdd24236eda3d27763840471d3b00f32
 
 diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
 index 935bee0..f859bab 100644

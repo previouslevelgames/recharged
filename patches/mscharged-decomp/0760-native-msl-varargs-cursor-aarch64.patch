@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Address the MSL format cursor where va_list is a struct (AArch64)
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: fda4bebccdd24236eda3d27763840471d3b00f32
 Classification: native compiler/ABI compatibility.
 
 0678 passes parse_format the address of __wpformatter's va_list cursor: the

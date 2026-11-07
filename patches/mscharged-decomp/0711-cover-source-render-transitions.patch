@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Prepare source-authored procedural and inherited render variants
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: fda4bebccdd24236eda3d27763840471d3b00f32
 
 diff --git a/src/Game/Render/StadiumLoading.cpp b/src/Game/Render/StadiumLoading.cpp
 index 9a7da4e..67d0adc 100644

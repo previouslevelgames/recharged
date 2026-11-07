@@ -1,6 +1,6 @@
 From: Charged native preparation
 Subject: [PATCH] diagnostic: enter source frontend and Credits from original main
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: fda4bebccdd24236eda3d27763840471d3b00f32
 
 Owner-authorized 2026-10-06 temporary diagnostic selection. Normal main retains
 all original source tokens. Selected frontend keeps initialization positions,

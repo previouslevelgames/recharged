@@ -1,5 +1,5 @@
 Subject: Tweak: fair ball contests
-Upstream-base: 9046e67aa2077a7eb4ed6e28c9df3c1d3b368f84
+Upstream-base: fda4bebccdd24236eda3d27763840471d3b00f32
 
 cGame::Update updates the ten players one at a time in the order of
 m_pRandomPlayersArray, and when two of them can take the ball in the same
