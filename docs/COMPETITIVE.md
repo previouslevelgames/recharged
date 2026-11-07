@@ -60,8 +60,8 @@ with the score.
 - No one to challenge? **Find an opponent** on your own card in the online
   panel searches for one by the rules you set up, as for a challenge: you
   searched, so your rules count. The server asks one player at a time who is
-  open to challenges (or searching too) and plays the same version of the
-  game; they get a **Random challenge** card with Accept and Decline, and 30
+  open to challenges (or searching too), whichever version of the game they
+  play; they get a **Random challenge** card with Accept and Decline, and 30
   seconds to answer before the next one is asked. Your card shows how long
   you have searched and how many players were asked; **Stop** ends the
   search. Y (or F) does the same from anywhere on the panel's first screen.
@@ -172,9 +172,11 @@ player and power-up cheats. Tournament organizers choose the rule set of their
 event; for a challenge you choose them in its setup, from a preset. start.gg
 only pairs the players and keeps the scores.
 
-Players of different versions (USA, Europe, Japan, Korea) cannot play against
-each other, because the versions of the game differ inside. Every tournament
-is for one version.
+Players of different versions (USA, Europe, Japan, Korea) can play each
+other. The versions differ inside, so a set between two versions plays by the
+European version (revision 2); a set between two players of one version plays
+by theirs, and the game's own RANKED always by the European one. Recharged 1.1
+has none of this and meets only players of its own version.
 
 ## Later
 

@@ -303,8 +303,8 @@ void TestChallengeBlockers()
 void TestVersions()
 {
     // This game is the US one: a player of the European one is tagged and
-    // can't be challenged (RANKED never pairs the two); a US one can; one
-    // whose Recharged doesn't say can, as before.
+    // can be challenged (the set plays by the European version); a US one
+    // isn't tagged; one whose Recharged doesn't say isn't either.
     platform::PlayerLists lists;
     auto eu = Online(10, "Birnen", "game");
     eu.game = "R4QP";
@@ -316,8 +316,7 @@ void TestVersions()
     const auto model = MakeOnlinePanelModel(lists, std::nullopt, context);
     const auto* online = Section(model, OnlinePanelSection::Id::Online);
     const auto* birnen = Row(online, "Birnen");
-    CHECK(birnen && birnen->version == "EU" && !birnen->can_challenge
-          && birnen->blocked == "Plays the European version");
+    CHECK(birnen && birnen->version == "EU" && birnen->can_challenge && birnen->blocked.empty());
     const auto* kiki = Row(online, "Kiki");
     CHECK(kiki && kiki->version.empty() && kiki->can_challenge);
     const auto* lou = Row(online, "Lou");

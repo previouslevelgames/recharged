@@ -69,7 +69,7 @@ struct OnlinePanelRow
     // is about the game's online mode).
     std::string blocked;
     // Another version of the game than the player's ("EU", "US", "JP",
-    // "KR"): RANKED never pairs the two, so no set.
+    // "KR"): a set with them plays by the European version.
     std::string version;
     // The flag beside the name: a country's two letters (overlay/flags.h),
     // empty for none.
@@ -181,7 +181,7 @@ struct OnlinePanelContext
     // username, avatar and whether they are open to challenges.
     platform::ProfilePlayer me;
     // The game this computer plays ("R4QE", ...): players of another version
-    // can't be challenged. Empty: not known.
+    // carry its tag. Empty: not known.
     std::string game;
     // Recharged players who are the player's Discord friends, as POST
     // /api/v1/players/discord answers: those online join the friends, with
