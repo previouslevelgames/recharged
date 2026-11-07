@@ -1,0 +1,37 @@
+From: mscharged-port
+Subject: Copy the DWC server browser command identifier without its NUL
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+Classification: native libc compatibility
+
+DWCi_SendSBMsgCommand fills the four-byte identifier of its message header
+with strcpy(identifier, "SBCM"), which writes five bytes: the terminator
+lands in the first byte of version, assigned on the next line, so the
+packet was right on the Wii. With _FORTIFY_SOURCE, which macOS enables by
+default, the copy becomes __memcpy_chk(identifier, "SBCM", 5, 4) and the
+game aborts with "detected buffer overflow" whenever matchmaking sends a
+server browser command (any-player matches, and the address of server and
+client or distant-friend matches).
+
+Natively only the four characters are copied; the packet is unchanged. The
+Korean copy (R4QK01/) copies into the whole header and was not affected.
+
+diff --git a/src/RVL_SDK/dwc/dwc_match.c b/src/RVL_SDK/dwc/dwc_match.c
+index f7554b88..c71ed6f8 100644
+--- a/src/RVL_SDK/dwc/dwc_match.c
++++ b/src/RVL_SDK/dwc/dwc_match.c
+@@ -2573,7 +2573,15 @@ static SBError DWCi_SendSBMsgCommand(
+         len = 0;
+     }
+ 
++#if defined(MSCHARGED_NATIVE)
++    // The identifier is four characters with no terminator: strcpy wrote
++    // its NUL into version, which is set right after. A fortified libc
++    // (macOS) aborts on that overflow; copy the four characters alone.
++    memcpy(senddata.header.identifier, DWC_SB_COMMAND_STRING,
++        sizeof(senddata.header.identifier));
++#else
+     strcpy(senddata.header.identifier, DWC_SB_COMMAND_STRING);
++#endif
+     senddata.header.version = DWCi_HtoLEl(DWC_MATCHING_VERSION);
+     senddata.header.command = command;
+     senddata.header.size = (u8)(sizeof(u32) * len);
