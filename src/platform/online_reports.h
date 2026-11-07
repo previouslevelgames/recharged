@@ -21,13 +21,15 @@
 // report that does not get through is tried again a few times, then dropped.
 namespace mscharged::platform {
 // The report bodies (JSON) of what `now` adds to `last` (null: nothing seen
-// yet) for the game `release` (R4QE, R4QP...) and the program `build` (its
-// version). A new series number begins a series: its start, then any game
-// and end it already has. `series` is the number the reports give it (unique
-// among this player's series).
+// yet) for the game `release` (R4QE, R4QP...), the program `build` (its
+// version) and the computer's `os` (HostOsName; left out when empty). A new
+// series number begins a series: its start, then any game and end it already
+// has. `series` is the number the reports give it (unique among this
+// player's series).
 std::vector<std::string> OnlineMatchEvents(const ChargedOnlineMatchSnapshot* last,
                                            const ChargedOnlineMatchSnapshot& now, const std::string& release,
-                                           const std::string& build, std::uint64_t series);
+                                           const std::string& build, const std::string& os,
+                                           std::uint64_t series);
 
 // The body (JSON) of an error code the game showed; empty for a code the
 // server takes none of (only popups' codes, 1 to 999999).
@@ -45,7 +47,8 @@ public:
     // One HTTP request (HttpGet; a test answers for the server).
     using Request = std::function<HttpResponse(const HttpRequest& request)>;
 
-    // Reports to `server` (online.server: a host name or address).
+    // Reports to `server` (online.server: a host name or address), naming
+    // this computer's operating system (HostOsName).
     static std::unique_ptr<OnlineReports> Start(const std::string& server, const std::string& release,
                                                 const std::string& build, Log log);
     // How Start delivers: a POST to http://<server><path> through `request`
@@ -54,7 +57,7 @@ public:
     // endpoint for (404, 405: another or an older server) sends no more this run.
     static Send HttpSend(const std::string& server, Log log, Request request = {});
     // Reports through `send`, a failed one tried again after `retry`.
-    OnlineReports(std::string release, std::string build, Send send, Log log,
+    OnlineReports(std::string release, std::string build, std::string os, Send send, Log log,
                   std::chrono::milliseconds retry = std::chrono::seconds(5));
     // Stops the report under way; reports not sent yet are dropped.
     ~OnlineReports();
@@ -72,6 +75,7 @@ private:
     std::thread thread_;
     std::string release_;
     std::string build_;
+    std::string os_;
     bool seen_ = false;
     ChargedOnlineMatchSnapshot last_{};
     std::uint64_t series_ = 0;

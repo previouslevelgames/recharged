@@ -1,5 +1,6 @@
 #include "platform/online_reports.h"
 
+#include "platform/host_os.h"
 #include "platform/http_client.h"
 #include "platform/json.h"
 
@@ -40,13 +41,27 @@ template <std::size_t N> const char* Name(const char* const (&names)[N], int ind
     return index >= 0 && index < int(N) ? names[index] : "unknown";
 }
 
-// The build as the server keeps it: printable, at most 64 characters.
-void AppendBuild(std::string& out, const std::string& build)
+// A diagnostic as the server keeps it: printable, at most 64 characters.
+std::string Printable(const std::string& text)
 {
     std::string name;
-    for (const char c : build)
+    for (const char c : text)
         if (c >= 0x20 && c < 0x7F && name.size() < 64) name += c;
+    return name;
+}
+
+void AppendBuild(std::string& out, const std::string& build)
+{
     out += ",\"build\":";
+    AppendJsonString(out, Printable(build));
+}
+
+// The operating system (HostOsName), left out when unknown.
+void AppendOs(std::string& out, const std::string& os)
+{
+    const std::string name = Printable(os);
+    if (name.empty()) return;
+    out += ",\"os\":";
     AppendJsonString(out, name);
 }
 
@@ -84,12 +99,14 @@ const char* Cause(const ChargedOnlineMatchSnapshot& s)
 }
 
 std::string Body(const ChargedOnlineMatchSnapshot& s, const std::string& release, const std::string& build,
-                 std::uint64_t series, const char* event, const ChargedOnlineGame* game, int number)
+                 const std::string& os, std::uint64_t series, const char* event, const ChargedOnlineGame* game,
+                 int number)
 {
     const int side = s.side == 1 ? 1 : 0;
     std::string out = "{\"profile_id\":" + std::to_string(s.profile_id) + ",\"release\":";
     AppendJsonString(out, release);
     AppendBuild(out, build);
+    AppendOs(out, os);
     out += ",\"event\":";
     AppendJsonString(out, event);
     out += ",\"series\":" + std::to_string(series);
@@ -159,18 +176,19 @@ std::string Body(const ChargedOnlineMatchSnapshot& s, const std::string& release
 
 std::vector<std::string> OnlineMatchEvents(const ChargedOnlineMatchSnapshot* last,
                                            const ChargedOnlineMatchSnapshot& now, const std::string& release,
-                                           const std::string& build, std::uint64_t series)
+                                           const std::string& build, const std::string& os,
+                                           std::uint64_t series)
 {
     std::vector<std::string> events;
     // No profile (the Mii never logged in): the server could not tell whose
     // report it was.
     if (!now.series || !now.profile_id) return events;
     const bool same = last && last->series == now.series;
-    if (!same) events.push_back(Body(now, release, build, series, "start", nullptr, 0));
+    if (!same) events.push_back(Body(now, release, build, os, series, "start", nullptr, 0));
     const int games = std::clamp(now.games, 0, int(std::size(now.game)));
     for (int n = same ? std::clamp(last->games, 0, games) : 0; n < games; ++n)
-        events.push_back(Body(now, release, build, series, "game", &now.game[n], n + 1));
-    if (now.ended && !(same && last->ended)) events.push_back(Body(now, release, build, series, "end", nullptr, 0));
+        events.push_back(Body(now, release, build, os, series, "game", &now.game[n], n + 1));
+    if (now.ended && !(same && last->ended)) events.push_back(Body(now, release, build, os, series, "end", nullptr, 0));
     return events;
 }
 
@@ -210,7 +228,7 @@ std::unique_ptr<OnlineReports> OnlineReports::Start(const std::string& server, c
 {
     if (server.empty()) return nullptr;
     Send send = HttpSend(server, log);
-    return std::make_unique<OnlineReports>(release, build, std::move(send), std::move(log));
+    return std::make_unique<OnlineReports>(release, build, HostOsName(), std::move(send), std::move(log));
 }
 
 OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, Request request)
@@ -268,9 +286,9 @@ OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, 
     };
 }
 
-OnlineReports::OnlineReports(std::string release, std::string build, Send send, Log log,
+OnlineReports::OnlineReports(std::string release, std::string build, std::string os, Send send, Log log,
                              std::chrono::milliseconds retry)
-    : state_(std::make_shared<State>()), release_(std::move(release)), build_(std::move(build))
+    : state_(std::make_shared<State>()), release_(std::move(release)), build_(std::move(build)), os_(std::move(os))
 {
     thread_ = std::thread([state = state_, send = std::move(send), log = std::move(log), retry] {
         std::unique_lock lock(state->mutex);
@@ -316,7 +334,7 @@ void OnlineReports::Observe(const ChargedOnlineMatchSnapshot& snapshot)
                              .count();
         series_ = std::max<std::uint64_t>(std::uint64_t(std::max<long long>(now, 0)), series_ + 1);
     }
-    const auto events = OnlineMatchEvents(seen_ ? &last_ : nullptr, snapshot, release_, build_, series_);
+    const auto events = OnlineMatchEvents(seen_ ? &last_ : nullptr, snapshot, release_, build_, os_, series_);
     // An error code shown since the last look (none before the first).
     const std::string error = snapshot.error.shown != last_.error.shown
         ? OnlineErrorReport(snapshot.error, release_, build_)
