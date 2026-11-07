@@ -345,21 +345,17 @@ std::string ChallengeBlocker(const std::optional<ProfileMatch>& match, const Onl
     return {};
 }
 
-// A game id's version as the panel tags it ("EU"), and as a sentence names it.
+// A game id's version as the panel tags it ("EU").
 std::string VersionTag(const std::string& game)
 {
     const char region = game.size() >= 4 ? game[3] : '?';
     return region == 'E' ? "US" : region == 'P' ? "EU" : region == 'J' ? "JP" : region == 'K' ? "KR" : game;
 }
-std::string VersionName(const std::string& game)
-{
-    const char region = game.size() >= 4 ? game[3] : '?';
-    return region == 'E' ? "the American version" : region == 'P' ? "the European version"
-         : region == 'J' ? "the Japanese version" : region == 'K' ? "the Korean version" : game;
-}
 
-// Whether `player`'s row can be challenged to a set from this game: free, of
-// this game's version (RANKED never pairs two), and the player free too.
+// Whether `player`'s row can be challenged to a set from this game: the
+// player is free and nothing keeps this game from a set (`blocker`). A
+// player of another version is tagged with it and can be challenged too: a
+// set between two versions plays by the European one.
 void Challengeable(OnlinePanelRow& row, const ProfilePlayer& player, const std::string& blocker,
                    const OnlinePanelContext& context)
 {
@@ -368,8 +364,7 @@ void Challengeable(OnlinePanelRow& row, const ProfilePlayer& player, const std::
         && player.game.compare(0, 4, context.game, 0, 4) != 0;
     if (other) row.version = VersionTag(player.game);
     if (row.presence != Presence::Free) return;
-    if (other) row.blocked = "Plays " + VersionName(player.game);
-    else if (!blocker.empty()) row.blocked = blocker;
+    if (!blocker.empty()) row.blocked = blocker;
     else row.can_challenge = true;
 }
 } // namespace

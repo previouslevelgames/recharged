@@ -315,7 +315,7 @@ are **Open to challenges** (players who aren't your friends see you then), the
 others who are open to challenges; a player's row
 challenges them (the challenge's setup, see *Online*) or opens their
 page. A player on another version of the game carries its tag (US, EU, JP,
-KR) and can't be challenged: the versions never meet online. **Ranked** is the game's online RANKED from anywhere in its menus:
+KR); a set between two versions plays by the European one. **Ranked** is the game's online RANKED from anywhere in its menus:
 **Play RANKED** takes the game by itself (with your own Mii, or one you choose
 there) into a RANKED search against anybody, as its online menu's RANKED
 would; from another menu it goes on once you are back on the main menu or the

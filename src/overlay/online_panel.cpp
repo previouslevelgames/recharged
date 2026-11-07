@@ -627,8 +627,8 @@ void DrawRow(Frame& frame, const OnlinePanelRow& row, float width, bool line)
         after += mark + Dp(8);
     }
     if (mii) DrawTag(frame, draw, {after, mark_y}, "Mii", color::muted);
-    // Another version of the game: no set (the status line under says why).
-    if (!row.version.empty()) after += DrawTag(frame, draw, {after, mark_y}, row.version.c_str(), color::warning) + Dp(8);
+    // Another version of the game (a set with them plays by the European one).
+    if (!row.version.empty()) after += DrawTag(frame, draw, {after, mark_y}, row.version.c_str(), color::muted) + Dp(8);
     DrawLabel(draw, fonts.caption, {left, top + FontSize(fonts.label) + Dp(3)}, Col(ToneColor(row.tone)),
               row.status.c_str());
     draw->PopClipRect();
