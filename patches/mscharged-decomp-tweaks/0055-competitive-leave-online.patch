@@ -1,0 +1,51 @@
+Subject: Competitive play: a set that lost its connection leaves the online menus
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+A set's game whose connection to the opponent's broke (the game's popup
+ended the set) came back to the online menu and stayed online in WFC, where
+the next set or the player's RANKED could meet a stranger. SHOnlineHub::Update
+now asks the module (src/platform/competitive_match.cpp) once the menu is
+ready, and leaves for the main menu as the menu's Back does.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -84,6 +84,13 @@
+ #endif
+ 
+ #if defined(MSCHARGED_TWEAKS)
++// The online menu, ready: a set whose game lost its connection to the
++// opponent's (or that was called off) is over, and the game leaves the
++// online menus for the main menu as the menu's Back does (tweak patch 0055).
++bool mscharged_competitive_leave_online(void);
++#endif
++
++#if defined(MSCHARGED_TWEAKS)
+ // The set's players by their profile names (tweak patch 0050): the game shows
+ // its online players by their Mii names (at most 10 characters, also what the
+ // network carries). An online player row's name text `name` (a
+diff --git a/src/Game/SH/SHOnlineHub.cpp b/src/Game/SH/SHOnlineHub.cpp
+--- a/src/Game/SH/SHOnlineHub.cpp
++++ b/src/Game/SH/SHOnlineHub.cpp
+@@ -191,6 +191,21 @@
+         return;
+     }
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: back from a set that lost its connection (or was
++    // called off), the game leaves the online menus for the main menu, as
++    // the player's Back does.
++    if (mState == ONLINE_HUB_READY && mscharged_competitive_leave_online())
++    {
++        mState = ONLINE_HUB_EXITING_BACK;
++        SHNavigation* scene = GetNavigationScene();
++        if (scene != 0)
++            scene->HideButtons();
++        mPresentation->SetActiveSlide("out", true);
++        mPresentation->Update(0.0f);
++        return;
++    }
++#endif
+     if (!GameSceneManager::Instance()->IsOnStack(SCENE_POPUP_MENU) && g_pFriendManager->FindHostInvitation())
+     {
+         FriendManager* friendManager = g_pFriendManager;

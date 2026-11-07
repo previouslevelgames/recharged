@@ -1,0 +1,100 @@
+Subject: Competitive play: a set's players by their profile names
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+The game shows its online players by their Mii names, at most 10 characters
+(also what the network carries). During a set, the rows of the RANKED search
+and draft screen (UpdateOnlinePlayerRow) ask the module
+(src/platform/competitive_match.cpp) for its two players' profile names,
+which the host gives it; any other row keeps its Mii name. FERender draws
+such a name that is wider than its room (left of the row's rank) smaller, in
+one row. Nothing sent over the network changes.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -77,6 +77,23 @@
+ bool mscharged_competitive_leave_search(void);
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// The set's players by their profile names (tweak patch 0050): the game shows
++// its online players by their Mii names (at most 10 characters, also what the
++// network carries). An online player row's name text `name` (a
++// TLTextInstance), set to the row's Mii name `mii_name` (`mii_data` its
++// RFLStoreData), and the rank text `rank` right of it: during a set, one of
++// its two players gets their profile name instead, which shows in the room
++// left of the rank; anybody else keeps the Mii name.
++void mscharged_competitive_show_name(void* name, void* rank, const unsigned short* mii_name,
++                                     const unsigned char* mii_data);
++// The front end draws text `text` (a TLTextInstance) with `matrix` (its
++// nlMatrix4): true when it shows such a profile name that is wider than its
++// room, which then draws smaller, in one row (the text's draw options to be
++// restored after the draw).
++bool mscharged_competitive_fit_text(void* text, void* matrix);
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/Game/FE/feOnlinePlayerRow.cpp b/src/Game/FE/feOnlinePlayerRow.cpp
+--- a/src/Game/FE/feOnlinePlayerRow.cpp
++++ b/src/Game/FE/feOnlinePlayerRow.cpp
+@@ -10,6 +10,9 @@
+ #include "Game/FE/tlTextInstance.h"
+ #include "NL/nlFormat.h"
+ #include "NL/nlLocalizationLookup.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ 
+ static const char* sOnlinePlayerSearchSlides[5] = { "SEARCHING", "CONNECTING", "INVITE", "ADD", "OFF" };
+ static const char* sOnlinePlayerStatusSlides[12] = {
+@@ -17,6 +20,16 @@
+ };
+ static const char* sOnlinePlayerSideSlides[4] = { "HOME", "HOME", "AWAY", "GUEST" };
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Competitive play: a set's player by their profile name, beside the rank.
++static void ShowCompetitiveName(TLInstance* part, FEOnlinePlayerRow* row)
++{
++    mscharged_competitive_show_name(FEFinder<TLTextInstance, 3>::FindOrDefault(part, "NAME"),
++        FEFinder<TLTextInstance, 3>::FindOrDefault(part, "STATS", "Slide1", "RANK", "RANK"), row->mName,
++        row->mMiiData);
++}
++#endif
++
+ const char* GetOnlineCaptainSlideName(unsigned int captain)
+ {
+     switch (captain)
+@@ -117,6 +130,10 @@
+     record = FEFinder<TLTextInstance, 3>::FindOrDefault(over, "STATS", "Slide1", "RECORD", "RECORD");
+     record->SetString(description);
+     record->SetVisible(show && !row->mGuest);
++#if defined(MSCHARGED_TWEAKS)
++    ShowCompetitiveName(off, row);
++    ShowCompetitiveName(over, row);
++#endif
+ 
+     FEFinder<TLImageInstance, 2>::FindOrDefault(off, "00_dummy_texture")->SetVisible(show);
+     FEFinder<TLImageInstance, 2>::FindOrDefault(over, "00_dummy_texture")->SetVisible(show);
+diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+--- a/src/Game/FE/feRender.cpp
++++ b/src/Game/FE/feRender.cpp
+@@ -201,7 +201,17 @@
+         textInstance->SetMatrix(&textMatrix);
+         nlColour colour;
+         ConvertColour(colour, s_currentAssetColour);
++#if defined(MSCHARGED_TWEAKS)
++        // Competitive play: a set player's profile name too wide for its room
++        // draws smaller, in one row.
++        unsigned long drawOptions = textInstance->m_DrawOptions;
++        bool fitted = mscharged_competitive_fit_text(textInstance, &textMatrix);
++#endif
+         textInstance->Render((GLView*)m_pRenderScene->m_uRenderView, colour);
++#if defined(MSCHARGED_TWEAKS)
++        if (fitted)
++            textInstance->m_DrawOptions = drawOptions;
++#endif
+         break;
+     }
+     case TLAT_COMPONENT:

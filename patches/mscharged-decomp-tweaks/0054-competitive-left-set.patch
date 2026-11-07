@@ -1,0 +1,65 @@
+Subject: Competitive play: a player who leaves a set's search ends it for both
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+A set's two games search RANKED for each other (0047). When one player left
+that search with Back, nothing told the other game: it searched on until the
+server gave up on the set. SHOnlineMatchmakingDraft's Back now tells the
+module (src/platform/competitive_match.cpp), whose host withdraws the
+player's Ready to play! at once; the other game's host sees the set called
+off within seconds. A game whose set is called off during its search (0049)
+now leaves the online menus as well, the way the online menu's LOG OUT does
+(Pop, its sound, TransitionOnlineMatchToMainMenu, as the draft's own error
+path does for an error that needs a new login), instead of stopping in the
+RANKED menu; the host says why on its card.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -78,6 +78,12 @@
+ #endif
+ 
+ #if defined(MSCHARGED_TWEAKS)
++// The RANKED search screen: the player's Back left the search. A set's game
++// tells the opponent's, which leaves the set (tweak patch 0054).
++void mscharged_competitive_search_back(void);
++#endif
++
++#if defined(MSCHARGED_TWEAKS)
+ // The set's players by their profile names (tweak patch 0050): the game shows
+ // its online players by their Mii names (at most 10 characters, also what the
+ // network carries). An online player row's name text `name` (a
+diff --git a/src/Game/SH/SHOnlineMatchmakingDraft.cpp b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
+--- a/src/Game/SH/SHOnlineMatchmakingDraft.cpp
++++ b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
+@@ -406,14 +406,17 @@
+     }
+ 
+ #if defined(MSCHARGED_TWEAKS)
+-    // Competitive play: a set called off while its game searches leaves the
+-    // search as the player's Back would, so no stranger is met.
++    // Competitive play: a set called off while its game searches (the
++    // opponent left or withdrew) leaves the search, so no stranger is met,
++    // and the online menus, as the online menu's LOG OUT does: back to the
++    // main menu.
+     if (CanCancelOnlineMatchmaking() && mscharged_competitive_leave_search())
+     {
+-        GameSceneManager::Instance()->Push(SCENE_ONLINE_RANKED, SCREEN_BACK, true);
+         CancelOnlineMatchmaking();
+-        FEMusic::StartStreamIfDifferent(8);
+         FEAudio::StopAnimAudioEvent(0x89B1FC93, (void*)0x2A);
++        GameSceneManager::Instance()->Pop();
++        FEAudio::PlayAnimAudioEvent(0x4430B152, 0, 0, true);
++        FrontEndPresentation::GetInstance()->Call("TransitionOnlineMatchToMainMenu");
+         return;
+     }
+ #endif
+@@ -434,6 +437,9 @@
+                 mScrollWidget.Update(event, fDeltaT);
+             if (mBackButton.UpdateBackButton(event, fDeltaT))
+             {
++#if defined(MSCHARGED_TWEAKS)
++                mscharged_competitive_search_back();
++#endif
+                 CancelOnlineMatchmaking();
+                 FEMusic::StartStreamIfDifferent(8);
+                 FEAudio::StopAnimAudioEvent(0x89B1FC93, (void*)0x2A);

@@ -12,6 +12,7 @@
 #include <stdexcept>
 
 extern "C" void charged_configure_tweaks(unsigned mask);
+extern "C" void charged_set_tweaks(unsigned mask);
 extern "C" void charged_configure_performance_mode(bool enabled);
 extern "C" void charged_set_view_shape(float shape);
 extern "C" bool charged_take_match_view(void);
@@ -25,6 +26,8 @@ extern "C" void charged_toggle_hud(void);
 // original frame.
 unsigned gTvFormat;
 extern "C" unsigned int VIGetTvFormat(void) { return gTvFormat; }
+// Competitive play (competitive_match.cpp): no set here.
+extern "C" bool mscharged_competitive_mirror_match(void) { return false; }
 // The original match (Game.cpp), present while a match runs.
 class cGame;
 cGame* g_pGame;
@@ -293,6 +296,14 @@ int main()
         Check(!mscharged_tweak_title_pending() && !mscharged_tweak_take_title_press(), "Skip intro: second title press");
         mscharged_tweak_frontend_frame(true, true);
         Check(!mscharged_tweak_fast_menus(), "Skip intro enabled fast menus");
+        // The overlay's Game options change the tweaks while the game runs:
+        // the title stays passed.
+        charged_set_tweaks(mscharged::GameTweakBit(mscharged::GameTweak::SkipIntro)
+                           | mscharged::GameTweakBit(mscharged::GameTweak::FastTerrain));
+        Check(mscharged_tweak_enabled(int(mscharged::GameTweak::FastTerrain)) && !mscharged_tweak_title_pending()
+                && !mscharged_tweak_take_title_press(), "Changed tweaks: title pending again");
+        charged_set_tweaks(mscharged::GameTweakBit(mscharged::GameTweak::SkipIntro));
+        Check(!mscharged_tweak_enabled(int(mscharged::GameTweak::FastTerrain)), "Changed tweaks: still on");
 
         // Training: Start training passes the title once, as Skip intro does,
         // and its match is taken once.

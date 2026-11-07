@@ -336,6 +336,7 @@ target_link_libraries(mscharged_original_game_vi PRIVATE aurora::vi)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SystemUsage.cmake")
 add_library(charged_original_game_host OBJECT
     src/runtime/original_game.cpp src/runtime/frame_timing_log.cpp src/runtime/host_overlay.cpp
+    src/runtime/host_panel.cpp
     src/runtime/game_window.cpp
     src/runtime/texture_pack_loading.cpp src/platform/hd_recolour.cpp
     src/runtime/host_frame_pacing.cpp
@@ -363,7 +364,15 @@ target_link_libraries(charged_original_game_host PRIVATE
     charged_native_system_settings charged_native_video_device charged_movie_hardware
     charged_native_hardware_owner
     charged_native_video_output_device charged_native_filesystem_boot
-    charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_texture_packs ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
+    charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_competitive charged_alert_sound
+    charged_texture_packs
+    ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
+# The game's overlay in the panel (F1, HOME): the Online and Game options tabs
+# (src/overlay, built with the launcher, through Aurora's ImGui).
+if(TARGET charged_overlay)
+    target_link_libraries(charged_original_game_host PRIVATE charged_overlay charged_mii_head charged_match_presets)
+    target_compile_definitions(charged_original_game_host PRIVATE MSCHARGED_HAS_GAME_OVERLAY=1)
+endif()
 
 # The autopilot's sound (test and dev builds): one sound of the disc's banks
 # that the host decodes and plays itself (src/platform/bank_cue.cpp).

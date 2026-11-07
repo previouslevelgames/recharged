@@ -1,0 +1,44 @@
+Subject: Competitive play: a set's game announces its search at once
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+DWC's RANKED search first waits until the master server lists the game's own
+session with its matchmaking keys, which the game sends in a state-changed
+heartbeat. QR2 sends one at most every 10 seconds, and the game had just sent
+its first when it logged in, so a set's search sat for about 9 seconds before
+it looked for the opponent (reservations wait the same way). While a set's
+game searches RANKED, qr2_send_statechanged now asks the module
+(src/platform/competitive_match.cpp) and sends the heartbeat at once; the
+master server is Recharged's own.
+
+diff --git a/src/RVL_SDK/gamespy/qr2/qr2.c b/src/RVL_SDK/gamespy/qr2/qr2.c
+--- a/src/RVL_SDK/gamespy/qr2/qr2.c
++++ b/src/RVL_SDK/gamespy/qr2/qr2.c
+@@ -6,6 +6,11 @@
+ #include "../common/gsCommon.h"
+ #include "../natneg/natneg.h"
+ #include "qr2regkeys.h"
++#if defined(MSCHARGED_TWEAKS)
++/* Competitive play (src/platform/competitive_match.cpp): nonzero while a
++   set's game searches RANKED (tweak patch 0056). */
++int mscharged_competitive_announce_now(void);
++#endif
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -538,6 +543,16 @@
+                   "Requested send statechange for LAN game, discarding\r\n");
+     return;
+   }
++#if defined(MSCHARGED_TWEAKS)
++  /* Competitive play: a set's search waits for its own listing, and the
++     opponent's for its reservation; Recharged's master server takes each
++     change at once rather than 10 seconds after the last heartbeat. */
++  if (mscharged_competitive_announce_now()) {
++    send_heartbeat(qrec, 1);
++    qrec->userstatechangerequested = 0;
++    return;
++  }
++#endif
+   if (current_time() - qrec->lastheartbeat < MIN_STATECHANGED_HB_TIME) {
+     gsDebugFormat(GSIDebugCat_QR2, GSIDebugType_Misc, GSIDebugLevel_Notice,
+                   "Queing statechange for later send (too soon)\r\n");

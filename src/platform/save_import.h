@@ -86,6 +86,10 @@ struct InstalledMii {
     // online server gives the Mii its profile at its first login there: 0
     // until then.
     std::uint64_t friend_code = 0;
+    // Its create ID, which the game keys that save slot by (mii_maker.h),
+    // and its whole 74-byte record (the face, for a picture of it).
+    std::array<unsigned char, 8> create_id{};
+    std::string record;
 };
 
 struct MiiDatabaseStatus {
@@ -145,6 +149,34 @@ struct MiiCreateIdTaken : std::runtime_error {
 // save folder (InstalledMiis tells these beforehand); nothing is changed then.
 MiiImportResult AddMii(const std::string& record, const std::filesystem::path& nand_root, const SaveTitle& title,
                        const std::filesystem::path& backup_parent);
+
+// The database has no Mii with the edited one's create ID (ReplaceMii).
+struct MiiNotFound : std::runtime_error {
+    MiiNotFound() : std::runtime_error("The Mii database has no Mii with this create ID.") {}
+};
+
+// Replace the Mii with `record`'s create ID by `record` (its face or name
+// edited), in its own slot. The create ID is who the Mii is online: the game
+// keys its online save slot, with its WFC profile and friend code, by it, so
+// an edit never changes that. The previous database and the catalog are
+// backed up as for AddMii; nothing is written, and the backup is empty, when
+// the database holds the record already. Throws MiiNotFound when no Mii has
+// that create ID, std::invalid_argument for a record without a name or a
+// create ID, and as AddMii for a damaged database or an unusable save folder;
+// nothing is changed then.
+MiiImportResult ReplaceMii(const std::string& record, const std::filesystem::path& nand_root, const SaveTitle& title,
+                           const std::filesystem::path& backup_parent);
+
+// What EnsureMii did.
+enum class MiiEnsured { Added, Renamed, Unchanged };
+
+// The Mii `record` (a keyed Mii, mii_maker.h) in the database of the NAND
+// backing at `nand_root`: added as AddMii does when its create ID is not
+// there; a Mii with that create ID keeps its face and slot and takes the
+// record's name. Writes, and backs up, only when something changes. Throws
+// as AddMii does for a damaged or full database or an unusable save folder.
+MiiEnsured EnsureMii(const std::string& record, const std::filesystem::path& nand_root, const SaveTitle& title,
+                     const std::filesystem::path& backup_parent);
 
 // The game save (Strikers2) as the launcher finds it, for the settings it
 // changes there: the captains' lineups and the match settings.

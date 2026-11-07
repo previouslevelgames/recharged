@@ -1,0 +1,535 @@
+#pragma once
+
+#include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace mscharged::platform
+{
+class HttpCancel;
+
+// The profile service of a Recharged WFC server (recharged-wfc-srv,
+// docs/profiles.md): players who signed in with Discord, the friend codes
+// their games proved theirs, the rule sets the server's admins keep, and test
+// matches between two players. The launcher signs in and arranges matches;
+// the game reports its login, readiness and results. Every call blocks.
+
+// A server address as typed ("https://wfc.example.com", a trailing slash
+// allowed) in its canonical form, or nullopt with `error` saying what is
+// wrong. http:// is accepted only for this computer or a private network
+// (a test server), as the token would otherwise cross the internet readable.
+std::optional<std::string> ProfileServerAddress(std::string_view text, std::string* error = nullptr);
+
+struct WfcProfile
+{
+    std::int64_t profile_id = 0;
+    std::string game; // R4QE or R4QP
+    std::string friend_code;
+    std::string mii;
+};
+
+// A listed player's set still to be played, or playing (the lists' `set`,
+// servers from 1.2.12 on).
+struct ListedSet
+{
+    std::string stage;       // "invited", "open", "go" or "playing" (ProfileMatch::stage)
+    bool challenger = false; // they sent the challenge
+    std::string opponent;    // the opponent's name
+    int games = 1;           // the games of its series
+    int game = 0;            // the game their game plays, or last played; 0 when it doesn't say
+};
+
+struct ProfilePlayer
+{
+    std::int64_t id = 0;
+    std::string name;    // as shown: the Discord display name at the last sign-in
+    std::string discord; // the Discord username others challenge
+    std::string avatar_url;
+    bool test = false; // a test server's player, signed in by name
+    // How they signed in: "discord", "mii" (with a Mii's name, no Discord)
+    // or "test"; empty from servers before Mii accounts (then Discord, or
+    // test when `test`). MiiAccount() tells.
+    std::string account;
+    // A Mii player's friend code, once their game logged in to WFC (also in
+    // `wfc`); empty otherwise.
+    std::string friend_code;
+    std::vector<WfcProfile> wfc; // the latest first
+    // GET /api/v1/me only: the Discord account id (digits; empty for test
+    // players), which never changes: the player's Mii is made from it.
+    std::string discord_id;
+    // In the lobby's lists: Recharged is open, and a set to play; when they
+    // last had it open (Unix seconds); the player keeps them as a friend.
+    bool online = false, busy = false;
+    // While online, what their Recharged is doing: "launcher", "game" (the
+    // game, outside a match) or "match" (a match in the game: nobody can
+    // challenge them); empty from servers before 1.2.0.
+    std::string activity;
+    // In a match, its kind (MatchKindOf); empty from older games and from
+    // servers before 1.2.5.
+    std::string match_kind;
+    // While online: the game their Recharged plays ("R4QE", "R4QP", ...),
+    // when it says (servers from 1.2.8 on).
+    std::string game;
+    // The flag beside their name: a country's two capital letters, empty for
+    // none (servers from 1.2.11 on).
+    std::string country;
+    // While online, outside a match: the screens their game shows (ScreenOf);
+    // empty from older games and servers.
+    std::string screen;
+    // While online: they search for a random opponent, and their set to play
+    // or playing (servers from 1.2.12 on).
+    bool searching = false;
+    std::optional<ListedSet> set;
+    // GET /api/v1/me only: the country the server finds from where the
+    // player connects (empty when unknown), and their choice for the flag:
+    // "auto" (that one), "none" or a country's letters.
+    std::string country_detected, country_choice;
+    std::optional<std::int64_t> last_online;
+    bool is_friend = false;
+    // Both keep each other as friends: they can write each other; their
+    // messages not read yet. With chat, discord_id is theirs (empty for test
+    // players).
+    bool chat = false;
+    // GET /api/v1/me only: available for random games (servers from 1.2.1).
+    bool available = false;
+    int unread = 0;
+
+    bool MiiAccount() const { return account == "mii"; }
+};
+
+// A message between two friends (GET /api/v1/chat/<id>).
+struct ChatMessage
+{
+    std::int64_t id = 0;
+    bool mine = false; // sent by this player
+    std::string body;
+    std::int64_t sent_at = 0; // Unix seconds
+};
+
+struct ChatPage
+{
+    std::vector<ChatMessage> messages; // oldest first
+    bool can_send = false;
+};
+
+// The game's RANKED leaderboards (GET /api/v1/leaderboard, servers from
+// 1.2.1): a row of a board, as the game ranks it (equal points share a rank).
+struct LeaderboardEntry
+{
+    int rank = 0;
+    std::string mii;    // the Mii's name in the game's record
+    std::string player; // the Recharged player whose profile it is, if a launcher proved it
+    std::optional<int> wins, losses;
+    int points = 0;
+    int region = 0; // 1 JP, 2 US, 4 EU, 8 KR
+    bool you = false;
+};
+
+// One board of the current season (or day): its days, everyone on it, the
+// leaders, and the player's own best row.
+struct LeaderboardBoard
+{
+    std::string first_day, last_day; // YYYY-MM-DD
+    int players = 0;
+    std::vector<LeaderboardEntry> top;
+    std::optional<LeaderboardEntry> you;
+};
+
+struct Leaderboard
+{
+    LeaderboardBoard season, daily;
+};
+
+// A player of the game's own online mode without a Recharged launcher, by
+// their Mii (servers from 1.2.1): never a friend code.
+struct MiiProfile
+{
+    std::int32_t profile_id = 0;
+    std::string mii;  // the Mii name of its last login
+    std::string game; // R4QE, R4QP, R4QJ or R4QK
+    std::string friend_code; // as the game shows it, "0868-9934-5920"
+    bool online = false;
+    std::string status; // online: menu, matchmaking or match
+    // Matchmaking or in a match: "ranked" or "friends" (servers from 1.2.5).
+    std::string match_kind;
+    std::optional<std::int64_t> last_online; // the last login (Unix seconds)
+    bool is_friend = false;
+};
+
+// The lobby's lists (GET /api/v1/players).
+struct PlayerLists
+{
+    std::vector<ProfilePlayer> online; // who has Recharged open, by name
+    std::vector<ProfilePlayer> recent; // the last players a set was played with
+    // The player's friends: online first, by name, then the last online first.
+    std::vector<ProfilePlayer> friends;
+    // While the player is available for random games: the other available
+    // players with Recharged open (servers from 1.2.1).
+    std::vector<ProfilePlayer> available;
+    // The Mii profiles the player keeps as friends, and while available the
+    // game's own online players not in the lists (servers from 1.2.1).
+    std::vector<MiiProfile> mii_friends, game_online;
+};
+
+// When a player last had Recharged open, for the friends list: "Last online 5
+// minutes ago", "... yesterday", "... on 3 October"; `now` and `when` in Unix
+// seconds.
+std::string DescribeLastOnline(std::int64_t now, std::optional<std::int64_t> when);
+
+// When a chat message was sent, in local time: "14:05" today, "Yesterday
+// 14:05", "3 October, 14:05", or with the year when it was another.
+std::string DescribeChatTime(std::int64_t now, std::int64_t when);
+
+// The rules a match is played by (docs/profiles.md, "Rules").
+struct MatchRules
+{
+    std::vector<std::string> tweaks; // fast_terrain, no_mega_strikes, thunder_island_walls
+    std::string skill;               // training, rookie, professional, superstar, legend
+    std::string limit;               // time or goals
+    int time = 0;                    // seconds
+    int goals = 0;
+    int games = 0;       // in the series: 1, 3, 5 or 7
+    std::string stadium; // random, or a stadium's name
+    // The game's cheats, by the names its settings screen shows ("none",
+    // "field_tilt", "shells"...): the stadium's, the players' and the
+    // power-ups'. Servers before 1.2.3 send none.
+    std::string stadium_cheat = "none";
+    std::string player_cheat = "none";
+    std::string powerup_cheat = "none";
+    bool operator==(const MatchRules&) const = default;
+};
+// The rules as the server reads them (docs/profiles.md, "Rules").
+std::string RulesJson(const MatchRules& rules);
+
+struct RuleSet
+{
+    std::int64_t id = 0;
+    std::string name;
+    MatchRules rules;
+    std::string hash;
+};
+
+// The player's search for a random opponent (docs/profiles.md, "Random
+// opponents"): the rules' name and the rules, when it started (Unix seconds)
+// and how many players it asked.
+struct ProfileSearch
+{
+    std::string rule_set;
+    MatchRules rules;
+    std::int64_t since = 0;
+    int asked = 0;
+};
+
+// One game of a series, as one side saw it.
+struct MatchGame
+{
+    int my_score = 0;
+    int opponent_score = 0;
+    std::string my_captain;
+    std::string opponent_captain;
+    std::string stadium;
+    // The game broke off at this score (a lost connection, or out of sync):
+    // the series' last game, with how much of its clock went (0 to 1). The
+    // server counts it once a third was played (servers from 1.2.8 on).
+    bool interrupted = false;
+    float played = 0.0f;
+};
+
+// A match as one of its players sees it.
+struct ProfileMatch
+{
+    std::int64_t id = 0;
+    // challenged, accepted, declined, cancelled, expired, finished or disputed.
+    std::string state;
+    std::string side; // challenger or challenged
+    ProfilePlayer opponent;
+    std::string rule_set;
+    MatchRules rules;
+    std::string rules_hash;
+    bool paired = false;   // both games are ready for it
+    bool reported = false; // this player's game reported the result
+    std::string winner;    // you, opponent or draw once finished
+    std::vector<MatchGame> games; // this player's report
+    std::int64_t created_at = 0;
+    // Where the set is (docs/profiles.md of recharged-wfc-srv, "Sets"):
+    // invited, open, go, playing, finished, disputed or dissolved (then
+    // `reason` is the state). Empty from servers before sets.
+    std::string stage, reason;
+    bool you_ready = false, opponent_ready = false; // Ready to play!
+    bool opponent_online = false; // the opponent has Recharged open
+    std::int64_t go_at = 0, playing_at = 0; // unix seconds, 0: not yet
+    std::int64_t rematch_of = 0; // the set this one plays again
+    bool random = false;         // a search sent it (a random opponent, servers 1.2.3 on)
+
+    // Still to be played: challenged or accepted.
+    bool Open() const { return state == "challenged" || state == "accepted"; }
+    // Keeps the player from another set: a challenge waiting for its answer,
+    // or a set that goes or plays. A stopped set (stage "open") doesn't
+    // (servers from 1.2.8 on; before them, every open match).
+    bool Busy() const
+    {
+        return state == "challenged"
+            || (state == "accepted" && (stage.empty() || stage == "go" || stage == "playing"));
+    }
+};
+
+struct ProfileServerInfo
+{
+    std::string version;
+    bool discord = false; // Discord sign-in
+    bool test = false;    // sign-in by name (test servers)
+    bool mii = false;     // sign-in with a Mii's name, no Discord (servers from 1.2.4)
+    // The Discord application the server signs in to (digits): the one the
+    // launcher's Discord Social SDK uses. Empty without Discord sign-in, and
+    // from servers before 1.2.0.
+    std::string discord_application;
+};
+
+// The Discord Social SDK's tokens, which the server trades for the launcher
+// (docs/COMPETITIVE.md, "Discord friends").
+struct DiscordTokens
+{
+    std::string access_token;
+    std::string refresh_token;
+    std::int64_t expires_in = 0; // seconds
+};
+
+struct SignInStart
+{
+    std::string id;
+    std::string code; // shown in the launcher and on the browser page
+    std::string url;  // the page the browser opens
+    int expires_in = 600;
+    int poll_interval = 2;
+    // Started with a Mii player's session: the server joins Discord to that
+    // profile (false from servers that can't, and without a session).
+    bool link = false;
+};
+
+struct SignInResult
+{
+    enum class Status { Waiting, SignedIn, Refused, Expired };
+    Status status = Status::Waiting;
+    std::string token;
+    ProfilePlayer player;
+    std::string message; // why it was refused
+    // A Discord sign-in that Discord granted the Social SDK's scopes (servers
+    // from 1.2.1): the SDK's tokens, which link the Discord friends at once.
+    std::optional<DiscordTokens> discord;
+};
+
+struct ReadyAnswer
+{
+    bool paired = false;
+    bool other_release = false; // both are ready, but on releases that can't play each other
+    bool replaced = false;      // another game of this player took the set (server 1.2.9)
+};
+
+// A call the server refused (Status() its HTTP status, Message() its words)
+// or one that got no answer (Status() 0).
+class ProfileError : public std::runtime_error
+{
+public:
+    ProfileError(const std::string& message, long status, bool cancelled = false)
+        : std::runtime_error(message), status_(status), cancelled_(cancelled) {}
+    long Status() const { return status_; }
+    bool SignedOut() const { return status_ == 401; }
+    bool Cancelled() const { return cancelled_; }
+
+private:
+    long status_;
+    bool cancelled_;
+};
+
+class ProfileService
+{
+public:
+    // `server` as ProfileServerAddress returns it.
+    explicit ProfileService(std::string server, std::string token = {});
+
+    const std::string& Server() const { return server_; }
+    void SetToken(std::string token) { token_ = std::move(token); }
+    // Lets another thread stop the running call.
+    void SetCancel(std::shared_ptr<HttpCancel> cancel) { cancel_ = std::move(cancel); }
+    // The game's requests say what it is doing ("game" or "match", the
+    // Recharged-Activity header), in a match its kind (MatchKindOf, the
+    // Recharged-Match header), outside one its screens (ScreenOf, the
+    // Recharged-Screen header) and in a set the game of its series it plays
+    // or last played (Recharged-Set-Game, 0 for none); the launcher's say
+    // nothing.
+    void SetActivity(std::string activity, std::string match_kind = {}, std::string screen = {}, int set_game = 0)
+    {
+        activity_ = std::move(activity);
+        match_kind_ = std::move(match_kind);
+        screen_ = std::move(screen);
+        set_game_ = set_game;
+    }
+    // Every request of this program says which game it plays (the
+    // Recharged-Game header: the first four characters of the game's id, such
+    // as R4QE): sets pair only players of one version, as RANKED does. Empty
+    // says nothing (the launcher before its image is checked).
+    static void SetPlayedGame(std::string game);
+
+    // Without a session. StartSignIn with the session of a Mii player
+    // connects Discord to their profile; PollSignIn then refuses a Discord
+    // account that has a profile of its own.
+    ProfileServerInfo Info();
+    SignInStart StartSignIn();
+    SignInResult PollSignIn(const std::string& id);
+    SignInResult TestSignIn(const std::string& name);
+    // A player without Discord, by their profile name (1-32 characters): a
+    // new profile each time (POST /api/v1/sign-in/mii). A ProfileError with
+    // Status() 429 when the server takes no more for now.
+    SignInResult MiiSignIn(const std::string& name);
+    // The game, logged in to WFC as `profile_id` with `login_ticket`: the
+    // profile that WFC profile identifies (a player who plays with a Mii),
+    // with a new session. 404 when it identifies nobody.
+    SignInResult WfcSignIn(std::uint32_t profile_id, const std::string& login_ticket);
+    // Of these WFC profiles (a game save's Miis, at most 32), those that play
+    // for a profile already, and how it signs in again: "game" (that Mii's
+    // WFC login, WfcSignIn) or its account ("discord", "test"). No names. 404
+    // from a server before 1.2.4.
+    std::vector<std::pair<std::uint32_t, std::string>> KnownWfc(const std::vector<std::uint32_t>& profile_ids);
+    std::vector<RuleSet> RuleSets();
+
+    // With the session's token.
+    ProfilePlayer Me();
+    void SignOut();
+    ProfileMatch Challenge(const std::string& opponent, std::int64_t rule_set);
+    // A challenge by rules of the player's own (servers 1.2.3 on): `name` is
+    // the preset they come from, empty for none (the server calls it Custom).
+    ProfileMatch ChallengePlayer(std::int64_t opponent_id, const MatchRules& rules, const std::string& name);
+    // The same by the player's id, from the lobby's lists.
+    ProfileMatch ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set);
+    // The friends after adding one (by player id or Discord username) or
+    // taking one off.
+    std::vector<ProfilePlayer> AddFriend(std::int64_t player_id);
+    // Available for random games, or not: the answer's value. 404 from a
+    // server before 1.2.1.
+    bool SetAvailable(bool available);
+    // The flag beside the player's name: "auto" (the country they connect
+    // from), "none" or a country's two capital letters. Answers the flag
+    // shown (country), the country found and the choice. 404 from a server
+    // before 1.2.11.
+    ProfilePlayer ChooseCountry(const std::string& choice);
+    // The Mii friends after adding or taking one off.
+    std::vector<MiiProfile> AddMiiFriend(std::int32_t profile_id);
+    std::vector<MiiProfile> RemoveMiiFriend(std::int32_t profile_id);
+    std::vector<ProfilePlayer> AddFriend(const std::string& name);
+    std::vector<ProfilePlayer> RemoveFriend(std::int64_t player_id);
+    // The messages with `player_id`, those after message `after` (0: the
+    // latest 50); a message to them.
+    ChatPage Chat(std::int64_t player_id, std::int64_t after);
+    ChatMessage SendChat(std::int64_t player_id, const std::string& body);
+    // The set still to be played, or the last one that ended; `poll_interval`
+    // gets how soon (seconds) the server wants to be asked again.
+    // `search`: the player's search for a random opponent (none when they
+    // don't search), `server_time` the server's clock (Unix seconds).
+    std::optional<ProfileMatch> CurrentMatch(int* poll_interval = nullptr,
+                                             std::optional<ProfileSearch>* search = nullptr,
+                                             std::int64_t* server_time = nullptr);
+    // Search for a random opponent by one of the server's rule sets as it is
+    // (`rule_set`), else by `rules` under `name`; `game` the first four
+    // characters of the game's id (R4QE). And stop searching.
+    ProfileSearch StartSearch(std::int64_t rule_set, const MatchRules& rules, const std::string& name,
+                              const std::string& game);
+    void StopSearch();
+    PlayerLists Players();
+    // 404 from a server before 1.2.1.
+    Leaderboard RankedLeaderboard();
+    // The launcher's Ready to play! (or taking it back).
+    ProfileMatch ReadyToPlay(std::int64_t match, bool ready);
+    // The ended set again: the same opponent and rules.
+    ProfileMatch Rematch(std::int64_t match);
+    ProfileMatch Accept(std::int64_t match);
+    ProfileMatch Decline(std::int64_t match);
+    ProfileMatch Cancel(std::int64_t match);
+    // The game's proof that it is logged in to WFC as `profile_id`.
+    WfcProfile ProveWfcLogin(std::int64_t profile_id, const std::string& login_ticket);
+    // The Discord Social SDK's tokens for the code of its authorization, or
+    // for the refresh token of earlier ones. A ProfileError with Status() 400
+    // means Discord refused: the link has to be made again.
+    DiscordTokens DiscordToken(const std::string& code, const std::string& verifier, const std::string& redirect_uri);
+    DiscordTokens RefreshDiscordToken(const std::string& refresh_token);
+    // Which of these Discord accounts (the player's Discord friends) have
+    // signed in to Recharged, as the lists show players, each with its
+    // discord_id; at most 200 at once.
+    std::vector<ProfilePlayer> PlayersByDiscord(const std::vector<std::string>& discord_ids);
+    ReadyAnswer Ready(std::int64_t match, std::int64_t profile_id, const std::string& rules_hash);
+    ProfileMatch Report(std::int64_t match, const std::vector<MatchGame>& games);
+
+private:
+    struct Answer;
+    Answer Call(const char* method, const std::string& path, const std::string* body);
+
+    std::string server_;
+    std::string token_;
+    std::string activity_, match_kind_, screen_;
+    int set_game_ = 0;
+    std::shared_ptr<HttpCancel> cancel_;
+};
+
+// The most Discord friends looked up: the first this many of the list.
+inline constexpr std::size_t kDiscordFriendsLookedUp = 1000;
+
+// Which of the player's Discord friends (their Discord account ids) play
+// Recharged: PlayersByDiscord in parts as large as the server takes, online
+// first, then by name. None from a server before 1.2.0, which can't tell.
+std::vector<ProfilePlayer> FindDiscordPlayers(ProfileService& api, const std::vector<std::string>& discord_ids);
+
+// The session a settings file signed in to, kept between runs: the server it
+// belongs to (a token is never sent to another), the token and the player.
+struct SavedProfileSession
+{
+    std::string server;
+    std::string token;
+    std::string player_name;
+};
+
+// <data folder>/online/<settings file name>.session: two settings files (a
+// second game on one computer) sign in separately.
+std::filesystem::path ProfileSessionFile(const std::filesystem::path& data_folder,
+                                         const std::filesystem::path& config);
+std::optional<SavedProfileSession> LoadProfileSession(const std::filesystem::path& file);
+// Readable by this user only, where the system has such permissions.
+void SaveProfileSession(const std::filesystem::path& file, const SavedProfileSession& session);
+void ForgetProfileSession(const std::filesystem::path& file);
+
+// The profiles that signed in with a settings file, remembered after signing
+// out: the launcher offers one again (by name) for a Mii of the game save
+// with one of its friend codes, instead of a second profile for that Mii.
+struct KnownProfile
+{
+    std::string server;
+    std::int64_t player_id = 0;
+    std::string name;
+    std::string account;                   // "mii", "discord" or "test"
+    std::vector<std::string> friend_codes; // its WFC profiles', as shown ("0868-9934-5920")
+};
+// <data folder>/online/<settings file name>.profiles, the latest first.
+std::filesystem::path KnownProfilesFile(const std::filesystem::path& data_folder,
+                                        const std::filesystem::path& config);
+std::vector<KnownProfile> LoadKnownProfiles(const std::filesystem::path& file);
+void SaveKnownProfiles(const std::filesystem::path& file, const std::vector<KnownProfile>& profiles);
+
+// The Discord friends' link of a settings file, kept between runs like the
+// session: the server that traded the Discord Social SDK's tokens and the
+// refresh token, which gets the next ones.
+struct SavedDiscordLink
+{
+    std::string server;
+    std::string refresh_token;
+};
+
+// <data folder>/online/<settings file name>.discord
+std::filesystem::path DiscordLinkFile(const std::filesystem::path& data_folder, const std::filesystem::path& config);
+std::optional<SavedDiscordLink> LoadDiscordLink(const std::filesystem::path& file);
+// Readable by this user only, as the session; ForgetProfileSession removes it.
+void SaveDiscordLink(const std::filesystem::path& file, const SavedDiscordLink& link);
+} // namespace mscharged::platform

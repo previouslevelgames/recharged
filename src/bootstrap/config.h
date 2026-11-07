@@ -8,6 +8,7 @@
 
 #include <array>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -18,6 +19,7 @@
 namespace mscharged
 {
 inline constexpr const char* kDefaultOnlineServer = "2.31.48.136";
+inline constexpr const char* kDefaultProfileServer = "https://rechargedwfc.net";
 
 struct Settings
 {
@@ -244,6 +246,35 @@ struct Settings
     // (*.nintendowifi.net) resolve. Left out or empty, the project's server:
     // earlier builds wrote an empty one into every saved file.
     std::string online_server = kDefaultOnlineServer;
+    // online.profile_server: the address of the WFC server's profile service
+    // for competitive play (https://, or http:// for a test server on this
+    // computer or network). Left out or empty, the project's server. Only the
+    // file sets it: the launcher shows it and saving leaves it as it is.
+    // Players sign in to it with Discord on the launcher's Online pages.
+    std::string profile_server = kDefaultProfileServer;
+    // [online] challenge_rules: the rule set (by its name on the profile
+    // server) the player's challenges go out with, from the launcher's Online
+    // -> Match settings. Empty, or a name the server doesn't have: its first.
+    std::string challenge_rules;
+    // [online] challenge_sound (on by default): a chime, and a flashing
+    // window when it is in the background, for a challenge to the player
+    // and for their challenge accepted (at the master volume; not when
+    // muted).
+    bool challenge_sound = true;
+    // [online] mii: the Mii a player who plays online with a Mii (without
+    // Discord) plays their sets with, by its create ID (16 hex digits,
+    // written in lowercase); Player profile chooses it. Empty: none chosen,
+    // and a Discord player's Mii is made from their Discord name.
+    std::string online_mii;
+    // [online] mii_sign_in: a player who played with a Mii before asked to
+    // sign in again through the game: once a Mii of theirs logs in to WFC, the
+    // game asks the server for the profile that Mii's online account
+    // identifies, saves its session and sets this back to false.
+    bool mii_sign_in = false;
+    // [online] mii_sign_in_with: the Mii of the game save the player picked
+    // for that (its create ID, as online_mii), so the launcher names it after
+    // a restart too. Only read while mii_sign_in is true; empty: none picked.
+    std::string mii_sign_in_with;
     // [online] rollback (on by default): network matches predict the inputs
     // still on their way and roll back when they differ, instead of waiting
     // for them. Every machine in the match must have it on (the input delay
@@ -313,6 +344,18 @@ bool SamePadProfileName(const std::string& a, const std::string& b);
 
 ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing = false);
 void SaveConfig(ConfigFile& file, const Settings& settings);
+// The game's overlay (Game options): one gameplay option of `path` saved, the
+// rest of the file as it is (run overrides such as --no-tweaks never reach it).
+// Throws when the file cannot be read or written, or `tweak` is not listed.
+void SaveGameTweak(const std::filesystem::path& path, GameTweak tweak, bool on);
+// The game's overlay (Online, "Your challenges"): [online] challenge_rules of
+// `path` saved, the rest of the file as it is. Throws when the file cannot be
+// read or written, or `name` has a line break or NUL.
+void SaveChallengeRules(const std::filesystem::path& path, const std::string& name);
+// [online] mii_sign_in alone (the game clears it once it signed in again).
+void SaveMiiSignIn(const std::filesystem::path& path, bool on);
+// Settings as `change` leaves them, saved over the file (the game's Settings tab).
+void SaveSettings(const std::filesystem::path& path, const std::function<void(Settings&)>& change);
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config);
 // game.gamecube_disc's path, empty when none is set.
 std::filesystem::path ResolveGameCubeDiscPath(const Settings& settings, const std::filesystem::path& config);

@@ -3,8 +3,8 @@ Subject: Rollback: one-shot sounds only a replay played play late
 Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
 The sounds started without a context (PlaySound, PlayOwnedSound with
-none) end by themselves and nothing finds them again, so patches 0046
-and 0047 leave them out: a replayed step played none, and one only the
+none) end by themselves and nothing finds them again, so patches 0061
+and 0062 leave them out: a replayed step played none, and one only the
 replay had was lost. With predicted inputs that is the other player's
 every new press, whose first step the replay alone runs as it is: a
 deke, the mushroom's start and end, the first puff of Wario's gas, and

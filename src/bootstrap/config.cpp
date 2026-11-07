@@ -96,6 +96,11 @@ Values Encode(const Settings& s)
             {"launcher.ui_scale", s.ui_scale},
             {"launcher.check_updates", s.check_updates ? "true" : "false"},
             {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
+            {"online.challenge_rules", s.challenge_rules},
+            {"online.challenge_sound", s.challenge_sound ? "true" : "false"},
+            {"online.mii", s.online_mii},
+            {"online.mii_sign_in", s.mii_sign_in ? "true" : "false"},
+            {"online.mii_sign_in_with", s.mii_sign_in_with},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
@@ -395,7 +400,30 @@ Settings Decode(const Values& values)
     }
     if (const auto it = values.find("online.server"); it != values.end() && !it->second.empty())
         s.online_server = it->second;
+    if (const auto it = values.find("online.profile_server"); it != values.end() && !it->second.empty())
+        s.profile_server = it->second;
+    if (const auto it = values.find("online.challenge_rules"); it != values.end()) s.challenge_rules = it->second;
+    if (s.challenge_rules.find_first_of("\r\n") != std::string::npos || s.challenge_rules.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: online.challenge_rules contains a line break or NUL");
+    if (s.profile_server.find_first_of("\r\n") != std::string::npos || s.profile_server.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: online.profile_server contains a line break or NUL");
     boolean("online.rollback", s.rollback);
+    boolean("online.challenge_sound", s.challenge_sound);
+    boolean("online.mii_sign_in", s.mii_sign_in);
+    // A Mii's create ID: 16 hex digits, kept in lowercase; empty for none.
+    auto create_id = [&](const char* key, std::string& value) {
+        const auto it = values.find(key);
+        if (it == values.end()) return;
+        std::string id = it->second;
+        for (auto& c : id) c = char(std::tolower(static_cast<unsigned char>(c)));
+        if (!id.empty()
+            && (id.size() != 16 || id.find_first_not_of("0123456789abcdef") != std::string::npos))
+            throw std::runtime_error(std::string("Invalid configuration: ") + key
+                                     + " is not a Mii's create ID (16 hex digits)");
+        value = id;
+    };
+    create_id("online.mii", s.online_mii);
+    create_id("online.mii_sign_in_with", s.mii_sign_in_with);
     boolean("online.rollback_test", s.rollback_test);
     if (const auto it = values.find("online.rollback_log"); it != values.end()) s.rollback_log = it->second;
     if (s.rollback_log.find_first_of("\r\n") != std::string::npos || s.rollback_log.find('\0') != std::string::npos)
@@ -650,6 +678,41 @@ void SaveConfig(ConfigFile& file, const Settings& settings)
     file.configured_keys.clear();
     for (const auto& [key, value] : Parse(contents)) file.configured_keys.insert(key);
     file.exists = true;
+}
+
+void SaveGameTweak(const std::filesystem::path& path, GameTweak tweak, bool on)
+{
+    auto file = LoadConfig(path, true);
+    const auto index = GameTweakIndex(tweak);
+    if (index >= file.settings.tweaks.size()) throw std::invalid_argument("Not a gameplay option");
+    auto settings = file.settings;
+    settings.tweaks[index] = on;
+    SaveConfig(file, settings);
+}
+
+void SaveChallengeRules(const std::filesystem::path& path, const std::string& name)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    settings.challenge_rules = name;
+    SaveConfig(file, settings);
+}
+
+void SaveSettings(const std::filesystem::path& path, const std::function<void(Settings&)>& change)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    change(settings);
+    SaveConfig(file, settings);
+}
+
+void SaveMiiSignIn(const std::filesystem::path& path, bool on)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    settings.mii_sign_in = on;
+    if (!on) settings.mii_sign_in_with.clear();
+    SaveConfig(file, settings);
 }
 
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config)

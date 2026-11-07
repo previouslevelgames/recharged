@@ -2,7 +2,7 @@ From: mscharged-port
 Subject: Rollback: the sounds with a context follow the match as well
 Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
 
-Patch 0046 has the tracked sounds follow the match. The other sounds
+Patch 0061 has the tracked sounds follow the match. The other sounds
 started with a context (PlaySound, PlayOwnedSound), which StopSound finds
 again by cue and context, had the same fault: a loop that only a replay
 stopped played on, as Bowser's, Wario's and Waluigi's super abilities'

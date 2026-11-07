@@ -1,6 +1,9 @@
 #pragma once
 
 #include "runtime/fps_overlay_layout.h"
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "launcher/ui_kit.h"
+#endif
 #include "platform/system_usage.h"
 
 #include <array>
@@ -14,6 +17,8 @@
 struct ImFont;
 
 namespace mscharged::runtime {
+
+class HostPanel;
 
 // What the host draws over the presented picture, in windowed and fullscreen
 // mode: the performance overlay (display.fps_overlay: FPS | GPU % | CPU %, then
@@ -35,6 +40,8 @@ public:
 
     // A new measurement, in frames per second.
     void SetRate(double rate);
+    // The performance numbers in `corner`, or none (the game's Settings switch them).
+    void SetPerformance(std::optional<OverlayCorner> corner);
     // The network numbers: none outside network sessions (LAT, DLY and RB
     // hidden), a latency alone in one, all three in a match with rollback.
     struct Network {
@@ -47,13 +54,46 @@ public:
     void SetNetwork(const Network& network);
     // Shows `text` for a moment, replacing the message shown before.
     void ShowMessage(std::string text, Clock::time_point now);
+    // A lasting hint in the top-left corner (the online panel's key while the
+    // game is in its menus): its keys as keycaps, then `text`. Hidden while
+    // the panel or a card is open; messages show below it. None hides it.
+    struct Hint {
+        std::vector<std::string> keys;
+        std::string text;
+        bool operator==(const Hint&) const = default;
+    };
+    void SetHint(std::optional<Hint> hint);
+    // A card in the middle of the dimmed picture that asks the player
+    // something (a challenge from another player): the A and B buttons'
+    // answers. None hides it. The host holds the players' buttons meanwhile.
+    struct Card {
+        std::string kicker;  // the small line above the title
+        std::string title;
+        std::string detail;  // wrapped under the title
+        std::string accept;  // the A button
+        std::string decline; // the B button
+        std::string note;    // under the buttons
+        bool operator==(const Card&) const = default;
+    };
+    void SetCard(std::optional<Card> card);
+    // The host panel (F1 or HOME), drawn while open in place of the card,
+    // under the performance numbers and messages; null for none.
+    void SetPanel(HostPanel* panel);
+    // Closes the host panel if it is open (a set going on into the game).
+    void ClosePanel();
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+    // The game overlay's fonts (src/overlay), at the panel's unit; none
+    // without the overlay's font file (ImGui's own font then).
+    const launcher::Fonts& OverlayFonts() const { return overlayFonts_; }
+#endif
     // Rebuild only when a displayed value, the message's fade or the window's
-    // pixel size changes. Unknown measurements show N/A, including during the
-    // first sample window.
+    // pixel size changes, and every call while the panel is open. Unknown
+    // measurements show N/A, including during the first sample window.
     void Update(std::uint32_t surface_width, std::uint32_t surface_height, Clock::time_point now);
 
 private:
-    void BuildFonts(float size);
+    void BuildFonts(float size, float unit);
+    void DrawCard(float width, float height, float unit);
 
     std::optional<OverlayCorner> performance_;
     std::optional<platform::SystemUsageMonitor> usage_;
@@ -61,6 +101,13 @@ private:
     std::optional<int> value_;
     Network network_;
     std::string message_;
+    std::optional<Card> card_, shownCard_;
+    std::optional<Hint> hint_, shownHint_;
+    HostPanel* panel_ = nullptr;
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+    launcher::Fonts overlayFonts_{};
+#endif
+    bool shownPanel_ = false;
     Clock::time_point messageShown_{};
     std::array<std::optional<int>, kMaxPerformanceMetrics> shownValues_{};
     std::size_t shownCount_ = 0;
@@ -70,9 +117,13 @@ private:
     std::uint32_t shownWidth_ = 0;
     std::uint32_t shownHeight_ = 0;
     float builtSize_ = 0.0f;
+    float builtUnit_ = 0.0f;
     ImFont* number_ = nullptr;
     ImFont* label_ = nullptr;
     ImFont* messageFont_ = nullptr;
+    // The card's: its title and buttons (bold), its text, its small lines.
+    ImFont* cardBold_ = nullptr;
+    ImFont* cardText_ = nullptr;
 };
 
 } // namespace mscharged::runtime
