@@ -1,6 +1,6 @@
 Subject: Select original basic and synchronous whole-file operations
 
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Extract the existing base file and synchronous whole-file wrappers unchanged.
 The full source includes the prefix; the prototype selects that prefix alone.

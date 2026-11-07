@@ -1,6 +1,6 @@
 Subject: Subtract native arena pointers before narrowing the bounded heap size
 
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 The original memory initialization narrows both arena addresses to u32.
 Compute the difference without truncation; the memory service must guarantee

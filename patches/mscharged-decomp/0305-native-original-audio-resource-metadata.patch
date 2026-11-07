@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Adapt original audio resource metadata to native ABI
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Retain the whole Matching source parsers, chunk traversal, AVL/cue lookup,
 loops and rebasing decisions. Native allocation-owned POD views decode Wii32

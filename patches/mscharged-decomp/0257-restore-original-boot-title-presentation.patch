@@ -1,5 +1,5 @@
 Subject: Restore whole original boot, title and presentation source
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Retire production0087/0101/0113/0127 method substitutions. Original
 source decisions remain; only address-bearing32-bit VM words use the

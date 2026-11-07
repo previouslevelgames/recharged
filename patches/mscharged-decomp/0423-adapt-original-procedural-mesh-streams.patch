@@ -1,5 +1,5 @@
 Subject: [PATCH] Adapt original procedural mesh colour and coherent stream transport
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Keep original mesh layout, allocation, cursor stores and packet finalization.
 Copy exact four-byte colours on native hosts, retain Wii numeric RGBA order,

@@ -1,6 +1,6 @@
 From: mscharged-port original-source integration
 Subject: Admit original flash initialization and task in the frontend diagnostic
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Retire three named diagnostic omissions at their literal original source
 positions: the FlashMemoryTask static, nlFlashInitialize and AddTask with

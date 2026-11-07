@@ -1,6 +1,6 @@
 Subject: Select original hierarchy queries and traversal on owned native records
 
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Keep original accessors and BuildPushPopFlags unchanged. Exclude the Wii-only
 in-place Initialize routine and reject its use from native source at compile

@@ -1,5 +1,5 @@
 Subject: Adapt original FontManager callbacks and Wii texture data to native SDK ABI
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Preserve original font requests, registration/fallback/completion decisions and
 platform texture algorithms. Adapt real callback pointers and game ownership,

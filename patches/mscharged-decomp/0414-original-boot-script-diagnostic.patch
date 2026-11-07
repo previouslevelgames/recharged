@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Admit original authored Boot script0 services and logo cue in a named diagnostic
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Restore unchanged original services2/11/33/15/16 alongside qualified412
 services12/13, plus the genuine Boot handler cue/unload, only under an

@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Track original procedural graphics storage and arrays
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 Classification: permanent host compiler/platform/data ABI adaptation.
 
 diff --git a/src/NL/glx/glxMemory.cpp b/src/NL/glx/glxMemory.cpp

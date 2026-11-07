@@ -1,5 +1,5 @@
 Subject: Transport original SAnim data into allocation-owned native backing
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Retain the full original Initialize/node walk, root/weight/morph sampling,
 callback pool and Destroy/inventory lifetime. Native-only data casts view

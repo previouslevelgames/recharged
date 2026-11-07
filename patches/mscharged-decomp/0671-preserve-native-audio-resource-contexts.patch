@@ -1,5 +1,5 @@
 Subject: Preserve native audio-resource callback and report words
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Use nlFileAsyncParam for the original bank read; retain all sample/table publication.
 Project only the report string-pointer arm to native uintptr_t; formats and numeric operands stay original.

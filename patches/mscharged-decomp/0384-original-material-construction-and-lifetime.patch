@@ -1,5 +1,5 @@
 Subject: [PATCH] Restore original material registration order and destructor flow
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Restore eight constructors exactly to pinned source assignment/registration order.
 Original game-module destructors retain the source empty bodies. Prior native

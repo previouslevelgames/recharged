@@ -1,5 +1,5 @@
 # Patch: 0513-isolate-native-msl-stdint-guard
-# Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+# Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 # Scope: Give native include_next forwarding a private guard before the original console header guard.
 --- a/libs/MSL_C/include/stdint.h
 +++ b/libs/MSL_C/include/stdint.h

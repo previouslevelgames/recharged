@@ -1,6 +1,6 @@
 Subject: Preserve original HBM AX live callbacks and checked physical address words
 
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Keep the original AxVoice/AxManager bodies, source lists, voice decisions and
 sample arithmetic. Use canonical native AXVoiceContext for live callbacks,

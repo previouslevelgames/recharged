@@ -1,5 +1,5 @@
 Subject: Preserve AX native packed stores and retail u16 word fields
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Keep all original AX voice-format decisions, synchronization flags,
 depop arithmetic and studio call/update order. Native packed records

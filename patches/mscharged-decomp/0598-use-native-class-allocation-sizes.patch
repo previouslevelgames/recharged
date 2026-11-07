@@ -1,5 +1,5 @@
 Subject: Use native allocation size signatures in original class allocators
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Use std::size_t in native class operator-new declarations and their matching
 out-of-line definitions, including LLP64 hosts. Retain the original allocation

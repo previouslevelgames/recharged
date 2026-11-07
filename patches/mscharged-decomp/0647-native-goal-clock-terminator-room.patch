@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Native room for the goal clock's out-of-bounds terminator
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 Classification: native memory-safety adaptation of a retail out-of-bounds write; apply after 0644.
 
 GoalOverlay::UpdateGoalInfo formats minutes and seconds into 16-character wide

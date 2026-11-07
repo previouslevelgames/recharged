@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original retail boot loading setup and phase steps
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Retain original setup, input order, clocks, strap fade and service boundaries
 with typed retained-scene adapters and console forwarding to the same bodies.

@@ -1,5 +1,5 @@
 Subject: Match original unsigned-long lexical formatting to the native variadic ABI
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 The native specialization passes an actual unsigned long to libc formatting.
 Use its matching format without narrowing live pointer/scalar callers. The

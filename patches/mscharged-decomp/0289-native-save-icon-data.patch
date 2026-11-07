@@ -1,6 +1,6 @@
 Subject: Preserve original SaveLoad Wii16 and TPL address-cell ABI on native hosts
 
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 After the byte-exact0288 restore, TPL fields retain original four-byte record
 strides and borrow actual source-owned cached addresses beneath unchanged source

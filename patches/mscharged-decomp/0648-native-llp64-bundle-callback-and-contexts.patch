@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Native LLP64 bundle callback parameter and remaining context casts
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 Classification: native compiler/ABI compatibility; apply after 0646.
 
 fn_8011B424 is passed as a FileOpenAsyncCallback whose last parameter is the

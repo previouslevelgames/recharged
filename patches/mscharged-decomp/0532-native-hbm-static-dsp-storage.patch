@@ -1,6 +1,6 @@
 Subject: Expose actual original HBM silence storage for native DSP ownership
 
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 A native storage getter exposes the existing original AxManager static array
 before arena capture. It neither constructs the manager nor initializes sound.

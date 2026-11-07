@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Lower the original nonzero-morph software skin positions natively
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 ShaderSkinMesh::SoftwareSkinModel's nonzero-morph branch is paired-single
 assembly: ps_add adds the morph delta to the input position (one rounded single

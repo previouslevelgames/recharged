@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Preserve native original audio source providers
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Upstream now owns the typed AudioResourceLoadOwner/AudioBankLoader selection
 boundary. Retain the remaining original source-provider compiler adaptations.

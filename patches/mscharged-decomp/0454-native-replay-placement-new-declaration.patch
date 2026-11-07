@@ -1,6 +1,6 @@
 Subject: [PATCH] Declare native standard placement new before Replay templates
 
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 Scope: Native compiler declaration only; Replay pointer transport remains held.
 
 diff --git a/include/Game/Replay.h b/include/Game/Replay.h

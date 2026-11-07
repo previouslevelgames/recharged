@@ -1,5 +1,5 @@
 Subject: Admit original 101/Challenge briefing and tournament Choose Sides
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 Classification: temporary explicit original-source diagnostic admission; depends on 0551 and 0572.
 
 ChallengeSelectScene::Update requests SceneList 77 (SHStrikerTimesChallenge)

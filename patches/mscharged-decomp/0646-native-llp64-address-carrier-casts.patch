@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Native LLP64 casts for 32-bit address carriers
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 Classification: native compiler/ABI compatibility; apply after 0645.
 
 The game stores addresses and pointer-sized contexts in unsigned long: hashes

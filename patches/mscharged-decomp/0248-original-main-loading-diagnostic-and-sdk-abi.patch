@@ -1,6 +1,6 @@
 From: mscharged-port native source preparation
 Subject: [PATCH] Qualify the original loading call and its native SDK declarations
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 Classification: explicit temporary original-main diagnostic gate; permanent SDK/compiler ABI.
 
 Part1 extends only the named MAIN_BOOTSTRAP diagnostic with the existing

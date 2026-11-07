@@ -1,6 +1,6 @@
 Subject: Retain legacy diagnostic audio helpers without rewriting original source
 
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 The existing diagnostic helper snapshots remain for explicitly selected preview
 consumers. Complete original game/SDK methods, headers, enum definitions and

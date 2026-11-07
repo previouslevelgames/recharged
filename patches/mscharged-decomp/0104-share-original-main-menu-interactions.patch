@@ -1,5 +1,5 @@
 Subject: Share original Main menu visual and pointer callback bodies
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Retain source lookup, optional empty component selection, bounds offsets,
 Open/Close, Select dispatch and other-pointer state equations in console delegates

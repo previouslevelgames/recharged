@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: [PATCH] Admit original Async Splash-bank source requests in explicit audio diagnostic
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Restore only unchanged original service12 bank request and service13 wait under
 a named native AUDIO diagnostic. Original branches, callback, ownership and

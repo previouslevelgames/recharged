@@ -1,6 +1,6 @@
 From: mscharged-port contributors
 Subject: [PATCH] Share original cue, delay and source selection steps
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Typed native callers validate complete resource closure before invoking these
 original algorithms. Inject RNG state explicitly; retain console delegation.

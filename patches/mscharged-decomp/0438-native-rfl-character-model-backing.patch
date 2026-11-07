@@ -1,5 +1,5 @@
 Subject: [PATCH] Reserve actual native backing for the original RFL character model
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 Use the actual unchanged SDK field type for native opaque extent/alignment.
 Keep original console declarations and every original method body intact.

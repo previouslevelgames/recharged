@@ -1,6 +1,6 @@
 From: mscharged-port
 Subject: Preserve fixed Wii16 RFL name cells without changing host wchar
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 diff --git a/libs/RVL_SDK/include/RVLFaceLib/RFL_Types.h b/libs/RVL_SDK/include/RVLFaceLib/RFL_Types.h
 --- a/libs/RVL_SDK/include/RVLFaceLib/RFL_Types.h

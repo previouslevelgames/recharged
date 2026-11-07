@@ -1,5 +1,5 @@
 Subject: Decode original Presentation string words through the existing cached-address ABI
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 
 diff --git a/src/Game/Render/Presentation_interp.cpp b/src/Game/Render/Presentation_interp.cpp
 --- a/src/Game/Render/Presentation_interp.cpp

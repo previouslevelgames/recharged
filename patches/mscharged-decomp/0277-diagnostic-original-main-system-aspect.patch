@@ -1,6 +1,6 @@
 From: mscharged-port source integration
 Subject: [PATCH] Restore original system aspect selection in the frontend diagnostic
-Upstream-base: f75ccf1ad20e5bd7585962990db08067c0ae498a
+Upstream-base: c7996efc62544a7cce929e457f2fbcb9e7093e03
 Classification: temporary diagnostic source selection; ordinary native/console code unchanged.
 
 Admit the original SCGetAspectRatio/rlSetWidescreen block already present in
