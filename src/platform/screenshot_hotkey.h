@@ -10,6 +10,9 @@ namespace mscharged::platform
 // convenience only: the keys never reach the original game input.
 void InitializeScreenshotHotkey(SDL_Window* window);
 void ShutdownScreenshotHotkey();
+// A press of Return to launcher, serviced on the window thread between frames
+// so its confirmation dialog never opens inside SDL's event filter.
+bool TakeReturnToLauncherHotkeyPress();
 // Presses of the display hotkeys since the last call (issue #91), for the
 // window's thread to carry out between frames: stretch toggles, and the 3D
 // resolution steps (up minus down).

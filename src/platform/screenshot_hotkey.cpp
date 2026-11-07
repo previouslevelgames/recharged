@@ -21,6 +21,7 @@ std::atomic<SDL_WindowID> sWindow{0};
 std::atomic<bool> sWatching{false};
 std::atomic<int> sStretchToggles{0};
 std::atomic<int> sResolutionSteps{0};
+std::atomic<bool> sReturnToLauncher{false};
 void (*sToggleLayers)() = nullptr;
 void (*sCycleLayer)() = nullptr;
 void (*sToggleHud)() = nullptr;
@@ -86,6 +87,7 @@ void ToggleHud()
 void InitializeScreenshotHotkey(SDL_Window* window)
 {
     sWindow = window ? SDL_GetWindowID(window) : 0;
+    SetHotkeyAction(HotkeyReturnToLauncher, [] { sReturnToLauncher = true; });
     SetHotkeyAction(HotkeyScreenshot, RequestScreenshot);
     SetHotkeyAction(HotkeyHud, ToggleHud);
     SetHotkeyAction(HotkeyStretch, [] { ++sStretchToggles; });
@@ -96,6 +98,11 @@ void InitializeScreenshotHotkey(SDL_Window* window)
         sWatching = false;
         std::fprintf(stderr, "Diagnostic keys unavailable: %s\n", SDL_GetError());
     }
+}
+
+bool TakeReturnToLauncherHotkeyPress()
+{
+    return sReturnToLauncher.exchange(false);
 }
 
 DisplayHotkeyPresses TakeDisplayHotkeyPresses()
@@ -116,8 +123,10 @@ void SetHudKey(void (*toggle)())
 
 void ShutdownScreenshotHotkey()
 {
-    for (const auto hotkey : {HotkeyScreenshot, HotkeyHud, HotkeyStretch, HotkeyResolutionUp, HotkeyResolutionDown})
+    for (const auto hotkey : {HotkeyReturnToLauncher, HotkeyScreenshot, HotkeyHud, HotkeyStretch,
+                              HotkeyResolutionUp, HotkeyResolutionDown})
         SetHotkeyAction(hotkey, nullptr);
+    sReturnToLauncher = false;
     SetDebugLayerKeys(nullptr, nullptr);
     SetHudKey(nullptr);
     if (sWatching.exchange(false)) SDL_RemoveEventWatch(Watch, nullptr);

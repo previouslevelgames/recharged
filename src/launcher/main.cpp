@@ -6357,6 +6357,7 @@ private:
         };
         if (BeginRows("##hotkey_rows"))
         {
+            hotkey(HotkeyReturnToLauncher);
             hotkey(HotkeyScreenshot);
             hotkey(HotkeyFullscreen);
             hotkey(HotkeyStretch);
@@ -9229,7 +9230,7 @@ int main(int argc, char** argv)
             result = launcher.Run(std::move(options));
             frontend_launch = launcher.FrontendLaunch();
             if (launcher.RestartRequested()) restart = launcher.RestartExecutable();
-            else if (frontend_launch && frontend_launch->settings.reopen_after_game) reopen = launcher.RestartExecutable();
+            else if (frontend_launch) reopen = launcher.RestartExecutable();
         } // Destroy the launcher/ImGui/SDL session before Aurora initializes.
         if (!restart.empty())
         {
@@ -9243,8 +9244,10 @@ int main(int argc, char** argv)
         }
         SetAppName();
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
-        // [launcher] reopen_after_game: closing the game starts this launcher again.
-        if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(reopen, argc, argv);
+        // Keep the executable ready for Return to launcher. Ordinary closing
+        // still follows [launcher] reopen_after_game.
+        if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(
+            reopen, argc, argv, frontend_launch->settings.reopen_after_game);
         if (frontend_launch) return RunOriginalGame(argc, argv, &*frontend_launch, true,
             OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #endif

@@ -175,6 +175,7 @@ shake_nunchuk = Q
 # cannot also be a [keyboard] key. The Windows and Command keys stay the
 # system's.
 # screenshot: saves the picture in the screenshots folder.
+# return_to_launcher: asks before closing the game and reopening the launcher.
 # hud: shows or hides the scoreboard, player markers and captions in a match.
 # stretch: stretches the picture over the window, or gives it back its 16:9 or
 # 4:3 shape; resolution_up and resolution_down: a higher or lower 3D
@@ -182,6 +183,7 @@ shake_nunchuk = Q
 # a Mac). These four last for the run.
 # show_hud = false: matches start with them hidden, for clean recordings; the
 # Mega Strike meter and its defence stay.
+return_to_launcher = none
 screenshot = P
 hud = H
 stretch = F

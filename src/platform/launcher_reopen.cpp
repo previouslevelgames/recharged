@@ -26,6 +26,7 @@ namespace
 {
 std::filesystem::path g_program;
 std::vector<std::string> g_arguments;
+bool g_reopenOnClose = false;
 
 #ifndef _WIN32
 // The game's devices, sockets and files must not stay open in the launcher:
@@ -49,15 +50,21 @@ void CloseDescriptorsOnExec()
 #endif
 } // namespace
 
-void ArmLauncherReopen(const std::filesystem::path& program, int argc, char** argv)
+void ArmLauncherReopen(const std::filesystem::path& program, int argc, char** argv, bool reopen_on_close)
 {
     g_program = program;
     g_arguments.assign(argv, argv + argc);
+    g_reopenOnClose = reopen_on_close;
+}
+
+void ForceLauncherReopen()
+{
+    g_reopenOnClose = true;
 }
 
 bool ReopenLauncher(const char* reason)
 {
-    if (g_program.empty()) return false;
+    if (g_program.empty() || !g_reopenOnClose) return false;
     std::error_code error;
     if (!std::filesystem::is_regular_file(g_program, error))
     {

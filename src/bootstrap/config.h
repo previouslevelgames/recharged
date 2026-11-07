@@ -109,7 +109,7 @@ struct Settings
     // after the Ctrl+, Shift+ and Alt+ it is pressed with, or none (no
     // [keyboard] action takes a hotkey's key pressed alone; kHotkeys order): a
     // screenshot, the match HUD, the stretched picture, the 3D resolution up
-    // and down, and fullscreen or a window. hotkeys.show_hud = false starts
+    // and down, fullscreen or a window, and Return to launcher. hotkeys.show_hud = false starts
     // every match with the HUD hidden (No HUD, issue #58; formerly
     // gameplay.no_hud = true).
     std::array<std::string, HotkeyCount> hotkeys = DefaultHotkeys();

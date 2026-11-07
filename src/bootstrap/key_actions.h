@@ -52,6 +52,7 @@ inline constexpr std::array<KeyAction, KeyActionCount> kKeyActions{{
 enum HotkeyIndex : std::size_t
 {
     HotkeyScreenshot, HotkeyHud, HotkeyStretch, HotkeyResolutionUp, HotkeyResolutionDown, HotkeyFullscreen,
+    HotkeyReturnToLauncher,
     HotkeyCount
 };
 
@@ -63,6 +64,7 @@ inline constexpr std::array<KeyAction, HotkeyCount> kHotkeys{{
     {"resolution_up", "Higher 3D resolution", "Sharper, for this run.", "PageUp"},
     {"resolution_down", "Lower 3D resolution", "Faster, for this run.", "PageDown"},
     {"fullscreen", "Fullscreen or window", "For this run.", "Alt+Return"},
+    {"return_to_launcher", "Return to launcher", "Asks before closing the game.", "none"},
 }};
 // The value that leaves a hotkey without a key.
 inline constexpr const char* kNoHotkey = "none";

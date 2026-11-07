@@ -51,11 +51,11 @@ SDL_Keymod HotkeyModifiers(SDL_Keymod mod);
 
 // The host's hotkeys ([hotkeys], kHotkeys order): a screenshot, the match HUD
 // (No HUD, issue #58), the stretched picture and the 3D resolution up and down
-// (issue #91), and fullscreen or a window (issue #77). They work whoever
-// plays; no keyboard & mouse action takes a hotkey's key pressed alone.
+// (issue #91), fullscreen or a window (issue #77), and Return to launcher.
+// They work whoever plays; no keyboard & mouse action takes a hotkey's key pressed alone.
 struct Hotkeys {
     std::array<Hotkey, HotkeyCount> keys{{{SDL_SCANCODE_P}, {SDL_SCANCODE_H}, {SDL_SCANCODE_F}, {SDL_SCANCODE_PAGEUP},
-                                          {SDL_SCANCODE_PAGEDOWN}, {SDL_SCANCODE_RETURN, SDL_KMOD_ALT}}};
+                                          {SDL_SCANCODE_PAGEDOWN}, {SDL_SCANCODE_RETURN, SDL_KMOD_ALT}, {}}};
     const Hotkey& operator[](HotkeyIndex hotkey) const { return keys[hotkey]; }
     Hotkey& operator[](HotkeyIndex hotkey) { return keys[hotkey]; }
     // The hotkey that `input` pressed alone is, or HotkeyCount.

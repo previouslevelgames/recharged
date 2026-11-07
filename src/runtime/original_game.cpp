@@ -86,6 +86,7 @@
 #include <SDL3/SDL_video.h>
 #include <SDL3/SDL_hints.h>
 #include <SDL3/SDL_filesystem.h>
+#include <SDL3/SDL_messagebox.h>
 #include "platform/native_module_loader.h"
 #if defined(MSCHARGED_AUTOPILOT)
 #include "platform/bank_cue.h"
@@ -760,7 +761,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 +", rumble "+(s.rumble ? "on (gamepads "+std::to_string(s.rumble_strength)+"%)" : "off");
             mscharged::platform::SessionLogLine(line);
             const auto key=[&](mscharged::HotkeyIndex hotkey) { return mscharged::platform::HotkeyName(hotkeys[hotkey]); };
-            mscharged::platform::SessionLogLine("Hotkeys: screenshot "+key(mscharged::HotkeyScreenshot)
+            mscharged::platform::SessionLogLine("Hotkeys: return to launcher "+key(mscharged::HotkeyReturnToLauncher)
+                +", screenshot "+key(mscharged::HotkeyScreenshot)
                 +", HUD "+key(mscharged::HotkeyHud)+" (matches start with the HUD "+(s.show_hud ? "shown)" : "hidden)")
                 +", stretch "+key(mscharged::HotkeyStretch)+", 3D resolution "+key(mscharged::HotkeyResolutionUp)
                 +"/"+key(mscharged::HotkeyResolutionDown)+", fullscreen "+key(mscharged::HotkeyFullscreen));
@@ -1342,6 +1344,29 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 exit=true;
             }
             if(exit)break;
+            // Return to launcher opens its dialog outside the SDL event filter.
+            // Confirming queues the same owned-window close as the title-bar
+            // button, so the original shutdown tasks still retire the game.
+            if(mscharged::platform::TakeReturnToLauncherHotkeyPress()) {
+                const SDL_MessageBoxButtonData buttons[] = {
+                    {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancel"},
+                    {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Return to launcher"},
+                };
+                const SDL_MessageBoxData message{SDL_MESSAGEBOX_WARNING,host.window,"Return to launcher?",
+                    "Close the game and return to the launcher?",2,buttons,nullptr};
+                int chosen=0;
+                if(SDL_ShowMessageBox(&message,&chosen) && chosen==1) {
+                    mscharged::platform::SessionLogLine("Return to launcher confirmed (hotkey)");
+                    SDL_Event close{};
+                    close.window.type=SDL_EVENT_WINDOW_CLOSE_REQUESTED;
+                    close.window.windowID=SDL_GetWindowID(host.window);
+                    if(SDL_PushEvent(&close))
+                        mscharged::platform::ForceLauncherReopen();
+                    else
+                        mscharged::platform::SessionLogLine(std::string("Return to launcher could not close: ")
+                            +SDL_GetError());
+                }
+            }
             // The fullscreen hotkey (Alt+Return unless set otherwise): fullscreen or a window, for this run (issue #77).
             switch(mscharged::platform::ServiceFullscreenHotkey()) {
             case mscharged::platform::FullscreenSwitch::Fullscreen:

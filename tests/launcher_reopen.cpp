@@ -68,7 +68,9 @@ int Reopened(int argc, char** argv)
     pthread_sigmask(SIG_BLOCK, &block, nullptr);
     std::string fd_text = std::to_string(fd);
     char* arguments[] = {program, const_cast<char*>("--reopened"), fd_text.data(), nullptr};
-    mscharged::platform::ArmLauncherReopen(program, 3, arguments);
+    mscharged::platform::ArmLauncherReopen(program, 3, arguments, false);
+    // Return to launcher overrides a disabled reopen-after-game preference.
+    mscharged::platform::ForceLauncherReopen();
     mscharged::platform::ReopenLauncher("closed, reopening the launcher");
     std::_Exit(3); // execv failed
 }

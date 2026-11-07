@@ -299,7 +299,9 @@ the gyro pointer when it is on.
 The built-in Default always uses the defaults; changing it makes your own copy.
 
 **Hotkeys** (Controls → Hotkeys, `[hotkeys]`) work in the game window whoever
-plays: **P** saves a screenshot (`screenshot`), **H** shows or hides the HUD in
+plays: Return to launcher (`return_to_launcher`, unset by default) asks before
+closing the game and reopening the launcher, **P** saves a screenshot
+(`screenshot`), **H** shows or hides the HUD in
 a match (`hud`), **F** stretches the picture over the window or gives it back
 its shape (`stretch`), **Page Up** and **Page Down** raise and lower the 3D
 resolution (`resolution_up`, `resolution_down`), and **Alt+Enter**

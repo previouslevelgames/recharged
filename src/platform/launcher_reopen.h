@@ -6,7 +6,11 @@ namespace mscharged::platform
 {
 // [launcher] reopen_after_game: when a game started from the launcher closes
 // normally, the launcher opens again, with this run's arguments.
-void ArmLauncherReopen(const std::filesystem::path& program, int argc, char** argv);
+void ArmLauncherReopen(const std::filesystem::path& program, int argc, char** argv, bool reopen_on_close = true);
+
+// The confirmed Return to launcher hotkey makes the next normal game shutdown
+// reopen the launcher even when launcher.reopen_after_game is off.
+void ForceLauncherReopen();
 
 // Call where the game closes normally, in place of the session's last log
 // line. Nothing armed (or the program is gone): returns false, and the caller

@@ -78,7 +78,8 @@ come from the reconstructed source, unchanged.
 | + / − / HOME | Tab / - / Home | Start / Back / Guide |
 | Shake Remote / Nunchuk | E / Q | RT / RB |
 
-**Hotkeys** work whoever plays: **P** saves a screenshot, **H** shows or hides
+**Hotkeys** work whoever plays: Return to launcher asks before closing the game
+and reopening the launcher, **P** saves a screenshot, **H** shows or hides
 the HUD in a match, **F** stretches the picture over the window or gives it
 back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
 and **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
