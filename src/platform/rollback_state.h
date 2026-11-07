@@ -336,6 +336,7 @@ struct Netplay
     MachineInput lastReal[kMachines]; // by machine: its last inputs after post-processing
     unsigned waitThrough;             // steps through this one wait for all their inputs (they were undone)
     unsigned undoFrom;                // a predicted step changed the match's phase: undone at the frame start
+    unsigned audioAfter;              // steps undone: the audio follows the match once the steps through this one ran again
     bool captured;
     unsigned capturedFrame;           // the local inputs were captured through this frame
     bool haveConfirmed;

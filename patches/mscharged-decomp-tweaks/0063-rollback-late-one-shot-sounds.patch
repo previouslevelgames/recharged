@@ -1,0 +1,198 @@
+From: mscharged-port
+Subject: Rollback: one-shot sounds only a replay played play late
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+The sounds started without a context (PlaySound, PlayOwnedSound with
+none) end by themselves and nothing finds them again, so patches 0061
+and 0062 leave them out: a replayed step played none, and one only the
+replay had was lost. With predicted inputs that is the other player's
+every new press, whose first step the replay alone runs as it is: a
+deke, the mushroom's start and end, the first puff of Wario's gas, and
+whatever the press does at once. Online, on the screen of the player
+who did not press, such sounds came one time and not the next.
+
+Outside replays each one played is now noted with its step, in the
+audio's memory, which no rollback takes back (the last 512). A replay's
+one looks for the same sound (slot and cue) played within 3 steps of its
+own, as the presentation's sounds of a replayed step may fall in a frame
+next to the first run's; each one played answers one replay's sound
+once (the port's rollback counts the replays,
+mscharged_rollback_audio_replay_start). One no step played waits for the
+end of the rollback, with the tracked sounds' reconciliation, which plays
+it then unless its step is more than 8 steps (160 ms) back. A sound only
+the replaced timeline played has played; nothing takes it back.
+
+diff --git a/include/mscharged_rollback_audio.h b/include/mscharged_rollback_audio.h
+index 4ea21d3..fcd553b 100644
+--- a/include/mscharged_rollback_audio.h
++++ b/include/mscharged_rollback_audio.h
+@@ -100,6 +100,11 @@ void mscharged_rollback_audio_tracking_start(void);
+ // reactions: they come from no step): those stay out of the tables, or a
+ // rollback would take back what no replay plays again. 1 enters, -1 leaves.
+ void mscharged_rollback_audio_unreplayed(int enter);
++// The one-shot sounds (audio.cpp): a replay starts (the sounds it plays are
++// sought among those played), and after it, the ones no step played yet,
++// played late unless too late.
++void mscharged_rollback_audio_replay_start(void);
++void mscharged_rollback_audio_play_late_sounds(void);
+ #endif
+ 
+ #ifdef __cplusplus
+diff --git a/src/Game/Audio/audio.cpp b/src/Game/Audio/audio.cpp
+index 92888b7..cbba226 100644
+--- a/src/Game/Audio/audio.cpp
++++ b/src/Game/Audio/audio.cpp
+@@ -11,6 +11,7 @@
+ #include "Game/Sys/audio.h"
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_tweaks.h"
++#include "Game/Task/FixedUpdateTask.h"
+ #endif
+ #include "Game/Sys/debug.h"
+ 
+@@ -240,6 +241,116 @@ extern "C" void mscharged_rollback_audio_unreplayed(int enter)
+ {
+     sUnreplayedDepth += enter;
+ }
++
++// The one-shot sounds (started without a context: nothing finds them again,
++// and they end by themselves). Outside replays each one played is noted with
++// its step; a replay's one, which plays nothing, looks for the same sound
++// played near its step (its step's sounds of the presentation may fall in a
++// frame next to it), and one never played waits for the end of the rollback,
++// which plays it late if it is not too late. A sound only the replaced
++// timeline played has played: nothing takes it back.
++struct MschargedOneShotSound
++{
++    unsigned step;
++    int slotId;
++    unsigned long cueId;
++    XSoundOwner* owner;
++    unsigned replay; // the replay that found it (sReplay), 0: none
++};
++static const int kPlayedOneShots = 512;  // the last ones played, about 2 s of a busy match
++static const int kLateOneShots = 32;
++static const unsigned kOneShotNear = 3;  // steps between a replay's sound and the same one played
++static const unsigned kOneShotLate = 8;  // steps (160 ms) after which a sound plays no more
++static MschargedOneShotSound sPlayedOneShots[kPlayedOneShots];
++static int sPlayedOneShotNext;
++static MschargedOneShotSound sLateOneShots[kLateOneShots];
++static int sLateOneShotCount;
++static unsigned sReplay = 1;
++static bool sPlayingLateOneShots;
++static char sLateCue[] = "Late cue";
++
++static unsigned CurrentStep()
++{
++    return static_cast<unsigned>(GetFixedUpdateTask()->GetFrame());
++}
++
++static void NoteOneShotSound(int slotId, unsigned long cueId, void* context, XSoundOwner* owner)
++{
++    if (context != 0 || cueId == 0xFFFFFFFF || !mscharged_rollback_active() || sReconcilingTrackedSounds
++        || sPausingAllAudio || sUnreplayedDepth != 0 || sPlayingLateOneShots)
++    {
++        return;
++    }
++    const unsigned step = CurrentStep();
++    if (!mscharged_rollback_resimulating())
++    {
++        MschargedOneShotSound& played = sPlayedOneShots[sPlayedOneShotNext];
++        sPlayedOneShotNext = (sPlayedOneShotNext + 1) % kPlayedOneShots;
++        played.step = step;
++        played.slotId = slotId;
++        played.cueId = cueId;
++        played.owner = owner;
++        played.replay = 0;
++        return;
++    }
++    for (int i = 0; i < kPlayedOneShots; ++i)
++    {
++        MschargedOneShotSound& played = sPlayedOneShots[i];
++        if (played.cueId == cueId && played.slotId == slotId && played.replay != sReplay
++            && played.step + kOneShotNear >= step && step + kOneShotNear >= played.step)
++        {
++            played.replay = sReplay;
++            return;
++        }
++    }
++    for (int i = 0; i < sLateOneShotCount; ++i)
++    {
++        const MschargedOneShotSound& late = sLateOneShots[i];
++        if (late.step == step && late.cueId == cueId && late.slotId == slotId)
++        {
++            return; // an earlier replay of this step found it already
++        }
++    }
++    if (sLateOneShotCount < kLateOneShots)
++    {
++        MschargedOneShotSound& late = sLateOneShots[sLateOneShotCount++];
++        late.step = step;
++        late.slotId = slotId;
++        late.cueId = cueId;
++        late.owner = owner;
++        late.replay = 0;
++    }
++}
++
++extern "C" void mscharged_rollback_audio_replay_start(void)
++{
++    ++sReplay;
++}
++
++extern "C" void mscharged_rollback_audio_play_late_sounds(void)
++{
++    if (mscharged_rollback_resimulating())
++    {
++        return;
++    }
++    MSCHARGED_AUDIO_SCOPE();
++    const unsigned now = CurrentStep();
++    AudioGuardScope playing(sPlayingLateOneShots);
++    for (int i = 0; i < sLateOneShotCount; ++i)
++    {
++        MschargedOneShotSound late = sLateOneShots[i];
++        if (late.step > now || now - late.step > kOneShotLate)
++        {
++            continue;
++        }
++        PlayOwnedSound(late.slotId, late.cueId, late.owner, sLateCue, 0);
++        // Played now: a later replay of its step finds it.
++        late.replay = sReplay;
++        sPlayedOneShots[sPlayedOneShotNext] = late;
++        sPlayedOneShotNext = (sPlayedOneShotNext + 1) % kPlayedOneShots;
++    }
++    sLateOneShotCount = 0;
++}
+ #endif
+ 
+ static inline MSCHARGED_AUDIO_HANDLE_KEY MakeAudioHandleKey(
+@@ -394,6 +505,7 @@ bool PlaySound(int slotId, unsigned long cueId,
+     {
+         WantTrackedSoundPlaying(slotId, cueId, context, 0, false, false);
+     }
++    NoteOneShotSound(slotId, cueId, context, 0);
+     MSCHARGED_AUDIO_ACTION(false);
+     AppliedTrackedSoundScope applied = { cueId, context, false };
+ #endif
+@@ -419,6 +531,7 @@ bool PlayOwnedSound(int slotId, unsigned long cueId,
+     {
+         WantTrackedSoundPlaying(slotId, cueId, context, owner, false, false);
+     }
++    NoteOneShotSound(slotId, cueId, context, owner);
+     MSCHARGED_AUDIO_ACTION(false);
+     AppliedTrackedSoundScope applied = { cueId, context, false };
+ #endif
+@@ -963,6 +1076,12 @@ extern "C" void mscharged_rollback_audio_tracking_start(void)
+             }
+         }
+     }
++    // A new match counts its steps from the start.
++    for (int i = 0; i < kPlayedOneShots; ++i)
++    {
++        sPlayedOneShots[i].cueId = 0xFFFFFFFF;
++    }
++    sLateOneShotCount = 0;
+ }
+ #endif
+ 

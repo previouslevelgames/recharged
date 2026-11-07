@@ -1,0 +1,274 @@
+From: mscharged-port
+Subject: Rollback: the sounds with a context follow the match as well
+Upstream-base: a353c8f2dfb34eb08fecd725965a46ea629428e3
+
+Patch 0061 has the tracked sounds follow the match. The other sounds
+started with a context (PlaySound, PlayOwnedSound), which StopSound finds
+again by cue and context, had the same fault: a loop that only a replay
+stopped played on, as Bowser's, Wario's and Waluigi's super abilities'
+(TankOn) or a powerup's while it flies; and a sound that only a replay
+started was lost, as the dazed stars or a slide attack's. With predicted
+inputs that is every such sound the other player's late input brings.
+
+They now join the same tables, the entry noting whether the sound is
+tracked (only those pause and resume) and the owner that places it (the
+ball's, which lives through the match). The reconciliation starts them
+again with PlayOwnedSound, from the start, as late as the rollback found
+them. PlayTrackedSound's own start through PlaySound counts once. The
+crowd's reactions (PlayCrowdReaction, StopCrowdReactions) stay out: no
+replay runs them, so a rollback taking one back from the table would end
+it. The tables hold 64 sounds.
+
+A sound started again after a rollback has none of the parameters its
+start set afterwards (SetLastSoundParameter). The one-shot sounds without
+a context are left as they are.
+
+diff --git a/include/mscharged_rollback_audio.h b/include/mscharged_rollback_audio.h
+index f25ae80..4ea21d3 100644
+--- a/include/mscharged_rollback_audio.h
++++ b/include/mscharged_rollback_audio.h
+@@ -44,16 +44,18 @@ extern struct MschargedAudioTransitions gMschargedWantedAudioTransitions;
+ // what the match wants.
+ void mscharged_rollback_audio_reconcile(void);
+ 
+-// The tracked sounds (PlayTrackedSound, PlayTrackedOwnedSound: those the audio
+-// can stop, pause and resume by cue and context, as the music and the
+-// captains' streams) as state, as the transitions above: what the match wants
++// The sounds the audio can find again by cue and context (every one started
++// with a context: the tracked ones, PlayTrackedSound and PlayTrackedOwnedSound,
++// which also pause and resume, as the music and the captains' streams; and
++// the others, PlaySound and PlayOwnedSound, as the super abilities' and the
++// powerups' loops) as state, as the transitions above: what the match wants
+ // playing or paused, here; what the audio did, in audio.cpp. A stopped sound
+ // leaves its table. Each new start of a cue and context counts in its
+ // generation, so that the audio tells a start the replay made from one it
+ // made itself: the reconciliation stops the sounds the match no longer wants,
+ // starts again those another start replaced, and pauses or resumes the others
+ // as the match wants.
+-#define MSCHARGED_TRACKED_SOUNDS 32
++#define MSCHARGED_TRACKED_SOUNDS 64
+ enum MschargedTrackedSoundState
+ {
+     MSCHARGED_TRACKED_SOUND_STOPPED,
+@@ -65,6 +67,8 @@ struct MschargedTrackedSound
+     int slotId;
+     unsigned long cueId;
+     void* context;
++    void* owner;            // the XSoundOwner placing it (the ball's), or none
++    bool tracked;           // started by PlayTrackedSound or PlayTrackedOwnedSound
+     bool resumable;
+     MschargedTrackedSoundState state;
+     unsigned generation;
+@@ -92,6 +96,10 @@ extern struct MschargedGameStreams gMschargedGameStreams;
+ // so that one match after another does not fill the tables.
+ void mscharged_rollback_audio_reconcile_tracked_sounds(void);
+ void mscharged_rollback_audio_tracking_start(void);
++// Around the sounds of functions a replay does not run (the crowd's
++// reactions: they come from no step): those stay out of the tables, or a
++// rollback would take back what no replay plays again. 1 enters, -1 leaves.
++void mscharged_rollback_audio_unreplayed(int enter);
+ #endif
+ 
+ #ifdef __cplusplus
+@@ -102,6 +110,11 @@ struct MschargedAudioScope
+     MschargedAudioScope() { mscharged_rollback_audio_enter(); }
+     ~MschargedAudioScope() { mscharged_rollback_audio_leave(); }
+ };
++struct MschargedAudioUnreplayedScope
++{
++    MschargedAudioUnreplayedScope() { mscharged_rollback_audio_unreplayed(1); }
++    ~MschargedAudioUnreplayedScope() { mscharged_rollback_audio_unreplayed(-1); }
++};
+ // At the start of an audio function the game calls: its allocations go to the
+ // audio's heap.
+ #define MSCHARGED_AUDIO_SCOPE() MschargedAudioScope mschargedAudioScope
+diff --git a/src/Game/Audio/GameStreams.cpp b/src/Game/Audio/GameStreams.cpp
+index 3a64d4d..2bef24a 100644
+--- a/src/Game/Audio/GameStreams.cpp
++++ b/src/Game/Audio/GameStreams.cpp
+@@ -72,6 +72,7 @@ void StopCrowdReactions()
+ {
+ #if defined(MSCHARGED_TWEAKS)
+     MSCHARGED_AUDIO_ACTION();
++    MschargedAudioUnreplayedScope unreplayed;
+ #endif
+     int i = 0;
+     RestrictedStreamSlot* slot = sRestrictedStreams;
+@@ -85,6 +86,7 @@ void PlayCrowdReaction(unsigned long cueId)
+ {
+ #if defined(MSCHARGED_TWEAKS)
+     MSCHARGED_AUDIO_ACTION();
++    MschargedAudioUnreplayedScope unreplayed;
+ #endif
+     if (GetTweakBool(sRestrictStreamsKey, false))
+     {
+diff --git a/src/Game/Audio/audio.cpp b/src/Game/Audio/audio.cpp
+index ae71f6d..92888b7 100644
+--- a/src/Game/Audio/audio.cpp
++++ b/src/Game/Audio/audio.cpp
+@@ -73,6 +73,11 @@ static MschargedTrackedSounds sAppliedTrackedSounds;
+ // the match's.
+ static bool sReconcilingTrackedSounds;
+ static bool sPausingAllAudio;
++static int sUnreplayedDepth;
++// PlayTrackedSound's and PlayTrackedOwnedSound's own start (PlaySound,
++// PlayOwnedSound), which they noted already: only outside replays, as the
++// tracked ones return before it in replays.
++static int sStartingTrackedSound;
+ static char sReconciledCue[] = "Reconciled cue";
+ 
+ // Raises a guard above for a scope, on every way out of it.
+@@ -103,6 +108,8 @@ static int FindTrackedSound(MschargedTrackedSounds* soundTable, unsigned long cu
+     sound.slotId = 0;
+     sound.cueId = cueId;
+     sound.context = context;
++    sound.owner = 0;
++    sound.tracked = false;
+     sound.resumable = false;
+     sound.state = MSCHARGED_TRACKED_SOUND_STOPPED;
+     sound.generation = 0;
+@@ -121,14 +128,15 @@ static void RemoveTrackedSound(MschargedTrackedSounds* soundTable, int index)
+ // handle).
+ static bool IsMatchTrackedSound(unsigned long cueId, void* context)
+ {
+-    return mscharged_rollback_active() && !sReconcilingTrackedSounds && !sPausingAllAudio
++    return mscharged_rollback_active() && !sReconcilingTrackedSounds && !sPausingAllAudio && sUnreplayedDepth == 0
+         && cueId != 0xFFFFFFFF && context != 0;
+ }
+ 
+-// The match wants a tracked sound playing: a new start, in replays too, as
+-// its table is among the globals a rollback restores. A full table leaves the
+-// sound to the audio as before.
+-static void WantTrackedSoundPlaying(int slotId, unsigned long cueId, void* context, bool resumable)
++// The match wants a sound playing: a new start, in replays too, as its table
++// is among the globals a rollback restores. A full table leaves the sound to
++// the audio as before.
++static void WantTrackedSoundPlaying(int slotId, unsigned long cueId, void* context, XSoundOwner* owner,
++    bool tracked, bool resumable)
+ {
+     if (!IsMatchTrackedSound(cueId, context))
+     {
+@@ -141,13 +149,15 @@ static void WantTrackedSoundPlaying(int slotId, unsigned long cueId, void* conte
+     }
+     MschargedTrackedSound& sound = gMschargedWantedTrackedSounds.sounds[index];
+     sound.slotId = slotId;
++    sound.owner = owner;
++    sound.tracked = tracked;
+     sound.resumable = resumable;
+     sound.state = MSCHARGED_TRACKED_SOUND_PLAYING;
+     ++sound.generation;
+ }
+ 
+ // The match wants it stopped: it leaves the table. A sound the table does not
+-// hold (one with a handle but not tracked, or never started) is left alone.
++// hold (a crowd's reaction, or one never started) is left alone.
+ static void WantTrackedSoundStopped(unsigned long cueId, void* context)
+ {
+     if (!IsMatchTrackedSound(cueId, context))
+@@ -162,8 +172,8 @@ static void WantTrackedSoundStopped(unsigned long cueId, void* context)
+     RemoveTrackedSound(&gMschargedWantedTrackedSounds, index);
+ }
+ 
+-// The match wants it paused or playing again: only a playing sound pauses and
+-// only a paused one resumes, as the audio does.
++// The match wants it paused or playing again: only a playing tracked sound
++// pauses and only a paused one resumes, as the audio does.
+ static void WantTrackedSoundPaused(unsigned long cueId, void* context, bool paused)
+ {
+     if (!IsMatchTrackedSound(cueId, context))
+@@ -176,6 +186,10 @@ static void WantTrackedSoundPaused(unsigned long cueId, void* context, bool paus
+         return;
+     }
+     MschargedTrackedSound& sound = gMschargedWantedTrackedSounds.sounds[index];
++    if (!sound.tracked)
++    {
++        return;
++    }
+     const MschargedTrackedSoundState from = paused ? MSCHARGED_TRACKED_SOUND_PLAYING : MSCHARGED_TRACKED_SOUND_PAUSED;
+     if (sound.state != from)
+     {
+@@ -215,6 +229,17 @@ struct AppliedTrackedSoundScope
+         sAppliedTrackedSounds.sounds[applied] = gMschargedWantedTrackedSounds.sounds[wanted];
+     }
+ };
++
++struct StartingTrackedSoundScope
++{
++    StartingTrackedSoundScope() { ++sStartingTrackedSound; }
++    ~StartingTrackedSoundScope() { --sStartingTrackedSound; }
++};
++
++extern "C" void mscharged_rollback_audio_unreplayed(int enter)
++{
++    sUnreplayedDepth += enter;
++}
+ #endif
+ 
+ static inline MSCHARGED_AUDIO_HANDLE_KEY MakeAudioHandleKey(
+@@ -365,7 +390,12 @@ bool PlaySound(int slotId, unsigned long cueId,
+     const void* debugName, void* context)
+ {
+ #if defined(MSCHARGED_TWEAKS)
++    if (sStartingTrackedSound == 0)
++    {
++        WantTrackedSoundPlaying(slotId, cueId, context, 0, false, false);
++    }
+     MSCHARGED_AUDIO_ACTION(false);
++    AppliedTrackedSoundScope applied = { cueId, context, false };
+ #endif
+     if (cueId == 0xFFFFFFFF)
+     {
+@@ -385,7 +415,12 @@ bool PlayOwnedSound(int slotId, unsigned long cueId,
+     XSoundOwner* owner, const void* debugName, void* context)
+ {
+ #if defined(MSCHARGED_TWEAKS)
++    if (sStartingTrackedSound == 0)
++    {
++        WantTrackedSoundPlaying(slotId, cueId, context, owner, false, false);
++    }
+     MSCHARGED_AUDIO_ACTION(false);
++    AppliedTrackedSoundScope applied = { cueId, context, false };
+ #endif
+     if (cueId == 0xFFFFFFFF)
+     {
+@@ -504,9 +539,10 @@ bool PlayTrackedSound(int slotId, unsigned long cueId,
+     const void* debugName, void* context, bool resumable)
+ {
+ #if defined(MSCHARGED_TWEAKS)
+-    WantTrackedSoundPlaying(slotId, cueId, context, resumable);
++    WantTrackedSoundPlaying(slotId, cueId, context, 0, true, resumable);
+     MSCHARGED_AUDIO_ACTION(false);
+     AppliedTrackedSoundScope applied = { cueId, context, false };
++    StartingTrackedSoundScope starting;
+ #endif
+     if (PlaySound(slotId, cueId, debugName, context))
+     {
+@@ -524,9 +560,10 @@ bool PlayTrackedOwnedSound(int slotId, unsigned long cueId,
+     void* context, bool resumable)
+ {
+ #if defined(MSCHARGED_TWEAKS)
+-    WantTrackedSoundPlaying(slotId, cueId, context, resumable);
++    WantTrackedSoundPlaying(slotId, cueId, context, owner, true, resumable);
+     MSCHARGED_AUDIO_ACTION(false);
+     AppliedTrackedSoundScope applied = { cueId, context, false };
++    StartingTrackedSoundScope starting;
+ #endif
+     if (PlayOwnedSound(slotId, cueId, owner, debugName, context))
+     {
+@@ -871,7 +908,15 @@ extern "C" void mscharged_rollback_audio_reconcile_tracked_sounds(void)
+         if (sound.generation != want.generation)
+         {
+             StopSound(want.cueId, want.context);
+-            PlayTrackedOwnedSound(want.slotId, want.cueId, 0, sReconciledCue, want.context, want.resumable);
++            if (want.tracked)
++            {
++                PlayTrackedOwnedSound(want.slotId, want.cueId, (XSoundOwner*)want.owner, sReconciledCue, want.context,
++                    want.resumable);
++            }
++            else
++            {
++                PlayOwnedSound(want.slotId, want.cueId, (XSoundOwner*)want.owner, sReconciledCue, want.context);
++            }
+             sound = want;
+             sound.state = MSCHARGED_TRACKED_SOUND_PLAYING;
+         }
