@@ -198,7 +198,8 @@ int main()
             const auto& loaded = file.settings;
             Require(loaded.pad_profiles.size() == 2 && loaded.pad_profiles[0].name == "Kyle"
                         && loaded.pad_profiles[0].inputs[mscharged::GamepadActionA] == "b | start"
-                        && loaded.pad_profiles[0].inputs[mscharged::GamepadActionB] == "b"
+                        && loaded.pad_profiles[0].inputs[mscharged::GamepadActionB]
+                               == Settings::DefaultPadInputs()[mscharged::GamepadActionB]
                         && loaded.pad_profiles[0].sticks == mscharged::GamepadSticks::Swapped
                         && loaded.pad_profiles[1].sticks == mscharged::GamepadSticks::Split
                         && loaded.pad_profiles[0].controller == "xbox"

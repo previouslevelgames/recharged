@@ -41,15 +41,18 @@ come from the reconstructed source, unchanged.
   the last digit and Delete clears the code.
 - **Gamepads**: Xbox, PlayStation, Switch Pro, GameCube (USB adapter) and
   other standard controllers stand in for the Wii Remote with Nunchuk the game
-  is played with, with rumble (its strength can be set). The right stick
-  moves the pointer, or the gyro of a controller that has one (PlayStation,
+  is played with, with rumble (its strength can be set). A stick moves the
+  pointer, or the gyro of a controller that has one (PlayStation,
   Switch Pro): turn it to point, like a Wii Remote
   ([#14](https://github.com/previouslevelgames/recharged/issues/14)).
   **Gamepad profiles** say which controller button presses each Wii button: a
-  built-in Default that gives each controller family its own layout
-  (Nintendo's A is its right button) plus up to 16 named profiles (up to two
-  buttons per Wii button, or none; sticks can be swapped, and a stick pushed
-  one way can press a button, such as the right stick as the D-pad for
+  built-in Default with the layout of the Classic Controller mod for the Wii
+  game (the left stick moves and points, the right stick is the D-pad), given
+  to each controller family by its labels (Nintendo's A is its right button),
+  the built-in Classic 1.1 (the earlier Default), plus up to 16 named
+  profiles (up to three buttons per Wii button, or none, and one button can
+  press several; the sticks can be split, swapped or shared, and a stick
+  pushed one way can press a button, such as the right stick as the D-pad for
   dekes). A profile also sets the sticks'
   inner and outer dead zones and the triggers' press point, tried live on the
   controller in the launcher; the defaults play like a Nunchuk on the Wii

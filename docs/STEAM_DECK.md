@@ -117,19 +117,22 @@ pointer and A to select. Two settings work together here: Steam's layout makes
 the Deck a gamepad, and the launcher's player 1 setting hands that gamepad to
 the player.
 
-The default mapping (Xbox-style, as on the Deck):
+The default mapping (the Classic Controller mod's, Xbox-style as on the Deck):
 
 | Deck | Wii input |
 | --- | --- |
-| Left stick | Nunchuk stick (move) |
-| Right stick | Wii pointer |
+| Left stick | Nunchuk stick (move) and Wii pointer |
+| Right stick, D-pad | Wii D-pad (deke, slide tackle) |
+| R1 | Wii D-pad right (deke) |
 | A / B | Wii A (confirm) / B (back) |
-| X / Y | Wii 1 / 2 |
-| D-pad | Wii D-pad |
-| ☰ menu / View | Wii + / − |
-| L1 / L2 | Nunchuk C / Z |
-| R2 | Shake Wii Remote (hit an opponent) |
-| R1 | Shake Nunchuk (switch items) |
+| R2 | Wii B |
+| ☰ menu / View | Wii 1, and + / − (switch stadiums) |
+| X | Nunchuk C |
+| L2 | Nunchuk Z |
+| Y | Shake Wii Remote (hit an opponent) |
+| L1 | Shake Nunchuk (switch items) |
+
+The built-in *Classic 1.1* profile keeps the mapping of versions up to 1.1.5.
 
 Nothing has to be shaken physically: the shake actions are buttons. To change
 the mapping, create a named gamepad profile on the **Controls** page.

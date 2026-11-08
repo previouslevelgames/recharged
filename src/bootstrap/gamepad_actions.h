@@ -23,6 +23,13 @@ struct GamepadAction
 
 // The first eleven follow the Wii Remote button order of KeyActionIndex. The
 // last one is no Wii input: it centres the gyro pointer.
+//
+// The defaults are the layout of the Classic Controller mod for the Wii game,
+// by the controller's labels: the right stick and the right bumper (a deke
+// in a match) press the D-pad, the right trigger presses B too, Start and
+// Back press 1, and + and - (which switch stadiums) as well, as they do
+// nothing in a match; 2 is unused. The left stick moves both the Nunchuk stick
+// and the pointer (GamepadLayoutSticks).
 enum GamepadActionIndex : std::size_t
 {
     GamepadActionA, GamepadActionB, GamepadActionOne, GamepadActionTwo, GamepadActionPlus, GamepadActionMinus,
@@ -34,20 +41,20 @@ enum GamepadActionIndex : std::size_t
 
 inline constexpr std::array<GamepadAction, GamepadActionCount> kGamepadActions{{
     {"a", "A", "Confirm, select", "a", "a"},
-    {"b", "B", "Back", "b", "b"},
-    {"one", "1", nullptr, "x", "x"},
-    {"two", "2", nullptr, "y", "y"},
+    {"b", "B", "Back", "b | righttrigger", "b"},
+    {"one", "1", nullptr, "start | back", "x"},
+    {"two", "2", nullptr, "none", "y"},
     {"plus", "+ (Plus)", nullptr, "start", "start"},
     {"minus", "\xE2\x88\x92 (Minus)", nullptr, "back", "back"},
     {"home", "HOME", nullptr, "guide", "guide"},
-    {"up", "D-pad up", nullptr, "dpup", "dpup"},
-    {"down", "D-pad down", nullptr, "dpdown", "dpdown"},
-    {"left", "D-pad left", nullptr, "dpleft", "dpleft"},
-    {"right", "D-pad right", nullptr, "dpright", "dpright"},
-    {"c", "C", "Nunchuk button", "leftshoulder", "leftshoulder"},
+    {"up", "D-pad up", nullptr, "dpup | rightstick_up", "dpup"},
+    {"down", "D-pad down", nullptr, "dpdown | rightstick_down", "dpdown"},
+    {"left", "D-pad left", nullptr, "dpleft | rightstick_left", "dpleft"},
+    {"right", "D-pad right", nullptr, "dpright | rightstick_right | rightshoulder", "dpright"},
+    {"c", "C", "Nunchuk button", "x", "leftshoulder"},
     {"z", "Z", "Nunchuk button", "lefttrigger", "lefttrigger"},
-    {"shake_remote", "Shake Remote", "Hit an opponent", "righttrigger", "righttrigger"},
-    {"shake_nunchuk", "Shake Nunchuk", "Switch items", "rightshoulder", "rightshoulder"},
+    {"shake_remote", "Shake Remote", "Hit an opponent", "y", "righttrigger"},
+    {"shake_nunchuk", "Shake Nunchuk", "Switch items", "leftshoulder", "rightshoulder"},
     {"recenter_pointer", "Recenter pointer", "Back to the middle", "rightstick", "rightstick"},
 }};
 
@@ -63,9 +70,9 @@ inline constexpr std::array<const char*, 3> kGamepadSticksNames{"split", "swappe
 // family (platform::DefaultGamepadInputs): Default, and Classic, the Default
 // of versions up to 1.1.5. Their sticks:
 enum class GamepadLayout { Default, Classic };
-constexpr GamepadSticks GamepadLayoutSticks([[maybe_unused]] GamepadLayout layout)
+constexpr GamepadSticks GamepadLayoutSticks(GamepadLayout layout)
 {
-    return GamepadSticks::Split;
+    return layout == GamepadLayout::Default ? GamepadSticks::Shared : GamepadSticks::Split;
 }
 
 // Stick dead zones and trigger press point of a gamepad profile, in percent

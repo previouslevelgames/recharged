@@ -384,11 +384,11 @@ void GamepadPlayerCycle() {
           "Left stick did not move the Nunchuk stick right");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32767);
-    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, true);
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_WEST, true);
     Until([&] { auto r = report(); return r.fsStickX == 0 && r.button == (WPAD_BUTTON_FS_Z | WPAD_BUTTON_FS_C); },
-          "Left trigger and bumper did not press Z and C");
+          "Left trigger and west did not press Z and C");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 0);
-    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, false);
+    SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_WEST, false);
     Until([&] { return report().button == 0; }, "Gamepad release kept a button");
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
@@ -493,6 +493,11 @@ void CustomGamepadCycle() {
     texts[mscharged::GamepadActionB] = "a";
     texts[mscharged::GamepadActionC] = "lefttrigger";
     texts[mscharged::GamepadActionZ] = "leftshoulder";
+    // The D-pad without Default's right stick, which moves the Nunchuk stick here.
+    texts[mscharged::GamepadActionUp] = "dpup";
+    texts[mscharged::GamepadActionDown] = "dpdown";
+    texts[mscharged::GamepadActionLeft] = "dpleft";
+    texts[mscharged::GamepadActionRight] = "dpright";
     const auto bindings = ParseGamepadBindings(texts);
     Check(bindings[mscharged::GamepadActionPlus] == DefaultGamepadBindings()[mscharged::GamepadActionPlus],
           "An unset gamepad action lost its default");
@@ -561,8 +566,43 @@ void ControllerFamilyCycle() {
               && DefaultGamepadBindings(GamepadFamily::Nintendo)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_SOUTH,
           "Nintendo default does not follow its labels");
     Check(DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_WEST
-              && DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionOne][0] == kGamepadNone,
+              && DefaultGamepadBindings(GamepadFamily::GameCube)[GamepadActionOne][0] == SDL_GAMEPAD_BUTTON_START
+              && DefaultGamepadBindings(GamepadFamily::GameCube)[mscharged::GamepadActionMinus][0] == kGamepadNone,
           "GameCube default layout");
+    // Default: the Classic Controller mod's layout, by the labels.
+    {
+        const auto mod = DefaultGamepadBindings(GamepadFamily::Xbox);
+        const auto nintendo = DefaultGamepadBindings(GamepadFamily::Nintendo);
+        Check(mod[GamepadActionOne] == ParseGamepadBinding("start | back")
+                  && mod[mscharged::GamepadActionPlus] == ParseGamepadBinding("start")
+                  && mod[mscharged::GamepadActionMinus] == ParseGamepadBinding("back")
+                  && mod[mscharged::GamepadActionTwo] == kNoGamepadBinding
+                  && mod[GamepadActionB] == ParseGamepadBinding("b | righttrigger")
+                  && mod[mscharged::GamepadActionRight] == ParseGamepadBinding("dpright | rightstick_right | rightshoulder")
+                  && mod[mscharged::GamepadActionC][0] == SDL_GAMEPAD_BUTTON_WEST
+                  && mod[mscharged::GamepadActionShakeRemote][0] == SDL_GAMEPAD_BUTTON_NORTH
+                  && mod[mscharged::GamepadActionZ][0] == kGamepadTriggerBase + SDL_GAMEPAD_AXIS_LEFT_TRIGGER
+                  && mod[mscharged::GamepadActionShakeNunchuk][0] == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER
+                  && nintendo[mscharged::GamepadActionC][0] == SDL_GAMEPAD_BUTTON_NORTH
+                  && nintendo[mscharged::GamepadActionShakeRemote][0] == SDL_GAMEPAD_BUTTON_WEST
+                  && GamepadLayoutProfile(GamepadFamily::Xbox, mscharged::GamepadLayout::Default).sticks
+                         == mscharged::GamepadSticks::Shared,
+              "Default does not follow the Classic Controller mod");
+    }
+    // Classic 1.1: the Default of versions up to 1.1.5.
+    {
+        const auto classic = GamepadLayoutProfile(GamepadFamily::Xbox, mscharged::GamepadLayout::Classic);
+        Check(classic.bindings[GamepadActionOne][0] == SDL_GAMEPAD_BUTTON_WEST
+                  && classic.bindings[mscharged::GamepadActionShakeRemote][0]
+                         == kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER
+                  && classic.sticks == mscharged::GamepadSticks::Split && classic.follow_controller
+                  && classic.layout == mscharged::GamepadLayout::Classic
+                  && DefaultGamepadBindings(GamepadFamily::GameCube, mscharged::GamepadLayout::Classic)
+                             [GamepadActionOne][0] == kGamepadNone
+                  && DefaultGamepadBindings(GamepadFamily::Nintendo, mscharged::GamepadLayout::Classic)
+                             [GamepadActionOne][0] == SDL_GAMEPAD_BUTTON_WEST,
+              "Classic 1.1 lost the old Default layout");
+    }
     Check(DefaultGamepadBindings(GamepadFamily::PlayStation) == DefaultGamepadBindings(),
           "PlayStation default differs from the positional default");
     Check(GamepadFamilyOf(SDL_GAMEPAD_TYPE_PS5) == GamepadFamily::PlayStation
@@ -613,6 +653,9 @@ void ControllerFamilyCycle() {
     SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
     Until([&] { return report().button == WPAD_BUTTON_B; }, "Switch Pro B (bottom) did not press Wii B");
     SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_NORTH, true);
+    Until([&] { return report().button == WPAD_BUTTON_FS_C; }, "Switch Pro X (top) did not press C");
+    SDL_SetJoystickVirtualButton(joystick, SDL_GAMEPAD_BUTTON_NORTH, false);
     Until([&] { return report().button == 0; }, "Switch Pro release kept a button");
     ShutdownDesktopWpad();
     WPADShutdown();

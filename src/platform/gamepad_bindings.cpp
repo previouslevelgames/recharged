@@ -170,6 +170,31 @@ std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily f
     for (std::size_t n = 0; n < GamepadActionCount; ++n)
         inputs[n] = layout == GamepadLayout::Classic ? kGamepadActions[n].classic : kGamepadActions[n].defaults;
     // SDL names are positions: a = bottom, b = right, x = left, y = top face button.
+    if (layout == GamepadLayout::Default) {
+        if (family == GamepadFamily::Nintendo) {
+            // By its labels, the Classic Controller's own places: A right, B
+            // bottom, X (C) on top, Y (Shake Remote) on the left.
+            inputs[GamepadActionA] = "b";
+            inputs[GamepadActionB] = "a | righttrigger";
+            inputs[GamepadActionC] = "y";
+            inputs[GamepadActionShakeRemote] = "x";
+        } else if (family == GamepadFamily::GameCube) {
+            // A bottom, B left, X right, Y top; L/R the analog triggers, Z the
+            // right shoulder button, the C-stick the right stick. Start is
+            // its only button for 1 and +; it has none for - and HOME.
+            inputs[GamepadActionA] = "a";
+            inputs[GamepadActionB] = "x";
+            inputs[GamepadActionOne] = "start";
+            inputs[GamepadActionMinus] = "none";
+            inputs[GamepadActionHome] = "none";
+            inputs[GamepadActionRight] = "dpright | rightstick_right | righttrigger";
+            inputs[GamepadActionC] = "b";
+            inputs[GamepadActionShakeRemote] = "y";
+            inputs[GamepadActionShakeNunchuk] = "rightshoulder";
+            inputs[GamepadActionRecenterPointer] = "none";
+        }
+        return inputs;
+    }
     if (family == GamepadFamily::Nintendo) {
         // Nintendo prints A on the right and B at the bottom, X on top and Y on the left.
         inputs[GamepadActionA] = "b";

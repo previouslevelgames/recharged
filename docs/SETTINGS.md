@@ -306,6 +306,16 @@ through Steam Input usually show the game no gyro.
 
 The profile page shows both sticks and triggers live with these settings, and
 the gyro pointer when it is on.
+**Default** is the layout of the Classic Controller mod for the Wii game, by
+the controller's labels: A and B (the right trigger presses B too), X for C,
+the left trigger for Z, Y to shake the Remote and the left bumper to shake the
+Nunchuk; the D-pad, the right stick and the right bumper (a deke) press the
+D-pad; Start and Back press 1, and + and − as well (they switch stadiums and do
+nothing in a match); 2 is unused. The left stick moves both the Nunchuk stick
+and the pointer (`sticks = shared`). A Nintendo controller gets the same
+labels in its own places; a GameCube controller has Start for 1 and +, X for
+C, Y and Z for the shakes, R for the deke and the C-stick for the D-pad.
+
 The built-in profiles never change: **Default**, and **Classic 1.1**, the
 Default of versions up to 1.1.5, both laid out for the connected controller,
 plus any that come with the game; changing one makes your own copy. Their
