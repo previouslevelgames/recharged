@@ -8985,7 +8985,8 @@ private:
     static std::string PadBindingLabel(const platform::GamepadBinding& binding, SDL_GamepadType type)
     {
         std::string text = PadInputLabel(binding[0], type);
-        if (binding[1] != platform::kGamepadNone) text += " / " + PadInputLabel(binding[1], type);
+        for (std::size_t n = 1; n < platform::GamepadBindingSize(binding); ++n)
+            text += " / " + PadInputLabel(binding[n], type);
         return text;
     }
 
@@ -10136,21 +10137,16 @@ private:
         const std::string name = PadInputLabel(input, PageType());
         auto bindings = platform::ParseGamepadBindings(profile.inputs);
         auto& mine = bindings[std::size_t(action)];
-        if (mine[0] == input || mine[1] == input) return;
+        if (platform::GamepadBindingHas(mine, input)) return;
         int moved = -1;
         for (std::size_t other = 0; other < GamepadActionCount; ++other)
         {
-            if (int(other) == action) continue;
-            auto& binding = bindings[other];
-            for (int k = 0; k < 2; ++k)
-            {
-                if (binding[k] != input) continue;
-                binding = {binding[1 - k], platform::kGamepadNone};
-                moved = int(other);
-            }
+            if (int(other) == action || !platform::GamepadBindingHas(bindings[other], input)) continue;
+            platform::RemoveGamepadInput(bindings[other], input);
+            moved = int(other);
         }
-        mine[slot] = input;
-        if (mine[0] == platform::kGamepadNone) mine = {mine[1], platform::kGamepadNone};
+        if (std::size_t(slot) < platform::GamepadBindingSize(mine)) mine[std::size_t(slot)] = input;
+        else platform::AddGamepadInput(mine, input);
         profile.inputs[std::size_t(action)] = platform::FormatGamepadBinding(mine);
         if (moved >= 0) profile.inputs[std::size_t(moved)] = platform::FormatGamepadBinding(bindings[moved]);
         dirty_ = true;
@@ -10366,10 +10362,12 @@ private:
                         TextColored(CurrentFonts().caption, color::muted, kGamepadActions[n].note);
                     }
                     ImGui::TableSetColumnIndex(1);
-                    for (int slot = 0; slot < 2; ++slot)
+                    const auto used = platform::GamepadBindingSize(bindings[n]);
+                    for (int slot = 0; slot < int(platform::kGamepadBindingInputs); ++slot)
                     {
-                        const auto input = bindings[n][slot];
-                        if (slot == 1 && bindings[n][0] == platform::kGamepadNone) break;
+                        // The inputs, then a slot to add one more.
+                        if (std::size_t(slot) > used) break;
+                        const auto input = bindings[n][std::size_t(slot)];
                         const bool waiting = pad_capture_action_ == int(n) && pad_capture_slot_ == slot;
                         const std::string label = waiting ? "Press a button..."
                             : input != platform::kGamepadNone ? PadInputLabel(input, type)
@@ -10386,23 +10384,23 @@ private:
                             ImGui::SetTooltip(input != platform::kGamepadNone
                                                   ? "Select, then press the new button or push a stick on the controller"
                                                   : slot == 0 ? "No button presses this. Select, then press one."
-                                                              : "Add a second button");
+                                                              : "Add another button");
                         ImGui::PopID();
                     }
-                    if (bindings[n][0] != platform::kGamepadNone)
+                    if (used > 0)
                     {
-                        // Removes the second button, or the only one (no button then).
-                        const bool two = bindings[n][1] != platform::kGamepadNone;
+                        // Removes the last button, or the only one (no button then).
                         ImGui::SameLine(0, Dp(6));
                         if (SecondaryButton("##remove", "", Dp(30, 30), true, Icon::Error))
                             if (auto* target = editable())
                             {
-                                target->inputs[n] = platform::FormatGamepadBinding(
-                                    {two ? bindings[n][0] : platform::kGamepadNone, platform::kGamepadNone});
+                                auto binding = bindings[n];
+                                binding[used - 1] = platform::kGamepadNone;
+                                target->inputs[n] = platform::FormatGamepadBinding(binding);
                                 dirty_ = true;
                             }
                         if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip(two ? "Remove the second button" : "Remove the button (none presses this)");
+                            ImGui::SetTooltip(used > 1 ? "Remove the last button" : "Remove the button (none presses this)");
                     }
                     ImGui::PopID();
                 }
@@ -10473,7 +10471,7 @@ private:
                 {
                     const auto& binding = bindings[GamepadActionUp + std::size_t(n)];
                     const auto input = platform::kGamepadStickBase + free_stick + n;
-                    stick_dpad = stick_dpad && (binding[0] == input || binding[1] == input);
+                    stick_dpad = stick_dpad && platform::GamepadBindingHas(binding, input);
                 }
                 const std::string stick_dpad_label = std::string(swap ? "Left" : "Right") + " stick as D-pad";
                 Row(stick_dpad_label.c_str(), "Push it to press the D-pad: in a match, a deke with the ball and a "
@@ -10597,16 +10595,12 @@ private:
         for (int n = 0; n < 4; ++n)
         {
             const auto input = platform::kGamepadStickBase + first_direction + n;
-            for (auto& binding : bindings)
-            {
-                if (binding[1] == input) binding[1] = platform::kGamepadNone;
-                if (binding[0] == input) binding = {binding[1], platform::kGamepadNone};
-            }
+            for (auto& binding : bindings) platform::RemoveGamepadInput(binding, input);
             const std::size_t action = GamepadActionUp + std::size_t(n);
             auto& dpad = bindings[action];
-            if (on) dpad = dpad[0] != platform::kGamepadNone ? platform::GamepadBinding{dpad[0], input}
-                                                             : platform::GamepadBinding{input, platform::kGamepadNone};
-            else if (dpad[0] == platform::kGamepadNone) dpad = defaults[action];
+            // A full D-pad action gives up its last button for the stick.
+            if (on && !platform::AddGamepadInput(dpad, input)) dpad.back() = input;
+            else if (!on && dpad[0] == platform::kGamepadNone) dpad = defaults[action];
         }
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
             if (bindings[action] != before[action]) profile.inputs[action] = platform::FormatGamepadBinding(bindings[action]);

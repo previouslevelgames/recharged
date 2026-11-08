@@ -248,8 +248,9 @@ Settings Decode(const Values& values)
         choice(key.c_str(), s.players[n], {"keyboard", "remote1", "remote2", "remote3", "remote4",
                                             "gamepad1", "gamepad2", "gamepad3", "gamepad4", "off"});
     }
-    // [keyboard] and [gamepadN]: one or two names per action, separated by " | ".
-    const auto names = [&](const std::string& key, std::string& value, const char* what) {
+    // [keyboard] and [gamepad_profileN]: up to `most` names per action (two
+    // keys, three gamepad inputs), separated by " | ".
+    const auto names = [&](const std::string& key, std::string& value, const char* what, std::size_t most) {
         const auto it = values.find(key);
         if (it == values.end()) return;
         std::size_t count = 0, start = 0;
@@ -257,16 +258,16 @@ Settings Decode(const Values& values)
         while (valid && start <= it->second.size())
         {
             const auto bar = std::min(it->second.find('|', start), it->second.size());
-            valid = !Trim(it->second.substr(start, bar - start)).empty() && ++count <= 2;
+            valid = !Trim(it->second.substr(start, bar - start)).empty() && ++count <= most;
             start = bar + 1;
         }
         if (!valid)
-            throw std::runtime_error("Invalid configuration: " + key + " must be one or two " + what
-                + " separated by |");
+            throw std::runtime_error("Invalid configuration: " + key + " must be one to " + std::to_string(most) + " "
+                + what + " separated by |");
         value = it->second;
     };
     for (std::size_t n = 0; n < KeyActionCount; ++n)
-        names(std::string("keyboard.") + kKeyActions[n].key, s.keys[n], "key names");
+        names(std::string("keyboard.") + kKeyActions[n].key, s.keys[n], "key names", 2);
     // [hotkeys]: one key name each, after the Ctrl+, Shift+ and Alt+ it is
     // pressed with, or none. A hotkey an older INI does not name yet stays
     // unused when a [keyboard] action has its default key.
@@ -321,7 +322,7 @@ Settings Decode(const Values& values)
         Settings::PadProfile profile;
         profile.name = name->second;
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
-            names(section + kGamepadActions[action].key, profile.inputs[action], "gamepad inputs");
+            names(section + kGamepadActions[action].key, profile.inputs[action], "gamepad inputs", 3);
         boolean((section + "swap_sticks").c_str(), profile.swap_sticks);
         number((section + "inner_deadzone").c_str(), profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone);
         number((section + "outer_deadzone").c_str(), profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone);

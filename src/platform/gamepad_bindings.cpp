@@ -34,18 +34,40 @@ std::string GamepadInputName(GamepadInput input) {
     return name ? name : "";
 }
 
-GamepadBinding ParseGamepadBinding(std::string_view text) {
-    GamepadBinding binding{kGamepadNone, kGamepadNone};
+std::size_t GamepadBindingSize(const GamepadBinding& binding) {
+    return std::size_t(std::count_if(binding.begin(), binding.end(), [](GamepadInput input) { return input != kGamepadNone; }));
+}
+
+bool GamepadBindingHas(const GamepadBinding& binding, GamepadInput input) {
+    return input != kGamepadNone && std::find(binding.begin(), binding.end(), input) != binding.end();
+}
+
+void RemoveGamepadInput(GamepadBinding& binding, GamepadInput input) {
+    if (input == kGamepadNone) return;
+    GamepadBinding kept = kNoGamepadBinding;
     std::size_t used = 0;
-    while (!text.empty() && used < binding.size()) {
+    for (const GamepadInput other : binding)
+        if (other != kGamepadNone && other != input) kept[used++] = other;
+    binding = kept;
+}
+
+bool AddGamepadInput(GamepadBinding& binding, GamepadInput input) {
+    const std::size_t used = GamepadBindingSize(binding);
+    if (input == kGamepadNone || GamepadBindingHas(binding, input) || used == binding.size()) return false;
+    binding[used] = input;
+    return true;
+}
+
+GamepadBinding ParseGamepadBinding(std::string_view text) {
+    GamepadBinding binding = kNoGamepadBinding;
+    while (!text.empty() && GamepadBindingSize(binding) < binding.size()) {
         const auto bar = text.find('|');
         auto name = text.substr(0, bar);
         text = bar == std::string_view::npos ? std::string_view{} : text.substr(bar + 1);
         while (!name.empty() && name.front() == ' ') name.remove_prefix(1);
         while (!name.empty() && name.back() == ' ') name.remove_suffix(1);
         if (name.empty()) continue;
-        const GamepadInput input = ParseGamepadInput(name);
-        if (input != kGamepadNone && (used == 0 || binding[0] != input)) binding[used++] = input;
+        AddGamepadInput(binding, ParseGamepadInput(name));
     }
     return binding;
 }
@@ -201,7 +223,8 @@ bool GamepadInputHeld(SDL_Gamepad* pad, GamepadInput input, int press) {
 }
 
 bool GamepadBindingHeld(SDL_Gamepad* pad, const GamepadBinding& binding, int press) {
-    return GamepadInputHeld(pad, binding[0], press) || GamepadInputHeld(pad, binding[1], press);
+    return std::any_of(binding.begin(), binding.end(),
+                       [&](GamepadInput input) { return input != kGamepadNone && GamepadInputHeld(pad, input, press); });
 }
 
 StickTilt ApplyStickDeadzones(float x, float y, int inner, int outer) {

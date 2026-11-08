@@ -258,7 +258,7 @@ player 1 when nobody is left. The page also shows each Remote's battery level.
 
 **Keys and gamepad profiles.** The sliders button beside a player opens its
 keys (`[keyboard]`) or its gamepad profile (`[gamepad_profileN]`). Each action
-takes up to two keys; the middle and side mouse buttons (`Mouse Middle`,
+takes up to two keys, or up to three gamepad inputs; the middle and side mouse buttons (`Mouse Middle`,
 `Mouse 4`, `Mouse 5`) can take a key's place, while left and right click stay
 A and B. A gamepad profile also sets, for both sticks:
 

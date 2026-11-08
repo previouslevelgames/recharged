@@ -7,7 +7,7 @@ namespace mscharged
 {
 // Actions of a standard gamepad playing as a Wii Remote with Nunchuk. Each
 // gamepad profile ([gamepad_profileN] in recharged.ini) gives every action
-// one or two inputs, written as SDL gamepad names separated by " | ":
+// one to three inputs, written as SDL gamepad names separated by " | ":
 // buttons (a, b, x, y = south, east, west, north; start, back, guide,
 // leftshoulder, leftstick, dpup, ...) or the triggers lefttrigger/righttrigger.
 // The Nunchuk stick and the pointer are the two analog sticks; with

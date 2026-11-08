@@ -465,8 +465,26 @@ void StickDeadzoneChecks() {
 void CustomGamepadCycle() {
     using namespace mscharged::platform;
     Check(ParseGamepadBinding("b | righttrigger") ==
-              GamepadBinding{SDL_GAMEPAD_BUTTON_EAST, kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER},
+              GamepadBinding{SDL_GAMEPAD_BUTTON_EAST, kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, kGamepadNone},
           "Gamepad input names did not parse");
+    // Up to three inputs, each once; a fourth is left out.
+    Check(ParseGamepadBinding("dpright | rightstick_right | rightshoulder | a")
+                  == GamepadBinding{SDL_GAMEPAD_BUTTON_DPAD_RIGHT, kGamepadStickBase + RightStickRight,
+                                    SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER}
+              && ParseGamepadBinding("a | b | a | x") == GamepadBinding{SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
+                                                                        SDL_GAMEPAD_BUTTON_WEST}
+              && FormatGamepadBinding(ParseGamepadBinding("a|b|x")) == "a | b | x",
+          "Three inputs per action did not parse or format");
+    {
+        GamepadBinding binding = ParseGamepadBinding("a | b | x");
+        RemoveGamepadInput(binding, SDL_GAMEPAD_BUTTON_SOUTH);
+        const bool moved_up = binding == GamepadBinding{SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST, kGamepadNone};
+        const bool added = AddGamepadInput(binding, SDL_GAMEPAD_BUTTON_NORTH);
+        GamepadBinding single = ParseGamepadBinding("a");
+        Check(moved_up && added && GamepadBindingSize(binding) == 3 && !AddGamepadInput(binding, SDL_GAMEPAD_BUTTON_SOUTH)
+                  && !AddGamepadInput(single, SDL_GAMEPAD_BUTTON_SOUTH) && GamepadBindingSize(single) == 1,
+              "Inputs were not taken away or added");
+    }
     Check(ParseGamepadBinding("leftx | nonsense")[0] == kGamepadNone, "A stick axis was accepted as a button");
     Check(FormatGamepadBinding(ParseGamepadBinding(" a |lefttrigger ")) == "a | lefttrigger",
           "Gamepad binding did not format back");
@@ -555,7 +573,7 @@ void ControllerFamilyCycle() {
     texts[GamepadActionOne] = "none";
     Check(ParseGamepadBindings(texts)[GamepadActionOne][0] == kGamepadNone
               && ParseGamepadBindings(texts)[GamepadActionB][0] == SDL_GAMEPAD_BUTTON_EAST
-              && FormatGamepadBinding({kGamepadNone, kGamepadNone}) == "none",
+              && FormatGamepadBinding(kNoGamepadBinding) == "none",
           "\"none\" did not leave an action without a button");
 
     connects = samples = extension_count = 0;
@@ -852,7 +870,7 @@ void NunchukCycle() {
 void StickDirectionCycle() {
     using namespace mscharged::platform;
     Check(ParseGamepadBinding("dpup | rightstick_up") ==
-              GamepadBinding{SDL_GAMEPAD_BUTTON_DPAD_UP, kGamepadStickBase + RightStickUp}
+              GamepadBinding{SDL_GAMEPAD_BUTTON_DPAD_UP, kGamepadStickBase + RightStickUp, kGamepadNone}
               && ParseGamepadInput("leftstick_left") == kGamepadStickBase + LeftStickLeft
               && ParseGamepadInput("rightstick") == SDL_GAMEPAD_BUTTON_RIGHT_STICK
               && FormatGamepadBinding(ParseGamepadBinding("dpright|rightstick_right")) == "dpright | rightstick_right",

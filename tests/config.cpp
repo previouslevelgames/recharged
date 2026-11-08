@@ -234,6 +234,9 @@ int main()
         std::ofstream(path) << "[gamepad_profile17]\nname = Many\n";
         Reject([&] { LoadConfig(path); });
         std::ofstream(path) << "[gamepad_profile1]\nname = Pad\na = a | b | x\n";
+        Require(LoadConfig(path).settings.pad_profiles[0].inputs[mscharged::GamepadActionA] == "a | b | x",
+                "A gamepad action takes three inputs");
+        std::ofstream(path) << "[gamepad_profile1]\nname = Pad\na = a | b | x | y\n";
         Reject([&] { LoadConfig(path); });
         for (const char* range : {"inner_deadzone = 31", "inner_deadzone = -1", "outer_deadzone = 69",
                                   "outer_deadzone = 101", "trigger_press = 9", "trigger_press = 91",
