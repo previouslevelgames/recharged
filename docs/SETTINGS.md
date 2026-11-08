@@ -284,7 +284,11 @@ pointer. `split` (Nunchuk left): the left stick moves the Nunchuk stick and the
 right one points; `swapped` (Nunchuk right) the other way round; `shared`: the
 left stick does both, as the Classic Controller mod for the Wii game does, and
 the right stick is free. Settings files from before it say `swap_sticks = true`
-for swapped, and their profiles stay split otherwise.
+for swapped, and their profiles stay split otherwise. A stick pointer, like
+the gyro pointer, starts in the middle whenever the game turns the pointer on
+(menus, a goalie's Mega Strike defence); in a match the game reads no pointer,
+so the left stick moving it meanwhile changes nothing. It is the game's
+pointer only: the mouse cursor never moves.
 
 **Sticks as buttons**: pushing a stick one way past half its travel can press
 any action, like a button (`rightstick_up`, `leftstick_left` and so on in the

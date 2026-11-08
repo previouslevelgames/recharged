@@ -536,20 +536,24 @@ void UpdateGamepadShakes(Device& pad, bool focused) {
     }
 }
 mscharged::platform::NativeDpdObservation GamepadPointer(State& state, Device& pad, bool focused, Clock::time_point now) {
-    // The pointer stick (right by default) moves across the picture: pushed past
-    // the outer dead zone it crosses its width in about 0.8 s. It stays where
-    // it was left.
+    // The pointer stick (see the profile's sticks) moves across the picture:
+    // pushed past the outer dead zone it crosses its width in about 0.8 s. It
+    // stays where it was left. Stick and gyro pointers go back to the middle
+    // whenever the game turns the pointer camera on (menus, the goalie's Mega
+    // Strike defence): in a match the camera is off, and a stick that also
+    // moves the Nunchuk stick (shared sticks) has moved the pointer meanwhile.
     const float seconds = pad.last_service == Clock::time_point{} ? 0.0f
         : std::min(0.1f, std::chrono::duration<float>(now - pad.last_service).count());
     pad.last_service = now;
+    const bool camera = pad.channel >= 0 && WPADIsDpdEnabled(pad.channel);
+    const bool camera_on = camera && !pad.pointer_camera;
+    pad.pointer_camera = camera;
     if (pad.gyro) {
-        // The gyro turns the pointer like a Wii Remote. It goes back to the
-        // middle on the recentre button and whenever the game turns the
-        // pointer camera on (menus, the goalie's Mega Strike defence). Turns
-        // while the window has no focus are dropped.
+        // The gyro turns the pointer like a Wii Remote. It also goes back to
+        // the middle on the recentre button. Turns while the window has no
+        // focus are dropped.
         const bool recenter = focused && PadHeld(pad, mscharged::GamepadActionRecenterPointer);
-        const bool camera = pad.channel >= 0 && WPADIsDpdEnabled(pad.channel);
-        const bool centre = (recenter && !pad.recenter_held) || (camera && !pad.pointer_camera);
+        const bool centre = (recenter && !pad.recenter_held) || camera_on;
         mscharged::platform::GyroTurn turn;
         {
             std::lock_guard lock(state.mutex);
@@ -564,8 +568,8 @@ mscharged::platform::NativeDpdObservation GamepadPointer(State& state, Device& p
             mscharged::platform::MoveGyroPointer(pad.pointer_x, pad.pointer_y, turn, pad.profile.gyro_speed,
                                                  state.picture_aspect);
         pad.recenter_held = recenter;
-        pad.pointer_camera = camera;
-    } else if (focused) {
+    } else if (camera_on) pad.pointer_x = pad.pointer_y = 0.5f;
+    else if (focused) {
         constexpr float speed = 1.25f;
         const auto tilt = PadStick(pad, false);
         pad.pointer_x = std::clamp(pad.pointer_x + tilt.x * speed * seconds, 0.0f, 1.0f);

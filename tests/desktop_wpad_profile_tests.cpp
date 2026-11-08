@@ -1243,6 +1243,16 @@ void SharedSticksCycle() {
     Check(status.fsStickX == 0 && status.obj[0].x == rested.x && status.obj[0].y == rested.y,
           "Shared sticks: the right stick still moved the Nunchuk stick or the pointer");
     SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
+    // A match turns the camera off while the stick runs; turning it on again
+    // (a goalie's Mega Strike defence) starts the pointer in the middle.
+    Check(WPADControlDpd(1, WPAD_DPD_DISABLE, nullptr) == WPAD_ERR_OK, "Pointer camera request was rejected");
+    Until([] { return !WPADIsDpdEnabled(1); }, "Pointer camera did not turn off");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
+    Check(WPADControlDpd(1, WPAD_DPD_STANDARD, nullptr) == WPAD_ERR_OK, "Pointer camera request was rejected");
+    Until([&] { auto o = report().obj[0]; return WPADIsDpdEnabled(1) && o.x == centre.x && o.y == centre.y; },
+          "Turning the pointer camera on did not centre the stick pointer");
     ShutdownDesktopWpad();
     WPADShutdown();
 }
