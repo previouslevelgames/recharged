@@ -175,6 +175,13 @@ jobs:
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           ${{ matrix.cmake_args }}
+      # Tweaks off must leave the original game code: the tweak series only adds
+      # guarded code, in every game version. Checks of the prepared sources.
+      - name: Check the tweak series
+        if: matrix.platform == 'linux-x86_64'
+        run: |
+          python3 -B tests/test_tweak_patches.py build/release/prepared/mscharged-decomp/patched
+          python3 -B tests/test_tweak_versions.py build/release/prepared/mscharged-decomp/source
       # Only the packaged targets.
       - name: Build original runtime
         run: >-

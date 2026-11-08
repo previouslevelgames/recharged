@@ -76,20 +76,18 @@ index e68875e..6b8726c 100644
      {
          PlaySound(11, 0x8CEE6665UL, NULL, NULL);
      }
--    if (!GetTweakBool("/user/no_presentation", false)
--        && g_pTeams[0] != NULL && g_pTeams[1] != NULL)
-+    bool bPresentation = !GetTweakBool("/user/no_presentation", false);
 +#if defined(MSCHARGED_TWEAKS)
 +    // Port tweak "Training": a goal that goes straight to the kickoff
 +    // (Presentation::OnGoalScored) leaves the players their pads, which the
-+    // kickoff has just given back.
++    // kickoff has just given back: no presentation, as with no_presentation.
 +    if (pEventData != NULL && pEventData->uGoalType != GOAL_MEGA_STRIKE && GetTrainingSide() >= 0
 +        && mscharged_tweak_training_skip_goal())
 +    {
-+        bPresentation = false;
 +    }
++    else
 +#endif
-+    if (bPresentation && g_pTeams[0] != NULL && g_pTeams[1] != NULL)
+     if (!GetTweakBool("/user/no_presentation", false)
+         && g_pTeams[0] != NULL && g_pTeams[1] != NULL)
      {
          for (s32 i = 0; i < 2; i++)
          {
@@ -97,16 +95,18 @@ diff --git a/src/Game/FE/feManager.cpp b/src/Game/FE/feManager.cpp
 index c468b03..ad95fbc 100644
 --- a/src/Game/FE/feManager.cpp
 +++ b/src/Game/FE/feManager.cpp
-@@ -46,6 +46,8 @@
+@@ -46,6 +46,10 @@
  #include "Game/InputManager.h"
  #include "Game/OverlayManager.h"
  #include "Game/EventRegistry.h"
++#if defined(MSCHARGED_TWEAKS)
 +#include "Game/Team.h"
++#endif
 +#include "mscharged_tweaks.h"
  #include "NL/nlFunction.inl"
  
  cAnimCamera* FrontEnd::m_pPauseMenuCamera = 0;
-@@ -119,6 +121,14 @@ void FrontEnd::EnterStartScreen(bool bStraightToKickoff)
+@@ -119,6 +123,14 @@ void FrontEnd::EnterStartScreen(bool bStraightToKickoff)
          isInStrikers101 = true;
      }
      sInitialModePauseMenuShown = 0;

@@ -453,7 +453,8 @@ if(BUILD_TESTING)
     # Opt-in game tweaks: off means the original code (tweak patches) and the
     # original answers (the game module's tweak state).
     add_test(NAME tweak_patches
-        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tweak_patches.py")
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tweak_patches.py"
+            "${CMAKE_BINARY_DIR}/prepared/mscharged-decomp/patched")
     # The same hooks in every game version's module.
     add_test(NAME tweak_patch_versions
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tweak_versions.py"
