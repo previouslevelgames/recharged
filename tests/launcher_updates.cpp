@@ -479,6 +479,24 @@ void TestNotes()
         }
     Check(!image && details, "Images dropped, HTML tags stripped, escapes kept");
     Check(ParseReleaseNotes("").empty() && ParseReleaseNotes("\n\n  \n").empty(), "Empty notes");
+
+    // The footer under a release's notes goes; a rule inside the notes stays.
+    const std::string release = "Recharged 1.1.4 fixes an online crash on Mac.\n\n- Online: no crash.\n\n---\n\n"
+                                "**New here?** Download the package for your system below. Guides: "
+                                "[install](https://x/INSTALL.md).\n";
+    auto notes = WithoutNotesFooter(ParseReleaseNotes(release));
+    Check(notes.size() == 2 && notes[0].kind == NoteBlock::Kind::Paragraph && notes[1].kind == NoteBlock::Kind::Item,
+          "Release footer dropped");
+    notes = WithoutNotesFooter(ParseReleaseNotes("Intro.\n\n---\n\n## More\n\n- item\n\n---\n\nFooter.\n"));
+    Check(notes.size() == 4 && notes[1].kind == NoteBlock::Kind::Rule && notes[2].kind == NoteBlock::Kind::Heading
+              && notes.back().kind == NoteBlock::Kind::Item,
+          "Only the last rule's footer goes");
+    notes = WithoutNotesFooter(ParseReleaseNotes("Intro.\n\n---\n\n## Section\n\nText.\n"));
+    Check(notes.size() == 4, "A rule before a heading is part of the notes");
+    notes = WithoutNotesFooter(ParseReleaseNotes("Intro.\n\n---\n\n- one\n- two\n"));
+    Check(notes.size() == 4, "A rule before a list is part of the notes");
+    Check(WithoutNotesFooter(ParseReleaseNotes("Just notes.\n")).size() == 1, "Notes without a rule stay");
+    Check(WithoutNotesFooter(ParseReleaseNotes("---\n\nOnly a footer.\n")).empty(), "Only a footer");
 }
 
 fs::path Fresh(const fs::path& root, const std::string& name)

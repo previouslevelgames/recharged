@@ -277,6 +277,11 @@ server instead. It is set up already; only a private instance of the server
 needs `[online] server` ([settings](SETTINGS.md#online)). Friend
 codes are typed on the game's friend code screen, as described under Controls.
 
+The launcher's Play page shows how many players are online on that server,
+asked every minute: everyone logged in to it, from Recharged, a Wii or
+Dolphin, and in its tooltip how many of them are in a match. A server without
+this count (older than Recharged WFC 1.2.19) shows nothing.
+
 Network matches use **rollback**, on by default. A step whose inputs have not
 arrived from the other player runs with predicted ones (the player's last
 input repeated) and is replayed when the real ones arrive and differ, instead
