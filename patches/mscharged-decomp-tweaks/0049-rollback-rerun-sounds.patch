@@ -1,0 +1,111 @@
+From: mscharged-port
+Subject: Rollback: a step run again after an undo does not start its sounds twice
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A step that changes the match's phase on predicted inputs is undone
+without a replay and runs again outside replays once its inputs arrive
+(the port's rollback). Its first run played its sounds already, and the
+audio, which no rollback restores, still plays them: the run again started
+each sound with a context a second time. The handles keep the first one by
+its cue and context (sAudioHandles.Add leaves a key it holds), so the
+second played on where no stop found it. The overtime's start is such a
+step: its sudden death music went on over the end of the match, the
+Striker Times and the next match, until a stream took its voice (a Mega
+Strike, the next match's end).
+
+A start outside replays that the tables say the audio made already (the
+match wants the generation the audio applied, and its handle still plays
+or is paused) now starts nothing. Patches 0046 and 0047 have the
+generations: the step's run again gives the sound the generation its first
+run gave it. What the first run did after the start (a pause), the
+reconciliation sets as the match wants, once the undone steps ran again.
+
+A one-shot sound without a context still plays again in the step's run
+again.
+
+diff --git a/src/Game/Audio/audio.cpp b/src/Game/Audio/audio.cpp
+index cbba226..2fc9a62 100644
+--- a/src/Game/Audio/audio.cpp
++++ b/src/Game/Audio/audio.cpp
+@@ -237,6 +237,37 @@ struct StartingTrackedSoundScope
+     ~StartingTrackedSoundScope() { --sStartingTrackedSound; }
+ };
+ 
++// Whether a start outside replays is one the audio made already: a step a
++// rollback undid without replaying it (a phase change on predicted inputs)
++// runs again outside replays and starts its sounds again, with the generation
++// their first run gave them. A second handle would be lost: the handles keep
++// the first one by its cue and context, and every stop finds only that one.
++// The sound still playing is the match's; what its first run did after the
++// start (a pause), the reconciliation sets as the match now wants.
++static bool StartAppliedAlready(unsigned long cueId, void* context)
++{
++    if (!IsMatchTrackedSound(cueId, context))
++    {
++        return false;
++    }
++    const int wanted = FindTrackedSound(&gMschargedWantedTrackedSounds, cueId, context, false);
++    const int applied = FindTrackedSound(&sAppliedTrackedSounds, cueId, context, false);
++    if (wanted < 0 || applied < 0
++        || gMschargedWantedTrackedSounds.sounds[wanted].generation
++            != sAppliedTrackedSounds.sounds[applied].generation)
++    {
++        return false;
++    }
++    XSoundHandle* handle = FindSoundHandle(cueId, context);
++    if (handle == 0)
++    {
++        return false;
++    }
++    const int state = handle->m_State;
++    return state == SOUND_HANDLE_PREPARING || state == SOUND_HANDLE_PREPARED || state == SOUND_HANDLE_PLAYING
++        || state == SOUND_HANDLE_PAUSED;
++}
++
+ extern "C" void mscharged_rollback_audio_unreplayed(int enter)
+ {
+     sUnreplayedDepth += enter;
+@@ -507,6 +538,10 @@ bool PlaySound(int slotId, unsigned long cueId,
+     }
+     NoteOneShotSound(slotId, cueId, context, 0);
+     MSCHARGED_AUDIO_ACTION(false);
++    if (sStartingTrackedSound == 0 && StartAppliedAlready(cueId, context))
++    {
++        return true;
++    }
+     AppliedTrackedSoundScope applied = { cueId, context, false };
+ #endif
+     if (cueId == 0xFFFFFFFF)
+@@ -533,6 +568,10 @@ bool PlayOwnedSound(int slotId, unsigned long cueId,
+     }
+     NoteOneShotSound(slotId, cueId, context, owner);
+     MSCHARGED_AUDIO_ACTION(false);
++    if (sStartingTrackedSound == 0 && StartAppliedAlready(cueId, context))
++    {
++        return true;
++    }
+     AppliedTrackedSoundScope applied = { cueId, context, false };
+ #endif
+     if (cueId == 0xFFFFFFFF)
+@@ -654,6 +693,10 @@ bool PlayTrackedSound(int slotId, unsigned long cueId,
+ #if defined(MSCHARGED_TWEAKS)
+     WantTrackedSoundPlaying(slotId, cueId, context, 0, true, resumable);
+     MSCHARGED_AUDIO_ACTION(false);
++    if (StartAppliedAlready(cueId, context))
++    {
++        return true;
++    }
+     AppliedTrackedSoundScope applied = { cueId, context, false };
+     StartingTrackedSoundScope starting;
+ #endif
+@@ -675,6 +718,10 @@ bool PlayTrackedOwnedSound(int slotId, unsigned long cueId,
+ #if defined(MSCHARGED_TWEAKS)
+     WantTrackedSoundPlaying(slotId, cueId, context, owner, true, resumable);
+     MSCHARGED_AUDIO_ACTION(false);
++    if (StartAppliedAlready(cueId, context))
++    {
++        return true;
++    }
+     AppliedTrackedSoundScope applied = { cueId, context, false };
+     StartingTrackedSoundScope starting;
+ #endif
