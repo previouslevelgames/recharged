@@ -10125,8 +10125,20 @@ private:
         else pad_inputs_held_.erase({pad, input});
     }
 
-    // A press while an input waits: it takes that slot, moving it from another
-    // action of the profile unless it is that action's only input.
+    // The other actions of `bindings` that `input` presses too.
+    static std::string SharedPadActions(const platform::GamepadBindings& bindings, std::size_t action,
+                                        platform::GamepadInput input)
+    {
+        std::string actions;
+        for (std::size_t other = 0; other < GamepadActionCount; ++other)
+            if (other != action && platform::GamepadBindingHas(bindings[other], input))
+                actions += (actions.empty() ? "" : ", ") + std::string(kGamepadActions[other].label);
+        return actions;
+    }
+
+    // A press while an input waits: it takes that slot. An input may press
+    // several actions at once (Default's Start presses 1 and +); the page
+    // warns about it.
     void CaptureGamepadInput(platform::GamepadInput input)
     {
         const int action = pad_capture_action_, slot = pad_capture_slot_;
@@ -10138,25 +10150,15 @@ private:
         auto bindings = platform::ParseGamepadBindings(profile.inputs);
         auto& mine = bindings[std::size_t(action)];
         if (platform::GamepadBindingHas(mine, input)) return;
-        int moved = -1;
-        for (std::size_t other = 0; other < GamepadActionCount; ++other)
-        {
-            if (int(other) == action || !platform::GamepadBindingHas(bindings[other], input)) continue;
-            platform::RemoveGamepadInput(bindings[other], input);
-            moved = int(other);
-        }
         if (std::size_t(slot) < platform::GamepadBindingSize(mine)) mine[std::size_t(slot)] = input;
         else platform::AddGamepadInput(mine, input);
         profile.inputs[std::size_t(action)] = platform::FormatGamepadBinding(mine);
-        if (moved >= 0) profile.inputs[std::size_t(moved)] = platform::FormatGamepadBinding(bindings[moved]);
         dirty_ = true;
-        const bool emptied = moved >= 0 && bindings[std::size_t(moved)][0] == platform::kGamepadNone;
+        const auto shared = SharedPadActions(bindings, std::size_t(action), input);
         Notice(name + " now presses " + kGamepadActions[action].label
-                   + (moved >= 0 ? std::string(" (moved from ") + kGamepadActions[moved].label
-                                       + (emptied ? ", which now has no button)" : ")")
-                                 : std::string())
-                   + ".",
-               emptied ? NoticeKind::Warning : NoticeKind::Info);
+                   + (shared.empty() ? std::string(".")
+                                     : " and still presses " + shared + ": one press does both."),
+               shared.empty() ? NoticeKind::Info : NoticeKind::Warning);
     }
 
     // A combo choosing the profile of gamepad `slot`: Default and the
@@ -10401,6 +10403,23 @@ private:
                             }
                         if (ImGui::IsItemHovered())
                             ImGui::SetTooltip(used > 1 ? "Remove the last button" : "Remove the button (none presses this)");
+                    }
+                    // Inputs that press other actions too.
+                    std::string shared;
+                    for (std::size_t k = 0; k < used; ++k)
+                    {
+                        const auto others = SharedPadActions(bindings, n, bindings[n][k]);
+                        if (!others.empty())
+                            shared += (shared.empty() ? "" : "; ") + PadInputLabel(bindings[n][k], type) + " also presses "
+                                + others;
+                    }
+                    if (!shared.empty())
+                    {
+                        ImGui::SameLine(0, Dp(10));
+                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(7));
+                        TextColored(CurrentFonts().caption, color::warning, shared.c_str());
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("One press does both. Fine where the game never needs them apart.");
                     }
                     ImGui::PopID();
                 }

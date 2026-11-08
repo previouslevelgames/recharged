@@ -260,7 +260,9 @@ player 1 when nobody is left. The page also shows each Remote's battery level.
 keys (`[keyboard]`) or its gamepad profile (`[gamepad_profileN]`). Each action
 takes up to two keys, or up to three gamepad inputs; the middle and side mouse buttons (`Mouse Middle`,
 `Mouse 4`, `Mouse 5`) can take a key's place, while left and right click stay
-A and B. A gamepad profile also sets, for both sticks:
+A and B. One gamepad input can press several actions at once (a press does
+all of them); the profile page marks it in orange. A gamepad profile also
+sets, for both sticks:
 
 - **Inner dead zone** (`inner_deadzone`, 0-30 %, default 15): the stick rests
   until it is tilted this far. Raise it if a worn stick drifts.
