@@ -202,8 +202,9 @@ show_hud = true
 # righttrigger, a stick pushed one way (leftstick_up, leftstick_down,
 # leftstick_left, leftstick_right, rightstick_up ... rightstick_right; past
 # half its travel), or none for no button. Actions left out keep the Default
-# (Xbox) input. swap_sticks = true
-# moves the Nunchuk stick to the right stick and the pointer to the left.
+# (Xbox) input. sticks: split (the left stick moves the Nunchuk stick, the
+# right one points), swapped, or shared (the left stick does both and the
+# right one is free, for the D-pad); older files say swap_sticks = true.
 # inner_deadzone (0-30 %) and outer_deadzone (70-100 %): both sticks rest up to
 # the inner one and are pushed all the way from the outer one on; the defaults,
 # 15 and 71, play like a Nunchuk on the Wii. trigger_press (10-90 %, default

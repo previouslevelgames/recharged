@@ -44,9 +44,8 @@ bool AddGamepadInput(GamepadBinding& binding, GamepadInput input);
 // Settings of one gamepad player.
 struct GamepadProfile {
     GamepadBindings bindings{};
-    // false: the left stick moves the Nunchuk stick and the right stick points;
-    // true swaps them.
-    bool swap_sticks = false;
+    // The sticks of the Nunchuk stick and the pointer.
+    GamepadSticks sticks = GamepadSticks::Split;
     // The built-in Default: the bindings are replaced by the default layout
     // of the controller that connects (DefaultGamepadBindings(family)).
     bool follow_controller = false;

@@ -475,11 +475,13 @@ void AttachGamepadPlayer(State& state, Device& pad, int index) {
     } else
         SDL_Log("Gamepad %d (%s) has no gyro: its stick moves the pointer", index + 1, name ? name : "controller");
 }
-// The Nunchuk stick (or with swapped sticks the pointer) after the profile's
-// dead zones; y down as SDL reports it. A real Nunchuk's stick
+// The stick of the Nunchuk stick or the pointer (the profile's sticks) after
+// the profile's dead zones; y down as SDL reports it. A real Nunchuk's stick
 // (octagon_stick) leaves its dead zones to the game.
 mscharged::platform::StickTilt PadStick(const Device& pad, bool nunchuk) {
-    const bool left = nunchuk != pad.profile.swap_sticks;
+    const auto sticks = pad.profile.sticks;
+    const bool left = sticks == mscharged::GamepadSticks::Shared
+        || nunchuk != (sticks == mscharged::GamepadSticks::Swapped);
     const bool octagon = nunchuk && pad.profile.octagon_stick;
     return mscharged::platform::GamepadStickTilt(pad.input, left ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX,
                                                  left ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY,
@@ -672,7 +674,7 @@ void ServiceDesktopWpad() {
                 if ((*slot)->profile.follow_controller)
                     (*slot)->profile = {mscharged::platform::DefaultGamepadBindings(
                                             mscharged::platform::GamepadFamilyOf(SDL_GetGamepadType(input))),
-                                        false, true};
+                                        mscharged::GamepadSticks::Split, true};
                 if (state.settings.gamepad_players) AttachGamepadPlayer(state, **slot, index);
             }
             catch (...) {

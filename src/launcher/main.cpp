@@ -8851,7 +8851,6 @@ private:
         const auto family = platform::GamepadFamilyOf(type);
         const auto bindings = builtin ? platform::DefaultGamepadBindings(family)
                                       : platform::ParseGamepadBindings(profile.inputs);
-        const bool swap = profile.swap_sticks;
         const auto& fonts = CurrentFonts();
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(16, 14));
         if (ImGui::BeginTooltip())
@@ -8886,10 +8885,10 @@ private:
                     row(PadBindingLabel(bindings[n], type), kGamepadActions[n].label);
             });
             table("NUNCHUK & MOTION", "##pad_sticks", [&] {
-                row(swap ? "Right stick" : "Left stick", "Nunchuk stick");
+                row(NunchukStickName(profile), "Nunchuk stick");
                 for (std::size_t n = GamepadActionC; n < GamepadActionRecenterPointer; ++n)
                     row(PadBindingLabel(bindings[n], type), kGamepadActions[n].label);
-                row(profile.gyro_pointer ? "Gyro" : swap ? "Left stick" : "Right stick", "Pointer");
+                row(PointerName(profile), "Pointer");
                 if (profile.gyro_pointer)
                     row(PadBindingLabel(bindings[GamepadActionRecenterPointer], type),
                         kGamepadActions[GamepadActionRecenterPointer].label);
@@ -8980,6 +8979,18 @@ private:
         case SDL_GAMEPAD_BUTTON_TOUCHPAD: return "Touchpad";
         default: return "Button " + std::to_string(int(button));
         }
+    }
+
+    // The stick of the Nunchuk stick and what moves the pointer.
+    static const char* NunchukStickName(const Settings::PadProfile& profile)
+    {
+        return profile.sticks == GamepadSticks::Swapped ? "Right stick" : "Left stick";
+    }
+    static const char* PointerName(const Settings::PadProfile& profile)
+    {
+        return profile.gyro_pointer                    ? "Gyro"
+            : profile.sticks == GamepadSticks::Split ? "Right stick"
+                                                     : "Left stick";
     }
 
     static std::string PadBindingLabel(const platform::GamepadBinding& binding, SDL_GamepadType type)
@@ -10436,27 +10447,29 @@ private:
                   "The Nunchuk stick and pointer on the controller's sticks or gyro, the Nunchuk buttons and "
                   "the shakes.",
                   Icon::Gamepad);
-        const bool swap = profile.swap_sticks;
+        const auto sticks = profile.sticks;
         const bool gyro = profile.gyro_pointer;
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
         if (ImGui::BeginTable("##pad_sticks", 2))
         {
             ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
             ImGui::TableSetupColumn("inputs", ImGuiTableColumnFlags_WidthStretch);
-            KeyRow("Nunchuk stick", {swap ? "Right stick" : "Left stick"}, nullptr, "Move, aim");
-            KeyRow("Pointer", {gyro ? "Gyro" : swap ? "Left stick" : "Right stick"}, nullptr,
-                   "Point at menu items and Mega Strike shots");
+            KeyRow("Nunchuk stick", {NunchukStickName(profile)}, nullptr, "Move, aim");
+            KeyRow("Pointer", {PointerName(profile)}, nullptr, "Point at menu items and Mega Strike shots");
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
         if (BeginRows("##pad_swap_rows"))
         {
-            Row("Swap sticks", "Nunchuk stick on the right stick, pointer on the left.");
-            bool swapped = swap;
-            if (Toggle("##swap_sticks", &swapped))
+            Row("Sticks", "Which stick moves the Nunchuk stick and which the pointer. Shared: the left stick does "
+                "both, as the Classic Controller mod on the Wii, and the right stick is free for the D-pad.");
+            int stick_choice = int(sticks);
+            if (Segmented("##sticks", &stick_choice, {"Nunchuk left", "Nunchuk right", "Shared"},
+                          ImGui::GetContentRegionAvail().x)
+                && stick_choice != int(sticks))
                 if (auto* target = editable())
                 {
-                    target->swap_sticks = swapped;
+                    target->sticks = GamepadSticks(stick_choice);
                     dirty_ = true;
                 }
             // Gyro pointer (issue #14).
@@ -10483,8 +10496,14 @@ private:
                         target->gyro_speed = speed;
                         dirty_ = true;
                     }
-                // The stick the gyro frees can press the D-pad.
-                const int free_stick = swap ? platform::LeftStickUp : platform::RightStickUp;
+                EndSubRows();
+            }
+            // A stick that neither moves the Nunchuk stick nor points (the
+            // right one with shared sticks, the one the gyro frees) can press
+            // the D-pad.
+            if (gyro || sticks == GamepadSticks::Shared)
+            {
+                const int free_stick = sticks == GamepadSticks::Swapped ? platform::LeftStickUp : platform::RightStickUp;
                 bool stick_dpad = true;
                 for (int n = 0; n < 4; ++n)
                 {
@@ -10492,7 +10511,8 @@ private:
                     const auto input = platform::kGamepadStickBase + free_stick + n;
                     stick_dpad = stick_dpad && platform::GamepadBindingHas(binding, input);
                 }
-                const std::string stick_dpad_label = std::string(swap ? "Left" : "Right") + " stick as D-pad";
+                const std::string stick_dpad_label = std::string(free_stick == platform::LeftStickUp ? "Left" : "Right")
+                    + " stick as D-pad";
                 Row(stick_dpad_label.c_str(), "Push it to press the D-pad: in a match, a deke with the ball and a "
                     "slide tackle without it.");
                 if (Toggle("##stick_dpad", &stick_dpad))
@@ -10501,7 +10521,6 @@ private:
                         SetStickDpad(*target, free_stick, stick_dpad);
                         dirty_ = true;
                     }
-                EndSubRows();
             }
             EndRows();
         }
@@ -10520,14 +10539,15 @@ private:
                         return true;
             return false;
         };
-        const int nunchuk_stick = swap ? platform::RightStickUp : platform::LeftStickUp;
-        const int pointer_stick = swap ? platform::LeftStickUp : platform::RightStickUp;
+        const int nunchuk_stick = sticks == GamepadSticks::Swapped ? platform::RightStickUp : platform::LeftStickUp;
+        const int pointer_stick = sticks == GamepadSticks::Split ? platform::RightStickUp : platform::LeftStickUp;
+        const auto side = [](int stick) { return stick == platform::LeftStickUp ? "The left" : "The right"; };
         std::string stick_note;
         if (stick_bound(nunchuk_stick))
-            stick_note = std::string(swap ? "The right" : "The left")
+            stick_note = std::string(side(nunchuk_stick))
                 + " stick moves the Nunchuk stick and presses buttons too: pushing it does both.";
         else if (!gyro && stick_bound(pointer_stick))
-            stick_note = std::string(swap ? "The left" : "The right")
+            stick_note = std::string(side(pointer_stick))
                 + " stick moves the pointer and presses buttons too: pushing it does both. "
                   "With the gyro pointer on, it only presses the buttons.";
         if (!stick_note.empty()) TextWrappedColored(CurrentFonts().caption, color::warning, stick_note.c_str());
@@ -10576,9 +10596,9 @@ private:
         DeadzonePreview(profile);
         // Defaults of the controller shown above.
         const auto defaults = platform::DefaultGamepadInputs(PageFamily());
-        const Settings::PadProfile default_profile;
+        const auto& default_profile = Settings::DefaultPadProfile();
         const bool changed = platform::ParseGamepadBindings(profile.inputs) != platform::ParseGamepadBindings(defaults)
-            || swap || profile.inner_deadzone != default_profile.inner_deadzone
+            || sticks != default_profile.sticks || profile.inner_deadzone != default_profile.inner_deadzone
             || profile.outer_deadzone != default_profile.outer_deadzone
             || profile.trigger_press != default_profile.trigger_press
             || profile.octagon_stick != default_profile.octagon_stick || profile.gyro_pointer != default_profile.gyro_pointer || profile.gyro_speed != default_profile.gyro_speed;
@@ -10586,7 +10606,7 @@ private:
         if (SecondaryButton("##reset_pad", "Reset to defaults", Dp(180, 36), changed, Icon::Refresh))
         {
             profile.inputs = defaults;
-            profile.swap_sticks = false;
+            profile.sticks = default_profile.sticks;
             profile.inner_deadzone = default_profile.inner_deadzone;
             profile.outer_deadzone = default_profile.outer_deadzone;
             profile.trigger_press = default_profile.trigger_press;
@@ -10643,7 +10663,7 @@ private:
         if (!SDL_GamepadHasSensor(pad, SDL_SENSOR_GYRO))
         {
             TextWrappedColored(fonts.caption, color::warning,
-                               (name + " has no gyro: its " + (profile.swap_sticks ? "left" : "right")
+                               (name + " has no gyro: its " + (profile.sticks == GamepadSticks::Split ? "right" : "left")
                                 + " stick moves the pointer instead.")
                                    .c_str());
             return;
@@ -10746,7 +10766,7 @@ private:
             const ImVec2 size = TextSize(font, text.c_str());
             DrawLabel(draw, font, {centre_x - size.x * 0.5f, y}, Col(tint), text.c_str());
         };
-        const auto stick = [&](float left, bool left_stick, bool nunchuk) {
+        const auto stick = [&](float left, bool left_stick, bool nunchuk, bool pointer) {
             const ImVec2 c{left + radius, origin.y + radius};
             const auto x_axis = left_stick ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX;
             const auto y_axis = left_stick ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY;
@@ -10799,7 +10819,8 @@ private:
                         || (platform::IsGamepadStickDirection(input)
                             && (input - platform::kGamepadStickBase >= platform::RightStickUp) != left_stick);
             const std::string name = std::string(left_stick ? "Left stick" : "Right stick") + ": "
-                + (nunchuk ? "Nunchuk" : !profile.gyro_pointer ? "pointer" : buttons ? "buttons" : "not used");
+                + (nunchuk && pointer ? "Nunchuk, pointer" : nunchuk ? "Nunchuk" : pointer ? "pointer"
+                       : buttons ? "buttons" : "not used");
             centred(c.x, origin.y + radius * 2 + Dp(6), fonts.caption, color::muted, name);
             centred(c.x, origin.y + radius * 2 + Dp(22), fonts.caption, pushed > 0 ? color::text : color::dim,
                     std::to_string(int(std::lround(pushed * 100))) + "% pushed");
@@ -10821,9 +10842,10 @@ private:
                     pressed ? color::accent : color::dim, pressed ? "on" : "off");
         };
         float left = origin.x + Dp(4);
-        stick(left, true, !profile.swap_sticks);
+        const bool stick_pointer = !profile.gyro_pointer;
+        stick(left, true, profile.sticks != GamepadSticks::Swapped, stick_pointer && profile.sticks != GamepadSticks::Split);
         left += radius * 2 + gap;
-        stick(left, false, profile.swap_sticks);
+        stick(left, false, profile.sticks == GamepadSticks::Swapped, stick_pointer && profile.sticks == GamepadSticks::Split);
         left += radius * 2 + gap;
         trigger(left, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
         left += bar_w + gap;

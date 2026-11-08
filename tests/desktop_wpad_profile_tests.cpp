@@ -501,7 +501,7 @@ void CustomGamepadCycle() {
     DesktopWpadSettings settings{};
     settings.gamepads = settings.gamepad_players = true;
     settings.gamepad_channels = {1, -1, -1, -1};
-    settings.gamepad_profiles[0] = {bindings, true, false, 20, 80, 30};
+    settings.gamepad_profiles[0] = {bindings, mscharged::GamepadSticks::Swapped, false, 20, 80, 30};
     GenericPad pad;
     InitializeDesktopWpad(window, settings);
     WPADInit();
@@ -1156,6 +1156,53 @@ void GyroPadCycle(bool has_gyro) {
     ShutdownDesktopWpad();
     WPADShutdown();
 }
+// Shared sticks: the left stick moves the Nunchuk stick and the pointer, the
+// right stick neither.
+void SharedSticksCycle() {
+    using namespace mscharged::platform;
+    ConfigureWpadSDL({0,3,false,false});
+    DesktopWpadSettings settings{};
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {1, -1, -1, -1};
+    settings.pointer_projection = WholeWindow;
+    settings.gamepad_profiles[0] = GamepadProfile{DefaultGamepadBindings()};
+    settings.gamepad_profiles[0].sticks = mscharged::GamepadSticks::Shared;
+    GenericPad pad;
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    for (int n = 0; n != 4; ++n) WPADSetConnectCallback(n, Connect);
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(1, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "Shared-sticks gamepad did not connect as player 2");
+    Check(WPADSetDataFormat(1, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+    const auto report = [] {
+        WPADFSStatus status{};
+        WPADRead(1, reinterpret_cast<WPADStatus*>(&status));
+        return status;
+    };
+    Check(WPADControlDpd(1, WPAD_DPD_STANDARD, nullptr) == WPAD_ERR_OK, "Pointer camera request was rejected");
+    Until([] { return bool(WPADIsDpdEnabled(1)); }, "Pointer camera did not turn on");
+    const auto centre = MakeDesktopDpdObservation(0.5f, 0.5f, 0, true)[0];
+    const auto right = MakeDesktopDpdObservation(0.6f, 0.5f, 0, true)[0];
+    const int toward = right.x > centre.x ? 1 : -1;
+    Until([&] { auto o = report().obj[0]; return o.x == centre.x && o.y == centre.y; },
+          "The pointer did not start in the middle");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 32767);
+    Until([&] { auto r = report(); return r.fsStickX == 71 && (r.obj[0].x - centre.x) * toward >= (right.x - centre.x) * toward; },
+          "Shared sticks: the left stick did not move both the Nunchuk stick and the pointer");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_LEFTX, 0);
+    Until([&] { return report().fsStickX == 0; }, "Shared sticks: the Nunchuk stick did not come back");
+    const auto rested = report().obj[0];
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, -32767);
+    for (int n = 0; n < 20; ++n) { Service(); SDL_Delay(2); }
+    const auto status = report();
+    Check(status.fsStickX == 0 && status.obj[0].x == rested.x && status.obj[0].y == rested.y,
+          "Shared sticks: the right stick still moved the Nunchuk stick or the pointer");
+    SDL_SetJoystickVirtualAxis(pad.joystick, SDL_GAMEPAD_AXIS_RIGHTX, 0);
+    ShutdownDesktopWpad();
+    WPADShutdown();
+}
 // A key event with modifiers; false when an event filter took it out.
 bool Key(Uint32 type, SDL_Scancode key, SDL_Keymod mod, bool repeat = false, SDL_WindowID target = 0) {
     SDL_Event e{}; e.type = type;
@@ -1392,13 +1439,14 @@ int main() {
         GyroPointerChecks();
         GyroPadCycle(true);
         GyroPadCycle(false);
+        SharedSticksCycle();
         FullscreenShortcutCycle();
 #if defined(MSCHARGED_AUTOPILOT)
         AutopilotChordCycle();
 #endif
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys, the host panel's hold, stick directions as buttons, the gyro pointer, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys, the host panel's hold, stick directions as buttons, the gyro pointer, shared sticks, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         mscharged::platform::ShutdownHotkeys();

@@ -10,8 +10,8 @@ namespace mscharged
 // one to three inputs, written as SDL gamepad names separated by " | ":
 // buttons (a, b, x, y = south, east, west, north; start, back, guide,
 // leftshoulder, leftstick, dpup, ...) or the triggers lefttrigger/righttrigger.
-// The Nunchuk stick and the pointer are the two analog sticks; with
-// gyro_pointer the controller's gyro points instead (issue #14).
+// The Nunchuk stick and the pointer are the analog sticks (see GamepadSticks);
+// with gyro_pointer the controller's gyro points instead (issue #14).
 struct GamepadAction
 {
     const char* key;      // INI key
@@ -49,6 +49,14 @@ inline constexpr std::array<GamepadAction, GamepadActionCount> kGamepadActions{{
     {"shake_nunchuk", "Shake Nunchuk", "Switch items", "rightshoulder"},
     {"recenter_pointer", "Recenter pointer", "Back to the middle", "rightstick"},
 }};
+
+// Which sticks move the Nunchuk stick and the pointer (sticks = in a gamepad
+// profile): split (the left stick moves the Nunchuk stick, the right one
+// points), swapped, or shared: the left stick does both, as the Classic
+// Controller mod for the Wii game does, and the right stick is free, for the
+// D-pad. The gyro pointer, when on, leaves the stick to the Nunchuk.
+enum class GamepadSticks { Split, Swapped, Shared };
+inline constexpr std::array<const char*, 3> kGamepadSticksNames{"split", "swapped", "shared"};
 
 // Stick dead zones and trigger press point of a gamepad profile, in percent
 // of travel (issue #62). Inside the inner dead zone the stick rests; from the

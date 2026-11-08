@@ -279,11 +279,18 @@ the Nunchuk's octagonal gate, and the game applies its own dead zone of 15
 counts on each axis, so a nearly straight push reads straight. The two dead
 zones then shape the pointer stick only.
 
+**Sticks** (`sticks`): which stick moves the Nunchuk stick and which the
+pointer. `split` (Nunchuk left): the left stick moves the Nunchuk stick and the
+right one points; `swapped` (Nunchuk right) the other way round; `shared`: the
+left stick does both, as the Classic Controller mod for the Wii game does, and
+the right stick is free. Settings files from before it say `swap_sticks = true`
+for swapped, and their profiles stay split otherwise.
+
 **Sticks as buttons**: pushing a stick one way past half its travel can press
 any action, like a button (`rightstick_up`, `leftstick_left` and so on in the
-INI). To bind one, select the action and push the stick. With the gyro
-pointer on, **Right stick as D-pad** puts the free stick on the D-pad: in a
-match the D-pad dekes with the ball and slide-tackles without it. A stick that
+INI). To bind one, select the action and push the stick. With shared sticks
+or the gyro pointer on, **Right stick as D-pad** puts the free stick on the
+D-pad: in a match the D-pad dekes with the ball and slide-tackles without it. A stick that
 also moves the Nunchuk stick or the pointer does both at once; the profile page
 says so.
 

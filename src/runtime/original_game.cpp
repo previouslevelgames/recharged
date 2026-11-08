@@ -772,7 +772,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         for (std::size_t pad = 0; pad < desktop.gamepad_profiles.size(); ++pad) {
             const auto& profile = launch.settings.PadProfileOf(pad);
             desktop.gamepad_profiles[pad] = {mscharged::platform::ParseGamepadBindings(profile.inputs),
-                                             profile.swap_sticks, launch.settings.PadProfileIndex(pad) < 0,
+                                             profile.sticks, launch.settings.PadProfileIndex(pad) < 0,
                                              profile.inner_deadzone, profile.outer_deadzone, profile.trigger_press,
                                              profile.octagon_stick, profile.gyro_pointer, profile.gyro_speed};
         }
@@ -808,7 +808,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     + std::to_string(profile.outer_deadzone) + "%, trigger press point "
                     + std::to_string(profile.trigger_press) + "%, pointer "
                     + (profile.gyro_pointer ? "gyro (speed " + std::to_string(profile.gyro_speed) + "%)"
-                                            : std::string(profile.swap_sticks ? "left stick" : "right stick")));
+                                            : profile.sticks == mscharged::GamepadSticks::Split ? std::string("right stick")
+                                            : profile.sticks == mscharged::GamepadSticks::Swapped
+                                                ? std::string("left stick")
+                                                : std::string("left stick, with the Nunchuk stick")));
             }
         }
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)

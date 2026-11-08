@@ -125,7 +125,9 @@ Values Encode(const Settings& s)
         values.emplace(section + "name", profile.name);
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
             values.emplace(section + kGamepadActions[action].key, profile.inputs[action]);
-        values.emplace(section + "swap_sticks", profile.swap_sticks ? "true" : "false");
+        values.emplace(section + "sticks", kGamepadSticksNames[std::size_t(profile.sticks)]);
+        // For older versions, which know only swap_sticks.
+        values.emplace(section + "swap_sticks", profile.sticks == GamepadSticks::Swapped ? "true" : "false");
         values.emplace(section + "inner_deadzone", std::to_string(profile.inner_deadzone));
         values.emplace(section + "outer_deadzone", std::to_string(profile.outer_deadzone));
         values.emplace(section + "trigger_press", std::to_string(profile.trigger_press));
@@ -323,7 +325,16 @@ Settings Decode(const Values& values)
         profile.name = name->second;
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
             names(section + kGamepadActions[action].key, profile.inputs[action], "gamepad inputs", 3);
-        boolean((section + "swap_sticks").c_str(), profile.swap_sticks);
+        bool swap_sticks = false;
+        boolean((section + "swap_sticks").c_str(), swap_sticks);
+        profile.sticks = swap_sticks ? GamepadSticks::Swapped : GamepadSticks::Split;
+        if (const auto sticks = values.find(section + "sticks"); sticks != values.end())
+        {
+            const auto name = std::find(kGamepadSticksNames.begin(), kGamepadSticksNames.end(), sticks->second);
+            if (name == kGamepadSticksNames.end())
+                throw std::runtime_error("Invalid configuration: " + section + "sticks must be split, swapped or shared");
+            profile.sticks = GamepadSticks(name - kGamepadSticksNames.begin());
+        }
         number((section + "inner_deadzone").c_str(), profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone);
         number((section + "outer_deadzone").c_str(), profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone);
         number((section + "trigger_press").c_str(), profile.trigger_press, kMinTriggerPress, kMaxTriggerPress);
@@ -625,7 +636,7 @@ const Settings::PadProfile& Settings::PadProfileOf(std::size_t slot) const
 
 const Settings::PadProfile& Settings::DefaultPadProfile()
 {
-    static const PadProfile profile{kDefaultGamepadProfile, DefaultPadInputs(), false};
+    static const PadProfile profile{kDefaultGamepadProfile, DefaultPadInputs(), GamepadSticks::Split};
     return profile;
 }
 

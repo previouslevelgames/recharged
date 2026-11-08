@@ -163,7 +163,9 @@ int main()
             Require(loaded.pad_profiles.size() == 2 && loaded.pad_profiles[0].name == "Kyle"
                         && loaded.pad_profiles[0].inputs[mscharged::GamepadActionA] == "b | start"
                         && loaded.pad_profiles[0].inputs[mscharged::GamepadActionB] == "b"
-                        && loaded.pad_profiles[0].swap_sticks && loaded.pad_profiles[0].controller == "xbox"
+                        && loaded.pad_profiles[0].sticks == mscharged::GamepadSticks::Swapped
+                        && loaded.pad_profiles[1].sticks == mscharged::GamepadSticks::Split
+                        && loaded.pad_profiles[0].controller == "xbox"
                         && loaded.pad_profiles[1].controller == "gamecube",
                     "Gamepad profiles load, with their controller kind");
             Require(loaded.pad_profiles[0].inner_deadzone == 22 && loaded.pad_profiles[0].outer_deadzone == 90
@@ -193,11 +195,12 @@ int main()
             changed.pad_profiles[0].octagon_stick = true;
             changed.pad_profiles[0].gyro_pointer = true;
             changed.pad_profiles[0].gyro_speed = 25;
+            changed.pad_profiles[0].sticks = mscharged::GamepadSticks::Shared;
             SaveConfig(file, changed);
             const auto saved = LoadConfig(path);
             Require(saved.settings.pad_profiles.size() == 1 && saved.settings.pad_profiles[0].name == "Spare"
                         && saved.settings.pad_profiles[0].inputs[mscharged::GamepadActionB] == "x"
-                        && !saved.settings.pad_profiles[0].swap_sticks
+                        && saved.settings.pad_profiles[0].sticks == mscharged::GamepadSticks::Shared
                         && saved.settings.pad_profiles[0].controller == "gamecube"
                         && saved.settings.pad_profiles[0].inner_deadzone == 0
                         && saved.settings.pad_profiles[0].outer_deadzone == 100
@@ -237,6 +240,12 @@ int main()
         Require(LoadConfig(path).settings.pad_profiles[0].inputs[mscharged::GamepadActionA] == "a | b | x",
                 "A gamepad action takes three inputs");
         std::ofstream(path) << "[gamepad_profile1]\nname = Pad\na = a | b | x | y\n";
+        Reject([&] { LoadConfig(path); });
+        // sticks wins over the older swap_sticks; an unknown value is refused.
+        std::ofstream(path) << "[gamepad_profile1]\nname = Pad\nswap_sticks = true\nsticks = shared\n";
+        Require(LoadConfig(path).settings.pad_profiles[0].sticks == mscharged::GamepadSticks::Shared,
+                "sticks = shared did not load");
+        std::ofstream(path) << "[gamepad_profile1]\nname = Pad\nsticks = both\n";
         Reject([&] { LoadConfig(path); });
         for (const char* range : {"inner_deadzone = 31", "inner_deadzone = -1", "outer_deadzone = 69",
                                   "outer_deadzone = 101", "trigger_press = 9", "trigger_press = 91",

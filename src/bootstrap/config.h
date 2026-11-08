@@ -123,15 +123,15 @@ struct Settings
     }
     bool show_hud = true;
     // Gamepad profiles ([gamepad_profile1], [gamepad_profile2], ...): a name
-    // and the inputs of each action ("a | start"); swap_sticks puts the
-    // Nunchuk stick on the right stick and the pointer on the left. The
-    // built-in "Default" profile is not among them.
+    // and the inputs of each action ("a | start"); sticks = split, swapped or
+    // shared (GamepadSticks), and from before it swap_sticks = true for
+    // swapped. The built-in "Default" profile is not among them.
     using PadInputs = std::array<std::string, GamepadActionCount>;
     struct PadProfile
     {
         std::string name = "Default";
         PadInputs inputs = DefaultPadInputs();
-        bool swap_sticks = false;
+        GamepadSticks sticks = GamepadSticks::Split;
         // The controllers it is made for: xbox (Xbox and PlayStation, whose
         // buttons sit in the same places), nintendo or gamecube.
         std::string controller = "xbox";
@@ -151,7 +151,7 @@ struct Settings
         // Spelled out: charged_host is C++17.
         bool operator==(const PadProfile& other) const
         {
-            return name == other.name && inputs == other.inputs && swap_sticks == other.swap_sticks
+            return name == other.name && inputs == other.inputs && sticks == other.sticks
                 && controller == other.controller && inner_deadzone == other.inner_deadzone
                 && outer_deadzone == other.outer_deadzone && trigger_press == other.trigger_press
                 && octagon_stick == other.octagon_stick && gyro_pointer == other.gyro_pointer && gyro_speed == other.gyro_speed;
