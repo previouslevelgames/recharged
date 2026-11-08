@@ -1,10 +1,11 @@
-# Reporting problems
+# Contributing
 
-Thanks for playing and for taking the time to report what went wrong. Most
-problems have a quick answer in [troubleshooting](docs/TROUBLESHOOTING.md);
-please check it first.
+Thanks for playing and for helping Recharged get better. Most problems have a
+quick answer in [troubleshooting](docs/TROUBLESHOOTING.md); please check it
+first. Problems of the online server itself belong in
+[its repository](https://github.com/previouslevelgames/recharged-wfc-srv/issues).
 
-## Bug reports
+## Reporting a problem
 
 Open an [issue](https://github.com/previouslevelgames/recharged/issues/new/choose)
 with:
@@ -24,22 +25,48 @@ with:
 
 A screenshot (key **P**, saved in `screenshots/`) helps for anything visual.
 
-## Short stutters
+**Short stutters** the first time an effect appears are usually a graphics
+pipeline missing from the package's list. The log names it in a line starting
+with `Graphics: new pipeline compiled while drawing`; such logs let us add it to
+the next release.
 
-A stutter the first time an effect appears is usually a graphics pipeline
-that was missing from the package's list. The log names it in a line starting
-with `Graphics: new pipeline compiled while drawing`. Attaching such logs lets
-us add those pipelines to the next release, so the stutter disappears for
-everyone.
+**Behavior that differs from the Wii**: Recharged runs the original game code,
+including its original bugs, unless a listed
+[tweak or fix](docs/FEATURES.md#optional-tweaks) changes it. Describe what the
+Wii does, ideally with a video or a way to reproduce it, and say whether any
+tweaks were on.
 
-## Behavior that differs from the Wii
+Never attach disc images, extracted game files or other people's saves. The
+log, screenshots and your own description are all we need.
 
-Recharged runs the original game code, including its original bugs, unless a
-listed [tweak or fix](docs/FEATURES.md#optional-tweaks) changes it. If
-something plays differently from the Wii, describe what the Wii does, ideally
-with a video or a way to reproduce it, and say whether any tweaks were on.
+## Ideas
 
-## Game files
+Ideas are welcome as issues: say what they would change for players. Before
+you start on a larger change, open an issue first so we can agree on the
+design. Help with interface design and artwork is especially welcome.
 
-Never attach disc images, extracted game files or saves of other people to an
-issue. Only the log, screenshots and your own descriptions are needed.
+## Pull requests
+
+We review every pull request with care and expect the same care in return.
+
+- Open it against `main`; `stable` only takes release pull requests.
+- One change per pull request, with what it does, why, and how you tested it.
+- It builds, and `ctest --preset debug` passes ([building](docs/BUILDING.md)).
+- Changes to the game's code are patches, never edits of the decompilation;
+  every intended change to how the game plays belongs in
+  `mscharged-decomp-tweaks/` ([patch rules](patches/README.md)).
+- A change players can notice has been tried in the game, not only in tests.
+- Commits follow the repository's style, with the issue number, e.g.
+  `fix(input): ... (#46)`.
+
+### AI tools
+
+Using AI tools is fine; we use them too (see the
+[disclaimer](README.md#disclaimer-ai-assistance)). What counts is that you own
+the result: you have read and understood every line, you can explain it, and
+you have tested it.
+
+We reject pull requests built on carefree vibe coding: code that was obviously
+not read or checked, changes nobody tested, unrelated edits, invented game
+behavior, or descriptions that do not match the code. We close them without a
+detailed review. If the idea behind one is good, we may implement it ourselves.

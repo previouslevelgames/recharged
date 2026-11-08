@@ -15,126 +15,113 @@ graphics, sound, controllers, disc access and saves.
 </p>
 
 > [!IMPORTANT]
-> **The downloads contain no game files.** You need your own copy of
-> **Mario Strikers Charged** as an `.iso`, `.rvz` or `.wbfs` disc image: the
-> USA version (game ID `R4QE01`, revision 1), the European version, *Mario
-> Strikers Charged Football* (`R4QP01`, revision 1 or 2), the Japanese
-> version (`R4QJ01`) or the Korean version, *Mario Power Soccer* (`R4QK01`).
+> **The downloads contain no game files.** You need your own, legally obtained
+> copy of the game as an `.iso`, `.rvz` or `.wbfs` disc image: USA (`R4QE01`,
+> revision 1), Europe (`R4QP01`, revision 1 or 2), Japan (`R4QJ01`) or Korea
+> (`R4QK01`). This project cannot help you obtain one.
 
 ## Download
 
 Get the package for your system from the
 [**latest release**](https://github.com/previouslevelgames/recharged/releases/latest):
 
-<table>
-<tr>
-<td align="center" width="25%">
-<a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="Windows" src="https://img.shields.io/badge/Windows-10%20%2F%2011%20%C2%B7%20x64-0078D4?logo=windows&logoColor=white"></a><br>
-<code>windows-x86_64.zip</code>
-</td>
-<td align="center" width="25%">
-<a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64%20%C2%B7%20Vulkan-FCC624?logo=linux&logoColor=black"></a><br>
-<code>linux-x86_64.tar.gz</code>
-</td>
-<td align="center" width="25%">
-<a href="docs/STEAM_DECK.md"><img alt="Steam Deck" src="https://img.shields.io/badge/Steam%20Deck-SteamOS%203.7%2B-1A9FFF?logo=steam&logoColor=white"></a><br>
-<code>steamdeck-x86_64.tar.gz</code><br>
-<a href="docs/STEAM_DECK.md">Steam Deck guide</a>
-</td>
-<td align="center" width="25%">
-<a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon%20%26%20Intel%20%C2%B7%2015%2B-0A84FF?logo=apple&logoColor=white"></a><br>
-<code>macos-universal.dmg</code>
-</td>
-</tr>
-</table>
+| System | Package |
+| --- | --- |
+| Windows 10 / 11, x64 | `windows-x86_64.zip` |
+| Linux x86_64, Vulkan | `linux-x86_64.tar.gz` |
+| Steam Deck, SteamOS 3.7+ | `steamdeck-x86_64.tar.gz`, see the [Steam Deck guide](docs/STEAM_DECK.md) |
+| macOS 15+, Apple Silicon and Intel | `macos-universal.dmg` |
 
-1. Unpack the package into a folder of its own. On a Mac, open the disk image,
-   drag the **Recharged** folder to **Applications** and eject the image.
+1. Unpack the package into a folder of its own. On a Mac, open the disk image
+   and drag the **Recharged** folder to **Applications**.
 2. Start `recharged` (`recharged.exe` on Windows). On a Mac, start it the first
-   time in Finder from *Applications → Recharged → Recharged.app*, not from
-   the disk image; later Spotlight or the Dock start it too.
-3. In the launcher, add the folder with your game image (or choose the image)
-   and press **Play**.
+   time from *Applications → Recharged → Recharged.app* in Finder.
+3. In the launcher, add the folder with your game image and press **Play**.
 
-The Mac app runs natively on Apple Silicon and Intel and is signed and
-notarized by Apple: no detour through Privacy & Security. The
-**[install guide](docs/INSTALL.md)** covers the first-start prompts of
-Windows and macOS. Steam Deck owners should follow the
-**[Steam Deck guide](docs/STEAM_DECK.md)**, which also adds the game to the
-Steam library. Once installed, the launcher tells you about new versions and
-updates Recharged in place when you agree.
+The [install guide](docs/INSTALL.md) covers the first start on Windows and
+macOS. Once installed, the launcher updates Recharged in place when you agree.
 
 ## Highlights
 
-- **The whole game.** Domination, the Road to the Striker Cup, Strikers 101,
-  the Hall of Fame, cheats, movies, music and sound, with saves like on the Wii.
-- **Every release**: the USA, European, Japanese and Korean versions, each in
-  its own languages and with its own saves.
-- **Up to four players** in any mix of keyboard & mouse, gamepads (Xbox,
-  PlayStation, Switch Pro, GameCube adapter and more) and **real Wii Remotes**
-  with Nunchuk, over Bluetooth or a Mayflash DolphinBar.
-- **Sharp picture.** 3D at your window's resolution, 4x antialiasing, 4:3 or
-  16:9, any window size or fullscreen.
-- **Frame rates.** 30, 60, 120, 144, your display's refresh rate or unlimited,
-  while the game keeps its original speed.
-- **Optional tweaks**: skip the intro, fast menus, no Mega Strikes, unlock
-  everything, CPU vs CPU, fast terrain, Thunder Island walls, mirror matches
-  and blue Peach, all off by default. **Fair ball contests**, on by
-  default, keeps the home team from winning loose balls more often. Three bugs
-  of the original game are fixed.
-- **A launcher** that checks your disc, keeps every setting in one place and
-  updates itself in place.
+- **The whole game**, every release in its own languages, with saves like on
+  the Wii.
+- **Online play** through our own
+  [server](https://github.com/previouslevelgames/recharged-wfc-srv): friend
+  codes, ranked matches and rollback netcode.
+- **Up to four players** with keyboard & mouse, gamepads or real Wii Remotes.
+- **Sharp and smooth**: your window's resolution, 4x antialiasing, 4:3 or 16:9,
+  and high frame rates while the game keeps its original speed.
+- **Optional tweaks** such as skipping the intro or unlocking everything, three
+  fixed bugs of the original game, and Dolphin texture packs.
 
-See the **[feature list](docs/FEATURES.md)** and the
+See the [feature list](docs/FEATURES.md) and the
 [default controls](docs/FEATURES.md#default-bindings).
-
-## Your game disc
-
-Recharged needs your own, legally obtained copy of the game as an `.iso`,
-`.rvz` or `.wbfs` disc image, which it reads directly from where you keep it. No game
-files are included, and this project cannot help you obtain them. The launcher
-lists the images in your game folder, checks each one and tells you which
-versions it runs; renaming a file does not change its version.
 
 ## Roadmap
 
-- **1.0.x: stable and fast.** The whole game on PC, and a launcher that keeps
-  everything in one place, made steadier and quicker with every update.
-- **1.1.x: online again** (coming soon). The game's own online play, with
-  friend codes, invitations and rankings, through our own server and with
-  rollback netcode.
-- **1.2.x: competitive play** (in development). Challenge a friend or play a
-  [start.gg](https://www.start.gg) tournament: you both press Ready and the
-  game starts straight into the captain draft, with the same rules for both
-  and results that report themselves. You sign in with Discord.
-  [More about the plan](docs/COMPETITIVE.md).
-
+**1.2: competitive play** (in development). Challenge a friend or play a
+[start.gg](https://www.start.gg) tournament, with the same rules for both and
+results that report themselves. [More about the plan](docs/COMPETITIVE.md).
 Plans can still change if we find better options.
 
 ## Questions
 
 **Is this an emulator?** No. The game's original C/C++ code, reconstructed by
-the [mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp)
-project, is compiled for your PC. Wii hardware is not emulated; Recharged
-implements the Wii's system services natively. See
-[how it works](docs/ARCHITECTURE.md).
+[mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp), is
+compiled for your PC; Recharged implements the Wii's system services natively.
+See [how it works](docs/ARCHITECTURE.md).
 
 **Does Recharged change the game?** No. Rules, physics, timing and presentation
-come from the original code. Changes only happen with the optional tweaks you
-turn on, plus the three listed bug fixes.
+come from the original code, except for the optional tweaks you turn on and the
+three listed bug fixes.
 
-**Can I play online?** Not in 1.0. Nintendo Wi-Fi Connection has shut down,
-so Recharged behaves like a Wii without internet; local multiplayer works.
-Version 1.1 brings the game's online play back through our own server; see the
-[roadmap](#roadmap).
+**Something does not work.** See [troubleshooting](docs/TROUBLESHOOTING.md),
+and [CONTRIBUTING](CONTRIBUTING.md) for how to report it.
 
-**Can I mod the game?** The launcher already offers
-[optional gameplay tweaks](docs/FEATURES.md#optional-tweaks), and we are
-working on a modding framework. Stay tuned.
+## Disclaimer: AI assistance
 
-**Something does not work.** See [troubleshooting](docs/TROUBLESHOOTING.md).
-To report a problem, open an [issue](https://github.com/previouslevelgames/recharged/issues)
-and attach `logs/recharged.log` from the program folder.
+Recharged is built with AI assistance. We want to be clear about how, and where
+we stand.
+
+We see AI as a power tool. Like a chainsaw, it is dangerous in careless hands
+and a huge multiplier in trained ones. This is a passion project, and AI does
+not change that: it lets a small team take on a project of this size and spend
+its care where it matters, on bringing Mario Strikers Charged to PC.
+
+What AI cannot change is the game itself. Its code comes from
+[mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp),
+reconstructed until it compiles to the exact bytes of the retail Wii
+executable. Rules, physics and timing are the original's: verified, not
+invented.
+
+How we use it:
+
+- **Code.** What Recharged adds around the game (graphics, sound,
+  controllers, the launcher and online play) is mostly crafted by hand. AI
+  coding agents assist along the way, for example with refactoring, tests and
+  repetitive changes. They speed up the work; they don't make the decisions.
+  Design and architecture are ours, every change is reviewed, and nothing ships
+  until it builds and passes its tests on every platform and has been tried in
+  the game.
+- **Debugging and analysis.** AI helps us read crash reports and logs faster
+  and analyse huge time series in depth, such as our performance and frame-time
+  recordings.
+- **Documentation.** English is not our first language. Much of the
+  documentation is corrected or rewritten with LLMs, from our notes and the code.
+
+**Assets are temporary.** To prototype interfaces, we recycle existing
+graphics, and we also allow ourselves to create temporary assets with AI-based
+tools. These are placeholders: the prototyping will be followed by a design
+process that does not involve AI. Designers who want to be part of that are
+very welcome:
+[open an issue](https://github.com/previouslevelgames/recharged/issues).
+
+The responsibility stays with us. Every bug in Recharged is ours, not the
+tool's. And there will be bugs.
+
+We know AI is a contested topic. If you would rather not use software built
+this way, we respect that. If you enjoy playing again, or want to contribute,
+you are very welcome.
 
 ## Documentation
 
@@ -144,7 +131,7 @@ and attach `logs/recharged.log` from the program folder.
 | [Steam Deck guide](docs/STEAM_DECK.md) | [Building from source](docs/BUILDING.md) |
 | [Features and controls](docs/FEATURES.md) | [Dependencies](extern/README.md) |
 | [Settings](docs/SETTINGS.md): Wii Remotes, saves, updates, options | [Licenses](LICENSES/README.md) |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | [Contributing](CONTRIBUTING.md): reports, ideas, pull requests |
 
 ## Credits
 
