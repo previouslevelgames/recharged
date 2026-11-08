@@ -16,6 +16,7 @@
 #include "launcher/issue_reporters.h"
 #include "launcher/match_presets.h"
 #include "launcher/player_lineup.h"
+#include "launcher/players_online.h"
 #include "launcher/release_banner.h"
 #include "launcher/release_notes.h"
 #include "launcher/ui_kit.h"
@@ -494,6 +495,7 @@ public:
         page_ = options_.page;
         capture_ = options_.smoke_test || !options_.screenshot.empty();
         StartUpdates();
+        StartPlayersOnline();
 #if !defined(__APPLE__)
         // The PC's graphics cards, for Advanced -> Graphics card and the log.
         graphics_cards_scan_ = std::async(std::launch::async, platform::ListGraphicsCards);
@@ -890,6 +892,29 @@ private:
         catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); return false; }
     }
 
+    // ------------------------------------------------------ players online
+    // How many players are online on the WFC server (online.server), for the
+    // Play page's top bar, asked every minute. Development captures stay
+    // offline; RECHARGED_CAPTURE_ONLINE=<online>[/<in a match>] shows a
+    // made-up count.
+    void StartPlayersOnline()
+    {
+        if (capture_)
+        {
+            const char* preview = std::getenv("RECHARGED_CAPTURE_ONLINE");
+            if (!preview || !*preview) return;
+            char* end = nullptr;
+            PlayersOnline::Count count;
+            count.online = std::max<long long>(0, std::strtoll(preview, &end, 10));
+            if (*end == '/') count.playing = std::clamp<long long>(std::strtoll(end + 1, nullptr, 10), 0, count.online);
+            online_count_ = count;
+            return;
+        }
+        if (!config_ok_ || file_.settings.online_server.empty()) return;
+        players_online_ = std::make_unique<PlayersOnline>(
+            file_.settings.online_server, [](const std::string& line) { platform::SessionLogLine(line); });
+    }
+
     // ------------------------------------------------------------- updates
     void StartUpdates()
     {
@@ -1086,6 +1111,13 @@ private:
         return update_.checked ? "Checked at " + LocalTime(update_.checked).substr(11) + "." : std::string();
     }
 
+    // On Test with no test build published (and this build no test build).
+    bool NoTestBuilds() const
+    {
+        return update_.channel == UpdateChannel::Test && update_.test_builds.empty()
+            && updates_->Build().origin != BuildOrigin::Test;
+    }
+
     PillLook UpdatePillLook() const
     {
         using State = UpdateService::State;
@@ -1118,7 +1150,7 @@ private:
                 return look;
             }
             // Switched to Test while no test build is published: say why nothing changes.
-            if (test && update_.test_builds.empty() && updates_->Build().origin != BuildOrigin::Test)
+            if (NoTestBuilds())
                 look = {Icon::Check, false, "No test builds",
                         "No test build is published right now. Test builds are published while pull requests "
                         "are open."
@@ -1244,6 +1276,84 @@ private:
         return pressed;
     }
 
+    // The update status while it only offers a check (none yet, checking, up
+    // to date, or the check failed): a round button with the refresh arrow,
+    // the status in its tooltip. What a check found, a download and the
+    // reason Test shows nothing stay a pill with their text.
+    bool RoundUpdateButton(const PillLook& look) const
+    {
+        using State = UpdateService::State;
+        const bool check = update_.state == State::Idle || update_.state == State::Checking
+            || update_.state == State::UpToDate || update_.state == State::CheckFailed;
+        return check && !look.filled && !(update_.state == State::UpToDate && NoTestBuilds());
+    }
+
+    bool DrawRefreshButton(const PillLook& look, float size)
+    {
+        const ImVec2 pos = ImGui::GetCursorScreenPos();
+        const bool pressed = ImGui::InvisibleButton("##update_status", {size, size});
+        const bool held = ImGui::IsItemActive();
+        const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 center{pos.x + size * 0.5f, pos.y + size * 0.5f};
+        const float radius = size * 0.5f;
+        // The same glass as the pill.
+        draw->AddCircleFilled(center, radius,
+                              Col(Mix(color::window, color::card_hover, (held ? 0.30f : 0.45f) + 0.55f * hover), 0.9f),
+                              48);
+        draw->AddCircle(center, radius - Dp(0.5f), Col(Mix(color::border, color::text, 0.15f * hover), 0.95f), 48,
+                        Dp(1));
+        const ImU32 ink = Col(Mix(color::muted, color::text, 0.65f + 0.35f * hover));
+        if (look.spinner) Spinner(center, Dp(7), ink);
+        else DrawIcon(draw, Icon::Refresh, center, Dp(17), ink);
+        return pressed;
+    }
+
+    // "12 players are online, 4 of them in a match."
+    static std::string PlayersOnlineTooltip(const PlayersOnline::Count& count)
+    {
+        if (count.online == 0) return "Nobody is online on the WFC server right now.";
+        std::string text = count.online == 1 ? "1 player is" : std::to_string(count.online) + " players are";
+        text += " online on the WFC server, ";
+        if (count.playing == 0) text += count.online == 1 ? "not in a match." : "none of them in a match.";
+        else if (count.online == 1) text += "in a match.";
+        else text += std::to_string(count.playing) + " of them in a match.";
+        return text + "\nRecharged, Wii and Dolphin players all count.";
+    }
+
+    // Left of the update status, while the WFC server tells: how many
+    // players are online there (PlayersOnline). `right`: where it ends.
+    void DrawPlayersOnline(float right, float y, float height)
+    {
+        if (!online_count_) return;
+        const auto& fonts = CurrentFonts();
+        const std::string text = std::to_string(online_count_->online) + " online";
+        const ImVec2 label = TextSize(fonts.body, text.c_str());
+        const float width = Dp(34) + label.x + Dp(18);
+        const ImVec2 pos{right - width, y}, max{right, y + height};
+        ImGui::SetCursorScreenPos(pos);
+        ImGui::InvisibleButton("##players_online", {width, height});
+        const bool hovered = ImGui::IsItemHovered();
+        const float hover = Animate(ImGui::GetItemID(), hovered, 12.0f);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float rounding = height * 0.5f, middle = y + height * 0.5f;
+        const ImVec4 tint = online_count_->online > 0 ? color::success : color::muted;
+        draw->AddRectFilled(pos, max, Col(Mix(color::window, color::card_hover, 0.45f + 0.55f * hover), 0.9f),
+                            rounding);
+        draw->AddRect(pos, max, Col(Mix(color::border, tint, 0.25f + 0.35f * hover), 0.95f), rounding, 0, Dp(1));
+        // A live dot, breathing softly while anybody is online.
+        const ImVec2 dot{pos.x + Dp(19), middle};
+        if (online_count_->online > 0)
+        {
+            const float pulse = 0.5f + 0.5f * std::sin(float(ImGui::GetTime()) * 2.4f);
+            draw->AddCircleFilled(dot, Dp(4.5f + 3.0f * pulse), Col(tint, 0.22f * (1.0f - pulse)), 24);
+        }
+        draw->AddCircleFilled(dot, Dp(4.5f), Col(tint), 24);
+        DrawLabel(draw, fonts.body, {pos.x + Dp(34), middle - label.y * 0.5f},
+                  Col(Mix(color::muted, color::text, 0.65f + 0.35f * hover)), text.c_str());
+        if (hovered) ImGui::SetTooltip("%s", PlayersOnlineTooltip(*online_count_).c_str());
+    }
+
     // Top right of the Play page's artwork: the update status and the
     // Release / Test switch.
     void DrawUpdateBar(ImVec2 origin, float width, float pad)
@@ -1293,10 +1403,11 @@ private:
                                      "Test: also the test builds of pull requests, to try changes before they are "
                                      "released.\n"
                                      "Nothing is installed without asking.");
-        const float pill_width = PillWidth(look);
+        const bool round = RoundUpdateButton(look);
+        const float pill_width = round ? height : PillWidth(look);
         x -= Dp(10) + pill_width;
         ImGui::SetCursorScreenPos({x, y});
-        if (DrawUpdatePill(look, {pill_width, height}))
+        if (round ? DrawRefreshButton(look, height) : DrawUpdatePill(look, {pill_width, height}))
         {
             if (ChooseTestBuild()) test_menu_ = true;
             else if (update_.state == State::Idle || update_.state == State::UpToDate
@@ -1305,7 +1416,13 @@ private:
             else if (update_.offer)
                 update_dialog_ = true;
         }
-        if (!look.tooltip.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", look.tooltip.c_str());
+        if (ImGui::IsItemHovered())
+        {
+            const std::string tooltip
+                = round ? look.text + (look.tooltip.empty() ? "" : "\n" + look.tooltip) : look.tooltip;
+            if (!tooltip.empty()) ImGui::SetTooltip("%s", tooltip.c_str());
+        }
+        DrawPlayersOnline(x - Dp(10), y, height);
         DrawTestBuildMenu(menu_anchor);
     }
 
@@ -1781,7 +1898,7 @@ private:
         if (source != notes_source_)
         {
             notes_source_ = source;
-            notes_ = ParseReleaseNotes(source);
+            notes_ = WithoutNotesFooter(ParseReleaseNotes(source));
         }
         float notes_height = ImGui::GetMainViewport()->Size.y * 0.36f;
         if (callout) notes_height -= Dp(64);
@@ -2446,6 +2563,7 @@ private:
             graphics_cards_ = graphics_cards_scan_.get();
             platform::SessionLogLine(platform::DescribeGraphicsCards(graphics_cards_));
         }
+        if (players_online_) online_count_ = players_online_->Snapshot();
         if (updates_)
         {
             update_ = updates_->Snapshot();
@@ -8887,6 +9005,9 @@ private:
     mscharged::platform::MatchSaveStatus match_save_;
     std::optional<launcher::MatchPreset> preset_edit_;
     int preset_delete_ = -1;
+    // The WFC server's count of players online (top bar of the Play page).
+    std::unique_ptr<PlayersOnline> players_online_;
+    std::optional<PlayersOnline::Count> online_count_;
     // Update check and installation (#50).
     std::unique_ptr<UpdateService> updates_;
     UpdateService::Status update_;

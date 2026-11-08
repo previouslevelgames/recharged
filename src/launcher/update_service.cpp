@@ -258,7 +258,9 @@ bool UpdateService::Preview(std::string_view state)
         "## Gameplay\n- **Mirror matches (#51):** both teams can pick the same captain in offline Domination.\n"
         "- **Fast terrain (#43):** every stadium plays like the dry field of Bowser Stadium.\n\n"
         "## Launcher\n- Updates install in place and restart the launcher; settings and saves stay.\n"
-        "- The Play page switches between releases and test builds.";
+        "- The Play page switches between releases and test builds.\n\n---\n\n"
+        "**New here?** Download the package for your system below (every release ends with this footer, which "
+        "the launcher leaves out).";
     const std::string pull_notes =
         "Adds the Release / Test switch and in-place updates to the launcher.\n\n"
         "## To try\n- Switch to **Test** on the Play page and install this build.\n"
