@@ -167,6 +167,13 @@ int main()
                         && shipped[0].inputs[mscharged::GamepadActionA] == "b | x"
                         && shipped[0].sticks == mscharged::GamepadSticks::Shared && !shipped[0].follows,
                     "A built-in profile written as in recharged.ini did not load");
+            // The profiles shipped with the game load, and come after Classic 1.1.
+            const auto& builtins = Settings::BuiltinPadProfiles();
+            Require(builtins.size() >= 2 && builtins[1].name == "iceVirtue" && builtins[1].controller == "xbox"
+                        && builtins[1].inputs[mscharged::GamepadActionB] == "righttrigger"
+                        && builtins[1].inputs[mscharged::GamepadActionRight] == "b"
+                        && builtins[1].sticks == mscharged::GamepadSticks::Split && !builtins[1].follows,
+                    "The built-in profile of iceVirtue did not load");
             Reject([] { ParseBuiltinPadProfiles("[gamepad_profile1]\nname = classic 1.1\n"); });
             Reject([] { ParseBuiltinPadProfiles("[gamepad_profile1]\nname = Default\n"); });
         }
