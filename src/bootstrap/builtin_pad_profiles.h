@@ -53,5 +53,26 @@ shake_remote = y
 shake_nunchuk = x | b
 recenter_pointer = rightstick
 sticks = shared
+
+[gamepad_profile3]
+name = Jok3r
+controller = xbox
+a = a
+b = rightshoulder
+one = y
+two = none
+plus = start
+minus = none
+home = none
+up = dpup
+down = dpdown
+left = dpleft
+right = dpright
+c = righttrigger | b
+z = leftshoulder
+shake_remote = x
+shake_nunchuk = lefttrigger
+recenter_pointer = rightstick
+sticks = shared
 )ini";
 } // namespace mscharged

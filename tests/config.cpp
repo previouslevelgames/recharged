@@ -180,6 +180,11 @@ int main()
                         && builtins[2].inputs[mscharged::GamepadActionShakeNunchuk] == "x | b"
                         && builtins[2].sticks == mscharged::GamepadSticks::Shared,
                     "The built-in profile of ImSpiker did not load");
+            Require(builtins.size() >= 4 && builtins[3].name == "Jok3r"
+                        && builtins[3].inputs[mscharged::GamepadActionC] == "righttrigger | b"
+                        && builtins[3].inputs[mscharged::GamepadActionHome] == "none"
+                        && builtins[3].sticks == mscharged::GamepadSticks::Shared,
+                    "The built-in profile of Jok3r did not load");
             Reject([] { ParseBuiltinPadProfiles("[gamepad_profile1]\nname = classic 1.1\n"); });
             Reject([] { ParseBuiltinPadProfiles("[gamepad_profile1]\nname = Default\n"); });
         }
