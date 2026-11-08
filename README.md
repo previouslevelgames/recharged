@@ -22,15 +22,34 @@ graphics, sound, controllers, disc access and saves.
 
 ## Download
 
-Get the package for your system from the
-[**latest release**](https://github.com/previouslevelgames/recharged/releases/latest):
+Click your system to open the
+[**latest release**](https://github.com/previouslevelgames/recharged/releases/latest),
+then download the package named below it:
 
-| System | Package |
-| --- | --- |
-| Windows 10 / 11, x64 | `windows-x86_64.zip` |
-| Linux x86_64, Vulkan | `linux-x86_64.tar.gz` |
-| Steam Deck, SteamOS 3.7+ | `steamdeck-x86_64.tar.gz`, see the [Steam Deck guide](docs/STEAM_DECK.md) |
-| macOS 15+, Apple Silicon and Intel | `macos-universal.dmg` |
+<table>
+<tr>
+<td align="center" width="25%">
+<a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="Download for Windows" src="https://img.shields.io/github/v/release/previouslevelgames/recharged?style=for-the-badge&label=Windows&logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0wIDBoMTEuNHYxMS40SDB6TTEyLjYgMEgyNHYxMS40SDEyLjZ6TTAgMTIuNmgxMS40VjI0SDB6TTEyLjYgMTIuNkgyNFYyNEgxMi42eiIvPjwvc3ZnPg==&labelColor=0078D4&color=005A9E"></a><br>
+Windows 10 / 11, x64<br>
+<code>windows-x86_64.zip</code>
+</td>
+<td align="center" width="25%">
+<a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="Download for Linux" src="https://img.shields.io/github/v/release/previouslevelgames/recharged?style=for-the-badge&label=Linux&logo=linux&logoColor=black&labelColor=FCC624&color=1F1F1F"></a><br>
+Linux x86_64, Vulkan<br>
+<code>linux-x86_64.tar.gz</code>
+</td>
+<td align="center" width="25%">
+<a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="Download for Steam Deck" src="https://img.shields.io/github/v/release/previouslevelgames/recharged?style=for-the-badge&label=Steam%20Deck&logo=steam&logoColor=white&labelColor=1A9FFF&color=0B6FC0"></a><br>
+SteamOS 3.7+, see the <a href="docs/STEAM_DECK.md">guide</a><br>
+<code>steamdeck-x86_64.tar.gz</code>
+</td>
+<td align="center" width="25%">
+<a href="https://github.com/previouslevelgames/recharged/releases/latest"><img alt="Download for macOS" src="https://img.shields.io/github/v/release/previouslevelgames/recharged?style=for-the-badge&label=macOS&logo=apple&logoColor=white&labelColor=000000&color=3A3A3C"></a><br>
+macOS 15+, Apple Silicon and Intel<br>
+<code>macos-universal.dmg</code>
+</td>
+</tr>
+</table>
 
 1. Unpack the package into a folder of its own. On a Mac, open the disk image
    and drag the **Recharged** folder to **Applications**.
@@ -56,27 +75,6 @@ macOS. Once installed, the launcher updates Recharged in place when you agree.
 
 See the [feature list](docs/FEATURES.md) and the
 [default controls](docs/FEATURES.md#default-bindings).
-
-## Roadmap
-
-**1.2: competitive play** (in development). Challenge a friend or play a
-[start.gg](https://www.start.gg) tournament, with the same rules for both and
-results that report themselves. [More about the plan](docs/COMPETITIVE.md).
-Plans can still change if we find better options.
-
-## Questions
-
-**Is this an emulator?** No. The game's original C/C++ code, reconstructed by
-[mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp), is
-compiled for your PC; Recharged implements the Wii's system services natively.
-See [how it works](docs/ARCHITECTURE.md).
-
-**Does Recharged change the game?** No. Rules, physics, timing and presentation
-come from the original code, except for the optional tweaks you turn on and the
-three listed bug fixes.
-
-**Something does not work.** See [troubleshooting](docs/TROUBLESHOOTING.md),
-and [CONTRIBUTING](CONTRIBUTING.md) for how to report it.
 
 ## Disclaimer: AI assistance
 
@@ -122,6 +120,27 @@ tool's. And there will be bugs.
 We know AI is a contested topic. If you would rather not use software built
 this way, we respect that. If you enjoy playing again, or want to contribute,
 you are very welcome.
+
+## Roadmap
+
+**1.2: competitive play** (in development). Challenge a friend or play a
+[start.gg](https://www.start.gg) tournament, with the same rules for both and
+results that report themselves. [More about the plan](docs/COMPETITIVE.md).
+Plans can still change if we find better options.
+
+## Questions
+
+**Is this an emulator?** No. The game's original C/C++ code, reconstructed by
+[mscharged-decomp](https://github.com/yannicksuter/mscharged-decomp), is
+compiled for your PC; Recharged implements the Wii's system services natively.
+See [how it works](docs/ARCHITECTURE.md).
+
+**Does Recharged change the game?** No. Rules, physics, timing and presentation
+come from the original code, except for the optional tweaks you turn on and the
+three listed bug fixes.
+
+**Something does not work.** See [troubleshooting](docs/TROUBLESHOOTING.md),
+and [CONTRIBUTING](CONTRIBUTING.md) for how to report it.
 
 ## Documentation
 
