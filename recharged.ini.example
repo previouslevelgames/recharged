@@ -45,6 +45,11 @@ vsync = true
 # for smoother motion; the game keeps its own speed. VSync holds any rate to
 # the display's.
 frame_rate = original
+# In the background (window minimized or another window focused): at most
+# background_frame_rate (15, 30 or 60) frames per second, the original's
+# included, to save power; the full rate returns as soon as you go back.
+background_throttle = true
+background_frame_rate = 30
 # Windows: vulkan or d3d12. macOS: metal. Linux: vulkan.
 # auto preserves the platform default (Vulkan on Windows/Linux, Metal on macOS);
 # on Windows it switches to DirectX 12 when Vulkan cannot start.

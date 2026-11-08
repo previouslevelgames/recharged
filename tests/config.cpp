@@ -816,6 +816,30 @@ int main()
             std::ofstream(path) << invalid;
             Reject([&] { LoadConfig(path); });
         }
+        // display.background_throttle: on at 30 FPS by default; 15, 30 and 60
+        // round trip, anything else is rejected.
+        Require(defaults.background_throttle && defaults.background_frame_rate == 30,
+            "Background throttle is on at 30 FPS by default");
+        for (const int hz : {15, 60})
+        {
+            const auto background = directory / ("background-" + std::to_string(hz) + ".ini");
+            auto backgroundFile = LoadConfig(background, true);
+            Settings backgroundSettings;
+            backgroundSettings.background_throttle = false;
+            backgroundSettings.background_frame_rate = hz;
+            SaveConfig(backgroundFile, backgroundSettings);
+            const auto reloaded = LoadConfig(background);
+            Require(!reloaded.settings.background_throttle && reloaded.settings.background_frame_rate == hz
+                && reloaded.contents.find("background_throttle = false") != std::string::npos
+                && reloaded.contents.find("background_frame_rate = " + std::to_string(hz)) != std::string::npos,
+                "Background frame rate round trip");
+        }
+        for (const char* invalid : {"[display]\nbackground_frame_rate = 20\n", "[display]\nbackground_frame_rate = 0\n",
+                                    "[display]\nbackground_frame_rate = 120\n", "[display]\nbackground_throttle = 30\n"})
+        {
+            std::ofstream(path) << invalid;
+            Reject([&] { LoadConfig(path); });
+        }
         fs::remove_all(directory);
         std::cout << "Configuration round trips, preservation, validation, host settings, tweaks and write protection passed.\n";
         return 0;

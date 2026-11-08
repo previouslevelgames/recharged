@@ -1029,21 +1029,33 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // display.frame_rate: above the original, Aurora
         // presents each frame as the game swaps and paces the next; VI retraces
         // keep their real rate for everything that counts them.
+        // display.background_throttle: in play, at most
+        // display.background_frame_rate while the window is minimized or,
+        // outside Steam's Game Mode, another window has the focus; the
+        // original's rate included.
         std::optional<mscharged::runtime::HostFramePacing> framePacing;
         {
             const auto rate=mscharged::ParseFrameRate(launch.settings.frame_rate).value_or(mscharged::FrameRate{});
+            int backgroundHz=interactive && launch.settings.background_throttle
+                ? launch.settings.background_frame_rate : 0;
+            // 60 FPS holds nothing at the original rate.
+            if(rate.kind==mscharged::FrameRate::Kind::Original
+               && mscharged::BackgroundFrameRate(rate,backgroundHz,0.0)==rate) backgroundHz=0;
             auto* configurePacing=reinterpret_cast<void(*)(void(*)())>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_frame_pacing"));
             std::string line="Frame rate: ";
-            if(rate.kind==mscharged::FrameRate::Kind::Original)
+            if(!configurePacing || !nativeSend)
+                line+=rate.kind==mscharged::FrameRate::Kind::Original ? mscharged::DescribeFramePacing(rate,{},0.0)
+                    : "original (this build's game module has no frame pacing)";
+            else if(rate.kind==mscharged::FrameRate::Kind::Original && !backgroundHz)
                 line+=mscharged::DescribeFramePacing(rate,{},0.0);
-            else if(!configurePacing || !nativeSend)
-                line+="original (this build's game module has no frame pacing)";
             else {
-                framePacing.emplace(rate,launch.settings.vsync,host.window);
-                configurePacing(aurora_paced_video_swap);
+                framePacing.emplace(rate,launch.settings.vsync,host.window,configurePacing,backgroundHz,
+                    !mscharged::UnderGamescope());
                 line+=framePacing->Description();
             }
+            if(framePacing && backgroundHz)
+                line+="; "+std::to_string(backgroundHz)+" FPS at most in the background";
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }

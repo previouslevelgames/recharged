@@ -8633,6 +8633,13 @@ private:
             Row("Frame rate", "Original is the console's 60 FPS. Higher rates draw more frames for smoother motion "
                 "while the game keeps its own speed; Display follows your display's refresh rate.");
             FrameRateChoice();
+
+            Row("Throttle in background", "Draws fewer frames while the game's window is minimized or another "
+                "window has the focus, to save power. The full frame rate returns as soon as you go back.");
+            if (Toggle("##background_throttle", &draft_.background_throttle)) dirty_ = true;
+
+            Row("Background frame rate", "The frames per second at most while the game is in the background.");
+            BackgroundFrameRateChoice();
             EndRows();
         }
         EndCard();
@@ -8801,6 +8808,17 @@ private:
                 note += "This display refreshes at " + hz(display) + " Hz.";
         }
         if (!note.empty()) TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
+    }
+
+    void BackgroundFrameRateChoice()
+    {
+        int selected = -1;
+        for (int i = 0; i < int(std::size(kBackgroundFrameRates)); ++i)
+            if (draft_.background_frame_rate == kBackgroundFrameRates[i]) selected = i;
+        ImGui::BeginDisabled(!draft_.background_throttle);
+        if (Segmented("##background_frame_rate", &selected, {"15", "30", "60"}, ImGui::GetContentRegionAvail().x))
+        { draft_.background_frame_rate = kBackgroundFrameRates[selected]; dirty_ = true; }
+        ImGui::EndDisabled();
     }
 
     void AntialiasingKindChoice()

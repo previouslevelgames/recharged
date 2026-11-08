@@ -104,6 +104,17 @@ holds any rate to the display's. The game keeps its own speed; movies and
 everything else timed by the Wii's video signal stay at their real rate. The
 log's `Frame rate:` line shows how frames are paced.
 
+**Throttle in background** (Display → Throttle in background,
+`[display] background_throttle`, on by default) draws at most
+**Background frame rate** (`background_frame_rate`: 15, 30 by default, or 60)
+frames per second while the game's window is minimized or another window has
+the focus, to save power. The chosen frame rate returns as soon as you go
+back to the game. Under gamescope (Steam's Game Mode, or gamescope on a
+desktop) the game always looks focused and visible, so it keeps its frame
+rate there. The game keeps
+its own speed, online matches included; a few effects that change once per
+frame, such as blinking images, run slower while in the background.
+
 **Aspect ratio** (Display → Aspect ratio, `[display] aspect`). **16:9** (the
 default) is the game's widescreen layout and **4:3** its original one; both
 keep their shape. A window keeps that shape when you resize it, so the picture

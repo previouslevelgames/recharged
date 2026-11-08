@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <iterator>
 #include <locale>
 #include <map>
 #include <set>
@@ -68,6 +69,8 @@ Values Encode(const Settings& s)
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.fullscreen_resolution", s.fullscreen_resolution},
             {"display.vsync", s.vsync ? "true" : "false"}, {"display.frame_rate", s.frame_rate},
+            {"display.background_throttle", s.background_throttle ? "true" : "false"},
+            {"display.background_frame_rate", std::to_string(s.background_frame_rate)},
             {"display.backend", s.backend}, {"display.gpu", s.gpu}, {"display.aspect", s.aspect},
             {"display.picture", s.picture}, {"display.tv_border", s.tv_border ? "true" : "false"},
             {"display.wider_view", s.wider_view ? "true" : "false"},
@@ -206,6 +209,11 @@ Settings Decode(const Values& values)
                 + std::to_string(kMaxFrameRate));
         s.frame_rate = it->second;
     }
+    boolean("display.background_throttle", s.background_throttle);
+    number("display.background_frame_rate", s.background_frame_rate, kBackgroundFrameRates[0],
+           kBackgroundFrameRates[std::size(kBackgroundFrameRates) - 1]);
+    if (!ValidBackgroundFrameRate(s.background_frame_rate))
+        throw std::runtime_error("Invalid configuration: display.background_frame_rate must be 15, 30 or 60");
     choice("display.backend", s.backend, {"auto", "vulkan", "metal", "d3d12"});
     if (const auto it = values.find("display.gpu"); it != values.end())
     {

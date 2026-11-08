@@ -53,6 +53,11 @@ struct Settings
     // second (bootstrap/frame_rate.h). Above the original the host paces and
     // presents every frame; the game keeps its own speed.
     std::string frame_rate = "original";
+    // display.background_throttle: at most display.background_frame_rate
+    // (15, 30 or 60) frames per second while the game's window is minimized
+    // or another window has the focus; the full rate again at once on return.
+    bool background_throttle = true;
+    int background_frame_rate = kDefaultBackgroundFrameRate;
     std::string backend = "auto";
     // display.gpu: auto (the fastest graphics card) or a card's PCI ID, such as 10de:1f99.
     std::string gpu = "auto";
