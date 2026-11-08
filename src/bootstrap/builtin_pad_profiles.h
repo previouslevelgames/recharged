@@ -32,5 +32,26 @@ shake_remote = x
 shake_nunchuk = rightshoulder
 recenter_pointer = rightstick
 sticks = split
+
+[gamepad_profile2]
+name = ImSpiker
+controller = xbox
+a = a
+b = lefttrigger
+one = start
+two = none
+plus = rightshoulder
+minus = leftshoulder
+home = guide
+up = dpup | rightstick_up
+down = dpdown | rightstick_down
+left = dpleft | rightstick_left
+right = dpright | rightstick_right
+c = rightshoulder
+z = righttrigger
+shake_remote = y
+shake_nunchuk = x | b
+recenter_pointer = rightstick
+sticks = shared
 )ini";
 } // namespace mscharged

@@ -174,6 +174,12 @@ int main()
                         && builtins[1].inputs[mscharged::GamepadActionRight] == "b"
                         && builtins[1].sticks == mscharged::GamepadSticks::Split && !builtins[1].follows,
                     "The built-in profile of iceVirtue did not load");
+            Require(builtins.size() >= 3 && builtins[2].name == "ImSpiker"
+                        && builtins[2].inputs[mscharged::GamepadActionC] == "rightshoulder"
+                        && builtins[2].inputs[mscharged::GamepadActionPlus] == "rightshoulder"
+                        && builtins[2].inputs[mscharged::GamepadActionShakeNunchuk] == "x | b"
+                        && builtins[2].sticks == mscharged::GamepadSticks::Shared,
+                    "The built-in profile of ImSpiker did not load");
             Reject([] { ParseBuiltinPadProfiles("[gamepad_profile1]\nname = classic 1.1\n"); });
             Reject([] { ParseBuiltinPadProfiles("[gamepad_profile1]\nname = Default\n"); });
         }
