@@ -46,8 +46,9 @@ struct GamepadProfile {
     GamepadBindings bindings{};
     // The sticks of the Nunchuk stick and the pointer.
     GamepadSticks sticks = GamepadSticks::Split;
-    // The built-in Default: the bindings are replaced by the default layout
-    // of the controller that connects (DefaultGamepadBindings(family)).
+    // A built-in profile that follows the controller (Default, Classic 1.1):
+    // the profile is replaced by `layout` for the controller that connects
+    // (GamepadLayoutProfile).
     bool follow_controller = false;
     // Dead zones of both sticks and the triggers' press point, in percent of
     // travel (see gamepad_actions.h).
@@ -61,6 +62,7 @@ struct GamepadProfile {
     // has one (issue #14); gyro_speed in percent (see gamepad_actions.h).
     bool gyro_pointer = false;
     int gyro_speed = kDefaultGyroSpeed;
+    GamepadLayout layout = GamepadLayout::Default;
 };
 
 // Controller families with their own default layout and button names.
@@ -76,10 +78,11 @@ const char* GamepadProfileKind(GamepadFamily family);
 GamepadFamily GamepadFamilyOfKind(std::string_view kind);
 // "Xbox and PlayStation", "Nintendo" or "GameCube".
 const char* GamepadKindName(std::string_view kind);
-// The default layout of a family as INI text per action. Every family keeps
+// A built-in layout for a family as INI text per action. Every family keeps
 // the Wii buttons where that controller's own labels suggest: Nintendo's A
 // is its right face button; GameCube lacks buttons for 1, - and HOME.
-std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily family);
+std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily family,
+                                                                 GamepadLayout layout = GamepadLayout::Default);
 
 // SDL names ("a", "leftshoulder", "righttrigger") and stick directions
 // ("rightstick_up"); unknown names, analog stick axes ("leftx") and
@@ -93,7 +96,9 @@ std::string FormatGamepadBinding(const GamepadBinding& binding);
 // without one.
 GamepadBindings ParseGamepadBindings(const std::array<std::string, GamepadActionCount>& texts);
 GamepadBindings DefaultGamepadBindings();
-GamepadBindings DefaultGamepadBindings(GamepadFamily family);
+GamepadBindings DefaultGamepadBindings(GamepadFamily family, GamepadLayout layout = GamepadLayout::Default);
+// The profile a built-in layout plays with on a controller of `family`.
+GamepadProfile GamepadLayoutProfile(GamepadFamily family, GamepadLayout layout);
 // Half a trigger's travel: the launcher takes a trigger press there.
 inline constexpr Sint16 kGamepadTriggerPressed = 16384;
 // A trigger counts as pressed past `press` percent of its travel.

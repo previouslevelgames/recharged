@@ -1,4 +1,5 @@
 #include "config.h"
+#include "builtin_pad_profiles.h"
 #include "display_shape.h"
 #include "graphics_card.h"
 #include "platform/path.h"
@@ -32,6 +33,18 @@ std::string Trim(const std::string& value)
     const auto start = value.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) return {};
     return value.substr(start, value.find_last_not_of(" \t\r\n") - start + 1);
+}
+
+// A gamepad profile name's characters, and not Default (ValidPadProfileName
+// without the other built-in profiles).
+bool PadProfileNameShape(const std::string& name)
+{
+    if (name.empty() || name.size() > kMaxGamepadProfileName || name != Trim(name)
+        || SamePadProfileName(name, kDefaultGamepadProfile))
+        return false;
+    return std::none_of(name.begin(), name.end(), [](unsigned char c) {
+        return c < 0x20 || c == 0x7f || c == '"' || c == '[' || c == ']' || c == '=' || c == '|';
+    });
 }
 
 // Whether a [keyboard] binding ("Return | Space") names the key `name`; SDL
@@ -141,7 +154,9 @@ Values Encode(const Settings& s)
     return values;
 }
 
-Settings Decode(const Values& values)
+// `builtin`: the profiles of builtin_pad_profiles.h, which the built-in
+// names do not apply to yet.
+Settings Decode(const Values& values, bool builtin = false)
 {
     Settings s;
     auto choice = [&](const char* key, std::string& value, std::initializer_list<const char*> options) {
@@ -315,7 +330,7 @@ Settings Decode(const Values& values)
         const auto first = values.lower_bound(section);
         if (first == values.end() || first->first.rfind(section, 0) != 0) continue;
         const auto name = values.find(section + "name");
-        if (name == values.end() || !ValidPadProfileName(name->second))
+        if (name == values.end() || !PadProfileNameShape(name->second))
             throw std::runtime_error("Invalid configuration: " + section
                 + "name must be 1-32 characters without quotes, brackets, = or |, and not Default");
         for (const auto& other : profiles)
@@ -344,13 +359,36 @@ Settings Decode(const Values& values)
         choice((section + "controller").c_str(), profile.controller, {"xbox", "nintendo", "gamecube"});
         profiles.push_back(std::move(profile));
     }
+    // A profile named like one that is now built in gets a number added, and
+    // its gamepads keep playing with it.
+    std::vector<std::pair<std::string, std::string>> renamed;
+    if (!builtin)
+        for (auto& profile : profiles)
+        {
+            if (ValidPadProfileName(profile.name)) continue;
+            for (int n = 2;; ++n)
+            {
+                const auto number = " " + std::to_string(n);
+                const auto name = Trim(profile.name.substr(0, kMaxGamepadProfileName - number.size())) + number;
+                if (ValidPadProfileName(name)
+                    && std::none_of(profiles.begin(), profiles.end(),
+                                    [&](const auto& other) { return SamePadProfileName(other.name, name); }))
+                {
+                    renamed.emplace_back(profile.name, name);
+                    profile.name = name;
+                    break;
+                }
+            }
+        }
     s.pad_profiles = std::move(profiles);
     // A gamepad whose profile no longer exists plays with the built-in Default.
     for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
     {
         const auto it = values.find("controls.gamepad" + std::to_string(slot + 1) + "_profile");
         if (it != values.end()) s.pad_profile_names[slot] = it->second;
-        s.pad_profile_names[slot] = s.PadProfileOf(slot).name;
+        for (const auto& [from, to] : renamed)
+            if (SamePadProfileName(s.pad_profile_names[slot], from)) s.pad_profile_names[slot] = to;
+        if (!builtin) s.pad_profile_names[slot] = s.PadProfileOf(slot).name;
     }
     // Players fill in order from player 1, and each device plays once.
     if (s.players[0] == "off")
@@ -606,12 +644,19 @@ std::string FormatWindowPosition(int x, int y)
 
 bool ValidPadProfileName(const std::string& name)
 {
-    if (name.empty() || name.size() > kMaxGamepadProfileName || name != Trim(name)
-        || SamePadProfileName(name, kDefaultGamepadProfile))
-        return false;
-    return std::none_of(name.begin(), name.end(), [](unsigned char c) {
-        return c < 0x20 || c == 0x7f || c == '"' || c == '[' || c == ']' || c == '=' || c == '|';
+    const auto& builtins = Settings::BuiltinPadProfiles();
+    return PadProfileNameShape(name) && std::none_of(builtins.begin(), builtins.end(), [&](const auto& profile) {
+        return SamePadProfileName(profile.name, name);
     });
+}
+
+std::vector<Settings::PadProfile> ParseBuiltinPadProfiles(const std::string& ini)
+{
+    auto profiles = Decode(Parse(ini), true).pad_profiles;
+    for (const auto& profile : profiles)
+        if (SamePadProfileName(profile.name, kClassicGamepadProfile))
+            throw std::runtime_error("Invalid built-in gamepad profile: " + profile.name + " is taken");
+    return profiles;
 }
 
 bool SamePadProfileName(const std::string& a, const std::string& b)
@@ -621,23 +666,49 @@ bool SamePadProfileName(const std::string& a, const std::string& b)
     });
 }
 
+const Settings::PadProfile& Settings::PadProfileAt(int index) const
+{
+    if (index >= 0) return pad_profiles[std::size_t(index)];
+    if (index == -1) return DefaultPadProfile();
+    return BuiltinPadProfiles()[std::size_t(-2 - index)];
+}
+
 int Settings::PadProfileIndex(std::size_t slot) const
 {
     for (std::size_t n = 0; n < pad_profiles.size(); ++n)
         if (SamePadProfileName(pad_profiles[n].name, pad_profile_names[slot])) return int(n);
+    const auto& builtins = BuiltinPadProfiles();
+    for (std::size_t n = 0; n < builtins.size(); ++n)
+        if (SamePadProfileName(builtins[n].name, pad_profile_names[slot])) return BuiltinPadProfileIndex(n);
     return -1;
 }
 
 const Settings::PadProfile& Settings::PadProfileOf(std::size_t slot) const
 {
-    const int index = PadProfileIndex(slot);
-    return index < 0 ? DefaultPadProfile() : pad_profiles[std::size_t(index)];
+    return PadProfileAt(PadProfileIndex(slot));
 }
 
 const Settings::PadProfile& Settings::DefaultPadProfile()
 {
-    static const PadProfile profile{kDefaultGamepadProfile, DefaultPadInputs(), GamepadSticks::Split};
+    static const PadProfile profile = [] {
+        PadProfile own{kDefaultGamepadProfile, DefaultPadInputs(), GamepadLayoutSticks(GamepadLayout::Default)};
+        own.follows = GamepadLayout::Default;
+        return own;
+    }();
     return profile;
+}
+
+const std::vector<Settings::PadProfile>& Settings::BuiltinPadProfiles()
+{
+    static const std::vector<PadProfile> profiles = [] {
+        PadProfile classic{kClassicGamepadProfile, DefaultPadInputs(GamepadLayout::Classic),
+                           GamepadLayoutSticks(GamepadLayout::Classic)};
+        classic.follows = GamepadLayout::Classic;
+        std::vector<PadProfile> all{classic};
+        for (auto& profile : ParseBuiltinPadProfiles(kBuiltinPadProfilesIni)) all.push_back(std::move(profile));
+        return all;
+    }();
+    return profiles;
 }
 
 ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing)

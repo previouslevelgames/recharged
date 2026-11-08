@@ -18,6 +18,7 @@ struct GamepadAction
     const char* label;    // launcher label
     const char* note;     // launcher description, or nullptr
     const char* defaults; // default inputs
+    const char* classic;  // inputs of the built-in Classic 1.1 profile
 };
 
 // The first eleven follow the Wii Remote button order of KeyActionIndex. The
@@ -32,22 +33,22 @@ enum GamepadActionIndex : std::size_t
 };
 
 inline constexpr std::array<GamepadAction, GamepadActionCount> kGamepadActions{{
-    {"a", "A", "Confirm, select", "a"},
-    {"b", "B", "Back", "b"},
-    {"one", "1", nullptr, "x"},
-    {"two", "2", nullptr, "y"},
-    {"plus", "+ (Plus)", nullptr, "start"},
-    {"minus", "\xE2\x88\x92 (Minus)", nullptr, "back"},
-    {"home", "HOME", nullptr, "guide"},
-    {"up", "D-pad up", nullptr, "dpup"},
-    {"down", "D-pad down", nullptr, "dpdown"},
-    {"left", "D-pad left", nullptr, "dpleft"},
-    {"right", "D-pad right", nullptr, "dpright"},
-    {"c", "C", "Nunchuk button", "leftshoulder"},
-    {"z", "Z", "Nunchuk button", "lefttrigger"},
-    {"shake_remote", "Shake Remote", "Hit an opponent", "righttrigger"},
-    {"shake_nunchuk", "Shake Nunchuk", "Switch items", "rightshoulder"},
-    {"recenter_pointer", "Recenter pointer", "Back to the middle", "rightstick"},
+    {"a", "A", "Confirm, select", "a", "a"},
+    {"b", "B", "Back", "b", "b"},
+    {"one", "1", nullptr, "x", "x"},
+    {"two", "2", nullptr, "y", "y"},
+    {"plus", "+ (Plus)", nullptr, "start", "start"},
+    {"minus", "\xE2\x88\x92 (Minus)", nullptr, "back", "back"},
+    {"home", "HOME", nullptr, "guide", "guide"},
+    {"up", "D-pad up", nullptr, "dpup", "dpup"},
+    {"down", "D-pad down", nullptr, "dpdown", "dpdown"},
+    {"left", "D-pad left", nullptr, "dpleft", "dpleft"},
+    {"right", "D-pad right", nullptr, "dpright", "dpright"},
+    {"c", "C", "Nunchuk button", "leftshoulder", "leftshoulder"},
+    {"z", "Z", "Nunchuk button", "lefttrigger", "lefttrigger"},
+    {"shake_remote", "Shake Remote", "Hit an opponent", "righttrigger", "righttrigger"},
+    {"shake_nunchuk", "Shake Nunchuk", "Switch items", "rightshoulder", "rightshoulder"},
+    {"recenter_pointer", "Recenter pointer", "Back to the middle", "rightstick", "rightstick"},
 }};
 
 // Which sticks move the Nunchuk stick and the pointer (sticks = in a gamepad
@@ -57,6 +58,15 @@ inline constexpr std::array<GamepadAction, GamepadActionCount> kGamepadActions{{
 // D-pad. The gyro pointer, when on, leaves the stick to the Nunchuk.
 enum class GamepadSticks { Split, Swapped, Shared };
 inline constexpr std::array<const char*, 3> kGamepadSticksNames{"split", "swapped", "shared"};
+
+// Layouts of the built-in profiles that follow the connected controller's
+// family (platform::DefaultGamepadInputs): Default, and Classic, the Default
+// of versions up to 1.1.5. Their sticks:
+enum class GamepadLayout { Default, Classic };
+constexpr GamepadSticks GamepadLayoutSticks([[maybe_unused]] GamepadLayout layout)
+{
+    return GamepadSticks::Split;
+}
 
 // Stick dead zones and trigger press point of a gamepad profile, in percent
 // of travel (issue #62). Inside the inner dead zone the stick rests; from the
@@ -71,9 +81,11 @@ inline constexpr int kDefaultTriggerPress = 50, kMinTriggerPress = 10, kMaxTrigg
 inline constexpr int kDefaultGyroSpeed = 100, kMinGyroSpeed = 25, kMaxGyroSpeed = 300;
 
 inline constexpr std::size_t kGamepadSlots = 4;
-// Named gamepad profiles kept in recharged.ini, beside the built-in "Default"
-// (the defaults above), which is never stored, changed or deleted.
+// Named gamepad profiles kept in recharged.ini, beside the built-in ones,
+// which are never stored, changed or deleted: "Default" (the defaults above),
+// "Classic 1.1" and those of builtin_pad_profiles.h.
 inline constexpr std::size_t kMaxGamepadProfiles = 16;
 inline constexpr const char* kDefaultGamepadProfile = "Default";
+inline constexpr const char* kClassicGamepadProfile = "Classic 1.1";
 inline constexpr std::size_t kMaxGamepadProfileName = 32;
 } // namespace mscharged

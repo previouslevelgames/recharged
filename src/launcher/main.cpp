@@ -8847,9 +8847,9 @@ private:
     {
         const auto& profile = draft_.PadProfileOf(slot);
         const auto type = PadType(int(slot));
-        const bool builtin = draft_.PadProfileIndex(slot) < 0;
+        const bool builtin = profile.follows.has_value();
         const auto family = platform::GamepadFamilyOf(type);
-        const auto bindings = builtin ? platform::DefaultGamepadBindings(family)
+        const auto bindings = builtin ? platform::DefaultGamepadBindings(family, *profile.follows)
                                       : platform::ParseGamepadBindings(profile.inputs);
         const auto& fonts = CurrentFonts();
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(16, 14));
@@ -10006,11 +10006,8 @@ private:
         if (dirty_ && config_ok_) Save();
     }
 
-    // Profile `index` (-1: the built-in Default).
-    const Settings::PadProfile& ProfileAt(int index) const
-    {
-        return index < 0 ? Settings::DefaultPadProfile() : draft_.pad_profiles[std::size_t(index)];
-    }
+    // Profile `index` (below 0: built in, see Settings::PadProfileAt).
+    const Settings::PadProfile& ProfileAt(int index) const { return draft_.PadProfileAt(index); }
 
     // The profile kind of gamepad `slot`'s connected controller, or "" when it
     // is not connected.
@@ -10038,11 +10035,12 @@ private:
         return pad_slot_ < pads_.size() ? PadType(int(pad_slot_)) : platform::GamepadFamilyType(PageFamily());
     }
 
-    // Profile `index` as shown: the built-in Default in the page controller's layout.
+    // Profile `index` as shown: a built-in layout (Default, Classic 1.1) for
+    // the page's controller.
     Settings::PadProfile ShownProfile(int index) const
     {
         auto profile = ProfileAt(index);
-        if (index < 0) profile.inputs = platform::DefaultGamepadInputs(PageFamily());
+        if (profile.follows) profile.inputs = platform::DefaultGamepadInputs(PageFamily(), *profile.follows);
         return profile;
     }
 
@@ -10067,19 +10065,26 @@ private:
         }
     }
 
-    // Selectables for Default and the profiles of `kind` (every profile, with
-    // its kind, when `kind` is empty), plus `current`; returns the chosen
-    // index (-1 Default) or -2 when nothing was chosen.
+    // Selectables for the built-in profiles, then the named ones, of `kind`
+    // (every profile, with its kind, when `kind` is empty), plus `current`;
+    // returns the chosen index or kNoProfileChosen.
+    static constexpr int kNoProfileChosen = -1000;
     int ProfileOptions(int current, const std::string& kind)
     {
-        int chosen = -2;
-        for (int n = -1; n < int(draft_.pad_profiles.size()); ++n)
+        std::vector<int> indices{-1};
+        for (std::size_t n = 0; n < Settings::BuiltinPadProfiles().size(); ++n)
+            indices.push_back(Settings::BuiltinPadProfileIndex(n));
+        for (int n = 0; n < int(draft_.pad_profiles.size()); ++n) indices.push_back(n);
+        int chosen = kNoProfileChosen;
+        for (const int n : indices)
         {
             const auto& profile = ProfileAt(n);
-            if (n >= 0 && n != current && !kind.empty() && profile.controller != kind) continue;
+            // A built-in layout fits every controller.
+            const bool fixed = !profile.follows;
+            if (fixed && n != current && !kind.empty() && profile.controller != kind) continue;
             ImGui::PushID(n);
-            std::string label = n < 0 ? std::string(kDefaultGamepadProfile) + " (built-in)" : profile.name;
-            if (n >= 0 && (kind.empty() || profile.controller != kind))
+            std::string label = profile.name + (n < 0 ? " (built-in)" : "");
+            if (fixed && (kind.empty() || profile.controller != kind))
                 label += std::string("  (") + platform::GamepadKindName(profile.controller) + ")";
             if (ImGui::Selectable(label.c_str(), n == current)) chosen = n;
             ImGui::PopID();
@@ -10180,11 +10185,11 @@ private:
         const int current = draft_.PadProfileIndex(slot);
         const auto kind = SlotKind(slot);
         const auto& profile = ProfileAt(current);
-        const bool mismatch = current >= 0 && !kind.empty() && profile.controller != kind;
+        const bool mismatch = !profile.follows && !kind.empty() && profile.controller != kind;
         if (ImGui::BeginCombo(id, profile.name.c_str()))
         {
             const int chosen = ProfileOptions(current, kind);
-            if (chosen > -2)
+            if (chosen != kNoProfileChosen)
             {
                 draft_.pad_profile_names[slot] = ProfileAt(chosen).name;
                 dirty_ = true;
@@ -10214,20 +10219,22 @@ private:
         auto copy = ShownProfile(edit_profile_);
         copy.name = NewProfileName();
         copy.controller = PageKind();
+        copy.follows.reset();
         profiles.push_back(copy);
         EditProfile(int(profiles.size()) - 1);
         dirty_ = true;
         return true;
     }
 
-    // The built-in Default never changes: a change to it goes into a copy,
+    // A built-in profile never changes: a change to it goes into a copy,
     // which the page's gamepad plays with from then on. Null when all
     // profile slots are taken.
     Settings::PadProfile* OwnCopyForChange()
     {
+        const auto builtin = ProfileAt(edit_profile_).name;
         if (!CopyShownProfile())
         {
-            Notice("Default cannot change and all 16 profiles are in use. Delete one to make your own.",
+            Notice(builtin + " cannot change and all 16 profiles are in use. Delete one to make your own.",
                    NoticeKind::Warning);
             return nullptr;
         }
@@ -10238,7 +10245,7 @@ private:
             draft_.pad_profile_names[pad_slot_] = copy.name;
             user = "Gamepad " + std::to_string(pad_slot_ + 1) + " plays with it.";
         }
-        Notice("Default cannot change, so your changes go into " + copy.name + ", a copy. " + user,
+        Notice(builtin + " cannot change, so your changes go into " + copy.name + ", a copy. " + user,
                NoticeKind::Info);
         return &copy;
     }
@@ -10268,7 +10275,7 @@ private:
                     });
                     if (!ValidPadProfileName(name))
                         Notice("A profile name has 1 to 32 characters, without quotes, brackets, = or |, "
-                               "and is not Default.", NoticeKind::Warning);
+                               "and is not the name of a built-in profile.", NoticeKind::Warning);
                     else if (taken) Notice("Another profile is already named " + name + ".", NoticeKind::Warning);
                     else if (name != profile.name)
                     {
@@ -10282,7 +10289,7 @@ private:
             else if (ImGui::BeginCombo("##edit_profile", ProfileAt(edit_profile_).name.c_str()))
             {
                 const int chosen = ProfileOptions(edit_profile_, SlotKind(pad_slot_));
-                if (chosen > -2) EditProfile(chosen);
+                if (chosen != kNoProfileChosen) EditProfile(chosen);
                 ImGui::EndCombo();
             }
             EndRows();
@@ -10347,9 +10354,11 @@ private:
                    "controller stands in for them: a profile says which of its buttons presses each Wii button. "
                    "Pick a profile per gamepad, here or on the Players list. To change a button, select it below "
                    "and press the new one on the controller. Changes are saved when you go back.");
-        if (edit_profile_ >= int(draft_.pad_profiles.size())) edit_profile_ = -1;
+        if (edit_profile_ >= int(draft_.pad_profiles.size())
+            || edit_profile_ < Settings::BuiltinPadProfileIndex(Settings::BuiltinPadProfiles().size() - 1))
+            edit_profile_ = -1;
         ProfileCard();
-        // The built-in Default never changes: its first change makes an own copy.
+        // A built-in profile never changes: its first change makes an own copy.
         const bool builtin = edit_profile_ < 0;
         Settings::PadProfile scratch = ShownProfile(edit_profile_);
         auto& profile = builtin ? scratch : draft_.pad_profiles[std::size_t(edit_profile_)];
@@ -12294,7 +12303,7 @@ private:
     // Gamepad profiles view: the profile being edited, its rename field and
     // the input waiting for a gamepad press.
     bool gamepad_view_ = false;
-    int edit_profile_ = -1; // -1: the built-in Default
+    int edit_profile_ = -1; // below 0: built in (-1 Default)
     std::size_t pad_slot_ = 0; // the gamepad the page was opened for
     bool renaming_ = false, rename_focus_ = false, confirm_delete_ = false;
     std::string rename_buffer_;

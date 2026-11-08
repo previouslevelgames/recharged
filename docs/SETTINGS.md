@@ -306,7 +306,10 @@ through Steam Input usually show the game no gyro.
 
 The profile page shows both sticks and triggers live with these settings, and
 the gyro pointer when it is on.
-The built-in Default always uses the defaults; changing it makes your own copy.
+The built-in profiles never change: **Default**, and **Classic 1.1**, the
+Default of versions up to 1.1.5, both laid out for the connected controller,
+plus any that come with the game; changing one makes your own copy. Their
+names are taken: an own profile that already had one gets a number added.
 
 **Hotkeys** (Controls → Hotkeys, `[hotkeys]`) work in the game window whoever
 plays: **P** saves a screenshot (`screenshot`), **H** shows or hides the HUD in

@@ -103,8 +103,14 @@ GamepadBindings ParseGamepadBindings(const std::array<std::string, GamepadAction
 
 GamepadBindings DefaultGamepadBindings() { return DefaultGamepadBindings(GamepadFamily::Xbox); }
 
-GamepadBindings DefaultGamepadBindings(GamepadFamily family) {
-    return ParseGamepadBindings(DefaultGamepadInputs(family));
+GamepadBindings DefaultGamepadBindings(GamepadFamily family, GamepadLayout layout) {
+    return ParseGamepadBindings(DefaultGamepadInputs(family, layout));
+}
+
+GamepadProfile GamepadLayoutProfile(GamepadFamily family, GamepadLayout layout) {
+    GamepadProfile profile{DefaultGamepadBindings(family, layout), GamepadLayoutSticks(layout), true};
+    profile.layout = layout;
+    return profile;
 }
 
 GamepadFamily GamepadFamilyOf(SDL_GamepadType type) {
@@ -159,9 +165,10 @@ const char* GamepadKindName(std::string_view kind) {
     return "Xbox and PlayStation";
 }
 
-std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily family) {
+std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily family, GamepadLayout layout) {
     std::array<std::string, GamepadActionCount> inputs;
-    for (std::size_t n = 0; n < GamepadActionCount; ++n) inputs[n] = kGamepadActions[n].defaults;
+    for (std::size_t n = 0; n < GamepadActionCount; ++n)
+        inputs[n] = layout == GamepadLayout::Classic ? kGamepadActions[n].classic : kGamepadActions[n].defaults;
     // SDL names are positions: a = bottom, b = right, x = left, y = top face button.
     if (family == GamepadFamily::Nintendo) {
         // Nintendo prints A on the right and B at the bottom, X on top and Y on the left.

@@ -148,13 +148,18 @@ struct Settings
         // gyro_speed percent (issue #14); recenter_pointer centres it.
         bool gyro_pointer = false;
         int gyro_speed = kDefaultGyroSpeed;
+        // A built-in profile that follows the connected controller (Default,
+        // Classic 1.1): its inputs are those of this layout for the
+        // controller's family. Never set in recharged.ini's profiles.
+        std::optional<GamepadLayout> follows;
         // Spelled out: charged_host is C++17.
         bool operator==(const PadProfile& other) const
         {
             return name == other.name && inputs == other.inputs && sticks == other.sticks
                 && controller == other.controller && inner_deadzone == other.inner_deadzone
                 && outer_deadzone == other.outer_deadzone && trigger_press == other.trigger_press
-                && octagon_stick == other.octagon_stick && gyro_pointer == other.gyro_pointer && gyro_speed == other.gyro_speed;
+                && octagon_stick == other.octagon_stick && gyro_pointer == other.gyro_pointer && gyro_speed == other.gyro_speed
+                && follows == other.follows;
         }
         bool operator!=(const PadProfile& other) const { return !(*this == other); }
     };
@@ -164,17 +169,26 @@ struct Settings
     // follows the layout of the connected controller's family (Xbox,
     // PlayStation, Nintendo, GameCube).
     std::array<std::string, kGamepadSlots> pad_profile_names{"Default", "Default", "Default", "Default"};
-    static PadInputs DefaultPadInputs()
+    // A layout's inputs for Xbox controllers.
+    static PadInputs DefaultPadInputs(GamepadLayout layout = GamepadLayout::Default)
     {
         PadInputs inputs;
-        for (std::size_t n = 0; n < GamepadActionCount; ++n) inputs[n] = kGamepadActions[n].defaults;
+        for (std::size_t n = 0; n < GamepadActionCount; ++n)
+            inputs[n] = layout == GamepadLayout::Classic ? kGamepadActions[n].classic : kGamepadActions[n].defaults;
         return inputs;
     }
-    // The profile gamepad `slot` (0-3) plays with: the index of its named
-    // profile, or -1 for the built-in Default.
+    // Profile indices: 0 and up the named profiles above, -1 the built-in
+    // Default, -2 and down the other built-in profiles (BuiltinPadProfiles,
+    // -2 being the first).
+    const PadProfile& PadProfileAt(int index) const;
+    // The profile gamepad `slot` (0-3) plays with: its named profile, else
+    // the built-in profile of that name, else Default (-1).
     int PadProfileIndex(std::size_t slot) const;
     const PadProfile& PadProfileOf(std::size_t slot) const;
     static const PadProfile& DefaultPadProfile();
+    // Classic 1.1, then those of builtin_pad_profiles.h.
+    static const std::vector<PadProfile>& BuiltinPadProfiles();
+    static int BuiltinPadProfileIndex(std::size_t n) { return -2 - int(n); }
     // controls.rumble: the Wii's rumble setting (Wii Remotes and gamepads);
     // controls.rumble_strength (0-100 %) scales gamepad motors only, as a
     // Wii Remote's motor is either on or off.
@@ -337,9 +351,13 @@ std::optional<std::array<int, 2>> ParseWindowPosition(std::string_view text);
 std::string FormatWindowPosition(int x, int y);
 
 // A gamepad profile name: 1-32 characters, no surrounding spaces, quotes,
-// brackets, '=', '|' or control characters, and not "Default". Names
-// compare case-insensitively.
+// brackets, '=', '|' or control characters, and not the name of a built-in
+// profile. Names compare case-insensitively.
 bool ValidPadProfileName(const std::string& name);
+// The profiles of `ini`, written as in recharged.ini (see
+// builtin_pad_profiles.h); throws when one is invalid or named like Default
+// or Classic 1.1.
+std::vector<Settings::PadProfile> ParseBuiltinPadProfiles(const std::string& ini);
 bool SamePadProfileName(const std::string& a, const std::string& b);
 
 ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing = false);

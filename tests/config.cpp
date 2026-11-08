@@ -152,6 +152,42 @@ int main()
                     && Settings{}.PadProfileOf(2).name == "Default"
                     && Settings{}.PadProfileOf(2).inputs[mscharged::GamepadActionA] == "a",
                 "Gamepads play with the built-in Default profile");
+        // Built-in profiles beside Default, Classic 1.1 first: never stored, and
+        // their names are taken.
+        Require(!Settings::BuiltinPadProfiles().empty() && Settings::BuiltinPadProfiles()[0].name == "Classic 1.1"
+                    && Settings::BuiltinPadProfiles()[0].follows == mscharged::GamepadLayout::Classic
+                    && Settings::DefaultPadProfile().follows == mscharged::GamepadLayout::Default
+                    && !ValidPadProfileName("classic 1.1") && !ValidPadProfileName("Default")
+                    && ValidPadProfileName("Classic"),
+                "Classic 1.1 is built in");
+        {
+            const auto shipped = ParseBuiltinPadProfiles(
+                "[gamepad_profile1]\nname = Sample\ncontroller = nintendo\na = b | x\nsticks = shared\n");
+            Require(shipped.size() == 1 && shipped[0].name == "Sample" && shipped[0].controller == "nintendo"
+                        && shipped[0].inputs[mscharged::GamepadActionA] == "b | x"
+                        && shipped[0].sticks == mscharged::GamepadSticks::Shared && !shipped[0].follows,
+                    "A built-in profile written as in recharged.ini did not load");
+            Reject([] { ParseBuiltinPadProfiles("[gamepad_profile1]\nname = classic 1.1\n"); });
+            Reject([] { ParseBuiltinPadProfiles("[gamepad_profile1]\nname = Default\n"); });
+        }
+        std::ofstream(path) << "[controls]\ngamepad1_profile = classic 1.1\n";
+        {
+            const auto loaded = LoadConfig(path).settings;
+            Require(loaded.PadProfileIndex(0) == Settings::BuiltinPadProfileIndex(0)
+                        && loaded.pad_profile_names[0] == "Classic 1.1"
+                        && loaded.PadProfileOf(0).follows == mscharged::GamepadLayout::Classic,
+                    "A gamepad did not find the built-in Classic 1.1 by name");
+        }
+        // A profile of a player named like a built-in one gets a number, and its gamepads keep it.
+        std::ofstream(path) << "[controls]\ngamepad1_profile = classic 1.1\n"
+                               "[gamepad_profile1]\nname = Classic 1.1\nb = x\n[gamepad_profile2]\nname = Classic 1.1 2\n";
+        {
+            const auto loaded = LoadConfig(path).settings;
+            Require(loaded.pad_profiles.size() == 2 && loaded.pad_profiles[0].name == "Classic 1.1 3"
+                        && loaded.PadProfileIndex(0) == 0 && loaded.pad_profile_names[0] == "Classic 1.1 3"
+                        && loaded.pad_profiles[0].inputs[mscharged::GamepadActionB] == "x",
+                    "A profile named like a built-in one was not renamed or lost its gamepad");
+        }
         std::ofstream(path) << "; my pads\n[controls]\ngamepad2_profile = kyle\ngamepad3_profile = Gone\n"
                                "[gamepad_profile1]\n; Kyle's layout\nname = Kyle\na = b | start\nswap_sticks = true\n"
                                "inner_deadzone = 22\nouter_deadzone = 90\ntrigger_press = 30\noctagon_stick = true\n"

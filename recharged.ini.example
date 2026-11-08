@@ -195,7 +195,8 @@ game_options = F2
 show_hud = true
 
 # Gamepad profiles ([gamepad_profile1] to [gamepad_profile16]), made on the
-# launcher's Controls page: a unique name (not Default) and one to three SDL
+# launcher's Controls page: a unique name (not that of a built-in profile,
+# such as Default or Classic 1.1) and one to three SDL
 # gamepad inputs per action, separated by |: a, b, x, y (bottom, right, left,
 # top face button), start, back, guide, leftshoulder, rightshoulder,
 # leftstick, rightstick, dpup, dpdown, dpleft, dpright, lefttrigger,

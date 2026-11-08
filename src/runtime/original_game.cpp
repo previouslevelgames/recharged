@@ -772,9 +772,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         for (std::size_t pad = 0; pad < desktop.gamepad_profiles.size(); ++pad) {
             const auto& profile = launch.settings.PadProfileOf(pad);
             desktop.gamepad_profiles[pad] = {mscharged::platform::ParseGamepadBindings(profile.inputs),
-                                             profile.sticks, launch.settings.PadProfileIndex(pad) < 0,
+                                             profile.sticks, profile.follows.has_value(),
                                              profile.inner_deadzone, profile.outer_deadzone, profile.trigger_press,
-                                             profile.octagon_stick, profile.gyro_pointer, profile.gyro_speed};
+                                             profile.octagon_stick, profile.gyro_pointer, profile.gyro_speed,
+                                             profile.follows.value_or(mscharged::GamepadLayout::Default)};
         }
         mscharged::platform::WpadSDLSettings wpad{static_cast<std::uint8_t>(launch.settings.sensor_bar=="top"?1:0),
             static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
