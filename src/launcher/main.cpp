@@ -6921,12 +6921,12 @@ private:
             }
             ImGui::PopStyleVar();
         };
-        const std::string remote_title = "Wii Remote buttons: " + profile.name;
-        BeginCard("##pad_remote", remote_title.c_str(),
-                  "Each Wii Remote button, and the controller button that presses it.", Icon::Gamepad);
+        BeginCard("##pad_remote", "Wii Remote Buttons",
+                  "Press each Wii Remote input, followed by the controller button you want to map to it.",
+                  Icon::Gamepad);
         rows(GamepadActionA, GamepadActionC);
         EndCard();
-        BeginCard("##pad_nunchuk", "Nunchuk & motion",
+        BeginCard("##pad_nunchuk", "Nunchuk & Motion",
                   "The Nunchuk stick and pointer on the controller's sticks or gyro, the Nunchuk buttons and "
                   "the shakes.",
                   Icon::Gamepad);
@@ -6937,7 +6937,7 @@ private:
         {
             ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
             ImGui::TableSetupColumn("inputs", ImGuiTableColumnFlags_WidthStretch);
-            KeyRow("Nunchuk stick", {swap ? "Right stick" : "Left stick"}, nullptr, "Move, aim");
+            KeyRow("Nunchuk Stick", {swap ? "Right stick" : "Left stick"}, nullptr, "Move");
             KeyRow("Pointer", {gyro ? "Gyro" : swap ? "Left stick" : "Right stick"}, nullptr,
                    "Point at menu items and Mega Strike shots");
             ImGui::EndTable();

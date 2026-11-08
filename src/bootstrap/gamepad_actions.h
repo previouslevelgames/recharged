@@ -32,21 +32,21 @@ enum GamepadActionIndex : std::size_t
 };
 
 inline constexpr std::array<GamepadAction, GamepadActionCount> kGamepadActions{{
-    {"a", "A", "Confirm, select", "a"},
-    {"b", "B", "Back", "b"},
-    {"one", "1", nullptr, "x"},
+    {"a", "A", "Pass / Confirm", "a"},
+    {"b", "B", "Shoot / Clear / Back", "b"},
+    {"one", "1", "Pause Menu", "x"},
     {"two", "2", nullptr, "y"},
     {"plus", "+ (Plus)", nullptr, "start"},
     {"minus", "\xE2\x88\x92 (Minus)", nullptr, "back"},
     {"home", "HOME", nullptr, "guide"},
-    {"up", "D-pad up", nullptr, "dpup"},
-    {"down", "D-pad down", nullptr, "dpdown"},
-    {"left", "D-pad left", nullptr, "dpleft"},
-    {"right", "D-pad right", nullptr, "dpright"},
-    {"c", "C", "Nunchuk button", "leftshoulder"},
-    {"z", "Z", "Nunchuk button", "lefttrigger"},
-    {"shake_remote", "Shake Remote", "Hit an opponent", "righttrigger"},
-    {"shake_nunchuk", "Shake Nunchuk", "Switch items", "rightshoulder"},
+    {"up", "D-pad up", "Fake / Slide Tackle", "dpup"},
+    {"down", "D-pad down", "Fake / Slide Tackle", "dpdown"},
+    {"left", "D-pad left", "Fake / Slide Tackle", "dpleft"},
+    {"right", "D-pad right", "Fake / Slide Tackle", "dpright"},
+    {"c", "C", "Use Item", "leftshoulder"},
+    {"z", "Z", "Chip Ahead / Lob Pass", "lefttrigger"},
+    {"shake_remote", "Shake Wii Remote", "Hit an Opponent", "righttrigger"},
+    {"shake_nunchuk", "Shake Nunchuk", "Swap Items", "rightshoulder"},
     {"recenter_pointer", "Recenter pointer", "Back to the middle", "rightstick"},
 }};
 
