@@ -95,6 +95,10 @@ constexpr std::chrono::seconds kSpeakerReport{30};
 constexpr std::chrono::milliseconds kRumbleRide{10};
 // A remote that becomes a player rumbles this long (WiimoteHidSettings::bind_rumble).
 constexpr std::chrono::milliseconds kBindRumble{200};
+// A remote nothing was written to for this long gets a rumble report with the
+// current rumble bit, as Dolphin's writer does: Remotes on a laptop's Windows
+// Bluetooth turned themselves off after minutes of play here, not in Dolphin.
+constexpr std::chrono::milliseconds kWriteKeepAlive{1000};
 using Frame = std::array<std::uint8_t, 22>;
 struct Writer {
     struct Report {
@@ -110,6 +114,7 @@ struct Writer {
     Clock::time_point last_frame{};
     bool rumble_due = false; // a rumble change no report has carried yet
     Clock::time_point pulse_end{}; // end of the player pulse (Remote::pulse)
+    Clock::time_point last_write = Clock::now(); // start of the last write (kWriteKeepAlive)
     std::deque<std::pair<std::uint64_t, bool>> results; // sequence, sent
     bool stop = false, drain = false;
     // Speaker frames since the last report, under the mutex.
@@ -209,14 +214,16 @@ void RunWriter(Remote* remote, SDL_hid_device* hid) {
     };
     for (;;) {
         // The player pulse ends here on time, however busy the owner is.
-        if (remote->pulse) writer.wake.wait_until(lock, writer.pulse_end, busy);
-        else writer.wake.wait(lock, busy);
+        const auto keep_alive = writer.last_write + kWriteKeepAlive;
+        writer.wake.wait_until(lock, remote->pulse ? std::min(writer.pulse_end, keep_alive) : keep_alive, busy);
         if (remote->pulse && Clock::now() >= writer.pulse_end) {
             remote->pulse = false;
             writer.rumble_due = true;
         }
+        if (!busy() && Clock::now() >= writer.last_write + kWriteKeepAlive) writer.rumble_due = true;
         if (!busy()) continue;
         if (writer.stop && (!writer.drain || writer.reports.empty())) return;
+        writer.last_write = Clock::now();
         if (!writer.reports.empty()) {
             auto report = std::move(writer.reports.front());
             writer.reports.pop_front();
