@@ -43,6 +43,7 @@
 #include "src/ode/objects.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -100,9 +101,12 @@ Fields sSteps[kRing];
 Fields sConfirmed[kConfirmedRing];
 Fields* sRecording;
 std::uintptr_t sModuleBase;
-// The dossier of the last desync, until the host takes it.
+// The dossier of the last desync, until the host takes it; written under
+// sMutex. sDossierReady lets the host's look after every frame skip the lock
+// while there is none.
 unsigned char sDossier[kDesyncDossierMaxBytes];
 unsigned sDossierSize;
+std::atomic<bool> sDossierReady{false};
 std::uint32_t Hash(const unsigned char* bytes, unsigned long size)
 {
     std::uint32_t hash = 2166136261u;
@@ -336,6 +340,7 @@ void KeepDossier(const SyncPoint& ours, const SyncPoint& remote)
         }
     }
     sDossierSize = size;
+    sDossierReady.store(true, std::memory_order_release);
 }
 
 void LogFields(unsigned frame)
@@ -596,10 +601,12 @@ extern "C" void mscharged_rollback_checksum_field(const void* data, unsigned lon
 extern "C" __attribute__((visibility("default"))) unsigned charged_desync_dossier(void* out, unsigned capacity)
 {
     using namespace mscharged::rollback;
+    if (!sDossierReady.load(std::memory_order_acquire)) return 0;
     std::lock_guard lock(sMutex);
     if (!sDossierSize || !out || capacity < sDossierSize) return 0;
     std::memcpy(out, sDossier, sDossierSize);
     const unsigned size = sDossierSize;
     sDossierSize = 0;
+    sDossierReady.store(false, std::memory_order_relaxed);
     return size;
 }
