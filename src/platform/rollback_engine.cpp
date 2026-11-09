@@ -600,7 +600,10 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     {
         // Steps undone: they run again when their inputs have all arrived (the
         // inputs that did arrive are kept), and their time goes back to the
-        // fixed update, to catch up.
+        // fixed update, to catch up. The saves undone no longer count: the
+        // trim would go back past the tracking's start, to a step of the
+        // tracking before.
+        if (s.latest > s.replayEnd) s.stored -= static_cast<int>(s.latest - s.replayEnd);
         s.latest = s.replayEnd;
         s.net.lastInputFrame = s.replayEnd;
         s.net.waitThrough = std::max(s.net.waitThrough, ran);
