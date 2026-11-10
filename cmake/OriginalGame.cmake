@@ -338,7 +338,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SystemUsage.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Updates.cmake")
 add_library(charged_original_game_host OBJECT
     src/runtime/original_game.cpp src/runtime/frame_timing_log.cpp src/runtime/host_overlay.cpp
-    src/runtime/host_panel.cpp
+    src/runtime/menu_input.cpp
     src/runtime/game_window.cpp
     src/runtime/texture_pack_loading.cpp src/platform/hd_recolour.cpp
     src/runtime/host_frame_pacing.cpp
@@ -376,8 +376,8 @@ target_link_libraries(charged_original_game_host PRIVATE charged_texts)
 # (src/overlay, built with the launcher, through Aurora's ImGui).
 if(TARGET charged_overlay)
     target_sources(charged_original_game_host PRIVATE src/runtime/host_menus.cpp)
-    target_link_libraries(charged_original_game_host PRIVATE charged_overlay charged_recharged_ui charged_mii_head
-        charged_match_presets)
+    target_link_libraries(charged_original_game_host PRIVATE charged_overlay charged_recharged_ui charged_ui_kit
+        charged_mii_head charged_match_presets)
     target_compile_definitions(charged_original_game_host PRIVATE MSCHARGED_HAS_GAME_OVERLAY=1)
 endif()
 # The graphics cards the menus' Advanced settings offer, as the launcher's.

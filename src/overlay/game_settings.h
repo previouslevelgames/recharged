@@ -1,20 +1,16 @@
 #pragma once
 
 #include "bootstrap/sound_groups.h"
-#include "overlay/overlay_rows.h"
 
 #include <array>
 #include <optional>
 #include <string>
 #include <vector>
 
-// The overlay's Settings tab (game_overlay.h): the display and sound settings
-// that change at once while the game runs, in sections (Display, Sound,
-// Advanced) of a menu at the left, split as the other tabs. One section is
-// always shown, the first at the start: the cursor on a menu item shows its
-// section, whose rows are beside it; B closes the overlay. The host applies
-// each change and saves it (recharged.ini). Settings that need the game
-// started again stay in the launcher, and so do the controls.
+// The menus' SETTINGS page (src/ui/rui_pages.cpp): the display, sound and
+// advanced settings that change while the game runs. The host applies each
+// change and saves it (recharged.ini). Files and folders stay in the
+// launcher, and so do the controls.
 namespace mscharged::overlay
 {
 struct GameSettingsModel
@@ -78,7 +74,7 @@ enum class GameSetting
     LogWindow,
 };
 
-// A setting changed in the tab; switches carry their new state in `value` (0 or 1).
+// A setting changed on the page; switches carry their new state in `value` (0 or 1).
 // `live`: a slider being dragged: applied now, saved once it is let go.
 struct GameSettingChange
 {
@@ -88,20 +84,4 @@ struct GameSettingChange
     bool live = false;
 };
 
-// The tab's screen (OverlayScreens::Screen::id): the menu with its section.
-enum class GameSettingsScreen
-{
-    Menu = 0,
-};
-
-// What the tab keeps between frames: its menu's (overlay_rows.h), whose
-// sections are Display, Sound and Advanced.
-struct GameSettingsState : OverlaySectionState
-{
-};
-
-OverlayScreens::Screen GameSettingsFirstScreen();
-std::string GameSettingsTitle(const OverlayScreens& screens);
-void DrawGameSettings(const GameSettingsModel& model, GameSettingsState& state, OverlayScreens& screens,
-                      std::optional<GameSettingChange>& change, const OverlayLayout& layout);
 } // namespace mscharged::overlay

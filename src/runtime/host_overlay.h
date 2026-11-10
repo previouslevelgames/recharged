@@ -2,7 +2,6 @@
 
 #include "runtime/fps_overlay_layout.h"
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
-#include "launcher/ui_kit.h"
 #include "ui/rui_kit.h"
 #endif
 #include "platform/system_usage.h"
@@ -19,15 +18,14 @@ struct ImFont;
 
 namespace mscharged::runtime {
 
-class HostPanel;
 class HostMenus;
 
 // What the host draws over the presented picture, in windowed and fullscreen
 // mode: the performance overlay (display.fps_overlay: FPS | GPU % | CPU %, then
 // in network sessions LAT (round trip, ms) and in network matches with rollback
-// DLY (input delay, ms) | RB (rollback frames)) and short messages, such as what a display hotkey changed. Host
-// presentation only; the game never sees it. Use it on the presentation owner
-// thread, between game frames.
+// DLY (input delay, ms) | RB (rollback frames)), short messages, such as what a display hotkey changed, and
+// Recharged's menus. Host presentation only; the game never sees it. Use it on the presentation owner thread,
+// between game frames.
 class HostOverlay {
 public:
     using Clock = std::chrono::steady_clock;
@@ -56,49 +54,25 @@ public:
     void SetNetwork(const Network& network);
     // Shows `text` for a moment, replacing the message shown before.
     void ShowMessage(std::string text, Clock::time_point now);
-    // A lasting hint in the top-left corner (the online panel's key while the
-    // game is in its menus): its keys as keycaps, then `text`. Hidden while
-    // the panel or a card is open; messages show below it. None hides it.
+    // A lasting hint in the top-left corner (the menus' key while the game is
+    // in its menus): its keys as keycaps, then `text`. Hidden while the menus
+    // show; messages show below it. None hides it.
     struct Hint {
         std::vector<std::string> keys;
         std::string text;
         bool operator==(const Hint&) const = default;
     };
     void SetHint(std::optional<Hint> hint);
-    // A card in the middle of the dimmed picture that asks the player
-    // something (a challenge from another player): the A and B buttons'
-    // answers. None hides it. The host holds the players' buttons meanwhile.
-    struct Card {
-        std::string kicker;  // the small line above the title
-        std::string title;
-        std::string detail;  // wrapped under the title
-        std::string accept;  // the A button
-        std::string decline; // the B button
-        std::string note;    // under the buttons
-        bool operator==(const Card&) const = default;
-    };
-    void SetCard(std::optional<Card> card);
-    // The host panel (F1 or HOME), drawn while open in place of the card,
-    // under the performance numbers and messages; null for none.
-    void SetPanel(HostPanel* panel);
-    // Closes the host panel if it is open (a set going on into the game).
-    void ClosePanel();
-    // Recharged's menus (the development switch "Override retail menus"),
-    // drawn while shown like the panel; null for none.
+    // Recharged's menus, drawn while shown under the performance numbers and
+    // messages; null for none.
     void SetMenus(HostMenus* menus);
-#if defined(MSCHARGED_HAS_GAME_OVERLAY)
-    // The game overlay's fonts (src/overlay), at the panel's unit; none
-    // without the overlay's font file (ImGui's own font then).
-    const launcher::Fonts& OverlayFonts() const { return overlayFonts_; }
-#endif
     // Rebuild only when a displayed value, the message's fade or the window's
-    // pixel size changes, and every call while the panel is open. Unknown
+    // pixel size changes, and every call while the menus show. Unknown
     // measurements show N/A, including during the first sample window.
     void Update(std::uint32_t surface_width, std::uint32_t surface_height, Clock::time_point now);
 
 private:
-    void BuildFonts(float size, float unit, float menuScale);
-    void DrawCard(float width, float height, float unit);
+    void BuildFonts(float size, float menuScale);
 
     std::optional<OverlayCorner> performance_;
     std::optional<platform::SystemUsageMonitor> usage_;
@@ -106,14 +80,8 @@ private:
     std::optional<int> value_;
     Network network_;
     std::string message_;
-    std::optional<Card> card_, shownCard_;
     std::optional<Hint> hint_, shownHint_;
-    HostPanel* panel_ = nullptr;
     HostMenus* menus_ = nullptr;
-#if defined(MSCHARGED_HAS_GAME_OVERLAY)
-    launcher::Fonts overlayFonts_{};
-#endif
-    bool shownPanel_ = false;
     bool shownMenus_ = false;
     Clock::time_point messageShown_{};
     std::array<std::optional<int>, kMaxPerformanceMetrics> shownValues_{};
@@ -124,14 +92,10 @@ private:
     std::uint32_t shownWidth_ = 0;
     std::uint32_t shownHeight_ = 0;
     float builtSize_ = 0.0f;
-    float builtUnit_ = 0.0f;
     float builtMenuScale_ = 0.0f;
     ImFont* number_ = nullptr;
     ImFont* label_ = nullptr;
     ImFont* messageFont_ = nullptr;
-    // The card's: its title and buttons (bold), its text, its small lines.
-    ImFont* cardBold_ = nullptr;
-    ImFont* cardText_ = nullptr;
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
     // Recharged's menus' (bold): their title, plates, rows and small lines.
     ui::Fonts menuFonts_{};

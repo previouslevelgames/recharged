@@ -1,9 +1,8 @@
-# The game's overlay over its picture (F1, F2 or HOME): tabs for Online (the
-# player, their set, friends online, players available) and Game options. The
-# Online tab's data comes from the profile service's lists without any drawing
-# (charged_overlay_model); the overlay draws with ImGui and the launcher's
-# widgets (charged_overlay), in the game through Aurora and in the launcher's
-# preview (--page online-panel).
+# The data of Recharged's menus (src/overlay): the online pages' model from
+# the profile service's lists (charged_overlay_model), players' pictures
+# (charged_overlay_images), the challenge setup and the gameplay options'
+# groups (charged_overlay); the menus themselves are the UI kit's (src/ui,
+# charged_recharged_ui).
 include_guard(GLOBAL)
 add_library(charged_overlay_model STATIC src/overlay/online_panel_model.cpp src/overlay/flags.cpp)
 target_include_directories(charged_overlay_model PUBLIC src)
@@ -15,7 +14,7 @@ if(BUILD_TESTING)
     add_test(NAME online_panel COMMAND online_panel_tests)
 endif()
 
-# The launcher's palette and widgets (pure ImGui), shared by the launcher and the overlay.
+# The launcher's palette and widgets (pure ImGui), and the fallback fonts the game's menus share.
 add_library(charged_ui_kit STATIC src/launcher/ui_kit.cpp src/launcher/fallback_fonts.cpp)
 target_include_directories(charged_ui_kit PUBLIC src)
 target_compile_features(charged_ui_kit PUBLIC cxx_std_17)
@@ -34,14 +33,8 @@ if(BUILD_TESTING)
     add_test(NAME overlay_images COMMAND overlay_images_tests)
 endif()
 
-add_library(charged_overlay STATIC src/overlay/overlay_frame.cpp src/overlay/overlay_rows.cpp src/overlay/game_settings.cpp src/overlay/online_panel.cpp
-    src/overlay/game_options.cpp src/overlay/game_overlay.cpp src/overlay/overlay_prompt.cpp src/overlay/ranked_tab.cpp)
-target_link_libraries(charged_overlay PUBLIC charged_overlay_model charged_ui_kit charged_overlay_images)
-if(BUILD_TESTING)
-    add_executable(game_overlay_tests tests/game_overlay.cpp)
-    target_link_libraries(game_overlay_tests PRIVATE charged_overlay)
-    add_test(NAME game_overlay COMMAND game_overlay_tests)
-endif()
+add_library(charged_overlay STATIC src/overlay/online_panel.cpp src/overlay/game_options.cpp)
+target_link_libraries(charged_overlay PUBLIC charged_overlay_model charged_overlay_images)
 
 # Recharged's menus in the look of the game's own (src/ui, the UI kit): the
 # TV set, its plates and rows, and the pages (OPTIONS, GAMEPLAY, GRAPHICS,

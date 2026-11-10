@@ -2,13 +2,7 @@
 
 #include "launcher/fallback_fonts.h"
 #include "platform/name_glyphs.h"
-#if defined(MSCHARGED_HAS_GAME_OVERLAY)
-#include "overlay/overlay_frame.h"
-#endif
-
-#include "overlay/overlay_unit.h"
 #include "platform/path.h"
-#include "runtime/host_panel.h"
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "runtime/host_menus.h"
 #endif
@@ -28,20 +22,12 @@ namespace mscharged::runtime {
 namespace {
 // Printable ASCII and the multiplication sign of sizes (1920 × 1080).
 constexpr ImWchar kGlyphs[] = {0x0020, 0x007E, 0x00D7, 0x00D7, 0};
-// The card shows players' names: what the font has for them (Latin letters
-// with accents, Greek, Cyrillic), the general punctuation, currency and
-// letterlike symbols; other characters come from the system's fonts.
-constexpr ImWchar kCardGlyphs[] = {0x0020, 0x024F, 0x0370, 0x03FF, 0x0400, 0x052F, 0x2000, 0x206F,
+// Messages and the menus show players' names and Recharged's texts: what the
+// font has for them (Latin letters with accents, Greek, Cyrillic), the general
+// punctuation, currency and letterlike symbols; other characters come from
+// the system's fonts.
+constexpr ImWchar kTextGlyphs[] = {0x0020, 0x024F, 0x0370, 0x03FF, 0x0400, 0x052F, 0x2000, 0x206F,
                                    0x20A0, 0x20CF, 0x2100, 0x214F, 0};
-// The card, in units of 1/720 of the picture's height: the launcher's colours.
-constexpr ImU32 kDim = IM_COL32(4, 7, 12, 178);
-constexpr ImU32 kCard = IM_COL32(18, 25, 41, 250);
-constexpr ImU32 kCardBorder = IM_COL32(36, 48, 72, 255);
-constexpr ImU32 kCardText = IM_COL32(234, 240, 250, 255);
-constexpr ImU32 kCardMuted = IM_COL32(139, 151, 176, 255);
-constexpr ImU32 kAccent = IM_COL32(76, 240, 122, 255);
-constexpr ImU32 kAccentInk = IM_COL32(6, 33, 15, 255);
-constexpr ImU32 kButton = IM_COL32(24, 33, 53, 255);
 constexpr ImU32 kNumber = IM_COL32(255, 255, 255, 255);
 constexpr ImU32 kLabel = IM_COL32(211, 215, 221, 255);
 constexpr ImU32 kDivider = IM_COL32(211, 215, 221, 190);
@@ -56,6 +42,65 @@ ImU32 WithAlpha(ImU32 color, int opacity)
 {
     const auto alpha = (color >> IM_COL32_A_SHIFT) & 0xFF;
     return (color & ~IM_COL32_A_MASK) | (ImU32(alpha * opacity / kOpacitySteps) << IM_COL32_A_SHIFT);
+}
+
+// A plate in the look of Recharged's menus for a message or the hint: dark
+// glass with a soft shadow and a gold edge at its left.
+void Plate(ImDrawList* draw, ImVec2 min, ImVec2 max, float size, int opacity)
+{
+    const float round = std::round(size * 0.3f), edge = std::max(2.0f, std::round(size * 0.16f));
+    const float drop = std::max(1.0f, std::round(size * 0.12f));
+    draw->AddRectFilled({min.x, min.y + drop}, {max.x, max.y + drop}, WithAlpha(IM_COL32(0, 0, 0, 110), opacity), round);
+    draw->AddRectFilled(min, max, WithAlpha(IM_COL32(18, 20, 26, 215), opacity), round);
+    draw->AddRect(min, max, WithAlpha(IM_COL32(255, 255, 255, 34), opacity), round, 0, 1.0f);
+    draw->AddRectFilled(min, {min.x + edge, max.y}, WithAlpha(IM_COL32(255, 200, 60, 255), opacity), round,
+                        ImDrawFlags_RoundCornersLeft);
+}
+
+// The width of a key's glyph (KeyGlyph) at text size `size`.
+float KeyGlyphWidth(ImFont* font, float size, const std::string& key)
+{
+    const float height = std::round(size * 1.45f);
+    if (key == "HOME") return height;
+    return std::max(height, std::round(font->CalcTextSizeA(size * 0.82f, FLT_MAX, 0, key.c_str()).x + size * 0.9f));
+}
+
+// A key as the player presses it, left-aligned at `at` and centred on
+// `middle`: the Wii Remote's round HOME button with its house; else a key of
+// the keyboard, with depth, its name on its top face.
+void KeyGlyph(ImDrawList* draw, ImFont* font, float size, float x, float middle, const std::string& key)
+{
+    const float height = std::round(size * 1.45f), width = KeyGlyphWidth(font, size, key);
+    const float top = std::round(middle - height * 0.5f), bottom = top + height;
+    if (key == "HOME")
+    {
+        const ImVec2 centre{x + height * 0.5f, middle};
+        const float radius = height * 0.5f;
+        draw->AddCircleFilled({centre.x, centre.y + size * 0.08f}, radius, IM_COL32(0, 0, 0, 120), 32);
+        draw->AddCircleFilled(centre, radius, IM_COL32(150, 156, 166, 255), 32);
+        draw->AddCircleFilled(centre, radius * 0.86f, IM_COL32(236, 238, 242, 255), 32);
+        // The house: its roof and its body, in the Remote's blue.
+        const float w = radius * 0.95f, h = radius * 0.8f;
+        const ImU32 blue = IM_COL32(52, 118, 210, 255);
+        const float roof = centre.y - h * 0.08f, ground = centre.y + h * 0.5f;
+        draw->AddTriangleFilled({centre.x - w * 0.6f, roof}, {centre.x, centre.y - h * 0.62f},
+                                {centre.x + w * 0.6f, roof}, blue);
+        draw->AddRectFilled({centre.x - w * 0.38f, roof - 0.5f}, {centre.x + w * 0.38f, ground}, blue);
+        draw->AddRectFilled({centre.x - w * 0.1f, centre.y + h * 0.12f}, {centre.x + w * 0.1f, ground},
+                            IM_COL32(236, 238, 242, 255));
+        return;
+    }
+    const float round = std::round(size * 0.28f), lip = std::max(2.0f, std::round(size * 0.2f));
+    draw->AddRectFilled({x, top + size * 0.08f}, {x + width, bottom + size * 0.08f}, IM_COL32(0, 0, 0, 120), round);
+    draw->AddRectFilled({x, top}, {x + width, bottom}, IM_COL32(30, 33, 40, 255), round);
+    draw->AddRectFilledMultiColor({x + 2, top + 2}, {x + width - 2, bottom - lip}, IM_COL32(86, 91, 102, 255),
+                                  IM_COL32(86, 91, 102, 255), IM_COL32(60, 64, 73, 255), IM_COL32(60, 64, 73, 255));
+    draw->AddRect({x, top}, {x + width, bottom}, IM_COL32(150, 156, 168, 200), round, 0, 1.0f);
+    const float text = size * 0.82f;
+    const ImVec2 measured = font->CalcTextSizeA(text, FLT_MAX, 0, key.c_str());
+    draw->AddText(font, text, {std::round(x + (width - measured.x) * 0.5f),
+                               std::round(top + (height - lip - measured.y) * 0.5f + 1.0f)},
+                  IM_COL32(250, 250, 250, 255), key.c_str());
 }
 } // namespace
 
@@ -81,10 +126,6 @@ void HostOverlay::ShowMessage(std::string text, Clock::time_point now)
     messageShown_ = now;
 }
 
-void HostOverlay::SetCard(std::optional<Card> card) { card_ = std::move(card); }
-
-void HostOverlay::SetPanel(HostPanel* panel) { panel_ = panel; }
-
 void HostOverlay::SetMenus(HostMenus* menus) { menus_ = menus; }
 
 void HostOverlay::SetPerformance(std::optional<OverlayCorner> corner)
@@ -96,18 +137,13 @@ void HostOverlay::SetPerformance(std::optional<OverlayCorner> corner)
 
 void HostOverlay::SetHint(std::optional<Hint> hint) { hint_ = std::move(hint); }
 
-void HostOverlay::ClosePanel()
-{
-    if (panel_ && panel_->IsOpen()) panel_->Close();
-}
-
-void HostOverlay::BuildFonts(float size, float unit, float menuScale)
+void HostOverlay::BuildFonts(float size, float menuScale)
 {
     ImGuiIO& io = ImGui::GetIO();
     for (;;) {
         io.Fonts->Clear();
         io.Fonts->Flags |= ImFontAtlasFlags_NoMouseCursors;
-        // Players' names may need characters the font lacks: from the system's fonts.
+        // Names and texts may need characters the font lacks: from the system's fonts.
         launcher::PrepareNameGlyphs();
         ImFontConfig config;
         config.FontDataOwnedByAtlas = false;
@@ -118,33 +154,28 @@ void HostOverlay::BuildFonts(float size, float unit, float menuScale)
             return io.Fonts->AddFontFromMemoryTTF(fontData_.data(), static_cast<int>(fontData_.size()), pixels,
                                                   &config, kGlyphs);
         };
-        const auto addCard = [&](float pixels) {
+        const auto addText = [&](float pixels) {
             config.SizePixels = pixels;
             if (fontData_.empty()) return io.Fonts->AddFontDefault(&config);
             ImFont* font = io.Fonts->AddFontFromMemoryTTF(fontData_.data(), static_cast<int>(fontData_.size()),
-                                                          pixels, &config, kCardGlyphs);
-            // Names on the card and in the messages.
+                                                          pixels, &config, kTextGlyphs);
             if (font) launcher::MergeNameGlyphs(*io.Fonts, pixels);
             return font;
         };
         label_ = add(size);
-        messageFont_ = addCard(MessageFontSize(size));
-        cardText_ = addCard(std::round(17.0f * unit));
+        messageFont_ = addText(MessageFontSize(size));
         config.FontBuilderFlags |= ImGuiFreeTypeBuilderFlags_Bold;
         number_ = add(size);
-        cardBold_ = addCard(std::round(26.0f * unit));
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
         // Recharged's menus' (when there are any), at the size they draw
         // them (a lit plate's a little larger than the rest).
         menuFonts_ = {};
         if (menuScale > 0.0f) {
-            menuFonts_.title = addCard(std::round(ui::kTitleSize * menuScale));
-            menuFonts_.plate = addCard(std::round(ui::kPlateSize * ui::kLitPlateScale * menuScale));
-            menuFonts_.row = addCard(std::round(ui::kRowSize * menuScale));
-            menuFonts_.small = addCard(std::round(ui::kSmallSize * menuScale));
+            menuFonts_.title = addText(std::round(ui::kTitleSize * menuScale));
+            menuFonts_.plate = addText(std::round(ui::kPlateSize * ui::kLitPlateScale * menuScale));
+            menuFonts_.row = addText(std::round(ui::kRowSize * menuScale));
+            menuFonts_.small = addText(std::round(ui::kSmallSize * menuScale));
         }
-        overlayFonts_ = fontData_.empty() ? launcher::Fonts{}
-            : overlay::AddOnlinePanelFonts(*io.Fonts, fontData_.data(), static_cast<int>(fontData_.size()), unit);
 #endif
         if (io.Fonts->Build() || fontData_.empty()) break;
         std::fprintf(stderr, "Host overlay: unreadable font; using the built-in font.\n");
@@ -153,81 +184,7 @@ void HostOverlay::BuildFonts(float size, float unit, float menuScale)
     // Waits for presentations that still show the previous atlas.
     aurora_imgui_update_overlay_fonts();
     builtSize_ = size;
-    builtUnit_ = unit;
     builtMenuScale_ = menuScale;
-}
-
-void HostOverlay::DrawCard(float width, float height, float u)
-{
-    const Card& card = *card_;
-    ImDrawList* draw = ImGui::GetForegroundDrawList();
-    draw->AddRectFilled({0, 0}, {width, height}, kDim);
-    const float cardWidth = std::min(560.0f * u, width * 0.9f), pad = 28.0f * u;
-    const float inner = cardWidth - 2.0f * pad;
-    const float title = 26.0f * u, text = 17.0f * u, small = 14.0f * u, button = 46.0f * u;
-    const auto measure = [&](ImFont* font, float size, const std::string& value) {
-        return value.empty() ? 0.0f : font->CalcTextSizeA(size, FLT_MAX, inner, value.c_str()).y;
-    };
-    const float kicker = measure(cardBold_, small, card.kicker), heading = measure(cardBold_, title, card.title),
-                detail = measure(cardText_, text, card.detail), note = measure(cardText_, small, card.note);
-    const float cardHeight = pad + (kicker ? kicker + 6.0f * u : 0.0f) + heading + (detail ? 8.0f * u + detail : 0.0f)
-        + 24.0f * u + button + (note ? 14.0f * u + note : 0.0f) + pad;
-    const ImVec2 min{std::round((width - cardWidth) * 0.5f), std::round((height - cardHeight) * 0.5f)};
-    const ImVec2 max{min.x + cardWidth, min.y + cardHeight};
-    const float round = 18.0f * u;
-    // A soft shadow, the card, its border and the accent line along its top.
-    for (int n = 3; n >= 1; --n) {
-        const float spread = float(n) * 6.0f * u;
-        draw->AddRectFilled({min.x - spread, min.y - spread + 8.0f * u}, {max.x + spread, max.y + spread + 8.0f * u},
-                            IM_COL32(0, 0, 0, 34), round + spread);
-    }
-    draw->AddRectFilled(min, max, kCard, round);
-    draw->AddRect(min, max, kCardBorder, round, 0, std::max(1.0f, u));
-    draw->AddRectFilled({min.x + round, min.y}, {max.x - round, min.y + std::max(2.0f, 3.0f * u)}, kAccent);
-
-    float y = min.y + pad;
-    const float x = min.x + pad;
-    if (kicker) {
-        draw->AddText(cardBold_, small, {x, y}, kAccent, card.kicker.c_str(), nullptr, inner);
-        y += kicker + 6.0f * u;
-    }
-    draw->AddText(cardBold_, title, {x, y}, kCardText, card.title.c_str(), nullptr, inner);
-    y += heading;
-    if (detail) {
-        y += 8.0f * u;
-        draw->AddText(cardText_, text, {x, y}, kCardMuted, card.detail.c_str(), nullptr, inner);
-        y += detail;
-    }
-    y += 24.0f * u;
-
-    // The two answers, each with its button's letter in a circle.
-    const float gap = 12.0f * u, half = (inner - gap) * 0.5f, label = 18.0f * u;
-    const auto answer = [&](float left, const char* letter, const std::string& value, bool primary) {
-        const ImVec2 a{left, y}, b{left + half, y + button};
-        if (primary) draw->AddRectFilled(a, b, kAccent, button * 0.5f);
-        else {
-            draw->AddRectFilled(a, b, kButton, button * 0.5f);
-            draw->AddRect(a, b, kCardBorder, button * 0.5f, 0, std::max(1.0f, u));
-        }
-        const float badge = 13.0f * u;
-        const ImVec2 labelSize = cardBold_->CalcTextSizeA(label, FLT_MAX, 0, value.c_str());
-        const float total = badge * 2.0f + 10.0f * u + labelSize.x;
-        const float start = left + (half - total) * 0.5f, middle = y + button * 0.5f;
-        const ImVec2 centre{start + badge, middle};
-        draw->AddCircleFilled(centre, badge, primary ? kAccentInk : IM_COL32(52, 66, 94, 255));
-        const ImVec2 letterSize = cardBold_->CalcTextSizeA(label * 0.8f, FLT_MAX, 0, letter);
-        draw->AddText(cardBold_, label * 0.8f, {centre.x - letterSize.x * 0.5f, centre.y - letterSize.y * 0.5f},
-                      primary ? kAccent : kCardText, letter);
-        draw->AddText(cardBold_, label, {start + badge * 2.0f + 10.0f * u, middle - labelSize.y * 0.5f},
-                      primary ? kAccentInk : kCardText, value.c_str());
-    };
-    answer(x, "A", card.accept, true);
-    answer(x + half + gap, "B", card.decline, false);
-    y += button;
-    if (note) {
-        y += 14.0f * u;
-        draw->AddText(cardText_, small, {x, y}, kCardMuted, card.note.c_str(), nullptr, inner);
-    }
 }
 
 void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_height, Clock::time_point now)
@@ -254,27 +211,24 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         }
         if (opacity == 0) message_.clear();
     }
-    const bool panel = panel_ && panel_->IsOpen();
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
-    const bool menus = !panel && menus_ && menus_->IsShown();
+    const bool menus = menus_ && menus_->IsShown();
 #else
     const bool menus = false;
 #endif
-    const std::optional<Hint> hint = panel || menus || card_ ? std::nullopt : hint_;
-    const bool showing = performance_ || opacity > 0 || card_ || panel || menus || hint;
+    const std::optional<Hint> hint = menus ? std::nullopt : hint_;
+    const bool showing = performance_ || opacity > 0 || menus || hint;
     if (!showing) {
         if (drawn_) aurora_imgui_clear_overlay();
         drawn_ = false;
         return;
     }
-    // The panel is a live ImGui window: every frame while open.
-    if (drawn_ && !panel && !shownPanel_ && !menus && !shownMenus_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_
-        && opacity == shownOpacity_ && card_ == shownCard_ && hint == shownHint_ && surface_width == shownWidth_
+    // The menus are live: every frame while they show.
+    if (drawn_ && !menus && !shownMenus_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_
+        && opacity == shownOpacity_ && hint == shownHint_ && surface_width == shownWidth_
         && surface_height == shownHeight_)
         return;
     const auto size = FpsOverlayFontSize(surface_width, surface_height);
-    // 1/900 of the picture's height, never so small that the text can't be read.
-    const float unit = overlay::OverlayUnit(float(surface_width), float(surface_height));
     // Rebuilt for another size, or for characters of names they lack.
     // Recharged's menus' fonts: design pixels to the picture's (0: no menus).
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
@@ -282,17 +236,14 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
 #else
     const float menuScale = 0.0f;
 #endif
-    if (size != builtSize_ || unit != builtUnit_ || menuScale != builtMenuScale_
+    if (size != builtSize_ || menuScale != builtMenuScale_
         || platform::NameGlyphsVersion() != launcher::NameGlyphsBuilt())
-        BuildFonts(size, unit, menuScale);
+        BuildFonts(size, menuScale);
     aurora_imgui_begin_overlay(surface_width, surface_height);
-    // The panel or the card first: the performance numbers and messages stay
-    // on top.
-    if (panel) panel_->Draw(float(surface_width), float(surface_height), {cardText_, cardBold_, unit});
+    // The menus first: the performance numbers and messages stay on top.
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
-    else if (menus) menus_->Draw(float(surface_width), float(surface_height), menuFonts_);
+    if (menus) menus_->Draw(float(surface_width), float(surface_height), menuFonts_);
 #endif
-    else if (card_) DrawCard(float(surface_width), float(surface_height), unit);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     const float shadow = std::max(1.0f, std::round(size / 15.0f));
     std::optional<FpsOverlayLayout> performanceLayout;
@@ -325,48 +276,40 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     }
     const float messageSize = MessageFontSize(size);
     const bool belowPerformance = performance_ && *performance_ == OverlayCorner::TopLeft;
-    // The hint: its keys as keycaps, then its text, on a band from the
-    // picture's left edge, taller than a message, that fades out to the right
-    // past its text.
+    // The hint: its keys as glyphs (a key of the keyboard, the Wii Remote's
+    // HOME), then its text, on a plate in the menus' look.
     float below = 0; // how far a message moves down for it
+    const float edge = std::max(2.0f, std::round(messageSize * 0.16f)); // the plates' gold edge
     if (hint) {
-        const float pad = std::round(messageSize * 0.4f), gap = std::round(messageSize * 0.45f);
+        const float gap = std::round(messageSize * 0.45f);
         const auto measure = [&](const std::string& text) {
             return messageFont_->CalcTextSizeA(messageSize, FLT_MAX, 0, text.c_str()).x;
         };
-        float width = measure(hint->text);
-        for (const auto& key : hint->keys) width += measure(key) + 2 * pad + gap;
+        float width = measure(hint->text) + edge;
+        for (const auto& key : hint->keys) width += KeyGlyphWidth(messageFont_, messageSize, key) + gap;
         const auto layout = LayoutOverlayMessage(surface_width, surface_height, messageSize, width,
                                                  belowPerformance ? &*performanceLayout : nullptr);
-        const float grow = std::round(messageSize * 0.5f);
+        const float grow = std::round(messageSize * 0.45f);
         const float top = layout.top, bottom = layout.bottom + 2 * grow, text_y = layout.text_y + grow;
-        const float solid = layout.right + std::round(messageSize * 1.5f);
-        const float feather = std::round(messageSize * 7.0f);
-        constexpr ImU32 band = IM_COL32(16, 18, 22, 150), clear = IM_COL32(16, 18, 22, 0);
-        draw->AddRectFilled({0, top}, {solid, bottom}, band);
-        draw->AddRectFilledMultiColor({solid, top}, {solid + feather, bottom}, band, clear, clear, band);
-        float x = layout.text_x;
-        const float cap = std::round(messageSize * 0.25f);
+        Plate(draw, {layout.left, top}, {layout.right, bottom}, messageSize, kOpacitySteps);
+        float x = layout.text_x + edge;
+        const float middle = (top + bottom) * 0.5f;
         for (const auto& key : hint->keys) {
-            const float w = measure(key) + 2 * pad;
-            draw->AddRect({x, text_y - cap}, {x + w, text_y + messageSize + cap}, kDivider,
-                          std::round(messageSize * 0.25f), 0, std::max(1.0f, std::round(messageSize / 14.0f)));
-            draw->AddText(messageFont_, messageSize, {x + pad, text_y}, kNumber, key.c_str());
-            x += w + gap;
+            KeyGlyph(draw, messageFont_, messageSize, x, middle, key);
+            x += KeyGlyphWidth(messageFont_, messageSize, key) + gap;
         }
-        draw->AddText(messageFont_, messageSize, {x, text_y}, kLabel, hint->text.c_str());
+        draw->AddText(messageFont_, messageSize, {x, text_y}, kNumber, hint->text.c_str());
         below = bottom - top + std::round(messageSize * 0.4f);
     }
     if (opacity > 0) {
-        const float width = messageFont_->CalcTextSizeA(messageSize, FLT_MAX, 0, message_.c_str()).x;
+        const float width = messageFont_->CalcTextSizeA(messageSize, FLT_MAX, 0, message_.c_str()).x + edge;
         auto layout = LayoutOverlayMessage(surface_width, surface_height, messageSize, width,
                                            belowPerformance ? &*performanceLayout : nullptr);
         layout.top += below;
         layout.bottom += below;
         layout.text_y += below;
-        draw->AddRectFilled({layout.left, layout.top}, {layout.right, layout.bottom},
-                            WithAlpha(IM_COL32(16, 18, 22, 190), opacity), std::round(messageSize * 0.35f));
-        draw->AddText(messageFont_, messageSize, {layout.text_x, layout.text_y}, WithAlpha(kNumber, opacity),
+        Plate(draw, {layout.left, layout.top}, {layout.right, layout.bottom}, messageSize, opacity);
+        draw->AddText(messageFont_, messageSize, {layout.text_x + edge, layout.text_y}, WithAlpha(kNumber, opacity),
                       message_.c_str());
     }
     aurora_imgui_end_overlay();
@@ -374,9 +317,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     shownValues_ = values;
     shownCount_ = count;
     shownMessage_ = message_;
-    shownCard_ = card_;
     shownHint_ = hint;
-    shownPanel_ = panel;
     shownMenus_ = menus;
     shownOpacity_ = opacity;
     shownWidth_ = surface_width;

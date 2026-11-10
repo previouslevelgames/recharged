@@ -1,10 +1,11 @@
-// Recharged's menus over the game's (the development switch "Override retail
-// menus", tweak patch 0070): reads the game's menu scenes after a frame (the
-// match's PauseMenuScene, the front end's OptionsScene), keeps what the front
-// end hands over of its players' cursors while the host draws the menu (the
-// cursors are then drawn by the host, on top of it), counts the game's buttons
-// Recharged's pages take, and does what the host asks in the game's next
-// frame. Reading changes nothing in the game.
+// Recharged's menus over the game (tweak patch 0070): keeps what the front end
+// hands over of its players' cursors while the host draws a menu (the cursors
+// are then drawn by the host, on top of it) and does what the host asks in the
+// game's next frame (sounds, the game's options, a forfeit). With the
+// development switch "Override retail menus" the menus also stand in for the
+// game's: it reads the match's PauseMenuScene and the front end's OptionsScene
+// after a frame, and counts the game's buttons Recharged's pages take.
+// Reading changes nothing in the game.
 #if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE)
 #error The menu snapshot belongs to the isolated original game module
 #endif
@@ -88,6 +89,19 @@ TLTextInstance* TextOf(TLInstance* component, const char* slide, const char* nam
     return FEFinder<TLTextInstance, 3>::Find(component, InlineHasher(slide), InlineHasher(name));
 }
 
+// Recharged's menus (F1, HOME, the prompts, an online match's menu) have the
+// module's services: the snapshot, the commands, the players' cursors.
+constexpr bool Available()
+{
+#if defined(MSCHARGED_TWEAKS)
+    return true;
+#else
+    return false;
+#endif
+}
+
+// The development switch "Override retail menus": Recharged's menus also
+// stand in for the game's pause menu, Options and the main menu's ONLINE.
 bool Replaced()
 {
 #if defined(MSCHARGED_TWEAKS)
@@ -137,7 +151,7 @@ OptionsScene* ShownOptions()
 bool sCursors = false;
 
 // Whether Recharged draws a menu, whose players' cursors it draws too.
-bool MenuShown() { return ShownPauseMenu() || ShownOptions() || (sCursors && Replaced()); }
+bool MenuShown() { return ShownPauseMenu() || ShownOptions() || sCursors; }
 
 // The main menu when it is the front end's top scene, or null.
 SHMainMenu* TopMainMenu()
@@ -350,7 +364,7 @@ int mscharged_tweak_cursor_capture_begin(const void* instance)
     if (previous >= 0 || !instance) return previous;
     for (int pad = 0; pad < 4; ++pad)
         if (instance == GetPointerInstance(pad)) {
-            if (!Replaced() || !FERender::m_pRenderScene) return previous;
+            if (!FERender::m_pRenderScene) return previous;
             sCapturePad = pad;
             sCaptureHides = MenuShown();
             sViewX = FERender::m_pRenderScene->m_matView.e[12];
@@ -652,7 +666,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_menu_texture(unsi
 extern "C" __attribute__((visibility("default"))) bool charged_menu_command(const ChargedMenuCommand* command,
                                                                             unsigned size)
 {
-    if (!command || size != sizeof(ChargedMenuCommand) || !Replaced()) return false;
+    if (!command || size != sizeof(ChargedMenuCommand) || !Available()) return false;
     // In a match against another machine nothing the game shares may change
     // (its sounds draw the shared random numbers): only the cursors' drawing
     // and the forfeit, refused before they take a place in the queue.
@@ -667,7 +681,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_menu_command(cons
 extern "C" __attribute__((visibility("default"))) bool charged_menu_snapshot(ChargedMenuSnapshot* snapshot,
                                                                              unsigned size)
 {
-    if (!snapshot || size != sizeof(ChargedMenuSnapshot) || !Replaced()) return false;
+    if (!snapshot || size != sizeof(ChargedMenuSnapshot) || !Available()) return false;
     ChargedMenuSnapshot s{};
     s.taken = sTaken;
     s.taken_menu = sTakenMenu;
