@@ -1309,16 +1309,11 @@ private:
         return pressed;
     }
 
-    // "12 players are online, 4 of them in a match."
+    // "12 players online, 4 in a match"
     static std::string PlayersOnlineTooltip(const PlayersOnline::Count& count)
     {
-        if (count.online == 0) return "Nobody is online on the WFC server right now.";
-        std::string text = count.online == 1 ? "1 player is" : std::to_string(count.online) + " players are";
-        text += " online on the WFC server, ";
-        if (count.playing == 0) text += count.online == 1 ? "not in a match." : "none of them in a match.";
-        else if (count.online == 1) text += "in a match.";
-        else text += std::to_string(count.playing) + " of them in a match.";
-        return text + "\nRecharged, Wii and Dolphin players all count.";
+        return std::to_string(count.online) + (count.online == 1 ? " player" : " players") + " online, " +
+               std::to_string(count.playing) + " in a match";
     }
 
     // Left of the update status, while the WFC server tells: how many
