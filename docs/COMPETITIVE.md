@@ -14,14 +14,12 @@ works as on the Wii, with friend codes, ranked matches and rankings.
    or **Play with a Mii** on **Player profile** (see *Your Recharged
    profile*). The launcher's Online pages hold your profile
    (**Player profile**), the rules of your challenges (**Match rules**) and
-   your **Sidekicks**; the RANKED leaderboards and your tournaments are in the
-   game's Recharged Game Menu (its **Ranked** and **Events** tabs).
-2. In the game, press **F1** (or HOME) for the **Recharged Game Menu**: on
-   its **Online** tab your set, your friends online and the players
-   available. Challenge an opponent there, or let a tournament pair you with
-   one (the menu's **Events** tab, coming
-   later). The game reminds you of the key the first time it shows its main
-   menu.
+   your **Sidekicks**; the RANKED leaderboards are in the
+   game's Recharged Game Menu (**ONLINE** → **LEADERBOARD**).
+2. In the game, press **F1** (or HOME) for the **Recharged Game Menu**: its
+   **ONLINE** → **PLAYERS** has your set, your friends online and the players
+   available. Challenge an opponent there. The game shows the key in the
+   corner while it is in its menus.
 3. They accept on a card over their game, or, with only the launcher open,
    in a dialog there.
 4. Both games go **straight into the captain draft** by themselves: the

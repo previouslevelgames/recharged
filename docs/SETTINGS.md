@@ -343,41 +343,39 @@ its shape (`stretch`), **Page Up** and **Page Down** raise and lower the 3D
 resolution (`resolution_up`, `resolution_down`), and **Alt+Enter**
 (Option+Return on a Mac) switches between fullscreen and a window
 (`fullscreen`); the last four last for the run. **F1** opens and closes the
-**Recharged Game Menu** (`panel`); HOME on any controller does the same, **F2**
-opens it on Game options (`game_options`), and Escape closes it. Pressed while
-it is open, F1 or F2 shows its tab, or closes the menu when that tab is shown. It
-opens on **Online**: your set (accept, Ready to play!, rematch),
-the friends who have Recharged open (and how many are offline) and, while you
-are **Open to challenges** (players who aren't your friends see you then), the
-others who are open to challenges; a player's row
-challenges them (the challenge's setup, see *Online*) or opens their
-page. A player on another version of the game carries its tag (US, EU, JP,
-KR); a set between two versions plays by the European one. **Ranked** is the game's online RANKED from anywhere in its menus:
-**Play RANKED** takes the game by itself (with your own Mii, or one you choose
-there) into a RANKED search against anybody, as its online menu's RANKED
-would; from another menu it goes on once you are back on the main menu or the
-online menu, and **Stop** stops the way there. Beside it your place this season
-and today, and the season's and today's leaders (with a player profile).
-**Events** is the place for tournaments and organised match-ups (coming
-later). **Game options** has the gameplay options that can change while the game
-runs, in the launcher Gameplay page's categories (*Menus & startup*, *Matches &
-unlocks*, *Competitive gameplay*, each with how many of its options are on):
-the category the cursor is on shows its switches beside it, and right or A goes
-into them. They are saved at once and count from the next match (Fast menus at
-once; online matches play by their own rules). **Settings** has the settings
-that change at once, in sections: *Display* (fullscreen, the picture's shape
-as the stretch hotkey has it, the 3D resolution, the performance numbers),
-*Sound* (master volume, mute, the sound levels as sliders, the challenge
-sound) and *Advanced* (reopen the launcher after the game); each change is
-saved to `recharged.ini` at once. The section the cursor is on in the list
-shows beside it (Display at first), and right or A goes into it. The controls and the settings that need a new start
-stay in the launcher. While the game is in its menus, the top-left corner
-shows the menu's keys (F1 or HOME), and a challenge you sent from the menu
-closes it when it is accepted: the game goes on into the
-set. L1/R1 (− and + on a Wii Remote), Q/E or a click
-switch tabs, and B goes back a page. While it is open the game behind it is
+**Recharged Game Menu** (`panel`) in the game's own look; HOME on any controller
+does the same, and **F2** opens it on the gameplay options (`game_options`). It
+has **ONLINE**, **OPTIONS** and **QUIT RECHARGED**:
+
+- **ONLINE**: **PLAYERS** (you, your set, the friends who have Recharged open
+  and, while you are **Open to challenges**, the others who are; a player's
+  page challenges them or keeps them as a friend), **RANKED** (the game's online
+  RANKED from anywhere in its menus: **Play RANKED** takes the game by itself
+  into a RANKED search, with your own Mii or one you choose there; from another
+  menu it goes on once you are back on the main menu or the online menu),
+  **LEADERBOARD** (this season's and today's leaders and your place, with a
+  player profile) and **WII ONLINE** (the game's own online menu). A player on
+  another version of the game carries its tag (US, EU, JP, KR); a set between two
+  versions plays by the European one.
+- **OPTIONS**: **GAMEPLAY**, the gameplay options that can change while the
+  game runs, in the launcher Gameplay page's categories (saved at once, counting
+  from the next match; Fast menus at once; online matches play by their own
+  rules), and **SETTINGS**, the settings that change at once: *Display*
+  (fullscreen, the picture's shape, the 3D resolution, the performance numbers),
+  *Sound* (master volume, mute, the sound levels, the challenge sound) and
+  *Advanced* (the launcher's advanced options apart from files and folders).
+
+The D-pad, the arrow keys or the mouse pick an item, A or Enter presses it, − and
++ (Q and E) switch a page's categories, and B, Escape or Backspace go back a
+page. While the game is in its menus, the top-left corner shows the menu's keys
+(F1 or HOME), and a challenge you sent from the menu closes it when it is
+accepted: the game goes on into the set. While it is open the game behind it is
 blurred and gets no input: online matches go on, and in an offline match it
-presses the game's pause. Click a hotkey, then press the
+presses the game's pause. In an online match the game's pause button (1 on a
+Wii Remote) opens a small menu instead, **CONTINUE** or **FORFEIT**: the match
+goes on meanwhile, and a forfeit ends it for both players as a loss for you (a
+set's opponent wins the set; their game tells them).
+Click a hotkey, then press the
 new key, alone or with Ctrl, Shift or Alt (Control or Option on a Mac); Escape
 cancels and Backspace or Delete leaves it unused. In the file a hotkey is a key
 name after the `Ctrl+`, `Shift+` and `Alt+` it needs (`Ctrl+Shift+F12`), or
@@ -673,6 +671,13 @@ have no result yet. Every other game, and the game's own online menu, stay as
 in the original. The log's `Competitive:` lines tell what it did.
 
 ## The launcher
+
+**Menu language** (Game page, `[interface] language`, `auto` by default) is the
+language of Recharged's own menus and messages, in the launcher and in the game:
+`auto` follows the PC's language when Recharged has it, else English. The game's
+own texts follow its text language. The translations are files in
+`assets/lang` beside the program (one folder per language); `assets/lang/README.md`
+explains how to make one.
 
 **Reopen after the game** (Advanced → Interface, `[launcher] reopen_after_game`,
 off by default) opens the launcher again when you close the game. A game that
