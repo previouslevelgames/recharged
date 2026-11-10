@@ -1,5 +1,6 @@
 #include "ui/rui_kit.h"
 
+#include "bootstrap/texts.h"
 #include "imgui_internal.h"
 #include "overlay/flags.h"
 
@@ -53,13 +54,7 @@ ImVec2 TitleShake(float seconds)
 }
 } // namespace
 
-std::string Upper(const char* text)
-{
-    std::string upper = text ? text : "";
-    for (char& c : upper)
-        if (c >= 'a' && c <= 'z') c = char(c - 'a' + 'A');
-    return upper;
-}
+std::string Upper(const char* text) { return texts::Upper(text ? text : ""); }
 
 void Ease(float& value, float target)
 {
@@ -99,13 +94,24 @@ void Painter::Text(ImFont* font, float size, float x, float y, const char* text,
     if (outline > 0.0f && (edge >> IM_COL32_A_SHIFT) != 0)
     {
         const float o = std::max(1.0f, outline * s);
-        // The outline: the text all around.
-        const int directions = o > 2.5f ? 16 : 8;
-        for (int n = 0; n < directions; ++n)
+        // The outline: the text all around, in 8 directions (16 for a wide one).
+        struct Directions
         {
-            const float angle = float(n) * 6.2831853f / float(directions);
-            draw->AddText(font, pixels, {at.x + std::cos(angle) * o, at.y + std::sin(angle) * o}, edge, text);
-        }
+            ImVec2 unit[16];
+            explicit Directions(int count)
+            {
+                for (int n = 0; n < count; ++n)
+                {
+                    const float angle = float(n) * 6.2831853f / float(count);
+                    unit[n] = {std::cos(angle), std::sin(angle)};
+                }
+            }
+        };
+        static const Directions eight(8), sixteen(16);
+        const bool wide = o > 2.5f;
+        const Directions& directions = wide ? sixteen : eight;
+        for (int n = 0; n < (wide ? 16 : 8); ++n)
+            draw->AddText(font, pixels, {at.x + directions.unit[n].x * o, at.y + directions.unit[n].y * o}, edge, text);
     }
     draw->AddText(font, pixels, at, fill, text);
 }
@@ -886,6 +892,8 @@ std::optional<int> List::Bars(const char* label, int value, int min, int max, in
 std::optional<bool> List::Switch(const char* label, bool on, const char* about, const char* off_text,
                                  const char* on_text)
 {
+    if (!off_text) off_text = texts::T("menus.common.off");
+    if (!on_text) on_text = texts::T("menus.common.on");
     const Slot drawn = ValueRow(label, about);
     const Slot& slot = drawn;
     const bool lit = slot.lit;
@@ -1074,7 +1082,7 @@ void List::Card(const Person* person, const char* kicker, const char* title, con
         const std::string score = std::to_string(won) + " \xE2\x80\x93 " + std::to_string(lost);
         p_.Text(fonts_.title, kTitleSize * 0.8f, x1 - 30.0f, top + height * 0.42f, score.c_str(), p_.Col(250, 250, 250),
                 p_.Col(6, 6, 6), 3.0f, 1.0f);
-        const std::string of = "BEST OF " + std::to_string(games);
+        const std::string of = texts::Count("menus.common.best_of", games);
         p_.Text(fonts_.small, kSmallSize * 0.85f, x1 - 30.0f, top + height * 0.42f + 46.0f, of.c_str(), Orange(p_),
                 p_.Col(4, 12, 16, 220), 1.5f, 1.0f);
     }

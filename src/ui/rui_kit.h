@@ -45,7 +45,8 @@ inline constexpr float kHeaderBottom = -362.0f;
 inline constexpr float kTitleY = -410.0f;
 inline constexpr float kFooterY = 407.0f;
 
-// ASCII letters in capitals, as the game's own labels.
+// Letters in capitals (Latin, Greek and Cyrillic too: texts::Upper), as the
+// game's own labels.
 std::string Upper(const char* text);
 // `value` a step closer to `target` this frame (the kit's easing: fast at
 // first, snapping on in the last half pixel).
@@ -259,8 +260,9 @@ public:
     // the new value when changed.
     std::optional<int> Bars(const char* label, int value, int min, int max, int step, int bars, const char* text,
                             const char* about = nullptr);
-    std::optional<bool> Switch(const char* label, bool on, const char* about = nullptr, const char* off_text = "OFF",
-                               const char* on_text = "ON");
+    // `off_text` and `on_text`: its two choices (none: OFF and ON).
+    std::optional<bool> Switch(const char* label, bool on, const char* about = nullptr, const char* off_text = nullptr,
+                               const char* on_text = nullptr);
     std::optional<int> Choice(const char* label, const std::vector<std::string>& choices, int index,
                               const char* about = nullptr);
     // A value stepped through with the arrow buttons (or left and right; A

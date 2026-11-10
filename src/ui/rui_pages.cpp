@@ -3,6 +3,7 @@
 #include "bootstrap/advanced_choices.h"
 #include "bootstrap/game_tweaks.h"
 #include "bootstrap/sound_groups.h"
+#include "bootstrap/table_texts.h"
 #include "bootstrap/texts.h"
 #include "overlay/flags.h"
 #include "platform/competitive_rules.h"
@@ -18,7 +19,7 @@ namespace
 {
 using texts::T;
 
-std::string Percent(int value) { return std::to_string(value) + " %"; }
+std::string Percent(int value) { return T("menus.sound.percent", {{"value", std::to_string(value)}}); }
 
 // A switch of a setting: its new state as the change.
 void SettingSwitch(List& list, PageActions& actions, const char* label, bool on, overlay::GameSetting setting,
@@ -37,26 +38,25 @@ std::optional<int> VolumeBars(List& list, const char* label, int value, const ch
 
 void DrawMenu(List& list, PageActions& actions)
 {
-    if (list.Plate("ONLINE"))
+    if (list.Plate(T("menus.menu.online")))
         actions.open = PageId::Online;
-    if (list.Plate("OPTIONS")) actions.open = PageId::Options;
-    if (list.Plate("QUIT RECHARGED")) actions.open = PageId::Quit;
+    if (list.Plate(T("menus.menu.options"))) actions.open = PageId::Options;
+    if (list.Plate(T("menus.menu.quit"))) actions.open = PageId::Quit;
 }
 
 void DrawQuit(const PageModel& model, List& list, PageActions& actions)
 {
-    list.Note(model.front_end ? "Quit Recharged? The game closes."
-                              : "Quit Recharged? The game closes, and the match is not finished.");
-    if (list.Plate("QUIT RECHARGED")) actions.quit = true;
-    if (list.Plate("CANCEL")) actions.back = true;
+    list.Note(model.front_end ? T("menus.quit.note") : T("menus.quit.note_match"));
+    if (list.Plate(T("menus.quit.quit"))) actions.quit = true;
+    if (list.Plate(T("menus.common.cancel"))) actions.back = true;
 }
 
 void DrawOptions(const PageModel& model, List& list, PageActions& actions)
 {
-    if (list.Plate("GAMEPLAY"))
+    if (list.Plate(T("menus.options.gameplay")))
         actions.open = PageId::Gameplay;
-    if (list.Plate("SETTINGS")) actions.open = PageId::Settings;
-    if (model.front_end && list.Plate("CREDITS")) actions.credits = true;
+    if (list.Plate(T("menus.options.settings"))) actions.open = PageId::Settings;
+    if (model.front_end && list.Plate(T("menus.options.credits"))) actions.credits = true;
 }
 
 void DrawGameplay(int category, const PageModel& model, List& list, PageActions& actions)
@@ -65,13 +65,13 @@ void DrawGameplay(int category, const PageModel& model, List& list, PageActions&
     if (groups.empty()) return;
     const auto& group = groups[std::size_t(std::clamp(category, 0, int(groups.size()) - 1))];
     list.Note(group.about);
-    if (model.overlay.options.in_match) list.Note("A match is on: it keeps the options it started with.");
+    if (model.overlay.options.in_match) list.Note(T("menus.gameplay.in_match"));
     for (const GameTweak tweak : group.tweaks)
     {
         const std::size_t index = GameTweakIndex(tweak);
         const GameTweakInfo& info = kGameTweaks[index];
         const bool on = model.overlay.options.tweaks[index];
-        if (const auto next = list.Switch(info.name, on, info.description))
+        if (const auto next = list.Switch(texts::TweakName(info), on, texts::TweakAbout(info)))
             actions.option = overlay::GameOptionChange{tweak, *next};
     }
 }
@@ -82,35 +82,33 @@ void DrawDisplay(const PageModel& model, List& list, PageActions& actions)
     using overlay::GameSettingChange;
     const auto& settings = model.overlay.settings;
     if (model.game.known && model.network_match)
-        list.Note("The match camera can be changed outside online matches.");
+        list.Note(T("menus.display.camera_online"));
     else if (model.game.known)
     {
-        list.Caption("MATCH CAMERA");
+        list.Caption(T("menus.display.match_camera"));
         // The game's Visual Options, in its words.
-        if (const auto on = list.Switch("Camera", model.game.auto_zoom,
-                                        "DYNAMIC zooms in and out with the play; STATIC keeps the zoom level below. "
-                                        "Saved with the game, as in its Visual Options.",
-                                        "STATIC", "DYNAMIC"))
+        if (const auto on = list.Switch(T("menus.display.camera"), model.game.auto_zoom,
+                                        T("menus.display.camera_about"), T("menus.display.static"),
+                                        T("menus.display.dynamic")))
             actions.auto_zoom = *on;
         static const std::vector<std::string> kLevels{"1", "2", "3", "4", "5"};
-        if (const auto zoom = list.Choice("Zoom level", kLevels, model.game.zoom,
-                                          "How far the camera stays from the play (1 nearest), when it does not "
-                                          "zoom by itself."))
+        if (const auto zoom = list.Choice(T("menus.display.zoom_level"), kLevels, model.game.zoom,
+                                          T("menus.display.zoom_level_about")))
             actions.zoom = *zoom;
     }
-    list.Caption("WINDOW");
-    SettingSwitch(list, actions, "Fullscreen", settings.fullscreen, GameSetting::Fullscreen);
+    list.Caption(T("menus.display.window"));
+    SettingSwitch(list, actions, T("menus.display.fullscreen"), settings.fullscreen, GameSetting::Fullscreen);
     if (settings.pictures.size() > 1)
-        if (const auto picked = list.Choice("Picture", settings.pictures, settings.picture,
+        if (const auto picked = list.Choice(T("menus.display.picture"), settings.pictures, settings.picture,
                                             settings.picture_about.c_str()))
             actions.setting = GameSettingChange{GameSetting::Picture, *picked};
-    list.Caption("RENDERING");
+    list.Caption(T("menus.display.rendering"));
     if (!settings.resolutions.empty())
-        if (const auto picked = list.Choice("3D resolution", settings.resolutions, settings.resolution,
+        if (const auto picked = list.Choice(T("menus.display.resolution"), settings.resolutions, settings.resolution,
                                             settings.resolution_about.c_str()))
             actions.setting = GameSettingChange{GameSetting::Resolution, *picked};
-    SettingSwitch(list, actions, "Performance numbers", settings.performance_numbers, GameSetting::PerformanceNumbers,
-                  "The frame rate and how busy the graphics card and processor are, in a corner of the picture.");
+    SettingSwitch(list, actions, T("menus.display.performance_numbers"), settings.performance_numbers,
+                  GameSetting::PerformanceNumbers, T("menus.display.performance_numbers_about"));
 }
 
 void DrawAdvanced(const PageModel& model, List& list, PageActions& actions)
@@ -131,49 +129,45 @@ void DrawAdvanced(const PageModel& model, List& list, PageActions& actions)
         if (const auto step = list.Cycle(label, names[std::size_t(chosen)].c_str(), about))
             actions.setting = overlay::GameSettingChange{setting, (chosen + *step + count) % count};
     };
-    list.Caption("LAUNCHER");
+    list.Caption(T("menus.advanced.launcher"));
     if (settings.reopen_known)
-        SettingSwitch(list, actions, "Reopen the launcher", settings.reopen_launcher, GameSetting::ReopenLauncher,
-                      "The launcher opens again when the game closes.");
-    else list.Note("The game started without the launcher: closing it opens nothing.");
-    cycle("Launcher size", settings.launcher_sizes, settings.launcher_size,
-          "Scales the launcher. Automatic follows your display's scaling setting.", GameSetting::LauncherSize);
+        SettingSwitch(list, actions, T("menus.advanced.reopen_launcher"), settings.reopen_launcher,
+                      GameSetting::ReopenLauncher, T("menus.advanced.reopen_launcher_about"));
+    else list.Note(T("menus.advanced.no_launcher"));
+    cycle(T("menus.advanced.launcher_size"), settings.launcher_sizes, settings.launcher_size,
+          T("menus.advanced.launcher_size_about"), GameSetting::LauncherSize);
 
-    list.Caption("GRAPHICS (NEXT START)");
-    cycle("Graphics API", settings.graphics_apis, settings.graphics_api,
-          settings.graphics_apis.size() > 1 ? "Automatic uses Vulkan, or DirectX 12 when Vulkan cannot start. Used "
-                                              "the next time you start the game."
-                                            : "The one this computer's game uses.",
+    list.Caption(T("menus.advanced.graphics"));
+    cycle(T("menus.advanced.graphics_api"), settings.graphics_apis, settings.graphics_api,
+          settings.graphics_apis.size() > 1 ? T("menus.advanced.graphics_api_about")
+                                            : T("menus.advanced.graphics_api_only"),
           GameSetting::GraphicsApi);
     if (settings.graphics_cards_shown)
     {
         if (settings.graphics_cards_listing && settings.graphics_cards.size() <= 1)
-            list.Row("Graphics card", "Looking...", "Looking for the computer's graphics cards.");
+            list.Row(T("menus.advanced.graphics_card"), T("menus.advanced.looking"),
+                     T("menus.advanced.looking_about"));
         else
-            cycle("Graphics card", settings.graphics_cards, settings.graphics_card,
-                  "Automatic uses the fastest. Used the next time you start the game.", GameSetting::GraphicsCard);
+            cycle(T("menus.advanced.graphics_card"), settings.graphics_cards, settings.graphics_card,
+                  T("menus.advanced.graphics_card_about"), GameSetting::GraphicsCard);
     }
 
-    list.Caption("DIAGNOSTICS");
-    SettingSwitch(list, actions, "Performance stats", settings.frame_logging, GameSetting::FrameLogging,
-                  "Records frame times for each game session, with the arena and settings, in the logs folder. From "
-                  "the next start.");
-    SettingSwitch(list, actions, "API validation", settings.graphics_validation, GameSetting::GraphicsValidation,
-                  "Checks every graphics call for errors. Useful for bug reports, but slower. From the next start.");
-    static const std::vector<std::string> kDetails = [] {
-        std::vector<std::string> names;
-        for (const auto& level : kLogLevels) names.push_back(level.label);
-        return names;
-    }();
-    if (const auto picked = list.Choice("Log detail", kDetails, settings.log_detail,
-                                        "Which messages reach the console and the log. From the next start."))
+    list.Caption(T("menus.advanced.diagnostics"));
+    SettingSwitch(list, actions, T("menus.advanced.performance_stats"), settings.frame_logging,
+                  GameSetting::FrameLogging, T("menus.advanced.performance_stats_about"));
+    SettingSwitch(list, actions, T("menus.advanced.api_validation"), settings.graphics_validation,
+                  GameSetting::GraphicsValidation, T("menus.advanced.api_validation_about"));
+    std::vector<std::string> details;
+    for (const auto& level : kLogLevels) details.push_back(texts::ChoiceLabel("log_levels", level));
+    if (const auto picked = list.Choice(T("menus.advanced.log_detail"), details, settings.log_detail,
+                                        T("menus.advanced.log_detail_about")))
         actions.setting = overlay::GameSettingChange{GameSetting::LogDetail, *picked};
-    SettingSwitch(list, actions, "Verbose console", settings.verbose_console, GameSetting::VerboseConsole,
-                  "Also prints development traces and the game's own debug output.");
+    SettingSwitch(list, actions, T("menus.advanced.verbose_console"), settings.verbose_console,
+                  GameSetting::VerboseConsole, T("menus.advanced.verbose_console_about"));
     if (settings.log_window_shown)
-        SettingSwitch(list, actions, "Log window", settings.log_window, GameSetting::LogWindow,
-                      "Shows the log in a separate window. Closing it doesn't stop the game.");
-    list.Note("The settings file, the folders and resetting everything are in the launcher's Advanced page.");
+        SettingSwitch(list, actions, T("menus.advanced.log_window"), settings.log_window, GameSetting::LogWindow,
+                      T("menus.advanced.log_window_about"));
+    list.Note(T("menus.advanced.launcher_note"));
 }
 
 void DrawSound(const PageModel& model, List& list, PageActions& actions)
@@ -181,33 +175,32 @@ void DrawSound(const PageModel& model, List& list, PageActions& actions)
     using overlay::GameSetting;
     using overlay::GameSettingChange;
     const auto& settings = model.overlay.settings;
-    list.Caption("MASTER");
-    if (const auto volume = VolumeBars(list, "Master volume", settings.master_volume, "Everything the game plays."))
+    list.Caption(T("menus.sound.master"));
+    if (const auto volume = VolumeBars(list, T("menus.sound.master_volume"), settings.master_volume,
+                                       T("menus.sound.master_volume_about")))
         actions.setting = GameSettingChange{GameSetting::MasterVolume, *volume};
-    SettingSwitch(list, actions, "Mute", settings.mute, GameSetting::Mute);
-    list.Caption("SOUND LEVELS");
+    SettingSwitch(list, actions, T("menus.sound.mute"), settings.mute, GameSetting::Mute);
+    list.Caption(T("menus.sound.sound_levels"));
     for (std::size_t n = 0; n < kSoundGroups.size(); ++n)
-        if (const auto volume =
-                VolumeBars(list, kSoundGroups[n].name, settings.sound_volumes[n], kSoundGroups[n].description))
+        if (const auto volume = VolumeBars(list, texts::SoundGroupName(kSoundGroups[n]), settings.sound_volumes[n],
+                                           texts::SoundGroupAbout(kSoundGroups[n])))
             actions.setting = GameSettingChange{GameSetting::SoundVolume, *volume, int(n)};
     if (model.game.known && !model.network_match)
     {
-        list.Caption("THE GAME'S OWN LEVELS");
-        constexpr const char* kAbout =
-            "The game's own volume bars, saved with the game as in its Audio Options; Recharged's levels above "
-            "work on top of them.";
+        list.Caption(T("menus.sound.game_levels"));
+        const char* about = T("menus.sound.game_levels_about");
         // Each bar 0-10, its level as the game shows it.
         const auto bar = [&](const char* label, int value, std::optional<int>& out) {
             const std::string text = std::to_string(value);
-            if (const auto next = list.Bars(label, value, 0, 10, 1, 10, text.c_str(), kAbout)) out = *next;
+            if (const auto next = list.Bars(label, value, 0, 10, 1, 10, text.c_str(), about)) out = *next;
         };
-        bar("Game music", model.game.music, actions.music);
-        bar("Game sound effects", model.game.effects, actions.effects);
-        bar("Game voices", model.game.voices, actions.voices);
+        bar(T("menus.sound.game_music"), model.game.music, actions.music);
+        bar(T("menus.sound.game_effects"), model.game.effects, actions.effects);
+        bar(T("menus.sound.game_voices"), model.game.voices, actions.voices);
     }
-    list.Caption("ONLINE");
-    SettingSwitch(list, actions, "Challenge sound", settings.challenge_sound, GameSetting::ChallengeSound,
-                  "A chime when someone challenges you or accepts your challenge.");
+    list.Caption(T("menus.sound.online"));
+    SettingSwitch(list, actions, T("menus.sound.challenge_sound"), settings.challenge_sound,
+                  GameSetting::ChallengeSound, T("menus.sound.challenge_sound_about"));
 }
 
 // The online pages ---------------------------------------------------------
@@ -255,15 +248,15 @@ void OpenSetup(const PageModel& model, PageState& state, PageActions& actions, c
 void DrawOnline(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
-    if (list.Plate("PLAYERS")) actions.open = PageId::Players;
-    if (list.Plate("RANKED")) actions.open = PageId::Ranked;
-    if (list.Plate("LEADERBOARD")) actions.open = PageId::Leaderboard;
-    if (model.from_wheel && list.Plate("WII ONLINE"))
+    if (list.Plate(T("menus.online.players"))) actions.open = PageId::Players;
+    if (list.Plate(T("menus.online.ranked"))) actions.open = PageId::Ranked;
+    if (list.Plate(T("menus.online.leaderboard"))) actions.open = PageId::Leaderboard;
+    if (model.from_wheel && list.Plate(T("menus.online.wii_online")))
         actions.wii_online = true;
     // A set waiting for the player (its page is PLAYERS).
     if (overlay::OnlinePanelWaiting(online) > 0)
     {
-        const std::string waits = "Your set waits for you: " + online.set.title + ".";
+        const std::string waits = T("menus.online.set_waits", {{"set", online.set.title}});
         list.Note(waits.c_str());
     }
 }
@@ -273,17 +266,16 @@ void DrawYou(const PageModel& model, PageState& state, List& list, PageActions& 
     const auto& online = model.overlay.online;
     if (online.signed_out)
     {
-        list.Card(nullptr, "NO PLAYER PROFILE", "Online needs a player profile",
-                  {"Make one on the launcher's Player profile page: then friends, challenges, sets and the "
-                   "leaderboards are here."});
+        list.Card(nullptr, T("menus.you.no_profile_kicker"), T("menus.you.no_profile_title"),
+                  {T("menus.you.no_profile")});
         return;
     }
     const auto& me = online.me;
     const Person you = PersonOf(model, me.image, me.initials, me.tint_seed, -1, me.country);
     std::vector<std::string> lines;
     if (!me.detail.empty()) lines.push_back(me.detail);
-    lines.push_back(me.available ? "Open to challenges" : "Not open to challenges");
-    list.Card(&you, "YOU", me.name.c_str(), lines, me.available ? Tone::Good : Tone::Away);
+    lines.push_back(me.available ? T("menus.you.open") : T("menus.you.not_open"));
+    list.Card(&you, T("menus.you.kicker"), me.name.c_str(), lines, me.available ? Tone::Good : Tone::Away);
     if (!online.message.empty()) list.Note(online.message.c_str());
     // The set: what it is, and what the player can do now.
     const auto& set = online.set;
@@ -292,36 +284,38 @@ void DrawYou(const PageModel& model, PageState& state, List& list, PageActions& 
         const Person opponent = PersonOf(model, set.opponent);
         std::vector<std::string> about{set.status};
         if (!set.rules.empty()) about.push_back(set.rules);
-        list.Card(&opponent, "YOUR SET", set.title.c_str(), about, ToneOf(set.tone), set.games, set.won, set.lost);
-        if (set.can_accept && list.Plate("ACCEPT")) actions.online.accept = true;
-        if (set.can_decline && list.Plate("DECLINE")) actions.online.decline = true;
-        if (set.can_ready && list.Plate("READY TO PLAY!")) actions.online.ready = true;
-        if (set.can_rematch && list.Plate("REMATCH")) actions.online.rematch = true;
+        list.Card(&opponent, T("menus.you.your_set"), set.title.c_str(), about, ToneOf(set.tone), set.games, set.won,
+                  set.lost);
+        if (set.can_accept && list.Plate(T("menus.you.accept"))) actions.online.accept = true;
+        if (set.can_decline && list.Plate(T("menus.you.decline"))) actions.online.decline = true;
+        if (set.can_ready && list.Plate(T("menus.you.ready"))) actions.online.ready = true;
+        if (set.can_rematch && list.Plate(T("menus.you.rematch"))) actions.online.rematch = true;
         if (set.can_cancel)
         {
-            const std::string label = Upper(set.cancel_label.empty() ? "CANCEL SET" : set.cancel_label.c_str());
+            const std::string label =
+                Upper(set.cancel_label.empty() ? T("menus.you.cancel_set") : set.cancel_label.c_str());
             if (list.Plate(label.c_str())) actions.online.cancel = true;
         }
     }
-    list.Caption("CHALLENGES");
+    list.Caption(T("menus.you.challenges"));
     if (me.can_set_available)
-        if (const auto on = list.Switch("Open to challenges", me.available,
-                                        "Others see you as available and can challenge you, also to random games."))
+        if (const auto on = list.Switch(T("menus.you.open_switch"), me.available, T("menus.you.open_switch_about")))
             actions.online.set_available = *on;
     // Random opponents: the search, or its setup.
     const auto& search = online.search;
     if (search.active)
     {
-        const std::string text = "Searching by " + search.rules + ": " + std::to_string(search.seconds) + " s, "
-            + std::to_string(search.asked) + " asked.";
+        const std::string text = T("menus.you.searching", {{"rules", search.rules},
+                                                           {"seconds", std::to_string(search.seconds)},
+                                                           {"asked", std::to_string(search.asked)}});
         list.Note(text.c_str());
-        if (list.Plate("STOP SEARCHING")) actions.online.stop_search = true;
+        if (list.Plate(T("menus.you.stop_searching"))) actions.online.stop_search = true;
     }
     else if (online.can_search)
     {
         const char* rules = online.presets.empty()
             ? "" : online.presets[std::size_t(overlay::ChosenOnlinePanelPreset(online))].name.c_str();
-        if (list.Row("Find an opponent", rules, "A random opponent, by the rules you choose."))
+        if (list.Row(T("menus.you.find_opponent"), rules, T("menus.you.find_opponent_about")))
             OpenSetup(model, state, actions, kSearchKey);
     }
     if (!online.note.empty()) list.Note(online.note.c_str());
@@ -332,7 +326,7 @@ void DrawSection(const PageModel& model, List& list, PageActions& actions, overl
     const auto& online = model.overlay.online;
     if (online.signed_out)
     {
-        list.Note("Online needs a player profile: the launcher's Player profile page makes one.");
+        list.Note(T("menus.players.no_profile"));
         return;
     }
     for (const auto& section : online.sections)
@@ -363,17 +357,19 @@ void DrawPlayer(const std::string& key, const PageModel& model, PageState& state
     const auto* row = overlay::FindRow(model.overlay.online, key);
     if (!row)
     {
-        list.Note("Not online any more.");
+        list.Note(T("menus.player.gone"));
         return;
     }
     const Person person = PersonOf(model, *row);
     std::vector<std::string> lines{row->status};
     if (!row->detail.empty()) lines.push_back(row->detail);
-    if (!row->version.empty()) lines.push_back("Plays the " + row->version + " version");
-    list.Card(&person, row->is_friend ? "FRIEND" : "PLAYER", row->name.c_str(), lines, ToneOf(row->tone));
+    if (!row->version.empty()) lines.push_back(T("menus.player.version", {{"version", row->version}}));
+    list.Card(&person, row->is_friend ? T("menus.player.friend") : T("menus.player.player"), row->name.c_str(), lines,
+              ToneOf(row->tone));
     if (row->can_challenge)
     {
-        if (list.Plate("CHALLENGE", "A set by the rules you choose.")) OpenSetup(model, state, actions, row->key);
+        if (list.Plate(T("menus.player.challenge"), T("menus.player.challenge_about")))
+            OpenSetup(model, state, actions, row->key);
     }
     else if (!row->blocked.empty()) list.Note(row->blocked.c_str());
     if (row->can_befriend)
@@ -381,18 +377,18 @@ void DrawPlayer(const std::string& key, const PageModel& model, PageState& state
         const bool mii = row->kind == overlay::OnlinePanelRow::Kind::Mii;
         if (row->is_friend)
         {
-            if (list.Plate("REMOVE FRIEND"))
+            if (list.Plate(T("menus.player.remove_friend")))
                 mii ? void(actions.online.remove_mii_friend = row->mii_profile)
                     : void(actions.online.remove_friend = row->player_id);
         }
-        else if (list.Plate("ADD FRIEND"))
+        else if (list.Plate(T("menus.player.add_friend")))
             mii ? void(actions.online.add_mii_friend = row->mii_profile) : void(actions.online.add_friend = row->player_id);
     }
 }
 
 std::string GameLength(int seconds)
 {
-    if (seconds % 60 == 0) return std::to_string(seconds / 60) + " min";
+    if (seconds % 60 == 0) return T("menus.setup.minutes", {{"minutes", std::to_string(seconds / 60)}});
     return std::to_string(seconds / 60) + ":" + (seconds % 60 < 10 ? "0" : "") + std::to_string(seconds % 60);
 }
 
@@ -430,7 +426,7 @@ void DrawSetup(const std::string& key, const PageModel& model, PageState& state,
     auto& setup = state.online;
     if ((!search && !row) || online.presets.empty() || setup.setup_for != key)
     {
-        list.Note(!search && !row ? "Not online any more." : "This server has no rules to play sets by yet.");
+        list.Note(!search && !row ? T("menus.player.gone") : T("menus.players.no_rules"));
         return;
     }
     const int count = int(online.presets.size());
@@ -444,18 +440,23 @@ void DrawSetup(const std::string& key, const PageModel& model, PageState& state,
     if (row)
     {
         const Person person = PersonOf(model, *row);
-        list.Card(&person, "CHALLENGE", row->name.c_str(), {row->status}, ToneOf(row->tone));
+        list.Card(&person, T("menus.setup.challenge"), row->name.c_str(), {row->status}, ToneOf(row->tone));
     }
     else
     {
-        const std::string status = searching ? "Searching: " + std::to_string(online.search.seconds) + " s, "
-            + std::to_string(online.search.asked) + " asked" : std::string("Anybody open to random games");
-        list.Card(nullptr, "RANDOM OPPONENT", "Find an opponent", {status}, searching ? Tone::Busy : Tone::Neutral);
+        const std::string status = searching
+            ? T("menus.setup.searching", {{"seconds", std::to_string(online.search.seconds)},
+                                          {"asked", std::to_string(online.search.asked)}})
+            : std::string(T("menus.setup.anybody"));
+        list.Card(nullptr, T("menus.setup.random"), T("menus.setup.find_opponent"), {status},
+                  searching ? Tone::Busy : Tone::Neutral);
     }
     // The way on first, the rules under it.
     const bool can = search ? online.can_search || searching : row->can_challenge;
-    const char* label = !search ? "SEND CHALLENGE" : searching ? "STOP SEARCHING" : "FIND AN OPPONENT NOW!";
-    if (list.Plate(label, changed ? "Changed for this one only: the preset stays as it is." : nullptr, can))
+    const char* label = !search ? T("menus.setup.send_challenge")
+        : searching             ? T("menus.setup.stop_searching")
+                                : T("menus.setup.find_now");
+    if (list.Plate(label, changed ? T("menus.setup.changed") : nullptr, can))
     {
         if (searching)
         {
@@ -479,26 +480,27 @@ void DrawSetup(const std::string& key, const PageModel& model, PageState& state,
         }
     }
     if (searching) return;
-    list.Caption("PRESET");
-    if (const auto step = list.Cycle("Start from", preset.name.c_str()))
+    list.Caption(T("menus.setup.preset"));
+    if (const auto step = list.Cycle(T("menus.setup.start_from"), preset.name.c_str()))
     {
         setup.preset = (setup.preset + *step + count) % count;
         rules = online.presets[std::size_t(setup.preset)].rules;
     }
-    list.Caption("MATCH");
-    Values(list, "Series", {1, 3, 5, 7}, rules.games, [](int n) { return std::to_string(n); });
-    static const std::vector<std::string> kLimits{"Time", "Goals"};
-    if (const auto picked = list.Choice("Win by", kLimits, rules.limit == "goals" ? 1 : 0))
+    list.Caption(T("menus.setup.match"));
+    Values(list, T("menus.setup.series"), {1, 3, 5, 7}, rules.games, [](int n) { return std::to_string(n); });
+    const std::vector<std::string> limits{T("menus.setup.by_time"), T("menus.setup.by_goals")};
+    if (const auto picked = list.Choice(T("menus.setup.win_by"), limits, rules.limit == "goals" ? 1 : 0))
         rules.limit = *picked == 1 ? "goals" : "time";
     if (rules.limit == "goals")
-        Values(list, "Goals", {3, 4, 5, 6, 7, 8, 9, 10}, rules.goals, [](int n) { return std::to_string(n); });
-    else Values(list, "Time", {120, 180, 240, 300}, rules.time, GameLength);
-    Choices(list, "Stadium", platform::StadiumChoices(), rules.stadium);
-    list.Caption("CHEATS");
-    Choices(list, "Stadium cheat", platform::StadiumCheatChoices(), rules.stadium_cheat);
-    Choices(list, "Player cheat", platform::PlayerCheatChoices(), rules.player_cheat);
-    Choices(list, "Power-up cheat", platform::PowerupCheatChoices(), rules.powerup_cheat);
-    list.Caption("GAMEPLAY");
+        Values(list, T("menus.setup.goals"), {3, 4, 5, 6, 7, 8, 9, 10}, rules.goals,
+               [](int n) { return std::to_string(n); });
+    else Values(list, T("menus.setup.time"), {120, 180, 240, 300}, rules.time, GameLength);
+    Choices(list, T("menus.setup.stadium"), platform::StadiumChoices(), rules.stadium);
+    list.Caption(T("menus.setup.cheats"));
+    Choices(list, T("menus.setup.stadium_cheat"), platform::StadiumCheatChoices(), rules.stadium_cheat);
+    Choices(list, T("menus.setup.player_cheat"), platform::PlayerCheatChoices(), rules.player_cheat);
+    Choices(list, T("menus.setup.powerup_cheat"), platform::PowerupCheatChoices(), rules.powerup_cheat);
+    list.Caption(T("menus.setup.gameplay"));
     for (const auto& tweak : platform::RuleTweakChoices())
     {
         const auto found = std::find(rules.tweaks.begin(), rules.tweaks.end(), tweak.key);
@@ -518,24 +520,22 @@ void DrawSetup(const std::string& key, const PageModel& model, PageState& state,
 void DrawRanked(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& ranked = model.overlay.ranked;
-    static const std::vector<std::string> kLines{"Play anybody online, as from the game's online menu.",
-                                                 "Your wins and losses go on the leaderboards."};
-    list.Card(nullptr, "RANKED", "Play RANKED", kLines);
+    const std::vector<std::string> lines{T("menus.ranked.about"), T("menus.ranked.about_leaderboards")};
+    list.Card(nullptr, T("menus.ranked.kicker"), T("menus.ranked.card_title"), lines);
     if (ranked.going)
     {
-        list.Note(ranked.waiting ? "On the way to RANKED: go back to the main menu or the online menu, the game goes on "
-                                   "from there."
-                                 : "On the way to RANKED...");
-        if (list.Plate("STOP")) actions.ranked.stop = true;
+        list.Note(ranked.waiting ? T("menus.ranked.waiting") : T("menus.ranked.going"));
+        if (list.Plate(T("menus.ranked.stop"))) actions.ranked.stop = true;
     }
     else
     {
-        if (list.Plate("PLAY RANKED", ranked.own_mii ? "With your own Mii." : "You choose your Mii in the game.",
-                       ranked.can_play))
+        if (list.Plate(T("menus.ranked.play"),
+                       ranked.own_mii ? T("menus.ranked.own_mii") : T("menus.ranked.choose_mii"), ranked.can_play))
             actions.ranked.play = true;
         if (!ranked.blocked.empty()) list.Note(ranked.blocked.c_str());
     }
-    if (list.Row("Leaderboard", "", "The season's and today's leaders.")) actions.open = PageId::Leaderboard;
+    if (list.Row(T("menus.ranked.leaderboard"), "", T("menus.ranked.leaderboard_about")))
+        actions.open = PageId::Leaderboard;
 }
 
 std::string Record(const platform::LeaderboardEntry& entry)
@@ -549,17 +549,17 @@ void DrawLeaderboard(int category, const PageModel& model, List& list)
     const auto& ranked = model.overlay.ranked;
     if (ranked.signed_out)
     {
-        list.Note("The leaderboards need a player profile: the launcher's Player profile page makes one.");
+        list.Note(T("menus.leaderboard.no_profile"));
         return;
     }
     if (ranked.missing)
     {
-        list.Note("This server has no leaderboards yet.");
+        list.Note(T("menus.leaderboard.missing"));
         return;
     }
     if (!ranked.boards)
     {
-        list.Note("Loading...");
+        list.Note(T("menus.common.loading"));
         return;
     }
     const bool daily = category == 1;
@@ -568,11 +568,18 @@ void DrawLeaderboard(int category, const PageModel& model, List& list)
         ? board.first_day : board.first_day + "  \xE2\x80\x93  " + board.last_day;
     std::vector<std::string> lines{days};
     if (board.you)
-        lines.push_back("You: " + (board.you->rank > 0 ? "place " + std::to_string(board.you->rank) : std::string("-"))
-                        + "  \xC2\xB7  " + Record(*board.you) + "  \xC2\xB7  " + std::to_string(board.you->points)
-                        + " points");
-    list.Card(nullptr, daily ? "TODAY" : "THIS SEASON", (std::to_string(board.players) + " PLAYERS").c_str(), lines);
-    if (board.top.empty()) list.Note(daily ? "Nobody has played RANKED today yet." : "Nobody has played RANKED yet.");
+    {
+        const std::string record = Record(*board.you);
+        if (board.you->rank > 0)
+            lines.push_back(texts::Count("menus.leaderboard.you_placed", board.you->points,
+                                         {{"place", std::to_string(board.you->rank)}, {"record", record}}));
+        else lines.push_back(texts::Count("menus.leaderboard.you_unplaced", board.you->points, {{"record", record}}));
+    }
+    const std::string players = texts::Count("menus.leaderboard.players", board.players);
+    list.Card(nullptr, daily ? T("menus.leaderboard.today_kicker") : T("menus.leaderboard.season_kicker"),
+              players.c_str(), lines);
+    if (board.top.empty())
+        list.Note(daily ? T("menus.leaderboard.nobody_today") : T("menus.leaderboard.nobody"));
     bool youShown = false;
     for (const auto& entry : board.top)
     {
@@ -582,7 +589,7 @@ void DrawLeaderboard(int category, const PageModel& model, List& list)
     }
     if (board.you && !youShown)
     {
-        list.Caption("YOU");
+        list.Caption(T("menus.leaderboard.you_caption"));
         const auto& you = *board.you;
         const std::string name = you.player.empty() ? you.mii : you.player;
         list.BoardRow(you.rank, name.c_str(), Record(you).c_str(), std::to_string(you.points).c_str(), true);
@@ -591,8 +598,8 @@ void DrawLeaderboard(int category, const PageModel& model, List& list)
 
 void DrawMatch(List& list, PageActions& actions)
 {
-    if (list.Plate("CONTINUE")) actions.close = true;
-    if (list.Plate("FORFEIT")) actions.open = PageId::Forfeit;
+    if (list.Plate(T("menus.match.continue"))) actions.close = true;
+    if (list.Plate(T("menus.match.forfeit"))) actions.open = PageId::Forfeit;
 }
 
 void DrawForfeit(const PageModel& model, List& list, PageActions& actions)
@@ -602,9 +609,9 @@ void DrawForfeit(const PageModel& model, List& list, PageActions& actions)
         list.Note(T("menus.forfeit.leaving"));
         return;
     }
-    list.Note(T(model.set_match ? "menus.forfeit.set_note" : "menus.forfeit.match_note"));
-    if (list.Plate("FORFEIT")) actions.forfeit = true;
-    if (list.Plate("CANCEL")) actions.back = true;
+    list.Note(model.set_match ? T("menus.forfeit.set_note") : T("menus.forfeit.match_note"));
+    if (list.Plate(T("menus.forfeit.forfeit"))) actions.forfeit = true;
+    if (list.Plate(T("menus.common.cancel"))) actions.back = true;
 }
 
 void DrawPrompt(const PageModel& model, List& list, PageActions& actions)
@@ -627,46 +634,43 @@ std::string PageTitle(PageId id, const std::string& key, const PageModel& model)
 {
     switch (id)
     {
-    case PageId::Menu: return "RECHARGED";
-    case PageId::Options: return "OPTIONS";
-    case PageId::Gameplay: return "GAMEPLAY";
-    case PageId::Settings: return "SETTINGS";
-    case PageId::Quit: return "QUIT";
-    case PageId::Online: return "ONLINE";
-    case PageId::Players: return "PLAYERS";
+    case PageId::Menu: return T("menus.menu.title");
+    case PageId::Options: return T("menus.options.title");
+    case PageId::Gameplay: return T("menus.gameplay.title");
+    case PageId::Settings: return T("menus.settings.title");
+    case PageId::Quit: return T("menus.quit.title");
+    case PageId::Online: return T("menus.online.title");
+    case PageId::Players: return T("menus.players.title");
     case PageId::Player:
         if (const auto* row = overlay::FindRow(model.overlay.online, key)) return row->name;
-        return "PLAYER";
-    case PageId::Setup: return key == kSearchKey ? "RANDOM OPPONENT" : "CHALLENGE";
-    case PageId::Ranked: return "RANKED";
-    case PageId::Leaderboard: return "LEADERBOARD";
+        return T("menus.player.title");
+    case PageId::Setup: return key == kSearchKey ? T("menus.setup.title_random") : T("menus.setup.title_challenge");
+    case PageId::Ranked: return T("menus.ranked.title");
+    case PageId::Leaderboard: return T("menus.leaderboard.title");
     case PageId::Prompt:
         if (model.prompt && !model.prompt->kicker.empty()) return model.prompt->kicker;
-        return "CHALLENGE";
-    case PageId::Match: return "MATCH";
-    case PageId::Forfeit: return "FORFEIT";
+        return T("menus.prompt.title");
+    case PageId::Match: return T("menus.match.title");
+    case PageId::Forfeit: return T("menus.forfeit.title");
     }
     return "";
 }
 
-const std::vector<std::string>& PageCategories(PageId id)
+std::vector<std::string> PageCategories(PageId id)
 {
-    static const std::vector<std::string> kGameplay = [] {
+    switch (id)
+    {
+    case PageId::Gameplay:
+    {
         std::vector<std::string> names;
         for (const auto& group : overlay::GameOptionGroups()) names.push_back(Upper(group.short_title));
         return names;
-    }();
-    static const std::vector<std::string> kSettings{"DISPLAY", "SOUND", "ADVANCED"};
-    static const std::vector<std::string> kPlayers{"YOU", "FRIENDS", "PLAYERS"};
-    static const std::vector<std::string> kLeaderboard{"SEASON", "TODAY"};
-    static const std::vector<std::string> kNone;
-    switch (id)
-    {
-    case PageId::Gameplay: return kGameplay;
-    case PageId::Settings: return kSettings;
-    case PageId::Players: return kPlayers;
-    case PageId::Leaderboard: return kLeaderboard;
-    default: return kNone;
+    }
+    case PageId::Settings:
+        return {T("menus.settings.display"), T("menus.settings.sound"), T("menus.settings.advanced")};
+    case PageId::Players: return {T("menus.players.you"), T("menus.players.friends"), T("menus.players.players")};
+    case PageId::Leaderboard: return {T("menus.leaderboard.season"), T("menus.leaderboard.today")};
+    default: return {};
     }
 }
 

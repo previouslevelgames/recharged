@@ -108,8 +108,9 @@ struct PageActions
 
 // A page's title in its header.
 std::string PageTitle(PageId id, const std::string& key, const PageModel& model);
-// Its categories (in a column at its left), none for a page without.
-const std::vector<std::string>& PageCategories(PageId id);
+// Its categories (in a column at its left), none for a page without; in the
+// player's language.
+std::vector<std::string> PageCategories(PageId id);
 // Whether it is shown in the wide TV (those with categories, and the long ones).
 bool PageWide(PageId id);
 // Whether its TV is as short as its items (a question, the match menu), with

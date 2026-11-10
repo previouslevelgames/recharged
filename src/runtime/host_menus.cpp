@@ -1,5 +1,6 @@
 #include "runtime/host_menus.h"
 
+#include "bootstrap/texts.h"
 #include "platform/session_log.h"
 
 #include <aurora/imgui.h>
@@ -29,12 +30,25 @@ constexpr float kHeaderX = 0.0f, kHeaderY = 174.0f, kHeaderW = 400.0f, kHeaderH 
 // The pause menu's buttons where the game's layout has them (before its
 // pointer regions are set), in design pixels.
 constexpr float kFirstButtonY = -300.0f, kButtonStep = 99.6f, kButtonHalfWidth = 402.0f;
-// The buttons' texts when the game has none (the game's English ones).
-constexpr const char* kFallbackLabels[7] = {"RESUME",     "CHOOSE SIDES", "AUDIO OPTIONS",  "VISUAL OPTIONS",
-                                            "STATISTICS", "QUIT",         "CONTROLLER MAP"};
 // A slider's change, applied at once while it moves, is saved once it has
 // rested this long.
 constexpr auto kSaveRest = std::chrono::milliseconds(400);
+
+// A pause menu button's text when the game has none (the game's English
+// ones), by its ePauseMenuAction.
+const char* FallbackLabel(int action)
+{
+    switch (action) {
+    case 0: return texts::T("menus.pause.resume");
+    case 1: return texts::T("menus.pause.choose_sides");
+    case 2: return texts::T("menus.pause.audio_options");
+    case 3: return texts::T("menus.pause.visual_options");
+    case 4: return texts::T("menus.pause.statistics");
+    case 5: return texts::T("menus.pause.quit");
+    case 6: return texts::T("menus.pause.controller_map");
+    default: return "";
+    }
+}
 
 float EaseOut(float t) { return 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t); }
 float EaseIn(float t) { return t * t * t; }
@@ -592,7 +606,7 @@ bool HostMenus::DrawTopPage(const Tv& tv, const ui::Fonts& fonts, const ui::Inpu
     int crumb = -1;
     if (!tv.alone) {
         crumbs_.clear();
-        if (pauseUnder) crumbs_.push_back(menu_.title[0] ? menu_.title : "PAUSED");
+        if (pauseUnder) crumbs_.push_back(menu_.title[0] ? menu_.title : texts::T("menus.pause.title"));
         for (std::size_t n = 0; n + 1 < pages_.size(); ++n)
             crumbs_.push_back(ui::PageTitle(pages_[n].id, pages_[n].key, model));
         crumbs_.push_back(title);
@@ -625,10 +639,10 @@ bool HostMenus::DrawTopPage(const Tv& tv, const ui::Fonts& fonts, const ui::Inpu
     // has none: its answers are on its screen.
     int under = -1;
     if (!tv.compact) {
-        ui::FooterButton buttons[2] = {{"BACK", false}};
+        ui::FooterButton buttons[2] = {{texts::T("menus.footer.back"), false}};
         int count = 1;
-        if (pauseUnder) buttons[count++] = {"RESUME", true};
-        else if (RechargedOpen()) buttons[count++] = {"CLOSE", true};
+        if (pauseUnder) buttons[count++] = {texts::T("menus.footer.resume"), true};
+        else if (RechargedOpen()) buttons[count++] = {texts::T("menus.footer.close"), true};
         under = ui::DrawFooter(tv.screen, fonts, tv.half, buttons, count, in.pointer, in.pointer_shown);
     }
     const bool backPressed = in.back || (in.click && under == 0);
@@ -675,7 +689,7 @@ void HostMenus::DrawPauseButtons(const Frame& frame, const Tv& tv, const ui::Fon
                       .y;
             halfWidth = (button.max_x - button.min_x) * 0.5f * ui::kDesignPerUnit;
         }
-        const char* label = button.label[0] ? button.label : kFallbackLabels[action];
+        const char* label = button.label[0] ? button.label : FallbackLabel(action);
         ui::DrawPlate(tv.body, fonts.plate, halfWidth, mid, label, button.hovered != 0);
     }
 }
@@ -743,8 +757,8 @@ void HostMenus::Draw(float width, float height, const ui::Fonts& fonts)
     ui::PageModel model;
     if (pages) BuildModel(model);
     const std::string title = pages ? ui::PageTitle(pages_.back().id, pages_.back().key, model)
-        : scene == CHARGED_MENU_OPTIONS ? std::string("OPTIONS")
-                                        : std::string(menu_.title[0] ? menu_.title : "PAUSED");
+        : scene == CHARGED_MENU_OPTIONS ? std::string(texts::T("menus.options.title"))
+                                        : std::string(menu_.title[0] ? menu_.title : texts::T("menus.pause.title"));
     ui::DrawTitle(tv.body, fonts.title, title.c_str(), frame.elapsed);
 
     // The page with the players' input, or the game's pause menu; the
