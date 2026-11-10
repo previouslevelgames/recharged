@@ -1,5 +1,6 @@
 #include "launcher/discord_friends.h"
 
+#include "bootstrap/texts.h"
 #include "platform/path.h"
 #include "platform/profile_service.h"
 #include "platform/session_log.h"
@@ -203,11 +204,14 @@ struct DiscordFriends::Worker
         });
     }
 
-    void Fail(const std::string& error)
+    // `logged` for the log (English), `shown` for the page (the player's
+    // language); the server's own words are both.
+    void Fail(const std::string& logged, std::string shown)
     {
-        platform::SessionLogLine("Discord friends: " + error);
-        SetState(State::Failed, error);
+        platform::SessionLogLine("Discord friends: " + logged);
+        SetState(State::Failed, std::move(shown));
     }
+    void Fail(const std::string& error) { Fail(error, error); }
 
     // The library and a client, once; false (Missing) when it does not load.
     bool EnsureClient()
@@ -220,7 +224,7 @@ struct DiscordFriends::Worker
             {
                 platform::SessionLogLine("Discord friends: off (" + PathUtf8(file.filename()) + ": " + error
                                          + ")");
-                SetState(State::Missing, "The Discord library does not load: " + error);
+                SetState(State::Missing, texts::T("match_setup.discord.library_missing", {{"error", error}}));
                 return false;
             }
             loaded = true;
@@ -275,7 +279,10 @@ struct DiscordFriends::Worker
         {
             Discord_String text{};
             sdk.Discord_Client_ErrorToString(error, &text);
-            Fail("Discord's connection failed (" + sdk.Take(text) + ", " + std::to_string(detail) + ")");
+            const std::string why = sdk.Take(text);
+            const std::string code = std::to_string(detail);
+            Fail("Discord's connection failed (" + why + ", " + code + ")",
+                 texts::T("match_setup.discord.connection_failed", {{"error", why}, {"detail", code}}));
             retry_at = Clock::now() + kRetry;
         }
     }
@@ -367,7 +374,10 @@ struct DiscordFriends::Worker
         if (StateNow() != State::Linking) return; // cancelled meanwhile
         if (!ok)
         {
-            Fail(error.empty() ? "Discord did not link." : "Discord did not link: " + error);
+            if (error.empty()) Fail("Discord did not link.", texts::T("match_setup.discord.not_linked"));
+            else
+                Fail("Discord did not link: " + error,
+                     texts::T("match_setup.discord.not_linked_because", {{"error", error}}));
             return;
         }
         SetState(State::Connecting);
@@ -391,7 +401,7 @@ struct DiscordFriends::Worker
                 // Discord ended the link (or the code was used): made anew.
                 platform::ForgetProfileSession(owner.link_file_);
                 DropClient();
-                SetState(State::NotLinked, "Discord ended the link. Connect Discord again.");
+                SetState(State::NotLinked, texts::T("match_setup.discord.link_ended"));
             }
             else
             {
@@ -420,7 +430,9 @@ struct DiscordFriends::Worker
                 sdk.Discord_ClientResult_Drop(outcome);
                 if (!self->client) return;
                 if (ok) sdk.Discord_Client_Connect(&*self->client);
-                else self->Fail("Discord did not take the sign-in: " + error);
+                else
+                    self->Fail("Discord did not take the sign-in: " + error,
+                               texts::T("match_setup.discord.sign_in_refused", {{"error", error}}));
             },
             NoFree, this);
     }

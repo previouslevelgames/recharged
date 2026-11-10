@@ -1,5 +1,7 @@
 #include "platform/competitive_host.h"
 
+#include "bootstrap/texts.h"
+
 #include "platform/http_client.h"
 #include "platform/game_screen.h"
 #include "platform/match_kind.h"
@@ -794,8 +796,11 @@ void CompetitiveHost::Work(ProfileService& api)
         lock.unlock();
         if (opponent_forfeit) Said("set " + std::to_string(current->id) + ": the opponent forfeited it");
         if (news && current)
+        {
+            const texts::EnglishScope english; // (the log's)
             Said("match " + std::to_string(current->id) + " against " + current->opponent.name + " ("
                  + current->rule_set + "): " + DescribeRules(current->rules));
+        }
         else if (news)
             Said("no accepted match: RANKED stays retail");
         // A set's game whose set no longer waits for it (the opponent took

@@ -3,6 +3,7 @@
 // PC's language for "auto", {{placeholders}}, plural forms by CLDR's rules,
 // capitals beyond ASCII.
 
+#include "bootstrap/gamepad_actions.h"
 #include "bootstrap/table_texts.h"
 #include "bootstrap/texts.h"
 
@@ -63,6 +64,12 @@ int main()
     for (const auto& action : mscharged::kKeyActions)
         CHECK(std::string(texts::KeyActionName(action)) == action.label
               && (action.note ? std::string(texts::KeyActionAbout(action)) == action.note : !texts::KeyActionAbout(action)));
+    // The gamepad's own names and notes (the launcher's profiles); its last
+    // action, the pointer's recentring, is a settings text.
+    for (const auto& action : mscharged::kGamepadActions)
+        CHECK(std::string(action.key) == "recenter_pointer"
+              || (std::string(texts::TableText("pad_actions", action.key, "name")) == action.label
+                  && (!action.note || std::string(texts::TableText("pad_actions", action.key, "about")) == action.note)));
     for (const auto& hotkey : mscharged::kHotkeys)
         CHECK(std::string(texts::HotkeyActionName(hotkey)) == hotkey.label
               && (hotkey.note ? std::string(texts::HotkeyActionAbout(hotkey)) == hotkey.note
@@ -94,6 +101,12 @@ int main()
     CHECK(texts::Count("menus.players.online", 1) == "1 Spieler online");
     CHECK(std::string(before) == "RESUME"); // a text handed out before stays
     CHECK(texts::Language() == "de");
+    {
+        // A log line's texts: English.
+        const texts::EnglishScope english;
+        CHECK(std::string(texts::T("common.language.name")) == "English");
+    }
+    CHECK(std::string(texts::T("common.language.name")) == "Deutsch");
 
     // Russian's three forms.
     CHECK(texts::Load(folder, "ru") == "ru");

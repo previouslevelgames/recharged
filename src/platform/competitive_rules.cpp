@@ -1,10 +1,14 @@
 #include "platform/competitive_rules.h"
 
 #include "bootstrap/game_tweaks.h"
+#include "bootstrap/table_texts.h"
+#include "bootstrap/texts.h"
 #include "platform/profile_service.h"
 
 #include <array>
 #include <cctype>
+#include <map>
+#include <mutex>
 
 namespace mscharged::platform
 {
@@ -47,51 +51,74 @@ int CheatIndex(const std::vector<RuleChoice>& choices, const std::string& key)
         if (name == choices[n].key) return int(n);
     return -1;
 }
+
+// A list of choices with its labels in the loaded language: made once for
+// each language and kept, so labels handed out stay valid when it changes.
+const std::vector<RuleChoice>& InLanguage(std::map<std::string, std::vector<RuleChoice>>& lists,
+                                          std::vector<RuleChoice> (*make)())
+{
+    static std::mutex mutex;
+    const std::lock_guard<std::mutex> lock(mutex);
+    auto& list = lists[texts::Language()];
+    if (list.empty()) list = make();
+    return list;
+}
 } // namespace
 
 const std::vector<RuleChoice>& StadiumChoices()
 {
-    static const std::vector<RuleChoice> choices = [] {
-        static std::vector<std::string> labels;
-        std::vector<RuleChoice> list{{"random", "Random"}};
-        labels.reserve(kStadiums.size());
-        for (const char* key : kStadiums) labels.push_back(NameLabel(key));
-        for (std::size_t n = 0; n < kStadiums.size(); ++n) list.push_back({kStadiums[n], labels[n].c_str()});
+    static std::map<std::string, std::vector<RuleChoice>> lists;
+    return InLanguage(lists, [] {
+        std::vector<RuleChoice> list{{"random", texts::T("match_setup.stadiums.random")}};
+        for (const char* key : kStadiums) list.push_back({key, texts::T(std::string("match_setup.stadiums.") + key)});
         return list;
-    }();
-    return choices;
+    });
 }
 
 // The names the game's settings screen shows (the launcher's presets too).
 const std::vector<RuleChoice>& StadiumCheatChoices()
 {
-    static const std::vector<RuleChoice> choices{{"none", "None"},
-                                                 {"secure_stadiums", "Secure Stadiums"},
-                                                 {"power_shortage", "Power Shortage"},
-                                                 {"high_voltage", "High Voltage"},
-                                                 {"field_tilt", "Field Tilt"},
-                                                 {"always_white_ball", "Always White Ball"}};
-    return choices;
+    static std::map<std::string, std::vector<RuleChoice>> lists;
+    return InLanguage(lists, [] {
+        return std::vector<RuleChoice>{{"none", texts::T("match_setup.cheats.none")},
+                                       {"secure_stadiums", texts::T("match_setup.cheats.secure_stadiums")},
+                                       {"power_shortage", texts::T("match_setup.cheats.power_shortage")},
+                                       {"high_voltage", texts::T("match_setup.cheats.high_voltage")},
+                                       {"field_tilt", texts::T("match_setup.cheats.field_tilt")},
+                                       {"always_white_ball", texts::T("match_setup.cheats.always_white_ball")}};
+    });
 }
 
 const std::vector<RuleChoice>& PlayerCheatChoices()
 {
-    static const std::vector<RuleChoice> choices{{"none", "None"},
-                                                 {"devastating_hits", "Devastating Hits"},
-                                                 {"safe_megastrike", "Safe Megastrike"},
-                                                 {"always_sidekick_skillshot", "Always Sidekick Skillshot"},
-                                                 {"classic_mode", "Classic Mode"}};
-    return choices;
+    static std::map<std::string, std::vector<RuleChoice>> lists;
+    return InLanguage(lists, [] {
+        return std::vector<RuleChoice>{
+            {"none", texts::T("match_setup.cheats.none")},
+            {"devastating_hits", texts::T("match_setup.cheats.devastating_hits")},
+            {"safe_megastrike", texts::T("match_setup.cheats.safe_megastrike")},
+            {"always_sidekick_skillshot", texts::T("match_setup.cheats.always_sidekick_skillshot")},
+            {"classic_mode", texts::T("match_setup.cheats.classic_mode")}};
+    });
 }
 
 const std::vector<RuleChoice>& PowerupCheatChoices()
 {
-    static const std::vector<RuleChoice> choices{
-        {"none", "None"},           {"explosives", "Explosives"},     {"freezing", "Freezing"},
-        {"shells", "Shells"},       {"giant", "Giant"},               {"accelerator", "Accelerator"},
-        {"peelin_out", "Peelin' Out"}, {"seek_and_destroy", "Seek and Destroy"}, {"bombs_away", "Bombs Away"},
-        {"super_captains", "Super Captains"}, {"infinite", "Infinite"}, {"no_power_ups", "No Power-Ups"}};
-    return choices;
+    static std::map<std::string, std::vector<RuleChoice>> lists;
+    return InLanguage(lists, [] {
+        return std::vector<RuleChoice>{{"none", texts::T("match_setup.cheats.none")},
+                                       {"explosives", texts::T("match_setup.cheats.explosives")},
+                                       {"freezing", texts::T("match_setup.cheats.freezing")},
+                                       {"shells", texts::T("match_setup.cheats.shells")},
+                                       {"giant", texts::T("match_setup.cheats.giant")},
+                                       {"accelerator", texts::T("match_setup.cheats.accelerator")},
+                                       {"peelin_out", texts::T("match_setup.cheats.peelin_out")},
+                                       {"seek_and_destroy", texts::T("match_setup.cheats.seek_and_destroy")},
+                                       {"bombs_away", texts::T("match_setup.cheats.bombs_away")},
+                                       {"super_captains", texts::T("match_setup.cheats.super_captains")},
+                                       {"infinite", texts::T("match_setup.cheats.infinite")},
+                                       {"no_power_ups", texts::T("match_setup.cheats.no_power_ups")}};
+    });
 }
 
 std::string RuleChoiceLabel(const std::vector<RuleChoice>& choices, const std::string& key)
@@ -112,14 +139,14 @@ std::string StepRuleChoice(const std::vector<RuleChoice>& choices, const std::st
 
 const std::vector<RuleChoice>& RuleTweakChoices()
 {
-    static const std::vector<RuleChoice> choices = [] {
+    static std::map<std::string, std::vector<RuleChoice>> lists;
+    return InLanguage(lists, [] {
         std::vector<RuleChoice> list;
         for (const auto tweak : kRuleTweaks)
             for (const auto& info : kGameTweaks)
-                if (info.tweak == tweak) list.push_back({info.key, info.name});
+                if (info.tweak == tweak) list.push_back({info.key, texts::TweakName(info)});
         return list;
-    }();
-    return choices;
+    });
 }
 
 std::optional<ChargedCompetitiveRules> ModuleRules(const MatchRules& rules, const ProfilePlayer& opponent,
@@ -182,20 +209,30 @@ std::string NameLabel(std::string_view name)
 std::string DescribeRules(const MatchRules& rules)
 {
     std::string text;
-    if (rules.limit == "goals")
-        text += "First to " + std::to_string(rules.goals) + (rules.goals == 1 ? " goal" : " goals");
-    else if (rules.time % 60 == 0)
-        text += std::to_string(rules.time / 60) + (rules.time == 60 ? " minute" : " minutes");
+    if (rules.limit == "goals") text += texts::Count("match_setup.rules.first_to_goals", rules.goals);
+    else if (rules.time % 60 == 0) text += texts::Count("match_setup.rules.minutes", rules.time / 60);
     else
-        text += std::to_string(rules.time / 60) + ":" + (rules.time % 60 < 10 ? "0" : "")
-            + std::to_string(rules.time % 60) + " minutes";
-    text += rules.games == 1 ? ", one game" : ", best of " + std::to_string(rules.games);
-    text += rules.stadium == "random" ? std::string(", random stadium") : ", " + NameLabel(rules.stadium);
+        text += texts::T("match_setup.describe.minutes_and_seconds",
+                         {{"time", std::to_string(rules.time / 60) + ":" + (rules.time % 60 < 10 ? "0" : "")
+                                       + std::to_string(rules.time % 60)}});
+    text += ", ";
+    text += rules.games == 1 ? std::string(texts::T("match_setup.describe.one_game"))
+                             : texts::T("match_setup.describe.best_of", {{"games", std::to_string(rules.games)}});
+    text += ", ";
+    if (rules.stadium == "random") text += texts::T("match_setup.describe.random_stadium");
+    else
+    {
+        std::string stadium = NameLabel(rules.stadium);
+        for (const auto& choice : StadiumChoices())
+            if (rules.stadium == choice.key) stadium = choice.label;
+        text += stadium;
+    }
     for (const auto& name : rules.tweaks)
     {
         const auto* tweak = RuleTweak(name);
         text += ", ";
-        text += tweak ? tweak->name : name;
+        if (tweak) text += texts::TweakName(*tweak);
+        else text += name;
     }
     for (const auto& [choices, key] : {std::pair{&StadiumCheatChoices(), &rules.stadium_cheat},
                                        std::pair{&PlayerCheatChoices(), &rules.player_cheat},

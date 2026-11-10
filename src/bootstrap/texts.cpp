@@ -46,6 +46,8 @@ std::vector<std::unique_ptr<Table>> sTables;
 std::atomic<const Table*> sCurrent{nullptr};
 // IDs without a text: their own copies, which stay as well.
 std::set<std::string, std::less<>> sMissing;
+// EnglishScopes alive on this thread.
+thread_local int sEnglish = 0;
 
 std::string ReadFile(const std::filesystem::path& path)
 {
@@ -116,7 +118,7 @@ std::string FolderFor(const std::filesystem::path& folder, const std::string& la
 
 const Table* Current()
 {
-    const Table* table = sCurrent.load(std::memory_order_acquire);
+    const Table* table = sEnglish ? nullptr : sCurrent.load(std::memory_order_acquire);
     return table ? table : &BuiltIn();
 }
 
@@ -269,6 +271,10 @@ std::string Count(std::string_view id, long long count, std::initializer_list<Ar
 }
 
 std::string Language() { return Current()->language; }
+
+EnglishScope::EnglishScope() { ++sEnglish; }
+
+EnglishScope::~EnglishScope() { --sEnglish; }
 
 std::vector<LanguageChoice> Languages(const std::filesystem::path& folder)
 {

@@ -1,11 +1,14 @@
 #include "launcher/match_presets.h"
 
+#include "bootstrap/texts.h"
 #include "platform/competitive_rules.h"
 #include "platform/path.h"
 
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <map>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
@@ -61,6 +64,18 @@ const char* NameOr(const std::vector<const char*>& names, int index)
 }
 
 std::string Quoted(const std::string& text) { return '"' + text + '"'; }
+
+// A list of names in the loaded language: made once for each language and
+// kept, so names handed out stay valid when it changes.
+const std::vector<const char*>& InLanguage(std::map<std::string, std::vector<const char*>>& lists,
+                                           std::vector<const char*> (*make)())
+{
+    static std::mutex mutex;
+    const std::lock_guard<std::mutex> lock(mutex);
+    auto& list = lists[texts::Language()];
+    if (list.empty()) list = make();
+    return list;
+}
 } // namespace
 
 const std::vector<MatchPreset>& BuiltInMatchPresets()
@@ -91,30 +106,53 @@ bool ValidMatchPresetName(const std::string& name)
 
 const std::vector<const char*>& SkillNames()
 {
-    static const std::vector<const char*> names{"Rookie", "Professional", "Superstar", "Legend", "Megastriker"};
-    return names;
+    static std::map<std::string, std::vector<const char*>> lists;
+    return InLanguage(lists, [] {
+        return std::vector<const char*>{texts::T("match_setup.skills.rookie"),
+                                        texts::T("match_setup.skills.professional"),
+                                        texts::T("match_setup.skills.superstar"),
+                                        texts::T("match_setup.skills.legend"),
+                                        texts::T("match_setup.skills.megastriker")};
+    });
 }
 
 const std::vector<const char*>& StadiumCheatNames()
 {
-    static const std::vector<const char*> names{"None",       "Secure Stadiums", "Power Shortage",
-                                                "High Voltage", "Field Tilt",    "Always White Ball"};
-    return names;
+    static std::map<std::string, std::vector<const char*>> lists;
+    return InLanguage(lists, [] {
+        return std::vector<const char*>{texts::T("match_setup.cheats.none"),
+                                        texts::T("match_setup.cheats.secure_stadiums"),
+                                        texts::T("match_setup.cheats.power_shortage"),
+                                        texts::T("match_setup.cheats.high_voltage"),
+                                        texts::T("match_setup.cheats.field_tilt"),
+                                        texts::T("match_setup.cheats.always_white_ball")};
+    });
 }
 
 const std::vector<const char*>& PlayerCheatNames()
 {
-    static const std::vector<const char*> names{"None", "Devastating Hits", "Safe Megastrike",
-                                                "Always Sidekick Skillshot", "Classic Mode"};
-    return names;
+    static std::map<std::string, std::vector<const char*>> lists;
+    return InLanguage(lists, [] {
+        return std::vector<const char*>{texts::T("match_setup.cheats.none"),
+                                        texts::T("match_setup.cheats.devastating_hits"),
+                                        texts::T("match_setup.cheats.safe_megastrike"),
+                                        texts::T("match_setup.cheats.always_sidekick_skillshot"),
+                                        texts::T("match_setup.cheats.classic_mode")};
+    });
 }
 
 const std::vector<const char*>& PowerupCheatNames()
 {
-    static const std::vector<const char*> names{"None",         "Explosives",     "Freezing",   "Shells",
-                                                "Giant",        "Accelerator",    "Peelin' Out", "Seek and Destroy",
-                                                "Bombs Away",   "Super Captains", "Infinite",   "No Power-Ups"};
-    return names;
+    static std::map<std::string, std::vector<const char*>> lists;
+    return InLanguage(lists, [] {
+        return std::vector<const char*>{
+            texts::T("match_setup.cheats.none"),           texts::T("match_setup.cheats.explosives"),
+            texts::T("match_setup.cheats.freezing"),       texts::T("match_setup.cheats.shells"),
+            texts::T("match_setup.cheats.giant"),          texts::T("match_setup.cheats.accelerator"),
+            texts::T("match_setup.cheats.peelin_out"),     texts::T("match_setup.cheats.seek_and_destroy"),
+            texts::T("match_setup.cheats.bombs_away"),     texts::T("match_setup.cheats.super_captains"),
+            texts::T("match_setup.cheats.infinite"),       texts::T("match_setup.cheats.no_power_ups")};
+    });
 }
 
 std::string MatchSummary(const MatchSettings& s)
@@ -122,11 +160,11 @@ std::string MatchSummary(const MatchSettings& s)
     std::ostringstream text;
     const char* skill = NameOr(SkillNames(), s.skill - 1);
     if (skill) text << skill;
-    else text << "skill " << s.skill;
-    text << ", best of " << s.best_of << ", ";
-    if (s.goal_limit) text << "first to " << s.goals << " goals";
-    else if (s.time % 60 == 0) text << s.time / 60 << " minutes";
-    else text << s.time << " seconds";
+    else text << texts::T("match_setup.describe.skill", {{"skill", std::to_string(s.skill)}});
+    text << ", " << texts::T("match_setup.describe.best_of", {{"games", std::to_string(s.best_of)}}) << ", ";
+    if (s.goal_limit) text << texts::Count("match_setup.describe.first_to_goals", s.goals);
+    else if (s.time % 60 == 0) text << texts::Count("match_setup.rules.minutes", s.time / 60);
+    else text << texts::Count("match_setup.rules.seconds", s.time);
     using Cheat = std::pair<const std::vector<const char*>*, int>;
     for (const auto& [names, cheat] : {Cheat{&StadiumCheatNames(), s.stadium_cheat},
                                        Cheat{&PlayerCheatNames(), s.player_cheat},
@@ -134,7 +172,9 @@ std::string MatchSummary(const MatchSettings& s)
     {
         if (cheat == 0) continue;
         const char* name = NameOr(*names, cheat);
-        text << ", " << (name ? name : "cheat " + std::to_string(cheat));
+        text << ", "
+             << (name ? std::string(name)
+                      : texts::T("match_setup.describe.cheat", {{"cheat", std::to_string(cheat)}}));
     }
     return text.str();
 }
@@ -166,7 +206,10 @@ std::optional<MatchPreset> ParseMatchPreset(std::string_view text, std::string* 
     MatchPreset preset;
     bool named = false;
     auto fail = [&](int line, const std::string& why) -> std::optional<MatchPreset> {
-        if (error) *error = (line ? "line " + std::to_string(line) + ": " : std::string()) + why;
+        if (error)
+            *error = line ? texts::T("match_setup.presets.errors.line",
+                                     {{"line", std::to_string(line)}, {"error", why}})
+                          : why;
         return std::nullopt;
     };
     std::istringstream input{std::string(text)};
@@ -176,20 +219,21 @@ std::optional<MatchPreset> ParseMatchPreset(std::string_view text, std::string* 
         const auto content = Trim(raw);
         if (content.empty() || content[0] == '#' || content[0] == ';') continue;
         const auto equals = content.find('=');
-        if (equals == std::string::npos) return fail(line, "no \"key = value\"");
+        if (equals == std::string::npos) return fail(line, texts::T("match_setup.presets.errors.no_key_value"));
         const auto key = Lower(Trim(std::string_view(content).substr(0, equals)));
         auto value = Trim(std::string_view(content).substr(equals + 1));
         // A quoted value ends at its quote; any other at a # or ; comment.
         if (!value.empty() && value.front() == '"')
         {
             const auto close = value.find('"', 1);
-            if (close == std::string::npos) return fail(line, "no closing quote");
+            if (close == std::string::npos) return fail(line, texts::T("match_setup.presets.errors.no_closing_quote"));
             value = value.substr(1, close - 1);
         }
         else value = Trim(value.substr(0, value.find_first_of("#;")));
         if (key == "name")
         {
-            if (!ValidMatchPresetName(value)) return fail(line, "\"" + value + "\" cannot be a preset's name");
+            if (!ValidMatchPresetName(value))
+                return fail(line, texts::T("match_setup.presets.errors.bad_name", {{"name", value}}));
             preset.name = value;
             named = true;
             continue;
@@ -209,7 +253,8 @@ std::optional<MatchPreset> ParseMatchPreset(std::string_view text, std::string* 
         {
             const auto& stadiums = platform::StadiumChoices();
             if (std::none_of(stadiums.begin(), stadiums.end(), [&](const platform::RuleChoice& c) { return value == c.key; }))
-                return fail(line, "stadium cannot be " + value);
+                return fail(line,
+                            texts::T("match_setup.presets.errors.cannot_be", {{"key", "stadium"}, {"value", value}}));
             preset.stadium = value;
         }
         else if (key == "tweaks")
@@ -222,17 +267,19 @@ std::optional<MatchPreset> ParseMatchPreset(std::string_view text, std::string* 
                 if (tweak.empty()) continue;
                 const auto& known = platform::RuleTweakChoices();
                 if (std::none_of(known.begin(), known.end(), [&](const platform::RuleChoice& c) { return tweak == c.key; }))
-                    return fail(line, "tweaks cannot have " + tweak);
+                    return fail(line, texts::T("match_setup.presets.errors.cannot_have",
+                                               {{"key", "tweaks"}, {"value", tweak}}));
                 if (std::find(preset.tweaks.begin(), preset.tweaks.end(), tweak) == preset.tweaks.end())
                     preset.tweaks.push_back(tweak);
             }
         }
         else if (key == "skill" || key == "best_of" || key == "win_by" || key == "minutes" || key == "goals"
                  || key == "stadium_cheat" || key == "player_cheat" || key == "powerup_cheat")
-            return fail(line, key + " cannot be " + value);
+            return fail(line, texts::T("match_setup.presets.errors.cannot_be", {{"key", key}, {"value", value}}));
     }
-    if (!named) return fail(0, "no name");
-    if (!platform::ValidMatchSettings(preset.settings)) return fail(0, "a setting the game does not offer");
+    if (!named) return fail(0, texts::T("match_setup.presets.errors.no_name"));
+    if (!platform::ValidMatchSettings(preset.settings))
+        return fail(0, texts::T("match_setup.presets.errors.bad_setting"));
     return preset;
 }
 
@@ -308,17 +355,17 @@ MatchPresetList LoadMatchPresets(const fs::path& folder)
         bytes << input.rdbuf();
         std::string why;
         auto preset = input ? ParseMatchPreset(bytes.str(), &why) : std::nullopt;
-        if (!input) why = "it cannot be read";
+        if (!input) why = texts::T("match_setup.presets.errors.unreadable");
         else if (preset && std::any_of(found.begin(), found.end(), [&](const MatchPreset& other) {
                      return SameMatchPresetName(other.name, preset->name);
                  }))
         {
-            why = "another file has the preset " + preset->name;
+            why = texts::T("match_setup.presets.errors.duplicate", {{"name", preset->name}});
             preset.reset();
         }
         if (!preset)
         {
-            list.skipped.push_back(file + ": " + why);
+            list.skipped.push_back(texts::T("match_setup.presets.errors.file", {{"file", file}, {"error", why}}));
             continue;
         }
         preset->file = path;
@@ -332,18 +379,21 @@ MatchPresetList LoadMatchPresets(const fs::path& folder)
 
 fs::path SaveMatchPreset(const fs::path& folder, const MatchPreset& preset, const std::vector<MatchPreset>& others)
 {
-    if (preset.built_in) throw std::invalid_argument("The built-in presets cannot change.");
-    if (!ValidMatchPresetName(preset.name)) throw std::invalid_argument("\"" + preset.name + "\" cannot be a preset's name.");
-    if (!platform::ValidMatchSettings(preset.settings)) throw std::invalid_argument("A setting the game does not offer.");
+    if (preset.built_in) throw std::invalid_argument(texts::T("match_setup.presets.errors.built_in_change"));
+    if (!ValidMatchPresetName(preset.name))
+        throw std::invalid_argument(texts::T("match_setup.presets.errors.bad_name_sentence", {{"name", preset.name}}));
+    if (!platform::ValidMatchSettings(preset.settings))
+        throw std::invalid_argument(texts::T("match_setup.presets.errors.bad_setting_sentence"));
     for (const auto& other : others)
         if (!other.built_in && other.file != preset.file && SameMatchPresetName(other.name, preset.name))
-            throw std::invalid_argument("Another preset is called " + other.name + ".");
+            throw std::invalid_argument(texts::T("match_setup.presets.name_taken", {{"name", other.name}}));
 
     const auto target = folder / PathFromUtf8(MatchPresetFileName(preset.name));
     std::error_code error;
     const bool renamed = !preset.file.empty() && !fs::equivalent(preset.file, target, error);
     if ((preset.file.empty() || renamed) && fs::exists(target, error))
-        throw std::invalid_argument("Another file is called " + PathUtf8(target.filename()) + ": rename the preset.");
+        throw std::invalid_argument(
+            texts::T("match_setup.presets.errors.file_taken", {{"file", PathUtf8(target.filename())}}));
 
     try
     {
@@ -355,24 +405,28 @@ fs::path SaveMatchPreset(const fs::path& folder, const MatchPreset& preset, cons
             std::ofstream output(staging, std::ios::binary | std::ios::trunc);
             output << MatchPresetText(preset);
             output.close();
-            if (!output) throw std::runtime_error("Cannot write " + PathUtf8(staging));
+            if (!output)
+                throw std::runtime_error(
+                    texts::T("match_setup.presets.errors.cannot_write", {{"path", PathUtf8(staging)}}));
         }
         fs::rename(staging, target);
         if (renamed) fs::remove(preset.file);
     }
     catch (const fs::filesystem_error& e)
     {
-        throw std::runtime_error("Cannot save the preset: " + std::string(e.what()));
+        throw std::runtime_error(texts::T("match_setup.presets.errors.cannot_save", {{"error", e.what()}}));
     }
     return target;
 }
 
 void DeleteMatchPreset(const MatchPreset& preset)
 {
-    if (preset.built_in || preset.file.empty()) throw std::invalid_argument("The built-in presets cannot be removed.");
+    if (preset.built_in || preset.file.empty())
+        throw std::invalid_argument(texts::T("match_setup.presets.errors.built_in_remove"));
     std::error_code error;
     if (!fs::remove(preset.file, error) && error)
-        throw std::runtime_error("Cannot remove " + PathUtf8(preset.file) + ": " + error.message());
+        throw std::runtime_error(texts::T("match_setup.presets.errors.cannot_remove",
+                                          {{"path", PathUtf8(preset.file)}, {"error", error.message()}}));
 }
 
 const MatchPreset* FindMatchPreset(const std::vector<MatchPreset>& presets, const MatchSettings& settings)
