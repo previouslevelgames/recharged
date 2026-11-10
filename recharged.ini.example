@@ -373,6 +373,12 @@ frame_logging = false
 # while the program runs. Closing it does not stop the game.
 log_window = false
 
+[interface]
+# The language of Recharged's own menus and messages (the launcher, the game
+# menu): auto (the PC's language), or one of the folders in assets/lang, such
+# as de or pt-BR. The game's own texts follow [game] language.
+language = auto
+
 [launcher]
 # Launcher interface size: auto, or a percentage from 75 to 200.
 ui_scale = auto

@@ -48,4 +48,4 @@ endif()
 # SOUND, the Recharged menu), drawn with ImGui in the game; the pages' models
 # are the overlay's.
 add_library(charged_recharged_ui STATIC src/ui/rui_kit.cpp src/ui/rui_pages.cpp)
-target_link_libraries(charged_recharged_ui PUBLIC charged_overlay)
+target_link_libraries(charged_recharged_ui PUBLIC charged_overlay charged_texts)

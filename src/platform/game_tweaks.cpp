@@ -49,7 +49,8 @@ bool sPerformanceMode;
 enum { kOnlineOpen = 0, kOnlineChecking = 1, kOnlineOutdated = 2, kOnlineUnchecked = 3 };
 std::atomic<int> sOnlineGate{kOnlineOpen};
 const unsigned short* sOnlineLockMessage;
-// The popup's text, in English: Recharged's own texts are not translated yet.
+// The popup's text, in English: Recharged's texts (bootstrap/texts.h) are the
+// host's, and the game draws this with its own font.
 const char16_t kOnlineOutdatedText[] =
     u"A newer version of Recharged is out. Online play is off until you update: close the game and start the "
     u"launcher, which installs it.";

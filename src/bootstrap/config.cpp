@@ -110,6 +110,7 @@ Values Encode(const Settings& s)
             {"advanced.frame_logging", s.frame_logging ? "true" : "false"},
             {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
+            {"interface.language", s.interface_language},
             {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"online.challenge_rules", s.challenge_rules},
             {"online.challenge_sound", s.challenge_sound ? "true" : "false"},
@@ -426,6 +427,13 @@ Settings Decode(const Values& values, bool builtin = false)
     boolean("advanced.frame_logging", s.frame_logging);
     boolean("advanced.log_window", s.log_window);
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
+    if (const auto it = values.find("interface.language"); it != values.end()) {
+        const auto& code = it->second;
+        const bool valid = !code.empty() && code.size() <= 16
+            && code.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-") == std::string::npos;
+        if (!valid) throw std::runtime_error("Invalid configuration: unsupported interface.language");
+        s.interface_language = code;
+    }
     boolean("launcher.reopen_after_game", s.reopen_after_game);
     boolean("launcher.show_welcome", s.show_welcome);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});

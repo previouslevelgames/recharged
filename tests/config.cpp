@@ -481,7 +481,7 @@ int main()
         Require(!defaults.fps_overlay && defaults.fps_overlay_corner == "top-right"
             && defaults.monitor == 0 && !defaults.graphics_validation
             && defaults.log_level == "info" && !defaults.verbose_console && !defaults.frame_logging && !defaults.log_window
-            && defaults.ui_scale == "auto" && defaults.update_channel == "auto"
+            && defaults.ui_scale == "auto" && defaults.interface_language == "auto" && defaults.update_channel == "auto"
             && defaults.test_build == 0 && !defaults.reopen_after_game && defaults.show_welcome && defaults.gpu == "auto"
             && !defaults.performance_mode,
             "Host setting defaults");
@@ -498,6 +498,7 @@ int main()
         hostSettings.frame_logging = true;
         hostSettings.log_window = true;
         hostSettings.ui_scale = "150";
+        hostSettings.interface_language = "pt-BR";
         hostSettings.update_channel = "test";
         hostSettings.test_build = 72;
         hostSettings.reopen_after_game = true;
@@ -510,7 +511,7 @@ int main()
             && hostReloaded.monitor == 2 && hostReloaded.graphics_validation
             && hostReloaded.log_level == "warning" && hostReloaded.verbose_console && hostReloaded.frame_logging
             && hostReloaded.log_window
-            && hostReloaded.ui_scale == "150" && hostReloaded.update_channel == "test"
+            && hostReloaded.ui_scale == "150" && hostReloaded.interface_language == "pt-BR" && hostReloaded.update_channel == "test"
                 && hostReloaded.test_build == 72 && hostReloaded.reopen_after_game && !hostReloaded.show_welcome && hostReloaded.gpu == "10de:1f99",
             "Host settings round trip");
         const auto hostText = LoadConfig(host).contents;
