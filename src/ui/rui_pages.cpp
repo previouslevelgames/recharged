@@ -5,7 +5,6 @@
 #include "bootstrap/sound_groups.h"
 #include "bootstrap/table_texts.h"
 #include "bootstrap/texts.h"
-#include "overlay/flags.h"
 #include "platform/competitive_rules.h"
 
 #include <algorithm>
@@ -225,7 +224,6 @@ Person PersonOf(const PageModel& model, const std::string& image, const std::str
     person.initials = initials;
     person.tint = tint;
     person.presence = presence;
-    if (model.image && !country.empty()) person.flags = (*model.image)(std::string(overlay::kFlagAtlas));
     person.country = country;
     return person;
 }
@@ -245,83 +243,86 @@ void OpenSetup(const PageModel& model, PageState& state, PageActions& actions, c
     actions.open_key = key;
 }
 
+// The player's set (what it is, and what they can do now), wherever it is shown.
+void DrawSet(const PageModel& model, List& list, PageActions& actions)
+{
+    const auto& set = model.overlay.online.set;
+    if (set.stage == overlay::OnlinePanelSet::Stage::None) return;
+    const Person opponent = PersonOf(model, set.opponent);
+    std::vector<std::string> about{set.status};
+    if (!set.rules.empty()) about.push_back(set.rules);
+    list.Card(&opponent, T("menus.you.your_set"), set.title.c_str(), about, ToneOf(set.tone), set.games, set.won,
+              set.lost);
+    if (set.can_accept && list.Plate(T("menus.you.accept"))) actions.online.accept = true;
+    if (set.can_decline && list.Plate(T("menus.you.decline"))) actions.online.decline = true;
+    if (set.can_ready && list.Plate(T("menus.you.ready"))) actions.online.ready = true;
+    if (set.can_rematch && list.Plate(T("menus.you.rematch"))) actions.online.rematch = true;
+    if (set.can_cancel)
+    {
+        const std::string label =
+            Upper(set.cancel_label.empty() ? T("menus.you.cancel_set") : set.cancel_label.c_str());
+        if (list.Plate(label.c_str())) actions.online.cancel = true;
+    }
+}
+
+// Without a player profile: where to make one.
+void DrawNoProfile(List& list)
+{
+    list.Card(nullptr, nullptr, T("menus.you.no_profile_title"), {T("menus.you.no_profile")});
+}
+
+// The rows of a section of the online lists, or -1 when it is not there.
+int SectionRows(const overlay::OnlinePanelModel& online, overlay::OnlinePanelSection::Id id)
+{
+    for (const auto& section : online.sections)
+        if (section.id == id) return int(section.rows.size());
+    return -1;
+}
+
+// The rule set a challenge or a search goes out with: the one used last.
+const overlay::OnlinePanelPreset* ChosenPreset(const overlay::OnlinePanelModel& online)
+{
+    return online.presets.empty() ? nullptr : &online.presets[std::size_t(overlay::ChosenOnlinePanelPreset(online))];
+}
+
+// ONLINE: the set going on first, then where to go.
 void DrawOnline(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
-    if (list.Plate(T("menus.online.players"))) actions.open = PageId::Players;
-    if (list.Plate(T("menus.online.ranked"))) actions.open = PageId::Ranked;
+    if (online.signed_out) DrawNoProfile(list);
+    else DrawSet(model, list, actions);
+    if (list.Plate(T("menus.online.play"))) actions.open = PageId::Play;
+    const char* busy = !online.signed_out && !online.me.available && online.me.can_set_available
+        ? T("menus.you.do_not_disturb") : nullptr;
+    if (list.Plate(T("menus.online.profile"), nullptr, true, busy)) actions.open = PageId::Profile;
     if (list.Plate(T("menus.online.leaderboard"))) actions.open = PageId::Leaderboard;
-    if (model.from_wheel && list.Plate(T("menus.online.wii_online")))
-        actions.wii_online = true;
-    // A set waiting for the player (its page is PLAYERS).
-    if (overlay::OnlinePanelWaiting(online) > 0)
-    {
-        const std::string waits = T("menus.online.set_waits", {{"set", online.set.title}});
-        list.Note(waits.c_str());
-    }
+    if (model.from_wheel && list.Plate(T("menus.online.wii_online"))) actions.wii_online = true;
 }
 
-void DrawYou(const PageModel& model, PageState& state, List& list, PageActions& actions)
+// PLAY: against a friend, a random opponent, or RANKED; each with how it stands.
+void DrawPlay(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
-    if (online.signed_out)
+    std::string friends, random;
+    if (!online.signed_out)
     {
-        list.Card(nullptr, T("menus.you.no_profile_kicker"), T("menus.you.no_profile_title"),
-                  {T("menus.you.no_profile")});
-        return;
+        if (const int count = SectionRows(online, overlay::OnlinePanelSection::Id::Online); count > 0)
+            friends = texts::Count("menus.play.online_count", count);
+        if (online.search.active) random = T("menus.play.searching");
+        else if (!online.me.available && online.me.can_set_available) random = T("menus.you.do_not_disturb");
+        else if (const int count = SectionRows(online, overlay::OnlinePanelSection::Id::Available); count > 0)
+            random = texts::Count("menus.play.available_count", count);
     }
-    const auto& me = online.me;
-    const Person you = PersonOf(model, me.image, me.initials, me.tint_seed, -1, me.country);
-    std::vector<std::string> lines;
-    if (!me.detail.empty()) lines.push_back(me.detail);
-    lines.push_back(me.available ? T("menus.you.open") : T("menus.you.not_open"));
-    list.Card(&you, T("menus.you.kicker"), me.name.c_str(), lines, me.available ? Tone::Good : Tone::Away);
-    if (!online.message.empty()) list.Note(online.message.c_str());
-    // The set: what it is, and what the player can do now.
-    const auto& set = online.set;
-    if (set.stage != overlay::OnlinePanelSet::Stage::None)
-    {
-        const Person opponent = PersonOf(model, set.opponent);
-        std::vector<std::string> about{set.status};
-        if (!set.rules.empty()) about.push_back(set.rules);
-        list.Card(&opponent, T("menus.you.your_set"), set.title.c_str(), about, ToneOf(set.tone), set.games, set.won,
-                  set.lost);
-        if (set.can_accept && list.Plate(T("menus.you.accept"))) actions.online.accept = true;
-        if (set.can_decline && list.Plate(T("menus.you.decline"))) actions.online.decline = true;
-        if (set.can_ready && list.Plate(T("menus.you.ready"))) actions.online.ready = true;
-        if (set.can_rematch && list.Plate(T("menus.you.rematch"))) actions.online.rematch = true;
-        if (set.can_cancel)
-        {
-            const std::string label =
-                Upper(set.cancel_label.empty() ? T("menus.you.cancel_set") : set.cancel_label.c_str());
-            if (list.Plate(label.c_str())) actions.online.cancel = true;
-        }
-    }
-    list.Caption(T("menus.you.challenges"));
-    if (me.can_set_available)
-        if (const auto on = list.Switch(T("menus.you.open_switch"), me.available, T("menus.you.open_switch_about")))
-            actions.online.set_available = *on;
-    // Random opponents: the search, or its setup.
-    const auto& search = online.search;
-    if (search.active)
-    {
-        const std::string text = T("menus.you.searching", {{"rules", search.rules},
-                                                           {"seconds", std::to_string(search.seconds)},
-                                                           {"asked", std::to_string(search.asked)}});
-        list.Note(text.c_str());
-        if (list.Plate(T("menus.you.stop_searching"))) actions.online.stop_search = true;
-    }
-    else if (online.can_search)
-    {
-        const char* rules = online.presets.empty()
-            ? "" : online.presets[std::size_t(overlay::ChosenOnlinePanelPreset(online))].name.c_str();
-        if (list.Row(T("menus.you.find_opponent"), rules, T("menus.you.find_opponent_about")))
-            OpenSetup(model, state, actions, kSearchKey);
-    }
-    if (!online.note.empty()) list.Note(online.note.c_str());
+    const char* ranked = model.overlay.ranked.going ? T("menus.play.on_the_way") : nullptr;
+    if (list.Plate(T("menus.play.friends"), nullptr, true, friends.c_str())) actions.open = PageId::Friends;
+    if (list.Plate(T("menus.play.random"), nullptr, true, random.c_str())) actions.open = PageId::Random;
+    if (list.Plate(T("menus.play.ranked"), nullptr, true, ranked)) actions.open = PageId::Ranked;
 }
 
-void DrawSection(const PageModel& model, List& list, PageActions& actions, overlay::OnlinePanelSection::Id id)
+// A section of the online lists: a player who can be challenged now opens
+// the match's setup, any other their page (why not, and the friend buttons).
+void DrawSection(const PageModel& model, PageState& state, List& list, PageActions& actions,
+                 overlay::OnlinePanelSection::Id id)
 {
     const auto& online = model.overlay.online;
     if (online.signed_out)
@@ -341,15 +342,136 @@ void DrawSection(const PageModel& model, List& list, PageActions& actions, overl
         for (const auto& row : section.rows)
         {
             const Person person = PersonOf(model, row);
-            const char* about = row.detail.empty() ? nullptr : row.detail.c_str();
             if (list.PlayerRow(person, row.name.c_str(), row.status.c_str(), ToneOf(row.tone),
-                               row.version.empty() ? nullptr : row.version.c_str(), about))
+                               row.version.empty() ? nullptr : row.version.c_str(), nullptr))
             {
-                actions.open = PageId::Player;
-                actions.open_key = row.key;
+                if (row.can_challenge && !online.presets.empty()) OpenSetup(model, state, actions, row.key);
+                else
+                {
+                    actions.open = PageId::Player;
+                    actions.open_key = row.key;
+                }
             }
         }
     }
+}
+
+// FRIENDS: the friends online, each to challenge from their page.
+void DrawFriends(const PageModel& model, PageState& state, List& list, PageActions& actions)
+{
+    const auto& online = model.overlay.online;
+    if (online.signed_out)
+    {
+        DrawNoProfile(list);
+        return;
+    }
+    if (!online.note.empty()) list.Note(online.note.c_str());
+    DrawSection(model, state, list, actions, overlay::OnlinePanelSection::Id::Online);
+}
+
+// RANDOM OPPONENT: the search (its setup: the rules, FIND NOW), Do not
+// disturb, and the others available (listed while Do not disturb is off).
+// Give and take: searching makes the player available, Do not disturb stops
+// a search.
+void DrawRandom(const PageModel& model, PageState& state, List& list, PageActions& actions)
+{
+    const auto& online = model.overlay.online;
+    if (online.signed_out)
+    {
+        DrawNoProfile(list);
+        return;
+    }
+    const auto& me = online.me;
+    const double now = ImGui::GetTime();
+    if (overlay::OnlinePanelSearchRunning(online, state.online, now))
+    {
+        const std::string time = online.search.active
+            ? T("menus.random.search_time", {{"seconds", std::to_string(online.search.seconds)},
+                                             {"asked", std::to_string(online.search.asked)}})
+            : std::string();
+        if (list.Plate(T("menus.you.stop_searching"), nullptr, true, time.c_str()))
+        {
+            actions.online.stop_search = true;
+            state.online.search_sent = -100.0;
+        }
+    }
+    else
+    {
+        const auto* preset = ChosenPreset(online);
+        const bool can = online.can_search && preset;
+        if (list.Plate(T("menus.random.find"), nullptr, can, preset ? preset->name.c_str() : nullptr))
+            OpenSetup(model, state, actions, kSearchKey);
+    }
+    if (!online.note.empty()) list.Note(online.note.c_str());
+    if (me.can_set_available)
+        if (const auto on = list.Switch(T("menus.you.do_not_disturb"), !me.available))
+        {
+            actions.online.set_available = !*on;
+            if (*on && online.search.active) actions.online.stop_search = true;
+        }
+    list.Caption(T("menus.random.available_caption"));
+    if (SectionRows(online, overlay::OnlinePanelSection::Id::Available) < 0) list.Note(T("menus.random.closed"));
+    else DrawSection(model, state, list, actions, overlay::OnlinePanelSection::Id::Available);
+}
+
+// A record as "won – lost", with the share won when games were played.
+std::string GamesText(const platform::StatsRecord& record)
+{
+    const std::string won = std::to_string(record.games_won), lost = std::to_string(record.games_lost);
+    const int decided = record.games_won + record.games_lost;
+    if (decided == 0) return T("menus.profile.record", {{"won", won}, {"lost", lost}});
+    const int share = int((100.0 * record.games_won / decided) + 0.5);
+    return T("menus.profile.record_percent", {{"won", won}, {"lost", lost}, {"percent", std::to_string(share)}});
+}
+
+// PROFILE: the player, their record of all time, and all their friends.
+void DrawProfile(const PageModel& model, PageState& state, List& list, PageActions& actions)
+{
+    const auto& online = model.overlay.online;
+    if (online.signed_out)
+    {
+        DrawNoProfile(list);
+        return;
+    }
+    const auto& me = online.me;
+    const Person you = PersonOf(model, me.image, me.initials, me.tint_seed, -1, me.country);
+    std::vector<std::string> lines;
+    if (!me.detail.empty()) lines.push_back(me.detail);
+    lines.push_back(me.available ? T("menus.you.open") : T("menus.you.do_not_disturb"));
+    list.Card(&you, nullptr, me.name.c_str(), lines, me.available ? Tone::Good : Tone::Away);
+    if (!online.message.empty()) list.Note(online.message.c_str());
+
+    list.Caption(T("menus.profile.stats"));
+    if (online.stats_missing) list.Note(T("menus.profile.no_stats"));
+    else if (!online.stats) list.Note(T("menus.common.loading"));
+    else
+    {
+        // RANKED opens its page (this season and today); friend matches are
+        // the sets and matches between friends.
+        if (const auto* ranked = online.stats->Mode("ranked"))
+            if (list.Row(T("menus.profile.ranked"), GamesText(ranked->all).c_str())) actions.open = PageId::Ranked;
+        if (const auto* friends = online.stats->Mode("friends"))
+            list.Row(T("menus.profile.friend_matches"), GamesText(friends->all).c_str());
+    }
+
+    list.Caption(T("menus.profile.friends"));
+    DrawSection(model, state, list, actions, overlay::OnlinePanelSection::Id::Friends);
+}
+
+// ADD FRIEND or REMOVE FRIEND, for friends added in the game (a Discord
+// friend stays Discord's).
+void FriendButton(const overlay::OnlinePanelRow& row, List& list, PageActions& actions)
+{
+    if (!row.can_befriend) return;
+    const bool mii = row.kind == overlay::OnlinePanelRow::Kind::Mii;
+    if (row.is_friend)
+    {
+        if (list.Plate(T("menus.player.remove_friend")))
+            mii ? void(actions.online.remove_mii_friend = row.mii_profile)
+                : void(actions.online.remove_friend = row.player_id);
+    }
+    else if (list.Plate(T("menus.player.add_friend")))
+        mii ? void(actions.online.add_mii_friend = row.mii_profile) : void(actions.online.add_friend = row.player_id);
 }
 
 void DrawPlayer(const std::string& key, const PageModel& model, PageState& state, List& list, PageActions& actions)
@@ -360,30 +482,20 @@ void DrawPlayer(const std::string& key, const PageModel& model, PageState& state
         list.Note(T("menus.player.gone"));
         return;
     }
+    // Who they are and how they are.
     const Person person = PersonOf(model, *row);
     std::vector<std::string> lines{row->status};
     if (!row->detail.empty()) lines.push_back(row->detail);
     if (!row->version.empty()) lines.push_back(T("menus.player.version", {{"version", row->version}}));
     list.Card(&person, row->is_friend ? T("menus.player.friend") : T("menus.player.player"), row->name.c_str(), lines,
               ToneOf(row->tone));
-    if (row->can_challenge)
-    {
-        if (list.Plate(T("menus.player.challenge"), T("menus.player.challenge_about")))
-            OpenSetup(model, state, actions, row->key);
-    }
-    else if (!row->blocked.empty()) list.Note(row->blocked.c_str());
-    if (row->can_befriend)
-    {
-        const bool mii = row->kind == overlay::OnlinePanelRow::Kind::Mii;
-        if (row->is_friend)
-        {
-            if (list.Plate(T("menus.player.remove_friend")))
-                mii ? void(actions.online.remove_mii_friend = row->mii_profile)
-                    : void(actions.online.remove_friend = row->player_id);
-        }
-        else if (list.Plate(T("menus.player.add_friend")))
-            mii ? void(actions.online.add_mii_friend = row->mii_profile) : void(actions.online.add_friend = row->player_id);
-    }
+    // CHALLENGE: the match's setup, once they can be challenged; greyed
+    // until then, why on it.
+    const auto& online = model.overlay.online;
+    const bool can = row->can_challenge && !online.presets.empty();
+    const char* why = can || row->blocked.empty() ? nullptr : row->blocked.c_str();
+    if (list.Plate(T("menus.player.challenge"), nullptr, can, why)) OpenSetup(model, state, actions, row->key);
+    FriendButton(*row, list, actions);
 }
 
 std::string GameLength(int seconds)
@@ -440,23 +552,18 @@ void DrawSetup(const std::string& key, const PageModel& model, PageState& state,
     if (row)
     {
         const Person person = PersonOf(model, *row);
-        list.Card(&person, T("menus.setup.challenge"), row->name.c_str(), {row->status}, ToneOf(row->tone));
+        list.Card(&person, nullptr, row->name.c_str(), {row->status}, ToneOf(row->tone));
     }
-    else
-    {
-        const std::string status = searching
-            ? T("menus.setup.searching", {{"seconds", std::to_string(online.search.seconds)},
-                                          {"asked", std::to_string(online.search.asked)}})
-            : std::string(T("menus.setup.anybody"));
-        list.Card(nullptr, T("menus.setup.random"), T("menus.setup.find_opponent"), {status},
-                  searching ? Tone::Busy : Tone::Neutral);
-    }
-    // The way on first, the rules under it.
+    // The way on first (the rules it goes out with on it, or why it can't go
+    // now), the rules under it.
     const bool can = search ? online.can_search || searching : row->can_challenge;
     const char* label = !search ? T("menus.setup.send_challenge")
         : searching             ? T("menus.setup.stop_searching")
                                 : T("menus.setup.find_now");
-    if (list.Plate(label, changed ? T("menus.setup.changed") : nullptr, can))
+    const std::string going = !can && row && !row->blocked.empty() ? row->blocked
+        : changed ? T("menus.setup.changed_rules", {{"rules", preset.name}})
+                  : preset.name;
+    if (list.Plate(label, nullptr, can, searching ? nullptr : going.c_str()))
     {
         if (searching)
         {
@@ -471,6 +578,8 @@ void DrawSetup(const std::string& key, const PageModel& model, PageState& state,
             {
                 actions.online.search = challenge;
                 setup.search_sent = now;
+                // Give and take: who looks for an opponent can be found.
+                if (!online.me.available && online.me.can_set_available) actions.online.set_available = true;
             }
             else
             {
@@ -515,27 +624,56 @@ void DrawSetup(const std::string& key, const PageModel& model, PageState& state,
             }
         }
     }
+    // The player challenged: a friend added in the game or not.
+    if (row && row->can_befriend)
+    {
+        list.Caption(T("menus.player.friend"));
+        FriendButton(*row, list, actions);
+    }
 }
 
+std::string Record(const platform::LeaderboardEntry& entry);
+
+// RANKED: play it, and the player's places this season and today, each
+// opening its board.
 void DrawRanked(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& ranked = model.overlay.ranked;
-    const std::vector<std::string> lines{T("menus.ranked.about"), T("menus.ranked.about_leaderboards")};
-    list.Card(nullptr, T("menus.ranked.kicker"), T("menus.ranked.card_title"), lines);
     if (ranked.going)
     {
-        list.Note(ranked.waiting ? T("menus.ranked.waiting") : T("menus.ranked.going"));
-        if (list.Plate(T("menus.ranked.stop"))) actions.ranked.stop = true;
+        // Waiting: the player has to go back to a menu the game goes on from.
+        if (ranked.waiting) list.Note(T("menus.ranked.waiting"));
+        if (list.Plate(T("menus.ranked.stop"), nullptr, true, T("menus.play.on_the_way"))) actions.ranked.stop = true;
     }
     else
     {
-        if (list.Plate(T("menus.ranked.play"),
-                       ranked.own_mii ? T("menus.ranked.own_mii") : T("menus.ranked.choose_mii"), ranked.can_play))
-            actions.ranked.play = true;
-        if (!ranked.blocked.empty()) list.Note(ranked.blocked.c_str());
+        // Greyed when it can't go now, why on it.
+        const char* why = ranked.can_play || ranked.blocked.empty() ? nullptr : ranked.blocked.c_str();
+        if (list.Plate(T("menus.ranked.play"), nullptr, ranked.can_play, why)) actions.ranked.play = true;
     }
-    if (list.Row(T("menus.ranked.leaderboard"), "", T("menus.ranked.leaderboard_about")))
-        actions.open = PageId::Leaderboard;
+    if (ranked.boards && !ranked.signed_out)
+    {
+        list.Caption(T("menus.ranked.your_place"));
+        // A row without a game (the game puts an empty one) is no place.
+        const auto place = [](const platform::LeaderboardBoard& board) {
+            const auto& you = board.you;
+            if (!you || you->rank <= 0 || (you->points == 0 && you->wins.value_or(0) + you->losses.value_or(0) == 0))
+                return std::string(T("menus.ranked.not_placed"));
+            return texts::Count("menus.ranked.place", board.you->points,
+                                {{"place", std::to_string(board.you->rank)}, {"record", Record(*board.you)}});
+        };
+        const std::string season = place(ranked.boards->season), today = place(ranked.boards->daily);
+        if (list.Row(T("menus.ranked.season"), season.c_str()))
+        {
+            actions.open = PageId::Leaderboard;
+            actions.open_category = 0;
+        }
+        if (list.Row(T("menus.ranked.today"), today.c_str()))
+        {
+            actions.open = PageId::Leaderboard;
+            actions.open_category = 1;
+        }
+    }
 }
 
 std::string Record(const platform::LeaderboardEntry& entry)
@@ -566,18 +704,9 @@ void DrawLeaderboard(int category, const PageModel& model, List& list)
     const auto& board = daily ? ranked.boards->daily : ranked.boards->season;
     const std::string days = board.first_day == board.last_day || board.last_day.empty()
         ? board.first_day : board.first_day + "  \xE2\x80\x93  " + board.last_day;
-    std::vector<std::string> lines{days};
-    if (board.you)
-    {
-        const std::string record = Record(*board.you);
-        if (board.you->rank > 0)
-            lines.push_back(texts::Count("menus.leaderboard.you_placed", board.you->points,
-                                         {{"place", std::to_string(board.you->rank)}, {"record", record}}));
-        else lines.push_back(texts::Count("menus.leaderboard.you_unplaced", board.you->points, {{"record", record}}));
-    }
     const std::string players = texts::Count("menus.leaderboard.players", board.players);
-    list.Card(nullptr, daily ? T("menus.leaderboard.today_kicker") : T("menus.leaderboard.season_kicker"),
-              players.c_str(), lines);
+    const std::string summary = T("menus.leaderboard.summary", {{"days", days}, {"players", players}});
+    list.Note(summary.c_str());
     if (board.top.empty())
         list.Note(daily ? T("menus.leaderboard.nobody_today") : T("menus.leaderboard.nobody"));
     bool youShown = false;
@@ -640,7 +769,10 @@ std::string PageTitle(PageId id, const std::string& key, const PageModel& model)
     case PageId::Settings: return T("menus.settings.title");
     case PageId::Quit: return T("menus.quit.title");
     case PageId::Online: return T("menus.online.title");
-    case PageId::Players: return T("menus.players.title");
+    case PageId::Play: return T("menus.play.title");
+    case PageId::Friends: return T("menus.friends.title");
+    case PageId::Random: return T("menus.random.title");
+    case PageId::Profile: return T("menus.profile.title");
     case PageId::Player:
         if (const auto* row = overlay::FindRow(model.overlay.online, key)) return row->name;
         return T("menus.player.title");
@@ -668,13 +800,27 @@ std::vector<std::string> PageCategories(PageId id)
     }
     case PageId::Settings:
         return {T("menus.settings.display"), T("menus.settings.sound"), T("menus.settings.advanced")};
-    case PageId::Players: return {T("menus.players.you"), T("menus.players.friends"), T("menus.players.players")};
     case PageId::Leaderboard: return {T("menus.leaderboard.season"), T("menus.leaderboard.today")};
     default: return {};
     }
 }
 
-bool PageWide(PageId id) { return !PageCategories(id).empty() || id == PageId::Setup; }
+bool PageWide(PageId id)
+{
+    // All but the hubs and the questions: room for a page's lists and for
+    // the facts on its buttons.
+    switch (id)
+    {
+    case PageId::Menu:
+    case PageId::Options:
+    case PageId::Online:
+    case PageId::Quit:
+    case PageId::Prompt:
+    case PageId::Match:
+    case PageId::Forfeit: return false;
+    default: return true;
+    }
+}
 
 bool PageCompact(PageId id) { return id == PageId::Prompt || id == PageId::Match || id == PageId::Forfeit; }
 
@@ -693,11 +839,10 @@ void DrawPage(PageId id, int category, const std::string& key, const PageModel& 
         else DrawDisplay(model, list, actions);
         break;
     case PageId::Online: DrawOnline(model, list, actions); break;
-    case PageId::Players:
-        if (category == 1) DrawSection(model, list, actions, overlay::OnlinePanelSection::Id::Online);
-        else if (category == 2) DrawSection(model, list, actions, overlay::OnlinePanelSection::Id::Available);
-        else DrawYou(model, state, list, actions);
-        break;
+    case PageId::Play: DrawPlay(model, list, actions); break;
+    case PageId::Friends: DrawFriends(model, state, list, actions); break;
+    case PageId::Random: DrawRandom(model, state, list, actions); break;
+    case PageId::Profile: DrawProfile(model, state, list, actions); break;
     case PageId::Player: DrawPlayer(key, model, state, list, actions); break;
     case PageId::Setup: DrawSetup(key, model, state, list, actions); break;
     case PageId::Ranked: DrawRanked(model, list, actions); break;

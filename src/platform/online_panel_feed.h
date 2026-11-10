@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace mscharged::platform
@@ -49,6 +50,13 @@ public:
     // The Ranked tab is shown: the leaderboards come with the lists (at once
     // when it opens).
     void WantLeaderboard(bool want);
+    // The player's profile is shown: their records come with the lists (at
+    // once when it opens).
+    void WantStats(bool want);
+    // The Miis of the player's WFC profiles (profile id, the Mii's 74-byte
+    // record), sent to the server once with the next answers, so others'
+    // menus show them; a server without Miis (before 1.2.22) is not asked again.
+    void SetOwnMiis(std::vector<std::pair<std::int32_t, std::string>> miis);
     // What the game does, for the server's lists ("game" or "match"), and
     // in a match its kind (MatchKindOf).
     void SetActivity(std::string activity, std::string match_kind = {});
@@ -79,6 +87,11 @@ public:
         std::optional<Leaderboard> leaderboard;
         bool leaderboard_missing = false;
         std::chrono::steady_clock::time_point leaderboard_fetched{};
+        // The player's records, while the profile wants them (asked at most
+        // once a minute); `stats_missing` for a server without them (before 1.2.22).
+        std::optional<PlayerStats> stats;
+        bool stats_missing = false;
+        std::chrono::steady_clock::time_point stats_fetched{};
     };
     Snapshot Latest();
 
@@ -120,7 +133,9 @@ private:
     bool discord_failed_ = false; // the feed's thread only
     std::mutex mutex_;
     std::condition_variable wake_;
-    bool stop_ = false, open_ = false, due_ = false, want_leaderboard_ = false;
+    bool stop_ = false, open_ = false, due_ = false, want_leaderboard_ = false, want_stats_ = false;
+    // The player's Miis to send, until sent (or the server has no Miis).
+    std::vector<std::pair<std::int32_t, std::string>> own_miis_;
     std::string activity_ = "game", match_kind_;
     std::string challenge_rules_;
     std::shared_ptr<class HttpCancel> cancel_;

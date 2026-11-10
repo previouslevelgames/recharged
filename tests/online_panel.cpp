@@ -113,6 +113,7 @@ void TestPlayer()
     const auto model = MakeOnlinePanelModel({}, std::nullopt, context);
     CHECK(model.me.name == "Anosch");
     CHECK(model.me.detail == "@anosch");
+    // The player's Discord picture; without one, their Mii.
     CHECK(model.me.image == "https://cdn.example/a.png");
     CHECK(model.me.initials == "A");
     CHECK(!model.me.available);
@@ -120,14 +121,21 @@ void TestPlayer()
     CHECK(model.set.stage == OnlinePanelSet::Stage::None);
     CHECK(model.note.empty());
     CHECK(model.message == "The server can't be reached." && model.message_tone == Tone::Bad);
-    // Not available: Online now alone, which says nobody is online (and,
-    // without friends, nothing about friends offline).
-    CHECK(model.sections.size() == 1);
+    // Not available: Online now, which says nobody is online (and, without
+    // friends, nothing about friends offline), and the profile's friends.
+    CHECK(model.sections.size() == 2);
     CHECK(model.sections[0].id == OnlinePanelSection::Id::Online);
+    const auto* no_friends = Section(model, OnlinePanelSection::Id::Friends);
+    CHECK(no_friends && no_friends->rows.empty() && no_friends->empty == "No friends yet: add players from their page.");
     CHECK(model.sections[0].rows.empty());
     CHECK(model.sections[0].empty == "None of your friends is online");
     CHECK(model.sections[0].hint.empty() && model.sections[0].aside.empty() && model.friends_offline == 0);
     CHECK(OnlinePanelWaiting(model) == 0);
+    auto with_mii = context;
+    with_mii.me.mii_data = "QUJD";
+    CHECK(MakeOnlinePanelModel({}, std::nullopt, with_mii).me.image == "https://cdn.example/a.png");
+    with_mii.me.avatar_url.clear();
+    CHECK(MakeOnlinePanelModel({}, std::nullopt, with_mii).me.image == "miidata:QUJD");
 
     context.loading = true;
     const auto loading = MakeOnlinePanelModel({}, std::nullopt, context);
@@ -191,16 +199,39 @@ void TestOnlineNow()
     // Mii friends: the game's online mode, never a set.
     const auto* tommy = Row(online, "Tommy");
     CHECK(tommy && tommy->kind == OnlinePanelRow::Kind::Mii && tommy->mii_profile == 501 && tommy->key == "m501");
-    CHECK(tommy && tommy->status == "Online \xC2\xB7 looking for a match" && tommy->image == "mii:501");
+    CHECK(tommy && tommy->status == "Online \xC2\xB7 looking for a match" && tommy->image.empty());
     CHECK(tommy && tommy->detail == "0868-9934-5920" && tommy->is_friend && tommy->can_befriend);
-    CHECK(tommy && !tommy->can_challenge && !tommy->blocked.empty());
+    CHECK(tommy && !tommy->can_challenge);
     const auto* kai = Row(online, "Kai");
     CHECK(kai && kai->presence == Presence::Busy && kai->status == "Playing a match");
 
-    // A player's screen finds them by key, and nobody when they went offline.
+    // A player's screen finds them by key; an offline friend is in the
+    // profile's friends, not to challenge.
     CHECK(FindRow(model, "p10") == mario);
     CHECK(FindRow(model, "m501") == tommy);
-    CHECK(FindRow(model, "p20") == nullptr);
+    const auto* rosalina = FindRow(model, "p20");
+    CHECK(rosalina && rosalina->presence == Presence::Offline && !rosalina->can_challenge && rosalina->is_friend);
+
+    // The profile's friends: everyone once, online first (free, then busy),
+    // then offline, by name; Discord friends without a friend button.
+    const auto* friends = Section(model, OnlinePanelSection::Id::Friends);
+    CHECK(friends != nullptr);
+    if (friends)
+    {
+        const char* all[] = {"Daisy", "Mario", "Peach", "Tommy", "Kai", "luigi", "Toad",
+                             "Bowser", "Rosalina", "Sara", "Wario"};
+        CHECK(friends->rows.size() == std::size(all));
+        for (std::size_t i = 0; i < std::size(all) && i < friends->rows.size(); ++i)
+            if (friends->rows[i].name != all[i])
+                std::fprintf(stderr, "friend %zu: %s, wanted %s\n", i, friends->rows[i].name.c_str(), all[i]),
+                    ++failures;
+        const auto* bowser = Row(friends, "Bowser");
+        CHECK(bowser && bowser->discord && !bowser->can_befriend && bowser->presence == Presence::Offline);
+        const auto* sara = Row(friends, "Sara");
+        CHECK(sara && sara->kind == OnlinePanelRow::Kind::Mii && sara->presence == Presence::Offline
+              && sara->status == "Offline" && sara->can_befriend);
+        CHECK(!Row(friends, "Anosch"));
+    }
 
     // Offline: Rosalina (a Discord friend too: once), Wario and Bowser; not
     // the player, nor Sara (a Mii friend: the game's online mode).
@@ -239,7 +270,7 @@ void TestAvailable()
     context.me.available = true;
     model = MakeOnlinePanelModel(lists, std::nullopt, context);
     CHECK(model.me.available);
-    CHECK(model.sections.size() == 2);
+    CHECK(model.sections.size() == 3);
     const auto* available = Section(model, OnlinePanelSection::Id::Available);
     CHECK(available != nullptr);
     if (!available) return;

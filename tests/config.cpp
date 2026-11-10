@@ -782,12 +782,14 @@ int main()
         // [gameplay] tweaks: only the recommended ones on by default and
         // without the section, and those turn off; each round trips on its
         // own and invalid values are rejected.
-        const unsigned recommended = GameTweakBit(GameTweak::FairBallContests) | GameTweakBit(GameTweak::MatchPoint);
+        const unsigned recommended = GameTweakBit(GameTweak::FairBallContests) | GameTweakBit(GameTweak::MatchPoint)
+            | GameTweakBit(GameTweak::OverrideRetailMenus);
         Require(defaults.GameTweakMask() == recommended, "Only recommended tweaks are on by default");
         std::ofstream(path) << "[game]\ndisc = game.rvz\n";
         Require(LoadConfig(path).settings.GameTweakMask() == recommended,
             "No [gameplay] section means the recommended tweaks");
-        std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nfair_ball_contests = false\nmatch_point = false\n";
+        std::ofstream(path) << "[game]\ndisc = game.rvz\n[gameplay]\nfair_ball_contests = false\nmatch_point = false\n"
+                                "override_retail_menus = false\n";
         Require(LoadConfig(path).settings.GameTweakMask() == 0, "A recommended tweak turns off");
         for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
         {

@@ -20,8 +20,6 @@ struct RankedModel
     // The game is on its way to RANKED (Stop stops it), and waits for the
     // player to go back to the main menu or the online menu.
     bool going = false, waiting = false;
-    // The player's own Mii plays; else they choose one in the game.
-    bool own_mii = false;
     // The leaderboards: none without a player profile, still to come, or
     // none on this server (before 1.2.1).
     bool signed_out = false, loading = false, missing = false;

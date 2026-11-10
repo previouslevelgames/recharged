@@ -587,9 +587,10 @@ bool mscharged_tweak_menu_press_taken(int menu, int button, int pad)
     if (!Replaced()) return false;
     // The pause menu's Audio and Visual Options: Recharged's Settings on its
     // Sound and Display instead of the game's pages. The main menu's ONLINE:
-    // Recharged's online menu (its WII ONLINE presses it again, let through).
+    // Recharged's online menu (its WII ONLINE presses it again, let through,
+    // as does a set's or Play RANKED's walk into the game's online screens).
     const bool pause = menu == CHARGED_MENU_PAUSE && (button == 2 || button == 3);
-    const bool online = menu == CHARGED_MENU_MAIN && !sPassMainOnline;
+    const bool online = menu == CHARGED_MENU_MAIN && !sPassMainOnline && !ChargedCompetitiveWalking();
     if (!pause && !online) return false;
     ++sTaken;
     sTakenMenu = menu;
@@ -665,6 +666,17 @@ extern "C" __attribute__((visibility("default"))) bool charged_menu_texture(unsi
                     reinterpret_cast<const std::uint8_t*>(source->m_PaletteData), entries, rgba);
 }
 
+extern "C" __attribute__((visibility("default"))) bool charged_menu_texture_objects(unsigned texture,
+                                                                                    const void** tex_obj,
+                                                                                    const void** tlut_obj)
+{
+    if (!tex_obj || !tlut_obj) return false;
+    const PlatTexture* source = glx_GetTex(texture);
+    if (!source || !source->m_SwizzledData || source->m_Width == 0 || source->m_Height == 0) return false;
+    *tex_obj = source->m_TexObj;
+    *tlut_obj = source->m_PaletteData ? source->m_TlutObj : nullptr;
+    return true;
+}
 
 extern "C" __attribute__((visibility("default"))) bool charged_menu_command(const ChargedMenuCommand* command,
                                                                             unsigned size)

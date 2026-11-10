@@ -94,6 +94,7 @@
 #include "runtime/menu_input.h"
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "runtime/host_menus.h"
+#include "runtime/mii_heads.h"
 #endif
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "launcher/match_presets.h"
@@ -1199,6 +1200,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_snapshot"));
         auto menuTexture=reinterpret_cast<ChargedMenuTextureFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_texture"));
+        auto menuTextureObjects=reinterpret_cast<ChargedMenuTextureObjectsFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_texture_objects"));
         auto menuCommand=reinterpret_cast<ChargedMenuCommandFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_command"));
         std::optional<mscharged::platform::DiscordPresence> discordPresence;
@@ -1830,7 +1833,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             std::string title;  // a stopped set's own title, or empty
             std::string kicker; // a stopped set's own kicker, or empty
             std::string primary, note; // a stopped set's first button and its note, or empty
-            std::string avatar; // the opponent's picture (URL), or empty
+            std::string avatar; // the opponent's Discord picture (URL), or empty
+            std::string mii;    // their Mii's record (base64), or empty
             bool random=false;  // a search for a random opponent asks the player
             bool hasScore=false;
             int won=0, lost=0, games=0;
@@ -1865,6 +1869,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     cardPrompt.random=invitation->random;
                     cardPrompt.opponent=invitation->from;
                     cardPrompt.avatar=invitation->avatar;
+                    cardPrompt.mii=invitation->mii;
                     cardPrompt.rules=invitation->rules;
                     mscharged::platform::SessionLogLine("Competitive: "+invitation->from
                         +(invitation->rematch ? " wants a rematch" : " challenges you")
@@ -1923,6 +1928,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     }
                     cardPrompt.opponent=opponent;
                     cardPrompt.avatar=end.opponent_avatar;
+                    cardPrompt.mii=end.opponent_mii;
                     cardPrompt.hasScore=end.how==How::Over || end.won+end.lost>0;
                     cardPrompt.won=end.won;
                     cardPrompt.lost=end.lost;
@@ -2023,10 +2029,26 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         };
         std::future<std::optional<OwnMiiFace>> ownMiiFace;
         ImTextureID ownMiiTexture{};
-        // The flags beside players' names: one atlas (overlay/flags.h),
-        // uploaded the first time the menu draws.
-        ImTextureID flagTexture{};
-        bool flagTried=false;
+        // Other players' Mii heads in the menus, from their records the server
+        // sends (the game's menus show Miis, never Discord pictures).
+        mscharged::runtime::MiiHeads miiHeads(launch.disc_path);
+        // The Miis of the player's save that went online (each has its WFC
+        // profile in its friend code), for the server: others' menus show them.
+        auto ownMiisForServer=[&]() {
+            std::vector<std::pair<std::int32_t,std::string>> miis;
+            try {
+                const auto installed=mscharged::platform::InstalledMiis(
+                    mscharged::TitleSaveFolder(mscharged::ResolveSaveFolder(launch.settings,launch.config.path,
+                        executableDirectory),release->title_id),
+                    mscharged::platform::SaveTitle{release->title_id,0x1001,release->title_group});
+                for(const auto& mii:installed.miis)
+                    if(mii.friend_code!=0 && mii.record.size()==74 && miis.size()<32)
+                        miis.emplace_back(std::int32_t(std::uint32_t(mii.friend_code&0xFFFFFFFFu)),mii.record);
+            } catch(const std::exception& error) {
+                mscharged::platform::SessionLogLine(std::string("Menus: your Miis are not sent (")+error.what()+")");
+            }
+            return miis;
+        };
         // The player's own Mii (the launcher's): RANKED with it, its face in the menus.
         const bool ownMii=std::any_of(launch.competitive_mii.begin(),launch.competitive_mii.end(),
             [](auto b) { return b!=0; });
@@ -2349,28 +2371,18 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 }
             }
         };
-        // The overlay's and Recharged's menus' players' pictures (an avatar,
-        // "mii:own", the flags' atlas), and their Online, Ranked and prompt:
-        // the model as it is now and what the player did.
+        // Recharged's menus' players' pictures (the player's own Mii, the
+        // others' Miis), and their Online, Ranked and prompt: the model as it
+        // is now and what the player did.
         auto overlayImage=[&](const std::string& key)->ImTextureID {
-            if(!flagTried) {
-                flagTried=true;
-                std::ifstream file(executableDirectory/"assets"/"flags"/"flags.png",std::ios::binary);
-                const std::string bytes{std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>()};
-                mscharged::overlay::OverlayImage atlas;
-                if(!bytes.empty() && mscharged::overlay::DecodeOverlayPng(bytes,atlas))
-                    flagTexture=aurora_imgui_add_texture(std::uint32_t(atlas.width),std::uint32_t(atlas.height),
-                        atlas.rgba.data());
-                if(!flagTexture) mscharged::platform::SessionLogLine("Overlay: no flags (assets/flags/flags.png)");
-            }
             if(key=="mii:own") return ownMiiTexture;
-            if(key==mscharged::overlay::kFlagAtlas) return flagTexture;
+            if(key.rfind("miidata:",0)==0) return ImTextureID(miiHeads.Head(key));
             return overlayPictures.Images()(key);
         };
         // `online` and `settings`: those parts are built (they cost; the rest
         // of the model stays as made); `leaderboard`: it shows, its data is fetched.
         auto buildOverlayModel=[&](mscharged::overlay::GameOverlayModel& model,bool leaderboard,bool online=true,
-                                   bool settings=true) {
+                                   bool settings=true,bool stats=false) {
             namespace ov=mscharged::overlay;
             // Signed in again through the game (mii_sign_in): its data from now on.
             if(!panelFeed && competitive && !panelFeedLate) {
@@ -2381,6 +2393,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     challengeRules,launch.discord_friends,
                     [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
                 if(!panelFeed) mscharged::platform::SessionLogLine("Overlay: the Online tab is off ("+off+")");
+                else panelFeed->SetOwnMiis(ownMiisForServer());
             }
             if(panelFeed) if(auto notice=panelFeed->TakeNotice()) overlayNotice=*notice;
             const bool inMatchNow=inMatch();
@@ -2425,7 +2438,6 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     ranked.going=rankedStage!=CHARGED_SET_NONE;
                     ranked.waiting=rankedStage==CHARGED_SET_BOOT
                         && std::chrono::steady_clock::now()-rankedSince>=std::chrono::seconds(2);
-                    ranked.own_mii=ownMii;
                     if(!startRanked) ranked.blocked=texts::T("menus.ranked.blocked_game");
                     else if(context.in_match) ranked.blocked=texts::T("menus.ranked.blocked_match");
                     else if(competitive && competitive->CurrentSet())
@@ -2436,13 +2448,18 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     ranked.boards=snapshot.leaderboard;
                     ranked.missing=snapshot.leaderboard_missing;
                 }
+                // The player's records, for their profile.
+                model.online.stats=snapshot.stats;
+                model.online.stats_missing=snapshot.stats_missing;
             }
             if(panelFeed) panelFeed->WantLeaderboard(leaderboard);
+            if(panelFeed) panelFeed->WantStats(stats);
             if(ownMiiFace.valid() && ownMiiFace.wait_for(std::chrono::seconds(0))==std::future_status::ready)
                 if(const auto face=ownMiiFace.get())
                     ownMiiTexture=aurora_imgui_add_texture(std::uint32_t(face->width),std::uint32_t(face->height),
                         face->rgba.data());
-            if(online && ownMiiTexture && model.online.me.image.empty()) model.online.me.image="mii:own";
+            // Without a Discord picture the player is their Mii: the one drawn here.
+            if(online && ownMiiTexture && model.online.me.image.rfind("http",0)!=0) model.online.me.image="mii:own";
             model.options.tweaks=optionTweaks;
             model.options.in_match=inMatchNow;
             // Settings: the display and sound as they are now.
@@ -2476,20 +2493,22 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name);
                     overlayNotice=texts::T("menus.notices.challenge_sent");
                 }
+                // Do not disturb stops a search first; a search makes the
+                // player available first (give and take).
+                if(online.stop_search) {
+                    panelFeed->StopSearch();
+                    overlayNotice=texts::T("menus.notices.search_stopped");
+                }
+                if(online.set_available) panelFeed->SetAvailable(*online.set_available);
                 if(online.search) {
                     const auto& search=*online.search;
                     panelFeed->StartSearch(search.rule_set,search.rules,search.name,std::string(release->game_id,4));
                     overlayNotice=texts::T("menus.notices.searching");
                 }
-                if(online.stop_search) {
-                    panelFeed->StopSearch();
-                    overlayNotice=texts::T("menus.notices.search_stopped");
-                }
                 if(online.add_friend) panelFeed->AddFriend(*online.add_friend);
                 if(online.remove_friend) panelFeed->RemoveFriend(*online.remove_friend);
                 if(online.add_mii_friend) panelFeed->AddMiiFriend(*online.add_mii_friend);
                 if(online.remove_mii_friend) panelFeed->RemoveMiiFriend(*online.remove_mii_friend);
-                if(online.set_available) panelFeed->SetAvailable(*online.set_available);
                 if(online.ready) panelFeed->ReadyToPlay(set,true);
                 if(online.cancel) panelFeed->Cancel(set);
             }
@@ -2514,7 +2533,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             using Kind=CardPrompt::Kind;
             const std::string& who=cardPrompt.opponent;
             prompt.opponent.name=who;
-            prompt.opponent.image=cardPrompt.avatar;
+            prompt.opponent.image=mscharged::overlay::PictureKey(cardPrompt.avatar,cardPrompt.mii);
             prompt.opponent.initials=ov::Initials(who);
             prompt.opponent.tint_seed=std::int64_t(std::hash<std::string>{}(who)&0x7FFFFFFF);
             switch(cardPrompt.kind) {
@@ -2570,7 +2589,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 launch.settings.challenge_rules,launch.discord_friends,
                 [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
             if(!panelFeed) mscharged::platform::SessionLogLine("Menus: the online pages are off ("+off+")");
-            else if(!launch.discord_friends.empty())
+            else panelFeed->SetOwnMiis(ownMiisForServer());
+            if(panelFeed && !launch.discord_friends.empty())
                 mscharged::platform::SessionLogLine("Menus: "+std::to_string(launch.discord_friends.size())
                     +" Discord friends from the launcher");
             {
@@ -2606,7 +2626,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         if(hostOverlay && menuInput && menuSnapshot && menuCommand) {
             mscharged::runtime::HostMenus::Host menusHost;
             menusHost.model=[&](mscharged::ui::PageModel& model,const mscharged::runtime::HostMenus::ModelNeeds& needs) {
-                buildOverlayModel(model.overlay,needs.leaderboard,needs.online,needs.settings);
+                buildOverlayModel(model.overlay,needs.leaderboard,needs.online,needs.settings,needs.stats);
                 if(menuSamples.online) SampleOnline(model.overlay);
                 model.set_match=competitive && competitive->CurrentSet().has_value();
             };
@@ -2627,7 +2647,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 quit.type=SDL_EVENT_QUIT;
                 SDL_PushEvent(&quit);
             };
-            hostMenus.emplace(mscharged::runtime::HostMenus::Game{menuTexture,menuCommand},*menuInput,
+            hostMenus.emplace(mscharged::runtime::HostMenus::Game{menuTexture,menuCommand,menuTextureObjects},*menuInput,
                 std::move(menusHost));
             hostOverlay->SetMenus(&*hostMenus);
             closeMenus=[&] { hostMenus->CloseAll(); };

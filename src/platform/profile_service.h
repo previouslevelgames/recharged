@@ -51,6 +51,10 @@ struct ProfilePlayer
     std::string name;    // as shown: the Discord display name at the last sign-in
     std::string discord; // the Discord username others challenge
     std::string avatar_url;
+    // Their Mii (its 74-byte record, base64) for their picture in the game's
+    // menus: of the WFC profile they played with last (servers from 1.2.22);
+    // empty when their game never sent one.
+    std::string mii_data;
     bool test = false; // a test server's player, signed in by name
     // How they signed in: "discord", "mii" (with a Mii's name, no Discord)
     // or "test"; empty from servers before Mii accounts (then Discord, or
@@ -160,6 +164,40 @@ struct MiiProfile
     std::string match_kind;
     std::optional<std::int64_t> last_online; // the last login (Unix seconds)
     bool is_friend = false;
+    std::string mii_data; // its Mii's record (base64) when its player's Recharged sent it (servers from 1.2.22)
+    // The Recharged player whose profile it is (a Mii or Discord player), 0
+    // for none or an older server; while that player's Recharged is open,
+    // what it does ("launcher", "game", "match"). Servers from 1.2.22.
+    std::int64_t player_id = 0;
+    std::string player_activity;
+};
+
+// The signed-in player's records (GET /api/v1/me/stats, servers from 1.2.22)
+// from the matches their games reported, over all their WFC profiles: by
+// mode ("ranked", "friends"), all time, this RANKED season and today (UTC).
+struct StatsRecord
+{
+    int series_played = 0, series_won = 0, series_lost = 0, series_drawn = 0;
+    int games_played = 0, games_won = 0, games_lost = 0, games_drawn = 0, goals_for = 0, goals_against = 0;
+};
+
+struct ModeStats
+{
+    std::string mode;
+    StatsRecord all, season, today;
+};
+
+struct PlayerStats
+{
+    std::string today, season_first_day, season_last_day; // YYYY-MM-DD
+    std::vector<ModeStats> modes;
+    // The mode's records, or null when the server has none for it.
+    const ModeStats* Mode(std::string_view mode) const
+    {
+        for (const auto& stats : modes)
+            if (stats.mode == mode) return &stats;
+        return nullptr;
+    }
 };
 
 // The lobby's lists (GET /api/v1/players).
@@ -446,6 +484,13 @@ public:
     PlayerLists Players();
     // 404 from a server before 1.2.1.
     Leaderboard RankedLeaderboard();
+    // The player's records; 404 from a server before 1.2.22.
+    PlayerStats Stats();
+    // The Miis of the player's WFC profiles (profile id, the Mii's 74-byte
+    // record), at most 32, for others' menus to draw them; the server keeps
+    // those of profiles that are the player's. How many it kept; 404 from a
+    // server before 1.2.22.
+    int UploadMiis(const std::vector<std::pair<std::int32_t, std::string>>& miis);
     // The launcher's Ready to play! (or taking it back).
     ProfileMatch ReadyToPlay(std::int64_t match, bool ready);
     // The ended set again: the same opponent and rules.

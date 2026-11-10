@@ -53,24 +53,9 @@
     "footer": "With Discord, your profile takes your Discord name and picture, and your friends list goes from Discord straight to this computer. A Mii player can connect Discord later and keeps their profile."
   },
   "come_back": {
-    "question": "Played with a Mii before?",
-    "button": "Sign in through the game",
     "hint": "Press Play and go online with {{mii}} (Online on the main menu): once it has logged in, the game signs you in again with the profile that Mii plays for.",
     "hint_your_mii": "Press Play and go online with your Mii (Online on the main menu): once it has logged in, the game signs you in again with the profile that Mii plays for.",
     "never_mind": "Never mind"
-  },
-  "mii_back": {
-    "plays_for": "Plays for {{name}}",
-    "plays_for_discord": "Plays for a Discord profile",
-    "plays_for_recharged": "Plays for a Recharged profile",
-    "welcome": "Welcome back",
-    "welcome_name": "Welcome back, {{name}}",
-    "game_mii": "{{mii}} plays for a Recharged profile already. Sign in again with it: a new profile for this Mii would split you in two.",
-    "game_mii_named": "{{mii}} plays for {{name}} already. Sign in again with it: a new profile for this Mii would split you in two.",
-    "game_miis": "Miis of this computer play for Recharged profiles already. Sign in again with yours: a new profile for one of them would split you in two.",
-    "discord": "{{mii}} plays for a profile with Discord: connect Discord to sign in again.",
-    "discord_named": "{{mii}} plays for {{name}}: connect Discord to sign in again.",
-    "or_new": "Or start a new profile:"
   },
   "mii": {
     "sign_in_with": "Sign in with {{mii}}",

@@ -77,6 +77,23 @@ void OnlinePanelFeed::WantLeaderboard(bool want)
     if (want) wake_.notify_all();
 }
 
+void OnlinePanelFeed::WantStats(bool want)
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (want == want_stats_) return;
+        want_stats_ = want;
+        if (want) due_ = true;
+    }
+    if (want) wake_.notify_all();
+}
+
+void OnlinePanelFeed::SetOwnMiis(std::vector<std::pair<std::int32_t, std::string>> miis)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    own_miis_ = std::move(miis);
+}
+
 void OnlinePanelFeed::SetActivity(std::string activity, std::string match_kind)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -247,7 +264,8 @@ void OnlinePanelFeed::Fetch(ProfileService& api)
 {
     Snapshot fresh;
     fresh.me = api.Me();
-    bool leaderboard = false;
+    bool leaderboard = false, stats = false;
+    std::vector<std::pair<std::int32_t, std::string>> miis;
     {
         // The rule sets and the server's version change rarely: once. The
         // Discord friends stay as they were if the server can't say now.
@@ -258,7 +276,36 @@ void OnlinePanelFeed::Fetch(ProfileService& api)
         fresh.leaderboard = snapshot_.leaderboard;
         fresh.leaderboard_missing = snapshot_.leaderboard_missing;
         fresh.leaderboard_fetched = snapshot_.leaderboard_fetched;
+        fresh.stats = snapshot_.stats;
+        fresh.stats_missing = snapshot_.stats_missing;
+        fresh.stats_fetched = snapshot_.stats_fetched;
         leaderboard = want_leaderboard_;
+        stats = want_stats_;
+        miis = std::move(own_miis_);
+        own_miis_.clear();
+    }
+    // The player's Miis, once: others' menus draw them. A failure other than
+    // a server without Miis tries again with the next answers.
+    if (!miis.empty())
+    {
+        try
+        {
+            const int stored = api.UploadMiis(miis);
+            if (log_) log_("Online: " + std::to_string(stored) + " of your Miis sent for others' menus");
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled() || (e.Status() != 404 && e.Status() != 405))
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (own_miis_.empty()) own_miis_ = std::move(miis);
+                if (e.Cancelled()) throw;
+            }
+        }
+        catch (const std::exception&)
+        {
+            // An answer the feed cannot read: not sent again this run.
+        }
     }
     fresh.lists = api.Players();
     FetchDiscordFriends(api, fresh.discord_friends);
@@ -281,6 +328,22 @@ void OnlinePanelFeed::Fetch(ProfileService& api)
             // A server before 1.2.1 has none.
             if (e.Status() != 404) throw;
             fresh.leaderboard_missing = true;
+        }
+    }
+    // The records change with the matches played: once a minute too.
+    if (stats && !fresh.stats_missing
+        && (!fresh.stats || now - fresh.stats_fetched >= std::chrono::minutes(1)))
+    {
+        try
+        {
+            fresh.stats = api.Stats();
+            fresh.stats_fetched = now;
+        }
+        catch (const ProfileError& e)
+        {
+            // A server before 1.2.22 has none.
+            if (e.Status() != 404) throw;
+            fresh.stats_missing = true;
         }
     }
     fresh.loaded = true;

@@ -375,7 +375,7 @@ target_link_libraries(charged_original_game_host PRIVATE charged_texts)
 # The game's overlay in the panel (F1, HOME): the Online and Game options tabs
 # (src/overlay, built with the launcher, through Aurora's ImGui).
 if(TARGET charged_overlay)
-    target_sources(charged_original_game_host PRIVATE src/runtime/host_menus.cpp)
+    target_sources(charged_original_game_host PRIVATE src/runtime/host_menus.cpp src/runtime/mii_heads.cpp)
     target_link_libraries(charged_original_game_host PRIVATE charged_overlay charged_recharged_ui charged_ui_kit
         charged_mii_head charged_match_presets)
     target_compile_definitions(charged_original_game_host PRIVATE MSCHARGED_HAS_GAME_OVERLAY=1)

@@ -2,6 +2,7 @@
 
 #include "platform/name_glyphs.h"
 
+#include "platform/base64.h"
 #include "platform/http_client.h"
 #include "platform/json.h"
 #include "platform/path.h"
@@ -96,6 +97,7 @@ ProfilePlayer ParsePlayer(const JsonValue& value)
     player.name = value["name"].Text();
     player.discord = value["discord"].Text();
     player.avatar_url = value["avatar_url"].Text();
+    player.mii_data = value["mii_data"].Text();
     player.test = value["test"].Bool();
     player.account = value["account"].Text();
     player.friend_code = value["friend_code"].Text();
@@ -154,6 +156,9 @@ std::vector<MiiProfile> ParseMiis(const JsonValue& value)
         mii.match_kind = item["match"].Text();
         mii.last_online = item["last_online"].Integer();
         mii.is_friend = item["friend"].Bool();
+        mii.mii_data = item["mii_data"].Text();
+        mii.player_id = item["player_id"].Integer().value_or(0);
+        mii.player_activity = item["player_activity"].Text();
         if (mii.profile_id) miis.push_back(std::move(mii));
     }
     return miis;
@@ -631,6 +636,49 @@ Leaderboard ProfileService::RankedLeaderboard()
     leaderboard.season = board(answer.body["season"]);
     leaderboard.daily = board(answer.body["daily"]);
     return leaderboard;
+}
+
+PlayerStats ProfileService::Stats()
+{
+    const auto answer = Call("GET", "/api/v1/me/stats", nullptr);
+    const auto count = [](const JsonValue& value) { return int(value.Integer().value_or(0)); };
+    const auto record = [&](const JsonValue& value) {
+        StatsRecord record;
+        const auto& series = value["series"];
+        record.series_played = count(series["played"]);
+        record.series_won = count(series["won"]);
+        record.series_lost = count(series["lost"]);
+        record.series_drawn = count(series["drawn"]);
+        const auto& games = value["games"];
+        record.games_played = count(games["played"]);
+        record.games_won = count(games["won"]);
+        record.games_lost = count(games["lost"]);
+        record.games_drawn = count(games["drawn"]);
+        record.goals_for = count(games["goals_for"]);
+        record.goals_against = count(games["goals_against"]);
+        return record;
+    };
+    PlayerStats stats;
+    stats.today = answer.body["today"].Text();
+    stats.season_first_day = answer.body["season"]["first_day"].Text();
+    stats.season_last_day = answer.body["season"]["last_day"].Text();
+    for (const auto& item : answer.body["modes"].Items())
+        stats.modes.push_back(
+            {item["mode"].Text(), record(item["all"]), record(item["season"]), record(item["today"])});
+    return stats;
+}
+
+int ProfileService::UploadMiis(const std::vector<std::pair<std::int32_t, std::string>>& miis)
+{
+    std::string body = "{\"miis\":[";
+    for (std::size_t n = 0; n < miis.size() && n < 32; ++n)
+    {
+        if (n) body += ",";
+        body += "{\"profile_id\":" + std::to_string(miis[n].first) + ",\"data\":\"" + Base64Encode(miis[n].second)
+            + "\"}";
+    }
+    body += "]}";
+    return int(Call("POST", "/api/v1/me/miis", &body).body["stored"].Integer().value_or(0));
 }
 
 PlayerLists ProfileService::Players()

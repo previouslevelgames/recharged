@@ -2,7 +2,6 @@
 
 #include "bootstrap/texts.h"
 #include "imgui_internal.h"
-#include "overlay/flags.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -409,8 +408,10 @@ void Bar(const Painter& p, float x0, float y0, float x1, float y1, bool chosen, 
 }
 
 // A plate centred on (cx, mid), `half` to each side.
+// `shift`: the label this far left of the plate's centre (room for a value
+// at its right end).
 void PlateAt(const Painter& c, ImFont* font, float cx, float half, float mid, const char* label, bool lit,
-             bool chosen = false, float textSize = kPlateSize)
+             bool chosen = false, float textSize = kPlateSize, float shift = 0.0f)
 {
     // Lit, the plate grows and turns solid as in the game ("over").
     const float grow = lit ? 1.042f : 1.0f, tall = lit ? 1.10f : 1.0f;
@@ -430,7 +431,8 @@ void PlateAt(const Painter& c, ImFont* font, float cx, float half, float mid, co
     }
     if (lit) c.Frame(x0 - 3, top - 3, x1 + 3, bottom + 3, c.Col(130, 226, 255, 200), 8.0f, 2.5f);
     const float size = textSize * (lit ? kLitPlateScale : 1.0f);
-    c.Text(font, size, cx, mid, label, chosen ? c.Col(255, 230, 150) : c.Col(247, 247, 247), c.Col(6, 6, 6), 3.0f);
+    c.Text(font, size, cx - shift, mid, label, chosen ? c.Col(255, 230, 150) : c.Col(247, 247, 247), c.Col(6, 6, 6),
+           3.0f);
 }
 
 } // namespace
@@ -502,45 +504,6 @@ int DrawCategories(const Painter& c, const Fonts& fonts, const Input& in, Area a
     if (height) *height = y - area.top;
     HoverSound(lastHover, hover, sound);
     if (clicked >= 0 && sound) sound(Sound::Switch);
-    return clicked;
-}
-
-int DrawCrumbs(const Painter& c, const Fonts& fonts, const Input& in, float half_width,
-               const std::vector<std::string>& crumbs, const std::function<void(Sound)>& sound)
-{
-    static int lastHover = -1;
-    const float iw = half_width - kBezel;
-    // A strip across the screen as the rows' bars, an orange line at its foot.
-    c.Gradient(-iw, kStripTop, iw, kStripBottom, c.Col(14, 20, 24, 210), c.Col(4, 7, 9, 210));
-    c.Rect(-iw, kStripBottom - 2, iw, kStripBottom, Orange(c, 110));
-    const float mid = (kStripTop + kStripBottom) * 0.5f, size = kSmallSize * 0.95f;
-    const ImVec2 at = c.ToDesign(in.pointer);
-    float x = -iw + 26.0f;
-    int clicked = -1, hover = -1;
-    for (std::size_t n = 0; n < crumbs.size(); ++n)
-    {
-        const bool last = n + 1 == crumbs.size();
-        const float w = c.TextWidth(fonts.small, size, crumbs[n].c_str());
-        const bool over = !last && in.pointer_shown && Inside(at, x - 12, kStripTop, x + w + 12, kStripBottom);
-        if (over) hover = int(n);
-        const ImU32 colour = last ? Orange(c) : over ? c.Col(255, 255, 255) : c.Col(190, 204, 210);
-        c.Text(fonts.small, size, x, mid, crumbs[n].c_str(), colour, c.Col(4, 12, 16, 220), 1.5f, 0.0f);
-        if (over)
-        {
-            c.Rect(x, mid + 13, x + w, mid + 15, c.Col(255, 255, 255, 190));
-            if (in.click) clicked = int(n);
-        }
-        x += w;
-        if (!last)
-        {
-            // Between the steps: a small arrow.
-            const float ax = x + 20.0f;
-            c.draw->AddTriangleFilled(c.At(ax - 5, mid - 8), c.At(ax - 5, mid + 8), c.At(ax + 5, mid), Orange(c, 190));
-            x = ax + 22.0f;
-        }
-    }
-    HoverSound(lastHover, hover, sound);
-    if (clicked >= 0 && sound) sound(Sound::Back);
     return clicked;
 }
 
@@ -817,14 +780,28 @@ void List::Rail(float view)
     ArrowSquare(p_, x0, bottom - kRailWidth, kRailWidth, 3, state_.scroll < most - 0.5f, overDown);
 }
 
-bool List::Plate(const char* label, const char* about, bool enabled)
+bool List::Plate(const char* label, const char* about, bool enabled, const char* value)
 {
     Slot slot = Place(kPlateHeight, enabled);
     if (enabled) LightUnderPointer(slot);
     const float mid = (slot.top + slot.bottom) * 0.5f - 3.0f;
     const float cx = (rows_.x0 + rows_.x1) * 0.5f, half = (rows_.x1 - rows_.x0) * 0.5f - 30.0f;
-    PlateAt(enabled ? p_ : p_.Faded(0.45f), fonts_.plate, cx, half, mid, label, enabled && slot.lit, false,
-            kPlateSize * kListPlate);
+    const Painter& p = enabled ? p_ : p_.Faded(0.45f);
+    // A value at the right end: the label moves left just enough to clear
+    // it (measured at its lit size), never past the plate's left end.
+    const float valueSize = kSmallSize * 0.92f, labelSize = kPlateSize * kListPlate * kLitPlateScale;
+    float shift = 0.0f;
+    if (value && *value)
+    {
+        const float valueWidth = p.TextWidth(fonts_.small, valueSize, value);
+        const float labelHalf = p.TextWidth(fonts_.plate, labelSize, label) * 0.5f;
+        const float room = half - 26.0f - valueWidth - 28.0f; // from the centre to the value's left, with a gap
+        shift = std::clamp(labelHalf - room, 0.0f, std::max(0.0f, half - 24.0f - labelHalf));
+    }
+    PlateAt(p, fonts_.plate, cx, half, mid, label, enabled && slot.lit, false, kPlateSize * kListPlate, shift);
+    if (value && *value)
+        p.Text(fonts_.small, valueSize, cx + half - 26.0f, mid + 3.0f, value, Orange(p), p.Col(4, 12, 16, 220), 1.5f,
+               1.0f);
     Help(label, about, enabled && slot.lit);
     return enabled && Pressed(slot, false);
 }
@@ -993,16 +970,14 @@ void DrawPerson(const Painter& p, ImFont* font, float cx, float cy, float r, con
     }
 }
 
-float DrawFlag(const Painter& p, float x, float y, float height, const Person& person)
+float DrawCountry(const Painter& p, ImFont* font, float x, float y, float height, const Person& person)
 {
-    if (!person.flags || person.country.size() != 2) return 0.0f;
-    const int cell = overlay::FlagCell(person.country);
-    if (cell < 0) return 0.0f;
-    const auto uv = overlay::FlagCellUv(cell);
-    const float width = height * float(overlay::kFlagWidth) / float(overlay::kFlagHeight);
-    p.Rect(x - 1.0f, y - height * 0.5f - 1.0f, x + width + 1.0f, y + height * 0.5f + 1.0f, p.Col(0, 0, 0, 160), 2.0f);
-    p.draw->AddImage(person.flags, p.At(x, y - height * 0.5f), p.At(x + width, y + height * 0.5f), {uv.u0, uv.v0},
-                     {uv.u1, uv.v1}, p.Col(255, 255, 255));
+    const auto& code = person.country;
+    if (code.size() != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z') return 0.0f;
+    const float size = height * 0.78f;
+    const float width = p.TextWidth(font, size, code.c_str()) + height * 0.7f;
+    p.Frame(x, y - height * 0.5f, x + width, y + height * 0.5f, p.Col(240, 240, 240, 150), 5.0f, 1.5f);
+    p.Text(font, size, x + width * 0.5f, y, code.c_str(), p.Col(236, 238, 240), 0, 0.0f);
     return width;
 }
 
@@ -1020,7 +995,7 @@ bool List::PlayerRow(const Person& person, const char* name, const char* status,
     p_.Text(fonts_.row, kRowSize, x, mid - 16.0f, name, lit ? p_.Col(255, 255, 255) : p_.Col(236, 238, 240),
             p_.Col(6, 6, 6), 2.5f, 0.0f);
     const float nameWidth = p_.TextWidth(fonts_.row, kRowSize, name);
-    DrawFlag(p_, x + nameWidth + 14.0f, mid - 16.0f, 22.0f, person);
+    DrawCountry(p_, fonts_.small, x + nameWidth + 14.0f, mid - 16.0f, 28.0f, person);
     if (status && *status)
         p_.Text(fonts_.small, kSmallSize * 0.92f, x, mid + 22.0f, status, ToneColour(p_, tone), p_.Col(6, 6, 6, 180),
                 1.5f, 0.0f);
@@ -1066,7 +1041,9 @@ void List::Card(const Person* person, const char* kicker, const char* title, con
     if (title && *title)
     {
         p_.Text(fonts_.plate, kPlateSize * 0.82f, textX, y, title, p_.Col(250, 250, 250), p_.Col(6, 6, 6), 3.0f, 0.0f);
-        if (person) DrawFlag(p_, textX + p_.TextWidth(fonts_.plate, kPlateSize * 0.82f, title) + 16.0f, y, 26.0f, *person);
+        if (person)
+            DrawCountry(p_, fonts_.small, textX + p_.TextWidth(fonts_.plate, kPlateSize * 0.82f, title) + 16.0f, y,
+                        32.0f, *person);
         y += 26.0f;
     }
     else y -= 14.0f;
@@ -1102,7 +1079,7 @@ void List::BoardRow(int rank, const char* name, const char* record, const char* 
             rank > 0 && rank <= 3 ? p_.Col(255, 214, 80) : p_.Col(236, 238, 240), p_.Col(6, 6, 6), 2.5f, 1.0f);
     float x = rows_.x0 + 118.0f;
     p_.Text(fonts_.row, kRowSize, x, mid, name, you ? Orange(p_) : p_.Col(240, 242, 244), p_.Col(6, 6, 6), 2.5f, 0.0f);
-    if (person) DrawFlag(p_, x + p_.TextWidth(fonts_.row, kRowSize, name) + 14.0f, mid, 22.0f, *person);
+    if (person) DrawCountry(p_, fonts_.small, x + p_.TextWidth(fonts_.row, kRowSize, name) + 14.0f, mid, 28.0f, *person);
     p_.Text(fonts_.row, kRowSize, rows_.x1 - 24.0f, mid, points, Orange(p_), p_.Col(6, 6, 6), 2.5f, 1.0f);
     if (record && *record)
         p_.Text(fonts_.small, kSmallSize * 0.92f, rows_.x1 - 190.0f, mid, record, p_.Col(200, 210, 214),

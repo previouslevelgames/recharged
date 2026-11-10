@@ -33,6 +33,9 @@ constexpr float kFirstButtonY = -300.0f, kButtonStep = 99.6f, kButtonHalfWidth =
 // A slider's change, applied at once while it moves, is saved once it has
 // rested this long.
 constexpr auto kSaveRest = std::chrono::milliseconds(400);
+// How often a game picture's texture pack image is looked up again (a
+// streamed one comes in after its thumbnail).
+constexpr auto kReplacementLook = std::chrono::milliseconds(500);
 
 // A pause menu button's text when the game has none (the game's English
 // ones), by its ePauseMenuAction.
@@ -77,7 +80,10 @@ bool OnlinePage(ui::PageId id)
 {
     switch (id) {
     case ui::PageId::Online:
-    case ui::PageId::Players:
+    case ui::PageId::Play:
+    case ui::PageId::Friends:
+    case ui::PageId::Random:
+    case ui::PageId::Profile:
     case ui::PageId::Player:
     case ui::PageId::Setup:
     case ui::PageId::Ranked:
@@ -259,7 +265,7 @@ void HostMenus::Apply(const ui::PageActions& actions, bool live, const overlay::
     if (actions.auto_zoom) Command(CHARGED_MENU_AUTO_ZOOM, 0, *actions.auto_zoom ? 1 : 0);
     if (actions.zoom) Command(CHARGED_MENU_ZOOM, 0, *actions.zoom);
     if (actions.music || actions.effects || actions.voices || actions.auto_zoom || actions.zoom) gameChanged_ = true;
-    if (actions.open) Push(*actions.open, 0, actions.open_key);
+    if (actions.open) Push(*actions.open, actions.open_category, actions.open_key);
     if (actions.answer) promptAnswer_ = actions.answer;
     if (actions.forfeit && !forfeitAsked_) {
         platform::SessionLogLine("Menus: FORFEIT (the online match is left)");
@@ -417,24 +423,44 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
 
 void* HostMenus::Texture(unsigned key)
 {
-    if (const auto known = textures_.find(key); known != textures_.end()) return known->second;
-    void* made = nullptr;
+    GameTexture& texture = textures_[key];
+    // A texture pack's image of it, as the game's own draws of the texture
+    // show it.
+    const auto now = Clock::now();
+    if (game_.texture_objects && (texture.looked == Clock::time_point{} || now - texture.looked >= kReplacementLook)) {
+        texture.looked = now;
+        const void* texObj = nullptr;
+        const void* tlutObj = nullptr;
+        std::uint32_t width = 0, height = 0;
+        void* replacement = nullptr;
+        if (game_.texture_objects(key, &texObj, &tlutObj))
+            replacement = reinterpret_cast<void*>(aurora_imgui_texture_replacement(texObj, tlutObj, &width, &height));
+        if (replacement && replacement != texture.replacement) {
+            char line[96];
+            std::snprintf(line, sizeof line, "Menus: game texture %08x from a texture pack (%ux%u)", key, width,
+                          height);
+            platform::SessionLogLine(line);
+        }
+        texture.replacement = replacement;
+    }
+    if (texture.replacement) return texture.replacement;
+    if (texture.decoded) return texture.original;
+    // Decoded once, also when that failed: the overlay cannot free a texture,
+    // and a key the game cannot give is not asked for again.
+    texture.decoded = true;
     int width = 0, height = 0, format = -1;
     if (game_.texture && game_.texture(key, &width, &height, &format, nullptr, 0) && width > 0 && height > 0
         && width <= 2048 && height <= 2048) {
         std::vector<unsigned char> rgba(std::size_t(width) * std::size_t(height) * 4);
         if (game_.texture(key, &width, &height, &format, rgba.data(), unsigned(rgba.size())))
-            made = reinterpret_cast<void*>(aurora_imgui_add_texture(std::uint32_t(width), std::uint32_t(height),
-                                                                    rgba.data()));
+            texture.original = reinterpret_cast<void*>(
+                aurora_imgui_add_texture(std::uint32_t(width), std::uint32_t(height), rgba.data()));
     }
-    // Kept, also when it failed: the overlay cannot free a texture, and a key
-    // the game cannot give is not asked for again.
-    textures_.emplace(key, made);
     char line[96];
     std::snprintf(line, sizeof line, "Menus: game texture %08x %s (%dx%d, GX format %d)", key,
-                  made ? "made" : "unavailable", width, height, format);
+                  texture.original ? "made" : "unavailable", width, height, format);
     platform::SessionLogLine(line);
-    return made;
+    return texture.original;
 }
 
 void* HostMenus::NoiseTexture()
@@ -493,8 +519,7 @@ HostMenus::Tv HostMenus::LayOut(const Frame& frame, Clock::time_point now)
     // size: its screen as tall as its items, no lip under it (B answers it),
     // centred where the full TV is. A TV that opens does so at its size.
     tv.compact = pages && ui::PageCompact(pages_.back().id);
-    tv.alone = tv.compact && pages_.size() == 1 && menu_.menu != CHARGED_MENU_PAUSE;
-    tv.contentTop = tv.alone ? ui::kHeaderBottom + 16.0f : ui::kContentTop;
+    tv.contentTop = ui::kContentTop;
     const float wantScreen = tv.compact
         ? std::min(ui::kScreenBottom, tv.contentTop + std::max(pages_.back().list.height, 160.0f) + 26.0f)
         : ui::kScreenBottom;
@@ -537,7 +562,9 @@ HostMenus::ModelNeeds HostMenus::Needs() const
 {
     ModelNeeds needs;
     needs.online = std::any_of(pages_.begin(), pages_.end(), [](const Page& page) { return OnlinePage(page.id); });
-    needs.leaderboard = !pages_.empty() && pages_.back().id == ui::PageId::Leaderboard;
+    const ui::PageId top = pages_.empty() ? ui::PageId::Menu : pages_.back().id;
+    needs.leaderboard = top == ui::PageId::Leaderboard || top == ui::PageId::Ranked || top == ui::PageId::Profile;
+    needs.stats = top == ui::PageId::Profile;
     needs.settings = !pages_.empty() && pages_.back().id == ui::PageId::Settings;
     return needs;
 }
@@ -590,7 +617,7 @@ ui::Input HostMenus::ReadInput()
 }
 
 bool HostMenus::DrawTopPage(const Tv& tv, const ui::Fonts& fonts, const ui::Input& in, const ui::PageModel& model,
-                            const std::string& title, Clock::time_point now)
+                            Clock::time_point now)
 {
     const auto sound = [this](ui::Sound s) { Play(s); };
     Page& page = pages_.back();
@@ -600,19 +627,6 @@ bool HostMenus::DrawTopPage(const Tv& tv, const ui::Fonts& fonts, const ui::Inpu
     const float iw = tv.half - ui::kBezel;
     const float top = tv.contentTop, bottom = tv.screenBottom - 14.0f;
     ui::Area rows{-iw + 24.0f, iw - 24.0f, top, bottom};
-    // Where the page is, in the strip under the header: PAUSED > SETTINGS
-    // > SOUND (a question alone has none: its title says it). A step before
-    // the last takes the player back to it.
-    int crumb = -1;
-    if (!tv.alone) {
-        crumbs_.clear();
-        if (pauseUnder) crumbs_.push_back(menu_.title[0] ? menu_.title : texts::T("menus.pause.title"));
-        for (std::size_t n = 0; n + 1 < pages_.size(); ++n)
-            crumbs_.push_back(ui::PageTitle(pages_[n].id, pages_[n].key, model));
-        crumbs_.push_back(title);
-        if (page.category < int(categories.size())) crumbs_.push_back(categories[std::size_t(page.category)]);
-        crumb = ui::DrawCrumbs(tv.body, fonts, in, tv.half, crumbs_, sound);
-    }
     std::optional<ui::Area> help;
     int category = -1;
     if (!categories.empty()) {
@@ -654,14 +668,9 @@ bool HostMenus::DrawTopPage(const Tv& tv, const ui::Fonts& fonts, const ui::Inpu
         category = (page.category + (in.next ? 1 : count - 1)) % count;
         Play(ui::Sound::Switch);
     }
-    // Then what the player did: the pages may change now. A step of the
-    // strip keeps the pages up to it (the pause menu's: none).
+    // Then what the player did: the pages may change now.
     if (leaving_ || Leaving()) return overItem;
-    const int keep = crumb < 0 ? -1 : crumb + (pauseUnder ? 0 : 1);
-    if (keep >= 0 && keep < int(pages_.size())) {
-        if (keep == 0) ClearPages();
-        else while (int(pages_.size()) > keep) Pop();
-    } else if (resumePressed) Resume();
+    if (resumePressed) Resume();
     else if (closePressed) {
         Play(ui::Sound::Back);
         CloseRecharged();
@@ -767,7 +776,7 @@ void HostMenus::Draw(float width, float height, const ui::Fonts& fonts)
     bool overItem = false;
     if (pages) {
         if (!leaving_) in = ReadInput();
-        overItem = DrawTopPage(tv, fonts, in, model, title, now);
+        overItem = DrawTopPage(tv, fonts, in, model, now);
     } else {
         if (scene == CHARGED_MENU_PAUSE) DrawPauseButtons(frame, tv, fonts);
         ui::DrawScreenMask(tv.set, tv.half, tv.screenBottom);

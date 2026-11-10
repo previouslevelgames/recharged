@@ -101,7 +101,8 @@ inline constexpr std::array<GameTweakInfo, 15> kGameTweaks{{
     {GameTweak::OverrideRetailMenus, "override_retail_menus", "Override retail menus (Dev)",
      "Development switch: Recharged's own versions replace the game's menus as they are built, starting with the "
      "pause menu in a match, drawn over the blurred game. They open the same pages and do the same as the "
-     "game's. Unfinished; off by default."},
+     "game's. On by default; off shows the game's own menus.",
+     true},
 }};
 
 // Start training ([gameplay] training_item, training_captain, training_stadium): the

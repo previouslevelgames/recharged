@@ -151,14 +151,8 @@ struct Input
     bool repeat = false; // left or right held long enough to repeat (a slider's change is live)
 };
 
-// The strip under the header: where the page is, a step each (PAUSED >
-// SETTINGS > SOUND), the last in orange; the hand presses the steps before it
-// (back to them). The step clicked, or -1. What the page shows starts below
-// it, at kContentTop.
-inline constexpr float kStripTop = kHeaderBottom + 4.0f, kStripBottom = kHeaderBottom + 46.0f;
-inline constexpr float kContentTop = kStripBottom + 16.0f;
-int DrawCrumbs(const Painter& content, const Fonts& fonts, const Input& input, float half_width,
-               const std::vector<std::string>& crumbs, const std::function<void(Sound)>& sound);
+// What a page shows starts under the header, at kContentTop.
+inline constexpr float kContentTop = kHeaderBottom + 16.0f;
 // A plate as the pause menu's buttons (the game's list_back plate): its
 // label centred at `mid`, `half` design pixels to each side; lit, it grows and
 // turns solid with a light edge, as the game's "over".
@@ -195,21 +189,21 @@ enum class Tone
     Bad,     // red: lost, failed
 };
 // A person's picture: their image (a circle), else their initials on a
-// colour picked by `tint`; the dot of their presence; their flag.
+// colour picked by `tint`; the dot of their presence; their country.
 struct Person
 {
     ImTextureID image = 0;
     std::string initials;
     std::int64_t tint = 0;
-    int presence = -1;     // -1 none, 0 free, 1 busy, 2 offline
-    ImTextureID flags = 0; // the flag atlas (overlay/flags.h)
-    std::string country;   // two letters, empty for none
+    int presence = -1;   // -1 none, 0 free, 1 busy, 2 offline
+    std::string country; // two capital letters (CH, DE, AT), empty for none
 };
 // The picture in a circle of `radius` design pixels around (cx, cy).
 void DrawPerson(const Painter& content, ImFont* initials_font, float cx, float cy, float radius, const Person& person);
-// A country's flag, `height` design pixels tall, its left edge at x, centred
+// A person's country as its two letters in a small outlined box (the menus'
+// look, not a flag), `height` design pixels tall, its left edge at x, centred
 // on y; its width (0 without one).
-float DrawFlag(const Painter& content, float x, float y, float height, const Person& person);
+float DrawCountry(const Painter& content, ImFont* font, float x, float y, float height, const Person& person);
 
 // What a list remembers between frames (the page keeps it).
 struct ListState
@@ -252,8 +246,9 @@ public:
     void Caption(const char* text);
     // A line of text (wrapped), not lit.
     void Note(const char* text);
-    // A plate: true when pressed. `about`: its help line.
-    bool Plate(const char* label, const char* about = nullptr, bool enabled = true);
+    // A plate: true when pressed. `about`: its help line; `value`: a short
+    // fact at its right end ("3 online", the rules it plays by).
+    bool Plate(const char* label, const char* about = nullptr, bool enabled = true, const char* value = nullptr);
     // A row whose value is text, pressed as a plate (a page beside).
     bool Row(const char* label, const char* value, const char* about = nullptr);
     // A value in `bars` bars from `min` to `max` in `step`s, shown as `text`;

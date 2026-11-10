@@ -320,6 +320,7 @@ std::optional<CompetitiveHost::SetStatus> CompetitiveHost::CurrentSet()
     {
         set_opponent_ = match_->opponent.name;
         set_opponent_avatar_ = match_->opponent.avatar_url;
+        set_opponent_mii_ = match_->opponent.mii_data;
         set_games_ = match_->rules.games;
     }
     if (set_opponent_.empty()) return std::nullopt;
@@ -355,11 +356,13 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
         {
             set_opponent_ = match_->opponent.name;
             set_opponent_avatar_ = match_->opponent.avatar_url;
+        set_opponent_mii_ = match_->opponent.mii_data;
             set_games_ = match_->rules.games;
         }
         end.match = set_;
         end.opponent = set_opponent_;
         end.opponent_avatar = set_opponent_avatar_;
+        end.opponent_mii = set_opponent_mii_;
         end.games = set_games_;
         if (series_match_ == set_)
             for (const auto& game : series_)
@@ -754,6 +757,7 @@ void CompetitiveHost::Work(ProfileService& api)
         std::optional<Invitation> invitation;
         if (current && current->state == "challenged" && current->side == "challenged")
             invitation = Invitation{current->id, current->opponent.name, current->opponent.avatar_url,
+                                    current->opponent.mii_data,
                                     texts::T("menus.sets.rules", {{"rule_set", current->rule_set},
                                                                   {"rules", DescribeRules(current->rules)}}),
                                     current->rematch_of != 0, current->random};
