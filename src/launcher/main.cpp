@@ -7,6 +7,7 @@
 #include "imgui_impl_sdlrenderer3.h"
 #include "imgui_stdlib.h"
 
+#include "bootstrap/advanced_choices.h"
 #include "bootstrap/antialiasing.h"
 #include "bootstrap/display_shape.h"
 #include "bootstrap/launch_options.h"
@@ -11386,6 +11387,7 @@ private:
         {
             TweakRow(GameTweak::SkipIntro);
             TweakRow(GameTweak::FastMenus);
+            TweakRow(GameTweak::OverrideRetailMenus);
             EndRows();
         }
         EndCard();
@@ -11903,15 +11905,13 @@ private:
         if (BeginRows("##interface_rows"))
         {
             Row("Launcher size", "Scales this launcher. Automatic follows your display's scaling setting.");
-            const char* values[] = {"auto", "75", "100", "125", "150", "175", "200"};
-            const char* names[] = {"Automatic", "75%", "100%", "125%", "150%", "175%", "200%"};
             const char* preview = draft_.ui_scale.c_str();
-            for (int i = 0; i < 7; ++i) if (draft_.ui_scale == values[i]) preview = names[i];
+            for (const auto& size : kLauncherSizes) if (draft_.ui_scale == size.value) preview = size.label;
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::BeginCombo("##ui_scale", preview))
             {
-                for (int i = 0; i < 7; ++i)
-                    if (ImGui::Selectable(names[i], draft_.ui_scale == values[i])) { draft_.ui_scale = values[i]; dirty_ = true; }
+                for (const auto& size : kLauncherSizes)
+                    if (ImGui::Selectable(size.label, draft_.ui_scale == size.value)) { draft_.ui_scale = size.value; dirty_ = true; }
                 ImGui::EndCombo();
             }
             Row("Reopen after the game", "Opens the launcher again when you close the game.");
@@ -12000,11 +12000,11 @@ private:
             if (Toggle("##validation", &draft_.graphics_validation)) dirty_ = true;
 
             Row("Log detail", "Which messages reach the console: errors, warnings, info or debug.");
-            const char* values[] = {"error", "warning", "info", "debug"};
-            int level = 2;
-            for (int i = 0; i < 4; ++i) if (draft_.log_level == values[i]) level = i;
-            if (Segmented("##log_level", &level, {"Errors", "Warnings", "Info", "Debug"}, ImGui::GetContentRegionAvail().x))
-            { draft_.log_level = values[level]; dirty_ = true; }
+            int level = kDefaultLogLevel;
+            for (int i = 0; i < int(kLogLevels.size()); ++i) if (draft_.log_level == kLogLevels[std::size_t(i)].value) level = i;
+            if (Segmented("##log_level", &level, {kLogLevels[0].label, kLogLevels[1].label, kLogLevels[2].label, kLogLevels[3].label},
+                          ImGui::GetContentRegionAvail().x))
+            { draft_.log_level = kLogLevels[std::size_t(level)].value; dirty_ = true; }
 
             Row("Verbose console", "Also prints development traces and the game's own debug output. Useful for bug reports.");
             if (Toggle("##verbose_console", &draft_.verbose_console)) dirty_ = true;

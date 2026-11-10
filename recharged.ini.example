@@ -293,6 +293,9 @@ show_hud = true
 # match_point: in a match to a number of goals, overtime's siren and sudden
 # death music (in place of the stadium's) and SUDDEN DEATH on the HUD once
 # both teams are one goal from winning. Only sound and HUD. On by default.
+# override_retail_menus: development switch; Recharged's own versions replace
+# the game's menus as they are built (first the pause menu in a match).
+# Unfinished.
 # Start training on the launcher's Gameplay page (or --training) goes
 # straight into a Domination match with training_captain (mario, bowser,
 # daisy, donkeykong, luigi, peach, waluigi, wario, yoshi, bowserjr,
@@ -330,6 +333,7 @@ super_team_side = away
 fair_ball_contests = true
 secure_stadiums = false
 match_point = true
+override_retail_menus = false
 training_item = green_shell
 training_captain = mario
 training_stadium = tutorialfield

@@ -94,6 +94,22 @@ const std::vector<RuleChoice>& PowerupCheatChoices()
     return choices;
 }
 
+std::string RuleChoiceLabel(const std::vector<RuleChoice>& choices, const std::string& key)
+{
+    for (const auto& choice : choices)
+        if (key == choice.key) return choice.label;
+    return key;
+}
+
+std::string StepRuleChoice(const std::vector<RuleChoice>& choices, const std::string& key, int step)
+{
+    const int n = int(choices.size());
+    if (n == 0) return key;
+    for (int index = 0; index < n; ++index)
+        if (key == choices[std::size_t(index)].key) return choices[std::size_t(((index + step) % n + n) % n)].key;
+    return choices.front().key;
+}
+
 const std::vector<RuleChoice>& RuleTweakChoices()
 {
     static const std::vector<RuleChoice> choices = [] {

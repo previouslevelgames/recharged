@@ -42,3 +42,10 @@ if(BUILD_TESTING)
     target_link_libraries(game_overlay_tests PRIVATE charged_overlay)
     add_test(NAME game_overlay COMMAND game_overlay_tests)
 endif()
+
+# Recharged's menus in the look of the game's own (src/ui, the UI kit): the
+# TV set, its plates and rows, and the pages (OPTIONS, GAMEPLAY, GRAPHICS,
+# SOUND, the Recharged menu), drawn with ImGui in the game; the pages' models
+# are the overlay's.
+add_library(charged_recharged_ui STATIC src/ui/rui_kit.cpp src/ui/rui_pages.cpp)
+target_link_libraries(charged_recharged_ui PUBLIC charged_overlay)

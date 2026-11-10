@@ -366,6 +366,11 @@ bool mscharged_tweak_hud_hidden(void)
     return sHudHidden;
 }
 
+bool mscharged_tweak_pause_menu_replaced(void)
+{
+    return mscharged_tweak_enabled(MSCHARGED_TWEAK_OVERRIDE_RETAIL_MENUS);
+}
+
 void mscharged_tweak_report_stadium(int stadium)
 {
     sStadium = stadium;

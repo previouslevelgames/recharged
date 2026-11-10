@@ -6,6 +6,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <vector>
 
 // The overlay's Game options tab (game_overlay.h): the gameplay options that
 // can change while the game runs, in the launcher Gameplay page's categories
@@ -36,6 +37,17 @@ struct GameOptionChange
 // only from the next match).
 bool GameOption(GameTweak tweak);
 bool GameOptionAtOnce(GameTweak tweak);
+
+// The tab's categories in their order (the launcher Gameplay page's): each
+// one's title, what its options do and when, and its options.
+struct GameOptionGroup
+{
+    const char* title;
+    const char* short_title; // "Menus", "Matches", "Competitive"
+    const char* about;
+    std::vector<GameTweak> tweaks;
+};
+const std::vector<GameOptionGroup>& GameOptionGroups();
 
 // What the tab keeps between frames: its menu's (overlay_rows.h), whose
 // sections are Menus & startup, Matches & unlocks and Competitive gameplay.

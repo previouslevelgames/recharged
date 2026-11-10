@@ -127,6 +127,16 @@ bool GameOption(GameTweak tweak)
     return false;
 }
 
+const std::vector<GameOptionGroup>& GameOptionGroups()
+{
+    static const std::vector<GameOptionGroup> groups = [] {
+        std::vector<GameOptionGroup> list;
+        for (const Group& group : Groups()) list.push_back({group.title, group.short_title, group.about, group.tweaks});
+        return list;
+    }();
+    return groups;
+}
+
 bool GameOptionAtOnce(GameTweak tweak) { return tweak == GameTweak::FastMenus; }
 
 OverlayScreens::Screen GameOptionsFirstScreen() { return {0, {}, "Game options"}; }

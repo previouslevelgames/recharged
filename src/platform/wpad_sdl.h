@@ -85,6 +85,9 @@ NativeWpadHeldPresses TakeNativeWpadHeldPresses();
 void SetNativeWpadHomeTaken(bool taken);
 // The channels (bit n: WPAD channel n) that pressed HOME since the last call.
 std::uint32_t TakeNativeWpadHomePresses();
+// The channels that pressed the game's pause (WPAD 1) since the last call,
+// while the host held nothing; the game sees those presses too.
+std::uint32_t TakeNativeWpadPausePresses();
 // While the panel holds, the game sees every player stand still (no buttons,
 // a centred stick, and the pointer and motion of their last report before the
 // hold, also while a card holds) and the panel reads their buttons; released,

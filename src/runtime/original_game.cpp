@@ -12,6 +12,8 @@
 #include <aurora/hardware.h>
 #include "bootstrap/antialiasing.h"
 #include "bootstrap/display_shape.h"
+#include "bootstrap/advanced_choices.h"
+#include "bootstrap/graphics_backend.h"
 #include "bootstrap/graphics_card.h"
 #include "bootstrap/launch_options.h"
 #include "platform/path.h"
@@ -52,6 +54,9 @@
 #include "platform/ai.h"
 #include "platform/console.h"
 #include "platform/log_window.h"
+#if defined(MSCHARGED_HAS_GRAPHICS_CARDS)
+#include "platform/graphics_cards.h"
+#endif
 #include "platform/session_log.h"
 #include "platform/launcher_reopen.h"
 #include "platform/competitive_host.h"
@@ -67,6 +72,7 @@
 #include "launcher/current_build.h"
 #include "launcher/online_gate.h"
 #include "platform/presence_snapshot.h"
+#include "platform/menu_snapshot.h"
 #include "platform/shader_cache.h"
 #include "platform/process_exit.h"
 #include "platform/native_ax_module_memory.h"
@@ -83,6 +89,9 @@
 #include "runtime/game_window.h"
 #include "runtime/host_overlay.h"
 #include "runtime/host_panel.h"
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "runtime/host_menus.h"
+#endif
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "launcher/match_presets.h"
 #include "overlay/game_overlay.h"
@@ -311,6 +320,107 @@ void EndWithSnapshot(const std::filesystem::path& output) {
     Check(lit != 0, "Original actual EFB is entirely black; visibility remains unqualified");
     mscharged::platform::Trace("Actual EFB %ux%u, nonblack pixels%u; saved %s.\n",s->target.width,s->target.height,lit,mscharged::PathUtf8(output).c_str());
 }
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+// RECHARGED_CAPTURE_ONLINE's sample (development: the online pages without a
+// server): a player with a set, friends and players online, presets, boards.
+void SampleOnline(mscharged::overlay::GameOverlayModel& model)
+{
+    namespace ov=mscharged::overlay;
+    auto& online=model.online;
+    online=ov::OnlinePanelModel{};
+    online.me.name="Yannick";
+    online.me.detail="@yannick";
+    online.me.initials="Y";
+    online.me.tint_seed=11;
+    online.me.country="CH";
+    online.me.available=true;
+    online.me.can_set_available=true;
+    auto row=[](const char* name,const char* country,ov::Presence presence,const char* status,ov::Tone tone,
+                bool isFriend,std::int64_t id) {
+        ov::OnlinePanelRow r;
+        r.player_id=id;
+        r.key="p"+std::to_string(id);
+        r.name=name;
+        r.initials=std::string(1,name[0]);
+        r.tint_seed=id*7;
+        r.presence=presence;
+        r.status=status;
+        r.tone=tone;
+        r.country=country;
+        r.is_friend=isFriend;
+        r.can_befriend=true;
+        r.can_challenge=presence==ov::Presence::Free;
+        if(!r.can_challenge) r.blocked="In a set: challenge them once it is over.";
+        return r;
+    };
+    online.set.stage=ov::OnlinePanelSet::Stage::Playing;
+    online.set.opponent=row("Mario","IT",ov::Presence::Busy,"In your set",ov::Tone::Busy,true,1);
+    online.set.title="Your set against Mario";
+    online.set.status="Game 2 of 3: choosing teams";
+    online.set.tone=ov::Tone::Busy;
+    online.set.rules="Competitive: 3 minutes, best of 3, random stadium";
+    online.set.games=3;
+    online.set.won=1;
+    online.set.lost=0;
+    online.set.can_cancel=true;
+    online.set.cancel_label="Cancel set";
+    ov::OnlinePanelSection friends;
+    friends.id=ov::OnlinePanelSection::Id::Online;
+    friends.aside="2 friends offline";
+    friends.rows={row("Luigi","DE",ov::Presence::Free,"Main menu",ov::Tone::Good,true,2),
+                  row("Peach","FR",ov::Presence::Busy,"Domination: choosing teams",ov::Tone::Busy,true,3)};
+    friends.rows[0].detail="@luigi";
+    ov::OnlinePanelSection others;
+    others.id=ov::OnlinePanelSection::Id::Available;
+    others.rows={row("Waluigi","US",ov::Presence::Free,"Open to challenges",ov::Tone::Good,false,4),
+                 row("Daisy","SE",ov::Presence::Free,"Open to challenges",ov::Tone::Good,false,5),
+                 row("Bowser","JP",ov::Presence::Busy,"Set vs Wario: game 1 of 5",ov::Tone::Busy,false,6)};
+    others.rows[1].version="1.1.6";
+    online.sections={friends,others};
+    ov::OnlinePanelPreset competitive;
+    competitive.name="Competitive";
+    competitive.rule_set=1;
+    competitive.rules.limit="time";
+    competitive.rules.time=180;
+    competitive.rules.goals=5;
+    competitive.rules.games=3;
+    competitive.rules.stadium="random";
+    competitive.rules.tweaks={"no_mega_strikes"};
+    ov::OnlinePanelPreset quick=competitive;
+    quick.name="Quick game";
+    quick.rules.games=1;
+    quick.rule_set=2;
+    online.presets={competitive,quick};
+    online.can_search=true;
+    auto& ranked=model.ranked;
+    ranked.can_play=true;
+    ranked.blocked.clear();
+    ranked.signed_out=ranked.missing=ranked.loading=false;
+    mscharged::platform::Leaderboard boards;
+    auto entry=[](int rank,const char* player,const char* mii,int wins,int losses,int points,bool you) {
+        mscharged::platform::LeaderboardEntry e;
+        e.rank=rank;
+        e.player=player;
+        e.mii=mii;
+        e.wins=wins;
+        e.losses=losses;
+        e.points=points;
+        e.you=you;
+        return e;
+    };
+    boards.season.first_day="2026-11-01";
+    boards.season.last_day="2026-11-30";
+    boards.season.players=184;
+    boards.season.top={entry(1,"Luigi","Luigi",42,7,1830,false),entry(2,"","Toadsworth",38,11,1712,false),
+                       entry(3,"Waluigi","Wah",31,12,1650,false),entry(4,"Daisy","Daisy",25,14,1544,false),
+                       entry(5,"","Kamek",22,17,1490,false)};
+    boards.season.you=entry(17,"Yannick","Yannick",9,8,1204,true);
+    boards.daily=boards.season;
+    boards.daily.first_day=boards.daily.last_day="2026-11-09";
+    boards.daily.players=23;
+    ranked.boards=boards;
+}
+#endif
 }
 int mscharged::RunOriginalGame(int argc, char** argv,
     const ResolvedLaunch* suppliedLaunch, bool interactive, OriginalMainScene scene, const char* title) {
@@ -1080,6 +1190,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // A host setting like the sound levels, whatever the tweak set.
         auto presenceSnapshot=reinterpret_cast<ChargedPresenceSnapshotFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_presence_snapshot"));
+        // Override retail menus (development switch): the match's pause menu,
+        // read after a frame for the host's own drawing of it.
+        auto menuSnapshot=reinterpret_cast<ChargedMenuSnapshotFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_snapshot"));
+        auto menuTexture=reinterpret_cast<ChargedMenuTextureFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_texture"));
+        auto menuCommand=reinterpret_cast<ChargedMenuCommandFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_command"));
         std::optional<mscharged::platform::DiscordPresence> discordPresence;
         std::optional<mscharged::platform::GamePresence> gamePresence;
         {
@@ -1913,7 +2031,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // uploaded the first time the menu draws.
         ImTextureID flagTexture{};
         bool flagTried=false;
-        if(std::any_of(launch.competitive_mii.begin(),launch.competitive_mii.end(),[](auto b) { return b!=0; }))
+        // The player's own Mii (the launcher's): RANKED with it, its face in the menus.
+        const bool ownMii=std::any_of(launch.competitive_mii.begin(),launch.competitive_mii.end(),
+            [](auto b) { return b!=0; });
+        if(ownMii)
             ownMiiFace=std::async(std::launch::async,
                 [disc=launch.disc_path,id=launch.competitive_mii,
                  nand=mscharged::TitleSaveFolder(mscharged::ResolveSaveFolder(launch.settings,launch.config.path,
@@ -1969,6 +2090,484 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(std::sscanf(text.c_str(),"%d.%d.%d",&parts[0],&parts[1],&parts[2])<2)return false;
             return std::tie(parts[0],parts[1],parts[2])>=std::tie(major,minor,patch);
         };
+        // The Settings tab's and Recharged's menus' model of the display and
+        // sound, and their changes of the settings and the game options: at
+        // once, and saved for the next time.
+        // The launcher's Advanced settings the menus show: as saved (most
+        // count from the next start; the running game keeps its own).
+        mscharged::Settings advanced=launch.settings;
+        std::vector<std::string> graphicsApis; // the choices' settings, as the menus list them
+        std::vector<std::string> graphicsCards;
+#if defined(MSCHARGED_HAS_GRAPHICS_CARDS)
+        std::future<std::vector<mscharged::platform::GraphicsCard>> cardScan;
+        std::optional<std::vector<mscharged::platform::GraphicsCard>> cardsFound;
+#endif
+        // The graphics cards, listed once in the background from the first
+        // time a menu shows (a Vulkan instance of its own: not while the
+        // Advanced page is being used).
+        auto pollGraphicsCards=[&] {
+#if defined(MSCHARGED_HAS_GRAPHICS_CARDS) && !defined(__APPLE__)
+            if(!cardsFound && !cardScan.valid())
+                cardScan=std::async(std::launch::async,mscharged::platform::ListGraphicsCards);
+            if(!cardsFound && cardScan.valid()
+               && cardScan.wait_for(std::chrono::seconds(0))==std::future_status::ready) {
+                try { cardsFound=cardScan.get(); } catch(const std::exception&) { cardsFound.emplace(); }
+            }
+#endif
+        };
+        auto buildAdvanced=[&](mscharged::overlay::GameSettingsModel& settings) {
+            settings.launcher_sizes.clear();
+            settings.launcher_size=0;
+            for(std::size_t n=0;n<mscharged::kLauncherSizes.size();++n) {
+                settings.launcher_sizes.push_back(mscharged::kLauncherSizes[n].label);
+                if(advanced.ui_scale==mscharged::kLauncherSizes[n].value) settings.launcher_size=int(n);
+            }
+            // The graphics API: Automatic only where it may pick between two (Windows).
+            graphicsApis.clear();
+            settings.graphics_apis.clear();
+            if(mscharged::kGraphicsBackends.size()>1) {
+                graphicsApis.push_back("auto");
+                settings.graphics_apis.push_back("Automatic");
+            }
+            for(const auto& choice:mscharged::kGraphicsBackends) {
+                graphicsApis.push_back(choice.value);
+                settings.graphics_apis.push_back(choice.label);
+            }
+            settings.graphics_api=0;
+            for(std::size_t n=0;n<graphicsApis.size();++n)
+                if(advanced.backend==graphicsApis[n]) settings.graphics_api=int(n);
+            // The graphics cards, listed once in the background.
+            graphicsCards.assign(1,"auto");
+            settings.graphics_cards.assign(1,"Automatic (fastest)");
+            settings.graphics_card=0;
+#if defined(MSCHARGED_HAS_GRAPHICS_CARDS) && !defined(__APPLE__)
+            settings.graphics_cards_shown=true;
+            pollGraphicsCards();
+            settings.graphics_cards_listing=!cardsFound;
+            if(cardsFound)
+                for(const auto& card:*cardsFound) {
+                    bool twin=false;
+                    for(const auto& other:*cardsFound) twin=twin || (other.id!=card.id && other.name==card.name);
+                    const std::string id=mscharged::GraphicsCardSetting(card.id);
+                    graphicsCards.push_back(id);
+                    settings.graphics_cards.push_back(card.name+(twin ? " ("+id+")" : ""));
+                }
+            if(advanced.gpu!="auto") {
+                const auto found=std::find(graphicsCards.begin(),graphicsCards.end(),advanced.gpu);
+                if(found!=graphicsCards.end()) settings.graphics_card=int(found-graphicsCards.begin());
+                else {
+                    // Not (yet) listed: kept as it is.
+                    graphicsCards.push_back(advanced.gpu);
+                    settings.graphics_cards.push_back(cardsFound ? "Not found: "+advanced.gpu : advanced.gpu);
+                    settings.graphics_card=int(graphicsCards.size())-1;
+                }
+            }
+#endif
+            settings.frame_logging=advanced.frame_logging;
+            settings.graphics_validation=advanced.graphics_validation;
+            settings.log_detail=mscharged::kDefaultLogLevel;
+            for(std::size_t n=0;n<mscharged::kLogLevels.size();++n)
+                if(advanced.log_level==mscharged::kLogLevels[n].value) settings.log_detail=int(n);
+            settings.verbose_console=advanced.verbose_console;
+#if defined(_WIN32) || defined(__APPLE__)
+            settings.log_window_shown=true;
+#endif
+            settings.log_window=advanced.log_window;
+        };
+        auto buildSettings=[&](mscharged::overlay::GameSettingsModel& settings) {
+            settings.fullscreen=(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN)!=0;
+            settings.pictures={widescreen ? "16:9" : "4:3","Stretch"};
+            if(widerView) settings.pictures.push_back("Wider view");
+            settings.picture=widerOn ? 2 : stretch ? 1 : 0;
+            settings.picture_about=std::string(widescreen ? "16:9" : "4:3")+" keeps the game's shape,"
+                " Stretch fills the window"+(widerView ? ", Wider view shows more of the stadium in matches." : ".");
+            displayResolutions.clear();
+            if(nativeSend) {
+                const auto size=aurora_get_window_size();
+                const auto picture=mscharged::PictureSize(int(size.native_fb_width),int(size.native_fb_height),
+                    int(aspectWidth),int(aspectHeight),fill);
+                // As the launcher has them: Full, Native, 2x, 3x, 4x.
+                displayResolutions.emplace_back("window");
+                for(const auto value:mscharged::kRenderResolutions)
+                    if(value!="window") displayResolutions.emplace_back(value);
+                for(std::size_t n=0;n<displayResolutions.size();++n) {
+                    const auto& value=displayResolutions[n];
+                    settings.resolutions.emplace_back(mscharged::RenderResolutionLabel(value));
+                    if(value==renderResolution) settings.resolution=int(n);
+                }
+                const auto drawn=[&](std::string_view value) {
+                    return std::to_string(mscharged::RenderWidth(value,picture.width))+" \xC3\x97 "
+                        +std::to_string(mscharged::RenderHeight(value,picture.height));
+                };
+                settings.resolution_about="How sharp the game draws its 3D: Full at the window's size ("
+                    +drawn("window")+"), Native at the Wii's "+drawn("native")
+                    +", 2x to 4x at its multiples, for slower graphics cards.";
+            }
+            settings.performance_numbers=launch.settings.fps_overlay;
+            settings.master_volume=launch.settings.master_volume;
+            settings.mute=launch.settings.mute;
+            settings.sound_volumes=launch.settings.sound_volumes;
+            settings.challenge_sound=launch.settings.challenge_sound;
+            settings.reopen_launcher=mscharged::platform::LauncherReopenOn();
+            settings.reopen_known=mscharged::platform::LauncherReopenKnown();
+            buildAdvanced(settings);
+        };
+        auto applyOption=[&](const mscharged::overlay::GameOptionChange& change) {
+            const std::size_t index=mscharged::GameTweakIndex(change.tweak);
+            if(index<optionTweaks.size()) {
+                optionTweaks[index]=change.on;
+                try {
+                    mscharged::SaveGameTweak(launch.config.path,change.tweak,change.on);
+                } catch(const std::exception& error) {
+                    overlayNotice=std::string("The option was not saved: ")+error.what();
+                }
+                auto settings=launch.settings;
+                settings.tweaks=optionTweaks;
+                pendingTweaks=settings.ModuleTweakMask();
+            }
+        };
+        auto applySetting=[&](const mscharged::overlay::GameSettingChange& change) {
+            namespace ov=mscharged::overlay;
+            const bool on=change.value!=0;
+            using ov::GameSetting;
+            std::function<void(mscharged::Settings&)> save;
+            switch(change.setting) {
+            case GameSetting::Fullscreen:
+                if(SDL_SetWindowFullscreen(host.window,on)) {
+                    if(on) mscharged::runtime::PlaceFullscreenWindow(host.window);
+                    mscharged::runtime::LockWindowShape(host.window,!on && !stretch && !widerOn,aspectWidth,
+                        aspectHeight);
+                    mscharged::platform::SessionLogLine(std::string("Display: ")+(on?"fullscreen":"windowed")
+                        +" (Settings)");
+                }
+                launch.settings.fullscreen=on;
+                save=[on](mscharged::Settings& s) { s.fullscreen=on; };
+                break;
+            case GameSetting::Picture: {
+                // As the stretch hotkey: the wider view when set up, else stretching.
+                widerOn=widerView && change.value==2;
+                stretch=change.value==1;
+                const bool windowed=!(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN);
+                mscharged::runtime::LockWindowShape(host.window,windowed && !stretch && !widerOn,aspectWidth,
+                    aspectHeight);
+                const bool wider=widerOn, stretched=stretch;
+                const std::string keep=launch.settings.aspect=="stretch"?std::string("auto"):launch.settings.aspect;
+                launch.settings.aspect=stretched?"stretch":keep;
+                if(widerView) launch.settings.wider_view=wider;
+                save=[wider,stretched,keep,canWiden=widerView](mscharged::Settings& s) {
+                    s.aspect=stretched?"stretch":keep;
+                    if(canWiden) s.wider_view=wider;
+                };
+                break;
+            }
+            case GameSetting::Resolution:
+                if(change.value>=0 && std::size_t(change.value)<displayResolutions.size()
+                   && displayResolutions[std::size_t(change.value)]!=renderResolution) {
+                    renderResolution=displayResolutions[std::size_t(change.value)];
+                    VISetFrameBufferScale(mscharged::RenderScale(renderResolution));
+                    mscharged::platform::SessionLogLine("Display: 3D resolution "+renderResolution+" (Settings)");
+                    launch.settings.resolution=renderResolution;
+                    save=[value=renderResolution](mscharged::Settings& s) { s.resolution=value; };
+                }
+                break;
+            case GameSetting::PerformanceNumbers:
+                launch.settings.fps_overlay=on;
+                hostOverlay->SetPerformance(on ? std::optional(mscharged::runtime::ParseOverlayCorner(
+                    launch.settings.fps_overlay_corner).value_or(mscharged::runtime::OverlayCorner::TopRight))
+                    : std::nullopt);
+                save=[on](mscharged::Settings& s) { s.fps_overlay=on; };
+                break;
+            case GameSetting::MasterVolume:
+            case GameSetting::Mute:
+                if(change.setting==GameSetting::Mute) launch.settings.mute=on;
+                else launch.settings.master_volume=std::clamp(change.value,0,100);
+                mscharged::platform::SetNativeAIOutputGain(launch.settings.mute ? 0.0f :
+                    float(launch.settings.master_volume)/100.0f);
+                save=[volume=launch.settings.master_volume,mute=launch.settings.mute](mscharged::Settings& s) {
+                    s.master_volume=volume;
+                    s.mute=mute;
+                };
+                break;
+            case GameSetting::SoundVolume:
+                if(change.group>=0 && std::size_t(change.group)<launch.settings.sound_volumes.size()) {
+                    launch.settings.sound_volumes[std::size_t(change.group)]=std::clamp(change.value,0,100);
+                    const auto& volumes=launch.settings.sound_volumes;
+                    if(configureSoundVolumes) configureSoundVolumes(volumes.data(),int(volumes.size()));
+                    save=[volumes](mscharged::Settings& s) { s.sound_volumes=volumes; };
+                }
+                break;
+            case GameSetting::ChallengeSound:
+                launch.settings.challenge_sound=on;
+                save=[on](mscharged::Settings& s) { s.challenge_sound=on; };
+                break;
+            case GameSetting::ReopenLauncher:
+                mscharged::platform::SetLauncherReopen(on);
+                launch.settings.reopen_after_game=on;
+                save=[on](mscharged::Settings& s) { s.reopen_after_game=on; };
+                break;
+            // The launcher's Advanced settings: saved for the launcher or the
+            // next start; the console's detail and the log window at once too.
+            case GameSetting::LauncherSize:
+                if(change.value>=0 && std::size_t(change.value)<mscharged::kLauncherSizes.size()) {
+                    const std::string size=mscharged::kLauncherSizes[std::size_t(change.value)].value;
+                    save=[size](mscharged::Settings& s) { s.ui_scale=size; };
+                }
+                break;
+            case GameSetting::GraphicsApi:
+                if(change.value>=0 && std::size_t(change.value)<graphicsApis.size()) {
+                    const std::string api=graphicsApis[std::size_t(change.value)];
+                    save=[api](mscharged::Settings& s) { s.backend=api; };
+                }
+                break;
+            case GameSetting::GraphicsCard:
+                if(change.value>=0 && std::size_t(change.value)<graphicsCards.size()) {
+                    const std::string card=graphicsCards[std::size_t(change.value)];
+                    save=[card](mscharged::Settings& s) { s.gpu=card; };
+                }
+                break;
+            case GameSetting::FrameLogging:
+                save=[on](mscharged::Settings& s) { s.frame_logging=on; };
+                break;
+            case GameSetting::GraphicsValidation:
+                save=[on](mscharged::Settings& s) { s.graphics_validation=on; };
+                break;
+            case GameSetting::LogDetail:
+                if(change.value>=0 && std::size_t(change.value)<mscharged::kLogLevels.size()) {
+                    const std::string level=mscharged::kLogLevels[std::size_t(change.value)].value;
+                    save=[level](mscharged::Settings& s) { s.log_level=level; };
+                }
+                break;
+            case GameSetting::VerboseConsole:
+                mscharged::platform::SetVerboseConsole(on);
+                save=[on](mscharged::Settings& s) { s.verbose_console=on; };
+                break;
+            case GameSetting::LogWindow:
+                mscharged::platform::SetLogWindow(on);
+                save=[on](mscharged::Settings& s) { s.log_window=on; };
+                break;
+            }
+            // The menus' Advanced page shows what is saved (most of it counts
+            // from the next start).
+            if(save) save(advanced);
+            // A slider being dragged saves once it is let go.
+            if(save && !change.live) {
+                try {
+                    mscharged::SaveSettings(launch.config.path,save);
+                } catch(const std::exception& error) {
+                    overlayNotice=std::string("The setting was not saved: ")+error.what();
+                }
+            }
+        };
+        // The overlay's and Recharged's menus' players' pictures (an avatar,
+        // "mii:own", the flags' atlas), and their Online, Ranked and prompt:
+        // the model as it is now and what the player did.
+        auto overlayImage=[&](const std::string& key)->ImTextureID {
+            if(!flagTried) {
+                flagTried=true;
+                std::ifstream file(executableDirectory/"assets"/"flags"/"flags.png",std::ios::binary);
+                const std::string bytes{std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>()};
+                mscharged::overlay::OverlayImage atlas;
+                if(!bytes.empty() && mscharged::overlay::DecodeOverlayPng(bytes,atlas))
+                    flagTexture=aurora_imgui_add_texture(std::uint32_t(atlas.width),std::uint32_t(atlas.height),
+                        atlas.rgba.data());
+                if(!flagTexture) mscharged::platform::SessionLogLine("Overlay: no flags (assets/flags/flags.png)");
+            }
+            if(key=="mii:own") return ownMiiTexture;
+            if(key==mscharged::overlay::kFlagAtlas) return flagTexture;
+            return overlayPictures.Images()(key);
+        };
+        // `online` and `settings`: those parts are built (they cost; the rest
+        // of the model stays as made); `leaderboard`: it shows, its data is fetched.
+        auto buildOverlayModel=[&](mscharged::overlay::GameOverlayModel& model,bool leaderboard,bool online=true,
+                                   bool settings=true) {
+            namespace ov=mscharged::overlay;
+            // Signed in again through the game (mii_sign_in): its data from now on.
+            if(!panelFeed && competitive && !panelFeedLate) {
+                panelFeedLate=true;
+                std::string off;
+                panelFeed=mscharged::platform::OnlinePanelFeed::Start(launch.settings.profile_server,
+                    mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
+                    challengeRules,launch.discord_friends,
+                    [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
+                if(!panelFeed) mscharged::platform::SessionLogLine("Overlay: the Online tab is off ("+off+")");
+            }
+            if(panelFeed) if(auto notice=panelFeed->TakeNotice()) overlayNotice=*notice;
+            const bool inMatchNow=inMatch();
+            if(online) {
+                const auto snapshot=panelFeed ? panelFeed->Latest() : mscharged::platform::OnlinePanelFeed::Snapshot{};
+                ov::OnlinePanelContext context;
+                context.me=snapshot.me;
+                context.discord_friends=snapshot.discord_friends;
+                if(context.me.name.empty() && competitive) context.me.name=competitive->PlayerName();
+                context.in_match=inMatchNow;
+                context.game=std::string(release->game_id,4);
+                if(competitive)
+                    if(const auto set=competitive->CurrentSet())
+                        context.score=ov::OnlinePanelContext::Score{set->won,set->lost};
+                // What a challenge starts from: the server's rule sets and the
+                // player's presets, the one used last ([online] challenge_rules) first.
+                context.rule_sets=snapshot.rule_sets;
+                context.my_presets=myPresets;
+                context.built_in_presets=builtInPresets;
+                context.chosen_rules=challengeRules;
+                context.can_challenge=!snapshot.rule_sets.empty();
+                context.random_games=versionAtLeast(snapshot.server_version,1,2,1);
+                // A search for a random opponent (servers 1.2.4 on), and how long it runs.
+                context.searches=versionAtLeast(snapshot.server_version,1,2,4);
+                context.search=snapshot.search;
+                if(snapshot.search)
+                    context.search_seconds=int(snapshot.server_time-snapshot.search->since
+                        +std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()
+                            -snapshot.fetched).count());
+                context.loading=panelFeed && !snapshot.loaded;
+                // Without a player profile the tab invites to make one.
+                context.signed_out=!panelFeed;
+                if(panelFeed && !snapshot.error.empty()) {
+                    context.message=snapshot.error;
+                    context.error=true;
+                } else context.message=overlayNotice;
+                model.online=ov::MakeOnlinePanelModel(snapshot.lists,snapshot.match,context);
+                // Ranked: Play RANKED (the player's own Mii, else one they
+                // choose in the game), and the leaderboards while it is shown.
+                {
+                    auto& ranked=model.ranked;
+                    ranked.going=rankedStage!=CHARGED_SET_NONE;
+                    ranked.waiting=rankedStage==CHARGED_SET_BOOT
+                        && std::chrono::steady_clock::now()-rankedSince>=std::chrono::seconds(2);
+                    ranked.own_mii=ownMii;
+                    if(!startRanked) ranked.blocked="This game can't go to RANKED by itself.";
+                    else if(context.in_match) ranked.blocked="You're in a match: RANKED waits until it is over.";
+                    else if(competitive && competitive->CurrentSet())
+                        ranked.blocked="Your set goes on: RANKED waits until it is over.";
+                    else if(snapshot.search) ranked.blocked="You're searching for an opponent: stop that first.";
+                    ranked.can_play=ranked.blocked.empty() && !ranked.going;
+                    ranked.signed_out=!panelFeed;
+                    ranked.boards=snapshot.leaderboard;
+                    ranked.missing=snapshot.leaderboard_missing;
+                }
+            }
+            if(panelFeed) panelFeed->WantLeaderboard(leaderboard);
+            if(ownMiiFace.valid() && ownMiiFace.wait_for(std::chrono::seconds(0))==std::future_status::ready)
+                if(const auto face=ownMiiFace.get())
+                    ownMiiTexture=aurora_imgui_add_texture(std::uint32_t(face->width),std::uint32_t(face->height),
+                        face->rgba.data());
+            if(online && ownMiiTexture && model.online.me.image.empty()) model.online.me.image="mii:own";
+            model.options.tweaks=optionTweaks;
+            model.options.in_match=inMatchNow;
+            // Settings: the display and sound as they are now.
+            if(settings) buildSettings(model.settings);
+            else pollGraphicsCards();
+        };
+        auto applyOnline=[&](const mscharged::overlay::OnlinePanelActions& online,
+                             const mscharged::overlay::RankedActions& ranked,
+                             const mscharged::overlay::GameOverlayModel& model)->bool {
+            bool started=false;
+            if(ranked.play && startRanked && model.ranked.can_play) {
+                if(startRanked(ownMii ? launch.competitive_mii.data() : nullptr,
+                               ownMii ? unsigned(launch.competitive_mii.size()) : 0u)) {
+                    mscharged::platform::SessionLogLine(std::string("Ranked: Play RANKED")
+                        +(ownMii ? " with the player's own Mii" : ", the player chooses the Mii"));
+                    rankedStage=CHARGED_SET_BOOT;
+                    rankedSince=std::chrono::steady_clock::now();
+                    started=true;
+                    hostOverlay->ShowMessage("Off to RANKED",std::chrono::steady_clock::now());
+                } else overlayNotice="RANKED can't start now";
+            }
+            if(ranked.stop && stopRanked) {
+                stopRanked();
+                mscharged::platform::SessionLogLine("Ranked: the way to RANKED stopped");
+                rankedStage=CHARGED_SET_NONE;
+            }
+            const std::int64_t set=model.online.set.match;
+            if(panelFeed) {
+                if(online.challenge) {
+                    const auto& challenge=*online.challenge;
+                    panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name);
+                    overlayNotice="Challenge sent";
+                }
+                if(online.search) {
+                    const auto& search=*online.search;
+                    panelFeed->StartSearch(search.rule_set,search.rules,search.name,std::string(release->game_id,4));
+                    overlayNotice="Searching for an opponent";
+                }
+                if(online.stop_search) {
+                    panelFeed->StopSearch();
+                    overlayNotice="The search stopped";
+                }
+                if(online.add_friend) panelFeed->AddFriend(*online.add_friend);
+                if(online.remove_friend) panelFeed->RemoveFriend(*online.remove_friend);
+                if(online.add_mii_friend) panelFeed->AddMiiFriend(*online.add_mii_friend);
+                if(online.remove_mii_friend) panelFeed->RemoveMiiFriend(*online.remove_mii_friend);
+                if(online.set_available) panelFeed->SetAvailable(*online.set_available);
+                if(online.ready) panelFeed->ReadyToPlay(set,true);
+                if(online.cancel) panelFeed->Cancel(set);
+            }
+            if(competitive) {
+                // An accept starts the set in this game; a rematch asks the opponent.
+                if(online.accept || online.decline) competitive->Answer(set,online.accept);
+                if(online.rematch) competitive->PlayAgain(set,true);
+            }
+            if(online.set_challenge_rules) {
+                challengeRules=*online.set_challenge_rules;
+                if(panelFeed) panelFeed->SetChallengeRules(challengeRules);
+                try {
+                    mscharged::SaveChallengeRules(launch.config.path,challengeRules);
+                } catch(const std::exception& error) {
+                    overlayNotice=std::string("Your challenges' rules were not saved: ")+error.what();
+                }
+            }
+            return started;
+        };
+        auto buildPrompt=[&](mscharged::overlay::OverlayPrompt& prompt) {
+            namespace ov=mscharged::overlay;
+            using Kind=CardPrompt::Kind;
+            const std::string& who=cardPrompt.opponent;
+            prompt.opponent.name=who;
+            prompt.opponent.image=cardPrompt.avatar;
+            prompt.image=overlayPictures.Images();
+            prompt.opponent.initials=ov::Initials(who);
+            prompt.opponent.tint_seed=std::int64_t(std::hash<std::string>{}(who)&0x7FFFFFFF);
+            switch(cardPrompt.kind) {
+            case Kind::Challenge:
+            case Kind::Rematch: {
+                const bool rematch=cardPrompt.kind==Kind::Rematch;
+                prompt.kind=rematch ? ov::OverlayPrompt::Kind::Rematch : ov::OverlayPrompt::Kind::Challenge;
+                prompt.kicker=rematch ? "REMATCH" : cardPrompt.random ? "RANDOM CHALLENGE" : "CHALLENGE";
+                prompt.title=who+(rematch ? " wants a rematch" : " challenges you");
+                prompt.detail=cardPrompt.rules;
+                prompt.primary="Accept";
+                prompt.secondary="Decline";
+                prompt.note=cardPrompt.random
+                    ? "They searched for an opponent by these rules. Accept, and your game goes straight to the set."
+                    : "Accept, and your game goes straight to the set.";
+                break;
+            }
+            case Kind::SetOver:
+                prompt.kind=ov::OverlayPrompt::Kind::SetOver;
+                prompt.kicker="SET OVER";
+                prompt.title=cardPrompt.won>cardPrompt.lost ? "You won the set"
+                    : cardPrompt.lost>cardPrompt.won ? "You lost the set" : "A draw";
+                prompt.primary="Rematch";
+                prompt.secondary="Not now";
+                prompt.note="A rematch asks "+who+" to play the same set again.";
+                break;
+            case Kind::SetStopped:
+                prompt.kind=ov::OverlayPrompt::Kind::SetStopped;
+                prompt.kicker="SET STOPPED";
+                prompt.title=cardPrompt.title.empty() ? std::string("The set stopped") : cardPrompt.title;
+                prompt.detail=cardPrompt.reason;
+                prompt.primary=cardPrompt.primary.empty() ? std::string("Play it again") : cardPrompt.primary;
+                prompt.secondary="Not now";
+                prompt.note=cardPrompt.note.empty()
+                    ? "Play it again is your Ready to play!: the set goes once "+who+" is ready too."
+                    : cardPrompt.note;
+                break;
+            }
+            prompt.has_score=cardPrompt.hasScore;
+            prompt.won=cardPrompt.won;
+            prompt.lost=cardPrompt.lost;
+            prompt.games=cardPrompt.games;
+        };
         if(hostPanel) {
             std::string off;
             // The Discord friends come from the launcher (the game has no
@@ -2009,54 +2608,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const float shown=std::chrono::duration<float>(std::chrono::steady_clock::now()-overlayOpened).count();
                 // A challenge, or the last set again: the prompt alone.
                 if(promptOpen) {
-                    using Kind=CardPrompt::Kind;
                     ov::OverlayPrompt prompt;
-                    const std::string& who=cardPrompt.opponent;
-                    prompt.opponent.name=who;
-                    prompt.opponent.image=cardPrompt.avatar;
-                    prompt.image=overlayPictures.Images();
-                    prompt.opponent.initials=ov::Initials(who);
-                    prompt.opponent.tint_seed=std::int64_t(std::hash<std::string>{}(who)&0x7FFFFFFF);
-                    switch(cardPrompt.kind) {
-                    case Kind::Challenge:
-                    case Kind::Rematch: {
-                        const bool rematch=cardPrompt.kind==Kind::Rematch;
-                        prompt.kind=rematch ? ov::OverlayPrompt::Kind::Rematch : ov::OverlayPrompt::Kind::Challenge;
-                        prompt.kicker=rematch ? "REMATCH" : cardPrompt.random ? "RANDOM CHALLENGE" : "CHALLENGE";
-                        prompt.title=who+(rematch ? " wants a rematch" : " challenges you");
-                        prompt.detail=cardPrompt.rules;
-                        prompt.primary="Accept";
-                        prompt.secondary="Decline";
-                        prompt.note=cardPrompt.random
-                            ? "They searched for an opponent by these rules. Accept, and your game goes straight to the set."
-                            : "Accept, and your game goes straight to the set.";
-                        break;
-                    }
-                    case Kind::SetOver:
-                        prompt.kind=ov::OverlayPrompt::Kind::SetOver;
-                        prompt.kicker="SET OVER";
-                        prompt.title=cardPrompt.won>cardPrompt.lost ? "You won the set"
-                            : cardPrompt.lost>cardPrompt.won ? "You lost the set" : "A draw";
-                        prompt.primary="Rematch";
-                        prompt.secondary="Not now";
-                        prompt.note="A rematch asks "+who+" to play the same set again.";
-                        break;
-                    case Kind::SetStopped:
-                        prompt.kind=ov::OverlayPrompt::Kind::SetStopped;
-                        prompt.kicker="SET STOPPED";
-                        prompt.title=cardPrompt.title.empty() ? std::string("The set stopped") : cardPrompt.title;
-                        prompt.detail=cardPrompt.reason;
-                        prompt.primary=cardPrompt.primary.empty() ? std::string("Play it again") : cardPrompt.primary;
-                        prompt.secondary="Not now";
-                        prompt.note=cardPrompt.note.empty()
-                            ? "Play it again is your Ready to play!: the set goes once "+who+" is ready too."
-                            : cardPrompt.note;
-                        break;
-                    }
-                    prompt.has_score=cardPrompt.hasScore;
-                    prompt.won=cardPrompt.won;
-                    prompt.lost=cardPrompt.lost;
-                    prompt.games=cardPrompt.games;
+                    buildPrompt(prompt);
                     ov::OverlayStyle style;
                     style.unit=unit;
                     style.fonts=hostOverlay->OverlayFonts();
@@ -2068,137 +2621,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     else if(answer.secondary) cardPrompt.answer=2;
                     return;
                 }
-                // Signed in again through the game (mii_sign_in): its data from now on.
-                if(!panelFeed && competitive && !panelFeedLate) {
-                    panelFeedLate=true;
-                    std::string off;
-                    panelFeed=mscharged::platform::OnlinePanelFeed::Start(launch.settings.profile_server,
-                        mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
-                        challengeRules,launch.discord_friends,
-                        [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
-                    if(!panelFeed) mscharged::platform::SessionLogLine("Overlay: the Online tab is off ("+off+")");
-                }
-                if(panelFeed) if(auto notice=panelFeed->TakeNotice()) overlayNotice=*notice;
-                const auto snapshot=panelFeed ? panelFeed->Latest() : mscharged::platform::OnlinePanelFeed::Snapshot{};
-                ov::OnlinePanelContext context;
-                context.me=snapshot.me;
-                context.discord_friends=snapshot.discord_friends;
-                if(context.me.name.empty() && competitive) context.me.name=competitive->PlayerName();
-                context.in_match=inMatch();
-                context.game=std::string(release->game_id,4);
-                if(competitive)
-                    if(const auto set=competitive->CurrentSet())
-                        context.score=ov::OnlinePanelContext::Score{set->won,set->lost};
-                // What a challenge starts from: the server's rule sets and the
-                // player's presets, the one used last ([online] challenge_rules) first.
-                context.rule_sets=snapshot.rule_sets;
-                context.my_presets=myPresets;
-                context.built_in_presets=builtInPresets;
-                context.chosen_rules=challengeRules;
-                context.can_challenge=!snapshot.rule_sets.empty();
-                context.random_games=versionAtLeast(snapshot.server_version,1,2,1);
-                // A search for a random opponent (servers 1.2.4 on), and how long it runs.
-                context.searches=versionAtLeast(snapshot.server_version,1,2,4);
-                context.search=snapshot.search;
-                if(snapshot.search)
-                    context.search_seconds=int(snapshot.server_time-snapshot.search->since
-                        +std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()
-                            -snapshot.fetched).count());
-                context.loading=panelFeed && !snapshot.loaded;
-                // Without a player profile the tab invites to make one.
-                context.signed_out=!panelFeed;
-                if(panelFeed && !snapshot.error.empty()) {
-                    context.message=snapshot.error;
-                    context.error=true;
-                } else context.message=overlayNotice;
                 ov::GameOverlayModel model;
-                model.online=ov::MakeOnlinePanelModel(snapshot.lists,snapshot.match,context);
-                // Ranked: Play RANKED (the player's own Mii, else one they
-                // choose in the game), and the leaderboards while it is shown.
-                const bool ownMii=std::any_of(launch.competitive_mii.begin(),launch.competitive_mii.end(),
-                    [](auto b) { return b!=0; });
-                {
-                    auto& ranked=model.ranked;
-                    ranked.going=rankedStage!=CHARGED_SET_NONE;
-                    ranked.waiting=rankedStage==CHARGED_SET_BOOT
-                        && std::chrono::steady_clock::now()-rankedSince>=std::chrono::seconds(2);
-                    ranked.own_mii=ownMii;
-                    if(!startRanked) ranked.blocked="This game can't go to RANKED by itself.";
-                    else if(context.in_match) ranked.blocked="You're in a match: RANKED waits until it is over.";
-                    else if(competitive && competitive->CurrentSet())
-                        ranked.blocked="Your set goes on: RANKED waits until it is over.";
-                    else if(snapshot.search) ranked.blocked="You're searching for an opponent: stop that first.";
-                    ranked.can_play=ranked.blocked.empty() && !ranked.going;
-                    ranked.signed_out=!panelFeed;
-                    ranked.boards=snapshot.leaderboard;
-                    ranked.missing=snapshot.leaderboard_missing;
-                }
-                if(panelFeed) panelFeed->WantLeaderboard(overlayState.Tab()==ov::OverlayTab::Ranked);
-                if(ownMiiFace.valid() && ownMiiFace.wait_for(std::chrono::seconds(0))==std::future_status::ready)
-                    if(const auto face=ownMiiFace.get())
-                        ownMiiTexture=aurora_imgui_add_texture(std::uint32_t(face->width),std::uint32_t(face->height),
-                            face->rgba.data());
-                if(ownMiiTexture && model.online.me.image.empty()) model.online.me.image="mii:own";
-                model.options.tweaks=optionTweaks;
-                model.options.in_match=context.in_match;
-                // Settings: the display and sound as they are now.
-                {
-                    auto& settings=model.settings;
-                    settings.fullscreen=(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN)!=0;
-                    settings.pictures={widescreen ? "16:9" : "4:3","Stretch"};
-                    if(widerView) settings.pictures.push_back("Wider view");
-                    settings.picture=widerOn ? 2 : stretch ? 1 : 0;
-                    settings.picture_about=std::string(widescreen ? "16:9" : "4:3")+" keeps the game's shape,"
-                        " Stretch fills the window"+(widerView ? ", Wider view shows more of the stadium in matches." : ".");
-                    displayResolutions.clear();
-                    if(nativeSend) {
-                        const auto size=aurora_get_window_size();
-                        const auto picture=mscharged::PictureSize(int(size.native_fb_width),int(size.native_fb_height),
-                            int(aspectWidth),int(aspectHeight),fill);
-                        // As the launcher has them: Full, Native, 2x, 3x, 4x.
-                        displayResolutions.emplace_back("window");
-                        for(const auto value:mscharged::kRenderResolutions)
-                            if(value!="window") displayResolutions.emplace_back(value);
-                        for(std::size_t n=0;n<displayResolutions.size();++n) {
-                            const auto& value=displayResolutions[n];
-                            settings.resolutions.emplace_back(mscharged::RenderResolutionLabel(value));
-                            if(value==renderResolution) settings.resolution=int(n);
-                        }
-                        const auto drawn=[&](std::string_view value) {
-                            return std::to_string(mscharged::RenderWidth(value,picture.width))+" \xC3\x97 "
-                                +std::to_string(mscharged::RenderHeight(value,picture.height));
-                        };
-                        settings.resolution_about="How sharp the game draws its 3D: Full at the window's size ("
-                            +drawn("window")+"), Native at the Wii's "+drawn("native")
-                            +", 2x to 4x at its multiples, for slower graphics cards.";
-                    }
-                    settings.performance_numbers=launch.settings.fps_overlay;
-                    settings.master_volume=launch.settings.master_volume;
-                    settings.mute=launch.settings.mute;
-                    settings.sound_volumes=launch.settings.sound_volumes;
-                    settings.challenge_sound=launch.settings.challenge_sound;
-                    settings.reopen_launcher=mscharged::platform::LauncherReopenOn();
-                    settings.reopen_known=mscharged::platform::LauncherReopenKnown();
-                }
+                buildOverlayModel(model,overlayState.Tab()==ov::OverlayTab::Ranked);
                 ov::GameOverlayStyle style;
                 style.unit=unit;
                 style.fonts=hostOverlay->OverlayFonts();
                 style.area_max={width,height};
                 style.appear=std::clamp(shown/0.18f,0.0f,1.0f);
-                if(!flagTried) {
-                    flagTried=true;
-                    std::ifstream file(executableDirectory/"assets"/"flags"/"flags.png",std::ios::binary);
-                    const std::string bytes{std::istreambuf_iterator<char>(file),std::istreambuf_iterator<char>()};
-                    mscharged::overlay::OverlayImage atlas;
-                    if(!bytes.empty() && mscharged::overlay::DecodeOverlayPng(bytes,atlas))
-                        flagTexture=aurora_imgui_add_texture(std::uint32_t(atlas.width),std::uint32_t(atlas.height),
-                            atlas.rgba.data());
-                    if(!flagTexture) mscharged::platform::SessionLogLine("Overlay: no flags (assets/flags/flags.png)");
-                }
-                style.image=[pictures=overlayPictures.Images(),ownMiiTexture,flagTexture](const std::string& key) {
-                    return key=="mii:own" ? ownMiiTexture : key==mscharged::overlay::kFlagAtlas ? flagTexture
-                        : pictures(key);
-                };
+                style.image=overlayImage;
                 if(const auto error=overlayPictures.Statistics().last_error; error!=overlayPicturesError) {
                     overlayPicturesError=error;
                     if(!error.empty()) mscharged::platform::SessionLogLine("Overlay: a picture failed ("+error+")");
@@ -2208,167 +2638,47 @@ int mscharged::RunOriginalGame(int argc, char** argv,
 
                 // What the player did.
                 if(actions.close) hostPanel->RequestClose();
-                if(actions.ranked.play && startRanked && model.ranked.can_play) {
-                    if(startRanked(ownMii ? launch.competitive_mii.data() : nullptr,
-                                   ownMii ? unsigned(launch.competitive_mii.size()) : 0u)) {
-                        mscharged::platform::SessionLogLine(std::string("Ranked: Play RANKED")
-                            +(ownMii ? " with the player's own Mii" : ", the player chooses the Mii"));
-                        rankedStage=CHARGED_SET_BOOT;
-                        rankedSince=std::chrono::steady_clock::now();
-                        hostPanel->RequestClose();
-                        hostOverlay->ShowMessage("Off to RANKED",std::chrono::steady_clock::now());
-                    } else overlayNotice="RANKED can't start now";
-                }
-                if(actions.ranked.stop && stopRanked) {
-                    stopRanked();
-                    mscharged::platform::SessionLogLine("Ranked: the way to RANKED stopped");
-                    rankedStage=CHARGED_SET_NONE;
-                }
-                const auto& online=actions.online;
-                const std::int64_t set=model.online.set.match;
-                if(panelFeed) {
-                    if(online.challenge) {
-                        const auto& challenge=*online.challenge;
-                        panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name);
-                        overlayNotice="Challenge sent";
-                    }
-                    if(online.search) {
-                        const auto& search=*online.search;
-                        panelFeed->StartSearch(search.rule_set,search.rules,search.name,std::string(release->game_id,4));
-                        overlayNotice="Searching for an opponent";
-                    }
-                    if(online.stop_search) {
-                        panelFeed->StopSearch();
-                        overlayNotice="The search stopped";
-                    }
-                    if(online.add_friend) panelFeed->AddFriend(*online.add_friend);
-                    if(online.remove_friend) panelFeed->RemoveFriend(*online.remove_friend);
-                    if(online.add_mii_friend) panelFeed->AddMiiFriend(*online.add_mii_friend);
-                    if(online.remove_mii_friend) panelFeed->RemoveMiiFriend(*online.remove_mii_friend);
-                    if(online.set_available) panelFeed->SetAvailable(*online.set_available);
-                    if(online.ready) panelFeed->ReadyToPlay(set,true);
-                    if(online.cancel) panelFeed->Cancel(set);
-                }
-                if(competitive) {
-                    // An accept starts the set in this game; a rematch asks the opponent.
-                    if(online.accept || online.decline) competitive->Answer(set,online.accept);
-                    if(online.rematch) competitive->PlayAgain(set,true);
-                }
-                if(online.set_challenge_rules) {
-                    challengeRules=*online.set_challenge_rules;
-                    if(panelFeed) panelFeed->SetChallengeRules(challengeRules);
-                    try {
-                        mscharged::SaveChallengeRules(launch.config.path,challengeRules);
-                    } catch(const std::exception& error) {
-                        overlayNotice=std::string("Your challenges' rules were not saved: ")+error.what();
-                    }
-                }
-                if(actions.set_option) {
-                    const auto change=*actions.set_option;
-                    const std::size_t index=mscharged::GameTweakIndex(change.tweak);
-                    if(index<optionTweaks.size()) {
-                        optionTweaks[index]=change.on;
-                        try {
-                            mscharged::SaveGameTweak(launch.config.path,change.tweak,change.on);
-                        } catch(const std::exception& error) {
-                            overlayNotice=std::string("The option was not saved: ")+error.what();
-                        }
-                        auto settings=launch.settings;
-                        settings.tweaks=optionTweaks;
-                        pendingTweaks=settings.ModuleTweakMask();
-                    }
-                }
-                if(actions.set_setting) {
-                    // A setting of the Settings tab: at once, and saved for the next time.
-                    const auto change=*actions.set_setting;
-                    const bool on=change.value!=0;
-                    using ov::GameSetting;
-                    std::function<void(mscharged::Settings&)> save;
-                    switch(change.setting) {
-                    case GameSetting::Fullscreen:
-                        if(SDL_SetWindowFullscreen(host.window,on)) {
-                            if(on) mscharged::runtime::PlaceFullscreenWindow(host.window);
-                            mscharged::runtime::LockWindowShape(host.window,!on && !stretch && !widerOn,aspectWidth,
-                                aspectHeight);
-                            mscharged::platform::SessionLogLine(std::string("Display: ")+(on?"fullscreen":"windowed")
-                                +" (Settings)");
-                        }
-                        launch.settings.fullscreen=on;
-                        save=[on](mscharged::Settings& s) { s.fullscreen=on; };
-                        break;
-                    case GameSetting::Picture: {
-                        // As the stretch hotkey: the wider view when set up, else stretching.
-                        widerOn=widerView && change.value==2;
-                        stretch=change.value==1;
-                        const bool windowed=!(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN);
-                        mscharged::runtime::LockWindowShape(host.window,windowed && !stretch && !widerOn,aspectWidth,
-                            aspectHeight);
-                        const bool wider=widerOn, stretched=stretch;
-                        const std::string keep=launch.settings.aspect=="stretch"?std::string("auto"):launch.settings.aspect;
-                        launch.settings.aspect=stretched?"stretch":keep;
-                        if(widerView) launch.settings.wider_view=wider;
-                        save=[wider,stretched,keep,canWiden=widerView](mscharged::Settings& s) {
-                            s.aspect=stretched?"stretch":keep;
-                            if(canWiden) s.wider_view=wider;
-                        };
-                        break;
-                    }
-                    case GameSetting::Resolution:
-                        if(change.value>=0 && std::size_t(change.value)<displayResolutions.size()
-                           && displayResolutions[std::size_t(change.value)]!=renderResolution) {
-                            renderResolution=displayResolutions[std::size_t(change.value)];
-                            VISetFrameBufferScale(mscharged::RenderScale(renderResolution));
-                            mscharged::platform::SessionLogLine("Display: 3D resolution "+renderResolution+" (Settings)");
-                            launch.settings.resolution=renderResolution;
-                            save=[value=renderResolution](mscharged::Settings& s) { s.resolution=value; };
-                        }
-                        break;
-                    case GameSetting::PerformanceNumbers:
-                        launch.settings.fps_overlay=on;
-                        hostOverlay->SetPerformance(on ? std::optional(mscharged::runtime::ParseOverlayCorner(
-                            launch.settings.fps_overlay_corner).value_or(mscharged::runtime::OverlayCorner::TopRight))
-                            : std::nullopt);
-                        save=[on](mscharged::Settings& s) { s.fps_overlay=on; };
-                        break;
-                    case GameSetting::MasterVolume:
-                    case GameSetting::Mute:
-                        if(change.setting==GameSetting::Mute) launch.settings.mute=on;
-                        else launch.settings.master_volume=std::clamp(change.value,0,100);
-                        mscharged::platform::SetNativeAIOutputGain(launch.settings.mute ? 0.0f :
-                            float(launch.settings.master_volume)/100.0f);
-                        save=[volume=launch.settings.master_volume,mute=launch.settings.mute](mscharged::Settings& s) {
-                            s.master_volume=volume;
-                            s.mute=mute;
-                        };
-                        break;
-                    case GameSetting::SoundVolume:
-                        if(change.group>=0 && std::size_t(change.group)<launch.settings.sound_volumes.size()) {
-                            launch.settings.sound_volumes[std::size_t(change.group)]=std::clamp(change.value,0,100);
-                            const auto& volumes=launch.settings.sound_volumes;
-                            if(configureSoundVolumes) configureSoundVolumes(volumes.data(),int(volumes.size()));
-                            save=[volumes](mscharged::Settings& s) { s.sound_volumes=volumes; };
-                        }
-                        break;
-                    case GameSetting::ChallengeSound:
-                        launch.settings.challenge_sound=on;
-                        save=[on](mscharged::Settings& s) { s.challenge_sound=on; };
-                        break;
-                    case GameSetting::ReopenLauncher:
-                        mscharged::platform::SetLauncherReopen(on);
-                        launch.settings.reopen_after_game=on;
-                        save=[on](mscharged::Settings& s) { s.reopen_after_game=on; };
-                        break;
-                    }
-                    // A slider being dragged saves once it is let go.
-                    if(save && !change.live) {
-                        try {
-                            mscharged::SaveSettings(launch.config.path,save);
-                        } catch(const std::exception& error) {
-                            overlayNotice=std::string("The setting was not saved: ")+error.what();
-                        }
-                    }
-                }
+                if(applyOnline(actions.online,actions.ranked,model)) hostPanel->RequestClose();
+                if(actions.set_option) applyOption(*actions.set_option);
+                if(actions.set_setting) applySetting(*actions.set_setting);
             });
+        }
+        // Override retail menus (development switch): Recharged's menus in the
+        // game's look (the UI kit) over its pause menu and Options, and on F1/HOME
+        // (declared after what their callbacks use, which outlives them).
+        std::optional<mscharged::runtime::HostMenus> hostMenus;
+        // Recharged's menus with sample data (development, screenshots without
+        // a server or a match): RECHARGED_CAPTURE_ONLINE players, a set and
+        // leaderboards; RECHARGED_CAPTURE_PROMPT a challenge until answered;
+        // RECHARGED_CAPTURE_MATCH_MENU the menus as over an online match (the 1
+        // button opens the match menu anywhere; the game knows of none, so
+        // nothing is forfeited).
+        struct {
+            bool online=std::getenv("RECHARGED_CAPTURE_ONLINE")!=nullptr;
+            bool prompt=std::getenv("RECHARGED_CAPTURE_PROMPT")!=nullptr;
+            bool match=std::getenv("RECHARGED_CAPTURE_MATCH_MENU")!=nullptr;
+        } menuSamples;
+        if(hostOverlay && hostPanel && menuSnapshot && menuCommand
+           && (launch.settings.GameTweakMask() & mscharged::GameTweakBit(mscharged::GameTweak::OverrideRetailMenus))) {
+            mscharged::runtime::HostMenus::Host menusHost;
+            menusHost.model=[&](mscharged::ui::PageModel& model,const mscharged::runtime::HostMenus::ModelNeeds& needs) {
+                buildOverlayModel(model.overlay,needs.leaderboard,needs.online,needs.settings);
+                if(menuSamples.online) SampleOnline(model.overlay);
+            };
+            menusHost.image=overlayImage;
+            menusHost.online=applyOnline;
+            menusHost.setting=applySetting;
+            menusHost.option=applyOption;
+            // As closing the window: Aurora's exit, then the game's own shutdown.
+            menusHost.quit=[] {
+                SDL_Event quit{};
+                quit.type=SDL_EVENT_QUIT;
+                SDL_PushEvent(&quit);
+            };
+            hostMenus.emplace(mscharged::runtime::HostMenus::Game{menuTexture,menuCommand},*hostPanel,
+                std::move(menusHost));
+            hostOverlay->SetMenus(&*hostMenus);
+            mscharged::platform::SessionLogLine("Menus: Recharged's (Override retail menus)");
         }
 #endif
         // The persisted launcher toggle is authoritative; recordings live with
@@ -2491,6 +2801,39 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             serviceChallengeCard(now);
             if(hostPanel) hostPanel->Service(now);
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
+            if(hostMenus) {
+                ChargedMenuSnapshot menu{};
+                const bool known=menuSnapshot(&menu,sizeof menu);
+                if(known && menuSamples.match) menu.network_match=CHARGED_NETWORK_ONLINE;
+                hostMenus->Service(known ? &menu : nullptr,now);
+            }
+            // With Recharged's menus the card is their prompt page, over
+            // whatever shows; B or BACK is its second answer.
+            if(cardAsPrompt && hostMenus) {
+                const bool want=cardPrompt.shown && cardMatch!=promptPutAside;
+                if(want) {
+                    mscharged::overlay::OverlayPrompt prompt;
+                    buildPrompt(prompt);
+                    hostMenus->SetPrompt(std::move(prompt));
+                } else if(menuSamples.prompt) {
+                    mscharged::overlay::OverlayPrompt prompt;
+                    prompt.kind=mscharged::overlay::OverlayPrompt::Kind::Challenge;
+                    prompt.kicker="CHALLENGE";
+                    prompt.title="Mario challenges you";
+                    prompt.detail="Competitive: 3 minutes, best of 3, random stadium";
+                    prompt.primary="Accept";
+                    prompt.secondary="Decline";
+                    prompt.note="Accept, and your game goes straight to the set.";
+                    prompt.opponent.name="Mario";
+                    prompt.opponent.initials="M";
+                    prompt.opponent.tint_seed=3;
+                    hostMenus->SetPrompt(std::move(prompt));
+                } else hostMenus->SetPrompt(std::nullopt);
+                if(const auto answer=hostMenus->TakePromptAnswer()) {
+                    if(want && !cardPrompt.answer) cardPrompt.answer=*answer;
+                    else if(!want) menuSamples.prompt=false;
+                }
+            } else
             // The card as a prompt: the panel opens for it while the player has
             // no overlay open; closed by Escape it is the prompt's second answer.
             if(cardAsPrompt && hostPanel) {

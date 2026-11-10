@@ -3,6 +3,7 @@
 #include "runtime/fps_overlay_layout.h"
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "launcher/ui_kit.h"
+#include "ui/rui_kit.h"
 #endif
 #include "platform/system_usage.h"
 
@@ -19,6 +20,7 @@ struct ImFont;
 namespace mscharged::runtime {
 
 class HostPanel;
+class HostMenus;
 
 // What the host draws over the presented picture, in windowed and fullscreen
 // mode: the performance overlay (display.fps_overlay: FPS | GPU % | CPU %, then
@@ -81,6 +83,9 @@ public:
     void SetPanel(HostPanel* panel);
     // Closes the host panel if it is open (a set going on into the game).
     void ClosePanel();
+    // Recharged's menus (the development switch "Override retail menus"),
+    // drawn while shown like the panel; null for none.
+    void SetMenus(HostMenus* menus);
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
     // The game overlay's fonts (src/overlay), at the panel's unit; none
     // without the overlay's font file (ImGui's own font then).
@@ -92,7 +97,7 @@ public:
     void Update(std::uint32_t surface_width, std::uint32_t surface_height, Clock::time_point now);
 
 private:
-    void BuildFonts(float size, float unit);
+    void BuildFonts(float size, float unit, float menuScale);
     void DrawCard(float width, float height, float unit);
 
     std::optional<OverlayCorner> performance_;
@@ -104,10 +109,12 @@ private:
     std::optional<Card> card_, shownCard_;
     std::optional<Hint> hint_, shownHint_;
     HostPanel* panel_ = nullptr;
+    HostMenus* menus_ = nullptr;
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
     launcher::Fonts overlayFonts_{};
 #endif
     bool shownPanel_ = false;
+    bool shownMenus_ = false;
     Clock::time_point messageShown_{};
     std::array<std::optional<int>, kMaxPerformanceMetrics> shownValues_{};
     std::size_t shownCount_ = 0;
@@ -118,12 +125,17 @@ private:
     std::uint32_t shownHeight_ = 0;
     float builtSize_ = 0.0f;
     float builtUnit_ = 0.0f;
+    float builtMenuScale_ = 0.0f;
     ImFont* number_ = nullptr;
     ImFont* label_ = nullptr;
     ImFont* messageFont_ = nullptr;
     // The card's: its title and buttons (bold), its text, its small lines.
     ImFont* cardBold_ = nullptr;
     ImFont* cardText_ = nullptr;
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+    // Recharged's menus' (bold): their title, plates, rows and small lines.
+    ui::Fonts menuFonts_{};
+#endif
 };
 
 } // namespace mscharged::runtime

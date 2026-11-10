@@ -81,6 +81,23 @@ struct OnlinePanelState
     double search_sent = -100.0;
 };
 
+// The key of the setup of a search for a random opponent (OnlinePanelState::
+// setup_for; a challenge's is its player's row key).
+inline constexpr const char* kOnlinePanelSearchKey = "search";
+// The preset a setup starts from: the one chosen last (0 without presets).
+int ChosenOnlinePanelPreset(const OnlinePanelModel& model);
+// A setup for `key` starts from that preset, with its rules.
+void StartOnlinePanelSetup(OnlinePanelState& state, const OnlinePanelModel& model, const std::string& key);
+// Whether the search runs, or was asked for at most 10 s ago (`now`:
+// ImGui::GetTime()) and the server has not said yet; forgets the request
+// once it shows or is that old.
+bool OnlinePanelSearchRunning(const OnlinePanelModel& model, OnlinePanelState& state, double now);
+// The challenge (or search, player 0) `rules` make from `preset`: by the
+// server's rule set itself while nothing changed (servers before 1.2.3 take
+// only theirs), else the preset's name marked changed.
+OnlinePanelChallenge MakeOnlinePanelChallenge(const OnlinePanelPreset& preset, const platform::MatchRules& rules,
+                                              std::int64_t player);
+
 // The texture for a picture's key (OnlinePanelRow::image: an avatar's URL,
 // "mii:<profile>"), or 0 while there is none: its initials show then. Asked
 // every frame for each picture on screen; may start loading it.
