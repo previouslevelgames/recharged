@@ -1,5 +1,6 @@
 #include "overlay/online_panel_model.h"
 
+#include "bootstrap/texts.h"
 #include "platform/competitive_rules.h"
 
 #include <algorithm>
@@ -15,6 +16,7 @@ using platform::MiiProfile;
 using platform::ProfileMatch;
 using platform::ProfilePlayer;
 using platform::RuleSet;
+using texts::T;
 
 std::string Lower(std::string text)
 {
@@ -24,53 +26,38 @@ std::string Lower(std::string text)
 
 // The rows say what a player is doing in the game's words: the mode first,
 // then where in it ("Striker Cup · choosing a team").
-constexpr const char* kStep = " \xC2\xB7 "; // " · "
 
 // A match by its kind (the server's `match`); any other (an older game or
 // server) just a match.
 std::string MatchText(const std::string& kind)
 {
-    static const std::pair<const char*, const char*> kTexts[] = {
-        {"ranked", "Ranked"},
-        {"friends", "Friend match"},
-        {"tournament", "Online tournament"},
-        {"cpu", "Vs CPU"},
-        {"local", "Local match"},
-        {"cup", "Striker Cup"},
-        {"challenge", "Striker Challenge"},
-    };
-    if (kind == "training") return std::string("Strikers 101") + kStep + "in a lesson";
-    for (const auto& [name, text] : kTexts)
-        if (kind == name) return text + std::string(kStep) + "playing";
-    return "Playing a match";
+    if (kind == "training") return T("menus.presence.match.training");
+    if (kind == "ranked") return T("menus.presence.match.ranked");
+    if (kind == "friends") return T("menus.presence.match.friends");
+    if (kind == "tournament") return T("menus.presence.match.tournament");
+    if (kind == "cpu") return T("menus.presence.match.cpu");
+    if (kind == "local") return T("menus.presence.match.local");
+    if (kind == "cup") return T("menus.presence.match.cup");
+    if (kind == "challenge") return T("menus.presence.match.challenge");
+    return T("menus.presence.match.other");
 }
 
 // The screens a player's game shows (the server's `screen`, ScreenOf), or
 // nothing for one this build doesn't know.
 std::string ScreenText(const std::string& screen)
 {
-    struct Text
-    {
-        const char* screen;
-        const char* mode;
-        const char* step; // none: the mode says it all
-    };
-    static const Text kTexts[] = {
-        {"starting", "Starting the game", nullptr},
-        {"menus", "In the menus", nullptr},
-        {"domination", "Domination", "choosing teams"},
-        {"cup", "Striker Cup", "Cup Central"},
-        {"cup_team", "Striker Cup", "choosing a team"},
-        {"challenges", "Striker Challenges", "choosing one"},
-        {"lessons", "Strikers 101", "choosing a lesson"},
-        {"results", "Looking at the results", nullptr},
-        {"online", "Online", "in the menus"},
-        {"ranked", "Ranked", "looking for a match"},
-        {"room", "Friend match", "in a room"},
-        {"draft", "Online match", "choosing teams"},
-    };
-    for (const auto& text : kTexts)
-        if (screen == text.screen) return text.step ? text.mode + std::string(kStep) + text.step : text.mode;
+    if (screen == "starting") return T("menus.presence.screen.starting");
+    if (screen == "menus") return T("menus.presence.screen.menus");
+    if (screen == "domination") return T("menus.presence.screen.domination");
+    if (screen == "cup") return T("menus.presence.screen.cup");
+    if (screen == "cup_team") return T("menus.presence.screen.cup_team");
+    if (screen == "challenges") return T("menus.presence.screen.challenges");
+    if (screen == "lessons") return T("menus.presence.screen.lessons");
+    if (screen == "results") return T("menus.presence.screen.results");
+    if (screen == "online") return T("menus.presence.screen.online");
+    if (screen == "ranked") return T("menus.presence.screen.ranked");
+    if (screen == "room") return T("menus.presence.screen.room");
+    if (screen == "draft") return T("menus.presence.screen.draft");
     return {};
 }
 
@@ -78,20 +65,20 @@ std::string ScreenText(const std::string& screen)
 // against its opponent ("Set vs Mario · game 2 of 3").
 std::string SetText(const platform::ListedSet& set, const ProfilePlayer& player)
 {
+    const texts::Arg name{"name", set.opponent};
     if (set.stage == "invited")
-        return std::string("Set") + kStep
-            + (set.challenger ? "waiting for " + set.opponent + "'s answer" : "challenged by " + set.opponent);
-    const std::string set_vs = "Set vs " + set.opponent + kStep;
-    if (set.stage == "open") return set_vs + "getting ready";
+        return set.challenger ? T("menus.presence.set.waiting_answer", {name})
+                              : T("menus.presence.set.challenged_by", {name});
+    if (set.stage == "open") return T("menus.presence.set.getting_ready", {name});
     // Both are ready: the games start, sign in and look for each other.
-    if (set.stage != "playing") return set_vs + "connecting";
+    if (set.stage != "playing") return T("menus.presence.set.connecting", {name});
     if (player.activity == "match")
-        return set_vs
-            + (set.game > 0 && set.games > 1
-                   ? "game " + std::to_string(set.game) + " of " + std::to_string(set.games)
-                   : std::string("playing"));
-    if (player.screen == "draft") return set_vs + "choosing teams";
-    return set_vs + (set.game > 0 ? "between games" : "connecting");
+        return set.game > 0 && set.games > 1
+            ? T("menus.presence.set.game", {name, {"game", std::to_string(set.game)},
+                                            {"games", std::to_string(set.games)}})
+            : T("menus.presence.set.playing", {name});
+    if (player.screen == "draft") return T("menus.presence.set.choosing_teams", {name});
+    return set.game > 0 ? T("menus.presence.set.between_games", {name}) : T("menus.presence.set.connecting", {name});
 }
 
 // What a Recharged player is doing, as the launcher's lists say it.
@@ -117,28 +104,28 @@ OnlinePanelRow PlayerRow(const ProfilePlayer& player)
     if (!player.online)
     {
         row.presence = Presence::Offline;
-        row.status = "Offline";
+        row.status = T("menus.presence.offline");
         row.tone = Tone::Away;
-        row.blocked = "Offline";
+        row.blocked = T("menus.blocked.offline");
         return row;
     }
     // A set that stopped before its games met (the server's `open`) keeps
     // nobody from a challenge, as the server has it (`busy`).
-    if (player.set && player.busy) busy(SetText(*player.set, player), "In a set");
-    else if (player.busy) busy("In a set", "In a set"); // a server before 1.2.12
-    else if (player.activity == "match") busy(MatchText(player.match_kind), "In a match");
-    else if (player.screen == "draft") busy(ScreenText(player.screen), "In an online match");
+    if (player.set && player.busy) busy(SetText(*player.set, player), T("menus.blocked.in_set"));
+    else if (player.busy) busy(T("menus.presence.in_set"), T("menus.blocked.in_set")); // a server before 1.2.12
+    else if (player.activity == "match") busy(MatchText(player.match_kind), T("menus.blocked.in_match"));
+    else if (player.screen == "draft") busy(ScreenText(player.screen), T("menus.blocked.in_online_match"));
     else
     {
         row.presence = Presence::Free;
         row.tone = Tone::Good;
         if (player.set) row.status = SetText(*player.set, player);
-        else if (player.searching) row.status = "Looking for an opponent";
+        else if (player.searching) row.status = T("menus.presence.searching");
         else if (const std::string screen = ScreenText(player.screen); !screen.empty()) row.status = screen;
         else
-            row.status = player.activity == "game" ? "In the game"
-                : player.activity == "launcher"   ? "In the launcher"
-                                                  : "Online";
+            row.status = player.activity == "game" ? T("menus.presence.in_game")
+                : player.activity == "launcher"   ? T("menus.presence.in_launcher")
+                                                  : T("menus.presence.online");
     }
     return row;
 }
@@ -158,7 +145,7 @@ OnlinePanelRow MiiRow(const MiiProfile& mii)
     row.detail = mii.friend_code;
     row.is_friend = mii.is_friend;
     row.can_befriend = true;
-    row.blocked = "Play them in the game's online menu";
+    row.blocked = T("menus.blocked.mii");
     if (mii.status == "match")
     {
         row.presence = Presence::Busy;
@@ -171,7 +158,7 @@ OnlinePanelRow MiiRow(const MiiProfile& mii)
         row.status = mii.status != "matchmaking" ? ScreenText("online")
             : mii.match_kind == "ranked"        ? ScreenText("ranked")
             : mii.match_kind == "friends"       ? ScreenText("room")
-                                                : std::string("Online") + kStep + "looking for a match";
+                                                : std::string(T("menus.presence.online_searching"));
         row.tone = Tone::Good;
     }
     return row;
@@ -207,12 +194,14 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
     {
         // The set knows they are online even when its copy of them is short.
         set.opponent.presence = Presence::Free;
-        set.opponent.status = "Online";
+        set.opponent.status = T("menus.presence.online");
         set.opponent.tone = Tone::Good;
     }
-    const std::string& opponent = set.opponent.name;
+    const texts::Arg opponent{"name", set.opponent.name};
     const std::string rules = platform::DescribeRules(match.rules);
-    set.rules = match.rule_set.empty() ? rules : rules.empty() ? match.rule_set : match.rule_set + ": " + rules;
+    set.rules = match.rule_set.empty() ? rules
+        : rules.empty()                ? match.rule_set
+                                       : T("menus.sets.rules", {{"rule_set", match.rule_set}, {"rules", rules}});
     set.games = match.rules.games;
     const OnlinePanelContext::Score reported = Reported(match);
     set.won = reported.won;
@@ -224,8 +213,8 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
         if (match.side == "challenged")
         {
             set.stage = OnlinePanelSet::Stage::Challenged;
-            set.title = opponent + " challenges you";
-            set.status = context.in_match ? "Answer once your match ends." : "Accept, and the set starts.";
+            set.title = T("menus.sets.challenges_you", {opponent});
+            set.status = context.in_match ? T("menus.sets.answer_later") : T("menus.sets.accept_to_start");
             set.tone = Tone::Neutral;
             set.can_accept = !context.in_match;
             set.can_decline = true;
@@ -233,41 +222,42 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
         else
         {
             set.stage = OnlinePanelSet::Stage::Waiting;
-            set.title = "Your challenge to " + opponent;
-            set.status = "Waiting for " + opponent + " to accept";
+            set.title = T("menus.sets.your_challenge", {opponent});
+            set.status = T("menus.sets.waiting_accept", {opponent});
             set.tone = Tone::Busy;
             set.can_cancel = true;
-            set.cancel_label = "Withdraw";
+            set.cancel_label = T("menus.sets.withdraw");
         }
         return set;
     }
     if (match.state == "accepted")
     {
-        set.title = "Your set against " + opponent;
+        set.title = T("menus.sets.your_set", {opponent});
         set.can_cancel = true;
-        set.cancel_label = "Cancel set";
+        set.cancel_label = T("menus.sets.cancel_set");
         if (match.stage == "open")
         {
             set.stage = OnlinePanelSet::Stage::Ready;
             set.games = 0;
             if (!match.opponent_online)
             {
-                set.status = opponent + " has closed Recharged";
+                set.status = T("menus.sets.closed_recharged", {opponent});
                 set.tone = Tone::Bad;
             }
             else if (match.you_ready && match.opponent_ready)
             {
-                set.status = "Both are ready";
+                set.status = T("menus.sets.both_ready");
                 set.tone = Tone::Good;
             }
             else if (match.you_ready)
             {
-                set.status = "Waiting for " + opponent + " to be ready";
+                set.status = T("menus.sets.waiting_ready", {opponent});
                 set.tone = Tone::Busy;
             }
             else
             {
-                set.status = match.opponent_ready ? opponent + " is ready" : "Ready when you are";
+                set.status = match.opponent_ready ? T("menus.sets.opponent_ready", {opponent})
+                                                  : std::string(T("menus.sets.ready_when_you_are"));
                 set.tone = match.opponent_ready ? Tone::Good : Tone::Neutral;
                 set.can_ready = !context.in_match;
             }
@@ -276,7 +266,7 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
         {
             set.stage = OnlinePanelSet::Stage::Starting;
             set.games = 0;
-            set.status = "Both are ready: the set starts";
+            set.status = T("menus.sets.starting");
             set.tone = Tone::Good;
         }
         else
@@ -291,21 +281,22 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
             {
                 // A server before sets: both play RANKED themselves.
                 set.games = 0;
-                set.status = "Play RANKED in the game's online menu";
+                set.status = T("menus.sets.play_ranked");
                 set.tone = Tone::Neutral;
-                set.cancel_label = "Cancel";
+                set.cancel_label = T("menus.sets.cancel");
             }
             else if (match.reported)
             {
-                set.status = "Waiting for " + opponent + "'s result";
+                set.status = T("menus.sets.waiting_result", {opponent});
                 set.tone = Tone::Busy;
                 set.can_cancel = false;
             }
             else
             {
                 const int game = set.games > 0 ? std::min(set.won + set.lost + 1, set.games) : set.won + set.lost + 1;
-                set.status = "Game " + std::to_string(game)
-                    + (set.games > 0 ? " · best of " + std::to_string(set.games) : std::string());
+                set.status = set.games > 0
+                    ? texts::Count("menus.sets.game_best_of", set.games, {{"game", std::to_string(game)}})
+                    : T("menus.sets.game", {{"game", std::to_string(game)}});
                 set.tone = Tone::Good;
                 set.can_cancel = false;
             }
@@ -317,16 +308,16 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
         set.stage = OnlinePanelSet::Stage::Ended;
         if (match.state == "disputed")
         {
-            set.title = "The results differ";
-            set.status = "The two games saw different results; nothing was counted.";
+            set.title = T("menus.sets.results_differ");
+            set.status = T("menus.sets.results_differ_about");
             set.tone = Tone::Bad;
         }
         else
         {
-            set.title = match.winner == "you" ? "You won the set"
-                : match.winner == "opponent"  ? "You lost the set"
-                                              : "The set is a draw";
-            set.status = "Against " + opponent;
+            set.title = match.winner == "you" ? T("menus.sets.won")
+                : match.winner == "opponent"  ? T("menus.sets.lost")
+                                              : T("menus.sets.draw");
+            set.status = T("menus.sets.against", {opponent});
             set.tone = match.winner == "you" ? Tone::Good : match.winner == "opponent" ? Tone::Bad : Tone::Neutral;
         }
         set.can_rematch = sets && match.opponent_online && !context.in_match;
@@ -339,9 +330,9 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
 // Whether the player can challenge anyone from this game now, and if not why.
 std::string ChallengeBlocker(const std::optional<ProfileMatch>& match, const OnlinePanelContext& context)
 {
-    if (context.in_match) return "You're in a match";
-    if (match && match->Busy()) return "Finish your set first";
-    if (!context.can_challenge) return "No rules to play by";
+    if (context.in_match) return T("menus.blocked.you_in_match");
+    if (match && match->Busy()) return T("menus.blocked.finish_set");
+    if (!context.can_challenge) return T("menus.blocked.no_rules");
     return {};
 }
 
@@ -433,15 +424,15 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
 
     if (match) model.set = MakeSet(*match, context);
     const std::string blocker = ChallengeBlocker(match, context);
-    if (context.in_match) model.note = "You're in a match: challenges wait until it ends.";
-    else if (!context.can_challenge) model.note = "This server has no rules to play sets by yet.";
+    if (context.in_match) model.note = T("menus.players.in_match");
+    else if (!context.can_challenge) model.note = T("menus.players.no_rules");
 
     // Online now: the friends with Recharged open, the Discord friends who
     // play it, and the Mii friends in the game's online mode.
     OnlinePanelSection online;
     online.id = OnlinePanelSection::Id::Online;
-    online.title = "ONLINE NOW";
-    online.empty = context.loading ? "Loading..." : "None of your friends is online";
+    online.title = T("menus.players.online_now");
+    online.empty = context.loading ? T("menus.common.loading") : T("menus.players.no_friends_online");
     std::set<std::int64_t> listed{me.id};
     // The others are offline: each player once (as the lists below take
     // them), the player not among them.
@@ -452,8 +443,7 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
             for (const auto& player : *list)
                 if (seen.insert(player.id).second && !player.online) ++model.friends_offline;
         if (model.friends_offline > 0)
-            online.aside = std::to_string(model.friends_offline)
-                + (model.friends_offline == 1 ? " friend offline" : " friends offline");
+            online.aside = texts::Count("menus.players.friends_offline", model.friends_offline);
     }
     std::set<std::int64_t> discord;
     for (const auto& player : context.discord_friends) discord.insert(player.id);
@@ -489,8 +479,8 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     {
         OnlinePanelSection available;
         available.id = OnlinePanelSection::Id::Available;
-        available.title = "OPEN TO CHALLENGES";
-        available.empty = context.loading ? "Loading..." : "Nobody else is open to challenges right now";
+        available.title = T("menus.players.open_to_challenges");
+        available.empty = context.loading ? T("menus.common.loading") : T("menus.players.nobody_open");
         for (const auto& player : lists.available)
         {
             if (!player.online || !listed.insert(player.id).second) continue;

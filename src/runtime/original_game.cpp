@@ -15,6 +15,7 @@
 #include "bootstrap/advanced_choices.h"
 #include "bootstrap/graphics_backend.h"
 #include "bootstrap/graphics_card.h"
+#include "bootstrap/table_texts.h"
 #include "bootstrap/texts.h"
 #include "platform/name_glyphs.h"
 #include "bootstrap/launch_options.h"
@@ -1653,7 +1654,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     // The menus it was challenged or accepted from close: the
                     // game goes on into the set.
                     if(closeMenus) closeMenus();
-                    if(hostOverlay) hostOverlay->ShowMessage("Set against "+start->opponent+": off to RANKED",now);
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(texts::T("menus.messages.set_start",{{"name",start->opponent}}),now);
                 } else mscharged::platform::SessionLogLine("Competitive: set "+std::to_string(start->match)
                     +" cannot start here (this build's game module has no sets)");
             }
@@ -1664,7 +1666,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 namesGiven.reset();
                 setStartedHere=false;
                 using How=mscharged::platform::CompetitiveHost::SetEnd::How;
-                const std::string opponent=end->opponent.empty() ? std::string("your opponent") : end->opponent;
+                const std::string opponent=end->opponent.empty()
+                    ? std::string(texts::T("menus.messages.unnamed_opponent")) : end->opponent;
                 // Without a game played it has no result, and a stopped set the
                 // server no longer keeps cannot be played again: only a message.
                 // A set a player left or called off goes again as a rematch.
@@ -1672,11 +1675,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     || end->how==How::OpponentGone;
                 if(end->how==How::Replaced) {
                     // A second Recharged of the player's took the set: this game has no part in it.
-                    if(hostOverlay) hostOverlay->ShowMessage("Your other Recharged plays the set against "+opponent,now);
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(texts::T("menus.messages.set_replaced",{{"name",opponent}}),now);
                 } else if(end->how==How::NoResult) {
-                    if(hostOverlay) hostOverlay->ShowMessage("The set against "+opponent+" ended without a result",now);
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(texts::T("menus.messages.set_no_result",{{"name",opponent}}),now);
                 } else if(end->how!=How::Over && !rematch && !end->can_play_again) {
-                    if(hostOverlay) hostOverlay->ShowMessage("The set against "+opponent+" stopped",now);
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(texts::T("menus.messages.set_stopped",{{"name",opponent}}),now);
                 } else afterSet=std::move(end);
             }
             // The set's game passes its menus unseen: nobody steps into them.
@@ -1691,8 +1697,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 else if(hostOverlay && now-setWaiting>=std::chrono::seconds(6)
                         && now-setReminded>=std::chrono::seconds(15)) {
                     setReminded=now;
-                    hostOverlay->ShowMessage("The set waits: go back to the main menu or the online menu,"
-                        " and the game takes you to RANKED",now);
+                    hostOverlay->ShowMessage(texts::T("menus.messages.set_waits"),now);
                 }
             } else setWaiting={};
         };
@@ -1718,8 +1723,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(rankedStage==CHARGED_SET_BOOT && hostOverlay && now-rankedSince>=std::chrono::seconds(6)
                && now-rankedReminded>=std::chrono::seconds(15)) {
                 rankedReminded=now;
-                hostOverlay->ShowMessage("RANKED waits: go back to the main menu or the online menu,"
-                    " and the game takes you there",now);
+                hostOverlay->ShowMessage(texts::T("menus.messages.ranked_waits"),now);
             }
         };
         // [online] mii_sign_in: a player who played with a Mii before signs in
@@ -1731,6 +1735,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         struct MiiSignInAnswer {
             bool signedIn=false;
             std::string token, name, error;
+            std::string message; // the error as the player reads it (Recharged's own words in their language)
         };
         bool miiSignIn=launch.settings.mii_sign_in;
         std::uint32_t miiSignInTried=0;
@@ -1745,7 +1750,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const auto answer=miiSignInAnswer.get();
                 if(!answer.signedIn) {
                     mscharged::platform::SessionLogLine("Competitive: signing in again with this Mii: "+answer.error);
-                    if(hostOverlay) hostOverlay->ShowMessage(answer.error,now);
+                    if(hostOverlay) hostOverlay->ShowMessage(answer.message,now);
                     return;
                 }
                 const auto file=mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),
@@ -1767,7 +1772,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const auto line=competitive ? "Competitive: on, signed in again as "+competitive->PlayerName()+" by this Mii"
                     : "Competitive: off ("+off+")";
                 mscharged::platform::SessionLogLine(line);
-                if(hostOverlay && competitive) hostOverlay->ShowMessage("Signed in again as "+answer.name,now);
+                if(hostOverlay && competitive)
+                    hostOverlay->ShowMessage(texts::T("menus.messages.signed_in_again",{{"name",answer.name}}),now);
                 return;
             }
             if(now-lastMiiSignIn<std::chrono::seconds(1))return;
@@ -1791,11 +1797,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                             && !result.token.empty();
                         answer.token=result.token;
                         answer.name=result.player.name;
-                        if(!answer.signedIn) answer.error=result.message.empty() ? "the server refused it" : result.message;
+                        if(!answer.signedIn) {
+                            answer.error=result.message.empty() ? "the server refused it" : result.message;
+                            answer.message=result.message.empty() ? texts::T("menus.messages.mii_refused")
+                                : result.message;
+                        }
                     } catch(const mscharged::platform::ProfileError& error) {
-                        answer.error=error.Status()==404 ? "this Mii plays for no Recharged profile" : error.what();
+                        const bool unknown=error.Status()==404;
+                        answer.error=unknown ? "this Mii plays for no Recharged profile" : error.what();
+                        answer.message=unknown ? texts::T("menus.messages.mii_unknown") : error.what();
                     } catch(const std::exception& error) {
-                        answer.error=error.what();
+                        answer.error=answer.message=error.what();
                     }
                     return answer;
                 });
@@ -1823,6 +1835,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             bool hasScore=false;
             int won=0, lost=0, games=0;
         } cardPrompt;
+        // Counts the prompts asked: the menus get a new one only when it changes.
+        int cardPromptVersion=0;
         auto serviceChallengeCard = [&](std::chrono::steady_clock::time_point now) {
             if(!competitive || !hostOverlay)return;
             if(const auto notice=competitive->TakeNotice()) hostOverlay->ShowMessage(*notice,now);
@@ -1845,6 +1859,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 cardMatch=match;
                 cardPrompt=CardPrompt{};
                 cardPrompt.shown=kind!=CardKind::None;
+                ++cardPromptVersion;
                 if(kind==CardKind::Challenge) {
                     cardPrompt.kind=invitation->rematch ? CardPrompt::Kind::Rematch : CardPrompt::Kind::Challenge;
                     cardPrompt.random=invitation->random;
@@ -1858,7 +1873,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 } else if(kind==CardKind::AfterSet) {
                     using How=mscharged::platform::CompetitiveHost::SetEnd::How;
                     const auto& end=*afterSet;
-                    const std::string opponent=end.opponent.empty() ? std::string("your opponent") : end.opponent;
+                    const std::string opponent=end.opponent.empty()
+                        ? std::string(texts::T("menus.messages.unnamed_opponent")) : end.opponent;
                     namespace texts=mscharged::texts;
                     if(end.how==How::Over) {
                         cardPrompt.kind=CardPrompt::Kind::SetOver;
@@ -1867,8 +1883,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         const bool mine=end.how==How::Forfeited;
                         cardPrompt.kind=CardPrompt::Kind::SetStopped;
                         if(!mine) cardPrompt.kicker=texts::T("menus.set_end.opponent_forfeited_kicker");
-                        cardPrompt.title=texts::T(mine ? "menus.set_end.forfeited_title"
-                                                       : "menus.set_end.opponent_forfeited_title",{{"name",opponent}});
+                        cardPrompt.title=mine ? texts::T("menus.set_end.forfeited_title",{{"name",opponent}})
+                            : texts::T("menus.set_end.opponent_forfeited_title",{{"name",opponent}});
                         cardPrompt.reason=mine ? std::string(texts::T("menus.set_end.forfeited_reason"))
                             : texts::T("menus.set_end.opponent_forfeited_reason",{{"name",opponent}});
                         cardPrompt.primary=texts::T("menus.set_end.rematch");
@@ -1876,31 +1892,34 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     } else if(end.how==How::OpponentLeft || end.how==How::OpponentGone) {
                         // The opponent's Back, launcher or closed game: a
                         // line from the dressing room, the same for a set.
-                        static const char* const kGone[]={
-                            " left the field in tears…"," ran crying to the dressing room…",
-                            " took the ball and went home…"," saw your lineup and fled the pitch…",
-                            " heard the Kritters were coming and ran…"};
+                        const std::string gone[]={
+                            texts::T("menus.set_end.gone_tears",{{"name",opponent}}),
+                            texts::T("menus.set_end.gone_crying",{{"name",opponent}}),
+                            texts::T("menus.set_end.gone_home",{{"name",opponent}}),
+                            texts::T("menus.set_end.gone_lineup",{{"name",opponent}}),
+                            texts::T("menus.set_end.gone_kritters",{{"name",opponent}})};
                         cardPrompt.kind=CardPrompt::Kind::SetStopped;
-                        cardPrompt.title=opponent+kGone[std::uint64_t(end.match)%std::size(kGone)];
+                        cardPrompt.title=gone[std::uint64_t(end.match)%std::size(gone)];
                         cardPrompt.reason=end.how==How::OpponentGone
-                            ? opponent+"'s game closed before your games met, so the set stopped."
-                            : opponent+" left before your games met, so the set stopped.";
-                        cardPrompt.primary="Rematch";
-                        cardPrompt.note="The same set again: "+opponent+" gets the challenge.";
+                            ? texts::T("menus.set_end.opponent_closed_reason",{{"name",opponent}})
+                            : texts::T("menus.set_end.opponent_left_reason",{{"name",opponent}});
+                        cardPrompt.primary=texts::T("menus.set_end.rematch");
+                        cardPrompt.note=texts::T("menus.set_end.rematch_note",{{"name",opponent}});
                     } else {
                         cardPrompt.kind=CardPrompt::Kind::SetStopped;
-                        cardPrompt.title=end.how==How::Left ? "You left the set against "+opponent
-                            : "The set against "+opponent+" stopped";
-                        cardPrompt.reason=end.how==How::Failed ? std::string("A message in the game ended it.")
-                            : end.how==How::Left ? "You left the search; "+opponent+"'s game was told."
-                            : opponent+" isn't ready any more, or your games didn't meet in time.";
+                        cardPrompt.title=end.how==How::Left
+                            ? texts::T("menus.set_end.you_left_title",{{"name",opponent}})
+                            : texts::T("menus.set_end.stopped_title",{{"name",opponent}});
+                        cardPrompt.reason=end.how==How::Failed ? std::string(texts::T("menus.set_end.failed_reason"))
+                            : end.how==How::Left ? texts::T("menus.set_end.you_left_reason",{{"name",opponent}})
+                            : texts::T("menus.set_end.not_ready_reason",{{"name",opponent}});
                         // Left: the set is called off, so it goes again as a
                         // rematch; else it waits, and Not now calls it off.
                         const bool left=end.how==How::Left;
-                        cardPrompt.primary=left ? "Rematch" : "Play it again";
-                        cardPrompt.note=left ? "The same set again: "+opponent+" gets the challenge."
-                            : "Play it again is your Ready to play!: the set goes once "+opponent
-                                +" is ready too. Not now calls it off.";
+                        cardPrompt.primary=left ? texts::T("menus.set_end.rematch")
+                            : texts::T("menus.set_end.play_again");
+                        cardPrompt.note=left ? texts::T("menus.set_end.rematch_note",{{"name",opponent}})
+                            : texts::T("menus.set_end.play_again_call_off_note",{{"name",opponent}});
                     }
                     cardPrompt.opponent=opponent;
                     cardPrompt.avatar=end.opponent_avatar;
@@ -1917,7 +1936,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             cardPrompt.answer=0;
             if(kind==CardKind::Challenge) {
                 competitive->Answer(cardMatch,accept);
-                hostOverlay->ShowMessage(accept ? "Challenge accepted: off to RANKED" : "Challenge declined",now);
+                hostOverlay->ShowMessage(accept ? texts::T("menus.messages.challenge_accepted")
+                    : texts::T("menus.messages.challenge_declined"),now);
                 return;
             }
             using How=mscharged::platform::CompetitiveHost::SetEnd::How;
@@ -1926,11 +1946,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const How how=afterSet->how;
             const bool rematch=how==How::Over || how==How::Left || how==How::OpponentLeft || how==How::OpponentGone
                 || how==How::Forfeited || how==How::OpponentForfeited;
-            const std::string opponent=afterSet->opponent.empty() ? std::string("your opponent") : afterSet->opponent;
+            const std::string opponent=afterSet->opponent.empty()
+                ? std::string(texts::T("menus.messages.unnamed_opponent")) : afterSet->opponent;
             if(accept) {
                 competitive->PlayAgain(cardMatch,rematch);
-                hostOverlay->ShowMessage((rematch ? "Rematch asked: waiting for " : "Ready again: waiting for ")
-                    +opponent,now);
+                hostOverlay->ShowMessage(rematch ? texts::T("menus.messages.rematch_asked",{{"name",opponent}})
+                    : texts::T("menus.messages.ready_again",{{"name",opponent}}),now);
             } else if(how==How::CalledOff || how==How::Failed) {
                 // Not now: the stopped set is called off, so neither player
                 // keeps it and both can take another challenge at once.
@@ -2088,7 +2109,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             settings.launcher_sizes.clear();
             settings.launcher_size=0;
             for(std::size_t n=0;n<mscharged::kLauncherSizes.size();++n) {
-                settings.launcher_sizes.push_back(mscharged::kLauncherSizes[n].label);
+                settings.launcher_sizes.push_back(texts::ChoiceLabel("launcher_sizes",mscharged::kLauncherSizes[n]));
                 if(advanced.ui_scale==mscharged::kLauncherSizes[n].value) settings.launcher_size=int(n);
             }
             // The graphics API: Automatic only where it may pick between two (Windows).
@@ -2096,7 +2117,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             settings.graphics_apis.clear();
             if(mscharged::kGraphicsBackends.size()>1) {
                 graphicsApis.push_back("auto");
-                settings.graphics_apis.push_back("Automatic");
+                settings.graphics_apis.push_back(texts::T("menus.advanced.automatic"));
             }
             for(const auto& choice:mscharged::kGraphicsBackends) {
                 graphicsApis.push_back(choice.value);
@@ -2107,7 +2128,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(advanced.backend==graphicsApis[n]) settings.graphics_api=int(n);
             // The graphics cards, listed once in the background.
             graphicsCards.assign(1,"auto");
-            settings.graphics_cards.assign(1,"Automatic (fastest)");
+            settings.graphics_cards.assign(1,texts::T("menus.advanced.automatic_fastest"));
             settings.graphics_card=0;
 #if defined(MSCHARGED_HAS_GRAPHICS_CARDS) && !defined(__APPLE__)
             settings.graphics_cards_shown=true;
@@ -2127,7 +2148,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 else {
                     // Not (yet) listed: kept as it is.
                     graphicsCards.push_back(advanced.gpu);
-                    settings.graphics_cards.push_back(cardsFound ? "Not found: "+advanced.gpu : advanced.gpu);
+                    settings.graphics_cards.push_back(cardsFound
+                        ? texts::T("menus.advanced.card_not_found",{{"card",advanced.gpu}}) : advanced.gpu);
                     settings.graphics_card=int(graphicsCards.size())-1;
                 }
             }
@@ -2145,11 +2167,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         };
         auto buildSettings=[&](mscharged::overlay::GameSettingsModel& settings) {
             settings.fullscreen=(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN)!=0;
-            settings.pictures={widescreen ? "16:9" : "4:3","Stretch"};
-            if(widerView) settings.pictures.push_back("Wider view");
+            settings.pictures={widescreen ? "16:9" : "4:3",texts::T("menus.display.stretch")};
+            if(widerView) settings.pictures.push_back(texts::T("menus.display.wider_view"));
             settings.picture=widerOn ? 2 : stretch ? 1 : 0;
-            settings.picture_about=std::string(widescreen ? "16:9" : "4:3")+" keeps the game's shape,"
-                " Stretch fills the window"+(widerView ? ", Wider view shows more of the stadium in matches." : ".");
+            const std::string shape=widescreen ? "16:9" : "4:3";
+            settings.picture_about=widerView ? texts::T("menus.display.picture_about_wider",{{"shape",shape}})
+                : texts::T("menus.display.picture_about",{{"shape",shape}});
             displayResolutions.clear();
             if(nativeSend) {
                 const auto size=aurora_get_window_size();
@@ -2168,9 +2191,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     return std::to_string(mscharged::RenderWidth(value,picture.width))+" \xC3\x97 "
                         +std::to_string(mscharged::RenderHeight(value,picture.height));
                 };
-                settings.resolution_about="How sharp the game draws its 3D: Full at the window's size ("
-                    +drawn("window")+"), Native at the Wii's "+drawn("native")
-                    +", 2x to 4x at its multiples, for slower graphics cards.";
+                settings.resolution_about=texts::T("menus.display.resolution_about",
+                    {{"full",drawn("window")},{"native",drawn("native")}});
             }
             settings.performance_numbers=launch.settings.fps_overlay;
             settings.master_volume=launch.settings.master_volume;
@@ -2188,7 +2210,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 try {
                     mscharged::SaveGameTweak(launch.config.path,change.tweak,change.on);
                 } catch(const std::exception& error) {
-                    overlayNotice=std::string("The option was not saved: ")+error.what();
+                    overlayNotice=texts::T("menus.notices.option_not_saved",{{"error",error.what()}});
                 }
                 auto settings=launch.settings;
                 settings.tweaks=optionTweaks;
@@ -2323,7 +2345,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 try {
                     mscharged::SaveSettings(launch.config.path,save);
                 } catch(const std::exception& error) {
-                    overlayNotice=std::string("The setting was not saved: ")+error.what();
+                    overlayNotice=texts::T("menus.notices.setting_not_saved",{{"error",error.what()}});
                 }
             }
         };
@@ -2404,11 +2426,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     ranked.waiting=rankedStage==CHARGED_SET_BOOT
                         && std::chrono::steady_clock::now()-rankedSince>=std::chrono::seconds(2);
                     ranked.own_mii=ownMii;
-                    if(!startRanked) ranked.blocked="This game can't go to RANKED by itself.";
-                    else if(context.in_match) ranked.blocked="You're in a match: RANKED waits until it is over.";
+                    if(!startRanked) ranked.blocked=texts::T("menus.ranked.blocked_game");
+                    else if(context.in_match) ranked.blocked=texts::T("menus.ranked.blocked_match");
                     else if(competitive && competitive->CurrentSet())
-                        ranked.blocked="Your set goes on: RANKED waits until it is over.";
-                    else if(snapshot.search) ranked.blocked="You're searching for an opponent: stop that first.";
+                        ranked.blocked=texts::T("menus.ranked.blocked_set");
+                    else if(snapshot.search) ranked.blocked=texts::T("menus.ranked.blocked_search");
                     ranked.can_play=ranked.blocked.empty() && !ranked.going;
                     ranked.signed_out=!panelFeed;
                     ranked.boards=snapshot.leaderboard;
@@ -2439,8 +2461,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     rankedStage=CHARGED_SET_BOOT;
                     rankedSince=std::chrono::steady_clock::now();
                     started=true;
-                    hostOverlay->ShowMessage("Off to RANKED",std::chrono::steady_clock::now());
-                } else overlayNotice="RANKED can't start now";
+                    hostOverlay->ShowMessage(texts::T("menus.messages.off_to_ranked"),std::chrono::steady_clock::now());
+                } else overlayNotice=texts::T("menus.notices.ranked_cannot_start");
             }
             if(ranked.stop && stopRanked) {
                 stopRanked();
@@ -2452,16 +2474,16 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(online.challenge) {
                     const auto& challenge=*online.challenge;
                     panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name);
-                    overlayNotice="Challenge sent";
+                    overlayNotice=texts::T("menus.notices.challenge_sent");
                 }
                 if(online.search) {
                     const auto& search=*online.search;
                     panelFeed->StartSearch(search.rule_set,search.rules,search.name,std::string(release->game_id,4));
-                    overlayNotice="Searching for an opponent";
+                    overlayNotice=texts::T("menus.notices.searching");
                 }
                 if(online.stop_search) {
                     panelFeed->StopSearch();
-                    overlayNotice="The search stopped";
+                    overlayNotice=texts::T("menus.notices.search_stopped");
                 }
                 if(online.add_friend) panelFeed->AddFriend(*online.add_friend);
                 if(online.remove_friend) panelFeed->RemoveFriend(*online.remove_friend);
@@ -2482,7 +2504,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 try {
                     mscharged::SaveChallengeRules(launch.config.path,challengeRules);
                 } catch(const std::exception& error) {
-                    overlayNotice=std::string("Your challenges' rules were not saved: ")+error.what();
+                    overlayNotice=texts::T("menus.notices.rules_not_saved",{{"error",error.what()}});
                 }
             }
             return started;
@@ -2500,34 +2522,37 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             case Kind::Rematch: {
                 const bool rematch=cardPrompt.kind==Kind::Rematch;
                 prompt.kind=rematch ? ov::OverlayPrompt::Kind::Rematch : ov::OverlayPrompt::Kind::Challenge;
-                prompt.kicker=rematch ? "REMATCH" : cardPrompt.random ? "RANDOM CHALLENGE" : "CHALLENGE";
-                prompt.title=who+(rematch ? " wants a rematch" : " challenges you");
+                prompt.kicker=rematch ? texts::T("menus.prompt.rematch")
+                    : cardPrompt.random ? texts::T("menus.prompt.random_challenge")
+                    : texts::T("menus.prompt.challenge");
+                prompt.title=rematch ? texts::T("menus.prompt.wants_rematch",{{"name",who}})
+                    : texts::T("menus.prompt.challenges_you",{{"name",who}});
                 prompt.detail=cardPrompt.rules;
-                prompt.primary="Accept";
-                prompt.secondary="Decline";
-                prompt.note=cardPrompt.random
-                    ? "They searched for an opponent by these rules. Accept, and your game goes straight to the set."
-                    : "Accept, and your game goes straight to the set.";
+                prompt.primary=texts::T("menus.prompt.accept");
+                prompt.secondary=texts::T("menus.prompt.decline");
+                prompt.note=cardPrompt.random ? texts::T("menus.prompt.random_note") : texts::T("menus.prompt.note");
                 break;
             }
             case Kind::SetOver:
                 prompt.kind=ov::OverlayPrompt::Kind::SetOver;
-                prompt.kicker="SET OVER";
-                prompt.title=cardPrompt.won>cardPrompt.lost ? "You won the set"
-                    : cardPrompt.lost>cardPrompt.won ? "You lost the set" : "A draw";
-                prompt.primary="Rematch";
-                prompt.secondary="Not now";
-                prompt.note="A rematch asks "+who+" to play the same set again.";
+                prompt.kicker=texts::T("menus.set_end.over_kicker");
+                prompt.title=cardPrompt.won>cardPrompt.lost ? texts::T("menus.set_end.won")
+                    : cardPrompt.lost>cardPrompt.won ? texts::T("menus.set_end.lost") : texts::T("menus.set_end.draw");
+                prompt.primary=texts::T("menus.set_end.rematch");
+                prompt.secondary=texts::T("menus.set_end.not_now");
+                prompt.note=texts::T("menus.set_end.rematch_asks_note",{{"name",who}});
                 break;
             case Kind::SetStopped:
                 prompt.kind=ov::OverlayPrompt::Kind::SetStopped;
-                prompt.kicker=cardPrompt.kicker.empty() ? std::string("SET STOPPED") : cardPrompt.kicker;
-                prompt.title=cardPrompt.title.empty() ? std::string("The set stopped") : cardPrompt.title;
+                prompt.kicker=cardPrompt.kicker.empty() ? std::string(texts::T("menus.set_end.stopped_kicker"))
+                    : cardPrompt.kicker;
+                prompt.title=cardPrompt.title.empty() ? std::string(texts::T("menus.set_end.stopped"))
+                    : cardPrompt.title;
                 prompt.detail=cardPrompt.reason;
-                prompt.primary=cardPrompt.primary.empty() ? std::string("Play it again") : cardPrompt.primary;
-                prompt.secondary="Not now";
-                prompt.note=cardPrompt.note.empty()
-                    ? "Play it again is your Ready to play!: the set goes once "+who+" is ready too."
+                prompt.primary=cardPrompt.primary.empty() ? std::string(texts::T("menus.set_end.play_again"))
+                    : cardPrompt.primary;
+                prompt.secondary=texts::T("menus.set_end.not_now");
+                prompt.note=cardPrompt.note.empty() ? texts::T("menus.set_end.play_again_note",{{"name",who}})
                     : cardPrompt.note;
                 break;
             }
@@ -2553,7 +2578,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const bool none=key.empty() || key==mscharged::kNoHotkey;
                 panelHint=mscharged::runtime::HostOverlay::Hint{
                     none ? std::vector<std::string>{"HOME"} : std::vector<std::string>{key,"HOME"},
-                    "Recharged Game Menu"};
+                    texts::T("menus.hint.game_menu")};
             }
         }
         // Recharged's menus in the game's look (the UI kit): the Recharged menu
@@ -2565,6 +2590,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // A set's forfeit sent: the game leaves its match once the server
         // answered, or after a moment without an answer.
         bool forfeitWaits=false;
+        int shownPromptKey=0; // the prompt the menus have (cardPromptVersion; -1 the sample)
         std::chrono::steady_clock::time_point forfeitAsked{};
         // Recharged's menus with sample data (development, screenshots without
         // a server or a match): RECHARGED_CAPTURE_ONLINE players, a set and
@@ -2672,7 +2698,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     const std::string text=widerOn?"Wider view: more of the stadium in matches"
                         :stretch?"Picture stretched to fill the window":"Picture keeps its "+shape+" shape";
                     mscharged::platform::SessionLogLine("Display: "+text+" (stretch hotkey)");
-                    if(hostOverlay) hostOverlay->ShowMessage(text,clock);
+                    // The same in the player's language.
+                    if(hostOverlay)
+                        hostOverlay->ShowMessage(widerOn ? std::string(texts::T("menus.messages.wider_view"))
+                            : stretch ? std::string(texts::T("menus.messages.stretched"))
+                            : texts::T("menus.messages.keeps_shape",{{"shape",shape}}),clock);
                 }
                 // The picture fills the window stretched, or with the wider view
                 // while the match's stadium is drawn (and a few frames after, so
@@ -2690,19 +2720,27 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         int(aspectWidth),int(aspectHeight),fill);
                     const std::string next(mscharged::StepRenderResolution(renderResolution,presses.resolution_steps,
                         picture.height));
-                    std::string text;
-                    if(next==renderResolution)
-                        text="3D resolution: "+std::string(mscharged::RenderResolutionLabel(renderResolution))
-                            +(presses.resolution_steps>0?" (the highest)":" (the lowest)");
-                    else {
+                    // For the log, and in the player's language.
+                    std::string text, message;
+                    const std::string label(mscharged::RenderResolutionLabel(next));
+                    if(next==renderResolution) {
+                        text="3D resolution: "+label+(presses.resolution_steps>0?" (the highest)":" (the lowest)");
+                        message=presses.resolution_steps>0
+                            ? texts::T("menus.messages.resolution_highest",{{"resolution",label}})
+                            : texts::T("menus.messages.resolution_lowest",{{"resolution",label}});
+                    } else {
                         renderResolution=next;
                         VISetFrameBufferScale(mscharged::RenderScale(renderResolution));
-                        text="3D resolution: "+std::string(mscharged::RenderResolutionLabel(renderResolution))+" ("
-                            +std::to_string(mscharged::RenderWidth(renderResolution,picture.width))+" \xC3\x97 "
-                            +std::to_string(mscharged::RenderHeight(renderResolution,picture.height))+")";
+                        const std::string width=std::to_string(mscharged::RenderWidth(renderResolution,
+                            picture.width));
+                        const std::string height=std::to_string(mscharged::RenderHeight(renderResolution,
+                            picture.height));
+                        text="3D resolution: "+label+" ("+width+" \xC3\x97 "+height+")";
+                        message=texts::T("menus.messages.resolution_size",
+                            {{"resolution",label},{"width",width},{"height",height}});
                     }
                     mscharged::platform::SessionLogLine("Display: "+text+" (3D resolution hotkeys)");
-                    if(hostOverlay) hostOverlay->ShowMessage(text,clock);
+                    if(hostOverlay) hostOverlay->ShowMessage(message,clock);
                 }
                 // Wider view: the window's picture shape against 16:9, while it fills the window.
                 if(setViewShape) {
@@ -2752,24 +2790,29 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // whatever shows; B or BACK is its second answer.
             if(hostMenus) {
                 const bool want=cardPrompt.shown;
-                if(want) {
-                    mscharged::overlay::OverlayPrompt prompt;
-                    buildPrompt(prompt);
-                    hostMenus->SetPrompt(std::move(prompt));
-                } else if(menuSamples.prompt) {
-                    mscharged::overlay::OverlayPrompt prompt;
-                    prompt.kind=mscharged::overlay::OverlayPrompt::Kind::Challenge;
-                    prompt.kicker="CHALLENGE";
-                    prompt.title="Mario challenges you";
-                    prompt.detail="Competitive: 3 minutes, best of 3, random stadium";
-                    prompt.primary="Accept";
-                    prompt.secondary="Decline";
-                    prompt.note="Accept, and your game goes straight to the set.";
-                    prompt.opponent.name="Mario";
-                    prompt.opponent.initials="M";
-                    prompt.opponent.tint_seed=3;
-                    hostMenus->SetPrompt(std::move(prompt));
-                } else hostMenus->SetPrompt(std::nullopt);
+                // The prompt as it is now: built again only when it changes.
+                const int promptKey=want ? cardPromptVersion : menuSamples.prompt ? -1 : 0;
+                if(promptKey!=shownPromptKey) {
+                    if(want) {
+                        mscharged::overlay::OverlayPrompt prompt;
+                        buildPrompt(prompt);
+                        hostMenus->SetPrompt(std::move(prompt));
+                    } else if(menuSamples.prompt) {
+                        mscharged::overlay::OverlayPrompt prompt;
+                        prompt.kind=mscharged::overlay::OverlayPrompt::Kind::Challenge;
+                        prompt.kicker=texts::T("menus.prompt.challenge");
+                        prompt.title=texts::T("menus.prompt.challenges_you",{{"name","Mario"}});
+                        prompt.detail="Competitive: 3 minutes, best of 3, random stadium";
+                        prompt.primary=texts::T("menus.prompt.accept");
+                        prompt.secondary=texts::T("menus.prompt.decline");
+                        prompt.note=texts::T("menus.prompt.note");
+                        prompt.opponent.name="Mario";
+                        prompt.opponent.initials="M";
+                        prompt.opponent.tint_seed=3;
+                        hostMenus->SetPrompt(std::move(prompt));
+                    } else hostMenus->SetPrompt(std::nullopt);
+                    shownPromptKey=promptKey;
+                }
                 if(const auto answer=hostMenus->TakePromptAnswer()) {
                     if(want && !cardPrompt.answer) cardPrompt.answer=*answer;
                     else if(!want) menuSamples.prompt=false;

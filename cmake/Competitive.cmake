@@ -14,7 +14,8 @@ if(NOT TARGET charged_name_glyphs)
     target_include_directories(charged_name_glyphs PUBLIC src)
     target_compile_features(charged_name_glyphs PUBLIC cxx_std_17)
 endif()
-# Recharged's texts: the rules' names and descriptions are in the player's language.
+# Recharged's texts: the rules' names and descriptions and the set's messages
+# are in the player's language.
 include("${CMAKE_CURRENT_LIST_DIR}/Texts.cmake")
 add_library(charged_competitive STATIC src/platform/profile_service.cpp src/platform/competitive_rules.cpp
     src/platform/competitive_host.cpp src/platform/online_panel_feed.cpp)

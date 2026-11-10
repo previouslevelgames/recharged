@@ -37,14 +37,15 @@ bool GameOption(GameTweak tweak);
 bool GameOptionAtOnce(GameTweak tweak);
 
 // The page's categories in their order (the launcher Gameplay page's): each
-// one's title, what its options do and when, and its options.
+// one's title, what its options do and when (in the player's language), and
+// its options.
 struct GameOptionGroup
 {
-    const char* title;
+    const char* title;       // the launcher's name for it (not shown here: English)
     const char* short_title; // "Menus", "Matches", "Competitive"
     const char* about;
     std::vector<GameTweak> tweaks;
 };
-const std::vector<GameOptionGroup>& GameOptionGroups();
+std::vector<GameOptionGroup> GameOptionGroups();
 
 } // namespace mscharged::overlay

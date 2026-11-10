@@ -703,8 +703,8 @@ void CompetitiveHost::Work(ProfileService& api)
         {
             if (e.Cancelled()) throw;
             Said(std::string("the answer to match ") + std::to_string(answer) + " was not taken: " + e.what());
-            notice = e.Status() == 0 ? std::string("The server didn't answer. Try again on the launcher's Online pages.")
-                                     : std::string("The challenge is no longer open.");
+            notice = e.Status() == 0 ? texts::T("menus.messages.server_no_answer")
+                                     : texts::T("menus.messages.challenge_gone");
         }
         std::lock_guard<std::mutex> lock(mutex_);
         invitation_.reset();
@@ -727,9 +727,9 @@ void CompetitiveHost::Work(ProfileService& api)
             if (e.Cancelled()) throw;
             Said(std::string(rematch ? "the rematch of match " : "ready again for match ") + std::to_string(again)
                  + " was not taken: " + e.what());
-            notice = e.Status() == 0 ? std::string("The server didn't answer. Try again on the launcher's Online pages.")
-                                     : std::string(rematch ? "No rematch: the set is no longer there."
-                                                           : "The set is no longer open.");
+            notice = e.Status() == 0 ? texts::T("menus.messages.server_no_answer")
+                : rematch            ? texts::T("menus.messages.rematch_gone")
+                                     : texts::T("menus.messages.set_gone");
         }
         std::lock_guard<std::mutex> lock(mutex_);
         if (notice) notice_ = notice;
@@ -754,7 +754,8 @@ void CompetitiveHost::Work(ProfileService& api)
         std::optional<Invitation> invitation;
         if (current && current->state == "challenged" && current->side == "challenged")
             invitation = Invitation{current->id, current->opponent.name, current->opponent.avatar_url,
-                                    current->rule_set + ": " + DescribeRules(current->rules),
+                                    texts::T("menus.sets.rules", {{"rule_set", current->rule_set},
+                                                                  {"rules", DescribeRules(current->rules)}}),
                                     current->rematch_of != 0, current->random};
         // This game's set as the server ended it (the opponent called it off,
         // or closed Recharged), before the match it no longer is goes.
