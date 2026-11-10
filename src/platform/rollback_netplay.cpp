@@ -63,6 +63,7 @@ void StopReplayAt(unsigned frame)
     {
         s.replayEnd = frame;
         ++s.net.truncated;
+        ++s.net.keptPredicted;
         Log("KEPT PREDICTED FRAME %u: a disc read %s; a misprediction now desyncs\n",
                 frame, before.reading ? "in flight" : "started");
         return;
@@ -429,6 +430,7 @@ void Resolve()
             if (!Same(step.machines[machine], input))
             {
                 changed(frame);
+                step.mispredicted[machine] = true;
                 ++s.net.mispredictions[machine];
                 const unsigned parts = MispredictedParts(step.machines[machine], input);
                 for (int part = 0; part < kInputParts; ++part)
@@ -621,6 +623,25 @@ bool OverlayNumbers(int& delay, int& predicted)
     return true;
 }
 
+NetCounts NetCountsNow()
+{
+    const Netplay& n = sState->net;
+    NetCounts counts{};
+    std::copy(std::begin(n.mispredictions), std::end(n.mispredictions), counts.mispredictions);
+    counts.predictedSteps = n.predictedSteps;
+    counts.correctionRollbacks = n.correctionRollbacks;
+    counts.undone = n.undone;
+    counts.truncated = n.truncated;
+    counts.keptPredicted = n.keptPredicted;
+    counts.impossible = n.impossible;
+    counts.stoppedPredicted = n.stoppedPredicted;
+    counts.lockstepWaits = n.lockstepWaits;
+    counts.windowWaits = n.windowWaits;
+    counts.delayLonger = n.delayLonger;
+    counts.delayShorter = n.delayShorter;
+    return counts;
+}
+
 } // namespace mscharged::rollback
 
 using namespace mscharged::rollback;
@@ -667,6 +688,7 @@ extern "C" int mscharged_rollback_network_reset(void)
     // No step's checksum yet: an empty slot must not pass for step 0's (or for
     // the last match's steps) when another machine's arrives.
     for (SyncPoint& point : s.net.history) point.frame = ~0u;
+    ForgetConfirmed();
     std::fill(std::begin(s.net.queuedAhead), std::end(s.net.queuedAhead), 0.0f);
     std::fill(std::begin(s.net.haveReported), std::end(s.net.haveReported), false);
     s.net.delay = s.options.inputDelay;
@@ -678,6 +700,7 @@ extern "C" int mscharged_rollback_network_reset(void)
     s.net.addedStepsInLockstep = 0;
     s.net.isPrevFramePhasePredictable = true;
     s.net.readWaiting = false;
+    s.net.atGameStart = NetCountsNow();
     Log("network match: input delay %d steps\n", s.options.inputDelay);
     FlushLog();
     return s.options.inputDelay;
@@ -742,6 +765,12 @@ extern "C" void mscharged_rollback_input_ready(void)
         for (int machine = 0; machine < machines; ++machine)
         {
             NetworkInputMessageQueue& queue = router->m_InputQueue[machine];
+            // Run again: what the step learnt when it first ran stays.
+            if (again)
+            {
+                step.ranPredicted[machine] = kept.ranPredicted[machine];
+                step.mispredicted[machine] = kept.mispredicted[machine];
+            }
             if (again && !kept.predicted[machine])
             {
                 step.machines[machine] = kept.machines[machine];
@@ -753,7 +782,7 @@ extern "C" void mscharged_rollback_input_ready(void)
             else
             {
                 step.machines[machine] = Predicted(machine);
-                step.predicted[machine] = true;
+                step.predicted[machine] = step.ranPredicted[machine] = true;
                 if (!s.net.firstPredicted[machine]) s.net.firstPredicted[machine] = frame;
             }
         }

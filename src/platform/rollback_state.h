@@ -217,6 +217,10 @@ struct StepInputs
     int machineCount;
     MachineInput machines[kMachines];
     bool predicted[kMachines];
+    // For a desync dossier: by machine, its inputs were predicted when the
+    // step first ran, and they came other than predicted.
+    bool ranPredicted[kMachines];
+    bool mispredicted[kMachines];
 };
 struct SyncPoint
 {
@@ -325,6 +329,14 @@ struct Compare
     std::uint64_t placesDropped;
 };
 
+// RECHARGED_ROLLBACK: the counts of Netplay a desync dossier gives for its
+// game alone, by their values when the game began (NetCountsNow).
+struct NetCounts
+{
+    std::uint64_t mispredictions[kMachines], predictedSteps, correctionRollbacks, undone, truncated, keptPredicted,
+        impossible, stoppedPredicted, lockstepWaits, windowWaits, delayLonger, delayShorter;
+};
+
 // RECHARGED_ROLLBACK: network matches that predict (rollback_netplay.cpp).
 struct Netplay
 {
@@ -347,6 +359,10 @@ struct Netplay
     std::uint64_t predictedSteps, lockstepWaits, windowWaits, mispredictions[kMachines], correctionRollbacks;
     std::uint64_t mispredictedParts[kInputParts]; // mispredicted steps that got each part wrong
     std::uint64_t undone, truncated, impossible, desyncs, remoteChecks, predictedDepth[kMaxDepth + 1];
+    // Predicted steps kept although a misprediction in them can no longer be
+    // corrected: for a disc read (StopReplayAt), and when tracking stopped.
+    std::uint64_t keptPredicted, stoppedPredicted;
+    NetCounts atGameStart;
     unsigned firstDesyncFrame;
     // This match's first divergence, for the game's own sync error.
     unsigned matchDesyncFrame;
@@ -476,6 +492,7 @@ void StopReplayAt(unsigned frame);
 void UpdateConfirmed();
 void NetplayFrameStart();
 bool OverlayNumbers(int& delay, int& predicted);
+NetCounts NetCountsNow();
 
 // rollback_compare.cpp
 void BuildWatched();
@@ -499,6 +516,8 @@ void WriteSummary();
 // LogFields at a desync.
 unsigned RecordedChecksum(unsigned (*checksum)(), unsigned frame);
 void ConfirmFields(unsigned frame);
+// At a new game: no step's fields or inputs kept (its frames start again).
+void ForgetConfirmed();
 void LogFields(unsigned frame);
 // At a match's first desync: its dossier for the WFC server, from the fields
 // ConfirmFields kept (desync_dossier.h), until the host takes it.

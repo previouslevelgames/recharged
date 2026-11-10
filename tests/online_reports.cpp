@@ -587,12 +587,13 @@ void TestHttpSend()
 }
 
 // A dossier as the game module hands it over: its series by the module's
-// count, two steps of `fields` fields each.
-std::string ModuleDossier(unsigned series, unsigned profile, unsigned game, std::uint32_t fields = 3)
+// count, two steps of `fields` fields each (the host reads no further).
+std::string ModuleDossier(unsigned series, unsigned profile, unsigned game, std::uint32_t fields = 3,
+                          std::uint32_t version = kDesyncDossierVersion)
 {
     DesyncDossierHeader header{};
     std::memcpy(header.magic, kDesyncDossierMagic, sizeof header.magic);
-    header.version = kDesyncDossierVersion;
+    header.version = version;
     header.series = series;
     header.profile_id = profile;
     header.game = game;
@@ -787,6 +788,25 @@ void TestDossiers()
                     && !std::filesystem::exists(folder / "half.rcds.tmp")
                     && !std::filesystem::exists(folder / "junk.rcds"),
                 "the 20 newest kept but the foreign one, the rest deleted");
+    }
+
+    // 1.1.6's dossiers (version 1) left on disk still go; one of a version
+    // after this build's is deleted.
+    {
+        std::filesystem::remove_all(folder);
+        std::filesystem::create_directories(folder);
+        std::ofstream(folder / "v1.rcds", std::ios::binary) << ModuleDossier(1, 1000000042, 1, 3, 1);
+        std::ofstream(folder / "next.rcds", std::ios::binary)
+            << ModuleDossier(1, 1000000042, 1, 3, kDesyncDossierVersion + 1);
+        DossierServer server;
+        OnlineReports reports("R4QE", kBuild, kOs, server.Send(), nullptr, 5ms);
+        reports.KeepDossiers(folder);
+        reports.Observe(Series(1, 3));
+        Require(WaitUntil([&] { return server.Count() == 1 && Files(folder) == 0; }),
+                "a version 1 dossier sent, a later version's deleted");
+        DesyncDossierHeader header;
+        std::memcpy(&header, server.dossiers[0].data(), sizeof header);
+        Require(header.version == 1, "the version 1 one as it was");
     }
     std::filesystem::remove_all(folder);
 }

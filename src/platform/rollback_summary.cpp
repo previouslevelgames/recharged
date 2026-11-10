@@ -19,8 +19,11 @@ void WriteSummary()
         std::fprintf(file, "rollback: network matches predict, input delay %d steps\n", s.options.inputDelay);
         std::fprintf(file, "DESYNCS: %llu", static_cast<unsigned long long>(s.net.desyncs));
         if (s.net.desyncs) std::fprintf(file, " (first at frame %u)", s.net.firstDesyncFrame);
-        std::fprintf(file, "; checksums compared with other machines %llu; ROLLBACKS IMPOSSIBLE %llu\n",
-                     static_cast<unsigned long long>(s.net.remoteChecks), static_cast<unsigned long long>(s.net.impossible));
+        std::fprintf(file, "; checksums compared with other machines %llu; ROLLBACKS IMPOSSIBLE %llu; "
+                           "PREDICTED STEPS KEPT for a disc read %llu, when tracking stopped %llu\n",
+                     static_cast<unsigned long long>(s.net.remoteChecks), static_cast<unsigned long long>(s.net.impossible),
+                     static_cast<unsigned long long>(s.net.keptPredicted),
+                     static_cast<unsigned long long>(s.net.stoppedPredicted));
         std::fprintf(file, "steps with predicted inputs %llu, by how many steps predicted:",
                      static_cast<unsigned long long>(s.net.predictedSteps));
         for (int d = 1; d <= kMaxDepth; ++d)

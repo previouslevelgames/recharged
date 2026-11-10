@@ -306,6 +306,7 @@ void Stop(const char* why)
     if (OldestPredicted())
     {
         // Nothing can go back before them any more.
+        ++s.net.stoppedPredicted;
         Log("STOPPED WITH INPUTS STILL PREDICTED: a misprediction now desyncs\n");
         for (unsigned& first : s.net.firstPredicted) first = 0;
     }
