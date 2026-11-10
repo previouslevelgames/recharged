@@ -243,9 +243,10 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
     const bool remotes_play = !players.fixed || !players.remotes.empty();
     if (settings.physical_wii_remotes && remotes_play) InitializeWiimoteHid(hid);
     if (players.fixed) {
-        // Controllers that are configured but not there at start drop out and
-        // the other players close up in order; with nobody left keyboard &
-        // mouse is player 1, so the game can always be controlled.
+        // Wii Remotes that are configured but not there at start drop out and
+        // the other players close up in order. Standard gamepad slots stay:
+        // SDL's desktop provider scans throughout the run, so a controller can
+        // connect or reconnect without restarting the game.
         bool dropped = false;
         const auto status = GetWiimoteHidStatus();
         for (auto it = players.remotes.begin(); it != players.remotes.end();) {
@@ -268,12 +269,10 @@ void InitializeNativeHardwareInput(SDL_Window* window, WpadSDLSettings settings,
             [](int channel) { return channel >= 0; }));
         if (wanted) {
             int present = ConnectedGamepads(wanted);
-            for (auto& channel : players.gamepads) {
+            for (const auto channel : players.gamepads) {
                 if (channel < 0) continue;
                 if (present > 0) { --present; continue; }
-                SDL_Log("Gamepad for player %d is not connected: that player is left out", channel + 1);
-                channel = -1;
-                dropped = true;
+                SDL_Log("Gamepad for player %d is not connected: waiting for it during the game", channel + 1);
             }
         }
         if (dropped) {

@@ -388,6 +388,42 @@ void GamepadPlayerCycle() {
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
 }
+// A configured gamepad may arrive after startup, disconnect, and reconnect on
+// the same player channel without rebuilding the desktop input owner.
+void GamepadHotplugCycle() {
+    connects = samples = extension_count = 0;
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {0, -1, -1, -1};
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    WPADInit();
+    WPADSetConnectCallback(0, Connect);
+    WPADSetSamplingCallback(0, Sample);
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+    Check(WPADProbe(0, &type) == WPAD_ERR_NO_CONTROLLER,
+          "An absent configured gamepad manufactured a controller");
+    auto pad = std::make_unique<GenericPad>();
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "A gamepad connected after startup did not become player 1");
+    SDL_SetJoystickVirtualButton(pad->joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    Until([&] { return Report().button == WPAD_BUTTON_A; },
+          "A gamepad connected after startup produced no input");
+    pad.reset();
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_NO_CONTROLLER; },
+          "A disconnected gamepad stayed connected");
+    pad = std::make_unique<GenericPad>();
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+          "A reconnected gamepad did not return to player 1");
+    SDL_SetJoystickVirtualButton(pad->joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+    Until([&] { return Report().button == WPAD_BUTTON_A; },
+          "A reconnected gamepad produced no input");
+    pad.reset();
+    mscharged::platform::ShutdownDesktopWpad();
+    WPADShutdown();
+}
 // The game's own processing of the Nunchuk stick (original ClampWiiStick),
 // written out again: 15 counts dropped per axis, full push 56 counts further.
 std::array<int, 2> GameStick(int x, int y) {
@@ -1281,6 +1317,7 @@ int main() {
         }
         // With the generic pad above gone, this test's pad is gamepad 1.
         GamepadPlayerCycle();
+        GamepadHotplugCycle();
         StickDeadzoneChecks();
         CustomGamepadCycle();
         ControllerFamilyCycle();
