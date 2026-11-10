@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -81,6 +82,23 @@ int main() {
     Check(IsBluetoothWiimoteId(unnamed) && unnamed == BluetoothWiimoteId("serial?", "/dev/hidraw7") &&
           unnamed != BluetoothWiimoteId("", "/dev/hidraw8"), "a remote without an address");
 
+    // The battery, time and duration in the log's connect and drop-out lines.
+    Check(WiimoteBatteryPercent(0xc8) == 100 && WiimoteBatteryPercent(0xff) == 100 &&
+          WiimoteBatteryPercent(0x64) == 50 && WiimoteBatteryPercent(0) == 0, "battery percent");
+    Check(WiimoteBatteryText(0x46, false) == "battery 35 %" && WiimoteBatteryText(0x10, true) == "battery 8 % (low)",
+          "battery text");
+    Check(WiimoteDurationText(std::chrono::seconds(45)) == "45 s" &&
+          WiimoteDurationText(std::chrono::seconds(552)) == "9 min 12 s" &&
+          WiimoteDurationText(std::chrono::seconds(3900)) == "1 h 05 min" &&
+          WiimoteDurationText(std::chrono::seconds(-3)) == "0 s", "duration text");
+    {
+        const auto time = WiimoteLogTime();
+        const auto digit = [&](std::size_t at) { return std::isdigit(static_cast<unsigned char>(time[at])) != 0; };
+        const auto digits = [&](std::size_t at) { return digit(at) && digit(at + 1); };
+        Check(time.size() == 8 && time[2] == ':' && time[5] == ':' && digits(0) && digits(3) && digits(6),
+              "log time is not HH:MM:SS");
+    }
+
     // Speaker reports as original WPADControlSpeaker queues them (WPAD.c):
     // ON enables, mutes, powers the decoder, writes the configuration with the
     // volume byte and unmutes; OFF undoes it; PLAY writes 0xa20008.
@@ -144,6 +162,7 @@ int main() {
         ShutdownWiimoteHid();
     }
 
-    std::printf("Wii Remote IR decoding, ids, speaker reports and HID scans: %u checks, %u failures\n", checks, failures);
+    std::printf("Wii Remote IR decoding, ids, log texts, speaker reports and HID scans: %u checks, %u failures\n",
+                checks, failures);
     return failures ? 1 : 0;
 }

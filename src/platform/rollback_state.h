@@ -500,4 +500,7 @@ void WriteSummary();
 unsigned RecordedChecksum(unsigned (*checksum)(), unsigned frame);
 void ConfirmFields(unsigned frame);
 void LogFields(unsigned frame);
+// At a match's first desync: its dossier for the WFC server, from the fields
+// ConfirmFields kept (desync_dossier.h), until the host takes it.
+void KeepDossier(const SyncPoint& ours, const SyncPoint& remote);
 } // namespace mscharged::rollback

@@ -1,5 +1,6 @@
 #include "platform/online_reports.h"
 
+#include "platform/desync_dossier.h"
 #include "platform/host_os.h"
 #include "platform/http_client.h"
 #include "platform/json.h"
@@ -10,8 +11,10 @@
 #include <condition_variable>
 #include <cstring>
 #include <deque>
+#include <fstream>
 #include <iterator>
 #include <mutex>
+#include <system_error>
 
 namespace mscharged::platform {
 namespace {
@@ -33,8 +36,75 @@ constexpr const char* kPhases[] = {"none", "login", "matchmaking", "prestart", "
 // The server's paths: the match reports and the error codes.
 constexpr const char* kReportsPath = "/api/v1/wfc/reports";
 constexpr const char* kErrorsPath = "/api/v1/wfc/errors";
+constexpr const char* kDossiersPath = "/api/v1/wfc/desyncs";
 // A report not delivered is tried this many times.
 constexpr int kAttempts = 4;
+// The desync dossiers kept: the newest ones, for at most as many days as the
+// server keeps them.
+constexpr int kKeptDossiers = 20;
+constexpr auto kDossierDays = std::chrono::hours(24 * 30);
+constexpr const char* kDossierExtension = ".rcds";
+
+// A dossier's header, when `bytes` holds one of this version that fits.
+bool DossierHeader(const std::string& bytes, DesyncDossierHeader& header)
+{
+    if (bytes.size() < sizeof header || bytes.size() > kDesyncDossierMaxBytes) return false;
+    std::memcpy(&header, bytes.data(), sizeof header);
+    return std::memcmp(header.magic, kDesyncDossierMagic, sizeof header.magic) == 0
+        && header.version == kDesyncDossierVersion;
+}
+
+// `text` in a fixed-size field, NUL-padded (cut when longer).
+template <std::size_t N> void Fixed(char (&field)[N], const std::string& text)
+{
+    std::memset(field, 0, N);
+    std::memcpy(field, text.data(), std::min(text.size(), N));
+}
+
+std::string Utf8(const std::filesystem::path& path)
+{
+    const auto utf8 = path.u8string();
+    return std::string(utf8.begin(), utf8.end());
+}
+
+std::string ReadFile(const std::filesystem::path& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    std::string bytes;
+    char chunk[4096];
+    while (in && bytes.size() <= kDesyncDossierMaxBytes)
+    {
+        in.read(chunk, sizeof chunk);
+        bytes.append(chunk, std::size_t(in.gcount()));
+    }
+    return bytes;
+}
+
+// The folder's dossiers, newest first; those past kDossierDays and past the
+// kKeptDossiers newest are deleted.
+std::vector<std::filesystem::path> KeptDossiers(const std::filesystem::path& folder)
+{
+    std::error_code error;
+    std::vector<std::pair<std::filesystem::file_time_type, std::filesystem::path>> found;
+    for (std::filesystem::directory_iterator it(folder, error), end; !error && it != end; it.increment(error))
+    {
+        std::error_code ignored;
+        if (it->path().extension() == kDossierExtension && it->is_regular_file(ignored))
+            found.emplace_back(it->last_write_time(ignored), it->path());
+    }
+    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    const auto oldest = std::filesystem::file_time_type::clock::now() - kDossierDays;
+    std::vector<std::filesystem::path> kept;
+    for (const auto& [written, path] : found)
+    {
+        std::error_code ignored;
+        if (written < oldest || int(kept.size()) == kKeptDossiers)
+            std::filesystem::remove(path, ignored);
+        else
+            kept.push_back(path);
+    }
+    return kept;
+}
 
 template <std::size_t N> const char* Name(const char* const (&names)[N], int index)
 {
@@ -211,16 +281,20 @@ std::string OnlineErrorReport(const ChargedOnlineError& error, const std::string
 
 struct OnlineReports::State {
     // A body and the path on the server it goes to.
+    // A body and the path on the server it goes to; or, `dossiers` set, the
+    // dossiers of that profile in `folder`.
     struct Post
     {
         const char* path;
         std::string body;
+        std::uint32_t dossiers = 0;
     };
     std::mutex mutex;
     std::condition_variable wake;
     std::deque<Post> queue;
     bool stop = false;
     std::shared_ptr<HttpCancel> cancel = std::make_shared<HttpCancel>();
+    std::filesystem::path folder; // the dossiers', empty: none
 };
 
 std::unique_ptr<OnlineReports> OnlineReports::Start(const std::string& server, const std::string& release,
@@ -241,13 +315,16 @@ OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, 
     {
         std::atomic<bool> reports{false};
         std::atomic<bool> errors{false};
+        std::atomic<bool> dossiers{false};
     };
     auto off = std::make_shared<Endpoints>();
     return [server, log = std::move(log), request = std::move(request), off](
                const std::string& path, const std::string& body, const std::shared_ptr<HttpCancel>& cancel) {
         const bool errors = path == kErrorsPath;
-        std::atomic<bool>& unsupported = errors ? off->errors : off->reports;
-        if (unsupported) return true;
+        const bool dossier = path == kDossiersPath;
+        std::atomic<bool>& unsupported = errors ? off->errors : dossier ? off->dossiers : off->reports;
+        // A dossier stays for a server that takes it.
+        if (unsupported) return !dossier;
         HttpRequest http;
         http.url = "http://" + server + path;
         http.method = "POST";
@@ -255,7 +332,7 @@ OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, 
         // Plain http like the game's own WFC requests (its NAS login and
         // gamestats) to the same server.
         http.allow_http = true;
-        http.headers = {"Content-Type: application/json"};
+        http.headers = {dossier ? "Content-Type: application/octet-stream" : "Content-Type: application/json"};
         http.connect_timeout = 10;
         http.stall_timeout = 15;
         http.max_size = 64u << 10;
@@ -270,11 +347,18 @@ OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, 
             {
                 unsupported = true;
                 if (log)
-                    log(std::string("Match reports: ") + (errors ? "error codes off" : "off")
+                    log(std::string("Match reports: ")
+                        + (errors ? "error codes off" : dossier ? "desync dossiers kept" : "off")
                         + ", the server takes none (HTTP " + std::to_string(response.status) + ")");
+                if (dossier) return false;
             }
+            // Not logged in from here (yet), or too many: a later series
+            // sends the dossier again.
+            else if (dossier && (response.status == 403 || response.status == 429))
+                return false;
             else if (response.status != 200 && log)
-                log(std::string("Match reports: the server refused ") + (errors ? "an error code" : "a report")
+                log(std::string("Match reports: the server refused ")
+                    + (errors ? "an error code" : dossier ? "a desync dossier" : "a report")
                     + " (HTTP " + std::to_string(response.status) + "): " + response.body.substr(0, 200));
             return true;
         }
@@ -288,7 +372,8 @@ OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, 
 
 OnlineReports::OnlineReports(std::string release, std::string build, std::string os, Send send, Log log,
                              std::chrono::milliseconds retry)
-    : state_(std::make_shared<State>()), release_(std::move(release)), build_(std::move(build)), os_(std::move(os))
+    : state_(std::make_shared<State>()), log_(log), release_(std::move(release)), build_(std::move(build)),
+      os_(std::move(os))
 {
     thread_ = std::thread([state = state_, send = std::move(send), log = std::move(log), retry] {
         std::unique_lock lock(state->mutex);
@@ -297,6 +382,27 @@ OnlineReports::OnlineReports(std::string release, std::string build, std::string
             state->wake.wait(lock, [&] { return state->stop || !state->queue.empty(); });
             if (state->stop) return;
             const State::Post post = state->queue.front();
+            // A profile's dossiers: each sent once, deleted once delivered.
+            if (post.dossiers)
+            {
+                const std::filesystem::path folder = state->folder;
+                lock.unlock();
+                for (const auto& path : KeptDossiers(folder))
+                {
+                    const std::string bytes = ReadFile(path);
+                    DesyncDossierHeader header;
+                    std::error_code ignored;
+                    if (!DossierHeader(bytes, header))
+                        std::filesystem::remove(path, ignored);
+                    else if (header.profile_id == post.dossiers && send(kDossiersPath, bytes, state->cancel))
+                        std::filesystem::remove(path, ignored);
+                    std::lock_guard stopping(state->mutex);
+                    if (state->stop) return;
+                }
+                lock.lock();
+                state->queue.pop_front();
+                continue;
+            }
             bool delivered = false;
             for (int attempt = 0; attempt < kAttempts && !delivered; ++attempt)
             {
@@ -327,7 +433,8 @@ void OnlineReports::Observe(const ChargedOnlineMatchSnapshot& snapshot)
 {
     // Each series gets a number of its own from its start time, so a series
     // after the game restarts never takes an earlier one's.
-    if (snapshot.series && (!seen_ || snapshot.series != last_.series))
+    const bool begun = snapshot.series && (!seen_ || snapshot.series != last_.series);
+    if (begun)
     {
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                              std::chrono::system_clock::now().time_since_epoch())
@@ -341,11 +448,82 @@ void OnlineReports::Observe(const ChargedOnlineMatchSnapshot& snapshot)
         : std::string();
     last_ = snapshot;
     seen_ = true;
-    if (events.empty() && error.empty()) return;
+    // A series begun: its profile is logged in, its dossiers left over can go.
+    const bool dossiers = begun && snapshot.profile_id && !folder_.empty();
+    if (events.empty() && error.empty() && !dossiers) return;
     {
         std::lock_guard lock(state_->mutex);
         for (const auto& event : events) state_->queue.push_back({kReportsPath, event});
         if (!error.empty()) state_->queue.push_back({kErrorsPath, error});
+        if (dossiers) state_->queue.push_back({kDossiersPath, {}, snapshot.profile_id});
+    }
+    state_->wake.notify_all();
+}
+
+void OnlineReports::KeepDossiers(std::filesystem::path folder)
+{
+    std::error_code error;
+    if (!folder.empty()) std::filesystem::create_directories(folder, error);
+    // Files half written when an earlier run ended (a dossier is written on
+    // the game's thread, so none is now).
+    for (std::filesystem::directory_iterator it(folder, error), end; !folder.empty() && !error && it != end;
+         it.increment(error))
+    {
+        std::error_code ignored;
+        if (it->path().extension() == ".tmp") std::filesystem::remove(it->path(), ignored);
+    }
+    folder_ = folder;
+    std::lock_guard lock(state_->mutex);
+    state_->folder = std::move(folder);
+}
+
+void OnlineReports::Dossier(const void* data, std::size_t size)
+{
+    if (folder_.empty()) return;
+    std::string bytes(static_cast<const char*>(data), size);
+    DesyncDossierHeader header;
+    // The module names its series by its own count: the one Observe saw last.
+    if (!DossierHeader(bytes, header) || !seen_ || header.series != last_.series || !header.profile_id)
+    {
+        if (log_) log_("Desync dossiers: one dropped (no series seen for it)");
+        return;
+    }
+    header.series = series_;
+    header.written_at = std::uint64_t(std::max<long long>(
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count(),
+        0));
+    Fixed(header.release, release_);
+    Fixed(header.build, Printable(build_));
+    Fixed(header.platform, HostPlatform());
+    std::memcpy(bytes.data(), &header, sizeof header);
+    // Whole or not at all: a crash while writing leaves a .tmp the next
+    // run deletes (KeepDossiers). By profile too: both sides' of a game
+    // have the same series and game, and two games on one computer (a
+    // test) share the folder.
+    const std::filesystem::path path =
+        folder_ / (std::to_string(header.series) + '-' + std::to_string(header.game) + '-'
+                   + std::to_string(header.profile_id) + kDossierExtension);
+    std::filesystem::path partial = path;
+    partial += ".tmp";
+    std::error_code error;
+    {
+        std::ofstream out(partial, std::ios::binary | std::ios::trunc);
+        out.write(bytes.data(), std::streamsize(bytes.size()));
+        out.close();
+        if (!out) error = std::make_error_code(std::errc::io_error);
+    }
+    if (!error) std::filesystem::rename(partial, path, error);
+    if (error)
+    {
+        std::error_code ignored;
+        std::filesystem::remove(partial, ignored);
+        if (log_) log_("Desync dossiers: cannot write " + Utf8(path.filename()) + ": " + error.message());
+        return;
+    }
+    if (log_) log_("Desync dossiers: kept " + Utf8(path.filename()));
+    {
+        std::lock_guard lock(state_->mutex);
+        state_->queue.push_back({kDossiersPath, {}, header.profile_id});
     }
     state_->wake.notify_all();
 }

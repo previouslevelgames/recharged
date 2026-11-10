@@ -4,6 +4,7 @@
 #include "platform/wiimote_ids.h"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -170,6 +171,17 @@ bool WiimoteDebug();
 // output report and returns that padded length, so success is any count of
 // at least `size`, not exactly `size`.
 bool WriteWiimoteReport(SDL_hid_device* hid, const std::uint8_t* report, std::size_t size);
+// The battery level byte of a status report (0xc8 = full) in percent.
+int WiimoteBatteryPercent(std::uint8_t level);
+// For the log: "battery 35 %", with " (low)" when the Remote's own
+// low-battery flag (status flags bit 0) is set.
+std::string WiimoteBatteryText(std::uint8_t level, bool low);
+// For the log: the local time of day ("18:37:21") at the start of the lines
+// about Wii Remotes connecting and dropping out, so a log shows when and how
+// often it happened.
+std::string WiimoteLogTime(std::chrono::system_clock::time_point now = std::chrono::system_clock::now());
+// For the log: "45 s", "9 min 12 s", "1 h 05 min".
+std::string WiimoteDurationText(std::chrono::seconds duration);
 // The settings id of a Wii Remote HID device (wiimote_ids.h). A DolphinBar
 // interface takes its interface number as slot, or else its position among
 // the interfaces of the same enumeration, which adapter_index counts.

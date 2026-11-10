@@ -434,7 +434,8 @@ status, unless `[discord] application_id` names one.
 
 **Server** (`server`) is the host name or address the game's Nintendo Wi-Fi
 Connection names resolve to, and where the series you play online and the
-error codes the online menus show you are reported. It is already set to the
+error codes the online menus show you are reported. The launcher asks it how
+many players are online, for the Play page. It is already set to the
 project's server, so you only change it to play on a private instance of the
 server ([recharged-wfc-srv](https://github.com/previouslevelgames/recharged-wfc-srv)).
 Left out or empty, it is the project's server too.
@@ -473,8 +474,8 @@ saves, caches and logs stay. A folder that was not unpacked from a package, or
 is not writable, gets a download link instead.
 
 **Advanced → Updates** turns the automatic check off
-(`[launcher] check_updates`); a click on the update status on the Play page
-checks on demand.
+(`[launcher] check_updates`); the round arrow button on the Play page checks on
+demand, and its tooltip tells the result of the last check.
 
 **Release / Test** on the Play page (`[launcher] update_channel`) chooses what
 to follow: official releases, or also the **test builds** of changes that are

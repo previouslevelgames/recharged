@@ -189,6 +189,18 @@ std::vector<NoteSpan> ParseNoteSpans(std::string_view text)
     return spans;
 }
 
+std::vector<NoteBlock> WithoutNotesFooter(std::vector<NoteBlock> blocks)
+{
+    const auto rule = std::find_if(blocks.rbegin(), blocks.rend(),
+                                   [](const NoteBlock& block) { return block.kind == NoteBlock::Kind::Rule; });
+    if (rule == blocks.rend()) return blocks;
+    const auto footer = rule.base() - 1;
+    if (std::all_of(footer + 1, blocks.end(),
+                    [](const NoteBlock& block) { return block.kind == NoteBlock::Kind::Paragraph; }))
+        blocks.erase(footer, blocks.end());
+    return blocks;
+}
+
 std::vector<NoteBlock> ParseReleaseNotes(std::string_view markdown)
 {
     std::string text = WithoutComments(markdown);

@@ -11,6 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <condition_variable>
 #include <cstring>
@@ -46,6 +47,13 @@ constexpr std::chrono::milliseconds kModeRestore{500}, kDataGap{100};
 // repeated failures mean the remote is gone.
 constexpr std::chrono::milliseconds kWriteRetry{20};
 constexpr int kWriteAttempts = 10;
+// A ready player's Remote is asked for a status report this often, so the log
+// can follow its battery during play (the game itself never asks). A level
+// that moved by kBatteryStep since the log last named it, or the Remote's
+// low-battery flag changing, gets a line: the level jitters a little with the
+// load (rumble, speaker).
+constexpr std::chrono::seconds kBatteryCheck{60};
+constexpr int kBatteryStep = 10;
 
 
 enum class Wait { None, Ack, Read };
@@ -87,6 +95,10 @@ constexpr std::chrono::seconds kSpeakerReport{30};
 constexpr std::chrono::milliseconds kRumbleRide{10};
 // A remote that becomes a player rumbles this long (WiimoteHidSettings::bind_rumble).
 constexpr std::chrono::milliseconds kBindRumble{200};
+// A remote nothing was written to for this long gets a rumble report with the
+// current rumble bit, as Dolphin's writer does: Remotes on a laptop's Windows
+// Bluetooth turned themselves off after minutes of play here, not in Dolphin.
+constexpr std::chrono::milliseconds kWriteKeepAlive{1000};
 using Frame = std::array<std::uint8_t, 22>;
 struct Writer {
     struct Report {
@@ -102,6 +114,7 @@ struct Writer {
     Clock::time_point last_frame{};
     bool rumble_due = false; // a rumble change no report has carried yet
     Clock::time_point pulse_end{}; // end of the player pulse (Remote::pulse)
+    Clock::time_point last_write = Clock::now(); // start of the last write (kWriteKeepAlive)
     std::deque<std::pair<std::uint64_t, bool>> results; // sequence, sent
     bool stop = false, drain = false;
     // Speaker frames since the last report, under the mutex.
@@ -143,6 +156,11 @@ struct Remote {
     bool extension = false, nunchuk = false;
     int nunchuk_zero[3]{512, 512, 512}, nunchuk_one[3]{712, 712, 712}, nunchuk_centre[2]{128, 128};
     std::uint8_t battery = 0;
+    bool battery_low = false; // status flags bit 0
+    Clock::time_point battery_read{}, next_battery_check{};
+    int logged_battery = -1; // percent the log last named, -1: none yet
+    bool logged_low = false;
+    Clock::time_point ready_since{};
     bool ir_visible = false;
     Clock::time_point next_debug_log{};
     int led_channel = -2;
@@ -155,6 +173,10 @@ struct Remote {
 };
 
 bool Verbose() { return mscharged::platform::WiimoteDebug(); }
+std::string Time() { return mscharged::platform::WiimoteLogTime(); }
+std::string Battery(const Remote& remote) {
+    return mscharged::platform::WiimoteBatteryText(remote.battery, remote.battery_low);
+}
 
 struct Driver {
     bool initialized = false;
@@ -192,14 +214,16 @@ void RunWriter(Remote* remote, SDL_hid_device* hid) {
     };
     for (;;) {
         // The player pulse ends here on time, however busy the owner is.
-        if (remote->pulse) writer.wake.wait_until(lock, writer.pulse_end, busy);
-        else writer.wake.wait(lock, busy);
+        const auto keep_alive = writer.last_write + kWriteKeepAlive;
+        writer.wake.wait_until(lock, remote->pulse ? std::min(writer.pulse_end, keep_alive) : keep_alive, busy);
         if (remote->pulse && Clock::now() >= writer.pulse_end) {
             remote->pulse = false;
             writer.rumble_due = true;
         }
+        if (!busy() && Clock::now() >= writer.last_write + kWriteKeepAlive) writer.rumble_due = true;
         if (!busy()) continue;
         if (writer.stop && (!writer.drain || writer.reports.empty())) return;
+        writer.last_write = Clock::now();
         if (!writer.reports.empty()) {
             auto report = std::move(writer.reports.front());
             writer.reports.pop_front();
@@ -487,10 +511,12 @@ void AttachVirtual(Remote& remote) {
     remote.dpd = mscharged::platform::AttachNativeWpadDpdSource(remote.virtual_id);
     if (remote.nunchuk)
         remote.nunchuk_source = mscharged::platform::AttachNativeWpadNunchukSource(remote.virtual_id);
-    SDL_Log("Wii Remote%s connected via %s%s%s", remote.plus ? " Plus" : "",
+    remote.logged_battery = mscharged::platform::WiimoteBatteryPercent(remote.battery);
+    remote.logged_low = remote.battery_low;
+    SDL_Log("%s Wii Remote%s connected via %s%s%s, %s", Time().c_str(), remote.plus ? " Plus" : "",
             remote.adapter ? Describe(remote).c_str() : (Describe(remote) + " (" + remote.id + ")").c_str(),
             remote.nunchuk ? " with Nunchuk" : "",
-            channel >= 0 ? (" as player " + std::to_string(channel + 1)).c_str() : "");
+            channel >= 0 ? (" as player " + std::to_string(channel + 1)).c_str() : "", Battery(remote).c_str());
 }
 
 void DetachVirtual(Remote& remote) {
@@ -507,7 +533,20 @@ void DetachVirtual(Remote& remote) {
 }
 
 void Lost(Remote& remote, const char* why) {
-    if (remote.present) SDL_Log("Wii Remote disconnected (%s)", why);
+    const auto now = Clock::now();
+    if (remote.present) {
+        const auto since = [&](Clock::time_point then) {
+            using std::chrono::duration_cast, std::chrono::seconds;
+            return mscharged::platform::WiimoteDurationText(duration_cast<seconds>(now - then));
+        };
+        std::string text = Time() + " Wii Remote disconnected (" + why + "): " + Describe(remote);
+        if (remote.ready) text += ", connected for " + since(remote.ready_since);
+        text += ", " + Battery(remote);
+        // A Remote that is not asked during play (ChecksBattery) or did not
+        // answer: say how old the level is.
+        if (now - remote.battery_read > 2 * kBatteryCheck) text += " (read " + since(remote.battery_read) + " before)";
+        SDL_Log("%s", text.c_str());
+    }
     DetachVirtual(remote);
     remote.present = remote.ready = remote.probing = remote.waiting = false;
     remote.queue.clear();
@@ -517,7 +556,7 @@ void Lost(Remote& remote, const char* why) {
     remote.speaker_tail = remote.speaker_commands = 0;
     remote.pulse = false;
     ClearWriter(remote);
-    remote.next_probe = Clock::now() + 1s;
+    remote.next_probe = now + 1s;
 }
 
 int Calibrated(int raw, int zero, int one, int unit) {
@@ -639,6 +678,17 @@ void Publish(Remote& remote, const std::uint8_t* report) {
     }
 }
 
+// A player's Remote whose battery moved by kBatteryStep, or whose low flag
+// changed, since the log last named its level.
+void LogBatteryChange(Remote& remote) {
+    if (!remote.virtual_id || remote.logged_battery < 0) return;
+    const int percent = mscharged::platform::WiimoteBatteryPercent(remote.battery);
+    if (std::abs(percent - remote.logged_battery) < kBatteryStep && remote.battery_low == remote.logged_low) return;
+    remote.logged_battery = percent;
+    remote.logged_low = remote.battery_low;
+    SDL_Log("%s Wii Remote (%s): %s", Time().c_str(), Describe(remote).c_str(), Battery(remote).c_str());
+}
+
 void HandleReport(Remote& remote, const std::uint8_t* report, int size, Clock::time_point now) {
     const std::uint8_t id = report[0];
     if (id == 0x20 && size >= 7) {
@@ -647,7 +697,8 @@ void HandleReport(Remote& remote, const std::uint8_t* report, int size, Clock::t
         if (Verbose())
             SDL_Log("Wii Remote %s: status flags %02x battery %d", remote.path.c_str(), report[3], report[6]);
         remote.battery = report[6];
-        remote.last_report = now;
+        remote.battery_low = (report[3] & 0x01) != 0;
+        remote.battery_read = remote.last_report = now;
         const bool extension = (report[3] & 0x02) != 0;
         if (!remote.present) {
             remote.present = true;
@@ -657,6 +708,7 @@ void HandleReport(Remote& remote, const std::uint8_t* report, int size, Clock::t
             QueueSetup(remote);
             return;
         }
+        LogBatteryChange(remote);
         if (extension != remote.extension) {
             remote.extension = extension;
             if (!extension && remote.nunchuk) {
@@ -775,7 +827,8 @@ void Pump(Remote& remote, Clock::time_point now) {
     }
     if (!remote.ready && remote.present) {
         remote.ready = true;
-        remote.last_data = now;
+        remote.last_data = remote.ready_since = now;
+        remote.next_battery_check = now + kBatteryCheck;
         AttachVirtual(remote);
     }
 }
@@ -873,6 +926,19 @@ void Enumerate(Driver& driver) {
         SDL_Log("Wii Remote: scanning the HID devices took %d ms", static_cast<int>(took.count()));
 }
 
+// Linux's hid-wiimote driver, bound to Remotes connected directly over
+// Bluetooth, answers every status report by switching the Remote to buttons
+// only, and the game's set-up then runs again (a gap in pointer and Nunchuk):
+// those Remotes report their battery only when they connect.
+bool ChecksBattery(const Remote& remote) {
+#if defined(__linux__)
+    return remote.adapter;
+#else
+    (void)remote;
+    return true;
+#endif
+}
+
 void ServiceRemote(Remote& remote, Clock::time_point now) {
     if (!remote.hid) return;
     ReadAll(remote, now);
@@ -908,6 +974,14 @@ void ServiceRemote(Remote& remote, Clock::time_point now) {
         Lost(remote, "no reports");
         return;
     }
+    // The answer comes as a status report, after which the reporting mode is
+    // sent again (HandleReport).
+    if (remote.ready && remote.virtual_id && ChecksBattery(remote) && !remote.waiting && remote.queue.empty() &&
+        now >= remote.next_battery_check) {
+        remote.next_battery_check = now + kBatteryCheck;
+        Queue(remote, {0x15, 0x00});
+        Pump(remote, now);
+    }
     UpdateLeds(remote, now);
     ReportSpeaker(remote, now);
 }
@@ -932,8 +1006,10 @@ void UpdateBluetoothSearch(Driver& driver, Clock::time_point now) {
     if (!driver.bluetooth->Status().supported) return;
     driver.bluetooth_active = search;
     driver.bluetooth->SetActive(search);
-    if (search) SDL_Log("Wii Remote: scanning over Bluetooth for player %s (press 1+2 on the Remote)", missing.c_str());
-    else SDL_Log("Wii Remote: every player's Remote is connected; Bluetooth scanning stopped");
+    if (search)
+        SDL_Log("%s Wii Remote: scanning over Bluetooth for player %s (press 1+2 on the Remote)", Time().c_str(),
+                missing.c_str());
+    else SDL_Log("%s Wii Remote: every player's Remote is connected; Bluetooth scanning stopped", Time().c_str());
 }
 
 void RequireOwner() {
@@ -1165,7 +1241,7 @@ WiimoteHidStatus GetWiimoteHidStatus() {
         if (!remote->ready) continue;
         status.remotes.push_back({remote->path, remote->id, remote->slot, remote->plus,
                                   remote->led_channel >= 0 ? remote->led_channel : -1, remote->nunchuk,
-                                  remote->ir_visible, std::min(100, remote->battery * 100 / 0xc8)});
+                                  remote->ir_visible, WiimoteBatteryPercent(remote->battery)});
     }
     return status;
 }

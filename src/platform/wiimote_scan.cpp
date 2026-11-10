@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
+#include <ctime>
 #include <cwchar>
 #include <deque>
 #include <mutex>
@@ -40,6 +42,34 @@ bool WiimoteDebug() {
 
 bool WriteWiimoteReport(SDL_hid_device* hid, const std::uint8_t* report, std::size_t size) {
     return hid && size && SDL_hid_write(hid, report, size) >= int(size);
+}
+
+int WiimoteBatteryPercent(std::uint8_t level) { return std::min(100, level * 100 / 0xc8); }
+
+std::string WiimoteBatteryText(std::uint8_t level, bool low) {
+    return "battery " + std::to_string(WiimoteBatteryPercent(level)) + " %" + (low ? " (low)" : "");
+}
+
+std::string WiimoteLogTime(std::chrono::system_clock::time_point now) {
+    const std::time_t time = std::chrono::system_clock::to_time_t(now);
+    std::tm local{};
+#if defined(_WIN32)
+    localtime_s(&local, &time);
+#else
+    localtime_r(&time, &local);
+#endif
+    char text[16] = "";
+    std::strftime(text, sizeof text, "%H:%M:%S", &local);
+    return text;
+}
+
+std::string WiimoteDurationText(std::chrono::seconds duration) {
+    const long long total = std::max<long long>(0, duration.count());
+    char text[32];
+    if (total < 60) std::snprintf(text, sizeof text, "%lld s", total);
+    else if (total < 3600) std::snprintf(text, sizeof text, "%lld min %lld s", total / 60, total % 60);
+    else std::snprintf(text, sizeof text, "%lld h %02lld min", total / 3600, total / 60 % 60);
+    return text;
 }
 
 std::string WiimoteHidId(const SDL_hid_device_info* info, int& adapter_index) {
@@ -162,7 +192,7 @@ bool WiimoteHidProbe::Poll() {
             if (buffer[0] == 0x20 && size >= 7) {
                 device->answered = true;
                 device->nunchuk = (buffer[3] & 0x02) != 0;
-                device->battery = std::min(100, buffer[6] * 100 / 0xc8);
+                device->battery = WiimoteBatteryPercent(buffer[6]);
             }
         }
         pending |= !device->answered;

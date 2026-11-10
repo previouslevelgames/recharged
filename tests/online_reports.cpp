@@ -1,7 +1,9 @@
 // The WFC server's match reports: the series rule the game module applies to
 // each result, the report bodies the host makes of the module's series and
 // error codes, and the sender (paths, order, retries, dropping, stopping, the
-// server's answers) against a fake server.
+// server's answers) against a fake server; the desync dossiers it keeps on
+// disk until the server has them.
+#include "platform/desync_dossier.h"
 #include "platform/host_os.h"
 #include "platform/http_client.h"
 #include "platform/json.h"
@@ -12,6 +14,9 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
+#include <functional>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -30,6 +35,7 @@ const std::string kBuild = "1.1.0+g0123456789ab";
 const std::string kOs = "Linux (SteamOS), x86_64";
 const std::string kReports = "/api/v1/wfc/reports";
 const std::string kErrors = "/api/v1/wfc/errors";
+const std::string kDossiers = "/api/v1/wfc/desyncs";
 
 void Require(bool condition, const std::string& message)
 {
@@ -554,6 +560,235 @@ void TestHttpSend()
                 "no more reports after a 405");
         Require(sendOlder(kErrors, "{}", cancel) && older.To(kErrors) == 1, "error codes go on");
     }
+
+    // A dossier: delivered when stored or refused for what it is; kept when
+    // the server could not take it then; kept, and no more sent this run,
+    // when the server has no endpoint for it.
+    {
+        log.clear();
+        FakeHttp http;
+        http.answers[kDossiers] = {200, 400, 413, 403, 429, 503, 0, 404};
+        const auto send = OnlineReports::HttpSend("192.0.2.7", keep, http.Request());
+        Require(send(kDossiers, std::string("RCDS\0\1", 6), cancel), "a stored dossier is delivered");
+        Require(http.requests[0].body == std::string("RCDS\0\1", 6)
+                    && http.requests[0].headers == std::vector<std::string>{"Content-Type: application/octet-stream"},
+                "a dossier's request: its bytes as they are");
+        Require(send(kDossiers, "x", cancel) && send(kDossiers, "x", cancel), "a refused dossier (400, 413) is not kept");
+        for (const char* answer : {"403", "429", "503", "no answer"})
+            Require(!send(kDossiers, "x", cancel), std::string("a dossier answered ") + answer + " is kept");
+        Require(!send(kDossiers, "x", cancel) && http.To(kDossiers) == 8, "one answered 404 is kept");
+        Require(!send(kDossiers, "x", cancel) && http.To(kDossiers) == 8, "and no more are sent");
+        Require(send(kReports, "{}", cancel) && http.To(kReports) == 1, "reports go on");
+        Require(std::count_if(log.begin(), log.end(),
+                              [](const std::string& line) { return line.find("desync dossiers kept") != std::string::npos; })
+                    == 1,
+                "dossiers off, logged once");
+    }
+}
+
+// A dossier as the game module hands it over: its series by the module's
+// count, two steps of `fields` fields each.
+std::string ModuleDossier(unsigned series, unsigned profile, unsigned game, std::uint32_t fields = 3)
+{
+    DesyncDossierHeader header{};
+    std::memcpy(header.magic, kDesyncDossierMagic, sizeof header.magic);
+    header.version = kDesyncDossierVersion;
+    header.series = series;
+    header.profile_id = profile;
+    header.game = game;
+    header.side = 1;
+    header.frame = 4812;
+    header.checksum[0] = 0x11111111;
+    header.checksum[1] = 0x22222222;
+    header.steps = kDesyncDossierSteps;
+    std::string bytes(reinterpret_cast<const char*>(&header), sizeof header);
+    for (std::uint32_t frame : {4811u, 4812u})
+    {
+        const DesyncDossierStep step{frame, fields, 0};
+        bytes.append(reinterpret_cast<const char*>(&step), sizeof step);
+        for (std::uint32_t i = 0; i < fields; ++i)
+        {
+            DesyncDossierField field{0x123400 + i, 4, frame ^ i, {}};
+            std::memcpy(field.bytes, &frame, sizeof frame);
+            bytes.append(reinterpret_cast<const char*>(&field), sizeof field);
+        }
+    }
+    return bytes;
+}
+
+// The dossiers a folder holds.
+std::size_t Files(const std::filesystem::path& folder)
+{
+    std::error_code error;
+    std::size_t count = 0;
+    for (std::filesystem::directory_iterator it(folder, error), end; !error && it != end; it.increment(error))
+        ++count;
+    return count;
+}
+
+bool WaitUntil(const std::function<bool()>& condition)
+{
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!condition())
+    {
+        if (std::chrono::steady_clock::now() > until) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return true;
+}
+
+// The fake server for dossiers: takes them while `accept`, records them.
+struct DossierServer
+{
+    std::mutex mutex;
+    std::vector<std::string> dossiers;
+    std::atomic<bool> accept{true};
+    std::atomic<int> refused{0};
+
+    OnlineReports::Send Send()
+    {
+        return [this](const std::string& path, const std::string& body, const std::shared_ptr<HttpCancel>&) {
+            if (path != kDossiers) return true;
+            if (!accept)
+            {
+                ++refused;
+                return false;
+            }
+            std::lock_guard lock(mutex);
+            dossiers.push_back(body);
+            return true;
+        };
+    }
+
+    std::size_t Count()
+    {
+        std::lock_guard lock(mutex);
+        return dossiers.size();
+    }
+};
+
+void TestDossiers()
+{
+    using namespace std::chrono_literals;
+    const auto folder = std::filesystem::temp_directory_path()
+        / ("online_reports_dossiers_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::remove_all(folder);
+
+    // Written at once, stamped, delivered, then deleted.
+    {
+        DossierServer server;
+        OnlineReports reports("R4QE", kBuild, kOs, server.Send(), nullptr, 5ms);
+        reports.KeepDossiers(folder);
+        Require(std::filesystem::is_directory(folder), "the dossiers' folder is made");
+        auto s = Series(1, 3);
+        reports.Observe(s);
+        const std::string module = ModuleDossier(1, s.profile_id, 1);
+        reports.Dossier(module.data(), module.size());
+        Require(WaitUntil([&] { return server.Count() == 1 && Files(folder) == 0; }),
+                "the dossier delivered, then deleted");
+        const std::string sent = server.dossiers[0];
+        DesyncDossierHeader header;
+        std::memcpy(&header, sent.data(), sizeof header);
+        const auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+        Require(sent.size() == module.size() && header.series > std::uint64_t(now - 60)
+                    && header.series <= std::uint64_t(now) && header.written_at >= header.series
+                    && header.game == 1 && header.side == 1 && header.profile_id == s.profile_id,
+                "stamped with the series' number of its reports and the time");
+        Require(std::string(header.release, 4) == "R4QE" && std::string(header.build) == kBuild
+                    && std::string(header.platform, strnlen(header.platform, sizeof header.platform))
+                           == mscharged::platform::HostPlatform()
+                    && !mscharged::platform::HostPlatform().empty(),
+                "and with this release, build and platform");
+        Require(sent.compare(sizeof header, std::string::npos, module, sizeof header, std::string::npos) == 0,
+                "its steps as the module gave them");
+
+        // A dossier naming no series seen, or none, is dropped.
+        const std::string unseen = ModuleDossier(2, s.profile_id, 1);
+        reports.Dossier(unseen.data(), unseen.size());
+        reports.Dossier("RCDS", 4);
+        Require(Files(folder) == 0 && server.Count() == 1, "a dossier of no series seen is dropped");
+    }
+
+    // Not delivered: kept, and sent with the profile's next series, in this
+    // run or a later one; another profile's waits for that profile.
+    {
+        DossierServer server;
+        server.accept = false;
+        {
+            OnlineReports reports("R4QE", kBuild, kOs, server.Send(), nullptr, 5ms);
+            reports.KeepDossiers(folder);
+            auto s = Series(1, 3);
+            reports.Observe(s);
+            const std::string module = ModuleDossier(1, s.profile_id, 1);
+            reports.Dossier(module.data(), module.size());
+            Require(WaitUntil([&] { return server.refused >= 1; }) && Files(folder) == 1,
+                    "a dossier not delivered is kept");
+            auto other = Series(2, 1);
+            other.profile_id = 1000000099;
+            reports.Observe(other);
+            const std::string theirs = ModuleDossier(2, other.profile_id, 1);
+            reports.Dossier(theirs.data(), theirs.size());
+            Require(WaitUntil([&] { return server.refused >= 2 && Files(folder) == 2; }) && Files(folder) == 2,
+                    "another profile's sends only its own");
+            // Named by profile: the two sides' of a game, on one computer,
+            // are two files.
+            int named = 0;
+            for (const auto& entry : std::filesystem::directory_iterator(folder))
+            {
+                const std::string name = entry.path().filename().string();
+                for (const char* profile : {"-1-1000000042.rcds", "-1-1000000099.rcds"})
+                    if (name.size() > std::strlen(profile)
+                        && name.compare(name.size() - std::strlen(profile), std::string::npos, profile) == 0)
+                        ++named;
+            }
+            Require(named == 2, "each kept under its series, game and profile");
+        }
+        server.accept = true;
+        {
+            OnlineReports reports("R4QE", kBuild, kOs, server.Send(), nullptr, 5ms);
+            reports.KeepDossiers(folder);
+            reports.Observe(Series(1, 3));
+            Require(WaitUntil([&] { return server.Count() == 1 && Files(folder) == 1; }),
+                    "a later run sends the profile's dossier with its next series");
+            DesyncDossierHeader header;
+            std::memcpy(&header, server.dossiers[0].data(), sizeof header);
+            Require(header.profile_id == 1000000042, "the profile's own, the other's kept");
+        }
+    }
+
+    // The folder keeps the newest dossiers, none past the server's days;
+    // files half written and foreign ones go.
+    {
+        std::filesystem::remove_all(folder);
+        std::filesystem::create_directories(folder);
+        const std::string module = ModuleDossier(1, 1000000042, 1, 0);
+        const auto now = std::filesystem::file_time_type::clock::now();
+        for (int n = 0; n < 25; ++n)
+        {
+            const auto path = folder / (std::to_string(n) + ".rcds");
+            std::ofstream(path, std::ios::binary) << module;
+            std::filesystem::last_write_time(path, now - std::chrono::minutes(n));
+        }
+        const auto old = folder / "old.rcds";
+        std::ofstream(old, std::ios::binary) << module;
+        std::filesystem::last_write_time(old, now - std::chrono::hours(24 * 31));
+        std::ofstream(folder / "half.rcds.tmp") << "RC";
+        std::ofstream(folder / "junk.rcds") << "not a dossier";
+        DossierServer server;
+        server.accept = false;
+        OnlineReports reports("R4QE", kBuild, kOs, server.Send(), nullptr, 5ms);
+        reports.KeepDossiers(folder);
+        reports.Observe(Series(1, 3));
+        Require(WaitUntil([&] { return server.refused == 19; }), "the kept dossiers sent");
+        Require(Files(folder) == 19 && std::filesystem::exists(folder / "0.rcds")
+                    && !std::filesystem::exists(folder / "20.rcds") && !std::filesystem::exists(old)
+                    && !std::filesystem::exists(folder / "half.rcds.tmp")
+                    && !std::filesystem::exists(folder / "junk.rcds"),
+                "the 20 newest kept but the foreign one, the rest deleted");
+    }
+    std::filesystem::remove_all(folder);
 }
 
 void TestSender()
@@ -719,6 +954,7 @@ int main()
         TestDiagnostics();
         TestHttpSend();
         TestSender();
+        TestDossiers();
     }
     catch (const std::exception& error)
     {
