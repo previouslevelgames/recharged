@@ -101,7 +101,7 @@ endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Texts.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/GameOverlay.cmake")
 add_executable(mscharged src/launcher/main.cpp src/launcher/release_notes_view.cpp
-    src/launcher/competitive_service.cpp src/launcher/online_panel_preview.cpp)
+    src/launcher/competitive_service.cpp)
 # The program players start: recharged (recharged.exe). The target keeps its old name.
 # On Windows it is a Windows (GUI) program, so no console opens with it (#61).
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)

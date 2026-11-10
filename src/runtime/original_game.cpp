@@ -90,7 +90,7 @@
 #include "movie_hardware.h"
 #include "runtime/game_window.h"
 #include "runtime/host_overlay.h"
-#include "runtime/host_panel.h"
+#include "runtime/menu_input.h"
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "runtime/host_menus.h"
 #endif
@@ -1588,8 +1588,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         std::chrono::steady_clock::time_point setWaiting{}, setReminded{};
         // The players' buttons are held while a card asks something or the
         // set's game passes its menus unseen.
-        bool cardHold=false, walkHold=false;
-        auto holdButtons = [&] { mscharged::platform::SetNativeWpadHold(cardHold || walkHold); };
+        bool walkHold=false;
+        // Recharged's menus all close (a set going on into the game; set once
+        // they exist).
+        std::function<void()> closeMenus;
+        auto holdButtons = [&] { mscharged::platform::SetNativeWpadHold(walkHold); };
         std::optional<mscharged::platform::AlertSound> challengeSound;
         // [online] challenge_sound: the chime at the master volume (not muted),
         // and the window flashes while it is in the background.
@@ -1647,12 +1650,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     afterSet.reset();
                     setStartedHere=true;
                     alert();
-                    // The panel it was challenged or accepted from closes: the
+                    // The menus it was challenged or accepted from close: the
                     // game goes on into the set.
-                    if(hostOverlay) {
-                        hostOverlay->ClosePanel();
-                        hostOverlay->ShowMessage("Set against "+start->opponent+": off to RANKED",now);
-                    }
+                    if(closeMenus) closeMenus();
+                    if(hostOverlay) hostOverlay->ShowMessage("Set against "+start->opponent+": off to RANKED",now);
                 } else mscharged::platform::SessionLogLine("Competitive: set "+std::to_string(start->match)
                     +" cannot start here (this build's game module has no sets)");
             }
@@ -1800,18 +1801,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 });
             mscharged::platform::SessionLogLine("Competitive: signing in again with the Mii logged in to WFC");
         };
-        // A card over the dimmed picture while the game is in its menus, which
-        // holds every player's buttons: a challenge (A accepts, and the set
-        // starts in this game; B declines), or after a set the same set again
-        // (A: a rematch, or Ready to play! again for one that stopped; B: not
-        // now).
+        // A question over everything (the menus' prompt page): a challenge
+        // (accept, and the set starts in this game; or decline), or after a set
+        // the same set again (a rematch, or Ready to play! again for one that
+        // stopped; or not now).
         enum class CardKind { None, Challenge, AfterSet };
         CardKind cardKind=CardKind::None;
         std::int64_t cardMatch=0;
-        std::chrono::steady_clock::time_point cardShown{};
-        // With the game's overlay the card is its prompt over the blurred game
-        // (below): what it asks, and the answer (1 its first button, 2 the
-        // second, 0 none yet).
+        // What it asks, and the answer (1 its first button, 2 the second, 0
+        // none yet).
         struct CardPrompt {
             enum class Kind { Challenge, Rematch, SetOver, SetStopped } kind=Kind::Challenge;
             bool shown=false;
@@ -1824,7 +1822,6 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             bool hasScore=false;
             int won=0, lost=0, games=0;
         } cardPrompt;
-        bool cardAsPrompt=false; // set once the overlay exists
         auto serviceChallengeCard = [&](std::chrono::steady_clock::time_point now) {
             if(!competitive || !hostOverlay)return;
             if(const auto notice=competitive->TakeNotice()) hostOverlay->ShowMessage(*notice,now);
@@ -1845,26 +1842,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(kind!=cardKind || match!=cardMatch) {
                 cardKind=kind;
                 cardMatch=match;
-                cardShown=now;
-                // The prompt takes the players' input itself (the host panel).
-                cardHold=kind!=CardKind::None && !cardAsPrompt;
-                holdButtons();
                 cardPrompt=CardPrompt{};
-                cardPrompt.shown=kind!=CardKind::None && cardAsPrompt;
-                mscharged::runtime::HostOverlay::Card card;
+                cardPrompt.shown=kind!=CardKind::None;
                 if(kind==CardKind::Challenge) {
-                    card.kicker=invitation->rematch ? "REMATCH" : invitation->random ? "RANDOM CHALLENGE" : "CHALLENGE";
-                    card.title=invitation->from+(invitation->rematch ? " wants a rematch" : " challenges you");
-                    card.detail=invitation->rules+".";
-                    card.accept="Accept";
-                    card.decline="Decline";
-                    card.note="Accept goes on into RANKED: straight to the captain draft.";
                     cardPrompt.kind=invitation->rematch ? CardPrompt::Kind::Rematch : CardPrompt::Kind::Challenge;
                     cardPrompt.random=invitation->random;
                     cardPrompt.opponent=invitation->from;
                     cardPrompt.avatar=invitation->avatar;
                     cardPrompt.rules=invitation->rules;
-                    if(!cardAsPrompt) hostOverlay->SetCard(card);
                     mscharged::platform::SessionLogLine("Competitive: "+invitation->from
                         +(invitation->rematch ? " wants a rematch" : " challenges you")
                         +" (match "+std::to_string(match)+")");
@@ -1873,17 +1858,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     using How=mscharged::platform::CompetitiveHost::SetEnd::How;
                     const auto& end=*afterSet;
                     const std::string opponent=end.opponent.empty() ? std::string("your opponent") : end.opponent;
-                    const std::string score=std::to_string(std::max(end.won,end.lost))+"-"
-                        +std::to_string(std::min(end.won,end.lost));
                     if(end.how==How::Over) {
-                        card.kicker="SET OVER";
-                        card.title=end.won>end.lost ? "You won "+score+" against "+opponent
-                            : end.lost>end.won ? opponent+" won "+score
-                            : "A draw against "+opponent;
-                        card.detail="The same opponent and rules again: "+opponent+" gets the challenge.";
-                        card.accept="Rematch";
-                        card.decline="Not now";
-                        card.note="Once they accept, the game goes on into RANKED.";
                         cardPrompt.kind=CardPrompt::Kind::SetOver;
                     } else if(end.how==How::OpponentLeft || end.how==How::OpponentGone) {
                         // The opponent's Back, launcher or closed game: a
@@ -1892,39 +1867,27 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                             " left the field in tears…"," ran crying to the dressing room…",
                             " took the ball and went home…"," saw your lineup and fled the pitch…",
                             " heard the Kritters were coming and ran…"};
-                        card.kicker="SET STOPPED";
-                        card.title=opponent+kGone[std::uint64_t(end.match)%std::size(kGone)];
-                        card.detail=end.how==How::OpponentGone
+                        cardPrompt.kind=CardPrompt::Kind::SetStopped;
+                        cardPrompt.title=opponent+kGone[std::uint64_t(end.match)%std::size(kGone)];
+                        cardPrompt.reason=end.how==How::OpponentGone
                             ? opponent+"'s game closed before your games met, so the set stopped."
                             : opponent+" left before your games met, so the set stopped.";
-                        card.accept="Rematch";
-                        card.decline="Not now";
-                        card.note="The same set again: "+opponent+" gets the challenge.";
-                        cardPrompt.kind=CardPrompt::Kind::SetStopped;
-                        cardPrompt.reason=card.detail;
-                        cardPrompt.title=card.title;
-                        cardPrompt.primary=card.accept;
-                        cardPrompt.note=card.note;
+                        cardPrompt.primary="Rematch";
+                        cardPrompt.note="The same set again: "+opponent+" gets the challenge.";
                     } else {
-                        card.kicker="SET STOPPED";
-                        card.title=end.how==How::Left ? "You left the set against "+opponent
+                        cardPrompt.kind=CardPrompt::Kind::SetStopped;
+                        cardPrompt.title=end.how==How::Left ? "You left the set against "+opponent
                             : "The set against "+opponent+" stopped";
-                        card.detail=end.how==How::Failed ? std::string("A message in the game ended it.")
+                        cardPrompt.reason=end.how==How::Failed ? std::string("A message in the game ended it.")
                             : end.how==How::Left ? "You left the search; "+opponent+"'s game was told."
                             : opponent+" isn't ready any more, or your games didn't meet in time.";
                         // Left: the set is called off, so it goes again as a
                         // rematch; else it waits, and Not now calls it off.
                         const bool left=end.how==How::Left;
-                        card.accept=left ? "Rematch" : "Play it again";
-                        card.decline="Not now";
-                        card.note=left ? "The same set again: "+opponent+" gets the challenge."
+                        cardPrompt.primary=left ? "Rematch" : "Play it again";
+                        cardPrompt.note=left ? "The same set again: "+opponent+" gets the challenge."
                             : "Play it again is your Ready to play!: the set goes once "+opponent
                                 +" is ready too. Not now calls it off.";
-                        cardPrompt.kind=CardPrompt::Kind::SetStopped;
-                        cardPrompt.reason=card.detail;
-                        cardPrompt.title=card.title;
-                        cardPrompt.primary=card.accept;
-                        cardPrompt.note=card.note;
                     }
                     cardPrompt.opponent=opponent;
                     cardPrompt.avatar=end.opponent_avatar;
@@ -1932,23 +1895,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     cardPrompt.won=end.won;
                     cardPrompt.lost=end.lost;
                     cardPrompt.games=end.games;
-                    if(!cardAsPrompt) hostOverlay->SetCard(card);
-                } else hostOverlay->SetCard(std::nullopt);
+                }
             }
             if(kind==CardKind::None)return;
-            bool accept=false;
-            if(cardAsPrompt) {
-                // The prompt's buttons (or Escape, a click beside it: the second).
-                if(!cardPrompt.answer)return;
-                accept=cardPrompt.answer==1;
-                cardPrompt.answer=0;
-            } else {
-                // Presses in the card's first moment are not answers (a button
-                // the player was pressing for the menu).
-                const auto presses=mscharged::platform::TakeNativeWpadHeldPresses();
-                if(now-cardShown<std::chrono::milliseconds(600) || (!presses.a && !presses.b))return;
-                accept=presses.a>0;
-            }
+            // The prompt's buttons (B or BACK: the second).
+            if(!cardPrompt.answer)return;
+            const bool accept=cardPrompt.answer==1;
+            cardPrompt.answer=0;
             if(kind==CardKind::Challenge) {
                 competitive->Answer(cardMatch,accept);
                 hostOverlay->ShowMessage(accept ? "Challenge accepted: off to RANKED" : "Challenge declined",now);
@@ -1996,12 +1949,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
             hostOverlay->SetNetwork(network);
         };
-        // The online panel (F1 or HOME) over the blurred game. Online the game
-        // goes on; in an offline match in play it presses the game's pause.
-        std::optional<mscharged::runtime::HostPanel> hostPanel;
+        // The input of Recharged's menus (F1 or HOME): online the game goes
+        // on; in an offline match in play opening them presses the game's pause.
+        std::optional<mscharged::runtime::MenuInput> menuInput;
         if(hostOverlay && interactive) {
-            hostPanel.emplace(host.window);
-            hostPanel->SetPauseRule([&] {
+            menuInput.emplace(host.window);
+            menuInput->SetPauseRule([&] {
                 ChargedPresenceSnapshot game{};
                 if(netplaySession || !presenceSnapshot || !presenceSnapshot(&game,sizeof game))return false;
                 // Not online, nor the title screen's demo (mode 2), nor with the
@@ -2011,16 +1964,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(game.match_menu)return false;
                 return game.game_state==1 || game.game_state==5 || game.game_state==6; // kick-off, play, overtime
             });
-            hostOverlay->SetPanel(&*hostPanel);
         }
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
-        // The game's overlay in the panel: the Online tab (the player's set,
-        // friends online, players available, with its data from the server on
-        // a thread of its own while open) and Game options (saved to the
-        // settings file at once; the game gets them between matches).
-        mscharged::overlay::GameOverlayState overlayState;
+        // The menus' online pages (the player's set, friends online, players
+        // available, with their data from the server on a thread of its own
+        // while the menus show) and Recharged's options (saved to the settings
+        // file at once; the game gets them between matches).
         // The players' pictures: downloaded on a thread, uploaded to Aurora's
-        // ImGui on the panel's (owner) thread when drawn; initials until then.
+        // ImGui on the menus' (owner) thread when drawn; initials until then.
         mscharged::overlay::OverlayImageCache overlayPictures([](int width,int height,const void* rgba) {
             return aurora_imgui_add_texture(std::uint32_t(width),std::uint32_t(height),rgba);
         });
@@ -2071,7 +2022,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // [online] challenge_rules: chosen in the launcher or on the Online tab.
         std::string challengeRules=launch.settings.challenge_rules;
         // The player's own presets (the launcher's Match rules page, files in
-        // match-presets beside the settings file), read as the overlay opens.
+        // match-presets beside the settings file), read as the menus open.
         std::vector<mscharged::overlay::OnlinePanelPreset> myPresets;
         std::vector<mscharged::overlay::OnlinePanelPreset> builtInPresets;
         for(const auto& preset:mscharged::launcher::BuiltInMatchPresets())
@@ -2080,13 +2031,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         std::vector<std::string> displayResolutions;
         std::optional<unsigned> pendingTweaks;
         std::string overlayNotice;
-        bool overlayOpen=false;
-        std::chrono::steady_clock::time_point overlayOpened{};
-        // The card as the overlay's prompt: open while it asks, and the card
-        // put aside for the full overlay (F1, HOME).
-        mscharged::overlay::OverlayPromptState promptState;
-        bool promptOpen=false;
-        std::int64_t promptPutAside=0;
+        bool overlayOpen=false; // the menus show (the online data comes)
         auto setTweaks=reinterpret_cast<void(*)(unsigned)>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_set_tweaks"));
         // A match (not the title screen's demo) is played.
@@ -2534,7 +2479,6 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const std::string& who=cardPrompt.opponent;
             prompt.opponent.name=who;
             prompt.opponent.image=cardPrompt.avatar;
-            prompt.image=overlayPictures.Images();
             prompt.opponent.initials=ov::Initials(who);
             prompt.opponent.tint_seed=std::int64_t(std::hash<std::string>{}(who)&0x7FFFFFFF);
             switch(cardPrompt.kind) {
@@ -2578,7 +2522,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             prompt.lost=cardPrompt.lost;
             prompt.games=cardPrompt.games;
         };
-        if(hostPanel) {
+        if(menuInput) {
             std::string off;
             // The Discord friends come from the launcher (the game has no
             // Discord SDK); the feed asks which of them play.
@@ -2586,11 +2530,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
                 launch.settings.challenge_rules,launch.discord_friends,
                 [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
-            if(!panelFeed) mscharged::platform::SessionLogLine("Overlay: the Online tab is off ("+off+")");
+            if(!panelFeed) mscharged::platform::SessionLogLine("Menus: the online pages are off ("+off+")");
             else if(!launch.discord_friends.empty())
-                mscharged::platform::SessionLogLine("Overlay: "+std::to_string(launch.discord_friends.size())
+                mscharged::platform::SessionLogLine("Menus: "+std::to_string(launch.discord_friends.size())
                     +" Discord friends from the launcher");
-            cardAsPrompt=true;
             {
                 const std::string key=mscharged::platform::HotkeyName(hotkeys[mscharged::HotkeyPanel]);
                 const bool none=key.empty() || key==mscharged::kNoHotkey;
@@ -2598,64 +2541,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     none ? std::vector<std::string>{"HOME"} : std::vector<std::string>{key,"HOME"},
                     "Recharged Game Menu"};
             }
-            // F1/HOME and F2 while open: the other tab, or closing the one shown.
-            hostPanel->SetTabKeys([&](int tab) {
-                const auto want=tab==1 ? mscharged::overlay::OverlayTab::GameOptions
-                                       : mscharged::overlay::OverlayTab::Online;
-                // Over a prompt: the full overlay instead (its Online tab answers too).
-                if(promptOpen) {
-                    promptOpen=false;
-                    promptPutAside=cardMatch;
-                    overlayState.Open(want);
-                    return false;
-                }
-                if(overlayState.Tab()==want)return true;
-                overlayState.Switch(want);
-                return false;
-            });
-            hostPanel->SetOverlay([&](float width,float height,float unit) {
-                namespace ov=mscharged::overlay;
-                const float shown=std::chrono::duration<float>(std::chrono::steady_clock::now()-overlayOpened).count();
-                // A challenge, or the last set again: the prompt alone.
-                if(promptOpen) {
-                    ov::OverlayPrompt prompt;
-                    buildPrompt(prompt);
-                    ov::OverlayStyle style;
-                    style.unit=unit;
-                    style.fonts=hostOverlay->OverlayFonts();
-                    style.area_max={width,height};
-                    style.appear=std::clamp(shown/0.18f,0.0f,1.0f);
-                    ov::OverlayPromptActions answer;
-                    ov::DrawOverlayPrompt(prompt,promptState,answer,style);
-                    if(answer.primary) cardPrompt.answer=1;
-                    else if(answer.secondary) cardPrompt.answer=2;
-                    return;
-                }
-                ov::GameOverlayModel model;
-                buildOverlayModel(model,overlayState.Tab()==ov::OverlayTab::Ranked);
-                ov::GameOverlayStyle style;
-                style.unit=unit;
-                style.fonts=hostOverlay->OverlayFonts();
-                style.area_max={width,height};
-                style.appear=std::clamp(shown/0.18f,0.0f,1.0f);
-                style.image=overlayImage;
-                if(const auto error=overlayPictures.Statistics().last_error; error!=overlayPicturesError) {
-                    overlayPicturesError=error;
-                    if(!error.empty()) mscharged::platform::SessionLogLine("Overlay: a picture failed ("+error+")");
-                }
-                ov::GameOverlayActions actions;
-                ov::DrawGameOverlay(model,overlayState,actions,style);
-
-                // What the player did.
-                if(actions.close) hostPanel->RequestClose();
-                if(applyOnline(actions.online,actions.ranked,model)) hostPanel->RequestClose();
-                if(actions.set_option) applyOption(*actions.set_option);
-                if(actions.set_setting) applySetting(*actions.set_setting);
-            });
         }
-        // Override retail menus (development switch): Recharged's menus in the
-        // game's look (the UI kit) over its pause menu and Options, and on F1/HOME
-        // (declared after what their callbacks use, which outlives them).
+        // Recharged's menus in the game's look (the UI kit): the Recharged menu
+        // on F1/HOME, the prompts, an online match's menu, and with the
+        // development switch "Override retail menus" the game's pause menu,
+        // Options and the main menu's ONLINE too (declared after what their
+        // callbacks use, which outlives them).
         std::optional<mscharged::runtime::HostMenus> hostMenus;
         // Recharged's menus with sample data (development, screenshots without
         // a server or a match): RECHARGED_CAPTURE_ONLINE players, a set and
@@ -2668,8 +2559,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             bool prompt=std::getenv("RECHARGED_CAPTURE_PROMPT")!=nullptr;
             bool match=std::getenv("RECHARGED_CAPTURE_MATCH_MENU")!=nullptr;
         } menuSamples;
-        if(hostOverlay && hostPanel && menuSnapshot && menuCommand
-           && (launch.settings.GameTweakMask() & mscharged::GameTweakBit(mscharged::GameTweak::OverrideRetailMenus))) {
+        if(hostOverlay && menuInput && menuSnapshot && menuCommand) {
             mscharged::runtime::HostMenus::Host menusHost;
             menusHost.model=[&](mscharged::ui::PageModel& model,const mscharged::runtime::HostMenus::ModelNeeds& needs) {
                 buildOverlayModel(model.overlay,needs.leaderboard,needs.online,needs.settings);
@@ -2685,10 +2575,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 quit.type=SDL_EVENT_QUIT;
                 SDL_PushEvent(&quit);
             };
-            hostMenus.emplace(mscharged::runtime::HostMenus::Game{menuTexture,menuCommand},*hostPanel,
+            hostMenus.emplace(mscharged::runtime::HostMenus::Game{menuTexture,menuCommand},*menuInput,
                 std::move(menusHost));
             hostOverlay->SetMenus(&*hostMenus);
-            mscharged::platform::SessionLogLine("Menus: Recharged's (Override retail menus)");
+            closeMenus=[&] { hostMenus->CloseAll(); };
+            const bool replaced=launch.settings.GameTweakMask()
+                & mscharged::GameTweakBit(mscharged::GameTweak::OverrideRetailMenus);
+            mscharged::platform::SessionLogLine(replaced ? "Menus: Recharged's, also for the game's (Override retail menus)"
+                                                         : "Menus: Recharged's");
         }
 #endif
         // The persisted launcher toggle is authoritative; recordings live with
@@ -2809,7 +2703,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const auto now=std::chrono::steady_clock::now();
             if(framePacing) framePacing->Update(now);
             serviceChallengeCard(now);
-            if(hostPanel) hostPanel->Service(now);
+            if(menuInput) menuInput->Service(now);
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
             if(hostMenus) {
                 ChargedMenuSnapshot menu{};
@@ -2817,10 +2711,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(known && menuSamples.match) menu.network_match=CHARGED_NETWORK_ONLINE;
                 hostMenus->Service(known ? &menu : nullptr,now);
             }
-            // With Recharged's menus the card is their prompt page, over
+            // A challenge or the last set again: the menus' prompt page, over
             // whatever shows; B or BACK is its second answer.
-            if(cardAsPrompt && hostMenus) {
-                const bool want=cardPrompt.shown && cardMatch!=promptPutAside;
+            if(hostMenus) {
+                const bool want=cardPrompt.shown;
                 if(want) {
                     mscharged::overlay::OverlayPrompt prompt;
                     buildPrompt(prompt);
@@ -2843,30 +2737,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     if(want && !cardPrompt.answer) cardPrompt.answer=*answer;
                     else if(!want) menuSamples.prompt=false;
                 }
-            } else
-            // The card as a prompt: the panel opens for it while the player has
-            // no overlay open; closed by Escape it is the prompt's second answer.
-            if(cardAsPrompt && hostPanel) {
-                const bool want=cardPrompt.shown && cardMatch!=promptPutAside;
-                if(promptOpen && !hostPanel->IsOpen()) {
-                    promptOpen=false;
-                    if(want && !cardPrompt.answer) cardPrompt.answer=2;
-                } else if(want && !promptOpen && !hostPanel->IsOpen()) {
-                    promptOpen=true;
-                    promptState.Open();
-                    hostPanel->Open();
-                } else if(!want && promptOpen) {
-                    promptOpen=false;
-                    hostPanel->Close();
-                }
             }
-            // The overlay opens on the Online tab; its data comes while it is open.
-            if(hostPanel && hostPanel->IsOpen()!=overlayOpen) {
-                overlayOpen=hostPanel->IsOpen();
+            // The online pages' data comes while the menus show.
+            const bool menusShown=hostMenus && hostMenus->IsShown();
+            if(menusShown!=overlayOpen) {
+                overlayOpen=menusShown;
                 if(overlayOpen) {
-                    overlayState.Open(hostPanel->OpenedTab()==1 ? mscharged::overlay::OverlayTab::GameOptions
-                                                                 : mscharged::overlay::OverlayTab::Online);
-                    overlayOpened=now;
                     overlayNotice.clear();
                     // The player's presets as they are now (the launcher may have changed them).
                     myPresets.clear();
@@ -2876,6 +2752,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                             myPresets.push_back({preset.name,mscharged::launcher::ChallengeRules(preset),0});
                 }
                 if(panelFeed) panelFeed->SetOpen(overlayOpen);
+            }
+            if(const auto error=overlayPictures.Statistics().last_error; error!=overlayPicturesError) {
+                overlayPicturesError=error;
+                if(!error.empty()) mscharged::platform::SessionLogLine("Menus: a picture failed ("+error+")");
             }
             if(overlayOpen && panelFeed) {
                 ChargedPresenceSnapshot game{};

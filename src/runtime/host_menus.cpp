@@ -73,15 +73,15 @@ bool OnlinePage(ui::PageId id)
 }
 } // namespace
 
-HostMenus::HostMenus(Game game, HostPanel& panel, Host host) : game_(game), panel_(panel), host_(std::move(host))
+HostMenus::HostMenus(Game game, MenuInput& input, Host host) : game_(game), input_(input), host_(std::move(host))
 {
-    panel_.SetMenuKeys([this](HostPanel::MenuKey key, int channel) { return MenuKey(key, channel); });
+    input_.SetMenuKeys([this](MenuInput::MenuKey key, int channel) { MenuKey(key, channel); });
 }
 
 HostMenus::~HostMenus()
 {
-    panel_.SetMenuKeys(nullptr);
-    panel_.ClosePages();
+    input_.SetMenuKeys(nullptr);
+    input_.ClosePages();
     if (blurred_) aurora_set_video_output_blur(false);
 }
 
@@ -137,6 +137,14 @@ bool HostMenus::Opened(Origin origin) const
     return std::any_of(pages_.begin(), pages_.end(), [origin](const Page& page) { return page.origin == origin; });
 }
 
+void HostMenus::CloseAll()
+{
+    if (pages_.empty()) return;
+    // The front end's Options hub comes again only with the scene's next visit.
+    if (Opened(Origin::Anchored)) anchorDone_ = true;
+    ClearPages();
+}
+
 void HostMenus::CloseRecharged()
 {
     while (RechargedOpen()) Pop();
@@ -156,38 +164,36 @@ void HostMenus::SetPrompt(std::optional<overlay::OverlayPrompt> prompt)
 
 std::optional<int> HostMenus::TakePromptAnswer() { return std::exchange(promptAnswer_, std::nullopt); }
 
-bool HostMenus::MenuKey(HostPanel::MenuKey key, int channel)
+void HostMenus::MenuKey(MenuInput::MenuKey key, int channel)
 {
     // The game's pause in an online match, which the game refuses: the match
     // menu (nothing pauses). Elsewhere the press is only the game's.
-    if (key == HostPanel::MenuKey::Pause) {
-        if (menu_.network_match != CHARGED_NETWORK_ONLINE || !pages_.empty()) return false;
+    if (key == MenuInput::MenuKey::Pause) {
+        if (menu_.network_match != CHARGED_NETWORK_ONLINE || !pages_.empty()) return;
         channel_ = channel;
         Push(ui::PageId::Match, 0, {}, Origin::Recharged);
-        return true;
+        return;
     }
     // A question waits for its answer first, and a forfeited match's way out
     // for the game.
-    if (!pages_.empty() && pages_.back().id == ui::PageId::Prompt) return true;
-    if (Leaving()) return true;
+    if (!pages_.empty() && pages_.back().id == ui::PageId::Prompt) return;
+    if (Leaving()) return;
     if (RechargedOpen()) {
         // Closed: its pages go, back to what was open under it.
         Play(ui::Sound::Back);
         CloseRecharged();
-        return true;
+        return;
     }
     channel_ = channel;
     Push(ui::PageId::Menu, 0, {}, Origin::Recharged);
     // F2: straight to Recharged's gameplay options.
-    if (key == HostPanel::MenuKey::Options) {
+    if (key == MenuInput::MenuKey::Options) {
         Push(ui::PageId::Options);
         Push(ui::PageId::Gameplay);
     }
-    // Over a match in play the game pauses, as for the panel (not a network
-    // match: it can't).
+    // Over a match in play the game pauses (not a network match: it can't).
     pausePress_ = !menu_.network_match;
     Play(ui::Sound::Select);
-    return true;
 }
 
 void HostMenus::Back()
@@ -338,25 +344,21 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
     }
     ShowPrompt(now);
 
-    // The input: the menus' while they show a page, unless the panel is open
-    // over them (RECHARGED_CAPTURE_PANEL).
-    const bool covered = panel_.IsOpen();
-    const bool wantInput = !pages_.empty() && !covered;
-    if (wantInput && (!panel_.PagesOpen() || pausePress_)) {
-        if (panel_.PagesOpen()) panel_.ClosePages();
-        panel_.OpenPages(channel_, pausePress_);
+    // The input: the menus' while they show a page.
+    const bool wantInput = !pages_.empty();
+    if (wantInput && (!input_.PagesOpen() || pausePress_)) {
+        if (input_.PagesOpen()) input_.ClosePages();
+        input_.OpenPages(channel_, pausePress_);
         pointerShown_ = false;
         lastPointer_.reset();
-    } else if (!wantInput && panel_.PagesOpen()) panel_.ClosePages();
+    } else if (!wantInput && input_.PagesOpen()) input_.ClosePages();
     if (wantInput || pages_.empty()) pausePress_ = false;
 
     // The TV: over the pause menu (not while it goes), with a page, or for
-    // the front end's Options until they go. The panel over them has the
-    // screen and its blur.
-    if (covered) shown_ = leaving_ = blurred_ = false;
+    // the front end's Options until they go.
     const bool pauseShown = scene == CHARGED_MENU_PAUSE && !menu_.leaving;
     const bool optionsShown = scene == CHARGED_MENU_OPTIONS && !menu_.leaving && !anchorDone_;
-    const bool wantTv = !covered && (!pages_.empty() || pauseShown || optionsShown);
+    const bool wantTv = !pages_.empty() || pauseShown || optionsShown;
     if (wantTv) {
         if (!shown_ || leaving_) {
             shownAt_ = now;
@@ -372,9 +374,9 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
     }
     if (leaving_ && now - leavingAt_ > std::chrono::milliseconds(250)) shown_ = leaving_ = false;
     // (Not over a network match: it plays on behind.)
-    const bool wantBlur = shown_ && !leaving_ && !covered && !menu_.network_match
+    const bool wantBlur = shown_ && !leaving_ && !menu_.network_match
         && (scene == CHARGED_MENU_PAUSE || RechargedOpen());
-    if (!covered && wantBlur != blurred_) {
+    if (wantBlur != blurred_) {
         aurora_set_video_output_blur(wantBlur);
         blurred_ = wantBlur;
     }
@@ -699,7 +701,7 @@ void HostMenus::DrawHands(const Frame& frame, const ui::Input& in, bool overItem
         return;
     }
     if (!in.pointer_shown) return;
-    int pad = panel_.KeyboardChannel();
+    int pad = input_.KeyboardChannel();
     if (pad < 0 || pad > 3 || hands_[std::size_t(pad)].empty()) pad = menu_.controller;
     if (pad < 0 || pad > 3 || hands_[std::size_t(pad)].empty())
         for (pad = 0; pad < 3 && hands_[std::size_t(pad)].empty(); ++pad) {}

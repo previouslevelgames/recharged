@@ -1,7 +1,7 @@
 #pragma once
 
 #include "platform/menu_snapshot.h"
-#include "runtime/host_panel.h"
+#include "runtime/menu_input.h"
 #include "ui/rui_kit.h"
 #include "ui/rui_pages.h"
 
@@ -15,9 +15,14 @@
 
 namespace mscharged::runtime {
 
-// Recharged's menus in the look of the game's (the development switch
-// "Override retail menus"; the UI kit, src/ui): one TV set over the game,
-// with a stack of pages in it.
+// Recharged's menus in the look of the game's (the UI kit, src/ui): one TV
+// set over the game, with a stack of pages in it.
+// - The Recharged menu (F1 or HOME anywhere): ONLINE, OPTIONS, QUIT RECHARGED;
+//   over a match in play it pauses the game. In an online match the game's
+//   pause opens the match menu instead (nothing pauses).
+// - A question over everything (a challenge, a set's end): the prompt page.
+// With the development switch "Override retail menus" they also stand in for
+// the game's own:
 // - The match's pause menu: the game's own scene, undrawn, drawn here with the
 //   game's header, its buttons where its pointers find them and its players'
 //   hands (the game keeps its input: pointing, hovering with its sound,
@@ -28,11 +33,7 @@ namespace mscharged::runtime {
 //   for it: GAMEPLAY, SETTINGS, and CREDITS and BACK handed back to it.
 // - The main menu's ONLINE (the globe): the ONLINE hub stands in for the
 //   game's way, which its WII ONLINE takes.
-// - The Recharged menu (F1 or HOME anywhere): ONLINE, OPTIONS, QUIT RECHARGED;
-//   over a match in play it pauses the game, as the panel did. In an online
-//   match the game's pause opens the match menu instead (nothing pauses).
-// - A question over everything (a challenge, a set's end): the prompt page.
-// While a page shows, the menus have the input (HostPanel::OpenPages): the
+// While a page shows, the menus have the input (MenuInput::OpenPages): the
 // D-pad, the arrows and the mouse light an item, A presses, left and right
 // change a value, B goes back a page (to the pause menu, the cursor on the
 // button that opened it), the pause button resumes the match from any page.
@@ -72,7 +73,7 @@ public:
         std::function<void()> quit;
     };
 
-    HostMenus(Game game, HostPanel& panel, Host host);
+    HostMenus(Game game, MenuInput& input, Host host);
     ~HostMenus();
     HostMenus(const HostMenus&) = delete;
     HostMenus& operator=(const HostMenus&) = delete;
@@ -82,7 +83,9 @@ public:
     // button, 2 its second: B and BACK too), once.
     void SetPrompt(std::optional<overlay::OverlayPrompt> prompt);
     std::optional<int> TakePromptAnswer();
-    // Each host frame, after the game's frame and HostPanel::Service: the
+    // Every page goes (a set going on into the game).
+    void CloseAll();
+    // Each host frame, after the game's frame and MenuInput::Service: the
     // game's menu as it is now (null with the switch off).
     void Service(const ChargedMenuSnapshot* menu, Clock::time_point now);
     bool IsShown() const { return shown_; }
@@ -124,8 +127,8 @@ private:
         bool compact, alone; // a question's TV; one with no strip (a question alone)
     };
 
-    // F1, HOME, F2 or the game's pause (HostPanel::SetMenuKeys).
-    bool MenuKey(HostPanel::MenuKey key, int channel);
+    // F1, HOME, F2 or the game's pause (MenuInput::SetMenuKeys).
+    void MenuKey(MenuInput::MenuKey key, int channel);
     void Command(int kind, int which = 0, int value = 0);
     void Play(ui::Sound sound);
     void Push(ui::PageId id, int category = 0, std::string key = {}, Origin origin = Origin::None);
@@ -165,7 +168,7 @@ private:
     void DrawHands(const Frame& frame, const ui::Input& in, bool overItem);
 
     Game game_;
-    HostPanel& panel_;
+    MenuInput& input_;
     Host host_;
     ChargedMenuSnapshot menu_{};
     bool known_ = false; // menu_ is the game's (else all zero)

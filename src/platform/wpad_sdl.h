@@ -80,7 +80,7 @@ struct NativeWpadHeldPresses
 // panel holds too).
 NativeWpadHeldPresses TakeNativeWpadHeldPresses();
 
-// The host panel (src/runtime/host_panel.h), on the game's thread between
+// The host panel (src/runtime/menu_input.h), on the game's thread between
 // frames. Taken, HOME never reaches the game: its presses are the panel's.
 void SetNativeWpadHomeTaken(bool taken);
 // The channels (bit n: WPAD channel n) that pressed HOME since the last call.

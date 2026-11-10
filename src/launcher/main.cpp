@@ -21,7 +21,6 @@
 #include "launcher/match_presets.h"
 #include "launcher/mii_faces.h"
 #include "launcher/online_gate.h"
-#include "launcher/online_panel_preview.h"
 #include "launcher/player_lineup.h"
 #include "launcher/players_online.h"
 #include "launcher/release_banner.h"
@@ -559,7 +558,6 @@ struct Options
     bool scene_arguments = false;
     bool standalone_assets = false;
     bool page_selected = false;
-    bool online_panel = false; // --page online-panel: the game's online panel, made up
     SceneOptions scene;
     int page = PagePlay;
 };
@@ -3369,16 +3367,6 @@ private:
             | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground
             | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         ImGui::PopStyleVar();
-        if (options_.online_panel)
-        {
-            // Development: the game's online panel with made-up players.
-            if (!online_panel_preview_) online_panel_preview_ = std::make_unique<OnlinePanelPreview>(renderer_, capture_);
-            const auto texture = [](SDL_Texture* t) { return static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(t)); };
-            online_panel_preview_->Draw(size, texture(header_back_), texture(header_front_), {header_width_, header_height_});
-            DrawClosePrompt(quit);
-            ImGui::End();
-            return;
-        }
         const float sidebar = size.x < Dp(1000) ? Dp(216) : Dp(244);
         DrawSidebar(sidebar, size.y);
         DrawMain({sidebar, 0}, {size.x - sidebar, size.y}, quit);
@@ -12530,7 +12518,6 @@ private:
     SDL_Texture* header_back_ = nullptr;
     SDL_Texture* header_front_ = nullptr;
     SDL_Texture* header_strokes_ = nullptr;
-    std::unique_ptr<OnlinePanelPreview> online_panel_preview_; // --page online-panel
     // The Recharged logo, largest copy first, each half the one before.
     struct LogoLevel
     {
@@ -12994,11 +12981,6 @@ int main(int argc, char** argv)
         {
             const std::string value = argv[++i];
             if (arg == "--screenshot") options.screenshot = PathFromUtf8(value);
-            else if (value == "online-panel")
-            {
-                options.online_panel = true;
-                options.page_selected = true;
-            }
             else
             {
                 const auto it = std::find(std::begin(page_ids), std::end(page_ids), value);

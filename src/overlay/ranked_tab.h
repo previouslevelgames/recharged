@@ -1,15 +1,12 @@
 #pragma once
 
-#include "overlay/overlay_frame.h"
 #include "platform/profile_service.h"
 
 #include <optional>
 #include <string>
 
-struct ImGuiWindow;
-
-// The Recharged Game Menu's Ranked tab: the game's online RANKED, as its
-// online menu has it, from anywhere in its menus. Play RANKED sends the game
+// The menus' RANKED and LEADERBOARD pages (src/ui/rui_pages.cpp): the game's
+// online RANKED, as its online menu has it, from anywhere in its menus. Play RANKED sends the game
 // by itself into a RANKED search against anybody (the host's
 // charged_start_ranked); beside it the player's own place and the season's
 // and today's leaders, as the game's LEADERBOARD menu shows them.
@@ -31,21 +28,6 @@ struct RankedModel
     std::optional<platform::Leaderboard> boards;
 };
 
-struct RankedState
-{
-    int board = 0; // the season's leaders, or today's
-    // Right from Play RANKED to the boards (left back): the cursor jumps, as
-    // the two aren't level.
-    enum class Jump
-    {
-        None,
-        ToBoards,
-    } jump = Jump::None;
-    // Play RANKED's button as last drawn, for the way back.
-    unsigned play_id = 0;
-    ImGuiWindow* play_window = nullptr;
-};
-
 struct RankedActions
 {
     bool play = false; // Play RANKED
@@ -54,8 +36,4 @@ struct RankedActions
     bool Any() const { return play || stop; }
 };
 
-// The tab's only screen (OverlayScreens::Screen::id).
-OverlayScreens::Screen RankedFirstScreen();
-
-void DrawRanked(const RankedModel& model, RankedState& state, RankedActions& actions, const OverlayLayout& layout);
 } // namespace mscharged::overlay
