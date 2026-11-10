@@ -46,12 +46,14 @@ public:
     struct Game {
         ChargedMenuTextureFunction texture = nullptr;
         ChargedMenuCommandFunction command = nullptr;
+        ChargedMenuTextureObjectsFunction texture_objects = nullptr;
     };
     // What of the pages' model the pages shown need this frame (building it
     // all costs; the rest stays as made).
     struct ModelNeeds {
         bool online = false;      // Online and Ranked: an online page is in the stack
         bool leaderboard = false; // the leaderboard shows (its data is fetched)
+        bool stats = false;       // the player's records show (they are fetched)
         bool settings = false;    // the settings: the Settings page shows
     };
     // The host's side: each frame's model of the pages, and what to do with
@@ -129,8 +131,8 @@ private:
         ui::Painter set, screen, body; // the frame; what sits on the screen; the page's content
         float half;                    // the frame's half width
         float screenBottom;
-        float contentTop;    // where the page's items start
-        bool compact, alone; // a question's TV; one with no strip (a question alone)
+        float contentTop; // where the page's items start
+        bool compact;     // a question's TV
     };
 
     // F1, HOME, F2 or the game's pause (MenuInput::SetMenuKeys).
@@ -166,10 +168,10 @@ private:
     ModelNeeds Needs() const;
     void BuildModel(ui::PageModel& model);
     ui::Input ReadInput();
-    // The page on top with its strip, categories and footer, then what the
-    // player did; whether the hand is over an item.
+    // The page on top with its categories and footer, then what the player
+    // did; whether the hand is over an item.
     bool DrawTopPage(const Tv& tv, const ui::Fonts& fonts, const ui::Input& in, const ui::PageModel& model,
-                     const std::string& title, Clock::time_point now);
+                     Clock::time_point now);
     void DrawPauseButtons(const Frame& frame, const Tv& tv, const ui::Fonts& fonts);
     void DrawHands(const Frame& frame, const ui::Input& in, bool overItem);
 
@@ -220,9 +222,17 @@ private:
     // The last hand of each player as the game drew it, around its pointer,
     // and this frame's (kept between frames for their room).
     std::array<std::vector<ChargedMenuSnapshot::Quad>, 4> hands_, newHands_;
-    // The strip's steps this frame (kept for their room).
-    std::vector<std::string> crumbs_;
-    std::unordered_map<unsigned, void*> textures_;
+    // The game's pictures as ImGui textures: the original, decoded once and
+    // kept (the overlay cannot free a texture), and a texture pack's
+    // replacement of it, looked up again now and then (a streamed one comes
+    // in a little later, at first as a small thumbnail).
+    struct GameTexture {
+        void* original = nullptr;
+        bool decoded = false;
+        void* replacement = nullptr;
+        Clock::time_point looked{};
+    };
+    std::unordered_map<unsigned, GameTexture> textures_;
     void* noise_ = nullptr;
     bool noiseMade_ = false;
     // The game's header picture once seen (the front end has none of its own).

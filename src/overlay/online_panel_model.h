@@ -31,7 +31,7 @@ enum class Presence
 {
     Free,    // online, free to play
     Busy,    // online, in a set or a match: no challenge now
-    Offline, // closed (only a set's opponent shows so)
+    Offline, // closed (a set's opponent, the profile's friends)
 };
 
 // One player in a list.
@@ -49,9 +49,9 @@ struct OnlinePanelRow
     // id, and which player a player's screen shows.
     std::string key;
     std::string name;
-    // The picture, for OnlinePanelStyle::image: a player's avatar URL,
-    // "mii:<profile id>" for a Mii; empty for none. Without a texture for it
-    // the panel draws `initials` on a colour picked by `tint_seed`.
+    // The picture: the player's Discord picture (its URL), else their Mii
+    // (PictureKey); empty for neither. Without a texture for it the menus
+    // draw `initials` on a colour picked by `tint_seed`.
     std::string image;
     std::string initials; // the name's first character, in capitals
     std::int64_t tint_seed = 0;
@@ -82,6 +82,7 @@ struct OnlinePanelSection
     {
         Online,    // friends, Discord friends and Mii friends online now
         Available, // others open to challenges, and the game's online players
+        Friends,   // all of the friends, online first: the player's profile
     };
     Id id = Id::Online;
     std::string title; // "ONLINE NOW"
@@ -119,11 +120,25 @@ struct OnlinePanelSet
     std::string cancel_label; // "Withdraw" or "Cancel set"
 };
 
+// The picture key of a Mii's record as the server sends it (base64), empty
+// for none: the host draws the head ("miidata:<base64>").
+inline std::string MiiImageKey(const std::string& mii_data)
+{
+    return mii_data.empty() ? std::string() : "miidata:" + mii_data;
+}
+
+// A player's picture: their Discord picture (its URL) when they have one,
+// else their Mii.
+inline std::string PictureKey(const std::string& avatar_url, const std::string& mii_data)
+{
+    return !avatar_url.empty() ? avatar_url : MiiImageKey(mii_data);
+}
+
 struct OnlinePanelPlayer
 {
     std::string name;
     std::string detail; // "@discord username"
-    std::string image;  // the avatar URL, as a row's
+    std::string image;  // as a row's (the host's "mii:own" for the player's own Mii)
     std::string initials;
     std::int64_t tint_seed = 0;
     std::string country;            // the flag beside the name, as a row's
@@ -172,6 +187,10 @@ struct OnlinePanelModel
     Tone message_tone = Tone::Neutral;
     // No player profile: the tab says what one brings and where to make it.
     bool signed_out = false;
+    // The player's records for their profile (the host's, while it shows);
+    // `stats_missing` for a server without them.
+    std::optional<platform::PlayerStats> stats;
+    bool stats_missing = false;
 };
 
 // What the game knows besides the server's lists and set.

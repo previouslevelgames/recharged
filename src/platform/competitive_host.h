@@ -89,7 +89,8 @@ public:
         };
         std::int64_t match = 0;
         std::string opponent;
-        std::string opponent_avatar; // their picture (URL), or empty
+        std::string opponent_avatar; // their Discord picture (URL), or empty
+        std::string opponent_mii;    // their Mii's record (base64) when they have no Discord picture, or empty
         int won = 0, lost = 0, games = 0; // the games this game counted
         How how = How::Over;
         int popup = -1;
@@ -131,7 +132,8 @@ public:
     {
         std::int64_t match = 0;
         std::string from;  // the challenger's name
-        std::string avatar; // the challenger's picture (URL), or empty
+        std::string avatar; // the challenger's Discord picture (URL), or empty
+        std::string mii;    // their Mii's record (base64) when they have no Discord picture, or empty
         std::string rules; // the rule set and what it plays by
         bool rematch = false; // the set they played last, again
         bool random = false;  // their search for a random opponent asks this player
@@ -223,7 +225,7 @@ private:
     // The set's opponent and series length, kept once the server has gone
     // on from the set (for the Discord status of its last screens).
     std::string set_opponent_;
-    std::string set_opponent_avatar_;
+    std::string set_opponent_avatar_, set_opponent_mii_;
     int set_games_ = 0;
     std::chrono::steady_clock::time_point set_done_{};
 

@@ -158,6 +158,12 @@ typedef bool (*ChargedMenuSnapshotFunction)(struct ChargedMenuSnapshot* snapshot
 // have or a format it cannot decode.
 typedef bool (*ChargedMenuTextureFunction)(unsigned texture, int* width, int* height, int* format,
                                            unsigned char* rgba, unsigned capacity);
+// Game module entry: the game's own GX objects of a quad's texture, its
+// GXTexObj in *tex_obj and, when it is paletted, its GXTlutObj in *tlut_obj
+// (else null), as the game draws it: a texture pack's replacement of it is
+// looked up by them (aurora_imgui_texture_replacement). False for a texture
+// the game does not have. They stay valid while the game keeps the texture.
+typedef bool (*ChargedMenuTextureObjectsFunction)(unsigned texture, const void** tex_obj, const void** tlut_obj);
 // Game module entry: queues `command` for the game's next frame; false when
 // `size` does not match or the queue is full.
 typedef bool (*ChargedMenuCommandFunction)(const struct ChargedMenuCommand* command, unsigned size);
@@ -168,4 +174,8 @@ typedef bool (*ChargedMenuCommandFunction)(const struct ChargedMenuCommand* comm
 // answer the game's popup `popup_type` themselves (ePopupMenu: the network
 // popup after the player forfeited, its only button).
 bool ChargedMenuAnswersPopup(int popup_type);
+// Game module (competitive_match.cpp): a set's or Play RANKED's walk through
+// the game's online screens is on; its own press of the main menu's ONLINE
+// goes the game's way.
+bool ChargedCompetitiveWalking();
 #endif

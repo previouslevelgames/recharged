@@ -142,7 +142,8 @@ int main()
             // The INI's tweaks, plus the recommended ones it leaves at their default.
             Check(played.settings.GameTweakMask()
                     == (GameTweakBit(GameTweak::SkipIntro) | GameTweakBit(GameTweak::UnlockAll)
-                        | GameTweakBit(GameTweak::FairBallContests) | GameTweakBit(GameTweak::MatchPoint))
+                        | GameTweakBit(GameTweak::FairBallContests) | GameTweakBit(GameTweak::MatchPoint)
+                        | GameTweakBit(GameTweak::OverrideRetailMenus))
                 && played.tweaks_source == SettingSource::Config, "INI tweaks not resolved");
             LaunchOptions retail; retail.no_tweaks = true;
             const auto original = ResolveLaunch(tweakedFile, retail);

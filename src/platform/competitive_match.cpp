@@ -629,6 +629,8 @@ extern "C" void mscharged_competitive_search_back(void)
     std::fputs("Competitive: the player left the set's search\n", stderr);
 }
 
+bool ChargedCompetitiveWalking() { return sSetStage != CHARGED_SET_NONE; }
+
 extern "C" bool mscharged_competitive_take_main_menu(void)
 {
     if (sSetStage != CHARGED_SET_BOOT || PopupOnTop()) return false;

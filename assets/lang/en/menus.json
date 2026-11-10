@@ -133,17 +133,45 @@
   },
   "online": {
     "title": "ONLINE",
-    "players": "PLAYERS",
-    "ranked": "RANKED",
+    "play": "PLAY",
+    "profile": "PROFILE",
     "leaderboard": "LEADERBOARD",
-    "wii_online": "WII ONLINE",
-    "set_waits": "Your set waits for you: {{set}}."
+    "wii_online": "WII ONLINE"
+  },
+  "play": {
+    "title": "PLAY",
+    "friends": "FRIENDS",
+    "random": "RANDOM OPPONENT",
+    "ranked": "RANKED",
+    "online_count_one": "{{count}} online",
+    "online_count_other": "{{count}} online",
+    "available_count_one": "{{count}} available",
+    "available_count_other": "{{count}} available",
+    "searching": "Searching…",
+    "on_the_way": "On the way…"
+  },
+  "friends": {
+    "title": "FRIENDS"
+  },
+  "random": {
+    "title": "RANDOM OPPONENT",
+    "closed": "The players available for random games show here while Do not disturb is off.",
+    "available_caption": "AVAILABLE NOW",
+    "find": "FIND AN OPPONENT",
+    "search_time": "{{seconds}} s  ·  {{asked}} asked"
+  },
+  "profile": {
+    "title": "PROFILE",
+    "stats": "STATS",
+    "no_stats": "This server keeps no records yet.",
+    "record": "{{won}} – {{lost}}",
+    "record_percent": "{{won}} – {{lost}}  ·  {{percent}} %",
+    "friend_matches": "Friend matches",
+    "friends": "FRIENDS",
+    "no_friends": "No friends yet: add players from their page.",
+    "ranked": "Ranked"
   },
   "players": {
-    "title": "PLAYERS",
-    "you": "YOU",
-    "friends": "FRIENDS",
-    "players": "PLAYERS",
     "no_profile": "Online needs a player profile: the launcher's Player profile page makes one.",
     "in_match": "You're in a match: challenges wait until it ends.",
     "no_rules": "This server has no rules to play sets by yet.",
@@ -152,28 +180,20 @@
     "friends_offline_one": "{{count}} friend offline",
     "friends_offline_other": "{{count}} friends offline",
     "open_to_challenges": "OPEN TO CHALLENGES",
-    "nobody_open": "Nobody else is open to challenges right now"
+    "nobody_open": "Nobody else is available right now"
   },
   "you": {
-    "no_profile_kicker": "NO PLAYER PROFILE",
-    "no_profile_title": "Online needs a player profile",
+    "no_profile_title": "No player profile",
     "no_profile": "Make one on the launcher's Player profile page: then friends, challenges, sets and the leaderboards are here.",
-    "kicker": "YOU",
-    "open": "Open to challenges",
-    "not_open": "Not open to challenges",
+    "open": "Open to random games",
+    "do_not_disturb": "Do not disturb",
     "your_set": "YOUR SET",
     "accept": "ACCEPT",
     "decline": "DECLINE",
     "ready": "READY TO PLAY!",
     "rematch": "REMATCH",
     "cancel_set": "CANCEL SET",
-    "challenges": "CHALLENGES",
-    "open_switch": "Open to challenges",
-    "open_switch_about": "Others see you as available and can challenge you, also to random games.",
-    "searching": "Searching by {{rules}}: {{seconds}} s, {{asked}} asked.",
-    "stop_searching": "STOP SEARCHING",
-    "find_opponent": "Find an opponent",
-    "find_opponent_about": "A random opponent, by the rules you choose."
+    "stop_searching": "STOP SEARCHING"
   },
   "player": {
     "title": "PLAYER",
@@ -181,23 +201,16 @@
     "version": "Plays the {{version}} version",
     "friend": "FRIEND",
     "player": "PLAYER",
-    "challenge": "CHALLENGE",
-    "challenge_about": "A set by the rules you choose.",
     "remove_friend": "REMOVE FRIEND",
-    "add_friend": "ADD FRIEND"
+    "add_friend": "ADD FRIEND",
+    "challenge": "CHALLENGE"
   },
   "setup": {
     "title_challenge": "CHALLENGE",
     "title_random": "RANDOM OPPONENT",
-    "challenge": "CHALLENGE",
-    "random": "RANDOM OPPONENT",
-    "find_opponent": "Find an opponent",
-    "searching": "Searching: {{seconds}} s, {{asked}} asked",
-    "anybody": "Anybody open to random games",
     "send_challenge": "SEND CHALLENGE",
     "stop_searching": "STOP SEARCHING",
     "find_now": "FIND AN OPPONENT NOW!",
-    "changed": "Changed for this one only: the preset stays as it is.",
     "preset": "PRESET",
     "start_from": "Start from",
     "match": "MATCH",
@@ -213,26 +226,24 @@
     "stadium_cheat": "Stadium cheat",
     "player_cheat": "Player cheat",
     "powerup_cheat": "Power-up cheat",
-    "gameplay": "GAMEPLAY"
+    "gameplay": "GAMEPLAY",
+    "changed_rules": "{{rules}} (changed)"
   },
   "ranked": {
     "title": "RANKED",
-    "kicker": "RANKED",
-    "card_title": "Play RANKED",
-    "about": "Play anybody online, as from the game's online menu.",
-    "about_leaderboards": "Your wins and losses go on the leaderboards.",
     "waiting": "On the way to RANKED: go back to the main menu or the online menu, the game goes on from there.",
-    "going": "On the way to RANKED...",
     "stop": "STOP",
     "play": "PLAY RANKED",
-    "own_mii": "With your own Mii.",
-    "choose_mii": "You choose your Mii in the game.",
-    "blocked_game": "This game can't go to RANKED by itself.",
-    "blocked_match": "You're in a match: RANKED waits until it is over.",
-    "blocked_set": "Your set goes on: RANKED waits until it is over.",
-    "blocked_search": "You're searching for an opponent: stop that first.",
-    "leaderboard": "Leaderboard",
-    "leaderboard_about": "The season's and today's leaders."
+    "blocked_game": "Not in this game",
+    "blocked_match": "In a match",
+    "blocked_set": "In a set",
+    "blocked_search": "Searching",
+    "your_place": "YOUR PLACE",
+    "season": "This season",
+    "today": "Today",
+    "place_one": "Place {{place}}  ·  {{record}}  ·  {{count}} point",
+    "place_other": "Place {{place}}  ·  {{record}}  ·  {{count}} points",
+    "not_placed": "Not on the board yet"
   },
   "leaderboard": {
     "title": "LEADERBOARD",
@@ -240,17 +251,12 @@
     "today": "TODAY",
     "no_profile": "The leaderboards need a player profile: the launcher's Player profile page makes one.",
     "missing": "This server has no leaderboards yet.",
-    "season_kicker": "THIS SEASON",
-    "today_kicker": "TODAY",
-    "players_one": "{{count}} PLAYER",
-    "players_other": "{{count}} PLAYERS",
-    "you_placed_one": "You: place {{place}}  ·  {{record}}  ·  {{count}} point",
-    "you_placed_other": "You: place {{place}}  ·  {{record}}  ·  {{count}} points",
-    "you_unplaced_one": "You: -  ·  {{record}}  ·  {{count}} point",
-    "you_unplaced_other": "You: -  ·  {{record}}  ·  {{count}} points",
+    "players_one": "{{count}} player",
+    "players_other": "{{count}} players",
     "nobody_today": "Nobody has played RANKED today yet.",
     "nobody": "Nobody has played RANKED yet.",
-    "you_caption": "YOU"
+    "you_caption": "YOU",
+    "summary": "{{days}}  ·  {{players}}"
   },
   "match": {
     "title": "MATCH",
@@ -386,10 +392,11 @@
     "in_set": "In a set",
     "in_match": "In a match",
     "in_online_match": "In an online match",
-    "mii": "Play them in the game's online menu",
     "you_in_match": "You're in a match",
     "finish_set": "Finish your set first",
-    "no_rules": "No rules to play by"
+    "no_rules": "No rules to play by",
+    "not_recharged": "Not on Recharged",
+    "recharged_closed": "Recharged closed"
   },
   "messages": {
     "opponent_forfeited": "{{name}} forfeited the match: the win is yours",

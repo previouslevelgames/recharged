@@ -89,7 +89,7 @@ OnlinePanelRow PlayerRow(const ProfilePlayer& player)
     row.player_id = player.id;
     row.key = "p" + std::to_string(player.id);
     row.name = player.name.empty() ? player.discord : player.name;
-    row.image = player.avatar_url;
+    row.image = PictureKey(player.avatar_url, player.mii_data);
     row.initials = Initials(row.name);
     row.tint_seed = player.id;
     row.country = player.country;
@@ -139,14 +139,19 @@ OnlinePanelRow MiiRow(const MiiProfile& mii)
     row.mii_profile = mii.profile_id;
     row.key = "m" + std::to_string(mii.profile_id);
     row.name = mii.mii.empty() ? std::string("Mii") : mii.mii;
-    row.image = "mii:" + std::to_string(mii.profile_id);
+    row.image = MiiImageKey(mii.mii_data);
     row.initials = Initials(row.name);
     row.tint_seed = mii.profile_id;
     row.detail = mii.friend_code;
     row.is_friend = mii.is_friend;
     row.can_befriend = true;
-    row.blocked = T("menus.blocked.mii");
-    if (mii.status == "match")
+    if (!mii.online)
+    {
+        row.presence = Presence::Offline;
+        row.status = T("menus.presence.offline");
+        row.tone = Tone::Away;
+    }
+    else if (mii.status == "match")
     {
         row.presence = Presence::Busy;
         row.status = MatchText(mii.match_kind);
@@ -347,6 +352,22 @@ std::string VersionTag(const std::string& game)
 // player is free and nothing keeps this game from a set (`blocker`). A
 // player of another version is tagged with it and can be challenged too: a
 // set between two versions plays by the European one.
+// A Mii whose profile is a Recharged player's is challenged as that player,
+// while their Recharged is open and outside a match; else greyed, and why.
+void ChallengeableMii(OnlinePanelRow& row, const MiiProfile& mii, const std::string& blocker)
+{
+    if (!mii.player_id)
+    {
+        row.blocked = T("menus.blocked.not_recharged");
+        return;
+    }
+    row.player_id = mii.player_id;
+    if (mii.player_activity.empty()) row.blocked = T("menus.blocked.recharged_closed");
+    else if (mii.player_activity == "match") row.blocked = T("menus.blocked.in_match");
+    else if (!blocker.empty()) row.blocked = blocker;
+    else row.can_challenge = true;
+}
+
 void Challengeable(OnlinePanelRow& row, const ProfilePlayer& player, const std::string& blocker,
                    const OnlinePanelContext& context)
 {
@@ -382,7 +403,7 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     const ProfilePlayer& me = context.me;
     model.me.name = me.name.empty() ? me.discord : me.name;
     if (!me.discord.empty()) model.me.detail = "@" + me.discord;
-    model.me.image = me.avatar_url;
+    model.me.image = PictureKey(me.avatar_url, me.mii_data);
     model.me.initials = Initials(model.me.name);
     model.me.country = me.country;
     model.me.tint_seed = me.id;
@@ -468,10 +489,45 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
     for (const auto& mii : lists.mii_friends)
     {
         if (!miis.insert(mii.profile_id).second || !mii.online) continue;
-        online.rows.push_back(MiiRow(mii));
+        if (mii.player_id && !listed.insert(mii.player_id).second) continue;
+        OnlinePanelRow row = MiiRow(mii);
+        ChallengeableMii(row, mii, blocker);
+        online.rows.push_back(std::move(row));
     }
     SortRows(online.rows);
     model.sections.push_back(std::move(online));
+
+    // All of the friends, for the player's profile: online first (free, then
+    // busy), then offline, each by name. Only friends added in the game can
+    // be taken off again: Discord friends stay Discord's.
+    OnlinePanelSection friends;
+    friends.id = OnlinePanelSection::Id::Friends;
+    friends.title = T("menus.profile.friends");
+    friends.empty = context.loading ? T("menus.common.loading") : T("menus.profile.no_friends");
+    std::set<std::int64_t> befriended{me.id};
+    for (const auto* list : {&lists.friends, &context.discord_friends})
+        for (const auto& player : *list)
+        {
+            if (!befriended.insert(player.id).second) continue;
+            OnlinePanelRow row = PlayerRow(player);
+            row.discord = discord.count(player.id) != 0;
+            row.can_befriend = !row.discord;
+            Challengeable(row, player, blocker, context);
+            friends.rows.push_back(std::move(row));
+        }
+    std::set<std::int32_t> miiFriends;
+    for (const auto& mii : lists.mii_friends)
+    {
+        if (!miiFriends.insert(mii.profile_id).second) continue;
+        if (mii.player_id && !befriended.insert(mii.player_id).second) continue;
+        OnlinePanelRow row = MiiRow(mii);
+        ChallengeableMii(row, mii, blocker);
+        friends.rows.push_back(std::move(row));
+    }
+    std::stable_sort(friends.rows.begin(), friends.rows.end(), [](const OnlinePanelRow& a, const OnlinePanelRow& b) {
+        return std::make_tuple(int(a.presence), Lower(a.name)) < std::make_tuple(int(b.presence), Lower(b.name));
+    });
+    model.sections.push_back(std::move(friends));
 
     // While the player is available: the others available, then the game's
     // own online players by their Mii.
@@ -492,7 +548,10 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
         for (const auto& mii : lists.game_online)
         {
             if (!mii.online || !miis.insert(mii.profile_id).second) continue;
-            available.rows.push_back(MiiRow(mii));
+            if (mii.player_id && !listed.insert(mii.player_id).second) continue;
+            OnlinePanelRow row = MiiRow(mii);
+            ChallengeableMii(row, mii, blocker);
+            available.rows.push_back(std::move(row));
         }
         SortRows(available.rows);
         model.sections.push_back(std::move(available));

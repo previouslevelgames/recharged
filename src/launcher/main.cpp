@@ -4672,6 +4672,7 @@ private:
         platform::ProfileService::SetPlayedGame(check_.info ? check_.info->game_id.substr(0, 4) : std::string());
         competitive_->SetServer(platform::ProfileServerAddress(draft_.profile_server).value_or(std::string()));
         competitive_status_ = competitive_->Snapshot();
+        if (competitive_status_.state != CompetitiveService::State::SignedIn) signing_out_ = false;
         UpdateMiiWizard();
         if (!capture_)
         {
@@ -5216,7 +5217,7 @@ private:
     std::string PlayerMiiKey() const
     {
         const auto& status = competitive_status_;
-        if (status.state != CompetitiveService::State::SignedIn || ChosenOwnMii()) return {};
+        if (status.state != CompetitiveService::State::SignedIn || signing_out_ || ChosenOwnMii()) return {};
         const auto& player = status.player;
         return !player.discord_id.empty() ? "discord:" + player.discord_id
                                           : "player:" + status.server + "#" + std::to_string(player.id);
@@ -5649,98 +5650,6 @@ private:
         return profile;
     }
 
-    // What a Mii's profile line says: who it plays for.
-    static std::string PlaysFor(const MiiProfile& profile)
-    {
-        if (!profile.name.empty()) return texts::T("match_setup.mii_back.plays_for", {{"name", profile.name}});
-        return profile.sign_in == "discord" ? texts::T("match_setup.mii_back.plays_for_discord")
-                                            : texts::T("match_setup.mii_back.plays_for_recharged");
-    }
-
-    // Signed out, above the two ways in: the game save's Miis that play for a
-    // profile already, to sign in again with (through the game, or Discord).
-    void MiiProfilesBack(float width)
-    {
-        if (draft_.mii_sign_in || !competitive_status_.info.mii) return;
-        std::vector<platform::InstalledMii> miis;
-        std::vector<MiiProfile> profiles;
-        for (const auto& mii : InstalledMiis().miis)
-            if (auto profile = ProfileOfMii(mii))
-            {
-                miis.push_back(mii);
-                profiles.push_back(std::move(*profile));
-            }
-        if (miis.empty()) return;
-        std::size_t chosen = 0;
-        for (std::size_t n = 0; n < miis.size(); ++n)
-            if (mii_back_choice_ && miis[n].create_id == *mii_back_choice_) chosen = n;
-        mii_back_choice_ = miis[chosen].create_id;
-        const auto& mii = miis[chosen];
-        const auto& profile = profiles[chosen];
-        const auto& fonts = CurrentFonts();
-        auto* draw = ImGui::GetWindowDrawList();
-        const float pad = Dp(20);
-        const ImVec2 top = ImGui::GetCursorScreenPos();
-        draw->ChannelsSplit(2);
-        draw->ChannelsSetCurrent(1);
-        ImGui::SetCursorScreenPos({top.x + pad, top.y + pad});
-        ImGui::BeginGroup();
-        const float inner = width - pad * 2;
-        const std::string welcome = profile.name.empty()
-            ? std::string(texts::T("match_setup.mii_back.welcome"))
-            : texts::T("match_setup.mii_back.welcome_name", {{"name", profile.name}});
-        TextColored(fonts.heading, color::text, welcome.c_str());
-        ImGui::Dummy({0, Dp(2)});
-        const std::string text = profile.sign_in == "game"
-            ? miis.size() == 1
-                ? profile.name.empty()
-                    ? texts::T("match_setup.mii_back.game_mii", {{"mii", mii.name}})
-                    : texts::T("match_setup.mii_back.game_mii_named", {{"mii", mii.name}, {"name", profile.name}})
-                : std::string(texts::T("match_setup.mii_back.game_miis"))
-            : profile.name.empty()
-                ? texts::T("match_setup.mii_back.discord", {{"mii", mii.name}})
-                : texts::T("match_setup.mii_back.discord_named", {{"mii", mii.name}, {"name", profile.name}});
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + inner);
-        TextWrappedColored(fonts.body, color::muted, text.c_str());
-        ImGui::PopTextWrapPos();
-        ImGui::Dummy({0, Dp(8)});
-        if (miis.size() > 1)
-        {
-            std::optional<std::array<unsigned char, 8>> pick = mii_back_choice_;
-            MiiCombo("##mii_back", miis, pick, [&](const platform::InstalledMii& entry) {
-                for (std::size_t n = 0; n < miis.size(); ++n)
-                    if (miis[n].create_id == entry.create_id) return PlaysFor(profiles[n]);
-                return std::string();
-            }, inner);
-            if (pick) mii_back_choice_ = pick;
-            ImGui::Dummy({0, Dp(8)});
-        }
-        if (profile.sign_in == "game")
-        {
-            const std::string label = texts::T("match_setup.mii.sign_in_with", {{"mii", mii.name}});
-            if (PrimaryButton("mii_back_sign_in", label.c_str(), {GhostWidth(label.c_str(), Icon::Person) + Dp(28),
-                              Dp(44)}, config_ok_, Icon::Person))
-            {
-                SetMiiSignIn(true, platform::MiiCreateIdText(mii.create_id));
-            }
-        }
-        else if (competitive_status_.info.discord
-                 && DiscordButton("mii_back_discord", texts::T("match_setup.discord.connect"), Dp(220, 44))
-                 && !competitive_status_.busy)
-            competitive_->SignIn();
-        ImGui::EndGroup();
-        const float bottom = ImGui::GetItemRectMax().y + pad;
-        draw->ChannelsSetCurrent(0);
-        const ImVec2 end{top.x + width, bottom};
-        FillGradient(draw, top, end, Col(Mix(color::field, color::accent, 0.10f)), Col(color::field), Dp(16), false);
-        draw->AddRect(top, end, Col(Mix(color::border, color::accent, 0.45f), 0.9f), Dp(16));
-        draw->ChannelsMerge();
-        ImGui::SetCursorScreenPos({top.x, bottom});
-        ImGui::Dummy({width, Dp(14)});
-        TextColored(fonts.caption, color::dim, texts::T("match_setup.mii_back.or_new"));
-        ImGui::Dummy({0, Dp(4)});
-    }
-
     void OnlineWelcome()
     {
         using State = CompetitiveService::State;
@@ -5772,9 +5681,8 @@ private:
         switch (status.state)
         {
         case State::SignedOut:
-            MiiProfilesBack(width);
             OnlineChoices(width);
-            MiiComeBack(width);
+            MiiSignInWaiting(width);
             break;
         case State::SigningIn:
         {
@@ -5893,30 +5801,15 @@ private:
     // The welcome's two ways in, side by side: Connect Discord (the profile
     // and Mii from the Discord account, Discord friends and tournaments) and
     // Play with a Mii (no account), each with its button.
-    // Played with a Mii before (on another computer, or the session went):
-    // the game signs the player in again once their Mii logs in to WFC
-    // ([online] mii_sign_in, which the game clears then).
-    void MiiComeBack(float width)
+    // A Mii's sign-in through the game, chosen in the Mii wizard for a Mii
+    // that plays for a profile already: what to do now, and the way to stop
+    // waiting ([online] mii_sign_in, which the game clears once that Mii
+    // logged in to WFC).
+    void MiiSignInWaiting(float width)
     {
-        if (!competitive_status_.info.mii) return;
-        const auto& fonts = CurrentFonts();
+        if (!competitive_status_.info.mii || !draft_.mii_sign_in) return;
         ImGui::Dummy({0, Dp(14)});
         const float left = ImGui::GetCursorPosX();
-        if (!draft_.mii_sign_in)
-        {
-            const char* question = texts::T("match_setup.come_back.question");
-            const char* button = texts::T("match_setup.come_back.button");
-            const float button_width = GhostWidth(button, Icon::Person), height = Dp(36);
-            const float total = TextSize(fonts.body, question).x + Dp(8) + button_width;
-            ImGui::SetCursorPosX(left + std::max(0.0f, (width - total) * 0.5f));
-            const ImVec2 at = ImGui::GetCursorScreenPos();
-            DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x, at.y + (height - FontSize(fonts.body)) * 0.5f},
-                      Col(color::muted), question);
-            ImGui::SetCursorScreenPos({at.x + TextSize(fonts.body, question).x + Dp(8), at.y});
-            if (GhostButton("mii_come_back", button, {button_width, height}, config_ok_, Icon::Person))
-                SetMiiSignIn(true);
-            return;
-        }
         const platform::InstalledMii* with = nullptr;
         if (!draft_.mii_sign_in_with.empty())
             for (const auto& mii : InstalledMiis().miis)
@@ -7272,6 +7165,9 @@ private:
     // chosen for it.
     void SignOutPlayer()
     {
+        // Until the service is signed out, the player is not asked which Mii
+        // plays for them (their chosen Mii goes now).
+        signing_out_ = true;
         competitive_->SignOut();
         if (discord_friends_) discord_friends_->Disconnect();
         if (!draft_.online_mii.empty()) ChooseOnlineMii("");
@@ -13403,14 +13299,12 @@ private:
     Uint64 mii_reuse_checked_ = 0;
     std::optional<std::array<unsigned char, 8>> mii_reuse_choice_;
     bool mii_reuse_preview_ = false; // a development capture asks it
+    bool signing_out_ = false; // Sign out pressed, the service not signed out yet
     // The profiles that signed in here (platform::KnownProfile), read once;
     // the status serial they were last brought up to date at.
     std::vector<platform::KnownProfile> known_profiles_;
     bool known_profiles_read_ = false;
     std::uint64_t known_profiles_serial_ = 0;
-    // Signed out: the Mii of the game save whose profile the welcome offers
-    // (its dropdown), and the one chosen to sign in again through the game.
-    std::optional<std::array<unsigned char, 8>> mii_back_choice_;
     bool preview_applied_ = false; // a development capture's made-up Mii state, set once
     // The Mii made from a Discord account (PlayerOwnMii), for its key and name.
     std::string keyed_mii_for_, keyed_mii_record_;

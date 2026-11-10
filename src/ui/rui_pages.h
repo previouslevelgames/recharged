@@ -13,9 +13,10 @@
 // F1); the OPTIONS hub (the main menu's OPTIONS, the Recharged menu's) with
 // GAMEPLAY and SETTINGS (SETTINGS' SOUND and DISPLAY are what the pause menu's
 // Audio and Visual Options open); the ONLINE hub (the main menu's globe, the
-// Recharged menu's) with PLAYERS (the player, their set, friends and players
-// online, a player's page and a challenge's setup), RANKED and LEADERBOARD;
-// and the prompt over everything (a challenge, a set's end). They draw from a
+// Recharged menu's) with the player's set, PLAY (FRIENDS, RANDOM OPPONENT,
+// RANKED; a player's page and a challenge's setup), PROFILE (records and
+// friends) and LEADERBOARD; and the prompt over everything (a challenge, a
+// set's end). They draw from a
 // model the host fills each frame (the overlay's: overlay/game_overlay.h) and
 // say what the player did; the host applies it.
 namespace mscharged::ui
@@ -27,11 +28,14 @@ enum class PageId
     Gameplay,    // Recharged's gameplay options, by category
     Settings,    // the display (the game's match camera first), the sound, the rest
     Quit,        // QUIT RECHARGED: are you sure?
-    Online,      // the hub: PLAYERS, RANKED, LEADERBOARD (and WII ONLINE from the main menu)
-    Players,     // YOU (the profile, the set, random games), FRIENDS, PLAYERS
+    Online,      // the hub: the player's set, PLAY, PROFILE, LEADERBOARD (and WII ONLINE from the main menu)
+    Play,        // FRIENDS, RANDOM OPPONENT, RANKED
+    Friends,     // the friends online, to challenge
+    Random,      // open to challenges, the search for an opponent, the others open to challenges
+    Profile,     // the player, their records and all their friends
     Player,      // one player (the page's key): challenge, friend
     Setup,       // a challenge's rules (key: the player's), or a search's ("search")
-    Ranked,      // Play RANKED
+    Ranked,      // Play RANKED, the player's place this season and today
     Leaderboard, // the season's and today's leaders
     Prompt,      // a question over everything: a challenge, a set's end
     Match,       // an online match's menu (the game's pause; nothing pauses): CONTINUE, FORFEIT
@@ -71,8 +75,8 @@ struct PageModel
     bool network_match = false;
     bool forfeiting = false; // the player forfeited it: on the way out
     bool set_match = false;  // the online match is a set's (a forfeit gives the set up)
-    // A picture's texture (a player's avatar, "mii:own", the flags), 0 for
-    // none; the host's, for this frame.
+    // A picture's texture (a player's Mii: "mii:own", "miidata:<record>"), 0
+    // for none; the host's, for this frame.
     const std::function<ImTextureID(const std::string&)>* image = nullptr;
     // The question the prompt page asks (the host's, for this frame).
     const overlay::OverlayPrompt* prompt = nullptr;
@@ -95,6 +99,7 @@ struct PageActions
     std::optional<int> zoom;
     std::optional<PageId> open; // a page over this one
     std::string open_key;       // its key (a player's)
+    int open_category = 0;      // its category to show first
     bool credits = false;       // the game's Credits (the front end's Options)
     bool wii_online = false;    // the game's own online, as its main menu's globe
     overlay::OnlinePanelActions online;
