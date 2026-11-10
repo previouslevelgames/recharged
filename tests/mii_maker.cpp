@@ -157,7 +157,7 @@ void FittedNames() {
     Check(FitMiiName("\xF0\x9F\x98\x80\xF0\x9F\x98\x80", "nelly_99") == "nelly_99", "Fallback");
     Check(FitMiiName("\xF0\x9F\x98\x80", "\x01") == "Player", "Last resort");
     Check(FitMiiName("\xC3", "x") == "x", "Invalid UTF-8");
-    for (const char* name : {"0123456789AB", "a\tb", " x ", "\xE3\x80\x80Ab\xEF\xBB\xBF"})
+    for (const char* name : {"0123456789AB", "a\tb", " x ", "\xE3\x80\x80" "Ab\xEF\xBB\xBF"})
         Check(ValidMiiName(FitMiiName(name)), std::string("Fitted name refused: ") + name);
 }
 // A record's name read back, and a rename that changes nothing but the name.
