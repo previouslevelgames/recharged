@@ -6219,8 +6219,7 @@ private:
     }
     platform::KeyBindings DraftBindings() const { return platform::ParseKeyBindings(draft_.keys, DraftHotkeys()); }
 
-    // A key or mouse button pressed while a keycap waits: it takes that slot,
-    // moving it from another action unless it is that action's only key.
+    // A key or mouse button pressed while a keycap waits
     void CaptureKey(platform::KeyInput code)
     {
         const int action = capture_action_, slot = capture_slot_;
@@ -6238,32 +6237,11 @@ private:
         auto bindings = DraftBindings();
         auto& mine = bindings[action];
         if (mine[0] == code || mine[1] == code) return;
-        int moved = -1;
-        for (std::size_t other = 0; other < KeyActionCount; ++other)
-        {
-            if (int(other) == action) continue;
-            auto& binding = bindings[other];
-            for (int k = 0; k < 2; ++k)
-            {
-                if (binding[k] != code) continue;
-                if (binding[1 - k] == platform::kKeyNone)
-                {
-                    Notice(name + " is the only key of " + kKeyActions[other].label
-                               + ". Give that action another key first.", NoticeKind::Warning);
-                    return;
-                }
-                binding = {binding[1 - k], platform::kKeyNone};
-                moved = int(other);
-            }
-        }
         mine[slot] = code;
         if (mine[0] == platform::kKeyNone) mine = {mine[1], platform::kKeyNone};
         draft_.keys[action] = platform::FormatKeyBinding(mine);
-        if (moved >= 0) draft_.keys[moved] = platform::FormatKeyBinding(bindings[moved]);
         dirty_ = true;
-        Notice(name + " now presses " + kKeyActions[action].label
-                   + (moved >= 0 ? std::string(" (moved from ") + kKeyActions[moved].label + ")" : std::string()) + ".",
-               NoticeKind::Info);
+        Notice(name + " now presses " + kKeyActions[action].label + ".", NoticeKind::Info);
     }
 
     // A key pressed while a hotkey's keycaps wait (hotkey_capture_: its
@@ -6635,8 +6613,7 @@ private:
         else pad_inputs_held_.erase({pad, input});
     }
 
-    // A press while an input waits: it takes that slot, moving it from another
-    // action of the profile unless it is that action's only input.
+    // A press while an input waits
     void CaptureGamepadInput(platform::GamepadInput input)
     {
         const int action = pad_capture_action_, slot = pad_capture_slot_;
@@ -6648,30 +6625,11 @@ private:
         auto bindings = platform::ParseGamepadBindings(profile.inputs);
         auto& mine = bindings[std::size_t(action)];
         if (mine[0] == input || mine[1] == input) return;
-        int moved = -1;
-        for (std::size_t other = 0; other < GamepadActionCount; ++other)
-        {
-            if (int(other) == action) continue;
-            auto& binding = bindings[other];
-            for (int k = 0; k < 2; ++k)
-            {
-                if (binding[k] != input) continue;
-                binding = {binding[1 - k], platform::kGamepadNone};
-                moved = int(other);
-            }
-        }
         mine[slot] = input;
         if (mine[0] == platform::kGamepadNone) mine = {mine[1], platform::kGamepadNone};
         profile.inputs[std::size_t(action)] = platform::FormatGamepadBinding(mine);
-        if (moved >= 0) profile.inputs[std::size_t(moved)] = platform::FormatGamepadBinding(bindings[moved]);
         dirty_ = true;
-        const bool emptied = moved >= 0 && bindings[std::size_t(moved)][0] == platform::kGamepadNone;
-        Notice(name + " now presses " + kGamepadActions[action].label
-                   + (moved >= 0 ? std::string(" (moved from ") + kGamepadActions[moved].label
-                                       + (emptied ? ", which now has no button)" : ")")
-                                 : std::string())
-                   + ".",
-               emptied ? NoticeKind::Warning : NoticeKind::Info);
+        Notice(name + " now presses " + kGamepadActions[action].label + ".", NoticeKind::Info);
     }
 
     // A combo choosing the profile of gamepad `slot`: Default and the
