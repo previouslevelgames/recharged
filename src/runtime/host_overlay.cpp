@@ -9,6 +9,9 @@
 #include "overlay/overlay_unit.h"
 #include "platform/path.h"
 #include "runtime/host_panel.h"
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+#include "runtime/host_menus.h"
+#endif
 
 #include <aurora/imgui.h>
 #include <imgui.h>
@@ -82,6 +85,8 @@ void HostOverlay::SetCard(std::optional<Card> card) { card_ = std::move(card); }
 
 void HostOverlay::SetPanel(HostPanel* panel) { panel_ = panel; }
 
+void HostOverlay::SetMenus(HostMenus* menus) { menus_ = menus; }
+
 void HostOverlay::SetPerformance(std::optional<OverlayCorner> corner)
 {
     performance_ = corner;
@@ -96,7 +101,7 @@ void HostOverlay::ClosePanel()
     if (panel_ && panel_->IsOpen()) panel_->Close();
 }
 
-void HostOverlay::BuildFonts(float size, float unit)
+void HostOverlay::BuildFonts(float size, float unit, float menuScale)
 {
     ImGuiIO& io = ImGui::GetIO();
     for (;;) {
@@ -129,6 +134,15 @@ void HostOverlay::BuildFonts(float size, float unit)
         number_ = add(size);
         cardBold_ = addCard(std::round(26.0f * unit));
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
+        // Recharged's menus' (when there are any), at the size they draw
+        // them (a lit plate's a little larger than the rest).
+        menuFonts_ = {};
+        if (menuScale > 0.0f) {
+            menuFonts_.title = addCard(std::round(ui::kTitleSize * menuScale));
+            menuFonts_.plate = addCard(std::round(ui::kPlateSize * ui::kLitPlateScale * menuScale));
+            menuFonts_.row = addCard(std::round(ui::kRowSize * menuScale));
+            menuFonts_.small = addCard(std::round(ui::kSmallSize * menuScale));
+        }
         overlayFonts_ = fontData_.empty() ? launcher::Fonts{}
             : overlay::AddOnlinePanelFonts(*io.Fonts, fontData_.data(), static_cast<int>(fontData_.size()), unit);
 #endif
@@ -140,6 +154,7 @@ void HostOverlay::BuildFonts(float size, float unit)
     aurora_imgui_update_overlay_fonts();
     builtSize_ = size;
     builtUnit_ = unit;
+    builtMenuScale_ = menuScale;
 }
 
 void HostOverlay::DrawCard(float width, float height, float u)
@@ -240,15 +255,20 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         if (opacity == 0) message_.clear();
     }
     const bool panel = panel_ && panel_->IsOpen();
-    const std::optional<Hint> hint = panel || card_ ? std::nullopt : hint_;
-    const bool showing = performance_ || opacity > 0 || card_ || panel || hint;
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+    const bool menus = !panel && menus_ && menus_->IsShown();
+#else
+    const bool menus = false;
+#endif
+    const std::optional<Hint> hint = panel || menus || card_ ? std::nullopt : hint_;
+    const bool showing = performance_ || opacity > 0 || card_ || panel || menus || hint;
     if (!showing) {
         if (drawn_) aurora_imgui_clear_overlay();
         drawn_ = false;
         return;
     }
     // The panel is a live ImGui window: every frame while open.
-    if (drawn_ && !panel && !shownPanel_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_
+    if (drawn_ && !panel && !shownPanel_ && !menus && !shownMenus_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_
         && opacity == shownOpacity_ && card_ == shownCard_ && hint == shownHint_ && surface_width == shownWidth_
         && surface_height == shownHeight_)
         return;
@@ -256,12 +276,22 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     // 1/900 of the picture's height, never so small that the text can't be read.
     const float unit = overlay::OverlayUnit(float(surface_width), float(surface_height));
     // Rebuilt for another size, or for characters of names they lack.
-    if (size != builtSize_ || unit != builtUnit_ || platform::NameGlyphsVersion() != launcher::NameGlyphsBuilt())
-        BuildFonts(size, unit);
+    // Recharged's menus' fonts: design pixels to the picture's (0: no menus).
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+    const float menuScale = menus_ ? float(surface_height) / ui::kDesignHeight : 0.0f;
+#else
+    const float menuScale = 0.0f;
+#endif
+    if (size != builtSize_ || unit != builtUnit_ || menuScale != builtMenuScale_
+        || platform::NameGlyphsVersion() != launcher::NameGlyphsBuilt())
+        BuildFonts(size, unit, menuScale);
     aurora_imgui_begin_overlay(surface_width, surface_height);
     // The panel or the card first: the performance numbers and messages stay
     // on top.
     if (panel) panel_->Draw(float(surface_width), float(surface_height), {cardText_, cardBold_, unit});
+#if defined(MSCHARGED_HAS_GAME_OVERLAY)
+    else if (menus) menus_->Draw(float(surface_width), float(surface_height), menuFonts_);
+#endif
     else if (card_) DrawCard(float(surface_width), float(surface_height), unit);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     const float shadow = std::max(1.0f, std::round(size / 15.0f));
@@ -347,6 +377,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     shownCard_ = card_;
     shownHint_ = hint;
     shownPanel_ = panel;
+    shownMenus_ = menus;
     shownOpacity_ = opacity;
     shownWidth_ = surface_width;
     shownHeight_ = surface_height;

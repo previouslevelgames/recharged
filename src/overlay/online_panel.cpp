@@ -221,16 +221,12 @@ void AvailabilityBadge(ImDrawList* draw, ImVec2 center, float radius, float on)
 }
 
 // The key of the setup screen of a search for a random opponent.
-constexpr const char* kSearchSetup = "search";
+constexpr const char* kSearchSetup = kOnlinePanelSearchKey;
 
 // Opens the setup for a search for a random opponent: the preset chosen last.
 void OpenSearchSetup(Frame& frame, ImGuiID back)
 {
-    const auto& presets = frame.model.presets;
-    auto& state = frame.state;
-    state.setup_for = kSearchSetup;
-    state.preset = presets.empty() ? 0 : std::clamp(frame.model.chosen_preset, 0, int(presets.size()) - 1);
-    state.rules = presets.empty() ? platform::MatchRules{} : presets[std::size_t(state.preset)].rules;
+    StartOnlinePanelSetup(frame.state, frame.model, kSearchSetup);
     frame.screens.Push({int(OnlinePanelScreen::Setup), kSearchSetup, "Find an opponent"}, back);
 }
 
@@ -543,11 +539,7 @@ void DrawSet(Frame& frame, float width)
 // its rules.
 void OpenSetup(Frame& frame, const OnlinePanelRow& row, ImGuiID back)
 {
-    const auto& presets = frame.model.presets;
-    auto& state = frame.state;
-    state.setup_for = row.key;
-    state.preset = presets.empty() ? 0 : std::clamp(frame.model.chosen_preset, 0, int(presets.size()) - 1);
-    state.rules = presets.empty() ? platform::MatchRules{} : presets[std::size_t(state.preset)].rules;
+    StartOnlinePanelSetup(frame.state, frame.model, row.key);
     frame.screens.Push({int(OnlinePanelScreen::Setup), row.key, "Challenge " + row.name}, back);
 }
 
@@ -1000,28 +992,12 @@ std::string GameLength(int seconds)
         + " minutes";
 }
 
-// The next of `values` after `current`, `step` places on, round at the ends
-// (the first when `current` isn't one of them).
-template <typename T> T Next(const std::vector<T>& values, const T& current, int step)
-{
-    const auto found = std::find(values.begin(), values.end(), current);
-    const int n = int(values.size());
-    if (found == values.end() || n == 0) return n ? values.front() : current;
-    return values[std::size_t((int(found - values.begin()) + step + n) % n)];
-}
-
 // A cheat's row: its choices by key, shown by their names.
 void CheatRow(const char* id, const char* label, const std::vector<platform::RuleChoice>& choices,
               std::string& key, float width, bool interactive)
 {
-    std::vector<std::string> keys;
-    std::string shown = key;
-    for (const auto& choice : choices)
-    {
-        keys.push_back(choice.key);
-        if (key == choice.key) shown = choice.label;
-    }
-    if (const int step = OverlayChoiceRow(id, label, shown, width, interactive)) key = Next(keys, key, step);
+    if (const int step = OverlayChoiceRow(id, label, platform::RuleChoiceLabel(choices, key), width, interactive))
+        key = platform::StepRuleChoice(choices, key, step);
 }
 
 // A radar's ping going out of the box from `min` to `max`: a ring that grows
@@ -1108,15 +1084,10 @@ void DrawRules(Frame& frame, platform::MatchRules& rules, float width, bool inte
                 segmented("time", "Time", {120, 180, 240, 300}, rules.time, [](int seconds) {
                     return seconds % 60 == 0 ? std::to_string(seconds / 60) + " min" : GameLength(seconds);
                 });
-            std::vector<std::string> stadiums;
-            std::string stadium = rules.stadium;
-            for (const auto& choice : platform::StadiumChoices())
-            {
-                stadiums.push_back(choice.key);
-                if (rules.stadium == choice.key) stadium = choice.label;
-            }
-            if (const int step = OverlayChoiceRow("stadium", "Stadium", stadium, half, interactive))
-                rules.stadium = Next(stadiums, rules.stadium, step);
+            const auto& stadiums = platform::StadiumChoices();
+            if (const int step = OverlayChoiceRow("stadium", "Stadium", platform::RuleChoiceLabel(stadiums, rules.stadium),
+                                                  half, interactive))
+                rules.stadium = platform::StepRuleChoice(stadiums, rules.stadium, step);
         });
     };
     const auto cheats = [&] {
@@ -1206,8 +1177,7 @@ void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* 
     // A search runs from its request until the server has it (and the panel
     // shows it) or tells why not.
     const double now = ImGui::GetTime();
-    if (model.search.active || now - state.search_sent > 10.0) state.search_sent = -100.0;
-    const bool searching = search && (model.search.active || state.search_sent > 0.0);
+    const bool searching = OnlinePanelSearchRunning(model, state, now) && search;
 
     // The action's column at the left; the rules beside it, as wide as fits.
     const float side = std::clamp(total * 0.26f, Dp(210), Dp(280)), gap = Dp(28);
@@ -1237,14 +1207,7 @@ void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* 
         }
         else
         {
-            // Send, by the server's rule set itself while nothing changed
-            // (servers before 1.2.3 take only theirs).
-            OnlinePanelChallenge challenge;
-            challenge.player = search ? 0 : row->player_id;
-            challenge.name = preset.name;
-            if (changed && preset.name.size() + 10 <= 48) challenge.name += " (changed)";
-            challenge.rules = rules;
-            challenge.rule_set = changed ? 0 : preset.rule_set;
+            const OnlinePanelChallenge challenge = MakeOnlinePanelChallenge(preset, rules, search ? 0 : row->player_id);
             frame.actions.set_challenge_rules = preset.name;
             if (search)
             {
@@ -1318,6 +1281,38 @@ void DrawSetup(Frame& frame, const OverlayLayout& layout, const OnlinePanelRow* 
     EndOverlayScroll();
 }
 } // namespace
+
+int ChosenOnlinePanelPreset(const OnlinePanelModel& model)
+{
+    return model.presets.empty() ? 0 : std::clamp(model.chosen_preset, 0, int(model.presets.size()) - 1);
+}
+
+void StartOnlinePanelSetup(OnlinePanelState& state, const OnlinePanelModel& model, const std::string& key)
+{
+    state.setup_for = key;
+    state.preset = ChosenOnlinePanelPreset(model);
+    state.rules = model.presets.empty() ? platform::MatchRules{} : model.presets[std::size_t(state.preset)].rules;
+}
+
+bool OnlinePanelSearchRunning(const OnlinePanelModel& model, OnlinePanelState& state, double now)
+{
+    if (model.search.active || now - state.search_sent > 10.0) state.search_sent = -100.0;
+    return model.search.active || state.search_sent > 0.0;
+}
+
+OnlinePanelChallenge MakeOnlinePanelChallenge(const OnlinePanelPreset& preset, const platform::MatchRules& rules,
+                                              std::int64_t player)
+{
+    const bool changed = !(rules == preset.rules);
+    OnlinePanelChallenge challenge;
+    challenge.player = player;
+    challenge.name = preset.name;
+    // (The server keeps names of up to 48 characters.)
+    if (changed && preset.name.size() + 10 <= 48) challenge.name += " (changed)";
+    challenge.rules = rules;
+    challenge.rule_set = changed ? 0 : preset.rule_set;
+    return challenge;
+}
 
 OverlayScreens::Screen OnlinePanelFirstScreen() { return {int(OnlinePanelScreen::Main), {}, "Online"}; }
 

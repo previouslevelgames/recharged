@@ -38,6 +38,23 @@ struct GameSettingsModel
     bool challenge_sound = true;
     bool reopen_launcher = false; // the launcher opens again when the game closes
     bool reopen_known = true;     // the game was started from the launcher: it can open again
+    // The launcher's Advanced settings (not its files and folders): the
+    // launcher's own (its size), the next start's graphics and the
+    // diagnostics. Lists hold their choices' names, the int the one chosen.
+    std::vector<std::string> launcher_sizes;
+    int launcher_size = 0;
+    std::vector<std::string> graphics_apis; // one name only: nothing to choose (Linux, macOS)
+    int graphics_api = 0;
+    bool graphics_cards_shown = false;      // the PC lists its cards (not macOS)
+    std::vector<std::string> graphics_cards; // "Automatic (fastest)" first
+    int graphics_card = 0;
+    bool graphics_cards_listing = false;    // still looking for them
+    bool frame_logging = false;
+    bool graphics_validation = false;
+    int log_detail = 2; // errors, warnings, info, debug
+    bool verbose_console = false;
+    bool log_window_shown = false; // Windows and macOS
+    bool log_window = false;
 };
 
 enum class GameSetting
@@ -51,6 +68,14 @@ enum class GameSetting
     SoundVolume,    // group: the kSoundGroups index; value: 0-100
     ChallengeSound,
     ReopenLauncher,
+    LauncherSize,       // value: the index in launcher_sizes
+    GraphicsApi,        // value: the index in graphics_apis
+    GraphicsCard,       // value: the index in graphics_cards
+    FrameLogging,
+    GraphicsValidation,
+    LogDetail,          // value: 0 errors, 1 warnings, 2 info, 3 debug
+    VerboseConsole,
+    LogWindow,
 };
 
 // A setting changed in the tab; switches carry their new state in `value` (0 or 1).

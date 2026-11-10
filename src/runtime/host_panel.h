@@ -79,6 +79,27 @@ public:
     void Open();
     void Close();
 
+    // Recharged's menus (HostMenus, the UI kit) take the input as the panel
+    // does, without the panel's own drawing and blur: the keyboard, the mouse
+    // (its system cursor hidden: the menus draw the game's hand) and the
+    // players' buttons reach ImGui; B (GamepadFaceRight), Escape and Backspace
+    // are the menus' back, the 1 button (GamepadFaceLeft, the keyboard
+    // player's too) the game's pause. `pause`: press the game's pause in an
+    // offline match, as opening the panel does. The panel opening ends it.
+    void OpenPages(int channel, bool pause);
+    void ClosePages();
+    bool PagesOpen() const { return pages_; }
+    // The keys Recharged's menus may take while the panel is closed: F1 or
+    // HOME, F2 (Recharged's gameplay options), and the game's pause pressed
+    // while nothing is open (only told: it reaches the game as well).
+    enum class MenuKey { Recharged, Options, Pause };
+    // With the channel of the controller that pressed it (-1 for the keys):
+    // true when the menus took the key (the panel then stays closed).
+    void SetMenuKeys(std::function<bool(MenuKey key, int channel)> keys);
+    // The keyboard & mouse player's channel while the panel or the pages are
+    // open (-1 for none).
+    int KeyboardChannel() const { return keyboardChannel_; }
+
     // Each host frame, before HostOverlay::Update: the hotkey, HOME, Escape and
     // B, and the players' buttons for ImGui while open.
     void Service(Clock::time_point now);
@@ -92,6 +113,12 @@ private:
     void FeedControllers(const platform::NativeWpadPanelButtons& buttons);
     // Presses the game's pause if the rule asks for it; false when it does not.
     bool PressPause();
+    // The game refuses its pause during a shot or a Mega Strike: pressed again
+    // a moment later, while the match plays on unpaused.
+    void RetryPause(Clock::time_point now);
+
+    // Takes the input (both modes) or gives it back.
+    void Capture(bool on);
 
     SDL_Window* window_;
     Content content_;
@@ -101,6 +128,9 @@ private:
     std::function<bool()> pauseRule_;
     std::uint64_t layer_ = 0;
     bool open_ = false;
+    // Recharged's menus have the input (OpenPages).
+    bool pages_ = false;
+    std::function<bool(MenuKey, int)> menuKeys_;
     // Its first frame (focus) and whether a controller's HOME opened it (the
     // navigation cursor shows at once).
     bool justOpened_ = false, byController_ = false;

@@ -782,6 +782,14 @@ void OnlinePanelPreview::Apply(const overlay::GameOverlayActions& all)
         case GameSetting::SoundVolume: settings_.sound_volumes[std::size_t(change.group)] = change.value; break;
         case GameSetting::ChallengeSound: settings_.challenge_sound = change.value; break;
         case GameSetting::ReopenLauncher: settings_.reopen_launcher = change.value; break;
+        case GameSetting::LauncherSize: settings_.launcher_size = change.value; break;
+        case GameSetting::GraphicsApi: settings_.graphics_api = change.value; break;
+        case GameSetting::GraphicsCard: settings_.graphics_card = change.value; break;
+        case GameSetting::FrameLogging: settings_.frame_logging = change.value; break;
+        case GameSetting::GraphicsValidation: settings_.graphics_validation = change.value; break;
+        case GameSetting::LogDetail: settings_.log_detail = change.value; break;
+        case GameSetting::VerboseConsole: settings_.verbose_console = change.value; break;
+        case GameSetting::LogWindow: settings_.log_window = change.value; break;
         }
         std::cout << "Overlay: setting " << int(change.setting) << " = " << change.value << '\n';
     }

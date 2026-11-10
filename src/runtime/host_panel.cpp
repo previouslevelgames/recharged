@@ -113,7 +113,8 @@ struct HostPanelLayer {
             io.AddKeyEvent(imguiKey, key->pressed);
             io.SetKeyEventNativeData(imguiKey, int(key->keycode), int(key->scancode), int(key->scancode));
             // Escape closes, unless it ends typing in a text field first.
-            if (key->pressed && !key->repeat && key->scancode == SDL_SCANCODE_ESCAPE && !panel.typing_)
+            if (key->pressed && !key->repeat && key->scancode == SDL_SCANCODE_ESCAPE && !panel.typing_
+                && !panel.pages_)
                 panel.closeRequested_ = true;
         } else if (const auto* text = event.payload.get_if<InputEvent::TextInput>()) {
             io.AddInputCharactersUTF8(text->text.c_str());
@@ -136,7 +137,12 @@ struct HostPanelLayer {
         using Kind = aurora::input::InputSource::Kind;
         return source.kind == Kind::Keyboard || source.kind == Kind::Mouse;
     }
-    static aurora::input::PointerMode Pointer(void*) { return aurora::input::PointerMode::Visible; }
+    static aurora::input::PointerMode Pointer(void* userdata)
+    {
+        // Recharged's menus draw the game's hand instead of the system's arrow.
+        return static_cast<HostPanel*>(userdata)->pages_ ? aurora::input::PointerMode::Hidden
+                                                         : aurora::input::PointerMode::Visible;
+    }
 };
 
 HostPanel::HostPanel(SDL_Window* window) : window_(window)
@@ -185,37 +191,83 @@ void HostPanel::SetPauseRule(std::function<bool()> rule) { pauseRule_ = std::mov
 
 void HostPanel::Open() { OpenFrom(-1); }
 
-void HostPanel::OpenFrom(int channel)
+void HostPanel::SetMenuKeys(std::function<bool(MenuKey key, int channel)> keys) { menuKeys_ = std::move(keys); }
+
+void HostPanel::Capture(bool on)
 {
-    if (open_) return;
-    open_ = true;
-    justOpened_ = true;
-    closeRequested_ = typing_ = false;
-    controllerDown_ = 0;
-    keyboardChannel_ = platform::DesktopKeyboardWpadChannel();
-    byController_ = channel >= 0 && channel != keyboardChannel_;
-    opener_ = channel;
+    if (on) {
+        ImGuiIO& io = ImGui::GetIO();
+        closeRequested_ = typing_ = false;
+        controllerDown_ = 0;
+        keyboardChannel_ = platform::DesktopKeyboardWpadChannel();
+        // Drop what reached ImGui while it read no input, then start where the
+        // mouse is.
+        io.ClearEventsQueue();
+        io.ClearInputKeys();
+        io.ClearInputMouse();
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+        io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+        float x = 0, y = 0;
+        if (window_ && SDL_GetMouseFocus() == window_) {
+            SDL_GetMouseState(&x, &y);
+            const ImVec2 at = SurfacePixels(x, y);
+            io.AddMousePosEvent(at.x, at.y);
+        }
+        aurora_imgui_set_overlay_input(true);
+        if (layer_) aurora::input::set_layer_enabled(layer_, true);
+        platform::SetNativeWpadPanelHold(true);
+        return;
+    }
+    platform::SetNativeWpadPanelHold(false);
+    platform::SetHotkeysTyping(false);
+    platform::SetHotkeysInMenu(false);
+    if (layer_) aurora::input::set_layer_enabled(layer_, false);
+    aurora_imgui_set_overlay_input(false);
+    // A text field's typing (ImGui started SDL's text input for it) ends too.
+    if (window_ && SDL_TextInputActive(window_)) SDL_StopTextInput(window_);
+    // (No ImGui any more as the program ends.)
+    if (!ImGui::GetCurrentContext()) return;
     ImGuiIO& io = ImGui::GetIO();
-    // Drop what reached ImGui while it read no input, then start where the
-    // mouse is.
     io.ClearEventsQueue();
     io.ClearInputKeys();
     io.ClearInputMouse();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
-    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
-    float x = 0, y = 0;
-    if (window_ && SDL_GetMouseFocus() == window_) {
-        SDL_GetMouseState(&x, &y);
-        const ImVec2 at = SurfacePixels(x, y);
-        io.AddMousePosEvent(at.x, at.y);
-    }
-    aurora_imgui_set_overlay_input(true);
-    if (layer_) aurora::input::set_layer_enabled(layer_, true);
-    platform::SetNativeWpadPanelHold(true);
+    io.ConfigFlags &= ~(ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad);
+    io.BackendFlags &= ~ImGuiBackendFlags_HasGamepad;
+}
+
+void HostPanel::OpenFrom(int channel)
+{
+    if (open_) return;
+    // The panel over Recharged's menus: it has the input now.
+    pages_ = false;
+    open_ = true;
+    justOpened_ = true;
+    Capture(true);
+    byController_ = channel >= 0 && channel != keyboardChannel_;
+    opener_ = channel;
     aurora_set_video_output_blur(true);
     // In an offline match, the game's own pause, pressed by whoever opened it.
     pausePresses_ = 0;
     if (PressPause()) nextPause_ = Clock::now() + kPauseRetry;
+}
+
+void HostPanel::OpenPages(int channel, bool pause)
+{
+    if (open_ || pages_) return;
+    pages_ = true;
+    Capture(true);
+    byController_ = channel >= 0 && channel != keyboardChannel_;
+    opener_ = channel;
+    pausePresses_ = 0;
+    if (pause && PressPause()) nextPause_ = Clock::now() + kPauseRetry;
+}
+
+void HostPanel::ClosePages()
+{
+    if (!pages_) return;
+    pages_ = false;
+    pausePresses_ = 0;
+    if (!open_) Capture(false);
 }
 
 bool HostPanel::PressPause()
@@ -235,21 +287,15 @@ void HostPanel::Close()
 {
     if (!open_) return;
     open_ = false;
-    platform::SetNativeWpadPanelHold(false);
-    platform::SetHotkeysTyping(false);
-    platform::SetHotkeysInMenu(false);
     aurora_set_video_output_blur(false);
-    if (layer_) aurora::input::set_layer_enabled(layer_, false);
-    aurora_imgui_set_overlay_input(false);
-    // A text field's typing (ImGui started SDL's text input for it) ends too.
-    if (window_ && SDL_TextInputActive(window_)) SDL_StopTextInput(window_);
-    if (ImGui::GetCurrentContext()) {
-        ImGuiIO& io = ImGui::GetIO();
-        io.ClearEventsQueue();
-        io.ClearInputKeys();
-        io.ClearInputMouse();
-        io.ConfigFlags &= ~(ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad);
-        io.BackendFlags &= ~ImGuiBackendFlags_HasGamepad;
+    Capture(false);
+}
+
+void HostPanel::RetryPause(Clock::time_point now)
+{
+    if (pausePresses_ > 0 && pausePresses_ < kPausePresses && now >= nextPause_) {
+        if (PressPause()) nextPause_ = now + kPauseRetry;
+        else pausePresses_ = 0;
     }
 }
 
@@ -258,6 +304,7 @@ void HostPanel::Service(Clock::time_point now)
     const bool hotkey = sHotkeyPresses.exchange(0) > 0;
     const bool optionsKey = sOptionsPresses.exchange(0) > 0;
     std::uint32_t homes = platform::TakeNativeWpadHomePresses();
+    const std::uint32_t pauses = platform::TakeNativeWpadPausePresses();
     if (!captureDone_ && now >= captureAt_) {
         captureDone_ = true;
         if (!open_) {
@@ -274,11 +321,24 @@ void HostPanel::Service(Clock::time_point now)
     if (!open_) {
         // Closed, the overlay's frames read no input: what Aurora's ImGui
         // layer queued meanwhile would only pile up.
-        ImGui::GetIO().ClearEventsQueue();
-        // F1 and HOME open on the first tab, F2 on Game options.
-        openedTab_ = optionsKey && !hotkey && !homes ? 1 : 0;
-        if (hotkey || optionsKey) OpenFrom(-1);
-        else if (homes) OpenFrom(LowestChannel(homes));
+        if (!pages_) ImGui::GetIO().ClearEventsQueue();
+        // F1 and HOME open on the first tab, F2 on Game options; Recharged's
+        // menus may take them.
+        const bool options = optionsKey && !hotkey && !homes;
+        const int channel = hotkey || optionsKey ? -1 : homes ? LowestChannel(homes) : -1;
+        if ((hotkey || optionsKey || homes)
+            && !(menuKeys_ && menuKeys_(options ? MenuKey::Options : MenuKey::Recharged, channel))) {
+            openedTab_ = options ? 1 : 0;
+            OpenFrom(channel);
+            return;
+        }
+        if (pauses && !pages_ && menuKeys_) menuKeys_(MenuKey::Pause, LowestChannel(pauses));
+        if (!pages_) return;
+        // The menus' input: the players' buttons as keys, the pause pressed
+        // again while the game refuses it.
+        platform::SetHotkeysInMenu(true);
+        FeedControllers(platform::TakeNativeWpadPanelButtons());
+        RetryPause(now);
         return;
     }
     // While a text field has the keyboard, the keyboard's own HOME key and
@@ -302,12 +362,7 @@ void HostPanel::Service(Clock::time_point now)
         Close();
         return;
     }
-    // The game refuses its pause during a shot or a Mega Strike: press it
-    // again a moment later, while the match plays on unpaused.
-    if (pausePresses_ > 0 && pausePresses_ < kPausePresses && now >= nextPause_) {
-        if (PressPause()) nextPause_ = now + kPauseRetry;
-        else pausePresses_ = 0;
-    }
+    RetryPause(now);
     FeedControllers(buttons);
 }
 
@@ -316,14 +371,17 @@ void HostPanel::FeedControllers(const platform::NativeWpadPanelButtons& buttons)
     // The keyboard & mouse player's keys reach ImGui as keys and clicks; its
     // WPAD buttons (Return as A, a click as A) would press twice.
     ImGuiIO& io = ImGui::GetIO();
-    // With the overlay, B is its key too (back a screen).
+    // With the overlay and Recharged's menus, B is their key too (back a screen).
     constexpr ControllerKey kBack{WPAD_BUTTON_B, ImGuiKey_GamepadFaceRight};
-    const std::size_t keys = std::size(kControllerKeys) + (overlay_ ? 1 : 0);
+    const std::size_t keys = std::size(kControllerKeys) + (overlay_ || pages_ ? 1 : 0);
     for (std::size_t k = 0; k < keys; ++k) {
         const ControllerKey& entry = k < std::size(kControllerKeys) ? kControllerKeys[k] : kBack;
+        // The menus take the keyboard player's 1 too (the game's pause, Z):
+        // no ImGui key of its own.
+        const bool keyboardToo = pages_ && entry.bit == WPAD_BUTTON_1;
         bool down = false, pressed = false;
         for (int n = 0; n < 4; ++n) {
-            if (n == keyboardChannel_) continue;
+            if (n == keyboardChannel_ && !keyboardToo) continue;
             down |= (buttons.down[n] & entry.bit) != 0;
             pressed |= (buttons.pressed[n] & entry.bit) != 0;
         }

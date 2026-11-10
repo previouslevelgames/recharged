@@ -138,6 +138,12 @@ const std::vector<RuleChoice>& StadiumChoices(); // "random" first
 const std::vector<RuleChoice>& StadiumCheatChoices();
 const std::vector<RuleChoice>& PlayerCheatChoices();
 const std::vector<RuleChoice>& PowerupCheatChoices();
+// The name players see for `key` among `choices` (the key itself for one not
+// there).
+std::string RuleChoiceLabel(const std::vector<RuleChoice>& choices, const std::string& key);
+// The key `step` places from `key` among `choices`, round at the ends (the
+// first for a key not there).
+std::string StepRuleChoice(const std::vector<RuleChoice>& choices, const std::string& key, int step);
 // The tweaks a set's rules may switch on (fast_terrain, no_mega_strikes,
 // thunder_island_walls, mirror_match), with their names.
 const std::vector<RuleChoice>& RuleTweakChoices();

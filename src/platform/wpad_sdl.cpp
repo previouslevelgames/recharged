@@ -71,6 +71,7 @@ struct Channel {
     // left of a button press for the game (PressNativeWpadButton).
     u16 own_seen = 0, panel_hidden = 0;
     bool home_down = false;
+    bool pause_down = false; // WPAD 1, the game's pause
     int press_reports = 0;
     u16 press_button = 0;
     // The pointer and motion of its last report before a hold, which the
@@ -138,6 +139,7 @@ struct Hardware {
     // and Nunchuk stick, and the buttons pressed since it last read them.
     bool home_taken = false;
     std::uint32_t home_presses = 0;
+    std::uint32_t pause_presses = 0;
     std::array<u16, WPAD_MAX_CONTROLLERS> panel_down{}, panel_pressed{};
     std::array<std::int8_t, WPAD_MAX_CONTROLLERS> panel_stick_x{}, panel_stick_y{};
     // Player assignment of native providers: joysticks with a fixed channel,
@@ -242,7 +244,7 @@ void ClearReports(Channel& channel) {
     channel.current = {};
     channel.current.err = WPAD_ERR_NO_CONTROLLER;
     channel.current.dev = WPAD_DEV_NOT_FOUND;
-    channel.still_known = channel.home_down = false;
+    channel.still_known = channel.home_down = channel.pause_down = false;
     channel.press_reports = 0;
 }
 bool RawAccel(float value, bool invert, s16& output) {
@@ -336,6 +338,14 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
             channel.home_down = home;
             report.button &= ~WPAD_BUTTON_HOME;
             own &= ~WPAD_BUTTON_HOME;
+        }
+        // The game's pause (its pad button 0x2F: WPAD 1) pressed, also where
+        // the game refuses it (network matches): the host's to see. It still
+        // reaches the game.
+        {
+            const bool pause = report.button & WPAD_BUTTON_1;
+            if (pause && !channel.pause_down && !state.hold) state.pause_presses |= 1u << index;
+            channel.pause_down = pause;
         }
         // A host card asks something or the host panel is open: the presses
         // are theirs, and the game sees nothing until every button is up again
@@ -676,12 +686,17 @@ void SetNativeWpadHomeTaken(bool taken) {
     auto& state = State();
     std::lock_guard lock(state.reports);
     state.home_taken = taken;
-    state.home_presses = 0;
+    state.home_presses = state.pause_presses = 0;
 }
 std::uint32_t TakeNativeWpadHomePresses() {
     auto& state = State();
     std::lock_guard lock(state.reports);
     return std::exchange(state.home_presses, 0u);
+}
+std::uint32_t TakeNativeWpadPausePresses() {
+    auto& state = State();
+    std::lock_guard lock(state.reports);
+    return std::exchange(state.pause_presses, 0u);
 }
 NativeWpadPanelButtons TakeNativeWpadPanelButtons() {
     auto& state = State();

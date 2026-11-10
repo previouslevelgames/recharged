@@ -32,6 +32,7 @@
 #error Competitive play belongs to the isolated original game module
 #endif
 #include "platform/competitive_rules.h"
+#include "platform/menu_snapshot.h"
 
 #include "Game/FE/FrontendSceneCatalog.h"
 #include "Game/FE/feText.h"
@@ -713,7 +714,9 @@ extern "C" int mscharged_competitive_connection(unsigned first, unsigned second)
     return IsOpponent(first) || IsOpponent(second) ? 0 : 1;
 }
 
-extern "C" int mscharged_competitive_popup(int type)
+namespace {
+// A set's answer to the game's popup `type`, -1 for the player's own.
+int SetPopupAnswer(int type)
 {
     // Only while the walk drives the screens: not once the set is over,
     // failed or left, not while the player chooses the Mii, and in a running game not
@@ -743,6 +746,15 @@ extern "C" int mscharged_competitive_popup(int type)
         sSetStage = CHARGED_SET_FAILED;
         return 0;
     }
+}
+} // namespace
+
+extern "C" int mscharged_competitive_popup(int type)
+{
+    const int answer = SetPopupAnswer(type);
+    // Else the network popup of a match the player forfeited (Recharged's
+    // match menu): answered for them, back to the menus.
+    return answer < 0 && ChargedMenuAnswersPopup(type) ? 0 : answer;
 }
 
 // The screens a set's game passes by itself (tweak patch 0057): the title and

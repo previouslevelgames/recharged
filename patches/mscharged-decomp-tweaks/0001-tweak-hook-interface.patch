@@ -13,10 +13,10 @@ Add include/mscharged_tweaks.h, the hooks' interface to the port
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 new file mode 100644
-index 0000000..fb8f8f9
+index 0000000..2748c7a
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,237 @@
+@@ -0,0 +1,265 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -48,6 +48,7 @@ index 0000000..fb8f8f9
 +    MSCHARGED_TWEAK_SUPER_TEAM = 12,
 +    MSCHARGED_TWEAK_SECURE_STADIUMS = 13,
 +    MSCHARGED_TWEAK_MATCH_POINT = 14,
++    MSCHARGED_TWEAK_OVERRIDE_RETAIL_MENUS = 15,
 +};
 +
 +bool mscharged_tweak_enabled(int tweak);
@@ -227,6 +228,33 @@ index 0000000..fb8f8f9
 +unsigned long mscharged_tweak_super_team_pool_room(int pool);
 +int mscharged_tweak_super_team_fits(unsigned long size);
 +void mscharged_tweak_super_team_spent(unsigned long header, unsigned long data);
++
++// Override retail menus (development switch): the match's pause menu
++// (pausemenu_v3.fen; not the Strikers 101 one) is drawn by the host, over the
++// blurred game. The game's scene still runs and decides everything, with its
++// players' pointers and buttons; it is only not drawn.
++bool mscharged_tweak_pause_menu_replaced(void);
++// Whether the host stands in for the game's menu scene `scene` (an FEScene's
++// m_uHashID: the pause menu, and the front end's Options,
++// options_main_menu.fen), which then runs undrawn.
++bool mscharged_tweak_menu_scene_hidden(unsigned long scene);
++// A button of the game's menu `menu` pressed by the player of `pad` (1: the
++// pause menu, by ePauseMenuAction; 3: the main menu, by eMainMenuItem): true
++// when one of Recharged's pages takes it (the pause menu's Audio and Visual
++// Options, the main menu's ONLINE), and the scene does nothing.
++bool mscharged_tweak_menu_press_taken(int menu, int button, int pad);
++// Once a frame (BeginFrameTask): what the host asked the game's menus to do.
++void mscharged_tweak_menus_frame(void);
++// While the host draws the pause menu, a player's cursor (wiicursor.fen's
++// cursor0-3) is drawn by the host on top of it: the front end marks the
++// cursor's drawing (begin returns the state for end) and hands its pictures
++// (a glQuad3 with the instance's nlMatrix4) and its text (the font's glPoly2
++// quads with their glMatrixHandle) to the host, which then are not drawn.
++int mscharged_tweak_cursor_capture_begin(const void* instance);
++void mscharged_tweak_cursor_capture_end(int previous);
++bool mscharged_tweak_cursor_capture_quad(unsigned long texture, const void* matrix, const void* quad);
++bool mscharged_tweak_cursor_capture_text(unsigned long texture, const void* matrix_handle, const void* quads,
++                                         int count);
 +
 +// Training: the item (ePowerUpType) the team that trains gets at every
 +// kickoff, -1 for none; and, once per launch, whether the launcher's Start
