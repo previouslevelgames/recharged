@@ -86,10 +86,11 @@ the HUD in a match, **F** stretches the picture over the window or gives it
 back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
 **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
 window, and **F1** (or HOME on a controller) opens the **Recharged Game Menu** over the
-blurred game: your set, the friends online and the players available on
-**Online**, a RANKED match from anywhere in the menus and the leaderboards on
-**Ranked**, the gameplay options on **Game options** (**F2** opens it there), and
-the display and sound settings that change at once on **Settings**. Each can be changed under Controls → Hotkeys, to a key alone or with
+blurred game, in the game's own look: on **ONLINE** your set, the friends online,
+the players available, a RANKED match from anywhere in the menus and the
+leaderboards; on **OPTIONS** the gameplay options (**F2** opens them there) and
+the display, sound and advanced settings that change at once. In an online match
+the game's pause button opens a menu to continue or forfeit. Each can be changed under Controls → Hotkeys, to a key alone or with
 Ctrl, Shift or Alt.
 
 **No HUD** (Controls → Hotkeys → *Show the HUD when a match starts* off):
