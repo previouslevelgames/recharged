@@ -1,2 +1,20 @@
 {
+  "forfeit": {
+    "leaving": "Leaving the match...",
+    "match_note": "The match ends for both of you and counts as a loss for you.",
+    "set_note": "The set ends for both of you: you lose it, whatever the score."
+  },
+  "set_end": {
+    "forfeited_title": "You forfeited the set against {{name}}",
+    "forfeited_reason": "It counts as a loss for you.",
+    "opponent_forfeited_kicker": "SET OVER",
+    "opponent_forfeited_title": "{{name}} forfeited: you win the set",
+    "opponent_forfeited_reason": "{{name}} left the match and gave the set up.",
+    "rematch": "Rematch",
+    "rematch_note": "The same set again: {{name}} gets the challenge."
+  },
+  "messages": {
+    "opponent_forfeited": "{{name}} forfeited the match: the win is yours",
+    "your_opponent": "Your opponent"
+  }
 }

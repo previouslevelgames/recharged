@@ -218,6 +218,7 @@ ProfileMatch ParseMatch(const JsonValue& value)
     match.playing_at = value["playing_at"].Integer().value_or(0);
     match.rematch_of = value["rematch_of"].Integer().value_or(0);
     match.random = value["random"].Bool();
+    match.forfeited_by = value["forfeited_by"].Text();
     return match;
 }
 
@@ -887,7 +888,10 @@ ReadyAnswer ProfileService::Ready(std::int64_t match, std::int64_t profile_id, c
     return ready;
 }
 
-ProfileMatch ProfileService::Report(std::int64_t match, const std::vector<MatchGame>& games)
+namespace
+{
+// A report's or a forfeit's games ({"games": [...]}).
+std::string GamesBody(const std::vector<MatchGame>& games)
 {
     std::string body = "{\"games\":[";
     for (std::size_t n = 0; n < games.size(); ++n)
@@ -913,7 +917,20 @@ ProfileMatch ProfileService::Report(std::int64_t match, const std::vector<MatchG
         body += '}';
     }
     body += "]}";
+    return body;
+}
+} // namespace
+
+ProfileMatch ProfileService::Report(std::int64_t match, const std::vector<MatchGame>& games)
+{
+    const std::string body = GamesBody(games);
     return ParseMatch(Call("POST", "/api/v1/matches/" + Integer(match) + "/report", &body).body);
+}
+
+ProfileMatch ProfileService::Forfeit(std::int64_t match, const std::vector<MatchGame>& games)
+{
+    const std::string body = GamesBody(games);
+    return ParseMatch(Call("POST", "/api/v1/matches/" + Integer(match) + "/forfeit", &body).body);
 }
 
 std::filesystem::path ProfileSessionFile(const std::filesystem::path& data_folder, const std::filesystem::path& config)

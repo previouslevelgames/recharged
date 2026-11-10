@@ -71,6 +71,10 @@ public:
         std::function<void(const overlay::GameOptionChange&)> option;
         // The game ends, as when its window is closed (QUIT RECHARGED).
         std::function<void()> quit;
+        // The player forfeits the online match (the match menu's FORFEIT):
+        // the host tells the server, then calls LeaveMatch. None: the match
+        // is left at once.
+        std::function<void()> forfeit;
     };
 
     HostMenus(Game game, MenuInput& input, Host host);
@@ -85,6 +89,8 @@ public:
     std::optional<int> TakePromptAnswer();
     // Every page goes (a set going on into the game).
     void CloseAll();
+    // The game leaves the online match the player forfeited (Host::forfeit).
+    void LeaveMatch();
     // Each host frame, after the game's frame and MenuInput::Service: the
     // game's menu as it is now (null with the switch off).
     void Service(const ChargedMenuSnapshot* menu, Clock::time_point now);
@@ -186,6 +192,9 @@ private:
     std::optional<unsigned> taken_; // the module's count of taken presses, once known
     int channel_ = -1;
     bool pausePress_ = false;
+    // The player forfeited the online match: on the way out (the game leaves
+    // it once the host has told the server).
+    bool forfeitAsked_ = false;
     // The game's own options changed on a page: saved when it goes.
     bool gameChanged_ = false;
     // A slider moved live: its change again, saved, once it rests.
