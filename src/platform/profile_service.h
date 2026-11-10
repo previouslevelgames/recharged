@@ -266,6 +266,9 @@ struct ProfileMatch
     std::int64_t go_at = 0, playing_at = 0; // unix seconds, 0: not yet
     std::int64_t rematch_of = 0; // the set this one plays again
     bool random = false;         // a search sent it (a random opponent, servers 1.2.3 on)
+    // A finished set one player gave up: "you" or "opponent"; empty without a
+    // forfeit (and from servers before forfeits).
+    std::string forfeited_by;
 
     // Still to be played: challenged or accepted.
     bool Open() const { return state == "challenged" || state == "accepted"; }
@@ -463,6 +466,11 @@ public:
     std::vector<ProfilePlayer> PlayersByDiscord(const std::vector<std::string>& discord_ids);
     ReadyAnswer Ready(std::int64_t match, std::int64_t profile_id, const std::string& rules_hash);
     ProfileMatch Report(std::int64_t match, const std::vector<MatchGame>& games);
+    // The player gives the set up while it plays: the games played to the end
+    // before (none during the first). The set is finished with the opponent
+    // as winner. 404 from a server without forfeits (before 1.2.21), 409 when
+    // the set doesn't play (any more).
+    ProfileMatch Forfeit(std::int64_t match, const std::vector<MatchGame>& games);
 
 private:
     struct Answer;

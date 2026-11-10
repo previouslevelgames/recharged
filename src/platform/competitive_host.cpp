@@ -367,7 +367,9 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
             }
         // Back from the match with no game played: the server dissolves it.
         const bool played = series_match_ == set_ && !series_.empty();
-        end.how = set_stage_ == CHARGED_SET_OVER   ? (played ? SetEnd::How::Over : SetEnd::How::NoResult)
+        end.how = forfeited_ == set_                 ? SetEnd::How::Forfeited
+                : opponent_forfeited_ == set_        ? SetEnd::How::OpponentForfeited
+                : set_stage_ == CHARGED_SET_OVER   ? (played ? SetEnd::How::Over : SetEnd::How::NoResult)
                 : set_stage_ == CHARGED_SET_FAILED ? SetEnd::How::Failed
                 : set_stage_ == CHARGED_SET_LEFT   ? SetEnd::How::Left
                                                    : called_off_how_;
@@ -381,6 +383,8 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
             : end.how == SetEnd::How::OpponentLeft ? "the opponent left it"
             : end.how == SetEnd::How::OpponentGone ? "the opponent closed Recharged"
             : end.how == SetEnd::How::Replaced     ? "another game of this player took it"
+            : end.how == SetEnd::How::Forfeited    ? "the player forfeited it"
+            : end.how == SetEnd::How::OpponentForfeited ? "the opponent forfeited it"
                                                    : "the set was called off";
         // No set's game any more: challenges reach the card again.
         set_ = 0;
@@ -395,6 +399,28 @@ std::optional<CompetitiveHost::SetEnd> CompetitiveHost::TakeSetEnd()
     Kick();
     Said("set " + std::to_string(end.match) + " is done, " + why + "; the game stays open");
     return end;
+}
+
+bool CompetitiveHost::Forfeit()
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!set_ || series_done_ || series_match_ != set_ || forfeit_ == set_) return false;
+        forfeit_ = set_;
+        forfeit_games_ = series_;
+        forfeit_answered_ = false;
+        // The forfeit's games are this game's report: none other follows.
+        series_done_ = true;
+        playing_.reset();
+    }
+    Kick();
+    return true;
+}
+
+bool CompetitiveHost::ForfeitAnswered()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return forfeit_answered_;
 }
 
 std::optional<CompetitiveHost::SetStart> CompetitiveHost::TakeSetStart()
@@ -598,6 +624,49 @@ void CompetitiveHost::Work(ProfileService& api)
         rematch = again_rematch_;
         again_match_ = 0;
     }
+    // A forfeit goes first: the game waits for it to leave its match.
+    std::int64_t forfeit = 0;
+    std::vector<MatchGame> forfeit_games;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (forfeit_ && !forfeit_answered_)
+        {
+            forfeit = forfeit_;
+            forfeit_games = forfeit_games_;
+        }
+    }
+    if (forfeit)
+    {
+        bool booked = false;
+        try
+        {
+            api.Forfeit(forfeit, forfeit_games);
+            booked = true;
+            Said("forfeited set " + std::to_string(forfeit) + " after " + std::to_string(forfeit_games.size())
+                 + " games");
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled()) throw;
+            Said("the forfeit of set " + std::to_string(forfeit) + " was not taken: " + e.what());
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        forfeit_answered_ = true;
+        if (booked)
+        {
+            forfeited_ = forfeit;
+            // Nothing to take back: the set is over.
+            if (set_ == forfeit) set_unready_ = true;
+        }
+        else if (!forfeit_games.empty())
+        {
+            // A server without forfeits: the games played so far, as when the
+            // player left before.
+            reports_.push_back({forfeit, forfeit_games});
+            ++unsent_;
+        }
+        next_match_ = {};
+    }
     std::int64_t call_off = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -704,6 +773,10 @@ void CompetitiveHost::Work(ProfileService& api)
         invitation_ = set_ ? std::nullopt : invitation;
         const bool news = (current ? current->id : 0) != (match_ ? match_->id : 0);
         match_ = current;
+        // The opponent gave up the set this game plays.
+        const bool opponent_forfeit = set_ && current && current->id == set_ && current->forfeited_by == "opponent"
+                                   && opponent_forfeited_ != set_;
+        if (opponent_forfeit) opponent_forfeited_ = set_;
         if (!SameRules(rules, rules_))
         {
             rules_ = rules;
@@ -719,6 +792,7 @@ void CompetitiveHost::Work(ProfileService& api)
             paired_ = false;
         }
         lock.unlock();
+        if (opponent_forfeit) Said("set " + std::to_string(current->id) + ": the opponent forfeited it");
         if (news && current)
             Said("match " + std::to_string(current->id) + " against " + current->opponent.name + " ("
                  + current->rule_set + "): " + DescribeRules(current->rules));

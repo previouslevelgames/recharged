@@ -145,6 +145,8 @@ void HostMenus::CloseAll()
     ClearPages();
 }
 
+void HostMenus::LeaveMatch() { Command(CHARGED_MENU_FORFEIT); }
+
 void HostMenus::CloseRecharged()
 {
     while (RechargedOpen()) Pop();
@@ -152,7 +154,7 @@ void HostMenus::CloseRecharged()
 
 bool HostMenus::Leaving() const
 {
-    return menu_.forfeiting && !pages_.empty() && pages_.back().id == ui::PageId::Forfeit;
+    return (menu_.forfeiting || forfeitAsked_) && !pages_.empty() && pages_.back().id == ui::PageId::Forfeit;
 }
 
 void HostMenus::SetPrompt(std::optional<overlay::OverlayPrompt> prompt)
@@ -245,9 +247,11 @@ void HostMenus::Apply(const ui::PageActions& actions, bool live, const overlay::
     if (actions.music || actions.effects || actions.voices || actions.auto_zoom || actions.zoom) gameChanged_ = true;
     if (actions.open) Push(*actions.open, 0, actions.open_key);
     if (actions.answer) promptAnswer_ = actions.answer;
-    if (actions.forfeit) {
+    if (actions.forfeit && !forfeitAsked_) {
         platform::SessionLogLine("Menus: FORFEIT (the online match is left)");
-        Command(CHARGED_MENU_FORFEIT);
+        forfeitAsked_ = true;
+        if (host_.forfeit) host_.forfeit();
+        else LeaveMatch();
     }
     if (actions.wii_online) {
         // The game's own online, as its main menu's globe: these pages go.
@@ -324,6 +328,7 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
     // The pause menu gone (resumed, quit) under its pages: they go too.
     if (Opened(Origin::Pause) && scene != CHARGED_MENU_PAUSE) ClearPages();
     // The match menu without its match (over, left, forfeited): it goes.
+    if (!menu_.network_match) forfeitAsked_ = false;
     if (!menu_.network_match && std::any_of(pages_.begin(), pages_.end(), [](const Page& page) {
             return page.id == ui::PageId::Match || page.id == ui::PageId::Forfeit;
         }))
@@ -530,7 +535,7 @@ void HostMenus::BuildModel(ui::PageModel& model)
     model.prompt = prompt_ ? &*prompt_ : nullptr;
     model.from_wheel = Opened(Origin::Wheel);
     model.network_match = menu_.network_match != 0;
-    model.forfeiting = menu_.forfeiting != 0;
+    model.forfeiting = menu_.forfeiting != 0 || forfeitAsked_;
     model.front_end = known_ ? menu_.front_end != 0 : true;
     model.game.known = known_;
     model.game.music = menu_.music_volume;

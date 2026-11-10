@@ -3,6 +3,7 @@
 #include "bootstrap/advanced_choices.h"
 #include "bootstrap/game_tweaks.h"
 #include "bootstrap/sound_groups.h"
+#include "bootstrap/texts.h"
 #include "overlay/flags.h"
 #include "platform/competitive_rules.h"
 
@@ -15,6 +16,8 @@ namespace mscharged::ui
 {
 namespace
 {
+using texts::T;
+
 std::string Percent(int value) { return std::to_string(value) + " %"; }
 
 // A switch of a setting: its new state as the change.
@@ -596,10 +599,10 @@ void DrawForfeit(const PageModel& model, List& list, PageActions& actions)
 {
     if (model.forfeiting)
     {
-        list.Note("Leaving the match...");
+        list.Note(T("menus.forfeit.leaving"));
         return;
     }
-    list.Note("The match ends for both of you and counts as a loss for you.");
+    list.Note(T(model.set_match ? "menus.forfeit.set_note" : "menus.forfeit.match_note"));
     if (list.Plate("FORFEIT")) actions.forfeit = true;
     if (list.Plate("CANCEL")) actions.back = true;
 }

@@ -83,7 +83,9 @@ public:
             Left,         // this player left its search (Back)
             OpponentLeft, // the opponent left its search or took their Ready to play! back
             OpponentGone, // the opponent closed Recharged
-            Replaced      // another game of this player took the set
+            Replaced,     // another game of this player took the set
+            Forfeited,    // this player gave the set up in its match (Forfeit)
+            OpponentForfeited // the opponent gave it up: this player won the set
         };
         std::int64_t match = 0;
         std::string opponent;
@@ -101,6 +103,14 @@ public:
     // After a SetEnd: the player doesn't play a stopped set again now; the
     // server calls it off, so neither player keeps it.
     void CallOff(std::int64_t match);
+    // On the game's thread: the player gives up the set this game plays, in
+    // its match (the match menu's FORFEIT), before the game leaves the match:
+    // the server books the set for the opponent with the games played to the
+    // end so far. False outside a set's series (the caller leaves at once).
+    bool Forfeit();
+    // The server answered the forfeit (or gave no answer in time to wait
+    // for): the game can leave its match now.
+    bool ForfeitAnswered();
     // On the game's thread, before Observe: the game's online series
     // (charged_online_match_snapshot), for a game that broke off.
     void ObserveOnline(const ChargedOnlineMatchSnapshot& online);
@@ -229,6 +239,13 @@ private:
     // The series' game in play as the last Observe saw it (score, clock):
     // broken off if this game closes during it.
     std::optional<MatchGame> playing_;
+    // A forfeit to send (its set and games), whether the server answered it,
+    // and the set it booked: this player's, or the opponent's (the server
+    // showed it).
+    std::int64_t forfeit_ = 0;
+    std::vector<MatchGame> forfeit_games_;
+    bool forfeit_answered_ = false;
+    std::int64_t forfeited_ = 0, opponent_forfeited_ = 0;
     // The game's online series (ObserveOnline): how each game ended.
     ChargedOnlineMatchSnapshot online_{};
     bool online_known_ = false;

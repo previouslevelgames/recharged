@@ -1816,6 +1816,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             int answer=0;
             std::string opponent, rules, reason;
             std::string title;  // a stopped set's own title, or empty
+            std::string kicker; // a stopped set's own kicker, or empty
             std::string primary, note; // a stopped set's first button and its note, or empty
             std::string avatar; // the opponent's picture (URL), or empty
             bool random=false;  // a search for a random opponent asks the player
@@ -1858,8 +1859,20 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     using How=mscharged::platform::CompetitiveHost::SetEnd::How;
                     const auto& end=*afterSet;
                     const std::string opponent=end.opponent.empty() ? std::string("your opponent") : end.opponent;
+                    namespace texts=mscharged::texts;
                     if(end.how==How::Over) {
                         cardPrompt.kind=CardPrompt::Kind::SetOver;
+                    } else if(end.how==How::Forfeited || end.how==How::OpponentForfeited) {
+                        // A set given up in its match: over, for the one who stayed.
+                        const bool mine=end.how==How::Forfeited;
+                        cardPrompt.kind=CardPrompt::Kind::SetStopped;
+                        if(!mine) cardPrompt.kicker=texts::T("menus.set_end.opponent_forfeited_kicker");
+                        cardPrompt.title=texts::T(mine ? "menus.set_end.forfeited_title"
+                                                       : "menus.set_end.opponent_forfeited_title",{{"name",opponent}});
+                        cardPrompt.reason=mine ? std::string(texts::T("menus.set_end.forfeited_reason"))
+                            : texts::T("menus.set_end.opponent_forfeited_reason",{{"name",opponent}});
+                        cardPrompt.primary=texts::T("menus.set_end.rematch");
+                        cardPrompt.note=texts::T("menus.set_end.rematch_note",{{"name",opponent}});
                     } else if(end.how==How::OpponentLeft || end.how==How::OpponentGone) {
                         // The opponent's Back, launcher or closed game: a
                         // line from the dressing room, the same for a set.
@@ -1911,7 +1924,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // A set that was played or called off goes again as a rematch (a
             // new challenge); one that only stopped, by Ready to play! again.
             const How how=afterSet->how;
-            const bool rematch=how==How::Over || how==How::Left || how==How::OpponentLeft || how==How::OpponentGone;
+            const bool rematch=how==How::Over || how==How::Left || how==How::OpponentLeft || how==How::OpponentGone
+                || how==How::Forfeited || how==How::OpponentForfeited;
             const std::string opponent=afterSet->opponent.empty() ? std::string("your opponent") : afterSet->opponent;
             if(accept) {
                 competitive->PlayAgain(cardMatch,rematch);
@@ -2507,7 +2521,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 break;
             case Kind::SetStopped:
                 prompt.kind=ov::OverlayPrompt::Kind::SetStopped;
-                prompt.kicker="SET STOPPED";
+                prompt.kicker=cardPrompt.kicker.empty() ? std::string("SET STOPPED") : cardPrompt.kicker;
                 prompt.title=cardPrompt.title.empty() ? std::string("The set stopped") : cardPrompt.title;
                 prompt.detail=cardPrompt.reason;
                 prompt.primary=cardPrompt.primary.empty() ? std::string("Play it again") : cardPrompt.primary;
@@ -2548,6 +2562,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // Options and the main menu's ONLINE too (declared after what their
         // callbacks use, which outlives them).
         std::optional<mscharged::runtime::HostMenus> hostMenus;
+        // A set's forfeit sent: the game leaves its match once the server
+        // answered, or after a moment without an answer.
+        bool forfeitWaits=false;
+        std::chrono::steady_clock::time_point forfeitAsked{};
         // Recharged's menus with sample data (development, screenshots without
         // a server or a match): RECHARGED_CAPTURE_ONLINE players, a set and
         // leaderboards; RECHARGED_CAPTURE_PROMPT a challenge until answered;
@@ -2564,11 +2582,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             menusHost.model=[&](mscharged::ui::PageModel& model,const mscharged::runtime::HostMenus::ModelNeeds& needs) {
                 buildOverlayModel(model.overlay,needs.leaderboard,needs.online,needs.settings);
                 if(menuSamples.online) SampleOnline(model.overlay);
+                model.set_match=competitive && competitive->CurrentSet().has_value();
             };
             menusHost.image=overlayImage;
             menusHost.online=applyOnline;
             menusHost.setting=applySetting;
             menusHost.option=applyOption;
+            // A set's forfeit goes to the server first (the match plays on
+            // meanwhile); the game then leaves the match.
+            menusHost.forfeit=[&] {
+                forfeitAsked=std::chrono::steady_clock::now();
+                forfeitWaits=competitive && competitive->Forfeit();
+                if(!forfeitWaits) hostMenus->LeaveMatch();
+            };
             // As closing the window: Aurora's exit, then the game's own shutdown.
             menusHost.quit=[] {
                 SDL_Event quit{};
@@ -2710,7 +2736,18 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 const bool known=menuSnapshot(&menu,sizeof menu);
                 if(known && menuSamples.match) menu.network_match=CHARGED_NETWORK_ONLINE;
                 hostMenus->Service(known ? &menu : nullptr,now);
+                if(forfeitWaits && (competitive->ForfeitAnswered() || now-forfeitAsked>std::chrono::seconds(2))) {
+                    forfeitWaits=false;
+                    hostMenus->LeaveMatch();
+                }
             }
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            // An online match the opponent forfeited (no set's: its prompt says so).
+            if(onlineReports && hostOverlay)
+                if(const auto by=onlineReports->TakeOpponentForfeit())
+                    hostOverlay->ShowMessage(mscharged::texts::T("menus.messages.opponent_forfeited",
+                        {{"name",by->empty() ? std::string(mscharged::texts::T("menus.messages.your_opponent")) : *by}}),now);
+#endif
             // A challenge or the last set again: the menus' prompt page, over
             // whatever shows; B or BACK is its second answer.
             if(hostMenus) {

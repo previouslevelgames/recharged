@@ -10,6 +10,7 @@
 #error The menu snapshot belongs to the isolated original game module
 #endif
 #include "platform/menu_snapshot.h"
+#include "platform/online_match_snapshot.h"
 
 #include "Game/BaseGameSceneManager.h"
 #include "Game/DB/SaveLoad.h"
@@ -570,6 +571,8 @@ void Run(const ChargedMenuCommand& command)
         // connection gone and go back to their menus.
         if (NetworkMatch() == CHARGED_NETWORK_ONLINE && !sForfeiting) {
             sForfeiting = true;
+            // The match reports say so (the server books it for the opponent).
+            ChargedOnlineSeriesForfeit();
             g_pNetworkSession->DisconnectOnlineMatch();
         }
         break;
