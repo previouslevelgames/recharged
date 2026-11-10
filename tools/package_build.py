@@ -511,6 +511,10 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
         # The flags beside players' names (flag-icons, MIT).
         for flags in ("flags.png", "README.md", "LICENSE-flag-icons"):
             copy(source, Path("assets/flags") / flags)
+        # Recharged's texts in every language (assets/lang/<language>/*.json).
+        copy(source, "assets/lang/README.md")
+        for text in sorted((source / "assets" / "lang").glob("*/*.json")):
+            copy(source, text.relative_to(source).as_posix())
         for public in PUBLIC_FILES:
             copy(source, public)
 

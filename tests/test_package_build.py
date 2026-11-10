@@ -50,6 +50,8 @@ class PackageFixture(unittest.TestCase):
         self.write(self.source, "assets/gameplay/README.md", b"texture coordinates only")
         for flags in ("flags.png", "README.md", "LICENSE-flag-icons"):
             self.write(self.source, f"assets/flags/{flags}", b"flags")
+        self.write(self.source, "assets/lang/README.md", b"texts")
+        self.write(self.source, "assets/lang/en/menus.json", b"{}")
         for public in PACKAGER.PUBLIC_FILES:
             self.write(self.source, public, b"public text")
         self.write(self.build, "generated/mscharged/build_version.h",
@@ -211,6 +213,7 @@ class PackageBuildTests(PackageFixture):
             self.assertIn("assets/gameplay/robot_goalie.map", manifest["files"])
             self.assertIn("assets/gameplay/README.md", manifest["files"])
             self.assertIn("assets/flags/flags.png", manifest["files"])
+            self.assertIn("assets/lang/en/menus.json", manifest["files"])
             self.assertFalse(any("MUST NOT BE PACKAGED" in archive.extractfile(member).read().decode(errors="ignore")
                                  for member in members if member.isfile()))
             extraction = self.root / "extracted"

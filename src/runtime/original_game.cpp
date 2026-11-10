@@ -15,6 +15,8 @@
 #include "bootstrap/advanced_choices.h"
 #include "bootstrap/graphics_backend.h"
 #include "bootstrap/graphics_card.h"
+#include "bootstrap/texts.h"
+#include "platform/name_glyphs.h"
 #include "bootstrap/launch_options.h"
 #include "platform/path.h"
 #include "platform/disc.h"
@@ -1482,6 +1484,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // The host overlay: the performance overlay (display.fps_overlay) and
         // the messages of the display hotkeys.
         std::optional<mscharged::runtime::HostOverlay> hostOverlay;
+        if(nativeSend) {
+            // Recharged's own texts in the player's language ([interface]
+            // language), their characters noted for the fonts.
+            const auto language=mscharged::texts::Load(executableDirectory/"assets"/"lang",
+                launch.settings.interface_language,mscharged::platform::PcLanguages());
+            mscharged::platform::NoteNameGlyphs(mscharged::texts::AllTexts());
+            mscharged::platform::SessionLogLine("Interface language: "+language);
+        }
         if(nativeSend)
             hostOverlay.emplace(executableDirectory/"assets"/"launcher"/"Roboto-Medium.ttf",
                 launch.settings.fps_overlay ? std::optional(mscharged::runtime::ParseOverlayCorner(

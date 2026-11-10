@@ -369,6 +369,9 @@ target_link_libraries(charged_original_game_host PRIVATE
     charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_competitive charged_alert_sound
     charged_texture_packs charged_updates
     ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
+# Recharged's own texts (assets/lang) for its menus and messages.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Texts.cmake")
+target_link_libraries(charged_original_game_host PRIVATE charged_texts)
 # The game's overlay in the panel (F1, HOME): the Online and Game options tabs
 # (src/overlay, built with the launcher, through Aurora's ImGui).
 if(TARGET charged_overlay)
