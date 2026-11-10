@@ -54,6 +54,7 @@
 #include "platform/game_presence.h"
 #include "platform/netplay_snapshot.h"
 #include "platform/http_client.h"
+#include "platform/desync_dossier.h"
 #include "platform/online_reports.h"
 #include "platform/presence_snapshot.h"
 #include "platform/shader_cache.h"
@@ -1077,6 +1078,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }
+        // The rollback's desync dossiers (desync_dossier.h): kept in
+        // data/desyncs until the server has them.
+        auto desyncDossier=reinterpret_cast<ChargedDesyncDossierFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_desync_dossier"));
+        if(onlineReports&&desyncDossier)onlineReports->KeepDossiers(dataDirectory/"desyncs");
 #endif
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
@@ -1248,6 +1254,16 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto observeOnlineMatch = [&] {
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
             if(!onlineReports)return;
+            // A desync's dossier, after every frame: written before whatever
+            // follows the desync. Its series seen first.
+            if(desyncDossier){
+                static unsigned char dossier[kDesyncDossierMaxBytes];
+                if(const unsigned size=desyncDossier(dossier,sizeof dossier)){
+                    ChargedOnlineMatchSnapshot snapshot{};
+                    if(onlineMatchSnapshot(&snapshot,sizeof snapshot))onlineReports->Observe(snapshot);
+                    onlineReports->Dossier(dossier,size);
+                }
+            }
             const auto now=std::chrono::steady_clock::now();
             if(now-lastOnlineMatch<std::chrono::seconds(1))return;
             lastOnlineMatch=now;

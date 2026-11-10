@@ -5,11 +5,14 @@
 // connection), tweak patch 0045 mscharged_tweak_online_error where it shows
 // an online error code (GetOnlineErrorPopup); charged_online_match_snapshot
 // hands both to the host, which reports them (src/platform/online_reports.h).
+// ChargedOnlineDossierGame names the series and game a desync dossier
+// belongs to (src/platform/desync_dossier.h).
 // All run on the thread of the game's tasks. Read only: the game is unchanged.
 #if !defined(MSCHARGED_NATIVE) || !defined(MSCHARGED_GAME_MODULE) || !defined(MSCHARGED_TWEAKS)
 #error The online match snapshot belongs to the isolated original game module built with MSCHARGED_TWEAKS
 #endif
 #include "mscharged_online_reports.h"
+#include "platform/desync_dossier.h"
 #include "platform/online_match_snapshot.h"
 
 #include "Game/Game.h"
@@ -181,6 +184,20 @@ void mscharged_tweak_online_error(int code)
     sError.code = code;
     sError.phase = g_pNetworkSession ? int(g_pNetworkSession->mSessionState) : -1;
     sError.profile_id = ProfileId();
+}
+
+bool ChargedOnlineDossierGame(DesyncDossierHeader& header)
+{
+    // As a result does: a game the host has not looked at since its kickoff
+    // begins its series.
+    if (!Online()) return false;
+    if (!UnderWay() && !sAwaitingGame && Begun()) Begin();
+    if (!UnderWay() || !sSeries.profile_id) return false;
+    header.series = sSeries.series;
+    header.game = unsigned(sSeries.games) + 1;
+    header.profile_id = sSeries.profile_id;
+    header.side = unsigned(sSeries.side);
+    return true;
 }
 
 extern "C" __attribute__((visibility("default"))) bool charged_online_match_snapshot(

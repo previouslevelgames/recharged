@@ -397,6 +397,7 @@ void UpdateConfirmed()
             {
                 LogFields(remote.frame - 1);
                 LogFields(remote.frame);
+                KeepDossier(ours, remote);
             }
             FlushLog();
         }
