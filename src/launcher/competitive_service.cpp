@@ -1,5 +1,6 @@
 #include "launcher/competitive_service.h"
 
+#include "bootstrap/texts.h"
 #include "platform/http_client.h"
 #include "platform/session_log.h"
 
@@ -31,13 +32,13 @@ std::string MiiSignInError(const ProfileError& error)
 {
     switch (error.Status())
     {
-    case 0: return "The server doesn't answer. Check your internet connection, then try again.";
-    case 404: return "This server can't sign in players with a Mii yet.";
+    case 0: return texts::T("match_setup.service.no_answer");
+    case 404: return texts::T("match_setup.service.no_mii_sign_in");
     default:
         // The server's own words (a name it refuses, how long to wait), else
         // what its status says.
         if (std::string(error.what()).rfind("The server answered", 0) != 0) return error.what();
-        if (error.Status() == 429) return "Too many new players from your network just now. Try again later.";
+        if (error.Status() == 429) return texts::T("match_setup.service.too_many_players");
         return error.what();
     }
 }
@@ -175,7 +176,7 @@ void CompetitiveService::Fail(const std::exception& error)
     const auto* profile = dynamic_cast<const ProfileError*>(&error);
     if (profile && profile->SignedOut())
     {
-        SignedOutHere("You were signed out: the session ended. Sign in again.");
+        SignedOutHere(texts::T("match_setup.service.session_ended"));
         return;
     }
     Change([&](Status& status) {
@@ -318,8 +319,8 @@ void CompetitiveService::Poll(ProfileService& api)
                 status.code.clear();
                 status.url.clear();
                 status.error = result.status == SignInResult::Status::Expired
-                    ? "The sign-in took too long. Try again."
-                    : (result.message.empty() ? "The sign-in was refused." : result.message);
+                    ? texts::T("match_setup.service.sign_in_expired")
+                    : (result.message.empty() ? texts::T("match_setup.service.sign_in_refused") : result.message);
                 ++status.error_serial;
             });
             std::lock_guard<std::mutex> lock(mutex_);
@@ -357,8 +358,8 @@ void CompetitiveService::Poll(ProfileService& api)
                 status.code.clear();
                 status.url.clear();
                 status.connect_error = result.status == SignInResult::Status::Expired
-                    ? "Connecting Discord took too long. Try again."
-                    : (result.message.empty() ? "Discord wasn't connected." : result.message);
+                    ? texts::T("match_setup.service.connect_expired")
+                    : (result.message.empty() ? texts::T("match_setup.service.connect_failed") : result.message);
             });
             std::lock_guard<std::mutex> lock(mutex_);
             if (running_ == generation_) sign_in_id_.clear();
@@ -473,7 +474,7 @@ void CompetitiveService::SignIn()
         if (linking && !start.link)
         {
             Change([](Status& status) {
-                status.connect_error = "This server can't connect Discord to a Mii profile yet.";
+                status.connect_error = texts::T("match_setup.service.connect_unsupported");
             });
             return;
         }
@@ -496,7 +497,9 @@ void CompetitiveService::TestSignIn(const std::string& name)
     Post([this, name](ProfileService& api) {
         const auto result = api.TestSignIn(name);
         if (result.status == SignInResult::Status::SignedIn) Signed(api, result.token, result.player);
-        else throw ProfileError(result.message.empty() ? "The sign-in was refused." : result.message, 200);
+        else
+            throw ProfileError(
+                result.message.empty() ? texts::T("match_setup.service.sign_in_refused") : result.message, 200);
     }, true);
 }
 
@@ -518,7 +521,8 @@ void CompetitiveService::MiiSignIn(const std::string& name)
         if (result.status == SignInResult::Status::SignedIn) Signed(api, result.token, result.player);
         else
             Change([&](Status& status) {
-                status.mii_error = result.message.empty() ? "The sign-in was refused." : result.message;
+                status.mii_error = result.message.empty() ? texts::T("match_setup.service.sign_in_refused")
+                                                          : result.message;
             });
     }, true);
 }

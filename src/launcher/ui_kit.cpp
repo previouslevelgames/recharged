@@ -1837,16 +1837,19 @@ void Spinner(ImVec2 center, float radius, ImU32 color)
 
 // Each letter is placed at its fractional position, as AddText places the
 // letters of one string (the fonts are oversampled for it): AddText per
-// letter would snap each one to the pixel and space them unevenly.
+// letter would snap each one to the pixel and space them unevenly. Letters
+// are UTF-8 characters, as the translated texts have them.
 void DrawTracked(ImDrawList* draw, ImFont* font, ImVec2 position, ImU32 color, const char* text, float tracking)
 {
     if ((color & IM_COL32_A_MASK) == 0) return;
     const float size = FontSize(font), scale = size / font->FontSize;
     float x = position.x;
     const float y = std::floor(position.y); // the baseline snaps, as with AddText
-    for (const char* c = text; *c; ++c)
+    for (const char* c = text; *c;)
     {
-        const ImFontGlyph* glyph = font->FindGlyph(ImWchar(static_cast<unsigned char>(*c)));
+        unsigned int letter = 0;
+        c += ImTextCharFromUtf8(&letter, c, nullptr);
+        const ImFontGlyph* glyph = font->FindGlyph(ImWchar(letter));
         if (!glyph) continue;
         if (glyph->Visible)
         {
@@ -1862,11 +1865,12 @@ float TrackedWidth(ImFont* font, const char* text, float tracking)
 {
     const float size = FontSize(font);
     float width = 0.0f;
-    char glyph[2] = {0, 0};
-    for (const char* c = text; *c; ++c)
+    for (const char* c = text; *c;)
     {
-        glyph[0] = *c;
-        width += font->CalcTextSizeA(size, FLT_MAX, 0.0f, glyph).x + tracking;
+        unsigned int letter = 0;
+        const char* next = c + ImTextCharFromUtf8(&letter, c, nullptr);
+        width += font->CalcTextSizeA(size, FLT_MAX, 0.0f, c, next).x + tracking;
+        c = next;
     }
     return text[0] ? width - tracking : 0.0f;
 }

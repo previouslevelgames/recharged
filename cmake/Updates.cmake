@@ -19,7 +19,9 @@ add_library(charged_updates STATIC
 )
 target_include_directories(charged_updates PUBLIC src)
 target_compile_features(charged_updates PUBLIC cxx_std_17)
-target_link_libraries(charged_updates PRIVATE ZLIB::ZLIB PUBLIC Threads::Threads charged_json charged_http)
+# Its messages on screen come from Recharged's texts (cmake/Texts.cmake).
+target_link_libraries(charged_updates PRIVATE ZLIB::ZLIB charged_texts PUBLIC Threads::Threads charged_json
+    charged_http)
 if(BUILD_TESTING)
     add_executable(launcher_update_tests tests/launcher_updates.cpp)
     target_link_libraries(launcher_update_tests PRIVATE charged_updates)

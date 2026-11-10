@@ -1,5 +1,6 @@
 #include "launcher/update_install.h"
 
+#include "bootstrap/texts.h"
 #include "platform/http_client.h"
 #include "platform/json.h"
 #include "platform/path.h"
@@ -46,7 +47,8 @@ constexpr const char* kReplacingMarker = "replacing";
 // or control characters.
 fs::path SafePath(std::string_view name)
 {
-    if (name.empty() || name.size() > 1024 || name.front() == '/') Fail("Unsafe path in the package: " + std::string(name));
+    if (name.empty() || name.size() > 1024 || name.front() == '/')
+        Fail(texts::T("launcher.update.install.unsafe_path", {{"path", std::string(name)}}));
     std::string_view rest = name;
     while (!rest.empty())
     {
@@ -57,7 +59,7 @@ fs::path SafePath(std::string_view name)
                    return static_cast<unsigned char>(c) < 0x20 || c == '\\' || c == ':' || c == '*' || c == '?'
                        || c == '"' || c == '<' || c == '>' || c == '|';
                }))
-            Fail("Unsafe path in the package: " + std::string(name));
+            Fail(texts::T("launcher.update.install.unsafe_path", {{"path", std::string(name)}}));
         rest = slash == std::string_view::npos ? std::string_view() : rest.substr(slash + 1);
     }
     return PathFromUtf8(name);
@@ -92,12 +94,16 @@ void MovePath(const fs::path& from, const fs::path& to)
             Sleep(100);
             continue;
         }
-        throw std::system_error(int(error), std::system_category(), "Cannot move " + PathUtf8(from));
+        throw std::system_error(int(error), std::system_category(),
+                                texts::T("launcher.update.install.cannot_move", {{"path", PathUtf8(from)}}));
     }
 #else
-    if (Exists(to)) Fail("Cannot move " + PathUtf8(from) + ": " + PathUtf8(to) + " exists");
+    if (Exists(to))
+        Fail(texts::T("launcher.update.install.cannot_move_exists",
+                      {{"path", PathUtf8(from)}, {"target", PathUtf8(to)}}));
     if (std::rename(from.c_str(), to.c_str()) != 0)
-        throw std::system_error(errno, std::generic_category(), "Cannot move " + PathUtf8(from));
+        throw std::system_error(errno, std::generic_category(),
+                                texts::T("launcher.update.install.cannot_move", {{"path", PathUtf8(from)}}));
 #endif
 }
 
@@ -107,10 +113,10 @@ unsigned ParseMode(const std::string& text)
     std::string_view digits = text;
     if (digits.substr(0, 2) == "0o") digits.remove_prefix(2);
     unsigned mode = 0;
-    if (digits.empty() || digits.size() > 6) Fail("Invalid file mode in the package manifest: " + text);
+    if (digits.empty() || digits.size() > 6) Fail(texts::T("launcher.update.install.invalid_mode", {{"mode", text}}));
     for (const char c : digits)
     {
-        if (c < '0' || c > '7') Fail("Invalid file mode in the package manifest: " + text);
+        if (c < '0' || c > '7') Fail(texts::T("launcher.update.install.invalid_mode", {{"mode", text}}));
         mode = mode * 8 + unsigned(c - '0');
     }
     return mode & 07777;
@@ -123,20 +129,21 @@ public:
     OutputFile(const fs::path& path, std::uint64_t& total) : path_(path), total_(total)
     {
         fs::create_directories(path.parent_path());
-        if (Exists(path)) Fail("The package contains " + PathUtf8(path.filename()) + " twice");
+        if (Exists(path)) Fail(texts::T("launcher.update.install.file_twice", {{"name", PathUtf8(path.filename())}}));
         stream_.open(path, std::ios::binary | std::ios::trunc);
-        if (!stream_) Fail("Cannot create " + PathUtf8(path));
+        if (!stream_) Fail(texts::T("launcher.update.install.cannot_create", {{"path", PathUtf8(path)}}));
     }
     void Write(const char* data, std::size_t size)
     {
         total_ += size;
-        if (total_ > kMaxUnpacked) Fail("The package unpacks to more than 2 GB");
-        if (!stream_.write(data, std::streamsize(size))) Fail("Cannot write " + PathUtf8(path_));
+        if (total_ > kMaxUnpacked) Fail(texts::T("launcher.update.install.too_large"));
+        if (!stream_.write(data, std::streamsize(size)))
+            Fail(texts::T("launcher.update.install.cannot_write", {{"path", PathUtf8(path_)}}));
     }
     void Close()
     {
         stream_.close();
-        if (!stream_) Fail("Cannot write " + PathUtf8(path_));
+        if (!stream_) Fail(texts::T("launcher.update.install.cannot_write", {{"path", PathUtf8(path_)}}));
     }
 
 private:
@@ -151,8 +158,8 @@ class GzipReader
 public:
     explicit GzipReader(const fs::path& file) : file_(file, std::ios::binary)
     {
-        if (!file_) Fail("Cannot read " + PathUtf8(file));
-        if (inflateInit2(&stream_, 16 + MAX_WBITS) != Z_OK) Fail("Cannot start decompression");
+        if (!file_) Fail(texts::T("launcher.update.install.cannot_read", {{"path", PathUtf8(file)}}));
+        if (inflateInit2(&stream_, 16 + MAX_WBITS) != Z_OK) Fail(texts::T("launcher.update.install.cannot_decompress"));
     }
     ~GzipReader() { inflateEnd(&stream_); }
     GzipReader(const GzipReader&) = delete;
@@ -173,7 +180,7 @@ public:
                 if (!stream_.avail_in)
                 {
                     if (!member_started_) { finished_ = true; break; } // clean end after a member
-                    Fail("The package is truncated");
+                    Fail(texts::T("launcher.update.install.truncated"));
                 }
             }
             member_started_ = true;
@@ -182,17 +189,17 @@ public:
             {
                 // Another gzip member may follow.
                 member_started_ = false;
-                if (inflateReset(&stream_) != Z_OK) Fail("Cannot continue decompression");
+                if (inflateReset(&stream_) != Z_OK) Fail(texts::T("launcher.update.install.cannot_continue"));
                 continue;
             }
-            if (result != Z_OK && result != Z_BUF_ERROR) Fail("The package is damaged (gzip)");
+            if (result != Z_OK && result != Z_BUF_ERROR) Fail(texts::T("launcher.update.install.damaged_gzip"));
         }
         return size - stream_.avail_out;
     }
 
     void ReadExactly(char* out, std::size_t size)
     {
-        if (Read(out, size) != size) Fail("The package is truncated");
+        if (Read(out, size) != size) Fail(texts::T("launcher.update.install.truncated"));
     }
 
     void Skip(std::uint64_t size)
@@ -244,20 +251,20 @@ void UnpackTar(const fs::path& archive, const fs::path& destination, const std::
     for (;;)
     {
         if (cancelled && cancelled()) Fail("Cancelled");
-        if (input.Read(header, sizeof header) != sizeof header) Fail("The package is truncated");
+        if (input.Read(header, sizeof header) != sizeof header) Fail(texts::T("launcher.update.install.truncated"));
         if (std::all_of(header, header + sizeof header, [](char c) { return c == 0; })) return; // end
         unsigned sum = 0;
         for (std::size_t n = 0; n < sizeof header; ++n)
             sum += (n >= 148 && n < 156) ? unsigned(' ') : static_cast<unsigned char>(header[n]);
-        if (sum != TarNumber(header + 148, 8)) Fail("The package is damaged (tar)");
-        if (++entries > kMaxEntries) Fail("The package has too many entries");
+        if (sum != TarNumber(header + 148, 8)) Fail(texts::T("launcher.update.install.damaged_tar"));
+        if (++entries > kMaxEntries) Fail(texts::T("launcher.update.install.too_many_entries"));
         const std::uint64_t size = TarNumber(header + 124, 12);
         const std::uint64_t padded = (size + 511) / 512 * 512;
         const char type = header[156];
         if (type == 'x' || type == 'L' || type == 'g')
         {
             // pax records ("<length> path=<name>\n") or a GNU long name.
-            if (size > (1u << 20)) Fail("The package is damaged (tar)");
+            if (size > (1u << 20)) Fail(texts::T("launcher.update.install.damaged_tar"));
             std::string data(std::size_t(size), '\0');
             input.ReadExactly(data.data(), data.size());
             input.Skip(padded - size);
@@ -272,10 +279,12 @@ void UnpackTar(const fs::path& archive, const fs::path& destination, const std::
                     if (space == std::string::npos) break;
                     for (std::size_t n = at; n < space; ++n)
                     {
-                        if (data[n] < '0' || data[n] > '9' || length > data.size()) Fail("The package is damaged (pax)");
+                        if (data[n] < '0' || data[n] > '9' || length > data.size())
+                            Fail(texts::T("launcher.update.install.damaged_pax"));
                         length = length * 10 + std::size_t(data[n] - '0');
                     }
-                    if (length <= space - at + 1 || at + length > data.size()) Fail("The package is damaged (pax)");
+                    if (length <= space - at + 1 || at + length > data.size())
+                        Fail(texts::T("launcher.update.install.damaged_pax"));
                     const std::string record = data.substr(space + 1, at + length - space - 2);
                     if (record.rfind("path=", 0) == 0) long_name = record.substr(5);
                     at += length;
@@ -300,7 +309,7 @@ void UnpackTar(const fs::path& archive, const fs::path& destination, const std::
             continue;
         }
         if (type != '0' && type != '\0' && type != '7')
-            Fail("The package contains a link or special file: " + name);
+            Fail(texts::T("launcher.update.install.special_file", {{"name", name}}));
         OutputFile file(destination / SafePath(name), total);
         char buffer[1 << 15];
         for (std::uint64_t left = size; left;)
@@ -322,69 +331,72 @@ std::uint32_t Read32(const unsigned char* data) { return Read16(data) | Read16(d
 void UnpackZip(const fs::path& archive, const fs::path& destination, const std::function<bool()>& cancelled)
 {
     std::ifstream file(archive, std::ios::binary);
-    if (!file) Fail("Cannot read " + PathUtf8(archive));
+    if (!file) Fail(texts::T("launcher.update.install.cannot_read", {{"path", PathUtf8(archive)}}));
     file.seekg(0, std::ios::end);
     const std::uint64_t length = std::uint64_t(file.tellg());
     // The end-of-central-directory record: 22 bytes plus up to 64 KiB of comment.
     const std::uint64_t tail = std::min<std::uint64_t>(length, 22 + 65535);
     std::vector<unsigned char> end(tail);
     file.seekg(std::streamoff(length - tail));
-    if (!file.read(reinterpret_cast<char*>(end.data()), std::streamsize(tail))) Fail("The package is truncated");
+    if (!file.read(reinterpret_cast<char*>(end.data()), std::streamsize(tail)))
+        Fail(texts::T("launcher.update.install.truncated"));
     std::optional<std::size_t> record;
     for (std::size_t at = tail >= 22 ? tail - 22 : 0; tail >= 22; --at)
     {
         if (Read32(end.data() + at) == 0x06054b50) { record = at; break; }
         if (at == 0) break;
     }
-    if (!record) Fail("The package is damaged (zip)");
+    if (!record) Fail(texts::T("launcher.update.install.damaged_zip"));
     const unsigned char* eocd = end.data() + *record;
     const std::uint32_t count = Read16(eocd + 10), directory_size = Read32(eocd + 12), directory_at = Read32(eocd + 16);
     if (count == 0xFFFF || directory_at == 0xFFFFFFFFu || Read16(eocd + 4) || Read16(eocd + 6))
-        Fail("Unsupported zip package (zip64 or multiple parts)");
+        Fail(texts::T("launcher.update.install.zip64"));
     if (count > kMaxEntries || std::uint64_t(directory_at) + directory_size > length)
-        Fail("The package is damaged (zip)");
+        Fail(texts::T("launcher.update.install.damaged_zip"));
     std::vector<unsigned char> directory(directory_size);
     file.seekg(directory_at);
     if (!file.read(reinterpret_cast<char*>(directory.data()), std::streamsize(directory.size())))
-        Fail("The package is truncated");
+        Fail(texts::T("launcher.update.install.truncated"));
     std::uint64_t total = 0;
     std::size_t at = 0;
     for (std::uint32_t n = 0; n < count; ++n)
     {
         if (cancelled && cancelled()) Fail("Cancelled");
-        if (at + 46 > directory.size() || Read32(directory.data() + at) != 0x02014b50) Fail("The package is damaged (zip)");
+        if (at + 46 > directory.size() || Read32(directory.data() + at) != 0x02014b50)
+            Fail(texts::T("launcher.update.install.damaged_zip"));
         const unsigned char* entry = directory.data() + at;
         const std::uint32_t flags = Read16(entry + 8), method = Read16(entry + 10), crc = Read32(entry + 16);
         const std::uint32_t packed = Read32(entry + 20), size = Read32(entry + 24);
         const std::uint32_t name_length = Read16(entry + 28), extra = Read16(entry + 30), comment = Read16(entry + 32);
         const std::uint32_t attributes = Read32(entry + 38), local = Read32(entry + 42);
-        if (at + 46 + name_length > directory.size()) Fail("The package is damaged (zip)");
+        if (at + 46 + name_length > directory.size()) Fail(texts::T("launcher.update.install.damaged_zip"));
         std::string name(reinterpret_cast<const char*>(entry + 46), name_length);
         at += 46 + name_length + extra + comment;
-        if (flags & 1) Fail("The package is encrypted");
+        if (flags & 1) Fail(texts::T("launcher.update.install.encrypted"));
         // Unix modes in the upper half: links are refused.
         if (Read16(entry + 4) >> 8 == 3 && ((attributes >> 16) & 0170000) == 0120000)
-            Fail("The package contains a link: " + name);
+            Fail(texts::T("launcher.update.install.link", {{"name", name}}));
         if (!name.empty() && name.back() == '/')
         {
             name.pop_back();
             if (!name.empty()) fs::create_directories(destination / SafePath(name));
             continue;
         }
-        if (method != 0 && method != 8) Fail("Unsupported compression in the package: " + name);
+        if (method != 0 && method != 8) Fail(texts::T("launcher.update.install.compression", {{"name", name}}));
         unsigned char local_header[30];
         file.seekg(local);
         if (!file.read(reinterpret_cast<char*>(local_header), sizeof local_header) || Read32(local_header) != 0x04034b50)
-            Fail("The package is damaged (zip)");
+            Fail(texts::T("launcher.update.install.damaged_zip"));
         const std::uint64_t data_at = std::uint64_t(local) + 30 + Read16(local_header + 26) + Read16(local_header + 28);
-        if (data_at + packed > length) Fail("The package is truncated");
+        if (data_at + packed > length) Fail(texts::T("launcher.update.install.truncated"));
         file.seekg(std::streamoff(data_at));
         OutputFile output(destination / SafePath(name), total);
         uLong check = crc32(0, nullptr, 0);
         std::uint64_t written = 0;
         std::vector<char> in(1 << 16), out(1 << 16);
         z_stream inflater{};
-        if (method == 8 && inflateInit2(&inflater, -MAX_WBITS) != Z_OK) Fail("Cannot start decompression");
+        if (method == 8 && inflateInit2(&inflater, -MAX_WBITS) != Z_OK)
+            Fail(texts::T("launcher.update.install.cannot_decompress"));
         struct End
         {
             z_stream& stream;
@@ -396,7 +408,8 @@ void UnpackZip(const fs::path& archive, const fs::path& destination, const std::
         while (!done)
         {
             const std::size_t step = std::size_t(std::min<std::uint64_t>(left, in.size()));
-            if (step && !file.read(in.data(), std::streamsize(step))) Fail("The package is truncated");
+            if (step && !file.read(in.data(), std::streamsize(step)))
+                Fail(texts::T("launcher.update.install.truncated"));
             left -= step;
             if (method == 0)
             {
@@ -414,17 +427,19 @@ void UnpackZip(const fs::path& archive, const fs::path& destination, const std::
                 inflater.avail_out = uInt(out.size());
                 const int result = inflate(&inflater, Z_NO_FLUSH);
                 if (result != Z_OK && result != Z_STREAM_END && !(result == Z_BUF_ERROR && left))
-                    Fail("The package is damaged (deflate): " + name);
+                    Fail(texts::T("launcher.update.install.damaged_deflate", {{"name", name}}));
                 const std::size_t produced = out.size() - inflater.avail_out;
                 output.Write(out.data(), produced);
                 check = crc32(check, reinterpret_cast<const Bytef*>(out.data()), uInt(produced));
                 written += produced;
                 if (result == Z_STREAM_END) done = true;
             } while (!done && inflater.avail_out == 0);
-            if (!done && (inflater.avail_in != 0 || left == 0)) Fail("The package is damaged (deflate): " + name);
+            if (!done && (inflater.avail_in != 0 || left == 0))
+                Fail(texts::T("launcher.update.install.damaged_deflate", {{"name", name}}));
         }
         output.Close();
-        if (written != size || std::uint32_t(check) != crc) Fail("The package is damaged (checksum): " + name);
+        if (written != size || std::uint32_t(check) != crc)
+            Fail(texts::T("launcher.update.install.damaged_checksum", {{"name", name}}));
     }
 }
 
@@ -436,10 +451,10 @@ fs::path PackageRoot(const fs::path& destination)
     std::optional<fs::path> only;
     for (const auto& entry : fs::directory_iterator(destination))
     {
-        if (only || !entry.is_directory()) Fail("The package has an unexpected layout");
+        if (only || !entry.is_directory()) Fail(texts::T("launcher.update.install.layout"));
         only = entry.path();
     }
-    if (!only || !Exists(*only / kPackageManifest)) Fail("The package has no SOURCE-MANIFEST.json");
+    if (!only || !Exists(*only / kPackageManifest)) Fail(texts::T("launcher.update.install.no_manifest"));
     return *only;
 }
 
@@ -453,8 +468,9 @@ void VerifyPackage(const fs::path& root, const std::function<bool()>& cancelled)
         const fs::path path = root / SafePath(file.path);
         std::error_code error;
         if (!fs::is_regular_file(fs::symlink_status(path, error)) || fs::file_size(path, error) != file.bytes)
-            Fail("The package is incomplete: " + file.path);
-        if (platform::Sha256File(path) != file.sha256) Fail("The package is damaged: " + file.path);
+            Fail(texts::T("launcher.update.install.incomplete", {{"path", file.path}}));
+        if (platform::Sha256File(path) != file.sha256)
+            Fail(texts::T("launcher.update.install.damaged_file", {{"path", file.path}}));
 #ifndef _WIN32
         fs::permissions(path, fs::perms(file.mode & 0777), fs::perm_options::replace);
 #endif
@@ -465,7 +481,8 @@ void VerifyPackage(const fs::path& root, const std::function<bool()>& cancelled)
     {
         if (entry.is_directory()) continue;
         const std::string relative = Generic(fs::relative(entry.path(), root));
-        if (!entry.is_regular_file() || !listed.count(relative)) Fail("The package contains an unlisted file: " + relative);
+        if (!entry.is_regular_file() || !listed.count(relative))
+            Fail(texts::T("launcher.update.install.unlisted", {{"path", relative}}));
     }
 }
 
@@ -485,7 +502,8 @@ void ApplyReplacement(const fs::path& base, const fs::path& staged, const fs::pa
     // Mac packages hold the same files: the universal one replaces an
     // architecture's (and a release from before it the universal one).
     if (incoming.Package() != installed.Package() && !(incoming.platform == "macos" && installed.platform == "macos"))
-        Fail("The download is the " + incoming.Package() + " package; this folder holds " + installed.Package());
+        Fail(texts::T("launcher.update.install.other_package",
+                      {{"incoming", incoming.Package()}, {"installed", installed.Package()}}));
     std::set<std::string> paths, fresh;
     for (const auto& file : installed.files) paths.insert(file.path);
     for (const auto& file : incoming.files)
@@ -510,8 +528,9 @@ void ApplyReplacement(const fs::path& base, const fs::path& staged, const fs::pa
         if (before_move) before_move(relative);
         if (Exists(target))
         {
-            if (fs::is_directory(fs::symlink_status(target))) Fail("A folder is in the way of " + relative);
-            if (Exists(previous)) Fail("Cannot keep the previous " + relative);
+            if (fs::is_directory(fs::symlink_status(target)))
+                Fail(texts::T("launcher.update.install.folder_in_the_way", {{"path", relative}}));
+            if (Exists(previous)) Fail(texts::T("launcher.update.install.cannot_keep", {{"path", relative}}));
             move(target, previous);
         }
         if (replace) move(source, target);
@@ -524,19 +543,20 @@ fs::path UpdatePath(const fs::path& base, const std::string& name) { return Upda
 PackageManifest ReadPackageManifest(const fs::path& file)
 {
     std::ifstream stream(file, std::ios::binary);
-    if (!stream) Fail("Cannot read " + PathUtf8(file));
+    if (!stream) Fail(texts::T("launcher.update.install.cannot_read", {{"path", PathUtf8(file)}}));
     std::stringstream text;
     text << stream.rdbuf();
     const auto json = platform::ParseJson(text.str());
     PackageManifest manifest;
-    if (json["format"].Integer().value_or(0) != 1) Fail("Unknown package manifest format in " + PathUtf8(file));
+    if (json["format"].Integer().value_or(0) != 1)
+        Fail(texts::T("launcher.update.install.manifest_format", {{"path", PathUtf8(file)}}));
     manifest.version = json["version"].Text();
     manifest.platform = json["platform"].Text();
     manifest.architecture = json["architecture"].Text();
     const auto& files = json["files"];
     if (manifest.version.empty() || manifest.platform.empty() || manifest.architecture.empty() || !files.IsObject()
         || files.size() == 0)
-        Fail("Incomplete package manifest in " + PathUtf8(file));
+        Fail(texts::T("launcher.update.install.manifest_incomplete", {{"path", PathUtf8(file)}}));
     for (std::size_t n = 0; n < files.size(); ++n)
     {
         const auto& entry = files.Items()[n];
@@ -544,10 +564,11 @@ PackageManifest ReadPackageManifest(const fs::path& file)
         item.path = files.Names()[n];
         SafePath(item.path);
         if (item.path == kPackageManifest || item.path.rfind(".update/", 0) == 0)
-            Fail("Invalid file in the package manifest: " + item.path);
+            Fail(texts::T("launcher.update.install.manifest_file", {{"path", item.path}}));
         item.sha256 = entry["sha256"].Text();
         item.bytes = std::uint64_t(std::max<std::int64_t>(entry["bytes"].Integer().value_or(-1), 0));
-        if (item.sha256.size() != 64 || !entry["bytes"].Integer()) Fail("Invalid entry in the package manifest: " + item.path);
+        if (item.sha256.size() != 64 || !entry["bytes"].Integer())
+            Fail(texts::T("launcher.update.install.manifest_entry", {{"path", item.path}}));
         item.mode = entry["mode"].IsString() ? ParseMode(entry["mode"].Text()) : 0644;
         manifest.files.push_back(std::move(item));
     }
@@ -556,12 +577,13 @@ PackageManifest ReadPackageManifest(const fs::path& file)
 
 fs::path UnpackPackage(const fs::path& archive, const fs::path& destination, const std::function<bool()>& cancelled)
 {
-    if (Exists(destination)) Fail("The unpack folder exists already: " + PathUtf8(destination));
+    if (Exists(destination))
+        Fail(texts::T("launcher.update.install.unpack_folder_exists", {{"path", PathUtf8(destination)}}));
     fs::create_directories(destination);
     const std::string name = PathUtf8(archive.filename());
     if (name.size() > 4 && name.substr(name.size() - 4) == ".zip") UnpackZip(archive, destination, cancelled);
     else if (name.size() > 7 && name.substr(name.size() - 7) == ".tar.gz") UnpackTar(archive, destination, cancelled);
-    else Fail("Unknown package type: " + name);
+    else Fail(texts::T("launcher.update.install.unknown_type", {{"name", name}}));
     const fs::path root = PackageRoot(destination);
     VerifyPackage(root, cancelled);
     return root;
@@ -591,18 +613,22 @@ fs::path UpdateFolder(const fs::path& base) { return base / ".update"; }
 
 std::string InstallBlocker(const fs::path& base)
 {
-    if (!Exists(base / kPackageManifest)) return "This copy was not unpacked from a release package, so it cannot update itself.";
+    if (!Exists(base / kPackageManifest)) return texts::T("launcher.update.install.not_from_package");
     try { ReadPackageManifest(base / kPackageManifest); }
-    catch (const std::exception& error) { return std::string("The package's file list cannot be read: ") + error.what() + "."; }
+    catch (const std::exception& error)
+    {
+        return texts::T("launcher.update.install.manifest_unreadable", {{"error", error.what()}});
+    }
     std::error_code error;
     const fs::path folder = UpdateFolder(base);
     fs::create_directories(folder, error);
     const fs::path probe = folder / "write-test";
-    if (error || !std::ofstream(probe).good()) return "The game folder is read-only: " + PathUtf8(base) + ".";
+    if (error || !std::ofstream(probe).good())
+        return texts::T("launcher.update.install.read_only", {{"path", PathUtf8(base)}});
     fs::remove(probe, error);
     if (fs::is_empty(folder, error)) fs::remove(folder, error);
     if (const auto reason = platform::HttpUnavailable(); !reason.empty())
-        return "Downloads are not available here: " + reason + ".";
+        return texts::T("launcher.update.install.no_downloads", {{"reason", reason}});
     return {};
 }
 
@@ -613,7 +639,7 @@ void InstallStagedPackage(const fs::path& base, const fs::path& staged, const fs
         std::ofstream stream(marker, std::ios::binary | std::ios::trunc);
         stream << Generic(fs::relative(staged, UpdateFolder(base))) << '\n'
                << Generic(fs::relative(backup, UpdateFolder(base))) << '\n';
-        if (!stream.flush()) Fail("Cannot write " + PathUtf8(marker));
+        if (!stream.flush()) Fail(texts::T("launcher.update.install.cannot_write", {{"path", PathUtf8(marker)}}));
     }
     try
     {

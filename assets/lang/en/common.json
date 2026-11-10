@@ -159,6 +159,64 @@
       "about": "Switch items"
     }
   },
+  "pad_actions": {
+    "a": {
+      "name": "A",
+      "about": "Pass / Confirm"
+    },
+    "b": {
+      "name": "B",
+      "about": "Shoot / Clear / Back"
+    },
+    "one": {
+      "name": "1",
+      "about": "Pause Menu"
+    },
+    "two": {
+      "name": "2"
+    },
+    "plus": {
+      "name": "+ (Plus)"
+    },
+    "minus": {
+      "name": "− (Minus)"
+    },
+    "home": {
+      "name": "HOME"
+    },
+    "up": {
+      "name": "D-pad up",
+      "about": "Fake / Slide Tackle"
+    },
+    "down": {
+      "name": "D-pad down",
+      "about": "Fake / Slide Tackle"
+    },
+    "left": {
+      "name": "D-pad left",
+      "about": "Fake / Slide Tackle"
+    },
+    "right": {
+      "name": "D-pad right",
+      "about": "Fake / Slide Tackle"
+    },
+    "c": {
+      "name": "C",
+      "about": "Use Item"
+    },
+    "z": {
+      "name": "Z",
+      "about": "Chip Ahead / Lob Pass"
+    },
+    "shake_remote": {
+      "name": "Shake Wii Remote",
+      "about": "Hit an Opponent"
+    },
+    "shake_nunchuk": {
+      "name": "Shake Nunchuk",
+      "about": "Swap Items"
+    }
+  },
   "hotkeys": {
     "screenshot": {
       "name": "Screenshot",

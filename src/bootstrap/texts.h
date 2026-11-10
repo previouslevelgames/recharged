@@ -45,6 +45,16 @@ std::string Count(std::string_view id, long long count, std::initializer_list<Ar
 // The loaded language ("en" before any Load).
 std::string Language();
 
+// While one lives, this thread's texts are English whatever the language:
+// for log lines that use a text function (testers share their logs).
+class EnglishScope {
+public:
+    EnglishScope();
+    ~EnglishScope();
+    EnglishScope(const EnglishScope&) = delete;
+    EnglishScope& operator=(const EnglishScope&) = delete;
+};
+
 // A language `folder` has: its folder's name and its own name for itself
 // ("Deutsch"), English first.
 struct LanguageChoice {
