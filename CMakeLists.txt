@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 1.1.5 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.1.6 LANGUAGES C CXX)
 
 # The game module replaces the global operator new/delete with allocators whose
 # scopes are global state. GCC 15 assumes replaceable new/delete leave global
@@ -453,7 +453,8 @@ if(BUILD_TESTING)
     # Opt-in game tweaks: off means the original code (tweak patches) and the
     # original answers (the game module's tweak state).
     add_test(NAME tweak_patches
-        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tweak_patches.py")
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tweak_patches.py"
+            "${CMAKE_BINARY_DIR}/prepared/mscharged-decomp/patched")
     # The same hooks in every game version's module.
     add_test(NAME tweak_patch_versions
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_tweak_versions.py"

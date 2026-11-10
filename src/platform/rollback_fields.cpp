@@ -7,6 +7,10 @@
 // diverged, and where it was taken (an offset in the game module, for
 // addr2line) names the line that takes it.
 //
+// The first desync of an online game also leaves those fields, both steps', in
+// a dossier the host sends to the WFC server (src/platform/desync_dossier.h),
+// which pairs both sides' and finds the field itself.
+//
 // RECHARGED_ROLLBACK_POSES=1, on every machine: the players' poses (the
 // matrix of each node of their skeletons) join the checksum, which the game's
 // leaves out. A desync then comes at the first step where any pose differs,
@@ -31,6 +35,7 @@
 #include "Game/Player.h"
 #include "Game/PoseAccumulator.h"
 #include "Game/Team.h"
+#include "platform/desync_dossier.h"
 #include "platform/rollback_state.h"
 #include "platform/rollback_platform.h"
 #include "ode/collision.h"
@@ -38,6 +43,7 @@
 #include "src/ode/objects.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -95,6 +101,12 @@ Fields sSteps[kRing];
 Fields sConfirmed[kConfirmedRing];
 Fields* sRecording;
 std::uintptr_t sModuleBase;
+// The dossier of the last desync, until the host takes it; written under
+// sMutex. sDossierReady lets the host's look after every frame skip the lock
+// while there is none.
+unsigned char sDossier[kDesyncDossierMaxBytes];
+unsigned sDossierSize;
+std::atomic<bool> sDossierReady{false};
 std::uint32_t Hash(const unsigned char* bytes, unsigned long size)
 {
     std::uint32_t hash = 2166136261u;
@@ -284,6 +296,51 @@ void ConfirmFields(unsigned frame)
     kept.count = step.count;
     kept.overflowed = step.overflowed;
     std::copy_n(step.fields, step.count, kept.fields);
+}
+
+void KeepDossier(const SyncPoint& ours, const SyncPoint& remote)
+{
+    DesyncDossierHeader header{};
+    if (!ChargedOnlineDossierGame(header)) return; // no online series: a LAN match
+    const State& s = *sState;
+    std::memcpy(header.magic, kDesyncDossierMagic, sizeof header.magic);
+    header.version = kDesyncDossierVersion;
+    header.frame = remote.frame;
+    header.checksum[0] = ours.checksum;
+    header.checksum[1] = remote.checksum;
+    header.seed[0] = ours.seed;
+    header.seed[1] = remote.seed;
+    header.machine = remote.machine;
+    header.input_delay = static_cast<std::uint32_t>(s.net.delay);
+    for (const std::uint64_t wrong : s.net.mispredictions) header.mispredictions += static_cast<std::uint32_t>(wrong);
+    header.options = (s.options.poses ? 1u : 0u) | (s.options.bodies ? 2u : 0u) | (s.options.contacts ? 4u : 0u);
+    header.steps = kDesyncDossierSteps;
+    unsigned size = 0;
+    const auto put = [&](const void* data, unsigned bytes) {
+        std::memcpy(sDossier + size, data, bytes);
+        size += bytes;
+    };
+    put(&header, sizeof header);
+    for (const unsigned frame : {remote.frame - 1, remote.frame})
+    {
+        const Fields& kept = sConfirmed[frame % kConfirmedRing];
+        DesyncDossierStep step{frame, 0, 0};
+        if (kept.frame == frame)
+        {
+            step.count = std::min(static_cast<std::uint32_t>(kept.count), kDesyncDossierFields);
+            step.overflowed = kept.overflowed || static_cast<std::uint32_t>(kept.count) > step.count;
+        }
+        put(&step, sizeof step);
+        for (std::uint32_t i = 0; i < step.count; ++i)
+        {
+            const Field& field = kept.fields[i];
+            DesyncDossierField out{field.caller, field.size, field.hash, {}};
+            std::memcpy(out.bytes, field.bytes, sizeof out.bytes);
+            put(&out, sizeof out);
+        }
+    }
+    sDossierSize = size;
+    sDossierReady.store(true, std::memory_order_release);
 }
 
 void LogFields(unsigned frame)
@@ -539,4 +596,17 @@ extern "C" void mscharged_rollback_checksum_field(const void* data, unsigned lon
     field.hash = Hash(bytes, size);
     std::memset(field.bytes, 0, sizeof(field.bytes));
     std::memcpy(field.bytes, bytes, std::min<unsigned long>(size, kFieldBytes));
+}
+
+extern "C" __attribute__((visibility("default"))) unsigned charged_desync_dossier(void* out, unsigned capacity)
+{
+    using namespace mscharged::rollback;
+    if (!sDossierReady.load(std::memory_order_acquire)) return 0;
+    std::lock_guard lock(sMutex);
+    if (!sDossierSize || !out || capacity < sDossierSize) return 0;
+    std::memcpy(out, sDossier, sDossierSize);
+    const unsigned size = sDossierSize;
+    sDossierSize = 0;
+    sDossierReady.store(false, std::memory_order_relaxed);
+    return size;
 }

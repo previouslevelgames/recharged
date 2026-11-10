@@ -124,4 +124,29 @@ std::string HostOsName()
     return text;
 #endif
 }
+
+std::string HostPlatform()
+{
+    if (std::string_view(kArchitecture) == "unknown CPU") return {};
+#ifdef _WIN32
+    std::string system = "windows";
+#elif defined(__APPLE__)
+    std::string system = "macos";
+#elif defined(__SWITCH__)
+    std::string system = "switch";
+#else
+    // uname's, lowercase: "linux", "freebsd".
+    std::string system;
+    if (utsname host{}; uname(&host) == 0)
+    {
+        for (const char* c = host.sysname; *c; ++c)
+        {
+            if ((*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9')) system += *c;
+            else if (*c >= 'A' && *c <= 'Z') system += char(*c - 'A' + 'a');
+        }
+    }
+    if (system.empty()) return {};
+#endif
+    return system + ' ' + kArchitecture;
+}
 } // namespace mscharged::platform

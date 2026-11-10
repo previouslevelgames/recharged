@@ -1,4 +1,5 @@
 #include "platform/wiimote_bluetooth.h"
+#include "platform/wiimote_hid.h"
 
 #include <SDL3/SDL.h>
 
@@ -150,7 +151,7 @@ template <class Visit> bool EachWiimote(const Api& bt, UCHAR inquiry, Visit&& vi
 }
 
 void Event(State& state, const std::string& text, int connected = 0, int paired = 0) {
-    SDL_Log("Wii Remote Bluetooth: %s", text.c_str());
+    SDL_Log("%s Wii Remote Bluetooth: %s", WiimoteLogTime().c_str(), text.c_str());
     std::lock_guard<std::mutex> lock(state.mutex);
     state.status.last = text;
     state.status.connected += connected;

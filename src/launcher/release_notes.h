@@ -27,6 +27,11 @@ struct NoteBlock
 };
 
 std::vector<NoteBlock> ParseReleaseNotes(std::string_view markdown);
+// The notes without their footer: the last rule and what follows it, when that
+// is only paragraphs, as the "New here?" note under every release's notes,
+// which is for the download page, not for a player updating. A rule followed by
+// a heading, list or code is part of the notes and stays.
+std::vector<NoteBlock> WithoutNotesFooter(std::vector<NoteBlock> blocks);
 // The inline formatting of one line of text.
 std::vector<NoteSpan> ParseNoteSpans(std::string_view text);
 
