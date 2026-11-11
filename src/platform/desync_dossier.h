@@ -26,9 +26,15 @@ constexpr char kDesyncDossierMagic[4] = {'R', 'C', 'D', 'S'};
 // fields alone; the host still sends its files.
 constexpr std::uint32_t kDesyncDossierVersion = 2;
 constexpr std::uint32_t kDesyncDossierFirstVersion = 1;
-// The step before the desync's and the desync's: checksums are sent every
-// other step, so the machines may have diverged a step earlier.
-constexpr std::uint32_t kDesyncDossierSteps = 2;
+// The steps whose fields a dossier lists, oldest first. Version 1: the step
+// before the desync's and the desync's (checksums are sent every other step,
+// so the machines may have diverged a step earlier). Version 2 adds the steps
+// whose checksums this machine sent since the last of the other machine's
+// that matched here: each machine finds the desync at a step the other sent,
+// so the two sides' dossiers both list the step each one found, and the
+// server compares them there. At most kDesyncDossierSteps.
+constexpr std::uint32_t kDesyncDossierFirstSteps = 2;
+constexpr std::uint32_t kDesyncDossierSteps = 16;
 // The fields kept of a step: about 300 in a match; more only with the
 // rollback's diagnostic switches (poses, bodies, collisions).
 constexpr std::uint32_t kDesyncDossierFields = 512;
@@ -81,7 +87,7 @@ struct DesyncDossierHeader
     char release[4];     // R4QE, R4QP...
     char build[64];      // the program's version
     char platform[16];   // HostPlatform: the module's system and CPU
-    std::uint32_t steps; // kDesyncDossierSteps
+    std::uint32_t steps; // version 1: kDesyncDossierFirstSteps; 2: up to kDesyncDossierSteps
 };
 static_assert(sizeof(DesyncDossierHeader) == 160, "the dossier's header layout is the server's");
 

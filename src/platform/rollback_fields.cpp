@@ -7,9 +7,11 @@
 // diverged, and where it was taken (an offset in the game module, for
 // addr2line) names the line that takes it.
 //
-// The first desync of an online game also leaves those fields, both steps', in
-// a dossier the host sends to the WFC server (src/platform/desync_dossier.h),
-// which pairs both sides' and finds the field itself.
+// The first desync of an online game also leaves those fields in a dossier the
+// host sends to the WFC server (src/platform/desync_dossier.h): both steps',
+// and those of the steps whose checksums this machine sent since the last
+// that matched, where the other machine finds the desync. The server pairs
+// both sides' at a step both list and finds the field itself.
 //
 // RECHARGED_ROLLBACK_POSES=1, on every machine: the players' poses (the
 // matrix of each node of their skeletons) join the checksum, which the game's
@@ -355,15 +357,36 @@ void KeepDossier(const SyncPoint& ours, const SyncPoint& remote)
     const auto since = [](std::uint64_t now, std::uint64_t start) { return static_cast<std::uint32_t>(now - start); };
     for (int m = 0; m < kMachines; ++m) header.mispredictions += since(now.mispredictions[m], start.mispredictions[m]);
     header.options = (s.options.poses ? 1u : 0u) | (s.options.bodies ? 2u : 0u) | (s.options.contacts ? 4u : 0u);
-    header.steps = kDesyncDossierSteps;
+    // The steps listed, oldest first: the one before the desync's, the
+    // desync's, and those whose checksums this machine sent since the last
+    // of the other's that matched here, while their fields are kept. The
+    // other machine finds the desync at one of these, and its dossier lists
+    // that step: the server compares the two there.
+    static_assert(kDesyncDossierFirstSteps + kSentChecks <= kDesyncDossierSteps, "every step sent fits");
+    unsigned frames[kDesyncDossierSteps];
+    unsigned count = 0;
+    const auto list = [&](unsigned frame) {
+        if (std::find(frames, frames + count, frame) == frames + count) frames[count++] = frame;
+    };
+    list(remote.frame - 1);
+    list(remote.frame);
+    for (unsigned i = std::min<unsigned>(s.net.sentCount, kSentChecks); i > 0; --i)
+    {
+        const unsigned frame = s.net.sent[(s.net.sentCount - i) % kSentChecks];
+        if (s.net.haveMatched && frame <= s.net.matchedFrame) continue;
+        if (sConfirmed[frame % kConfirmedRing].frame == frame) list(frame);
+    }
+    std::sort(frames, frames + count);
+    header.steps = count;
     unsigned size = 0;
     const auto put = [&](const void* data, unsigned bytes) {
         std::memcpy(sDossier + size, data, bytes);
         size += bytes;
     };
     put(&header, sizeof header);
-    for (const unsigned frame : {remote.frame - 1, remote.frame})
+    for (unsigned i = 0; i < count; ++i)
     {
+        const unsigned frame = frames[i];
         const Fields& kept = sConfirmed[frame % kConfirmedRing];
         DesyncDossierStep step{frame, 0, 0};
         if (kept.frame == frame)

@@ -110,6 +110,7 @@ constexpr int kMachineEvents = 4;        // deterministic data events in one inp
 constexpr int kInputRing = 32;           // RECHARGED_ROLLBACK: steps whose inputs are kept
 constexpr int kConfirmedRing = 64;       // RECHARGED_ROLLBACK: checksums of steps whose inputs all arrived
 constexpr int kRemoteChecks = 32;        // RECHARGED_ROLLBACK: other machines' checksums waiting for ours
+constexpr int kSentChecks = 14;          // RECHARGED_ROLLBACK: our checksums sent, for a desync's dossier
 constexpr unsigned kSettleSteps = 25;    // RECHARGED_ROLLBACK: steps after tracking starts that predict nothing
 constexpr int kMaxInputDelay = 6;        // RECHARGED_ROLLBACK: steps, while predicting
 constexpr int kMaxLockstepDelay = 10;    // RECHARGED_ROLLBACK: steps, in a phase without prediction
@@ -356,6 +357,14 @@ struct Netplay
     SyncPoint history[kConfirmedRing];
     SyncPoint remote[kRemoteChecks];
     int remoteCount;
+    // The steps whose checksums this machine sent, the last kSentChecks
+    // (sentCount counts them all), and the last step of another machine's
+    // that matched here: a desync's dossier lists the steps sent after it,
+    // among them the one where the other machine found the desync.
+    unsigned sent[kSentChecks];
+    unsigned sentCount;
+    bool haveMatched;
+    unsigned matchedFrame;
     std::uint64_t predictedSteps, lockstepWaits, windowWaits, mispredictions[kMachines], correctionRollbacks;
     std::uint64_t mispredictedParts[kInputParts]; // mispredicted steps that got each part wrong
     std::uint64_t undone, truncated, impossible, desyncs, remoteChecks, predictedDepth[kMaxDepth + 1];

@@ -379,7 +379,12 @@ void UpdateConfirmed()
         const SyncPoint& ours = s.net.history[remote.frame % kConfirmedRing];
         if (ours.frame != remote.frame) continue; // not kept (or a step the hook did not see)
         ++s.net.remoteChecks;
-        if (ours.checksum != remote.checksum || ours.seed != remote.seed)
+        if (ours.checksum == remote.checksum && ours.seed == remote.seed)
+        {
+            if (!s.net.haveMatched || remote.frame > s.net.matchedFrame) s.net.matchedFrame = remote.frame;
+            s.net.haveMatched = true;
+        }
+        else
         {
             if (!s.net.desyncs) s.net.firstDesyncFrame = remote.frame;
             const bool first = !s.net.matchDesync;
@@ -685,6 +690,8 @@ extern "C" int mscharged_rollback_network_reset(void)
     s.net.waitThrough = s.net.undoFrom = s.net.audioAfter = 0;
     s.net.captured = s.net.haveConfirmed = false;
     s.net.remoteCount = 0;
+    s.net.sentCount = 0;
+    s.net.haveMatched = false;
     // No step's checksum yet: an empty slot must not pass for step 0's (or for
     // the last match's steps) when another machine's arrives.
     for (SyncPoint& point : s.net.history) point.frame = ~0u;
@@ -839,13 +846,16 @@ extern "C" int mscharged_rollback_extra_captures(void)
 extern "C" int mscharged_rollback_sync_data(unsigned* checksum, unsigned* frame, unsigned* seed)
 {
     std::lock_guard lock(sMutex);
-    const State& s = *sState;
+    State& s = *sState;
     // Every other step the checksum, the others the time sync's measure (the
     // other machines' average, by 256ths of a step).
     if (CurrentStep() % 2 == 0 && s.net.haveConfirmed)
     {
         const SyncPoint& point = s.net.history[s.net.confirmed % kConfirmedRing];
         if (point.frame != s.net.confirmed) return 0;
+        // Kept for a desync's dossier (once: the confirmed step may stay).
+        if (!s.net.sentCount || s.net.sent[(s.net.sentCount - 1) % kSentChecks] != point.frame)
+            s.net.sent[s.net.sentCount++ % kSentChecks] = point.frame;
         *checksum = point.checksum;
         *frame = point.frame;
         *seed = point.seed;

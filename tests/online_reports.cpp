@@ -601,7 +601,7 @@ std::string ModuleDossier(unsigned series, unsigned profile, unsigned game, std:
     header.frame = 4812;
     header.checksum[0] = 0x11111111;
     header.checksum[1] = 0x22222222;
-    header.steps = kDesyncDossierSteps;
+    header.steps = kDesyncDossierFirstSteps;
     std::string bytes(reinterpret_cast<const char*>(&header), sizeof header);
     for (std::uint32_t frame : {4811u, 4812u})
     {
