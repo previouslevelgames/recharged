@@ -133,13 +133,13 @@
   },
   "online": {
     "title": "ONLINE",
-    "play": "PLAY",
+    "play": "QUICK PLAY",
     "profile": "PROFILE",
     "leaderboard": "LEADERBOARD",
     "wii_online": "WII ONLINE"
   },
   "play": {
-    "title": "PLAY",
+    "title": "QUICK PLAY",
     "friends": "FRIENDS",
     "random": "RANDOM OPPONENT",
     "ranked": "RANKED",
