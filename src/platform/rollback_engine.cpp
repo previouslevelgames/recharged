@@ -681,13 +681,21 @@ struct Install
             const std::size_t length = std::strlen(path);
             state->summaryPath = static_cast<char*>(std::malloc(length + sizeof(".summary")));
             state->out = std::fopen(path, "w");
+            // A log that cannot be written leaves the rollback on without it:
+            // the other machines of a network match play with rollback.
             if (!state->summaryPath || !state->out)
             {
-                std::fprintf(stderr, "RECHARGED_ROLLBACK_TEST: cannot prepare %s\n", path);
-                return;
+                std::fprintf(stderr, "rollback: cannot open the log %s; on without a log\n", path);
+                if (state->out) std::fclose(state->out);
+                std::free(state->summaryPath);
+                state->out = nullptr;
+                state->summaryPath = nullptr;
             }
-            std::memcpy(state->summaryPath, path, length);
-            std::memcpy(state->summaryPath + length, ".summary", sizeof(".summary"));
+            else
+            {
+                std::memcpy(state->summaryPath, path, length);
+                std::memcpy(state->summaryPath + length, ".summary", sizeof(".summary"));
+            }
         }
         state->options.maxDepth = EnvInt("RECHARGED_ROLLBACK_TEST_FRAMES", kMaxDepth, 1, kMaxDepth);
         state->options.interval = EnvInt("RECHARGED_ROLLBACK_TEST_INTERVAL", 1, 1, 1 << 20);
