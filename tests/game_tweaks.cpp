@@ -19,6 +19,7 @@ extern "C" void charged_configure_frame_pacing(void (*swap)());
 extern "C" void charged_configure_rev1_data(bool enabled);
 extern "C" void charged_configure_sound_volumes(const int* volumes, int count);
 extern "C" void charged_configure_training(int item, bool start, int captain, int stadium);
+extern "C" void charged_configure_training_item(int count, bool giant);
 extern "C" void charged_toggle_hud(void);
 
 // The native VI's TV format (VI_NTSC 0, VI_PAL 1, VI_EURGB60 5) for the
@@ -303,6 +304,15 @@ int main()
                 && mscharged_tweak_take_title_press(), "Training: Start training did not pass the title");
         Check(mscharged_tweak_take_training_start(&captain, &stadium) && captain == 11 && stadium == 7
                 && !mscharged_tweak_take_training_start(&captain, &stadium), "Training: start not taken once");
+        // And how many of its item, only the game's 1, 3 or 5, and whether always giant.
+        Check(mscharged_tweak_training_item_count() == 1 && !mscharged_tweak_training_item_giant(),
+              "Training: an item is not one by default");
+        charged_configure_training_item(5, true);
+        Check(mscharged_tweak_training_item_count() == 5 && mscharged_tweak_training_item_giant(),
+              "Training: five giant items not taken");
+        charged_configure_training_item(4, false);
+        Check(mscharged_tweak_training_item_count() == 1 && !mscharged_tweak_training_item_giant(),
+              "Training: four items not refused");
         charged_configure_training(-1, false, 0, 0);
 
         // Fast menus: only in the menus, and transition time only during a

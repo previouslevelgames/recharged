@@ -328,10 +328,10 @@ int main()
         {
             Require(Settings{}.training_item == "green_shell" && Settings{}.training_captain == "mario"
                     && Settings{}.training_stadium == "tutorialfield", "Training defaults");
-            std::ofstream(path) << "[gameplay]\ntraining_item = bobomb\ntraining_captain = petey\n"
+            std::ofstream(path) << "[gameplay]\ntraining_item = giant_bobomb\ntraining_captain = petey\n"
                                    "training_stadium = lavapit\n";
             auto loaded = LoadConfig(path);
-            Require(loaded.settings.training_item == "bobomb" && loaded.settings.training_captain == "petey"
+            Require(loaded.settings.training_item == "giant_bobomb" && loaded.settings.training_captain == "petey"
                     && loaded.settings.training_stadium == "lavapit",
                     "The Training settings load");
             auto changed = loaded.settings;

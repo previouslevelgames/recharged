@@ -187,9 +187,11 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   vanish at every kickoff, as in the Strikers 101 lessons), at the skill you
   choose, and its goalie can be taken out of the goal. The match can start at the kickoff, and a
   goal go straight to the next one, without its celebration and replay; a Mega Strike's goal keeps its own.
-  Your team starts every kickoff with the chosen item and keeps every item it
-  uses, in a match to 10 goals that never ends on them (leave it from the
-  pause menu). Every other match is unchanged.
+  Your team starts every kickoff with the chosen item (any power-up, three or
+  five of a shell, banana or Bob-omb where the game gives that many, a giant
+  one, or your captain's own) and keeps every item it uses, in a match to 10
+  goals that never ends on them (leave it from the pause menu). Every other
+  match is unchanged.
 - **Feder's fair ball contests**: when players of both teams reach a loose
   ball in the same instant, the one the Wii game updates first takes it. It
   shuffles that order at every kickoff in a way that puts the home team

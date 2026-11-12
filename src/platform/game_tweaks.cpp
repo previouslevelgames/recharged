@@ -20,9 +20,13 @@ unsigned sEnabled;
 
 // Skip intro: the title screen is passed once per launch.
 bool sTitlePassed;
-// Training: the item of the team that trains (ePowerUpType, -1 none), and the
-// launcher's Start training, taken by the title once it is passed.
+// Training: the item of the team that trains (ePowerUpType, -1 none, 9 its
+// captain's power-up), how many of it and whether a single one is always
+// giant, and the launcher's Start training, taken by the title once it is
+// passed.
 int sTrainingItem = -1;
+int sTrainingItemCount = 1;
+bool sTrainingItemGiant;
 bool sTrainingStart;
 int sTrainingCaptain;
 int sTrainingStadium;
@@ -161,7 +165,7 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
 }
 
 // Host entry (Training): the item of the team that trains (ePowerUpType, -1
-// none); with `start`, the launcher's Start training: the title is passed at
+// none, 9 its captain's power-up); with `start`, the launcher's Start training: the title is passed at
 // once, as by Skip intro, into a match of `captain` (eTeamID) in `stadium`
 // (eStadiumID).
 __attribute__((visibility("default"))) void charged_configure_training(int item, bool start, int captain, int stadium)
@@ -170,6 +174,14 @@ __attribute__((visibility("default"))) void charged_configure_training(int item,
     sTrainingStart = start;
     sTrainingCaptain = captain;
     sTrainingStadium = stadium;
+}
+
+// Host entry (Training): how many of its item the team that trains gets (1, 3
+// or 5) and whether a single one is always thrown giant.
+__attribute__((visibility("default"))) void charged_configure_training_item(int count, bool giant)
+{
+    sTrainingItemCount = count == 3 || count == 5 ? count : 1;
+    sTrainingItemGiant = giant;
 }
 
 // Host entry (Training): the opponent, the team nobody plays: its captain
@@ -423,6 +435,16 @@ bool mscharged_tweak_title_pending(void)
 int mscharged_tweak_training_item(void)
 {
     return sTrainingItem;
+}
+
+int mscharged_tweak_training_item_count(void)
+{
+    return sTrainingItemCount;
+}
+
+bool mscharged_tweak_training_item_giant(void)
+{
+    return sTrainingItemGiant;
 }
 
 int mscharged_tweak_training_away_captain(void)

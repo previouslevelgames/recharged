@@ -212,8 +212,15 @@ constexpr const char* kSidekickNames[] = {"Toad", "Koopa", "Hammer Bro", "Birdo"
 static_assert(std::size(kCaptainNames) == mscharged::platform::kCaptainCount
     && std::size(kSidekickNames) == mscharged::platform::kSidekickCount);
 // Training's choices, in the order of kTrainingItems and kTrainingStadiums.
-constexpr const char* kTrainingItemNames[] = {"None", "Green Shell", "Red Shell", "Spiny Shell", "Freeze Shell", "Banana",
-                                              "Bob-omb", "Chain Chomp", "Mushroom", "Star"};
+constexpr const char* kTrainingItemNames[] = {
+    "None",
+    "Green Shell", "3 Green Shells", "5 Green Shells", "Giant Green Shell",
+    "Red Shell", "3 Red Shells", "Giant Red Shell",
+    "Spiny Shell", "3 Spiny Shells", "5 Spiny Shells", "Giant Spiny Shell",
+    "Freeze Shell", "3 Freeze Shells", "5 Freeze Shells", "Giant Freeze Shell",
+    "Banana", "3 Bananas", "5 Bananas", "Giant Banana",
+    "Bob-omb", "3 Bob-ombs", "5 Bob-ombs", "Giant Bob-omb",
+    "Chain Chomp", "Mushroom", "Star", "Captain's Ability"};
 constexpr const char* kStadiumNames[] = {"Battle Dome", "Bowser Stadium", "Crater Field", "Crystal Canyon", "The Dump",
                                          "Galactic Stadium", "Konga Coliseum", "The Lava Pit", "Pipeline Central",
                                          "Stormship Stadium", "The Palace", "Thunder Island", "The Underground",
@@ -7577,6 +7584,8 @@ private:
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
         ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, Dp(10));
         ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
+        // A long list (the items) scrolls instead of leaving the window.
+        ImGui::SetNextWindowSizeConstraints({0, 0}, {FLT_MAX, ImGui::GetMainViewport()->WorkSize.y * 0.7f});
         if (ImGui::BeginPopup("##choice_menu"))
         {
             auto* draw = ImGui::GetWindowDrawList();
@@ -7611,7 +7620,8 @@ private:
 
     void TrainingRows()
     {
-        Row("Item", "The item your team starts every kickoff with. It stays after you use it.");
+        Row("Item", "The item your team starts every kickoff with. It stays after you use it. A single shell, "
+                    "banana or Bob-omb comes out medium or giant at random, a giant one always giant.");
         if (ChoiceButton("training_item", draft_.training_item, kTrainingItems, kTrainingItemNames)) dirty_ = true;
         Row("Captain", "Start training's captain, with their sidekicks from the Teams page.");
         if (ChoiceButton("training_captain", draft_.training_captain, kTrainingCaptains, kCaptainNames)) dirty_ = true;
