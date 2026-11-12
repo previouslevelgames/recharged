@@ -403,7 +403,7 @@ void ReplayFrame(std::uint64_t frame, int firstTask, int lastTask, unsigned& nex
                 s.stats.replayFaults += snapshots.faults - faultsBefore;
                 s.stats.replaySavedPages += snapshots.savedPages - pagesBefore;
                 ++s.stats.replayed;
-                if (s.options.netplay && !(step.phases == s.steps[(next - 1) % kRing].phases)) StopReplayAt(next);
+                if (s.options.netplay && !PhasesContinue(s.steps[(next - 1) % kRing].phases, step.phases)) StopReplayAt(next);
             }
             auto* fixed = static_cast<FixedUpdateTask*>(s.tasks.list[i]);
             fixed->mAccumulatedDeltaT = record.accumulated;
@@ -841,10 +841,25 @@ extern "C" void mscharged_rollback_between_steps(int (*replay)(const MschargedRo
     step.seed = GetNetworkRandomSeed();
     RecordFrame(step);
     LogStep(step);
-    // A step that predicted must leave the match's phase alone: undone at the
-    // frame start, it runs again when its inputs have all arrived.
+    const Step& before = s.steps[(frame - 1) % kRing];
+    // A disc read started with this step's frame: no step predicts for a few
+    // steps more (CanPredict), and one that ran on predicted inputs is
+    // logged, as a misprediction in it can no longer be corrected.
+    if (s.options.netplay && step.readsStarted != before.readsStarted)
+    {
+        s.net.readStartedAt = frame;
+        if (AnyPredicted(InputsFor(frame)))
+        {
+            ++s.net.readsOnPredicted;
+            Log("DISC READ STARTED on predicted inputs at frame %u, %u steps after tracking from %u\n", frame,
+                frame - s.trackingFrom, s.trackingFrom);
+        }
+    }
+    // A step that predicted must leave the match's phase alone (but for the
+    // kickoff's end, PhasesContinue): undone at the frame start, it runs again
+    // when its inputs have all arrived.
     if (s.options.netplay && AnyPredicted(InputsFor(frame)) && !s.net.undoFrom
-        && !(step.phases == s.steps[(frame - 1) % kRing].phases))
+        && !PhasesContinue(before.phases, step.phases))
         s.net.undoFrom = frame;
     s.haveInputs = false;
     s.latest = frame;

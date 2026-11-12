@@ -309,6 +309,22 @@ bool PredictablePhases(const Phases& phases)
 }
 } // namespace
 
+// Whether a step with the phases `later` may follow one with `earlier` on
+// predicted inputs, and a replay go on through it: the same phases, or the
+// kickoff's end. The kickoff ends on a timer, half a second after
+// cGame::ResetForKickOff (PostResetCallback, then the Kickoff event's
+// OnCharactersKickoff), whatever the inputs, and what it changes is the
+// match's memory, which a restore takes back (the HUD, the clock, the
+// weather's sand patches, the goal's effects), and sounds the audio
+// reconciles (the stadium's tracked music, the whistle's one-shot).
+bool PhasesContinue(const Phases& earlier, const Phases& later)
+{
+    if (earlier == later) return true;
+    Phases kickoffEnd = earlier;
+    kickoffEnd.game = GS_GAMEPLAY;
+    return earlier.game == GS_KICKOFF && later == kickoffEnd;
+}
+
 unsigned OldestPredicted()
 {
     const State& s = *sState;
@@ -320,6 +336,18 @@ unsigned OldestPredicted()
 
 namespace
 {
+// Whether step `frame` is past the settling that follows the start of
+// tracking and each disc read: the game starts its reads in bursts (as play
+// starts after a goal, a NIS or a pause, and as a file opens), and a step
+// that starts one on predicted inputs could not be rolled back if they
+// turned out wrong. A few steps in lockstep let a burst pass; a read that
+// starts later on predicted inputs is logged and counted.
+bool Settled(unsigned frame)
+{
+    const State& s = *sState;
+    return frame > s.trackingFrom + kSettleSteps && frame > s.net.readStartedAt + kQuietSteps;
+}
+
 // Whether step `frame` may run with predicted inputs: the rollback follows the
 // match and could go back before the oldest step predicted, through as many
 // frames as it keeps and without a disc read in between, and no disc read
@@ -329,11 +357,9 @@ bool CanPredict(unsigned frame)
     State& s = *sState;
     if (!s.active || s.latest + 1 != frame || frame <= s.net.waitThrough) return false;
     if (s.net.readWaiting && s.hostFrame <= s.net.readWaitFrame + 1) return false;
-    // Tracking starts as play does, after a goal, a NIS or a pause: the disc
-    // reads the game starts then (a rollback cannot cross them) are let pass.
-    if (frame <= s.trackingFrom + kSettleSteps) return false;
+    if (!Settled(frame)) return false;
     const Phases phases = CurrentPhases();
-    if (!PredictablePhases(phases) || !(phases == s.steps[s.latest % kRing].phases)) return false;
+    if (!PredictablePhases(phases) || !PhasesContinue(s.steps[s.latest % kRing].phases, phases)) return false;
     const unsigned oldest = OldestPredicted();
     const unsigned target = oldest ? oldest - 1 : s.latest;
     if (frame - target > static_cast<unsigned>(kMaxDepth)) return false;
@@ -534,12 +560,15 @@ void SyncTime()
     // when the machines are far apart.
     if (s.net.isPrevFramePhasePredictable && !isCurrentPredictable)
     {
+        // Steps of the last lockstep not given back yet (can_capture spreads
+        // them) are in the delay still, and go back with the new ones.
+        const int notGivenBack = s.net.delayChange < 0 ? -s.net.delayChange : 0;
         float worst;
-        s.net.addedStepsInLockstep = 0;
-        if (WorstReportedAhead(worst))
-            s.net.addedStepsInLockstep = static_cast<int>(std::ceil(-worst)) + 1;
-        s.net.addedStepsInLockstep = std::clamp(s.net.addedStepsInLockstep, 0, kMaxLockstepDelay - s.net.delay);
-        s.net.delayChange = s.net.addedStepsInLockstep;
+        int added = 0;
+        if (WorstReportedAhead(worst)) added = static_cast<int>(std::ceil(-worst)) + 1;
+        added = std::clamp(added, 0, kMaxLockstepDelay - s.net.delay);
+        s.net.addedStepsInLockstep = notGivenBack + added;
+        s.net.delayChange = added;
     }
     else if (!s.net.isPrevFramePhasePredictable && isCurrentPredictable)
     {
@@ -707,6 +736,7 @@ extern "C" int mscharged_rollback_network_reset(void)
     s.net.addedStepsInLockstep = 0;
     s.net.isPrevFramePhasePredictable = true;
     s.net.readWaiting = false;
+    s.net.readStartedAt = 0;
     s.net.atGameStart = NetCountsNow();
     Log("network match: input delay %d steps\n", s.options.inputDelay);
     FlushLog();
@@ -815,9 +845,17 @@ extern "C" bool mscharged_rollback_can_capture(void)
     if (s.net.captured && frame <= s.net.capturedFrame) return false;
     s.net.captured = true;
     s.net.capturedFrame = frame;
-    if (s.net.delayChange < 0)
+    // A step less of input delay (of those asked): this step's capture is left
+    // out, and the others wait for this machine's next inputs a step longer.
+    // While the steps cannot predict yet (the settling after tracking starts)
+    // each capture left out is a wait there, and several in a row show as a
+    // hitch: the delay goes back once they predict, a step every
+    // kGiveBackEvery, which the others' prediction covers.
+    const bool givesBack = s.net.delayChange < 0
+        && (!s.active || Settled(frame + 1))
+        && frame >= s.net.delayChangedAt + kGiveBackEvery;
+    if (givesBack)
     {
-        // A step less of input delay (of those asked): this step's capture is left out.
         ++s.net.delayChange;
         --s.net.delay;
         s.net.delayChangedAt = frame;

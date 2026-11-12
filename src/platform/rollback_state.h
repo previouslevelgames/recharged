@@ -112,7 +112,9 @@ constexpr int kInputRing = 32;           // RECHARGED_ROLLBACK: steps whose inpu
 constexpr int kConfirmedRing = 64;       // RECHARGED_ROLLBACK: checksums of steps whose inputs all arrived
 constexpr int kRemoteChecks = 32;        // RECHARGED_ROLLBACK: other machines' checksums waiting for ours
 constexpr int kSentChecks = 14;          // RECHARGED_ROLLBACK: our checksums sent, for a desync's dossier
-constexpr unsigned kSettleSteps = 25;    // RECHARGED_ROLLBACK: steps after tracking starts that predict nothing
+constexpr unsigned kSettleSteps = 3;     // RECHARGED_ROLLBACK: steps after tracking starts that predict nothing
+constexpr unsigned kQuietSteps = 3;      // RECHARGED_ROLLBACK: steps after one that started a disc read that predict nothing
+constexpr unsigned kGiveBackEvery = 3;   // RECHARGED_ROLLBACK: steps between captures left out to give a lockstep's delay back
 constexpr int kMaxInputDelay = 6;        // RECHARGED_ROLLBACK: steps, while predicting
 constexpr int kMaxLockstepDelay = 10;    // RECHARGED_ROLLBACK: steps, in a phase without prediction
 constexpr int kAccelHysteresis = 6;
@@ -398,6 +400,10 @@ struct Netplay
     std::uint64_t leadSamples;
     bool isPrevFramePhasePredictable; // the phase at the last frame start predicted
     int addedStepsInLockstep;         // input delay added for a phase without prediction, given back after it
+    // The last step whose first run started a disc read (the summary counts
+    // those that ran on predicted inputs: a misprediction in them desyncs).
+    unsigned readStartedAt;
+    std::uint64_t readsOnPredicted;
     // A disc read waiting for the steps predicted to get their inputs
     // (mscharged_rollback_read_waits): no step predicts through the frame
     // after the last one it waited in.
@@ -500,6 +506,7 @@ StepInputs& InputsFor(unsigned frame);
 bool AnyPredicted(const StepInputs& inputs);
 unsigned OldestPredicted();
 void StopReplayAt(unsigned frame);
+bool PhasesContinue(const Phases& earlier, const Phases& later);
 void UpdateConfirmed();
 void NetplayFrameStart();
 bool OverlayNumbers(int& delay, int& predicted);
