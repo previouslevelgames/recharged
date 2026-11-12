@@ -56,6 +56,8 @@
 #include "platform/http_client.h"
 #include "platform/desync_dossier.h"
 #include "platform/online_reports.h"
+#include "launcher/current_build.h"
+#include "launcher/online_gate.h"
 #include "platform/presence_snapshot.h"
 #include "platform/shader_cache.h"
 #include "platform/process_exit.h"
@@ -1060,6 +1062,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }
+        // Enforced updates: a release plays online only while it is the newest
+        // release (launcher/online_gate.h). The gate tells the module its
+        // verdict; the main menu's Online asks the module (tweak patch 0054).
+        std::unique_ptr<mscharged::launcher::OnlineGate> onlineGate;
+        if(auto* configureOnlineGate=reinterpret_cast<void(*)(int)>(
+               mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_online_gate")))
+            onlineGate=std::make_unique<mscharged::launcher::OnlineGate>(mscharged::launcher::CurrentBuild(),
+                executableDirectory,launch.update_verified,
+                [configureOnlineGate](mscharged::launcher::OnlineGateState state,const std::string& line) {
+                    configureOnlineGate(static_cast<int>(state));
+                    mscharged::platform::SessionLogLine(line);
+                    std::fprintf(stderr,"%s\n",line.c_str());
+                });
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
         // The WFC server's match reports: the online series this computer
         // plays, and the error codes its online menus show, go to the server

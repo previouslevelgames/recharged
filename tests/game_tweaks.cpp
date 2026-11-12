@@ -7,9 +7,11 @@
 #include "bootstrap/sound_groups.h"
 #include "mscharged_tweaks.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <stdexcept>
+#include <thread>
 
 extern "C" void charged_configure_tweaks(unsigned mask);
 extern "C" void charged_configure_performance_mode(bool enabled);
@@ -21,6 +23,7 @@ extern "C" void charged_configure_sound_volumes(const int* volumes, int count);
 extern "C" void charged_configure_training(int item, bool start, int captain, int stadium);
 extern "C" void charged_configure_training_item(int count, bool giant);
 extern "C" void charged_toggle_hud(void);
+extern "C" void charged_configure_online_gate(int state);
 
 // The native VI's TV format (VI_NTSC 0, VI_PAL 1, VI_EURGB60 5) for the
 // original frame.
@@ -499,6 +502,30 @@ int main()
             "Sound volumes outside 0-100% or missing");
         charged_configure_sound_volumes(nullptr, 0);
         CheckOriginalSounds("Sound volumes not reset");
+
+        // Enforced updates (the host's online check, 0 open, 1 checking, 2
+        // outdated, 3 not checked): Online stays open until the host says
+        // otherwise, and a lock leaves its message for one popup.
+        Check(!mscharged_tweak_online_locked() && !mscharged_tweak_take_online_lock_message(),
+            "Online was locked without a check");
+        charged_configure_online_gate(2);
+        Check(mscharged_tweak_online_locked(), "An outdated release kept Online open");
+        const unsigned short* message = mscharged_tweak_take_online_lock_message();
+        Check(message && message[0] == u'A' && !mscharged_tweak_take_online_lock_message(),
+            "The outdated lock's message is not there exactly once");
+        charged_configure_online_gate(3);
+        Check(mscharged_tweak_online_locked(), "A failed check kept Online open");
+        message = mscharged_tweak_take_online_lock_message();
+        Check(message && message[0] == u'R', "The failed check's message is missing");
+        // A press while the check runs waits for its verdict.
+        charged_configure_online_gate(1);
+        std::thread verdict([] {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            charged_configure_online_gate(0);
+        });
+        Check(!mscharged_tweak_online_locked(), "A check that ended open kept Online closed");
+        verdict.join();
+        Check(!mscharged_tweak_take_online_lock_message(), "An open Online left a message");
 
         // Back to the original rate and to no tweaks: the original game again.
         charged_configure_frame_pacing(nullptr);

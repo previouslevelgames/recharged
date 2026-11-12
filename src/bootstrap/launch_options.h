@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bootstrap/config.h"
+#include <cstdint>
 #include <optional>
 #include <string_view>
 
@@ -38,6 +39,10 @@ struct ResolvedLaunch
     // Start training (--training or the launcher's button): the game goes from
     // the title straight into a training match.
     bool start_training = false;
+    // When the launcher that starts the game found this build up to date
+    // (seconds since 1970), 0 when it did not: the game's online check
+    // (launcher/online_gate.h) then needs no request of its own.
+    std::int64_t update_verified = 0;
 };
 
 // Consume a shared option at argv[index], including its value where required.

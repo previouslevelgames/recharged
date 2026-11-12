@@ -1,0 +1,84 @@
+From: mscharged-port
+Subject: Port: Online waits for Recharged's update
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+Enforced updates (owner 2026-11-12). Players who skipped an update met
+newer versions online, and their games went out of sync. The launcher now
+installs a newer release by itself. When that fails, or the game starts
+without it, the game's own check (the host's src/launcher/online_gate.h)
+keeps Online closed: an official release plays online only while it is the
+newest release and could check that. Test builds and local builds are never
+held back.
+
+SHMainMenu::SelectItem asks mscharged_tweak_online_locked before its own
+Online checks; when it says so, the main menu shows the Online save data
+popup (POPUP_ONLINE_SAVE_DATA_REQUIRED, one OK) with the port's message
+instead of entering Online, and stays on the menu like after that popup.
+FEPopupMenu::Create takes the message from
+mscharged_tweak_take_online_lock_message for that popup only, and only once
+the lock asked for it; every other popup keeps its text.
+
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -233,6 +233,12 @@
+ // captain that trains.
+ int mscharged_tweak_training_item_count(void);
+ bool mscharged_tweak_training_item_giant(void);
++// Enforced updates (tweak patch 0054, the host's src/launcher/online_gate.h):
++// whether the main menu keeps Online closed, because this release is not the
++// newest one or could not check (a check still running gets up to 3 s); then,
++// once, the message of the popup that says so.
++bool mscharged_tweak_online_locked(void);
++const unsigned short* mscharged_tweak_take_online_lock_message(void);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
+--- a/src/Game/SH/SHMainMenu.cpp
++++ b/src/Game/SH/SHMainMenu.cpp
+@@ -9,6 +9,7 @@
+ #include <revolution/sc_fwd.h>
+ 
+ #include "Game/SH/SHMainMenu.h"
++#include "mscharged_tweaks.h"
+ 
+ #include "Game/GameInfo.h"
+ #include "Game/GameSceneManager.h"
+@@ -396,6 +397,17 @@
+     FEAudio::PlayAnimAudioEvent(0x0A93E9A0, 0, 0, true);
+     if (item == MAIN_MENU_ONLINE)
+     {
++#if defined(MSCHARGED_TWEAKS)
++        // Port: enforced updates. A release that is not the newest one, or
++        // could not check, plays offline: this popup's layout, with the port's
++        // own message (fePopupMenu.cpp), says why.
++        if (mscharged_tweak_online_locked())
++        {
++            FEPopupMenu* popup = (FEPopupMenu*)GameSceneManager::Instance()->Push(SCENE_POPUP_MENU, SCREEN_NOTHING, false);
++            popup->Create(POPUP_ONLINE_SAVE_DATA_REQUIRED);
++            return;
++        }
++#endif
+ #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
+         g_pNetworkSession->InitializeLAN();
+         if (g_pNetworkSession->GetSessionMode() != NET_MODE_LAN)
+diff --git a/src/Game/FE/fePopupMenu.cpp b/src/Game/FE/fePopupMenu.cpp
+--- a/src/Game/FE/fePopupMenu.cpp
++++ b/src/Game/FE/fePopupMenu.cpp
+@@ -703,6 +703,15 @@
+             break;
+         }
+         }
++#if defined(MSCHARGED_TWEAKS)
++        // Port: the main menu's Online lock (enforced updates) borrows this
++        // popup and says why in its own words.
++        const unsigned short* portMessage
++            = type == POPUP_ONLINE_SAVE_DATA_REQUIRED ? mscharged_tweak_take_online_lock_message() : 0;
++        if (portMessage)
++            mPopup.pMessage = new (8, false) WStr(portMessage);
++        else
++#endif
+         mPopup.pMessage = popupEntry->mMessage ? new (8, false) WStr(g_pLocalization->GetString(popupEntry->mMessage)) : 0;
+         mPopup.numOptions = 0;
+         for (int optionIndex = 0; optionIndex < 3; ++optionIndex)

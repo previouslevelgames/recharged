@@ -138,9 +138,9 @@ From now on, start the game from your library and press **Play**.
 
 ## Updates, saves and removal
 
-- **Updates:** when a new release is out, the launcher shows its notes and
-  asks (**A** updates, **B** closes, the right stick scrolls the notes); it
-  then updates the folder in place and restarts. Your settings and saves stay.
+- **Updates:** when a new release is out, the launcher installs it in place by
+  itself, shows its notes (the right stick scrolls them) and restarts. Your
+  settings and saves stay. Online play needs the newest release.
 - **Saves** are in `/home/deck/Games/recharged/data/nand`.
   Copy that folder to back them up.
 - **Removal:** in Steam choose *Manage → Remove non-Steam game from your

@@ -11,10 +11,12 @@
 #include "bootstrap/display_shape.h"
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
+#include "launcher/current_build.h"
 #include "launcher/disc_search.h"
 #include "launcher/image_library.h"
 #include "launcher/issue_reporters.h"
 #include "launcher/match_presets.h"
+#include "launcher/online_gate.h"
 #include "launcher/player_lineup.h"
 #include "launcher/players_online.h"
 #include "launcher/release_banner.h"
@@ -101,38 +103,6 @@ std::string GameTitle()
 // The name desktops show for the program (task switcher, audio mixer). SDL
 // forgets it at SDL_Quit, so the game sets it again after the launcher.
 void SetAppName() { SDL_SetAppMetadata("Recharged", mscharged::build::version, nullptr); }
-
-// The running build: where it comes from (MSCHARGED_BUILD_* in CMakeLists.txt)
-// and the package it was made for. The installed package's manifest refines
-// the package (the Steam Deck build of Linux) once the update check runs.
-BuildIdentity CurrentBuild()
-{
-    BuildIdentity identity;
-    identity.version = build::version;
-    const std::string_view channel = build::channel;
-    identity.origin = channel == "release" ? BuildOrigin::Release
-                    : channel == "test"    ? BuildOrigin::Test
-                                           : BuildOrigin::Dev;
-    identity.repository = build::repository;
-    identity.commit = build::commit;
-    identity.pull_request = build::pull_request;
-    identity.run = build::run_id;
-    identity.built = build::build_time;
-    identity.commit_time = build::commit_time;
-#if defined(_WIN32)
-    identity.package = "windows";
-#elif defined(__APPLE__)
-    identity.package = "macos";
-#else
-    identity.package = "linux";
-#endif
-#if defined(__aarch64__) || defined(_M_ARM64)
-    identity.package += "-arm64";
-#else
-    identity.package += "-x86_64";
-#endif
-    return identity;
-}
 
 // The program, as tools/package_build.py ships it.
 #ifdef _WIN32
@@ -950,6 +920,30 @@ private:
                     return found;
                 };
                 const bool dialog = suffix("-dialog"), menu = !dialog && suffix("-menu");
+                // "problem-failed|cancelled|check|blocked": the box after an
+                // enforced update that did not come in, as a release shows it.
+                if (mode.rfind("problem-", 0) == 0)
+                {
+                    const std::string problem = mode.substr(8);
+                    const UpdateProblem kind = problem == "failed" ? UpdateProblem::Failed
+                        : problem == "cancelled"                   ? UpdateProblem::Cancelled
+                        : problem == "check"                       ? UpdateProblem::CheckFailed
+                        : problem == "blocked"                     ? UpdateProblem::Blocked
+                                                                   : UpdateProblem::None;
+                    update_preview_ = kind != UpdateProblem::None
+                        && updates_->Preview(kind == UpdateProblem::Failed      ? "installfailed"
+                                             : kind == UpdateProblem::CheckFailed ? "failed"
+                                             : kind == UpdateProblem::Blocked     ? "blocked"
+                                                                                  : "available");
+                    if (update_preview_)
+                    {
+                        const auto preview = updates_->Snapshot();
+                        ShowUpdateProblem(kind, kind == UpdateProblem::Blocked ? preview.install_blocker
+                                                                               : preview.error);
+                        update_problem_online_ = true;
+                    }
+                    return;
+                }
                 update_preview_ = updates_->Preview(mode);
                 update_dialog_ = update_preview_ && dialog;
                 test_menu_ = update_preview_ && menu;
@@ -977,7 +971,8 @@ private:
             }
             catch (const std::exception& error) { Notice(error.what(), NoticeKind::Warning); }
         }
-        if (config_ok_ && (draft_.check_updates || capture_)) CheckForUpdates(UpdatePrompt::Newer, UpdateChannelSetting());
+        // Every start looks for a newer build: updates are enforced (StartEnforcedUpdate).
+        if (config_ok_) CheckForUpdates(UpdatePrompt::Newer, UpdateChannelSetting());
     }
 
     // The update dialog opens by itself when a check finds a build: after the
@@ -1067,6 +1062,133 @@ private:
         CancelSwitch();
     }
 
+    // Enforced updates (owner 2026-11-12): releases and test builds install an
+    // update of their own line by themselves, after the start's check and
+    // after Check for updates; the dialog shows the download. A release that
+    // stays behind plays offline: the game's main menu keeps Online closed
+    // (launcher/online_gate.h). Local builds keep the choice.
+    bool EnforcedUpdates() const { return updates_ && !update_preview_ && EnforcesUpdates(updates_->Build()); }
+
+    // Why an enforced update did not come in (DrawUpdateProblem).
+    enum class UpdateProblem { None, CheckFailed, Failed, Cancelled, Blocked };
+
+    void StartEnforcedUpdate()
+    {
+        if (!update_.install_blocker.empty())
+        {
+            ShowUpdateProblem(UpdateProblem::Blocked, update_.install_blocker);
+            return;
+        }
+        // A test build's pull request is followed from now on, also after it is released.
+        if (update_.offer->test && draft_.test_build != update_.offer->pull_request)
+            SaveUpdateChoice(draft_.update_channel, update_.offer->pull_request);
+        updates_->Install();
+        update_ = updates_->Snapshot();
+        if (update_.state != UpdateService::State::Downloading) return;
+        enforced_install_ = true;
+        update_dialog_ = true;
+    }
+
+    // An installation the launcher started by itself: a failure or a
+    // cancelled download opens the problem box; a finished one restarts.
+    void FollowEnforcedInstall()
+    {
+        using State = UpdateService::State;
+        if (!enforced_install_) return;
+        if (update_.state == State::InstallFailed) ShowUpdateProblem(UpdateProblem::Failed, update_.error);
+        else if (update_.state == State::Available) ShowUpdateProblem(UpdateProblem::Cancelled, {});
+        else if (update_.state != State::Downloading && update_.state != State::Installing
+                 && update_.state != State::Installed)
+            enforced_install_ = false;
+    }
+
+    void ShowUpdateProblem(UpdateProblem problem, std::string reason)
+    {
+        enforced_install_ = false;
+        update_problem_ = problem;
+        update_problem_reason_ = std::move(reason);
+        update_problem_open_ = true;
+        update_problem_online_ = updates_ && GatesOnline(updates_->Build());
+    }
+
+    // When the update did not work out: what happened, that online play waits
+    // for it (releases), and how it comes: Check for updates, or the next start.
+    void DrawUpdateProblem()
+    {
+        if (update_problem_open_ && !ImGui::IsPopupOpen("Update") && !ImGui::IsPopupOpen("Welcome"))
+        {
+            ImGui::OpenPopup("Update problem");
+            update_problem_open_ = false;
+        }
+        const auto& fonts = CurrentFonts();
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({std::min(Dp(520), viewport->Size.x - Dp(48)), 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal("Update problem", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+            | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
+        {
+            const bool online = update_problem_online_;
+            const char* heading = update_problem_ == UpdateProblem::CheckFailed ? "Couldn't check for updates"
+                : update_problem_ == UpdateProblem::Cancelled                    ? "The update was cancelled"
+                : update_problem_ == UpdateProblem::Blocked                      ? "This folder can't update itself"
+                                                                                 : "The update didn't work";
+            TextColored(fonts.heading, color::text, heading);
+            if (!update_problem_reason_.empty())
+            {
+                ImGui::Dummy({0, Dp(4)});
+                TextWrappedColored(fonts.body, color::muted, update_problem_reason_.c_str());
+            }
+            ImGui::Dummy({0, Dp(12)});
+            std::string text;
+            if (online)
+                text = update_problem_ == UpdateProblem::CheckFailed
+                    ? "Online play is off until a check succeeds. "
+                    : "Online play is off until Recharged is updated. ";
+            text += update_problem_ == UpdateProblem::Blocked
+                ? "Download the new version and unpack it over this folder; your settings and saves stay."
+                : "Use Check for updates on the Play page to try again, or start the launcher again later: it "
+                  "tries by itself.";
+            if (online) Callout(text, color::warning, Icon::Warning);
+            else TextWrappedColored(fonts.body, color::text, text.c_str());
+            ImGui::Dummy({0, Dp(16)});
+            const PackageAsset* asset = update_.offer && updates_ ? update_.offer->PackageFor(updates_->Build().package)
+                                                                  : nullptr;
+            const bool download = update_problem_ == UpdateProblem::Blocked && asset;
+            const bool again = update_problem_ != UpdateProblem::Blocked;
+            const char* action = download ? "Download" : again ? "Try again" : nullptr;
+            const float height = Dp(42);
+            const float ok_width = Dp(100), action_width = action ? PrimaryWidth(action, Icon::None) : 0.0f;
+            const float right = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+            ImGui::SetCursorScreenPos({right - ok_width - (action ? Dp(10) + action_width : 0.0f),
+                                       ImGui::GetCursorScreenPos().y});
+            if (SecondaryButton("update_problem_ok", "OK", {ok_width, height}) || CancelPressed())
+                ImGui::CloseCurrentPopup();
+            if (action)
+            {
+                ImGui::SameLine(0, Dp(10));
+                if (PrimaryButton("update_problem_action", action, {action_width, height}, true))
+                {
+                    ImGui::CloseCurrentPopup();
+                    if (download) SDL_OpenURL(asset->url.c_str());
+                    else CheckForUpdates(UpdatePrompt::Any, UpdateChannelSetting());
+                }
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
+    }
+
+    // When the launcher's last check found this build up to date (seconds
+    // since 1970), for the game it starts (ResolvedLaunch::update_verified):
+    // the release channel's answer only, which knows every newer release.
+    std::int64_t UpdateVerified() const
+    {
+        if (!updates_ || update_preview_ || update_.channel != UpdateChannel::Release) return 0;
+        return update_.state == UpdateService::State::UpToDate ? update_.checked : 0;
+    }
+
     // On the test channel, test builds are published but none is followed
     // (several pull requests are open, or the one followed has closed).
     bool ChooseTestBuild() const
@@ -1136,10 +1258,7 @@ private:
         switch (update_.state)
         {
         case State::Idle:
-            look = {Icon::Refresh, false, "Check for updates",
-                    draft_.check_updates ? "Looks for a newer build on GitHub."
-                                         : "Automatic checks are off (Advanced page).\nClick to check now.",
-                    color::muted};
+            look = {Icon::Refresh, false, "Check for updates", "Looks for a newer build on GitHub.", color::muted};
             break;
         case State::Checking: look = {Icon::None, true, "Checking for updates...", "", color::info}; break;
         case State::UpToDate:
@@ -1646,7 +1765,7 @@ private:
             | ImGuiWindowFlags_AlwaysAutoResize))
         {
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
-            if (update_.offer) DrawUpdateDialogContents(*update_.offer);
+            if (update_.offer && !update_problem_open_) DrawUpdateDialogContents(*update_.offer);
             else ImGui::CloseCurrentPopup();
             ImGui::PopStyleVar();
             ImGui::EndPopup();
@@ -2570,6 +2689,7 @@ private:
         if (updates_)
         {
             update_ = updates_->Snapshot();
+            FollowEnforcedInstall();
             if (update_prompt_ != UpdatePrompt::None && update_.state != UpdateService::State::Checking)
             {
                 // After the hidden switch: the menu, with whatever test builds there are.
@@ -2579,12 +2699,19 @@ private:
                 }
                 else if (update_.state == UpdateService::State::Available && update_.offer)
                 {
-                    // After the start only newer builds: an update or a newer test build.
+                    // An update of the own line installs by itself (enforced
+                    // updates); after the start the dialog offers only newer
+                    // builds: an update or a newer test build.
                     const OfferKind kind = ClassifyOffer(updates_->Build(), *update_.offer);
-                    if (update_prompt_ != UpdatePrompt::Newer || kind == OfferKind::Update
+                    if (kind == OfferKind::Update && EnforcedUpdates()) StartEnforcedUpdate();
+                    else if (update_prompt_ != UpdatePrompt::Newer || kind == OfferKind::Update
                         || (kind == OfferKind::TestBuild && IsNewer(updates_->Build(), *update_.offer)))
                         update_dialog_ = true;
                 }
+                // A release that cannot check plays offline: say so.
+                else if (update_.state == UpdateService::State::CheckFailed && EnforcedUpdates()
+                         && GatesOnline(updates_->Build()))
+                    ShowUpdateProblem(UpdateProblem::CheckFailed, update_.error);
                 else if (update_prompt_ == UpdatePrompt::Switch && ChooseTestBuild())
                     test_menu_ = true;
                 // Nothing to install or choose: the switch stands.
@@ -2770,6 +2897,9 @@ private:
         // The installed files belong to the next launcher: never start them from this one.
         if (update_.state == UpdateService::State::Installing || update_.state == UpdateService::State::Installed)
             return "Finishing the update...";
+        // Enforced updates: the check comes first, and an update it found.
+        if (EnforcedUpdates() && update_.state == UpdateService::State::Checking) return "Checking for updates...";
+        if (enforced_install_) return "Updating Recharged...";
         if (!config_ok_) return "Fix the settings file problem shown below first.";
         if (searching_) return "Looking for your game image...";
         if (pending_) return "Checking your game image...";
@@ -2804,6 +2934,7 @@ private:
     {
         frontend_launch_ = EffectiveLaunch();
         frontend_launch_->start_training = training_;
+        frontend_launch_->update_verified = UpdateVerified();
         quit = true;
     }
 
@@ -2849,6 +2980,7 @@ private:
         DrawRegionPrompt();
         DrawWelcome();
         DrawUpdateDialog();
+        DrawUpdateProblem();
         // The new files are in place: restart into them (unsaved settings are
         // saved or dropped in the update dialog first).
         if (update_.state == UpdateService::State::Installed && !dirty_ && !restart_)
@@ -8237,12 +8369,12 @@ private:
         }
         EndCard();
 
-        BeginCard("##updates", "Updates", nullptr, Icon::Download);
+        BeginCard("##updates", "Updates",
+                  "Each start of the launcher installs a newer build by itself. A release plays online only while "
+                  "it is the newest one.",
+                  Icon::Download);
         if (BeginRows("##update_rows"))
         {
-            Row("Check for updates", "Looks for a newer release, or test build, each time the launcher starts. "
-                "The Play page shows what it finds and switches between releases and test builds.");
-            if (Toggle("##check_updates", &draft_.check_updates)) dirty_ = true;
             Row("Status", UpdateSummary().c_str());
             ImGui::BeginDisabled(!updates_ || !config_ok_ || UpdateBusy());
             if (SecondaryButton("##check_now", "Check now", Dp(150, 38), true, Icon::Refresh))
@@ -9019,6 +9151,11 @@ private:
     UpdateService::Status update_;
     bool update_dialog_ = false, update_capture_dialog_ = false, update_capture_install_ = false, restart_ = false;
     bool update_preview_ = false;
+    // Enforced updates (launcher/online_gate.h): the installation the launcher
+    // started by itself, and the box that says when one did not work out.
+    bool enforced_install_ = false, update_problem_open_ = false, update_problem_online_ = false;
+    UpdateProblem update_problem_ = UpdateProblem::None;
+    std::string update_problem_reason_;
     UpdatePrompt update_prompt_ = UpdatePrompt::None;
     // The Test menu: open it next frame; whether it was open, closed with a
     // choice, and when it closed.

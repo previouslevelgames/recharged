@@ -2,6 +2,7 @@
 // JSON, SHA-256, GitHub's release and pull request answers, the choice of an
 // update, release notes, and unpacking and installing packages that
 // tests/launcher_update_fixture.py writes the way tools/package_build.py does.
+#include "launcher/online_gate.h"
 #include "launcher/release_notes.h"
 #include "launcher/update_check.h"
 #include "launcher/update_install.h"
@@ -11,6 +12,7 @@
 #include "platform/sha256.h"
 
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -19,6 +21,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 using namespace mscharged;
 using namespace mscharged::launcher;
@@ -229,6 +232,49 @@ void TestTracks()
           "Not to a build that followed another pull request");
     update = FindUpdate(test69, UpdateChannel::Release, released);
     Check(update && update->tag == "v1.0.11", "The release channel ignores test builds");
+}
+
+// Enforced updates: a release plays online only while it is the newest
+// release; test and local builds are never held back.
+void TestOnlineGate()
+{
+    const auto published = ParseReleases(platform::ParseJson("["
+        + Release("test-pr72-333333333333", true, "2026-10-20T09:00:00Z", "1.1.0+g333333333333") + ","
+        + Release("v1.0.11", false, "2026-10-19T10:00:00Z", "1.0.11+g555555555555") + ","
+        + Release("v1.0.10", false, "2026-10-17T21:00:00Z", "1.0.10+gaaaaaaaaaaaa") + "]"));
+    const BuildIdentity release10 = Build(BuildOrigin::Release, "1.0.10+gaaaaaaaaaaaa", 1792180000);
+    const BuildIdentity release11 = Build(BuildOrigin::Release, "1.0.11+g555555555555", 1792400000);
+    Check(GatesOnline(release10) && !GatesOnline(Build(BuildOrigin::Test, "1.1.0+g333333333333", 1792300000, 72))
+              && !GatesOnline(Build(BuildOrigin::Dev, "1.0.10", 0)),
+          "Online waits for updates on releases only");
+    Check(EnforcesUpdates(release10) && EnforcesUpdates(Build(BuildOrigin::Test, "1.1.0+g333333333333", 1792300000, 72))
+              && !EnforcesUpdates(Build(BuildOrigin::Dev, "1.0.10", 0)),
+          "Releases and test builds install their updates by themselves; local builds keep the choice");
+    std::string newer;
+    Check(JudgeOnline(release10, published, &newer) == OnlineGateState::Outdated && newer == "1.0.11",
+          "An older release is held back, naming the newer one");
+    Check(JudgeOnline(release11, published) == OnlineGateState::Open,
+          "The newest release plays online; a newer test build does not count");
+    Check(JudgeOnline(Build(BuildOrigin::Release, "1.0.10", 0, 0, "macos-x86_64"), published) == OnlineGateState::Open,
+          "A newer release without a package for this platform does not hold a build back");
+    Check(JudgeOnline(release11, {}) == OnlineGateState::Open, "No releases listed: nothing newer");
+    Check(StillVerified(1000, 1000) && StillVerified(1000, 1000 + kOnlineVerifiedSeconds - 1)
+              && !StillVerified(1000, 1000 + kOnlineVerifiedSeconds) && !StillVerified(0, 10)
+              && !StillVerified(1000, 999),
+          "The launcher's check vouches for an hour");
+
+    // The gate settles at once without a check: test builds, and a release the launcher just checked.
+    std::vector<OnlineGateState> reports;
+    {
+        OnlineGate test(Build(BuildOrigin::Test, "1.1.0+g333333333333", 1792300000, 72), fs::path(), 0,
+                        [&](OnlineGateState state, const std::string&) { reports.push_back(state); });
+        OnlineGate checked(release11, fs::path(), std::time(nullptr) - 60,
+                           [&](OnlineGateState state, const std::string&) { reports.push_back(state); });
+        Check(test.State() == OnlineGateState::Open && checked.State() == OnlineGateState::Open,
+              "No check for test builds or after the launcher's");
+    }
+    Check(reports == std::vector<OnlineGateState>{OnlineGateState::Open, OnlineGateState::Open},
+          "Each settled gate reports once");
 }
 
 // A pull request whose description has the hide line: its test builds stay
@@ -693,6 +739,7 @@ int main(int argc, char** argv)
         TestSha256();
         TestVersions();
         TestReleases();
+        TestOnlineGate();
         TestNotes();
         TestUnpack(fixtures, work);
         TestInstall(fixtures, work);

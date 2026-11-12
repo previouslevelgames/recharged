@@ -257,9 +257,10 @@ screen; ranked matches keep their rules. **Default** (a new save's settings)
 and **Competitive** (Superstar, best of 3, first to 10 goals, Secure Stadiums) are
 built in; the others are files of their own ([saves](SETTINGS.md#saves)).
 
-It also **updates Recharged**: when a newer release is out it shows the release
-notes and asks, then installs it in place and restarts; only the program's own
-files are replaced. **Release / Test** on the Play page switches between
+It also **updates Recharged**: when a newer release is out it installs it in
+place by itself, with the release notes, and restarts; only the program's own
+files are replaced. Online play needs the newest release, so players of
+different versions never meet. **Release / Test** on the Play page switches between
 official releases and test builds of changes not yet released, and back,
 asking before it installs anything; with several changes in testing, Test
 lets you choose which one to follow ([updates](SETTINGS.md#updates)).

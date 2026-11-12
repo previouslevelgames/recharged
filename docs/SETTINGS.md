@@ -466,16 +466,23 @@ in the bar at the bottom of every page, beside **Revert**, opens it again.
 ## Updates
 
 At each start the launcher asks GitHub whether a newer build exists (one
-anonymous request). When it finds one, it shows the release notes and asks
-before installing. **Update now** downloads the package for your system,
-checks its SHA-256 and every file, replaces only the program's own files and
-restarts the launcher; if anything fails, the old files come back. Settings,
-saves, caches and logs stay. A folder that was not unpacked from a package, or
-is not writable, gets a download link instead.
+anonymous request). When it finds one, it installs it by itself and shows the
+release notes meanwhile: it downloads the package for your system, checks its
+SHA-256 and every file, replaces only the program's own files and restarts the
+launcher; if anything fails, the old files come back. Settings, saves, caches
+and logs stay. The round arrow button on the Play page checks again, the same
+way, and its tooltip tells the result of the last check.
 
-**Advanced → Updates** turns the automatic check off
-(`[launcher] check_updates`); the round arrow button on the Play page checks on
-demand, and its tooltip tells the result of the last check.
+Players of different versions can go out of sync online, so **online play
+needs the newest release**. When the update fails or is cancelled, or the
+check cannot reach GitHub, a message says so: online play stays off until the
+update is in. **Check for updates** tries again, and so does the next start of
+the launcher; everything offline keeps working. The game checks by itself too,
+also when it starts without the launcher, and **Online** in its main menu
+then says why it stays closed. A folder that was not unpacked from a package,
+or is not writable, cannot update itself: download the new version and unpack
+it over the folder. Test builds update themselves the same way but are never
+kept offline; local builds only ask.
 
 **Release / Test** on the Play page (`[launcher] update_channel`) chooses what
 to follow: official releases, or also the **test builds** of changes that are

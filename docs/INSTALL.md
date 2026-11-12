@@ -90,10 +90,10 @@ Cmd+Q on a Mac): the game shuts down like a Wii does.
 
 ## Updates and saves
 
-- The launcher tells you when a new release is out, shows what changed and
-  updates the folder in place when you agree. Your settings and saves stay
-  ([updates](SETTINGS.md#updates)). On a Mac the disk image is only needed for
-  the first install.
+- When a new release is out, the launcher installs it in place by itself and
+  shows what changed. Your settings and saves stay; online play needs the
+  newest release ([updates](SETTINGS.md#updates)). On a Mac the disk image is
+  only needed for the first install.
 - Saves are kept in the program folder. The launcher can move them elsewhere or
   import your save from Dolphin ([saves](SETTINGS.md#saves)).
 

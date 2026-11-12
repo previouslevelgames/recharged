@@ -11,9 +11,11 @@
 #include "platform/tweak_frame_state.h"
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 
 namespace {
 unsigned sEnabled;
@@ -37,6 +39,20 @@ bool sTrainingSkipGoal;
 int sTrainingAwaySkill = -1;
 bool sTrainingPlayAway;
 bool sPerformanceMode;
+// Enforced updates (the host's src/launcher/online_gate.h): its verdict on
+// this release in OnlineGateState's numbers, and the message the main menu's
+// Online popup shows next (tweak patch 0054).
+enum { kOnlineOpen = 0, kOnlineChecking = 1, kOnlineOutdated = 2, kOnlineUnchecked = 3 };
+std::atomic<int> sOnlineGate{kOnlineOpen};
+const unsigned short* sOnlineLockMessage;
+// The popup's text, in English: Recharged's own texts are not translated yet.
+const char16_t kOnlineOutdatedText[] =
+    u"A newer version of Recharged is out. Online play is off until you update: close the game and start the "
+    u"launcher, which installs it.";
+const char16_t kOnlineUncheckedText[] =
+    u"Recharged could not check for updates, so online play is off for now. Close the game and start the launcher "
+    u"to check again.";
+static_assert(sizeof(char16_t) == sizeof(unsigned short), "The game's text is UTF-16");
 // Wider view (display.wider_view, issue #91): the window's picture shape
 // divided by 16:9 while the wider view fills it, 1 otherwise; and whether the
 // match's stadium was drawn since the host last asked (it fills the window
@@ -213,6 +229,13 @@ __attribute__((visibility("default"))) void charged_configure_performance_mode(b
     sPerformanceMode = enabled;
 }
 
+// Host entry (enforced updates): the state of the online check, from any
+// thread: 0 open, 1 checking, 2 a newer release is out, 3 the check failed.
+__attribute__((visibility("default"))) void charged_configure_online_gate(int state)
+{
+    sOnlineGate.store(state, std::memory_order_release);
+}
+
 // Host entry (wider view): the shape of the window's picture divided by 16:9,
 // from the next frame on; 1 draws the game's own 16:9 view.
 __attribute__((visibility("default"))) void charged_set_view_shape(float shape)
@@ -336,6 +359,30 @@ int mscharged_tweak_sound_fader(void)
 bool mscharged_tweak_performance_mode(void)
 {
     return sPerformanceMode;
+}
+
+bool mscharged_tweak_online_locked(void)
+{
+    // A check still running gets a moment: it starts with the game, long
+    // before the main menu, and a press this early is rare.
+    int state = sOnlineGate.load(std::memory_order_acquire);
+    for (int waited = 0; state == kOnlineChecking && waited < 150; ++waited)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        state = sOnlineGate.load(std::memory_order_acquire);
+    }
+    if (state == kOnlineOpen) return false;
+    sOnlineLockMessage = reinterpret_cast<const unsigned short*>(
+        state == kOnlineOutdated ? kOnlineOutdatedText : kOnlineUncheckedText);
+    std::fputs("Tweak: Online stays closed until Recharged is updated\n", stderr);
+    return true;
+}
+
+const unsigned short* mscharged_tweak_take_online_lock_message(void)
+{
+    const unsigned short* message = sOnlineLockMessage;
+    sOnlineLockMessage = nullptr;
+    return message;
 }
 
 float mscharged_tweak_view_shape(void)

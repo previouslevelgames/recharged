@@ -94,7 +94,6 @@ Values Encode(const Settings& s)
             {"advanced.frame_logging", s.frame_logging ? "true" : "false"},
             {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
-            {"launcher.check_updates", s.check_updates ? "true" : "false"},
             {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
@@ -364,7 +363,6 @@ Settings Decode(const Values& values)
     boolean("advanced.frame_logging", s.frame_logging);
     boolean("advanced.log_window", s.log_window);
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
-    boolean("launcher.check_updates", s.check_updates);
     boolean("launcher.reopen_after_game", s.reopen_after_game);
     boolean("launcher.show_welcome", s.show_welcome);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
@@ -485,11 +483,13 @@ Values Parse(const std::string& contents, std::string* updated = nullptr, Values
                 key_line = true;
                 // Retired keys, accepted in old INIs: the title-bar counter, a
                 // dead zone nothing read (gamepad profiles have their own, #62),
-                // a 1.0.12 test build's Wii Remote speaker format (#60) and No
-                // HUD's tweak key, now hotkeys.show_hud.
+                // a 1.0.12 test build's Wii Remote speaker format (#60), No
+                // HUD's tweak key, now hotkeys.show_hud, and the switch for the
+                // update check, which always runs since updates are enforced.
                 drop = updated && ((OwnedSection(section) && !kept.count(full_key))
                     || full_key == "display.show_fps" || full_key == "controls.deadzone"
-                    || full_key == "controls.speaker_format" || full_key == "gameplay.no_hud");
+                    || full_key == "controls.speaker_format" || full_key == "gameplay.no_hud"
+                    || full_key == "launcher.check_updates");
                 if (const auto it = replacements.find(full_key); it != replacements.end())
                 {
                     if (it->second != value)

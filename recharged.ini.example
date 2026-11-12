@@ -361,8 +361,6 @@ log_window = false
 [launcher]
 # Launcher interface size: auto, or a percentage from 75 to 200.
 ui_scale = auto
-# Look for a newer build on GitHub each time the launcher starts.
-check_updates = true
 # Open the launcher again when you close a game started from it.
 reopen_after_game = false
 # Which builds to update to: release (official releases), test (also test
