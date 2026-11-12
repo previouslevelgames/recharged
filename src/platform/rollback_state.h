@@ -105,7 +105,6 @@ constexpr int kListedPlaces = 60;        // places per detailed comparison, and 
 constexpr int kMaxTasks = 32;            // tasks the task manager runs
 constexpr int kCostBuckets = 10;         // rollbacks by cost: < 2, 4, 6, 8, 10, 12, 16, 20, 30 ms, and the rest
 constexpr double kSlowRollbackMs = 12.0; // a rollback this long is logged with what it replayed
-constexpr float kLongestFrame = 0.1f;    // the task manager's bound on a frame (g_fTaskTimeUpperBound)
 constexpr int kFrameRing = 256;          // frames kept: those of the deepest rollback, at any frame rate
 constexpr int kMachines = 4;
 constexpr int kMachineEvents = 4;        // deterministic data events in one input message
@@ -272,7 +271,6 @@ struct Options
     bool contacts;           // RECHARGED_ROLLBACK_CONTACTS: the step's collisions join it
     int maxDepth;            // RECHARGED_ROLLBACK_TEST_FRAMES
     int interval;            // RECHARGED_ROLLBACK_TEST_INTERVAL
-    bool merge;              // frames without steps replayed as one with the next
     int compareEvery;        // RECHARGED_ROLLBACK_TEST_COMPARE
 };
 
@@ -304,7 +302,7 @@ struct Stats
     int starts;
     std::uint64_t stepCount, rollbacks, byDepth[kMaxDepth + 1], replayed;
     std::uint64_t skippedReads, skippedStarts, skippedPhases, skippedEvents, skippedShort;
-    std::uint64_t meterReceived, meterRedelivered, framesReplayed, framesMerged;
+    std::uint64_t meterReceived, meterRedelivered, framesReplayed;
     std::uint64_t mismatches, nisInReplay, lossyFrees, failedRestores, untracked;
     unsigned firstMismatchFrame;
     std::uint64_t rollbackNs, maxRollbackNs, restoreNs, maxRestoreNs;

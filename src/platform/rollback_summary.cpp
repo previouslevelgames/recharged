@@ -60,9 +60,8 @@ void WriteSummary()
         std::fprintf(file, "rollback test: up to %d steps back every %d steps\n", s.options.maxDepth, s.options.interval);
     std::fprintf(file, "%llu steps, tracking started %d times; %d regions, %zu pages tracked, %zu hot\n",
                  static_cast<unsigned long long>(s.stats.stepCount), s.stats.starts, s.memory.regionCount, h.trackedPages, h.hotPages);
-    std::fprintf(file, "rollbacks: %llu, steps replayed %llu, frames %llu replayed as %llu; by steps undone:",
+    std::fprintf(file, "rollbacks: %llu, steps replayed %llu, frames replayed %llu; by steps undone:",
                  static_cast<unsigned long long>(s.stats.rollbacks), static_cast<unsigned long long>(s.stats.replayed),
-                 static_cast<unsigned long long>(s.stats.framesReplayed + s.stats.framesMerged),
                  static_cast<unsigned long long>(s.stats.framesReplayed));
     for (int d = 1; d <= kMaxDepth; ++d)
         if (s.stats.byDepth[d]) std::fprintf(file, " %d: %llu", d, static_cast<unsigned long long>(s.stats.byDepth[d]));
