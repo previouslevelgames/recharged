@@ -190,8 +190,8 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   Your team starts every kickoff with the chosen item (any power-up, three or
   five of a shell, banana or Bob-omb where the game gives that many, a giant
   one, or your captain's own) and keeps every item it uses, in a match to 10
-  goals that never ends on them (leave it from the pause menu). Every other
-  match is unchanged.
+  goals that never ends on them (leave it from the pause menu), without the
+  cheats of the saved Gameplay options. Every other match is unchanged.
 - **Feder's fair ball contests**: when players of both teams reach a loose
   ball in the same instant, the one the Wii game updates first takes it. It
   shuffles that order at every kickoff in a way that puts the home team

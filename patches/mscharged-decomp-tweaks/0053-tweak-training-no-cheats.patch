@@ -1,0 +1,31 @@
+From: mscharged-port
+Subject: Tweak: training without cheats
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+Training's match (tweak patch 0038) is a friendly one, so it played with the
+cheats of the save's Gameplay options (the launcher's match presets write
+them there): custom power-ups, infinite ones, Butterfingers, Glass Jaw and
+the rest. Every one of them is read through GameInfoManager::GetActiveRules,
+which in the training match now answers the defaults, no cheat at all, and
+leaves the save's own untouched. The port's own tweaks (Secure stadiums
+among them) are the launcher's and stay as they are.
+
+diff --git a/src/Game/GameInfo.cpp b/src/Game/GameInfo.cpp
+index d07a995..e157115 100644
+--- a/src/Game/GameInfo.cpp
++++ b/src/Game/GameInfo.cpp
+@@ -324,6 +324,14 @@ const GameplaySettings* GameInfoManager::GetCurrentSettings() const
+ 
+ const CheatSettings* GameInfoManager::GetActiveRules() const
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training": its match plays without the save's cheats.
++    if (g_bTrainingMatch) {
++        static CheatSettings sNoCheats;
++        sNoCheats.InitializeDefaults();
++        return &sNoCheats;
++    }
++#endif
+     if (UseAltRules()) {
+         return &mUnrankedCheatSettings;
+     }
