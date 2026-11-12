@@ -310,7 +310,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
 #else
         const bool sourceAudio = false;
 #endif
-        bool nativeSend=true, resizeCheck=false;
+        bool nativeSend=true, resizeCheck=false, nonInteractive=false;
         mscharged::LaunchOptions launchOptions;
         unsigned windowWidth=800, windowHeight=600;
         // Internal resolution: the source EFB is efbScale x 640 x 448 (0: window).
@@ -325,8 +325,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(argument=="--native-send")nativeSend=true;
             else if(argument=="--resize-check")resizeCheck=true;
             else if(argument=="--diagnostic-frame")nativeSend=false;
+            else if(argument=="--non-interactive")nonInteractive=true;
             else throw std::runtime_error("Unknown or incomplete argument; use --help");
         }
+        // The diagnostic run: it ends once its frame is captured, or fails at its timeout.
+        if(nonInteractive) interactive=false;
         const char* basePath=SDL_GetBasePath();
         Check(basePath && *basePath,"Cannot locate the executable directory");
         const auto executableDirectory=mscharged::PathFromUtf8(basePath);

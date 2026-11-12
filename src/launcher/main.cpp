@@ -265,6 +265,7 @@ struct Options
     bool experimental_scene = false;
     bool experimental_frontend = false;
     bool experimental_options = false;
+    bool direct_game = false;  // --disc or --training without a runtime mode: the game, to play
     bool frame_arguments = false;
     bool scene_arguments = false;
     bool standalone_assets = false;
@@ -9067,6 +9068,8 @@ int main(int argc, char** argv)
         {
             std::cout << "Usage: recharged [launch settings] [--launcher] [--version]\n" << LaunchOptionsHelp <<
                          "Supplying --disc/--disk starts the original game runtime directly when included in this build.\n"
+                         "--non-interactive makes that run a startup diagnostic: it ends once its first frame is captured,\n"
+                         "or fails after 90 s.\n"
                          "Use --launcher to open settings; launcher checks and explicit runtime modes keep their selected mode.\n"
                          "Development checks: --smoke-test | --screenshot FILE [--page play|game|display|audio|controls|advanced|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
@@ -9109,7 +9112,8 @@ int main(int argc, char** argv)
         else if (arg == "--experimental-scene") options.experimental_scene = true;
         else if (arg == "--experimental-frontend") options.experimental_frontend = true;
         else if (arg == "--experimental-options") options.experimental_options = true;
-        else if (arg == "--native-send" || arg == "--diagnostic-frame" || arg == "--resize-check") options.frame_arguments = true;
+        else if (arg == "--native-send" || arg == "--diagnostic-frame" || arg == "--resize-check"
+                 || arg == "--non-interactive") options.frame_arguments = true;
         else if (arg == "--frontend-world") { options.scene_arguments = true; options.scene.frontend_world = true; }
         else if (arg == "--frontend-animate") { options.scene_arguments = true; options.scene.frontend_animate = true; }
         else if (arg == "--frontend-boot") { options.scene_arguments = true; options.scene.frontend_boot = true; }
@@ -9207,6 +9211,7 @@ int main(int argc, char** argv)
     if (!runtime_modes && (options.launch.disc || options.launch.training) && !launcher_requested)
     {
         options.experimental_frontend = true;
+        options.direct_game = true;
         runtime_modes = 1;
     }
     if (runtime_modes && (runtime_modes > 1 || launcher_requested))
@@ -9296,7 +9301,7 @@ int main(int argc, char** argv)
                     std::string_view(argv[i]) != "--experimental-options") arguments.push_back(argv[i]);
             arguments.push_back(nullptr);
             return RunOriginalGame(static_cast<int>(arguments.size()) - 1, arguments.data(),
-                nullptr, false, options.experimental_options ?
+                nullptr, options.direct_game, options.experimental_options ?
                     OriginalMainScene::FrontendOptions : OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #else
             std::cerr << "Original game runtime is not included in this build. "
