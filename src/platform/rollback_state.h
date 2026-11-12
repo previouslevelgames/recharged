@@ -103,6 +103,8 @@ constexpr int kMaxPlaces = 4096;         // places the comparison tells apart
 constexpr int kDetailedCompares = 3;     // comparisons listed in full in the log
 constexpr int kListedPlaces = 60;        // places per detailed comparison, and in the summary
 constexpr int kMaxTasks = 32;            // tasks the task manager runs
+constexpr int kCostBuckets = 10;         // rollbacks by cost: < 2, 4, 6, 8, 10, 12, 16, 20, 30 ms, and the rest
+constexpr double kSlowRollbackMs = 12.0; // a rollback this long is logged with what it replayed
 constexpr float kLongestFrame = 0.1f;    // the task manager's bound on a frame (g_fTaskTimeUpperBound)
 constexpr int kFrameRing = 256;          // frames kept: those of the deepest rollback, at any frame rate
 constexpr int kMachines = 4;
@@ -306,6 +308,8 @@ struct Stats
     std::uint64_t mismatches, nisInReplay, lossyFrees, failedRestores, untracked;
     unsigned firstMismatchFrame;
     std::uint64_t rollbackNs, maxRollbackNs, restoreNs, maxRestoreNs;
+    std::uint64_t byCost[kCostBuckets]; // rollbacks by their cost (kCostBuckets)
+    std::uint64_t slow;                 // rollbacks of kSlowRollbackMs or more
     // Where the replays' time goes: each task's, and in the fixed update's its
     // work before the steps (the time scale's transition), the steps' (their
     // checksums' part apart too) and the saves'.

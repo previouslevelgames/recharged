@@ -90,6 +90,11 @@ void WriteSummary()
                      s.stats.maxRestoreNs / 1e3);
         std::fprintf(file, "rollback (restore, replay, saves): %.2f ms avg / %.2f ms max\n",
                      s.stats.rollbackNs / 1e6 / s.stats.rollbacks, s.stats.maxRollbackNs / 1e6);
+        static constexpr const char* kCostNames[kCostBuckets] = {"<2", "<4", "<6", "<8", "<10", "<12", "<16", "<20", "<30", ">=30"};
+        std::fprintf(file, "rollbacks by cost (ms):");
+        for (int b = 0; b < kCostBuckets; ++b)
+            if (s.stats.byCost[b]) std::fprintf(file, " %s: %llu", kCostNames[b], static_cast<unsigned long long>(s.stats.byCost[b]));
+        std::fprintf(file, "; %llu of %.0f ms or more are in the log\n", static_cast<unsigned long long>(s.stats.slow), kSlowRollbackMs);
     }
     if (s.stats.framesReplayed)
     {

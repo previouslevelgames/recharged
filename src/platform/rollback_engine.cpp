@@ -522,6 +522,7 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     const std::uint64_t firstFrame = s.steps[target % kRing].hostFrame;
 
     const bool compare = s.options.compareEvery && s.compare.places && (s.stats.rollbacks + 1) % s.options.compareEvery == 0 && CopyForCompare();
+    const std::uint64_t framesBefore = s.stats.framesReplayed + s.stats.framesMerged, replayedBefore = s.stats.replayed;
     const std::uint64_t start = NowNs();
     const Step& from = s.steps[target % kRing];
     if (!mscharged::platform::RestoreRollbackSnapshot(from.snapshot))
@@ -532,7 +533,8 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     }
     s.stats.lossyFrees += mscharged::platform::RollbackGameAllocationCheckpointTo(from.mark, Excluded);
     s.replayMark = from.mark;
-    Record(NowNs() - start, s.stats.restoreNs, s.stats.maxRestoreNs);
+    const std::uint64_t restoreNs = NowNs() - start;
+    Record(restoreNs, s.stats.restoreNs, s.stats.maxRestoreNs);
 
     // The frames from the target step's on, the first from its fixed update,
     // through the end of the frame that just ended, in two parts. Their start
@@ -616,7 +618,22 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     ReconcileAudio();
     ++s.stats.rollbacks;
     ++s.stats.byDepth[std::min(depth, kMaxDepth)];
-    Record(NowNs() - start, s.stats.rollbackNs, s.stats.maxRollbackNs);
+    const std::uint64_t costNs = NowNs() - start;
+    Record(costNs, s.stats.rollbackNs, s.stats.maxRollbackNs);
+    // By cost, and the slow ones with what they replayed: where a long frame
+    // comes from.
+    static constexpr double kEdgesMs[kCostBuckets - 1] = {2, 4, 6, 8, 10, 12, 16, 20, 30};
+    const double costMs = costNs / 1e6;
+    int bucket = 0;
+    while (bucket < kCostBuckets - 1 && costMs >= kEdgesMs[bucket]) ++bucket;
+    ++s.stats.byCost[bucket];
+    if (costMs >= kSlowRollbackMs)
+    {
+        ++s.stats.slow;
+        Log("SLOW ROLLBACK %.1f ms at frame %u: %d steps back, %llu steps and %llu frames replayed, restore %.1f ms\n",
+            costMs, s.latest, depth, static_cast<unsigned long long>(s.stats.replayed - replayedBefore),
+            static_cast<unsigned long long>(s.stats.framesReplayed + s.stats.framesMerged - framesBefore), restoreNs / 1e6);
+    }
     if (compare) CompareAfterReplay(s.latest, depth);
     return true;
 }
