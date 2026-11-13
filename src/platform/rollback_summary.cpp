@@ -70,9 +70,11 @@ void WriteSummary()
     std::fprintf(file, "\nREPLAYED STEPS WITH ANOTHER CHECKSUM: %llu", static_cast<unsigned long long>(s.stats.mismatches));
     if (s.stats.mismatches) std::fprintf(file, " (first at frame %u)", s.stats.firstMismatchFrame);
     std::fprintf(file, "\nfailed restores %llu; replays reaching a NIS %llu; frees the registry could not undo %llu; "
-                       "pages written behind the tracking %llu\n",
+                       "pages written behind the tracking %llu; replays without their first frames (gone from the "
+                       "ring) %llu\n",
                  static_cast<unsigned long long>(s.stats.failedRestores), static_cast<unsigned long long>(s.stats.nisInReplay),
-                 static_cast<unsigned long long>(s.stats.lossyFrees), static_cast<unsigned long long>(s.stats.untracked));
+                 static_cast<unsigned long long>(s.stats.lossyFrees), static_cast<unsigned long long>(s.stats.untracked),
+                 static_cast<unsigned long long>(s.stats.framesLostRollbacks));
     std::fprintf(file, "skipped: disc read in flight %llu, disc read started %llu, game or task state change %llu, "
                        "too many events %llu, too few steps saved %llu\n",
                  static_cast<unsigned long long>(s.stats.skippedReads), static_cast<unsigned long long>(s.stats.skippedStarts),

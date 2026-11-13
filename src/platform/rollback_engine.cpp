@@ -13,6 +13,8 @@
 // again with the inputs they first had (tweak patch 0029). It goes back at
 // the start of the next frame, before any task sets up its cameras and views,
 // and replays through the end of the last step's frame, one frame at a time.
+// RECHARGED_ROLLBACK_TEST_LOST_FRAMES=N replays every Nth rollback as one
+// whose frames the ring no longer keeps: the steps alone, then the last frame.
 // The game's checksum after each replayed step must be the one the step first
 // gave; in a network match the machines also compare their checksums as the
 // original game does.
@@ -324,9 +326,69 @@ void ReconcileAudio()
     ApplyAudio();
 }
 
+// Replays the steps from `next` that ran in frame `frame` or before it, with
+// their inputs, a save after each.
+void ReplaySteps(std::uint64_t frame, unsigned& next, int (*replay)(const MschargedRollbackInputs*),
+                 unsigned (*checksum)(void), int depth)
+{
+    State& s = *sState;
+    for (; next <= s.replayEnd && s.steps[next % kRing].hostFrame <= frame; ++next)
+    {
+        Step& step = s.steps[next % kRing];
+        const std::uint64_t stepStart = NowNs();
+        const auto& snapshots = mscharged::platform::RollbackSnapshotStatistics();
+        const std::uint64_t faultsBefore = snapshots.faults;
+        RollbackRedeliverMegaStrikeMeter(step.meter, step.meterCount);
+        s.stats.meterRedelivered += step.meterCount;
+        if (replay(&step.inputs) < 0) ++s.stats.nisInReplay;
+        const std::uint64_t checksumStart = NowNs();
+        const unsigned now = RecordedChecksum(checksum, next);
+        const std::uint64_t saveStart = NowNs();
+        s.stats.checksumNs += saveStart - checksumStart;
+        s.stats.stepNs += saveStart - stepStart;
+        if (s.options.netplay)
+        {
+            // Other inputs, another match: what it is now.
+            step.checksum = now;
+            step.seed = GetNetworkRandomSeed();
+            RecordFrame(step);
+            LogStep(step);
+        }
+        else if (now != step.checksum)
+        {
+            if (!s.stats.mismatches) s.stats.firstMismatchFrame = next;
+            if (s.stats.mismatches++ < kListedMismatches)
+                Log("REPLAYED FRAME %u (%d back from %u): checksum %08x, first run %08x\n",
+                    next, depth, s.latest, now, step.checksum);
+        }
+        const std::uint64_t pagesBefore = snapshots.savedPages;
+        s.stats.replayHotPages += snapshots.hotPages;
+        if (next < s.saveFrom)
+        {
+            // Its inputs and those before it have all arrived: no
+            // rollback goes back to it, and the next save holds its changes.
+            step.snapshot = 0;
+            step.mark = s.replayMark;
+            ++s.stats.savesSkipped;
+        }
+        else
+        {
+            step.snapshot = mscharged::platform::SaveRollbackSnapshot();
+            const std::uint64_t markStart = NowNs();
+            step.mark = mscharged::platform::MarkGameAllocationCheckpoint();
+            s.stats.markNs += NowNs() - markStart;
+            s.replayMark = step.mark;
+        }
+        s.stats.saveNs += NowNs() - saveStart;
+        s.stats.replayFaults += snapshots.faults - faultsBefore;
+        s.stats.replaySavedPages += snapshots.savedPages - pagesBefore;
+        ++s.stats.replayed;
+        if (s.options.netplay && !PhasesContinue(s.steps[(next - 1) % kRing].phases, step.phases)) StopReplayAt(next);
+    }
+}
+
 // Replays frame `frame`'s tasks `firstTask` to `lastTask` as the task manager
-// ran them, each with the time it had, and the steps in it from `next` (the
-// steps with their inputs, a save after each).
+// ran them, each with the time it had, and the steps in it from `next`.
 void ReplayFrame(std::uint64_t frame, int firstTask, int lastTask, unsigned& next,
                  int (*replay)(const MschargedRollbackInputs*), unsigned (*checksum)(void), int depth)
 {
@@ -352,59 +414,7 @@ void ReplayFrame(std::uint64_t frame, int firstTask, int lastTask, unsigned& nex
         {
             if (firstTask == 0) RollbackReplayFixedFrame(dt); // done before the target's frame's save
             s.stats.beforeStepsNs += NowNs() - taskStart;
-            for (; next <= s.replayEnd && s.steps[next % kRing].hostFrame <= frame; ++next)
-            {
-                Step& step = s.steps[next % kRing];
-                const std::uint64_t stepStart = NowNs();
-                const auto& snapshots = mscharged::platform::RollbackSnapshotStatistics();
-                const std::uint64_t faultsBefore = snapshots.faults;
-                RollbackRedeliverMegaStrikeMeter(step.meter, step.meterCount);
-                s.stats.meterRedelivered += step.meterCount;
-                if (replay(&step.inputs) < 0) ++s.stats.nisInReplay;
-                const std::uint64_t checksumStart = NowNs();
-                const unsigned now = RecordedChecksum(checksum, next);
-                const std::uint64_t saveStart = NowNs();
-                s.stats.checksumNs += saveStart - checksumStart;
-                s.stats.stepNs += saveStart - stepStart;
-                if (s.options.netplay)
-                {
-                    // Other inputs, another match: what it is now.
-                    step.checksum = now;
-                    step.seed = GetNetworkRandomSeed();
-                    RecordFrame(step);
-                    LogStep(step);
-                }
-                else if (now != step.checksum)
-                {
-                    if (!s.stats.mismatches) s.stats.firstMismatchFrame = next;
-                    if (s.stats.mismatches++ < kListedMismatches)
-                        Log("REPLAYED FRAME %u (%d back from %u): checksum %08x, first run %08x\n",
-                                     next, depth, s.latest, now, step.checksum);
-                }
-                const std::uint64_t pagesBefore = snapshots.savedPages;
-                s.stats.replayHotPages += snapshots.hotPages;
-                if (next < s.saveFrom)
-                {
-                    // Its inputs and those before it have all arrived: no
-                    // rollback goes back to it, and the next save holds its changes.
-                    step.snapshot = 0;
-                    step.mark = s.replayMark;
-                    ++s.stats.savesSkipped;
-                }
-                else
-                {
-                    step.snapshot = mscharged::platform::SaveRollbackSnapshot();
-                    const std::uint64_t markStart = NowNs();
-                    step.mark = mscharged::platform::MarkGameAllocationCheckpoint();
-                    s.stats.markNs += NowNs() - markStart;
-                    s.replayMark = step.mark;
-                }
-                s.stats.saveNs += NowNs() - saveStart;
-                s.stats.replayFaults += snapshots.faults - faultsBefore;
-                s.stats.replaySavedPages += snapshots.savedPages - pagesBefore;
-                ++s.stats.replayed;
-                if (s.options.netplay && !PhasesContinue(s.steps[(next - 1) % kRing].phases, step.phases)) StopReplayAt(next);
-            }
+            ReplaySteps(frame, next, replay, checksum, depth);
             auto* fixed = static_cast<FixedUpdateTask*>(s.tasks.list[i]);
             fixed->mAccumulatedDeltaT = record.accumulated;
             fixed->mInterpolationDeltaT = record.interpolation;
@@ -420,8 +430,9 @@ void ReplayFrame(std::uint64_t frame, int firstTask, int lastTask, unsigned& nex
 
 // Why a rollback cannot go back to `target`, or null when it can: a disc
 // read in flight or started since (its completion went into memory a restore
-// takes back), more frames than are kept, or (in the test) a change of the
-// game's or tasks' state, or more events than a step keeps.
+// takes back), or (in the test) a change of the game's or tasks' state, or
+// more events than a step keeps. More frames since than are kept is no reason
+// (RollBack replays the steps of the frames gone without them).
 const char* CannotRollBack(unsigned target)
 {
     State& s = *sState;
@@ -442,10 +453,10 @@ const char* CannotRollBack(unsigned target)
         ++s.stats.skippedPhases;
         return "a state change";
     }
-    if (s.receivedOverflowed || s.hostFrame - s.steps[target % kRing].hostFrame >= kFrameRing)
+    if (s.receivedOverflowed)
     {
         ++s.stats.skippedEvents;
-        return "too many events or frames";
+        return "too many events";
     }
     for (unsigned f = target; f <= s.latest; ++f)
     {
@@ -468,7 +479,7 @@ const char* CannotRollBack(unsigned target)
         if (f > target && (step.inputs.overflowed || step.meterOverflowed))
         {
             ++s.stats.skippedEvents;
-            return "too many events or frames";
+            return "too many events";
         }
     }
     return nullptr;
@@ -527,13 +538,36 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     unsigned next = target + 1;
     const int fixedIndex = fixedIndexOf();
     const int lastTask = s.tasks.count - 1;
-    mscharged_tweak_load_frame_state(firstFrame + 1 <= s.hostFrame ? &Frame(firstFrame + 1).tweak : &now);
-    // The target's frame: the steps after the target in it, then its
-    // presentation.
-    if (next <= s.replayEnd && s.steps[next % kRing].hostFrame <= firstFrame)
-        ReplayFrame(firstFrame, fixedIndex, fixedIndex, next, replay, checksum, depth);
-    ReplayFrame(firstFrame, fixedIndex + 1, lastTask, next, replay, checksum, depth);
-    for (std::uint64_t frame = firstFrame + 1; frame <= s.hostFrame; ++frame)
+    // The frames kept: a wait for another machine's inputs with steps
+    // predicted (its computer stopped, its connection too) runs frames
+    // without steps, more than the ring keeps. The frames gone are left out:
+    // their steps run one after the other, then the frames kept. What a
+    // frame does around the steps (the drawing, the camera, the effects, the
+    // time scale's transition) never reaches the match, whose machines run
+    // other frames between the same steps; it comes back as the frames kept
+    // run, and their time scale's transition with it.
+    std::uint64_t keptFrom = s.hostFrame >= kFrameRing ? s.hostFrame - kFrameRing + 1 : 0;
+    // RECHARGED_ROLLBACK_TEST_LOST_FRAMES: as if only the last frame were kept.
+    if (s.options.lostFramesEvery && (s.stats.rollbacks + 1) % s.options.lostFramesEvery == 0) keptFrom = s.hostFrame;
+    if (firstFrame < keptFrom)
+    {
+        ++s.stats.framesLostRollbacks;
+        Log("REPLAY WITHOUT %llu FRAMES: back to frame %u from %u, its steps run without the frames gone\n",
+            static_cast<unsigned long long>(keptFrom - firstFrame), target, s.latest);
+        mscharged_tweak_load_frame_state(&Frame(keptFrom).tweak);
+        ReplaySteps(keptFrom - 1, next, replay, checksum, depth);
+    }
+    else
+    {
+        keptFrom = firstFrame + 1;
+        mscharged_tweak_load_frame_state(firstFrame + 1 <= s.hostFrame ? &Frame(firstFrame + 1).tweak : &now);
+        // The target's frame: the steps after the target in it, then its
+        // presentation.
+        if (next <= s.replayEnd && s.steps[next % kRing].hostFrame <= firstFrame)
+            ReplayFrame(firstFrame, fixedIndex, fixedIndex, next, replay, checksum, depth);
+        ReplayFrame(firstFrame, fixedIndex + 1, lastTask, next, replay, checksum, depth);
+    }
+    for (std::uint64_t frame = keptFrom; frame <= s.hostFrame; ++frame)
     {
         mscharged_tweak_load_frame_state(&Frame(frame).tweak);
         ReplayFrame(frame, 0, lastTask, next, replay, checksum, depth);
@@ -665,6 +699,7 @@ struct Install
         state->options.maxDepth = EnvInt("RECHARGED_ROLLBACK_TEST_FRAMES", kMaxDepth, 1, kMaxDepth);
         state->options.interval = EnvInt("RECHARGED_ROLLBACK_TEST_INTERVAL", 1, 1, 1 << 20);
         state->options.compareEvery = EnvInt("RECHARGED_ROLLBACK_TEST_COMPARE", 0, 0, 1 << 20);
+        state->options.lostFramesEvery = EnvInt("RECHARGED_ROLLBACK_TEST_LOST_FRAMES", 0, 0, 1 << 20);
         state->options.netplay = netplay;
         if (EnvInt("RECHARGED_ROLLBACK_AUDIO_AUDIT", 0, 0, 1)) StartAudioAudit();
         state->options.inputDelay = kStartingDelay;
@@ -672,7 +707,7 @@ struct Install
         state->options.poses = EnvInt("RECHARGED_ROLLBACK_POSES", 0, 0, 1) != 0;
         state->options.bodies = EnvInt("RECHARGED_ROLLBACK_BODIES", 0, 0, 1) != 0;
         state->options.contacts = EnvInt("RECHARGED_ROLLBACK_CONTACTS", 0, 0, 1) != 0;
-        if (netplay) state->options.compareEvery = 0;
+        if (netplay) state->options.compareEvery = state->options.lostFramesEvery = 0;
         if (state->options.compareEvery)
         {
             state->compare.moduleBase =

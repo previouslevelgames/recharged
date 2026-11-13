@@ -105,7 +105,7 @@ constexpr int kListedPlaces = 60;        // places per detailed comparison, and 
 constexpr int kMaxTasks = 32;            // tasks the task manager runs
 constexpr int kCostBuckets = 10;         // rollbacks by cost: < 2, 4, 6, 8, 10, 12, 16, 20, 30 ms, and the rest
 constexpr double kSlowRollbackMs = 12.0; // a rollback this long is logged with what it replayed
-constexpr int kFrameRing = 256;          // frames kept: those of the deepest rollback, at any frame rate
+constexpr int kFrameRing = 256;          // frames kept: those of the deepest rollback, at any frame rate, but for a wait with steps predicted
 constexpr int kMachines = 4;
 constexpr int kMachineEvents = 4;        // deterministic data events in one input message
 constexpr int kInputRing = 32;           // RECHARGED_ROLLBACK: steps whose inputs are kept
@@ -274,6 +274,7 @@ struct Options
     int maxDepth;            // RECHARGED_ROLLBACK_TEST_FRAMES
     int interval;            // RECHARGED_ROLLBACK_TEST_INTERVAL
     int compareEvery;        // RECHARGED_ROLLBACK_TEST_COMPARE
+    int lostFramesEvery;     // RECHARGED_ROLLBACK_TEST_LOST_FRAMES
 };
 
 // The memory a rollback restores (rollback_memory.cpp): the ranges, less the
@@ -317,6 +318,7 @@ struct Stats
     std::uint64_t replayFaults, replaySavedPages, replayHotPages; // of the replayed steps and their saves
     std::uint64_t markNs; // of the replayed saves, the allocation registry's part
     std::uint64_t savesSkipped;
+    std::uint64_t framesLostRollbacks; // rollbacks whose first frames the ring no longer kept
 };
 
 // RECHARGED_ROLLBACK_TEST_COMPARE=N: every Nth rollback, the tracked memory
