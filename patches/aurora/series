@@ -125,3 +125,4 @@
 0129-new-runtime-one-submit-per-packet.patch
 0130-new-runtime-d3d12-resolves-only-what-efb-passes-draw.patch
 0131-new-runtime-switch-between-the-runtimes-while-running.patch
+0132-new-runtime-gx-draws-leave-out-unchanged-bindings.patch
