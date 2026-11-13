@@ -124,3 +124,4 @@
 0128-new-runtime-reuse-staged-index-lists.patch
 0129-new-runtime-one-submit-per-packet.patch
 0130-new-runtime-d3d12-resolves-only-what-efb-passes-draw.patch
+0131-new-runtime-switch-between-the-runtimes-while-running.patch

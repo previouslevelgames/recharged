@@ -1,0 +1,69 @@
+From: mscharged-port
+Subject: New runtime: switch between the runtimes while running
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: development (feat/performance). Apply after 0130.
+
+aurora_new_runtime() reports the RECHARGED_RUNTIME switch and
+aurora_set_new_runtime() changes it between two frames, for the host's pixel
+check (RECHARGED_PIXEL_CHECK), which compares screenshots of one frozen frame
+drawn by both runtimes on any platform. Device choices made at startup (Dawn
+features and toggles) keep their values. Goes with the switch.
+
+diff --git a/include/aurora/gfx.h b/include/aurora/gfx.h
+index 0cc93ec..3d7021a 100644
+--- a/include/aurora/gfx.h
++++ b/include/aurora/gfx.h
+@@ -31,6 +31,12 @@ typedef struct {
+ const AuroraStats* aurora_get_stats();
+ float aurora_get_fps();
+ 
++// Development switch of the performance work (RECHARGED_RUNTIME): whether the
++// new runtime runs, and a change of it between two frames (the host's pixel
++// check). Device choices made at startup (Dawn features and toggles) stay.
++bool aurora_new_runtime();
++void aurora_set_new_runtime(bool enabled);
++
+ void aurora_enable_vsync(bool enabled);
+ 
+ // Arm actual native GX FIFO execution before reconstructed module/statics.
+diff --git a/lib/gfx/frame.cpp b/lib/gfx/frame.cpp
+index fa63cc7..103559b 100644
+--- a/lib/gfx/frame.cpp
++++ b/lib/gfx/frame.cpp
+@@ -314,12 +314,22 @@ std::optional<RegisteredEncoderTaskType> find_runtime_encoder_task_type(EncoderT
+ 
+ } // namespace detail
+ 
++namespace {
++// -1 until the first query reads RECHARGED_RUNTIME; aurora_set_new_runtime
++// changes it between two frames.
++std::atomic<int> g_newRuntime{-1};
++} // namespace
++
+ bool new_runtime() noexcept {
+-  static const bool value = [] {
++  int value = g_newRuntime.load(std::memory_order_relaxed);
++  if (value < 0) {
+     const char* runtime = std::getenv("RECHARGED_RUNTIME");
+-    return runtime == nullptr || std::string_view{runtime} != "classic";
+-  }();
+-  return value;
++    int expected = -1;
++    g_newRuntime.compare_exchange_strong(
++        expected, runtime == nullptr || std::string_view{runtime} != "classic" ? 1 : 0, std::memory_order_relaxed);
++    value = g_newRuntime.load(std::memory_order_relaxed);
++  }
++  return value != 0;
+ }
+ 
+ wgpu::Device device() noexcept { return g_device; }
+@@ -983,4 +993,9 @@ float calculate_fps() noexcept {
+ } // namespace aurora::gfx
+ 
+ const AuroraStats* aurora_get_stats() { return &aurora::gfx::detail::resources().stats; }
++bool aurora_new_runtime() { return aurora::gfx::new_runtime(); }
++void aurora_set_new_runtime(bool enabled) {
++  aurora::gfx::new_runtime();
++  aurora::gfx::g_newRuntime.store(enabled ? 1 : 0, std::memory_order_relaxed);
++}
+ float aurora_get_fps() { return aurora::gfx::calculate_fps(); }

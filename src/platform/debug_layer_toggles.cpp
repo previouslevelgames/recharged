@@ -7,6 +7,7 @@
 #endif
 #include "Game/Render/RLViewLayers.h"
 #include "Game/TweakValue.h"
+#include "NL/nlTask.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -88,4 +89,26 @@ extern "C" __attribute__((visibility("default"))) void charged_cycle_debug_layer
     } else {
         std::fprintf(stderr, "Debug: all rendering layers on\n");
     }
+}
+
+// Performance work (feat/performance), the host's pixel check
+// (RECHARGED_PIXEL_CHECK): stops the time of every time-dilated task (the
+// match, its camera, animations, particles) so that the same frame is drawn
+// again and again, then restores it. Called between two frames.
+extern "C" __attribute__((visibility("default"))) void charged_dev_freeze(int freeze)
+{
+    static float sSavedDilation = 1.0f;
+    static bool sFrozen = false;
+    auto* tasks = nlTaskManager::m_pInstance;
+    if (!tasks || sFrozen == (freeze != 0)) return;
+    if (freeze)
+    {
+        sSavedDilation = tasks->mTimeDilation;
+        tasks->mTimeDilation = 0.0f;
+    }
+    else
+    {
+        tasks->mTimeDilation = sSavedDilation;
+    }
+    sFrozen = freeze != 0;
 }
