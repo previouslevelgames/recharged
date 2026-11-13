@@ -10,8 +10,8 @@ a pass now resolves only the bounding box of its draws' scissors. Loads,
 stores and draws stay as they are. Dawn resolves the rectangle with the render
 pass's own resolve parameters, or with ResolveSubresourceRegion where it
 emulates render passes (instead of ResolveSubresource for the whole texture);
-identical pixels still need a check on Windows hardware. Metal keeps the whole
-resolve (no partial resolve in Dawn's Metal backend).
+identical pixels still need a check on Windows hardware. Metal gets the render
+area from Dawn patch 0007.
 
 diff --git a/lib/gfx/encoding.cpp b/lib/gfx/encoding.cpp
 index bc786db..8fe4056 100644
@@ -26,10 +26,10 @@ index bc786db..8fe4056 100644
 -  // to the render area only). The resolved copy source stays equal to the
 -  // resolve of the whole EFB: every pass resolves every pixel it changes.
 +  // New runtime: a multisampled EFB pass without clears resolves only the
-+  // pixels its draws can write, the bounding box of their scissors. Vulkan
-+  // applies load, store and resolve to that render area only; D3D12 resolves
-+  // that rectangle only. The resolved copy source stays equal to the resolve
-+  // of the whole EFB: every pass resolves every pixel it changes. A pass with
++  // pixels its draws can write, the bounding box of their scissors (render
++  // area: Vulkan; Metal up to the area's far corner; D3D12 resolves that
++  // rectangle only). The resolved copy source stays equal to the resolve of
++  // the whole EFB: every pass resolves every pixel it changes. A pass with
 +  // neither draws nor clears is not begun.
    wgpu::RenderPassRenderAreaRect renderArea{};
 -  bool limitArea = false;
