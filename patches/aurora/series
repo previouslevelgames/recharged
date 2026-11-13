@@ -117,3 +117,4 @@
 0121-blur-the-picture-behind-a-host-panel.patch
 0122-give-the-host-overlay-a-texture-packs-replacement.patch
 0123-new-runtime-submit-without-waiting-for-the-gpu.patch
+0124-new-runtime-render-area-of-multisampled-efb-passes.patch
