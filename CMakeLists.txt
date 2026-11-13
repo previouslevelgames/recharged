@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 1.1.7 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.2.0 LANGUAGES C CXX)
 
 # The game module replaces the global operator new/delete with allocators whose
 # scopes are global state. GCC 15 assumes replaceable new/delete leave global
@@ -273,6 +273,7 @@ add_library(charged_host STATIC
     src/platform/save_import.cpp
     src/platform/sha1.cpp
     src/platform/shader_cache.cpp
+    src/platform/game_folder_lock.cpp
 )
 target_include_directories(charged_host PUBLIC src)
 target_compile_features(charged_host PUBLIC cxx_std_17)
@@ -338,8 +339,12 @@ if(BUILD_TESTING OR MSCHARGED_BUILD_SCENE_PREVIEW OR MSCHARGED_BUILD_GAME_STARTU
     include(cmake/WorldObjects.cmake)
 endif()
 
+# Competitive play's profile service; the launcher and the game host link it.
+include(cmake/Competitive.cmake)
 # The Discord status (issue #71); the game host links it.
 include(cmake/Discord.cmake)
+# Mii heads from the game image's Mii parts (launcher, game overlay).
+include(cmake/MiiHead.cmake)
 
 if(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC)
     # The game runtime: the host enters original main in a game module.
@@ -426,6 +431,9 @@ if(BUILD_TESTING)
     target_link_libraries(shader_cache_tests PRIVATE charged_host)
     add_test(NAME shader_cache COMMAND shader_cache_tests)
     set_tests_properties(shader_cache PROPERTIES TIMEOUT 30)
+    add_executable(game_folder_lock_tests tests/game_folder_lock.cpp)
+    target_link_libraries(game_folder_lock_tests PRIVATE charged_host)
+    add_test(NAME game_folder_lock COMMAND game_folder_lock_tests)
     add_executable(launch_options_tests tests/launch_options.cpp)
     target_link_libraries(launch_options_tests PRIVATE charged_host)
     add_test(NAME launch_options COMMAND launch_options_tests)
@@ -467,6 +475,21 @@ if(BUILD_TESTING)
     find_package(Threads REQUIRED)
     target_link_libraries(game_tweaks_tests PRIVATE Threads::Threads)
     add_test(NAME game_tweaks COMMAND game_tweaks_tests)
+    # The rules a network match between releases plays by, in the module of
+    # every release (tweak patches 0066 and 0067).
+    foreach(_variant IN ITEMS us:R4QE01 eu:R4QP01_REV2 jp:R4QJ01 kr:R4QK01)
+        string(REPLACE ":" ";" _variant "${_variant}")
+        list(GET _variant 0 _suffix)
+        list(GET _variant 1 _version)
+        add_executable(sim_profile_${_suffix}_tests tests/sim_profile.cpp src/platform/sim_profile.cpp)
+        add_dependencies(sim_profile_${_suffix}_tests verify_prepared)
+        target_include_directories(sim_profile_${_suffix}_tests PRIVATE "${MSCHARGED_PREPARED}/include")
+        target_compile_definitions(sim_profile_${_suffix}_tests PRIVATE
+            MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 MSCHARGED_TWEAKS=1)
+        set_target_properties(sim_profile_${_suffix}_tests PROPERTIES MSCHARGED_GAME_VERSION ${_version})
+        target_compile_features(sim_profile_${_suffix}_tests PRIVATE cxx_std_17)
+        add_test(NAME sim_profile_${_suffix} COMMAND sim_profile_${_suffix}_tests)
+    endforeach()
     # The autopilot's sticks and shakes, read back the way the game reads the pad.
     add_executable(autopilot_pad_tests tests/autopilot_pad.cpp)
     target_include_directories(autopilot_pad_tests PRIVATE src)

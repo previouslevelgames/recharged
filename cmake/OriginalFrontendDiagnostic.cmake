@@ -181,9 +181,15 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     target_sources(${target} PRIVATE src/platform/debug_layer_toggles.cpp)
     # The Discord status (issue #71): what the game is doing, read by the host after a frame.
     target_sources(${target} PRIVATE src/platform/presence_snapshot.cpp)
+    # Competitive play: the match's rules (tweak patch 0055) and the game's WFC
+    # login, read by the host after a frame.
+    target_sources(${target} PRIVATE src/platform/competitive_match.cpp)
     # [gameplay] tweaks: the hooks of patches/mscharged-decomp-tweaks (their
     # MSCHARGED_TWEAKS definition is set above, before the selections).
     target_sources(${target} PRIVATE src/platform/game_tweaks.cpp src/platform/gx_texture.cpp src/platform/away_kits.cpp)
+    # Simulation profiles: the rules a network match between releases plays by
+    # (tweak patches 0066 and 0067).
+    target_sources(${target} PRIVATE src/platform/sim_profile.cpp)
     # The original game's globals in sections of their own (rbk_data/rbk_bss),
     # which a rollback saves with the arenas: a linker script on ELF (GNU ld,
     # lld), and on PE and Mach-O a launcher that renames the same files'

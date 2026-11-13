@@ -5,6 +5,7 @@
 #endif
 #include "platform/presence_snapshot.h"
 
+#include "Game/FE/feManager.h"
 #include "Game/Game.h"
 #include "Game/GameInfo.h"
 #include "Game/GameSceneManager.h"
@@ -52,6 +53,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_presence_snapshot
     if (cGame* game = g_pGame)
     {
         s.in_match = 1;
+        s.match_menu = FrontEnd::m_bInPauseMenuState;
         s.game_state = game->m_eGameState;
         s.game_duration = game->m_fGameDuration;
         if (game->m_pGameClock) s.game_time = game->m_pGameClock->m_fTimer;

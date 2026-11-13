@@ -1,5 +1,6 @@
 #include "launcher/match_presets.h"
 
+#include "platform/competitive_rules.h"
 #include "platform/path.h"
 
 #include <algorithm>
@@ -65,13 +66,13 @@ std::string Quoted(const std::string& text) { return '"' + text + '"'; }
 const std::vector<MatchPreset>& BuiltInMatchPresets()
 {
     static const std::vector<MatchPreset> presets = [] {
-        MatchSettings competitive;
-        competitive.skill = 3;
-        competitive.best_of = 3;
-        competitive.goal_limit = true;
-        competitive.goals = 10;
-        competitive.stadium_cheat = 1;
-        return std::vector<MatchPreset>{{"Default", MatchSettings{}, true, {}}, {"Competitive", competitive, true, {}}};
+        MatchPreset retail{"Retail ranked", MatchSettings{}, true, {}};
+        MatchPreset competitive = retail;
+        competitive.name = "Competitive";
+        competitive.settings.goal_limit = true;
+        competitive.settings.goals = 10;
+        competitive.tweaks = {"fast_terrain", "no_mega_strikes", "thunder_island_walls"};
+        return std::vector<MatchPreset>{retail, competitive};
     }();
     return presets;
 }
@@ -152,7 +153,11 @@ std::string MatchPresetText(const MatchPreset& preset)
          << "goals = " << s.goals << '\n'
          << "stadium_cheat = " << kStadiumTokens.at(std::size_t(s.stadium_cheat)) << '\n'
          << "player_cheat = " << kPlayerTokens.at(std::size_t(s.player_cheat)) << '\n'
-         << "powerup_cheat = " << kPowerupTokens.at(std::size_t(s.powerup_cheat)) << '\n';
+         << "powerup_cheat = " << kPowerupTokens.at(std::size_t(s.powerup_cheat)) << '\n'
+         << "stadium = " << preset.stadium << '\n'
+         << "tweaks = ";
+    for (std::size_t n = 0; n < preset.tweaks.size(); ++n) text << (n ? ", " : "") << preset.tweaks[n];
+    text << '\n';
     return text.str();
 }
 
@@ -200,12 +205,78 @@ std::optional<MatchPreset> ParseMatchPreset(std::string_view text, std::string* 
         else if (key == "stadium_cheat" && (number = FindToken(kStadiumTokens, value))) s.stadium_cheat = *number;
         else if (key == "player_cheat" && (number = FindToken(kPlayerTokens, value))) s.player_cheat = *number;
         else if (key == "powerup_cheat" && (number = FindToken(kPowerupTokens, value))) s.powerup_cheat = *number;
+        else if (key == "stadium")
+        {
+            const auto& stadiums = platform::StadiumChoices();
+            if (std::none_of(stadiums.begin(), stadiums.end(), [&](const platform::RuleChoice& c) { return value == c.key; }))
+                return fail(line, "stadium cannot be " + value);
+            preset.stadium = value;
+        }
+        else if (key == "tweaks")
+        {
+            preset.tweaks.clear();
+            std::istringstream list(value);
+            for (std::string tweak; std::getline(list, tweak, ',');)
+            {
+                tweak = Trim(tweak);
+                if (tweak.empty()) continue;
+                const auto& known = platform::RuleTweakChoices();
+                if (std::none_of(known.begin(), known.end(), [&](const platform::RuleChoice& c) { return tweak == c.key; }))
+                    return fail(line, "tweaks cannot have " + tweak);
+                if (std::find(preset.tweaks.begin(), preset.tweaks.end(), tweak) == preset.tweaks.end())
+                    preset.tweaks.push_back(tweak);
+            }
+        }
         else if (key == "skill" || key == "best_of" || key == "win_by" || key == "minutes" || key == "goals"
                  || key == "stadium_cheat" || key == "player_cheat" || key == "powerup_cheat")
             return fail(line, key + " cannot be " + value);
     }
     if (!named) return fail(0, "no name");
     if (!platform::ValidMatchSettings(preset.settings)) return fail(0, "a setting the game does not offer");
+    return preset;
+}
+
+platform::MatchRules ChallengeRules(const MatchPreset& preset)
+{
+    const auto& s = preset.settings;
+    platform::MatchRules rules;
+    rules.tweaks = preset.tweaks;
+    std::sort(rules.tweaks.begin(), rules.tweaks.end());
+    rules.skill = kSkillTokens.at(std::size_t(std::clamp(s.skill, 1, 4) - 1));
+    rules.limit = s.goal_limit ? "goals" : "time";
+    rules.time = s.time;
+    rules.goals = s.goals;
+    rules.games = std::min(s.best_of, 7);
+    rules.stadium = preset.stadium;
+    const auto key = [](const std::vector<platform::RuleChoice>& choices, int index) {
+        return index >= 0 && std::size_t(index) < choices.size() ? choices[std::size_t(index)].key : "none";
+    };
+    rules.stadium_cheat = key(platform::StadiumCheatChoices(), s.stadium_cheat);
+    rules.player_cheat = key(platform::PlayerCheatChoices(), s.player_cheat);
+    rules.powerup_cheat = key(platform::PowerupCheatChoices(), s.powerup_cheat);
+    return rules;
+}
+
+MatchPreset PresetFromRules(std::string name, const platform::MatchRules& rules)
+{
+    MatchPreset preset;
+    preset.name = std::move(name);
+    auto& s = preset.settings;
+    if (const auto skill = FindToken(kSkillTokens, rules.skill)) s.skill = *skill + 1;
+    s.goal_limit = rules.limit == "goals";
+    s.time = std::clamp((rules.time + 30) / 60, 2, 5) * 60;
+    s.goals = std::clamp(rules.goals, 3, 10);
+    s.best_of = std::clamp(rules.games | 1, 1, 9);
+    const auto index = [](const std::vector<platform::RuleChoice>& choices, const std::string& key) {
+        for (std::size_t n = 0; n < choices.size(); ++n)
+            if (key == choices[n].key) return int(n);
+        return 0;
+    };
+    s.stadium_cheat = index(platform::StadiumCheatChoices(), rules.stadium_cheat);
+    s.player_cheat = index(platform::PlayerCheatChoices(), rules.player_cheat);
+    s.powerup_cheat = index(platform::PowerupCheatChoices(), rules.powerup_cheat);
+    preset.stadium = rules.stadium.empty() ? "random" : rules.stadium;
+    preset.tweaks = rules.tweaks;
     return preset;
 }
 

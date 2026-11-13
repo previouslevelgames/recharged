@@ -1,0 +1,1246 @@
+Subject: Port: simulation profiles, so releases can play each other online
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+The releases' game code simulates matches differently: the ball's bounce
+and air resistance, the goalie's ball steals, the Mega Strike freeze, item
+odds, the Yoshi egg's push, a Thwomp's tilt and more. A USA and a European
+machine fed the same inputs therefore go out of sync. Each game module now
+runs its own release's rules and the European revision 2's, the canonical
+profile (include/mscharged_sim_profile.h, the port's
+src/platform/sim_profile.cpp); a network match picks one for both machines
+(tweak patch 0067), and every other game keeps the module's own. The
+European module has only that profile and is unchanged.
+
+In the modules of two profiles (MSCHARGED_SIM_RUNTIME: the USA's, Japan's
+and Korea's), every #if of the simulation where their code and
+revision 2's differ gets a block next to it, outside the #if, that asks
+MSCHARGED_SIM_IS: a condition before the original's own code, which then
+runs by its rules only, or revision 2's code where the module has none.
+
+The ball's checksum fields differ too (mbBallFrozen is only the USA's), and
+the game registers a checksum type once per run: with two profiles, each
+gets its own type, so a USA machine on the European rules checksums what a
+European machine does.
+
+Left as they are, the sites that only draw (the hammer's landing pose, the
+render snapshot), set fields the other rules never read (mbBallFrozen's and
+the Yoshi egg's resets, a patch's spawn position, the ball's freeze, which
+only the USA's Mega Strike sets) or already agree natively (the goalie's
+deke launch scale).
+
+The Japanese module shares the USA's sites. The Korean one has those and
+its own, where it alone differs from every other release
+(MSCHARGED_SIM_KOREA_RUNTIME): its goalie tests whether the ball heads
+between the posts (IsPointInCone) with code of its own; it reaches farther
+for a loose ball and chases it by a global of its own instead of the team's
+skill tweak; its lob saves take other angles and fall back to a save; it
+pursues a skill shot's shooter only so far and gives up on a deke; and its
+ball hits players and goalies again when it leaves or reaches a tangible
+player. On another profile, a block at each site runs the other releases'
+code instead: the Korean code only on the Korean profile.
+
+diff --git a/include/Game/AI/FielderActions.h b/include/Game/AI/FielderActions.h
+index f2f1581..7203ba6 100644
+--- a/include/Game/AI/FielderActions.h
++++ b/include/Game/AI/FielderActions.h
+@@ -25,6 +25,12 @@ extern AvoidablePolygon* g_pShotLaneAvoidancePolygon;
+ #if defined(VERSION_R4QP01_REV1) || defined(VERSION_R4QP01_REV2)
+ extern int gFramesSinceElectrocutionSound;
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++extern int gFramesSinceElectrocutionSound;
++#endif
+ 
+ void UnFreezeEveryoneButCaptain(cFielder* pCaptain);
+ 
+diff --git a/include/mscharged_sim_profile.h b/include/mscharged_sim_profile.h
+new file mode 100644
+index 0000000..aae2b2b
+--- /dev/null
++++ b/include/mscharged_sim_profile.h
+@@ -0,0 +1,86 @@
++#if defined(MSCHARGED_TWEAKS)
++#ifndef MSCHARGED_SIM_PROFILE_H
++#define MSCHARGED_SIM_PROFILE_H
++
++// Simulation profiles (tweak patch 0066): the rules a match is simulated by,
++// named by the releases whose code has them. The releases' game code differs
++// in its simulation (ball physics, goalies, items, stadium hazards), so two
++// machines of different releases go out of sync unless both simulate by the
++// same rules. Each game module runs its own release's rules and those of the
++// canonical profile, the European revision 2 (whose module therefore runs one
++// profile only); the online draft picks the profile of each network match
++// (tweak patch 0067), and every other game keeps the module's own. The
++// functions are the port's src/platform/sim_profile.cpp.
++//
++// In a module of two profiles (MSCHARGED_SIM_RUNTIME), every site of the
++// original code where its simulation and the canonical one differ gets a
++// block that asks MSCHARGED_SIM_IS with the releases of the original's #if.
++// The European revision 1 disc plays with the revision 2 code (tweak patch
++// 0019): its profile is revision 2's.
++
++// The releases, as bits of a profile mask.
++#define MSCHARGED_SIM_R4QE01 0x01u
++#define MSCHARGED_SIM_R4QP01_REV1 0x02u
++#define MSCHARGED_SIM_R4QP01_REV2 0x04u
++#define MSCHARGED_SIM_R4QJ01 0x08u
++#define MSCHARGED_SIM_R4QK01 0x10u
++// The groups the original's conditions name most.
++#define MSCHARGED_SIM_USA_JAPAN_KOREA (MSCHARGED_SIM_R4QE01 | MSCHARGED_SIM_R4QJ01 | MSCHARGED_SIM_R4QK01)
++#define MSCHARGED_SIM_EUROPE (MSCHARGED_SIM_R4QP01_REV1 | MSCHARGED_SIM_R4QP01_REV2)
++
++// The profile every network match falls back to when its machines' own
++// profiles differ.
++#define MSCHARGED_SIM_CANONICAL MSCHARGED_SIM_R4QP01_REV2
++
++// This module's own profile (the decomp's default release without one).
++#if defined(VERSION_R4QP01_REV2)
++#define MSCHARGED_SIM_NATIVE MSCHARGED_SIM_R4QP01_REV2
++#elif defined(VERSION_R4QP01_REV1)
++#define MSCHARGED_SIM_NATIVE MSCHARGED_SIM_R4QP01_REV1
++#elif defined(VERSION_R4QJ01)
++#define MSCHARGED_SIM_NATIVE MSCHARGED_SIM_R4QJ01
++#elif defined(VERSION_R4QK01)
++#define MSCHARGED_SIM_NATIVE MSCHARGED_SIM_R4QK01
++#else
++#define MSCHARGED_SIM_NATIVE MSCHARGED_SIM_R4QE01
++#endif
++
++// The profiles this module can simulate.
++#define MSCHARGED_SIM_SUPPORTED (MSCHARGED_SIM_NATIVE | MSCHARGED_SIM_CANONICAL)
++
++// The modules of the USA, Japan and Korea also run the European code.
++#if (MSCHARGED_SIM_NATIVE & MSCHARGED_SIM_USA_JAPAN_KOREA) != 0
++#define MSCHARGED_SIM_RUNTIME 1
++#endif
++
++// The Korean game also differs from every other release on its own: its
++// goalie's AI and the ball's collisions with the players. In its module the
++// sites of those differences ask MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01) and
++// run the other releases' code on another profile.
++#if MSCHARGED_SIM_NATIVE == MSCHARGED_SIM_R4QK01
++#define MSCHARGED_SIM_KOREA_RUNTIME 1
++#endif
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++// The profile of the match under way, or this module's own.
++unsigned int mscharged_sim_profile(void);
++// The draft's choice of a network match's profile (tweak patch 0067), from
++// the profiles of all its machines (zero for a machine that did not say):
++// the game's own RANKED (`ranked`) plays by the canonical one; any other,
++// by their own profile when all share it, else by the canonical one.
++unsigned int mscharged_sim_resolve(const unsigned char* natives, int count, int ranked);
++// Simulate by `profile` from now on. A profile this module cannot simulate
++// is refused: it keeps its own, and the match goes out of sync.
++void mscharged_sim_set_profile(unsigned int profile);
++// Back to this module's own profile: outside network matches.
++void mscharged_sim_reset_profile(void);
++#ifdef __cplusplus
++}
++#endif
++
++#define MSCHARGED_SIM_IS(releases) ((mscharged_sim_profile() & (releases)) != 0)
++
++#endif
++#endif
+diff --git a/src/Game/AI/AiUtil.cpp b/src/Game/AI/AiUtil.cpp
+index fd317c3..a0245b3 100644
+--- a/src/Game/AI/AiUtil.cpp
++++ b/src/Game/AI/AiUtil.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/AI/AiUtil.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #include <cstdlib>
+@@ -76,6 +79,45 @@ void MakePerpendicularPlane(const nlVector3& v3Position, const nlVector3& v3Norm
+ 
+ bool IsPointInCone(const nlVector3& v3Point, const nlVector3& v3Pivot, const nlVector3& v3Plane1, const nlVector3& v3Plane2)
+ {
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    // Every release but the Korean one tests the cone so: a Korean
++    // module on another profile does as they do.
++    if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++    {
++        float distSqA = nlVec3DistanceSquared2D(v3Plane1, v3Pivot);
++        float distSqP = nlVec3DistanceSquared2D(v3Plane1, v3Point);
++
++        if (distSqP < distSqA)
++        {
++            nlVector3 v3Direction;
++            float dirY = v3Pivot.y - v3Point.y;
++            float dirZ = v3Pivot.z - v3Point.z;
++            float dirX = v3Pivot.x - v3Point.x;
++            nlVec3Set(v3Direction, dirX, dirY, dirZ);
++
++            nlVector3 v3Normal;
++            nlVec3Set(v3Normal, -v3Direction.y, v3Direction.x, 0.0f);
++            float invLen = nlRecipSqrt(v3Normal.GetLengthSq3D(), true);
++
++            nlVector4 v4Plane;
++            v4Plane.x = invLen * v3Normal.x;
++            v4Plane.y = invLen * v3Normal.y;
++            v4Plane.z = invLen * v3Normal.z;
++            float zeroVal = 0.0f;
++            v4Plane.w = (v3Pivot.x * v4Plane.x + v3Pivot.y * v4Plane.y + v3Pivot.z * v4Plane.z) + zeroVal;
++
++            f32 sideLeft = nlPlaneSide(v3Plane1, v4Plane);
++            f32 sideRight = nlPlaneSide(v3Plane2, v4Plane);
++
++            if (sideLeft * sideRight < zeroVal)
++            {
++                return true;
++            }
++        }
++
++        return false;
++    }
++#endif
+ #if defined(VERSION_R4QK01)
+     nlVector3 v3Direction;
+     float dirY = v3Pivot.y - v3Point.y;
+diff --git a/src/Game/AI/DesireStatusEffects.cpp b/src/Game/AI/DesireStatusEffects.cpp
+index 46174df..f32fcfc 100644
+--- a/src/Game/AI/DesireStatusEffects.cpp
++++ b/src/Game/AI/DesireStatusEffects.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/AI/FielderDesireTypes.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/AI/Desire.h"
+ #include "Game/AI/AIContext.h"
+@@ -571,6 +574,9 @@ void DesireFrozen::Update(DesireUpdate*, float)
+             m_pFielder->m_fOpacity = 0.0f;
+         }
+     }
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+     if (!g_pGame->IsGameplayOrOvertime())
+     {
+diff --git a/src/Game/AI/Fielder.cpp b/src/Game/AI/Fielder.cpp
+index f31a243..3e39d15 100644
+--- a/src/Game/AI/Fielder.cpp
++++ b/src/Game/AI/Fielder.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/AI/FielderDesireTypes.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "Game/AI/DesireUpdate.h"
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/AI/Scripts/ScriptQuestions.h"
+@@ -1243,6 +1246,13 @@ bool CanUsePowerup(cFielder* pFielder, int nPowerupType)
+         eCharacterClass eCaptainClass = pCaptain->m_DetChar.m_eCharacterClass;
+         if (eCaptainClass == BOWSER || eCaptainClass == PETEY || eCaptainClass == WALUIGI)
+         {
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++            // Europe: a hit fielder is no case of the switch.
++            if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE) && pFielder->m_eActionState == ACTION_HIT)
++            {
++            }
++            else
++#endif
+             switch (pFielder->m_eActionState)
+             {
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+@@ -2250,8 +2260,14 @@ void cFielder::CollideWithPatchCallback(const CollisionPatchData* eventData)
+     {
+         if (eventData->pPatch->m_pOwner != this
+             && m_DetPlayer.m_tFireTimer.m_uPackedTime == 0
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++            && (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE) || (true
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+             && m_eActionState != ACTION_ELECTROCUTION
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++            ))
+ #endif
+             && !IsStuck() && !IsInvincible())
+         {
+@@ -4345,8 +4361,14 @@ void cFielder::BeginDekeIntangibility()
+                     }
+                 }
+                 if (nearSideline && fabsf(destination.x) <= cField::GetGoalLineX(1U) - GetScaledPlayerWidth(m_pTweaks, GetPlayerScale()) - 2.0f
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++                    && (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE) || (true
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+                     && !beyondSideline
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++                    ))
+ #endif
+                 )
+                     destination.y = safeY * AIsgn(destination.y);
+diff --git a/src/Game/AI/FielderActions.cpp b/src/Game/AI/FielderActions.cpp
+index fe8d55b..4a102ab 100644
+--- a/src/Game/AI/FielderActions.cpp
++++ b/src/Game/AI/FielderActions.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "Game/FE/Overlay/OverlayHandlerMegaStrikeMeter.h"
+ #include "Game/Player.h"
+ #include "Game/CharacterTriggers.h"
+@@ -151,6 +154,9 @@ float gElectrocutionRecoverySecondEndTime = 0.54f;
+ #if defined(VERSION_R4QP01_REV1) || defined(VERSION_R4QP01_REV2)
+ int gFramesSinceElectrocutionSound = 100;
+ #endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++int gFramesSinceElectrocutionSound = 100;
++#endif
+ static unsigned short gHitReactFacingOffsets[4] = {
+     0x8000,
+     0x4000,
+@@ -1085,6 +1091,9 @@ void cFielder::ActionLaunched(float fDeltaT)
+                 float fSpeed = nlSqrt(v3Velocity.GetLengthSq3D(), true);
+                 if (fSpeed < 2.0f)
+                 {
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++                    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+                     if (fSpeed < 0.01f)
+                     {
+@@ -1440,6 +1449,9 @@ void cFielder::InitActionElectrocution(const nlVector3& wallPosition,
+ 
+ #if defined(VERSION_R4QP01_REV1) || defined(VERSION_R4QP01_REV2)
+     if (gFramesSinceElectrocutionSound > 5)
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE) || gFramesSinceElectrocutionSound > 5)
+ #endif
+     {
+         bool bIsCaptain = IsCaptain();
+@@ -1453,6 +1465,10 @@ void cFielder::InitActionElectrocution(const nlVector3& wallPosition,
+ #if defined(VERSION_R4QP01_REV1) || defined(VERSION_R4QP01_REV2)
+     gFramesSinceElectrocutionSound = 0;
+ #endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++        gFramesSinceElectrocutionSound = 0;
++#endif
+ }
+ 
+ void cFielder::InitActionGroundElectrocution(const nlVector3& v3Position)
+@@ -2187,6 +2203,9 @@ void cFielder::ActionHit(float fDeltaT)
+         }
+     }
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+     if (m_DetChar.m_eCharacterClass == BIRDO)
+     {
+@@ -3052,6 +3071,12 @@ void cFielder::InitActionMegaStrikeMeter(bool bParam)
+         {
+             EndWaluigiSuperPower();
+         }
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE) && IsWaluigiSuperPowerActive(this))
++        {
++            EndWaluigiSuperPower();
++        }
+ #endif
+         KillWindup("ball_sts_windup");
+         SetAction(ACTION_SHOOT_TO_SCORE);
+@@ -3315,14 +3340,27 @@ void cFielder::UpdateMegaStrikeMeter(float fDeltaT, bool bButtonPressed, int nPa
+         {
+             EndWaluigiSuperPower();
+         }
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE) && IsWaluigiSuperPowerActive(this))
++        {
++            EndWaluigiSuperPower();
++        }
+ #endif
+         FreezeEveryoneButCaptain(0);
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++        {
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+         m_pTeam->GetGoalie()->InitActionFrozen();
+         m_pTeam->GetOtherTeam()->GetGoalie()->InitActionFrozen();
+ 
+         g_pBall->mbBallFrozen = true;
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        }
+ #endif
+         muInvincibleStatus |= 0x1F;
+ 
+diff --git a/src/Game/AI/GoalieActions.cpp b/src/Game/AI/GoalieActions.cpp
+index 3f41d30..ba2a73f 100644
+--- a/src/Game/AI/GoalieActions.cpp
++++ b/src/Game/AI/GoalieActions.cpp
+@@ -1,4 +1,7 @@
+ #include "revolution/types.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "NL/plat/PlatPadManager.h"
+ #include "Game/NetworkInputRecording.h"
+@@ -176,6 +179,18 @@ float gfMegaLaunchStartDelay;
+ #if defined(VERSION_R4QK01)
+ float gfGoalieLooseBallChaseDistance;
+ #endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++// The range of the goalie's chase of a loose ball: the Korean game's own
++// global (which it never sets), every other release's the team's skill
++// tweak. The Korean sites below that read the global read this.
++static float MschargedLooseBallChaseDistance()
++{
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++        return gfGoalieLooseBallChaseDistance;
++    return *GetTeamSkillTweaks(g_pCurrentlyUpdatingTeam)->fLooseBallChaseDistance.m_pValue;
++}
++#define gfGoalieLooseBallChaseDistance MschargedLooseBallChaseDistance()
++#endif
+ unsigned char gbForceLobDeflection;
+ unsigned char gbDisableLobPredictionUpdates;
+ unsigned char gbForceGoalieUserMovement;
+@@ -669,6 +684,9 @@ void Goalie::ActionLooseBallPickup(float fDeltaT)
+         && !bOffplayActive)
+     {
+         TacklePlayer(g_pBall->m_pOwner);
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+         StealBall(g_pBall->m_pOwner);
+ #endif
+@@ -726,6 +744,10 @@ void Goalie::ActionLooseBallPickup(float fDeltaT)
+         {
+ #if defined(VERSION_R4QP01_REV2)
+             StealBall(g_pBall->m_pOwner);
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++            if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QP01_REV2))
++                StealBall(g_pBall->m_pOwner);
+ #endif
+             PickupBall(g_pBall);
+             mbPickedUp = true;
+@@ -2185,6 +2207,12 @@ void Goalie::ActionMove(float deltaTime)
+     {
+         mbDoIntercept = false;
+         FindDesiredGoaliePosition(mv3TargetPosition, desiredDir, desiredOffset, desiredFacing, 0);
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++        if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++            targetPos = g_pBall->m_v3Position;
++        else
++        {
++#endif
+ #if defined(VERSION_R4QK01)
+         cBall* pBall = g_pBall;
+         targetPos = pBall->m_v3Position;
+@@ -2201,6 +2229,9 @@ void Goalie::ActionMove(float deltaTime)
+         }
+ #else
+         targetPos = g_pBall->m_v3Position;
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++        }
+ #endif
+     }
+ 
+@@ -4705,6 +4736,9 @@ void Goalie::ActionSnapBall(float fDeltaT)
+     if (m_DetPlayer.m_tFireTimer.m_uPackedTime == 0 && g_pBall->m_pOwner != this)
+     {
+         TacklePlayer(g_pBall->m_pOwner);
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+         StealBall(g_pBall->m_pOwner);
+ #endif
+@@ -4738,6 +4772,10 @@ void Goalie::ActionSnapBall(float fDeltaT)
+ 
+ #if defined(VERSION_R4QP01_REV2)
+         StealBall(g_pBall->m_pOwner);
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QP01_REV2))
++            StealBall(g_pBall->m_pOwner);
+ #endif
+         PickupBall(g_pBall);
+         m_pPhysicsCharacter->m_CanCollideWithGoalLine = true;
+@@ -5086,10 +5124,17 @@ void Goalie::InitActionLooseBallSetup()
+ 
+     g_pBall->m_uGoalType = GOAL_UNCLASSIFIED;
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++    {
++#endif
+ #if defined(VERSION_R4QK01)
+     if (mGoalieActionState != GOALIEACTION_MOVE
+         && mGoalieActionState != GOALIEACTION_LOOSEBALL_SETUP)
+         SetGoalieAction(GOALIEACTION_LOOSEBALL_SETUP, 0);
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    }
+ #endif
+     m_pPhysicsCharacter->m_CanCollideWithBall = true;
+     mbDoHeadTrack = true;
+@@ -5135,12 +5180,19 @@ void Goalie::InitActionLooseBallSetup()
+                     if (1.0f + mBlendInfo.mv3BlendedSavePos.z
+                         >= mv3LocalContactPosition.z)
+                     {
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++                        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++                        {
++#endif
+ #if defined(VERSION_R4QK01)
+                         if (mpSaveData == 0)
+                         {
+                             InitActionMove(false);
+                             return;
+                         }
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++                        }
+ #endif
+                         mfWaitTime = mfTimeTilSave
+                                    - mBlendInfo.mfMilestoneTime[2];
+@@ -5383,6 +5435,26 @@ void Goalie::InitActionLooseBallSetup()
+                     m_m4WorldMatrix.m12,
+                     m_m4WorldMatrix.m13);
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++                // The other releases grab at once only nearer than 1.2:
++                // farther, the tests below decide.
++                if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01) && fBallDist >= 1.2f)
++                {
++                    if (nlVec3DotProduct(v3BallDelta, v3TargetDelta) < 0.7071f)
++                        bDoGrab = true;
++                    else if (nlVec3DotProduct(v3BallDelta, v3Right) < 0.0f)
++                        bDoGrab = true;
++                    else
++                    {
++                        cFielder* pOpp = GetClosestOpponentFielder(&v3BallPosition, true);
++                        if (pOpp != 0
++                            && nlVec3DistanceSquared2D(pOpp->GetPosition(), v3BallPosition)
++                                < nlGetLengthSquared1D(fBallDist))
++                            bDoGrab = true;
++                    }
++                }
++                else
++#endif
+ #if defined(VERSION_R4QK01)
+                 if (fBallDist < 1.5f)
+ #else
+@@ -5472,6 +5544,11 @@ void Goalie::InitActionLooseBallSetup()
+ 
+ #if defined(VERSION_R4QK01)
+         bool bBallIsClose = nlVec3DistanceSquared2D(GetPosition(), v3BallPosition) < 2.25f;
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++        // Only the Korean goalie takes a ball this close without an intercept.
++        if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++            bBallIsClose = false;
+ #endif
+         float fInterceptTime;
+         float fClosestDist;
+@@ -5511,6 +5588,11 @@ void Goalie::InitActionLooseBallSetup()
+         {
+             return;
+         }
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++        if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++            InitActionMove(true);
++        else
++#endif
+ #if defined(VERSION_R4QK01)
+         InitActionMove(false);
+ #else
+@@ -5596,6 +5678,11 @@ void Goalie::InitActionLooseBallSetup()
+         }
+     }
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++        SetGoalieAction(GOALIEACTION_LOOSEBALL_SETUP, 0);
++    else
++#endif
+ #if defined(VERSION_R4QK01)
+     if (mGoalieActionState != GOALIEACTION_LOOSEBALL_SETUP)
+ #endif
+@@ -6514,6 +6601,10 @@ void Goalie::ActionSTSPursue(float fDeltaT)
+         return;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++    {
++#endif
+ #if defined(VERSION_R4QK01)
+     if (mpShooter->m_eActionState == ACTION_DEKE || mpShooter->m_eActionState == ACTION_RUNNING_WB)
+     {
+@@ -6521,6 +6612,9 @@ void Goalie::ActionSTSPursue(float fDeltaT)
+             InitActionPursueBallCarrier();
+         return;
+     }
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    }
+ #endif
+     if (IsOpponentInSTS() && CheckForSTSAttack())
+     {
+@@ -6550,12 +6644,19 @@ void Goalie::ActionSTSPursue(float fDeltaT)
+     }
+     else
+     {
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++        {
++#endif
+ #if defined(VERSION_R4QK01)
+         if (fDistanceSq > nlGetLengthSquared1D(gfGoalieSTSPursuitRange))
+         {
+             InitActionMove(false);
+             return;
+         }
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++        }
+ #endif
+         float dx = mpShooter->m_DetChar.m_v3Position.x - m_DetChar.m_v3Position.x;
+         float dy = mpShooter->m_DetChar.m_v3Position.y - m_DetChar.m_v3Position.y;
+@@ -7321,12 +7422,19 @@ void Goalie::InitActionSave()
+         return;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++    {
++#endif
+ #if defined(VERSION_R4QK01)
+     if (mpSaveData == 0)
+     {
+         InitActionMove(false);
+         return;
+     }
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    }
+ #endif
+     SetGoalieAction(GOALIEACTION_SAVE, 0);
+     mFatigue.RegisterShot(mpSaveData->mfFatigueValue);
+diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
+index 59092c6..0eeee7d 100644
+--- a/src/Game/AI/Powerups.cpp
++++ b/src/Game/AI/Powerups.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "Game/Weather.h"
+ #include "NL/nlDebug.h"
+ #include "Game/CharacterTweaks.h"
+@@ -1334,6 +1337,11 @@ int PowerupBase::AwardPowerup(cTeam* pTeam, cFielder* pFielder, bool)
+         nChanceForChainChomp = nChanceForStar = nChanceForBanana
+             = nChanceForBoBomb = nChanceForCaptainPowerup
+             = nChanceForMushroom = 0;
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++            powerUpType = POWER_UP_GREEN_SHELL;
++        else
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+         powerUpType = nlRandomf(1.0f, &nlDefaultSeed) < 0.66f
+             ? POWER_UP_RED_SHELL
+@@ -1352,6 +1360,11 @@ int PowerupBase::AwardPowerup(cTeam* pTeam, cFielder* pFielder, bool)
+         nChanceForChainChomp = nChanceForStar = nChanceForCaptainPowerup
+             = nChanceForSpinyShell = nChanceForRedShell = nChanceForBoBomb
+             = nChanceForGreenShell = nChanceForFreezeShell = 0;
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++            powerUpType = POWER_UP_BANANA;
++        else
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+         powerUpType = nlRandomf(1.0f, &nlDefaultSeed) < 0.5f
+             ? POWER_UP_BANANA
+diff --git a/src/Game/Ball.cpp b/src/Game/Ball.cpp
+index 0f14242..59f41d8 100644
+--- a/src/Game/Ball.cpp
++++ b/src/Game/Ball.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/AI/FielderDesireTypes.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/AI/Scripts/ScriptQuestions.h"
+ #include <stddef.h>
+@@ -269,9 +272,18 @@ void cBall::ClearOwner()
+     m_pOwner->SetBall(NULL);
+     m_pOwner = NULL;
+     m_pPhysicsBall->EnableCollisions();
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    // The Korean game alone lets the ball hit players and goalies again
++    // when it leaves its owner, and when a player takes it (below).
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++    {
++#endif
+ #if defined(VERSION_R4QK01)
+     g_pBall->m_pPhysicsBall->mbCanCollidePlayer = true;
+     g_pBall->m_pPhysicsBall->mbCanCollideGoalie = true;
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    }
+ #endif
+     m_v3PrevPosition = m_v3Position;
+     m_pPhysicsBall->GetPosition(&m_v3Position);
+@@ -1869,6 +1881,10 @@ void cBall::SetOwner(cPlayer* pOwner)
+     pPhysicsBall->mbUseMagnusEffect = false;
+     pPhysicsBall->mfChargeBonus = 0.0f;
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++    {
++#endif
+ #if defined(VERSION_R4QK01)
+     if (pOwner->m_eClassType == FIELDER)
+     {
+@@ -1884,6 +1900,9 @@ void cBall::SetOwner(cPlayer* pOwner)
+         g_pBall->m_pPhysicsBall->mbCanCollideGoalie = true;
+     }
+ #endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    }
++#endif
+ }
+ 
+ void cBall::SetPosition(const nlVector3& pos)
+@@ -3357,6 +3376,9 @@ inline void RegisterBallDebugFields(cBall* ball, DebugWriteCache* cache)
+         "mbStuckInRiotDone");
+     cache->AddField(16, gDebugFieldTypes[16].size,
+         (u8*)&ball->mbBallOnFire - (u8*)ball, "mbBallOnFire");
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+     cache->AddField(16, gDebugFieldTypes[16].size,
+         (u8*)&ball->mbBallFrozen - (u8*)ball, "mbBallFrozen");
+@@ -3411,6 +3433,13 @@ inline void RegisterBallDebugFields(cBall* ball, DebugWriteCache* cache)
+ 
+ void cBall::SyncLog(void* context, DebugWriteCache* cache)
+ {
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    // The checksum takes the fields of the match's profile, as machines of
++    // the other releases do: the game registers a type once, so each
++    // profile has its own (the European one without mbBallFrozen).
++    static unsigned short sEuropeanType = 0xFFFF;
++    unsigned short& sBallDebugType = MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE) ? sEuropeanType : ::sBallDebugType;
++#endif
+     if (sBallDebugType == 0xFFFF)
+     {
+         sBallDebugType = cache->BeginType("DetBall");
+diff --git a/src/Game/Goalie.cpp b/src/Game/Goalie.cpp
+index afed56b..5a8f70b 100644
+--- a/src/Game/Goalie.cpp
++++ b/src/Game/Goalie.cpp
+@@ -1,4 +1,7 @@
+ #include "revolution/types.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "NL/plat/PlatPadManager.h"
+ #include "Game/Player.h"
+@@ -95,6 +98,12 @@ float gfLooseBallNetRange = 15.0f;
+ #else
+ float gfLooseBallNetRange = 13.0f;
+ #endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++// The other releases' values of what the Korean game retuned.
++static const float gfMschargedOtherLooseBallNetRange = 13.0f;
++static const float gfMschargedOtherLobSaveDescentAngle = 40.0f;
++static const float gfMschargedOtherLobSavePlaneOffset = 0.1f;
++#endif
+ float gfPassThreatNetRange = 9.5f;
+ float gfLobSaveNetRange = 6.0f;
+ float gfLooseBallTeamControlThreshold = 0.5f;
+@@ -354,6 +363,10 @@ void Goalie::Update(float dt)
+     }
+     if (mGoalieActionState != GOALIEACTION_MEGA_STRIKE && mbDefensivePlayOverlayPushed)
+         CleanupMegaStrikeOverlay();
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++    {
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+     if (m_DetChar.m_v3Position.x < 1.0f && m_pTeam->m_nSide == 1)
+     {
+@@ -367,6 +380,9 @@ void Goalie::Update(float dt)
+         v3Position.x = -1.0f;
+         SetPosition(v3Position);
+     }
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    }
+ #endif
+     if (!mbIsPosed)
+     {
+@@ -664,6 +680,9 @@ void Goalie::CollideWithBallCallback(cBall* pBall)
+             {
+                 MakeSaveEvent(false);
+                 TacklePlayer(pBall->GetOwnerFielder());
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++                if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+                 StealBall(g_pBall->GetOwnerFielder());
+ #endif
+@@ -685,6 +704,10 @@ void Goalie::CollideWithBallCallback(cBall* pBall)
+                         mbNoUserControl = true;
+ #if defined(VERSION_R4QP01_REV2)
+                         StealBall(g_pBall->GetOwnerFielder());
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++                        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QP01_REV2))
++                            StealBall(g_pBall->GetOwnerFielder());
+ #endif
+                         PickupBall(pBall);
+                         m_pPhysicsCharacter->m_CanCollideWithGoalLine = true;
+@@ -2221,6 +2244,16 @@ bool Goalie::CheckForLobSave(bool bParam)
+                 const float fPlaneOffset = 0.2f;
+ #else
+                 const float fPlaneOffset = 0.1f;
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++                if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++                {
++                    if (fGoalLine < 0.0f)
++                        nlVec4Set(v4Plane, 1.0f, 0.0f, 0.0f, gfMschargedOtherLobSavePlaneOffset + fGoalLine);
++                    else
++                        nlVec4Set(v4Plane, -1.0f, 0.0f, 0.0f, gfMschargedOtherLobSavePlaneOffset + -fGoalLine);
++                }
++                else
+ #endif
+                 if (fGoalLine < 0.0f)
+                     nlVec4Set(v4Plane, 1.0f, 0.0f, 0.0f, fPlaneOffset + fGoalLine);
+@@ -2236,6 +2269,10 @@ bool Goalie::CheckForLobSave(bool bParam)
+                     nlVector3 v3Normal;
+                     nlVec3Normalize(v3Normal, v3Velocity);
+                     unsigned short aAngle = DegreesToAngle(gfLobSaveDescentAngle);
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++                    if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++                        aAngle = DegreesToAngle(gfMschargedOtherLobSaveDescentAngle);
++#endif
+                     float fCos = nlSin(aAngle + 0x4000);
+                     if (nlVec3DotProduct(v3Normal, v3Down) > fCos)
+                     {
+@@ -2254,9 +2291,16 @@ bool Goalie::CheckForLobSave(bool bParam)
+                         return false;
+                     }
+                     DisablePredictedGoaliePlanes();
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++                    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++                    {
++#endif
+ #if defined(VERSION_R4QK01)
+                     mbTryLobSave = false;
+                     InitActionSaveSetup(true, false);
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++                    }
+ #endif
+                     return false;
+                 }
+@@ -2285,6 +2329,10 @@ bool Goalie::CheckForLobSave(bool bParam)
+                 nlVector3 v3Normal;
+                 nlVec3Normalize(v3Normal, v3Velocity);
+                 unsigned short aAngle = DegreesToAngle(gfLobSaveDescentAngle);
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++                if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++                    aAngle = DegreesToAngle(gfMschargedOtherLobSaveDescentAngle);
++#endif
+                 float fCos = nlSin(aAngle + 0x4000);
+                 if (nlVec3DotProduct(v3Normal, v3Down) > fCos)
+                 {
+@@ -2556,6 +2604,14 @@ bool Goalie::IsLooseBallClose(float fDistFromBox)
+     const nlVector3& v3NetPos = m_pTeam->m_pNet->m_v3NetLocation;
+     if (v3NetPos.x * v3BallPos.x < 0.0f)
+         return false;
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++    {
++        if (!IsCloseToNet(v3BallPos, gfMschargedOtherLooseBallNetRange))
++            return false;
++    }
++    else
++#endif
+ #if defined(VERSION_R4QK01)
+     if (!IsCloseToNet(v3BallPos, gfLooseBallNetRange + fDistFromBox))
+ #else
+@@ -2567,6 +2623,16 @@ bool Goalie::IsLooseBallClose(float fDistFromBox)
+     {
+         cBall* pBall = g_pBall;
+         cPlayer* pPassTarget = pBall->GetPassTarget();
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++        if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++        {
++            if (!IsLooseBallTowardNet()
++                || nlVec3DistanceSquared2D(m_DetChar.m_v3Position, pBall->m_v3PassIntercept)
++                    > nlVec3DistanceSquared2D(pPassTarget->m_DetChar.m_v3Position, pBall->m_v3PassIntercept))
++                bBallIsLoose = false;
++        }
++        else
++#endif
+ #if defined(VERSION_R4QK01)
+         if (static_cast<cFielder*>(pPassTarget)->GetDesireState() == FIELDER_DESIRE_RECEIVE_PASS)
+ #endif
+@@ -2611,6 +2677,14 @@ bool Goalie::IsLooseBallClose(float fDistFromBox)
+         float netSideSign = m_pTeam->m_pNet->m_fDirection;
+         if (v3ProjectedPosition.x * netSideSign > cField::GetGoalLineX(1U))
+             return true;
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++        if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++        {
++            if (IsCloseToNet(v3ProjectedPosition, gfMschargedOtherLooseBallNetRange))
++                return true;
++        }
++        else
++#endif
+ #if defined(VERSION_R4QK01)
+         if (IsCloseToNet(v3ProjectedPosition, gfLooseBallNetRange + fDistFromBox))
+ #else
+@@ -2638,6 +2712,14 @@ bool Goalie::IsLooseBallTowardNet()
+     // bound to a float variable before the comparison. What held it is not
+     // recoverable from a stripped executable.
+     float fMinSpeedSq = 0.01f;
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    if (!MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++    {
++        if (nlVec3LengthSquared(v3BallVel) < fMinSpeedSq)
++            return false;
++    }
++    else
++#endif
+ #if defined(VERSION_R4QK01)
+     if (v3BallVel.GetLengthSq2D() < fMinSpeedSq)
+ #else
+@@ -2648,9 +2730,16 @@ bool Goalie::IsLooseBallTowardNet()
+     }
+ 
+     m_pTeam->m_pNet->GetPostLocation(v3Post1, 0, 0.0f);
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_R4QK01))
++    {
++#endif
+ #if defined(VERSION_R4QK01)
+     if (v3BallVel.x * v3Post1.x <= 0.0f)
+         return false;
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_KOREA_RUNTIME)
++    }
+ #endif
+     m_pTeam->m_pNet->GetPostLocation(v3Post2, 1, 0.0f);
+     nlVec3Add(v3BallVel, v3BallVel, g_pBall->m_v3Position);
+@@ -3689,9 +3778,22 @@ void Goalie::EndFreeze()
+ {
+ #if !defined(VERSION_R4QE01) && !defined(VERSION_R4QJ01) && !defined(VERSION_R4QK01)
+     mGoalieActionState = mPrevGoalieActionState;
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++        mGoalieActionState = mPrevGoalieActionState;
+ #endif
+     m_DetPlayer.m_bSkipAnimUpdate = false;
+     m_DetPlayer.m_fSkipTimer = 0.0f;
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++    {
++        EmitUnFreeze(this);
++        PowerupBase::PlayPowerupSound(POWER_UP_FREEZE_SHELL,
++            PowerupBase::PWRUP_SOUND_END, m_pPhysicsCharacter, 0.0f, NULL);
++    }
++    else
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+     g_pBall->mbBallFrozen = false;
+ #else
+@@ -4174,6 +4276,9 @@ void Goalie::HitAttackTarget(cFielder* pFielder, bool bParam)
+                 pFielder->ReleaseBall(BALL_STATE_LOOSE);
+                 bReleased = true;
+             }
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++            if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+             if (mGoalieActionState != GOALIEACTION_PURSUE_DEKE)
+                 mPursueDekeType = 0;
+diff --git a/src/Game/Physics/PhysicsBall.cpp b/src/Game/Physics/PhysicsBall.cpp
+index 9b9c329..d6a0dde 100644
+--- a/src/Game/Physics/PhysicsBall.cpp
++++ b/src/Game/Physics/PhysicsBall.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "Game/Physics/PhysicsBall.h"
+ #include "Game/Terrain.h"
+ 
+@@ -167,6 +170,9 @@ void PhysicsBall::PreUpdate()
+ void PhysicsBall::PostUpdate()
+ {
+     PhysicsObject::PostUpdate();
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+     if (m_parentObject != 0)
+     {
+@@ -199,6 +205,16 @@ void PhysicsBall::PostUpdate()
+         pos.z = GetRadius();
+         SetPosition(pos, WORLD_COORDINATES);
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        // Europe: the bounce whatever the ball's way, and the air
++        // resistance kept.
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++        {
++            linVel.z *= -g_pGame->mpTerrain->GetRestitution(g_BallBounceGround);
++            SetLinearVelocity(linVel);
++        }
++        else
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+         if (linVel.z < 0.0f)
+ #endif
+diff --git a/src/Game/Physics/PhysicsFakeBall.cpp b/src/Game/Physics/PhysicsFakeBall.cpp
+index 6026488..21dabd4 100644
+--- a/src/Game/Physics/PhysicsFakeBall.cpp
++++ b/src/Game/Physics/PhysicsFakeBall.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "Game/Physics/PhysicsFakeBall.h"
+ 
+ #include "Game/AI/AiUtil.h"
+@@ -61,6 +64,9 @@ static void ClearBallCache()
+     }
+ 
+     FakeBallWorld::mfLastCacheTime = -1.0f;
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+     if (FakeBallWorld::mpPredictWorld != 0)
+     {
+diff --git a/src/Game/Physics/PhysicsPatch.cpp b/src/Game/Physics/PhysicsPatch.cpp
+index 6d66d7e..f43d654 100644
+--- a/src/Game/Physics/PhysicsPatch.cpp
++++ b/src/Game/Physics/PhysicsPatch.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "Game/Sys/audio.h"
+ #include "Game/AI/AvoidableObject.h"
+ #include "Game/Physics/PhysicsPatch.h"
+@@ -749,6 +752,11 @@ static void UpdatePatchEffect(EmissionController& controller)
+         PhysicsPatch* patch = (PhysicsPatch*)controller.m_uUserData;
+         if (patch->m_bVisible == true)
+         {
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++            if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++                controller.SetPosition(patch->GetPosition());
++            else
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+             controller.SetPosition(patch->m_SpawnPosition);
+ #else
+diff --git a/src/Game/Physics/PhysicsYoshiEgg.cpp b/src/Game/Physics/PhysicsYoshiEgg.cpp
+index fd93114..8195cda 100644
+--- a/src/Game/Physics/PhysicsYoshiEgg.cpp
++++ b/src/Game/Physics/PhysicsYoshiEgg.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "Game/Physics/PhysicsYoshiEgg.h"
+ 
+ #include "Game/AI/Fielder.h"
+@@ -179,12 +182,19 @@ ContactType PhysicsYoshiEgg::Contact(PhysicsObject* other, dContact* contact, in
+             QueueCollisionCrackEgg(crackData);
+         }
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++        {
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+         nlVector3 normal;
+         normal.x = contact->geom.normal[0];
+         normal.y = contact->geom.normal[1];
+         normal.z = contact->geom.normal[2];
+         mYoshiEgg->SetPendingDisplacement(normal, contact->geom.depth);
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        }
+ #endif
+         return ONE_WAY_CONTACT_THIS;
+     }
+diff --git a/src/Game/Player.cpp b/src/Game/Player.cpp
+index 71b2a81..609b7ca 100644
+--- a/src/Game/Player.cpp
++++ b/src/Game/Player.cpp
+@@ -1,4 +1,7 @@
+ #include "Game/AI/FielderDesireTypes.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include <stddef.h>
+ #include "Game/CharacterTriggers.h"
+@@ -428,6 +431,12 @@ void cPlayer::GetAnimatedBallOrientation(nlQuaternion& qRetval)
+     nlMultQuat(qOrient, qFacing, qAnimated);
+     if (m_DetPlayer.m_ResetBaseBallOrientation)
+     {
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++            nlQuatInverse(startInverse, qOrient);
++        else
++        {
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+         startInverse.x = -qOrient.x;
+         startInverse.y = -qOrient.y;
+@@ -435,6 +444,9 @@ void cPlayer::GetAnimatedBallOrientation(nlQuaternion& qRetval)
+         startInverse.w = qOrient.w;
+ #else
+         nlQuatInverse(startInverse, qOrient);
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        }
+ #endif
+         nlMultQuat(m_DetPlayer.m_BaseBallOrientation, startInverse, g_pBall->m_qOrientation);
+         m_DetPlayer.m_ResetBaseBallOrientation = false;
+diff --git a/src/Game/Render/ThwompObject.cpp b/src/Game/Render/ThwompObject.cpp
+index 045c352..241e307 100644
+--- a/src/Game/Render/ThwompObject.cpp
++++ b/src/Game/Render/ThwompObject.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "Game/Sys/audio.h"
+ #include "Game/AI/AvoidableObject.h"
+ #include "Game/RumbleActions.h"
+@@ -273,6 +276,12 @@ void ThwompObject::SetState(eThwompState state)
+         axis.x = nlRandomf(2.0f) - 1.0f;
+         axis.y = nlRandomf(2.0f) - 1.0f;
+         axis.z = 0.0f;
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++            nlVec3Normalize(axis, axis, false);
++        else
++        {
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+         float lengthSquared = axis.GetLengthSq3D();
+         if (lengthSquared > 0.01f)
+@@ -287,6 +296,9 @@ void ThwompObject::SetState(eThwompState state)
+ #else
+         nlVec3Normalize(axis, axis, false);
+ #endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        }
++#endif
+ 
+         float angleRadians = nlRandomf(0.04f) - 0.02f;
+         unsigned short angle
+diff --git a/src/Game/Render/YoshiEggObject.cpp b/src/Game/Render/YoshiEggObject.cpp
+index de40ae6..e4df67a 100644
+--- a/src/Game/Render/YoshiEggObject.cpp
++++ b/src/Game/Render/YoshiEggObject.cpp
+@@ -1,4 +1,7 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include <math.h>
+ #include "Game/Render/YoshiEggObject.h"
+ #include "Game/Render/ThwompObject.h"
+@@ -111,6 +114,9 @@ void YoshiEggObject::Update(float dt)
+         mPhysics->SetRadius(mRadius);
+     }
+ 
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_USA_JAPAN_KOREA))
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+     if (mDisplacementDistance != 0.0f)
+     {
+diff --git a/src/Game/Task/FixedUpdateTask.cpp b/src/Game/Task/FixedUpdateTask.cpp
+index 8534e37..5db3844 100644
+--- a/src/Game/Task/FixedUpdateTask.cpp
++++ b/src/Game/Task/FixedUpdateTask.cpp
+@@ -517,6 +517,10 @@ void FixedUpdateTask::CallFixedUpdateTasks()
+     AIUpdateTask(g_fSimulationTick);
+ #if defined(VERSION_R4QP01_REV1) || defined(VERSION_R4QP01_REV2)
+     ++gFramesSinceElectrocutionSound;
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++    if (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE))
++        ++gFramesSinceElectrocutionSound;
+ #endif
+     ClearPlayerPlayerCollisionCache();
+     gNPCManager->UpdateAINPCs(g_fSimulationTick);
+diff --git a/src/Game/Team.cpp b/src/Game/Team.cpp
+index 5eb18c7..e8b63c7 100644
+--- a/src/Game/Team.cpp
++++ b/src/Game/Team.cpp
+@@ -1,4 +1,7 @@
+ #include "revolution/types.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include "NL/nlDLListContainer.inl"
+ #include "revolution/os/OSTime.h"
+ #include "Game/CharacterTweaks.h"
+@@ -1402,8 +1405,14 @@ void UpdateTeamTimers(cTeam* pTeam, float fDeltaT)
+ {
+     if ((g_pGame->IsGameplayOrOvertime()
+             || g_pGame->GetGameState() == GS_KICKOFF)
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        && (MSCHARGED_SIM_IS(MSCHARGED_SIM_EUROPE) || (true
++#endif
+ #if defined(VERSION_R4QE01) || defined(VERSION_R4QJ01) || defined(VERSION_R4QK01)
+         && !g_pGame->IsCaptainShotToScoreOn()
++#endif
++#if defined(MSCHARGED_TWEAKS) && defined(MSCHARGED_SIM_RUNTIME)
++        ))
+ #endif
+     )
+     {

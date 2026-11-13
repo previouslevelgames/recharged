@@ -16,7 +16,7 @@ new file mode 100644
 index 0000000..fb8f8f9
 --- /dev/null
 +++ b/include/mscharged_tweaks.h
-@@ -0,0 +1,224 @@
+@@ -0,0 +1,237 @@
 +#ifndef MSCHARGED_TWEAKS_H
 +#define MSCHARGED_TWEAKS_H
 +
@@ -234,6 +234,19 @@ index 0000000..fb8f8f9
 +// its captain (eTeamID) and stadium (eStadiumID).
 +int mscharged_tweak_training_item(void);
 +bool mscharged_tweak_take_training_start(int* captain, int* stadium);
++// Training's opponent: its captain (eTeamID, -1 for the default one), how many
++// of its four fielders play (0 to 4), whether its goalie plays, and whether a
++// goal goes straight to the kickoff, without its celebration.
++int mscharged_tweak_training_away_captain(void);
++int mscharged_tweak_training_away_fielders(void);
++bool mscharged_tweak_training_away_goalie(void);
++bool mscharged_tweak_training_skip_goal(void);
++// And its skill (0 training, 1 rookie to 5 mega striker, as the game's Gameplay
++// options number them; -1 for the game's own setting).
++int mscharged_tweak_training_away_skill(void);
++// Whether the pad that starts the match plays the away team (the home one
++// otherwise).
++bool mscharged_tweak_training_play_away(void);
 +
 +#ifdef __cplusplus
 +}

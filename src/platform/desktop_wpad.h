@@ -81,4 +81,6 @@ struct DesktopWpadSettings {
 void InitializeDesktopWpad(SDL_Window* window, DesktopWpadSettings settings);
 void ServiceDesktopWpad();
 void ShutdownDesktopWpad();
+// The WPAD channel (player - 1) the keyboard & mouse remote plays on, or -1.
+int DesktopKeyboardWpadChannel();
 } // namespace mscharged::platform

@@ -42,15 +42,18 @@ come from the reconstructed source, unchanged.
   the last digit and Delete clears the code.
 - **Gamepads**: Xbox, PlayStation, Switch Pro, GameCube (USB adapter) and
   other standard controllers stand in for the Wii Remote with Nunchuk the game
-  is played with, with rumble (its strength can be set). The right stick
-  moves the pointer, or the gyro of a controller that has one (PlayStation,
+  is played with, with rumble (its strength can be set). A stick moves the
+  pointer, or the gyro of a controller that has one (PlayStation,
   Switch Pro): turn it to point, like a Wii Remote
   ([#14](https://github.com/previouslevelgames/recharged/issues/14)).
   **Gamepad profiles** say which controller button presses each Wii button: a
-  built-in Default that gives each controller family its own layout
-  (Nintendo's A is its right button) plus up to 16 named profiles (up to two
-  buttons per Wii button, or none; sticks can be swapped, and a stick pushed
-  one way can press a button, such as the right stick as the D-pad for
+  built-in Default with the layout of the Classic Controller mod for the Wii
+  game (the left stick moves and points, the right stick is the D-pad), given
+  to each controller family by its labels (Nintendo's A is its right button),
+  the built-in Classic 1.1 (the earlier Default), plus up to 16 named
+  profiles (up to three buttons per Wii button, or none, and one button can
+  press several; the sticks can be split, swapped or shared, and a stick
+  pushed one way can press a button, such as the right stick as the D-pad for
   dekes). A profile also sets the sticks'
   inner and outer dead zones and the triggers' press point, tried live on the
   controller in the launcher; the defaults play like a Nunchuk on the Wii
@@ -82,8 +85,12 @@ come from the reconstructed source, unchanged.
 **Hotkeys** work whoever plays: **P** saves a screenshot, **H** shows or hides
 the HUD in a match, **F** stretches the picture over the window or gives it
 back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
-and **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
-window. Each can be changed under Controls → Hotkeys, to a key alone or with
+**Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
+window, and **F1** (or HOME on a controller) opens the **Recharged Game Menu** over the
+blurred game: your set, the friends online and the players available on
+**Online**, a RANKED match from anywhere in the menus and the leaderboards on
+**Ranked**, the gameplay options on **Game options** (**F2** opens it there), and
+the display and sound settings that change at once on **Settings**. Each can be changed under Controls → Hotkeys, to a key alone or with
 Ctrl, Shift or Alt.
 
 **No HUD** (Controls → Hotkeys → *Show the HUD when a match starts* off):
@@ -210,7 +217,10 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   or for Mario, Luigi, Wario and Waluigi, who have none, one made from their
   own kit (Mario blue, Luigi sky blue, Wario blue, Waluigi orange). Peach
   wears her blue kit; its menu pictures and Mega Strike hand are made the
-  same way. Online matches are unchanged.
+  same way. Online matches are unchanged, unless a battle's rules have Mirror
+  match: then both players can draft the same captain, and each sees their
+  own team in its usual kit and the opponent's in the away kit
+  ([competitive play](COMPETITIVE.md)).
 - **Blue Peach**: Peach's team wears her blue and yellow kit on the field
   (Peach, her sidekicks and her goalie). The game has it on the disc but only
   uses it against a captain of her colours, and nobody else is pink. Her menu
@@ -244,19 +254,22 @@ banner the game uses for its save, read from your own image. Click the one to
 play; images of versions this build cannot run yet are listed with the reason
 ([game images](SETTINGS.md#game-images)).
 
-Under **Online/Match setup**, its **Sidekicks** page sets the sidekicks each
+Under **Online**, its **Sidekicks** page sets the sidekicks each
 captain starts with, on a pitch laid out like the team plays: click a sidekick
 to put another one there. The game's sidekick screen then starts from that
 lineup, and what you choose there shows on the page: both are the lineups in
 your own game save ([saves](SETTINGS.md#saves)).
 
-Its **Match rules** page keeps presets of the match settings and cheats: skill,
-series, time or goals, and the stadium, player and power-up cheats, all of
-them whether your save has unlocked them or not. Use one for matches on this computer or online with
-friends, and it goes into your game save, as if chosen in the game's settings
-screen; ranked matches keep their rules. **Default** (a new save's settings)
-and **Competitive** (Superstar, best of 3, first to 10 goals, Secure Stadiums) are
-built in; the others are files of their own ([saves](SETTINGS.md#saves)).
+Its **Match rules** page keeps presets of a battle's rules: series, time or
+goals, the stadium, the gameplay tweaks both teams play with and the stadium,
+player and power-up cheats (all of them whether your save has unlocked them or
+not). A challenge or a search for an opponent starts from one and can still
+change any rule; ranked matches and tournaments bring their own rules.
+**Retail ranked** (the game's own ranked rules: best of 3, 3 minutes, a random
+stadium) and **Competitive** (best of 3, first to 10 goals, a random stadium,
+with Fast terrain, No Mega Strikes and Thunder Island walls) are built in,
+read-only and always there, with the server's own rule sets (**Copy** makes
+one your own); yours are files of their own ([saves](SETTINGS.md#saves)).
 
 It also **updates Recharged**: when a newer release is out it installs it in
 place by itself, with the release notes, and restarts; only the program's own
@@ -299,7 +312,8 @@ these matches (see Picture and sound).
 
 While the Discord app runs on the same computer, your Discord profile shows the
 menu you are in or the match you play, with its mode, stadium, captains, score
-and match time ([settings](SETTINGS.md#discord-status)).
+and match time, and during an online set your opponent and the games won so
+far ([settings](SETTINGS.md#discord-status)).
 
 ## Not supported (yet)
 

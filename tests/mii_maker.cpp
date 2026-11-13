@@ -96,6 +96,94 @@ void Faces() {
     }
     Check(faces.size() > 4000, "Random faces repeat");
 }
+// A player's competitive Mii: the same for the same key everywhere, with a
+// create ID pinned here (an independent computation of the key's bits), and
+// another for another key.
+void KeyedMiis() {
+    const std::string key = "discord:80351110224678912";
+    const auto id = KeyedMiiCreateId(key);
+    Check(std::memcmp(id.data(), "\x80\xAE\x6A\xFC\x55\x51\xB3\x21", 8) == 0, "Pinned keyed create ID");
+    const auto other = KeyedMiiCreateId("discord:1");
+    Check(std::memcmp(other.data(), "\x8B\xAB\x24\xB3\xED\xB0\xF0\x1F", 8) == 0, "Second keyed create ID");
+    const auto nelly = MakeKeyedMii("Nelly", key);
+    Check(nelly == MakeKeyedMii("Nelly", key), "The same key made another Mii");
+    Check(nelly.compare(24, 8, std::string(reinterpret_cast<const char*>(id.data()), 8)) == 0,
+          "Keyed Mii's create ID");
+    // The name doesn't change the face; another key does.
+    Check(MakeKeyedMii("Nel", key).substr(24) == nelly.substr(24), "A new name changed the face");
+    Check(MakeKeyedMii("Nelly", "discord:1").substr(32, 22) != nelly.substr(32, 22), "Two keys, one face");
+    std::set<std::string> ids;
+    for (int n = 0; n < 2000; ++n) {
+        const auto record = MakeKeyedMii("Mii", "discord:" + std::to_string(n));
+        Check(ValidForGame(Decode(record)), "A keyed Mii the game rejects");
+        Check((std::uint8_t(record[24]) & 0xF0) == 0x80, "Keyed create ID flags");
+        ids.insert(record.substr(24, 8));
+    }
+    Check(ids.size() == 2000, "Keyed create IDs repeat");
+}
+
+// A chosen favourite colour, and nothing else changed by it; the create ID
+// as the settings file writes it, and back.
+void Colours() {
+    const std::int64_t created = 1136073600 + 4 * std::int64_t(0x02C6FC69);
+    const auto random = MakeRandomMii("Mario", 42, created);
+    for (int color = 0; color < kMiiFavoriteColors; ++color) {
+        const auto record = MakeRandomMii("Mario", 42, created, color);
+        Check(Decode(record).favoriteColor == color && MiiRecordFavoriteColor(record) == color, "Chosen colour");
+        auto same = record;
+        same[1] = random[1];
+        Check(same == random && ((random[1] ^ record[1]) & ~0x1E) == 0, "The colour changed more than its bits");
+    }
+    Check(MiiRecordFavoriteColor(random) == int(Decode(random).favoriteColor), "Random colour read");
+    for (int color : {-2, 12}) {
+        bool thrown{};
+        try { MakeRandomMii("Mario", 42, created, color); } catch (const std::invalid_argument&) { thrown = true; }
+        Check(thrown, "A colour outside the twelve");
+    }
+    const auto id = MiiRecordCreateId(random);
+    Check(std::memcmp(id.data(), random.data() + 24, 8) == 0, "Record create ID");
+    const auto text = MiiCreateIdText(id);
+    Check(text.size() == 16 && text.rfind("82c6fc69", 0) == 0, "Create ID text");
+    Check(ParseMiiCreateId(text) == id && ParseMiiCreateId("82C6FC69" + text.substr(8)) == id, "Create ID parsed");
+    for (const char* bad : {"", "82c6fc69", "82c6fc6900112233ff", "82c6fc69 0112233", "82c6fc69001122zz"})
+        Check(!ParseMiiCreateId(bad), std::string("Create ID accepted: ") + bad);
+}
+
+void FittedNames() {
+    Check(FitMiiName("Nelly") == "Nelly", "Plain name");
+    Check(FitMiiName("  Super   Mario  Bros  ") == "Super Mari", "Spaces and cut");
+    Check(FitMiiName("Nel\xF0\x9F\x98\x80ly\xE2\x80\x8B") == "Nelly", "Emoji and zero-width space");
+    Check(FitMiiName("\xC3\xA9t\xC3\xA9 \xE2\x98\x86") == "\xC3\xA9t\xC3\xA9 \xE2\x98\x86", "Accents and symbols kept");
+    Check(FitMiiName("\xF0\x9F\x98\x80\xF0\x9F\x98\x80", "nelly_99") == "nelly_99", "Fallback");
+    Check(FitMiiName("\xF0\x9F\x98\x80", "\x01") == "Player", "Last resort");
+    Check(FitMiiName("\xC3", "x") == "x", "Invalid UTF-8");
+    for (const char* name : {"0123456789AB", "a\tb", " x ", "\xE3\x80\x80Ab\xEF\xBB\xBF"})
+        Check(ValidMiiName(FitMiiName(name)), std::string("Fitted name refused: ") + name);
+}
+// A record's name read back, and a rename that changes nothing but the name.
+void RecordNames() {
+    const auto mario = MakeRandomMii("Mario", 7, 1760000000);
+    Check(MiiRecordName(mario) == "Mario", "Record name read");
+    const std::string accents = "\xC3\xA9t\xC3\xA9 \xE2\x98\x86";
+    auto renamed = mario;
+    SetMiiRecordName(renamed, accents);
+    Check(MiiRecordName(renamed) == accents && Decode(renamed).name[0] == 0xE9, "Renamed record");
+    Check(renamed.substr(22) == mario.substr(22) && renamed.substr(0, 2) == mario.substr(0, 2),
+          "A rename changed more than the name");
+    SetMiiRecordName(renamed, "0123456789");
+    Check(MiiRecordName(renamed) == "0123456789", "Ten-character name");
+    SetMiiRecordName(renamed, "Bo");
+    Check(MiiRecordName(renamed) == "Bo" && renamed.compare(6, 16, std::string(16, '\0')) == 0,
+          "A shorter name left the old one's tail");
+    for (const char* bad : {"", "0123456789A", "\xF0\x9F\x98\x80", "a\x01"}) {
+        bool thrown{};
+        try { SetMiiRecordName(renamed, bad); } catch (const std::invalid_argument&) { thrown = true; }
+        Check(thrown && MiiRecordName(renamed) == "Bo", std::string("Name accepted: ") + bad);
+    }
+    bool thrown{};
+    try { MiiRecordName(mario.substr(1)); } catch (const std::invalid_argument&) { thrown = true; }
+    Check(thrown, "A short record's name");
+}
 } // namespace
 
 int main() {
@@ -103,6 +191,10 @@ int main() {
         Names();
         RoundTrip();
         Faces();
+        KeyedMiis();
+        Colours();
+        FittedNames();
+        RecordNames();
         std::cout << "mii_maker: " << checks << " checks passed\n";
         return 0;
     } catch (const std::exception& e) {
