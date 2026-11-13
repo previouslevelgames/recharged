@@ -174,6 +174,9 @@
   "players": {
     "no_profile": "Online needs a player profile: the launcher's Player profile page makes one.",
     "in_match": "You're in a match: challenges wait until it ends.",
+    "update_checking": "Recharged is checking for updates: online play waits for the answer.",
+    "update_outdated": "A newer version of Recharged is out: online play is off until you update. Close the game and start the launcher, which installs it.",
+    "update_unchecked": "Recharged could not check for updates, so online play is off for now. Close the game and start the launcher to check again.",
     "no_rules": "This server has no rules to play sets by yet.",
     "online_now": "ONLINE NOW",
     "no_friends_online": "None of your friends is online",
@@ -396,7 +399,10 @@
     "finish_set": "Finish your set first",
     "no_rules": "No rules to play by",
     "not_recharged": "Not on Recharged",
-    "recharged_closed": "Recharged closed"
+    "recharged_closed": "Recharged closed",
+    "update_checking": "Checking for updates",
+    "update_outdated": "Update Recharged first",
+    "update_unchecked": "Check for updates first"
   },
   "messages": {
     "opponent_forfeited": "{{name}} forfeited the match: the win is yours",

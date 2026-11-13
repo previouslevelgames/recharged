@@ -103,21 +103,22 @@ diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
 index 0c42cda..abbd081 100644
 --- a/src/Game/SH/SHMainMenu.cpp
 +++ b/src/Game/SH/SHMainMenu.cpp
-@@ -416,6 +416,14 @@ void SHMainMenu::SelectItem(unsigned int index, void* context)
-             return;
-         }
- #endif
+@@ -407,6 +407,15 @@ void SHMainMenu::SelectItem(unsigned int index, void* context)
+     FEAudio::PlayAnimAudioEvent(0x0A93E9A0, 0, 0, true);
+     if (item == MAIN_MENU_ONLINE)
+     {
 +#if defined(MSCHARGED_TWEAKS)
 +        // Override retail menus: Recharged's online menu opens instead (its
-+        // WII ONLINE comes back here, the game's way).
++        // WII ONLINE comes back here, the game's way), also to say why online
++        // play waits for an update; the check below still keeps it closed.
 +        if (mscharged_tweak_menu_press_taken(3, MAIN_MENU_ONLINE, (int)index))
 +        {
 +            return;
 +        }
 +#endif
- #if defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_LAN)
-         g_pNetworkSession->InitializeLAN();
-         if (g_pNetworkSession->GetSessionMode() != NET_MODE_LAN)
+ #if defined(MSCHARGED_TWEAKS)
+         // Port: enforced updates. A release that is not the newest one, or
+         // could not check, plays offline: this popup's layout, with the port's
 diff --git a/src/Game/SH/SHPause.cpp b/src/Game/SH/SHPause.cpp
 index 91ac846..a637dde 100644
 --- a/src/Game/SH/SHPause.cpp

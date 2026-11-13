@@ -703,7 +703,9 @@ check cannot reach GitHub, a message says so: online play stays off until the
 update is in. **Check for updates** tries again, and so does the next start of
 the launcher; everything offline keeps working. The game checks by itself too,
 also when it starts without the launcher, and **Online** in its main menu
-then says why it stays closed. A folder that was not unpacked from a package,
+then says why it stays closed; so do the game menu's online pages (no
+challenge, search, Ready to play! or Play RANKED; declining and withdrawing
+still work) and the launcher's challenges. A folder that was not unpacked from a package,
 or is not writable, cannot update itself: download the new version and unpack
 it over the folder. Test builds update themselves the same way but are never
 kept offline; local builds only ask.

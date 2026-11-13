@@ -1241,12 +1241,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // Enforced updates: a release plays online only while it is the newest
         // release (launcher/online_gate.h). The gate tells the module its
         // verdict; the main menu's Online asks the module (tweak patch 0054).
+        // The host keeps it too (OnlineGateState's numbers): its online pages
+        // and challenge prompts start nothing online while it is closed.
+        std::atomic<int> onlineGateState{0};
         std::unique_ptr<mscharged::launcher::OnlineGate> onlineGate;
         if(auto* configureOnlineGate=reinterpret_cast<void(*)(int)>(
                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_online_gate")))
             onlineGate=std::make_unique<mscharged::launcher::OnlineGate>(mscharged::launcher::CurrentBuild(),
                 executableDirectory,launch.update_verified,
-                [configureOnlineGate](mscharged::launcher::OnlineGateState state,const std::string& line) {
+                [configureOnlineGate,&onlineGateState](mscharged::launcher::OnlineGateState state,
+                                                       const std::string& line) {
+                    onlineGateState.store(static_cast<int>(state));
                     configureOnlineGate(static_cast<int>(state));
                     mscharged::platform::SessionLogLine(line);
                     std::fprintf(stderr,"%s\n",line.c_str());
@@ -1841,6 +1846,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         } cardPrompt;
         // Counts the prompts asked: the menus get a new one only when it changes.
         int cardPromptVersion=0;
+        // Online play waits for an update (the gate above): a prompt's answer
+        // that would start a set (accept, rematch, play again) is not offered.
+        auto onlineLocked=[&] {
+            return onlineGateState.load()!=static_cast<int>(mscharged::launcher::OnlineGateState::Open);
+        };
         auto serviceChallengeCard = [&](std::chrono::steady_clock::time_point now) {
             if(!competitive || !hostOverlay)return;
             if(const auto notice=competitive->TakeNotice()) hostOverlay->ShowMessage(*notice,now);
@@ -1938,7 +1948,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(kind==CardKind::None)return;
             // The prompt's buttons (B or BACK: the second).
             if(!cardPrompt.answer)return;
-            const bool accept=cardPrompt.answer==1;
+            // Locked, the prompt's one button is its second answer (buildPrompt).
+            const bool accept=cardPrompt.answer==1 && !onlineLocked();
             cardPrompt.answer=0;
             if(kind==CardKind::Challenge) {
                 competitive->Answer(cardMatch,accept);
@@ -2404,6 +2415,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 context.discord_friends=snapshot.discord_friends;
                 if(context.me.name.empty() && competitive) context.me.name=competitive->PlayerName();
                 context.in_match=inMatchNow;
+                {
+                    using Gate=mscharged::launcher::OnlineGateState;
+                    using Lock=ov::UpdateLock;
+                    const auto gate=static_cast<Gate>(onlineGateState.load());
+                    context.update_lock=gate==Gate::Checking ? Lock::Checking
+                        : gate==Gate::Outdated               ? Lock::Outdated
+                        : gate==Gate::Unchecked              ? Lock::Unchecked
+                                                             : Lock::None;
+                }
                 context.game=std::string(release->game_id,4);
                 if(competitive)
                     if(const auto set=competitive->CurrentSet())
@@ -2440,6 +2460,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         && std::chrono::steady_clock::now()-rankedSince>=std::chrono::seconds(2);
                     if(!startRanked) ranked.blocked=texts::T("menus.ranked.blocked_game");
                     else if(context.in_match) ranked.blocked=texts::T("menus.ranked.blocked_match");
+                    else if(context.update_lock!=ov::UpdateLock::None)
+                        ranked.blocked=ov::UpdateLockReason(context.update_lock);
                     else if(competitive && competitive->CurrentSet())
                         ranked.blocked=texts::T("menus.ranked.blocked_set");
                     else if(snapshot.search) ranked.blocked=texts::T("menus.ranked.blocked_search");
@@ -2487,8 +2509,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 rankedStage=CHARGED_SET_NONE;
             }
             const std::int64_t set=model.online.set.match;
+            // Online play waits for an update: the pages offer nothing that
+            // goes online (the model), and nothing that would gets through.
+            const bool locked=onlineLocked();
             if(panelFeed) {
-                if(online.challenge) {
+                if(online.challenge && !locked) {
                     const auto& challenge=*online.challenge;
                     panelFeed->Challenge(challenge.player,challenge.rule_set,challenge.rules,challenge.name);
                     overlayNotice=texts::T("menus.notices.challenge_sent");
@@ -2500,7 +2525,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     overlayNotice=texts::T("menus.notices.search_stopped");
                 }
                 if(online.set_available) panelFeed->SetAvailable(*online.set_available);
-                if(online.search) {
+                if(online.search && !locked) {
                     const auto& search=*online.search;
                     panelFeed->StartSearch(search.rule_set,search.rules,search.name,std::string(release->game_id,4));
                     overlayNotice=texts::T("menus.notices.searching");
@@ -2509,13 +2534,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(online.remove_friend) panelFeed->RemoveFriend(*online.remove_friend);
                 if(online.add_mii_friend) panelFeed->AddMiiFriend(*online.add_mii_friend);
                 if(online.remove_mii_friend) panelFeed->RemoveMiiFriend(*online.remove_mii_friend);
-                if(online.ready) panelFeed->ReadyToPlay(set,true);
+                if(online.ready && !locked) panelFeed->ReadyToPlay(set,true);
                 if(online.cancel) panelFeed->Cancel(set);
             }
             if(competitive) {
                 // An accept starts the set in this game; a rematch asks the opponent.
-                if(online.accept || online.decline) competitive->Answer(set,online.accept);
-                if(online.rematch) competitive->PlayAgain(set,true);
+                if((online.accept && !locked) || online.decline) competitive->Answer(set,online.accept && !locked);
+                if(online.rematch && !locked) competitive->PlayAgain(set,true);
             }
             if(online.set_challenge_rules) {
                 challengeRules=*online.set_challenge_rules;
@@ -2579,6 +2604,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             prompt.won=cardPrompt.won;
             prompt.lost=cardPrompt.lost;
             prompt.games=cardPrompt.games;
+            // Online play waits for an update: every first answer here would
+            // start a set, so only the second one is offered, and why.
+            if(onlineLocked()) {
+                using Gate=mscharged::launcher::OnlineGateState;
+                using Lock=ov::UpdateLock;
+                const auto gate=static_cast<Gate>(onlineGateState.load());
+                prompt.primary=prompt.secondary;
+                prompt.secondary.clear();
+                prompt.note=ov::UpdateLockNote(gate==Gate::Checking ? Lock::Checking
+                    : gate==Gate::Outdated ? Lock::Outdated : Lock::Unchecked);
+            }
         };
         if(menuInput) {
             std::string off;
@@ -2810,8 +2846,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // whatever shows; B or BACK is its second answer.
             if(hostMenus) {
                 const bool want=cardPrompt.shown;
-                // The prompt as it is now: built again only when it changes.
-                const int promptKey=want ? cardPromptVersion : menuSamples.prompt ? -1 : 0;
+                // The prompt as it is now: built again only when it changes
+                // (or the update lock does).
+                const int promptKey=want ? cardPromptVersion*2+int(onlineLocked()) : menuSamples.prompt ? -1 : 0;
                 if(promptKey!=shownPromptKey) {
                     if(want) {
                         mscharged::overlay::OverlayPrompt prompt;

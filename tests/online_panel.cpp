@@ -437,6 +437,63 @@ void TestSet()
         CHECK(model.set.stage == Stage::None);
     }
 }
+// Online play waiting for an update (enforced updates): nothing that goes
+// online is offered, each says why, and the way out of a set stays.
+void TestUpdateLock()
+{
+    using Lock = UpdateLock;
+    platform::PlayerLists lists;
+    lists.friends = {Online(10, "Mario", "launcher")};
+    auto context = Context();
+    platform::RuleSet competitive;
+    competitive.id = 2;
+    competitive.name = "Competitive";
+    context.rule_sets = {competitive};
+    context.searches = true;
+    auto model = MakeOnlinePanelModel(lists, std::nullopt, context);
+    CHECK(model.can_search && model.note.empty());
+    const auto* mario = Row(Section(model, OnlinePanelSection::Id::Online), "Mario");
+    CHECK(mario && mario->can_challenge);
+
+    for (const Lock lock : {Lock::Checking, Lock::Outdated, Lock::Unchecked})
+    {
+        context.update_lock = lock;
+        model = MakeOnlinePanelModel(lists, std::nullopt, context);
+        CHECK(model.update_lock == lock); // the ONLINE hub's note and its WII ONLINE
+        CHECK(!model.can_search && model.note == UpdateLockNote(lock) && !model.note.empty());
+        mario = Row(Section(model, OnlinePanelSection::Id::Online), "Mario");
+        CHECK(mario && !mario->can_challenge && mario->blocked == UpdateLockReason(lock));
+
+        // A challenge to the player: declined, never accepted.
+        model = MakeOnlinePanelModel({}, Set("challenged", "challenged", "invited"), context);
+        CHECK(!model.set.can_accept && model.set.can_decline && model.set.status == UpdateLockReason(lock));
+        // The player's own: withdrawn.
+        model = MakeOnlinePanelModel({}, Set("challenged", "challenger", "invited"), context);
+        CHECK(model.set.can_cancel);
+        // Accepted: no Ready to play!, the set can be cancelled.
+        model = MakeOnlinePanelModel({}, Set("accepted", "challenger", "open"), context);
+        CHECK(!model.set.can_ready && model.set.can_cancel && model.set.status == UpdateLockReason(lock));
+        // Ended: no rematch.
+        auto ended = Set("finished", "challenged", "finished");
+        ended.winner = "you";
+        model = MakeOnlinePanelModel({}, ended, context);
+        CHECK(model.set.stage == OnlinePanelSet::Stage::Ended && !model.set.can_rematch);
+    }
+    CHECK(UpdateLockReason(Lock::Outdated) == "Update Recharged first");
+    // Without a player profile the hub still says why and keeps WII ONLINE closed.
+    auto signed_out = Context();
+    signed_out.signed_out = true;
+    signed_out.update_lock = Lock::Unchecked;
+    CHECK(MakeOnlinePanelModel({}, std::nullopt, signed_out).update_lock == Lock::Unchecked);
+    CHECK(UpdateLockReason(Lock::None).empty() && UpdateLockNote(Lock::None).empty());
+    // A match first: its own reason.
+    context.update_lock = Lock::Outdated;
+    context.in_match = true;
+    model = MakeOnlinePanelModel(lists, std::nullopt, context);
+    mario = Row(Section(model, OnlinePanelSection::Id::Online), "Mario");
+    CHECK(mario && mario->blocked == "You're in a match");
+}
+
 // What a challenge starts from: the server's rule sets, then the player's
 // own presets (only where the server has rule sets), the one chosen last (by
 // name; else the first) for its setup.
@@ -789,6 +846,7 @@ int main()
     TestOnlineNow();
     TestAvailable();
     TestChallengeBlockers();
+    TestUpdateLock();
     TestVersions();
     TestSet();
     TestChallengeRules();

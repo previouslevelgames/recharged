@@ -192,6 +192,7 @@ OnlinePanelContext::Score Reported(const ProfileMatch& match)
 
 OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& context)
 {
+    const bool locked = context.update_lock != UpdateLock::None;
     OnlinePanelSet set;
     set.match = match.id;
     set.opponent = PlayerRow(match.opponent);
@@ -219,9 +220,11 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
         {
             set.stage = OnlinePanelSet::Stage::Challenged;
             set.title = T("menus.sets.challenges_you", {opponent});
-            set.status = context.in_match ? T("menus.sets.answer_later") : T("menus.sets.accept_to_start");
+            set.status = context.in_match ? std::string(T("menus.sets.answer_later"))
+                : locked                  ? UpdateLockReason(context.update_lock)
+                                          : std::string(T("menus.sets.accept_to_start"));
             set.tone = Tone::Neutral;
-            set.can_accept = !context.in_match;
+            set.can_accept = !context.in_match && !locked;
             set.can_decline = true;
         }
         else
@@ -261,10 +264,11 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
             }
             else
             {
-                set.status = match.opponent_ready ? T("menus.sets.opponent_ready", {opponent})
-                                                  : std::string(T("menus.sets.ready_when_you_are"));
-                set.tone = match.opponent_ready ? Tone::Good : Tone::Neutral;
-                set.can_ready = !context.in_match;
+                set.status = locked ? UpdateLockReason(context.update_lock)
+                    : match.opponent_ready ? T("menus.sets.opponent_ready", {opponent})
+                                           : std::string(T("menus.sets.ready_when_you_are"));
+                set.tone = match.opponent_ready && !locked ? Tone::Good : Tone::Neutral;
+                set.can_ready = !context.in_match && !locked;
             }
         }
         else if (match.stage == "go")
@@ -325,7 +329,7 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
             set.status = T("menus.sets.against", {opponent});
             set.tone = match.winner == "you" ? Tone::Good : match.winner == "opponent" ? Tone::Bad : Tone::Neutral;
         }
-        set.can_rematch = sets && match.opponent_online && !context.in_match;
+        set.can_rematch = sets && match.opponent_online && !context.in_match && !locked;
         return set;
     }
     // Declined, cancelled, expired or dissolved: nothing to show.
@@ -336,6 +340,7 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
 std::string ChallengeBlocker(const std::optional<ProfileMatch>& match, const OnlinePanelContext& context)
 {
     if (context.in_match) return T("menus.blocked.you_in_match");
+    if (context.update_lock != UpdateLock::None) return UpdateLockReason(context.update_lock);
     if (match && match->Busy()) return T("menus.blocked.finish_set");
     if (!context.can_challenge) return T("menus.blocked.no_rules");
     return {};
@@ -381,6 +386,24 @@ void Challengeable(OnlinePanelRow& row, const ProfilePlayer& player, const std::
 }
 } // namespace
 
+std::string UpdateLockReason(UpdateLock lock)
+{
+    using Lock = UpdateLock;
+    return lock == Lock::Checking  ? T("menus.blocked.update_checking")
+        : lock == Lock::Outdated   ? T("menus.blocked.update_outdated")
+        : lock == Lock::Unchecked  ? T("menus.blocked.update_unchecked")
+                                   : "";
+}
+
+std::string UpdateLockNote(UpdateLock lock)
+{
+    using Lock = UpdateLock;
+    return lock == Lock::Checking  ? T("menus.players.update_checking")
+        : lock == Lock::Outdated   ? T("menus.players.update_outdated")
+        : lock == Lock::Unchecked  ? T("menus.players.update_unchecked")
+                                   : "";
+}
+
 std::string Initials(const std::string& name)
 {
     if (name.empty()) return "?";
@@ -395,6 +418,7 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
                                       const OnlinePanelContext& context)
 {
     OnlinePanelModel model;
+    model.update_lock = context.update_lock;
     if (context.signed_out)
     {
         model.signed_out = true;
@@ -440,12 +464,15 @@ OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
         model.search.seconds = std::max(0, context.search_seconds);
         model.search.asked = context.search->asked;
     }
-    model.can_search = context.searches && !context.search && !context.in_match && !model.presets.empty()
+    model.can_search = context.searches && !context.search && !context.in_match
+        && context.update_lock == UpdateLock::None && !model.presets.empty()
         && !(match && match->Busy());
 
     if (match) model.set = MakeSet(*match, context);
     const std::string blocker = ChallengeBlocker(match, context);
     if (context.in_match) model.note = T("menus.players.in_match");
+    else if (context.update_lock != UpdateLock::None)
+        model.note = UpdateLockNote(context.update_lock);
     else if (!context.can_challenge) model.note = T("menus.players.no_rules");
 
     // Online now: the friends with Recharged open, the Discord friends who
