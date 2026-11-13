@@ -118,3 +118,9 @@
 0122-give-the-host-overlay-a-texture-packs-replacement.patch
 0123-new-runtime-submit-without-waiting-for-the-gpu.patch
 0124-new-runtime-render-area-of-multisampled-efb-passes.patch
+0125-new-runtime-staging-copies-in-whole-256-kib-blocks.patch
+0126-new-runtime-draw-done-without-waiting-for-the-render-worker.patch
+0127-new-runtime-dawn-skips-its-command-validation.patch
+0128-new-runtime-reuse-staged-index-lists.patch
+0129-new-runtime-one-submit-per-packet.patch
+0130-new-runtime-d3d12-resolves-only-what-efb-passes-draw.patch

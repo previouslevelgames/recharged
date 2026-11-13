@@ -1,0 +1,87 @@
+From: mscharged-port
+Subject: New runtime: one submit per packet, none for an empty one
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance (feat/performance). Apply after 0128.
+
+Review of 0123: the staging copies of a packet went to the GPU in a Submit of
+their own, ahead of the packet's Submit; they now share one Submit (copies
+first). The empty draw-done packet of every glx swap still finished and
+submitted an empty command buffer; a packet without GPU work is no longer
+submitted (its padding-only staging bytes are not copied). Tracy builds keep
+the submit for their GPU timestamps.
+
+diff --git a/lib/gfx/frame.cpp b/lib/gfx/frame.cpp
+index 64fb696..fa63cc7 100644
+--- a/lib/gfx/frame.cpp
++++ b/lib/gfx/frame.cpp
+@@ -226,6 +226,19 @@ struct PendingSubmission {
+   std::shared_ptr<wgpu::QueueWorkDoneStatus> status;
+ };
+ std::optional<PendingSubmission> g_lastWorkSubmission;
++// New runtime, render worker only: the staging copies of the packet being
++// submitted; they go into the same Submit, ahead of the packet's passes.
++std::optional<wgpu::CommandBuffer> g_stagingCopies;
++
++void submit_packet(const wgpu::CommandBuffer& commands) {
++  if (g_stagingCopies) {
++    const std::array buffers{*g_stagingCopies, commands};
++    g_queue.Submit(buffers.size(), buffers.data());
++    g_stagingCopies.reset();
++  } else {
++    g_queue.Submit(1, &commands);
++  }
++}
+ 
+ PendingSubmission track_submission() {
+   auto status = std::make_shared<wgpu::QueueWorkDoneStatus>(wgpu::QueueWorkDoneStatus::Error);
+@@ -738,10 +751,7 @@ void end_frame(EndFrameCallback callback) {
+       // submitted ahead of the passes that read them.
+       const wgpu::CommandEncoderDescriptor descriptor{.label = "Frame staging copies"};
+       auto copies = g_device.CreateCommandEncoder(&descriptor);
+-      if (encode_frame_buffer_copies(copies, packet)) {
+-        const auto commands = copies.Finish();
+-        g_queue.Submit(1, &commands);
+-      }
++      if (encode_frame_buffer_copies(copies, packet)) g_stagingCopies = copies.Finish();
+     }
+     auto encoder = std::move(packet.encoder);
+     const auto stats = packet.stats;
+@@ -757,6 +767,7 @@ void end_frame(EndFrameCallback callback) {
+     if (callback) {
+       callback(encoder, std::move(afterSubmitCallbacks));
+     }
++    AURORA_ASSERT(!g_stagingCopies, "Staging copies of a native packet were not submitted");
+     g_frameSlots.release(frameSlot);
+     expire_cached_bind_groups();
+     map_staging_buffer(stagingSlot, true);
+@@ -778,7 +789,7 @@ void submit_hardware_frame_and_wait() {
+     webgpu::gpu_prof::frame_end(encoder);
+     const wgpu::CommandBufferDescriptor descriptor{.label = "Original GX native submission"};
+     const auto commands = encoder.Finish(&descriptor);
+-    g_queue.Submit(1, &commands);
++    submit_packet(commands);
+     webgpu::gpu_prof::after_submit();
+     for (auto& callback : callbacks) if (callback) callback();
+     after_submit();
+@@ -808,10 +819,20 @@ void submit_hardware_frame() {
+   finish();
+   const bool hasWork = recording_has_gpu_work();
+   end_frame([hasWork](wgpu::CommandEncoder& encoder, std::vector<AfterSubmitCallback> callbacks) {
++#ifndef TRACY_ENABLE
++    if (!hasWork) {
++      // Nothing to execute (the empty draw-done packet of every swap): its
++      // empty command buffer and unread staging bytes are not submitted.
++      g_stagingCopies.reset();
++      for (auto& callback : callbacks) if (callback) callback();
++      after_submit();
++      return;
++    }
++#endif
+     webgpu::gpu_prof::frame_end(encoder);
+     const wgpu::CommandBufferDescriptor descriptor{.label = "Original GX native submission"};
+     const auto commands = encoder.Finish(&descriptor);
+-    g_queue.Submit(1, &commands);
++    submit_packet(commands);
+     webgpu::gpu_prof::after_submit();
+     for (auto& callback : callbacks) if (callback) callback();
+     after_submit();

@@ -1,0 +1,33 @@
+From: mscharged-port
+Subject: New runtime: staging copies in whole 256 KiB blocks
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance (feat/performance). Apply after 0124.
+
+For every buffer copy Mesa's Intel Vulkan driver (blorp_buffer_copy ->
+isl_surf_from_mem) searches a 2D surface shape for the copy's 16-byte block
+count by trial division. A count with no small divisors costs thousands of
+divisions: after 0123 the four staging copies of a frame still took about
+0.75 ms of the render thread on a UHD 620. Copying whole 256 KiB blocks
+(multiples of 16384 blocks) keeps the search to a few steps. The extra bytes
+come from the same staging region and land past every range the frame reads.
+
+diff --git a/lib/gfx/encoding.cpp b/lib/gfx/encoding.cpp
+index eb799bb..bc786db 100644
+--- a/lib/gfx/encoding.cpp
++++ b/lib/gfx/encoding.cpp
+@@ -441,9 +441,12 @@ bool encode_frame_buffer_copies(wgpu::CommandEncoder& cmd, const FramePacket& fr
+     if (size == 0) {
+       return;
+     }
+-    // Whole 16-byte blocks keep the copy on the driver's widest path. The
+-    // padding stays inside the region, past every range a command reads.
+-    const uint64_t end = std::min<uint64_t>(AURORA_ALIGN(static_cast<uint64_t>(size), 16), capacity);
++    // Whole 256 KiB blocks: Mesa's Intel driver searches a 2D shape for every
++    // buffer copy by trial division of its 16-byte block count (thousands of
++    // divisions for an odd count); a multiple of 16384 blocks takes a few.
++    // The padding stays inside the region, past every range a command reads.
++    constexpr uint64_t CopyBlock = 256 * 1024;
++    const uint64_t end = std::min<uint64_t>(AURORA_ALIGN(static_cast<uint64_t>(size), CopyBlock), capacity);
+     cmd.CopyBufferToBuffer(staging_buffer(frame.stagingBuffer), stagingOffset, dst, 0, end);
+     copied = true;
+   };
