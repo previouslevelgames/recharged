@@ -475,11 +475,13 @@ void AttachGamepadPlayer(State& state, Device& pad, int index) {
     } else
         SDL_Log("Gamepad %d (%s) has no gyro: its stick moves the pointer", index + 1, name ? name : "controller");
 }
-// The Nunchuk stick (or with swapped sticks the pointer) after the profile's
-// dead zones; y down as SDL reports it. A real Nunchuk's stick
+// The stick of the Nunchuk stick or the pointer (the profile's sticks) after
+// the profile's dead zones; y down as SDL reports it. A real Nunchuk's stick
 // (octagon_stick) leaves its dead zones to the game.
 mscharged::platform::StickTilt PadStick(const Device& pad, bool nunchuk) {
-    const bool left = nunchuk != pad.profile.swap_sticks;
+    const auto sticks = pad.profile.sticks;
+    const bool left = sticks == mscharged::GamepadSticks::Shared
+        || nunchuk != (sticks == mscharged::GamepadSticks::Swapped);
     const bool octagon = nunchuk && pad.profile.octagon_stick;
     return mscharged::platform::GamepadStickTilt(pad.input, left ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX,
                                                  left ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY,
@@ -534,20 +536,24 @@ void UpdateGamepadShakes(Device& pad, bool focused) {
     }
 }
 mscharged::platform::NativeDpdObservation GamepadPointer(State& state, Device& pad, bool focused, Clock::time_point now) {
-    // The pointer stick (right by default) moves across the picture: pushed past
-    // the outer dead zone it crosses its width in about 0.8 s. It stays where
-    // it was left.
+    // The pointer stick (see the profile's sticks) moves across the picture:
+    // pushed past the outer dead zone it crosses its width in about 0.8 s. It
+    // stays where it was left. Stick and gyro pointers go back to the middle
+    // whenever the game turns the pointer camera on (menus, the goalie's Mega
+    // Strike defence): in a match the camera is off, and a stick that also
+    // moves the Nunchuk stick (shared sticks) has moved the pointer meanwhile.
     const float seconds = pad.last_service == Clock::time_point{} ? 0.0f
         : std::min(0.1f, std::chrono::duration<float>(now - pad.last_service).count());
     pad.last_service = now;
+    const bool camera = pad.channel >= 0 && WPADIsDpdEnabled(pad.channel);
+    const bool camera_on = camera && !pad.pointer_camera;
+    pad.pointer_camera = camera;
     if (pad.gyro) {
-        // The gyro turns the pointer like a Wii Remote. It goes back to the
-        // middle on the recentre button and whenever the game turns the
-        // pointer camera on (menus, the goalie's Mega Strike defence). Turns
-        // while the window has no focus are dropped.
+        // The gyro turns the pointer like a Wii Remote. It also goes back to
+        // the middle on the recentre button. Turns while the window has no
+        // focus are dropped.
         const bool recenter = focused && PadHeld(pad, mscharged::GamepadActionRecenterPointer);
-        const bool camera = pad.channel >= 0 && WPADIsDpdEnabled(pad.channel);
-        const bool centre = (recenter && !pad.recenter_held) || (camera && !pad.pointer_camera);
+        const bool centre = (recenter && !pad.recenter_held) || camera_on;
         mscharged::platform::GyroTurn turn;
         {
             std::lock_guard lock(state.mutex);
@@ -562,8 +568,8 @@ mscharged::platform::NativeDpdObservation GamepadPointer(State& state, Device& p
             mscharged::platform::MoveGyroPointer(pad.pointer_x, pad.pointer_y, turn, pad.profile.gyro_speed,
                                                  state.picture_aspect);
         pad.recenter_held = recenter;
-        pad.pointer_camera = camera;
-    } else if (focused) {
+    } else if (camera_on) pad.pointer_x = pad.pointer_y = 0.5f;
+    else if (focused) {
         constexpr float speed = 1.25f;
         const auto tilt = PadStick(pad, false);
         pad.pointer_x = std::clamp(pad.pointer_x + tilt.x * speed * seconds, 0.0f, 1.0f);
@@ -668,11 +674,10 @@ void ServiceDesktopWpad() {
             try {
                 *slot = MakeDevice(input);
                 (*slot)->profile = state.settings.gamepad_profiles[index];
-                // The built-in Default takes this controller's own default layout.
+                // A built-in layout (Default, Classic 1.1) takes this controller's own.
                 if ((*slot)->profile.follow_controller)
-                    (*slot)->profile = {mscharged::platform::DefaultGamepadBindings(
-                                            mscharged::platform::GamepadFamilyOf(SDL_GetGamepadType(input))),
-                                        false, true};
+                    (*slot)->profile = mscharged::platform::GamepadLayoutProfile(
+                        mscharged::platform::GamepadFamilyOf(SDL_GetGamepadType(input)), (*slot)->profile.layout);
                 if (state.settings.gamepad_players) AttachGamepadPlayer(state, **slot, index);
             }
             catch (...) {
@@ -779,6 +784,11 @@ void ServiceDesktopWpad() {
         const auto pointer = GamepadPointer(state, *pad, focused, now);
         Report(*pad, buttons, now, pad->dpd_source.generation ? &pointer : nullptr, &nunchuk);
     }
+}
+int DesktopKeyboardWpadChannel() {
+    auto& state = Get();
+    if (!state.ready || !state.keyboard) return -1;
+    return GetNativeWpadChannel(state.keyboard->virtual_id);
 }
 void ShutdownDesktopWpad() {
     auto& state = Get();

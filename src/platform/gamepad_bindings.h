@@ -5,6 +5,7 @@
 #include <SDL3/SDL_gamepad.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -24,18 +25,30 @@ enum GamepadStickDirection {
     RightStickUp, RightStickDown, RightStickLeft, RightStickRight,
     GamepadStickDirectionCount
 };
-// One or two inputs per gamepad action; kGamepadNone = unused.
-using GamepadBinding = std::array<GamepadInput, 2>;
+// Up to three inputs per gamepad action, the used ones first; kGamepadNone =
+// unused. Three fit the D-pad directions of a stick as D-pad plus one more
+// button (Default's D-pad right: the D-pad, the right stick and the right
+// bumper).
+inline constexpr std::size_t kGamepadBindingInputs = 3;
+using GamepadBinding = std::array<GamepadInput, kGamepadBindingInputs>;
 using GamepadBindings = std::array<GamepadBinding, GamepadActionCount>;
+inline constexpr GamepadBinding kNoGamepadBinding{kGamepadNone, kGamepadNone, kGamepadNone};
+// The number of inputs of a binding, whether it has `input`, `input` taken
+// away (the others move up) and `input` added at the end (false when it is
+// there already or the binding is full).
+std::size_t GamepadBindingSize(const GamepadBinding& binding);
+bool GamepadBindingHas(const GamepadBinding& binding, GamepadInput input);
+void RemoveGamepadInput(GamepadBinding& binding, GamepadInput input);
+bool AddGamepadInput(GamepadBinding& binding, GamepadInput input);
 
 // Settings of one gamepad player.
 struct GamepadProfile {
     GamepadBindings bindings{};
-    // false: the left stick moves the Nunchuk stick and the right stick points;
-    // true swaps them.
-    bool swap_sticks = false;
-    // The built-in Default: the bindings are replaced by the default layout
-    // of the controller that connects (DefaultGamepadBindings(family)).
+    // The sticks of the Nunchuk stick and the pointer.
+    GamepadSticks sticks = GamepadSticks::Split;
+    // A built-in profile that follows the controller (Default, Classic 1.1):
+    // the profile is replaced by `layout` for the controller that connects
+    // (GamepadLayoutProfile).
     bool follow_controller = false;
     // Dead zones of both sticks and the triggers' press point, in percent of
     // travel (see gamepad_actions.h).
@@ -49,6 +62,7 @@ struct GamepadProfile {
     // has one (issue #14); gyro_speed in percent (see gamepad_actions.h).
     bool gyro_pointer = false;
     int gyro_speed = kDefaultGyroSpeed;
+    GamepadLayout layout = GamepadLayout::Default;
 };
 
 // Controller families with their own default layout and button names.
@@ -64,10 +78,11 @@ const char* GamepadProfileKind(GamepadFamily family);
 GamepadFamily GamepadFamilyOfKind(std::string_view kind);
 // "Xbox and PlayStation", "Nintendo" or "GameCube".
 const char* GamepadKindName(std::string_view kind);
-// The default layout of a family as INI text per action. Every family keeps
+// A built-in layout for a family as INI text per action. Every family keeps
 // the Wii buttons where that controller's own labels suggest: Nintendo's A
 // is its right face button; GameCube lacks buttons for 1, - and HOME.
-std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily family);
+std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily family,
+                                                                 GamepadLayout layout = GamepadLayout::Default);
 
 // SDL names ("a", "leftshoulder", "righttrigger") and stick directions
 // ("rightstick_up"); unknown names, analog stick axes ("leftx") and
@@ -81,7 +96,9 @@ std::string FormatGamepadBinding(const GamepadBinding& binding);
 // without one.
 GamepadBindings ParseGamepadBindings(const std::array<std::string, GamepadActionCount>& texts);
 GamepadBindings DefaultGamepadBindings();
-GamepadBindings DefaultGamepadBindings(GamepadFamily family);
+GamepadBindings DefaultGamepadBindings(GamepadFamily family, GamepadLayout layout = GamepadLayout::Default);
+// The profile a built-in layout plays with on a controller of `family`.
+GamepadProfile GamepadLayoutProfile(GamepadFamily family, GamepadLayout layout);
 // Half a trigger's travel: the launcher takes a trigger press there.
 inline constexpr Sint16 kGamepadTriggerPressed = 16384;
 // A trigger counts as pressed past `press` percent of its travel.

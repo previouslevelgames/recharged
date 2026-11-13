@@ -5,12 +5,14 @@
 #include <cstdio>
 #include <stdexcept>
 
+using mscharged::BackgroundFrameRate;
 using mscharged::CapFrameRate;
 using mscharged::DecideFramePacing;
 using mscharged::DescribeFramePacing;
 using mscharged::FrameRate;
 using mscharged::FrameRateText;
 using mscharged::ParseFrameRate;
+using mscharged::ValidBackgroundFrameRate;
 
 namespace
 {
@@ -94,6 +96,25 @@ int main()
             "Rollback cap changed a rate at or below 60");
         pacing = DecideFramePacing(CapFrameRate(Rate("unlimited"), 60, 144.0), 144.0, true);
         Check(!pacing.vsync_paces && pacing.interval_ns == 16666667, "Rollback cap under VSync on a 144 Hz display");
+
+        // In the background: at most 15, 30 or 60 FPS, the original included
+        // below its 59.94; a lower choice kept.
+        for (int hz : {15, 30, 60}) Check(ValidBackgroundFrameRate(hz), "Background frame rate rejected");
+        for (int hz : {0, 14, 20, 45, 59, 120}) Check(!ValidBackgroundFrameRate(hz), "Invalid background frame rate accepted");
+        Check(BackgroundFrameRate(FrameRate{}, 30, 144.0) == Rate("30")
+                && BackgroundFrameRate(FrameRate{}, 15, 0.0) == FrameRate(FrameRate{FrameRate::Kind::Fixed, 15}),
+            "Background cap below the original");
+        Check(BackgroundFrameRate(FrameRate{}, 60, 144.0) == FrameRate{}, "Background cap of 60 changed the original");
+        Check(BackgroundFrameRate(Rate("144"), 30, 144.0) == Rate("30")
+                && BackgroundFrameRate(Rate("display"), 60, 143.998) == Rate("60")
+                && BackgroundFrameRate(Rate("unlimited"), 15, 60.0) == FrameRate(FrameRate{FrameRate::Kind::Fixed, 15}),
+            "Background cap above it");
+        Check(BackgroundFrameRate(Rate("30"), 60, 144.0) == Rate("30"), "Background cap raised a lower rate");
+        pacing = DecideFramePacing(BackgroundFrameRate(FrameRate{}, 30, 60.0), 60.0, true);
+        Check(pacing.host_paced && !pacing.vsync_paces && pacing.interval_ns == 33333333,
+            "Background cap of the original under VSync");
+        pacing = DecideFramePacing(BackgroundFrameRate(Rate("display"), 15, 144.0), 144.0, false);
+        Check(pacing.interval_ns == 66666667, "15 FPS background slot");
 
         // Session log descriptions.
         const auto text = [](const char* rate, double display, bool vsync) {

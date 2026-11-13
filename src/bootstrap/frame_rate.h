@@ -89,6 +89,29 @@ inline FrameRate CapFrameRate(const FrameRate& rate, int hz, double display_hz)
     return FrameRate{FrameRate::Kind::Fixed, hz};
 }
 
+// display.background_frame_rate: the frames per second at most while the
+// game's window is minimized or another window has the focus, when
+// display.background_throttle is on.
+inline constexpr int kBackgroundFrameRates[] = {15, 30, 60};
+inline constexpr int kDefaultBackgroundFrameRate = 30;
+
+inline bool ValidBackgroundFrameRate(int hz)
+{
+    for (const int rate : kBackgroundFrameRates)
+        if (rate == hz) return true;
+    return false;
+}
+
+// `rate` held to `hz` frames per second while the window is in the
+// background. Unlike CapFrameRate this also holds the original: below its
+// 59.94 FPS the host paces the frames then.
+inline FrameRate BackgroundFrameRate(const FrameRate& rate, int hz, double display_hz)
+{
+    if (rate.kind == FrameRate::Kind::Original)
+        return hz < 59 ? FrameRate{FrameRate::Kind::Fixed, hz} : rate;
+    return CapFrameRate(rate, hz, display_hz);
+}
+
 // What the runtime does for a frame rate on a display (refresh rate in Hz, 0
 // when unknown) with or without VSync.
 struct FramePacing
