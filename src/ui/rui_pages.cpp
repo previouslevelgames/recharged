@@ -285,10 +285,13 @@ const overlay::OnlinePanelPreset* ChosenPreset(const overlay::OnlinePanelModel& 
     return online.presets.empty() ? nullptr : &online.presets[std::size_t(overlay::ChosenOnlinePanelPreset(online))];
 }
 
-// ONLINE: the set going on first, then where to go.
+// ONLINE: the set going on first, then where to go. While online play waits
+// for an update, why first, and the game's own online stays closed.
 void DrawOnline(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
+    const bool locked = online.update_lock != overlay::UpdateLock::None;
+    if (locked) list.Note(overlay::UpdateLockNote(online.update_lock).c_str());
     if (online.signed_out) DrawNoProfile(list);
     else DrawSet(model, list, actions);
     if (list.Plate(T("menus.online.play"))) actions.open = PageId::Play;
@@ -296,7 +299,10 @@ void DrawOnline(const PageModel& model, List& list, PageActions& actions)
         ? T("menus.you.do_not_disturb") : nullptr;
     if (list.Plate(T("menus.online.profile"), nullptr, true, busy)) actions.open = PageId::Profile;
     if (list.Plate(T("menus.online.leaderboard"))) actions.open = PageId::Leaderboard;
-    if (model.from_wheel && list.Plate(T("menus.online.wii_online"))) actions.wii_online = true;
+    if (model.from_wheel
+        && list.Plate(T("menus.online.wii_online"), nullptr, !locked,
+                      locked ? overlay::UpdateLockReason(online.update_lock).c_str() : nullptr))
+        actions.wii_online = true;
 }
 
 // PLAY: against a friend, a random opponent, or RANKED; each with how it stands.

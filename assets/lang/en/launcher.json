@@ -402,6 +402,8 @@
     "no_friend_code": "no friend code yet",
     "a_set": "A set",
     "blocked": "The game can't start here. {{reason}}",
+    "update_outdated": "Online play is off until Recharged is updated: use Check for updates on the Play page.",
+    "update_unchecked": "Online play is off until a check for updates succeeds: use Check for updates on the Play page.",
     "accept_about": "Accept starts the game and goes straight to the set.",
     "start_failed": "Your game couldn't start.",
     "start_failed_why": "Your game couldn't start. {{reason}}",

@@ -164,9 +164,25 @@ struct OnlinePanelSearch
     int asked = 0;     // players asked so far
 };
 
+// Online play waits for an update (enforced updates, launcher/online_gate.h):
+// an official release that is not the newest one or could not check, or
+// whose check still runs. Nothing goes online from this game then: no
+// challenge, search, accept, Ready, rematch or the game's own online;
+// declining and withdrawing stay.
+enum class UpdateLock
+{
+    None,
+    Checking,
+    Outdated,
+    Unchecked,
+};
+
 struct OnlinePanelModel
 {
     OnlinePanelPlayer me;
+    // Online play waits for an update: the ONLINE hub says why
+    // (UpdateLockNote), and its WII ONLINE stays closed.
+    UpdateLock update_lock = UpdateLock::None;
     OnlinePanelSet set;
     // A line over the lists while nobody can be challenged from this game.
     std::string note;
@@ -216,6 +232,8 @@ struct OnlinePanelContext
     std::optional<Score> score;
     // This game plays a match (or a set's game): nobody can be challenged from it now.
     bool in_match = false;
+    // Online play waits for an update (UpdateLock).
+    UpdateLock update_lock = UpdateLock::None;
     // There are rules to challenge by (the server has a rule set).
     bool can_challenge = true;
     // The server's rule sets and the player's own presets (the launcher's
@@ -250,6 +268,11 @@ struct OnlinePanelContext
 OnlinePanelModel MakeOnlinePanelModel(const platform::PlayerLists& lists,
                                       const std::optional<platform::ProfileMatch>& match,
                                       const OnlinePanelContext& context);
+
+// Why online play waits for an update, in a few words (a row's, a button's;
+// "Update Recharged first"), and as the lists' note; empty without the lock.
+std::string UpdateLockReason(UpdateLock lock);
+std::string UpdateLockNote(UpdateLock lock);
 
 // What waits for the player in the panel: a challenge to answer, their Ready
 // to give for a set. The overlay's Online tab shows it as a badge.

@@ -3417,6 +3417,23 @@ private:
         return config_ok_ && !pending_ && check_.info && check_.selection == DiscSelection();
     }
 
+    // What keeps this computer from a set: whatever keeps it from playing,
+    // and an update it lacks (enforced updates, launcher/online_gate.h): an
+    // official release whose check failed, or with a newer release it has not
+    // installed, finds Online closed in its game. Empty when a set can start.
+    std::string SetBlocker() const
+    {
+        if (std::string blocker = PlayBlocker(); !blocker.empty()) return blocker;
+        if (!updates_ || update_preview_ || !GatesOnline(updates_->Build())
+            || update_.channel != UpdateChannel::Release)
+            return {};
+        using State = UpdateService::State;
+        if (update_.state == State::CheckFailed) return texts::T("launcher.challenge.update_unchecked");
+        if (update_.state == State::Available || update_.state == State::InstallFailed)
+            return texts::T("launcher.challenge.update_outdated");
+        return {};
+    }
+
     // Why Play is unavailable, or empty when the game can start.
     std::string PlayBlocker() const
     {
@@ -4665,9 +4682,9 @@ private:
     void UpdateCompetitive()
     {
         if (!competitive_) return;
-        // What keeps this computer from playing a set (no game image...), for
-        // the buttons that would start one.
-        set_blocker_ = PlayBlocker();
+        // What keeps this computer from playing a set (no game image, an
+        // update it lacks...), for the buttons that would start one.
+        set_blocker_ = SetBlocker();
         // The game this computer's sets play (the checked image's version).
         platform::ProfileService::SetPlayedGame(check_.info ? check_.info->game_id.substr(0, 4) : std::string());
         competitive_->SetServer(platform::ProfileServerAddress(draft_.profile_server).value_or(std::string()));
@@ -5245,7 +5262,7 @@ private:
     {
         const auto& status = competitive_status_;
         if (!status.match) return;
-        if (const auto blocker = PlayBlocker(); !blocker.empty())
+        if (const auto blocker = SetBlocker(); !blocker.empty())
         {
             set_start_error_ = blocker;
             Notice(texts::T("launcher.challenge.cannot_start", {{"reason", blocker}}), NoticeKind::Error);
@@ -13345,7 +13362,7 @@ private:
     std::int64_t alerted_ = 0;          // the last chime: a challenge's id * 2, or a go's GoKey * 2 + 1
     std::int64_t countdown_go_ = 0;     // the go counting down (GoKey), and when the game starts (SDL ticks)
     std::uint64_t countdown_end_ = 0;
-    std::string set_blocker_;           // why this computer can't play a set now (PlayBlocker), or empty
+    std::string set_blocker_;           // why this computer can't play a set now (SetBlocker), or empty
     // The challenge dialog: the challenge declined (it does not come back),
     // the one accepted here and the last failure before its Accept, and why
     // the set's game could not start.
