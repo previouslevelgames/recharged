@@ -436,6 +436,8 @@ void ReplayFrame(std::uint64_t frame, int firstTask, int lastTask, unsigned& nex
 const char* CannotRollBack(unsigned target)
 {
     State& s = *sState;
+    // A place in the ring an undone step took since.
+    if (s.steps[target % kRing].frame != target) return "its save was gone";
     // The end of the last step's frame counts as well.
     const auto producers = mscharged::platform::CurrentGameByteProducers();
     if (producers.pending)
@@ -585,10 +587,16 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     {
         // Steps undone: they run again when their inputs have all arrived (the
         // inputs that did arrive are kept), and their time goes back to the
-        // fixed update, to catch up. The saves undone no longer count: the
-        // trim would go back past the tracking's start, to a step of the
-        // tracking before.
-        if (s.latest > s.replayEnd) s.stored -= static_cast<int>(s.latest - s.replayEnd);
+        // fixed update, to catch up. The saves undone no longer count, nor
+        // those of the steps they took the ring's places of: the trim would
+        // go back past the tracking's start, to a step of the tracking
+        // before, or to an undone step's place, whose mark lies beyond the
+        // journal.
+        if (s.latest > s.replayEnd)
+        {
+            const int undone = static_cast<int>(s.latest - s.replayEnd);
+            s.stored = std::min(s.stored - undone, kRing - undone);
+        }
         s.latest = s.replayEnd;
         s.net.lastInputFrame = s.replayEnd;
         s.net.waitThrough = std::max(s.net.waitThrough, ran);
