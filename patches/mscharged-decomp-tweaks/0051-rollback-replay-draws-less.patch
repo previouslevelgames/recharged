@@ -1,0 +1,265 @@
+From: mscharged-port
+Subject: Rollback: a replay builds no drawing either
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A rollback replays whole frames and draws nothing (tweak patch 0042): the
+models a replayed frame attaches go nowhere (GLView::AttachModel). Building
+them still ran, and the profile of a replayed Game Render was 60% the
+characters' pose blend (DrawableCharacter::Blend, BuildNodeMatrices), then
+the indicators' and meters' polygons (glBuildPoly2Model) and the crowd
+impostors' views; a replayed Front End spent 85% walking the scenes'
+timelines to attach them (FESceneManager::RenderActiveScenes).
+
+During a replay (mscharged_rollback_resimulating) the 2D polygons and quads
+are not built (glPoly2::Attach, glAttachPoly2, glAttachQuad3 say they
+attached), the blended characters keep their last drawing's pose (their
+positions, heights and facing still blend: the cameras, the ball and the
+effects read those), unless an effect that follows the character's joints
+read the pose since its last blend (EmissionController::SetPoseAccumulator
+marks it in the pose's padding: Waluigi's wall, emitted from a pose a
+frame or two old, left gaps where a replay ran), the crowd impostors are left
+alone, the front end's scenes are updated but not rendered, the particles
+are updated but their quads, models and field lights are not built
+(ParticleUpdateTask), and the object blur's trails keep their points but
+build no mesh (BlurManager::Update). What those compute is read by the
+drawing alone, which the next frame does again.
+
+diff --git a/src/Game/Drawable/DrawableCharacter.cpp b/src/Game/Drawable/DrawableCharacter.cpp
+index 387d75d..344596f 100644
+--- a/src/Game/Drawable/DrawableCharacter.cpp
++++ b/src/Game/Drawable/DrawableCharacter.cpp
+@@ -28,6 +28,9 @@
+ #include "NL/gl/glMaterialParameters.h"
+ #include "NL/glx/GXCharacterDamageMaterialProgram.h"
+ #include "NL/glx/glxTexture.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
+ #include "NL/nlTask.h"
+@@ -607,6 +610,18 @@ void DrawableCharacter::Blend(const float* blendFactors, DrawableCharacter& lhs,
+     {
+         poseAccumulator = new (nlMalloc(sizeof(cPoseAccumulator), 8, false)) cPoseAccumulator(lhs.poseAccumulator->m_BaseSHierarchy, false);
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay draws nothing (GameRenderTask::Run): the pose, which
++    // the drawing reads, keeps the last drawing's. The positions above blend
++    // as ever: the cameras and the ball read them. An effect that follows the
++    // character's joints (Waluigi's wall) marks the pose each frame it reads
++    // it (EmissionController::SetPoseAccumulator): that pose blends in
++    // replays too, or the effect would emit from where the joints were.
++    const bool readByEffect = poseAccumulator->m_Padding[0] != 0;
++    poseAccumulator->m_Padding[0] = 0;
++    if (mscharged_rollback_resimulating() && !readByEffect)
++        return;
++#endif
+ 
+     poseAccumulator->m_Scale = scale;
+     poseAccumulator->InitAccumulators();
+diff --git a/src/Game/Effects/EmissionController.cpp b/src/Game/Effects/EmissionController.cpp
+index 7694981..2109750 100644
+--- a/src/Game/Effects/EmissionController.cpp
++++ b/src/Game/Effects/EmissionController.cpp
+@@ -186,6 +186,11 @@ void EmissionController::SetPoseAccumulator(
+     const cPoseAccumulator& pPose)
+ {
+     m_pPose = &pPose;
++#if defined(MSCHARGED_TWEAKS)
++    // The next blend of this pose runs in a rollback's replay too
++    // (DrawableCharacter::Blend).
++    const_cast<cPoseAccumulator&>(pPose).m_Padding[0] = 1;
++#endif
+ }
+ 
+ void EmissionController::SetAnimController(
+diff --git a/src/Game/Task/FrontEndTask.cpp b/src/Game/Task/FrontEndTask.cpp
+index 4c9fceb..50f1374 100644
+--- a/src/Game/Task/FrontEndTask.cpp
++++ b/src/Game/Task/FrontEndTask.cpp
+@@ -96,6 +96,11 @@ static void DrawFrontEndElements(float fDeltaT)
+         if (!IsHBMActive())
+ #endif // HBM-owned guard omitted with uninitialized HBM
+         {
++#if defined(MSCHARGED_TWEAKS)
++            // A rollback's replay draws nothing: the scenes' render walks their
++            // timelines to attach what GLView drops; their updates ran above.
++            if (!mscharged_rollback_resimulating())
++#endif
+             FESceneManager::Instance()->RenderActiveScenes();
+         }
+ 
+diff --git a/src/Game/Task/GameRenderTask.cpp b/src/Game/Task/GameRenderTask.cpp
+index 74fdf18..2a2c2b6 100644
+--- a/src/Game/Task/GameRenderTask.cpp
++++ b/src/Game/Task/GameRenderTask.cpp
+@@ -559,6 +559,11 @@ void GameRenderTask::RenderFrame(float fDeltaT, bool bPictureInPicture)
+ 
+     if (g_bRenderWorldEffects)
+     {
++#if defined(MSCHARGED_TWEAKS)
++        // A replay draws nothing: the crowd's impostors, their views, sprites
++        // and clusters, serve the drawing alone.
++        if (draw)
++#endif
+         if (ImpostorManager::GetInstance()->mEnabled)
+         {
+             UpdateImpostorPositions();
+diff --git a/src/NL/gl/glDraw2.cpp b/src/NL/gl/glDraw2.cpp
+index 1c3669a..2873b12 100644
+--- a/src/NL/gl/glDraw2.cpp
++++ b/src/NL/gl/glDraw2.cpp
+@@ -17,6 +17,9 @@
+ #include "NL/gl/glStruct.h"
+ #include "NL/gl/glView.h"
+ #include "NL/gl/glMaterialParameters.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ 
+ #include <string.h>
+ #include "NL/gl/glTexture.h"
+@@ -36,6 +39,12 @@ bool glPoly2::Attach(
+ {
+     if (view == 0)
+         return false;
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay draws nothing: the model would go nowhere
++    // (GLView::AttachModel), so it is not built either.
++    if (mscharged_rollback_resimulating())
++        return true;
++#endif
+ 
+     GLTexturedColourMeshWriter writer;
+     glModel* model = glBuildPoly2Model(this, 1, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig != 0);
+@@ -158,6 +167,12 @@ bool glAttachPoly2(GLView* view, unsigned long numPolys, glPoly2* pPolys,
+ #ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
+     if (!view || view->m_NativeIterating || glNativeViewDispatchActive())
+         throw std::logic_error("Native glPoly2 requires a non-dispatching view");
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay draws nothing: the model would go nowhere
++    // (GLView::AttachModel), so it is not built either.
++    if (mscharged_rollback_resimulating())
++        return true;
+ #endif
+     glModel* model = glBuildPoly2Model(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+     if (model == 0)
+@@ -172,6 +187,12 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+ #ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
+     if (!view || view->m_NativeIterating || glNativeViewDispatchActive())
+         throw std::logic_error("Native glPoly2 requires a non-dispatching view");
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay draws nothing: the model would go nowhere
++    // (GLView::AttachModel), so it is not built either.
++    if (mscharged_rollback_resimulating())
++        return true;
+ #endif
+     glModel* model = glBuildPoly2Model(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+     if (model == 0)
+@@ -186,6 +207,12 @@ bool glAttachPoly2(GLView* view, int layer, unsigned long numPolys,
+ #ifdef MSCHARGED_DIAGNOSTIC_POLYGONS
+     if (!view || !pUserData || view->m_NativeIterating || glNativeViewDispatchActive())
+         throw std::logic_error("Native clipped glPoly2 requires data and a non-dispatching view");
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay draws nothing: the model would go nowhere
++    // (GLView::AttachModel), so it is not built either.
++    if (mscharged_rollback_resimulating())
++        return true;
+ #endif
+     static unsigned long scissorbox = nlStringHash("scissorbox");
+     glModel* model = glBuildPoly2ModelFloatUV(pPolys, numPolys, pMatrixHandle, gl_GetCurrentStateBundle()->texconfig == 1);
+diff --git a/src/NL/gl/glDraw3.cpp b/src/NL/gl/glDraw3.cpp
+index 8315351..ac4088f 100644
+--- a/src/NL/gl/glDraw3.cpp
++++ b/src/NL/gl/glDraw3.cpp
+@@ -9,11 +9,20 @@
+ #include "NL/gl/glState.h"
+ #include "NL/gl/glView.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ 
+ 
+ #if !defined(MSCHARGED_DIAGNOSTIC_QUADS)
+ bool glAttachQuad3(eGLView view, unsigned long count, glQuad3* quads)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay draws nothing: the model would go nowhere
++    // (GLView::AttachModel), so it is not built either.
++    if (mscharged_rollback_resimulating())
++        return true;
++#endif
+     int i = 0;
+     glQuad3* quad = quads;
+     for (; i < count; i++, quad++)
+@@ -26,6 +35,12 @@ bool glAttachQuad3(eGLView view, unsigned long count, glQuad3* quads)
+ bool glAttachQuad3(
+     eGLView view, int stream, unsigned long count, glQuad3* quads)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay draws nothing: the model would go nowhere
++    // (GLView::AttachModel), so it is not built either.
++    if (mscharged_rollback_resimulating())
++        return true;
++#endif
+     glQuad3* quad = quads;
+     int i = 0;
+     for (; i < count; i++, quad++)
+diff --git a/src/Game/Task/ParticleUpdateTask.cpp b/src/Game/Task/ParticleUpdateTask.cpp
+index a5ee729..98d4429 100644
+--- a/src/Game/Task/ParticleUpdateTask.cpp
++++ b/src/Game/Task/ParticleUpdateTask.cpp
+@@ -3,6 +3,9 @@
+ 
+ #include "Game/Effects/EmissionManager.h"
+ #include "Game/SharedStaticStorage.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ 
+ ParticleUpdateTask* ParticleUpdateTask::sInstance;
+ 
+@@ -52,6 +55,13 @@ void ParticleUpdateTask::Run(float dt)
+     {
+         render = mCanRender();
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // A rollback's replay draws nothing: the particles' quads, models and
++    // field lights are built for the drawing alone (the lights feed the
++    // characters' shading); the update above ran as ever.
++    if (mscharged_rollback_resimulating())
++        render = false;
++#endif
+     if (mRenderEnabled && render)
+     {
+         EmissionManager* manager = EmissionManager::Instance();
+diff --git a/src/Game/objectblur.cpp b/src/Game/objectblur.cpp
+index d9c786d..a0a5d17 100644
+--- a/src/Game/objectblur.cpp
++++ b/src/Game/objectblur.cpp
+@@ -13,6 +13,9 @@
+ #include "NL/gl/glView.h"
+ #include "NL/nlMemory.h"
+ #include "NL/nlString.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_rollback.h"
++#endif
+ 
+ BlurHandler* BlurManager::m_activeBlurHandler = 0;
+ 
+@@ -393,6 +396,11 @@ void BlurManager::Update(float deltaTime)
+             }
+         }
+         else
++#if defined(MSCHARGED_TWEAKS)
++        // A rollback's replay draws nothing: the trail's mesh is built from
++        // the ring of points, which it leaves alone.
++        if (!mscharged_rollback_resimulating())
++#endif
+         {
+             current->RenderMesh(current->m_uTexHashID);
+         }

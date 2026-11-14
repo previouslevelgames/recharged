@@ -19,8 +19,11 @@ void WriteSummary()
         std::fprintf(file, "rollback: network matches predict, input delay %d steps\n", s.options.inputDelay);
         std::fprintf(file, "DESYNCS: %llu", static_cast<unsigned long long>(s.net.desyncs));
         if (s.net.desyncs) std::fprintf(file, " (first at frame %u)", s.net.firstDesyncFrame);
-        std::fprintf(file, "; checksums compared with other machines %llu; ROLLBACKS IMPOSSIBLE %llu\n",
-                     static_cast<unsigned long long>(s.net.remoteChecks), static_cast<unsigned long long>(s.net.impossible));
+        std::fprintf(file, "; checksums compared with other machines %llu; ROLLBACKS IMPOSSIBLE %llu; "
+                           "PREDICTED STEPS KEPT for a disc read %llu, when tracking stopped %llu\n",
+                     static_cast<unsigned long long>(s.net.remoteChecks), static_cast<unsigned long long>(s.net.impossible),
+                     static_cast<unsigned long long>(s.net.keptPredicted),
+                     static_cast<unsigned long long>(s.net.stoppedPredicted));
         std::fprintf(file, "steps with predicted inputs %llu, by how many steps predicted:",
                      static_cast<unsigned long long>(s.net.predictedSteps));
         for (int d = 1; d <= kMaxDepth; ++d)
@@ -39,10 +42,12 @@ void WriteSummary()
         std::fprintf(file, "\n");
         std::fprintf(file, "steps undone (a phase change on predicted inputs) %llu, replays cut at a phase change "
                            "%llu; waits for inputs: as the original router %llu, prediction window full %llu; "
-                           "frames a disc read waited for predicted steps %llu\n",
+                           "frames a disc read waited for predicted steps %llu, disc reads started on predicted "
+                           "inputs %llu\n",
                      static_cast<unsigned long long>(s.net.undone), static_cast<unsigned long long>(s.net.truncated),
                      static_cast<unsigned long long>(s.net.lockstepWaits), static_cast<unsigned long long>(s.net.windowWaits),
-                     static_cast<unsigned long long>(s.net.readWaitFrames));
+                     static_cast<unsigned long long>(s.net.readWaitFrames),
+                     static_cast<unsigned long long>(s.net.readsOnPredicted));
         std::fprintf(file, "input delay now %d steps (from %d), lengthened %llu times, shortened %llu\n", s.net.delay,
                      s.options.inputDelay, static_cast<unsigned long long>(s.net.delayLonger),
                      static_cast<unsigned long long>(s.net.delayShorter));
@@ -57,18 +62,19 @@ void WriteSummary()
         std::fprintf(file, "rollback test: up to %d steps back every %d steps\n", s.options.maxDepth, s.options.interval);
     std::fprintf(file, "%llu steps, tracking started %d times; %d regions, %zu pages tracked, %zu hot\n",
                  static_cast<unsigned long long>(s.stats.stepCount), s.stats.starts, s.memory.regionCount, h.trackedPages, h.hotPages);
-    std::fprintf(file, "rollbacks: %llu, steps replayed %llu, frames %llu replayed as %llu; by steps undone:",
+    std::fprintf(file, "rollbacks: %llu, steps replayed %llu, frames replayed %llu; by steps undone:",
                  static_cast<unsigned long long>(s.stats.rollbacks), static_cast<unsigned long long>(s.stats.replayed),
-                 static_cast<unsigned long long>(s.stats.framesReplayed + s.stats.framesMerged),
                  static_cast<unsigned long long>(s.stats.framesReplayed));
     for (int d = 1; d <= kMaxDepth; ++d)
         if (s.stats.byDepth[d]) std::fprintf(file, " %d: %llu", d, static_cast<unsigned long long>(s.stats.byDepth[d]));
     std::fprintf(file, "\nREPLAYED STEPS WITH ANOTHER CHECKSUM: %llu", static_cast<unsigned long long>(s.stats.mismatches));
     if (s.stats.mismatches) std::fprintf(file, " (first at frame %u)", s.stats.firstMismatchFrame);
     std::fprintf(file, "\nfailed restores %llu; replays reaching a NIS %llu; frees the registry could not undo %llu; "
-                       "pages written behind the tracking %llu\n",
+                       "pages written behind the tracking %llu; replays without their first frames (gone from the "
+                       "ring) %llu\n",
                  static_cast<unsigned long long>(s.stats.failedRestores), static_cast<unsigned long long>(s.stats.nisInReplay),
-                 static_cast<unsigned long long>(s.stats.lossyFrees), static_cast<unsigned long long>(s.stats.untracked));
+                 static_cast<unsigned long long>(s.stats.lossyFrees), static_cast<unsigned long long>(s.stats.untracked),
+                 static_cast<unsigned long long>(s.stats.framesLostRollbacks));
     std::fprintf(file, "skipped: disc read in flight %llu, disc read started %llu, game or task state change %llu, "
                        "too many events %llu, too few steps saved %llu\n",
                  static_cast<unsigned long long>(s.stats.skippedReads), static_cast<unsigned long long>(s.stats.skippedStarts),
@@ -87,6 +93,11 @@ void WriteSummary()
                      s.stats.maxRestoreNs / 1e3);
         std::fprintf(file, "rollback (restore, replay, saves): %.2f ms avg / %.2f ms max\n",
                      s.stats.rollbackNs / 1e6 / s.stats.rollbacks, s.stats.maxRollbackNs / 1e6);
+        static constexpr const char* kCostNames[kCostBuckets] = {"<2", "<4", "<6", "<8", "<10", "<12", "<16", "<20", "<30", ">=30"};
+        std::fprintf(file, "rollbacks by cost (ms):");
+        for (int b = 0; b < kCostBuckets; ++b)
+            if (s.stats.byCost[b]) std::fprintf(file, " %s: %llu", kCostNames[b], static_cast<unsigned long long>(s.stats.byCost[b]));
+        std::fprintf(file, "; %llu of %.0f ms or more are in the log\n", static_cast<unsigned long long>(s.stats.slow), kSlowRollbackMs);
     }
     if (s.stats.framesReplayed)
     {

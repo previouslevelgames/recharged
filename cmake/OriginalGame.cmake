@@ -334,6 +334,8 @@ target_compile_options(mscharged_original_game_vi PRIVATE -ffunction-sections -f
 target_link_libraries(mscharged_original_game_vi PRIVATE aurora::vi)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SystemUsage.cmake")
+# The game's own update check (enforced updates: launcher/online_gate.h).
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Updates.cmake")
 add_library(charged_original_game_host OBJECT
     src/runtime/original_game.cpp src/runtime/frame_timing_log.cpp src/runtime/host_overlay.cpp
     src/runtime/game_window.cpp
@@ -363,7 +365,8 @@ target_link_libraries(charged_original_game_host PRIVATE
     charged_native_system_settings charged_native_video_device charged_movie_hardware
     charged_native_hardware_owner
     charged_native_video_output_device charged_native_filesystem_boot
-    charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_texture_packs ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
+    charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_texture_packs charged_updates
+    ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
 
 # The autopilot's sound (test and dev builds): one sound of the disc's banks
 # that the host decodes and plays itself (src/platform/bank_cue.cpp).

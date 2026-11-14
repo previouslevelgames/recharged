@@ -1,0 +1,41 @@
+From: mscharged-port
+Subject: Rollback: a replay answers that the sound its step prepared is prepared
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A replayed frame starts, stops, pauses and resumes no sound
+(MSCHARGED_AUDIO_ACTION, tweak patch 0031), and returns the value given:
+false, for PrepareTrackedSound. NisPlayer::PrepareNisCue reads it, and
+keeps the cinematic's cue (mPreparedNisCue, among what a rollback
+restores) only when it is true. A rollback through the step that prepares
+the end of the match's cinematic, some forty steps before its end, so left
+no cue to start: StartNisCue started nothing, and the winners' celebration
+played without its music and its voices, which are that one cue. The
+sound the step's first run prepared stayed prepared, unheard.
+
+In a replay, PrepareTrackedSound now answers as the step's first run did:
+the sound it prepared is still the audio's, by its cue and context. The
+other sound calls of a replay keep their value: no caller reads it.
+
+A cue only a replay prepares (a step whose first run, on predicted
+inputs, did not) is still not prepared.
+
+diff --git a/src/Game/Audio/audio.cpp b/src/Game/Audio/audio.cpp
+index 2fc9a62..e2985c7 100644
+--- a/src/Game/Audio/audio.cpp
++++ b/src/Game/Audio/audio.cpp
+@@ -911,7 +911,14 @@ bool PrepareTrackedSound(int slotId, unsigned long cueId,
+     void* context, bool resumable)
+ {
+ #if defined(MSCHARGED_TWEAKS)
+-    MSCHARGED_AUDIO_ACTION(false);
++    // A replay prepares nothing, and answers as the step's first run did:
++    // the sound it prepared is still the audio's, by its cue and context.
++    // NisPlayer keeps a cinematic's cue only when this says it is prepared.
++    if (mscharged_rollback_resimulating())
++    {
++        return FindSoundHandle(cueId, context) != 0;
++    }
++    MSCHARGED_AUDIO_SCOPE();
+ #endif
+     XSoundHandle* handle = CreateSoundHandle(
+         slotId, cueId, owner, debugName, context, false);

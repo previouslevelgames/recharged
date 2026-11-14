@@ -11,8 +11,11 @@ struct MouseKey {
     Uint8 button;
     const char* name;
 };
-constexpr MouseKey kMouseKeys[]{
-    {SDL_BUTTON_MIDDLE, "Mouse Middle"}, {SDL_BUTTON_X1, "Mouse 4"}, {SDL_BUTTON_X2, "Mouse 5"}};
+constexpr MouseKey kMouseKeys[]{{SDL_BUTTON_LEFT, "Mouse Left"},
+                                {SDL_BUTTON_RIGHT, "Mouse Right"},
+                                {SDL_BUTTON_MIDDLE, "Mouse Middle"},
+                                {SDL_BUTTON_X1, "Mouse 4"},
+                                {SDL_BUTTON_X2, "Mouse 5"}};
 
 bool SameName(std::string_view a, std::string_view b) {
     if (a.size() != b.size()) return false;
@@ -40,6 +43,13 @@ KeyInput MouseKeyInput(Uint8 button) {
     for (const auto& mouse : kMouseKeys)
         if (mouse.button == button) return kMouseKeyBase + button;
     return kKeyNone;
+}
+
+bool BindsInput(const KeyBindings& bindings, KeyInput input) {
+    if (input == kKeyNone) return false;
+    for (const auto& binding : bindings)
+        if (binding[0] == input || binding[1] == input) return true;
+    return false;
 }
 
 Uint8 MouseButtonOf(KeyInput input) {

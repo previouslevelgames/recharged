@@ -587,12 +587,15 @@ void TestHttpSend()
 }
 
 // A dossier as the game module hands it over: its series by the module's
-// count, two steps of `fields` fields each.
-std::string ModuleDossier(unsigned series, unsigned profile, unsigned game, std::uint32_t fields = 3)
+// count, the steps of `frames` of `fields` fields each (the host reads no
+// further).
+std::string ModuleDossier(unsigned series, unsigned profile, unsigned game, std::uint32_t fields = 3,
+                          std::uint32_t version = kDesyncDossierVersion,
+                          const std::vector<std::uint32_t>& frames = {4811, 4812})
 {
     DesyncDossierHeader header{};
     std::memcpy(header.magic, kDesyncDossierMagic, sizeof header.magic);
-    header.version = kDesyncDossierVersion;
+    header.version = version;
     header.series = series;
     header.profile_id = profile;
     header.game = game;
@@ -600,9 +603,9 @@ std::string ModuleDossier(unsigned series, unsigned profile, unsigned game, std:
     header.frame = 4812;
     header.checksum[0] = 0x11111111;
     header.checksum[1] = 0x22222222;
-    header.steps = kDesyncDossierSteps;
+    header.steps = std::uint32_t(frames.size());
     std::string bytes(reinterpret_cast<const char*>(&header), sizeof header);
-    for (std::uint32_t frame : {4811u, 4812u})
+    for (const std::uint32_t frame : frames)
     {
         const DesyncDossierStep step{frame, fields, 0};
         bytes.append(reinterpret_cast<const char*>(&step), sizeof step);
@@ -787,6 +790,62 @@ void TestDossiers()
                     && !std::filesystem::exists(folder / "half.rcds.tmp")
                     && !std::filesystem::exists(folder / "junk.rcds"),
                 "the 20 newest kept but the foreign one, the rest deleted");
+    }
+
+    // 1.1.6's dossiers (version 1) left on disk still go; one of a version
+    // after this build's is deleted.
+    {
+        std::filesystem::remove_all(folder);
+        std::filesystem::create_directories(folder);
+        std::ofstream(folder / "v1.rcds", std::ios::binary) << ModuleDossier(1, 1000000042, 1, 3, 1);
+        std::ofstream(folder / "next.rcds", std::ios::binary)
+            << ModuleDossier(1, 1000000042, 1, 3, kDesyncDossierVersion + 1);
+        DossierServer server;
+        OnlineReports reports("R4QE", kBuild, kOs, server.Send(), nullptr, 5ms);
+        reports.KeepDossiers(folder);
+        reports.Observe(Series(1, 3));
+        Require(WaitUntil([&] { return server.Count() == 1 && Files(folder) == 0; }),
+                "a version 1 dossier sent, a later version's deleted");
+        DesyncDossierHeader header;
+        std::memcpy(&header, server.dossiers[0].data(), sizeof header);
+        Require(header.version == 1, "the version 1 one as it was");
+    }
+
+    // Version 2 lists up to 16 steps, then the game and its inputs: the
+    // largest dossier goes whole; a byte more, handed over or on disk, is
+    // not a dossier.
+    {
+        std::filesystem::remove_all(folder);
+        std::vector<std::uint32_t> frames;
+        for (std::uint32_t frame = 4812 - kDesyncDossierSteps + 1; frame <= 4812; ++frame) frames.push_back(frame);
+        std::string largest = ModuleDossier(1, 1000000042, 1, kDesyncDossierFields, kDesyncDossierVersion, frames);
+        largest.append(sizeof(DesyncDossierMatch)
+                           + kDesyncDossierInputSteps
+                                 * (sizeof(DesyncDossierInputStep)
+                                    + kDesyncDossierMachines * sizeof(DesyncDossierMachineInput)),
+                       '\x5a');
+        Require(largest.size() == kDesyncDossierMaxBytes, "16 steps of 512 fields and 4 machines' inputs fill it");
+        DossierServer server;
+        server.accept = false;
+        OnlineReports reports("R4QE", kBuild, kOs, server.Send(), nullptr, 5ms);
+        reports.KeepDossiers(folder);
+        reports.Observe(Series(1, 3));
+        const std::string more = largest + '\x5a';
+        reports.Dossier(more.data(), more.size());
+        reports.Dossier(largest.data(), largest.size());
+        Require(WaitUntil([&] { return server.refused >= 1; }) && Files(folder) == 1,
+                "the largest dossier kept, one a byte longer dropped");
+        std::ofstream(folder / "longer.rcds", std::ios::binary) << more;
+        server.accept = true;
+        reports.Observe(Series(2, 3));
+        Require(WaitUntil([&] { return server.Count() == 1 && Files(folder) == 0; }),
+                "with the next series the largest sent, the longer one on disk deleted");
+        const std::string sent = server.dossiers[0];
+        DesyncDossierHeader header;
+        std::memcpy(&header, sent.data(), sizeof header);
+        Require(sent.size() == largest.size() && header.steps == kDesyncDossierSteps
+                    && sent.compare(sizeof header, std::string::npos, largest, sizeof header, std::string::npos) == 0,
+                "its 16 steps, game and inputs as the module gave them");
     }
     std::filesystem::remove_all(folder);
 }

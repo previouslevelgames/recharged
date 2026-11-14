@@ -34,8 +34,9 @@ come from the reconstructed source, unchanged.
 - **Keyboard & mouse** play as a Wii Remote with Nunchuk; the mouse is the
   pointer, shown by the game's own hand (the system cursor stays hidden over
   the game). Every key can be changed in the launcher, up to two per action,
-  and the middle and side mouse buttons (Mouse 4, Mouse 5) can take a key's
-  place ([#62](https://github.com/previouslevelgames/recharged/issues/62)).
+  and every mouse button (left, right, middle, Mouse 4, Mouse 5) can take a
+  key's place ([#62](https://github.com/previouslevelgames/recharged/issues/62));
+  left and right click are A and B while no action takes them.
   On the game's friend code screen the number keys type a code, Ctrl+V
   (Cmd+V on a Mac) pastes one, spaces and dashes included, Backspace removes
   the last digit and Delete clears the code.
@@ -187,9 +188,11 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   vanish at every kickoff, as in the Strikers 101 lessons), at the skill you
   choose, and its goalie can be taken out of the goal. The match can start at the kickoff, and a
   goal go straight to the next one, without its celebration and replay; a Mega Strike's goal keeps its own.
-  Your team starts every kickoff with the chosen item and keeps every item it
-  uses, in a match to 10 goals that never ends on them (leave it from the
-  pause menu). Every other match is unchanged.
+  Your team starts every kickoff with the chosen item (any power-up, three or
+  five of a shell, banana or Bob-omb where the game gives that many, a giant
+  one, or your captain's own) and keeps every item it uses, in a match to 10
+  goals that never ends on them (leave it from the pause menu), without the
+  cheats of the saved Gameplay options. Every other match is unchanged.
 - **Feder's fair ball contests**: when players of both teams reach a loose
   ball in the same instant, the one the Wii game updates first takes it. It
   shuffles that order at every kickoff in a way that puts the home team
@@ -255,9 +258,10 @@ screen; ranked matches keep their rules. **Default** (a new save's settings)
 and **Competitive** (Superstar, best of 3, first to 10 goals, Secure Stadiums) are
 built in; the others are files of their own ([saves](SETTINGS.md#saves)).
 
-It also **updates Recharged**: when a newer release is out it shows the release
-notes and asks, then installs it in place and restarts; only the program's own
-files are replaced. **Release / Test** on the Play page switches between
+It also **updates Recharged**: when a newer release is out it installs it in
+place by itself, with the release notes, and restarts; only the program's own
+files are replaced. Online play needs the newest release, so players of
+different versions never meet. **Release / Test** on the Play page switches between
 official releases and test builds of changes not yet released, and back,
 asking before it installs anything; with several changes in testing, Test
 lets you choose which one to follow ([updates](SETTINGS.md#updates)).

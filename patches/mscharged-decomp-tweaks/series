@@ -46,3 +46,8 @@
 0047-rollback-keyed-sounds.patch
 0048-rollback-late-one-shot-sounds.patch
 0049-rollback-rerun-sounds.patch
+0050-rollback-replay-prepared-sounds.patch
+0051-rollback-replay-draws-less.patch
+0052-tweak-training-items.patch
+0053-tweak-training-no-cheats.patch
+0054-online-waits-for-update.patch

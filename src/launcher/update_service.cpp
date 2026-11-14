@@ -1,5 +1,6 @@
 #include "launcher/update_service.h"
 
+#include "launcher/github_requests.h"
 #include "launcher/update_install.h"
 #include "platform/http_client.h"
 #include "platform/json.h"
@@ -17,24 +18,6 @@ namespace mscharged::launcher
 namespace
 {
 namespace fs = std::filesystem;
-
-platform::HttpRequest GitHubRequest(const std::string& url, const BuildIdentity& build,
-                                    const std::shared_ptr<platform::HttpCancel>& cancel)
-{
-    platform::HttpRequest request;
-    request.url = url;
-    request.user_agent = "Recharged/" + build.version;
-    request.headers = {"Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2022-11-28"};
-    request.cancel = cancel;
-    return request;
-}
-
-std::string GitHubFailure(long status)
-{
-    if (status == 403 || status == 429) return "GitHub is limiting requests from this network; try again later.";
-    if (status == 404) return "The repository was not found on GitHub.";
-    return "GitHub answered with error " + std::to_string(status) + ".";
-}
 
 std::string Stamp()
 {

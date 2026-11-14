@@ -63,6 +63,7 @@ void StopReplayAt(unsigned frame)
     {
         s.replayEnd = frame;
         ++s.net.truncated;
+        ++s.net.keptPredicted;
         Log("KEPT PREDICTED FRAME %u: a disc read %s; a misprediction now desyncs\n",
                 frame, before.reading ? "in flight" : "started");
         return;
@@ -308,6 +309,22 @@ bool PredictablePhases(const Phases& phases)
 }
 } // namespace
 
+// Whether a step with the phases `later` may follow one with `earlier` on
+// predicted inputs, and a replay go on through it: the same phases, or the
+// kickoff's end. The kickoff ends on a timer, half a second after
+// cGame::ResetForKickOff (PostResetCallback, then the Kickoff event's
+// OnCharactersKickoff), whatever the inputs, and what it changes is the
+// match's memory, which a restore takes back (the HUD, the clock, the
+// weather's sand patches, the goal's effects), and sounds the audio
+// reconciles (the stadium's tracked music, the whistle's one-shot).
+bool PhasesContinue(const Phases& earlier, const Phases& later)
+{
+    if (earlier == later) return true;
+    Phases kickoffEnd = earlier;
+    kickoffEnd.game = GS_GAMEPLAY;
+    return earlier.game == GS_KICKOFF && later == kickoffEnd;
+}
+
 unsigned OldestPredicted()
 {
     const State& s = *sState;
@@ -319,6 +336,18 @@ unsigned OldestPredicted()
 
 namespace
 {
+// Whether step `frame` is past the settling that follows the start of
+// tracking and each disc read: the game starts its reads in bursts (as play
+// starts after a goal, a NIS or a pause, and as a file opens), and a step
+// that starts one on predicted inputs could not be rolled back if they
+// turned out wrong. A few steps in lockstep let a burst pass; a read that
+// starts later on predicted inputs is logged and counted.
+bool Settled(unsigned frame)
+{
+    const State& s = *sState;
+    return frame > s.trackingFrom + kSettleSteps && frame > s.net.readStartedAt + kQuietSteps;
+}
+
 // Whether step `frame` may run with predicted inputs: the rollback follows the
 // match and could go back before the oldest step predicted, through as many
 // frames as it keeps and without a disc read in between, and no disc read
@@ -328,11 +357,9 @@ bool CanPredict(unsigned frame)
     State& s = *sState;
     if (!s.active || s.latest + 1 != frame || frame <= s.net.waitThrough) return false;
     if (s.net.readWaiting && s.hostFrame <= s.net.readWaitFrame + 1) return false;
-    // Tracking starts as play does, after a goal, a NIS or a pause: the disc
-    // reads the game starts then (a rollback cannot cross them) are let pass.
-    if (frame <= s.trackingFrom + kSettleSteps) return false;
+    if (!Settled(frame)) return false;
     const Phases phases = CurrentPhases();
-    if (!PredictablePhases(phases) || !(phases == s.steps[s.latest % kRing].phases)) return false;
+    if (!PredictablePhases(phases) || !PhasesContinue(s.steps[s.latest % kRing].phases, phases)) return false;
     const unsigned oldest = OldestPredicted();
     const unsigned target = oldest ? oldest - 1 : s.latest;
     if (frame - target > static_cast<unsigned>(kMaxDepth)) return false;
@@ -378,7 +405,12 @@ void UpdateConfirmed()
         const SyncPoint& ours = s.net.history[remote.frame % kConfirmedRing];
         if (ours.frame != remote.frame) continue; // not kept (or a step the hook did not see)
         ++s.net.remoteChecks;
-        if (ours.checksum != remote.checksum || ours.seed != remote.seed)
+        if (ours.checksum == remote.checksum && ours.seed == remote.seed)
+        {
+            if (!s.net.haveMatched || remote.frame > s.net.matchedFrame) s.net.matchedFrame = remote.frame;
+            s.net.haveMatched = true;
+        }
+        else
         {
             if (!s.net.desyncs) s.net.firstDesyncFrame = remote.frame;
             const bool first = !s.net.matchDesync;
@@ -429,6 +461,7 @@ void Resolve()
             if (!Same(step.machines[machine], input))
             {
                 changed(frame);
+                step.mispredicted[machine] = true;
                 ++s.net.mispredictions[machine];
                 const unsigned parts = MispredictedParts(step.machines[machine], input);
                 for (int part = 0; part < kInputParts; ++part)
@@ -527,12 +560,15 @@ void SyncTime()
     // when the machines are far apart.
     if (s.net.isPrevFramePhasePredictable && !isCurrentPredictable)
     {
+        // Steps of the last lockstep not given back yet (can_capture spreads
+        // them) are in the delay still, and go back with the new ones.
+        const int notGivenBack = s.net.delayChange < 0 ? -s.net.delayChange : 0;
         float worst;
-        s.net.addedStepsInLockstep = 0;
-        if (WorstReportedAhead(worst))
-            s.net.addedStepsInLockstep = static_cast<int>(std::ceil(-worst)) + 1;
-        s.net.addedStepsInLockstep = std::clamp(s.net.addedStepsInLockstep, 0, kMaxLockstepDelay - s.net.delay);
-        s.net.delayChange = s.net.addedStepsInLockstep;
+        int added = 0;
+        if (WorstReportedAhead(worst)) added = static_cast<int>(std::ceil(-worst)) + 1;
+        added = std::clamp(added, 0, kMaxLockstepDelay - s.net.delay);
+        s.net.addedStepsInLockstep = notGivenBack + added;
+        s.net.delayChange = added;
     }
     else if (!s.net.isPrevFramePhasePredictable && isCurrentPredictable)
     {
@@ -621,6 +657,25 @@ bool OverlayNumbers(int& delay, int& predicted)
     return true;
 }
 
+NetCounts NetCountsNow()
+{
+    const Netplay& n = sState->net;
+    NetCounts counts{};
+    std::copy(std::begin(n.mispredictions), std::end(n.mispredictions), counts.mispredictions);
+    counts.predictedSteps = n.predictedSteps;
+    counts.correctionRollbacks = n.correctionRollbacks;
+    counts.undone = n.undone;
+    counts.truncated = n.truncated;
+    counts.keptPredicted = n.keptPredicted;
+    counts.impossible = n.impossible;
+    counts.stoppedPredicted = n.stoppedPredicted;
+    counts.lockstepWaits = n.lockstepWaits;
+    counts.windowWaits = n.windowWaits;
+    counts.delayLonger = n.delayLonger;
+    counts.delayShorter = n.delayShorter;
+    return counts;
+}
+
 } // namespace mscharged::rollback
 
 using namespace mscharged::rollback;
@@ -664,9 +719,12 @@ extern "C" int mscharged_rollback_network_reset(void)
     s.net.waitThrough = s.net.undoFrom = s.net.audioAfter = 0;
     s.net.captured = s.net.haveConfirmed = false;
     s.net.remoteCount = 0;
+    s.net.sentCount = 0;
+    s.net.haveMatched = false;
     // No step's checksum yet: an empty slot must not pass for step 0's (or for
     // the last match's steps) when another machine's arrives.
     for (SyncPoint& point : s.net.history) point.frame = ~0u;
+    ForgetConfirmed();
     std::fill(std::begin(s.net.queuedAhead), std::end(s.net.queuedAhead), 0.0f);
     std::fill(std::begin(s.net.haveReported), std::end(s.net.haveReported), false);
     s.net.delay = s.options.inputDelay;
@@ -678,6 +736,8 @@ extern "C" int mscharged_rollback_network_reset(void)
     s.net.addedStepsInLockstep = 0;
     s.net.isPrevFramePhasePredictable = true;
     s.net.readWaiting = false;
+    s.net.readStartedAt = 0;
+    s.net.atGameStart = NetCountsNow();
     Log("network match: input delay %d steps\n", s.options.inputDelay);
     FlushLog();
     return s.options.inputDelay;
@@ -742,6 +802,12 @@ extern "C" void mscharged_rollback_input_ready(void)
         for (int machine = 0; machine < machines; ++machine)
         {
             NetworkInputMessageQueue& queue = router->m_InputQueue[machine];
+            // Run again: what the step learnt when it first ran stays.
+            if (again)
+            {
+                step.ranPredicted[machine] = kept.ranPredicted[machine];
+                step.mispredicted[machine] = kept.mispredicted[machine];
+            }
             if (again && !kept.predicted[machine])
             {
                 step.machines[machine] = kept.machines[machine];
@@ -753,7 +819,7 @@ extern "C" void mscharged_rollback_input_ready(void)
             else
             {
                 step.machines[machine] = Predicted(machine);
-                step.predicted[machine] = true;
+                step.predicted[machine] = step.ranPredicted[machine] = true;
                 if (!s.net.firstPredicted[machine]) s.net.firstPredicted[machine] = frame;
             }
         }
@@ -779,9 +845,17 @@ extern "C" bool mscharged_rollback_can_capture(void)
     if (s.net.captured && frame <= s.net.capturedFrame) return false;
     s.net.captured = true;
     s.net.capturedFrame = frame;
-    if (s.net.delayChange < 0)
+    // A step less of input delay (of those asked): this step's capture is left
+    // out, and the others wait for this machine's next inputs a step longer.
+    // While the steps cannot predict yet (the settling after tracking starts)
+    // each capture left out is a wait there, and several in a row show as a
+    // hitch: the delay goes back once they predict, a step every
+    // kGiveBackEvery, which the others' prediction covers.
+    const bool givesBack = s.net.delayChange < 0
+        && (!s.active || Settled(frame + 1))
+        && frame >= s.net.delayChangedAt + kGiveBackEvery;
+    if (givesBack)
     {
-        // A step less of input delay (of those asked): this step's capture is left out.
         ++s.net.delayChange;
         --s.net.delay;
         s.net.delayChangedAt = frame;
@@ -810,13 +884,16 @@ extern "C" int mscharged_rollback_extra_captures(void)
 extern "C" int mscharged_rollback_sync_data(unsigned* checksum, unsigned* frame, unsigned* seed)
 {
     std::lock_guard lock(sMutex);
-    const State& s = *sState;
+    State& s = *sState;
     // Every other step the checksum, the others the time sync's measure (the
     // other machines' average, by 256ths of a step).
     if (CurrentStep() % 2 == 0 && s.net.haveConfirmed)
     {
         const SyncPoint& point = s.net.history[s.net.confirmed % kConfirmedRing];
         if (point.frame != s.net.confirmed) return 0;
+        // Kept for a desync's dossier (once: the confirmed step may stay).
+        if (!s.net.sentCount || s.net.sent[(s.net.sentCount - 1) % kSentChecks] != point.frame)
+            s.net.sent[s.net.sentCount++ % kSentChecks] = point.frame;
         *checksum = point.checksum;
         *frame = point.frame;
         *seed = point.seed;

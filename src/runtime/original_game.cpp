@@ -56,6 +56,8 @@
 #include "platform/http_client.h"
 #include "platform/desync_dossier.h"
 #include "platform/online_reports.h"
+#include "launcher/current_build.h"
+#include "launcher/online_gate.h"
 #include "platform/presence_snapshot.h"
 #include "platform/shader_cache.h"
 #include "platform/process_exit.h"
@@ -310,7 +312,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
 #else
         const bool sourceAudio = false;
 #endif
-        bool nativeSend=true, resizeCheck=false;
+        bool nativeSend=true, resizeCheck=false, nonInteractive=false;
         mscharged::LaunchOptions launchOptions;
         unsigned windowWidth=800, windowHeight=600;
         // Internal resolution: the source EFB is efbScale x 640 x 448 (0: window).
@@ -325,8 +327,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(argument=="--native-send")nativeSend=true;
             else if(argument=="--resize-check")resizeCheck=true;
             else if(argument=="--diagnostic-frame")nativeSend=false;
+            else if(argument=="--non-interactive")nonInteractive=true;
             else throw std::runtime_error("Unknown or incomplete argument; use --help");
         }
+        // The diagnostic run: it ends once its frame is captured, or fails at its timeout.
+        if(nonInteractive) interactive=false;
         const char* basePath=SDL_GetBasePath();
         Check(basePath && *basePath,"Cannot locate the executable directory");
         const auto executableDirectory=mscharged::PathFromUtf8(basePath);
@@ -836,9 +841,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(auto* configureTraining=reinterpret_cast<void(*)(int,bool,int,int)>(
                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training"))) {
                 const auto& s=launch.settings;
-                configureTraining(mscharged::TrainingIndex(mscharged::kTrainingItems,s.training_item)-1,
+                const auto& item=mscharged::kTrainingItemKinds[std::size_t(
+                    std::max(mscharged::TrainingIndex(mscharged::kTrainingItems,s.training_item),0))];
+                configureTraining(item.type,
                     launch.start_training,mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_captain),
                     mscharged::TrainingIndex(mscharged::kTrainingStadiums,s.training_stadium));
+                // And how many of it, and whether a single one is always giant.
+                if(auto* configureItem=reinterpret_cast<void(*)(int,bool)>(
+                       mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_item")))
+                    configureItem(item.count,item.giant);
                 if(auto* configureOpponent=reinterpret_cast<void(*)(int,int,bool,bool,int,bool)>(
                        mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_training_opponent")))
                     configureOpponent(mscharged::TrainingIndex(mscharged::kTrainingCaptains,s.training_away_captain),
@@ -1051,6 +1062,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
         }
+        // Enforced updates: a release plays online only while it is the newest
+        // release (launcher/online_gate.h). The gate tells the module its
+        // verdict; the main menu's Online asks the module (tweak patch 0054).
+        std::unique_ptr<mscharged::launcher::OnlineGate> onlineGate;
+        if(auto* configureOnlineGate=reinterpret_cast<void(*)(int)>(
+               mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_online_gate")))
+            onlineGate=std::make_unique<mscharged::launcher::OnlineGate>(mscharged::launcher::CurrentBuild(),
+                executableDirectory,launch.update_verified,
+                [configureOnlineGate](mscharged::launcher::OnlineGateState state,const std::string& line) {
+                    configureOnlineGate(static_cast<int>(state));
+                    mscharged::platform::SessionLogLine(line);
+                    std::fprintf(stderr,"%s\n",line.c_str());
+                });
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
         // The WFC server's match reports: the online series this computer
         // plays, and the error codes its online menus show, go to the server

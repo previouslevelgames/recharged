@@ -328,10 +328,10 @@ int main()
         {
             Require(Settings{}.training_item == "green_shell" && Settings{}.training_captain == "mario"
                     && Settings{}.training_stadium == "tutorialfield", "Training defaults");
-            std::ofstream(path) << "[gameplay]\ntraining_item = bobomb\ntraining_captain = petey\n"
+            std::ofstream(path) << "[gameplay]\ntraining_item = giant_bobomb\ntraining_captain = petey\n"
                                    "training_stadium = lavapit\n";
             auto loaded = LoadConfig(path);
-            Require(loaded.settings.training_item == "bobomb" && loaded.settings.training_captain == "petey"
+            Require(loaded.settings.training_item == "giant_bobomb" && loaded.settings.training_captain == "petey"
                     && loaded.settings.training_stadium == "lavapit",
                     "The Training settings load");
             auto changed = loaded.settings;
@@ -399,7 +399,7 @@ int main()
         Require(!defaults.fps_overlay && defaults.fps_overlay_corner == "top-right"
             && defaults.monitor == 0 && !defaults.graphics_validation
             && defaults.log_level == "info" && !defaults.verbose_console && !defaults.frame_logging && !defaults.log_window
-            && defaults.ui_scale == "auto" && defaults.check_updates && defaults.update_channel == "auto"
+            && defaults.ui_scale == "auto" && defaults.update_channel == "auto"
             && defaults.test_build == 0 && !defaults.reopen_after_game && defaults.show_welcome && defaults.gpu == "auto"
             && !defaults.performance_mode,
             "Host setting defaults");
@@ -416,7 +416,6 @@ int main()
         hostSettings.frame_logging = true;
         hostSettings.log_window = true;
         hostSettings.ui_scale = "150";
-        hostSettings.check_updates = false;
         hostSettings.update_channel = "test";
         hostSettings.test_build = 72;
         hostSettings.reopen_after_game = true;
@@ -429,7 +428,7 @@ int main()
             && hostReloaded.monitor == 2 && hostReloaded.graphics_validation
             && hostReloaded.log_level == "warning" && hostReloaded.verbose_console && hostReloaded.frame_logging
             && hostReloaded.log_window
-            && hostReloaded.ui_scale == "150" && !hostReloaded.check_updates && hostReloaded.update_channel == "test"
+            && hostReloaded.ui_scale == "150" && hostReloaded.update_channel == "test"
                 && hostReloaded.test_build == 72 && hostReloaded.reopen_after_game && !hostReloaded.show_welcome && hostReloaded.gpu == "10de:1f99",
             "Host settings round trip");
         const auto hostText = LoadConfig(host).contents;
@@ -565,6 +564,12 @@ int main()
         SaveConfig(legacyFps, legacyFps.settings);
         Require(legacyFps.contents.find("show_fps") == std::string::npos
             && legacyFps.contents.find("custom = preserved") != std::string::npos, "Retired title key is removed alone");
+        // The update check always runs since updates are enforced: its old switch is retired.
+        std::ofstream(path) << "[launcher]\ncheck_updates = false\nui_scale = 125\n";
+        auto legacyCheck = LoadConfig(path);
+        SaveConfig(legacyCheck, legacyCheck.settings);
+        Require(legacyCheck.settings.ui_scale == "125" && legacyCheck.contents.find("check_updates") == std::string::npos
+            && legacyCheck.contents.find("ui_scale = 125") != std::string::npos, "The update check's old switch is removed");
         // The old controls.deadzone was never read; gamepad profiles have their own (#62).
         std::ofstream(path) << "[controls]\ndeadzone = 40\nrumble = false\n";
         auto legacyDeadzone = LoadConfig(path);
@@ -582,7 +587,7 @@ int main()
                                     "[display]\nperformance_mode = maybe\n",
                                     "[advanced]\nlog_level = verbose\n", "[launcher]\nui_scale = 110\n",
                                     "[advanced]\ngraphics_validation = 2\n", "[advanced]\nverbose_console = yes\n",
-                                    "[advanced]\nframe_logging = maybe\n", "[advanced]\nlog_window = on\n", "[launcher]\ncheck_updates = sometimes\n",
+                                    "[advanced]\nframe_logging = maybe\n", "[advanced]\nlog_window = on\n",
                                     "[launcher]\nupdate_channel = nightly\n", "[launcher]\ntest_build = -1\n",
                                     "[launcher]\nreopen_after_game = later\n", "[launcher]\nshow_welcome = later\n",
                                     "[display]\ngpu = nvidia\n", "[display]\ngpu = 10de-1f99\n",

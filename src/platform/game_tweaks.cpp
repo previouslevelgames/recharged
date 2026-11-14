@@ -11,18 +11,24 @@
 #include "platform/tweak_frame_state.h"
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 
 namespace {
 unsigned sEnabled;
 
 // Skip intro: the title screen is passed once per launch.
 bool sTitlePassed;
-// Training: the item of the team that trains (ePowerUpType, -1 none), and the
-// launcher's Start training, taken by the title once it is passed.
+// Training: the item of the team that trains (ePowerUpType, -1 none, 9 its
+// captain's power-up), how many of it and whether a single one is always
+// giant, and the launcher's Start training, taken by the title once it is
+// passed.
 int sTrainingItem = -1;
+int sTrainingItemCount = 1;
+bool sTrainingItemGiant;
 bool sTrainingStart;
 int sTrainingCaptain;
 int sTrainingStadium;
@@ -33,6 +39,20 @@ bool sTrainingSkipGoal;
 int sTrainingAwaySkill = -1;
 bool sTrainingPlayAway;
 bool sPerformanceMode;
+// Enforced updates (the host's src/launcher/online_gate.h): its verdict on
+// this release in OnlineGateState's numbers, and the message the main menu's
+// Online popup shows next (tweak patch 0054).
+enum { kOnlineOpen = 0, kOnlineChecking = 1, kOnlineOutdated = 2, kOnlineUnchecked = 3 };
+std::atomic<int> sOnlineGate{kOnlineOpen};
+const unsigned short* sOnlineLockMessage;
+// The popup's text, in English: Recharged's own texts are not translated yet.
+const char16_t kOnlineOutdatedText[] =
+    u"A newer version of Recharged is out. Online play is off until you update: close the game and start the "
+    u"launcher, which installs it.";
+const char16_t kOnlineUncheckedText[] =
+    u"Recharged could not check for updates, so online play is off for now. Close the game and start the launcher "
+    u"to check again.";
+static_assert(sizeof(char16_t) == sizeof(unsigned short), "The game's text is UTF-16");
 // Wider view (display.wider_view, issue #91): the window's picture shape
 // divided by 16:9 while the wider view fills it, 1 otherwise; and whether the
 // match's stadium was drawn since the host last asked (it fills the window
@@ -161,7 +181,7 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
 }
 
 // Host entry (Training): the item of the team that trains (ePowerUpType, -1
-// none); with `start`, the launcher's Start training: the title is passed at
+// none, 9 its captain's power-up); with `start`, the launcher's Start training: the title is passed at
 // once, as by Skip intro, into a match of `captain` (eTeamID) in `stadium`
 // (eStadiumID).
 __attribute__((visibility("default"))) void charged_configure_training(int item, bool start, int captain, int stadium)
@@ -170,6 +190,14 @@ __attribute__((visibility("default"))) void charged_configure_training(int item,
     sTrainingStart = start;
     sTrainingCaptain = captain;
     sTrainingStadium = stadium;
+}
+
+// Host entry (Training): how many of its item the team that trains gets (1, 3
+// or 5) and whether a single one is always thrown giant.
+__attribute__((visibility("default"))) void charged_configure_training_item(int count, bool giant)
+{
+    sTrainingItemCount = count == 3 || count == 5 ? count : 1;
+    sTrainingItemGiant = giant;
 }
 
 // Host entry (Training): the opponent, the team nobody plays: its captain
@@ -199,6 +227,13 @@ __attribute__((visibility("default"))) void charged_toggle_hud(void)
 __attribute__((visibility("default"))) void charged_configure_performance_mode(bool enabled)
 {
     sPerformanceMode = enabled;
+}
+
+// Host entry (enforced updates): the state of the online check, from any
+// thread: 0 open, 1 checking, 2 a newer release is out, 3 the check failed.
+__attribute__((visibility("default"))) void charged_configure_online_gate(int state)
+{
+    sOnlineGate.store(state, std::memory_order_release);
 }
 
 // Host entry (wider view): the shape of the window's picture divided by 16:9,
@@ -326,6 +361,30 @@ bool mscharged_tweak_performance_mode(void)
     return sPerformanceMode;
 }
 
+bool mscharged_tweak_online_locked(void)
+{
+    // A check still running gets a moment: it starts with the game, long
+    // before the main menu, and a press this early is rare.
+    int state = sOnlineGate.load(std::memory_order_acquire);
+    for (int waited = 0; state == kOnlineChecking && waited < 150; ++waited)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        state = sOnlineGate.load(std::memory_order_acquire);
+    }
+    if (state == kOnlineOpen) return false;
+    sOnlineLockMessage = reinterpret_cast<const unsigned short*>(
+        state == kOnlineOutdated ? kOnlineOutdatedText : kOnlineUncheckedText);
+    std::fputs("Tweak: Online stays closed until Recharged is updated\n", stderr);
+    return true;
+}
+
+const unsigned short* mscharged_tweak_take_online_lock_message(void)
+{
+    const unsigned short* message = sOnlineLockMessage;
+    sOnlineLockMessage = nullptr;
+    return message;
+}
+
 float mscharged_tweak_view_shape(void)
 {
     return sViewShape.load(std::memory_order_relaxed);
@@ -423,6 +482,16 @@ bool mscharged_tweak_title_pending(void)
 int mscharged_tweak_training_item(void)
 {
     return sTrainingItem;
+}
+
+int mscharged_tweak_training_item_count(void)
+{
+    return sTrainingItemCount;
+}
+
+bool mscharged_tweak_training_item_giant(void)
+{
+    return sTrainingItemGiant;
 }
 
 int mscharged_tweak_training_away_captain(void)

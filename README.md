@@ -58,7 +58,7 @@ macOS 15+, Apple Silicon and Intel<br>
 3. In the launcher, add the folder with your game image and press **Play**.
 
 The [install guide](docs/INSTALL.md) covers the first start on Windows and
-macOS. Once installed, the launcher updates Recharged in place when you agree.
+macOS. Once installed, the launcher keeps Recharged up to date in place.
 
 ## Highlights
 

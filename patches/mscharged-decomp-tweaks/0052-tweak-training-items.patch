@@ -1,0 +1,98 @@
+From: mscharged-port
+Subject: Tweak: training items
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+Training's item (tweak patch 0038) was only ever one of a power-up, while
+the game also awards three or five (AwardPowerup: every shell but the red one
+and the banana and the Bob-omb come in fives too, the red shell in threes)
+and the captains' own power-ups. The launcher now chooses those too.
+
+cGame::ResetPowerups gives the team that trains as many as the launcher
+says. Item 9, which in ePowerUpType is Mario's, stands for the power-up of
+whichever captain trains (CharacterInfo::mCaptainPowerup); as AwardPowerup,
+it gives none to a shattered captain (Crystal Canyon's flares).
+
+A single shell, banana or Bob-omb is thrown medium or giant at random
+(BuildPowerupThrowParameters, Shell, Banana and Bobomb Medium Chance); a
+giant one of the launcher's is always giant, as the giant cheat throws a
+single one, for the team that trains only.
+
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+index a4cccff..4879d9d 100644
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -228,6 +228,11 @@ int mscharged_tweak_training_away_skill(void);
+ // Whether the pad that starts the match plays the away team (the home one
+ // otherwise).
+ bool mscharged_tweak_training_play_away(void);
++// And how many of its item the team that trains gets (1, 3 or 5), and whether
++// a single one is always thrown giant; item 9 stands for the power-up of the
++// captain that trains.
++int mscharged_tweak_training_item_count(void);
++bool mscharged_tweak_training_item_giant(void);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/Game/AI/Powerups.cpp b/src/Game/AI/Powerups.cpp
+index 59092c6..6676008 100644
+--- a/src/Game/AI/Powerups.cpp
++++ b/src/Game/AI/Powerups.cpp
+@@ -41,6 +41,7 @@
+ #if defined(MSCHARGED_NATIVE)
+ #include "Game/DB/CharacterInfo.h"
+ #endif
++#include "mscharged_tweaks.h"
+ 
+ void UpdateBobombEmitter(EmissionController&);
+ 
+@@ -590,6 +591,15 @@ void BuildPowerupThrowParameters(cFielder* pThrower, ePowerUpType eType,
+     {
+         fMediumChance = 0.0f;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Training items": a giant item of the team that trains is
++    // always thrown large, as the giant cheat throws a single one.
++    if (mscharged_tweak_training_item_giant() && pParameters->nnumOfPowerups == 1
++        && GetTrainingSide() == pThrower->m_pTeam->m_nSide)
++    {
++        fMediumChance = 0.0f;
++    }
++#endif
+     else if (GameInfoManager::Instance()->GetCustomPowerups() == 1)
+     {
+         fExplodeChance = 1.0f;
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index e0f7653..d4139b2 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -53,6 +53,9 @@
+ #include "Game/Render/NPCManager.h"
+ #include "Game/Render/PeachPhoto.h"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/DB/CharacterInfo.h"
++#endif
+ #include "Game/Render/ElectricFence.h"
+ #include "Game/ReplayChoreo.h"
+ #include "Game/ReplayManager.h"
+@@ -1106,10 +1109,18 @@ void cGame::ResetPowerups(bool clearPowerUps)
+     // Port tweak "Training": the team that trains starts every kickoff with
+     // its item, which it then keeps when using it (DesireUsePowerup).
+     const int side = GetTrainingSide();
+-    const int item = mscharged_tweak_training_item();
++    int item = mscharged_tweak_training_item();
++    // Port tweak "Training items": item 9 is the captain's own power-up, which
++    // AwardPowerup gives no shattered captain either; the item comes in the
++    // launcher's number (AwardPowerup's 3 and 5).
++    if (side >= 0 && item == NUM_POWER_UPS)
++    {
++        cFielder* pCaptain = g_pTeams[side]->GetCaptain();
++        item = pCaptain->IsShattered() ? POWER_UP_NONE : pCaptain->m_pCharacterInfo->mCaptainPowerup;
++    }
+     if (side >= 0 && item >= 0 && g_pTeams[side]->GetCurrentPowerUp().eType == POWER_UP_NONE)
+     {
+-        g_pTeams[side]->SetCurrentPowerUp((ePowerUpType)item, 1);
++        g_pTeams[side]->SetCurrentPowerUp((ePowerUpType)item, mscharged_tweak_training_item_count());
+     }
+ #endif
+ }

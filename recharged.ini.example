@@ -298,9 +298,12 @@ show_hud = true
 # kickoff and a goal goes straight to the next one, without its celebration and replay (a Mega
 # Strike's goal keeps its own). training_side (home or away) is the team
 # you play, and it starts every kickoff with
-# training_item (none, green_shell, red_shell, spiny_shell, freeze_shell,
-# banana, bobomb, chain_chomp, mushroom, star) and keeps every item it uses,
-# in a match to 10 goals that never ends on them.
+# training_item and keeps every item it uses, in a match to 10 goals that never
+# ends on them. training_item is none, chain_chomp, mushroom, star, captain (your
+# captain's own power-up) or a shell, banana or Bob-omb: green_shell, red_shell,
+# spiny_shell, freeze_shell, banana or bobomb alone (medium or giant at random),
+# with _3 (three of it) or _5 (five; not red_shell), or giant_ before it (always
+# giant: giant_banana).
 skip_intro = false
 fast_menus = false
 no_mega_strikes = false
@@ -358,8 +361,6 @@ log_window = false
 [launcher]
 # Launcher interface size: auto, or a percentage from 75 to 200.
 ui_scale = auto
-# Look for a newer build on GitHub each time the launcher starts.
-check_updates = true
 # Open the launcher again when you close a game started from it.
 reopen_after_game = false
 # Which builds to update to: release (official releases), test (also test

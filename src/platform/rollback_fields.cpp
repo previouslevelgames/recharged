@@ -7,9 +7,11 @@
 // diverged, and where it was taken (an offset in the game module, for
 // addr2line) names the line that takes it.
 //
-// The first desync of an online game also leaves those fields, both steps', in
-// a dossier the host sends to the WFC server (src/platform/desync_dossier.h),
-// which pairs both sides' and finds the field itself.
+// The first desync of an online game also leaves those fields in a dossier the
+// host sends to the WFC server (src/platform/desync_dossier.h): both steps',
+// and those of the steps whose checksums this machine sent since the last
+// that matched, where the other machine finds the desync. The server pairs
+// both sides' at a step both list and finds the field itself.
 //
 // RECHARGED_ROLLBACK_POSES=1, on every machine: the players' poses (the
 // matrix of each node of their skeletons) join the checksum, which the game's
@@ -28,6 +30,7 @@
 // its contact count and both objects' Contact() results, and each contact
 // joint made, with its surface and its geometry, and each DebugPrintf of the
 // physics callbacks (the branches they take).
+#include "Game/AI/AIPad.h"
 #include "Game/Ball.h"
 #include "Game/Physics/Physics.h"
 #include "Game/Physics/PhysicsAIBall.h"
@@ -47,6 +50,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 
 namespace mscharged::rollback
 {
@@ -93,12 +97,17 @@ struct Fields
     unsigned frame;
     int count;
     bool overflowed;
+    // By team and player: the pad controlling it (machine * 4 + the
+    // machine's player), -1 none, as the step's checksum found them.
+    signed char pads[2][5];
     Field fields[kMaxFields];
 };
 
 // The module's own globals, outside the original game's: no rollback brings them back.
 Fields sSteps[kRing];
 Fields sConfirmed[kConfirmedRing];
+// The inputs of the steps ConfirmFields kept, for a dossier.
+StepInputs sConfirmedInputs[kConfirmedRing];
 Fields* sRecording;
 std::uintptr_t sModuleBase;
 // The dossier of the last desync, until the host takes it; written under
@@ -269,6 +278,23 @@ unsigned WithBodies(unsigned value, Fields& record)
 }
 } // namespace
 
+namespace
+{
+void FindPads(Fields& record)
+{
+    for (int team = 0; team < 2; ++team)
+        for (int player = 0; player < 5; ++player)
+        {
+            signed char& pad = record.pads[team][player] = -1;
+            const cPlayer* character = g_pTeams[team] ? g_pTeams[team]->m_pPlayers[player] : nullptr;
+            const cAIPad* controller = character ? character->m_pController : nullptr;
+            const cAIPad* const pads = AIPadManager::mAIPads;
+            if (controller >= pads && controller < pads + std::size(AIPadManager::mAIPads))
+                pad = static_cast<signed char>(controller - pads);
+        }
+}
+} // namespace
+
 unsigned RecordedChecksum(unsigned (*checksum)(), unsigned frame)
 {
     if (!sState->options.netplay) return checksum();
@@ -277,6 +303,7 @@ unsigned RecordedChecksum(unsigned (*checksum)(), unsigned frame)
     record.frame = frame;
     record.count = 0;
     record.overflowed = false;
+    FindPads(record);
     sRecording = &record;
     unsigned value = checksum();
     sRecording = nullptr;
@@ -291,11 +318,24 @@ void ConfirmFields(unsigned frame)
     const Fields& step = sSteps[frame % kRing];
     Fields& kept = sConfirmed[frame % kConfirmedRing];
     kept.count = 0;
+    const StepInputs& inputs = InputsFor(frame);
+    StepInputs& keptInputs = sConfirmedInputs[frame % kConfirmedRing];
+    if (inputs.frame == frame)
+        keptInputs = inputs;
+    else
+        keptInputs.frame = ~0u;
     if (step.frame != frame) return;
     kept.frame = frame;
     kept.count = step.count;
     kept.overflowed = step.overflowed;
+    std::memcpy(kept.pads, step.pads, sizeof kept.pads);
     std::copy_n(step.fields, step.count, kept.fields);
+}
+
+void ForgetConfirmed()
+{
+    for (Fields& kept : sConfirmed) kept.frame = ~0u;
+    for (StepInputs& kept : sConfirmedInputs) kept.frame = ~0u;
 }
 
 void KeepDossier(const SyncPoint& ours, const SyncPoint& remote)
@@ -312,17 +352,41 @@ void KeepDossier(const SyncPoint& ours, const SyncPoint& remote)
     header.seed[1] = remote.seed;
     header.machine = remote.machine;
     header.input_delay = static_cast<std::uint32_t>(s.net.delay);
-    for (const std::uint64_t wrong : s.net.mispredictions) header.mispredictions += static_cast<std::uint32_t>(wrong);
+    const NetCounts now = NetCountsNow();
+    const NetCounts& start = s.net.atGameStart;
+    const auto since = [](std::uint64_t now, std::uint64_t start) { return static_cast<std::uint32_t>(now - start); };
+    for (int m = 0; m < kMachines; ++m) header.mispredictions += since(now.mispredictions[m], start.mispredictions[m]);
     header.options = (s.options.poses ? 1u : 0u) | (s.options.bodies ? 2u : 0u) | (s.options.contacts ? 4u : 0u);
-    header.steps = kDesyncDossierSteps;
+    // The steps listed, oldest first: the one before the desync's, the
+    // desync's, and those whose checksums this machine sent since the last
+    // of the other's that matched here, while their fields are kept. The
+    // other machine finds the desync at one of these, and its dossier lists
+    // that step: the server compares the two there.
+    static_assert(kDesyncDossierFirstSteps + kSentChecks <= kDesyncDossierSteps, "every step sent fits");
+    unsigned frames[kDesyncDossierSteps];
+    unsigned count = 0;
+    const auto list = [&](unsigned frame) {
+        if (std::find(frames, frames + count, frame) == frames + count) frames[count++] = frame;
+    };
+    list(remote.frame - 1);
+    list(remote.frame);
+    for (unsigned i = std::min<unsigned>(s.net.sentCount, kSentChecks); i > 0; --i)
+    {
+        const unsigned frame = s.net.sent[(s.net.sentCount - i) % kSentChecks];
+        if (s.net.haveMatched && frame <= s.net.matchedFrame) continue;
+        if (sConfirmed[frame % kConfirmedRing].frame == frame) list(frame);
+    }
+    std::sort(frames, frames + count);
+    header.steps = count;
     unsigned size = 0;
     const auto put = [&](const void* data, unsigned bytes) {
         std::memcpy(sDossier + size, data, bytes);
         size += bytes;
     };
     put(&header, sizeof header);
-    for (const unsigned frame : {remote.frame - 1, remote.frame})
+    for (unsigned i = 0; i < count; ++i)
     {
+        const unsigned frame = frames[i];
         const Fields& kept = sConfirmed[frame % kConfirmedRing];
         DesyncDossierStep step{frame, 0, 0};
         if (kept.frame == frame)
@@ -336,6 +400,63 @@ void KeepDossier(const SyncPoint& ours, const SyncPoint& remote)
             const Field& field = kept.fields[i];
             DesyncDossierField out{field.caller, field.size, field.hash, {}};
             std::memcpy(out.bytes, field.bytes, sizeof out.bytes);
+            put(&out, sizeof out);
+        }
+    }
+
+    // Version 2: the game as the rollback played it, then the steps' inputs.
+    static_assert(kMachines == static_cast<int>(kDesyncDossierMachines), "a dossier lists every machine");
+    DesyncDossierMatch match{};
+    match.local_machine = g_pNetworkSessionBase->GetLocalMachineId();
+    match.machines = static_cast<std::uint32_t>(std::min<int>(g_pNetworkSessionBase->GetNumMachines(), kMachines));
+    match.tracking_from = s.trackingFrom;
+    match.tracking = s.active ? 1 : 0;
+    match.start_delay = static_cast<std::uint32_t>(s.options.inputDelay);
+    match.delay_longer = since(now.delayLonger, start.delayLonger);
+    match.delay_shorter = since(now.delayShorter, start.delayShorter);
+    match.delay_changed_at = s.net.delayChangedAt;
+    for (int m = 0; m < kMachines; ++m) match.mispredicted[m] = since(now.mispredictions[m], start.mispredictions[m]);
+    match.predicted_steps = since(now.predictedSteps, start.predictedSteps);
+    match.correction_rollbacks = since(now.correctionRollbacks, start.correctionRollbacks);
+    match.undone = since(now.undone, start.undone);
+    match.truncated = since(now.truncated, start.truncated);
+    match.kept_predicted = since(now.keptPredicted, start.keptPredicted);
+    match.impossible = since(now.impossible, start.impossible);
+    match.stopped_predicted = since(now.stoppedPredicted, start.stoppedPredicted);
+    match.lockstep_waits = since(now.lockstepWaits, start.lockstepWaits);
+    match.window_waits = since(now.windowWaits, start.windowWaits);
+    match.input_steps = kDesyncDossierInputSteps;
+    put(&match, sizeof match);
+    for (unsigned i = 0; i < kDesyncDossierInputSteps; ++i)
+    {
+        const unsigned frame = remote.frame - (kDesyncDossierInputSteps - 1) + i;
+        const StepInputs& inputs = sConfirmedInputs[frame % kConfirmedRing];
+        const Fields& fields = sConfirmed[frame % kConfirmedRing];
+        DesyncDossierInputStep step{};
+        step.frame = frame;
+        std::memset(step.pads, -1, sizeof step.pads);
+        if (inputs.frame == frame)
+        {
+            step.kept = 1;
+            step.machines = static_cast<std::uint8_t>(std::clamp(inputs.machineCount, 0, kMachines));
+            for (int m = 0; m < step.machines; ++m)
+            {
+                step.predicted |= static_cast<std::uint8_t>(inputs.ranPredicted[m] << m);
+                step.mispredicted |= static_cast<std::uint8_t>(inputs.mispredicted[m] << m);
+            }
+            if (fields.frame == frame) std::memcpy(step.pads, fields.pads, sizeof step.pads);
+        }
+        put(&step, sizeof step);
+        for (int m = 0; m < step.machines; ++m)
+        {
+            const MachineInput& input = inputs.machines[m];
+            DesyncDossierMachineInput out{};
+            out.players = std::min<std::uint8_t>(input.players, 4);
+            out.event_count = static_cast<std::uint8_t>(std::clamp(input.eventCount, 0, kMachineEvents));
+            out.remap = input.remap;
+            std::memcpy(out.states, input.states, sizeof out.states);
+            std::memcpy(out.records, input.records, sizeof out.records);
+            std::memcpy(out.events, input.events, sizeof out.events);
             put(&out, sizeof out);
         }
     }

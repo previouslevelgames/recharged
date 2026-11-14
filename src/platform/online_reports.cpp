@@ -45,13 +45,14 @@ constexpr int kKeptDossiers = 20;
 constexpr auto kDossierDays = std::chrono::hours(24 * 30);
 constexpr const char* kDossierExtension = ".rcds";
 
-// A dossier's header, when `bytes` holds one of this version that fits.
+// A dossier's header, when `bytes` holds one of a version the server reads
+// (1.1.6's left on disk too) that fits.
 bool DossierHeader(const std::string& bytes, DesyncDossierHeader& header)
 {
     if (bytes.size() < sizeof header || bytes.size() > kDesyncDossierMaxBytes) return false;
     std::memcpy(&header, bytes.data(), sizeof header);
     return std::memcmp(header.magic, kDesyncDossierMagic, sizeof header.magic) == 0
-        && header.version == kDesyncDossierVersion;
+        && header.version >= kDesyncDossierFirstVersion && header.version <= kDesyncDossierVersion;
 }
 
 // `text` in a fixed-size field, NUL-padded (cut when longer).

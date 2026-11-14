@@ -11,10 +11,12 @@
 #include "bootstrap/display_shape.h"
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
+#include "launcher/current_build.h"
 #include "launcher/disc_search.h"
 #include "launcher/image_library.h"
 #include "launcher/issue_reporters.h"
 #include "launcher/match_presets.h"
+#include "launcher/online_gate.h"
 #include "launcher/player_lineup.h"
 #include "launcher/players_online.h"
 #include "launcher/release_banner.h"
@@ -102,38 +104,6 @@ std::string GameTitle()
 // forgets it at SDL_Quit, so the game sets it again after the launcher.
 void SetAppName() { SDL_SetAppMetadata("Recharged", mscharged::build::version, nullptr); }
 
-// The running build: where it comes from (MSCHARGED_BUILD_* in CMakeLists.txt)
-// and the package it was made for. The installed package's manifest refines
-// the package (the Steam Deck build of Linux) once the update check runs.
-BuildIdentity CurrentBuild()
-{
-    BuildIdentity identity;
-    identity.version = build::version;
-    const std::string_view channel = build::channel;
-    identity.origin = channel == "release" ? BuildOrigin::Release
-                    : channel == "test"    ? BuildOrigin::Test
-                                           : BuildOrigin::Dev;
-    identity.repository = build::repository;
-    identity.commit = build::commit;
-    identity.pull_request = build::pull_request;
-    identity.run = build::run_id;
-    identity.built = build::build_time;
-    identity.commit_time = build::commit_time;
-#if defined(_WIN32)
-    identity.package = "windows";
-#elif defined(__APPLE__)
-    identity.package = "macos";
-#else
-    identity.package = "linux";
-#endif
-#if defined(__aarch64__) || defined(_M_ARM64)
-    identity.package += "-arm64";
-#else
-    identity.package += "-x86_64";
-#endif
-    return identity;
-}
-
 // The program, as tools/package_build.py ships it.
 #ifdef _WIN32
 constexpr const char* kExecutableName = "recharged.exe";
@@ -212,8 +182,15 @@ constexpr const char* kSidekickNames[] = {"Toad", "Koopa", "Hammer Bro", "Birdo"
 static_assert(std::size(kCaptainNames) == mscharged::platform::kCaptainCount
     && std::size(kSidekickNames) == mscharged::platform::kSidekickCount);
 // Training's choices, in the order of kTrainingItems and kTrainingStadiums.
-constexpr const char* kTrainingItemNames[] = {"None", "Green Shell", "Red Shell", "Spiny Shell", "Freeze Shell", "Banana",
-                                              "Bob-omb", "Chain Chomp", "Mushroom", "Star"};
+constexpr const char* kTrainingItemNames[] = {
+    "None",
+    "Green Shell", "3 Green Shells", "5 Green Shells", "Giant Green Shell",
+    "Red Shell", "3 Red Shells", "Giant Red Shell",
+    "Spiny Shell", "3 Spiny Shells", "5 Spiny Shells", "Giant Spiny Shell",
+    "Freeze Shell", "3 Freeze Shells", "5 Freeze Shells", "Giant Freeze Shell",
+    "Banana", "3 Bananas", "5 Bananas", "Giant Banana",
+    "Bob-omb", "3 Bob-ombs", "5 Bob-ombs", "Giant Bob-omb",
+    "Chain Chomp", "Mushroom", "Star", "Captain's Ability"};
 constexpr const char* kStadiumNames[] = {"Battle Dome", "Bowser Stadium", "Crater Field", "Crystal Canyon", "The Dump",
                                          "Galactic Stadium", "Konga Coliseum", "The Lava Pit", "Pipeline Central",
                                          "Stormship Stadium", "The Palace", "Thunder Island", "The Underground",
@@ -265,6 +242,7 @@ struct Options
     bool experimental_scene = false;
     bool experimental_frontend = false;
     bool experimental_options = false;
+    bool direct_game = false;  // --disc or --training without a runtime mode: the game, to play
     bool frame_arguments = false;
     bool scene_arguments = false;
     bool standalone_assets = false;
@@ -629,8 +607,11 @@ public:
                     CaptureKey(event.key.scancode);
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && hotkey_capture_ >= 0)
                     CaptureHotkey(event.key.scancode, event.key.mod);
-                // Middle and side mouse buttons can take a key's place (#62).
+                // Mouse buttons can take a key's place (#62); a left click is
+                // taken on the waiting keycap itself (KeyboardView), elsewhere
+                // it stops the wait.
                 if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && capture_action_ >= 0
+                    && event.button.button != SDL_BUTTON_LEFT
                     && platform::MouseKeyInput(event.button.button) != platform::kKeyNone)
                     CaptureKey(platform::MouseKeyInput(event.button.button));
                 GamepadCaptureEvent(event);
@@ -942,6 +923,30 @@ private:
                     return found;
                 };
                 const bool dialog = suffix("-dialog"), menu = !dialog && suffix("-menu");
+                // "problem-failed|cancelled|check|blocked": the box after an
+                // enforced update that did not come in, as a release shows it.
+                if (mode.rfind("problem-", 0) == 0)
+                {
+                    const std::string problem = mode.substr(8);
+                    const UpdateProblem kind = problem == "failed" ? UpdateProblem::Failed
+                        : problem == "cancelled"                   ? UpdateProblem::Cancelled
+                        : problem == "check"                       ? UpdateProblem::CheckFailed
+                        : problem == "blocked"                     ? UpdateProblem::Blocked
+                                                                   : UpdateProblem::None;
+                    update_preview_ = kind != UpdateProblem::None
+                        && updates_->Preview(kind == UpdateProblem::Failed      ? "installfailed"
+                                             : kind == UpdateProblem::CheckFailed ? "failed"
+                                             : kind == UpdateProblem::Blocked     ? "blocked"
+                                                                                  : "available");
+                    if (update_preview_)
+                    {
+                        const auto preview = updates_->Snapshot();
+                        ShowUpdateProblem(kind, kind == UpdateProblem::Blocked ? preview.install_blocker
+                                                                               : preview.error);
+                        update_problem_online_ = true;
+                    }
+                    return;
+                }
                 update_preview_ = updates_->Preview(mode);
                 update_dialog_ = update_preview_ && dialog;
                 test_menu_ = update_preview_ && menu;
@@ -969,7 +974,8 @@ private:
             }
             catch (const std::exception& error) { Notice(error.what(), NoticeKind::Warning); }
         }
-        if (config_ok_ && (draft_.check_updates || capture_)) CheckForUpdates(UpdatePrompt::Newer, UpdateChannelSetting());
+        // Every start looks for a newer build: updates are enforced (StartEnforcedUpdate).
+        if (config_ok_) CheckForUpdates(UpdatePrompt::Newer, UpdateChannelSetting());
     }
 
     // The update dialog opens by itself when a check finds a build: after the
@@ -1059,6 +1065,133 @@ private:
         CancelSwitch();
     }
 
+    // Enforced updates (owner 2026-11-12): releases and test builds install an
+    // update of their own line by themselves, after the start's check and
+    // after Check for updates; the dialog shows the download. A release that
+    // stays behind plays offline: the game's main menu keeps Online closed
+    // (launcher/online_gate.h). Local builds keep the choice.
+    bool EnforcedUpdates() const { return updates_ && !update_preview_ && EnforcesUpdates(updates_->Build()); }
+
+    // Why an enforced update did not come in (DrawUpdateProblem).
+    enum class UpdateProblem { None, CheckFailed, Failed, Cancelled, Blocked };
+
+    void StartEnforcedUpdate()
+    {
+        if (!update_.install_blocker.empty())
+        {
+            ShowUpdateProblem(UpdateProblem::Blocked, update_.install_blocker);
+            return;
+        }
+        // A test build's pull request is followed from now on, also after it is released.
+        if (update_.offer->test && draft_.test_build != update_.offer->pull_request)
+            SaveUpdateChoice(draft_.update_channel, update_.offer->pull_request);
+        updates_->Install();
+        update_ = updates_->Snapshot();
+        if (update_.state != UpdateService::State::Downloading) return;
+        enforced_install_ = true;
+        update_dialog_ = true;
+    }
+
+    // An installation the launcher started by itself: a failure or a
+    // cancelled download opens the problem box; a finished one restarts.
+    void FollowEnforcedInstall()
+    {
+        using State = UpdateService::State;
+        if (!enforced_install_) return;
+        if (update_.state == State::InstallFailed) ShowUpdateProblem(UpdateProblem::Failed, update_.error);
+        else if (update_.state == State::Available) ShowUpdateProblem(UpdateProblem::Cancelled, {});
+        else if (update_.state != State::Downloading && update_.state != State::Installing
+                 && update_.state != State::Installed)
+            enforced_install_ = false;
+    }
+
+    void ShowUpdateProblem(UpdateProblem problem, std::string reason)
+    {
+        enforced_install_ = false;
+        update_problem_ = problem;
+        update_problem_reason_ = std::move(reason);
+        update_problem_open_ = true;
+        update_problem_online_ = updates_ && GatesOnline(updates_->Build());
+    }
+
+    // When the update did not work out: what happened, that online play waits
+    // for it (releases), and how it comes: Check for updates, or the next start.
+    void DrawUpdateProblem()
+    {
+        if (update_problem_open_ && !ImGui::IsPopupOpen("Update") && !ImGui::IsPopupOpen("Welcome"))
+        {
+            ImGui::OpenPopup("Update problem");
+            update_problem_open_ = false;
+        }
+        const auto& fonts = CurrentFonts();
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({std::min(Dp(520), viewport->Size.x - Dp(48)), 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal("Update problem", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+            | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
+        {
+            const bool online = update_problem_online_;
+            const char* heading = update_problem_ == UpdateProblem::CheckFailed ? "Couldn't check for updates"
+                : update_problem_ == UpdateProblem::Cancelled                    ? "The update was cancelled"
+                : update_problem_ == UpdateProblem::Blocked                      ? "This folder can't update itself"
+                                                                                 : "The update didn't work";
+            TextColored(fonts.heading, color::text, heading);
+            if (!update_problem_reason_.empty())
+            {
+                ImGui::Dummy({0, Dp(4)});
+                TextWrappedColored(fonts.body, color::muted, update_problem_reason_.c_str());
+            }
+            ImGui::Dummy({0, Dp(12)});
+            std::string text;
+            if (online)
+                text = update_problem_ == UpdateProblem::CheckFailed
+                    ? "Online play is off until a check succeeds. "
+                    : "Online play is off until Recharged is updated. ";
+            text += update_problem_ == UpdateProblem::Blocked
+                ? "Download the new version and unpack it over this folder; your settings and saves stay."
+                : "Use Check for updates on the Play page to try again, or start the launcher again later: it "
+                  "tries by itself.";
+            if (online) Callout(text, color::warning, Icon::Warning);
+            else TextWrappedColored(fonts.body, color::text, text.c_str());
+            ImGui::Dummy({0, Dp(16)});
+            const PackageAsset* asset = update_.offer && updates_ ? update_.offer->PackageFor(updates_->Build().package)
+                                                                  : nullptr;
+            const bool download = update_problem_ == UpdateProblem::Blocked && asset;
+            const bool again = update_problem_ != UpdateProblem::Blocked;
+            const char* action = download ? "Download" : again ? "Try again" : nullptr;
+            const float height = Dp(42);
+            const float ok_width = Dp(100), action_width = action ? PrimaryWidth(action, Icon::None) : 0.0f;
+            const float right = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+            ImGui::SetCursorScreenPos({right - ok_width - (action ? Dp(10) + action_width : 0.0f),
+                                       ImGui::GetCursorScreenPos().y});
+            if (SecondaryButton("update_problem_ok", "OK", {ok_width, height}) || CancelPressed())
+                ImGui::CloseCurrentPopup();
+            if (action)
+            {
+                ImGui::SameLine(0, Dp(10));
+                if (PrimaryButton("update_problem_action", action, {action_width, height}, true))
+                {
+                    ImGui::CloseCurrentPopup();
+                    if (download) SDL_OpenURL(asset->url.c_str());
+                    else CheckForUpdates(UpdatePrompt::Any, UpdateChannelSetting());
+                }
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
+    }
+
+    // When the launcher's last check found this build up to date (seconds
+    // since 1970), for the game it starts (ResolvedLaunch::update_verified):
+    // the release channel's answer only, which knows every newer release.
+    std::int64_t UpdateVerified() const
+    {
+        if (!updates_ || update_preview_ || update_.channel != UpdateChannel::Release) return 0;
+        return update_.state == UpdateService::State::UpToDate ? update_.checked : 0;
+    }
+
     // On the test channel, test builds are published but none is followed
     // (several pull requests are open, or the one followed has closed).
     bool ChooseTestBuild() const
@@ -1128,10 +1261,7 @@ private:
         switch (update_.state)
         {
         case State::Idle:
-            look = {Icon::Refresh, false, "Check for updates",
-                    draft_.check_updates ? "Looks for a newer build on GitHub."
-                                         : "Automatic checks are off (Advanced page).\nClick to check now.",
-                    color::muted};
+            look = {Icon::Refresh, false, "Check for updates", "Looks for a newer build on GitHub.", color::muted};
             break;
         case State::Checking: look = {Icon::None, true, "Checking for updates...", "", color::info}; break;
         case State::UpToDate:
@@ -1309,16 +1439,11 @@ private:
         return pressed;
     }
 
-    // "12 players are online, 4 of them in a match."
+    // "12 players online, 4 in a match"
     static std::string PlayersOnlineTooltip(const PlayersOnline::Count& count)
     {
-        if (count.online == 0) return "Nobody is online on the WFC server right now.";
-        std::string text = count.online == 1 ? "1 player is" : std::to_string(count.online) + " players are";
-        text += " online on the WFC server, ";
-        if (count.playing == 0) text += count.online == 1 ? "not in a match." : "none of them in a match.";
-        else if (count.online == 1) text += "in a match.";
-        else text += std::to_string(count.playing) + " of them in a match.";
-        return text + "\nRecharged, Wii and Dolphin players all count.";
+        return std::to_string(count.online) + (count.online == 1 ? " player" : " players") + " online, " +
+               std::to_string(count.playing) + " in a match";
     }
 
     // Left of the update status, while the WFC server tells: how many
@@ -1643,7 +1768,7 @@ private:
             | ImGuiWindowFlags_AlwaysAutoResize))
         {
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
-            if (update_.offer) DrawUpdateDialogContents(*update_.offer);
+            if (update_.offer && !update_problem_open_) DrawUpdateDialogContents(*update_.offer);
             else ImGui::CloseCurrentPopup();
             ImGui::PopStyleVar();
             ImGui::EndPopup();
@@ -2567,6 +2692,7 @@ private:
         if (updates_)
         {
             update_ = updates_->Snapshot();
+            FollowEnforcedInstall();
             if (update_prompt_ != UpdatePrompt::None && update_.state != UpdateService::State::Checking)
             {
                 // After the hidden switch: the menu, with whatever test builds there are.
@@ -2576,12 +2702,19 @@ private:
                 }
                 else if (update_.state == UpdateService::State::Available && update_.offer)
                 {
-                    // After the start only newer builds: an update or a newer test build.
+                    // An update of the own line installs by itself (enforced
+                    // updates); after the start the dialog offers only newer
+                    // builds: an update or a newer test build.
                     const OfferKind kind = ClassifyOffer(updates_->Build(), *update_.offer);
-                    if (update_prompt_ != UpdatePrompt::Newer || kind == OfferKind::Update
+                    if (kind == OfferKind::Update && EnforcedUpdates()) StartEnforcedUpdate();
+                    else if (update_prompt_ != UpdatePrompt::Newer || kind == OfferKind::Update
                         || (kind == OfferKind::TestBuild && IsNewer(updates_->Build(), *update_.offer)))
                         update_dialog_ = true;
                 }
+                // A release that cannot check plays offline: say so.
+                else if (update_.state == UpdateService::State::CheckFailed && EnforcedUpdates()
+                         && GatesOnline(updates_->Build()))
+                    ShowUpdateProblem(UpdateProblem::CheckFailed, update_.error);
                 else if (update_prompt_ == UpdatePrompt::Switch && ChooseTestBuild())
                     test_menu_ = true;
                 // Nothing to install or choose: the switch stands.
@@ -2767,6 +2900,9 @@ private:
         // The installed files belong to the next launcher: never start them from this one.
         if (update_.state == UpdateService::State::Installing || update_.state == UpdateService::State::Installed)
             return "Finishing the update...";
+        // Enforced updates: the check comes first, and an update it found.
+        if (EnforcedUpdates() && update_.state == UpdateService::State::Checking) return "Checking for updates...";
+        if (enforced_install_) return "Updating Recharged...";
         if (!config_ok_) return "Fix the settings file problem shown below first.";
         if (searching_) return "Looking for your game image...";
         if (pending_) return "Checking your game image...";
@@ -2801,6 +2937,7 @@ private:
     {
         frontend_launch_ = EffectiveLaunch();
         frontend_launch_->start_training = training_;
+        frontend_launch_->update_verified = UpdateVerified();
         quit = true;
     }
 
@@ -2846,6 +2983,7 @@ private:
         DrawRegionPrompt();
         DrawWelcome();
         DrawUpdateDialog();
+        DrawUpdateProblem();
         // The new files are in place: restart into them (unsaved settings are
         // saved or dropped in the update dialog first).
         if (update_.state == UpdateService::State::Installed && !dirty_ && !restart_)
@@ -6501,14 +6639,31 @@ private:
         if (hotkey_capture_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) hotkey_capture_ = -1;
     }
 
+    // What left and right click do: the actions that take them, or A and B
+    // while no action does.
+    static std::string PointerNote(const platform::KeyBindings& bindings)
+    {
+        const auto click = [&](const char* name, Uint8 button, const char* fallback) {
+            std::string actions;
+            const auto input = platform::MouseKeyInput(button);
+            for (std::size_t n = 0; n < KeyActionCount; ++n)
+                if (bindings[n][0] == input || bindings[n][1] == input)
+                    actions += (actions.empty() ? "" : ", ") + std::string(kKeyActions[n].label);
+            return std::string(name) + " click is "
+                   + (actions.empty() ? std::string(fallback) + " until an action takes it" : actions);
+        };
+        return click("left", SDL_BUTTON_LEFT, "A") + "; " + click("right", SDL_BUTTON_RIGHT, "B");
+    }
+
     void KeyboardView()
     {
         if (SecondaryButton("##back", "Players", Dp(124, 36), true, Icon::Back)) { CloseKeyboardView(); return; }
         ImGui::Dummy(Dp(0, 6));
-        PageHeader("Keyboard & mouse", "Click a key, then press the new key or a middle or side mouse button "
-                   "(Mouse 4, Mouse 5). Each action takes up to two. Changes are saved when you go back.");
+        PageHeader("Keyboard & mouse", "Click a key, then press the new key or a mouse button (click the key "
+                   "again for the left button). Each action takes up to two. Left and right click are A and B "
+                   "while no action takes them. Changes are saved when you go back.");
         const auto bindings = DraftBindings();
-        bool clicked = false;
+        bool clicked = false, on_waiting = false;
         const auto rows = [&](std::size_t first, std::size_t last) {
             ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
             if (ImGui::BeginTable("##keys", 2))
@@ -6539,12 +6694,19 @@ private:
                         if (KeyCapButton("##key", label.c_str(), waiting))
                         {
                             clicked = true;
-                            capture_action_ = waiting ? -1 : int(n);
-                            capture_slot_ = waiting ? -1 : slot;
+                            // A click on the waiting keycap is the left button.
+                            if (waiting) CaptureKey(platform::MouseKeyInput(SDL_BUTTON_LEFT));
+                            else
+                            {
+                                capture_action_ = int(n);
+                                capture_slot_ = slot;
+                            }
                         }
-                        if (ImGui::IsItemHovered() && !waiting)
-                            ImGui::SetTooltip(code != platform::kKeyNone ? "Click, then press the new key or mouse button"
-                                                                         : "Add a second key or mouse button");
+                        if (waiting && ImGui::IsItemHovered()) on_waiting = true;
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(waiting ? "Press a key or mouse button; click here for the left button"
+                                              : code != platform::kKeyNone ? "Click, then press the new key or mouse button"
+                                                                           : "Add a second key or mouse button");
                         ImGui::PopID();
                     }
                     if (bindings[n][1] != platform::kKeyNone)
@@ -6576,7 +6738,7 @@ private:
         {
             ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
             ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch);
-            KeyRow("Pointer", {"Mouse"}, "left click is A, right click is B", "Point at menu items");
+            KeyRow("Pointer", {"Mouse"}, PointerNote(bindings).c_str(), "Point at menu items");
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
@@ -6588,8 +6750,9 @@ private:
             dirty_ = true;
         }
         EndCard();
-        // A click anywhere else stops waiting for a key.
-        if (capture_action_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        // A click anywhere else stops waiting for a key; one on the waiting
+        // keycap is taken when it is released.
+        if (capture_action_ >= 0 && !clicked && !on_waiting && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             capture_action_ = capture_slot_ = -1;
     }
 
@@ -7581,6 +7744,8 @@ private:
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
         ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, Dp(10));
         ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
+        // A long list (the items) scrolls instead of leaving the window.
+        ImGui::SetNextWindowSizeConstraints({0, 0}, {FLT_MAX, ImGui::GetMainViewport()->WorkSize.y * 0.7f});
         if (ImGui::BeginPopup("##choice_menu"))
         {
             auto* draw = ImGui::GetWindowDrawList();
@@ -7615,7 +7780,8 @@ private:
 
     void TrainingRows()
     {
-        Row("Item", "The item your team starts every kickoff with. It stays after you use it.");
+        Row("Item", "The item your team starts every kickoff with. It stays after you use it. A single shell, "
+                    "banana or Bob-omb comes out medium or giant at random, a giant one always giant.");
         if (ChoiceButton("training_item", draft_.training_item, kTrainingItems, kTrainingItemNames)) dirty_ = true;
         Row("Captain", "Start training's captain, with their sidekicks from the Teams page.");
         if (ChoiceButton("training_captain", draft_.training_captain, kTrainingCaptains, kCaptainNames)) dirty_ = true;
@@ -8231,12 +8397,12 @@ private:
         }
         EndCard();
 
-        BeginCard("##updates", "Updates", nullptr, Icon::Download);
+        BeginCard("##updates", "Updates",
+                  "Each start of the launcher installs a newer build by itself. A release plays online only while "
+                  "it is the newest one.",
+                  Icon::Download);
         if (BeginRows("##update_rows"))
         {
-            Row("Check for updates", "Looks for a newer release, or test build, each time the launcher starts. "
-                "The Play page shows what it finds and switches between releases and test builds.");
-            if (Toggle("##check_updates", &draft_.check_updates)) dirty_ = true;
             Row("Status", UpdateSummary().c_str());
             ImGui::BeginDisabled(!updates_ || !config_ok_ || UpdateBusy());
             if (SecondaryButton("##check_now", "Check now", Dp(150, 38), true, Icon::Refresh))
@@ -9013,6 +9179,11 @@ private:
     UpdateService::Status update_;
     bool update_dialog_ = false, update_capture_dialog_ = false, update_capture_install_ = false, restart_ = false;
     bool update_preview_ = false;
+    // Enforced updates (launcher/online_gate.h): the installation the launcher
+    // started by itself, and the box that says when one did not work out.
+    bool enforced_install_ = false, update_problem_open_ = false, update_problem_online_ = false;
+    UpdateProblem update_problem_ = UpdateProblem::None;
+    std::string update_problem_reason_;
     UpdatePrompt update_prompt_ = UpdatePrompt::None;
     // The Test menu: open it next frame; whether it was open, closed with a
     // choice, and when it closed.
@@ -9072,6 +9243,8 @@ int main(int argc, char** argv)
         {
             std::cout << "Usage: recharged [launch settings] [--launcher] [--version]\n" << LaunchOptionsHelp <<
                          "Supplying --disc/--disk starts the original game runtime directly when included in this build.\n"
+                         "--non-interactive makes that run a startup diagnostic: it ends once its first frame is captured,\n"
+                         "or fails after 90 s.\n"
                          "Use --launcher to open settings; launcher checks and explicit runtime modes keep their selected mode.\n"
                          "Development checks: --smoke-test | --screenshot FILE [--page play|game|display|audio|controls|advanced|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
@@ -9114,7 +9287,8 @@ int main(int argc, char** argv)
         else if (arg == "--experimental-scene") options.experimental_scene = true;
         else if (arg == "--experimental-frontend") options.experimental_frontend = true;
         else if (arg == "--experimental-options") options.experimental_options = true;
-        else if (arg == "--native-send" || arg == "--diagnostic-frame" || arg == "--resize-check") options.frame_arguments = true;
+        else if (arg == "--native-send" || arg == "--diagnostic-frame" || arg == "--resize-check"
+                 || arg == "--non-interactive") options.frame_arguments = true;
         else if (arg == "--frontend-world") { options.scene_arguments = true; options.scene.frontend_world = true; }
         else if (arg == "--frontend-animate") { options.scene_arguments = true; options.scene.frontend_animate = true; }
         else if (arg == "--frontend-boot") { options.scene_arguments = true; options.scene.frontend_boot = true; }
@@ -9212,6 +9386,7 @@ int main(int argc, char** argv)
     if (!runtime_modes && (options.launch.disc || options.launch.training) && !launcher_requested)
     {
         options.experimental_frontend = true;
+        options.direct_game = true;
         runtime_modes = 1;
     }
     if (runtime_modes && (runtime_modes > 1 || launcher_requested))
@@ -9301,7 +9476,7 @@ int main(int argc, char** argv)
                     std::string_view(argv[i]) != "--experimental-options") arguments.push_back(argv[i]);
             arguments.push_back(nullptr);
             return RunOriginalGame(static_cast<int>(arguments.size()) - 1, arguments.data(),
-                nullptr, false, options.experimental_options ?
+                nullptr, options.direct_game, options.experimental_options ?
                     OriginalMainScene::FrontendOptions : OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #else
             std::cerr << "Original game runtime is not included in this build. "

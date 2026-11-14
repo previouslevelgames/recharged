@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 1.1.6 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.1.7 LANGUAGES C CXX)
 
 # The game module replaces the global operator new/delete with allocators whose
 # scopes are global state. GCC 15 assumes replaceable new/delete leave global
@@ -464,6 +464,8 @@ if(BUILD_TESTING)
     target_include_directories(game_tweaks_tests PRIVATE src "${MSCHARGED_PREPARED}/include")
     target_compile_definitions(game_tweaks_tests PRIVATE MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 MSCHARGED_TWEAKS=1)
     target_compile_features(game_tweaks_tests PRIVATE cxx_std_17)
+    find_package(Threads REQUIRED)
+    target_link_libraries(game_tweaks_tests PRIVATE Threads::Threads)
     add_test(NAME game_tweaks COMMAND game_tweaks_tests)
     # The autopilot's sticks and shakes, read back the way the game reads the pad.
     add_executable(autopilot_pad_tests tests/autopilot_pad.cpp)

@@ -65,6 +65,8 @@ struct Tracker
 
     std::uint8_t* history; // historyPages slots of undo, a ring
     std::uint32_t* historyPage;
+    std::uint32_t* restoredIn; // per page, the restore (restorePass) that last copied it from the history
+    std::uint32_t restorePass;
     std::uint64_t head, tail; // slots in use: [tail, head)
     SaveRecord* saves;        // depth + 1, by id
     std::uint64_t oldest, latest;
@@ -310,6 +312,7 @@ void FreeTracker(Tracker* t)
     std::free(t->shadow);
     std::free(t->history);
     std::free(t->historyPage);
+    std::free(t->restoredIn);
     std::free(t->saves);
     std::free(t);
 }
@@ -376,9 +379,10 @@ bool ConfigureRollbackSnapshots(const RollbackRegion* regions, int count, int de
     t->shadow = static_cast<std::uint8_t*>(std::malloc(t->pages * t->pageSize));
     t->history = static_cast<std::uint8_t*>(std::malloc(historyPages * t->pageSize));
     t->historyPage = static_cast<std::uint32_t*>(std::calloc(historyPages, sizeof(std::uint32_t)));
+    t->restoredIn = static_cast<std::uint32_t*>(std::calloc(t->pages, sizeof(std::uint32_t)));
     t->saves = static_cast<SaveRecord*>(std::calloc(static_cast<std::size_t>(depth) + 1, sizeof(SaveRecord)));
     if (!t->segmentFirst || !t->segmentCount || !t->segments || !t->faulted || !t->hot || !t->idle || !t->hotList
-        || !t->shadow || !t->history || !t->historyPage || !t->saves)
+        || !t->shadow || !t->history || !t->historyPage || !t->restoredIn || !t->saves)
     {
         FreeTracker(t);
         return false;
@@ -524,30 +528,25 @@ bool RestoreRollbackSnapshot(std::uint64_t id)
     const std::uint64_t start = NowNs();
     std::uint64_t restored = 0;
 
-    // Back to the last save: what changed since is in the hot or faulted pages.
-    for (std::size_t h = 0; h < t->hotCount; ++h)
+    // The saves after `id` undone first, oldest first: a page's undo image at
+    // the first save after `id` that changed it is its content as of `id`
+    // (the saves between left it alone), so each page is copied once however
+    // many of the undone saves changed it, and the shadow follows.
+    if (++t->restorePass == 0) // the stamps wrapped: none may pass for this restore's
     {
-        const std::uint32_t page = t->hotList[h];
-        std::uint8_t* live = PageAddress(*t, page);
-        if (!Differs(*t, page, live)) continue;
-        CopySegments(*t, page, live, t->shadow + page * t->pageSize);
-        ++restored;
+        std::memset(t->restoredIn, 0, t->pages * sizeof(std::uint32_t));
+        t->restorePass = 1;
     }
-    TakeFaulted(*t, [&](std::size_t page) {
-        CopySegments(*t, page, PageAddress(*t, page), t->shadow + page * t->pageSize);
-        if (!t->hot[page]) MakeHot(*t, page);
-        ++t->stats.promoted;
-        ++restored;
-    });
-
-    // Then each later save undone, newest first.
-    for (std::uint64_t save = t->latest; save > id; --save)
+    const std::uint32_t pass = t->restorePass;
+    for (std::uint64_t save = id + 1; save <= t->latest; ++save)
     {
         const SaveRecord& record = t->saves[save % (t->depth + 1)];
-        for (std::uint64_t slot = record.end; slot-- > record.first;)
+        for (std::uint64_t slot = record.first; slot < record.end; ++slot)
         {
             const std::size_t index = slot % t->historyPages;
             const std::uint32_t page = t->historyPage[index];
+            if (t->restoredIn[page] == pass) continue;
+            t->restoredIn[page] = pass;
             std::uint8_t* live = PageAddress(*t, page);
             if (!t->hot[page])
             {
@@ -560,6 +559,27 @@ bool RestoreRollbackSnapshot(std::uint64_t id)
             ++restored;
         }
     }
+
+    // Then back to the last save for the other pages: what changed since is
+    // in the hot or faulted pages.
+    for (std::size_t h = 0; h < t->hotCount; ++h)
+    {
+        const std::uint32_t page = t->hotList[h];
+        if (t->restoredIn[page] == pass) continue;
+        std::uint8_t* live = PageAddress(*t, page);
+        if (!Differs(*t, page, live)) continue;
+        CopySegments(*t, page, live, t->shadow + page * t->pageSize);
+        ++restored;
+    }
+    TakeFaulted(*t, [&](std::size_t page) {
+        if (t->restoredIn[page] != pass)
+        {
+            CopySegments(*t, page, PageAddress(*t, page), t->shadow + page * t->pageSize);
+            ++restored;
+        }
+        if (!t->hot[page]) MakeHot(*t, page);
+        ++t->stats.promoted;
+    });
     if (id < t->latest) t->head = t->saves[(id + 1) % (t->depth + 1)].first;
     t->latest = id;
 

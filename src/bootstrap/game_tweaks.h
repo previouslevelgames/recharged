@@ -100,11 +100,37 @@ inline constexpr std::array<GameTweakInfo, 14> kGameTweaks{{
 }};
 
 // Start training ([gameplay] training_item, training_captain, training_stadium): the
-// config's names, in the order of the game's ePowerUpType (after none, which is
-// -1), eTeamID and eStadiumID.
-inline constexpr std::array<const char*, 10> kTrainingItems{
-    "none", "green_shell", "red_shell", "spiny_shell", "freeze_shell", "banana", "bobomb", "chain_chomp", "mushroom",
-    "star"};
+// config's names; kTrainingItemKinds gives each item's ePowerUpType, and the
+// captains and stadiums are in the order of eTeamID and eStadiumID.
+inline constexpr std::array<const char*, 28> kTrainingItems{
+    "none",
+    "green_shell", "green_shell_3", "green_shell_5", "giant_green_shell",
+    "red_shell", "red_shell_3", "giant_red_shell",
+    "spiny_shell", "spiny_shell_3", "spiny_shell_5", "giant_spiny_shell",
+    "freeze_shell", "freeze_shell_3", "freeze_shell_5", "giant_freeze_shell",
+    "banana", "banana_3", "banana_5", "giant_banana",
+    "bobomb", "bobomb_3", "bobomb_5", "giant_bobomb",
+    "chain_chomp", "mushroom", "star", "captain"};
+// What a Training item gives: the game's ePowerUpType (-1 none; 9 stands for
+// the captain's own power-up, whichever captain trains), how many of it (3 or
+// 5 where the game awards that many: every shell but the red one also 5, the
+// banana and the Bob-omb) and whether a single one is always thrown giant (the
+// game makes it medium or giant at random otherwise).
+struct TrainingItemKind {
+    int type;
+    int count;
+    bool giant;
+};
+inline constexpr int kTrainingCaptainItem = 9;
+inline constexpr std::array<TrainingItemKind, kTrainingItems.size()> kTrainingItemKinds{{
+    {-1, 1, false},
+    {0, 1, false}, {0, 3, false}, {0, 5, false}, {0, 1, true},
+    {1, 1, false}, {1, 3, false}, {1, 1, true},
+    {2, 1, false}, {2, 3, false}, {2, 5, false}, {2, 1, true},
+    {3, 1, false}, {3, 3, false}, {3, 5, false}, {3, 1, true},
+    {4, 1, false}, {4, 3, false}, {4, 5, false}, {4, 1, true},
+    {5, 1, false}, {5, 3, false}, {5, 5, false}, {5, 1, true},
+    {6, 1, false}, {7, 1, false}, {8, 1, false}, {kTrainingCaptainItem, 1, false}}};
 inline constexpr std::array<const char*, 12> kTrainingCaptains{
     "mario", "bowser", "daisy", "donkeykong", "luigi", "peach", "waluigi", "wario", "yoshi", "bowserjr", "diddykong",
     "petey"};

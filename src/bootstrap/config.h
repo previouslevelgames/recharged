@@ -203,8 +203,6 @@ struct Settings
     // advanced.log_window (Windows and macOS): a separate window that follows the log while the program runs.
     bool log_window = false;
     std::string ui_scale = "auto";    // launcher.ui_scale: auto or a percentage (75 to 200)
-    // launcher.check_updates: look for a newer build each time the launcher starts.
-    bool check_updates = true;
     // launcher.reopen_after_game: open the launcher again when a game started
     // from it closes normally.
     bool reopen_after_game = false;

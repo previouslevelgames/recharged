@@ -15,6 +15,7 @@ add_library(charged_updates STATIC
     src/launcher/update_check.cpp
     src/launcher/update_install.cpp
     src/launcher/update_service.cpp
+    src/launcher/online_gate.cpp
 )
 target_include_directories(charged_updates PUBLIC src)
 target_compile_features(charged_updates PUBLIC cxx_std_17)

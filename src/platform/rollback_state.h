@@ -103,14 +103,18 @@ constexpr int kMaxPlaces = 4096;         // places the comparison tells apart
 constexpr int kDetailedCompares = 3;     // comparisons listed in full in the log
 constexpr int kListedPlaces = 60;        // places per detailed comparison, and in the summary
 constexpr int kMaxTasks = 32;            // tasks the task manager runs
-constexpr float kLongestFrame = 0.1f;    // the task manager's bound on a frame (g_fTaskTimeUpperBound)
-constexpr int kFrameRing = 256;          // frames kept: those of the deepest rollback, at any frame rate
+constexpr int kCostBuckets = 10;         // rollbacks by cost: < 2, 4, 6, 8, 10, 12, 16, 20, 30 ms, and the rest
+constexpr double kSlowRollbackMs = 12.0; // a rollback this long is logged with what it replayed
+constexpr int kFrameRing = 256;          // frames kept: those of the deepest rollback, at any frame rate, but for a wait with steps predicted
 constexpr int kMachines = 4;
 constexpr int kMachineEvents = 4;        // deterministic data events in one input message
 constexpr int kInputRing = 32;           // RECHARGED_ROLLBACK: steps whose inputs are kept
 constexpr int kConfirmedRing = 64;       // RECHARGED_ROLLBACK: checksums of steps whose inputs all arrived
 constexpr int kRemoteChecks = 32;        // RECHARGED_ROLLBACK: other machines' checksums waiting for ours
-constexpr unsigned kSettleSteps = 25;    // RECHARGED_ROLLBACK: steps after tracking starts that predict nothing
+constexpr int kSentChecks = 14;          // RECHARGED_ROLLBACK: our checksums sent, for a desync's dossier
+constexpr unsigned kSettleSteps = 3;     // RECHARGED_ROLLBACK: steps after tracking starts that predict nothing
+constexpr unsigned kQuietSteps = 3;      // RECHARGED_ROLLBACK: steps after one that started a disc read that predict nothing
+constexpr unsigned kGiveBackEvery = 3;   // RECHARGED_ROLLBACK: steps between captures left out to give a lockstep's delay back
 constexpr int kMaxInputDelay = 6;        // RECHARGED_ROLLBACK: steps, while predicting
 constexpr int kMaxLockstepDelay = 10;    // RECHARGED_ROLLBACK: steps, in a phase without prediction
 constexpr int kAccelHysteresis = 6;
@@ -217,6 +221,10 @@ struct StepInputs
     int machineCount;
     MachineInput machines[kMachines];
     bool predicted[kMachines];
+    // For a desync dossier: by machine, its inputs were predicted when the
+    // step first ran, and they came other than predicted.
+    bool ranPredicted[kMachines];
+    bool mispredicted[kMachines];
 };
 struct SyncPoint
 {
@@ -265,8 +273,8 @@ struct Options
     bool contacts;           // RECHARGED_ROLLBACK_CONTACTS: the step's collisions join it
     int maxDepth;            // RECHARGED_ROLLBACK_TEST_FRAMES
     int interval;            // RECHARGED_ROLLBACK_TEST_INTERVAL
-    bool merge;              // frames without steps replayed as one with the next
     int compareEvery;        // RECHARGED_ROLLBACK_TEST_COMPARE
+    int lostFramesEvery;     // RECHARGED_ROLLBACK_TEST_LOST_FRAMES
 };
 
 // The memory a rollback restores (rollback_memory.cpp): the ranges, less the
@@ -297,10 +305,12 @@ struct Stats
     int starts;
     std::uint64_t stepCount, rollbacks, byDepth[kMaxDepth + 1], replayed;
     std::uint64_t skippedReads, skippedStarts, skippedPhases, skippedEvents, skippedShort;
-    std::uint64_t meterReceived, meterRedelivered, framesReplayed, framesMerged;
+    std::uint64_t meterReceived, meterRedelivered, framesReplayed;
     std::uint64_t mismatches, nisInReplay, lossyFrees, failedRestores, untracked;
     unsigned firstMismatchFrame;
     std::uint64_t rollbackNs, maxRollbackNs, restoreNs, maxRestoreNs;
+    std::uint64_t byCost[kCostBuckets]; // rollbacks by their cost (kCostBuckets)
+    std::uint64_t slow;                 // rollbacks of kSlowRollbackMs or more
     // Where the replays' time goes: each task's, and in the fixed update's its
     // work before the steps (the time scale's transition), the steps' (their
     // checksums' part apart too) and the saves'.
@@ -308,6 +318,7 @@ struct Stats
     std::uint64_t replayFaults, replaySavedPages, replayHotPages; // of the replayed steps and their saves
     std::uint64_t markNs; // of the replayed saves, the allocation registry's part
     std::uint64_t savesSkipped;
+    std::uint64_t framesLostRollbacks; // rollbacks whose first frames the ring no longer kept
 };
 
 // RECHARGED_ROLLBACK_TEST_COMPARE=N: every Nth rollback, the tracked memory
@@ -323,6 +334,14 @@ struct Compare
     Place* places;
     int placeCount;
     std::uint64_t placesDropped;
+};
+
+// RECHARGED_ROLLBACK: the counts of Netplay a desync dossier gives for its
+// game alone, by their values when the game began (NetCountsNow).
+struct NetCounts
+{
+    std::uint64_t mispredictions[kMachines], predictedSteps, correctionRollbacks, undone, truncated, keptPredicted,
+        impossible, stoppedPredicted, lockstepWaits, windowWaits, delayLonger, delayShorter;
 };
 
 // RECHARGED_ROLLBACK: network matches that predict (rollback_netplay.cpp).
@@ -344,9 +363,21 @@ struct Netplay
     SyncPoint history[kConfirmedRing];
     SyncPoint remote[kRemoteChecks];
     int remoteCount;
+    // The steps whose checksums this machine sent, the last kSentChecks
+    // (sentCount counts them all), and the last step of another machine's
+    // that matched here: a desync's dossier lists the steps sent after it,
+    // among them the one where the other machine found the desync.
+    unsigned sent[kSentChecks];
+    unsigned sentCount;
+    bool haveMatched;
+    unsigned matchedFrame;
     std::uint64_t predictedSteps, lockstepWaits, windowWaits, mispredictions[kMachines], correctionRollbacks;
     std::uint64_t mispredictedParts[kInputParts]; // mispredicted steps that got each part wrong
     std::uint64_t undone, truncated, impossible, desyncs, remoteChecks, predictedDepth[kMaxDepth + 1];
+    // Predicted steps kept although a misprediction in them can no longer be
+    // corrected: for a disc read (StopReplayAt), and when tracking stopped.
+    std::uint64_t keptPredicted, stoppedPredicted;
+    NetCounts atGameStart;
     unsigned firstDesyncFrame;
     // This match's first divergence, for the game's own sync error.
     unsigned matchDesyncFrame;
@@ -371,6 +402,10 @@ struct Netplay
     std::uint64_t leadSamples;
     bool isPrevFramePhasePredictable; // the phase at the last frame start predicted
     int addedStepsInLockstep;         // input delay added for a phase without prediction, given back after it
+    // The last step whose first run started a disc read (the summary counts
+    // those that ran on predicted inputs: a misprediction in them desyncs).
+    unsigned readStartedAt;
+    std::uint64_t readsOnPredicted;
     // A disc read waiting for the steps predicted to get their inputs
     // (mscharged_rollback_read_waits): no step predicts through the frame
     // after the last one it waited in.
@@ -473,9 +508,11 @@ StepInputs& InputsFor(unsigned frame);
 bool AnyPredicted(const StepInputs& inputs);
 unsigned OldestPredicted();
 void StopReplayAt(unsigned frame);
+bool PhasesContinue(const Phases& earlier, const Phases& later);
 void UpdateConfirmed();
 void NetplayFrameStart();
 bool OverlayNumbers(int& delay, int& predicted);
+NetCounts NetCountsNow();
 
 // rollback_compare.cpp
 void BuildWatched();
@@ -499,6 +536,8 @@ void WriteSummary();
 // LogFields at a desync.
 unsigned RecordedChecksum(unsigned (*checksum)(), unsigned frame);
 void ConfirmFields(unsigned frame);
+// At a new game: no step's fields or inputs kept (its frames start again).
+void ForgetConfirmed();
 void LogFields(unsigned frame);
 // At a match's first desync: its dossier for the WFC server, from the fields
 // ConfirmFields kept (desync_dossier.h), until the host takes it.
