@@ -3,12 +3,14 @@
 #include <dolphin/os.h>
 #include <dolphin/os/OSNativeMemory.h>
 #include <cstdio>
+#include <cstdlib>
 #include <algorithm>
 #include <cstring>
 #include <limits>
 #include <map>
 #include <mutex>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 
 namespace {
@@ -36,6 +38,22 @@ struct AddressSpace {
     std::map<std::uint32_t,Span> spans;
 };
 AddressSpace& State() { static AddressSpace state;return state; }
+// Set while this thread holds the lock through a NativeDSPMemoryScope.
+thread_local bool tScopeHeld=false;
+// The lock of one transfer, unless this thread's scope holds it already.
+class Guard {
+public:
+    explicit Guard(AddressSpace& state) : lock_(state.mutex,std::defer_lock) { if (!tScopeHeld) lock_.lock(); }
+private:
+    std::unique_lock<std::mutex> lock_;
+};
+bool NewRuntime() {
+    static const bool enabled=[] {
+        const char* runtime=std::getenv("RECHARGED_RUNTIME");
+        return runtime==nullptr || std::string_view{runtime}!="classic";
+    }();
+    return enabled;
+}
 void RequireLive(const AddressSpace& state) {
     if (!state.attached || !OSGetArenaLo() || !OSGetArenaHi())
         throw std::logic_error("DSP memory endpoint has no live SDK MEM1 owner");
@@ -249,7 +267,7 @@ NativeDSPMemoryPin Pin(AddressSpace& state,const void* address,std::size_t bytes
 }
 namespace mscharged::platform {
 NativeDSPMemoryEndpoint AttachNativeDSPMEM1() {
-    auto& state=State();std::lock_guard lock(state.mutex);
+    auto& state=State();Guard guard(state);
     if (state.attached) { RequireOwner(state);return {state.generation}; }
     if (!OSGetArenaLo() || !OSGetArenaHi())
         throw std::logic_error("DSP memory transport cannot invent an initialized MEM1 owner");
@@ -262,7 +280,7 @@ NativeDSPMemoryEndpoint AttachNativeDSPMEM1() {
     return {state.generation};
 }
 void DetachNativeDSPMEM1() {
-    auto& state=State();std::lock_guard lock(state.mutex);
+    auto& state=State();Guard guard(state);
     if (!state.attached) return;
     if (state.owner!=std::this_thread::get_id())
         throw std::logic_error("DSP memory detach requires its owner thread");
@@ -271,21 +289,21 @@ void DetachNativeDSPMEM1() {
     state.spans.clear();state.attached=false;state.owner={};state.start=0;state.bytes=0;state.live_generation=0;
 }
 NativeDSPMemoryPin PinNativeDSPMEM1(const void* address,std::size_t bytes,bool writable) {
-    auto& state=State();std::lock_guard lock(state.mutex);RequireOwner(state);
+    auto& state=State();Guard guard(state);RequireOwner(state);
     Offset(state,address,bytes); // Retain the original explicit MEM1-only contract.
     return Pin(state,address,bytes,writable);
 }
 NativeDSPMemoryPin PinNativeDSPMemory(const void* address,std::size_t bytes,bool writable) {
-    auto& state=State();std::lock_guard lock(state.mutex);RequireOwner(state);
+    auto& state=State();Guard guard(state);RequireOwner(state);
     return Pin(state,address,bytes,writable);
 }
 NativeDSPMemoryPin PinNativeDSPMemory(const void* address,std::size_t bytes,bool writable,
                                    NativeDSPMemoryEncoding encoding) {
-    auto& state=State();std::lock_guard lock(state.mutex);RequireOwner(state);
+    auto& state=State();Guard guard(state);RequireOwner(state);
     return Pin(state,address,bytes,writable,encoding);
 }
 void ReleaseNativeDSPMemory(NativeDSPMemoryPin pin) {
-    auto& state=State();std::lock_guard lock(state.mutex);RequireOwner(state);
+    auto& state=State();Guard guard(state);RequireOwner(state);
     if (pin.generation!=state.generation)
         throw std::invalid_argument("DSP source pin belongs to an old memory endpoint");
     for (auto it=state.spans.begin();it!=state.spans.end();++it) {
@@ -297,7 +315,7 @@ void ReleaseNativeDSPMemory(NativeDSPMemoryPin pin) {
     throw std::invalid_argument("DSP source pin was already released or never existed");
 }
 void DSPBackendValidateMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t address,std::size_t bytes,bool writing) {
-    auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
+    auto& state=State();Guard guard(state);RequireDevice(state,endpoint);
     NativePointer(state,address,bytes,writing);
 }
 namespace {
@@ -320,11 +338,11 @@ void ReadLocked(const AddressSpace& state,std::uint32_t address,void* destinatio
 }
 }
 void DSPBackendReadMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t address,void* destination,std::size_t bytes) {
-    auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
+    auto& state=State();Guard guard(state);RequireDevice(state,endpoint);
     ReadLocked(state,address,destination,bytes);
 }
 unsigned char DSPBackendReadSampleByte(NativeDSPMemoryEndpoint endpoint,std::uint32_t address) {
-    auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
+    auto& state=State();Guard guard(state);RequireDevice(state,endpoint);
     auto it=state.spans.upper_bound(address);
     if (it!=state.spans.begin()) {
         --it;
@@ -346,7 +364,7 @@ unsigned char DSPBackendReadSampleByte(NativeDSPMemoryEndpoint endpoint,std::uin
 std::size_t DSPBackendReadSampleBytes(NativeDSPMemoryEndpoint endpoint,std::uint32_t address,
                                       unsigned char* destination,std::size_t capacity) {
     if (!destination || !capacity) throw std::invalid_argument("DSP sample window is empty");
-    auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
+    auto& state=State();Guard guard(state);RequireDevice(state,endpoint);
     auto it=state.spans.upper_bound(address);
     if (it!=state.spans.begin()) {
         --it;
@@ -367,7 +385,7 @@ std::size_t DSPBackendReadSampleBytes(NativeDSPMemoryEndpoint endpoint,std::uint
     throw std::out_of_range(detail);
 }
 void DSPBackendWriteMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t address,const void* source,std::size_t bytes) {
-    auto& state=State();std::lock_guard lock(state.mutex);RequireDevice(state,endpoint);
+    auto& state=State();Guard guard(state);RequireDevice(state,endpoint);
     if (!source && bytes) throw std::invalid_argument("DSP write source is null");
     const auto it=FindSpan(state,address,bytes,true);
     auto* destination=SpanPointer(it,address);
@@ -385,8 +403,20 @@ void DSPBackendWriteMemory(NativeDSPMemoryEndpoint endpoint,std::uint32_t addres
     }
 }
 }
+namespace mscharged::platform {
+NativeDSPMemoryScope::NativeDSPMemoryScope() {
+    if (tScopeHeld || !NewRuntime()) return;
+    State().mutex.lock();
+    tScopeHeld=held_=true;
+}
+NativeDSPMemoryScope::~NativeDSPMemoryScope() {
+    if (!held_) return;
+    tScopeHeld=false;
+    State().mutex.unlock();
+}
+}
 extern "C" std::uint32_t ChargedDSPTaskMemoryWord(const void* address,std::uint32_t bytes,int writing) {
-    auto& state=State();std::lock_guard lock(state.mutex);RequireOwner(state);
+    auto& state=State();Guard guard(state);RequireOwner(state);
     if (writing!=0 && writing!=1) throw std::invalid_argument("DSP task memory access direction is invalid");
     if (!address && !bytes) return 0; // Original empty task/context fields.
     const auto physical=SharedPhysical(address);
