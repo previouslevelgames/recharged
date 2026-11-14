@@ -127,3 +127,4 @@
 0131-gx-draws-leave-out-unchanged-bindings.patch
 0132-draw-to-the-switch-window.patch
 0133-run-imgui-without-sdl-on-the-switch.patch
+0134-time-the-native-gx-phases.patch

@@ -124,6 +124,44 @@ int main()
                   "Per-frame values are copied");
         }
         {
+            // Phase totals become per-frame times; the summary averages them and
+            // says which CPU cores the timed threads ran on.
+            using namespace mscharged::runtime;
+            FrameTimingLog log(nullptr, {});
+            FrameTimingCounters counters{};
+            for (unsigned n = 0; n < 3; ++n) {
+                log.BeginFrame();
+                counters.phases[kPhaseSend] += 12'000'000;
+                counters.phases[kPhaseUpdate] += 20'000'000;
+                counters.phases[kPhasePriorWait] += 5'000'000;
+                counters.phases[kPhaseAudio] += 4'000'000;
+                counters.phases[kPhaseFifoParse] += 15'000'000;
+                counters.phases[kPhaseFifoParseCpu] += 10'000'000;
+                counters.phases[kPhaseGpuWait] += 18'000'000;
+                counters.draw_done_frames += 2;
+                counters.empty_draw_done_frames += 1;
+                counters.cores.game[0] += 2;
+                counters.cores.fifo[n == 0 ? 1 : 2] += 4;
+                log.EndFrame(counters);
+            }
+            log.BeginFrame();
+            const auto& records = log.Records();
+            Check(records.size() == 3 && records[1].phases[kPhaseSend] == 12'000'000 &&
+                      records[2].phases[kPhaseGpuWait] == 18'000'000 && records[2].draw_done_frames == 2 &&
+                      records[2].empty_draw_done_frames == 1,
+                  "Phase totals become per-frame differences");
+            Check(records[0].phases[kPhaseSend] == 0, "The first frame has no phase differences");
+            const std::string summary = log.Summary();
+            std::cout << summary;
+            Check(Contains(summary, "Game thread per frame ms: drawing its views 8.00, rest of its frame 13.33"),
+                  "Game thread phases");
+            Check(Contains(summary, "reading GX commands 10.00 (CPU 6.67)"), "FIFO processor with CPU time");
+            Check(Contains(summary, "Draw-done frames per game frame: 1.33, 0.67 of them without a draw"),
+                  "Draw-done frames");
+            Check(Contains(summary, "CPU cores (share of samples): game thread 0:100%; FIFO processor 2:100%"),
+                  "Core samples since the first frame");
+        }
+        {
             // The CSV has one header and one row per frame; the summary lands next to it.
             const auto path = directory.path / "explicit.csv";
             {
