@@ -11,6 +11,7 @@
 #endif
 #include "platform/menu_snapshot.h"
 #include "platform/online_match_snapshot.h"
+#include "platform/trophy_room.h"
 
 #include "Game/BaseGameSceneManager.h"
 #include "Game/DB/SaveLoad.h"
@@ -591,6 +592,10 @@ void Run(const ChargedMenuCommand& command)
             g_pNetworkSession->DisconnectOnlineMatch();
         }
         break;
+    case CHARGED_MENU_TROPHY_ROOM:
+        if (command.value) ChargedTrophyRoomEnter(command.which);
+        else ChargedTrophyRoomLeave();
+        break;
     default: break;
     }
 }
@@ -649,6 +654,7 @@ void mscharged_tweak_menus_frame(void)
     std::copy(sCommands, sCommands + count, commands);
     sCommandCount = 0;
     for (int n = 0; n < count; ++n) Run(commands[n]);
+    ChargedTrophyRoomFrame();
 }
 #endif
 
@@ -718,6 +724,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_menu_snapshot(Cha
     s.network_match = NetworkMatch();
     if (!g_pGame) sForfeiting = false;
     s.forfeiting = sForfeiting ? 1 : 0;
+    s.trophy_room = ChargedTrophyRoomState();
     s.taken_button = sTakenButton;
     s.taken_pad = sTakenPad;
     ReadGameOptions(s);
