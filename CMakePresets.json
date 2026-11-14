@@ -95,6 +95,25 @@
       "displayName": "Original frontend runtime (Release, incomplete game)"
     },
     {
+      "name": "ios-release",
+      "inherits": "release",
+      "displayName": "iOS/iPadOS game runtime (Release, cross-compiled on a Mac)",
+      "binaryDir": "${sourceDir}/build/ios-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_SYSROOT": "iphoneos",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "18.0",
+        "Rust_CARGO_TARGET": "aarch64-apple-ios",
+        "BUILD_TESTING": false
+      }
+    },
+    {
       "name": "launcher",
       "inherits": "optimized",
       "displayName": "Launcher and foundation only (Release)"
@@ -157,6 +176,17 @@
       "configurePreset": "release",
       "targets": [
         "mscharged"
+      ]
+    },
+    {
+      "name": "ios-release",
+      "configurePreset": "ios-release",
+      "targets": [
+        "mscharged",
+        "mscharged_original_frontend_module_us",
+        "mscharged_original_frontend_module_eu",
+        "mscharged_original_frontend_module_jp",
+        "mscharged_original_frontend_module_kr"
       ]
     },
     {
@@ -283,6 +313,19 @@
         {
           "type": "build",
           "name": "release"
+        }
+      ]
+    },
+    {
+      "name": "ios-release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "ios-release"
+        },
+        {
+          "type": "build",
+          "name": "ios-release"
         }
       ]
     },

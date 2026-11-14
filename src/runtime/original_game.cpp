@@ -413,7 +413,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         case mscharged::GameCode::Korea: moduleFilename=MSCHARGED_ORIGINAL_FRONTEND_MODULE_KR_FILENAME; break;
         case mscharged::GameCode::Usa: break;
         }
+#if defined(MSCHARGED_PLATFORM_IOS)
+        // iOS: the modules are signed with the app, in Recharged.app/Frameworks
+        // (tools/package_ios.py); SDL_GetBasePath is Recharged.app itself.
+        const auto modulePath=executableDirectory/"Frameworks"/moduleFilename;
+#else
         const auto modulePath=executableDirectory/moduleFilename;
+#endif
         Check(std::filesystem::is_regular_file(modulePath),"Original-main source module is missing beside the executable");
         // Real host window/device/FIFO owner exists before any original module
         // constructors. Original main still owns its GXInit/glStartup decisions.

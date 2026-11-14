@@ -89,6 +89,21 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def common_files(build, source):
+    """The files every package holds beside its program, as (root, path) pairs:
+    the launcher's assets, the graphics and gameplay data, and the public
+    documents and notices. tools/package_ios.py takes the same list, so a file
+    added here goes into every package."""
+    files = [(build, Path("assets/launcher") / asset) for asset in ASSETS]
+    files += [(build, Path("assets/graphics/initial_pipeline_cache.db")),
+              (source, Path("assets/graphics/README.md")),
+              # The robot goalie map of the tweak "Robot goalies" (texture coordinates only).
+              (source, Path("assets/gameplay/robot_goalie.map")),
+              (source, Path("assets/gameplay/README.md"))]
+    files += [(source, Path(public)) for public in PUBLIC_FILES]
+    return files
+
+
 def regular_file(root, relative):
     path = root / relative
     if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(root.resolve()):
@@ -490,15 +505,8 @@ def package_build(build, output, source, cargo_loader=cargo_packages, steamdeck=
                 else:
                     copy(graphics_root, relative, expected=record["sha256"])
             copy(graphics_root, "windows-graphics.json", "LICENSES/windows-graphics.json")
-        for asset in ASSETS:
-            copy(build, Path("assets/launcher") / asset)
-        copy(build, "assets/graphics/initial_pipeline_cache.db")
-        copy(source, "assets/graphics/README.md")
-        # The robot goalie map of the tweak "Robot goalies" (texture coordinates only).
-        copy(source, "assets/gameplay/robot_goalie.map")
-        copy(source, "assets/gameplay/README.md")
-        for public in PUBLIC_FILES:
-            copy(source, public)
+        for root, relative in common_files(build, source):
+            copy(root, relative)
 
         prepared = []
         for dependency in DEPENDENCIES:

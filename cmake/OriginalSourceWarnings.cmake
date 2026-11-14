@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include(cmake/Platform.cmake)
 
 # GCC reports, by default, several console idioms that the reconstructed game
 # sources and their headers use on purpose: four-character constants ('RLYT'),
@@ -32,7 +33,7 @@ endfunction()
 # party targets keep their diagnostics. Linux (including Clang) and Windows
 # retain their existing compiler options.
 function(mscharged_apply_macos_original_warning_policy)
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
+    if(NOT MSCHARGED_APPLE OR
             NOT CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
         return()
     endif()

@@ -5,6 +5,8 @@
 /out/
 /dist/
 CMakeUserPresets.json
+# iOS packages (tools/package_ios.py)
+*.ipa
 __pycache__/
 *.pyc
 

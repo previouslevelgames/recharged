@@ -1,3 +1,4 @@
+include(cmake/Platform.cmake)
 if(TARGET imgui)
     # A single ImGui implementation serves Aurora/WGPU and the SDL launcher.
     add_library(charged_launcher_ui INTERFACE)
@@ -92,7 +93,20 @@ target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged
     charged_texture_packs charged_mii_maker charged_match_presets charged_players_online)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
 mscharged_stage_pipeline_catalog(mscharged)
-if(APPLE)
+if(MSCHARGED_IOS)
+    # iOS: tools/package_ios.py makes Recharged.app (program, Info.plist, icon,
+    # assets and the game modules in Frameworks) and the unsigned .ipa from
+    # this build; signing happens when the app is installed.
+    # CMake would make recharged.app around the program by default on iOS; the
+    # program stays plain beside its assets, as on the other systems.
+    set_target_properties(mscharged PROPERTIES MACOSX_BUNDLE OFF)
+    # A fork sets its own (-DMSCHARGED_IOS_BUNDLE_IDENTIFIER=...): installed
+    # apps are told apart by it, with their own files.
+    set(MSCHARGED_IOS_BUNDLE_IDENTIFIER "io.github.previouslevelgames.recharged" CACHE STRING
+        "Bundle identifier of the iOS app (sideloading tools may replace it)")
+    configure_file(cmake/Info-iOS.plist.in generated/mscharged/Info-iOS.plist @ONLY)
+    set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Info-iOS.plist.in")
+elseif(APPLE)
     target_sources(mscharged PRIVATE src/platform/macos_app.cpp)
     target_link_libraries(mscharged PRIVATE "-framework CoreFoundation")
     # Recharged.app beside the program, so Finder starts it without Terminal

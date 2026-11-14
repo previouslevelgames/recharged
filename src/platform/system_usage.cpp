@@ -17,7 +17,9 @@
 #include <pdhmsg.h>
 #elif defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
+#if !defined(MSCHARGED_PLATFORM_IOS) // iOS has no public IOKit: no graphics load there
 #include <IOKit/IOKitLib.h>
+#endif
 #include <mach/mach.h>
 #elif defined(__linux__)
 #include <dlfcn.h>
@@ -108,6 +110,7 @@ public:
             times = detail::CpuTimes{busy, busy + load.cpu_ticks[CPU_STATE_IDLE]};
         }
         result.cpu_percent = cpu_.Sample(times);
+#if !defined(MSCHARGED_PLATFORM_IOS)
         io_iterator_t iterator = IO_OBJECT_NULL;
         if (IOServiceGetMatchingServices(MACH_PORT_NULL, IOServiceMatching("IOAccelerator"), &iterator) != KERN_SUCCESS)
             return result;
@@ -126,6 +129,7 @@ public:
             IOObjectRelease(service);
         }
         IOObjectRelease(iterator);
+#endif
         return result;
     }
 private:

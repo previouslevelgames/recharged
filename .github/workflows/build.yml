@@ -262,6 +262,137 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # iOS and iPadOS: an unsigned .ipa, signed by whoever installs it
+  # (tools/package_ios.py). No release or test build waits for it (only
+  # ios-attach needs it), so a red iOS build never holds a release back: the
+  # other systems' packages, the release and the test build go on without it.
+  ios:
+    name: ios-arm64
+    # Xcode 27's iOS 27 SDK: an app linked with an older SDK runs in a
+    # compatibility frame on the newest devices. The repository variable
+    # IOS_RUNNER picks another macOS image.
+    runs-on: ${{ vars.IOS_RUNNER || 'xcode-27' }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: 'true'
+      CCACHE_MAXSIZE: 3G
+      # No IPHONEOS_DEPLOYMENT_TARGET here: Apple's clang reads it for every
+      # compile, so the tools the build runs on this Mac (SQLite's generator,
+      # Rust build scripts) would come out as iOS programs that cannot run.
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          submodules: false
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install macOS tools
+        run: |
+          # The newest Xcode on the image: its iOS SDK must know the newest devices.
+          xcode=$(ls -d /Applications/Xcode_[0-9]*.app | grep -v -i beta | sort -V | tail -1)
+          echo "Xcode: $xcode"
+          sudo xcode-select -s "$xcode"
+          xcrun --sdk iphoneos --show-sdk-version
+          clang++ --version
+          brew install cmake ninja tcl-tk ccache
+          echo "$(brew --prefix tcl-tk)/bin" >> "$GITHUB_PATH"
+          echo 'CC=clang' >> "$GITHUB_ENV"
+          echo 'CXX=clang++' >> "$GITHUB_ENV"
+      - name: Select Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-ios
+          cargo --version
+      - name: Prepare pinned dependencies
+        run: python tools/setup_dependencies.py --shallow
+      # One job per core; outside the checkout (an untracked folder there marks
+      # the version .dirty).
+      - name: Place compiler cache
+        run: |
+          echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(sysctl -n hw.ncpu)" >> "$GITHUB_ENV"
+          echo "CARGO_BUILD_JOBS=$(sysctl -n hw.ncpu)" >> "$GITHUB_ENV"
+      - name: Restore compiler cache
+        id: ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-ios-arm64-${{ github.sha }}
+          restore-keys: ccache-ios-arm64-
+      # The build's origin as for the other systems; no Discord status (no
+      # Discord app to talk to on iOS) and no autopilot.
+      - name: Configure for iOS
+        run: >-
+          cmake --preset ios-release
+          -DMSCHARGED_FORMAT_PREPARED_SOURCES=OFF
+          -DMSCHARGED_BUILD_CHANNEL=${{ github.event_name == 'pull_request' && 'test' || github.event_name == 'push' && 'release' || 'dev' }}
+          -DMSCHARGED_BUILD_REPOSITORY=${{ github.repository }}
+          -DMSCHARGED_BUILD_PULL_REQUEST=${{ github.event.pull_request.number || 0 }}
+          -DMSCHARGED_BUILD_RUN=${{ github.run_id }}
+          -DMSCHARGED_BUILD_TIME=$(date -u +%s)
+          -DMSCHARGED_AUTOPILOT=OFF
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache
+          -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache
+      # The program and the four game modules, as for the other systems.
+      - name: Build for iOS
+        run: >-
+          cmake --build --preset ios-release --target
+          mscharged mscharged_original_frontend_module_us mscharged_original_frontend_module_eu
+          mscharged_original_frontend_module_jp mscharged_original_frontend_module_kr
+      - name: Compiler cache statistics
+        if: always()
+        run: ccache --show-stats || true
+      # Also after a failed or timed-out build: the next run resumes from it.
+      - name: Save compiler cache
+        if: always() && steps.ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
+      - name: Package the unsigned .ipa
+        run: python tools/package_ios.py --build-dir build/ios-release --output-dir build/artifacts
+      - name: Check the app
+        run: |
+          app=build/artifacts/Recharged.app
+          plutil -lint "$app/Info.plist"
+          lipo -archs "$app/recharged"
+          vtool -show-build "$app/recharged" | tee /dev/stderr | grep -q 'platform IOS$'
+          for module in "$app"/Frameworks/recharged_game_*; do
+            file "$module"
+          done
+          du -sh "$app" build/artifacts/*.ipa
+      # Uploaded as the package file itself, recharged-<version>-ios-arm64.ipa.
+      # The release and the test build attach only their listed packages:
+      # ios-attach adds the .ipa once both this job and they are done.
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@v7
+        with:
+          path: build/artifacts/*.ipa
+          archive: false
+          if-no-files-found: error
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 14 }}
+      - name: Upload configure diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: configure-ios-arm64-${{ github.sha }}
+          path: |
+            build/ios-release/CMakeFiles/CMakeConfigureLog.yaml
+            build/ios-release/sqlite-generation.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   windows-game:
     # Cross-compiled on Linux with the pinned LLVM-MinGW (UCRT, libc++), the
     # same toolchain as cmake/toolchains/llvm-mingw-x86_64.cmake documents.
@@ -650,3 +781,53 @@ jobs:
             | while read -r old; do
                 gh release delete "$old" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
               done
+
+  # The .ipa joins the release this run drafted, or the pull request's test
+  # build, once both are done, with its line in SHA256SUMS. Nothing waits for
+  # this job: when the iOS build fails or is late, the release and the test
+  # build are as they would be without iOS.
+  ios-attach:
+    name: attach the iOS build
+    if: >-
+      always() && needs.ios.result == 'success'
+      && (needs.release.result == 'success' || needs.test-build.result == 'success')
+    needs: [ios, release, test-build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: recharged-*-ios-arm64.ipa
+          path: ios
+          merge-multiple: true
+          skip-decompress: true
+      - name: Attach the .ipa and its checksum
+        working-directory: ios
+        run: |
+          ls -la
+          test "$(ls recharged-*-ios-arm64.ipa | wc -l)" -eq 1
+          ipa=$(ls recharged-*-ios-arm64.ipa)
+          # The test build's tag, or the release's (v<version>, as the release job).
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            tag="test-pr$PR_NUMBER-${HEAD_SHA:0:12}"
+          else
+            tag="v$(echo "$ipa" | sed -E 's/^recharged-([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+          fi
+          # Only a release of this very commit: the release job drafts nothing
+          # for a version already out, and a closed pull request gets no test build.
+          target=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish \
+            --jq .targetCommitish 2>/dev/null || true)
+          if [ "$target" != "$HEAD_SHA" ]; then
+            echo "::notice::No release $tag of this commit: the .ipa stays in this run's artifacts."
+            exit 0
+          fi
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS
+          { grep -v -- '-ios-arm64\.ipa$' SHA256SUMS || true; sha256sum "$ipa"; } > sums
+          mv sums SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "$ipa" SHA256SUMS

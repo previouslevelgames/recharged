@@ -710,6 +710,12 @@ fs::path ChooseDirectory()
     if (chosen && *chosen)
         return std::string(chosen) == "off" ? fs::path() : PathFromUtf8(chosen);
     std::error_code error;
+#if defined(MSCHARGED_PLATFORM_IOS)
+    // The user folder of bootstrap/config.cpp (UserFolder): Documents, shown
+    // by the Files app, so the player can send the log.
+    if (const char* home = std::getenv("HOME"); home && *home)
+        return PathFromUtf8(home) / "Documents" / "logs";
+#endif
     if (const char* base = SDL_GetBasePath())
     {
         const fs::path directory = PathFromUtf8(base) / "logs";

@@ -34,7 +34,7 @@
 #include "platform/pc_languages.h"
 #include "platform/console_verbosity.h"
 #include "platform/log_window.h"
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(MSCHARGED_PLATFORM_IOS)
 #include "platform/macos_app.h"
 #endif
 #include "platform/app_icon.h"
@@ -3193,7 +3193,9 @@ private:
             DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y + FontSize(fonts.heading) + Dp(2)},
                               Col(color::text, 0.86f), rest + 2, 1.2f);
         }
+#if !defined(MSCHARGED_PLATFORM_IOS) // an iOS app does not update itself
         DrawUpdateBar(origin, size.x, pad);
+#endif
 
         // Play button and status, over the bottom of the artwork.
         const std::string blocker = PlayBlocker();
@@ -8397,6 +8399,7 @@ private:
         }
         EndCard();
 
+#if !defined(MSCHARGED_PLATFORM_IOS) // an iOS app does not update itself
         BeginCard("##updates", "Updates",
                   "Each start of the launcher installs a newer build by itself. A release plays online only while "
                   "it is the newest one.",
@@ -8411,6 +8414,7 @@ private:
             EndRows();
         }
         EndCard();
+#endif
 
         BeginCard("##graphics", "Graphics", nullptr, Icon::Display);
         if (BeginRows("##graphics_rows"))
@@ -8485,7 +8489,7 @@ private:
 
             Row("Verbose console", "Also prints development traces and the game's own debug output. Useful for bug reports.");
             if (Toggle("##verbose_console", &draft_.verbose_console)) dirty_ = true;
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(_WIN32) || (defined(__APPLE__) && !defined(MSCHARGED_PLATFORM_IOS))
             Row("Log window", "Shows the log in a separate window while Recharged runs, for testing. Closing it doesn't stop the game.");
             if (Toggle("##log_window", &draft_.log_window)) dirty_ = true;
 #endif
@@ -9219,7 +9223,7 @@ int main(int argc, char** argv)
     mscharged::platform::ConnectStandardStreams();
     Options options;
     SetAppName();
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(MSCHARGED_PLATFORM_IOS)
     if (int code = 0; mscharged::platform::LeaveAppTranslocation(code)) return code;
 #endif
     try

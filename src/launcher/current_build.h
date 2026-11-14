@@ -26,6 +26,8 @@ inline BuildIdentity CurrentBuild()
     identity.commit_time = mscharged::build::commit_time;
 #if defined(_WIN32)
     identity.package = "windows";
+#elif defined(MSCHARGED_PLATFORM_IOS)
+    identity.package = "ios";
 #elif defined(__APPLE__)
     identity.package = "macos";
 #else

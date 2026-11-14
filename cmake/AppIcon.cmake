@@ -1,3 +1,4 @@
+include(cmake/Platform.cmake)
 # Embed the original PNG so launcher and direct game startup share one icon.
 # Keep image conversion out of the user's build prerequisites.
 set(_app_icon "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icon.png")
@@ -12,7 +13,7 @@ unset(_app_icon_hex)
 unset(MSCHARGED_APP_ICON_BYTES)
 
 add_library(charged_app_icon STATIC src/platform/app_icon.cpp)
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+if(MSCHARGED_APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
     # Nested namespaces and the generated inline PNG array require C++17;
     # AppleClang otherwise compiles this target in its older default dialect.
     target_compile_features(charged_app_icon PRIVATE cxx_std_17)

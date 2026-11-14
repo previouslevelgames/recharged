@@ -21,7 +21,9 @@
 #include <unwind.h>
 #if defined(__APPLE__)
 #include <mach/mach.h>
+#if !defined(MSCHARGED_PLATFORM_IOS)
 #include <mach/mach_vm.h>
+#endif
 #else
 #include <link.h>
 #endif
@@ -73,13 +75,24 @@ bool ReadableMapping(std::uintptr_t address) {
     return access == PAGE_READONLY || access == PAGE_READWRITE || access == PAGE_WRITECOPY ||
         access == PAGE_EXECUTE_READ || access == PAGE_EXECUTE_READWRITE || access == PAGE_EXECUTE_WRITECOPY;
 #elif defined(__APPLE__)
+#if defined(MSCHARGED_PLATFORM_IOS)
+    // The iOS SDK does not offer mach_vm.h; vm_region_64 is the same query on arm64.
+    vm_address_t begin = address;
+    vm_size_t size{};
+#else
     mach_vm_address_t begin = address;
     mach_vm_size_t size{};
+#endif
     vm_region_basic_info_data_64_t info{};
     mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
     mach_port_t object = MACH_PORT_NULL;
+#if defined(MSCHARGED_PLATFORM_IOS)
+    const auto result = vm_region_64(mach_task_self(), &begin, &size,
+        VM_REGION_BASIC_INFO_64, reinterpret_cast<vm_region_info_t>(&info), &count, &object);
+#else
     const auto result = mach_vm_region(mach_task_self(), &begin, &size,
         VM_REGION_BASIC_INFO_64, reinterpret_cast<vm_region_info_t>(&info), &count, &object);
+#endif
     if (object != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), object);
     return result == KERN_SUCCESS && (info.protection & VM_PROT_READ) != 0 &&
         address >= begin && address - begin < size;

@@ -24,6 +24,9 @@ if(APPLE AND POLICY CMP0156)
 endif()
 include(cmake/MacOSDeploymentTarget.cmake)
 mscharged_set_macos_deployment_target()
+# The systems it builds for (MSCHARGED_SUPPORTED_SYSTEM, MSCHARGED_APPLE,
+# MSCHARGED_IOS), tested once.
+include(cmake/Platform.cmake)
 # Release version; the build appends +g<commit> and .dirty for local changes.
 set(MSCHARGED_PORT_VERSION "${PROJECT_VERSION}")
 # Where a build comes from, for the launcher's About page and update check.
@@ -108,9 +111,8 @@ if(MSCHARGED_BUILD_SCENE_PREVIEW)
     set(MSCHARGED_BUILD_GX_CHECK ON)
 endif()
 if(MSCHARGED_BUILD_GX_CHECK)
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"
-            AND NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
-        message(FATAL_ERROR "The GX runtime selects Linux/Vulkan, macOS/Metal or Windows/Vulkan")
+    if(NOT MSCHARGED_SUPPORTED_SYSTEM)
+        message(FATAL_ERROR "The GX runtime selects Linux/Vulkan, macOS or iOS/Metal, or Windows/Vulkan")
     endif()
     if(MSCHARGED_BUILD_THP_AUDIO_DIAGNOSTIC AND NOT MSCHARGED_BUILD_GAME_STARTUP)
     message(FATAL_ERROR "Use the startup preset for the temporary original movie audio diagnostic")
@@ -242,6 +244,12 @@ function(mscharged_add_nod)
     set(CORROSION_BUILD_TESTS OFF)
     set(NOD_ENABLE_INSTALL OFF)
     add_subdirectory("${MSCHARGED_NOD_PREPARED}" "${CMAKE_CURRENT_BINARY_DIR}/extern/nod")
+    if(MSCHARGED_IOS)
+        # cc-rs (the C in nod's Rust dependencies) otherwise targets the SDK's
+        # own iOS version. Only Cargo gets it: Apple's clang would also build
+        # the host's tools for iOS if it were in the whole build's environment.
+        corrosion_set_env_vars(nod "IPHONEOS_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    endif()
     include(cmake/MacOSLinkLibraries.cmake)
     mscharged_remove_macos_implicit_system_library(nod-static)
 endfunction()
