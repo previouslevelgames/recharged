@@ -34,18 +34,40 @@ std::string GamepadInputName(GamepadInput input) {
     return name ? name : "";
 }
 
-GamepadBinding ParseGamepadBinding(std::string_view text) {
-    GamepadBinding binding{kGamepadNone, kGamepadNone};
+std::size_t GamepadBindingSize(const GamepadBinding& binding) {
+    return std::size_t(std::count_if(binding.begin(), binding.end(), [](GamepadInput input) { return input != kGamepadNone; }));
+}
+
+bool GamepadBindingHas(const GamepadBinding& binding, GamepadInput input) {
+    return input != kGamepadNone && std::find(binding.begin(), binding.end(), input) != binding.end();
+}
+
+void RemoveGamepadInput(GamepadBinding& binding, GamepadInput input) {
+    if (input == kGamepadNone) return;
+    GamepadBinding kept = kNoGamepadBinding;
     std::size_t used = 0;
-    while (!text.empty() && used < binding.size()) {
+    for (const GamepadInput other : binding)
+        if (other != kGamepadNone && other != input) kept[used++] = other;
+    binding = kept;
+}
+
+bool AddGamepadInput(GamepadBinding& binding, GamepadInput input) {
+    const std::size_t used = GamepadBindingSize(binding);
+    if (input == kGamepadNone || GamepadBindingHas(binding, input) || used == binding.size()) return false;
+    binding[used] = input;
+    return true;
+}
+
+GamepadBinding ParseGamepadBinding(std::string_view text) {
+    GamepadBinding binding = kNoGamepadBinding;
+    while (!text.empty() && GamepadBindingSize(binding) < binding.size()) {
         const auto bar = text.find('|');
         auto name = text.substr(0, bar);
         text = bar == std::string_view::npos ? std::string_view{} : text.substr(bar + 1);
         while (!name.empty() && name.front() == ' ') name.remove_prefix(1);
         while (!name.empty() && name.back() == ' ') name.remove_suffix(1);
         if (name.empty()) continue;
-        const GamepadInput input = ParseGamepadInput(name);
-        if (input != kGamepadNone && (used == 0 || binding[0] != input)) binding[used++] = input;
+        AddGamepadInput(binding, ParseGamepadInput(name));
     }
     return binding;
 }
@@ -81,8 +103,14 @@ GamepadBindings ParseGamepadBindings(const std::array<std::string, GamepadAction
 
 GamepadBindings DefaultGamepadBindings() { return DefaultGamepadBindings(GamepadFamily::Xbox); }
 
-GamepadBindings DefaultGamepadBindings(GamepadFamily family) {
-    return ParseGamepadBindings(DefaultGamepadInputs(family));
+GamepadBindings DefaultGamepadBindings(GamepadFamily family, GamepadLayout layout) {
+    return ParseGamepadBindings(DefaultGamepadInputs(family, layout));
+}
+
+GamepadProfile GamepadLayoutProfile(GamepadFamily family, GamepadLayout layout) {
+    GamepadProfile profile{DefaultGamepadBindings(family, layout), GamepadLayoutSticks(layout), true};
+    profile.layout = layout;
+    return profile;
 }
 
 GamepadFamily GamepadFamilyOf(SDL_GamepadType type) {
@@ -137,10 +165,36 @@ const char* GamepadKindName(std::string_view kind) {
     return "Xbox and PlayStation";
 }
 
-std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily family) {
+std::array<std::string, GamepadActionCount> DefaultGamepadInputs(GamepadFamily family, GamepadLayout layout) {
     std::array<std::string, GamepadActionCount> inputs;
-    for (std::size_t n = 0; n < GamepadActionCount; ++n) inputs[n] = kGamepadActions[n].defaults;
+    for (std::size_t n = 0; n < GamepadActionCount; ++n)
+        inputs[n] = layout == GamepadLayout::Classic ? kGamepadActions[n].classic : kGamepadActions[n].defaults;
     // SDL names are positions: a = bottom, b = right, x = left, y = top face button.
+    if (layout == GamepadLayout::Default) {
+        if (family == GamepadFamily::Nintendo) {
+            // By its labels, the Classic Controller's own places: A right, B
+            // bottom, X (C) on top, Y (Shake Remote) on the left.
+            inputs[GamepadActionA] = "b";
+            inputs[GamepadActionB] = "a | righttrigger";
+            inputs[GamepadActionC] = "y";
+            inputs[GamepadActionShakeRemote] = "x";
+        } else if (family == GamepadFamily::GameCube) {
+            // A bottom, B left, X right, Y top; L/R the analog triggers, Z the
+            // right shoulder button, the C-stick the right stick. Start is
+            // its only button for 1 and +; it has none for - and HOME.
+            inputs[GamepadActionA] = "a";
+            inputs[GamepadActionB] = "x";
+            inputs[GamepadActionOne] = "start";
+            inputs[GamepadActionMinus] = "none";
+            inputs[GamepadActionHome] = "none";
+            inputs[GamepadActionRight] = "dpright | rightstick_right | righttrigger";
+            inputs[GamepadActionC] = "b";
+            inputs[GamepadActionShakeRemote] = "y";
+            inputs[GamepadActionShakeNunchuk] = "rightshoulder";
+            inputs[GamepadActionRecenterPointer] = "none";
+        }
+        return inputs;
+    }
     if (family == GamepadFamily::Nintendo) {
         // Nintendo prints A on the right and B at the bottom, X on top and Y on the left.
         inputs[GamepadActionA] = "b";
@@ -201,7 +255,8 @@ bool GamepadInputHeld(SDL_Gamepad* pad, GamepadInput input, int press) {
 }
 
 bool GamepadBindingHeld(SDL_Gamepad* pad, const GamepadBinding& binding, int press) {
-    return GamepadInputHeld(pad, binding[0], press) || GamepadInputHeld(pad, binding[1], press);
+    return std::any_of(binding.begin(), binding.end(),
+                       [&](GamepadInput input) { return input != kGamepadNone && GamepadInputHeld(pad, input, press); });
 }
 
 StickTilt ApplyStickDeadzones(float x, float y, int inner, int outer) {

@@ -1,0 +1,59 @@
+Subject: Competitive play: a set's game passes its menus unseen
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A set's game goes through the retail online flow by itself (0056), and the
+player used to watch it click through the title, the main menu, the online
+Mii list and the Mii's card. Those screens still run and do their work (the
+online save, the Mii's save slot, the save), but FERender::RenderScene skips
+them while the game passes them by itself, as No HUD (0021) skips the match's
+overlays: the title and the main menu once a set is on its way, and from the
+main menu's Online on also the Mii list, the Mii's card, the navigation bar
+and the popups over the Mii screens. The player sees the frontend's own
+camera move to the online area, the WFC login's Connecting screen and the
+draft. The module also keeps the menu sounds of those screens silent
+(src/platform/competitive_match.cpp). A set whose Mii is not on the computer
+shows every screen: the player chooses the Mii.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -64,6 +64,12 @@ int mscharged_competitive_popup(int type);
+ // The front end is back from an online match (the series is over).
+ void mscharged_competitive_back_from_game(void);
+ #endif
++
++#if defined(MSCHARGED_TWEAKS)
++// A front-end scene about to be drawn (the FEScene hash of its file): true
++// while a set's game passes it by itself (tweak patch 0057): not drawn.
++bool mscharged_competitive_hides_scene(unsigned long scene);
++#endif
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+--- a/src/Game/FE/feRender.cpp
++++ b/src/Game/FE/feRender.cpp
+@@ -17,6 +17,9 @@
+ #include "NL/nlString.h"
+ #include "NL/platvmath.h"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ 
+ static nlFloatColour s_currentAssetColour;
+ static const nlVector3 s_quadPositions[4] = {
+@@ -242,6 +245,13 @@ void FERender::RenderScene(FEScene* scene)
+         return;
+     }
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++    // Competitive play: the screens a set's game passes by itself.
++    if (mscharged_competitive_hides_scene(scene->m_uHashID))
++    {
++        return;
++    }
++#endif
+ 
+     m_pRenderScene = scene;
+     s_currentAssetColour.c[0] = 1.0f;

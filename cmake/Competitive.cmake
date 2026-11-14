@@ -1,0 +1,48 @@
+# Competitive play (1.2.0): the profile service of a Recharged WFC server, for
+# the launcher (sign-in, challenges) and the game host (login, results).
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/Http.cmake")
+if(NOT TARGET charged_json)
+    add_library(charged_json STATIC src/platform/json.cpp)
+    target_include_directories(charged_json PUBLIC src)
+    target_compile_features(charged_json PUBLIC cxx_std_17)
+endif()
+# The characters of players' names the shipped font lacks (the launcher's and
+# the overlay's fonts add them from the system's fonts).
+if(NOT TARGET charged_name_glyphs)
+    add_library(charged_name_glyphs STATIC src/platform/name_glyphs.cpp)
+    target_include_directories(charged_name_glyphs PUBLIC src)
+    target_compile_features(charged_name_glyphs PUBLIC cxx_std_17)
+endif()
+# Recharged's texts: the rules' names and descriptions and the set's messages
+# are in the player's language.
+include("${CMAKE_CURRENT_LIST_DIR}/Texts.cmake")
+add_library(charged_competitive STATIC src/platform/profile_service.cpp src/platform/competitive_rules.cpp
+    src/platform/competitive_host.cpp src/platform/online_panel_feed.cpp)
+target_include_directories(charged_competitive PUBLIC src)
+target_compile_features(charged_competitive PUBLIC cxx_std_17)
+target_link_libraries(charged_competitive PUBLIC charged_http charged_json charged_name_glyphs charged_texts)
+# The chime for a challenge, in the launcher and the game host.
+if(TARGET SDL3::SDL3)
+    add_library(charged_alert_sound STATIC src/platform/alert_sound.cpp)
+    target_include_directories(charged_alert_sound PUBLIC src)
+    target_compile_features(charged_alert_sound PUBLIC cxx_std_17)
+    target_link_libraries(charged_alert_sound PUBLIC SDL3::SDL3)
+    if(BUILD_TESTING)
+        add_executable(alert_sound_tests tests/alert_sound.cpp)
+        target_link_libraries(alert_sound_tests PRIVATE charged_alert_sound)
+        add_test(NAME alert_sound COMMAND alert_sound_tests)
+        set_tests_properties(alert_sound PROPERTIES TIMEOUT 60 ENVIRONMENT "SDL_AUDIO_DRIVER=dummy")
+    endif()
+endif()
+if(BUILD_TESTING AND NOT TARGET name_glyphs_tests)
+    add_executable(name_glyphs_tests tests/name_glyphs.cpp)
+    target_link_libraries(name_glyphs_tests PRIVATE charged_name_glyphs)
+    add_test(NAME name_glyphs COMMAND name_glyphs_tests)
+endif()
+if(BUILD_TESTING)
+    add_executable(profile_service_tests tests/profile_service.cpp)
+    target_link_libraries(profile_service_tests PRIVATE charged_competitive)
+    add_test(NAME profile_service COMMAND profile_service_tests)
+    set_tests_properties(profile_service PROPERTIES TIMEOUT 60)
+endif()

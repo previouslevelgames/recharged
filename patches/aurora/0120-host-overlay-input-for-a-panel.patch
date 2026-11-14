@@ -1,0 +1,83 @@
+From: mscharged-port
+Subject: Let the host overlay take the host's input while a panel is open
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host presentation (host panel). Apply after 0119.
+
+The host overlay of 0090 only draws: every frame sets ImGui's NoMouse and
+NoKeyboard flags, so a host panel over the picture (the online panel F1 or
+HOME opens) could not be clicked or typed in. The host cannot clear those
+flags itself, because begin_overlay sets them right before ImGui's NewFrame.
+
+aurora_imgui_set_overlay_input(true) leaves them off from the next overlay
+frame, so ImGui uses the mouse and keyboard events the host adds to its IO in
+surface pixels; false restores 0090's draw-only frames. The other guarantees
+stay: no ImGui platform backend frame (the host keeps the OS cursor, nothing
+captures the mouse, no gamepad is opened), no imgui.ini, and the overlay is
+never in screenshots or the game's frames. The host routes the events itself,
+from an input layer above Aurora's ImGui layer, so they reach ImGui once.
+
+diff --git a/include/aurora/imgui.h b/include/aurora/imgui.h
+index b5e877c..626d8c1 100644
+--- a/include/aurora/imgui.h
++++ b/include/aurora/imgui.h
+@@ -27,6 +27,14 @@ void aurora_imgui_clear_overlay(void);
+ // each change): clears the overlay, waits for queued presentations that may
+ // still sample the previous font texture, then uploads the new one.
+ void aurora_imgui_update_overlay_fonts(void);
++// Lets the overlay frames from the next begin on use the mouse and keyboard
++// events the host adds to ImGui's IO itself, in surface pixels (a panel that
++// takes the input while it is open); off, they read none again. Aurora still
++// runs no platform backend frame: the host keeps the OS cursor, nothing
++// captures the mouse, no gamepad is opened and there is no settings file. The
++// host routes the events (an input layer above Aurora's ImGui layer, so they
++// do not reach ImGui twice). Owner thread only.
++void aurora_imgui_set_overlay_input(bool input);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/lib/imgui.cpp b/lib/imgui.cpp
+index 785c8de..d58f0bb 100644
+--- a/lib/imgui.cpp
++++ b/lib/imgui.cpp
+@@ -87,6 +87,7 @@ std::shared_ptr<const Overlay> g_overlay;
+ uint32_t g_overlayWidth = 0;
+ uint32_t g_overlayHeight = 0;
+ bool g_overlayFontsReady = false;
++bool g_overlayInput = false;
+ std::chrono::steady_clock::time_point g_overlayFrameTime{};
+ 
+ void set_overlay(std::shared_ptr<const Overlay> next) noexcept {
+@@ -113,9 +114,16 @@ void begin_overlay(uint32_t width, uint32_t height) noexcept {
+   }
+   ImGuiIO& io = ImGui::GetIO();
+   // Draws only: no input (the overlay never captures the game's keyboard or
+-  // mouse), no settings file, and no platform backend frame, which would
+-  // change the OS cursor, capture the mouse while dragging and open gamepads.
+-  io.ConfigFlags |= ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoKeyboard | ImGuiConfigFlags_NoMouseCursorChange;
++  // mouse) unless the host gives it its own (aurora_imgui_set_overlay_input),
++  // no settings file, and no platform backend frame, which would change the OS
++  // cursor, capture the mouse while dragging and open gamepads.
++  constexpr ImGuiConfigFlags noInput = ImGuiConfigFlags_NoMouse | ImGuiConfigFlags_NoKeyboard;
++  if (g_overlayInput) {
++    io.ConfigFlags &= ~noInput;
++  } else {
++    io.ConfigFlags |= noInput;
++  }
++  io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+   io.IniFilename = nullptr;
+   const auto now = std::chrono::steady_clock::now();
+   const float elapsed = g_overlayFrameTime == std::chrono::steady_clock::time_point{}
+@@ -208,6 +216,7 @@ void shutdown() noexcept {
+   ZoneScoped;
+   set_overlay(nullptr);
+   g_overlayFontsReady = false;
++  g_overlayInput = false;
+   input::unregister_layer(g_inputLayer);
+   g_inputLayer = input::kInvalidLayerId;
+   if (g_useSdlRenderer) {
+@@ -404,4 +413,5 @@ void aurora_imgui_begin_overlay(uint32_t surface_width, uint32_t surface_height)
+ void aurora_imgui_end_overlay(void) { aurora::imgui::end_overlay(); }
+ void aurora_imgui_clear_overlay(void) { aurora::imgui::set_overlay(nullptr); }
+ void aurora_imgui_update_overlay_fonts(void) { aurora::imgui::update_overlay_fonts(); }
++void aurora_imgui_set_overlay_input(bool input) { aurora::imgui::g_overlayInput = input; }
+ }

@@ -1,5 +1,7 @@
 #include "launcher/ui_kit.h"
 
+#include "launcher/fallback_fonts.h"
+
 #include "imgui_internal.h"
 
 #include <algorithm>
@@ -36,12 +38,20 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
 {
     auto& io = ImGui::GetIO();
     io.Fonts->Clear();
-    // Latin-1 plus the typographic punctuation and arrows used by the launcher.
+    // Players' names may need characters it lacks: those from the system's fonts.
+    PrepareNameGlyphs();
+    // Latin-1 plus the typographic punctuation and arrows used by the
+    // launcher, and all the font has for players' names: Latin Extended,
+    // Greek, Cyrillic, the general punctuation, currency and letterlike
+    // symbols (™).
     static ImVector<ImWchar> ranges;
     if (ranges.empty())
     {
+        static const ImWchar kNames[] = {0x0100, 0x024F, 0x0370, 0x03FF, 0x0400, 0x052F, 0x2000, 0x206F,
+                                         0x20A0, 0x20CF, 0x2100, 0x214F, 0};
         ImFontGlyphRangesBuilder builder;
         builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
+        builder.AddRanges(kNames);
         builder.AddText("\xE2\x80\x93\xE2\x80\x94\xE2\x80\xA2\xE2\x80\xA6\xE2\x86\x90\xE2\x86\x91\xE2\x86\x92"
                         "\xE2\x86\x93\xE2\x88\x92\xE2\x80\x98\xE2\x80\x99\xE2\x80\x9C\xE2\x80\x9D");
         builder.BuildRanges(&ranges);
@@ -53,6 +63,7 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
         config.PixelSnapH = false;
         ImFont* font = io.Fonts->AddFontFromFileTTF(ttf.c_str(), std::round(dp * font_raster), &config, ranges.Data);
         if (!font) throw std::runtime_error("Cannot load the launcher font; rebuild to restore resources");
+        MergeNameGlyphs(*io.Fonts, std::round(dp * font_raster));
         return font;
     };
     Fonts fonts;
@@ -63,6 +74,14 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
     fonts.title = add(30.0f);
     fonts.button = add(22.0f);
     fonts.overline = add(21.0f);
+    {
+        static const ImWchar digits[] = {'0', '9', 0};
+        ImFontConfig config;
+        config.OversampleH = 1;
+        config.OversampleV = 1;
+        fonts.display = io.Fonts->AddFontFromFileTTF(ttf.c_str(), std::round(72.0f * font_raster), &config, digits);
+        if (!fonts.display) throw std::runtime_error("Cannot load the launcher font; rebuild to restore resources");
+    }
     io.FontDefault = fonts.body;
     io.FontGlobalScale = 1.0f / density;
     g_fonts = fonts;
@@ -70,6 +89,7 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
 }
 
 const Fonts& CurrentFonts() { return g_fonts; }
+void SetCurrentFonts(const Fonts& fonts) { g_fonts = fonts; }
 
 float FontSize(ImFont* font)
 {
@@ -340,6 +360,34 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->PathStroke(color, 0, t);
         draw->AddTriangleFilled(p(0.18f, -0.42f), p(0.48f, -0.30f), p(0.24f, -0.06f), color);
         break;
+    case Icon::Paint:
+    {
+        // A painter's palette: a round board with a notch for the thumb at the
+        // lower right, and three dots of paint.
+        draw->PathArcTo(c, 0.44f * s, 1.05f, 0.30f + 2.0f * IM_PI, 28);
+        draw->PathBezierQuadraticCurveTo(p(0.10f, 0.20f), p(0.218f, 0.382f));
+        draw->PathStroke(color, 0, t);
+        draw->AddCircleFilled(p(-0.20f, -0.12f), 0.105f * s, color);
+        draw->AddCircleFilled(p(0.10f, -0.22f), 0.105f * s, color);
+        draw->AddCircleFilled(p(-0.14f, 0.20f), 0.105f * s, color);
+        break;
+    }
+    case Icon::Lock:
+        // A padlock (rules that stay as they are): the shackle over its body.
+        draw->PathArcTo(p(0.0f, -0.10f), 0.20f * s, IM_PI, 2.0f * IM_PI, 12);
+        draw->PathLineTo(p(0.20f, 0.02f));
+        draw->PathStroke(color, 0, t);
+        draw->PathLineTo(p(-0.20f, 0.02f));
+        draw->PathLineTo(p(-0.20f, -0.10f));
+        draw->PathStroke(color, 0, t);
+        draw->AddRectFilled(p(-0.34f, 0.0f), p(0.34f, 0.44f), color, 0.08f * s);
+        break;
+    case Icon::Dice:
+        draw->AddRect(p(-0.40f, -0.40f), p(0.40f, 0.40f), color, 0.14f * s, 0, t);
+        draw->AddCircleFilled(p(-0.18f, -0.18f), 0.07f * s, color);
+        draw->AddCircleFilled(c, 0.07f * s, color);
+        draw->AddCircleFilled(p(0.18f, 0.18f), 0.07f * s, color);
+        break;
     case Icon::Mouse:
         draw->AddRect(p(-0.28f, -0.45f), p(0.28f, 0.45f), color, 0.28f * s, 0, t);
         draw->AddLine(p(0.0f, -0.38f), p(0.0f, -0.14f), color, t);
@@ -428,6 +476,13 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddLine(p(-0.28f, -0.28f), p(0.28f, 0.28f), color, t * 1.3f);
         draw->AddLine(p(0.28f, -0.28f), p(-0.28f, 0.28f), color, t * 1.3f);
         break;
+    case Icon::Medal:
+        // A medal (competitive play): the ribbon's two bands over the disc.
+        draw->AddLine(p(-0.24f, -0.44f), p(-0.04f, -0.06f), color, t * 1.6f);
+        draw->AddLine(p(0.24f, -0.44f), p(0.04f, -0.06f), color, t * 1.6f);
+        draw->AddCircle(p(0.0f, 0.18f), 0.24f * s, color, 0, t * 1.3f);
+        draw->AddCircleFilled(p(0.0f, 0.18f), 0.11f * s, color);
+        break;
     case Icon::Person:
         // A Mii: the head over rounded shoulders.
         draw->AddCircleFilled(p(0.0f, -0.20f), 0.20f * s, color);
@@ -492,6 +547,12 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->PathBezierCubicCurveTo(p(0.48f, 0.02f), p(0.30f, 0.16f), p(0.0f, 0.40f));
         draw->PathFillConcave(color);
         break;
+    case Icon::Chat:
+        // A speech bubble, its tail at the lower left, with three dots.
+        draw->AddRect(p(-0.46f, -0.38f), p(0.46f, 0.22f), color, 0.16f * s, 0, t);
+        draw->AddTriangleFilled(p(-0.30f, 0.20f), p(-0.04f, 0.20f), p(-0.32f, 0.46f), color);
+        for (int n = -1; n <= 1; ++n) draw->AddCircleFilled(p(0.21f * float(n), -0.08f), 0.065f * s, color);
+        break;
     case Icon::Bug:
     {
         // A beetle: body, head, antennae and three legs a side.
@@ -547,6 +608,31 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
         draw->AddRectFilled(p(-0.15f, -0.46f), p(0.15f, -0.24f), color, s * 0.05f);
         draw->AddLine(p(-0.15f, -0.02f), p(0.15f, -0.02f), color, t);
         draw->AddLine(p(-0.15f, 0.20f), p(0.07f, 0.20f), color, t);
+        break;
+    case Icon::Bracket:
+    {
+        // A tournament's bracket: four lines meeting in two, the two in one.
+        for (const float y : {-0.40f, -0.12f, 0.12f, 0.40f})
+            draw->AddLine(p(-0.46f, y), p(-0.18f, y), color, t);
+        for (const float y : {-0.26f, 0.26f})
+        {
+            const float half = 0.14f;
+            const ImVec2 arm[] = {p(-0.18f, y - half), p(-0.18f, y + half)};
+            draw->AddPolyline(arm, 2, color, 0, t);
+            draw->AddLine(p(-0.18f, y), p(0.10f, y), color, t);
+        }
+        const ImVec2 join[] = {p(0.10f, -0.26f), p(0.10f, 0.26f)};
+        draw->AddPolyline(join, 2, color, 0, t);
+        draw->AddLine(p(0.10f, 0.0f), p(0.30f, 0.0f), color, t);
+        draw->AddCircleFilled(p(0.36f, 0.0f), 0.10f * s, color);
+        break;
+    }
+    case Icon::Podium:
+        // A leaderboard's podium: the winner's block in the middle, higher.
+        draw->AddRectFilled(p(-0.46f, 0.02f), p(-0.17f, 0.42f), color, 0.04f * s);
+        draw->AddRectFilled(p(-0.14f, -0.26f), p(0.14f, 0.42f), color, 0.04f * s);
+        draw->AddRectFilled(p(0.17f, 0.14f), p(0.46f, 0.42f), color, 0.04f * s);
+        draw->AddCircleFilled(p(0.0f, -0.40f), 0.07f * s, color);
         break;
     case Icon::Up:
     case Icon::Down:
@@ -688,11 +774,11 @@ void FillGradient(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 first, ImU32 s
     ImGui::ShadeVertsLinearColorGradientKeepAlpha(draw, start, end, min, to, first, second);
 }
 
-bool NavItem(const char* label, Icon icon, bool selected, float width)
+bool NavItem(const char* label, Icon icon, bool selected, float width, float height)
 {
     ImGui::PushID(label);
     const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const ImVec2 size{width, Dp(44)};
+    const ImVec2 size{width, height > 0.0f ? height : Dp(44)};
     const bool pressed = ImGui::InvisibleButton("##nav", size);
     const bool hovered = ImGui::IsItemHovered();
     const float hover = Animate(ImGui::GetID("##hover"), hovered || selected, 12.0f);
@@ -702,7 +788,7 @@ bool NavItem(const char* label, Icon icon, bool selected, float width)
         draw->AddRectFilled(pos, Add(pos, size), Col(selected ? Mix(color::field, color::accent, 0.10f) : color::field,
                                                       hover), Dp(10));
     if (active > 0.0f)
-        draw->AddRectFilled({pos.x, pos.y + Dp(11)}, {pos.x + Dp(4), pos.y + size.y - Dp(11)},
+        draw->AddRectFilled({pos.x, pos.y + size.y * 0.25f}, {pos.x + Dp(4), pos.y + size.y * 0.75f},
                             Col(color::accent, active), Dp(2));
     const ImVec4 tint = Mix(color::muted, selected ? color::accent : color::text, std::max(hover * 0.75f, active));
     DrawIcon(draw, icon, {pos.x + Dp(28), pos.y + size.y * 0.5f}, Dp(19), Col(tint));
@@ -713,15 +799,22 @@ bool NavItem(const char* label, Icon icon, bool selected, float width)
     return pressed;
 }
 
-int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavPage> pages, float width)
+float NavGroupPagesHeight(std::size_t pages)
+{
+    // A top margin, the page rows 38 dp apart (each 36 dp high) and a bottom margin.
+    return Dp(4) + Dp(38) * float(pages) - Dp(2) + Dp(10);
+}
+
+int NavGroup(const char* label, Icon icon, bool open, const std::vector<NavPage>& pages, float width,
+             float row_height, const ImVec4* status, bool pulse)
 {
     ImGui::PushID(label);
     auto* draw = ImGui::GetWindowDrawList();
     const auto& fonts = CurrentFonts();
     const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const float row = Dp(44), page_row = Dp(36), step = Dp(38), top = Dp(4), bottom = Dp(10);
+    const float row = row_height > 0.0f ? row_height : Dp(44), page_row = Dp(36), step = Dp(38), top = Dp(4);
     const float shown = Animate(ImGui::GetID("##open"), open, 11.0f);
-    const float height = row + (top + step * float(pages.size()) - (step - page_row) + bottom) * shown;
+    const float height = row + (pages.empty() ? 0.0f : NavGroupPagesHeight(pages.size()) * shown);
     const ImVec2 max{pos.x + width, pos.y + height};
     int clicked = -1;
 
@@ -748,8 +841,24 @@ int NavGroup(const char* label, Icon icon, bool open, std::initializer_list<NavP
                                 shown)),
                         Dp(8));
     DrawIcon(draw, icon, badge, Dp(17), Col(Mix(Mix(color::muted, color::text, hover), color::accent, shown)));
-    DrawLabel(draw, fonts.label, {pos.x + Dp(54), pos.y + (row - FontSize(fonts.label)) * 0.5f},
+    const float label_left = pos.x + Dp(54);
+    DrawLabel(draw, fonts.label, {label_left, pos.y + (row - FontSize(fonts.label)) * 0.5f},
               Col(Mix(Mix(color::muted, color::text, hover), ImVec4{1, 1, 1, 1}, shown)), label);
+    if (status)
+    {
+        // The status dot after the label: a soft halo, or for a live one a
+        // ring that grows out of it and fades, every 1.8 s.
+        const ImVec2 dot{label_left + TextSize(fonts.label, label).x + Dp(12), pos.y + row * 0.5f};
+        if (pulse)
+        {
+            const float t = float(std::fmod(ImGui::GetTime(), 1.8) / 1.8);
+            draw->AddCircleFilled(dot, Dp(4) + Dp(8) * t, Col(*status, 0.5f * (1.0f - t) * (1.0f - t)));
+        }
+        else
+            draw->AddCircleFilled(dot, Dp(7), Col(*status, 0.18f));
+        draw->AddCircleFilled(dot, Dp(4), Col(*status));
+    }
+    if (!pages.empty())
     {
         const float turn = 3.14159265f * shown, c = std::cos(turn), s = std::sin(turn), size = Dp(12);
         const ImVec2 at{max.x - Dp(20), pos.y + row * 0.5f};
@@ -1244,6 +1353,91 @@ bool PercentSlider(const char* id, int* value, float width, const char* zero_lab
     return changed;
 }
 
+bool StepSlider(const char* id, int* value, int minimum, int maximum, float width, const char* label, bool reversed)
+{
+    ImGui::PushID(id);
+    const auto& fonts = CurrentFonts();
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const float height = ImGui::GetFrameHeight(), button = height;
+    const float label_width = std::max(TextSize(fonts.body, label).x, Dp(28)) + Dp(12);
+    const float track_width = std::max(Dp(60), width - label_width - 2 * button - Dp(16));
+    auto* draw = ImGui::GetWindowDrawList();
+    const float alpha = ImGui::GetStyle().Alpha;
+    // Shown: the value as it reads left to right.
+    int shown = reversed ? minimum + maximum - *value : *value;
+    bool changed = false;
+    // The minus and plus buttons: one step left or right as shown.
+    const auto step = [&](const char* button_id, float x, int direction) {
+        ImGui::SetCursorScreenPos({x, pos.y});
+        const bool enabled = direction < 0 ? shown > minimum : shown < maximum;
+        ImGui::BeginDisabled(!enabled);
+        // Held, it repeats.
+        ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
+        const bool pressed = ImGui::InvisibleButton(button_id, {button, height});
+        ImGui::PopItemFlag();
+        const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered() && enabled, 14.0f);
+        ImGui::EndDisabled();
+        const ImVec2 center{x + button * 0.5f, pos.y + height * 0.5f};
+        draw->AddCircleFilled(center, button * 0.42f, Col(Mix(color::field, color::card_hover, hover), alpha));
+        draw->AddCircle(center, button * 0.42f, Col(color::border, (enabled ? 1.0f : 0.5f) * alpha), 0, Dp(1));
+        const ImU32 ink = Col(enabled ? Mix(color::muted, color::text, 0.4f + 0.6f * hover) : color::dim, alpha);
+        const float arm = button * 0.16f;
+        draw->AddLine({center.x - arm, center.y}, {center.x + arm, center.y}, ink, Dp(1.8f));
+        if (direction > 0) draw->AddLine({center.x, center.y - arm}, {center.x, center.y + arm}, ink, Dp(1.8f));
+        if (pressed && enabled)
+        {
+            shown += direction;
+            changed = true;
+        }
+    };
+    step("##less", pos.x, -1);
+
+    // The track: ImGui's slider keeps the input, the knob is drawn here.
+    const float left_edge = pos.x + button + Dp(8);
+    ImGui::SetCursorScreenPos({left_edge, pos.y});
+    const float knob = Dp(16);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, ImVec4{0, 0, 0, 0});
+    ImGui::PushStyleVar(ImGuiStyleVar_GrabMinSize, knob);
+    ImGui::SetNextItemWidth(track_width);
+    if (ImGui::SliderInt("##slider", &shown, minimum, maximum, "", ImGuiSliderFlags_AlwaysClamp)) changed = true;
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(5);
+    const bool active = ImGui::IsItemActive();
+    const float lift = Animate(ImGui::GetID("##lift"), active || ImGui::IsItemHovered(), 14.0f);
+    const float left = left_edge + 2.0f + knob * 0.5f, right = left_edge + track_width - 2.0f - knob * 0.5f;
+    const float x = left + (right - left) * std::clamp(float(shown - minimum) / float(std::max(1, maximum - minimum)),
+                                                       0.0f, 1.0f);
+    const float y = pos.y + height * 0.5f, half = Dp(2);
+    draw->AddRectFilled({left, y - half}, {right, y + half}, Col(color::text, 0.12f * alpha), half);
+    // A tick per value when there are few, so steps can be counted.
+    if (maximum - minimum <= 24)
+        for (int v = minimum; v <= maximum; ++v)
+        {
+            const float tx = left + (right - left) * float(v - minimum) / float(std::max(1, maximum - minimum));
+            draw->AddCircleFilled({tx, y}, Dp(1.6f), Col(color::text, 0.22f * alpha));
+        }
+    const float radius = knob * 0.5f * (1.0f + 0.12f * lift);
+    if (lift > 0.01f) draw->AddCircleFilled({x, y}, radius + Dp(5), Col(color::accent, 0.16f * lift * alpha));
+    draw->AddCircleFilled({x, y + Dp(1)}, radius, Col(ImVec4{0, 0, 0, 1}, 0.35f * alpha));
+    draw->AddCircleFilled({x, y}, radius, Col(active ? color::accent_hi : color::text, alpha));
+
+    step("##more", left_edge + track_width + Dp(8), 1);
+    const ImVec2 size = TextSize(fonts.body, label);
+    DrawLabel(draw, fonts.body, {pos.x + width - size.x, y - size.y * 0.5f}, Col(color::text, 0.85f * alpha), label);
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::Dummy({width, height});
+    ImGui::PopID();
+    shown = std::clamp(shown, minimum, maximum);
+    const int next = reversed ? minimum + maximum - shown : shown;
+    changed = changed && next != *value;
+    *value = next;
+    return changed;
+}
+
 void Chip(const char* text, const ImVec4& tint, Icon icon)
 {
     const auto& fonts = CurrentFonts();
@@ -1438,33 +1632,47 @@ void DrawDiscordMark(ImDrawList* draw, ImVec2 center, float width, ImU32 color, 
                                eyes);
 }
 
-bool DiscordButton(const char* id, const char* label, ImVec2 size)
+bool DiscordButton(const char* id, const char* label, ImVec2 size, bool hero)
 {
     ImGui::PushID(id);
     const ImVec2 pos = ImGui::GetCursorScreenPos();
     const bool pressed = ImGui::InvisibleButton("##discord", size);
     const bool held = ImGui::IsItemActive();
     const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered(), 12.0f);
+    if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     auto* draw = ImGui::GetWindowDrawList();
-    const float rounding = std::min(size.y * 0.5f, Dp(10));
+    const float rounding = hero ? size.y * 0.5f : std::min(size.y * 0.5f, Dp(10));
     const ImVec2 max = Add(pos, size);
     const ImVec4 white{1, 1, 1, 1};
     const ImVec4 fill = held ? Mix(color::discord, color::window, 0.15f) : Mix(color::discord, white, 0.10f * hover);
-    // A soft glow while hovered, as the Play button's.
-    if (hover > 0.0f)
-        for (int i = 0; i < 3; ++i)
+    // A soft glow, as the Play button's: while hovered, and always (stronger
+    // under the pointer) for the hero.
+    const float glow = hero ? 0.55f + 0.45f * hover : hover;
+    if (glow > 0.0f)
+        for (int i = 0; i < 4; ++i)
         {
-            const float grow = Dp(1.5f + 2.5f * float(i));
+            const float grow = Dp(1.5f + 3.0f * float(i));
             draw->AddRectFilled({pos.x - grow, pos.y - grow}, {max.x + grow, max.y + grow},
-                                Col(color::discord, (0.10f - 0.03f * float(i)) * hover), rounding + grow);
+                                Col(color::discord, (0.11f - 0.025f * float(i)) * glow), rounding + grow);
         }
-    FillGradient(draw, pos, max, Col(Mix(fill, white, 0.06f)), Col(fill), rounding, false);
+    FillGradient(draw, pos, max, Col(Mix(fill, white, hero ? 0.16f : 0.06f)), Col(fill), rounding, false);
     const auto& fonts = CurrentFonts();
-    const ImVec2 text = TextSize(fonts.body, label);
-    const float mark = Dp(20), gap = Dp(10);
+    ImFont* font = hero ? fonts.heading : fonts.body;
+    const ImVec2 text = TextSize(font, label);
+    const float mark = hero ? Dp(26) : Dp(20), gap = hero ? Dp(12) : Dp(10);
     const float left = pos.x + (size.x - (text.x + mark + gap)) * 0.5f;
     DrawDiscordMark(draw, {left + mark * 0.5f, pos.y + size.y * 0.5f}, mark, IM_COL32_WHITE, Col(fill));
-    DrawLabel(draw, fonts.body, {left + mark + gap, pos.y + (size.y - text.y) * 0.5f}, IM_COL32_WHITE, label);
+    const ImVec2 at{left + mark + gap, pos.y + (size.y - text.y) * 0.5f};
+    if (hero)
+    {
+        // Bold: the only font is a medium weight, so the label is drawn twice
+        // a little apart, over a soft shadow.
+        DrawLabel(draw, font, {at.x, at.y + Dp(1.5f)}, Col(color::window, 0.35f), label);
+        DrawLabel(draw, font, at, IM_COL32_WHITE, label);
+        DrawLabel(draw, font, {at.x + Dp(0.7f), at.y}, IM_COL32_WHITE, label);
+    }
+    else
+        DrawLabel(draw, font, at, IM_COL32_WHITE, label);
     ImGui::PopID();
     return pressed;
 }
@@ -1629,16 +1837,19 @@ void Spinner(ImVec2 center, float radius, ImU32 color)
 
 // Each letter is placed at its fractional position, as AddText places the
 // letters of one string (the fonts are oversampled for it): AddText per
-// letter would snap each one to the pixel and space them unevenly.
+// letter would snap each one to the pixel and space them unevenly. Letters
+// are UTF-8 characters, as the translated texts have them.
 void DrawTracked(ImDrawList* draw, ImFont* font, ImVec2 position, ImU32 color, const char* text, float tracking)
 {
     if ((color & IM_COL32_A_MASK) == 0) return;
     const float size = FontSize(font), scale = size / font->FontSize;
     float x = position.x;
     const float y = std::floor(position.y); // the baseline snaps, as with AddText
-    for (const char* c = text; *c; ++c)
+    for (const char* c = text; *c;)
     {
-        const ImFontGlyph* glyph = font->FindGlyph(ImWchar(static_cast<unsigned char>(*c)));
+        unsigned int letter = 0;
+        c += ImTextCharFromUtf8(&letter, c, nullptr);
+        const ImFontGlyph* glyph = font->FindGlyph(ImWchar(letter));
         if (!glyph) continue;
         if (glyph->Visible)
         {
@@ -1654,11 +1865,12 @@ float TrackedWidth(ImFont* font, const char* text, float tracking)
 {
     const float size = FontSize(font);
     float width = 0.0f;
-    char glyph[2] = {0, 0};
-    for (const char* c = text; *c; ++c)
+    for (const char* c = text; *c;)
     {
-        glyph[0] = *c;
-        width += font->CalcTextSizeA(size, FLT_MAX, 0.0f, glyph).x + tracking;
+        unsigned int letter = 0;
+        const char* next = c + ImTextCharFromUtf8(&letter, c, nullptr);
+        width += font->CalcTextSizeA(size, FLT_MAX, 0.0f, c, next).x + tracking;
+        c = next;
     }
     return text[0] ? width - tracking : 0.0f;
 }

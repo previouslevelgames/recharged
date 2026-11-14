@@ -45,6 +45,11 @@ vsync = true
 # for smoother motion; the game keeps its own speed. VSync holds any rate to
 # the display's.
 frame_rate = original
+# In the background (window minimized or another window focused): at most
+# background_frame_rate (15, 30 or 60) frames per second, the original's
+# included, to save power; the full rate returns as soon as you go back.
+background_throttle = true
+background_frame_rate = 30
 # Windows: vulkan or d3d12. macOS: metal. Linux: vulkan.
 # auto preserves the platform default (Vulkan on Windows/Linux, Metal on macOS);
 # on Windows it switches to DirectX 12 when Vulkan cannot start.
@@ -179,7 +184,9 @@ shake_nunchuk = Q
 # stretch: stretches the picture over the window, or gives it back its 16:9 or
 # 4:3 shape; resolution_up and resolution_down: a higher or lower 3D
 # resolution; fullscreen: fullscreen or a window (Alt+Return; Option+Return on
-# a Mac). These four last for the run.
+# a Mac). These four last for the run. panel: opens or closes the game's
+# overlay over the game, as the Wii Remote's HOME does; game_options: the same
+# overlay on its Game options tab.
 # show_hud = false: matches start with them hidden, for clean recordings; the
 # Mega Strike meter and its defence stay.
 screenshot = P
@@ -188,18 +195,22 @@ stretch = F
 resolution_up = PageUp
 resolution_down = PageDown
 fullscreen = Alt+Return
+panel = F1
+game_options = F2
 show_hud = true
 
 # Gamepad profiles ([gamepad_profile1] to [gamepad_profile16]), made on the
-# launcher's Controls page: a unique name (not Default) and one or two SDL
+# launcher's Controls page: a unique name (not that of a built-in profile,
+# such as Default or Classic 1.1) and one to three SDL
 # gamepad inputs per action, separated by |: a, b, x, y (bottom, right, left,
 # top face button), start, back, guide, leftshoulder, rightshoulder,
 # leftstick, rightstick, dpup, dpdown, dpleft, dpright, lefttrigger,
 # righttrigger, a stick pushed one way (leftstick_up, leftstick_down,
 # leftstick_left, leftstick_right, rightstick_up ... rightstick_right; past
 # half its travel), or none for no button. Actions left out keep the Default
-# (Xbox) input. swap_sticks = true
-# moves the Nunchuk stick to the right stick and the pointer to the left.
+# (Xbox) input. sticks: split (the left stick moves the Nunchuk stick, the
+# right one points), swapped, or shared (the left stick does both and the
+# right one is free, for the D-pad); older files say swap_sticks = true.
 # inner_deadzone (0-30 %) and outer_deadzone (70-100 %): both sticks rest up to
 # the inner one and are pushed all the way from the outer one on; the defaults,
 # 15 and 71, play like a Nunchuk on the Wii. trigger_press (10-90 %, default
@@ -282,6 +293,9 @@ show_hud = true
 # match_point: in a match to a number of goals, overtime's siren and sudden
 # death music (in place of the stadium's) and SUDDEN DEATH on the HUD once
 # both teams are one goal from winning. Only sound and HUD. On by default.
+# override_retail_menus: development switch; Recharged's own versions replace
+# the game's menus as they are built (first the pause menu in a match). On by
+# default; off shows the game's own menus.
 # Start training on the launcher's Gameplay page (or --training) goes
 # straight into a Domination match with training_captain (mario, bowser,
 # daisy, donkeykong, luigi, peach, waluigi, wario, yoshi, bowserjr,
@@ -319,6 +333,7 @@ super_team_side = away
 fair_ball_contests = true
 secure_stadiums = false
 match_point = true
+override_retail_menus = true
 training_item = green_shell
 training_captain = mario
 training_stadium = tutorialfield
@@ -358,6 +373,12 @@ frame_logging = false
 # while the program runs. Closing it does not stop the game.
 log_window = false
 
+[interface]
+# The language of Recharged's own menus and messages (the launcher, the game
+# menu): auto (the PC's language), or one of the folders in assets/lang, such
+# as de or pt-BR. The game's own texts follow [game] language.
+language = auto
+
 [launcher]
 # Launcher interface size: auto, or a percentage from 75 to 200.
 ui_scale = auto
@@ -389,3 +410,25 @@ rich_presence = true
 # rollback = true
 # rollback_test = false
 # rollback_log =
+# Competitive play: the address of a Recharged WFC server's profile service
+# (https://, or http:// for a test server on this computer or network).
+# Players sign in to it with Discord or a Mii on the launcher's Online pages,
+# which show it; only this file changes it. Left out or empty, the project's
+# server.
+# profile_server = https://rechargedwfc.net
+# The preset a challenge's setup starts from (one of the server's rule sets
+# or of your presets, Online -> Match rules), by its name: the one sent last;
+# empty: the server's first.
+challenge_rules =
+# A chime (and a flashing window in the background) when someone challenges
+# you or accepts your challenge (Online -> Player profile).
+challenge_sound = true
+# Playing with a Mii (without Discord): your profile's one Mii, by its create
+# ID (chosen with the profile; the launcher finds it again by its friend code).
+mii =
+# Played with a Mii before: true signs you in again through the game, once
+# your Mii logs in to WFC (Player profile sets it; the game clears it).
+mii_sign_in = false
+# The Mii of your game save picked for that, by its create ID (the launcher
+# names it while mii_sign_in is true).
+mii_sign_in_with =

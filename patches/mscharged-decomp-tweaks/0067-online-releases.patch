@@ -1,0 +1,287 @@
+Subject: Port: online play between the releases, by the draft's simulation profile
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+The original keeps the releases apart online: GetNetworkVersionWord makes
+its word of the region and build number, and matchmaking (the AP key and
+its filter), the socket's packets and friends' status all compare it. The
+port only plays other PCs, so its games of every release now speak one
+protocol online instead, MSCHARGED_ONLINE_VERSION_WORD
+(include/mscharged_online_releases.h), which no original word can be, so no
+Wii meets a PC. LAN keeps the original word.
+
+Machines of different releases then have to simulate by the same rules
+(tweak patch 0066). Each machine's draft entry (NetworkDraftMachineInfo,
+which every machine sends its host in matchmaking and friend matches) now
+carries its own simulation profile; the host picks the match's profile with
+mscharged_sim_resolve and sends it with the draft (NetMessageDraft): a
+RANKED match of the game's own always plays by the European revision 2's
+rules, so its points mean the same between any two players; any other, a
+friend match or a competitive set's game (which meets in RANKED but puts no
+points), by the machines' own when all share it, else by revision 2's.
+Every machine, the host too, takes it when the draft arrives, long before
+the match loads and its rollback starts. Leaving online or LAN play puts
+the module's own profile back.
+
+diff --git a/include/Game/NetworkMessages.h b/include/Game/NetworkMessages.h
+index b361690..983574e 100644
+--- a/include/Game/NetworkMessages.h
++++ b/include/Game/NetworkMessages.h
+@@ -39,6 +39,9 @@ struct NetworkDraftMachineInfo
+     NetworkDraftMachineInfo()
+     {
+         mGuestEnabled = 0;
++#if defined(MSCHARGED_TWEAKS)
++        mSimProfile = 0;
++#endif
+     }
+ 
+     /* 0x00 */ NetworkRankingMeta mStats;
+@@ -47,6 +50,11 @@ struct NetworkDraftMachineInfo
+     /* 0x32 */ u8 mMiiData[0x4C];
+     /* 0x7E */ s8 mMachineIndex;
+     /* 0x7F */ u8 mGuestEnabled;
++#if defined(MSCHARGED_TWEAKS)
++    // Tweak patch 0067: the machine's own simulation profile (0 when it
++    // does not say: the entries of a LAN draft).
++    u8 mSimProfile;
++#endif
+ }; // size: 0x80
+ 
+ // "Failed to SendDraftToEveryone to %d because no connection".
+@@ -62,6 +70,9 @@ public:
+         {
+             mPlayerSides.mData[i / 2][i % 2] = -1;
+         }
++#if defined(MSCHARGED_TWEAKS)
++        mSimProfile = 0;
++#endif
+     }
+ 
+     virtual void Serialize(NetworkMessageSerializer* serializer);
+@@ -72,6 +83,11 @@ public:
+     /* 0x00A */ u8 mChooseSides;
+     /* 0x00B */ NetworkDraftSides mPlayerSides;
+     /* 0x014 */ NetworkDraftMachineInfo mEntries[8];
++#if defined(MSCHARGED_TWEAKS)
++    // Tweak patch 0067: the simulation profile the host chose for the
++    // match, from its machines' own.
++    u8 mSimProfile;
++#endif
+ }; // size: 0x414
+ 
+ // Message IDs 16 and 17 are registered by this translation unit, but no
+diff --git a/include/mscharged_online_releases.h b/include/mscharged_online_releases.h
+new file mode 100644
+index 0000000..12f76fd
+--- /dev/null
++++ b/include/mscharged_online_releases.h
+@@ -0,0 +1,17 @@
++#if defined(MSCHARGED_TWEAKS)
++#ifndef MSCHARGED_ONLINE_RELEASES_H
++#define MSCHARGED_ONLINE_RELEASES_H
++
++// Online play between the releases (tweak patch 0067). The original version
++// word (GetNetworkVersionWord: the region and build number) keeps the
++// releases apart in matchmaking (its AP key and filter), in the socket's
++// packets and in friends' status. Online, the port's games of every release
++// speak one protocol instead, this word; the online draft then picks the
++// simulation profile they play by (include/mscharged_sim_profile.h). LAN
++// keeps the original word. Raise the low half whenever the port's network
++// protocol or a simulation profile changes, so games that would go out of
++// sync never meet. It cannot be an original word (0x1B?3xxxx).
++#define MSCHARGED_ONLINE_VERSION_WORD 0x52430001u
++
++#endif
++#endif
+diff --git a/src/Game/NetworkDraftMessages.cpp b/src/Game/NetworkDraftMessages.cpp
+index 77a7220..f291663 100644
+--- a/src/Game/NetworkDraftMessages.cpp
++++ b/src/Game/NetworkDraftMessages.cpp
+@@ -6,6 +6,9 @@ void NetMessageDraft::Serialize(NetworkMessageSerializer* serializer)
+     serializer->Transfer(&mMachineCount, sizeof(mMachineCount));
+     serializer->Transfer(&mChooseSides, sizeof(mChooseSides));
+     serializer->Transfer(&mPlayerSides, sizeof(mPlayerSides));
++#if defined(MSCHARGED_TWEAKS)
++    serializer->Transfer(&mSimProfile, sizeof(mSimProfile));
++#endif
+     NetworkDraftMachineInfo* entry = mEntries;
+     for (int i = 0; i < mMachineCount; ++entry, ++i)
+     {
+@@ -15,6 +18,9 @@ void NetMessageDraft::Serialize(NetworkMessageSerializer* serializer)
+         serializer->Transfer(entry->mMiiData, sizeof(entry->mMiiData));
+         serializer->Transfer(&entry->mMachineIndex, sizeof(entry->mMachineIndex));
+         serializer->Transfer(&entry->mGuestEnabled, sizeof(entry->mGuestEnabled));
++#if defined(MSCHARGED_TWEAKS)
++        serializer->Transfer(&entry->mSimProfile, sizeof(entry->mSimProfile));
++#endif
+     }
+ }
+ 
+@@ -26,6 +32,9 @@ void NetMessageDraftMachineInfo::Serialize(NetworkMessageSerializer* serializer)
+     serializer->Transfer(mEntry.mMiiData, sizeof(mEntry.mMiiData));
+     serializer->Transfer(&mEntry.mMachineIndex, sizeof(mEntry.mMachineIndex));
+     serializer->Transfer(&mEntry.mGuestEnabled, sizeof(mEntry.mGuestEnabled));
++#if defined(MSCHARGED_TWEAKS)
++    serializer->Transfer(&mEntry.mSimProfile, sizeof(mEntry.mSimProfile));
++#endif
+ }
+ 
+ void NetMessageDraftPickedCaptain::Serialize(NetworkMessageSerializer* serializer)
+diff --git a/src/Game/NetworkLobby.cpp b/src/Game/NetworkLobby.cpp
+index c3e0d8a..2d8280e 100644
+--- a/src/Game/NetworkLobby.cpp
++++ b/src/Game/NetworkLobby.cpp
+@@ -1,4 +1,7 @@
+ #include <dwc/dwc_main.h>
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#endif
+ #include <dwc/dwc_match.h>
+ #include <dwc/dwc_transport.h>
+ #include <revolution/os/OSThread.h>
+@@ -1038,6 +1041,9 @@ void NetworkLobby::BuildLocalMachineInfo(
+ 
+     info->mMachineIndex = GetLocalMachineIndex();
+     info->mGuestEnabled = HasOnlineTwoLocalPlayers();
++#if defined(MSCHARGED_TWEAKS)
++    info->mSimProfile = MSCHARGED_SIM_NATIVE;
++#endif
+ }
+ 
+ void NetworkLobby::SendLocalMachineInfo(int aid)
+diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
+index 13f9cfb..b5169d4 100644
+--- a/src/Game/NetworkSession.cpp
++++ b/src/Game/NetworkSession.cpp
+@@ -1,4 +1,8 @@
+ #include "NL/nlDLListContainer.inl"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_sim_profile.h"
++#include "mscharged_online_releases.h"
++#endif
+ #include "NL/nlSingleton.inl"
+ #include "NL/nlFunction.inl"
+ #include "NL/nlBindMember.inl"
+@@ -336,6 +340,33 @@ void NetworkSession::SendGameStartToEveryone()
+     }
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Competitive play (src/platform/competitive_match.cpp): nonzero when the
++// draft is a set's game, between the player and the set's opponent.
++extern "C" int mscharged_competitive_set_draft(const NetMessageDraft* message);
++
++// The host picks a network match's simulation profile from its machines'
++// own (their draft entries) and whether the match is the game's own RANKED
++// (a set's game meets in RANKED too, but plays as friends do), and sends it
++// with the draft.
++static void ChooseDraftSimProfile(NetMessageDraft* message)
++{
++    unsigned char natives[8];
++    int count = message->mMachineCount;
++    if (count < 0)
++        count = 0;
++    if (count > 8)
++        count = 8;
++    for (int i = 0; i < count; ++i)
++    {
++        natives[i] = message->mEntries[i].mSimProfile;
++    }
++    const int ranked = IsOnlineRankedMatch() && !mscharged_competitive_set_draft(message);
++    message->mSimProfile = (u8)mscharged_sim_resolve(natives, count, ranked ? 1 : 0);
++}
++
++#endif
++
+ void NetworkSession::SendDraftToEveryone(
+     int count, NetworkDraftMachineInfo* entries, bool unused, bool chooseSides)
+ {
+@@ -347,6 +378,9 @@ void NetworkSession::SendDraftToEveryone(
+     {
+         message.mEntries[entry] = entries[entry];
+     }
++#if defined(MSCHARGED_TWEAKS)
++    ChooseDraftSimProfile(&message);
++#endif
+ 
+     for (int machine = 0; machine < count; ++machine)
+     {
+@@ -373,6 +407,9 @@ void NetworkSession::SendDraftToEveryone(
+ 
+ void NetworkSession::SendDraftToEveryone(NetMessageDraft* message)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    ChooseDraftSimProfile(message);
++#endif
+     for (int machine = 0; machine < message->mMachineCount; ++machine)
+     {
+         u8 buffer[0x200];
+@@ -661,6 +698,9 @@ void NetworkSession::InitializeLAN()
+     }
+ 
+     mSessionMode = NET_MODE_LAN;
++#if defined(MSCHARGED_TWEAKS)
++    mscharged_sim_reset_profile();
++#endif
+     gNetworkMessageRegistry->RegisterReceiver(NETMSG_GAME_START, this);
+     gNetworkMessageRegistry->RegisterReceiver(NETMSG_LOADED_GAME, this);
+     gNetworkMessageRegistry->RegisterReceiver(NETMSG_LOADED_GAME_CLIENT, this);
+@@ -686,6 +726,9 @@ void NetworkSession::InitializeLAN()
+ 
+ void NetworkSession::ShutdownLAN()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    mscharged_sim_reset_profile();
++#endif
+     NetworkDraft::Instance()->Reset(false);
+     mStatsReporter->Close();
+     NetworkStatsManager::Instance()->Reset(false);
+@@ -734,6 +777,9 @@ void NetworkSession::InitializeOnline()
+ #endif
+ 
+     DWC_Init(DWC_SVR_RELEASE, "mschargedwii", gameCode, NetworkAlloc, NetworkFree);
++#if defined(MSCHARGED_TWEAKS)
++    mscharged_sim_reset_profile();
++#endif
+     DWC_SetReportLevel(0);
+     mDWCInitialized = 1;
+     mSessionMode = NET_MODE_ONLINE;
+@@ -1452,6 +1498,9 @@ void NetworkSession::UpdateLogin()
+ 
+ void NetworkSession::ShutdownOnline()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    mscharged_sim_reset_profile();
++#endif
+ #if defined(VERSION_R4QK01)
+     bool shutdownSocket = true;
+ #endif
+@@ -1803,6 +1852,10 @@ int NetworkSession::ProcessMessage(
+         break;
+ 
+     case NETMSG_DRAFT:
++#if defined(MSCHARGED_TWEAKS)
++        // Every machine, the host too, plays by the draft's profile.
++        mscharged_sim_set_profile(((NetMessageDraft*)message)->mSimProfile);
++#endif
+         if (((NetMessageDraft*)message)->mChooseSides != 0)
+         {
+             SHOnlineFriendsChooseSides* scene = (SHOnlineFriendsChooseSides*)
+@@ -2635,8 +2688,17 @@ void NetworkSession::DisconnectOnlineMatch()
+     }
+ }
+ 
+ unsigned int GetNetworkVersionWord()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Online, the port's games of every release find each other
++    // (tweak patch 0067); LAN keeps the release's own word, as its
++    // draft says no machine's profile.
++    if (g_pNetworkSession == 0 || g_pNetworkSession->mSessionMode != NET_MODE_LAN)
++    {
++        return MSCHARGED_ONLINE_VERSION_WORD;
++    }
++#endif
+     int channel = 10;
+     switch (GetRegion())
+     {

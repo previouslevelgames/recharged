@@ -8,6 +8,7 @@
 
 #include <array>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -18,6 +19,7 @@
 namespace mscharged
 {
 inline constexpr const char* kDefaultOnlineServer = "2.31.48.136";
+inline constexpr const char* kDefaultProfileServer = "https://rechargedwfc.net";
 
 struct Settings
 {
@@ -51,6 +53,11 @@ struct Settings
     // second (bootstrap/frame_rate.h). Above the original the host paces and
     // presents every frame; the game keeps its own speed.
     std::string frame_rate = "original";
+    // display.background_throttle: at most display.background_frame_rate
+    // (15, 30 or 60) frames per second while the game's window is minimized
+    // or another window has the focus; the full rate again at once on return.
+    bool background_throttle = true;
+    int background_frame_rate = kDefaultBackgroundFrameRate;
     std::string backend = "auto";
     // display.gpu: auto (the fastest graphics card) or a card's PCI ID, such as 10de:1f99.
     std::string gpu = "auto";
@@ -121,15 +128,15 @@ struct Settings
     }
     bool show_hud = true;
     // Gamepad profiles ([gamepad_profile1], [gamepad_profile2], ...): a name
-    // and the inputs of each action ("a | start"); swap_sticks puts the
-    // Nunchuk stick on the right stick and the pointer on the left. The
-    // built-in "Default" profile is not among them.
+    // and the inputs of each action ("a | start"); sticks = split, swapped or
+    // shared (GamepadSticks), and from before it swap_sticks = true for
+    // swapped. The built-in "Default" profile is not among them.
     using PadInputs = std::array<std::string, GamepadActionCount>;
     struct PadProfile
     {
         std::string name = "Default";
         PadInputs inputs = DefaultPadInputs();
-        bool swap_sticks = false;
+        GamepadSticks sticks = GamepadSticks::Split;
         // The controllers it is made for: xbox (Xbox and PlayStation, whose
         // buttons sit in the same places), nintendo or gamecube.
         std::string controller = "xbox";
@@ -146,13 +153,18 @@ struct Settings
         // gyro_speed percent (issue #14); recenter_pointer centres it.
         bool gyro_pointer = false;
         int gyro_speed = kDefaultGyroSpeed;
+        // A built-in profile that follows the connected controller (Default,
+        // Classic 1.1): its inputs are those of this layout for the
+        // controller's family. Never set in recharged.ini's profiles.
+        std::optional<GamepadLayout> follows;
         // Spelled out: charged_host is C++17.
         bool operator==(const PadProfile& other) const
         {
-            return name == other.name && inputs == other.inputs && swap_sticks == other.swap_sticks
+            return name == other.name && inputs == other.inputs && sticks == other.sticks
                 && controller == other.controller && inner_deadzone == other.inner_deadzone
                 && outer_deadzone == other.outer_deadzone && trigger_press == other.trigger_press
-                && octagon_stick == other.octagon_stick && gyro_pointer == other.gyro_pointer && gyro_speed == other.gyro_speed;
+                && octagon_stick == other.octagon_stick && gyro_pointer == other.gyro_pointer && gyro_speed == other.gyro_speed
+                && follows == other.follows;
         }
         bool operator!=(const PadProfile& other) const { return !(*this == other); }
     };
@@ -162,17 +174,26 @@ struct Settings
     // follows the layout of the connected controller's family (Xbox,
     // PlayStation, Nintendo, GameCube).
     std::array<std::string, kGamepadSlots> pad_profile_names{"Default", "Default", "Default", "Default"};
-    static PadInputs DefaultPadInputs()
+    // A layout's inputs for Xbox controllers.
+    static PadInputs DefaultPadInputs(GamepadLayout layout = GamepadLayout::Default)
     {
         PadInputs inputs;
-        for (std::size_t n = 0; n < GamepadActionCount; ++n) inputs[n] = kGamepadActions[n].defaults;
+        for (std::size_t n = 0; n < GamepadActionCount; ++n)
+            inputs[n] = layout == GamepadLayout::Classic ? kGamepadActions[n].classic : kGamepadActions[n].defaults;
         return inputs;
     }
-    // The profile gamepad `slot` (0-3) plays with: the index of its named
-    // profile, or -1 for the built-in Default.
+    // Profile indices: 0 and up the named profiles above, -1 the built-in
+    // Default, -2 and down the other built-in profiles (BuiltinPadProfiles,
+    // -2 being the first).
+    const PadProfile& PadProfileAt(int index) const;
+    // The profile gamepad `slot` (0-3) plays with: its named profile, else
+    // the built-in profile of that name, else Default (-1).
     int PadProfileIndex(std::size_t slot) const;
     const PadProfile& PadProfileOf(std::size_t slot) const;
     static const PadProfile& DefaultPadProfile();
+    // Classic 1.1, then those of builtin_pad_profiles.h.
+    static const std::vector<PadProfile>& BuiltinPadProfiles();
+    static int BuiltinPadProfileIndex(std::size_t n) { return -2 - int(n); }
     // controls.rumble: the Wii's rumble setting (Wii Remotes and gamepads);
     // controls.rumble_strength (0-100 %) scales gamepad motors only, as a
     // Wii Remote's motor is either on or off.
@@ -203,6 +224,10 @@ struct Settings
     // advanced.log_window (Windows and macOS): a separate window that follows the log while the program runs.
     bool log_window = false;
     std::string ui_scale = "auto";    // launcher.ui_scale: auto or a percentage (75 to 200)
+    // interface.language: the language of Recharged's own texts (the launcher's,
+    // the in-game menus'; never the game's): auto (the PC's) or one of the
+    // folders of assets/lang ("de", "pt-BR").
+    std::string interface_language = "auto";
     // launcher.reopen_after_game: open the launcher again when a game started
     // from it closes normally.
     bool reopen_after_game = false;
@@ -242,6 +267,35 @@ struct Settings
     // (*.nintendowifi.net) resolve. Left out or empty, the project's server:
     // earlier builds wrote an empty one into every saved file.
     std::string online_server = kDefaultOnlineServer;
+    // online.profile_server: the address of the WFC server's profile service
+    // for competitive play (https://, or http:// for a test server on this
+    // computer or network). Left out or empty, the project's server. Only the
+    // file sets it: the launcher shows it and saving leaves it as it is.
+    // Players sign in to it with Discord on the launcher's Online pages.
+    std::string profile_server = kDefaultProfileServer;
+    // [online] challenge_rules: the rule set (by its name on the profile
+    // server) the player's challenges go out with, from the launcher's Online
+    // -> Match settings. Empty, or a name the server doesn't have: its first.
+    std::string challenge_rules;
+    // [online] challenge_sound (on by default): a chime, and a flashing
+    // window when it is in the background, for a challenge to the player
+    // and for their challenge accepted (at the master volume; not when
+    // muted).
+    bool challenge_sound = true;
+    // [online] mii: the Mii a player who plays online with a Mii (without
+    // Discord) plays their sets with, by its create ID (16 hex digits,
+    // written in lowercase); Player profile chooses it. Empty: none chosen,
+    // and a Discord player's Mii is made from their Discord name.
+    std::string online_mii;
+    // [online] mii_sign_in: a player who played with a Mii before asked to
+    // sign in again through the game: once a Mii of theirs logs in to WFC, the
+    // game asks the server for the profile that Mii's online account
+    // identifies, saves its session and sets this back to false.
+    bool mii_sign_in = false;
+    // [online] mii_sign_in_with: the Mii of the game save the player picked
+    // for that (its create ID, as online_mii), so the launcher names it after
+    // a restart too. Only read while mii_sign_in is true; empty: none picked.
+    std::string mii_sign_in_with;
     // [online] rollback (on by default): network matches predict the inputs
     // still on their way and roll back when they differ, instead of waiting
     // for them. Every machine in the match must have it on (the input delay
@@ -304,13 +358,29 @@ std::optional<std::array<int, 2>> ParseWindowPosition(std::string_view text);
 std::string FormatWindowPosition(int x, int y);
 
 // A gamepad profile name: 1-32 characters, no surrounding spaces, quotes,
-// brackets, '=', '|' or control characters, and not "Default". Names
-// compare case-insensitively.
+// brackets, '=', '|' or control characters, and not the name of a built-in
+// profile. Names compare case-insensitively.
 bool ValidPadProfileName(const std::string& name);
+// The profiles of `ini`, written as in recharged.ini (see
+// builtin_pad_profiles.h); throws when one is invalid or named like Default
+// or Classic 1.1.
+std::vector<Settings::PadProfile> ParseBuiltinPadProfiles(const std::string& ini);
 bool SamePadProfileName(const std::string& a, const std::string& b);
 
 ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing = false);
 void SaveConfig(ConfigFile& file, const Settings& settings);
+// The game's overlay (Game options): one gameplay option of `path` saved, the
+// rest of the file as it is (run overrides such as --no-tweaks never reach it).
+// Throws when the file cannot be read or written, or `tweak` is not listed.
+void SaveGameTweak(const std::filesystem::path& path, GameTweak tweak, bool on);
+// The game's overlay (Online, "Your challenges"): [online] challenge_rules of
+// `path` saved, the rest of the file as it is. Throws when the file cannot be
+// read or written, or `name` has a line break or NUL.
+void SaveChallengeRules(const std::filesystem::path& path, const std::string& name);
+// [online] mii_sign_in alone (the game clears it once it signed in again).
+void SaveMiiSignIn(const std::filesystem::path& path, bool on);
+// Settings as `change` leaves them, saved over the file (the game's Settings tab).
+void SaveSettings(const std::filesystem::path& path, const std::function<void(Settings&)>& change);
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config);
 // game.gamecube_disc's path, empty when none is set.
 std::filesystem::path ResolveGameCubeDiscPath(const Settings& settings, const std::filesystem::path& config);

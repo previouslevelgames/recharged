@@ -107,6 +107,7 @@ struct NativeAXFunctionalDevice::State {
         s.ValidateBindings();
         if(bytes!=128||(address!=s.bindings.addresses[0]&&address!=s.bindings.addresses[0]+128))
             throw std::invalid_argument("functional AX request is not an actual source command slot");
+        const NativeDSPMemoryScope transfers; // one lock for the whole command frame
         s.ValidateList(ReadNativeAXCommandList(memory,address,bytes));
         auto frame=PrepareNativeAXCommandFrame(memory,address,bytes,s.history,s.filter.View());
         for(const auto& voice:frame.voices) {

@@ -2,6 +2,7 @@
 
 #include "platform/desktop_dpd.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -65,5 +66,47 @@ void SetNativeWpadSharedPointer(const NativeDpdObservation* observation);
 // `observation` is non-null, and the mouse buttons add A and B. -1 ends it.
 // Call from the SDL owner; original DPD enable/disable still applies.
 void SetNativeWpadMousePlayer(int channel, const NativeDpdObservation* observation, bool a, bool b);
+// A host card (an incoming challenge) asks the player something: while held,
+// the game sees no buttons and a centred Nunchuk stick from every player, and
+// their new A and B presses (also the mouse buttons of the mouse player) go
+// to the card. Released, a player's buttons reach the game again once all of
+// them are up. On the game's thread, between frames.
+void SetNativeWpadHold(bool hold);
+struct NativeWpadHeldPresses
+{
+    int a = 0, b = 0;
+};
+// The A and B presses since the last call, while held (not while the host
+// panel holds too).
+NativeWpadHeldPresses TakeNativeWpadHeldPresses();
+
+// The host panel (src/runtime/menu_input.h), on the game's thread between
+// frames. Taken, HOME never reaches the game: its presses are the panel's.
+void SetNativeWpadHomeTaken(bool taken);
+// The channels (bit n: WPAD channel n) that pressed HOME since the last call.
+std::uint32_t TakeNativeWpadHomePresses();
+// The channels that pressed the game's pause (WPAD 1) since the last call,
+// while the host held nothing; the game sees those presses too.
+std::uint32_t TakeNativeWpadPausePresses();
+// While the panel holds, the game sees every player stand still (no buttons,
+// a centred stick, and the pointer and motion of their last report before the
+// hold, also while a card holds) and the panel reads their buttons; released,
+// a player's buttons reach the game again once all of them are up.
+void SetNativeWpadPanelHold(bool hold);
+struct NativeWpadPanelButtons
+{
+    // Each channel's WPAD_BUTTON_* bits held, without the mouse's A and B and
+    // without the buttons already down when the panel opened (until released).
+    std::array<std::uint16_t, 4> down{};
+    // The bits pressed since the last call, so a short tap is not missed.
+    std::array<std::uint16_t, 4> pressed{};
+    // Each channel's Nunchuk stick (about +-100 at full tilt).
+    std::array<std::int8_t, 4> stick_x{}, stick_y{};
+};
+NativeWpadPanelButtons TakeNativeWpadPanelButtons();
+// While the panel holds: the game's own `button` (WPAD_BUTTON_*) pressed alone
+// on `channel` (-1: the lowest connected one) for about 100 ms, such as its
+// pause in an offline match. The channel pressed, or -1 for none.
+int PressNativeWpadButton(int channel, std::uint16_t button);
 
 } // namespace mscharged::platform

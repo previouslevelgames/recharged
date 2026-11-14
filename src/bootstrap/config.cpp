@@ -1,4 +1,5 @@
 #include "config.h"
+#include "builtin_pad_profiles.h"
 #include "display_shape.h"
 #include "graphics_card.h"
 #include "platform/path.h"
@@ -10,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <iterator>
 #include <locale>
 #include <map>
 #include <set>
@@ -32,6 +34,18 @@ std::string Trim(const std::string& value)
     const auto start = value.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) return {};
     return value.substr(start, value.find_last_not_of(" \t\r\n") - start + 1);
+}
+
+// A gamepad profile name's characters, and not Default (ValidPadProfileName
+// without the other built-in profiles).
+bool PadProfileNameShape(const std::string& name)
+{
+    if (name.empty() || name.size() > kMaxGamepadProfileName || name != Trim(name)
+        || SamePadProfileName(name, kDefaultGamepadProfile))
+        return false;
+    return std::none_of(name.begin(), name.end(), [](unsigned char c) {
+        return c < 0x20 || c == 0x7f || c == '"' || c == '[' || c == ']' || c == '=' || c == '|';
+    });
 }
 
 // Whether a [keyboard] binding ("Return | Space") names the key `name`; SDL
@@ -68,6 +82,8 @@ Values Encode(const Settings& s)
             {"display.fullscreen", s.fullscreen ? "true" : "false"},
             {"display.fullscreen_resolution", s.fullscreen_resolution},
             {"display.vsync", s.vsync ? "true" : "false"}, {"display.frame_rate", s.frame_rate},
+            {"display.background_throttle", s.background_throttle ? "true" : "false"},
+            {"display.background_frame_rate", std::to_string(s.background_frame_rate)},
             {"display.backend", s.backend}, {"display.gpu", s.gpu}, {"display.aspect", s.aspect},
             {"display.picture", s.picture}, {"display.tv_border", s.tv_border ? "true" : "false"},
             {"display.wider_view", s.wider_view ? "true" : "false"},
@@ -94,7 +110,13 @@ Values Encode(const Settings& s)
             {"advanced.frame_logging", s.frame_logging ? "true" : "false"},
             {"advanced.log_window", s.log_window ? "true" : "false"},
             {"launcher.ui_scale", s.ui_scale},
+            {"interface.language", s.interface_language},
             {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
+            {"online.challenge_rules", s.challenge_rules},
+            {"online.challenge_sound", s.challenge_sound ? "true" : "false"},
+            {"online.mii", s.online_mii},
+            {"online.mii_sign_in", s.mii_sign_in ? "true" : "false"},
+            {"online.mii_sign_in_with", s.mii_sign_in_with},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
@@ -119,7 +141,9 @@ Values Encode(const Settings& s)
         values.emplace(section + "name", profile.name);
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
             values.emplace(section + kGamepadActions[action].key, profile.inputs[action]);
-        values.emplace(section + "swap_sticks", profile.swap_sticks ? "true" : "false");
+        values.emplace(section + "sticks", kGamepadSticksNames[std::size_t(profile.sticks)]);
+        // For older versions, which know only swap_sticks.
+        values.emplace(section + "swap_sticks", profile.sticks == GamepadSticks::Swapped ? "true" : "false");
         values.emplace(section + "inner_deadzone", std::to_string(profile.inner_deadzone));
         values.emplace(section + "outer_deadzone", std::to_string(profile.outer_deadzone));
         values.emplace(section + "trigger_press", std::to_string(profile.trigger_press));
@@ -133,7 +157,9 @@ Values Encode(const Settings& s)
     return values;
 }
 
-Settings Decode(const Values& values)
+// `builtin`: the profiles of builtin_pad_profiles.h, which the built-in
+// names do not apply to yet.
+Settings Decode(const Values& values, bool builtin = false)
 {
     Settings s;
     auto choice = [&](const char* key, std::string& value, std::initializer_list<const char*> options) {
@@ -200,6 +226,11 @@ Settings Decode(const Values& values)
                 + std::to_string(kMaxFrameRate));
         s.frame_rate = it->second;
     }
+    boolean("display.background_throttle", s.background_throttle);
+    number("display.background_frame_rate", s.background_frame_rate, kBackgroundFrameRates[0],
+           kBackgroundFrameRates[std::size(kBackgroundFrameRates) - 1]);
+    if (!ValidBackgroundFrameRate(s.background_frame_rate))
+        throw std::runtime_error("Invalid configuration: display.background_frame_rate must be 15, 30 or 60");
     choice("display.backend", s.backend, {"auto", "vulkan", "metal", "d3d12"});
     if (const auto it = values.find("display.gpu"); it != values.end())
     {
@@ -242,8 +273,9 @@ Settings Decode(const Values& values)
         choice(key.c_str(), s.players[n], {"keyboard", "remote1", "remote2", "remote3", "remote4",
                                             "gamepad1", "gamepad2", "gamepad3", "gamepad4", "off"});
     }
-    // [keyboard] and [gamepadN]: one or two names per action, separated by " | ".
-    const auto names = [&](const std::string& key, std::string& value, const char* what) {
+    // [keyboard] and [gamepad_profileN]: up to `most` names per action (two
+    // keys, three gamepad inputs), separated by " | ".
+    const auto names = [&](const std::string& key, std::string& value, const char* what, std::size_t most) {
         const auto it = values.find(key);
         if (it == values.end()) return;
         std::size_t count = 0, start = 0;
@@ -251,16 +283,16 @@ Settings Decode(const Values& values)
         while (valid && start <= it->second.size())
         {
             const auto bar = std::min(it->second.find('|', start), it->second.size());
-            valid = !Trim(it->second.substr(start, bar - start)).empty() && ++count <= 2;
+            valid = !Trim(it->second.substr(start, bar - start)).empty() && ++count <= most;
             start = bar + 1;
         }
         if (!valid)
-            throw std::runtime_error("Invalid configuration: " + key + " must be one or two " + what
-                + " separated by |");
+            throw std::runtime_error("Invalid configuration: " + key + " must be one to " + std::to_string(most) + " "
+                + what + " separated by |");
         value = it->second;
     };
     for (std::size_t n = 0; n < KeyActionCount; ++n)
-        names(std::string("keyboard.") + kKeyActions[n].key, s.keys[n], "key names");
+        names(std::string("keyboard.") + kKeyActions[n].key, s.keys[n], "key names", 2);
     // [hotkeys]: one key name each, after the Ctrl+, Shift+ and Alt+ it is
     // pressed with, or none. A hotkey an older INI does not name yet stays
     // unused when a [keyboard] action has its default key.
@@ -306,7 +338,7 @@ Settings Decode(const Values& values)
         const auto first = values.lower_bound(section);
         if (first == values.end() || first->first.rfind(section, 0) != 0) continue;
         const auto name = values.find(section + "name");
-        if (name == values.end() || !ValidPadProfileName(name->second))
+        if (name == values.end() || !PadProfileNameShape(name->second))
             throw std::runtime_error("Invalid configuration: " + section
                 + "name must be 1-32 characters without quotes, brackets, = or |, and not Default");
         for (const auto& other : profiles)
@@ -315,8 +347,17 @@ Settings Decode(const Values& values)
         Settings::PadProfile profile;
         profile.name = name->second;
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
-            names(section + kGamepadActions[action].key, profile.inputs[action], "gamepad inputs");
-        boolean((section + "swap_sticks").c_str(), profile.swap_sticks);
+            names(section + kGamepadActions[action].key, profile.inputs[action], "gamepad inputs", 3);
+        bool swap_sticks = false;
+        boolean((section + "swap_sticks").c_str(), swap_sticks);
+        profile.sticks = swap_sticks ? GamepadSticks::Swapped : GamepadSticks::Split;
+        if (const auto sticks = values.find(section + "sticks"); sticks != values.end())
+        {
+            const auto name = std::find(kGamepadSticksNames.begin(), kGamepadSticksNames.end(), sticks->second);
+            if (name == kGamepadSticksNames.end())
+                throw std::runtime_error("Invalid configuration: " + section + "sticks must be split, swapped or shared");
+            profile.sticks = GamepadSticks(name - kGamepadSticksNames.begin());
+        }
         number((section + "inner_deadzone").c_str(), profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone);
         number((section + "outer_deadzone").c_str(), profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone);
         number((section + "trigger_press").c_str(), profile.trigger_press, kMinTriggerPress, kMaxTriggerPress);
@@ -326,13 +367,36 @@ Settings Decode(const Values& values)
         choice((section + "controller").c_str(), profile.controller, {"xbox", "nintendo", "gamecube"});
         profiles.push_back(std::move(profile));
     }
+    // A profile named like one that is now built in gets a number added, and
+    // its gamepads keep playing with it.
+    std::vector<std::pair<std::string, std::string>> renamed;
+    if (!builtin)
+        for (auto& profile : profiles)
+        {
+            if (ValidPadProfileName(profile.name)) continue;
+            for (int n = 2;; ++n)
+            {
+                const auto number = " " + std::to_string(n);
+                const auto name = Trim(profile.name.substr(0, kMaxGamepadProfileName - number.size())) + number;
+                if (ValidPadProfileName(name)
+                    && std::none_of(profiles.begin(), profiles.end(),
+                                    [&](const auto& other) { return SamePadProfileName(other.name, name); }))
+                {
+                    renamed.emplace_back(profile.name, name);
+                    profile.name = name;
+                    break;
+                }
+            }
+        }
     s.pad_profiles = std::move(profiles);
     // A gamepad whose profile no longer exists plays with the built-in Default.
     for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
     {
         const auto it = values.find("controls.gamepad" + std::to_string(slot + 1) + "_profile");
         if (it != values.end()) s.pad_profile_names[slot] = it->second;
-        s.pad_profile_names[slot] = s.PadProfileOf(slot).name;
+        for (const auto& [from, to] : renamed)
+            if (SamePadProfileName(s.pad_profile_names[slot], from)) s.pad_profile_names[slot] = to;
+        if (!builtin) s.pad_profile_names[slot] = s.PadProfileOf(slot).name;
     }
     // Players fill in order from player 1, and each device plays once.
     if (s.players[0] == "off")
@@ -363,6 +427,13 @@ Settings Decode(const Values& values)
     boolean("advanced.frame_logging", s.frame_logging);
     boolean("advanced.log_window", s.log_window);
     choice("launcher.ui_scale", s.ui_scale, {"auto", "75", "100", "125", "150", "175", "200"});
+    if (const auto it = values.find("interface.language"); it != values.end()) {
+        const auto& code = it->second;
+        const bool valid = !code.empty() && code.size() <= 16
+            && code.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-") == std::string::npos;
+        if (!valid) throw std::runtime_error("Invalid configuration: unsupported interface.language");
+        s.interface_language = code;
+    }
     boolean("launcher.reopen_after_game", s.reopen_after_game);
     boolean("launcher.show_welcome", s.show_welcome);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
@@ -393,7 +464,30 @@ Settings Decode(const Values& values)
     }
     if (const auto it = values.find("online.server"); it != values.end() && !it->second.empty())
         s.online_server = it->second;
+    if (const auto it = values.find("online.profile_server"); it != values.end() && !it->second.empty())
+        s.profile_server = it->second;
+    if (const auto it = values.find("online.challenge_rules"); it != values.end()) s.challenge_rules = it->second;
+    if (s.challenge_rules.find_first_of("\r\n") != std::string::npos || s.challenge_rules.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: online.challenge_rules contains a line break or NUL");
+    if (s.profile_server.find_first_of("\r\n") != std::string::npos || s.profile_server.find('\0') != std::string::npos)
+        throw std::runtime_error("Invalid configuration: online.profile_server contains a line break or NUL");
     boolean("online.rollback", s.rollback);
+    boolean("online.challenge_sound", s.challenge_sound);
+    boolean("online.mii_sign_in", s.mii_sign_in);
+    // A Mii's create ID: 16 hex digits, kept in lowercase; empty for none.
+    auto create_id = [&](const char* key, std::string& value) {
+        const auto it = values.find(key);
+        if (it == values.end()) return;
+        std::string id = it->second;
+        for (auto& c : id) c = char(std::tolower(static_cast<unsigned char>(c)));
+        if (!id.empty()
+            && (id.size() != 16 || id.find_first_not_of("0123456789abcdef") != std::string::npos))
+            throw std::runtime_error(std::string("Invalid configuration: ") + key
+                                     + " is not a Mii's create ID (16 hex digits)");
+        value = id;
+    };
+    create_id("online.mii", s.online_mii);
+    create_id("online.mii_sign_in_with", s.mii_sign_in_with);
     boolean("online.rollback_test", s.rollback_test);
     if (const auto it = values.find("online.rollback_log"); it != values.end()) s.rollback_log = it->second;
     if (s.rollback_log.find_first_of("\r\n") != std::string::npos || s.rollback_log.find('\0') != std::string::npos)
@@ -566,12 +660,19 @@ std::string FormatWindowPosition(int x, int y)
 
 bool ValidPadProfileName(const std::string& name)
 {
-    if (name.empty() || name.size() > kMaxGamepadProfileName || name != Trim(name)
-        || SamePadProfileName(name, kDefaultGamepadProfile))
-        return false;
-    return std::none_of(name.begin(), name.end(), [](unsigned char c) {
-        return c < 0x20 || c == 0x7f || c == '"' || c == '[' || c == ']' || c == '=' || c == '|';
+    const auto& builtins = Settings::BuiltinPadProfiles();
+    return PadProfileNameShape(name) && std::none_of(builtins.begin(), builtins.end(), [&](const auto& profile) {
+        return SamePadProfileName(profile.name, name);
     });
+}
+
+std::vector<Settings::PadProfile> ParseBuiltinPadProfiles(const std::string& ini)
+{
+    auto profiles = Decode(Parse(ini), true).pad_profiles;
+    for (const auto& profile : profiles)
+        if (SamePadProfileName(profile.name, kClassicGamepadProfile))
+            throw std::runtime_error("Invalid built-in gamepad profile: " + profile.name + " is taken");
+    return profiles;
 }
 
 bool SamePadProfileName(const std::string& a, const std::string& b)
@@ -581,23 +682,49 @@ bool SamePadProfileName(const std::string& a, const std::string& b)
     });
 }
 
+const Settings::PadProfile& Settings::PadProfileAt(int index) const
+{
+    if (index >= 0) return pad_profiles[std::size_t(index)];
+    if (index == -1) return DefaultPadProfile();
+    return BuiltinPadProfiles()[std::size_t(-2 - index)];
+}
+
 int Settings::PadProfileIndex(std::size_t slot) const
 {
     for (std::size_t n = 0; n < pad_profiles.size(); ++n)
         if (SamePadProfileName(pad_profiles[n].name, pad_profile_names[slot])) return int(n);
+    const auto& builtins = BuiltinPadProfiles();
+    for (std::size_t n = 0; n < builtins.size(); ++n)
+        if (SamePadProfileName(builtins[n].name, pad_profile_names[slot])) return BuiltinPadProfileIndex(n);
     return -1;
 }
 
 const Settings::PadProfile& Settings::PadProfileOf(std::size_t slot) const
 {
-    const int index = PadProfileIndex(slot);
-    return index < 0 ? DefaultPadProfile() : pad_profiles[std::size_t(index)];
+    return PadProfileAt(PadProfileIndex(slot));
 }
 
 const Settings::PadProfile& Settings::DefaultPadProfile()
 {
-    static const PadProfile profile{kDefaultGamepadProfile, DefaultPadInputs(), false};
+    static const PadProfile profile = [] {
+        PadProfile own{kDefaultGamepadProfile, DefaultPadInputs(), GamepadLayoutSticks(GamepadLayout::Default)};
+        own.follows = GamepadLayout::Default;
+        return own;
+    }();
     return profile;
+}
+
+const std::vector<Settings::PadProfile>& Settings::BuiltinPadProfiles()
+{
+    static const std::vector<PadProfile> profiles = [] {
+        PadProfile classic{kClassicGamepadProfile, DefaultPadInputs(GamepadLayout::Classic),
+                           GamepadLayoutSticks(GamepadLayout::Classic)};
+        classic.follows = GamepadLayout::Classic;
+        std::vector<PadProfile> all{classic};
+        for (auto& profile : ParseBuiltinPadProfiles(kBuiltinPadProfilesIni)) all.push_back(std::move(profile));
+        return all;
+    }();
+    return profiles;
 }
 
 ConfigFile LoadConfig(const std::filesystem::path& path, bool allow_missing)
@@ -650,6 +777,41 @@ void SaveConfig(ConfigFile& file, const Settings& settings)
     file.configured_keys.clear();
     for (const auto& [key, value] : Parse(contents)) file.configured_keys.insert(key);
     file.exists = true;
+}
+
+void SaveGameTweak(const std::filesystem::path& path, GameTweak tweak, bool on)
+{
+    auto file = LoadConfig(path, true);
+    const auto index = GameTweakIndex(tweak);
+    if (index >= file.settings.tweaks.size()) throw std::invalid_argument("Not a gameplay option");
+    auto settings = file.settings;
+    settings.tweaks[index] = on;
+    SaveConfig(file, settings);
+}
+
+void SaveChallengeRules(const std::filesystem::path& path, const std::string& name)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    settings.challenge_rules = name;
+    SaveConfig(file, settings);
+}
+
+void SaveSettings(const std::filesystem::path& path, const std::function<void(Settings&)>& change)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    change(settings);
+    SaveConfig(file, settings);
+}
+
+void SaveMiiSignIn(const std::filesystem::path& path, bool on)
+{
+    auto file = LoadConfig(path, true);
+    auto settings = file.settings;
+    settings.mii_sign_in = on;
+    if (!on) settings.mii_sign_in_with.clear();
+    SaveConfig(file, settings);
 }
 
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config)

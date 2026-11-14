@@ -15,6 +15,7 @@
 #include <iterator>
 #include <mutex>
 #include <system_error>
+#include <utility>
 
 namespace mscharged::platform {
 namespace {
@@ -37,6 +38,9 @@ constexpr const char* kPhases[] = {"none", "login", "matchmaking", "prestart", "
 constexpr const char* kReportsPath = "/api/v1/wfc/reports";
 constexpr const char* kErrorsPath = "/api/v1/wfc/errors";
 constexpr const char* kDossiersPath = "/api/v1/wfc/desyncs";
+// Whether the opponent forfeited: asked this often after a lost connection.
+constexpr const char* kForfeitPath = "/api/v1/wfc/forfeit";
+constexpr int kForfeitQuestions = 5;
 // A report not delivered is tried this many times.
 constexpr int kAttempts = 4;
 // The desync dossiers kept: the newest ones, for at most as many days as the
@@ -165,6 +169,7 @@ const char* Cause(const ChargedOnlineMatchSnapshot& s)
     case 0: return "offline";
     case 2: return "desync";
     case 4: return "disconnect";
+    case kChargedOnlineForfeit: return "forfeit";
     default: return nullptr;
     }
 }
@@ -281,19 +286,21 @@ std::string OnlineErrorReport(const ChargedOnlineError& error, const std::string
 }
 
 struct OnlineReports::State {
-    // A body and the path on the server it goes to.
     // A body and the path on the server it goes to; or, `dossiers` set, the
-    // dossiers of that profile in `folder`.
+    // dossiers of that profile in `folder`; or a question (`ask`: the body is
+    // the query after the path).
     struct Post
     {
         const char* path;
         std::string body;
         std::uint32_t dossiers = 0;
+        bool ask = false;
     };
     std::mutex mutex;
     std::condition_variable wake;
     std::deque<Post> queue;
     bool stop = false;
+    std::optional<std::string> opponent_forfeit; // the forfeiter's Mii, until taken
     std::shared_ptr<HttpCancel> cancel = std::make_shared<HttpCancel>();
     std::filesystem::path folder; // the dossiers', empty: none
 };
@@ -303,7 +310,33 @@ std::unique_ptr<OnlineReports> OnlineReports::Start(const std::string& server, c
 {
     if (server.empty()) return nullptr;
     Send send = HttpSend(server, log);
-    return std::make_unique<OnlineReports>(release, build, HostOsName(), std::move(send), std::move(log));
+    return std::make_unique<OnlineReports>(release, build, HostOsName(), std::move(send), std::move(log),
+                                           std::chrono::seconds(5), HttpAsk(server));
+}
+
+OnlineReports::Ask OnlineReports::HttpAsk(const std::string& server, Request request)
+{
+    if (!request) request = [](const HttpRequest& http) { return HttpGet(http); };
+    return [server, request = std::move(request)](const std::string& path,
+                                                  const std::shared_ptr<HttpCancel>& cancel)
+               -> std::optional<std::string> {
+        HttpRequest http;
+        http.url = "http://" + server + path;
+        http.allow_http = true;
+        http.connect_timeout = 10;
+        http.stall_timeout = 15;
+        http.max_size = 16u << 10;
+        http.cancel = cancel;
+        try
+        {
+            const HttpResponse response = request(http);
+            if (response.status == 200) return response.body;
+        }
+        catch (const HttpError&)
+        {
+        }
+        return std::nullopt;
+    };
 }
 
 OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, Request request)
@@ -372,11 +405,11 @@ OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, 
 }
 
 OnlineReports::OnlineReports(std::string release, std::string build, std::string os, Send send, Log log,
-                             std::chrono::milliseconds retry)
+                             std::chrono::milliseconds retry, Ask ask)
     : state_(std::make_shared<State>()), log_(log), release_(std::move(release)), build_(std::move(build)),
       os_(std::move(os))
 {
-    thread_ = std::thread([state = state_, send = std::move(send), log = std::move(log), retry] {
+    thread_ = std::thread([state = state_, send = std::move(send), log = std::move(log), retry, ask = std::move(ask)] {
         std::unique_lock lock(state->mutex);
         for (;;)
         {
@@ -401,6 +434,36 @@ OnlineReports::OnlineReports(std::string release, std::string build, std::string
                     if (state->stop) return;
                 }
                 lock.lock();
+                state->queue.pop_front();
+                continue;
+            }
+            if (post.ask)
+            {
+                // The forfeiter's report may come a moment after the lost
+                // connection: asked again a few times.
+                for (int question = 0; question < kForfeitQuestions && ask; ++question)
+                {
+                    if (state->wake.wait_for(lock, retry * 2 / 5, [&] { return state->stop; })) return;
+                    lock.unlock();
+                    const auto answer = ask(std::string(post.path) + post.body, state->cancel);
+                    lock.lock();
+                    if (state->stop) return;
+                    if (!answer) break;
+                    try
+                    {
+                        const JsonValue forfeit = ParseJson(*answer)["forfeit"];
+                        if (forfeit.IsObject())
+                        {
+                            state->opponent_forfeit = forfeit["by"].Text();
+                            if (log) log("Match reports: the opponent forfeited the match");
+                            break;
+                        }
+                    }
+                    catch (const std::exception&)
+                    {
+                        break;
+                    }
+                }
                 state->queue.pop_front();
                 continue;
             }
@@ -447,16 +510,22 @@ void OnlineReports::Observe(const ChargedOnlineMatchSnapshot& snapshot)
     const std::string error = snapshot.error.shown != last_.error.shown
         ? OnlineErrorReport(snapshot.error, release_, build_)
         : std::string();
+    // The connection lost: perhaps the opponent forfeited (asked after the
+    // series' own end went out).
+    const bool lost = snapshot.series && snapshot.ended == 2 && snapshot.stopped_by == 4 && snapshot.profile_id
+        && !(seen_ && last_.series == snapshot.series && last_.ended == 2);
     last_ = snapshot;
     seen_ = true;
     // A series begun: its profile is logged in, its dossiers left over can go.
     const bool dossiers = begun && snapshot.profile_id && !folder_.empty();
-    if (events.empty() && error.empty() && !dossiers) return;
+    if (events.empty() && error.empty() && !dossiers && !lost) return;
     {
         std::lock_guard lock(state_->mutex);
         for (const auto& event : events) state_->queue.push_back({kReportsPath, event});
         if (!error.empty()) state_->queue.push_back({kErrorsPath, error});
         if (dossiers) state_->queue.push_back({kDossiersPath, {}, snapshot.profile_id});
+        if (lost)
+            state_->queue.push_back({kForfeitPath, "?profile_id=" + std::to_string(snapshot.profile_id), 0, true});
     }
     state_->wake.notify_all();
 }
@@ -527,5 +596,11 @@ void OnlineReports::Dossier(const void* data, std::size_t size)
         state_->queue.push_back({kDossiersPath, {}, header.profile_id});
     }
     state_->wake.notify_all();
+}
+
+std::optional<std::string> OnlineReports::TakeOpponentForfeit()
+{
+    std::lock_guard lock(state_->mutex);
+    return std::exchange(state_->opponent_forfeit, std::nullopt);
 }
 } // namespace mscharged::platform

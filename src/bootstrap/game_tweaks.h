@@ -34,6 +34,7 @@ enum class GameTweak : unsigned
     SuperTeam = 12,
     SecureStadiums = 13,
     MatchPoint = 14,
+    OverrideRetailMenus = 15,
 };
 
 struct GameTweakInfo
@@ -45,7 +46,7 @@ struct GameTweakInfo
     bool on_by_default = false; // recommended to every player: on without its [gameplay] key
 };
 
-inline constexpr std::array<GameTweakInfo, 14> kGameTweaks{{
+inline constexpr std::array<GameTweakInfo, 15> kGameTweaks{{
     {GameTweak::SkipIntro, "skip_intro", "Skip intro",
      "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."},
     {GameTweak::FastMenus, "fast_menus", "Fast menus",
@@ -96,6 +97,11 @@ inline constexpr std::array<GameTweakInfo, 14> kGameTweaks{{
      "In a match to a number of goals, the kickoff that finds both teams one goal from winning plays overtime's siren "
      "and sudden death music in place of the stadium's, until the match ends, and the HUD shows SUDDEN DEATH instead "
      "of First to. Only sound and HUD change. On by default.",
+     true},
+    {GameTweak::OverrideRetailMenus, "override_retail_menus", "Override retail menus (Dev)",
+     "Development switch: Recharged's own versions replace the game's menus as they are built, starting with the "
+     "pause menu in a match, drawn over the blurred game. They open the same pages and do the same as the "
+     "game's. On by default; off shows the game's own menus.",
      true},
 }};
 

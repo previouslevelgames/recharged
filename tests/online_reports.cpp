@@ -309,6 +309,13 @@ void TestDiagnostics()
         s.stopped_by = 0;
     });
     Require(end["reason"].Text() == "abandoned" && end["cause"].Text() == "offline", "offline: cause offline");
+    // The player forfeited it (the match menu): the server books it for the
+    // opponent.
+    end = End(3, [](ChargedOnlineMatchSnapshot& s) {
+        s.ended = 2;
+        s.stopped_by = kChargedOnlineForfeit;
+    });
+    Require(end["reason"].Text() == "abandoned" && end["cause"].Text() == "forfeit", "forfeit: cause forfeit");
     end = End(3, [](ChargedOnlineMatchSnapshot& s) {
         s.ended = 2;
         s.stopped_by = 7;

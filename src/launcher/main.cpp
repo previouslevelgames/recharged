@@ -7,27 +7,38 @@
 #include "imgui_impl_sdlrenderer3.h"
 #include "imgui_stdlib.h"
 
+#include "bootstrap/advanced_choices.h"
 #include "bootstrap/antialiasing.h"
 #include "bootstrap/display_shape.h"
 #include "bootstrap/launch_options.h"
 #include "bootstrap/graphics_backend.h"
+#include "bootstrap/table_texts.h"
+#include "bootstrap/texts.h"
+#include "launcher/competitive_service.h"
 #include "launcher/current_build.h"
+#include "launcher/discord_friends.h"
 #include "launcher/disc_search.h"
 #include "launcher/image_library.h"
 #include "launcher/issue_reporters.h"
 #include "launcher/match_presets.h"
+#include "launcher/mii_faces.h"
 #include "launcher/online_gate.h"
 #include "launcher/player_lineup.h"
 #include "launcher/players_online.h"
 #include "launcher/release_banner.h"
 #include "launcher/release_notes.h"
+#include "launcher/fallback_fonts.h"
 #include "launcher/ui_kit.h"
 #include "launcher/ui_metrics.h"
 #include "launcher/update_check.h"
 #include "launcher/update_install.h"
 #include "launcher/update_service.h"
 #include "mscharged/build_version.h"
+#include "overlay/flags.h"
+#include "platform/competitive_rules.h"
 #include "platform/parse_float.h"
+#include "platform/name_glyphs.h"
+#include "platform/profile_service.h"
 #include "platform/window_fit.h"
 #include "platform/disc.h"
 #include "platform/game_release.h"
@@ -39,7 +50,10 @@
 #endif
 #include "platform/app_icon.h"
 #include "platform/path.h"
+#include "platform/mii_head.h"
 #include "platform/mii_maker.h"
+#include "platform/alert_sound.h"
+#include "platform/discord_presence.h"
 #include "platform/save_import.h"
 #include "platform/shader_cache.h"
 #include "platform/texture_packs.h"
@@ -72,6 +86,7 @@
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <iostream>
 #include <map>
@@ -94,15 +109,32 @@ namespace
 // Window title of the game and the launcher: the port's name and build.
 std::string GameTitle()
 {
-    std::string title = std::string("Recharged ") + mscharged::build::version;
     if (std::string_view(mscharged::build::channel) == "test")
-        title += " - test build of PR #" + std::to_string(mscharged::build::pull_request);
-    return title;
+        return texts::T("launcher.window.test_build_title",
+                        {{"version", mscharged::build::version},
+                         {"number", std::to_string(mscharged::build::pull_request)}});
+    return std::string("Recharged ") + mscharged::build::version;
 }
 
 // The name desktops show for the program (task switcher, audio mixer). SDL
 // forgets it at SDL_Quit, so the game sets it again after the launcher.
 void SetAppName() { SDL_SetAppMetadata("Recharged", mscharged::build::version, nullptr); }
+
+// The set a launcher started the game for: the game reads it, and so does
+// the launcher it opens again afterwards (an environment variable, as
+// Windows starts that one with this run's command line).
+constexpr const char* kCompetitiveSetVariable = "RECHARGED_COMPETITIVE_SET";
+// From both players ready to the set's game starting: 3, 2, 1.
+constexpr std::uint64_t kSetCountdownMs = 3000;
+
+void SetEnvironment(const char* name, const std::string& value)
+{
+#ifdef _WIN32
+    _putenv_s(name, value.c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
+}
 
 // The program, as tools/package_build.py ships it.
 #ifdef _WIN32
@@ -125,8 +157,8 @@ std::string LocalTime(std::int64_t seconds)
 std::string Megabytes(std::uint64_t bytes)
 {
     char text[32];
-    std::snprintf(text, sizeof text, "%.1f MB", double(bytes) / (1024.0 * 1024.0));
-    return text;
+    std::snprintf(text, sizeof text, "%.1f", double(bytes) / (1024.0 * 1024.0));
+    return texts::T("launcher.update.megabytes", {{"size", text}});
 }
 
 // A softly tinted note with an icon and wrapped text, as wide as the content region.
@@ -146,15 +178,25 @@ void Callout(const std::string& text, const ImVec4& tint, Icon icon)
     ImGui::Dummy({width, height});
 }
 
+// The Wii's twelve favourite colours (RFLGetFavoriteColor, RFL_Model.c) and
+// their names (in the launcher's language: LoadTableTexts), in
+// RFLFavoriteColor order.
+constexpr unsigned char kMiiColorRgb[12][3] = {
+    {184, 64, 48},  {240, 120, 40}, {248, 216, 32}, {128, 200, 40}, {0, 116, 40},    {32, 72, 152},
+    {64, 160, 216}, {232, 96, 120}, {112, 44, 168}, {72, 56, 24},   {224, 224, 224}, {24, 24, 20}};
+const char* kMiiColorNames[12] = {};
+
+ImVec4 MiiColor(int favorite_color)
+{
+    const auto& rgb = kMiiColorRgb[favorite_color >= 0 && favorite_color < 12 ? favorite_color : 0];
+    return {rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+}
+
 // A Mii's figure on a disc of its favourite colour (RFLGetFavoriteColor,
 // RFL_Model.c), the colour the Wii puts behind its Mii icons.
 void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_color)
 {
-    static constexpr unsigned char kFavoriteColors[12][3] = {
-        {184, 64, 48},  {240, 120, 40}, {248, 216, 32}, {128, 200, 40}, {0, 116, 40},    {32, 72, 152},
-        {64, 160, 216}, {232, 96, 120}, {112, 44, 168}, {72, 56, 24},   {224, 224, 224}, {24, 24, 20}};
-    const auto& rgb = kFavoriteColors[favorite_color >= 0 && favorite_color < 12 ? favorite_color : 0];
-    const ImVec4 fill{rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+    const ImVec4 fill = MiiColor(favorite_color);
     draw->AddCircleFilled(center, size * 0.5f, Col(fill));
     draw->AddCircle(center, size * 0.5f, Col(color::border), 0, Dp(1));
     // Dark ink on the light colours (white, yellow, yellow-green).
@@ -162,44 +204,339 @@ void DrawMiiFigure(ImDrawList* draw, ImVec2 center, float size, int favorite_col
     DrawIcon(draw, Icon::Person, center, size * 0.62f, Col(light ? color::window : color::text));
 }
 
-enum Page { PagePlay, PageGame, PageMiis, PageSidekicks, PageRules, PageDisplay, PageAudio, PageControls, PageGameplay,
-            PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_names[] = {"Play", "Game", "Miis", "Sidekicks", "Match rules", "Display", "Audio",
-                                      "Controls", "Gameplay", "Advanced", "About"};
-constexpr const char* page_ids[] = {"play", "game", "miis", "sidekicks", "rules", "display", "audio", "controls",
-                                    "gameplay", "advanced", "about"};
-constexpr Icon page_icons[] = {Icon::Play, Icon::Disc, Icon::Person, Icon::Pitch, Icon::Trophy, Icon::Display, Icon::Audio,
-                               Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
-static_assert(std::size(page_names) == PageCount && std::size(page_ids) == PageCount
-    && std::size(page_icons) == PageCount);
+// Round swatches of `count` colours, `per_row` to a row, the chosen one
+// ringed and ticked, each with its name as a tooltip when `names` has them;
+// true when another is chosen.
+bool ColorSwatches(const char* id, int* chosen, int count, const std::function<ImVec4(int)>& colour,
+                   const char* const* names, float size, int per_row, int first = 0)
+{
+    bool changed = false;
+    auto* draw = ImGui::GetWindowDrawList();
+    ImGui::PushID(id);
+    for (int n = 0; n < count; ++n)
+    {
+        const int c = first + n;
+        if (n % per_row) ImGui::SameLine(0, Dp(10));
+        ImGui::PushID(c);
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("##swatch", {size, size}))
+        {
+            changed = *chosen != c;
+            *chosen = c;
+        }
+        const bool hovered = ImGui::IsItemHovered();
+        if (hovered)
+        {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            if (names) ImGui::SetTooltip("%s", names[n]);
+        }
+        const ImVec4 fill = colour(c);
+        const ImVec2 center{at.x + size * 0.5f, at.y + size * 0.5f};
+        const float selected = Animate(ImGui::GetID("##selected"), *chosen == c, 14.0f);
+        draw->AddCircleFilled(center, size * 0.5f - Dp(3) * selected, Col(fill));
+        draw->AddCircle(center, size * 0.5f - Dp(3) * selected, Col(color::border, hovered ? 1.0f : 0.7f), 0, Dp(1));
+        if (selected > 0.0f) draw->AddCircle(center, size * 0.5f, Col(color::accent, selected), 0, Dp(2));
+        if (*chosen == c)
+        {
+            const bool light = 0.2126f * fill.x + 0.7152f * fill.y + 0.0722f * fill.z > 0.6f;
+            DrawIcon(draw, Icon::Check, center, size * 0.42f, Col(light ? color::window : color::text));
+        }
+        ImGui::PopID();
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+// The Wii's twelve favourite colours as swatches (ColorSwatches).
+bool MiiColorSwatches(const char* id, int* chosen, float size, int per_row)
+{
+    return ColorSwatches(id, chosen, 12, MiiColor, kMiiColorNames, size, per_row);
+}
+
+// The Mii editor's rows, each a value of the face (kMiiFaceFields): its
+// parts as thumbnails of the head with each of them, colour swatches, a
+// slider (Height: higher to the right, where the value grows downwards), or
+// a switch; and the Mii's name.
+enum class MiiControl { Parts, Colors, Slider, Height, Toggle, Name };
+// The square of the head a part's thumbnails show (centre and half its
+// side, 0..1 of the head picture).
+struct MiiCrop
+{
+    float x = 0.5f, y = 0.5f, half = 0.5f;
+};
+struct MiiEditorRow
+{
+    const char* label;
+    const char* field;
+    MiiControl control;
+    MiiCrop crop = {};
+    const char* needs = nullptr; // a part this row changes, off while it is none
+};
+struct MiiEditorSection
+{
+    const char* key; // the same in every language ("facial_hair"; development captures pick by it)
+    const char* name;
+    std::vector<MiiEditorRow> rows;
+};
+
+// The sections in the launcher's language (LoadTableTexts makes them).
+std::vector<MiiEditorSection> g_mii_editor_sections;
+const std::vector<MiiEditorSection>& MiiEditorSections() { return g_mii_editor_sections; }
+
+std::vector<MiiEditorSection> MakeMiiEditorSections()
+{
+    using C = MiiControl;
+    const MiiCrop face{0.5f, 0.5f, 0.42f}, hair{0.5f, 0.49f, 0.44f}, brows{0.5f, 0.43f, 0.2f},
+        eyes{0.5f, 0.47f, 0.2f}, nose{0.5f, 0.55f, 0.17f}, mouth{0.5f, 0.63f, 0.19f}, glasses{0.5f, 0.49f, 0.27f},
+        mustache{0.5f, 0.61f, 0.19f}, beard{0.5f, 0.62f, 0.31f};
+    // The labels several sections share.
+    const char* type = texts::T("launcher.mii_parts.rows.type");
+    const char* colour = texts::T("launcher.mii_parts.rows.colour");
+    const char* size = texts::T("launcher.mii_parts.rows.size");
+    const char* rotation = texts::T("launcher.mii_parts.rows.rotation");
+    const char* spacing = texts::T("launcher.mii_parts.rows.spacing");
+    const char* height = texts::T("launcher.mii_parts.rows.height");
+    return {
+        {"face", texts::T("launcher.mii_parts.sections.face"),
+         {{texts::T("launcher.mii_parts.rows.shape"), "face_type", C::Parts, face},
+          {texts::T("launcher.mii_parts.rows.skin"), "face_color", C::Colors},
+          {texts::T("launcher.mii_parts.rows.makeup"), "face_texture", C::Parts, face}}},
+        {"hair", texts::T("launcher.mii_parts.sections.hair"),
+         {{texts::T("launcher.mii_parts.rows.style"), "hair_type", C::Parts, hair}, {colour, "hair_color", C::Colors},
+          {texts::T("launcher.mii_parts.rows.parted"), "hair_flip", C::Toggle}}},
+        {"eyebrows", texts::T("launcher.mii_parts.sections.eyebrows"),
+         {{type, "eyebrow_type", C::Parts, brows}, {colour, "eyebrow_color", C::Colors},
+          {size, "eyebrow_scale", C::Slider}, {rotation, "eyebrow_rotate", C::Slider},
+          {spacing, "eyebrow_x", C::Slider}, {height, "eyebrow_y", C::Height}}},
+        {"eyes", texts::T("launcher.mii_parts.sections.eyes"),
+         {{type, "eye_type", C::Parts, eyes}, {colour, "eye_color", C::Colors}, {size, "eye_scale", C::Slider},
+          {rotation, "eye_rotate", C::Slider}, {spacing, "eye_x", C::Slider}, {height, "eye_y", C::Height}}},
+        {"nose", texts::T("launcher.mii_parts.sections.nose"),
+         {{type, "nose_type", C::Parts, nose}, {size, "nose_scale", C::Slider}, {height, "nose_y", C::Height}}},
+        {"mouth", texts::T("launcher.mii_parts.sections.mouth"),
+         {{type, "mouth_type", C::Parts, mouth}, {colour, "mouth_color", C::Colors}, {size, "mouth_scale", C::Slider},
+          {height, "mouth_y", C::Height}}},
+        {"glasses", texts::T("launcher.mii_parts.sections.glasses"),
+         {{type, "glasses_type", C::Parts, glasses}, {colour, "glasses_color", C::Colors, {}, "glasses_type"},
+          {size, "glasses_scale", C::Slider, {}, "glasses_type"},
+          {height, "glasses_y", C::Height, {}, "glasses_type"}}},
+        {"facial_hair", texts::T("launcher.mii_parts.sections.facial_hair"),
+         {{texts::T("launcher.mii_parts.rows.mustache"), "mustache_type", C::Parts, mustache},
+          {texts::T("launcher.mii_parts.rows.beard"), "beard_type", C::Parts, beard},
+          {colour, "beard_color", C::Colors},
+          {texts::T("launcher.mii_parts.rows.mustache_size"), "beard_scale", C::Slider, {}, "mustache_type"},
+          {texts::T("launcher.mii_parts.rows.mustache_height"), "beard_y", C::Height, {}, "mustache_type"}}},
+        {"mole", texts::T("launcher.mii_parts.sections.mole"),
+         {{texts::T("launcher.mii_parts.rows.mole"), "mole_type", C::Toggle},
+          {size, "mole_scale", C::Slider, {}, "mole_type"},
+          {texts::T("launcher.mii_parts.rows.across"), "mole_x", C::Slider, {}, "mole_type"},
+          {height, "mole_y", C::Height, {}, "mole_type"}}},
+        {"name_colour", texts::T("launcher.mii_parts.sections.name_colour"),
+         {{texts::T("launcher.mii_parts.rows.name"), nullptr, C::Name},
+          {texts::T("launcher.mii_parts.rows.favourite_colour"), "favorite_color", C::Colors}}},
+    };
+}
+
+const mscharged::platform::mii::MiiFaceField& FaceField(std::string_view name)
+{
+    for (const auto& field : mscharged::platform::mii::kMiiFaceFields)
+        if (name == field.name) return field;
+    throw std::logic_error("No Mii face field " + std::string(name));
+}
+
+bool SameFace(const mscharged::platform::mii::MiiFace& a, const mscharged::platform::mii::MiiFace& b)
+{
+    for (const auto& field : mscharged::platform::mii::kMiiFaceFields)
+        if (a.*field.value != b.*field.value) return false;
+    return true;
+}
+
+// Pills that wrap within `width`, the selected one lit; true when another
+// is chosen.
+bool Pills(const char* id, const std::vector<const char*>& labels, int* selected, float width, ImFont* font,
+           float height)
+{
+    bool changed = false;
+    auto* draw = ImGui::GetWindowDrawList();
+    ImGui::PushID(id);
+    const float gap = Dp(6);
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    float x = 0.0f, y = 0.0f;
+    for (int n = 0; n < int(labels.size()); ++n)
+    {
+        const ImVec2 text = TextSize(font, labels[std::size_t(n)]);
+        const float pill = text.x + Dp(26);
+        if (x > 0.0f && x + pill > width)
+        {
+            x = 0.0f;
+            y += height + gap;
+        }
+        ImGui::SetCursorScreenPos({start.x + x, start.y + y});
+        ImGui::PushID(n);
+        if (ImGui::InvisibleButton("##pill", {pill, height}) && *selected != n)
+        {
+            *selected = n;
+            changed = true;
+        }
+        const bool hovered = ImGui::IsItemHovered();
+        if (hovered) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        const float hover = Animate(ImGui::GetItemID(), hovered, 14.0f);
+        const float on = Animate(ImGui::GetID("##on"), *selected == n, 14.0f);
+        const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+        draw->AddRectFilled(min, max, Col(Mix(Mix(color::field, color::card_hover, hover), color::accent_dark, on)),
+                            height * 0.5f);
+        draw->AddRect(min, max, Col(Mix(color::border, color::accent, on), 0.6f + 0.4f * on), height * 0.5f, 0,
+                      Dp(1));
+        DrawLabel(draw, font, {min.x + (pill - text.x) * 0.5f, min.y + (height - text.y) * 0.5f},
+                  Col(Mix(Mix(color::muted, color::text, hover), color::accent_hi, on)), labels[std::size_t(n)]);
+        ImGui::PopID();
+        x += pill + gap;
+    }
+    ImGui::SetCursorScreenPos(start);
+    ImGui::Dummy({width, y + height});
+    ImGui::PopID();
+    return changed;
+}
+
+// A profile name as the server takes it (POST /api/v1/sign-in/mii): `name`
+// without spaces around it; valid for 1 to 32 characters, none a control
+// character.
+std::string TrimmedProfileName(const std::string& name)
+{
+    const auto first = name.find_first_not_of(" \t");
+    if (first == std::string::npos) return {};
+    return name.substr(first, name.find_last_not_of(" \t") - first + 1);
+}
+
+bool ValidProfileName(const std::string& name)
+{
+    const std::string trimmed = TrimmedProfileName(name);
+    std::size_t characters = 0;
+    for (std::size_t n = 0; n < trimmed.size(); ++characters)
+    {
+        const auto lead = static_cast<unsigned char>(trimmed[n]);
+        const std::size_t length = lead < 0x80 ? 1 : (lead & 0xE0) == 0xC0 ? 2 : (lead & 0xF0) == 0xE0 ? 3
+            : (lead & 0xF8) == 0xF0                                         ? 4
+                                                                            : 0;
+        if (!length || n + length > trimmed.size()) return false;
+        char32_t c = length == 1 ? lead : lead & (0x7F >> length);
+        for (std::size_t k = 1; k < length; ++k) c = (c << 6) | (static_cast<unsigned char>(trimmed[n + k]) & 0x3F);
+        n += length;
+        // Control characters, and the invisible format ones (soft hyphen,
+        // zero-width and direction marks, word joiners, BOM, tags).
+        if (c < 0x20 || (c >= 0x7F && c < 0xA0) || c == 0xAD || (c >= 0x600 && c <= 0x605) || c == 0x61C
+            || c == 0x6DD || c == 0x70F || c == 0x180E || (c >= 0x200B && c <= 0x200F) || (c >= 0x2028 && c <= 0x202E)
+            || (c >= 0x2060 && c <= 0x206F) || c == 0xFEFF || (c >= 0xFFF9 && c <= 0xFFFB)
+            || (c >= 0xE0000 && c <= 0xE007F))
+            return false;
+    }
+    return characters >= 1 && characters <= 32;
+}
+
+// A Mii of the game's own online players, whose Mii data the launcher doesn't
+// have: a Mii-style face (a head with a bowl cut, eyes and a smile) on a
+// rounded square of one of the twelve favourite colours, as the Wii shows its
+// Mii icons. `seed` picks the colour.
+void DrawMiiFace(ImDrawList* draw, ImVec2 center, float size, unsigned seed, float alpha)
+{
+    const ImVec4 fill = MiiColor(int(seed % 12));
+    const float half = size * 0.5f;
+    draw->AddRectFilled({center.x - half, center.y - half}, {center.x + half, center.y + half}, Col(fill, alpha),
+                        size * 0.24f);
+    draw->AddRect({center.x - half, center.y - half}, {center.x + half, center.y + half},
+                  Col(ImVec4{1, 1, 1, 1}, 0.12f * alpha), size * 0.24f, 0, Dp(1));
+    const ImVec2 head{center.x, center.y + size * 0.06f};
+    const float radius = size * 0.30f;
+    draw->AddCircleFilled(head, radius, Col(ImVec4{1.0f, 0.84f, 0.67f, 1}, alpha), 24);
+    // The hair: the head's upper half, a little wider.
+    const ImU32 hair = Col(ImVec4{0.24f, 0.16f, 0.11f, 1}, alpha);
+    draw->PathArcTo(head, radius * 1.06f, 3.14159265f, 2.0f * 3.14159265f, 16);
+    draw->PathFillConvex(hair);
+    draw->AddRectFilled({head.x - radius * 1.06f, head.y - radius * 0.12f}, {head.x + radius * 1.06f, head.y + Dp(0.5f)},
+                        hair);
+    const ImU32 ink = Col(ImVec4{0.12f, 0.09f, 0.08f, 1}, alpha);
+    draw->AddCircleFilled({head.x - radius * 0.36f, head.y + radius * 0.30f}, radius * 0.11f, ink);
+    draw->AddCircleFilled({head.x + radius * 0.36f, head.y + radius * 0.30f}, radius * 0.11f, ink);
+    draw->PathArcTo({head.x, head.y + radius * 0.42f}, radius * 0.30f, 0.35f * 3.14159265f, 0.65f * 3.14159265f, 8);
+    draw->PathStroke(ink, 0, std::max(1.0f, radius * 0.09f));
+}
+
+// In the sidebar's order. The pages of a group (kNavGroups) follow each other.
+// The leaderboards and events are the Recharged Game Menu's (its Ranked and
+// Events tabs).
+enum Page { PagePlay, PageGame, PageOnlineSettings, PageRules, PageSidekicks,
+            PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_ids[] = {"play",    "game",  "online-settings", "rules",    "sidekicks",
+                                    "display", "audio", "controls",        "gameplay", "advanced", "about"};
+constexpr Icon page_icons[] = {Icon::Play,     Icon::Disc,   Icon::Person,  Icon::Clipboard, Icon::Pitch,
+                               Icon::Display,  Icon::Audio,  Icon::Keyboard, Icon::Target,  Icon::Sliders,
+                               Icon::Info};
+static_assert(std::size(page_ids) == PageCount && std::size(page_icons) == PageCount);
+
+// A page's name in the sidebar.
+const char* PageName(int page)
+{
+    switch (page)
+    {
+    case PagePlay: return texts::T("launcher.pages.play");
+    case PageGame: return texts::T("launcher.pages.game");
+    case PageOnlineSettings: return texts::T("launcher.pages.player_profile");
+    case PageRules: return texts::T("launcher.pages.match_rules");
+    case PageSidekicks: return texts::T("launcher.pages.sidekicks");
+    case PageDisplay: return texts::T("launcher.pages.display");
+    case PageAudio: return texts::T("launcher.pages.audio");
+    case PageControls: return texts::T("launcher.pages.controls");
+    case PageGameplay: return texts::T("launcher.pages.gameplay");
+    case PageAdvanced: return texts::T("launcher.pages.advanced");
+    case PageAbout: return texts::T("launcher.pages.about");
+    default: return "";
+    }
+}
+
+// The sidebar's groups of pages: one row that opens the last of its pages
+// shown, and shows their rows while one of them is open.
+struct NavGroupInfo
+{
+    Icon icon;
+    int first;
+    int count;
+};
+constexpr NavGroupInfo kNavGroups[] = {{Icon::Chat, PageOnlineSettings, 3}};
+// A group's name in the sidebar (kNavGroups order).
+const char* NavGroupName(int group) { return group == 0 ? texts::T("launcher.pages.online") : ""; }
+constexpr int NavGroupOf(int page)
+{
+    for (int group = 0; group < int(std::size(kNavGroups)); ++group)
+        if (page >= kNavGroups[group].first && page < kNavGroups[group].first + kNavGroups[group].count) return group;
+    return -1;
+}
+// Pages that share a group's row, and the most pages one group has.
+constexpr int NavGroupedRows()
+{
+    int rows = 0;
+    for (const auto& group : kNavGroups) rows += group.count - 1;
+    return rows;
+}
+constexpr int NavGroupMostPages()
+{
+    int most = 0;
+    for (const auto& group : kNavGroups) most = group.count > most ? group.count : most;
+    return most;
+}
+static_assert(NavGroupOf(PageOnlineSettings) == 0 && NavGroupOf(PageRules) == 0 && NavGroupOf(PageSidekicks) == 0
+              && NavGroupOf(PageGameplay) == -1 && NavGroupOf(PageDisplay) == -1 && NavGroupOf(PageAdvanced) == -1);
+constexpr bool OnlinePage(int page) { return NavGroupOf(page) == 0; }
 
 // The captains (eTeamID order) and the sidekicks (eSidekickID order), as the
-// game names them.
-constexpr const char* kCaptainNames[] = {"Mario", "Bowser", "Daisy", "Donkey Kong", "Luigi", "Peach",
-                                         "Waluigi", "Wario", "Yoshi", "Bowser Jr.", "Diddy Kong", "Petey Piranha"};
-constexpr const char* kSidekickNames[] = {"Toad", "Koopa", "Hammer Bro", "Birdo", "Boo", "Dry Bones", "Monty Mole",
-                                          "Shy Guy"};
-static_assert(std::size(kCaptainNames) == mscharged::platform::kCaptainCount
-    && std::size(kSidekickNames) == mscharged::platform::kSidekickCount);
-// Training's choices, in the order of kTrainingItems and kTrainingStadiums.
-constexpr const char* kTrainingItemNames[] = {
-    "None",
-    "Green Shell", "3 Green Shells", "5 Green Shells", "Giant Green Shell",
-    "Red Shell", "3 Red Shells", "Giant Red Shell",
-    "Spiny Shell", "3 Spiny Shells", "5 Spiny Shells", "Giant Spiny Shell",
-    "Freeze Shell", "3 Freeze Shells", "5 Freeze Shells", "Giant Freeze Shell",
-    "Banana", "3 Bananas", "5 Bananas", "Giant Banana",
-    "Bob-omb", "3 Bob-ombs", "5 Bob-ombs", "Giant Bob-omb",
-    "Chain Chomp", "Mushroom", "Star", "Captain's Ability"};
-constexpr const char* kStadiumNames[] = {"Battle Dome", "Bowser Stadium", "Crater Field", "Crystal Canyon", "The Dump",
-                                         "Galactic Stadium", "Konga Coliseum", "The Lava Pit", "Pipeline Central",
-                                         "Stormship Stadium", "The Palace", "Thunder Island", "The Underground",
-                                         "The Vice", "The Wastelands", "The Sand Tomb", "The Classroom"};
-constexpr const char* kSkillNames[] = {"Training", "Rookie", "Professional", "Superstar", "Legend", "Megastriker"};
-static_assert(std::size(kSkillNames) == mscharged::kTrainingSkills.size());
-static_assert(std::size(kTrainingItemNames) == mscharged::kTrainingItems.size()
-    && std::size(kCaptainNames) == mscharged::kTrainingCaptains.size()
-    && std::size(kStadiumNames) == mscharged::kTrainingStadiums.size());
+// game names them; Training's choices, in the order of kTrainingItems,
+// kTrainingStadiums and kTrainingSkills. In the launcher's language
+// (LoadTableTexts).
+const char* kCaptainNames[mscharged::platform::kCaptainCount] = {};
+const char* kSidekickNames[mscharged::platform::kSidekickCount] = {};
+const char* kTrainingItemNames[mscharged::kTrainingItems.size()] = {};
+const char* kStadiumNames[mscharged::kTrainingStadiums.size()] = {};
+const char* kSkillNames[mscharged::kTrainingSkills.size()] = {};
+static_assert(std::size(kCaptainNames) == mscharged::kTrainingCaptains.size());
 
 // Where the Teams page's pitch puts each player of the team, which attacks to
 // the right: x from its own goal line (0) to the other one (1), y from its
@@ -208,13 +545,79 @@ static_assert(std::size(kTrainingItemNames) == mscharged::kTrainingItems.size()
 // checked in the game.
 struct PitchSpot
 {
-    const char* role;
+    const char* role; // in the launcher's language (LoadTableTexts)
     float x, y;
 };
-constexpr PitchSpot kSidekickSpots[] = {{"LEFT WING", 0.44f, 0.22f}, {"RIGHT WING", 0.44f, 0.78f},
-                                        {"DEFENDER", 0.27f, 0.50f}};
-constexpr PitchSpot kCaptainSpot{"CAPTAIN", 0.76f, 0.50f}, kGoalieSpot{"GOALIE", 0.075f, 0.50f};
+PitchSpot kSidekickSpots[] = {{"", 0.44f, 0.22f}, {"", 0.44f, 0.78f}, {"", 0.27f, 0.50f}};
+PitchSpot kCaptainSpot{"", 0.76f, 0.50f}, kGoalieSpot{"", 0.075f, 0.50f};
 static_assert(std::size(kSidekickSpots) == mscharged::platform::kSidekickSlots);
+
+// `names` over a table of the same size.
+template <std::size_t Size>
+void SetNames(const char* (&table)[Size], const char* const (&names)[Size])
+{
+    std::copy(names, names + Size, table);
+}
+
+// The tables above in the launcher's language: when it loads its texts
+// (LoadTexts), at the start and when the menu language changes.
+void LoadTableTexts()
+{
+    SetNames(kMiiColorNames,
+             {texts::T("launcher.mii_colors.red"), texts::T("launcher.mii_colors.orange"),
+              texts::T("launcher.mii_colors.yellow"), texts::T("launcher.mii_colors.light_green"),
+              texts::T("launcher.mii_colors.green"), texts::T("launcher.mii_colors.blue"),
+              texts::T("launcher.mii_colors.light_blue"), texts::T("launcher.mii_colors.pink"),
+              texts::T("launcher.mii_colors.purple"), texts::T("launcher.mii_colors.brown"),
+              texts::T("launcher.mii_colors.white"), texts::T("launcher.mii_colors.black")});
+    g_mii_editor_sections = MakeMiiEditorSections();
+    SetNames(kCaptainNames,
+             {texts::T("launcher.names.captains.mario"), texts::T("launcher.names.captains.bowser"),
+              texts::T("launcher.names.captains.daisy"), texts::T("launcher.names.captains.donkey_kong"),
+              texts::T("launcher.names.captains.luigi"), texts::T("launcher.names.captains.peach"),
+              texts::T("launcher.names.captains.waluigi"), texts::T("launcher.names.captains.wario"),
+              texts::T("launcher.names.captains.yoshi"), texts::T("launcher.names.captains.bowser_jr"),
+              texts::T("launcher.names.captains.diddy_kong"), texts::T("launcher.names.captains.petey_piranha")});
+    SetNames(kSidekickNames,
+             {texts::T("launcher.names.sidekicks.toad"), texts::T("launcher.names.sidekicks.koopa"),
+              texts::T("launcher.names.sidekicks.hammer_bro"), texts::T("launcher.names.sidekicks.birdo"),
+              texts::T("launcher.names.sidekicks.boo"), texts::T("launcher.names.sidekicks.dry_bones"),
+              texts::T("launcher.names.sidekicks.monty_mole"), texts::T("launcher.names.sidekicks.shy_guy")});
+    SetNames(kTrainingItemNames,
+             {texts::T("launcher.names.items.none"), texts::T("launcher.names.items.green_shell"),
+              texts::T("launcher.names.items.green_shell_3"), texts::T("launcher.names.items.green_shell_5"),
+              texts::T("launcher.names.items.green_shell_giant"), texts::T("launcher.names.items.red_shell"),
+              texts::T("launcher.names.items.red_shell_3"), texts::T("launcher.names.items.red_shell_giant"),
+              texts::T("launcher.names.items.spiny_shell"), texts::T("launcher.names.items.spiny_shell_3"),
+              texts::T("launcher.names.items.spiny_shell_5"), texts::T("launcher.names.items.spiny_shell_giant"),
+              texts::T("launcher.names.items.freeze_shell"), texts::T("launcher.names.items.freeze_shell_3"),
+              texts::T("launcher.names.items.freeze_shell_5"), texts::T("launcher.names.items.freeze_shell_giant"),
+              texts::T("launcher.names.items.banana"), texts::T("launcher.names.items.banana_3"),
+              texts::T("launcher.names.items.banana_5"), texts::T("launcher.names.items.banana_giant"),
+              texts::T("launcher.names.items.bob_omb"), texts::T("launcher.names.items.bob_omb_3"),
+              texts::T("launcher.names.items.bob_omb_5"), texts::T("launcher.names.items.bob_omb_giant"),
+              texts::T("launcher.names.items.chain_chomp"), texts::T("launcher.names.items.mushroom"),
+              texts::T("launcher.names.items.star"), texts::T("launcher.names.items.captains_ability")});
+    SetNames(kStadiumNames,
+             {texts::T("launcher.names.stadiums.battle_dome"), texts::T("launcher.names.stadiums.bowser_stadium"),
+              texts::T("launcher.names.stadiums.crater_field"), texts::T("launcher.names.stadiums.crystal_canyon"),
+              texts::T("launcher.names.stadiums.the_dump"), texts::T("launcher.names.stadiums.galactic_stadium"),
+              texts::T("launcher.names.stadiums.konga_coliseum"), texts::T("launcher.names.stadiums.the_lava_pit"),
+              texts::T("launcher.names.stadiums.pipeline_central"),
+              texts::T("launcher.names.stadiums.stormship_stadium"), texts::T("launcher.names.stadiums.the_palace"),
+              texts::T("launcher.names.stadiums.thunder_island"), texts::T("launcher.names.stadiums.the_underground"),
+              texts::T("launcher.names.stadiums.the_vice"), texts::T("launcher.names.stadiums.the_wastelands"),
+              texts::T("launcher.names.stadiums.the_sand_tomb"), texts::T("launcher.names.stadiums.the_classroom")});
+    SetNames(kSkillNames,
+             {texts::T("launcher.names.skills.training"), texts::T("launcher.names.skills.rookie"),
+              texts::T("launcher.names.skills.professional"), texts::T("launcher.names.skills.superstar"),
+              texts::T("launcher.names.skills.legend"), texts::T("launcher.names.skills.megastriker")});
+    kSidekickSpots[0].role = texts::T("launcher.names.positions.left_wing");
+    kSidekickSpots[1].role = texts::T("launcher.names.positions.right_wing");
+    kSidekickSpots[2].role = texts::T("launcher.names.positions.defender");
+    kCaptainSpot.role = texts::T("launcher.names.positions.captain");
+    kGoalieSpot.role = texts::T("launcher.names.positions.goalie");
+}
 
 // The sparks that crackle over the Recharged logo now and then are off for
 // now: the logo stays still. Set to true to bring them back.
@@ -332,7 +735,8 @@ DiscCheck RunDiscCheck(const fs::path& path, std::string selection, const std::s
 // own labels leave out a revision where a region has only one).
 std::string RegionRevision(const DiscInfo& info)
 {
-    return std::string(DiscRegionName(info.game_id)) + ", revision " + std::to_string(unsigned(info.revision));
+    return texts::T("launcher.image.region_revision",
+                    {{"region", DiscRegionName(info.game_id)}, {"revision", std::to_string(unsigned(info.revision))}});
 }
 
 // The release's title, or the disc header's for a release Recharged does not know.
@@ -438,6 +842,7 @@ public:
     {
         wii_probe_.Close();
         remote_lights_.reset(); // a remote that still rumbles stops first
+        mii_faces_.reset();     // its textures, before the renderer goes
         if (renderer_ui_ready_) ImGui_ImplSDLRenderer3_Shutdown();
         if (window_ui_ready_) ImGui_ImplSDL3_Shutdown();
         if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
@@ -452,6 +857,9 @@ public:
         for (const auto& level : logo_) SDL_DestroyTexture(level.texture);
         for (const auto& level : logo_sizzle_) SDL_DestroyTexture(level.texture);
         if (aurora_logo_) SDL_DestroyTexture(aurora_logo_);
+        if (flags_) SDL_DestroyTexture(flags_);
+        alert_sound_.reset(); // before SDL's audio goes
+        set_presence_.reset();
         if (renderer_) SDL_DestroyRenderer(renderer_);
         if (window_) SDL_DestroyWindow(window_);
         SDL_Quit();
@@ -473,6 +881,10 @@ public:
         page_ = options_.page;
         capture_ = options_.smoke_test || !options_.screenshot.empty();
         StartUpdates();
+        StartCompetitive();
+        // Back from a set's game: that set's game does not start again by itself.
+        if (const char* set = std::getenv(kCompetitiveSetVariable); set && *set && !capture_)
+            competitive_started_go_ = std::strtoll(set, nullptr, 10);
         StartPlayersOnline();
 #if !defined(__APPLE__)
         // The PC's graphics cards, for Advanced -> Graphics card and the log.
@@ -490,6 +902,7 @@ public:
         renderer_ = SDL_CreateRenderer(window_, nullptr);
         Require(renderer_ != nullptr, "Cannot create launcher renderer");
         SDL_SetRenderVSync(renderer_, 1);
+        StartMiiFaces();
         metrics_ = CurrentMetrics();
         ApplyWindowMetrics(true);
 
@@ -545,6 +958,13 @@ public:
             aurora_logo_ = SDL_CreateTextureFromSurface(renderer_, logo.get());
             if (aurora_logo_) SDL_SetTextureScaleMode(aurora_logo_, SDL_SCALEMODE_LINEAR);
         }
+        // The flags beside players' names (overlay/flags.h); without them the
+        // Flag row goes by names alone.
+        if (SurfacePtr flags{SDL_LoadPNG(PathUtf8(base_ / "assets/flags/flags.png").c_str()), SDL_DestroySurface})
+        {
+            flags_ = SDL_CreateTextureFromSurface(renderer_, flags.get());
+            if (flags_) SDL_SetTextureScaleMode(flags_, SDL_SCALEMODE_LINEAR);
+        }
         // The welcome guide opens at the first start (never in development captures).
         LoadWelcome(resources / "welcome.md");
         welcome_pending_ = config_ok_ && file_.settings.show_welcome && !welcome_.empty() && !capture_;
@@ -581,6 +1001,9 @@ public:
 
         bool quit = false;
         unsigned frame = 0;
+        // Frames in a row with nothing on its way: a capture waits for three, so
+        // that cards sized by their contents have measured them.
+        unsigned settled_frames = 0;
         const unsigned smoke_frames = unsigned(PageCount) * 4 + 2;
         while (!quit)
         {
@@ -637,7 +1060,11 @@ public:
                 RebuildScale();
                 ApplyWindowMetrics(false);
             }
+            // A name with characters the fonts lack arrived: they are added.
+            else if (platform::NameGlyphsVersion() != NameGlyphsBuilt())
+                RebuildScale();
             SetUiScale(metrics_.ui);
+            UpdateMiiFaces();
             ImGui_ImplSDLRenderer3_NewFrame();
             ImGui_ImplSDL3_NewFrame();
             ImGui::NewFrame();
@@ -654,10 +1081,11 @@ public:
             RenderHero();
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
             const bool update_settled = update_preview_ || (!UpdateBusy() && !(update_capture_install_ && update_.offer));
-            if (!options_.screenshot.empty() && frame >= 12
-                && ((!pending_ && !searching_ && !library_scanning_ && !candidate_pending_ && !texture_scanning_
-                     && update_settled)
-                    || frame > 600))
+            const bool settled = !pending_ && !searching_ && !library_scanning_ && !candidate_pending_
+                && !texture_scanning_ && update_settled && CompetitiveSettled()
+                && (!mii_faces_ || mii_faces_->Settled());
+            settled_frames = settled ? settled_frames + 1 : 0;
+            if (!options_.screenshot.empty() && frame >= 12 && (settled_frames >= 3 || frame > 600))
             {
                 SDL_SetRenderScale(renderer_, 1.0f, 1.0f);
                 auto pixels = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>(
@@ -674,6 +1102,8 @@ public:
         }
         if (options_.smoke_test)
             std::cout << "Launcher rendered all " << int(PageCount) << " pages and loaded its resources.\n";
+        if (options_.smoke_test && mii_editor_frames_)
+            std::cout << "The Mii editor was drawn in " << mii_editor_frames_ << " frames.\n";
         return 0;
     }
 
@@ -836,12 +1266,49 @@ private:
         notice_kind_ = kind;
     }
 
+    // A language folder's name the settings take ([interface] language, as
+    // bootstrap/config.cpp checks it): letters, digits and hyphens, at most 16.
+    static bool MenuLanguageCode(const std::string& code)
+    {
+        return !code.empty() && code.size() <= 16
+            && code.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-")
+            == std::string::npos;
+    }
+
+    // Recharged's texts in the menu language ([interface] language): at the
+    // start, before the fonts are built, and again when the setting changes
+    // (the Game page, Revert). Their characters are noted for the fonts, which
+    // the next frame builds again when some are new to them.
+    void LoadTexts()
+    {
+        if (texts_language_ == draft_.interface_language) return;
+        const fs::path folder = base_ / "assets" / "lang";
+        const bool first = !texts_language_;
+        // The languages there are, each by its own name (read once: a new
+        // folder shows at the next start).
+        if (first)
+            for (auto& choice : texts::Languages(folder))
+                if (MenuLanguageCode(choice.code))
+                {
+                    platform::NoteNameGlyphs(choice.name);
+                    menu_languages_.push_back(std::move(choice));
+                }
+        texts_language_ = draft_.interface_language;
+        const std::string loaded = texts::Load(folder, *texts_language_, pc_languages_);
+        platform::NoteNameGlyphs(texts::AllTexts());
+        LoadTableTexts();
+        platform::SessionLogLine("Interface language: " + loaded);
+        // The display list's names ("primary").
+        if (!first) RefreshDisplays();
+    }
+
     void Reload()
     {
         try
         {
             file_ = LoadConfig(file_.path, true);
             draft_ = file_.settings;
+            LoadTexts();
             mscharged::platform::SetVerboseConsole(file_.settings.verbose_console);
             mscharged::platform::SetLogWindow(file_.settings.log_window);
             dirty_ = false;
@@ -853,10 +1320,16 @@ private:
                 check_ = {};
                 if (renderer_ && !pending_) CheckDisc();
             }
-            Notice(file_.exists ? "Settings loaded." : "Welcome! Add your game folder or choose your game image to get started.",
+            Notice(file_.exists ? texts::T("launcher.notices.settings_loaded")
+                                : texts::T("launcher.notices.first_start"),
                    NoticeKind::Info);
         }
-        catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); config_ok_ = false; }
+        catch (const std::exception& e)
+        {
+            LoadTexts();
+            Notice(e.what(), NoticeKind::Error);
+            config_ok_ = false;
+        }
     }
 
     bool Save()
@@ -867,7 +1340,7 @@ private:
             mscharged::platform::SetVerboseConsole(draft_.verbose_console);
             mscharged::platform::SetLogWindow(draft_.log_window);
             dirty_ = false;
-            Notice("Settings saved.", NoticeKind::Success);
+            Notice(texts::T("launcher.notices.settings_saved"), NoticeKind::Success);
             return true;
         }
         catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); return false; }
@@ -1042,8 +1515,9 @@ private:
     // A switch (Release / Test, or a test build from the menu) holds only
     // when something gets installed: Later in the update dialog, or closing
     // the menu without a choice, brings the previous choice back, since
-    // nothing changed. Without anything to install (no test builds, no
-    // network) the new choice stays.
+    // nothing changed. Test also goes back when there is no test build to go
+    // to (or no network); Release and a menu choice with nothing to install
+    // stay.
     void BeginSwitch()
     {
         if (!switch_from_) switch_from_ = UpdateChoice{draft_.update_channel, draft_.test_build};
@@ -1132,10 +1606,11 @@ private:
             | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
         {
             const bool online = update_problem_online_;
-            const char* heading = update_problem_ == UpdateProblem::CheckFailed ? "Couldn't check for updates"
-                : update_problem_ == UpdateProblem::Cancelled                    ? "The update was cancelled"
-                : update_problem_ == UpdateProblem::Blocked                      ? "This folder can't update itself"
-                                                                                 : "The update didn't work";
+            const char* heading = texts::T(
+                update_problem_ == UpdateProblem::CheckFailed ? "launcher.update.problem.check_failed"
+                : update_problem_ == UpdateProblem::Cancelled ? "launcher.update.problem.cancelled"
+                : update_problem_ == UpdateProblem::Blocked   ? "launcher.update.problem.blocked"
+                                                              : "launcher.update.problem.failed");
             TextColored(fonts.heading, color::text, heading);
             if (!update_problem_reason_.empty())
             {
@@ -1145,13 +1620,12 @@ private:
             ImGui::Dummy({0, Dp(12)});
             std::string text;
             if (online)
-                text = update_problem_ == UpdateProblem::CheckFailed
-                    ? "Online play is off until a check succeeds. "
-                    : "Online play is off until Recharged is updated. ";
-            text += update_problem_ == UpdateProblem::Blocked
-                ? "Download the new version and unpack it over this folder; your settings and saves stay."
-                : "Use Check for updates on the Play page to try again, or start the launcher again later: it "
-                  "tries by itself.";
+                text = std::string(texts::T(update_problem_ == UpdateProblem::CheckFailed
+                                                ? "launcher.update.problem.online_off_check"
+                                                : "launcher.update.problem.online_off_update"))
+                    + " ";
+            text += texts::T(update_problem_ == UpdateProblem::Blocked ? "launcher.update.problem.download_over"
+                                                                       : "launcher.update.problem.try_later");
             if (online) Callout(text, color::warning, Icon::Warning);
             else TextWrappedColored(fonts.body, color::text, text.c_str());
             ImGui::Dummy({0, Dp(16)});
@@ -1159,13 +1633,15 @@ private:
                                                                   : nullptr;
             const bool download = update_problem_ == UpdateProblem::Blocked && asset;
             const bool again = update_problem_ != UpdateProblem::Blocked;
-            const char* action = download ? "Download" : again ? "Try again" : nullptr;
+            const char* action = download ? texts::T("launcher.update.dialog.download")
+                : again                   ? texts::T("launcher.update.dialog.try_again")
+                                          : nullptr;
             const float height = Dp(42);
             const float ok_width = Dp(100), action_width = action ? PrimaryWidth(action, Icon::None) : 0.0f;
             const float right = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
             ImGui::SetCursorScreenPos({right - ok_width - (action ? Dp(10) + action_width : 0.0f),
                                        ImGui::GetCursorScreenPos().y});
-            if (SecondaryButton("update_problem_ok", "OK", {ok_width, height}) || CancelPressed())
+            if (SecondaryButton("update_problem_ok", texts::T("launcher.update.problem.ok"), {ok_width, height}) || CancelPressed())
                 ImGui::CloseCurrentPopup();
             if (action)
             {
@@ -1241,7 +1717,9 @@ private:
 
     std::string LastChecked() const
     {
-        return update_.checked ? "Checked at " + LocalTime(update_.checked).substr(11) + "." : std::string();
+        return update_.checked
+            ? texts::T("launcher.update.checked_at", {{"time", LocalTime(update_.checked).substr(11)}})
+            : std::string();
     }
 
     // On Test with no test build published (and this build no test build).
@@ -1255,25 +1733,28 @@ private:
     {
         using State = UpdateService::State;
         const bool test = update_.channel == UpdateChannel::Test;
-        const std::string again = "\nClick to check again.";
+        const std::string again = std::string("\n") + texts::T("launcher.update.pill.check_again");
         const std::string checked = update_.checked ? "\n" + LastChecked() : std::string();
         PillLook look;
         switch (update_.state)
         {
         case State::Idle:
-            look = {Icon::Refresh, false, "Check for updates", "Looks for a newer build on GitHub.", color::muted};
+            look = {Icon::Refresh, false, texts::T("launcher.update.pill.check"),
+                    texts::T("launcher.update.pill.check_about"), color::muted};
             break;
-        case State::Checking: look = {Icon::None, true, "Checking for updates...", "", color::info}; break;
+        case State::Checking:
+            look = {Icon::None, true, texts::T("launcher.update.pill.checking"), "", color::info};
+            break;
         case State::UpToDate:
             if (ChooseTestBuild())
             {
                 // Test builds to choose from: the click opens the Test menu.
                 const auto count = update_.test_builds.size();
-                look = {Icon::Flask, false, count == 1 ? "Test build available" : "Choose a test build",
-                        (count == 1 ? std::string("A test build is published.")
-                                    : std::to_string(count) + " test builds are published, one for each change "
-                                                              "being tested.")
-                            + "\nClick to choose which one to follow.",
+                look = {Icon::Flask, false,
+                        count == 1 ? texts::T("launcher.update.pill.test_build_available")
+                                   : texts::T("launcher.update.pill.choose_test_build"),
+                        texts::Count("launcher.update.pill.test_builds_published", static_cast<long long>(count)) + "\n"
+                            + texts::T("launcher.update.pill.choose_which"),
                         color::warning};
                 look.filled = true;
                 look.action = PillAction::Open;
@@ -1281,21 +1762,20 @@ private:
             }
             // Switched to Test while no test build is published: say why nothing changes.
             if (NoTestBuilds())
-                look = {Icon::Check, false, "No test builds",
-                        "No test build is published right now. Test builds are published while pull requests "
-                        "are open."
-                            + checked + again,
-                        color::warning};
+                look = {Icon::Check, false, texts::T("launcher.update.pill.no_test_builds"),
+                        texts::T("launcher.update.pill.no_test_builds_about") + checked + again, color::warning};
             else
-                look = {Icon::Check, false, "Up to date",
-                        std::string("No newer ") + (test ? "release or test build" : "release") + " than this build."
+                look = {Icon::Check, false, texts::T("launcher.update.pill.up_to_date"),
+                        (test ? texts::T("launcher.update.pill.no_newer_release_or_test")
+                              : texts::T("launcher.update.pill.no_newer_release"))
                             + checked + again,
                         color::success};
             look.action = PillAction::Check;
             break;
         case State::CheckFailed:
             // Often just offline: shown quietly, the reason in the tooltip.
-            look = {Icon::Warning, false, "Couldn't check for updates", update_.error + again, color::muted};
+            look = {Icon::Warning, false, texts::T("launcher.update.pill.check_failed"), update_.error + again,
+                    color::muted};
             look.action = PillAction::Check;
             break;
         case State::Available:
@@ -1308,17 +1788,20 @@ private:
             switch (kind)
             {
             case OfferKind::Update:
-                look.text = update_.offer->test ? "New test build"
-                                                : "Version " + VersionNumber(update_.offer->version) + " available";
-                look.tooltip = "See what's new and update.";
+                look.text = update_.offer->test
+                    ? std::string(texts::T("launcher.update.pill.new_test_build"))
+                    : texts::T("launcher.update.pill.version_available",
+                               {{"version", VersionNumber(update_.offer->version)}});
+                look.tooltip = texts::T("launcher.update.pill.update_about");
                 break;
             case OfferKind::TestBuild:
-                look.text = "Test build available";
-                look.tooltip = "See what it changes and switch to it.";
+                look.text = texts::T("launcher.update.pill.test_build_available");
+                look.tooltip = texts::T("launcher.update.pill.test_build_about");
                 break;
             case OfferKind::BackToRelease:
-                look.text = "Back to release " + VersionNumber(update_.offer->version);
-                look.tooltip = "Replace this test build by the official release.";
+                look.text = texts::T("launcher.update.pill.back_to_release",
+                                     {{"version", VersionNumber(update_.offer->version)}});
+                look.tooltip = texts::T("launcher.update.pill.back_to_release_about");
                 break;
             }
             break;
@@ -1326,15 +1809,20 @@ private:
         case State::Downloading:
         {
             const auto percent = update_.total ? update_.received * 100 / update_.total : 0;
-            look = {Icon::Download, false, "Downloading " + std::to_string(percent) + "%", "Click to see the progress.",
-                    color::accent};
+            look = {Icon::Download, false,
+                    texts::T("launcher.update.pill.downloading", {{"percent", std::to_string(percent)}}),
+                    texts::T("launcher.update.pill.downloading_about"), color::accent};
             look.progress = update_.total ? float(double(update_.received) / double(update_.total)) : 0.0f;
             break;
         }
-        case State::Installing: look = {Icon::None, true, "Installing...", "", color::info}; break;
-        case State::Installed: look = {Icon::None, true, "Restarting...", "", color::accent}; break;
+        case State::Installing:
+            look = {Icon::None, true, texts::T("launcher.update.installing"), "", color::info};
+            break;
+        case State::Installed:
+            look = {Icon::None, true, texts::T("launcher.update.restarting"), "", color::accent};
+            break;
         case State::InstallFailed:
-            look = {Icon::Error, false, "Update failed", update_.error, color::danger};
+            look = {Icon::Error, false, texts::T("launcher.update.pill.failed"), update_.error, color::danger};
             look.action = PillAction::Open;
             break;
         }
@@ -1496,10 +1984,11 @@ private:
         const bool menu = TestMenuAvailable();
         int pressed = -1;
         ImGui::BeginDisabled(busy || !config_ok_);
-        const bool switched = SegmentedIcons(
-            "##update_channel", &channel,
-            {{"Release", Icon::Tag, color::accent}, {"Test", Icon::Flask, color::warning, menu}},
-            {switch_width, height}, true, &pressed);
+        const bool switched = SegmentedIcons("##update_channel", &channel,
+                                             {{texts::T("launcher.update.channel.release"), Icon::Tag, color::accent},
+                                              {texts::T("launcher.update.channel.test"), Icon::Flask, color::warning,
+                                               menu}},
+                                             {switch_width, height}, true, &pressed);
         // Ctrl+click (Cmd+click on a Mac) on Test, a hidden switch: the test
         // builds their pull request hides (ShownBuilds) show until the
         // launcher closes, or hide again.
@@ -1507,8 +1996,8 @@ private:
         if (reveal)
         {
             show_hidden_tests_ = !show_hidden_tests_;
-            Notice(show_hidden_tests_ ? "Hidden test builds are shown until the launcher closes."
-                                      : "Hidden test builds are hidden again.",
+            Notice(show_hidden_tests_ ? texts::T("launcher.update.channel.hidden_shown")
+                                      : texts::T("launcher.update.channel.hidden_hidden"),
                    NoticeKind::Info);
         }
         if (switched) SelectUpdateChannel(channel ? UpdateChannel::Test : UpdateChannel::Release);
@@ -1520,14 +2009,8 @@ private:
         ImGui::EndDisabled();
         const ImVec2 menu_anchor{ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y + Dp(8)};
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(menu ? "Release: official releases.\n"
-                                     "Test: test builds of changes before they are released; click Test again to "
-                                     "choose which one.\n"
-                                     "Nothing is installed without asking."
-                                   : "Release: official releases.\n"
-                                     "Test: also the test builds of pull requests, to try changes before they are "
-                                     "released.\n"
-                                     "Nothing is installed without asking.");
+            ImGui::SetTooltip("%s", menu ? texts::T("launcher.update.channel.about_with_menu")
+                                         : texts::T("launcher.update.channel.about"));
         const bool round = RoundUpdateButton(look);
         const float pill_width = round ? height : PillWidth(look);
         x -= Dp(10) + pill_width;
@@ -1646,8 +2129,8 @@ private:
         DrawDialogCard(color::warning, Dp(14), Dp(6));
         auto* draw = ImGui::GetWindowDrawList();
         const float left = ImGui::GetCursorScreenPos().x;
-        DrawTracked(draw, fonts.caption, {left + Dp(8), ImGui::GetCursorScreenPos().y}, Col(color::dim), "TEST BUILDS",
-                    Dp(1.2f));
+        DrawTracked(draw, fonts.caption, {left + Dp(8), ImGui::GetCursorScreenPos().y}, Col(color::dim),
+                    texts::T("launcher.update.test_menu.title"), Dp(1.2f));
         ImGui::Dummy({0, FontSize(fonts.caption) + Dp(10)});
         const BuildIdentity self = updates_->Build();
         const PortVersion mine = ParsePortVersion(self.version);
@@ -1683,15 +2166,17 @@ private:
             DrawLabel(draw, fonts.body,
                       {title_left, line1 + (FontSize(fonts.label) - FontSize(fonts.body)) * 0.5f + Dp(1)},
                       Col(Mix(color::muted, color::text, 0.55f + 0.45f * hover)), subtitle.c_str());
-            std::string detail = "Test build #" + std::to_string(build.pull_request);
+            std::string detail =
+                texts::T("launcher.update.test_build_number", {{"number", std::to_string(build.pull_request)}});
             if (build.published) detail += "  \xC2\xB7  " + LocalTime(build.published);
-            if (build.hidden) detail += "  \xC2\xB7  hidden";
+            if (build.hidden) detail += std::string("  \xC2\xB7  ") + texts::T("launcher.update.test_menu.hidden");
             const float line2 = pos.y + row_height - Dp(9) - FontSize(fonts.caption);
             DrawLabel(draw, fonts.caption, {text_left, line2}, Col(color::dim), detail.c_str());
             // Installed, or the running build's pull request has a newer build.
             if (running)
             {
-                const char* tag = current ? "INSTALLED" : "UPDATE";
+                const char* tag = current ? texts::T("launcher.update.test_menu.installed")
+                                          : texts::T("launcher.update.test_menu.update");
                 const ImVec4 tint = current ? color::muted : color::accent;
                 const float tag_x = text_left + TextSize(fonts.caption, detail.c_str()).x + Dp(10);
                 DrawTracked(draw, fonts.caption, {tag_x, line2}, Col(tint), tag, Dp(0.8f));
@@ -1700,8 +2185,7 @@ private:
             ImGui::Dummy({0, Dp(2)});
         }
         ImGui::Dummy({0, Dp(8)});
-        TextWrappedColored(fonts.caption, color::dim, "Updates come from the test build you choose. Release takes you "
-                                                      "back to the official release.");
+        TextWrappedColored(fonts.caption, color::dim, texts::T("launcher.update.test_menu.about"));
         ImGui::PopStyleVar();
         if (choice)
         {
@@ -1720,28 +2204,31 @@ private:
         const std::string checked = update_.checked ? " " + LastChecked() : std::string();
         switch (update_.state)
         {
-        case State::Idle: return "Not checked yet.";
-        case State::Checking: return "Checking...";
+        case State::Idle: return texts::T("launcher.update.summary.not_checked");
+        case State::Checking: return texts::T("launcher.update.summary.checking");
         case State::UpToDate:
-            if (ChooseTestBuild()) return "Test builds are available; choose one with Test on the Play page." + checked;
-            return "This build is up to date." + checked;
-        case State::CheckFailed: return "Couldn't check: " + update_.error;
+            if (ChooseTestBuild()) return texts::T("launcher.update.summary.choose_test_build") + checked;
+            return texts::T("launcher.update.summary.up_to_date") + checked;
+        case State::CheckFailed: return texts::T("launcher.update.summary.check_failed", {{"error", update_.error}});
         case State::Available:
             switch (ClassifyOffer(updates_->Build(), *update_.offer))
             {
             case OfferKind::Update:
-                return (update_.offer->test ? std::string("A new test build")
-                                            : "Version " + VersionNumber(update_.offer->version))
-                    + " is available." + checked;
-            case OfferKind::TestBuild: return "A test build is available." + checked;
+                return (update_.offer->test ? std::string(texts::T("launcher.update.summary.new_test_build"))
+                                            : texts::T("launcher.update.summary.version_available",
+                                                       {{"version", VersionNumber(update_.offer->version)}}))
+                    + checked;
+            case OfferKind::TestBuild: return texts::T("launcher.update.summary.test_build_available") + checked;
             case OfferKind::BackToRelease:
-                return "Release " + VersionNumber(update_.offer->version) + " is available to go back to." + checked;
+                return texts::T("launcher.update.summary.back_to_release",
+                                {{"version", VersionNumber(update_.offer->version)}})
+                    + checked;
             }
             break;
         case State::Downloading:
         case State::Installing:
-        case State::Installed: return "Installing an update...";
-        case State::InstallFailed: return "The update failed: " + update_.error;
+        case State::Installed: return texts::T("launcher.update.summary.installing");
+        case State::InstallFailed: return texts::T("launcher.update.summary.failed", {{"error", update_.error}});
         }
         return {};
     }
@@ -1881,6 +2368,12 @@ private:
         return TextSize(font, label).x + (icon == Icon::None ? 0.0f : FontSize(font) * 0.82f + Dp(10)) + Dp(44);
     }
 
+    // A small framed action button's width (SecondaryButton: icon, gap, label).
+    static float ActionWidth(const char* label, Icon icon)
+    {
+        return TextSize(CurrentFonts().body, label).x + (icon == Icon::None ? 0.0f : Dp(18) + Dp(8)) + Dp(28);
+    }
+
     static float GhostWidth(const char* label, Icon icon)
     {
         return TextSize(CurrentFonts().body, label).x + (icon == Icon::None ? 0.0f : Dp(24)) + Dp(28);
@@ -1908,20 +2401,24 @@ private:
         // Header: the offer's icon in a soft halo, what kind of build it is, which one and its title.
         const char* overline = "";
         std::string headline;
+        const std::string pull_request_line =
+            texts::T("launcher.update.dialog.pull_request", {{"number", std::to_string(offer.pull_request)}});
+        const std::string version_line =
+            texts::T("launcher.update.dialog.version", {{"version", VersionNumber(offer.version)}});
         switch (kind)
         {
         case OfferKind::Update:
-            overline = offer.test ? "NEW TEST BUILD" : "UPDATE AVAILABLE";
-            headline = offer.test ? "Pull request #" + std::to_string(offer.pull_request)
-                                  : "Version " + VersionNumber(offer.version);
+            overline = offer.test ? texts::T("launcher.update.dialog.new_test_build")
+                                  : texts::T("launcher.update.dialog.update_available");
+            headline = offer.test ? pull_request_line : version_line;
             break;
         case OfferKind::TestBuild:
-            overline = "INSTALL TEST BUILD";
-            headline = "Pull request #" + std::to_string(offer.pull_request);
+            overline = texts::T("launcher.update.dialog.install_test_build");
+            headline = pull_request_line;
             break;
         case OfferKind::BackToRelease:
-            overline = "INSTALL RELEASE";
-            headline = "Version " + VersionNumber(offer.version);
+            overline = texts::T("launcher.update.dialog.install_release");
+            headline = version_line;
             break;
         }
         const std::string title = offer.test ? (status.pull && !status.pull->title.empty() ? status.pull->title
@@ -1953,14 +2450,18 @@ private:
             if (same_number && !version.commit.empty()) text += " (" + version.commit.substr(0, 8) + ")";
             return text + "  \xC2\xB7  " + what;
         };
-        const std::string mine_what = self.origin == BuildOrigin::Release ? "Release"
-            : self.origin == BuildOrigin::Test ? "Test build #" + std::to_string(self.pull_request)
-                                               : "Local build";
+        const auto test_build = [](int number) {
+            return texts::T("launcher.update.test_build_number", {{"number", std::to_string(number)}});
+        };
+        const std::string mine_what = self.origin == BuildOrigin::Release ? texts::T("launcher.update.dialog.release")
+            : self.origin == BuildOrigin::Test ? test_build(self.pull_request)
+                                               : texts::T("launcher.update.dialog.local_build");
         const std::string from = describe(mine, mine_what);
         const std::string titled = offer.test ? TitleVersion(offer) : std::string();
         const std::string to = !titled.empty()
-            ? titled + "  \xC2\xB7  Test build #" + std::to_string(offer.pull_request)
-            : describe(offer.version, offer.test ? "Test build #" + std::to_string(offer.pull_request) : "Release");
+            ? titled + "  \xC2\xB7  " + test_build(offer.pull_request)
+            : describe(offer.version,
+                       offer.test ? test_build(offer.pull_request) : texts::T("launcher.update.dialog.release"));
         const float caption = FontSize(fonts.caption);
         TextColored(fonts.caption, color::muted, from.c_str());
         ImGui::SameLine(0, Dp(10));
@@ -1996,19 +2497,17 @@ private:
         {
             std::string meaning;
             if (kind == OfferKind::TestBuild && self.origin == BuildOrigin::Test)
-                meaning = "This replaces test build #" + std::to_string(self.pull_request) + " by test build #"
-                    + std::to_string(offer.pull_request)
-                    + ", whose updates you then get. Test on the Play page switches between test builds, Release "
-                      "takes you back to the official release.";
+                meaning = texts::T("launcher.update.dialog.replaces_test_build",
+                                   {{"from", std::to_string(self.pull_request)},
+                                    {"to", std::to_string(offer.pull_request)}});
             else if (kind == OfferKind::TestBuild)
-                meaning = "Test builds have changes that are not released yet, to try them early; they can have new "
-                          "problems. Release on the Play page takes you back.";
+                meaning = texts::T("launcher.update.dialog.about_test_builds");
             else
-                meaning = "This replaces your test build by the official release: changes that are not released yet "
-                          "go away. Your settings and saves stay.";
+                meaning = texts::T("launcher.update.dialog.replaces_with_release");
             if (kind == OfferKind::BackToRelease && !UpdatesItself(offer.version))
-                meaning += " Version " + VersionNumber(offer.version)
-                    + " cannot update itself; newer versions are downloaded from the releases page.";
+                meaning += " "
+                    + texts::T("launcher.update.dialog.cannot_update_itself",
+                               {{"version", VersionNumber(offer.version)}});
             Callout(meaning, tint, kind == OfferKind::TestBuild ? Icon::Warning : Icon::Info);
             ImGui::Dummy({0, Dp(20)});
             callout = true;
@@ -2017,7 +2516,9 @@ private:
         // The release notes, or the test build's pull request description:
         // no frame, the text fades out where it scrolls.
         DrawTracked(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(color::dim),
-                    offer.test ? "PULL REQUEST" : "RELEASE NOTES", Dp(1.2f));
+                    offer.test ? texts::T("launcher.update.dialog.pull_request_notes")
+                               : texts::T("launcher.update.dialog.release_notes"),
+                    Dp(1.2f));
         ImGui::Dummy({0, caption + Dp(10)});
         const std::string& source = offer.test && status.pull ? status.pull->body : offer.notes;
         if (source != notes_source_)
@@ -2028,7 +2529,7 @@ private:
         float notes_height = ImGui::GetMainViewport()->Size.y * 0.36f;
         if (callout) notes_height -= Dp(64);
         if (status.state == State::InstallFailed || !status.install_blocker.empty()) notes_height -= Dp(56);
-        DrawNotesPane(notes_, std::clamp(notes_height, Dp(90), Dp(340)), "No notes were published for this build.");
+        DrawNotesPane(notes_, std::clamp(notes_height, Dp(90), Dp(340)), texts::T("launcher.update.dialog.no_notes"));
         ImGui::Dummy({0, Dp(18)});
 
         // Progress or problems, above the footer.
@@ -2046,13 +2547,16 @@ private:
                              Col(Mix(color::accent_dark, color::accent, 0.55f)), Col(color::accent), Dp(2), true);
             ImGui::Dummy({bar, Dp(4)});
             ImGui::Dummy({0, Dp(8)});
-            const std::string progress = "Downloading  \xC2\xB7  " + Megabytes(status.received)
-                + (status.total ? " of " + Megabytes(status.total) : std::string());
+            const std::string progress = status.total
+                ? texts::T("launcher.update.dialog.downloading_of",
+                           {{"received", Megabytes(status.received)}, {"total", Megabytes(status.total)}})
+                : texts::T("launcher.update.dialog.downloading", {{"received", Megabytes(status.received)}});
             const float line = ImGui::GetCursorScreenPos().y;
             TextColored(fonts.caption, color::muted, progress.c_str());
             if (status.total)
             {
-                const std::string percent = std::to_string(status.received * 100 / status.total) + "%";
+                const std::string done = std::to_string(status.received * 100 / status.total);
+                const std::string percent = texts::T("launcher.update.dialog.percent", {{"percent", done}});
                 DrawLabel(draw, fonts.caption, {pos.x + bar - TextSize(fonts.caption, percent.c_str()).x, line},
                           Col(color::text), percent.c_str());
             }
@@ -2065,7 +2569,7 @@ private:
         }
         else if (!status.install_blocker.empty() && !busy)
         {
-            Callout(status.install_blocker + " Download the package and unpack it over this folder instead.",
+            Callout(texts::T("launcher.update.dialog.download_instead", {{"reason", status.install_blocker}}),
                     color::muted, Icon::Info);
             ImGui::Dummy({0, Dp(18)});
         }
@@ -2073,7 +2577,7 @@ private:
         if (ask_to_save)
         {
             // The launcher restarts into the new version; settings first.
-            TextWrappedColored(fonts.body, color::text, "Save your settings changes before the launcher restarts?");
+            TextWrappedColored(fonts.body, color::text, texts::T("launcher.update.dialog.save_before_restart"));
             ImGui::Dummy({0, Dp(18)});
         }
 
@@ -2084,7 +2588,8 @@ private:
         auto align_right = [&](float width) { ImGui::SetCursorScreenPos({right_edge - width, row}); };
         if (ask_to_save)
         {
-            const char *discard = "Discard and restart", *save = "Save and restart";
+            const char *discard = texts::T("launcher.update.dialog.discard_restart"),
+                       *save = texts::T("launcher.update.dialog.save_restart");
             align_right(GhostWidth(discard, Icon::None) + Dp(10) + PrimaryWidth(save, Icon::None));
             if (GhostButton("update_discard_restart", discard, {GhostWidth(discard, Icon::None), height})) Reload();
             ImGui::SameLine(0, Dp(10));
@@ -2093,7 +2598,7 @@ private:
         }
         else if (status.state == State::Downloading)
         {
-            const char* cancel = "Cancel download";
+            const char* cancel = texts::T("launcher.update.dialog.cancel_download");
             align_right(GhostWidth(cancel, Icon::None));
             if (GhostButton("update_cancel", cancel, {GhostWidth(cancel, Icon::None), height})) updates_->Cancel();
         }
@@ -2102,14 +2607,16 @@ private:
             const ImVec2 pos = ImGui::GetCursorScreenPos();
             Spinner({pos.x + Dp(8), pos.y + height * 0.5f}, Dp(7), Col(tint));
             DrawLabel(draw, fonts.body, {pos.x + Dp(26), pos.y + (height - FontSize(fonts.body)) * 0.5f},
-                      Col(color::text), status.state == State::Installing ? "Installing..." : "Restarting...");
+                      Col(color::text),
+                      status.state == State::Installing ? texts::T("launcher.update.installing")
+                                                        : texts::T("launcher.update.restarting"));
             ImGui::Dummy({1.0f, height});
         }
         else
         {
             const std::string page = offer.test && status.pull && !status.pull->page.empty() ? status.pull->page
                                                                                              : offer.page;
-            const char* github = "View on GitHub";
+            const char* github = texts::T("launcher.update.dialog.view_on_github");
             if (!page.empty())
             {
                 if (GhostButton("update_github", github, {GhostWidth(github, Icon::GitHub), height}, true,
@@ -2119,11 +2626,11 @@ private:
             }
             const char* action = nullptr;
             if (status.install_blocker.empty())
-                action = status.state == State::InstallFailed ? "Try again"
-                    : kind == OfferKind::Update               ? "Update now"
-                                                              : "Switch now";
-            else if (asset) action = "Download";
-            const char* later = "Later";
+                action = status.state == State::InstallFailed ? texts::T("launcher.update.dialog.try_again")
+                    : kind == OfferKind::Update               ? texts::T("launcher.update.dialog.update_now")
+                                                              : texts::T("launcher.update.dialog.switch_now");
+            else if (asset) action = texts::T("launcher.update.dialog.download");
+            const char* later = texts::T("launcher.update.dialog.later");
             const float later_width = GhostWidth(later, Icon::None);
             const float action_width = action ? PrimaryWidth(action, Icon::Download) : 0.0f;
             align_right(later_width + (action ? Dp(10) + action_width : 0.0f));
@@ -2144,9 +2651,11 @@ private:
                     else SDL_OpenURL(asset->url.c_str());
                 }
                 if (ImGui::IsItemHovered() && status.install_blocker.empty())
-                    ImGui::SetTooltip("Downloads %s, replaces the program files and restarts the launcher.\n"
-                                      "Your settings, saves and logs stay.",
-                                      asset ? asset->name.c_str() : "the package");
+                {
+                    const std::string package = asset ? asset->name : texts::T("launcher.update.dialog.the_package");
+                    const std::string tip = texts::T("launcher.update.dialog.update_now_about", {{"package", package}});
+                    ImGui::SetTooltip("%s", tip.c_str());
+                }
                 ImGui::SetItemDefaultFocus();
             }
         }
@@ -2167,7 +2676,6 @@ private:
             for (const auto& span : welcome_.front().spans) welcome_title_ += span.text;
             welcome_.erase(welcome_.begin());
         }
-        if (welcome_title_.empty()) welcome_title_ = "Welcome to Recharged";
     }
 
     // The guide as a card over the dimmed launcher, like the update dialog. It
@@ -2210,9 +2718,12 @@ private:
         DialogBadge(draw, {top.x + disc * 0.5f, top.y + Dp(2) + disc * 0.5f}, disc, Icon::Bulb, tint);
         ImGui::SetCursorScreenPos({top.x + disc + Dp(20), top.y});
         ImGui::BeginGroup();
-        DrawTracked(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(tint, 0.95f), "WELCOME", Dp(1.4f));
+        DrawTracked(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(tint, 0.95f),
+                    texts::T("launcher.welcome.overline"), Dp(1.4f));
         ImGui::Dummy({0, FontSize(fonts.caption) + Dp(5)});
-        TextColored(fonts.heading, color::text, welcome_title_.c_str());
+        // Without a heading in the guide: the launcher's own title.
+        TextColored(fonts.heading, color::text,
+                    welcome_title_.empty() ? texts::T("launcher.welcome.title") : welcome_title_.c_str());
         ImGui::EndGroup();
         ImGui::SetCursorScreenPos({top.x, std::max(top.y + disc + Dp(4), ImGui::GetItemRectMax().y)});
         ImGui::Dummy({0, Dp(20)});
@@ -2222,7 +2733,7 @@ private:
 
         DialogDivider();
         ImGui::Dummy({0, Dp(18)});
-        const char* start = "Get started";
+        const char* start = texts::T("launcher.welcome.get_started");
         const float start_width = PrimaryWidth(start, Icon::Check);
         ImGui::SetCursorScreenPos({right_edge - start_width, ImGui::GetCursorScreenPos().y});
         if (PrimaryButton("welcome_start", start, {start_width, Dp(40)}, true, Icon::Check) || CancelPressed())
@@ -2272,7 +2783,7 @@ private:
         }
         if (options_.launch.disc)
         {
-            Notice("The image from the command line (--disc) is used for this run.", NoticeKind::Info);
+            Notice(texts::T("launcher.image.command_line"), NoticeKind::Info);
             return;
         }
         candidate_pending_ = true;
@@ -2292,9 +2803,10 @@ private:
             // Recognised, but this build cannot run it: the chosen image stays.
             region_prompt_info_ = *result.info;
             region_prompt_ = true;
-            Notice(name + ": " + UnplayableReason(*result.info), NoticeKind::Warning);
+            Notice(texts::T("launcher.image.unplayable", {{"name", name}, {"reason", UnplayableReason(*result.info)}}),
+                   NoticeKind::Warning);
         }
-        else Notice(name + " cannot be used: " + result.error, NoticeKind::Error);
+        else Notice(texts::T("launcher.image.unusable", {{"name", name}, {"error", result.error}}), NoticeKind::Error);
     }
 
     // Makes this playable image the one Play starts. Only an explicit choice
@@ -2303,7 +2815,7 @@ private:
     {
         if (options_.launch.disc)
         {
-            Notice("The image from the command line (--disc) is used for this run.", NoticeKind::Info);
+            Notice(texts::T("launcher.image.command_line"), NoticeKind::Info);
             return;
         }
         draft_.disc = SettingsPath(path);
@@ -2409,15 +2921,17 @@ private:
         {
             draft_.folder = SettingsPath(found.parent_path());
             dirty_ = true;
-            moved = " Its folder is now your game folder.";
+            moved = std::string(" ") + texts::T("launcher.image.folder_moved");
         }
         if (result.disc.empty())
         {
             if (!result.other.empty())
             {
                 const DiscInfo other{"", result.other_id, "", result.other_revision, 0};
-                Notice("Found Mario Strikers Charged at " + PathUtf8(result.other) + ". " + UnplayableReason(other)
-                           + " This build runs " + PlayableReleasesText() + "." + moved,
+                Notice(texts::T("launcher.image.found_other", {{"path", PathUtf8(result.other)},
+                                                               {"reason", UnplayableReason(other)},
+                                                               {"releases", PlayableReleasesText()}})
+                           + moved,
                        NoticeKind::Warning);
             }
             if (clean && !moved.empty()) Save();
@@ -2427,8 +2941,8 @@ private:
         dirty_ = true;
         check_ = {};
         if (!pending_) CheckDisc();
-        std::string text = "Found your game: " + PathUtf8(result.disc.filename()) + "." + moved;
-        if (result.supported > 1) text += " There are more; choose another on the Game page.";
+        std::string text = texts::T("launcher.image.found", {{"name", PathUtf8(result.disc.filename())}}) + moved;
+        if (result.supported > 1) text += std::string(" ") + texts::T("launcher.image.found_more");
         // Nothing else changed yet: keep it, so Play starts without asking first.
         if (clean) Save();
         Notice(text, NoticeKind::Success);
@@ -2446,7 +2960,7 @@ private:
     {
         const auto before = GameFolder();
         draft_.folder = SettingsPath(folder);
-        Notice("Your game folder is now " + PathUtf8(folder) + ".", NoticeKind::Info);
+        Notice(texts::T("launcher.image.game_folder", {{"path", PathUtf8(folder)}}), NoticeKind::Info);
         GameFolderChanged(before);
     }
 
@@ -2549,15 +3063,14 @@ private:
                 const bool clean = !dirty_;
                 Pin(image->path, image->probe.info, image->size);
                 if (clean) Save();
-                Notice("Play starts " + PathUtf8(image->path.filename()) + " (" + RegionRevision(image->probe.info)
-                           + ") from your game folder.",
+                Notice(texts::T("launcher.image.chosen_from_folder", {{"name", PathUtf8(image->path.filename())},
+                                                                      {"release", RegionRevision(image->probe.info)}}),
                        NoticeKind::Success);
                 return;
             }
         if (reason == AutoChoice::FirstStart) SearchUsualPlaces();
         else
-            Notice("No playable Mario Strikers Charged image in this folder. Select another folder or choose a file.",
-                   NoticeKind::Warning);
+            Notice(texts::T("launcher.image.none_in_folder"), NoticeKind::Warning);
     }
 
     // Once a frame: scan when the game folder changes or when it was
@@ -2669,8 +3182,10 @@ private:
     {
         // "All files" too: a system that does not know the .rvz type (macOS) may
         // grey such files out under the first filter. The check reads the content.
-        static const SDL_DialogFileFilter filters[] = {
-            {"Wii disc images (ISO / RVZ / WBFS)", "iso;rvz;wbfs;ISO;RVZ;WBFS"}, {"All files", "*"}};
+        // The dialog may read them until it closes, so they stay.
+        static SDL_DialogFileFilter filters[] = {{"", "iso;rvz;wbfs;ISO;RVZ;WBFS"}, {"", "*"}};
+        filters[0].name = texts::T("launcher.image.filter_disc_images");
+        filters[1].name = texts::T("launcher.image.filter_all_files");
         {
             std::lock_guard<std::mutex> lock(dialog_->mutex);
             dialog_->active = true;
@@ -2688,6 +3203,7 @@ private:
             graphics_cards_ = graphics_cards_scan_.get();
             platform::SessionLogLine(platform::DescribeGraphicsCards(graphics_cards_));
         }
+        UpdateCompetitive();
         if (players_online_) online_count_ = players_online_->Snapshot();
         if (updates_)
         {
@@ -2717,6 +3233,17 @@ private:
                     ShowUpdateProblem(UpdateProblem::CheckFailed, update_.error);
                 else if (update_prompt_ == UpdatePrompt::Switch && ChooseTestBuild())
                     test_menu_ = true;
+                // Test without a test build to go to (none for this system, or the
+                // check failed): the switch goes back to what it was.
+                else if (update_prompt_ == UpdatePrompt::Switch
+                         && (update_.state == UpdateService::State::CheckFailed || update_.test_builds.empty()))
+                {
+                    Notice(update_.state == UpdateService::State::CheckFailed
+                               ? texts::T("launcher.update.channel.check_failed", {{"error", update_.error}})
+                               : std::string(texts::T("launcher.update.channel.no_test_build")),
+                           update_.state == UpdateService::State::CheckFailed ? NoticeKind::Warning : NoticeKind::Info);
+                    CancelSwitch();
+                }
                 // Nothing to install or choose: the switch stands.
                 if (!update_dialog_ && !test_menu_) switch_from_.reset();
                 update_prompt_ = UpdatePrompt::None;
@@ -2795,26 +3322,27 @@ private:
     void GraphicsCardRow()
     {
 #if defined(_WIN32)
-        Row("Graphics card", "Automatic uses the fastest. A card switched off (in Device Manager or by a laptop's GPU "
-                             "mode) is not listed. Used the next time you start the game.");
+        Row(texts::T("launcher.graphics_card.label"), texts::T("launcher.graphics_card.about_windows"));
 #else
-        Row("Graphics card", "Automatic uses the fastest; cards with a Vulkan driver are listed. Used the next time "
-                             "you start the game.");
+        Row(texts::T("launcher.graphics_card.label"), texts::T("launcher.graphics_card.about"));
 #endif
         std::optional<GraphicsCardId> chosen;
         try { chosen = ParseGraphicsCard(draft_.gpu); }
         catch (const std::invalid_argument&) {}
-        std::string preview = "Automatic (fastest)";
+        const char* automatic = texts::T("launcher.graphics_card.automatic");
+        std::string preview = automatic;
         if (chosen)
         {
-            preview = graphics_cards_listing_ ? draft_.gpu : "Not found: " + draft_.gpu;
+            preview = graphics_cards_listing_ ? draft_.gpu
+                                              : texts::T("launcher.graphics_card.not_found", {{"card", draft_.gpu}});
             for (const auto& card : graphics_cards_)
                 if (card.id == *chosen) preview = card.name;
         }
         ImGui::SetNextItemWidth(-1);
         if (ImGui::BeginCombo("##graphics_card", preview.c_str()))
         {
-            if (ImGui::Selectable("Automatic (fastest)", !chosen)) { draft_.gpu = "auto"; dirty_ = true; }
+            if (ImGui::Selectable((std::string(automatic) + "###auto").c_str(), !chosen))
+            { draft_.gpu = "auto"; dirty_ = true; }
             for (const auto& card : graphics_cards_)
             {
                 // Two cards of one name (some laptops list the same model twice) show their IDs.
@@ -2825,7 +3353,7 @@ private:
                 if (ImGui::Selectable(label.c_str(), chosen && *chosen == card.id))
                 { draft_.gpu = GraphicsCardSetting(card.id); dirty_ = true; }
             }
-            if (graphics_cards_listing_) ImGui::TextDisabled("Looking for graphics cards...");
+            if (graphics_cards_listing_) ImGui::TextDisabled("%s", texts::T("launcher.graphics_card.looking"));
             ImGui::EndCombo();
         }
     }
@@ -2849,7 +3377,7 @@ private:
             const auto vendor = SDL_GetGamepadVendorForID(ids[n]), product = SDL_GetGamepadProductForID(ids[n]);
             if (vendor == 0x057e && (product == 0x0306 || product == 0x0330)) continue;
             const char* name = SDL_GetGamepadNameForID(ids[n]);
-            gamepad_names_.push_back(name ? name : "Controller");
+            gamepad_names_.push_back(name ? name : texts::T("launcher.devices.unnamed_controller"));
             pads_.push_back(SDL_OpenGamepad(ids[n]));
             if (!gamepad_) gamepad_ = pads_.back();
         }
@@ -2866,10 +3394,11 @@ private:
         for (int i = 0; ids && i < count; ++i)
         {
             const char* name = SDL_GetDisplayName(ids[i]);
-            std::string label = std::to_string(i + 1) + "  " + (name && *name ? name : "Display");
+            const char* shown = name && *name ? name : texts::T("launcher.devices.unnamed_display");
+            std::string label = std::to_string(i + 1) + "  " + shown;
             if (const SDL_DisplayMode* mode = SDL_GetDesktopDisplayMode(ids[i]))
                 label += "  (" + std::to_string(mode->w) + " x " + std::to_string(mode->h) + ")";
-            if (ids[i] == primary) label += "  - primary";
+            if (ids[i] == primary) label += std::string("  - ") + texts::T("launcher.devices.primary_display");
             displays_.push_back(std::move(label));
             display_ids_.push_back(ids[i]);
         }
@@ -2880,7 +3409,7 @@ private:
     {
         if (!SDL_OpenURL(FileUrl(path).c_str()))
         {
-            Notice(std::string("Cannot open the folder: ") + SDL_GetError(), NoticeKind::Error);
+            Notice(texts::T("launcher.notices.cannot_open_folder", {{"error", SDL_GetError()}}), NoticeKind::Error);
             return false;
         }
         return true;
@@ -2891,37 +3420,79 @@ private:
         return config_ok_ && !pending_ && check_.info && check_.selection == DiscSelection();
     }
 
+    // What keeps this computer from a set: whatever keeps it from playing,
+    // and an update it lacks (enforced updates, launcher/online_gate.h): an
+    // official release whose check failed, or with a newer release it has not
+    // installed, finds Online closed in its game. Empty when a set can start.
+    std::string SetBlocker() const
+    {
+        if (std::string blocker = PlayBlocker(); !blocker.empty()) return blocker;
+        if (!updates_ || update_preview_ || !GatesOnline(updates_->Build())
+            || update_.channel != UpdateChannel::Release)
+            return {};
+        using State = UpdateService::State;
+        if (update_.state == State::CheckFailed) return texts::T("launcher.challenge.update_unchecked");
+        if (update_.state == State::Available || update_.state == State::InstallFailed)
+            return texts::T("launcher.challenge.update_outdated");
+        return {};
+    }
+
     // Why Play is unavailable, or empty when the game can start.
     std::string PlayBlocker() const
     {
 #ifndef MSCHARGED_HAS_ORIGINAL_FRONTEND
-        return "This launcher build does not include the game. Build the release preset to play.";
+        return texts::T("launcher.play.blocker.no_game");
 #else
         // The installed files belong to the next launcher: never start them from this one.
         if (update_.state == UpdateService::State::Installing || update_.state == UpdateService::State::Installed)
-            return "Finishing the update...";
+            return texts::T("launcher.play.blocker.updating");
         // Enforced updates: the check comes first, and an update it found.
-        if (EnforcedUpdates() && update_.state == UpdateService::State::Checking) return "Checking for updates...";
-        if (enforced_install_) return "Updating Recharged...";
-        if (!config_ok_) return "Fix the settings file problem shown below first.";
-        if (searching_) return "Looking for your game image...";
-        if (pending_) return "Checking your game image...";
+        if (EnforcedUpdates() && update_.state == UpdateService::State::Checking)
+            return texts::T("launcher.play.blocker.checking_updates");
+        if (enforced_install_) return texts::T("launcher.play.blocker.installing_update");
+        if (!config_ok_) return texts::T("launcher.play.blocker.settings_problem");
+        if (searching_) return texts::T("launcher.play.blocker.searching");
+        if (pending_) return texts::T("launcher.play.blocker.checking");
         if (DiscSelection().empty())
             return autochoose_ != AutoChoice::None && library_scanning_
-                ? "Reading your game folder..."
-                : "Choose your Mario Strikers Charged image (ISO, RVZ or WBFS) on the Game page.";
-        if (!PinnedMissing().empty()) return "Your game image is missing. " + PinnedMissing();
+                ? texts::T("launcher.play.blocker.reading_folder")
+                : texts::T("launcher.play.blocker.choose_image");
+        if (!PinnedMissing().empty())
+            return texts::T("launcher.play.blocker.image_missing", {{"reason", PinnedMissing()}});
         if (!check_.info || check_.selection != DiscSelection())
-            return check_.error.empty() ? "Check your image on the Game page." : check_.error;
+            return check_.error.empty() ? std::string(texts::T("launcher.play.blocker.check_image")) : check_.error;
         if (!SupportedRelease(*check_.info)) return UnplayableReason(*check_.info);
         const auto settings = EffectiveLaunch().settings;
         try { ResolveGraphicsBackend(settings.backend); }
         catch (const std::invalid_argument& error) { return error.what(); }
-        if (settings.aspect != "auto" && settings.aspect != "4:3" && settings.aspect != "16:9")
-            return "Choose Automatic, 4:3 or 16:9 as the aspect ratio on the Display page.";
+        // The values the game takes (an older settings file's auto too).
+        if (settings.aspect != "auto" && settings.aspect != "4:3" && settings.aspect != "16:9"
+            && settings.aspect != "stretch")
+            return texts::T("launcher.play.blocker.aspect");
         // A language this release does not have starts as Automatic (the Game page says so).
         return {};
 #endif
+    }
+
+    // Online needs the game image: the game plays online, and the image's Mii
+    // parts draw the Miis. While the chosen image is still being checked it
+    // counts as there.
+    std::string OnlineBlocker() const
+    {
+        // Development captures and smoke tests of the made-up online states
+        // (RECHARGED_CAPTURE_DISCORD=preview...) show the pages without one.
+        if (const char* preview = capture_ ? std::getenv("RECHARGED_CAPTURE_DISCORD") : nullptr;
+            preview && std::string(preview).rfind("preview", 0) == 0)
+            return {};
+        if (DiscSelection().empty())
+            return texts::T("launcher.online_blocker.choose_image");
+        if (check_.selection == DiscSelection())
+        {
+            if (!check_.info && !check_.error.empty())
+                return texts::T("launcher.online_blocker.unreadable", {{"error", check_.error}});
+            if (check_.info && !SupportedRelease(*check_.info)) return UnplayableReason(*check_.info);
+        }
+        return {};
     }
 
     void Play(bool& quit, bool training = false)
@@ -2938,6 +3509,28 @@ private:
         frontend_launch_ = EffectiveLaunch();
         frontend_launch_->start_training = training_;
         frontend_launch_->update_verified = UpdateVerified();
+        frontend_launch_->discord_friends = discord_asked_;
+        // A set that goes while the game runs uses the player's own Mii: the
+        // chosen one, or the one made from the account (made now if it isn't
+        // there yet). Without it the game lets the player choose a Mii for
+        // the set, so Play goes on.
+        if (ChosenOwnMii())
+        {
+            if (const auto own = PlayerOwnMii(); own && own->here) frontend_launch_->competitive_mii = own->id;
+        }
+        else if (const auto key = PlayerMiiKey(); !key.empty())
+        {
+            try
+            {
+                EnsurePlayerMii();
+            }
+            catch (const std::exception& e)
+            {
+                platform::SessionLogLine(std::string("Your Mii for online sets could not be made: ") + e.what());
+                Notice(texts::T("launcher.notices.set_mii_failed", {{"error", e.what()}}), NoticeKind::Warning);
+            }
+            frontend_launch_->competitive_mii = mscharged::platform::KeyedMiiCreateId(key);
+        }
         quit = true;
     }
 
@@ -2977,10 +3570,18 @@ private:
             training_requested_ = false;
             Play(quit, true);
         }
+        if (competitive_go_)
+        {
+            competitive_go_ = false;
+            StartSet(quit);
+        }
         DrawClosePrompt(quit);
         DrawPlayPrompt(quit);
         DrawImportPrompt();
+        DrawSignOutPrompt();
+        DrawMiiReusePrompt();
         DrawRegionPrompt();
+        DrawChallengeDialog();
         DrawWelcome();
         DrawUpdateDialog();
         DrawUpdateProblem();
@@ -3003,46 +3604,71 @@ private:
         const float pad = Dp(24);
         // The name in plain text: the logo itself is on the Play and About pages.
         float y = Dp(30);
-        DrawTracked(draw, fonts.caption, {pad, y}, Col(color::muted), "NATIVE PC PORT", Dp(2.4f));
+        DrawTracked(draw, fonts.caption, {pad, y}, Col(color::muted), texts::T("launcher.sidebar.overline"), Dp(2.4f));
         y += FontSize(fonts.caption) + Dp(2);
         DrawLabel(draw, fonts.title, {pad, y}, IM_COL32_WHITE, "RECHARGED");
         y += FontSize(fonts.title) + Dp(4);
         DrawLabel(draw, fonts.caption, {pad, y}, Col(color::dim), "Mario Strikers Charged");
         y += FontSize(fonts.caption) + Dp(28);
 
-        // Miis, Sidekicks and Match rules are the Online/Match setup group: its
-        // row opens the last of them shown, and it shows their rows while one
-        // of them is open.
-        const auto setup = [](int page) { return page == PageMiis || page == PageSidekicks || page == PageRules; };
-        if (setup(page_)) setup_page_ = page_;
+        // A group's row opens the last of its pages shown (kNavGroups).
+        const int open_group = NavGroupOf(page_);
+        if (open_group >= 0) group_page_[open_group] = page_;
+        // The pages above the version line: their rows get lower when the
+        // window is too low for all of them at the usual height, with room
+        // for the open group's panel (each group's pages share its row).
+        const float badge = height - Dp(40);
+        const float rows = float(PageCount - NavGroupedRows());
+        const float row = std::clamp((badge - Dp(8) - y - NavGroupPagesHeight(NavGroupMostPages())) / rows, Dp(34),
+                                     Dp(48));
         ImGui::SetCursorPos({Dp(12), y});
         for (int i = 0; i < PageCount; ++i)
         {
             ImGui::SetCursorPosX(Dp(12));
-            if (setup(i))
+            if (const int group = NavGroupOf(i); group >= 0)
             {
-                if (i != PageMiis) continue;
-                const auto row = [&](int page) { return NavPage{page_names[page], page_icons[page], page_ == page}; };
-                const int clicked = NavGroup("Online/Match setup", Icon::Clipboard, setup(page_),
-                                             {row(PageMiis), row(PageSidekicks), row(PageRules)}, width - Dp(24));
-                if (clicked == 0) page_ = setup_page_;
-                if (clicked > 0) page_ = PageMiis + clicked - 1;
+                const NavGroupInfo& info = kNavGroups[group];
+                if (i != info.first) continue;
+                // Online: a dot for the sign-in (green signed in, amber on its
+                // way, red not). Its pages show signed out too: Match rules,
+                // Sidekicks and the Miis need no sign-in.
+                using State = CompetitiveService::State;
+                const auto online = competitive_status_.state;
+                const bool signed_in = online == State::SignedIn;
+                const ImVec4 dot = signed_in ? color::success
+                    : online == State::SigningIn || online == State::Connecting ? color::warning
+                    : color::danger;
+                const bool is_online = group == NavGroupOf(PageOnlineSettings);
+                // Without a usable game image Online is greyed out, its pages folded.
+                const std::string blocker = is_online ? OnlineBlocker() : std::string();
+                std::vector<NavPage> pages;
+                if (blocker.empty())
+                    for (int p = i; p < i + info.count; ++p) pages.push_back({PageName(p), page_icons[p], page_ == p});
+                ImGui::BeginDisabled(!blocker.empty());
+                const int clicked = NavGroup(NavGroupName(group), info.icon, open_group == group, pages, width - Dp(24),
+                                             row - Dp(4), is_online && competitive_ ? &dot : nullptr,
+                                             is_online && signed_in);
+                ImGui::EndDisabled();
+                if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("%s", blocker.c_str());
+                if (clicked == 0) page_ = group_page_[group];
+                if (clicked > 0) page_ = i + clicked - 1;
             }
-            else if (NavItem(page_names[i], page_icons[i], page_ == i, width - Dp(24))) page_ = i;
+            else if (NavItem(PageName(i), page_icons[i], page_ == i, width - Dp(24), row - Dp(4))) page_ = i;
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y + Dp(4));
         }
 
         // Version at the bottom of the sidebar; test builds show a badge above
         // it that opens their pull request.
-        const float badge = height - Dp(40), nav_end = ImGui::GetCursorPosY();
+        const float nav_end = ImGui::GetCursorPosY();
         if (nav_end < badge - Dp(36) && std::string_view(build::channel) == "test")
         {
             ImGui::SetCursorPos({pad - Dp(2), badge - Dp(36)});
-            if (TestBuildBadge("TEST BUILD  -  PR #" + std::to_string(build::pull_request)))
+            const std::string number = std::to_string(build::pull_request);
+            if (TestBuildBadge(texts::T("launcher.sidebar.test_build", {{"number", number}})))
                 SDL_OpenURL(BuildNotesUrl(CurrentBuild()).c_str());
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("This is a test build of pull request #%d.\nClick to open the pull request.",
-                                  build::pull_request);
+                ImGui::SetTooltip("%s", texts::T("launcher.sidebar.test_build_about", {{"number", number}}).c_str());
         }
         if (nav_end < badge)
         {
@@ -3086,24 +3712,34 @@ private:
         if (page_ == PageControls || (page_ == PagePlay && RemotePlayer())) PollWiimotes();
         const float bar = Dp(74);
         const ImVec2 content{size.x, size.y - bar};
+        // An Online page without a usable game image (it went away): the Game page.
+        if (OnlinePage(page_) && !OnlineBlocker().empty()) page_ = PageGame;
         ImGui::SetCursorPos(origin);
         if (page_ == PagePlay) DrawPlayPage(origin, content, quit);
         else
         {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(36, 30));
             ImGui::BeginChild("##page", content, ImGuiChildFlags_AlwaysUseWindowPadding);
+            // The Mii editor opened or closed: the page from its top.
+            if (page_scroll_top_)
+            {
+                ImGui::SetScrollY(0.0f);
+                page_scroll_top_ = false;
+            }
             const float available = ImGui::GetContentRegionAvail().x;
             const float column = std::min(available, Dp(900));
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (available - column) * 0.5f);
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
             ImGui::BeginChild("##column", {column, 0}, ImGuiChildFlags_AutoResizeY);
             ImGui::BeginDisabled(!config_ok_ && page_ != PageAbout);
-            switch (page_)
+            if (mii_editor_.open && mii_editor_.page == page_) MiiEditorPage();
+            else if (preset_edit_ && page_ == PageRules) PresetEditorPage();
+            else switch (page_)
             {
             case PageGame: GamePage(); break;
-            case PageMiis: MiiPage(); break;
             case PageSidekicks: SidekicksPage(); break;
             case PageRules: MatchRulesPage(); break;
+            case PageOnlineSettings: OnlineSettingsPage(); break;
             case PageDisplay: DisplayPage(); break;
             case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
@@ -3165,12 +3801,19 @@ private:
         const float pad = Dp(44);
         // The title: the logo with its lightning reaching a little into the margin,
         // and the subtitle under it, the game in white, the rest softer, on two
-        // lines in a narrow window. Both a little below the middle between the
-        // update controls and the button, beside Mario's head and shoulders.
-        const char* game = "Mario Strikers Charged";
-        const char* rest = ", rebuilt to run natively on your PC.";
-        const float game_width = TextSize(fonts.heading, game).x;
-        const bool one_line = game_width + TextSize(fonts.heading, rest).x <= size.x * 0.75f - pad;
+        // lines in a narrow window (broken at the first space after the game).
+        // Both a little below the middle between the update controls and the
+        // button, beside Mario's head and shoulders.
+        const std::string game = "Mario Strikers Charged";
+        const std::string tagline = texts::T("launcher.play.tagline", {{"game", game}});
+        const std::size_t game_at = tagline.find(game);
+        const bool named = game_at != std::string::npos;
+        const std::string before = named ? tagline.substr(0, game_at) : tagline;
+        const std::string rest = named ? tagline.substr(game_at + game.size()) : std::string();
+        const float before_width = TextSize(fonts.heading, before.c_str()).x;
+        const float game_width = named ? TextSize(fonts.heading, game.c_str()).x : 0.0f;
+        const bool one_line =
+            before_width + game_width + TextSize(fonts.heading, rest.c_str()).x <= size.x * 0.75f - pad;
         // The logo set by its width, its height following from its proportions.
         const float logo = std::clamp(hero * 0.879f, Dp(201), Dp(385)) / logo_aspect_;
         const float subtitle = one_line ? FontSize(fonts.heading) : FontSize(fonts.heading) * 2 + Dp(2);
@@ -3184,27 +3827,29 @@ private:
             draw->AddCircleFilled(ball, logo * 0.055f * float(i), Col(color::logo, glow), 48);
         DrawLogo(draw, {origin.x + pad - Dp(8), y}, logo);
         y += logo + Dp(10);
-        DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y}, IM_COL32_WHITE, game, 1.2f);
-        if (one_line)
-            DrawLabelShadowed(draw, fonts.heading, {origin.x + pad + game_width, y}, Col(color::text, 0.86f), rest, 1.2f);
-        else
-        {
-            DrawLabelShadowed(draw, fonts.heading, {origin.x + pad + game_width, y}, Col(color::text, 0.86f), ",", 1.2f);
-            DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y + FontSize(fonts.heading) + Dp(2)},
-                              Col(color::text, 0.86f), rest + 2, 1.2f);
-        }
+        const ImU32 soft = Col(color::text, 0.86f);
+        const std::size_t space = one_line ? std::string::npos : rest.find(' ');
+        if (!before.empty()) DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y}, soft, before.c_str(), 1.2f);
+        if (named)
+            DrawLabelShadowed(draw, fonts.heading, {origin.x + pad + before_width, y}, IM_COL32_WHITE, game.c_str(),
+                              1.2f);
+        DrawLabelShadowed(draw, fonts.heading, {origin.x + pad + before_width + game_width, y}, soft,
+                          rest.substr(0, space).c_str(), 1.2f);
+        if (space != std::string::npos)
+            DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y + FontSize(fonts.heading) + Dp(2)}, soft,
+                              rest.c_str() + space + 1, 1.2f);
         DrawUpdateBar(origin, size.x, pad);
 
         // Play button and status, over the bottom of the artwork.
         const std::string blocker = PlayBlocker();
         ImGui::SetCursorScreenPos({origin.x + pad, button_y});
         const bool menu_open = ImGui::IsPopupOpen("play_options_menu");
-        const auto play = SplitPrimaryButton("play", "PLAY", {Dp(230), button},
+        const auto play = SplitPrimaryButton("play", texts::T("launcher.play.button"), {Dp(230), button},
                                              {Dp(58), Icon::Gear, menu_open, draft_.performance_mode},
                                              blocker.empty(), Icon::Play, true);
         if (play.button) Play(quit);
         if (!blocker.empty() && play.button_hovered) ImGui::SetTooltip("%s", blocker.c_str());
-        if (play.segment_hovered && !menu_open) ImGui::SetTooltip("Play options");
+        if (play.segment_hovered && !menu_open) ImGui::SetTooltip("%s", texts::T("launcher.play.options"));
         if (play.segment) ImGui::OpenPopup("play_options_menu");
         DrawPlayOptionsMenu({origin.x + pad + Dp(230), button_y});
         DrawPlayStatus(blocker, {origin.x + pad + Dp(230 + 58 + 24), button_y + Dp(31)});
@@ -3215,11 +3860,14 @@ private:
             const float gap = Dp(16);
             const float width = (size.x - pad * 2 - gap * 2) / 3.0f;
             ImGui::SetCursorScreenPos({origin.x + pad, cards_y});
-            SummaryCard("##disc_card", "Game image", Icon::Disc, width, PageGame, DiscSummary());
+            SummaryCard("##disc_card", texts::T("launcher.play.cards.image"), Icon::Disc, width, PageGame,
+                        DiscSummary());
             ImGui::SameLine(0, gap);
-            SummaryCard("##display_card", "Display", Icon::Display, width, PageDisplay, DisplaySummary());
+            SummaryCard("##display_card", texts::T("launcher.play.cards.display"), Icon::Display, width, PageDisplay,
+                        DisplaySummary());
             ImGui::SameLine(0, gap);
-            SummaryCard("##language_card", "Language & audio", Icon::Audio, width, PageAudio, LanguageSummary());
+            SummaryCard("##language_card", texts::T("launcher.play.cards.language_audio"), Icon::Audio, width,
+                        PageAudio, LanguageSummary());
         }
     }
 
@@ -3234,12 +3882,12 @@ private:
         ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
         if (ImGui::BeginPopup("play_options_menu"))
         {
-            if (MenuToggle("performance_mode", "Performance mode",
-                           "No crowd, ambient effects, bloom or antialiasing. Gameplay is unchanged.",
-                           &draft_.performance_mode, width))
+            if (MenuToggle("performance_mode", texts::T("launcher.play.options_menu.performance_mode"),
+                           texts::T("launcher.play.options_menu.performance_mode_about"), &draft_.performance_mode,
+                           width))
                 dirty_ = true;
             MenuSeparator(width);
-            if (MenuAction("display_settings", "Display settings", width))
+            if (MenuAction("display_settings", texts::T("launcher.play.options_menu.display_settings"), width))
             {
                 page_ = PageDisplay;
                 ImGui::CloseCurrentPopup();
@@ -3310,7 +3958,7 @@ private:
         ImVec4 tint = color::success;
         Icon icon = Icon::Check;
         bool spinner = false;
-        std::string headline = "Ready to play";
+        std::string headline = texts::T("launcher.play.status.ready");
         std::string detail;
         const bool missing = !PinnedMissing().empty() && !pending_ && !searching_;
         if (pending_ || searching_)
@@ -3318,8 +3966,10 @@ private:
             tint = color::info;
             icon = Icon::None;
             spinner = true;
-            headline = searching_ ? "Looking for your game image" : "Checking your game image";
-            detail = searching_ ? "In the game folder and the usual places..." : "Reading the game partition...";
+            headline = searching_ ? texts::T("launcher.play.status.searching")
+                                  : texts::T("launcher.play.status.checking");
+            detail = searching_ ? texts::T("launcher.play.status.searching_where")
+                                : texts::T("launcher.play.status.checking_what");
         }
         else if (missing)
         {
@@ -3327,17 +3977,18 @@ private:
             tint = color::warning;
             icon = Icon::Warning;
             const auto info = PinnedInfo();
-            headline = "Your game image is missing";
+            headline = texts::T("launcher.play.status.missing");
             const std::string name = PathUtf8(PathFromUtf8(DiscSelection()).filename());
             detail = (info ? RegionRevision(*info) + "  \xC2\xB7  " : std::string())
-                + (check_.folder_missing ? "The drive or folder with " + name + " is not available."
-                                         : name + " is no longer in its folder.");
+                + (check_.folder_missing ? texts::T("launcher.play.status.drive_missing", {{"name", name}})
+                                         : texts::T("launcher.play.status.file_missing", {{"name", name}}));
         }
         else if (!blocker.empty())
         {
             tint = DiscSelection().empty() ? color::info : color::warning;
             icon = DiscSelection().empty() ? Icon::Disc : Icon::Warning;
-            headline = DiscSelection().empty() ? "Choose your game image" : "Not ready yet";
+            headline = DiscSelection().empty() ? texts::T("launcher.play.status.choose_image")
+                                               : texts::T("launcher.play.status.not_ready");
             detail = blocker;
         }
         else if (check_.info)
@@ -3351,10 +4002,10 @@ private:
             const auto brief = MissingControllersBrief(draft_.players, lineup);
             if (!brief.missing.empty())
             {
-                const bool several = std::count(lineup.missing.begin(), lineup.missing.end(), true) > 1;
+                const auto missing_count = std::count(lineup.missing.begin(), lineup.missing.end(), true);
                 notes.push_back({Icon::Gamepad, color::warning, true, brief.missing, brief.instead,
-                                 MissingControllersNote(draft_.players, lineup) + "\nConnect "
-                                     + (several ? "them" : "it") + " or choose who plays on the Controls page.",
+                                 MissingControllersNote(draft_.players, lineup) + "\n"
+                                     + texts::Count("launcher.play.notes.connect_controllers", missing_count),
                                  PageControls});
             }
             // Gameplay tweaks change the original game: never silently.
@@ -3363,13 +4014,13 @@ private:
             for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
                 if (draft_.tweaks[n])
                 {
-                    names += std::string("\n\xE2\x80\xA2 ") + kGameTweaks[n].name;
+                    names += std::string("\n\xE2\x80\xA2 ") + texts::TweakName(kGameTweaks[n]);
                     ++count;
                 }
             if (count)
                 notes.push_back({Icon::Target, color::accent, false,
-                                 std::to_string(count) + (count == 1 ? " gameplay tweak on" : " gameplay tweaks on"), "",
-                                 "Gameplay tweaks on:" + names, PageGameplay});
+                                 texts::Count("launcher.play.notes.tweaks_on", count), "",
+                                 texts::T("launcher.play.notes.tweaks_on_list") + names, PageGameplay});
         }
         // The notes take the disc line's place (the Game image card has it).
         if (!notes.empty()) detail.clear();
@@ -3434,23 +4085,29 @@ private:
             first = false;
             return ImVec2{width, height};
         };
-        if (GhostButton("locate", "Locate...", place("Locate...", Icon::Folder), !DialogActive(), Icon::Folder)) Locate();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Choose the image file where it is now.");
+        const char* locate = texts::T("launcher.play.missing.locate");
+        if (GhostButton("locate", locate, place(locate, Icon::Folder), !DialogActive(), Icon::Folder)) Locate();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("launcher.play.missing.locate_about"));
         const auto info = PinnedInfo();
         const auto copies = info ? SameRelease(library_, info->game_id, info->revision, PathFromUtf8(DiscSelection()))
                                  : std::vector<const LibraryImage*>{};
         if (!copies.empty())
         {
             const auto* copy = copies.front();
-            if (GhostButton("copy", "Use the copy", place("Use the copy", Icon::Check), true, Icon::Check))
+            const char* use = texts::T("launcher.play.missing.use_copy");
+            if (GhostButton("copy", use, place(use, Icon::Check), true, Icon::Check))
                 UseImage(copy->path, copy->probe.info, copy->size);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Your game folder has the same release (%s):\n%s",
-                                  RegionRevision(copy->probe.info).c_str(), PathUtf8(copy->path).c_str());
+            {
+                const std::string tip = texts::T("launcher.play.missing.use_copy_about",
+                                                 {{"release", RegionRevision(copy->probe.info)},
+                                                  {"path", PathUtf8(copy->path)}});
+                ImGui::SetTooltip("%s", tip.c_str());
+            }
         }
-        if (GhostButton("another", "Choose another", place("Choose another", Icon::Disc), true, Icon::Disc))
-            page_ = PageGame;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Choose another image on the Game page.");
+        const char* another = texts::T("launcher.play.missing.choose_another");
+        if (GhostButton("another", another, place(another, Icon::Disc), true, Icon::Disc)) page_ = PageGame;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("launcher.play.missing.choose_another_about"));
         ImGui::PopID();
     }
 
@@ -3471,15 +4128,22 @@ private:
     // (green when it is ready to play).
     Summary DiscSummary() const
     {
-        if (searching_) return {"Looking...", "Searching for your game image", color::accent};
-        if (pending_) return {"Checking...", "Reading the image's header", color::accent};
-        if (DiscSelection().empty()) return {"No image chosen", "Choose one on the Game page", color::warning};
+        if (searching_)
+            return {texts::T("launcher.play.cards.searching"), texts::T("launcher.play.cards.searching_about"),
+                    color::accent};
+        if (pending_)
+            return {texts::T("launcher.play.cards.checking"), texts::T("launcher.play.cards.checking_about"),
+                    color::accent};
+        if (DiscSelection().empty())
+            return {texts::T("launcher.play.cards.no_image"), texts::T("launcher.play.cards.no_image_about"),
+                    color::warning};
         const std::string name = PathUtf8(PathFromUtf8(DiscSelection()).filename());
         if (!PinnedMissing().empty())
         {
             const auto info = PinnedInfo();
-            return {info ? RegionRevision(*info) + " - missing" : "Image missing", name + " cannot be found",
-                    color::warning};
+            return {info ? texts::T("launcher.play.cards.release_missing", {{"release", RegionRevision(*info)}})
+                         : std::string(texts::T("launcher.play.cards.image_missing")),
+                    texts::T("launcher.play.cards.not_found", {{"name", name}}), color::warning};
         }
         if (check_.info && check_.selection == DiscSelection())
         {
@@ -3487,23 +4151,30 @@ private:
             return {RegionRevision(info), info.game_id + "  \xC2\xB7  " + info.format + "  \xC2\xB7  " + name,
                     SupportedRelease(info) ? color::success : color::warning};
         }
-        if (!check_.error.empty()) return {"Image problem", check_.error, color::danger};
-        return {name, "Not checked yet", color::accent};
+        if (!check_.error.empty()) return {texts::T("launcher.play.cards.image_problem"), check_.error, color::danger};
+        return {name, texts::T("launcher.play.cards.not_checked"), color::accent};
     }
 
     Summary DisplaySummary() const
     {
         const auto s = EffectiveLaunch().settings;
-        std::string aspect = s.aspect == "auto" ? "Automatic aspect" : s.aspect == "stretch" ? "Stretched" : s.aspect;
-        std::string detail = aspect + (s.vsync ? "  -  VSync on" : "  -  VSync off");
+        const std::string aspect = s.aspect == "auto" ? std::string(texts::T("launcher.play.cards.automatic_aspect"))
+            : s.aspect == "stretch"                   ? std::string(texts::T("launcher.play.cards.stretched"))
+                                                      : s.aspect;
+        std::string detail = aspect + "  -  "
+            + (s.vsync ? texts::T("launcher.play.cards.vsync_on") : texts::T("launcher.play.cards.vsync_off"));
         if (s.frame_rate != "original") detail += "  -  " + FrameRateLabel(s.frame_rate);
-        if (s.performance_mode) detail += "  -  Performance mode";
+        if (s.performance_mode) detail += std::string("  -  ") + texts::T("launcher.play.cards.performance_mode");
         if (!s.show_hud)
         {
             const auto hud = platform::HotkeyLabel(platform::ParseHotkeys(s.hotkeys)[HotkeyHud]);
-            detail += "  -  HUD hidden" + (hud.empty() ? std::string() : " (" + hud + ")");
+            detail += "  -  "
+                + (hud.empty() ? std::string(texts::T("launcher.play.cards.hud_hidden"))
+                               : texts::T("launcher.play.cards.hud_hidden_key", {{"key", hud}}));
         }
-        return {s.fullscreen ? "Fullscreen" : std::to_string(s.width) + " x " + std::to_string(s.height) + " window",
+        return {s.fullscreen ? std::string(texts::T("launcher.play.cards.fullscreen"))
+                             : texts::T("launcher.play.cards.window", {{"width", std::to_string(s.width)},
+                                                                       {"height", std::to_string(s.height)}}),
                 detail, color::accent};
     }
 
@@ -3511,11 +4182,15 @@ private:
     {
         const auto s = EffectiveLaunch().settings;
         const auto choice = ChooseLanguage(Release(), s.language, pc_languages_);
-        const std::string language = choice.automatic ? "Automatic (" + std::string(choice.language->label) + ")"
-                                                      : std::string(choice.language->label);
-        std::string audio = s.mute ? "Audio muted" : "Volume " + std::to_string(s.master_volume) + "%";
-        if (!s.mute && s.sound_volumes != DefaultSoundVolumes()) audio += "  -  Custom sound levels";
-        return {language + " text", audio, color::accent};
+        const std::string language = choice.automatic
+            ? texts::T("launcher.play.cards.automatic_language", {{"language", choice.language->label}})
+            : std::string(choice.language->label);
+        const std::string volume = std::to_string(s.master_volume);
+        std::string audio = s.mute ? std::string(texts::T("launcher.play.cards.muted"))
+                                   : texts::T("launcher.play.cards.volume", {{"percent", volume}});
+        if (!s.mute && s.sound_volumes != DefaultSoundVolumes())
+            audio += std::string("  -  ") + texts::T("launcher.play.cards.custom_sound_levels");
+        return {texts::T("launcher.play.cards.text_language", {{"language", language}}), audio, color::accent};
     }
 
     void SummaryCard(const char* id, const char* title, Icon icon, float width, int page, const Summary& summary)
@@ -3582,38 +4257,45 @@ private:
             x -= Dp(140);
             ImGui::SetCursorScreenPos({x, button_y});
             const std::string blocker = PlayBlocker();
-            if (PrimaryButton("bar_play", "Play", {Dp(140), button_h}, blocker.empty(), Icon::Play)) Play(quit);
+            if (PrimaryButton("bar_play", texts::T("launcher.bottom_bar.play"), {Dp(140), button_h}, blocker.empty(),
+                              Icon::Play))
+                Play(quit);
             if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("%s", blocker.c_str());
             x -= Dp(12);
         }
         x -= Dp(118);
         ImGui::SetCursorScreenPos({x, button_y});
-        if (SecondaryButton("save", dirty_ ? "Save" : "Saved", {Dp(118), button_h}, config_ok_ && (dirty_ || !file_.exists),
+        const char* save = dirty_ ? texts::T("launcher.bottom_bar.save") : texts::T("launcher.bottom_bar.saved");
+        if (SecondaryButton("save", save, {Dp(118), button_h}, config_ok_ && (dirty_ || !file_.exists),
                             dirty_ ? Icon::Check : Icon::None))
             Save();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Saves to %s (Ctrl+S)", PathUtf8(file_.path).c_str());
+            ImGui::SetTooltip("%s",
+                              texts::T("launcher.bottom_bar.save_about", {{"path", PathUtf8(file_.path)}}).c_str());
         x -= Dp(10) + Dp(104);
         ImGui::SetCursorScreenPos({x, button_y});
-        if (SecondaryButton("revert", "Revert", {Dp(104), button_h}, dirty_ || !config_ok_, Icon::Refresh)) Reload();
+        if (SecondaryButton("revert", texts::T("launcher.bottom_bar.revert"), {Dp(104), button_h},
+                            dirty_ || !config_ok_, Icon::Refresh))
+            Reload();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Reload the settings file and discard unsaved changes.");
+            ImGui::SetTooltip("%s", texts::T("launcher.bottom_bar.revert_about"));
         // The welcome guide again, as an icon beside the settings' actions.
         if (!welcome_.empty())
         {
             x -= Dp(10) + button_h;
             ImGui::SetCursorScreenPos({x, button_y});
             if (GhostButton("welcome", "", {button_h, button_h}, true, Icon::Bulb)) welcome_pending_ = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Welcome guide: what each page is for.");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("launcher.bottom_bar.welcome_guide"));
         }
         float right = x - Dp(16);
         if (dirty_)
         {
-            const float chip = TextSize(fonts.caption, "Unsaved changes").x + Dp(20);
+            const char* unsaved = texts::T("launcher.bottom_bar.unsaved");
+            const float chip = TextSize(fonts.caption, unsaved).x + Dp(20);
             right -= chip;
             ImGui::SetCursorScreenPos({right, origin.y + (size.y - Dp(26)) * 0.5f});
-            Chip("Unsaved changes", color::warning);
+            Chip(unsaved, color::warning);
             right -= Dp(14);
         }
 
@@ -3657,15 +4339,15 @@ private:
         if (ImGui::BeginPopupModal("Unsupported version", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
             | ImGuiWindowFlags_AlwaysAutoResize))
         {
-            TextColored(fonts.heading, color::text, "This version cannot be played yet");
+            TextColored(fonts.heading, color::text, texts::T("launcher.region_prompt.title"));
             ImGui::Dummy({0, Dp(4)});
             TextWrappedColored(fonts.body, color::muted, UnplayableReason(region_prompt_info_).c_str());
             ImGui::Dummy({0, Dp(4)});
-            const std::string runs = "This build runs " + PlayableReleasesText()
-                + ". The other versions follow as Recharged supports them.";
+            const std::string runs =
+                texts::T("launcher.region_prompt.releases", {{"releases", PlayableReleasesText()}});
             TextWrappedColored(fonts.body, color::text, runs.c_str());
             ImGui::Dummy({0, Dp(10)});
-            if (PrimaryButton("region_ok", "OK", Dp(120, 42), true) || CancelPressed()
+            if (PrimaryButton("region_ok", texts::T("launcher.region_prompt.ok"), Dp(120, 42), true) || CancelPressed()
                 || ImGui::IsKeyPressed(ImGuiKey_Enter))
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
@@ -3686,16 +4368,16 @@ private:
         if (ImGui::BeginPopupModal("Start with changes?", nullptr, ImGuiWindowFlags_AlwaysAutoResize
             | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
         {
-            TextColored(fonts.heading, color::text, "Save your changes before playing?");
-            TextColored(fonts.body, color::muted, "Your settings have unsaved changes.");
+            TextColored(fonts.heading, color::text, texts::T("launcher.play_prompt.title"));
+            TextColored(fonts.body, color::muted, texts::T("launcher.play_prompt.unsaved"));
             ImGui::Dummy({0, Dp(8)});
-            if (PrimaryButton("save_play", "Save and play", Dp(170, 42), true, Icon::Play))
+            if (PrimaryButton("save_play", texts::T("launcher.play_prompt.save_play"), Dp(170, 42), true, Icon::Play))
             {
                 ImGui::CloseCurrentPopup();
                 if (Save() && PlayBlocker().empty()) Start(quit);
             }
             ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("discard_play", "Discard and play", Dp(170, 42)))
+            if (SecondaryButton("discard_play", texts::T("launcher.play_prompt.discard_play"), Dp(170, 42)))
             {
                 ImGui::CloseCurrentPopup();
                 // Back to the saved settings; start only if they can still play.
@@ -3703,7 +4385,7 @@ private:
                 if (config_ok_ && PlayBlocker().empty()) Start(quit);
             }
             ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("cancel_play", "Cancel", Dp(100, 42)) || CancelPressed())
+            if (SecondaryButton("cancel_play", texts::T("launcher.play_prompt.cancel"), Dp(100, 42)) || CancelPressed())
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
@@ -3724,14 +4406,16 @@ private:
         if (ImGui::BeginPopupModal("Save changes?", nullptr, ImGuiWindowFlags_AlwaysAutoResize
             | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
         {
-            TextColored(fonts.heading, color::text, "Save your changes?");
-            TextColored(fonts.body, color::muted, "Your settings have unsaved changes.");
+            TextColored(fonts.heading, color::text, texts::T("launcher.close_prompt.title"));
+            TextColored(fonts.body, color::muted, texts::T("launcher.close_prompt.unsaved"));
             ImGui::Dummy({0, Dp(8)});
-            if (PrimaryButton("save_close", "Save and close", Dp(170, 42), true)) { if (Save()) quit = true; ImGui::CloseCurrentPopup(); }
+            if (PrimaryButton("save_close", texts::T("launcher.close_prompt.save_close"), Dp(170, 42), true))
+            { if (Save()) quit = true; ImGui::CloseCurrentPopup(); }
             ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("discard", "Discard", Dp(110, 42))) { quit = true; ImGui::CloseCurrentPopup(); }
+            if (SecondaryButton("discard", texts::T("launcher.close_prompt.discard"), Dp(110, 42)))
+            { quit = true; ImGui::CloseCurrentPopup(); }
             ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("cancel", "Cancel", Dp(100, 42)) || CancelPressed())
+            if (SecondaryButton("cancel", texts::T("launcher.close_prompt.cancel"), Dp(100, 42)) || CancelPressed())
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
@@ -3741,22 +4425,26 @@ private:
     // -------------------------------------------------------------- pages
     void GamePage()
     {
-        PageHeader("Game", "Your Mario Strikers Charged images, the game's language, the Discord status and your saves.");
+        PageHeader(texts::T("launcher.game.title"), texts::T("launcher.game.about"));
         if (options_.launch.disc || options_.launch.size || options_.launch.fullscreen || options_.launch.aspect
             || options_.launch.frame_rate)
         {
-            Chip("Command-line options apply to this run only", color::info, Icon::Info);
+            Chip(texts::T("launcher.game.command_line"), color::info, Icon::Info);
             ImGui::Dummy({0, Dp(2)});
         }
 
         GameImagesCard();
 
-        BeginCard("##language", "Game language", "Menus and on-screen text follow the Wii system language.", Icon::Info);
+        BeginCard("##language", texts::T("launcher.game.language.title"), texts::T("launcher.game.language.about"),
+                  Icon::Info);
         if (BeginRows("##language_rows"))
         {
-            Row("Text language", "Automatic uses your computer's language when this version has it, otherwise "
-                                 "English. Saved with your settings.");
+            Row(texts::T("launcher.game.language.text_language"),
+                texts::T("launcher.game.language.text_language_about"));
             LanguageControl();
+            Row(texts::T("launcher.game.language.menu_language"),
+                texts::T("launcher.game.language.menu_language_about"));
+            MenuLanguageControl();
             EndRows();
         }
         EndCard();
@@ -3765,19 +4453,67 @@ private:
         SaveDataCard();
     }
 
+    // Game -> Menu language ([interface] language): Automatic or one of the
+    // languages of assets/lang, each by its own name. The launcher changes to
+    // it at once.
+    void MenuLanguageControl()
+    {
+        const char* automatic = texts::T("launcher.game.language.automatic");
+        const auto named = [this](const std::string& code) -> const texts::LanguageChoice* {
+            for (const auto& choice : menu_languages_)
+                if (choice.code == code) return &choice;
+            return nullptr;
+        };
+        const auto* chosen = named(draft_.interface_language);
+        const std::string preview = draft_.interface_language == "auto" ? std::string(automatic)
+            : chosen                                                     ? chosen->name
+                                                                         : draft_.interface_language;
+        std::string picked;
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo("##menu_language", preview.c_str()))
+        {
+            if (ImGui::Selectable((std::string(automatic) + "###auto").c_str(), draft_.interface_language == "auto"))
+                picked = "auto";
+            for (const auto& choice : menu_languages_)
+                if (ImGui::Selectable((choice.name + "###" + choice.code).c_str(),
+                                      choice.code == draft_.interface_language))
+                    picked = choice.code;
+            ImGui::EndCombo();
+        }
+        if (!picked.empty() && picked != draft_.interface_language)
+        {
+            draft_.interface_language = picked;
+            dirty_ = true;
+            LoadTexts();
+        }
+        const auto& fonts = CurrentFonts();
+        if (draft_.interface_language == "auto")
+        {
+            const auto* found = named(texts::Language());
+            const std::string text = texts::T("launcher.game.language.automatic_is",
+                                              {{"language", found ? found->name : texts::Language()}});
+            TextWrappedColored(fonts.caption, color::muted, text.c_str());
+        }
+        else if (!named(draft_.interface_language))
+        {
+            const std::string text =
+                texts::T("launcher.game.language.menu_language_missing", {{"language", draft_.interface_language}});
+            TextWrappedColored(fonts.caption, color::warning, text.c_str());
+        }
+    }
+
     // The Discord status (issue #71): on unless switched off; builds without
     // a Discord application (forks, local builds) cannot show one.
     void DiscordCard()
     {
-        BeginCard("##discord", "Discord", "Show what you play on your Discord profile.", Icon::Link);
+        BeginCard("##discord", texts::T("launcher.game.discord.title"), texts::T("launcher.game.discord.about"),
+                  Icon::Link);
         if (BeginRows("##discord_rows"))
         {
             const bool available = *mscharged::build::discord_application_id != '\0'
                 || !draft_.discord_application_id.empty();
-            Row("Discord status", available
-                ? "Your profile shows the menu or match you are in, with the score and match time, while the "
-                  "Discord app runs on this computer."
-                : "This build has no Discord application, so it cannot show a Discord status.");
+            Row(texts::T("launcher.game.discord.status"), available ? texts::T("launcher.game.discord.status_about")
+                                                                    : texts::T("launcher.game.discord.unavailable"));
             ImGui::BeginDisabled(!available);
             if (Toggle("##discord_status", &draft_.discord_status)) dirty_ = true;
             ImGui::EndDisabled();
@@ -3790,21 +4526,22 @@ private:
     void SaveDataCard()
     {
         const auto& fonts = CurrentFonts();
-        BeginCard("##data", "Save data", "Your progress and trophies, in the game's own Wii save files.", Icon::Folder);
+        BeginCard("##data", texts::T("launcher.game.saves.title"), texts::T("launcher.game.saves.about"), Icon::Folder);
         bool browsing;
         { std::lock_guard<std::mutex> lock(folder_dialog_->mutex); browsing = folder_dialog_->active; }
         const float buttons = Dp(118) + Dp(10) + Dp(118);
         const std::string default_folder = PathUtf8(DefaultSaveFolder(base_));
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - buttons - Dp(10));
-        if (ImGui::InputTextWithHint("##save_folder", ("Default: " + default_folder).c_str(), &draft_.save_folder))
-            dirty_ = true;
+        const std::string hint = texts::T("launcher.game.saves.default_hint", {{"folder", default_folder}});
+        if (ImGui::InputTextWithHint("##save_folder", hint.c_str(), &draft_.save_folder)) dirty_ = true;
         ImGui::SameLine(0, Dp(10));
-        if (SecondaryButton("browse_saves", "Browse...", {Dp(118), ImGui::GetFrameHeight()}, !browsing && config_ok_,
-                            Icon::Folder))
+        if (SecondaryButton("browse_saves", texts::T("launcher.game.saves.browse"), {Dp(118), ImGui::GetFrameHeight()},
+                            !browsing && config_ok_, Icon::Folder))
             BrowseFolder(FolderPurpose::SaveFolder);
         ImGui::SameLine(0, Dp(10));
-        if (SecondaryButton("default_saves", "Default", {Dp(118), ImGui::GetFrameHeight()},
-                            config_ok_ && !draft_.save_folder.empty(), Icon::Refresh))
+        if (SecondaryButton("default_saves", texts::T("launcher.game.saves.default"),
+                            {Dp(118), ImGui::GetFrameHeight()}, config_ok_ && !draft_.save_folder.empty(),
+                            Icon::Refresh))
         {
             draft_.save_folder.clear();
             dirty_ = true;
@@ -3812,35 +4549,36 @@ private:
         if (draft_.save_folder != file_.settings.save_folder)
         {
             ImGui::Dummy({0, Dp(2)});
-            TextWrappedColored(fonts.caption, color::warning,
-                               "The game starts with the saves in the new folder (none if it is new). "
-                               "Saves in the old folder stay there.");
+            TextWrappedColored(fonts.caption, color::warning, texts::T("launcher.game.saves.new_folder"));
         }
 
         const fs::path folder = SaveFolder();
         if (BeginRows("##data_rows"))
         {
             const std::string path = PathUtf8(folder);
-            Row("Folder in use", path.c_str());
-            if (SecondaryButton("open_data", "Open folder", {ImGui::GetContentRegionAvail().x, Dp(40)},
-                                fs::exists(folder), Icon::Folder))
+            Row(texts::T("launcher.game.saves.folder_in_use"), path.c_str());
+            if (SecondaryButton("open_data", texts::T("launcher.game.saves.open_folder"),
+                                {ImGui::GetContentRegionAvail().x, Dp(40)}, fs::exists(folder), Icon::Folder))
                 OpenPath(folder);
             if (!fs::exists(folder) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Created when you first play.");
+                ImGui::SetTooltip("%s", texts::T("launcher.game.saves.created_later"));
 
             const auto found = mscharged::platform::FindDolphinSaves(Release().title_id);
             const std::string description = found.empty()
-                ? "Copies a save from the Dolphin emulator. Choose Dolphin's user folder or the game's save folder in it."
-                : "Copies the save Dolphin keeps in " + PathUtf8(found.front()) + ".";
-            Row("Import from Dolphin", description.c_str());
+                ? std::string(texts::T("launcher.game.saves.import_about"))
+                : texts::T("launcher.game.saves.import_found", {{"path", PathUtf8(found.front())}});
+            Row(texts::T("launcher.game.saves.import"), description.c_str());
             const float width = ImGui::GetContentRegionAvail().x;
             if (!found.empty())
             {
-                if (SecondaryButton("import_dolphin", "Import Dolphin save", {width, Dp(40)}, config_ok_, Icon::Copy))
+                if (SecondaryButton("import_dolphin", texts::T("launcher.game.saves.import_dolphin"), {width, Dp(40)},
+                                    config_ok_, Icon::Copy))
                     AskImport(found.front(), ImportKind::Save);
                 ImGui::Dummy({0, Dp(2)});
             }
-            if (SecondaryButton("import_choose", found.empty() ? "Choose folder..." : "Choose another folder...",
+            if (SecondaryButton("import_choose",
+                                found.empty() ? texts::T("launcher.game.saves.choose_folder")
+                                              : texts::T("launcher.game.saves.choose_another_folder"),
                                 {width, Dp(40)}, !browsing && config_ok_, Icon::Folder))
                 BrowseFolder(FolderPurpose::DolphinSave);
             EndRows();
@@ -3848,137 +4586,2959 @@ private:
         EndCard();
     }
 
-    // The Miis the game finds in its Wii storage: their friend codes, making
-    // one, or importing Dolphin's.
-    void MiiPage()
+    // ------------------------------------------------------------- Mii heads
+    // The Miis' heads: the game image's Mii parts read and heads drawn on a
+    // worker (MiiFaces), shown as SDL textures.
+    void StartMiiFaces()
     {
-        PageHeader("Miis", "Online play needs a Mii. Every Wii game reads them from the same database.");
+        MiiFaces::Hooks hooks;
+        hooks.make = [renderer = renderer_](const platform::mii::RgbaImage& image) -> MiiFaces::Texture {
+            SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC,
+                                                     image.width, image.height);
+            if (!texture) return nullptr;
+            if (!SDL_UpdateTexture(texture, nullptr, image.pixels.data(), image.width * 4))
+            {
+                SDL_DestroyTexture(texture);
+                return nullptr;
+            }
+            SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+            return texture;
+        };
+        hooks.free = [](MiiFaces::Texture texture) { SDL_DestroyTexture(static_cast<SDL_Texture*>(texture)); };
+        mii_faces_ = std::make_unique<MiiFaces>(std::move(hooks));
+    }
+
+    // Every frame, before drawing: the game image in use (its parts draw the
+    // heads, read when the first head is asked for) and the heads drawn since.
+    // An image without parts is logged once; its Miis keep their figures.
+    void UpdateMiiFaces()
+    {
+        if (!mii_faces_) return;
+        // Miis show on the Online pages only.
+        if (OnlinePage(page_)) mii_faces_->SetImage(config_ok_ ? EffectiveLaunch().disc_path : fs::path());
+        mii_faces_->Update();
+        const bool failed = mii_faces_->PartsState() == MiiFaces::Parts::Failed;
+        if (failed && !mii_faces_failed_)
+            platform::SessionLogLine("Mii faces: the game image's Mii parts can't be read: " + mii_faces_->Error());
+        mii_faces_failed_ = failed;
+    }
+
+    // The pixel size a head is drawn at for `size` window units: 64, 128 or
+    // 256, whichever covers it on this display.
+    static int HeadPixels(float size)
+    {
+        const float pixels = size * std::max(1.0f, ImGui::GetIO().DisplayFramebufferScale.x);
+        return pixels <= 64.5f ? 64 : pixels <= 128.5f ? 128 : 256;
+    }
+
+    static ImTextureID TextureId(MiiFaces::Texture texture)
+    {
+        return static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(texture));
+    }
+
+    // A Mii in a disc `size` wide: its head on its favourite colour, drawn
+    // from its 74-byte record with the game image's Mii parts as the Wii draws
+    // its Mii icons; until the head is drawn (or without the parts, or a
+    // record) its figure on that colour.
+    void DrawMii(ImDrawList* draw, ImVec2 center, float size, int favorite_color, const std::string& record,
+                 int priority = 1)
+    {
+        const MiiFaces::Texture head = mii_faces_ && record.size() == platform::mii::kMiiRecordBytes
+            ? mii_faces_->Head(record, {HeadPixels(size)}, priority)
+            : nullptr;
+        if (!head)
+        {
+            DrawMiiFigure(draw, center, size, favorite_color);
+            return;
+        }
+        const float half = size * 0.5f;
+        draw->AddImageRounded(TextureId(head), {center.x - half, center.y - half}, {center.x + half, center.y + half},
+                              {0, 0}, {1, 1}, IM_COL32_WHITE, half);
+        draw->AddCircle(center, half, Col(color::border), 0, Dp(1));
+    }
+
+    // ---------------------------------------------------------- competitive
+    void StartCompetitive()
+    {
+        competitive_ = std::make_unique<CompetitiveService>(
+            platform::ProfileSessionFile(DataFolder(base_), file_.path),
+            platform::DiscordLinkFile(DataFolder(base_), file_.path));
+        // The profile server trades the Discord SDK's tokens.
+        discord_friends_ = std::make_unique<DiscordFriends>(
+            base_, platform::DiscordLinkFile(DataFolder(base_), file_.path),
+            [service = competitive_.get()](DiscordFriends::TradeRequest request,
+                                           std::function<void(DiscordFriends::TradeResult)> done) {
+                service->TradeDiscordToken(
+                    std::move(request.code), std::move(request.verifier), std::move(request.redirect_uri),
+                    std::move(request.refresh_token),
+                    [done = std::move(done)](const platform::DiscordTokens& tokens, const std::string& error,
+                                             bool refused) {
+                        done({tokens.access_token, tokens.refresh_token, error, refused});
+                    });
+            });
+    }
+
+    // Every frame: the service follows online.profile_server (the settings
+    // file's, the launcher never changes it); a new sign-in
+    // opens its page in the browser, and a failure on the page is told.
+    void UpdateCompetitive()
+    {
+        if (!competitive_) return;
+        // What keeps this computer from playing a set (no game image, an
+        // update it lacks...), for the buttons that would start one.
+        set_blocker_ = SetBlocker();
+        // The game this computer's sets play (the checked image's version).
+        platform::ProfileService::SetPlayedGame(check_.info ? check_.info->game_id.substr(0, 4) : std::string());
+        competitive_->SetServer(platform::ProfileServerAddress(draft_.profile_server).value_or(std::string()));
+        competitive_status_ = competitive_->Snapshot();
+        if (competitive_status_.state != CompetitiveService::State::SignedIn) signing_out_ = false;
+        UpdateMiiWizard();
+        if (!capture_)
+        {
+            if (competitive_status_.state == CompetitiveService::State::SignedIn) RememberProfile();
+            else if (competitive_status_.state == CompetitiveService::State::SignedOut) LookUpSaveMiis();
+        }
+        // Signed in here: the game has nobody to sign in again.
+        if (competitive_status_.state == CompetitiveService::State::SignedIn && draft_.mii_sign_in && !capture_)
+            SetMiiSignIn(false);
+        const auto& status = competitive_status_;
+        if (status.sign_in != competitive_opened_)
+        {
+            competitive_opened_ = status.sign_in;
+            if (!status.url.empty() && !capture_) SDL_OpenURL(status.url.c_str());
+        }
+        if (status.error_serial != competitive_errors_)
+        {
+            competitive_errors_ = status.error_serial;
+            if (OnlinePage(page_) && !status.error.empty()) Notice(status.error, NoticeKind::Error);
+        }
+        // A challenge or set seen open that ends without a result: told once
+        // as it ends.
+        if (status.match && status.match->Open())
+        {
+            watched_match_ = status.match->id;
+            watched_invite_ = status.match->state == "challenged";
+        }
+        else if (status.match && status.match->id == watched_match_)
+        {
+            watched_match_ = 0;
+            const auto& match = *status.match;
+            const std::string& them = match.opponent.name;
+            const bool sent = match.side == "challenger";
+            std::string text;
+            if (match.state == "declined")
+                text = sent ? texts::T("launcher.challenge.ended.declined", {{"name", them}}) : std::string();
+            else if (match.state == "expired")
+                text = sent ? texts::T("launcher.challenge.ended.no_answer", {{"name", them}})
+                            : texts::T("launcher.challenge.ended.ran_out", {{"name", them}});
+            else if (match.stage == "dissolved" || match.state == "dissolved")
+                text = texts::T("launcher.challenge.ended.closed", {{"name", them}});
+            else if (match.state == "cancelled")
+                text = watched_invite_ && !sent ? texts::T("launcher.challenge.ended.withdrawn", {{"name", them}})
+                                                : texts::T("launcher.challenge.ended.cancelled", {{"name", them}});
+            if (!text.empty() && !capture_) Notice(text, NoticeKind::Info);
+        }
+        // A challenge to the player, and their challenge accepted (now their
+        // Ready to play! is due): a chime, and the window flashes while it is
+        // in the background. Once each.
+        if (status.match && status.match->Open() && !capture_)
+        {
+            const auto& match = *status.match;
+            const bool to_you = match.side == "challenged" && match.state == "challenged";
+            // The set goes (the countdown starts); servers before sets: the
+            // challenge accepted.
+            const bool go = match.stage == "go"
+                || (match.stage.empty() && match.side == "challenger" && match.state == "accepted");
+            // (Not for a challenge accepted here: that Accept was just pressed.)
+            const bool accepted_here = challenge_accepted_ == match.id;
+            const std::int64_t alert = to_you ? match.id * 2 : go && !accepted_here ? GoKey(match) * 2 + 1 : 0;
+            if (alert && alert != alerted_)
+            {
+                alerted_ = alert;
+                Alert();
+            }
+        }
+        UpdateSetPresence();
+        UpdateDiscordFriends();
+        // Both pressed Ready to play!: this launcher starts the set's game.
+        // Both are ready: 3, 2, 1, then this launcher starts the set's game.
+        // Each go once: a set that waited for both again and goes again
+        // starts the games again.
+        if (status.match && status.match->stage == "go" && GoKey(*status.match) != competitive_started_go_ && !capture_)
+        {
+            const std::int64_t key = GoKey(*status.match);
+            const std::uint64_t now = SDL_GetTicks();
+            if (countdown_go_ != key)
+            {
+                countdown_go_ = key;
+                countdown_end_ = now + kSetCountdownMs;
+            }
+            if (now >= countdown_end_)
+            {
+                competitive_started_go_ = key;
+                competitive_go_ = true;
+            }
+        }
+        else if (!capture_)
+            countdown_go_ = 0;
+    }
+
+    // The challenge sound ([online] challenge_sound): the chime at the master
+    // volume (not when muted), and the window flashes while it is in the
+    // background.
+    void Alert(bool flash = true)
+    {
+        if (!draft_.challenge_sound) return;
+        if (!draft_.mute)
+        {
+            if (!alert_sound_) alert_sound_.emplace();
+            alert_sound_->Play(float(draft_.master_volume) / 100.0f);
+        }
+        if (flash && window_ && !(SDL_GetWindowFlags(window_) & SDL_WINDOW_INPUT_FOCUS))
+            SDL_FlashWindow(window_, SDL_FLASH_UNTIL_FOCUSED);
+    }
+
+    // The Discord status while a set waits in the launcher ([discord]
+    // rich_presence): against whom, and what for. Nothing otherwise: the
+    // game shows its own, and a challenge to the player stays private until
+    // they accept.
+    void UpdateSetPresence()
+    {
+        if (capture_) return;
+        const auto& status = competitive_status_;
+        std::optional<platform::discord::Activity> activity;
+        if (status.state == CompetitiveService::State::SignedIn && status.match && status.match->Open()
+            && !(status.match->side == "challenged" && status.match->state == "challenged"))
+        {
+            const auto& match = *status.match;
+            const std::string& them = match.opponent.name;
+            activity.emplace();
+            activity->details = texts::T("launcher.challenge.presence.set_against", {{"name", them}});
+            activity->state = match.state == "challenged"
+                ? texts::T("launcher.challenge.presence.waiting_accept", {{"name", them}})
+                : match.stage == "go"     ? std::string(texts::T("launcher.challenge.presence.starting"))
+                : !match.you_ready        ? std::string(texts::T("launcher.challenge.presence.getting_ready"))
+                : !match.opponent_ready   ? texts::T("launcher.challenge.presence.waiting_ready", {{"name", them}})
+                                          : std::string(texts::T("launcher.challenge.presence.starting"));
+            activity->large_image = "logo";
+            activity->large_text = "Recharged";
+            activity->start = match.created_at;
+        }
+        if (!set_presence_)
+        {
+            if (!activity || !draft_.discord_status) return;
+            const std::string application = !draft_.discord_application_id.empty()
+                ? draft_.discord_application_id
+                : std::string(mscharged::build::discord_application_id);
+            if (application.empty()) return;
+            platform::DiscordPresence::Options options;
+            options.application_id = application;
+            options.log = [](const std::string& text) { platform::SessionLogLine(text); };
+            set_presence_.emplace(std::move(options));
+        }
+        set_presence_->Show(draft_.discord_status ? activity : std::nullopt);
+    }
+
+    // The Discord friends follow the sign-in and the server's Discord
+    // application; their accounts go to the service, which finds those who
+    // play Recharged.
+    void UpdateDiscordFriends()
+    {
+        if (!discord_friends_) return;
+        const auto& status = competitive_status_;
+        DiscordFriends::Account account;
+        if (status.state == CompetitiveService::State::SignedIn && !status.info.discord_application.empty()
+            && !status.player.MiiAccount())
+        {
+            account.server = status.server;
+            account.application = std::strtoull(status.info.discord_application.c_str(), nullptr, 10);
+        }
+        discord_friends_->SetAccount(account);
+        discord_status_ = discord_friends_->Snapshot();
+        // Development captures: RECHARGED_CAPTURE_DISCORD=preview shows made-up
+        // Discord friends while signed in, and asks the server nothing.
+        const char* preview = capture_ ? std::getenv("RECHARGED_CAPTURE_DISCORD") : nullptr;
+        if (preview && std::string(preview).rfind("preview", 0) == 0)
+        {
+            PreviewDiscordFriends(preview);
+            return;
+        }
+        std::vector<std::string> ids;
+        if (discord_status_.state == DiscordFriends::State::Ready)
+            for (const auto& entry : discord_status_.friends) ids.push_back(entry.id);
+        if (ids != discord_asked_)
+        {
+            discord_asked_ = ids;
+            competitive_->SetDiscordFriends(std::move(ids));
+        }
+        if (discord_status_.error_serial != discord_errors_)
+        {
+            discord_errors_ = discord_status_.error_serial;
+            if (OnlinePage(page_) && !discord_status_.error.empty())
+                Notice(discord_status_.error, discord_status_.state == DiscordFriends::State::NotLinked
+                                                  ? NoticeKind::Info
+                                                  : NoticeKind::Error);
+        }
+    }
+
+    // Made-up online data for a development capture: a profile and Discord
+    // friends, and with "preview-challenge..." a challenge.
+    void PreviewDiscordFriends(const std::string& mode)
+    {
+        using Presence = DiscordFriends::Presence;
+        if (mode == "preview-welcome" || mode.rfind("preview-mii", 0) == 0)
+        {
+            PreviewMiiAccount(mode);
+            return;
+        }
+        if (competitive_status_.state != CompetitiveService::State::SignedIn)
+        {
+            // Signed out: a made-up profile on the server, for the pages that need one.
+            competitive_status_.state = CompetitiveService::State::SignedIn;
+            competitive_status_.player.id = 900000;
+            competitive_status_.player.name = "Anosch";
+            competitive_status_.player.discord = ".anosch";
+            competitive_status_.player.discord_id = "80351110224678912";
+            competitive_status_.player.account = "discord";
+            competitive_status_.player.wfc = {{1000000000, "R4QE", "0868-9934-5920", "Anosch"}};
+            competitive_status_.player.country = competitive_status_.player.country_detected = "CH";
+            competitive_status_.player.country_choice = "auto";
+            if (competitive_status_.info.version.empty()) competitive_status_.info.version = "1.2.1";
+            if (competitive_status_.server.empty()) competitive_status_.server = draft_.profile_server;
+            if (competitive_status_.rule_sets.empty())
+            {
+                platform::RuleSet set;
+                set.id = 1;
+                set.name = "Competitive";
+                set.rules.skill = "rookie";
+                set.rules.limit = "goals";
+                set.rules.goals = 10;
+                set.rules.games = 3;
+                set.rules.stadium = "random";
+                competitive_status_.rule_sets = {set};
+            }
+        }
+        discord_status_.state = DiscordFriends::State::Ready;
+        discord_status_.error.clear();
+        discord_status_.friends = {{"900000000000000001", "Daisy", Presence::Idle, true},
+                                   {"900000000000000002", "Peach", Presence::Online, true},
+                                   {"900000000000000003", "Toad", Presence::Online, true},
+                                   {"900000000000000004", "Luigi", Presence::Online, false},
+                                   {"900000000000000005", "Wario", Presence::Idle, false},
+                                   {"900000000000000006", "Bowser", Presence::Offline, false},
+                                   {"900000000000000007", "Yoshi", Presence::DoNotDisturb, false},
+                                   {"900000000000000008", "Waluigi", Presence::Offline, false}};
+        const auto now = std::int64_t(std::time(nullptr));
+        const auto make = [](std::int64_t id, const char* name, const char* discord, const char* discord_id) {
+            platform::ProfilePlayer player;
+            player.id = id;
+            player.name = name;
+            player.discord = discord;
+            player.discord_id = discord_id;
+            return player;
+        };
+        // The Discord friends who play Recharged (Player profile counts them).
+        competitive_status_.discord_players = {make(900001, "Daisy", "daisy", "900000000000000001"),
+                                               make(900002, "Peach", "peach", "900000000000000002"),
+                                               make(900006, "Bowser", "bowser", "900000000000000006")};
+        auto mario = make(900010, "Mario", "itsamario", "");
+        mario.online = true;
+        mario.activity = "launcher";
+        // A challenge from Mario in the dialog: "preview-challenge", or
+        // "preview-rematch" for a rematch; "preview-challenge-wait" after its
+        // Accept while Mario takes his Ready to play! back, "preview-challenge-go"
+        // its countdown.
+        if (mode.rfind("preview-challenge", 0) == 0 || mode == "preview-rematch")
+        {
+            platform::ProfileMatch set;
+            set.id = 77;
+            set.state = "challenged";
+            set.side = "challenged";
+            set.stage = "invited";
+            set.opponent = mario;
+            set.rule_set = "Competitive";
+            set.rules.skill = "rookie";
+            set.rules.limit = "time";
+            set.rules.time = 180;
+            set.rules.games = 3;
+            set.rules.stadium = "random";
+            set.rules.tweaks = {"fast_terrain", "no_mega_strikes", "thunder_island_walls"};
+            set.opponent_online = true;
+            set.created_at = now;
+            if (mode == "preview-rematch") set.rematch_of = 76;
+            if (mode == "preview-challenge-wait" || mode == "preview-challenge-go")
+            {
+                set.state = "accepted";
+                set.stage = mode == "preview-challenge-go" ? "go" : "open";
+                set.you_ready = true;
+                set.opponent_ready = mode == "preview-challenge-go";
+                challenge_accepted_ = set.id;
+            }
+            if (mode == "preview-challenge-go")
+            {
+                set.go_at = now;
+                countdown_go_ = set.go_at;
+                countdown_end_ = SDL_GetTicks() + 2400; // a "3"
+            }
+            competitive_status_.match = set;
+        }
+    }
+
+    // Made-up Mii sign-in states for a development capture, offline:
+    // "preview-welcome" (the two ways in), "preview-mii-new" / "-name" /
+    // "-pick" (step 1: a new Mii, its own name typed, one of this computer's),
+    // "preview-mii-go" / "-error" (step 2, and a refused sign-in), and
+    // "preview-mii-profile" / "-connect" / "-taken" / "-signout" (a Mii
+    // player's profile, connecting Discord, that Discord account taken, and
+    // Sign out asked for a Mii without a friend code yet), "preview-mii-reuse"
+    // (a Discord player asked which Mii plays for them), "preview-mii-back"
+    // (signed out, Miis that play for profiles) and "preview-mii-pick-known"
+    // (step 1 with such a Mii chosen), the Mii editor on
+    // their Mii with "preview-mii-editor" / "-<section>" ("-hair": another
+    // hairstyle chosen), and on step 1's new Mii with "preview-mii-new-editor".
+    void PreviewMiiAccount(const std::string& mode)
+    {
+        auto& status = competitive_status_;
+        status.info.discord = status.info.mii = true;
+        status.info.version = "1.2.4";
+        if (status.server.empty()) status.server = draft_.profile_server;
+        status.error.clear();
+        status.busy = false;
+        const bool first = !preview_applied_;
+        preview_applied_ = true;
+        const auto& miis = InstalledMiis().miis;
+        const bool editor = mode.rfind("preview-mii-editor", 0) == 0;
+        if (mode == "preview-mii-reuse")
+        {
+            // A Discord player without a Mii yet, on a computer with Miis.
+            status.state = CompetitiveService::State::SignedIn;
+            status.player = {};
+            status.player.id = 900021;
+            status.player.name = "Anosch";
+            status.player.discord = ".anosch";
+            status.player.discord_id = "80351110224678912";
+            status.player.account = "discord";
+            if (first)
+            {
+                draft_.online_mii.clear();
+                mii_reuse_preview_ = true;
+            }
+            return;
+        }
+        if (mode == "preview-welcome" || (mode.rfind("preview-mii-profile", 0) != 0 && !editor))
+        {
+            status.state = CompetitiveService::State::SignedOut;
+            if (mode == "preview-mii-error")
+                status.mii_error = "Too many new players from here: try again in an hour";
+            // Miis of the save that play for profiles: the first through the
+            // game, remembered here by name; the second with Discord.
+            if (mode == "preview-mii-back" || mode == "preview-mii-pick-known")
+            {
+                status.known_miis.clear();
+                status.known_asked.clear();
+                std::vector<const platform::InstalledMii*> coded;
+                for (const auto& mii : miis)
+                    if (mii.friend_code) coded.push_back(&mii);
+                for (std::size_t n = 0; n < coded.size() && n < 2; ++n)
+                    status.known_miis.emplace_back(std::uint32_t(coded[n]->friend_code), n ? "discord" : "game");
+                for (const auto* mii : coded) status.known_asked.push_back(std::uint32_t(mii->friend_code));
+                if (first && !coded.empty())
+                {
+                    known_profiles_read_ = true;
+                    known_profiles_ = {{status.server, 900020, "Bob the Builder", "mii",
+                                        {platform::FriendCodeText(coded.front()->friend_code)}}};
+                }
+                if (mode == "preview-mii-back") return;
+            }
+            if (!first || mode == "preview-welcome") return;
+            StartMiiWizard();
+            wizard_.source = 0;
+            wizard_.color = 5;
+            RollWizardFace(7);
+            wizard_.profile_name = "Bob the Builder";
+            wizard_.profile_typed = true;
+            if (mode == "preview-mii-name")
+            {
+                wizard_.own_mii_name = true;
+                wizard_.mii_name = "Bobby";
+            }
+            if ((mode == "preview-mii-pick" || mode == "preview-mii-pick-known") && !miis.empty())
+            {
+                wizard_.source = 1;
+                wizard_.chosen = miis.front().create_id;
+                for (const auto& mii : miis)
+                    if (mode == "preview-mii-pick-known" && mii.friend_code)
+                    {
+                        wizard_.chosen = mii.create_id;
+                        break;
+                    }
+                wizard_.profile_name = miis.front().name;
+                wizard_.profile_typed = false;
+            }
+            if (mode == "preview-mii-go" || mode == "preview-mii-error") wizard_.step = 2;
+            if (mode == "preview-mii-new-editor")
+            {
+                auto record = platform::MakeRandomMii("Bob", wizard_.seed, wizard_.created, wizard_.color);
+                auto face = wizard_.face;
+                face.favorite_color = wizard_.color;
+                platform::mii::WriteMiiFace(face, record);
+                OpenMiiEditor(true, record, false, false);
+                mii_editor_.page = PageOnlineSettings;
+            }
+            return;
+        }
+        status.state = CompetitiveService::State::SignedIn;
+        status.player = {};
+        status.player.id = 900020;
+        status.player.name = "Bob the Builder";
+        status.player.account = "mii";
+        status.player.friend_code = "0868-9934-5920";
+        status.player.wfc = {{1000000000, "R4QE", "0868-9934-5920", miis.empty() ? "Bob" : miis.front().name}};
+        if (mode == "preview-mii-profile-connect")
+        {
+            status.connecting_discord = true;
+            status.code = "K7Q2";
+            status.url = "https://example.invalid/sign-in";
+        }
+        if (mode == "preview-mii-profile-taken")
+            status.connect_error = "This Discord account already has a Recharged profile";
+        if (mode == "preview-mii-profile-signout")
+        {
+            status.player.friend_code.clear();
+            status.player.wfc.clear();
+            if (first) sign_out_prompt_ = true;
+        }
+        if (first && !miis.empty()) draft_.online_mii = platform::MiiCreateIdText(miis.front().create_id);
+        if (first && editor)
+        {
+            // The player's Mii, else a made-up one.
+            const std::string record =
+                !miis.empty() ? miis.front().record : platform::MakeRandomMii("Bob", 7, 1760000000, 5);
+            OpenMiiEditor(false, record, miis.empty(), false);
+            mii_editor_.page = PageOnlineSettings;
+            // "-<section>" shows that section ("-facial" Facial hair, "-name" Name & colour).
+            const std::string wanted = mode.size() > 19 ? mode.substr(19) : std::string();
+            const auto& sections = MiiEditorSections();
+            for (std::size_t n = 0; n < sections.size() && !wanted.empty(); ++n)
+                if (std::string_view(sections[n].key).rfind(wanted, 0) == 0) mii_editor_.section = int(n);
+            if (mode == "preview-mii-editor-hair")
+            {
+                mii_editor_.section = 1;
+                mii_editor_.undo.push_back({mii_editor_.face, mii_editor_.name});
+                mii_editor_.face.hair_type = 33;
+                mii_editor_.face.hair_color = 7;
+            }
+        }
+    }
+
+    // The player's own Mii as the Online pages show it.
+    struct OwnMii
+    {
+        std::string name;
+        int color = 0;
+        std::array<unsigned char, 8> id{};
+        std::string record;            // empty while it isn't among this computer's Miis
+        std::uint64_t friend_code = 0; // from the game's online save, once it logged in
+        bool here = false;             // among this computer's Miis
+    };
+
+    // Whether the player's sets go with a Mii they chose (online.mii): a Mii
+    // player, or one who connected Discord to their Mii profile here.
+    // Otherwise a Discord (or test) player's Mii is made from the account.
+    bool ChosenOwnMii() const
+    {
+        return !draft_.online_mii.empty() || competitive_status_.player.MiiAccount();
+    }
+
+    // The player's own Mii while signed in: the chosen one (nullopt when none
+    // is chosen), else the one made from the account, whether or not it has
+    // been made in the save folder yet.
+    std::optional<OwnMii> PlayerOwnMii()
+    {
+        const auto& status = competitive_status_;
+        if (status.state != CompetitiveService::State::SignedIn) return std::nullopt;
+        OwnMii own;
+        if (ChosenOwnMii())
+        {
+            // A profile has one Mii. A Mii player's is the Mii with the
+            // profile's friend code, found again on any computer it is on
+            // (after Sign in through the game, too), and kept as online.mii;
+            // before its first online game, the Mii chosen with the profile.
+            auto id = platform::ParseMiiCreateId(draft_.online_mii);
+            if (status.player.MiiAccount())
+                if (const auto coded = ProfileCodedMii(id))
+                {
+                    if (coded != id) ChooseOnlineMii(platform::MiiCreateIdText(*coded));
+                    id = coded;
+                }
+            if (!id) return std::nullopt;
+            own.id = *id;
+        }
+        else
+        {
+            const std::string key = PlayerMiiKey();
+            const auto& player = status.player;
+            own.name = platform::FitMiiName(player.name, player.discord);
+            if (keyed_mii_for_ != key + '\n' + own.name)
+            {
+                keyed_mii_for_ = key + '\n' + own.name;
+                keyed_mii_record_ = platform::MakeKeyedMii(own.name, key);
+            }
+            own.id = platform::KeyedMiiCreateId(key);
+            own.record = keyed_mii_record_;
+            own.color = platform::MiiRecordFavoriteColor(own.record);
+        }
+        for (const auto& mii : InstalledMiis().miis)
+            if (mii.create_id == own.id)
+            {
+                own.name = mii.name;
+                own.color = mii.favorite_color;
+                own.record = mii.record;
+                own.friend_code = mii.friend_code;
+                own.here = true;
+            }
+        return own;
+    }
+
+    // This computer's Mii with one of the profile's friend codes, preferring
+    // `chosen`: nullopt when there is none, or when `chosen` is here and has
+    // no friend code yet (its first online game gives it the profile's).
+    std::optional<std::array<unsigned char, 8>> ProfileCodedMii(
+        const std::optional<std::array<unsigned char, 8>>& chosen)
+    {
+        const auto digits = [](std::string_view text) {
+            std::string out;
+            for (const char c : text)
+                if (c >= '0' && c <= '9') out += c;
+            return out;
+        };
+        const auto& player = competitive_status_.player;
+        std::vector<std::string> codes;
+        if (!player.friend_code.empty()) codes.push_back(digits(player.friend_code));
+        for (const auto& profile : player.wfc) codes.push_back(digits(profile.friend_code));
+        const auto profiles = [&](const platform::InstalledMii& mii) {
+            return mii.friend_code
+                && std::find(codes.begin(), codes.end(), digits(platform::FriendCodeText(mii.friend_code)))
+                != codes.end();
+        };
+        std::optional<std::array<unsigned char, 8>> found;
+        for (const auto& mii : InstalledMiis().miis)
+        {
+            if (chosen && mii.create_id == *chosen && (!mii.friend_code || profiles(mii))) return std::nullopt;
+            if (!found && profiles(mii)) found = mii.create_id;
+        }
+        return found;
+    }
+
+    // The key of the player's own Mii (made from their Discord account, the
+    // same on every computer); empty when not signed in, and for a player
+    // whose sets go with a Mii they chose.
+    std::string PlayerMiiKey() const
+    {
+        const auto& status = competitive_status_;
+        if (status.state != CompetitiveService::State::SignedIn || signing_out_ || ChosenOwnMii()) return {};
+        const auto& player = status.player;
+        return !player.discord_id.empty() ? "discord:" + player.discord_id
+                                          : "player:" + status.server + "#" + std::to_string(player.id);
+    }
+
+    // The player's own Mii (made from their Discord account, the same on
+    // every computer) in the save folder, added or renamed only when needed:
+    // its key, or empty when not signed in. Throws when it can't be made.
+    std::string EnsurePlayerMii()
+    {
+        const std::string key = PlayerMiiKey();
+        if (key.empty()) return key;
+        const auto& player = competitive_status_.player;
+        const auto folder = SaveFolder();
+        mscharged::platform::EnsureMii(
+            mscharged::platform::MakeKeyedMii(mscharged::platform::FitMiiName(player.name, player.discord), key),
+            folder, SaveTitleOf(Release()), folder / "backups");
+        return key;
+    }
+
+    // A set's go: the player's own Mii (chosen, or EnsurePlayerMii), then the game,
+    // which goes through the online login straight into RANKED against the
+    // opponent. Anything in the way takes the player's Ready to play! back.
+    void StartSet(bool& quit)
+    {
+        const auto& status = competitive_status_;
+        if (!status.match) return;
+        if (const auto blocker = SetBlocker(); !blocker.empty())
+        {
+            set_start_error_ = blocker;
+            Notice(texts::T("launcher.challenge.cannot_start", {{"reason", blocker}}), NoticeKind::Error);
+            competitive_->ReadyToPlay(false);
+            return;
+        }
+        // The player's own Mii: the chosen one, which must be here, or the
+        // one made from the account.
+        std::array<unsigned char, 8> mii{};
+        if (ChosenOwnMii())
+        {
+            const auto own = PlayerOwnMii();
+            if (!own || !own->here)
+            {
+                set_start_error_ = texts::T("launcher.challenge.choose_mii");
+                Notice(texts::T("launcher.challenge.cannot_start", {{"reason", set_start_error_}}), NoticeKind::Error);
+                competitive_->ReadyToPlay(false);
+                return;
+            }
+            mii = own->id;
+        }
+        else
+        {
+            try
+            {
+                mii = mscharged::platform::KeyedMiiCreateId(EnsurePlayerMii());
+            }
+            catch (const std::exception& e)
+            {
+                set_start_error_ = texts::T("launcher.challenge.mii_failed", {{"error", e.what()}});
+                Notice(set_start_error_, NoticeKind::Error);
+                competitive_->ReadyToPlay(false);
+                return;
+            }
+        }
+        frontend_launch_ = EffectiveLaunch();
+        frontend_launch_->start_competitive = true;
+        frontend_launch_->competitive_set = status.match->id;
+        frontend_launch_->competitive_mii = mii;
+        frontend_launch_->discord_friends = discord_asked_;
+        // The game and the launcher it opens again afterwards see it.
+        SetEnvironment(kCompetitiveSetVariable, std::to_string(GoKey(*status.match)));
+        quit = true;
+    }
+
+    // What the challenge dialog shows: nothing, a challenge to answer, the
+    // Accept on its way, an accepted set that waits (for the opponent's
+    // Ready to play!, or after its game could not start), or the countdown
+    // to the set's game.
+    enum class ChallengeView { None, Invite, Accepting, Waiting, Starting };
+
+    ChallengeView CurrentChallengeView() const
+    {
+        const auto& status = competitive_status_;
+        if (status.state != CompetitiveService::State::SignedIn || !status.match || !status.match->Open())
+            return ChallengeView::None;
+        const auto& match = *status.match;
+        if (match.stage == "go" && countdown_go_ == GoKey(match) && competitive_started_go_ != countdown_go_)
+            return ChallengeView::Starting;
+        if (match.state == "challenged" && match.side == "challenged")
+        {
+            if (challenge_declined_ == match.id) return ChallengeView::None;
+            return challenge_accepted_ == match.id && status.busy ? ChallengeView::Accepting : ChallengeView::Invite;
+        }
+        if (challenge_accepted_ == match.id && match.state == "accepted" && match.stage != "playing")
+            return ChallengeView::Waiting;
+        return ChallengeView::None;
+    }
+
+    // A challenge to the player (or a rematch they are asked for), over any
+    // page as a card over the dimmed launcher: Accept starts the game
+    // straight into the set, Decline (Escape, B) answers no. After Accept it
+    // stays until the game starts. It opens when no other dialog is open,
+    // and once answered no it does not come back for that challenge.
+    void DrawChallengeDialog()
+    {
+        const ChallengeView view = CurrentChallengeView();
+        if (view != ChallengeView::None
+            && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+            ImGui::OpenPopup("Challenge");
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const float width = std::min(Dp(560), viewport->Size.x - Dp(48));
+        ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({width, 0});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(30, 26));
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4{0, 0, 0, 0});
+        if (ImGui::BeginPopupModal("Challenge", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove
+            | ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Dp(10), 0.0f});
+            if (view == ChallengeView::None) ImGui::CloseCurrentPopup();
+            else DrawChallengeContents(view, *competitive_status_.match);
+            ImGui::PopStyleVar();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+    }
+
+    void DrawChallengeContents(ChallengeView view, const platform::ProfileMatch& match)
+    {
         const auto& fonts = CurrentFonts();
-        BeginCard("##miis", "Your Miis", "In the order of the game's online list, with each Mii's friend code.",
-                  Icon::Person);
-        using mscharged::platform::MiiDatabaseState;
-        const auto& miis = InstalledMiis();
-        if (miis.state == MiiDatabaseState::Damaged)
-            Callout("The game cannot read this Mii database. Import your Miis from Dolphin to replace it.",
+        const auto& status = competitive_status_;
+        const bool asked = view == ChallengeView::Invite || view == ChallengeView::Accepting;
+        const bool rematch = match.rematch_of != 0;
+        const ImVec4 tint = color::accent;
+        auto* draw = ImGui::GetWindowDrawList();
+        DrawDialogCard(tint);
+        const float right_edge = ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+
+        // Header: a trophy in a soft halo, what it is, who, and the rules.
+        const std::string& them = match.opponent.name;
+        const char* overline = rematch ? texts::T("launcher.challenge.overline.rematch")
+            : asked ? (match.random ? texts::T("launcher.challenge.overline.random")
+                                    : texts::T("launcher.challenge.overline.challenge"))
+                    : texts::T("launcher.challenge.overline.set");
+        const std::string headline = !asked ? texts::T("launcher.challenge.your_set", {{"name", them}})
+            : rematch                       ? texts::T("launcher.challenge.wants_rematch", {{"name", them}})
+                                            : texts::T("launcher.challenge.challenges_you", {{"name", them}});
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        const float disc = Dp(46);
+        DialogBadge(draw, {top.x + disc * 0.5f, top.y + Dp(2) + disc * 0.5f}, disc, Icon::Trophy, tint);
+        ImGui::SetCursorScreenPos({top.x + disc + Dp(20), top.y});
+        ImGui::BeginGroup();
+        DrawTracked(draw, fonts.caption, ImGui::GetCursorScreenPos(), Col(tint, 0.95f), overline, Dp(1.4f));
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(5)});
+        TextColored(fonts.heading, color::text, headline.c_str());
+        if (match.opponent.MiiAccount())
+        {
+            // A Mii player: their name with their friend code.
+            const std::string code = !match.opponent.friend_code.empty()
+                ? match.opponent.friend_code
+                : std::string(texts::T("launcher.challenge.no_friend_code"));
+            TextColored(fonts.caption, color::muted, (them + "  ·  " + code).c_str());
+        }
+        ImGui::Dummy({0, Dp(3)});
+        TextWrappedColored(fonts.body, Mix(color::muted, color::text, 0.45f),
+                           match.rule_set.empty() ? texts::T("launcher.challenge.a_set") : match.rule_set.c_str());
+        ImGui::Dummy({0, Dp(2)});
+        TextWrappedColored(fonts.caption, color::muted, (platform::DescribeRules(match.rules) + ".").c_str());
+        ImGui::EndGroup();
+        ImGui::SetCursorScreenPos({top.x, std::max(top.y + disc + Dp(4), ImGui::GetItemRectMax().y)});
+        ImGui::Dummy({0, Dp(18)});
+
+        // What happens, or what holds it up.
+        const bool blocked = !set_blocker_.empty();
+        if (view == ChallengeView::Invite)
+        {
+            if (blocked)
+                Callout(texts::T("launcher.challenge.blocked", {{"reason", set_blocker_}}), color::warning,
+                        Icon::Warning);
+            else TextWrappedColored(fonts.body, color::text, texts::T("launcher.challenge.accept_about"));
+            if (challenge_accepted_ == match.id && status.error_serial != challenge_errors_ && !status.error.empty())
+            {
+                ImGui::Dummy({0, Dp(10)});
+                Callout(status.error, color::danger, Icon::Error);
+            }
+            ImGui::Dummy({0, Dp(18)});
+        }
+        else if (view == ChallengeView::Waiting && !match.you_ready)
+        {
+            Callout(set_start_error_.empty()
+                        ? std::string(texts::T("launcher.challenge.start_failed"))
+                        : texts::T("launcher.challenge.start_failed_why", {{"reason", set_start_error_}}),
                     color::warning, Icon::Warning);
-        else if (miis.state == MiiDatabaseState::Unusable)
-            Callout(miis.error, color::danger, Icon::Error);
-        else if (BeginRows("##mii_rows"))
-        {
-            if (miis.miis.empty()) Row("None yet", "Make one below, or import yours from Dolphin, to play online.");
-            for (std::size_t n = 0; n < miis.miis.size(); ++n) MiiRow(miis.miis[n], n);
-            EndRows();
-            if (miis.Full()) TextWrappedColored(fonts.caption, color::muted, "The database is full: it holds 100 Miis.");
+            ImGui::Dummy({0, Dp(18)});
         }
-        EndCard();
-
-        BeginCard("##new_mii", "Make a Mii", "A random face from the Wii's own Mii maker, with the name you choose.",
-                  Icon::Person);
-        if (BeginRows("##new_mii_rows"))
+        else if (view == ChallengeView::Waiting && !match.opponent_online)
         {
-            Row("Name", "Up to 10 characters. The face is random: there is no Mii editor here.");
-            const float button = Dp(150);
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - button - Dp(10));
-            ImGui::InputTextWithHint("##mii_name", "Mii name", &new_mii_name_);
+            Callout(texts::T("launcher.challenge.opponent_closed", {{"name", them}}), color::warning, Icon::Warning);
+            ImGui::Dummy({0, Dp(18)});
+        }
+
+        // Footer: the state at the left, the actions at the right.
+        DialogDivider();
+        ImGui::Dummy({0, Dp(18)});
+        const float row = ImGui::GetCursorScreenPos().y, height = Dp(40);
+        const auto align_right = [&](float width) { ImGui::SetCursorScreenPos({right_edge - width, row}); };
+        const auto state_line = [&](const std::string& text) {
+            const ImVec2 pos = ImGui::GetCursorScreenPos();
+            Spinner({pos.x + Dp(8), pos.y + height * 0.5f}, Dp(7), Col(tint));
+            DrawLabel(draw, fonts.body, {pos.x + Dp(26), pos.y + (height - FontSize(fonts.body)) * 0.5f},
+                      Col(color::text), text.c_str());
+        };
+        const bool busy = status.busy;
+        if (view == ChallengeView::Invite)
+        {
+            const char *decline = texts::T("launcher.challenge.decline"),
+                       *accept = texts::T("launcher.challenge.accept");
+            const float decline_width = GhostWidth(decline, Icon::Close);
+            const float accept_width = blocked ? 0.0f : PrimaryWidth(accept, Icon::Play);
+            align_right(decline_width + (blocked ? 0.0f : Dp(10) + accept_width));
+            if (GhostButton("challenge_decline", decline, {decline_width, height}, !busy, Icon::Close)
+                || (CancelPressed() && !busy))
+            {
+                challenge_declined_ = match.id;
+                competitive_->Decline();
+            }
+            // The answer in focus, with its cursor shown, so the first Return
+            // or A answers (without the cursor ImGui spends it on showing it).
+            const auto focus = [] {
+                ImGui::SetItemDefaultFocus();
+                if (ImGui::IsWindowAppearing()) ImGui::SetNavCursorVisible(true);
+            };
+            if (blocked) focus();
+            else
+            {
+                ImGui::SameLine(0, Dp(10));
+                if (PrimaryButton("challenge_accept", accept, {accept_width, height}, !busy, Icon::Play))
+                {
+                    challenge_accepted_ = match.id;
+                    challenge_errors_ = status.error_serial;
+                    set_start_error_.clear();
+                    competitive_->Accept();
+                }
+                focus();
+            }
+        }
+        else if (view == ChallengeView::Accepting) state_line(texts::T("launcher.challenge.accepting"));
+        else if (view == ChallengeView::Starting)
+        {
+            const std::uint64_t now = SDL_GetTicks();
+            const int seconds = int(((countdown_end_ > now ? countdown_end_ - now : 0) + 999) / 1000);
+            state_line(seconds > 0 ? texts::T("launcher.challenge.starting_in", {{"seconds", std::to_string(seconds)}})
+                                   : std::string(texts::T("launcher.challenge.starting")));
+        }
+        else
+        {
+            const char *cancel = texts::T("launcher.challenge.cancel_set"),
+                       *again = texts::T("launcher.challenge.try_again");
+            const bool retry = !match.you_ready && !blocked;
+            if (match.you_ready) state_line(texts::T("launcher.challenge.waiting_ready", {{"name", them}}));
+            const float cancel_width = GhostWidth(cancel, Icon::Close);
+            const float again_width = retry ? PrimaryWidth(again, Icon::Play) : 0.0f;
+            align_right(cancel_width + (retry ? Dp(10) + again_width : 0.0f));
+            if (GhostButton("challenge_cancel", cancel, {cancel_width, height}, !busy, Icon::Close))
+                competitive_->CancelMatch();
+            if (retry)
+            {
+                ImGui::SameLine(0, Dp(10));
+                if (PrimaryButton("challenge_again", again, {again_width, height}, !busy, Icon::Play))
+                {
+                    set_start_error_.clear();
+                    competitive_->ReadyToPlay(true);
+                }
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::SetCursorScreenPos({ImGui::GetWindowPos().x + ImGui::GetStyle().WindowPadding.x, row});
+        ImGui::Dummy({1.0f, height});
+    }
+
+    // Nothing on its way from the profile service or Discord (for
+    // development captures).
+    bool CompetitiveSettled() const
+    {
+        if (!competitive_) return true;
+        const auto& status = competitive_status_;
+        const bool discord_due = status.state == CompetitiveService::State::SignedIn
+            && !status.info.discord_application.empty();
+        const auto discord = discord_status_.state;
+        const bool discord_settled = !discord_friends_ || discord == DiscordFriends::State::Missing
+            || (discord != DiscordFriends::State::Connecting && (discord != DiscordFriends::State::Off || !discord_due));
+        return status.state != CompetitiveService::State::Connecting && !status.busy && discord_settled;
+    }
+
+    // Match rules' first card: the server's rule set the player's challenges
+    // go out with, chosen from them as boxes (the game's online panel
+    // chooses it too), the chosen one in detail, kept in the settings file.
+    // The top of an Online page that needs the sign-in: its header, and while
+    // the player is signed out the way to Player profile, where the sign-in
+    // is. Whether the player is signed in.
+    bool OnlinePageTop(const char* title, const char* text)
+    {
+        PageHeader(title, text);
+        if (competitive_status_.state == CompetitiveService::State::SignedIn) return true;
+        BeginCard("##sign_in_first", texts::T("match_setup.online_top.sign_in_first"),
+                  texts::T("match_setup.online_top.sign_in_first_about"), Icon::Person);
+        const char* profile = texts::T("match_setup.online_top.player_profile");
+        if (GhostButton("sign_in_profile", profile, {GhostWidth(profile, Icon::Person), Dp(40)}, true, Icon::Person))
+            page_ = PageOnlineSettings;
+        EndCard();
+        return false;
+    }
+
+    // Online while not signed in: the two ways in (Connect Discord, Play with
+    // a Mii) and what playing online here brings; the Discord sign-in's code
+    // while it runs, and what is wrong when the server can't be used.
+    // ------------------------------------------- profiles of this computer
+    // A profile that signed in here is remembered (KnownProfile), so that
+    // after signing out the launcher can offer it again by name for a Mii of
+    // the game save that plays for it. Signed out, the server tells for which
+    // of those Miis a profile exists and how it signs in again (LookUpMiis):
+    // a new profile is not made for a Mii that has one, which would split a
+    // player in two (on the leaderboard, too).
+    const std::vector<platform::KnownProfile>& KnownProfiles()
+    {
+        if (!known_profiles_read_)
+        {
+            known_profiles_read_ = true;
+            known_profiles_ = platform::LoadKnownProfiles(platform::KnownProfilesFile(DataFolder(base_), file_.path));
+        }
+        return known_profiles_;
+    }
+
+    static std::string FriendCodeDigits(std::string_view text)
+    {
+        std::string out;
+        for (const char c : text)
+            if (c >= '0' && c <= '9') out += c;
+        return out;
+    }
+
+    // The signed-in profile, kept first in the remembered ones when it changes.
+    void RememberProfile()
+    {
+        const auto& status = competitive_status_;
+        if (status.serial == known_profiles_serial_) return;
+        known_profiles_serial_ = status.serial;
+        const auto& player = status.player;
+        if (player.id <= 0 || status.server.empty()) return;
+        platform::KnownProfile profile;
+        profile.server = status.server;
+        profile.player_id = player.id;
+        profile.name = player.name;
+        profile.account = player.account;
+        const auto add = [&](const std::string& code) {
+            if (!code.empty() && std::find(profile.friend_codes.begin(), profile.friend_codes.end(), code)
+                                     == profile.friend_codes.end())
+                profile.friend_codes.push_back(code);
+        };
+        add(player.friend_code);
+        for (const auto& wfc : player.wfc) add(wfc.friend_code);
+        auto profiles = KnownProfiles();
+        const auto same = [&](const platform::KnownProfile& known) {
+            return known.server == profile.server && known.player_id == profile.player_id;
+        };
+        if (!profiles.empty() && same(profiles.front()) && profiles.front().name == profile.name
+            && profiles.front().account == profile.account && profiles.front().friend_codes == profile.friend_codes)
+            return;
+        profiles.erase(std::remove_if(profiles.begin(), profiles.end(), same), profiles.end());
+        profiles.insert(profiles.begin(), std::move(profile));
+        if (profiles.size() > 8) profiles.resize(8);
+        try
+        {
+            platform::SaveKnownProfiles(platform::KnownProfilesFile(DataFolder(base_), file_.path), profiles);
+            known_profiles_ = std::move(profiles);
+        }
+        catch (const std::exception& e)
+        {
+            platform::SessionLogLine(std::string("Online: the profiles of this computer are not kept: ") + e.what());
+            known_profiles_ = std::move(profiles);
+        }
+    }
+
+    // Signed out: the server is asked which of the game save's Miis play for
+    // a profile (once for each list of them).
+    void LookUpSaveMiis()
+    {
+        std::vector<std::uint32_t> ids;
+        for (const auto& mii : InstalledMiis().miis)
+            if (mii.friend_code && ids.size() < 32) ids.push_back(std::uint32_t(mii.friend_code));
+        std::sort(ids.begin(), ids.end());
+        competitive_->LookUpMiis(std::move(ids));
+    }
+
+    // The profile a Mii of the game save plays for, when one does: how it
+    // signs in again ("game": that Mii's WFC login; "discord") and its name
+    // when it signed in here. The server's answer counts; without one (an
+    // older server, or none yet) what this computer remembers.
+    struct MiiProfile
+    {
+        std::string sign_in;
+        std::string name;
+    };
+    std::optional<MiiProfile> ProfileOfMii(const platform::InstalledMii& mii)
+    {
+        if (!mii.friend_code) return std::nullopt;
+        const auto& status = competitive_status_;
+        const std::string code = FriendCodeDigits(platform::FriendCodeText(mii.friend_code));
+        MiiProfile profile;
+        std::string remembered;
+        for (const auto& known : KnownProfiles())
+        {
+            if (known.server != status.server) continue;
+            for (const auto& own : known.friend_codes)
+                if (FriendCodeDigits(own) == code && remembered.empty())
+                {
+                    profile.name = known.name;
+                    remembered = known.account == "mii" ? "game" : known.account;
+                }
+        }
+        const auto id = std::uint32_t(mii.friend_code);
+        if (std::find(status.known_asked.begin(), status.known_asked.end(), id) != status.known_asked.end())
+        {
+            for (const auto& [known_id, sign_in] : status.known_miis)
+                if (known_id == id) profile.sign_in = sign_in;
+        }
+        else profile.sign_in = remembered;
+        if (profile.sign_in != "game" && profile.sign_in != "discord") return std::nullopt;
+        return profile;
+    }
+
+    void OnlineWelcome()
+    {
+        using State = CompetitiveService::State;
+        const auto& status = competitive_status_;
+        const auto& fonts = CurrentFonts();
+        BeginCard("##online_welcome", nullptr);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x;
+        {
+            // A soft glow behind the heading, from the accent into the card.
+            const ImVec2 window = ImGui::GetWindowPos();
+            const float band = Dp(150);
+            FillGradient(draw, {window.x + Dp(1), window.y + Dp(1)},
+                         {window.x + ImGui::GetWindowWidth() - Dp(1), window.y + band},
+                         Col(Mix(color::card, color::accent, 0.10f)), Col(color::card), Dp(16), false);
+        }
+        ImGui::Dummy({0, Dp(8)});
+        TextColored(fonts.title, color::text, texts::T("match_setup.welcome.title"));
+        ImGui::Dummy({0, Dp(2)});
+        TextWrappedColored(fonts.body, color::muted, texts::T("match_setup.welcome.subtitle"));
+        ImGui::Dummy({0, Dp(18)});
+
+        // The two ways in, or the sign-in's code, or what holds them up.
+        const float left = ImGui::GetCursorPosX();
+        const auto centred = [&](ImFont* font, const ImVec4& tint, const std::string& text) {
+            ImGui::SetCursorPosX(left + std::max(0.0f, (width - TextSize(font, text.c_str()).x) * 0.5f));
+            TextColored(font, tint, text.c_str());
+        };
+        switch (status.state)
+        {
+        case State::SignedOut:
+            OnlineChoices(width);
+            MiiSignInWaiting(width);
+            break;
+        case State::SigningIn:
+        {
+            centred(fonts.heading, color::text, texts::T("match_setup.welcome.finish_in_browser"));
+            centred(fonts.body, color::muted, texts::T("match_setup.welcome.check_code"));
+            ImGui::Dummy({0, Dp(4)});
+            centred(fonts.title, color::accent, status.code);
+            ImGui::Dummy({0, Dp(10)});
+            const float buttons = Dp(210) + Dp(10) + Dp(120);
+            ImGui::SetCursorPosX(left + (width - buttons) * 0.5f);
+            if (SecondaryButton("sign_in_again", texts::T("match_setup.welcome.open_again"), Dp(210, 40),
+                                !status.url.empty(), Icon::Link))
+                SDL_OpenURL(status.url.c_str());
             ImGui::SameLine(0, Dp(10));
-            const bool valid = mscharged::platform::ValidMiiName(new_mii_name_);
-            // What keeps a new Mii out of the database, told before the click.
-            const char* blocked = miis.state == MiiDatabaseState::Damaged    ? "Replace the damaged Mii database first."
-                : miis.state == MiiDatabaseState::Unusable                    ? "The save folder cannot take a Mii."
-                : miis.Full()                                                 ? "The database holds 100 Miis already."
-                                                                              : nullptr;
-            if (PrimaryButton("make_mii", "Make Mii", {button, ImGui::GetFrameHeight()},
-                              valid && !blocked && config_ok_, Icon::Person))
-                MakeMii();
-            if (blocked) TextWrappedColored(fonts.caption, color::warning, blocked);
-            else if (!new_mii_name_.empty() && !valid)
-                TextWrappedColored(fonts.caption, color::warning, "A Mii's name has 1 to 10 characters, without emoji.");
+            if (GhostButton("sign_in_stop", texts::T("match_setup.buttons.cancel"), Dp(120, 40)))
+                competitive_->StopSignIn();
+            break;
+        }
+        case State::Connecting:
+        {
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            Spinner({at.x + Dp(10), at.y + Dp(12)}, Dp(8), Col(color::muted));
+            DrawLabel(draw, fonts.body, {at.x + Dp(28), at.y + Dp(12) - FontSize(fonts.body) * 0.5f}, Col(color::muted),
+                      texts::T("match_setup.welcome.connecting"));
+            ImGui::Dummy({width, Dp(24)});
+            break;
+        }
+        case State::NoServer:
+            Callout(texts::T("match_setup.welcome.no_server",
+                             {{"key", "online.profile_server"}, {"file", file_.path.filename().string()}}),
+                    color::warning, Icon::Warning);
+            break;
+        default:
+            Callout(status.error.empty()
+                        ? std::string(texts::T("match_setup.welcome.no_answer"))
+                        : texts::T("match_setup.welcome.error_retry",
+                                   {{"error", status.error + (status.error.back() != '.' ? "." : "")}}),
+                    color::warning, Icon::Warning);
+            break;
+        }
+        ImGui::Dummy({0, Dp(22)});
+
+        // What it brings either way, as tiles two by two.
+        struct Benefit
+        {
+            Icon icon;
+            const char* title;
+            std::string text;
+            const char* tag;
+        };
+        const Benefit benefits[] = {
+            {Icon::Play, texts::T("match_setup.welcome.benefits.one_click.title"),
+             texts::T("match_setup.welcome.benefits.one_click.text"), nullptr},
+            {Icon::Chat, texts::T("match_setup.welcome.benefits.challenges.title"),
+             texts::T("match_setup.welcome.benefits.challenges.text", {{"key", "F1"}, {"button", "HOME"}}), nullptr},
+            {Icon::Trophy, texts::T("match_setup.welcome.benefits.sets.title"),
+             texts::T("match_setup.welcome.benefits.sets.text"), nullptr},
+            {Icon::Medal, texts::T("match_setup.welcome.benefits.tournaments.title"),
+             texts::T("match_setup.welcome.benefits.tournaments.text"), texts::T("match_setup.welcome.benefits.soon")},
+        };
+        const float gap = Dp(12), tile = (width - gap) * 0.5f, pad = Dp(16), badge = Dp(38);
+        const float text_width = tile - pad * 2 - badge - Dp(14);
+        for (int row = 0; row < 2; ++row)
+        {
+            float height = 0.0f;
+            for (int column = 0; column < 2; ++column)
+            {
+                const Benefit& benefit = benefits[row * 2 + column];
+                const float text =
+                    fonts.body->CalcTextSizeA(FontSize(fonts.body), FLT_MAX, text_width, benefit.text.c_str()).y;
+                height = std::max(height, pad + FontSize(fonts.label) + Dp(6) + text + pad);
+            }
+            const ImVec2 top = ImGui::GetCursorScreenPos();
+            for (int column = 0; column < 2; ++column)
+            {
+                const Benefit& benefit = benefits[row * 2 + column];
+                const ImVec2 at{top.x + column * (tile + gap), top.y};
+                const ImVec2 end{at.x + tile, at.y + height};
+                draw->AddRectFilled(at, end, Col(color::field), Dp(14));
+                draw->AddRect(at, end, Col(color::border, 0.8f), Dp(14));
+                const ImVec2 icon{at.x + pad + badge * 0.5f, at.y + pad + badge * 0.5f};
+                draw->AddRectFilled({icon.x - badge * 0.5f, icon.y - badge * 0.5f},
+                                    {icon.x + badge * 0.5f, icon.y + badge * 0.5f},
+                                    Col(benefit.tag ? color::info : color::accent, 0.14f), Dp(10));
+                DrawIcon(draw, benefit.icon, icon, Dp(19), Col(benefit.tag ? color::info : color::accent));
+                const float text_left = at.x + pad + badge + Dp(14);
+                DrawLabel(draw, fonts.label, {text_left, at.y + pad}, Col(color::text), benefit.title);
+                if (benefit.tag)
+                {
+                    const float x = text_left + TextSize(fonts.label, benefit.title).x + Dp(10);
+                    const ImVec2 tag = TextSize(fonts.caption, benefit.tag);
+                    const ImVec2 tag_at{x, at.y + pad + (FontSize(fonts.label) - Dp(20)) * 0.5f};
+                    draw->AddRectFilled(tag_at, {tag_at.x + tag.x + Dp(16), tag_at.y + Dp(20)}, Col(color::info, 0.16f),
+                                        Dp(10));
+                    DrawLabel(draw, fonts.caption, {tag_at.x + Dp(8), tag_at.y + (Dp(20) - tag.y) * 0.5f},
+                              Col(color::info), benefit.tag);
+                }
+                draw->AddText(fonts.body, FontSize(fonts.body), {text_left, at.y + pad + FontSize(fonts.label) + Dp(6)},
+                              Col(color::muted), benefit.text.c_str(), nullptr, text_width);
+            }
+            ImGui::Dummy({width, height});
+            ImGui::Dummy({0, Dp(2)});
+        }
+
+        // The server, for those who run their own.
+        std::string host = status.server.empty() ? draft_.profile_server : status.server;
+        if (const auto scheme = host.find("://"); scheme != std::string::npos) host.erase(0, scheme + 3);
+        const std::string server = texts::T("match_setup.welcome.server", {{"host", host}})
+            + (status.info.version.empty() ? std::string() : "  ·  " + status.info.version);
+        ImGui::Dummy({0, Dp(14)});
+        centred(fonts.caption, color::dim, server);
+        EndCard();
+        if (status.state == State::SignedOut && status.info.test) CompetitiveTestSignIn();
+    }
+
+    // The welcome's two ways in, side by side: Connect Discord (the profile
+    // and Mii from the Discord account, Discord friends and tournaments) and
+    // Play with a Mii (no account), each with its button.
+    // A Mii's sign-in through the game, chosen in the Mii wizard for a Mii
+    // that plays for a profile already: what to do now, and the way to stop
+    // waiting ([online] mii_sign_in, which the game clears once that Mii
+    // logged in to WFC).
+    void MiiSignInWaiting(float width)
+    {
+        if (!competitive_status_.info.mii || !draft_.mii_sign_in) return;
+        ImGui::Dummy({0, Dp(14)});
+        const float left = ImGui::GetCursorPosX();
+        const platform::InstalledMii* with = nullptr;
+        if (!draft_.mii_sign_in_with.empty())
+            for (const auto& mii : InstalledMiis().miis)
+                if (platform::MiiCreateIdText(mii.create_id) == draft_.mii_sign_in_with) with = &mii;
+        Callout(with ? texts::T("match_setup.come_back.hint", {{"mii", with->name}})
+                     : std::string(texts::T("match_setup.come_back.hint_your_mii")),
+                color::info, Icon::Person);
+        ImGui::Dummy({0, Dp(6)});
+        const char* stop = texts::T("match_setup.come_back.never_mind");
+        ImGui::SetCursorPosX(left + std::max(0.0f, (width - GhostWidth(stop, Icon::Close)) * 0.5f));
+        if (GhostButton("mii_come_back_stop", stop, {GhostWidth(stop, Icon::Close), Dp(36)}, config_ok_, Icon::Close))
+            SetMiiSignIn(false);
+    }
+
+    // [online] mii_sign_in, saved at once without the other changes not saved yet.
+    // `with`: the game save's Mii picked for it (its create ID), which the
+    // hint names, after a restart too; empty for none.
+    void SetMiiSignIn(bool on, const std::string& with = {})
+    {
+        draft_.mii_sign_in = on;
+        draft_.mii_sign_in_with = on ? with : std::string();
+        if (!config_ok_) return;
+        try
+        {
+            Settings saved = file_.settings;
+            saved.mii_sign_in = on;
+            saved.mii_sign_in_with = draft_.mii_sign_in_with;
+            SaveConfig(file_, saved);
+        }
+        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+    }
+
+    void OnlineChoices(float width)
+    {
+        const auto& status = competitive_status_;
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        struct Choice
+        {
+            const char* title;
+            const char* text;
+            ImVec4 tint;
+        };
+        const Choice choices[] = {
+            {texts::T("match_setup.discord.connect"), texts::T("match_setup.choices.discord"), color::discord},
+            {texts::T("match_setup.wizard.play_with_a_mii"), texts::T("match_setup.choices.mii"), color::accent},
+        };
+        const float gap = Dp(14), tile = (width - gap) * 0.5f, pad = Dp(20), badge = Dp(44), button = Dp(48);
+        const float text_width = tile - pad * 2;
+        float text_height = 0.0f;
+        for (const auto& choice : choices)
+            text_height = std::max(text_height, fonts.body->CalcTextSizeA(FontSize(fonts.body), FLT_MAX, text_width,
+                                                                          choice.text).y);
+        const float height = pad + badge + Dp(14) + FontSize(fonts.heading) + Dp(6) + text_height + Dp(18) + button + pad;
+        const ImVec2 top = ImGui::GetCursorScreenPos();
+        const bool discord = status.info.discord;
+        for (int n = 0; n < 2; ++n)
+        {
+            const Choice& choice = choices[n];
+            const ImVec2 at{top.x + n * (tile + gap), top.y};
+            const ImVec2 end{at.x + tile, at.y + height};
+            FillGradient(draw, at, end, Col(Mix(color::field, choice.tint, 0.08f)), Col(color::field), Dp(16), false);
+            draw->AddRect(at, end, Col(Mix(color::border, choice.tint, 0.35f), 0.9f), Dp(16));
+            const ImVec2 icon{at.x + pad + badge * 0.5f, at.y + pad + badge * 0.5f};
+            draw->AddRectFilled({icon.x - badge * 0.5f, icon.y - badge * 0.5f},
+                                {icon.x + badge * 0.5f, icon.y + badge * 0.5f}, Col(choice.tint, n == 0 ? 1.0f : 0.16f),
+                                Dp(12));
+            if (n == 0) DrawDiscordMark(draw, icon, Dp(26), IM_COL32_WHITE, Col(choice.tint));
+            else DrawIcon(draw, Icon::Person, icon, Dp(22), Col(choice.tint));
+            const float y = at.y + pad + badge + Dp(14);
+            DrawLabel(draw, fonts.heading, {at.x + pad, y}, Col(color::text), choice.title);
+            draw->AddText(fonts.body, FontSize(fonts.body), {at.x + pad, y + FontSize(fonts.heading) + Dp(6)},
+                          Col(color::muted), choice.text, nullptr, text_width);
+            ImGui::SetCursorScreenPos({at.x + pad, end.y - pad - button});
+            if (n == 0)
+            {
+                if (discord)
+                {
+                    ImGui::BeginDisabled(status.busy);
+                    if (DiscordButton("online_connect", texts::T("match_setup.discord.connect"), {text_width, button},
+                                      true))
+                        competitive_->SignIn();
+                    ImGui::EndDisabled();
+                }
+                else
+                {
+                    ImGui::Dummy({text_width, (button - FontSize(fonts.body)) * 0.5f});
+                    ImGui::SetCursorScreenPos({at.x + pad, ImGui::GetCursorScreenPos().y});
+                    TextColored(fonts.body, color::dim, texts::T("match_setup.discord.not_offered"));
+                }
+            }
+            else if (!status.info.mii)
+            {
+                ImGui::Dummy({text_width, (button - FontSize(fonts.body)) * 0.5f});
+                ImGui::SetCursorScreenPos({at.x + pad, ImGui::GetCursorScreenPos().y});
+                TextColored(fonts.body, color::dim, texts::T("match_setup.choices.no_mii"));
+            }
+            else if (PrimaryButton("online_mii", texts::T("match_setup.wizard.play_with_a_mii"), {text_width, button},
+                                   !status.busy, Icon::Person))
+                StartMiiWizard();
+        }
+        ImGui::SetCursorScreenPos(top);
+        ImGui::Dummy({width, height});
+        ImGui::Dummy({0, Dp(10)});
+        TextWrappedColored(fonts.caption, color::dim, texts::T("match_setup.choices.footer"));
+    }
+
+    // ------------------------------------------------------- Mii sign-in
+    // Play with a Mii: two steps on Player profile, Your Mii (the profile
+    // name, and a new Mii, one of this computer's or Dolphin's) and Go
+    // online (the new Mii made, the sign-in by the profile name).
+    void StartMiiWizard()
+    {
+        wizard_ = MiiWizard{};
+        wizard_.step = 1;
+        wizard_.created = std::int64_t(std::time(nullptr));
+        const std::uint32_t seed = std::random_device{}();
+        wizard_.color = int(seed % 12);
+        RollWizardFace(seed);
+        // Miis here already: the list first.
+        const auto& miis = InstalledMiis();
+        if (miis.state == platform::MiiDatabaseState::Ready && !miis.miis.empty()) wizard_.source = 1;
+    }
+
+    // A new random face for the wizard's new Mii, from the Wii's own Mii
+    // maker (its favourite colour stays the wizard's).
+    void RollWizardFace(std::uint32_t seed)
+    {
+        wizard_.seed = seed;
+        wizard_.face = platform::mii::ReadMiiFace(platform::MakeRandomMii("Mii", seed, wizard_.created));
+    }
+
+    // The wizard's new Mii as its record: the name it gets, the face shown
+    // (rolled or edited) and the favourite colour, its create ID counting
+    // from `created` (Unix seconds). Throws for a name ValidMiiName refuses.
+    std::string WizardNewRecord(std::int64_t created)
+    {
+        auto record = platform::MakeRandomMii(WizardMiiName(), wizard_.seed, created, wizard_.color);
+        auto face = wizard_.face;
+        face.favorite_color = wizard_.color;
+        platform::mii::WriteMiiFace(face, record);
+        return record;
+    }
+
+    // The Mii of this computer the wizard has chosen, if it is still there.
+    const platform::InstalledMii* WizardChosenMii()
+    {
+        if (!wizard_.chosen) return nullptr;
+        for (const auto& mii : InstalledMiis().miis)
+            if (mii.create_id == *wizard_.chosen) return &mii;
+        return nullptr;
+    }
+
+    // The name the Mii has in the game: a new Mii's (typed, else made from
+    // the profile name, as a Discord player's is from their Discord name),
+    // or the chosen Mii's own.
+    std::string WizardMiiName()
+    {
+        if (wizard_.source != 0)
+        {
+            const auto* mii = WizardChosenMii();
+            return mii ? mii->name : std::string();
+        }
+        if (wizard_.own_mii_name) return wizard_.mii_name;
+        const std::string profile = TrimmedProfileName(wizard_.profile_name);
+        return profile.empty() ? std::string() : platform::FitMiiName(profile);
+    }
+
+    // What keeps step 1 from going on, told under it; empty when it can.
+    std::string WizardBlocker()
+    {
+        if (!ValidProfileName(wizard_.profile_name))
+            return TrimmedProfileName(wizard_.profile_name).empty()
+                ? texts::T("match_setup.wizard.blockers.choose_name")
+                : texts::T("match_setup.wizard.blockers.name_length");
+        using platform::MiiDatabaseState;
+        const auto& miis = InstalledMiis();
+        if (wizard_.source == 0)
+        {
+            if (!platform::ValidMiiName(WizardMiiName())) return texts::T("match_setup.wizard.blockers.mii_name");
+            if (miis.state == MiiDatabaseState::Damaged) return texts::T("match_setup.wizard.blockers.damaged");
+            if (miis.state == MiiDatabaseState::Unusable) return miis.error;
+            if (miis.Full()) return texts::T("match_setup.wizard.blockers.full");
+            return {};
+        }
+        const auto* chosen = WizardChosenMii();
+        if (!chosen) return texts::T("match_setup.wizard.blockers.choose_mii");
+        if (ProfileOfMii(*chosen)) return texts::T("match_setup.wizard.blockers.has_profile");
+        return {};
+    }
+
+    void MiiWizardPage()
+    {
+        PageHeader(texts::T("match_setup.wizard.play_with_a_mii"), texts::T("match_setup.wizard.page_about"));
+        if (wizard_.step == 1) MiiWizardYourMii();
+        else MiiWizardGoOnline();
+    }
+
+    // Step 1: the profile name, and the Mii.
+    void MiiWizardYourMii()
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        using platform::MiiDatabaseState;
+        BeginCard("##mii_wizard_1", texts::T("match_setup.mii.your_mii"), texts::T("match_setup.wizard.step_1"),
+                  Icon::Person);
+        if (BeginRows("##mii_wizard_rows"))
+        {
+            Row(texts::T("match_setup.wizard.name"), texts::T("match_setup.wizard.name_about"));
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+            if (ImGui::InputTextWithHint("##profile_name", texts::T("match_setup.wizard.name_hint"),
+                                         &wizard_.profile_name))
+                wizard_.profile_typed = true;
+            // The Mii's own name, which the game shows: made from the profile
+            // name (as a Discord player's from their Discord name), or typed.
+            const std::string mii_name = WizardMiiName();
+            if (wizard_.source == 0 && wizard_.own_mii_name)
+            {
+                ImGui::Dummy({0, Dp(2)});
+                TextColored(fonts.caption, color::muted, texts::T("match_setup.wizard.mii_name_label"));
+                const char* made = texts::T("match_setup.wizard.mii_name_reset");
+                const float reset = GhostWidth(made, Icon::None);
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - reset - Dp(8));
+                ImGui::InputTextWithHint("##wizard_mii_name", texts::T("match_setup.mii.name_hint"), &wizard_.mii_name);
+                ImGui::SameLine(0, Dp(8));
+                if (GhostButton("wizard_mii_name_reset", made, {reset, ImGui::GetFrameHeight()}))
+                    wizard_.own_mii_name = false;
+            }
+            else if (!mii_name.empty())
+            {
+                ImGui::Dummy({0, Dp(2)});
+                const std::string line = texts::T("match_setup.wizard.mii_name_line", {{"mii", mii_name}});
+                const ImVec2 at = ImGui::GetCursorScreenPos();
+                TextColored(fonts.caption, color::muted, line.c_str());
+                if (wizard_.source == 0)
+                {
+                    ImGui::SameLine(0, Dp(4));
+                    ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, at.y - Dp(4)});
+                    const char* change = texts::T("match_setup.wizard.change");
+                    if (GhostButton("wizard_mii_name_change", change, {GhostWidth(change, Icon::None), Dp(26)}))
+                    {
+                        wizard_.own_mii_name = true;
+                        wizard_.mii_name = mii_name;
+                    }
+                }
+            }
+
+            Row(texts::T("match_setup.mii.your_mii"), texts::T("match_setup.wizard.your_mii_about"));
+            int source = wizard_.source;
+            if (Segmented("##wizard_source", &source,
+                          {texts::T("match_setup.wizard.source.new"),
+                           texts::T("match_setup.wizard.source.this_computer"),
+                           texts::T("match_setup.wizard.source.dolphin")},
+                          ImGui::GetContentRegionAvail().x))
+                wizard_.source = source;
             EndRows();
         }
-        EndCard();
+        ImGui::Dummy({0, Dp(6)});
+        const ImVec2 line = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        draw->AddRectFilled(line, {line.x + width, line.y + Dp(1)}, Col(color::border));
+        ImGui::Dummy({width, Dp(14)});
 
-        BeginCard("##dolphin_miis", "Import from Dolphin",
-                  "Your own Miis, if you play on Dolphin. They replace the Miis above.", Icon::Copy);
-        bool browsing;
-        { std::lock_guard<std::mutex> lock(folder_dialog_->mutex); browsing = folder_dialog_->active; }
-        if (BeginRows("##dolphin_mii_rows"))
+        const auto& miis = InstalledMiis();
+        if (wizard_.source == 0)
         {
-            const auto found = mscharged::platform::FindDolphinMiiDatabases();
-            const std::string description = found.empty()
-                ? "No Dolphin Miis found. Choose Dolphin's user folder."
-                : "Copies the Miis Dolphin keeps in " + PathUtf8(found.front()) + ".";
-            Row("Dolphin's Miis", description.c_str());
-            const float width = ImGui::GetContentRegionAvail().x;
+            // A new Mii: its face (another one, or edited), and its favourite colour.
+            const float figure = Dp(112);
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            auto face = wizard_.face;
+            face.favorite_color = wizard_.color;
+            std::string preview(platform::mii::kMiiRecordBytes, '\0');
+            platform::mii::WriteMiiFace(face, preview);
+            DrawMii(draw, {at.x + figure * 0.5f, at.y + figure * 0.5f}, figure, wizard_.color, preview, 2);
+            ImGui::SetCursorScreenPos({at.x + figure + Dp(24), at.y});
+            ImGui::BeginGroup();
+            TextColored(fonts.label, color::text, texts::T("match_setup.mii.favourite_colour"));
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(4));
+            TextColored(fonts.caption, color::muted, kMiiColorNames[wizard_.color]);
+            ImGui::Dummy({0, Dp(2)});
+            const float swatches = ImGui::GetContentRegionAvail().x;
+            MiiColorSwatches("##wizard_colour", &wizard_.color, Dp(30), swatches >= Dp(30 * 12 + 10 * 11) ? 12 : 6);
+            ImGui::Dummy({0, Dp(6)});
+            const char* another = texts::T("match_setup.wizard.another_face");
+            if (SecondaryButton("wizard_another_face", another, {GhostWidth(another, Icon::Refresh) + Dp(16), Dp(36)},
+                                true, Icon::Refresh))
+                RollWizardFace(std::random_device{}());
+            ImGui::SameLine(0, Dp(10));
+            const char* edit = texts::T("match_setup.wizard.edit_face");
+            if (SecondaryButton("wizard_edit_face", edit, {GhostWidth(edit, Icon::Paint) + Dp(16), Dp(36)}, true,
+                                Icon::Paint))
+                OpenMiiEditor(true, preview, false, false);
+            ImGui::Dummy({0, Dp(4)});
+            ImGui::PushTextWrapPos(0.0f);
+            TextWrappedColored(fonts.caption, color::dim, texts::T("match_setup.wizard.random_face_note"));
+            ImGui::PopTextWrapPos();
+            ImGui::EndGroup();
+            const float bottom = std::max(ImGui::GetItemRectMax().y, at.y + figure);
+            ImGui::SetCursorScreenPos({at.x, bottom});
+            ImGui::Dummy({width, Dp(4)});
+        }
+        else if (wizard_.source == 1)
+        {
+            if (miis.state == MiiDatabaseState::Damaged)
+                Callout(texts::T("match_setup.wizard.database_damaged"), color::warning, Icon::Warning);
+            else if (miis.state == MiiDatabaseState::Unusable)
+                Callout(miis.error, color::danger, Icon::Error);
+            else if (miis.miis.empty())
+                TextWrappedColored(fonts.body, color::muted, texts::T("match_setup.wizard.no_miis"));
+            // Choosing one gives the profile its name until the player types one.
+            else
+            {
+                if (MiiGrid("##wizard_miis", miis.miis, wizard_.chosen)
+                    && (!wizard_.profile_typed || TrimmedProfileName(wizard_.profile_name).empty()))
+                {
+                    if (const auto* mii = WizardChosenMii()) wizard_.profile_name = mii->name;
+                    wizard_.profile_typed = false;
+                }
+                // A Mii that plays for a profile already gets that profile
+                // back, not a second one.
+                if (const auto* mii = WizardChosenMii())
+                    if (const auto profile = ProfileOfMii(*mii))
+                    {
+                        ImGui::Dummy({0, Dp(8)});
+                        Callout(!profile->name.empty()
+                                    ? texts::T("match_setup.wizard.has_profile_named",
+                                               {{"mii", mii->name}, {"name", profile->name}})
+                                    : profile->sign_in == "discord"
+                                    ? texts::T("match_setup.wizard.has_profile_discord", {{"mii", mii->name}})
+                                    : texts::T("match_setup.wizard.has_profile_recharged", {{"mii", mii->name}}),
+                                color::info, Icon::Person);
+                        ImGui::Dummy({0, Dp(4)});
+                        if (profile->sign_in == "game")
+                        {
+                            const std::string label = texts::T("match_setup.mii.sign_in_with", {{"mii", mii->name}});
+                            if (SecondaryButton("wizard_mii_back", label.c_str(),
+                                                {GhostWidth(label.c_str(), Icon::Person) + Dp(16), Dp(36)}, config_ok_,
+                                                Icon::Person))
+                            {
+                                SetMiiSignIn(true, platform::MiiCreateIdText(mii->create_id));
+                                wizard_.step = 0;
+                            }
+                        }
+                        else if (competitive_status_.info.discord
+                                 && DiscordButton("wizard_mii_discord", texts::T("match_setup.discord.connect"),
+                                                  Dp(200, 36))
+                                 && !competitive_status_.busy)
+                        {
+                            wizard_.step = 0;
+                            competitive_->SignIn();
+                        }
+                    }
+            }
+        }
+        else
+        {
+            // From Dolphin: the import (it replaces this computer's Miis),
+            // then the list to choose from.
+            TextWrappedColored(fonts.body, color::muted, texts::T("match_setup.wizard.dolphin_about"));
+            ImGui::Dummy({0, Dp(6)});
+            bool browsing;
+            {
+                std::lock_guard<std::mutex> lock(folder_dialog_->mutex);
+                browsing = folder_dialog_->active;
+            }
+            const auto found = platform::FindDolphinMiiDatabases();
             if (!found.empty())
             {
-                if (SecondaryButton("import_miis", "Import Dolphin Miis", {width, Dp(40)}, config_ok_, Icon::Copy))
+                const std::string where = texts::T("match_setup.wizard.found_in", {{"path", PathUtf8(found.front())}});
+                TextWrappedColored(fonts.caption, color::dim, where.c_str());
+                ImGui::Dummy({0, Dp(4)});
+                if (SecondaryButton("wizard_import", texts::T("match_setup.wizard.import_miis"), Dp(220, 40),
+                                    config_ok_, Icon::Copy))
                     AskImport(found.front(), ImportKind::Miis);
-                ImGui::Dummy({0, Dp(2)});
+                ImGui::SameLine(0, Dp(10));
             }
-            if (SecondaryButton("import_miis_choose", found.empty() ? "Choose folder..." : "Choose another folder...",
-                                {width, Dp(40)}, !browsing && config_ok_, Icon::Folder))
+            else
+            {
+                TextWrappedColored(fonts.caption, color::dim, texts::T("match_setup.wizard.no_dolphin_miis"));
+                ImGui::Dummy({0, Dp(4)});
+            }
+            if (SecondaryButton("wizard_import_choose",
+                                found.empty() ? texts::T("match_setup.wizard.choose_folder")
+                                              : texts::T("match_setup.wizard.choose_another_folder"),
+                                Dp(220, 40), !browsing && config_ok_, Icon::Folder))
                 BrowseFolder(FolderPurpose::DolphinMiis);
-            EndRows();
+        }
+
+        ImGui::Dummy({0, Dp(14)});
+        const std::string blocker = WizardBlocker();
+        const ImVec2 bar = ImGui::GetCursorScreenPos();
+        if (GhostButton("wizard_back", texts::T("match_setup.buttons.back"), Dp(110, 42), true, Icon::Back))
+            wizard_.step = 0;
+        const float next = Dp(150);
+        if (!blocker.empty() && (wizard_.profile_typed || wizard_.source != 0))
+        {
+            ImGui::SameLine(0, Dp(16));
+            ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, bar.y + (Dp(42) - FontSize(fonts.caption)) * 0.5f});
+            TextColored(fonts.caption, color::warning, blocker.c_str());
+        }
+        ImGui::SetCursorScreenPos({bar.x + width - next, bar.y});
+        if (PrimaryButton("wizard_next", texts::T("match_setup.buttons.next"), {next, Dp(42)}, blocker.empty()))
+            wizard_.step = 2;
+        EndCard();
+    }
+
+    // This computer's Miis as tiles, the one `chosen` marked; true when a
+    // click chose one (into `chosen`).
+    bool MiiGrid(const char* id, const std::vector<platform::InstalledMii>& miis,
+                 std::optional<std::array<unsigned char, 8>>& chosen_id)
+    {
+        bool clicked = false;
+        ImGui::PushID(id);
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x, gap = Dp(10);
+        const int columns = width > Dp(640) ? 3 : 2;
+        const float tile = (width - gap * float(columns - 1)) / float(columns), height = Dp(62), figure = Dp(40);
+        for (std::size_t n = 0; n < miis.size(); ++n)
+        {
+            const auto& mii = miis[n];
+            if (n % std::size_t(columns)) ImGui::SameLine(0, gap);
+            ImGui::PushID(int(n));
+            const ImVec2 min = ImGui::GetCursorScreenPos(), max{min.x + tile, min.y + height};
+            if (ImGui::InvisibleButton("##mii", {tile, height}))
+            {
+                chosen_id = mii.create_id;
+                clicked = true;
+            }
+            const bool chosen = chosen_id && *chosen_id == mii.create_id;
+            const float hover = Animate(ImGui::GetItemID(), ImGui::IsItemHovered(), 14.0f);
+            const float active = Animate(ImGui::GetID("##chosen"), chosen, 12.0f);
+            if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            draw->AddRectFilled(min, max, Col(Mix(Mix(color::field, color::card_hover, hover), color::accent_dark, active)),
+                                Dp(12));
+            draw->AddRect(min, max, Col(Mix(color::border, color::accent, active), 0.6f + 0.4f * active), Dp(12), 0,
+                          Dp(1.0f + 0.5f * active));
+            DrawMii(draw, {min.x + Dp(12) + figure * 0.5f, min.y + height * 0.5f}, figure, mii.favorite_color,
+                       mii.record);
+            const float text = min.x + Dp(12) + figure + Dp(12);
+            const float block = FontSize(fonts.label) + Dp(2) + FontSize(fonts.caption);
+            const float top = min.y + (height - block) * 0.5f;
+            DrawClipped(draw, fonts.label, {text, top}, max.x - text - Dp(30), Mix(color::text, color::accent_hi, active),
+                        mii.name);
+            DrawClipped(draw, fonts.caption, {text, top + FontSize(fonts.label) + Dp(2)}, max.x - text - Dp(30),
+                        color::muted,
+                        mii.friend_code ? texts::T("match_setup.mii.friend_code",
+                                                   {{"code", platform::FriendCodeText(mii.friend_code)}})
+                                        : std::string(texts::T("match_setup.mii.no_friend_code")));
+            if (active > 0.0f)
+                DrawIcon(draw, Icon::Check, {max.x - Dp(18), min.y + height * 0.5f}, Dp(16), Col(color::accent, active));
+            ImGui::PopID();
+        }
+        ImGui::PopID();
+        return clicked;
+    }
+
+    // Step 2: what goes online, and Go online.
+    void MiiWizardGoOnline()
+    {
+        const auto& status = competitive_status_;
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        BeginCard("##mii_wizard_2", texts::T("match_setup.wizard.go_online"), texts::T("match_setup.wizard.step_2"),
+                  Icon::Play);
+        const std::string profile = TrimmedProfileName(wizard_.profile_name);
+        const std::string mii_name = WizardMiiName();
+        const auto* chosen = wizard_.source == 0 ? nullptr : WizardChosenMii();
+        std::string record = chosen ? chosen->record : std::string();
+        if (!chosen && platform::ValidMiiName(mii_name))
+            try
+            {
+                record = WizardNewRecord(wizard_.created);
+            }
+            catch (const std::exception&) {}
+        const int colour = chosen ? chosen->favorite_color : wizard_.color;
+        {
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float figure = Dp(72), width = ImGui::GetContentRegionAvail().x;
+            DrawMii(draw, {at.x + figure * 0.5f, at.y + figure * 0.5f}, figure, colour, record);
+            const float left = at.x + figure + Dp(20);
+            const float block = FontSize(fonts.title) + Dp(4) + FontSize(fonts.body);
+            const float top = at.y + (figure - block) * 0.5f;
+            DrawClipped(draw, fonts.title, {left, top}, at.x + width - left, color::text, profile);
+            const std::string under = chosen ? texts::T("match_setup.wizard.mii_line", {{"mii", mii_name}})
+                                             : texts::T("match_setup.wizard.mii_line_new", {{"mii", mii_name}});
+            DrawClipped(draw, fonts.body, {left, top + FontSize(fonts.title) + Dp(4)}, at.x + width - left,
+                        color::muted, under);
+            ImGui::Dummy({width, figure});
+        }
+        ImGui::Dummy({0, Dp(10)});
+        TextWrappedColored(fonts.body, color::muted, texts::T("match_setup.wizard.no_password"));
+        ImGui::Dummy({0, Dp(4)});
+        TextWrappedColored(fonts.caption, color::dim, texts::T("match_setup.wizard.discord_later"));
+        if (!status.mii_error.empty())
+        {
+            ImGui::Dummy({0, Dp(10)});
+            Callout(status.mii_error + (status.mii_error.back() == '.' ? "" : "."), color::danger, Icon::Error);
+        }
+        ImGui::Dummy({0, Dp(16)});
+        const float width = ImGui::GetContentRegionAvail().x;
+        const ImVec2 bar = ImGui::GetCursorScreenPos();
+        const bool busy = status.busy || wizard_.signing_in;
+        if (GhostButton("wizard_back_2", texts::T("match_setup.buttons.back"), Dp(110, 42), !busy, Icon::Back))
+            wizard_.step = 1;
+        const float go = Dp(190);
+        ImGui::SetCursorScreenPos({bar.x + width - go, bar.y});
+        const bool ready = status.state == CompetitiveService::State::SignedOut && WizardBlocker().empty();
+        if (PrimaryButton("wizard_go",
+                          busy ? texts::T("match_setup.wizard.going_online") : texts::T("match_setup.wizard.go_online"),
+                          {go, Dp(42)}, ready && !busy, Icon::Play, ready && !busy))
+            GoOnlineWithMii();
+        if (status.state != CompetitiveService::State::SignedOut && !busy)
+        {
+            ImGui::Dummy({0, Dp(6)});
+            TextWrappedColored(fonts.caption, color::warning, texts::T("match_setup.wizard.unreachable"));
         }
         EndCard();
     }
 
-    // A Mii of the list: its figure on its favourite colour (the launcher
-    // cannot draw its face), its name, and its friend code on a button that
-    // copies it.
-    void MiiRow(const mscharged::platform::InstalledMii& mii, std::size_t index)
+    // Go online: a new Mii is made (once: after a failed sign-in it is one
+    // of this computer's), then the sign-in by the profile name; the Mii
+    // becomes the player's own when it succeeds (UpdateMiiWizard).
+    void GoOnlineWithMii()
+    {
+        if (wizard_.source == 0)
+        {
+            try
+            {
+                const auto folder = SaveFolder();
+                std::string record;
+                // A create ID already there is made again: another one, the
+                // same face.
+                for (int attempt = 0;; ++attempt)
+                {
+                    record = WizardNewRecord(std::int64_t(std::time(nullptr)) + 4 * attempt);
+                    try
+                    {
+                        platform::AddMii(record, folder, SaveTitleOf(Release()), folder / "backups");
+                        break;
+                    }
+                    catch (const platform::MiiCreateIdTaken&) { if (attempt == 2) throw; }
+                }
+                wizard_.chosen = platform::MiiRecordCreateId(record);
+                wizard_.source = 1;
+            }
+            catch (const std::exception& e)
+            {
+                Notice(texts::T("match_setup.mii.not_made", {{"error", e.what()}}), NoticeKind::Error);
+                return;
+            }
+        }
+        if (!WizardChosenMii()) return;
+        wizard_.signing_in = true;
+        competitive_->MiiSignIn(TrimmedProfileName(wizard_.profile_name));
+    }
+
+    // Every frame: a Mii sign-in that ended. Signed in, the chosen Mii is
+    // the player's own (online.mii) and the wizard closes; else its step 2
+    // shows why.
+    void UpdateMiiWizard()
+    {
+        const auto& status = competitive_status_;
+        if (!wizard_.signing_in || status.busy) return;
+        wizard_.signing_in = false;
+        if (status.state != CompetitiveService::State::SignedIn || !wizard_.chosen) return;
+        ChooseOnlineMii(platform::MiiCreateIdText(*wizard_.chosen));
+        if (!capture_)
+            Notice(texts::T("match_setup.wizard.online_as", {{"name", status.player.name}}), NoticeKind::Success);
+        wizard_ = MiiWizard{};
+    }
+
+    // The player's own Mii (online.mii), saved at once without the other
+    // changes not saved yet; empty: none chosen.
+    void ChooseOnlineMii(const std::string& id)
+    {
+        draft_.online_mii = id;
+        if (!config_ok_) return;
+        try
+        {
+            Settings saved = file_.settings;
+            saved.online_mii = id;
+            SaveConfig(file_, saved);
+        }
+        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+    }
+
+    // ------------------------------------------------------------ Mii editor
+    // A Mii's face, name and favourite colour edited on the page it was
+    // opened from (MiiEditorPage, until Save or Cancel), drawn as the game
+    // draws its Miis from the game image's Mii parts: no Mii Channel needed.
+    // A new Mii of Play with a Mii's first step takes its face; one of this
+    // computer's is saved in its own slot by its create ID (ReplaceMii), so
+    // it stays who it is online.
+    void OpenMiiEditor(bool for_wizard, const std::string& record, bool add, bool name_locked)
+    {
+        if (record.size() != platform::mii::kMiiRecordBytes) return;
+        MiiEditor editor;
+        editor.open = true;
+        editor.page = page_;
+        editor.target = for_wizard ? MiiEditor::Target::Wizard : MiiEditor::Target::Database;
+        editor.record = record;
+        editor.add = add;
+        editor.name_locked = name_locked;
+        editor.face = editor.original_face = platform::mii::ReadMiiFace(record);
+        editor.name = editor.original_name = for_wizard ? WizardMiiName() : platform::MiiRecordName(record);
+        mii_editor_ = std::move(editor);
+        page_scroll_top_ = true;
+    }
+
+    void CloseMiiEditor()
+    {
+        mii_editor_ = MiiEditor{};
+        page_scroll_top_ = true;
+    }
+
+    // What keeps Save from going: a name the Mii library refuses (a new Mii
+    // of Play with a Mii may have none yet: its first step names it), or a
+    // face it can't draw.
+    std::string MiiEditorBlocker() const
+    {
+        const auto& editor = mii_editor_;
+        const bool unnamed = editor.target == MiiEditor::Target::Wizard && editor.name.empty();
+        if (!unnamed && !platform::ValidMiiName(editor.name)) return texts::T("match_setup.editor.name_rule");
+        if (!platform::mii::ValidMiiFace(editor.face)) return texts::T("match_setup.editor.face_blocked");
+        return {};
+    }
+
+    bool MiiEditorChanged() const
+    {
+        return !SameFace(mii_editor_.face, mii_editor_.original_face) || mii_editor_.name != mii_editor_.original_name;
+    }
+
+    void SaveMiiEditor()
+    {
+        auto& editor = mii_editor_;
+        if (!MiiEditorBlocker().empty()) return;
+        if (editor.target == MiiEditor::Target::Wizard)
+        {
+            wizard_.face = editor.face;
+            wizard_.color = editor.face.favorite_color;
+            if (!editor.name.empty() && editor.name != WizardMiiName())
+            {
+                wizard_.own_mii_name = true;
+                wizard_.mii_name = editor.name;
+            }
+            CloseMiiEditor();
+            return;
+        }
+        auto record = editor.record;
+        platform::mii::WriteMiiFace(editor.face, record);
+        try
+        {
+            if (!editor.name_locked) platform::SetMiiRecordName(record, editor.name);
+            const auto folder = SaveFolder();
+            const auto title = SaveTitleOf(Release());
+            // The player's own Mii, not made here yet, is added with this face.
+            bool added = false;
+            if (editor.add)
+                try
+                {
+                    platform::AddMii(record, folder, title, folder / "backups");
+                    added = true;
+                }
+                catch (const platform::MiiCreateIdTaken&) {}
+            if (!added) platform::ReplaceMii(record, folder, title, folder / "backups");
+            Notice(texts::T("match_setup.editor.saved", {{"mii", platform::MiiRecordName(record)}}),
+                   NoticeKind::Success);
+            CloseMiiEditor();
+        }
+        catch (const platform::MiiNotFound&)
+        {
+            Notice(texts::T("match_setup.editor.gone"), NoticeKind::Error);
+        }
+        catch (const std::exception& error)
+        {
+            Notice(texts::T("match_setup.editor.not_saved", {{"error", error.what()}}), NoticeKind::Error);
+        }
+    }
+
+    // The editor: the Mii's head large with its expression, name and
+    // favourite colour on the left; its parts by section on the right, the
+    // types as thumbnails of the head with each; Cancel, Undo, Start over
+    // and Save under them.
+    // An editor's page header (the Mii editor, a match preset's): a back
+    // button before the title, which leaves as Cancel does, and its text.
+    // Whether back was pressed.
+    bool EditorHeader(const char* id, const char* title, const char* text)
     {
         const auto& fonts = CurrentFonts();
-        ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(44));
-        ImGui::TableSetColumnIndex(0);
-        const float figure = Dp(36);
-        const ImVec2 start = ImGui::GetCursorScreenPos();
-        ImGui::SetCursorScreenPos({start.x + figure + Dp(12), start.y});
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - Dp(24));
-        ImGui::BeginGroup();
-        TextColored(fonts.label, color::text, mii.name.c_str());
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
-        TextWrappedColored(fonts.caption, color::muted, mii.friend_code
-                                                             ? "Friends add this code in the game's Friend Roster."
-                                                             : "Gets its friend code the first time it plays online.");
-        ImGui::EndGroup();
-        ImGui::PopTextWrapPos();
-        const float height = ImGui::GetItemRectSize().y;
-        DrawMiiFigure(ImGui::GetWindowDrawList(), {start.x + figure * 0.5f, start.y + std::max(height, figure) * 0.5f},
-                      figure, mii.favorite_color);
-        if (height < figure) ImGui::Dummy({0.0f, figure - height});
+        const float back = Dp(40);
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const bool pressed = ImGui::InvisibleButton(id, {back, back});
+        const bool over = ImGui::IsItemHovered();
+        if (over) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        if (over) ImGui::SetTooltip("%s", texts::T("match_setup.buttons.back_without_saving"));
+        auto* header = ImGui::GetWindowDrawList();
+        const ImVec2 center{at.x + back * 0.5f, at.y + back * 0.5f};
+        header->AddCircleFilled(center, back * 0.5f, Col(color::text, over ? 0.12f : 0.05f));
+        header->AddCircle(center, back * 0.5f - Dp(0.5f), Col(color::border), 0, Dp(1));
+        DrawIcon(header, Icon::Back, center, Dp(18), Col(over ? color::text : color::muted));
+        ImGui::SameLine(0, Dp(14));
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (back - FontSize(fonts.title)) * 0.5f - Dp(2));
+        TextColored(fonts.title, color::text, title);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(2));
+        TextWrappedColored(fonts.body, color::muted, text);
+        ImGui::Dummy({0, Dp(8)});
+        return pressed;
+    }
 
-        ImGui::TableSetColumnIndex(1);
-        if (!mii.friend_code) return;
-        const auto code = mscharged::platform::FriendCodeText(mii.friend_code);
-        ImGui::PushID(int(index));
-        if (SecondaryButton("copy_code", code.c_str(), {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Copy)
-            && SDL_SetClipboardText(code.c_str()))
-            Notice("Friend code of " + mii.name + " copied: " + code + ".", NoticeKind::Success);
+    void MiiEditorPage()
+    {
+        auto& editor = mii_editor_;
+        const auto& fonts = CurrentFonts();
+        const bool wizard = editor.target == MiiEditor::Target::Wizard;
+        ++mii_editor_frames_;
+        if (EditorHeader("##mii_editor_back",
+                         wizard ? texts::T("match_setup.editor.title_new") : texts::T("match_setup.editor.title_edit"),
+                         wizard ? texts::T("match_setup.editor.about_new") : texts::T("match_setup.editor.about_edit")))
+        {
+            CloseMiiEditor();
+            return;
+        }
+        const MiiEditor::Step before{editor.face, editor.name};
+        BeginCard("##mii_editor", nullptr);
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float left = std::clamp(width * 0.32f, Dp(220), Dp(256)), gap = Dp(26);
+
+        // Left: the head, with the expression it shows.
+        const float top = ImGui::GetCursorScreenPos().y;
+        ImGui::BeginGroup();
+        {
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float side = left;
+            const platform::mii::Expression expression{editor.expression};
+            const MiiHeadLook look{HeadPixels(side), MiiHeadBackground::Favorite, expression};
+            MiiFaces::Texture head = mii_faces_ ? mii_faces_->Head(editor.face, look, 2) : nullptr;
+            if (head)
+            {
+                editor.shown = editor.face;
+                editor.shown_expression = editor.expression;
+                editor.has_shown = true;
+            }
+            else if (editor.has_shown && mii_faces_)
+                head = mii_faces_->Cached(editor.shown, {look.size, MiiHeadBackground::Favorite,
+                                                         platform::mii::Expression{editor.shown_expression}});
+            const ImVec2 max{at.x + side, at.y + side};
+            if (head)
+                draw->AddImageRounded(TextureId(head), at, max, {0, 0}, {1, 1}, IM_COL32_WHITE, Dp(18));
+            else
+            {
+                const ImVec4 fill = MiiColor(editor.face.favorite_color);
+                draw->AddRectFilled(at, max, Col(fill), Dp(18));
+                const bool light = 0.2126f * fill.x + 0.7152f * fill.y + 0.0722f * fill.z > 0.6f;
+                const auto parts = mii_faces_ ? mii_faces_->PartsState() : MiiFaces::Parts::None;
+                const bool loading = parts == MiiFaces::Parts::Loading || parts == MiiFaces::Parts::Ready;
+                if (loading)
+                    Spinner({at.x + side * 0.5f, at.y + side * 0.5f}, Dp(18), Col(light ? color::window : color::text));
+                else
+                    DrawIcon(draw, Icon::Person, {at.x + side * 0.5f, at.y + side * 0.5f}, side * 0.5f,
+                             Col(light ? color::window : color::text));
+            }
+            draw->AddRect(at, max, Col(color::border), Dp(18), 0, Dp(1));
+            ImGui::Dummy({side, side});
+            if (mii_faces_ && mii_faces_->PartsState() == MiiFaces::Parts::Failed)
+            {
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + side);
+                TextWrappedColored(fonts.caption, color::warning, texts::T("match_setup.editor.parts_unreadable"));
+                ImGui::PopTextWrapPos();
+            }
+            ImGui::Dummy({0, Dp(4)});
+            Pills("##mii_expression",
+                  {texts::T("match_setup.editor.expressions.normal"), texts::T("match_setup.editor.expressions.smile"),
+                   texts::T("match_setup.editor.expressions.angry"), texts::T("match_setup.editor.expressions.sad"),
+                   texts::T("match_setup.editor.expressions.surprised"),
+                   texts::T("match_setup.editor.expressions.blink"),
+                   texts::T("match_setup.editor.expressions.open_mouth")},
+                  &editor.expression, side, fonts.caption, Dp(26));
+        }
+        ImGui::EndGroup();
+        const float left_height = ImGui::GetItemRectSize().y;
+
+        // Right: the sections, and the chosen one's parts.
+        ImGui::SameLine(0, gap);
+        ImGui::BeginGroup();
+        const float right = ImGui::GetContentRegionAvail().x;
+        const auto& sections = MiiEditorSections();
+        std::vector<const char*> names;
+        for (const auto& section : sections) names.push_back(section.name);
+        Pills("##mii_sections", names, &editor.section, right, fonts.body, Dp(34));
+        ImGui::Dummy({0, Dp(4)});
+        // As tall as the left column: the head stays in view while the parts scroll.
+        const float panel = std::max(Dp(300), top + left_height - ImGui::GetCursorScreenPos().y);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(2, 4));
+        ImGui::BeginChild("##mii_parts", {right, panel}, ImGuiChildFlags_AlwaysUseWindowPadding);
+        if (editor.section_shown != editor.section)
+        {
+            ImGui::SetScrollY(0.0f);
+            editor.section_shown = editor.section;
+        }
+        for (const auto& row : sections[std::size_t(std::clamp(editor.section, 0, int(sections.size()) - 1))].rows)
+            MiiEditorRowControl(row, editor.face);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        ImGui::EndGroup();
+
+        // Under both: the steps (Undo, Start over, Random) at the left, Cancel
+        // and Save Mii at the right, all of one height.
+        ImGui::Dummy({0, Dp(14)});
+        const float button = Dp(36);
+        const ImVec2 bar = ImGui::GetCursorScreenPos();
+        // Undo and Start over are steps of their own, not changes to note.
+        bool stepped = false;
+        // The steps share the left half, framed like Cancel and Save Mii.
+        const float step = (width * 0.5f - Dp(8) * 2) / 3;
+        if (SecondaryButton("mii_editor_undo", texts::T("match_setup.editor.undo"), {step, button},
+                            !editor.undo.empty(), Icon::Back))
+        {
+            editor.face = editor.undo.back().face;
+            editor.name = editor.undo.back().name;
+            editor.undo.pop_back();
+            stepped = true;
+        }
+        ImGui::SameLine(0, Dp(8));
+        if (SecondaryButton("mii_editor_reset", texts::T("match_setup.editor.start_over"), {step, button},
+                            MiiEditorChanged(), Icon::Refresh))
+        {
+            editor.undo.push_back({editor.face, editor.name});
+            editor.face = editor.original_face;
+            editor.name = editor.original_name;
+            stepped = true;
+        }
+        ImGui::SameLine(0, Dp(8));
+        // A whole new face from the Wii's own Mii maker; the name and the
+        // favourite colour stay, and Undo takes it back.
+        if (SecondaryButton("mii_editor_random", texts::T("match_setup.editor.random"), {step, button}, true,
+                            Icon::Dice))
+        {
+            editor.undo.push_back({editor.face, editor.name});
+            const int color = editor.face.favorite_color;
+            try
+            {
+                const auto random = platform::MakeRandomMii("Random", std::random_device{}(),
+                                                            std::int64_t(std::time(nullptr)), color);
+                editor.face = platform::mii::ReadMiiFace(random);
+                editor.face.favorite_color = color;
+            }
+            catch (const std::exception& error)
+            {
+                editor.undo.pop_back();
+                Notice(texts::T("match_setup.editor.no_random_face", {{"error", error.what()}}), NoticeKind::Error);
+            }
+            stepped = true;
+        }
+        const std::string blocker = MiiEditorBlocker();
+        const char* save = wizard ? texts::T("match_setup.editor.use_face") : texts::T("match_setup.editor.save_mii");
+        const float end_button = Dp(wizard ? 150 : 124);
+        const float right_start = bar.x + width - end_button * 2 - Dp(8);
+        if (!blocker.empty())
+        {
+            const ImVec2 size = TextSize(fonts.caption, blocker.c_str());
+            DrawLabel(draw, fonts.caption, {right_start - Dp(14) - size.x, bar.y + (button - size.y) * 0.5f},
+                      Col(color::warning), blocker.c_str());
+        }
+        ImGui::SetCursorScreenPos({right_start, bar.y});
+        if (SecondaryButton("mii_editor_cancel", texts::T("match_setup.buttons.cancel"), {end_button, button}, true,
+                            Icon::Close))
+            CloseMiiEditor();
+        ImGui::SameLine(0, Dp(8));
+        if (PrimaryButton("mii_editor_save", save, {end_button, button},
+                          blocker.empty() && (wizard || MiiEditorChanged()), Icon::Check))
+            SaveMiiEditor();
+        EndCard();
+        if (!editor.open) return;
+        if (stepped)
+        {
+            editor.gesture.clear();
+            return;
+        }
+
+        // A change after a pause, or to another value, is a step Undo takes back.
+        std::string changed;
+        if (editor.name != before.name) changed = "name";
+        for (const auto& field : platform::mii::kMiiFaceFields)
+            if (editor.face.*field.value != before.face.*field.value) changed = field.name;
+        if (!changed.empty())
+        {
+            if (changed != editor.gesture || editor.released) editor.undo.push_back(before);
+            if (editor.undo.size() > 200) editor.undo.erase(editor.undo.begin());
+            editor.gesture = changed;
+            editor.released = false;
+        }
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsAnyItemActive()) editor.released = true;
+    }
+
+    // One row of a section: its label, and its thumbnails, swatches, slider or switch.
+    void MiiEditorRowControl(const MiiEditorRow& row, platform::mii::MiiFace& face)
+    {
+        const auto& fonts = CurrentFonts();
+        const float width = ImGui::GetContentRegionAvail().x - Dp(8);
+        if (row.control == MiiControl::Name)
+        {
+            auto& editor = mii_editor_;
+            TextColored(fonts.label, color::text, row.label);
+            ImGui::Dummy({0, Dp(2)});
+            ImGui::SetNextItemWidth(std::min(width, Dp(320)));
+            ImGui::BeginDisabled(editor.name_locked);
+            ImGui::InputTextWithHint("##mii_editor_name", texts::T("match_setup.mii.name_hint"), &editor.name);
+            ImGui::EndDisabled();
+            if (editor.name_locked)
+                TextWrappedColored(fonts.caption, color::dim, texts::T("match_setup.editor.discord_name"));
+            else if (!platform::ValidMiiName(editor.name))
+                TextWrappedColored(fonts.caption, color::warning, texts::T("match_setup.editor.name_rule"));
+            else
+                TextWrappedColored(fonts.caption, color::dim, texts::T("match_setup.editor.name_about"));
+            ImGui::Dummy({0, Dp(14)});
+            return;
+        }
+        const auto& field = FaceField(row.field);
+        int& value = face.*field.value;
+        ImGui::PushID(row.field);
+        // Without its part (no glasses, no mole...) the row has nothing to change.
+        const bool off = row.needs && face.*FaceField(row.needs).value == FaceField(row.needs).min;
+        ImGui::BeginDisabled(off);
+        switch (row.control)
+        {
+        case MiiControl::Parts:
+            TextColored(fonts.label, color::text, row.label);
+            ImGui::Dummy({0, Dp(2)});
+            MiiPartGrid(row, face, width);
+            ImGui::Dummy({0, Dp(12)});
+            break;
+        case MiiControl::Colors:
+        {
+            TextColored(fonts.label, color::text, row.label);
+            ImGui::Dummy({0, Dp(2)});
+            const std::string name = row.field;
+            const auto colour = [name](int v) {
+                const auto rgb = platform::mii::MiiFieldColor(name, v).value_or(std::array<std::uint8_t, 3>{});
+                return ImVec4{rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f};
+            };
+            const int count = field.max - field.min + 1;
+            const bool favourite = std::string_view(row.field) == "favorite_color";
+            if (favourite)
+            {
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
+                TextColored(fonts.caption, color::muted, kMiiColorNames[std::clamp(value, 0, 11)]);
+                ImGui::Dummy({0, Dp(2)});
+            }
+            const float swatch = Dp(34);
+            const int per_row = std::clamp(int((width + Dp(10)) / (swatch + Dp(10))), 1, count);
+            ColorSwatches("##colours", &value, count, colour, favourite ? kMiiColorNames : nullptr, swatch,
+                          per_row > 6 && per_row < count ? 6 : per_row, field.min);
+            ImGui::Dummy({0, Dp(12)});
+            break;
+        }
+        case MiiControl::Slider:
+        case MiiControl::Height:
+        {
+            const bool height = row.control == MiiControl::Height;
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float label = Dp(150);
+            const float line = ImGui::GetFrameHeight();
+            DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x, at.y + (line - FontSize(fonts.body)) * 0.5f},
+                      Col(color::text), row.label);
+            ImGui::SetCursorScreenPos({at.x + label, at.y});
+            const int shown = height ? field.max - value + 1 : value - field.min + 1;
+            const std::string text = std::to_string(shown);
+            StepSlider("##slider", &value, field.min, field.max, width - label, text.c_str(), height);
+            ImGui::Dummy({0, Dp(6)});
+            break;
+        }
+        case MiiControl::Toggle:
+        {
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float line = ImGui::GetFrameHeight();
+            DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x, at.y + (line - FontSize(fonts.body)) * 0.5f},
+                      Col(color::text), row.label);
+            ImGui::SetCursorScreenPos({at.x + Dp(150), at.y + (line - Dp(26)) * 0.5f});
+            bool on = value != field.min;
+            if (Toggle("##toggle", &on)) value = on ? field.max : field.min;
+            ImGui::SetCursorScreenPos({at.x, at.y + line});
+            ImGui::Dummy({0, Dp(10)});
+            break;
+        }
+        }
+        ImGui::EndDisabled();
         ImGui::PopID();
     }
 
-    void MakeMii()
+    // A part's values as tiles, each the head with that value (the square
+    // of the head the part is in), the chosen one ringed. The heads come from
+    // the worker as the tiles show; a tile shows its number until then.
+    void MiiPartGrid(const MiiEditorRow& row, platform::mii::MiiFace& face, float width)
     {
-        try
+        const auto& field = FaceField(row.field);
+        auto* draw = ImGui::GetWindowDrawList();
+        const auto& fonts = CurrentFonts();
+        const float gap = Dp(8);
+        const int columns = std::max(3, int((width + gap) / (Dp(72) + gap)));
+        const float tile = (width - gap * float(columns - 1)) / float(columns), pad = Dp(3);
+        const MiiHeadLook look{HeadPixels((tile - 2 * pad) / (2.0f * row.crop.half)), MiiHeadBackground::Transparent};
+        const ImVec2 uv0{row.crop.x - row.crop.half, row.crop.y - row.crop.half};
+        const ImVec2 uv1{row.crop.x + row.crop.half, row.crop.y + row.crop.half};
+        // Glasses, mustache and beard start with none.
+        const bool none_first = std::string_view(row.field) == "glasses_type"
+            || std::string_view(row.field) == "mustache_type" || std::string_view(row.field) == "beard_type";
+        int& value = face.*field.value;
+        for (int v = field.min; v <= field.max; ++v)
         {
-            const auto folder = SaveFolder();
-            // A create ID already there is made again: another random face and ID.
-            for (int attempt = 0;; ++attempt)
+            const int n = v - field.min;
+            if (n % columns) ImGui::SameLine(0, gap);
+            ImGui::PushID(v);
+            const ImVec2 min = ImGui::GetCursorScreenPos(), max{min.x + tile, min.y + tile};
+            if (ImGui::InvisibleButton("##part", {tile, tile})) value = v;
+            const bool hovered = ImGui::IsItemHovered();
+            if (hovered) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            const float hover = Animate(ImGui::GetItemID(), hovered, 14.0f);
+            const float chosen = Animate(ImGui::GetID("##chosen"), value == v, 14.0f);
+            if (ImGui::IsRectVisible(min, max))
             {
-                const auto record = mscharged::platform::MakeRandomMii(new_mii_name_, std::random_device{}(),
-                                                                       std::int64_t(std::time(nullptr)));
+                draw->AddRectFilled(min, max, Col(Mix(Mix(color::field, color::card_hover, hover), color::accent_dark,
+                                                      0.6f * chosen)),
+                                    Dp(10));
+                auto variant = face;
+                variant.*field.value = v;
+                const MiiFaces::Texture head = mii_faces_ ? mii_faces_->Head(variant, look, 0) : nullptr;
+                if (head)
+                    draw->AddImageRounded(TextureId(head), {min.x + pad, min.y + pad}, {max.x - pad, max.y - pad}, uv0,
+                                          uv1, IM_COL32_WHITE, Dp(8));
+                else
+                {
+                    const std::string number = std::to_string(n + 1);
+                    const ImVec2 size = TextSize(fonts.body, number.c_str());
+                    DrawLabel(draw, fonts.body, {min.x + (tile - size.x) * 0.5f, min.y + (tile - size.y) * 0.5f},
+                              Col(color::dim), number.c_str());
+                }
+                if (none_first && v == field.min)
+                {
+                    const char* none = texts::T("match_setup.editor.part_none");
+                    const ImVec2 size = TextSize(fonts.caption, none);
+                    const ImVec2 at{min.x + (tile - size.x) * 0.5f, max.y - size.y - Dp(7)};
+                    draw->AddRectFilled({at.x - Dp(7), at.y - Dp(2)}, {at.x + size.x + Dp(7), at.y + size.y + Dp(2)},
+                                        Col(color::window, 0.85f), size.y);
+                    DrawLabel(draw, fonts.caption, at, Col(color::text), none);
+                }
+                draw->AddRect(min, max, Col(Mix(color::border, color::accent, chosen), 0.6f + 0.4f * chosen), Dp(10), 0,
+                              Dp(1.0f + chosen));
+            }
+            ImGui::PopID();
+        }
+    }
+
+    // Online -> Player profile: one card with the player's profile (the
+    // initial, or a Mii player's Mii; the name with what they are doing, how
+    // they signed in, and Sign out) over rows for their Mii, the friend code,
+    // Discord (its friends, or connecting it), the chime and the server.
+    // Signed out: the welcome, or Play with a Mii's steps.
+    void OnlineSettingsPage()
+    {
+        using State = CompetitiveService::State;
+        const auto& status = competitive_status_;
+        if (status.state != State::SignedIn)
+        {
+            if (wizard_.step > 0 && status.state != State::SigningIn) MiiWizardPage();
+            else OnlineWelcome();
+            return;
+        }
+        const auto& player = status.player;
+        const bool mii_account = player.MiiAccount();
+        PageHeader(texts::T("match_setup.online_top.player_profile"),
+                   mii_account ? texts::T("match_setup.profile.about_mii")
+                               : texts::T("match_setup.profile.about_discord"));
+        const auto own = PlayerOwnMii();
+        const auto& fonts = CurrentFonts();
+        BeginCard("##online_profile", nullptr);
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(64), avatar = Dp(58);
+        const ImVec2 center{at.x + avatar * 0.5f, at.y + height * 0.5f};
+        if (mii_account)
+            DrawMii(draw, center, avatar, own ? own->color : 0, own ? own->record : std::string());
+        else
+        {
+            draw->AddCircleFilled(center, avatar * 0.5f, Col(color::accent, 0.16f));
+            draw->AddCircle(center, avatar * 0.5f, Col(color::accent, 0.45f), 0, Dp(1.5f));
+            std::string initial = player.name.empty() ? std::string("?") : player.name.substr(0, 1);
+            if (const auto byte = static_cast<unsigned char>(initial[0]); byte >= 0x80)
+                initial = player.name.substr(0, std::min<std::size_t>(byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : 2,
+                                                                       player.name.size()));
+            else
+                initial[0] = char(std::toupper(byte));
+            const ImVec2 letter = TextSize(fonts.title, initial.c_str());
+            DrawLabel(draw, fonts.title, {center.x - letter.x * 0.5f, center.y - letter.y * 0.5f}, Col(color::accent),
+                      initial.c_str());
+        }
+        // Sign out, which also ends the Discord friends' link on this
+        // computer; a Mii player is asked first (they come back by the game).
+        const ImVec2 sign_out{Dp(124), Dp(38)};
+        ImGui::SetCursorScreenPos({at.x + width - sign_out.x, center.y - sign_out.y * 0.5f});
+        if (GhostButton("sign_out", texts::T("match_setup.profile.sign_out"), sign_out, !status.busy, Icon::Close))
+        {
+            if (mii_account) sign_out_prompt_ = true;
+            else SignOutPlayer();
+        }
+        const float text_left = at.x + avatar + Dp(18);
+        const std::string under = mii_account
+            ? !player.friend_code.empty()
+                ? texts::T("match_setup.profile.account_mii", {{"code", player.friend_code}})
+                : std::string(texts::T("match_setup.profile.account_mii_no_code"))
+            : !player.discord.empty() ? texts::T("match_setup.profile.account_discord", {{"name", player.discord}})
+            : player.test             ? std::string(texts::T("match_setup.test_player.title"))
+                                      : std::string(texts::T("match_setup.profile.signed_in"));
+        const float block = FontSize(fonts.heading) + Dp(4) + FontSize(fonts.body);
+        const float top = center.y - block * 0.5f;
+        draw->PushClipRect({text_left, at.y}, {at.x + width - sign_out.x - Dp(16), at.y + height}, true);
+        DrawLabel(draw, fonts.heading, {text_left, top}, Col(color::text), player.name.c_str());
+        {
+            // What the player is doing, as a pill after the name.
+            const auto [word, tint] = PlayerActivity(status.match);
+            const ImVec2 size = TextSize(fonts.caption, word);
+            const ImVec2 pill{text_left + TextSize(fonts.heading, player.name.c_str()).x + Dp(12),
+                              top + (FontSize(fonts.heading) - Dp(22)) * 0.5f};
+            draw->AddRectFilled(pill, {pill.x + Dp(26) + size.x, pill.y + Dp(22)}, Col(tint, 0.14f), Dp(11));
+            draw->AddCircleFilled({pill.x + Dp(11), pill.y + Dp(11)}, Dp(3.5f), Col(tint));
+            DrawLabel(draw, fonts.caption, {pill.x + Dp(19), pill.y + (Dp(22) - size.y) * 0.5f}, Col(tint), word);
+        }
+        DrawLabel(draw, fonts.body, {text_left, top + FontSize(fonts.heading) + Dp(4)}, Col(color::muted),
+                  under.c_str());
+        draw->PopClipRect();
+        ImGui::SetCursorScreenPos(at);
+        ImGui::Dummy({width, height});
+        ImGui::Dummy({0, Dp(8)});
+        {
+            const ImVec2 line = ImGui::GetCursorScreenPos();
+            draw->AddRectFilled({line.x, line.y}, {line.x + width, line.y + Dp(1)}, Col(color::border));
+            ImGui::Dummy({width, Dp(6)});
+        }
+
+        // A row's value: a dot in its colour, then the text.
+        const auto value = [&](const std::string& text, const ImVec4& tint, const ImVec4* dot) {
+            const ImVec2 start = ImGui::GetCursorScreenPos();
+            const float line = FontSize(fonts.label);
+            float x = start.x;
+            if (dot)
+            {
+                draw->AddCircleFilled({x + Dp(4), start.y + line * 0.5f}, Dp(4), Col(*dot));
+                x += Dp(16);
+            }
+            DrawLabel(draw, fonts.label, {x, start.y}, Col(tint), text.c_str());
+            ImGui::Dummy({x - start.x + TextSize(fonts.label, text.c_str()).x, line});
+        };
+        // The rows' actions (Change and Edit of your Mii, Play of the sound)
+        // start in one column right after the widest of their values, so each
+        // reads with its value.
+        {
+            const float mii = own && (own->here || !ChosenOwnMii())
+                ? Dp(30) + Dp(10) + TextSize(fonts.label, own->name.c_str()).x
+                : TextSize(fonts.label, texts::T("match_setup.profile.no_mii")).x;
+            profile_actions_ = std::max(mii, Dp(48)) + Dp(18);
+        }
+        if (BeginRows("##online_settings_rows"))
+        {
+            if (mii_account) OwnMiiRow(own);
+
+            // The friend code of the Mii that plays online, others in the tooltip.
+            std::string code = player.friend_code;
+            if (code.empty() && !player.wfc.empty()) code = player.wfc.front().friend_code;
+            if (code.empty() && mii_account && own && own->friend_code)
+                code = platform::FriendCodeText(own->friend_code);
+            Row(texts::T("match_setup.profile.friend_code"),
+                !code.empty() ? texts::T("match_setup.profile.friend_code_about")
+                : mii_account ? texts::T("match_setup.profile.friend_code_mii_later")
+                              : texts::T("match_setup.profile.friend_code_later"));
+            if (code.empty())
+                value(mii_account ? texts::T("match_setup.profile.after_first_game")
+                                  : texts::T("match_setup.profile.none_yet"),
+                      color::muted, nullptr);
+            else
+            {
+                // On a button that copies it.
+                const std::string shown =
+                    code + (player.wfc.size() > 1 ? "  +" + std::to_string(player.wfc.size() - 1) : std::string());
+                const float copy_width = TextSize(fonts.body, shown.c_str()).x + Dp(18) + Dp(8) + Dp(32);
+                if (SecondaryButton("copy_friend_code", shown.c_str(), {copy_width, Dp(34)}, true, Icon::Copy)
+                    && SDL_SetClipboardText(code.c_str()))
+                    Notice(texts::T("match_setup.profile.code_copied", {{"code", code}}), NoticeKind::Success);
+                if (ImGui::IsItemHovered() && !player.wfc.empty())
+                {
+                    std::string codes;
+                    for (const auto& profile : player.wfc)
+                        codes += (codes.empty() ? "" : "\n") + profile.friend_code + "  "
+                            + (profile.mii.empty() ? profile.game : profile.mii + ", " + profile.game);
+                    ImGui::SetTooltip("%s", codes.c_str());
+                }
+            }
+
+            if (mii_account) ConnectDiscordRow();
+            else
+            {
+                // The Discord friends that come with the sign-in.
+                using DiscordState = DiscordFriends::State;
+                const DiscordState discord = discord_friends_ ? discord_status_.state : DiscordState::Missing;
+                const bool linked = discord == DiscordState::Ready;
+                const bool waiting = discord == DiscordState::Connecting || discord == DiscordState::Linking;
+                Row(texts::T("match_setup.profile.discord_friends"),
+                    linked ? texts::T("match_setup.profile.friends_linked")
+                    : waiting ? texts::T("match_setup.profile.friends_connecting")
+                    : discord == DiscordState::Missing ? texts::T("match_setup.profile.friends_missing")
+                                                       : texts::T("match_setup.profile.friends_not_linked"));
+                if (linked)
+                {
+                    const std::string friends
+                        = texts::Count("match_setup.profile.friends", discord_status_.friends.size());
+                    value(texts::T("match_setup.profile.linked",
+                                   {{"friends", friends}, {"players", std::to_string(status.discord_players.size())}}),
+                          color::text, &color::success);
+                }
+                else if (waiting) value(texts::T("match_setup.profile.connecting"), color::muted, &color::warning);
+                else if (discord == DiscordState::Missing)
+                    value(texts::T("match_setup.profile.not_in_build"), color::muted, nullptr);
+                else
+                {
+                    const float link_right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+                    value(texts::T("match_setup.profile.not_linked"), color::warning, &color::warning);
+                    ImGui::SameLine(0, 0);
+                    ImGui::SetCursorScreenPos({link_right - Dp(96), ImGui::GetCursorScreenPos().y - Dp(6)});
+                    if (DiscordButton("link_discord_friends", texts::T("match_setup.profile.link"), Dp(96, 32)))
+                        discord_friends_->Connect();
+                }
+                OwnMiiRow(own);
+            }
+
+            // The flag beside the name (servers from 1.2.11 on say the choice).
+            if (!player.country_choice.empty())
+            {
+                Row(texts::T("match_setup.profile.flag"), texts::T("match_setup.profile.flag_about"));
+                FlagCombo(player, status.busy);
+            }
+
+            // The challenge sound, with a way to hear it.
+            Row(texts::T("match_setup.profile.challenge_sound"), texts::T("match_setup.profile.challenge_sound_about"));
+            const ImVec2 sound = ImGui::GetCursorScreenPos();
+            if (Toggle("##challenge_sound", &draft_.challenge_sound)) dirty_ = true;
+            // Its action in the actions' column, beside the switch.
+            ImGui::SameLine(0, 0);
+            ImGui::SetCursorScreenPos({sound.x + profile_actions_, sound.y + (Dp(28) - Dp(32)) * 0.5f});
+            const char* play = texts::T("match_setup.profile.play_sound");
+            if (SecondaryButton("hear_chime", play, {ActionWidth(play, Icon::Play), Dp(32)},
+                                draft_.challenge_sound && !draft_.mute, Icon::Play))
+                Alert(false);
+            if (draft_.mute && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", texts::T("match_setup.profile.muted"));
+
+            // The server: only the settings file changes it.
+            std::string host = status.server;
+            if (const auto scheme = host.find("://"); scheme != std::string::npos) host.erase(0, scheme + 3);
+            const std::string where
+                = texts::T("match_setup.profile.server_about",
+                           {{"key", "online.profile_server"}, {"file", file_.path.filename().string()}});
+            Row(texts::T("match_setup.profile.server"), where.c_str());
+            value(host + (status.info.version.empty() ? std::string() : "  ·  " + status.info.version), color::text,
+                  &color::success);
+            EndRows();
+        }
+        EndCard();
+        // Connecting Discord was refused: most often that Discord account
+        // has a profile of its own.
+        if (mii_account && !status.connect_error.empty())
+        {
+            std::string text = status.connect_error;
+            if (!text.empty() && text.back() != '.') text += '.';
+            if (status.connect_error.find("This Discord account") != std::string::npos)
+                text = texts::T("match_setup.profile.discord_taken", {{"error", text}});
+            Callout(text, color::warning, Icon::Warning);
+        }
+    }
+
+    // The row of the player's own Mii: its figure and name, and for a Mii
+    // player the Mii of this computer it is (Change chooses another).
+    void OwnMiiRow(const std::optional<OwnMii>& own)
+    {
+        const auto& fonts = CurrentFonts();
+        const bool chosen_kind = ChosenOwnMii();
+        const char* description = !chosen_kind ? texts::T("match_setup.profile.own_mii.discord")
+            : !own || !own->here                ? texts::T("match_setup.profile.own_mii.elsewhere")
+            : competitive_status_.player.MiiAccount() ? texts::T("match_setup.profile.own_mii.mii_account")
+                                                      : texts::T("match_setup.profile.own_mii.chosen");
+        Row(texts::T("match_setup.mii.your_mii"), description);
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const float figure = Dp(30), line = std::max(figure, FontSize(fonts.label));
+        if (own && (own->here || !chosen_kind))
+        {
+            DrawMii(draw, {at.x + figure * 0.5f, at.y + line * 0.5f}, figure, own->color, own->record);
+            DrawLabel(draw, fonts.label, {at.x + figure + Dp(10), at.y + (line - FontSize(fonts.label)) * 0.5f},
+                      Col(color::text), own->name.c_str());
+            ImGui::Dummy({figure + Dp(10) + TextSize(fonts.label, own->name.c_str()).x, line});
+        }
+        else
+        {
+            const char* none = texts::T("match_setup.profile.no_mii");
+            DrawLabel(draw, fonts.label, {at.x, at.y + (line - FontSize(fonts.label)) * 0.5f}, Col(color::muted), none);
+            ImGui::Dummy({TextSize(fonts.label, none).x, line});
+        }
+        // Edit in the actions' column, beside the Mii: its face in the Mii
+        // editor (a Discord player's own Mii, made from the account, is added
+        // with it when it isn't here yet, and keeps the Discord name).
+        if (own && (own->here || !chosen_kind) && own->record.size() == platform::mii::kMiiRecordBytes)
+        {
+            ImGui::SameLine(0, 0);
+            ImGui::SetCursorScreenPos({at.x + profile_actions_, at.y + (line - Dp(32)) * 0.5f});
+            const char* edit = texts::T("match_setup.buttons.edit");
+            if (SecondaryButton("own_mii_edit", edit, {ActionWidth(edit, Icon::Paint), Dp(32)}, true, Icon::Paint))
+                OpenMiiEditor(false, own->record, !own->here, !chosen_kind);
+        }
+    }
+
+    // A Mii player's Discord row: Connect Discord (the sign-in with their
+    // session joins Discord to the profile), and its code while it runs.
+    void ConnectDiscordRow()
+    {
+        const auto& status = competitive_status_;
+        const auto& fonts = CurrentFonts();
+        if (status.connecting_discord)
+        {
+            Row(texts::T("match_setup.profile.discord"), texts::T("match_setup.profile.discord_code"));
+            TextColored(fonts.heading, color::accent, status.code.c_str());
+            ImGui::SameLine(0, Dp(14));
+            const float y = ImGui::GetCursorPosY() - Dp(4);
+            ImGui::SetCursorPosY(y);
+            const char* again = texts::T("match_setup.profile.open_again");
+            if (GhostButton("connect_again", again, {GhostWidth(again, Icon::Link), Dp(32)}, !status.url.empty(),
+                            Icon::Link))
+                SDL_OpenURL(status.url.c_str());
+            ImGui::SameLine(0, Dp(6));
+            ImGui::SetCursorPosY(y);
+            const char* cancel = texts::T("match_setup.buttons.cancel");
+            if (GhostButton("connect_stop", cancel, {GhostWidth(cancel, Icon::None), Dp(32)}))
+                competitive_->StopSignIn();
+            return;
+        }
+        Row(texts::T("match_setup.profile.discord"), status.info.discord
+                                                         ? texts::T("match_setup.profile.discord_connect_about")
+                                                         : texts::T("match_setup.discord.not_offered"));
+        if (status.info.discord
+            && DiscordButton("connect_discord", texts::T("match_setup.discord.connect"), Dp(200, 36)) && !status.busy)
+            competitive_->SignIn();
+    }
+
+    // Signing out here: the session, the Discord friends' link, and the Mii
+    // chosen for it.
+    void SignOutPlayer()
+    {
+        // Until the service is signed out, the player is not asked which Mii
+        // plays for them (their chosen Mii goes now).
+        signing_out_ = true;
+        competitive_->SignOut();
+        if (discord_friends_) discord_friends_->Disconnect();
+        if (!draft_.online_mii.empty()) ChooseOnlineMii("");
+    }
+
+    // A Mii player's Sign out, asked first: no password brings them back,
+    // their Mii logging in in the game does.
+    void DrawSignOutPrompt()
+    {
+        if (sign_out_prompt_)
+        {
+            ImGui::OpenPopup("Sign out?");
+            sign_out_prompt_ = false;
+        }
+        const auto& fonts = CurrentFonts();
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        ImGui::SetNextWindowSizeConstraints({Dp(460), 0}, {Dp(560), FLT_MAX});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal("Sign out?", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+            | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
+        {
+            const auto own = PlayerOwnMii();
+            TextColored(fonts.heading, color::text, texts::T("match_setup.sign_out.title"));
+            ImGui::Dummy({0, Dp(2)});
+            // The game brings a Mii player back by the friend code of the Mii
+            // that logged in; before its first online game there is none.
+            if (competitive_status_.player.friend_code.empty())
+                Callout(texts::T("match_setup.sign_out.no_friend_code"), color::warning, Icon::Warning);
+            else
+            {
+                const std::string text = own && own->here
+                    ? texts::T("match_setup.sign_out.come_back", {{"mii", own->name}})
+                    : std::string(texts::T("match_setup.sign_out.come_back_your_mii"));
+                TextWrappedColored(fonts.body, color::muted, text.c_str());
+            }
+            ImGui::Dummy({0, Dp(10)});
+            if (PrimaryButton("sign_out_confirm", texts::T("match_setup.profile.sign_out"), Dp(140, 42), true,
+                              Icon::Close))
+            {
+                ImGui::CloseCurrentPopup();
+                SignOutPlayer();
+            }
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("sign_out_cancel", texts::T("match_setup.buttons.cancel"), Dp(100, 42))
+                || CancelPressed())
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar();
+    }
+
+    // A player whose Mii would be made from their account (a Discord or test
+    // player without a Mii of their own) on a computer that has Miis already
+    // is asked once per sign-in which plays for them: one of those
+    // (online.mii), or a new one made from the account now. Nothing is asked
+    // when that Mii is here already (signed in here before).
+    void DrawMiiReusePrompt()
+    {
+        // The popup's ID (it has no title bar; the heading is drawn in it).
+        constexpr const char* kTitle = "Play with a Mii you have?";
+        const std::string key = PlayerMiiKey();
+        const Uint64 now = SDL_GetTicks();
+        // Asked while no other window (a challenge, the update) is open: it would close it.
+        if (!key.empty() && key != mii_reuse_asked_ && (!capture_ || mii_reuse_preview_)
+            && (!mii_reuse_checked_ || now - mii_reuse_checked_ >= 1000)
+            && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+        {
+            mii_reuse_checked_ = now;
+            const auto& miis = InstalledMiis();
+            if (miis.state == platform::MiiDatabaseState::Ready && !miis.miis.empty())
+            {
+                mii_reuse_asked_ = key;
+                const auto made = platform::KeyedMiiCreateId(key);
+                const bool here = std::any_of(miis.miis.begin(), miis.miis.end(),
+                                              [&](const platform::InstalledMii& mii) { return mii.create_id == made; });
+                const auto offered = ReusableMiis();
+                if (!here && !offered.empty())
+                {
+                    mii_reuse_choice_ = offered.front().create_id;
+                    ImGui::OpenPopup(kTitle);
+                }
+            }
+        }
+        const auto& fonts = CurrentFonts();
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+        ImGui::SetNextWindowSizeConstraints({Dp(480), 0}, {Dp(560), FLT_MAX});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(28, 24));
+        if (ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar
+                                                        | ImGuiWindowFlags_NoMove))
+        {
+            const auto miis = ReusableMiis();
+            const auto& player = competitive_status_.player;
+            TextColored(fonts.heading, color::text, texts::T("match_setup.mii_reuse.title"));
+            ImGui::Dummy({0, Dp(2)});
+            const bool discord = !player.discord_id.empty();
+            const std::string text = miis.size() == 1
+                ? discord ? texts::T("match_setup.mii_reuse.one_discord") : texts::T("match_setup.mii_reuse.one")
+                : discord ? texts::Count("match_setup.mii_reuse.many_discord", miis.size())
+                          : texts::Count("match_setup.mii_reuse.many", miis.size());
+            TextWrappedColored(fonts.body, color::muted, text.c_str());
+            ImGui::Dummy({0, Dp(8)});
+            if (miis.size() == 1) MiiLine(miis.front());
+            else MiiCombo("##mii_reuse", miis, mii_reuse_choice_);
+            ImGui::Dummy({0, Dp(12)});
+            const bool chosen = mii_reuse_choice_ && std::any_of(miis.begin(), miis.end(), [&](const auto& mii) {
+                return mii.create_id == *mii_reuse_choice_;
+            });
+            if (PrimaryButton("mii_reuse_use", texts::T("match_setup.mii_reuse.use"), Dp(170, 42), chosen, Icon::Check))
+            {
+                ImGui::CloseCurrentPopup();
+                ChooseOnlineMii(platform::MiiCreateIdText(*mii_reuse_choice_));
+            }
+            ImGui::SameLine(0, Dp(10));
+            if (SecondaryButton("mii_reuse_new", texts::T("match_setup.mii_reuse.make_new"), Dp(170, 42), true,
+                                Icon::Person))
+            {
+                ImGui::CloseCurrentPopup();
                 try
                 {
-                    mscharged::platform::AddMii(record, folder, SaveTitleOf(Release()), folder / "backups");
-                    break;
+                    EnsurePlayerMii();
                 }
-                catch (const mscharged::platform::MiiCreateIdTaken&) { if (attempt == 2) throw; }
+                catch (const std::exception& e)
+                {
+                    Notice(texts::T("match_setup.mii.not_made", {{"error", e.what()}}), NoticeKind::Error);
+                }
             }
-            Notice("Mii " + new_mii_name_ + " made. Choose it in the game's online menu.", NoticeKind::Success);
-            new_mii_name_.clear();
+            ImGui::EndPopup();
         }
-        catch (const std::exception& e) { Notice(std::string("Making the Mii failed: ") + e.what(), NoticeKind::Error); }
+        ImGui::PopStyleVar();
+    }
+
+    // The Miis of the game save the signed-in player may take as theirs: not
+    // one that plays for another profile (it would leave that one).
+    std::vector<platform::InstalledMii> ReusableMiis()
+    {
+        std::vector<std::string> own;
+        const auto& player = competitive_status_.player;
+        own.push_back(FriendCodeDigits(player.friend_code));
+        for (const auto& wfc : player.wfc) own.push_back(FriendCodeDigits(wfc.friend_code));
+        std::vector<platform::InstalledMii> miis;
+        for (const auto& mii : InstalledMiis().miis)
+        {
+            const bool mine = mii.friend_code
+                && std::find(own.begin(), own.end(), FriendCodeDigits(platform::FriendCodeText(mii.friend_code)))
+                    != own.end();
+            if (mine || !ProfileOfMii(mii)) miis.push_back(mii);
+        }
+        return miis;
+    }
+
+    // A Mii of this computer on one line: its figure, name and friend code
+    // (or `caption`), drawn into the rectangle from `min` to `max`.
+    void DrawMiiLine(ImDrawList* draw, ImVec2 min, ImVec2 max, const platform::InstalledMii& mii,
+                     const std::string& caption = {})
+    {
+        const auto& fonts = CurrentFonts();
+        const float figure = std::min(Dp(34), max.y - min.y - Dp(6)), mid = (min.y + max.y) * 0.5f;
+        DrawMii(draw, {min.x + figure * 0.5f, mid}, figure, mii.favorite_color, mii.record);
+        const float text = min.x + figure + Dp(12);
+        const float block = FontSize(fonts.label) + Dp(2) + FontSize(fonts.caption);
+        DrawClipped(draw, fonts.label, {text, mid - block * 0.5f}, max.x - text, color::text, mii.name);
+        DrawClipped(draw, fonts.caption, {text, mid - block * 0.5f + FontSize(fonts.label) + Dp(2)}, max.x - text,
+                    color::muted,
+                    !caption.empty() ? caption
+                    : mii.friend_code
+                        ? texts::T("match_setup.mii.friend_code", {{"code", platform::FriendCodeText(mii.friend_code)}})
+                        : std::string(texts::T("match_setup.mii.no_friend_code")));
+    }
+
+    // One Mii as a field of its own (a prompt's only choice).
+    void MiiLine(const platform::InstalledMii& mii)
+    {
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(52);
+        const ImVec2 min = ImGui::GetCursorScreenPos(), max{min.x + width, min.y + height};
+        draw->AddRectFilled(min, max, Col(color::field), Dp(12));
+        draw->AddRect(min, max, Col(color::border), Dp(12));
+        DrawMiiLine(draw, {min.x + Dp(12), min.y}, {max.x - Dp(12), max.y}, mii);
+        ImGui::Dummy({width, height});
+    }
+
+    // This computer's Miis as a dropdown, each with its figure, name and
+    // friend code (or what `caption` says of it); `chosen` takes the one
+    // picked. `width` 0: the room left.
+    void MiiCombo(const char* id, const std::vector<platform::InstalledMii>& miis,
+                  std::optional<std::array<unsigned char, 8>>& chosen,
+                  const std::function<std::string(const platform::InstalledMii&)>& caption = {}, float width = 0.0f)
+    {
+        const platform::InstalledMii* shown = nullptr;
+        for (const auto& mii : miis)
+            if (chosen && mii.create_id == *chosen) shown = &mii;
+        const auto said = [&](const platform::InstalledMii& mii) { return caption ? caption(mii) : std::string(); };
+        const float row = Dp(52);
+        if (width <= 0.0f) width = ImGui::GetContentRegionAvail().x;
+        ImGui::SetNextItemWidth(width);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {Dp(12), (row - ImGui::GetFontSize()) * 0.5f});
+        // The figure is drawn in the preview (imgui_internal's custom preview).
+        const ImGuiComboFlags flags = ImGuiComboFlags(ImGuiComboFlags_CustomPreview) | ImGuiComboFlags_HeightLarge;
+        const bool open = ImGui::BeginCombo(id, nullptr, flags);
+        ImGui::PopStyleVar();
+        if (open)
+        {
+            for (std::size_t n = 0; n < miis.size(); ++n)
+            {
+                const auto& mii = miis[n];
+                ImGui::PushID(int(n));
+                const bool selected = shown == &mii;
+                if (ImGui::Selectable("##mii", selected, 0, {0, row})) chosen = mii.create_id;
+                if (selected) ImGui::SetItemDefaultFocus();
+                DrawMiiLine(ImGui::GetWindowDrawList(), {ImGui::GetItemRectMin().x + Dp(6), ImGui::GetItemRectMin().y},
+                            {ImGui::GetItemRectMax().x - Dp(6), ImGui::GetItemRectMax().y}, mii, said(mii));
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        if (shown && ImGui::BeginComboPreview())
+        {
+            // The preview starts inside the frame's padding; its room ends
+            // before the arrow, a square as high as the frame.
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float top = at.y - (row - ImGui::GetFontSize()) * 0.5f;
+            DrawMiiLine(ImGui::GetWindowDrawList(), {at.x, top}, {at.x + width - row - Dp(24), top + row}, *shown,
+                        said(*shown));
+            ImGui::EndComboPreview();
+        }
+    }
+
+    // A country's flag, `height` tall, its left edge at `at.x` and its middle
+    // at `at.y`: how wide it is, 0 without one.
+    float DrawFlag(ImDrawList* draw, ImVec2 at, float height, std::string_view country) const
+    {
+        const int cell = overlay::FlagCell(country);
+        if (cell < 0 || !flags_) return 0.0f;
+        const auto uv = overlay::FlagCellUv(cell);
+        const float width = height * float(overlay::kFlagWidth) / float(overlay::kFlagHeight);
+        const ImVec2 min{at.x, at.y - height * 0.5f}, max{at.x + width, at.y + height * 0.5f};
+        draw->AddImageRounded(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(flags_)), min, max,
+                              {uv.u0, uv.v0}, {uv.u1, uv.v1}, IM_COL32_WHITE, Dp(2));
+        draw->AddRect(min, max, Col(color::text, 0.14f), Dp(2), 0, Dp(1));
+        return width;
+    }
+
+    // The flag beside the player's name as a dropdown: Automatic (the
+    // country found from where they connect), No flag, or a country; typing
+    // a country's first letters goes to it.
+    void FlagCombo(const platform::ProfilePlayer& player, bool busy)
+    {
+        const auto& fonts = CurrentFonts();
+        const auto& countries = overlay::FlagCountries();
+        const std::string detected(overlay::FlagName(player.country_detected));
+        const std::string automatic = detected.empty()
+            ? std::string(texts::T("match_setup.flag.automatic_none"))
+            : texts::T("match_setup.flag.automatic", {{"country", detected}});
+        const std::string& choice = player.country_choice;
+        const std::string preview = choice == "auto" ? automatic
+            : choice == "none"                      ? std::string(texts::T("match_setup.flag.none"))
+                                                    : std::string(overlay::FlagName(choice));
+        // A line: the flag (or the room for one), then the words.
+        const float flag_h = Dp(16), flag_w = flag_h * float(overlay::kFlagWidth) / float(overlay::kFlagHeight);
+        const auto line = [&](ImDrawList* draw, ImVec2 min, ImVec2 max, std::string_view country,
+                              const std::string& text, bool muted) {
+            const float middle = (min.y + max.y) * 0.5f;
+            DrawFlag(draw, {min.x, middle}, flag_h, country);
+            draw->PushClipRect(min, max, true);
+            DrawLabel(draw, fonts.body, {min.x + flag_w + Dp(10), middle - FontSize(fonts.body) * 0.5f},
+                      Col(muted ? color::muted : color::text), text.c_str());
+            draw->PopClipRect();
+        };
+        const float row = Dp(34), width = std::min(ImGui::GetContentRegionAvail().x, Dp(360));
+        ImGui::SetNextItemWidth(width);
+        ImGui::BeginDisabled(busy);
+        const ImGuiComboFlags flags = ImGuiComboFlags(ImGuiComboFlags_CustomPreview) | ImGuiComboFlags_HeightLarge;
+        if (ImGui::BeginCombo("##flag", nullptr, flags))
+        {
+            std::optional<std::string> picked;
+            const auto option = [&](const char* id, std::string_view key, std::string_view country,
+                                    const std::string& text, bool muted, bool focus) {
+                const bool selected = choice == key;
+                if (focus) ImGui::SetKeyboardFocusHere();
+                if (ImGui::Selectable(id, selected, 0, {0, row})) picked = std::string(key);
+                if (selected && !focus) ImGui::SetItemDefaultFocus();
+                line(ImGui::GetWindowDrawList(), {ImGui::GetItemRectMin().x + Dp(6), ImGui::GetItemRectMin().y},
+                     {ImGui::GetItemRectMax().x - Dp(6), ImGui::GetItemRectMax().y}, country, text, muted);
+            };
+            // Typing goes to the first country whose name starts so.
+            int typed = -1;
+            if (ImGuiTypingSelectRequest* request = ImGui::GetTypingSelectRequest())
+                typed = ImGui::TypingSelectFindMatch(
+                    request, int(countries.size()),
+                    [](void* list, int n) {
+                        return (*static_cast<const std::vector<overlay::FlagCountry>*>(list))[std::size_t(n)].name;
+                    },
+                    const_cast<std::vector<overlay::FlagCountry>*>(&countries), -1);
+            option("##auto", "auto", player.country_detected, automatic, false, false);
+            option("##none", "none", {}, texts::T("match_setup.flag.none"), true, false);
+            ImGui::Separator();
+            for (std::size_t n = 0; n < countries.size(); ++n)
+            {
+                ImGui::PushID(int(n));
+                option("##country", countries[n].code, countries[n].code, countries[n].name, false, int(n) == typed);
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+            if (picked && *picked != choice) competitive_->ChooseCountry(*picked);
+        }
+        if (ImGui::BeginComboPreview())
+        {
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const float top = at.y - (ImGui::GetFrameHeight() - ImGui::GetFontSize()) * 0.5f;
+            line(ImGui::GetWindowDrawList(), {at.x, top}, {at.x + width - ImGui::GetFrameHeight() - Dp(16), top + ImGui::GetFrameHeight()},
+                 choice == "auto" ? std::string_view(player.country_detected) : std::string_view(choice), preview,
+                 choice == "none");
+            ImGui::EndComboPreview();
+        }
+        ImGui::EndDisabled();
+    }
+
+    // A set's go, one value each time it goes: when it went (servers with
+    // sets), else the set.
+    static std::int64_t GoKey(const platform::ProfileMatch& match) { return match.go_at ? match.go_at : match.id; }
+
+    // What the bar's pill says about the signed-in player: the set's stage.
+    static std::pair<const char*, ImVec4> PlayerActivity(const std::optional<platform::ProfileMatch>& match)
+    {
+        if (!match || !match->Open()) return {texts::T("match_setup.activity.online"), color::success};
+        if (match->state == "challenged")
+            return match->side == "challenger" ? std::pair{texts::T("match_setup.activity.challenge_sent"), color::info}
+                                               : std::pair{texts::T("match_setup.activity.challenged"), color::warning};
+        if (match->stage == "go") return {texts::T("match_setup.activity.connecting"), color::accent};
+        if (match->stage == "playing") return {texts::T("match_setup.activity.playing"), color::accent};
+        if (match->stage == "open" && match->you_ready) return {texts::T("match_setup.activity.ready"), color::success};
+        return {texts::T("match_setup.activity.getting_ready"), color::info};
+    }
+
+    // A test server's sign-in by name, for a second game on this computer
+    // with its own settings file.
+    void CompetitiveTestSignIn()
+    {
+        BeginCard("##competitive_test", texts::T("match_setup.test_player.title"),
+                  texts::T("match_setup.test_player.about"), Icon::Person);
+        const float button = Dp(120);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - button - Dp(10));
+        const bool entered = ImGui::InputTextWithHint("##test_player", texts::T("match_setup.test_player.name_hint"),
+                                                      &test_player_name_, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine(0, Dp(10));
+        const bool usable = !competitive_status_.busy && !test_player_name_.empty();
+        if (PrimaryButton("sign_in_test", texts::T("match_setup.test_player.sign_in"),
+                          {button, ImGui::GetFrameHeight()}, usable, Icon::Person)
+            || (entered && usable))
+            competitive_->TestSignIn(test_player_name_);
+        EndCard();
     }
 
     // The Miis of the save folder in use, read again when a file they come
@@ -4008,33 +7568,33 @@ private:
     // chosen there comes back here.
     void SidekicksPage()
     {
-        PageHeader("Sidekicks", "The sidekicks each captain starts with. The game's sidekick screen shows them, and "
-                                "what you choose there shows here: both live in your game save.");
+        PageHeader(texts::T("match_setup.sidekicks.title"), texts::T("match_setup.sidekicks.about"));
         using mscharged::platform::GameSaveState;
         const auto& save = InstalledLineups();
-        GameSaveCallout(save.state, save.error, "its lineups");
+        GameSaveCallout(save.state, save.error, texts::T("match_setup.sidekicks.save_missing"),
+                        texts::T("match_setup.sidekicks.save_damaged"));
         const bool ready = save.state == GameSaveState::Ready;
         const auto lineups = ready ? save.lineups : mscharged::platform::DefaultSidekickLineups();
 
         ImGui::BeginDisabled(!ready);
-        BeginCard("##captains", "Captains", "Choose a captain to change the sidekicks that start with them.",
-                  Icon::Person);
+        BeginCard("##captains", texts::T("match_setup.sidekicks.captains"),
+                  texts::T("match_setup.sidekicks.captains_about"), Icon::Person);
         CaptainGrid(lineups);
         EndCard();
 
         const auto& lineup = lineups[std::size_t(lineup_captain_)];
         const auto standard = mscharged::platform::DefaultSidekickLineups()[std::size_t(lineup_captain_)];
-        BeginCard("##lineup", kCaptainNames[lineup_captain_],
-                  "Click a sidekick to put another one in their place. The change goes straight into the game save.",
+        BeginCard("##lineup", kCaptainNames[lineup_captain_], texts::T("match_setup.sidekicks.lineup_about"),
                   Icon::Pitch);
         Pitch(lineups);
         if (BeginRows("##lineup_rows"))
         {
-            const std::string description = SidekickList(standard) + ": the lineup a new save gives "
-                + kCaptainNames[lineup_captain_] + ".";
-            Row("The game's own", description.c_str());
-            if (SecondaryButton("restore_lineup", "Restore", {ImGui::GetContentRegionAvail().x, Dp(40)},
-                                ready && lineup != standard, Icon::Refresh))
+            const std::string description = texts::T(
+                "match_setup.sidekicks.standard_about",
+                {{"sidekicks", SidekickList(standard)}, {"captain", kCaptainNames[lineup_captain_]}});
+            Row(texts::T("match_setup.sidekicks.standard"), description.c_str());
+            if (SecondaryButton("restore_lineup", texts::T("match_setup.sidekicks.restore"),
+                                {ImGui::GetContentRegionAvail().x, Dp(40)}, ready && lineup != standard, Icon::Refresh))
             {
                 auto changed = lineups;
                 changed[std::size_t(lineup_captain_)] = standard;
@@ -4116,7 +7676,7 @@ private:
         draw->AddRect({field_max.x - box_w, centre - box_h * 0.5f}, {field_max.x, centre + box_h * 0.5f}, line, 0, 0, thick);
         draw->AddRectFilled({field_min.x - goal_d, centre - goal_h * 0.5f}, {field_min.x, centre + goal_h * 0.5f}, line);
         draw->AddRectFilled({field_max.x, centre - goal_h * 0.5f}, {field_max.x + goal_d, centre + goal_h * 0.5f}, line);
-        const char* attack = "ATTACK";
+        const char* attack = texts::T("match_setup.sidekicks.attack");
         const float attack_w = TrackedWidth(fonts.caption, attack, Dp(1.6f));
         const ImVec2 attack_at{field_max.x - box_w - Dp(34) - attack_w, field_min.y + Dp(10)};
         DrawTracked(draw, fonts.caption, attack_at, Col(color::text, 0.4f), attack, Dp(1.6f));
@@ -4168,7 +7728,10 @@ private:
             const float hover = Animate(ImGui::GetItemID(), hovered || (lineup_slot_ == int(slot)
                                         && ImGui::IsPopupOpen("##sidekick_menu")), 14.0f);
             player(kSidekickSpots[slot], kSidekickNames[lineup[slot]], Initials(lineup[slot]), color::info, hover);
-            if (hovered) ImGui::SetTooltip("Choose another %s", Lowercase(kSidekickSpots[slot].role).c_str());
+            if (hovered)
+                ImGui::SetTooltip("%s", texts::T("match_setup.sidekicks.choose_another",
+                                                 {{"role", Lowercase(kSidekickSpots[slot].role)}})
+                                            .c_str());
             SidekickMenu(lineups, slot);
             ImGui::PopID();
         }
@@ -4228,26 +7791,26 @@ private:
         try
         {
             copy = mscharged::platform::WriteSidekicks(SaveFolder(), SaveTitleOf(Release()), lineups, SaveBackupParent());
-            Notice(std::string(kCaptainNames[lineup_captain_]) + " starts with " + SidekickList(lineup) + ".",
+            Notice(texts::T("match_setup.sidekicks.saved",
+                            {{"captain", kCaptainNames[lineup_captain_]}, {"sidekicks", SidekickList(lineup)}}),
                    NoticeKind::Success);
         }
-        catch (const std::exception& e) { Notice(std::string("Saving the lineup failed: ") + e.what(), NoticeKind::Error); }
+        catch (const std::exception& e)
+        {
+            Notice(texts::T("match_setup.sidekicks.save_failed", {{"error", e.what()}}), NoticeKind::Error);
+        }
         GameSaveWritten(copy);
     }
 
-    // What the Teams and Matches pages say when the game save cannot be changed;
-    // `what` is what they would change ("its lineups").
-    static void GameSaveCallout(mscharged::platform::GameSaveState state, const std::string& error, const char* what)
+    // What the Teams and Matches pages say when the game save cannot be changed:
+    // `missing` for a save that is not there yet, `damaged` for one the game
+    // cannot read (each saying what they would change).
+    static void GameSaveCallout(mscharged::platform::GameSaveState state, const std::string& error, const char* missing,
+                                const char* damaged)
     {
         using mscharged::platform::GameSaveState;
-        if (state == GameSaveState::Missing)
-            Callout(std::string("There is no game save in the save folder in use yet. Play once: the game makes one when "
-                                "it first saves, and ") + what + " show here.",
-                    color::info, Icon::Info);
-        else if (state == GameSaveState::Damaged)
-            Callout(std::string("The game cannot read the save in the save folder in use, so ") + what
-                        + " are left as they are.",
-                    color::warning, Icon::Warning);
+        if (state == GameSaveState::Missing) Callout(missing, color::info, Icon::Info);
+        else if (state == GameSaveState::Damaged) Callout(damaged, color::warning, Icon::Warning);
         else if (state == GameSaveState::Unusable)
             Callout(error, color::danger, Icon::Error);
     }
@@ -4267,7 +7830,6 @@ private:
     {
         if (!copy.empty()) save_backed_up_ = SaveFolder();
         lineups_folder_.clear();
-        match_save_folder_.clear();
     }
 
     // The lineups of the save folder in use, read again when it or its
@@ -4290,8 +7852,9 @@ private:
 
     static std::string SidekickList(const mscharged::platform::SidekickLineup& lineup)
     {
-        return std::string(kSidekickNames[lineup[0]]) + ", " + kSidekickNames[lineup[1]] + " and "
-            + kSidekickNames[lineup[2]];
+        return texts::T("match_setup.sidekicks.list", {{"first", kSidekickNames[lineup[0]]},
+                                                        {"second", kSidekickNames[lineup[1]]},
+                                                        {"third", kSidekickNames[lineup[2]]}});
     }
 
     // "Shy Guy" SG, "Toad" To.
@@ -4312,135 +7875,259 @@ private:
         return text;
     }
 
-    // Match presets: named match settings and cheats, each in a file of the
-    // presets folder, written into the game save for matches on this computer
-    // or online with friends. Default and Competitive are built in.
+    // Match rules: presets of a battle's rules, which a challenge or a search
+    // for an opponent starts from (the game's online panel, F1). Retail ranked
+    // and Competitive are built in, the server may offer rule sets of its own,
+    // and the player's are files in match-presets beside the settings file.
     void MatchRulesPage()
     {
-        PageHeader("Match rules", "Presets of the match settings and cheats: choose one for your matches on this "
-                                  "computer, or online with friends. Ranked matches keep their own rules.");
-        using mscharged::platform::GameSaveState;
-        using mscharged::platform::MatchMode;
-        const auto& save = InstalledMatch();
-        GameSaveCallout(save.state, save.error, "its match settings");
-        const bool ready = save.state == GameSaveState::Ready;
-        const auto& list = MatchPresets();
-
-        BeginCard("##match_save", "In the game save",
-                  "The settings the game starts with. Its settings screen changes them too.", Icon::Folder);
-        if (BeginRows("##match_save_rows"))
+        const auto& fonts = CurrentFonts();
         {
-            for (const auto mode : {MatchMode::Offline, MatchMode::Friends})
+            // The title, and New preset at its right.
+            const char* label = texts::T("match_setup.rules.new_preset");
+            const float button_w = GhostWidth(label, Icon::Copy) + Dp(24), button_h = Dp(40);
+            const ImVec2 top = ImGui::GetCursorScreenPos();
+            const float right = ImGui::GetContentRegionAvail().x;
+            // As PageHeader, its text beside the button.
+            TextColored(fonts.title, color::text, texts::T("match_setup.rules.title"));
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(4));
+            ImGui::PushFont(fonts.body);
+            ImGui::PushStyleColor(ImGuiCol_Text, color::muted);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + right - button_w - Dp(24));
+            ImGui::TextUnformatted(texts::T("match_setup.rules.about", {{"key", "F1"}}).c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+            ImGui::Dummy({0, Dp(8)});
+            const ImVec2 after = ImGui::GetCursorScreenPos();
+            ImGui::SetCursorScreenPos({top.x + right - button_w, top.y + Dp(2)});
+            if (PrimaryButton("new_match_preset", label, {button_w, button_h}, true, Icon::Copy))
             {
-                const auto& settings = save.modes[std::size_t(mode)];
-                const std::string summary = ready ? launcher::MatchSummary(settings) : std::string("-");
-                Row(MatchModeName(mode), summary.c_str());
-                if (ready)
-                {
-                    const auto* preset = launcher::FindMatchPreset(list.presets, settings);
-                    Chip(preset ? preset->name.c_str() : "Your own settings", preset ? color::accent : color::muted,
-                         preset ? Icon::Check : Icon::None);
-                }
+                launcher::MatchPreset fresh = launcher::BuiltInMatchPresets()[0];
+                fresh.name.clear();
+                fresh.built_in = false;
+                EditPreset(fresh);
             }
-            EndRows();
+            ImGui::SetCursorScreenPos(after);
         }
-        EndCard();
+        const auto& list = MatchPresets();
+        BeginCard("##match_presets", nullptr);
 
-        BeginCard("##match_presets", "Presets",
-                  "Use one for matches on this computer or with friends: it goes straight into the game save.",
-                  Icon::Trophy);
+        PresetGroupTitle(texts::T("match_setup.rules.groups.built_in"));
+        int row = 0;
+        for (const auto& preset : list.presets)
+            if (preset.built_in)
+            {
+                if (PresetListRow(row++, preset.name, launcher::ChallengeRules(preset), PresetKind::BuiltIn))
+                    CopyPreset(preset.name, launcher::ChallengeRules(preset));
+            }
+
+        // The server's own rule sets, besides those named as the built-in ones.
+        std::vector<const platform::RuleSet*> from_server;
+        if (competitive_status_.state == CompetitiveService::State::SignedIn)
+            for (const auto& set : competitive_status_.rule_sets)
+                if (std::none_of(list.presets.begin(), list.presets.end(), [&](const launcher::MatchPreset& preset) {
+                        return preset.built_in && preset.name == set.name;
+                    }))
+                    from_server.push_back(&set);
+        if (!from_server.empty())
+        {
+            PresetGroupTitle(texts::T("match_setup.rules.groups.server"));
+            for (const auto* set : from_server)
+                if (PresetListRow(row++, set->name, set->rules, PresetKind::Server)) CopyPreset(set->name, set->rules);
+        }
+
+        PresetGroupTitle(texts::T("match_setup.rules.groups.yours"));
+        bool own = false;
         for (std::size_t n = 0; n < list.presets.size(); ++n)
         {
-            if (n)
+            const auto& preset = list.presets[n];
+            if (preset.built_in) continue;
+            own = true;
+            const int id = row++;
+            switch (PresetListRow(id, preset.name, launcher::ChallengeRules(preset), PresetKind::Own, int(n)))
             {
-                ImGui::Dummy({0, Dp(4)});
-                MenuSeparator(ImGui::GetContentRegionAvail().x);
-                ImGui::Dummy({0, Dp(4)});
+            case 1: CopyPreset(preset.name, launcher::ChallengeRules(preset)); break;
+            case 2: EditPreset(preset); break;
+            case 3:
+                try
+                {
+                    launcher::DeleteMatchPreset(preset);
+                    Notice(texts::T("match_setup.rules.deleted", {{"name", preset.name}}), NoticeKind::Success);
+                }
+                catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); }
+                preset_delete_ = -1;
+                presets_loaded_ = false;
+                break;
+            default: break;
             }
-            PresetRow(list.presets[n], int(n), save, ready);
         }
-        ImGui::Dummy({0, Dp(10)});
-        if (SecondaryButton("new_match_preset", "New preset", {Dp(160), Dp(40)}, !preset_edit_, Icon::Copy))
-        {
-            launcher::MatchPreset fresh;
-            fresh.settings = ready ? save.modes[0] : launcher::BuiltInMatchPresets()[0].settings;
-            EditPreset(fresh);
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("A new preset, from the settings for matches on this computer.");
-        const std::string folder = "Files in " + PathUtf8(MatchPresetsFolder()) + ".";
+        if (!own)
+            TextWrappedColored(fonts.caption, color::muted, texts::T("match_setup.rules.none_yet"));
+        const std::string folder = texts::T("match_setup.rules.folder", {{"path", PathUtf8(MatchPresetsFolder())}});
         ImGui::Dummy({0, Dp(4)});
-        TextWrappedColored(CurrentFonts().caption, color::dim, folder.c_str());
+        TextWrappedColored(fonts.caption, color::dim, folder.c_str());
         for (const auto& skipped : list.skipped)
-            TextWrappedColored(CurrentFonts().caption, color::warning, ("Not a preset: " + skipped).c_str());
+            TextWrappedColored(fonts.caption, color::warning,
+                               texts::T("match_setup.rules.skipped", {{"file", skipped}}).c_str());
         EndCard();
-
-        if (preset_edit_) PresetEditor();
     }
 
-    static const char* MatchModeName(mscharged::platform::MatchMode mode)
+    enum class PresetKind
     {
-        return mode == mscharged::platform::MatchMode::Offline ? "On this computer" : "Online with friends";
-    }
+        BuiltIn,
+        Server,
+        Own,
+    };
 
-    // One preset: its name and settings, then the buttons that put it in the
-    // game save, and Edit and Delete (Copy for a built-in one).
-    void PresetRow(const launcher::MatchPreset& preset, int index, const mscharged::platform::MatchSaveStatus& save,
-                   bool ready)
+    // A group's name in the presets list, in small tracked capitals.
+    void PresetGroupTitle(const char* title)
     {
-        using mscharged::platform::MatchMode;
         const auto& fonts = CurrentFonts();
-        ImGui::PushID(index);
-        const float gap = Dp(8), use_w = Dp(150), edit_w = Dp(90), height = Dp(36);
-        TextColored(fonts.label, color::text, preset.name.c_str());
-        if (preset.built_in)
-        {
-            ImGui::SameLine(0, Dp(10));
-            Chip("Built in", color::info);
-        }
-        TextWrappedColored(fonts.caption, color::muted, launcher::MatchSummary(preset.settings).c_str());
-        ImGui::Dummy({0, Dp(2)});
+        ImGui::Dummy({0, Dp(4)});
+        DrawTracked(ImGui::GetWindowDrawList(), fonts.caption, ImGui::GetCursorScreenPos(), Col(color::dim), title,
+                    Dp(1.4f));
+        ImGui::Dummy({0, FontSize(fonts.caption) + Dp(6)});
+    }
 
-        for (const auto mode : {MatchMode::Offline, MatchMode::Friends})
+    // The rules as short chips: the series, how a game ends, the stadium, the
+    // gameplay tweaks and the cheats.
+    struct RuleChip
+    {
+        std::string text;
+        ImVec4 tint;
+        bool plain = true; // white text; else in its tint
+    };
+    static std::vector<RuleChip> RuleChips(const platform::MatchRules& rules)
+    {
+        std::vector<RuleChip> chips;
+        chips.push_back({rules.games == 1
+                             ? std::string(texts::T("match_setup.rules.one_game"))
+                             : texts::T("match_setup.rules.best_of", {{"games", std::to_string(rules.games)}}),
+                         color::muted});
+        if (rules.limit == "goals")
+            chips.push_back({texts::Count("match_setup.rules.first_to_goals", rules.goals), color::muted});
+        else
+            chips.push_back({rules.time % 60 == 0 ? texts::Count("match_setup.rules.minutes", rules.time / 60)
+                                                  : texts::Count("match_setup.rules.seconds", rules.time),
+                             color::muted});
+        std::string stadium = texts::T("match_setup.rules.random_stadium");
+        for (const auto& choice : platform::StadiumChoices())
+            if (rules.stadium != "random" && rules.stadium == choice.key) stadium = choice.label;
+        chips.push_back({stadium, color::muted});
+        for (const auto& choice : platform::RuleTweakChoices())
+            if (std::find(rules.tweaks.begin(), rules.tweaks.end(), choice.key) != rules.tweaks.end())
+                chips.push_back({choice.label, color::accent, false});
+        for (const auto& [choices, key] : {std::pair{&platform::StadiumCheatChoices(), &rules.stadium_cheat},
+                                           std::pair{&platform::PlayerCheatChoices(), &rules.player_cheat},
+                                           std::pair{&platform::PowerupCheatChoices(), &rules.powerup_cheat}})
+            for (const auto& choice : *choices)
+                if (*key != "none" && *key == choice.key) chips.push_back({choice.label, color::warning, false});
+        return chips;
+    }
+
+    // One preset of the list: its name (and where it comes from), its rules
+    // as chips, wrapping, and its buttons at the right: Copy, and for the
+    // player's own Edit and Delete (pressed twice). Returns the button pressed:
+    // 1 Copy, 2 Edit, 3 Delete (confirmed), 0 none.
+    int PresetListRow(int id, const std::string& name, const platform::MatchRules& rules, PresetKind kind,
+                      int index = -1)
+    {
+        const auto& fonts = CurrentFonts();
+        auto* draw = ImGui::GetWindowDrawList();
+        ImGui::PushID(id);
+        const float width = ImGui::GetContentRegionAvail().x, pad = Dp(10), gap = Dp(6), height = Dp(30);
+        const bool own = kind == PresetKind::Own;
+        const float copy_w = Dp(86), edit_w = Dp(80), delete_w = Dp(96);
+        const float buttons = copy_w + (own ? gap + edit_w + gap + delete_w : 0.0f);
+        const ImVec2 start = ImGui::GetCursorScreenPos();
+        draw->ChannelsSplit(2);
+        draw->ChannelsSetCurrent(1);
+        // The name, and for rules that stay as they are a padlock: they come
+        // with Recharged or from the server, and a copy is the player's.
+        const float text_right = start.x + width - pad - buttons - Dp(16);
+        ImGui::SetCursorScreenPos({start.x + pad + Dp(4), start.y + pad});
+        TextColored(fonts.label, color::text, name.c_str());
+        if (!own)
         {
-            const bool used = ready && save.modes[std::size_t(mode)] == preset.settings;
-            if (mode == MatchMode::Friends) ImGui::SameLine(0, gap);
-            const char* label = mode == MatchMode::Offline ? "This computer" : "With friends";
-            if (SecondaryButton(mode == MatchMode::Offline ? "use_offline" : "use_friends", label, {use_w, height},
-                                ready && !used, used ? Icon::Check : Icon::Play))
-                UsePreset(preset, mode);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip(used ? "%s: the game save has these settings." : "Use for matches %s.",
-                                  used ? MatchModeName(mode) : Lowercase(MatchModeName(mode)).c_str());
+            const char* tag = kind == PresetKind::BuiltIn ? texts::T("match_setup.rules.fixed")
+                                                          : texts::T("match_setup.rules.from_server");
+            const ImVec2 size = TextSize(fonts.caption, tag);
+            const float tag_h = FontSize(fonts.caption) + Dp(6);
+            const ImVec2 tag_at{start.x + pad + Dp(4) + TextSize(fonts.label, name.c_str()).x + Dp(10),
+                                start.y + pad + (FontSize(fonts.label) - tag_h) * 0.5f};
+            const ImVec2 tag_end{tag_at.x + Dp(22) + size.x + Dp(8), tag_at.y + tag_h};
+            draw->AddRectFilled(tag_at, tag_end, Col(color::text, 0.06f), tag_h * 0.5f);
+            DrawIcon(draw, Icon::Lock, {tag_at.x + Dp(12), tag_at.y + tag_h * 0.5f}, Dp(11), Col(color::muted));
+            DrawLabel(draw, fonts.caption, {tag_at.x + Dp(22), tag_at.y + (tag_h - size.y) * 0.5f}, Col(color::muted),
+                      tag);
+            if (ImGui::IsMouseHoveringRect(tag_at, tag_end))
+                ImGui::SetTooltip("%s", kind == PresetKind::BuiltIn ? texts::T("match_setup.rules.fixed_tooltip")
+                                                                    : texts::T("match_setup.rules.server_tooltip"));
         }
-        ImGui::SameLine(0, gap * 2);
-        if (SecondaryButton("edit", preset.built_in ? "Copy" : "Edit", {edit_w, height}, !preset_edit_,
-                            preset.built_in ? Icon::Copy : Icon::Sliders))
-            EditPreset(preset.built_in ? launcher::MatchPreset{preset.name + " copy", preset.settings, false, {}}
-                                       : preset);
-        if (preset.built_in && ImGui::IsItemHovered()) ImGui::SetTooltip("Built-in presets do not change: make a copy.");
-        if (!preset.built_in)
+        // The rules, as chips that wrap.
+        const auto chips = RuleChips(rules);
+        float x = start.x + pad + Dp(4), y = start.y + pad + FontSize(fonts.label) + Dp(6);
+        const float chip_h = FontSize(fonts.caption) + Dp(8);
+        for (const auto& [text, tint, plain] : chips)
         {
-            ImGui::SameLine(0, gap);
+            const float w = TextSize(fonts.caption, text.c_str()).x + Dp(16);
+            if (x + w > text_right && x > start.x + pad + Dp(4))
+            {
+                x = start.x + pad + Dp(4);
+                y += chip_h + Dp(4);
+            }
+            draw->AddRectFilled({x, y}, {x + w, y + chip_h}, Col(tint, 0.12f), chip_h * 0.5f);
+            draw->AddRect({x, y}, {x + w, y + chip_h}, Col(tint, 0.35f), chip_h * 0.5f, 0, Dp(1));
+            DrawLabel(draw, fonts.caption, {x + Dp(8), y + Dp(4)}, Col(plain ? color::text : tint), text.c_str());
+            x += w + Dp(6);
+        }
+        const float bottom = std::max(y + chip_h, start.y + pad + height) + pad;
+        // The buttons, in the middle at the right.
+        int pressed = 0;
+        float bx = start.x + width - pad - buttons;
+        const float by = start.y + (bottom - start.y - height) * 0.5f;
+        ImGui::SetCursorScreenPos({bx, by});
+        if (SecondaryButton("copy", texts::T("match_setup.buttons.copy"), {copy_w, height}, !preset_edit_, Icon::Copy))
+            pressed = 1;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", texts::T("match_setup.rules.copy_tooltip", {{"name", name}}).c_str());
+        if (own)
+        {
+            bx += copy_w + gap;
+            ImGui::SetCursorScreenPos({bx, by});
+            if (SecondaryButton("edit", texts::T("match_setup.buttons.edit"), {edit_w, height}, !preset_edit_,
+                                Icon::Paint))
+                pressed = 2;
+            bx += edit_w + gap;
+            ImGui::SetCursorScreenPos({bx, by});
             const bool armed = preset_delete_ == index;
-            if (SecondaryButton("delete", armed ? "Confirm" : "Delete", {edit_w + Dp(6), height}, !preset_edit_,
+            const char* delete_label = armed ? texts::T("match_setup.buttons.confirm")
+                                             : texts::T("match_setup.buttons.delete");
+            if (SecondaryButton("delete", delete_label, {delete_w, height}, !preset_edit_,
                                 armed ? Icon::Warning : Icon::Close))
             {
-                if (!armed) preset_delete_ = index;
-                else
-                {
-                    try
-                    {
-                        launcher::DeleteMatchPreset(preset);
-                        Notice("Preset " + preset.name + " deleted.", NoticeKind::Success);
-                    }
-                    catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); }
-                    preset_delete_ = -1;
-                    presets_loaded_ = false;
-                }
+                if (armed) pressed = 3;
+                else preset_delete_ = index;
             }
-            if (armed && ImGui::IsItemHovered()) ImGui::SetTooltip("Click again to delete its file.");
+            if (armed && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("match_setup.rules.delete_tooltip"));
         }
+        // The row's card, under it all.
+        draw->ChannelsSetCurrent(0);
+        draw->AddRectFilled(start, {start.x + width, bottom}, Col(color::field, 0.55f), Dp(12));
+        draw->AddRect(start, {start.x + width, bottom}, Col(color::border, 0.9f), Dp(12), 0, Dp(1));
+        draw->ChannelsMerge();
+        ImGui::SetCursorScreenPos(start);
+        ImGui::Dummy({width, bottom - start.y});
         ImGui::PopID();
+        return pressed;
+    }
+
+    // A preset of the player's own from `name`'s rules, in the editor.
+    void CopyPreset(const std::string& name, const platform::MatchRules& rules)
+    {
+        EditPreset(launcher::PresetFromRules(texts::T("match_setup.rules.copy_name", {{"name", name}}), rules));
+        page_scroll_top_ = true;
     }
 
     void EditPreset(const launcher::MatchPreset& preset)
@@ -4449,48 +8136,58 @@ private:
         preset_delete_ = -1;
     }
 
-    // The preset being made or changed: its name, the settings of the game's
-    // settings screen and the cheats, all offered whether unlocked or not.
-    void PresetEditor()
+    // The preset being made or changed, on a page of its own (as the Mii
+    // editor): its name, the settings of the game's settings screen and the
+    // cheats, all offered whether unlocked or not; back or Cancel leave it,
+    // Save keeps it.
+    void PresetEditorPage()
     {
         auto& preset = *preset_edit_;
         auto& s = preset.settings;
         const auto& fonts = CurrentFonts();
         const bool fresh = preset.file.empty();
-        BeginCard("##preset_editor", fresh ? "New preset" : "Edit preset",
-                  "Saved as a file of its own; the game save changes when you use it.", Icon::Sliders);
+        if (EditorHeader("##preset_editor_back",
+                         fresh ? texts::T("match_setup.rules.new_preset") : texts::T("match_setup.preset_editor.title"),
+                         texts::T("match_setup.preset_editor.about", {{"folder", "match-presets"}}).c_str()))
+        {
+            preset_edit_.reset();
+            page_scroll_top_ = true;
+            return;
+        }
+        BeginCard("##preset_editor", nullptr);
         // Why the preset cannot be saved, if it cannot.
         std::string blocked;
         if (!launcher::ValidMatchPresetName(preset.name))
-            blocked = "A name of 1 to 32 characters, without \" [ ] = |, and neither Default nor Competitive.";
+            blocked = texts::T("match_setup.preset_editor.name_rule",
+                               {{"retail", launcher::BuiltInMatchPresets()[0].name},
+                                {"competitive", launcher::BuiltInMatchPresets()[1].name}});
         for (const auto& other : MatchPresets().presets)
             if (!other.built_in && other.file != preset.file && launcher::SameMatchPresetName(other.name, preset.name))
-                blocked = "Another preset is called " + other.name + ".";
+                blocked = texts::T("match_setup.presets.name_taken", {{"name", other.name}});
         if (BeginRows("##preset_rows"))
         {
-            Row("Name");
+            Row(texts::T("match_setup.preset_editor.name"));
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            ImGui::InputTextWithHint("##preset_name", "Preset name", &preset.name);
+            ImGui::InputTextWithHint("##preset_name", texts::T("match_setup.preset_editor.name_hint"), &preset.name);
             if (!blocked.empty() && !preset.name.empty())
                 TextWrappedColored(fonts.caption, color::warning, blocked.c_str());
 
-            Row("Skill", "How well the computer plays.");
-            int skill = s.skill - 1;
-            CheatCombo("##preset_skill", skill, launcher::SkillNames());
-            s.skill = skill + 1;
-
-            Row("Series", "Games in a series: best of 1 to 9.");
-            int series = (s.best_of - 1) / 2;
-            if (Segmented("##preset_series", &series, {"1", "3", "5", "7", "9"}, ImGui::GetContentRegionAvail().x))
+            Row(texts::T("match_setup.preset_editor.series"), texts::T("match_setup.preset_editor.series_about"));
+            int series = std::min((s.best_of - 1) / 2, 3);
+            if (Segmented("##preset_series", &series, {"1", "3", "5", "7"}, ImGui::GetContentRegionAvail().x))
                 s.best_of = series * 2 + 1;
 
-            Row("Win by", s.goal_limit ? "The first team to the goals wins." : "The team ahead when time runs out wins.");
+            Row(texts::T("match_setup.preset_editor.win_by"), s.goal_limit
+                                                                ? texts::T("match_setup.preset_editor.win_by_goals")
+                                                                : texts::T("match_setup.preset_editor.win_by_time"));
             int limit = s.goal_limit ? 1 : 0;
-            if (Segmented("##preset_limit", &limit, {"Time", "Goals"}, ImGui::GetContentRegionAvail().x))
+            if (Segmented("##preset_limit", &limit,
+                          {texts::T("match_setup.preset_editor.time"), texts::T("match_setup.preset_editor.goals")},
+                          ImGui::GetContentRegionAvail().x))
                 s.goal_limit = limit == 1;
             if (s.goal_limit)
             {
-                Row("Goals");
+                Row(texts::T("match_setup.preset_editor.goals"));
                 int goals = s.goals - 3;
                 if (Segmented("##preset_goals", &goals, {"3", "4", "5", "6", "7", "8", "9", "10"},
                               ImGui::GetContentRegionAvail().x))
@@ -4498,35 +8195,95 @@ private:
             }
             else
             {
-                Row("Time");
+                Row(texts::T("match_setup.preset_editor.time"));
                 int time = s.time / 60 - 2;
-                if (Segmented("##preset_time", &time, {"2 min", "3 min", "4 min", "5 min"}, ImGui::GetContentRegionAvail().x))
+                std::vector<std::string> minutes;
+                for (int n = 2; n <= 5; ++n)
+                    minutes.push_back(
+                        texts::T("match_setup.preset_editor.minutes_short", {{"minutes", std::to_string(n)}}));
+                if (Segmented("##preset_time", &time,
+                              {minutes[0].c_str(), minutes[1].c_str(), minutes[2].c_str(), minutes[3].c_str()},
+                              ImGui::GetContentRegionAvail().x))
                     s.time = (time + 2) * 60;
             }
 
-            Row("Stadium cheat");
+            Row(texts::T("match_setup.preset_editor.stadium_cheat"));
             CheatCombo("##preset_stadium", s.stadium_cheat, launcher::StadiumCheatNames());
-            Row("Player cheat");
+            Row(texts::T("match_setup.preset_editor.player_cheat"));
             CheatCombo("##preset_player", s.player_cheat, launcher::PlayerCheatNames());
-            Row("Power-up cheat");
+            Row(texts::T("match_setup.preset_editor.powerup_cheat"));
             CheatCombo("##preset_powerup", s.powerup_cheat, launcher::PowerupCheatNames());
+
+            // For challenges: the stadium and the gameplay tweaks both teams play with.
+            Row(texts::T("match_setup.preset_editor.stadium"), texts::T("match_setup.preset_editor.stadium_about"));
+            {
+                const auto& stadiums = platform::StadiumChoices();
+                std::vector<const char*> names;
+                int chosen = 0;
+                for (std::size_t n = 0; n < stadiums.size(); ++n)
+                {
+                    names.push_back(stadiums[n].label);
+                    if (preset.stadium == stadiums[n].key) chosen = int(n);
+                }
+                CheatCombo("##preset_stadium_pick", chosen, names);
+                preset.stadium = stadiums[std::size_t(chosen)].key;
+            }
+            Row(texts::T("match_setup.preset_editor.gameplay"), texts::T("match_setup.preset_editor.gameplay_about"));
+            for (const auto& choice : platform::RuleTweakChoices())
+            {
+                const auto found = std::find(preset.tweaks.begin(), preset.tweaks.end(), choice.key);
+                bool on = found != preset.tweaks.end();
+                ImGui::PushID(choice.key);
+                if (Toggle("##preset_tweak", &on))
+                {
+                    if (on) preset.tweaks.push_back(choice.key);
+                    else preset.tweaks.erase(found);
+                }
+                ImGui::SameLine(0, Dp(12));
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (Dp(28) - FontSize(fonts.body)) * 0.5f);
+                TextColored(fonts.body, color::text, choice.label);
+                ImGui::PopID();
+            }
             EndRows();
         }
-        ImGui::Dummy({0, Dp(6)});
-        if (PrimaryButton("save_preset", "Save preset", {Dp(160), Dp(42)}, blocked.empty(), Icon::Check))
+        // Cancel and Save at the right, as in the Mii editor; why it can't be
+        // saved before them.
+        ImGui::Dummy({0, Dp(14)});
+        const float button = Dp(36), end_button = Dp(124);
+        const ImVec2 bar = ImGui::GetCursorScreenPos();
+        const float width = ImGui::GetContentRegionAvail().x;
+        const float right_start = bar.x + width - end_button * 2 - Dp(8);
+        if (!blocked.empty() && preset.name.empty())
+        {
+            const char* hint = texts::T("match_setup.preset_editor.name_needed");
+            const ImVec2 size = TextSize(fonts.caption, hint);
+            DrawLabel(ImGui::GetWindowDrawList(), fonts.caption,
+                      {right_start - Dp(14) - size.x, bar.y + (button - size.y) * 0.5f}, Col(color::warning), hint);
+        }
+        ImGui::SetCursorScreenPos({right_start, bar.y});
+        bool leave = false;
+        if (SecondaryButton("cancel_preset", texts::T("match_setup.buttons.cancel"), {end_button, button}, true,
+                            Icon::Close))
+            leave = true;
+        ImGui::SameLine(0, Dp(8));
+        if (PrimaryButton("save_preset", texts::T("match_setup.buttons.save"), {end_button, button}, blocked.empty(),
+                          Icon::Check))
         {
             try
             {
                 launcher::SaveMatchPreset(MatchPresetsFolder(), preset, MatchPresets().presets);
-                Notice("Preset " + preset.name + " saved.", NoticeKind::Success);
-                preset_edit_.reset();
+                Notice(texts::T("match_setup.rules.saved", {{"name", preset.name}}), NoticeKind::Success);
+                leave = true;
             }
             catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); }
             presets_loaded_ = false;
         }
-        ImGui::SameLine(0, Dp(10));
-        if (SecondaryButton("cancel_preset", "Cancel", {Dp(110), Dp(42)})) preset_edit_.reset();
         EndCard();
+        if (leave)
+        {
+            preset_edit_.reset();
+            page_scroll_top_ = true;
+        }
     }
 
     // A choice among names (a cheat, the skill) as a dropdown.
@@ -4537,22 +8294,13 @@ private:
         if (ImGui::BeginCombo(id, shown))
         {
             for (std::size_t n = 0; n < names.size(); ++n)
-                if (ImGui::Selectable(names[n], int(n) == cheat)) cheat = int(n);
+            {
+                // Its ID by its place: the names are in the player's language.
+                const std::string label = std::string(names[n]) + "###" + std::to_string(n);
+                if (ImGui::Selectable(label.c_str(), int(n) == cheat)) cheat = int(n);
+            }
             ImGui::EndCombo();
         }
-    }
-
-    void UsePreset(const launcher::MatchPreset& preset, mscharged::platform::MatchMode mode)
-    {
-        fs::path copy;
-        try
-        {
-            copy = mscharged::platform::WriteMatchSettings(SaveFolder(), SaveTitleOf(Release()), mode, preset.settings,
-                                                           SaveBackupParent());
-            Notice(preset.name + " is in use " + Lowercase(MatchModeName(mode)) + ".", NoticeKind::Success);
-        }
-        catch (const std::exception& e) { Notice(std::string("Using the preset failed: ") + e.what(), NoticeKind::Error); }
-        GameSaveWritten(copy);
     }
 
     // The presets folder: match-presets beside the settings file.
@@ -4575,22 +8323,6 @@ private:
             preset_delete_ = -1;
         }
         return presets_;
-    }
-
-    // The match settings of the save folder in use, read again as the lineups are.
-    const mscharged::platform::MatchSaveStatus& InstalledMatch()
-    {
-        const auto folder = SaveFolder();
-        std::error_code error;
-        const auto changed = fs::last_write_time(folder / "metadata.txt", error);
-        const auto time = error ? fs::file_time_type{} : changed;
-        if (folder != match_save_folder_ || time != match_save_time_)
-        {
-            match_save_folder_ = folder;
-            match_save_time_ = time;
-            match_save_ = mscharged::platform::InstalledMatchSettings(folder, SaveTitleOf(Release()));
-        }
-        return match_save_;
     }
 
     // The checked disc's release, or the USA one before a disc is known.
@@ -4669,7 +8401,9 @@ private:
         if (folder_purpose_ == FolderPurpose::DolphinMiis)
         {
             const auto database = mscharged::platform::ResolveDolphinMiiDatabase(PathFromUtf8(chosen));
-            if (database.empty()) Notice("No Mii database (RFL_DB.dat) found in " + chosen + ".", NoticeKind::Warning);
+            if (database.empty())
+                Notice(texts::T("match_setup.import.no_mii_database", {{"file", "RFL_DB.dat"}, {"folder", chosen}}),
+                       NoticeKind::Warning);
             else AskImport(database, ImportKind::Miis);
             return;
         }
@@ -4682,7 +8416,7 @@ private:
         const auto save = mscharged::platform::ResolveDolphinSave(PathFromUtf8(chosen), Release().title_id,
                                                                     kSaveFile);
         if (save.empty())
-            Notice("No Mario Strikers Charged save found in " + chosen + ".", NoticeKind::Warning);
+            Notice(texts::T("match_setup.import.no_save", {{"folder", chosen}}), NoticeKind::Warning);
         else AskImport(save, ImportKind::Save);
     }
 
@@ -4702,11 +8436,16 @@ private:
                                                                        kSaveFile, folder / "backups");
             std::string files;
             for (const auto& name : result.files) files += (files.empty() ? "" : ", ") + name;
-            Notice("Dolphin save imported (" + files + ")."
-                       + (result.backup.empty() ? "" : " Your previous save is in " + PathUtf8(result.backup) + "."),
+            Notice(result.backup.empty()
+                       ? texts::T("match_setup.import.save_imported", {{"files", files}})
+                       : texts::T("match_setup.import.save_imported_backup",
+                                  {{"files", files}, {"path", PathUtf8(result.backup)}}),
                    NoticeKind::Success);
         }
-        catch (const std::exception& e) { Notice(std::string("Import failed: ") + e.what(), NoticeKind::Error); }
+        catch (const std::exception& e)
+        {
+            Notice(texts::T("match_setup.import.failed", {{"error", e.what()}}), NoticeKind::Error);
+        }
     }
 
     void ImportDolphinMiis()
@@ -4718,11 +8457,18 @@ private:
                                                                        folder / "backups");
             std::string names;
             for (const auto& name : result.names) names += (names.empty() ? "" : ", ") + name;
-            Notice("Dolphin Miis imported (" + names + ")."
-                       + (result.backup.empty() ? "" : " Your previous Miis are in " + PathUtf8(result.backup) + "."),
+            Notice(result.backup.empty()
+                       ? texts::T("match_setup.import.miis_imported", {{"names", names}})
+                       : texts::T("match_setup.import.miis_imported_backup",
+                                  {{"names", names}, {"path", PathUtf8(result.backup)}}),
                    NoticeKind::Success);
+            // Play with a Mii's Dolphin choice: now to choose from them.
+            if (wizard_.step == 1 && wizard_.source == 2) wizard_.source = 1;
         }
-        catch (const std::exception& e) { Notice(std::string("Import failed: ") + e.what(), NoticeKind::Error); }
+        catch (const std::exception& e)
+        {
+            Notice(texts::T("match_setup.import.failed", {{"error", e.what()}}), NoticeKind::Error);
+        }
     }
 
     void DrawImportPrompt()
@@ -4740,21 +8486,25 @@ private:
         if (ImGui::BeginPopupModal("Import from Dolphin?", nullptr, ImGuiWindowFlags_AlwaysAutoResize
             | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove))
         {
-            TextColored(fonts.heading, color::text, miis ? "Import the Dolphin Miis?" : "Import the Dolphin save?");
-            TextWrappedColored(fonts.body, color::muted, ("From " + PathUtf8(import_source_)).c_str());
-            TextWrappedColored(fonts.body, color::muted, ("Into " + PathUtf8(SaveFolder())).c_str());
+            TextColored(fonts.heading, color::text,
+                        miis ? texts::T("match_setup.import.title_miis") : texts::T("match_setup.import.title_save"));
             TextWrappedColored(fonts.body, color::muted,
-                               miis ? "They replace the game's Miis there; the current ones are backed up first."
-                                    : "It replaces the game's save there; the current one is backed up first.");
+                               texts::T("match_setup.import.from", {{"path", PathUtf8(import_source_)}}).c_str());
+            TextWrappedColored(fonts.body, color::muted,
+                               texts::T("match_setup.import.into", {{"path", PathUtf8(SaveFolder())}}).c_str());
+            TextWrappedColored(fonts.body, color::muted,
+                               miis ? texts::T("match_setup.import.replace_miis")
+                                    : texts::T("match_setup.import.replace_save"));
             ImGui::Dummy({0, Dp(8)});
-            if (PrimaryButton("import_confirm", "Import", Dp(140, 42), true, Icon::Copy))
+            if (PrimaryButton("import_confirm", texts::T("match_setup.import.button"), Dp(140, 42), true, Icon::Copy))
             {
                 ImGui::CloseCurrentPopup();
                 if (miis) ImportDolphinMiis();
                 else ImportDolphinSave();
             }
             ImGui::SameLine(0, Dp(10));
-            if (SecondaryButton("import_cancel", "Cancel", Dp(100, 42)) || CancelPressed())
+            if (SecondaryButton("import_cancel", texts::T("match_setup.buttons.cancel"), Dp(100, 42))
+                || CancelPressed())
                 ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
@@ -4862,7 +8612,7 @@ private:
     void GameImagesCard()
     {
         const auto& fonts = CurrentFonts();
-        BeginCard("##images", "Game images", "Click the image you want to play.", Icon::Disc);
+        BeginCard("##images", texts::T("match_setup.images.title"), texts::T("match_setup.images.about"), Icon::Disc);
         GameFolderPicker();
         ImGui::Dummy({0, Dp(6)});
 
@@ -4877,31 +8627,27 @@ private:
             const float line = Dp(44);
             Spinner({at.x + Dp(22), at.y + line * 0.5f}, Dp(7), Col(color::info));
             const auto* progress = library_progress_.get();
-            const std::string text = !progress || progress->listing ? "Reading your game folder..."
-                : "Checking images: " + std::to_string(progress->checked.load()) + " of "
-                    + std::to_string(progress->found.load()) + "...";
+            const std::string text = !progress || progress->listing
+                ? std::string(texts::T("match_setup.images.reading_folder"))
+                : texts::T("match_setup.images.checking", {{"checked", std::to_string(progress->checked.load())},
+                                                          {"found", std::to_string(progress->found.load())}});
             DrawLabel(ImGui::GetWindowDrawList(), fonts.body,
                       {at.x + Dp(44), at.y + (line - FontSize(fonts.body)) * 0.5f}, Col(color::muted), text.c_str());
             ImGui::Dummy({ImGui::GetContentRegionAvail().x, line});
         }
         else if (library_.empty())
-            Callout(missing_folder
-                        ? "Your game folder is not there. Create it and put your Mario Strikers Charged images (ISO "
-                          "or RVZ) into it, connect its drive, or select another folder."
-                        : "No Mario Strikers Charged images in your game folder. Put them into it, select another "
-                          "folder, or choose a file below.",
+            Callout(missing_folder ? texts::T("match_setup.images.folder_missing")
+                                   : texts::T("match_setup.images.folder_empty"),
                     color::info, Icon::Info);
 
         // Footer: what the table leaves out, and a file from anywhere else.
         ImGui::Dummy({0, Dp(4)});
         std::string footer;
-        if (library_other_games_ > 0)
-            footer = std::to_string(library_other_games_)
-                + (library_other_games_ == 1 ? " other game is" : " other games are") + " not listed.";
+        if (library_other_games_ > 0) footer = texts::Count("match_setup.images.other_games", library_other_games_);
         if (library_limited_)
-            footer += std::string(footer.empty() ? "" : " ")
-                + "Only the first 2000 image files were looked at; select a folder closer to your images.";
-        const char* choose = candidate_pending_ ? "Checking the file..." : "Choose file...";
+            footer += std::string(footer.empty() ? "" : " ") + texts::T("match_setup.images.limited");
+        const char* choose = candidate_pending_ ? texts::T("match_setup.images.checking_file")
+                                                : texts::T("match_setup.images.choose_file");
         const ImVec2 button{GhostWidth(choose, Icon::Disc), Dp(34)};
         const ImVec2 at = ImGui::GetCursorScreenPos();
         const float width = ImGui::GetContentRegionAvail().x;
@@ -4918,8 +8664,7 @@ private:
                         config_ok_ && !options_.launch.disc && !DialogActive() && !candidate_pending_, Icon::Disc))
             Browse(ExistingFolder(GameFolder().path));
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Play an image that is not in your game folder.\n"
-                              "You can also drop an image onto this window.");
+            ImGui::SetTooltip("%s", texts::T("match_setup.images.choose_file_tooltip"));
         EndCard();
     }
 
@@ -4938,8 +8683,8 @@ private:
         const bool can_select = !browsing && config_ok_;
 
         // Controls on the right, from the edge inwards.
-        const char* change = "Change...";
-        const char* subfolders = "Subfolders";
+        const char* change = texts::T("match_setup.images.change_folder");
+        const char* subfolders = texts::T("match_setup.images.subfolders");
         const float change_w = TextSize(fonts.body, change).x + Dp(32);
         const float change_x = max.x - Dp(12) - change_w;
         const float refresh_x = change_x - Dp(8) - Dp(34);
@@ -4966,12 +8711,12 @@ private:
         ImVec4 tint = color::muted;
         if (!scanned)
         {
-            status = "Reading...";
+            status = texts::T("match_setup.images.reading");
             tint = color::info;
         }
         else if (unavailable)
         {
-            status = "Not found";
+            status = texts::T("match_setup.images.not_found");
             tint = color::warning;
         }
         else
@@ -4979,8 +8724,8 @@ private:
             const auto count = std::count_if(library_.begin(), library_.end(), [](const LibraryImage& image) {
                 return image.probe.kind == DiscProbe::Kind::Charged;
             });
-            status = count == 0 ? "No Mario Strikers Charged images" : count == 1 ? "1 image"
-                                                                                   : std::to_string(count) + " images";
+            status = count == 0 ? std::string(texts::T("match_setup.images.no_images"))
+                                : texts::Count("match_setup.images.count", count);
         }
         const float text_x = box.x + Dp(36 + 14), text_w = std::max(Dp(80), label_x - Dp(18) - text_x);
         const float lines = FontSize(fonts.label) + Dp(3) + FontSize(fonts.caption);
@@ -4989,8 +8734,7 @@ private:
         DrawClipped(draw, fonts.caption, {text_x, top + FontSize(fonts.label) + Dp(3)}, text_w, tint, status);
         if (picked) BrowseFolder(FolderPurpose::GameFolder, path);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%s\nClick to select another game folder.\nYou can also drop a folder onto this window.",
-                              PathUtf8(path).c_str());
+            ImGui::SetTooltip("%s", texts::T("match_setup.images.folder_tooltip", {{"path", PathUtf8(path)}}).c_str());
 
         DrawLabel(draw, fonts.caption, {label_x, center - FontSize(fonts.caption) * 0.5f}, Col(color::muted),
                   subfolders);
@@ -4998,7 +8742,7 @@ private:
         const auto before = GameFolder();
         if (Toggle("subfolders", &draft_.folder_subfolders)) GameFolderChanged(before);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Also list the images in its subfolders (%d levels down).", kLibraryDepth);
+            ImGui::SetTooltip("%s", texts::Count("match_setup.images.subfolders_tooltip", kLibraryDepth).c_str());
         draw->AddRectFilled({divider_x, center - Dp(14)}, {divider_x + Dp(1), center + Dp(14)}, Col(color::border));
         ImGui::SetCursorScreenPos({refresh_x, center - Dp(17)});
         if (GhostButton("refresh_library", "", Dp(34, 34), config_ok_ && !library_scanning_, Icon::Refresh))
@@ -5006,11 +8750,11 @@ private:
             StartLibraryScan();
             if (!DiscSelection().empty() && !pending_) CheckDisc();
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Look through the folder again.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("match_setup.images.refresh_tooltip"));
         ImGui::SetCursorScreenPos({change_x, center - Dp(17)});
         if (SecondaryButton("change_folder", change, {change_w, Dp(34)}, can_select))
             BrowseFolder(FolderPurpose::GameFolder, path);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select another game folder.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("match_setup.images.change_tooltip"));
         ImGui::SetCursorScreenPos(pos);
         ImGui::Dummy({width, height});
     }
@@ -5034,11 +8778,15 @@ private:
         {
             const auto fixed = ImGuiTableColumnFlags_WidthFixed;
             ImGui::TableSetupColumn("##chosen", fixed | ImGuiTableColumnFlags_NoSort, Dp(30), ColumnChosen);
-            ImGui::TableSetupColumn("GAME", ImGuiTableColumnFlags_WidthStretch, 0.0f, ColumnGame);
-            ImGui::TableSetupColumn("VERSION", fixed | ImGuiTableColumnFlags_DefaultSort, Dp(narrow ? 100 : 112),
-                                    ColumnVersion);
+            // The headers in the player's language, their IDs (after ###) the same in all.
+            const auto header = [](const char* text, const char* id) { return std::string(text) + "###" + id; };
+            ImGui::TableSetupColumn(header(texts::T("match_setup.images.columns.game"), "game").c_str(),
+                                    ImGuiTableColumnFlags_WidthStretch, 0.0f, ColumnGame);
+            ImGui::TableSetupColumn(header(texts::T("match_setup.images.columns.version"), "version").c_str(),
+                                    fixed | ImGuiTableColumnFlags_DefaultSort, Dp(narrow ? 100 : 112), ColumnVersion);
             if (!narrow)
-                ImGui::TableSetupColumn("FILE", fixed | ImGuiTableColumnFlags_PreferSortDescending, Dp(66), ColumnFile);
+                ImGui::TableSetupColumn(header(texts::T("match_setup.images.columns.file"), "file").c_str(),
+                                        fixed | ImGuiTableColumnFlags_PreferSortDescending, Dp(66), ColumnFile);
             ImGui::TableSetupColumn("##open", fixed | ImGuiTableColumnFlags_NoSort, Dp(32), ColumnOpen);
             if (auto* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsCount > 0)
             {
@@ -5089,14 +8837,18 @@ private:
         ImVec4 note_tint = color::dim;
         if (row.chosen && options_.launch.disc)
         {
-            note = "From the command line: used for this run only.";
+            note = texts::T("match_setup.images.note.command_line");
             note_tint = color::info;
         }
-        else if (row.checking) { note = "Checking the image..."; note_tint = color::info; }
+        else if (row.checking)
+        {
+            note = texts::T("match_setup.images.note.checking");
+            note_tint = color::info;
+        }
         else if (row.missing)
         {
-            note = check_.folder_missing ? "Missing: its folder is not there. Connect its drive, or click to locate it."
-                                         : "Missing: it was moved, renamed or deleted. Click to locate it.";
+            note = check_.folder_missing ? texts::T("match_setup.images.note.folder_gone")
+                                         : texts::T("match_setup.images.note.file_gone");
             note_tint = color::warning;
         }
         else if (state == ImageState::Unsupported)
@@ -5104,20 +8856,22 @@ private:
             const auto* release = FindRelease(info);
             bool known_id = false;
             for (std::size_t n = 0; n < ReleaseCount(); ++n) known_id = known_id || info.game_id == ReleaseAt(n).game_id;
-            note = release ? "Not supported by this build yet." : known_id ? "This revision is not supported yet."
-                                                                           : "Not supported yet.";
-            reason = UnplayableReason(info, release) + "\nThis build runs " + PlayableReleasesText() + ".";
+            note = release    ? texts::T("match_setup.images.note.build_unsupported")
+                 : known_id ? texts::T("match_setup.images.note.revision_unsupported")
+                            : texts::T("match_setup.images.note.unsupported");
+            reason = UnplayableReason(info, release) + "\n"
+                + texts::T("match_setup.images.build_runs", {{"releases", PlayableReleasesText()}});
             note_tint = color::warning;
         }
         else if (state == ImageState::Unreadable && !image.probe.error.empty())
         {
-            note = "Cannot be read: damaged or incomplete file.";
+            note = texts::T("match_setup.images.note.unreadable");
             reason = image.probe.error;
             note_tint = color::danger;
         }
         else if (const auto* release = charged ? FindRelease(info) : nullptr; release && !ReleaseNote(*release).empty())
             note = ReleaseNote(*release);
-        if (row.outside && note.empty()) note = "Chosen file outside your game folder.";
+        if (row.outside && note.empty()) note = texts::T("match_setup.images.note.outside");
 
         const float label = FontSize(fonts.label), caption = FontSize(fonts.caption);
         const ImVec2 banner = narrow ? Dp(78, 26) : Dp(128, 43);
@@ -5144,8 +8898,8 @@ private:
         if (hovered)
         {
             std::string tip = path;
-            if (row.chosen && !row.missing) tip += "\nPlay starts this image.";
-            else if (can_choose) tip += "\nClick to play this image.";
+            if (row.chosen && !row.missing) tip += std::string("\n") + texts::T("match_setup.images.tip.chosen");
+            else if (can_choose) tip += std::string("\n") + texts::T("match_setup.images.tip.choose");
             else if (!reason.empty()) tip += "\n" + reason;
             else if (!note.empty() && row.missing) tip += "\n" + note;
             ImGui::SetTooltip("%s", tip.c_str());
@@ -5217,7 +8971,8 @@ private:
             DrawRegionFlag(draw, {x, detail_top + Dp(1.5f)}, Dp(11), RegionLetter(info.game_id));
             DrawClipped(draw, fonts.caption, {x + Dp(22), detail_top}, w - Dp(22), strong, DiscRegionName(info.game_id));
             DrawClipped(draw, fonts.caption, {x, detail_top + caption + Dp(4)}, w, color::dim,
-                        "Rev. " + std::to_string(unsigned(info.revision)) + "  \xC2\xB7  " + info.game_id);
+                        texts::T("match_setup.images.revision", {{"revision", std::to_string(unsigned(info.revision))}})
+                            + "  \xC2\xB7  " + info.game_id);
         }
         if (!narrow)
         {
@@ -5232,7 +8987,7 @@ private:
             ImGui::TableSetColumnIndex(narrow ? 3 : ColumnOpen);
             ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, middle - Dp(16)});
             if (GhostButton("open", "", Dp(32, 32), true, Icon::Folder)) OpenPath(image.path.parent_path());
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Open the folder with this image.");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("match_setup.images.open_folder_tooltip"));
         }
         ImGui::PopID();
     }
@@ -5241,14 +8996,15 @@ private:
     void UseImage(const fs::path& path, const DiscInfo& info, std::uintmax_t size)
     {
         Pin(path, info, size);
-        Notice("Play now starts " + PathUtf8(path.filename()) + " (" + RegionRevision(info) + ").",
+        Notice(texts::T("match_setup.images.play_now",
+                        {{"file", PathUtf8(path.filename())}, {"version", RegionRevision(info)}}),
                NoticeKind::Success);
     }
 
     void LanguageControl()
     {
         const auto& release = Release();
-        std::vector<const char*> values{"auto"}, labels{"Auto"};
+        std::vector<const char*> values{"auto"}, labels{texts::T("match_setup.language.auto")};
         for (std::size_t i = 0; i < release.language_count; ++i)
         {
             values.push_back(release.languages[i].value);
@@ -5260,113 +9016,133 @@ private:
         { draft_.language = values[selected]; dirty_ = true; }
         const auto choice = ChooseLanguage(release, draft_.language, pc_languages_);
         if (selected < 0)
-            TextWrappedColored(CurrentFonts().caption, color::warning,
-                               ("The saved language is not available in this version; the game uses Automatic ("
-                                + std::string(choice.language->label) + "). Choose one above.").c_str());
+            TextWrappedColored(
+                CurrentFonts().caption, color::warning,
+                texts::T("match_setup.language.unavailable", {{"language", choice.language->label}}).c_str());
         else if (choice.automatic)
-            TextWrappedColored(CurrentFonts().caption, color::muted,
-                               ("Automatic: " + std::string(choice.language->label) + ".").c_str());
+            TextWrappedColored(
+                CurrentFonts().caption, color::muted,
+                texts::T("match_setup.language.automatic", {{"language", choice.language->label}}).c_str());
     }
 
     void DisplayPage()
     {
-        PageHeader("Display", "How the game window opens and how its picture is drawn.");
+        PageHeader(texts::T("settings.display.title"), texts::T("settings.display.about"));
         if (draft_.performance_mode)
         {
-            Chip("Performance mode is on, so antialiasing stays off.", color::info, Icon::Display);
+            Chip(texts::T("settings.display.performance_mode_on"), color::info, Icon::Display);
             ImGui::Dummy({0, Dp(4)});
         }
         const auto run = EffectiveLaunch().settings;
         if (options_.launch.size || options_.launch.fullscreen || options_.launch.aspect || options_.launch.frame_rate)
         {
-            const std::string text = "This run: " + std::to_string(run.width) + " x " + std::to_string(run.height) + ", "
-                + run.aspect + (run.fullscreen ? ", fullscreen" : ", windowed") + ", " + FrameRateLabel(run.frame_rate)
-                + " (command line, not saved)";
+            const std::string width = std::to_string(run.width), height = std::to_string(run.height);
+            const std::string rate = FrameRateLabel(run.frame_rate);
+            const std::string text = run.fullscreen
+                ? texts::T("settings.display.this_run_fullscreen",
+                           {{"width", width}, {"height", height}, {"aspect", run.aspect}, {"frame_rate", rate}})
+                : texts::T("settings.display.this_run_windowed",
+                           {{"width", width}, {"height", height}, {"aspect", run.aspect}, {"frame_rate", rate}});
             Chip(text.c_str(), color::info, Icon::Info);
             ImGui::Dummy({0, Dp(2)});
         }
         const auto hotkeys = DraftHotkeys();
         const auto key = [&](HotkeyIndex hotkey) { return platform::HotkeyLabel(hotkeys[hotkey]); };
+        // "F switches while playing.", after a row's note.
+        const auto switches = [&](HotkeyIndex hotkey) {
+            return hotkeys[hotkey].key
+                ? " " + texts::T("settings.display.switches_while_playing", {{"key", key(hotkey)}})
+                : std::string();
+        };
 
-        BeginCard("##window", "Screen", nullptr, Icon::Display);
+        BeginCard("##window", texts::T("settings.display.screen.title"), nullptr, Icon::Display);
         if (BeginRows("##window_rows"))
         {
-            const std::string mode_note = std::string("Fullscreen covers the whole display, at the resolution below.")
-                + (hotkeys[HotkeyFullscreen].key ? " " + key(HotkeyFullscreen) + " switches while playing."
-                                                 : std::string());
-            Row("Mode", mode_note.c_str());
+            const std::string mode_note = texts::T("settings.display.screen.mode.about") + switches(HotkeyFullscreen);
+            Row(texts::T("settings.display.screen.mode.name"), mode_note.c_str());
             int mode = draft_.fullscreen ? 1 : 0;
-            if (Segmented("##mode", &mode, {"Windowed", "Fullscreen"}, ImGui::GetContentRegionAvail().x))
+            if (Segmented("##mode", &mode,
+                          {texts::T("settings.display.screen.mode.windowed"),
+                           texts::T("settings.display.screen.mode.fullscreen")},
+                          ImGui::GetContentRegionAvail().x))
             { draft_.fullscreen = mode == 1; dirty_ = true; }
 
             // One resolution row: the window's size, or the screen's in fullscreen.
             if (!draft_.fullscreen)
             {
-                Row("Resolution", draft_.remember_window
-                    ? "The window's size, from those your graphics card offers for this display. The game also "
-                      "keeps the size and place you leave its window at."
-                    : "The window's size, from those your graphics card offers for this display.");
+                Row(texts::T("settings.display.screen.resolution.name"),
+                    draft_.remember_window ? texts::T("settings.display.screen.resolution.window_about_remembered")
+                                           : texts::T("settings.display.screen.resolution.window_about"));
                 WindowSizeControl();
             }
             else
             {
-                Row("Resolution", "The screen's resolution. Desktop keeps the display's own; another switches the "
-                    "display to it while the game runs.");
+                Row(texts::T("settings.display.screen.resolution.name"),
+                    texts::T("settings.display.screen.resolution.screen_about"));
                 FullscreenResolutionControl();
             }
 
             if (displays_.size() > 1 || draft_.monitor > 0)
             {
-                Row("Display", "Where the game window opens.");
+                Row(texts::T("settings.display.screen.display.name"),
+                    texts::T("settings.display.screen.display.about"));
                 DisplayChoice();
             }
             EndRows();
         }
         EndCard();
 
-        BeginCard("##picture", "Picture", nullptr, Icon::Sliders);
+        BeginCard("##picture", texts::T("settings.display.picture.title"), nullptr, Icon::Sliders);
         if (BeginRows("##picture_rows"))
         {
-            const std::string aspect_note = "16:9 is the game's widescreen layout and 4:3 its original one; both keep "
-                "their shape. Stretch fills the whole screen."
-                + (hotkeys[HotkeyStretch].key ? " " + key(HotkeyStretch) + " switches while playing." : std::string());
-            Row("Aspect ratio", aspect_note.c_str());
+            const std::string aspect_note = texts::T("settings.display.picture.aspect_ratio.about")
+                + switches(HotkeyStretch);
+            Row(texts::T("settings.display.picture.aspect_ratio.name"), aspect_note.c_str());
             const char* values[] = {"16:9", "4:3", "stretch"};
             int aspect = -1;
             for (int i = 0; i < 3; ++i) if (draft_.aspect == values[i]) aspect = i;
-            if (Segmented("##aspect", &aspect, {"16:9", "4:3", "Stretch"}, ImGui::GetContentRegionAvail().x))
+            if (Segmented("##aspect", &aspect,
+                          {"16:9", "4:3", texts::T("settings.display.picture.aspect_ratio.stretch")},
+                          ImGui::GetContentRegionAvail().x))
             { draft_.aspect = values[aspect]; dirty_ = true; }
             AspectNote(aspect < 0);
             if (draft_.aspect == "16:9")
             {
-                Row("Wider view", "In matches on a screen wider or taller than 16:9, shows more of the stadium "
-                    "instead of bars, with the HUD in the 16:9 middle. Menus keep their 16:9 picture.");
+                Row(texts::T("settings.display.picture.wider_view.name"),
+                    texts::T("settings.display.picture.wider_view.about"));
                 if (Toggle("##wider_view", &draft_.wider_view)) dirty_ = true;
             }
 
-            std::string resolution_note = "Full draws the game at the resolution above, the sharpest. Native is the "
-                "Wii's 640 x 448; 2x-4x are its multiples, for slower graphics cards.";
-            if (hotkeys[HotkeyResolutionUp].key || hotkeys[HotkeyResolutionDown].key)
-                resolution_note += " " + key(hotkeys[HotkeyResolutionUp].key ? HotkeyResolutionUp : HotkeyResolutionDown)
-                    + (hotkeys[HotkeyResolutionUp].key && hotkeys[HotkeyResolutionDown].key
-                           ? " and " + key(HotkeyResolutionDown) + " change it" : std::string(" changes it"))
-                    + " while playing.";
-            Row("3D resolution", resolution_note.c_str());
+            std::string resolution_note = texts::T("settings.display.picture.resolution.about");
+            const bool up = hotkeys[HotkeyResolutionUp].key, down = hotkeys[HotkeyResolutionDown].key;
+            if (up && down)
+                resolution_note += " " + texts::T("settings.display.picture.resolution.keys_change_it",
+                                                  {{"key", key(HotkeyResolutionUp)},
+                                                   {"other", key(HotkeyResolutionDown)}});
+            else if (up || down)
+                resolution_note += " " + texts::T("settings.display.picture.resolution.key_changes_it",
+                                                  {{"key", key(up ? HotkeyResolutionUp : HotkeyResolutionDown)}});
+            Row(texts::T("settings.display.picture.resolution.name"), resolution_note.c_str());
             const char* resolutions[] = {"window", "native", "2x", "3x", "4x"};
             int resolution = 0;
             for (int i = 0; i < 5; ++i) if (draft_.resolution == resolutions[i]) resolution = i;
-            if (Segmented("##resolution", &resolution, {"Full", "Native", "2x", "3x", "4x"},
+            if (Segmented("##resolution", &resolution,
+                          {texts::T("settings.display.picture.resolution.full"),
+                           texts::T("settings.display.picture.resolution.native"), "2x", "3x", "4x"},
                           ImGui::GetContentRegionAvail().x))
             { draft_.resolution = resolutions[resolution]; dirty_ = true; }
             ResolutionNote();
 
-            Row("Antialiasing", "Smooths jagged edges. The stronger kinds cost more GPU time.");
+            Row(texts::T("settings.display.picture.antialiasing.name"),
+                texts::T("settings.display.picture.antialiasing.about"));
             AntialiasingKindChoice();
 
-            Row("Picture style", "Modern draws the game's picture crisp, straight into the window. Original TV adds "
-                "the Wii's flicker filter and a TV's softness.");
+            Row(texts::T("settings.display.picture.style.name"), texts::T("settings.display.picture.style.about"));
             int style = draft_.picture == "soft" ? 1 : 0;
-            if (Segmented("##style", &style, {"Modern", "Original TV"}, ImGui::GetContentRegionAvail().x))
+            if (Segmented("##style", &style,
+                          {texts::T("settings.display.picture.style.modern"),
+                           texts::T("settings.display.picture.style.original_tv")},
+                          ImGui::GetContentRegionAvail().x))
             {
                 if (style == 1 && draft_.picture != "soft") modern_picture_ = draft_.picture;
                 draft_.picture = style == 1 ? "soft" : modern_picture_;
@@ -5375,17 +9151,21 @@ private:
             if (draft_.picture == "soft")
             {
                 BeginSubRows();
-                Row("TV border", "The empty border a Wii sends around its picture, which a TV hides.");
+                Row(texts::T("settings.display.picture.tv_border.name"),
+                    texts::T("settings.display.picture.tv_border.about"));
                 if (Toggle("##tv_border", &draft_.tv_border)) dirty_ = true;
                 EndSubRows();
             }
             else if (draft_.resolution != "window")
             {
                 BeginSubRows();
-                Row("Upscaling", "How a 3D resolution other than Full reaches the resolution above. Sharp keeps "
-                    "pixels square.");
+                Row(texts::T("settings.display.picture.upscaling.name"),
+                    texts::T("settings.display.picture.upscaling.about"));
                 int sharp = draft_.picture == "clean" ? 0 : 1;
-                if (Segmented("##upscaling", &sharp, {"Smooth", "Sharp"}, ImGui::GetContentRegionAvail().x))
+                if (Segmented("##upscaling", &sharp,
+                              {texts::T("settings.display.picture.upscaling.smooth"),
+                               texts::T("settings.display.picture.upscaling.sharp")},
+                              ImGui::GetContentRegionAvail().x))
                 { draft_.picture = sharp ? "sharp" : "clean"; dirty_ = true; }
                 EndSubRows();
             }
@@ -5393,30 +9173,48 @@ private:
         }
         EndCard();
 
-        BeginCard("##motion", "Motion", nullptr, Icon::Play);
+        BeginCard("##motion", texts::T("settings.display.motion.title"), nullptr, Icon::Play);
         if (BeginRows("##motion_rows"))
         {
-            Row("VSync", "Synchronizes frames with your display to prevent tearing.");
+            Row(texts::T("settings.display.motion.vsync.name"), texts::T("settings.display.motion.vsync.about"));
             if (Toggle("##vsync", &draft_.vsync)) dirty_ = true;
 
-            Row("Frame rate", "Original is the console's 60 FPS. Higher rates draw more frames for smoother motion "
-                "while the game keeps its own speed; Display follows your display's refresh rate.");
+            Row(texts::T("settings.display.motion.frame_rate.name"),
+                texts::T("settings.display.motion.frame_rate.about"));
             FrameRateChoice();
+
+            Row(texts::T("settings.display.motion.throttle.name"), texts::T("settings.display.motion.throttle.about"));
+            if (Toggle("##background_throttle", &draft_.background_throttle)) dirty_ = true;
+
+            Row(texts::T("settings.display.motion.background_frame_rate.name"),
+                texts::T("settings.display.motion.background_frame_rate.about"));
+            BackgroundFrameRateChoice();
             EndRows();
         }
         EndCard();
 
-        BeginCard("##frame_rate", "Performance overlay", "FPS and system GPU and CPU usage; in network games the latency, and with rollback the input delay (DLY) and rollback frames (RB).", Icon::Info);
+        BeginCard("##frame_rate", texts::T("settings.display.overlay.title"),
+                  texts::T("settings.display.overlay.about"), Icon::Info);
         if (BeginRows("##frame_rate_rows"))
         {
-            Row("On screen", "A compact row in a corner, also in fullscreen. Latency shows N/A until online play is available.");
+            Row(texts::T("settings.display.overlay.on_screen.name"),
+                texts::T("settings.display.overlay.on_screen.about"));
             if (Toggle("##fps_overlay", &draft_.fps_overlay)) dirty_ = true;
 
-            Row("Corner", "Where the performance overlay sits.");
+            Row(texts::T("settings.display.overlay.corner.name"), texts::T("settings.display.overlay.corner.about"));
             FpsCornerChoice();
             EndRows();
         }
         EndCard();
+    }
+
+    // A display.resolution value as players read it, as RenderResolutionLabel
+    // gives it: Full, Native, 2x...
+    static std::string ResolutionName(std::string_view resolution)
+    {
+        if (resolution == "window") return texts::T("settings.display.picture.resolution.full");
+        if (resolution == "native") return texts::T("settings.display.picture.resolution.native");
+        return std::string(resolution);
     }
 
     // Whether the game's picture fills its window or display: stretched, or
@@ -5449,43 +9247,48 @@ private:
         const std::string size = std::to_string(screen.width) + " x " + std::to_string(screen.height);
         if (unknown)
             note = draft_.aspect == "auto"
-                ? "Saved value auto: 16:9 or 4:3, whichever is closer to the screen's shape (" + shape
-                    + " here). Choose one above to change it."
-                : "Saved value " + draft_.aspect + " is not supported by the game. Choose one above.";
+                ? texts::T("settings.display.aspect_note.saved_auto", {{"shape", shape}})
+                : texts::T("settings.display.aspect_note.saved_unsupported", {{"value", draft_.aspect}});
         else if (draft_.aspect == "stretch")
         {
             const int percent = StretchPercent(screen.width, screen.height, aw, ah);
+            const std::string amount = std::to_string(std::abs(percent));
             if (!draft_.fullscreen)
-                note = "Uses the " + shape + " layout and fills the window at any size, stretching the picture with "
-                    "it.";
+                note = texts::T("settings.display.aspect_note.stretch_window", {{"shape", shape}});
             else if (screen.width <= 0)
-                note = "Uses the " + shape + " layout and fills the whole display.";
+                note = texts::T("settings.display.aspect_note.stretch_display", {{"shape", shape}});
             else if (std::abs(percent) < 1)
-                note = "Uses the " + shape + " layout, which fills this " + size + " display exactly.";
+                note = texts::T("settings.display.aspect_note.stretch_exactly", {{"shape", shape}, {"size", size}});
+            else if (percent > 0)
+                note = texts::T("settings.display.aspect_note.stretch_wider",
+                                {{"shape", shape}, {"size", size}, {"percent", amount}});
             else
-                note = "Uses the " + shape + " layout and fills this " + size + " display; the picture is "
-                    + std::to_string(std::abs(percent)) + "% " + (percent > 0 ? "wider" : "narrower") + " than "
-                    + shape + ".";
+                note = texts::T("settings.display.aspect_note.stretch_narrower",
+                                {{"shape", shape}, {"size", size}, {"percent", amount}});
         }
         else if (PictureFills() && !draft_.fullscreen)
-            note = "The window can take any shape: in matches the wider view fills it with more of the stadium.";
+            note = texts::T("settings.display.aspect_note.wider_window");
         else if (PictureFills())
         {
             const auto bars = BarsAround(screen.width, screen.height, aw, ah);
-            note = bars.size <= 1 || screen.width <= 0 ? "Fills the display."
-                : "In matches, fills this " + size + " display with more of the stadium "
-                    + (bars.sides ? "at the sides." : "above and below.") + " Menus keep 16:9.";
+            if (bars.size <= 1 || screen.width <= 0) note = texts::T("settings.display.aspect_note.fills_display");
+            else
+                note = bars.sides ? texts::T("settings.display.aspect_note.wider_sides", {{"size", size}})
+                                  : texts::T("settings.display.aspect_note.wider_above", {{"size", size}});
         }
         else if (!draft_.fullscreen)
-            note = "The window keeps the " + shape + " shape when you resize it, so the picture fills it. "
-                "Maximized on a screen of another shape, it shows bars.";
+            note = texts::T("settings.display.aspect_note.window_keeps", {{"shape", shape}});
         else if (screen.width > 0)
         {
             const auto bars = BarsAround(screen.width, screen.height, aw, ah);
-            note = bars.size <= 1 ? "Fills this " + size + " display exactly."
-                : "On this " + size + " display: bars of " + std::to_string(bars.size) + " pixels "
-                    + (bars.sides ? "left and right." : "above and below.")
-                    + (wide ? " Stretch or the wider view fills it." : " Stretch fills it.");
+            if (bars.size <= 1) note = texts::T("settings.display.aspect_note.fills_exactly", {{"size", size}});
+            else
+                note = (bars.sides
+                            ? texts::Count("settings.display.aspect_note.bars_sides", bars.size, {{"size", size}})
+                            : texts::Count("settings.display.aspect_note.bars_above", bars.size, {{"size", size}}))
+                    + " "
+                    + (wide ? texts::T("settings.display.aspect_note.stretch_or_wider_fills")
+                            : texts::T("settings.display.aspect_note.stretch_fills"));
         }
         if (!note.empty())
             TextWrappedColored(CurrentFonts().caption, unknown ? color::warning : color::muted, note.c_str());
@@ -5500,16 +9303,27 @@ private:
         const auto picture = PictureSize(screen.width, screen.height, wide ? 16 : 4, wide ? 9 : 3, PictureFills());
         const int width = RenderWidth(draft_.resolution, picture.width);
         const int height = RenderHeight(draft_.resolution, picture.height);
-        const std::string where = draft_.fullscreen ? "this screen" : "this window";
-        std::string note = std::string(RenderResolutionLabel(draft_.resolution)) + ": " + std::to_string(width) + " x "
-            + std::to_string(height);
-        if (RenderScale(draft_.resolution) == 0.0f) note += " on " + where + ".";
+        const std::initializer_list<texts::Arg> args = {
+            {"name", ResolutionName(draft_.resolution)}, {"width", std::to_string(width)},
+            {"height", std::to_string(height)}};
+        // On this screen (fullscreen) or this window.
+        const bool fullscreen = draft_.fullscreen;
+        std::string note;
+        if (RenderScale(draft_.resolution) == 0.0f)
+            note = fullscreen ? texts::T("settings.display.resolution_note.on_screen", args)
+                              : texts::T("settings.display.resolution_note.on_window", args);
         else
         {
             const long long pixels = 1LL * picture.width * picture.height, drawn = 1LL * width * height;
-            note += std::string(", ") + (drawn < pixels * 9 / 10 ? "fewer pixels than"
-                                         : drawn > pixels * 11 / 10 ? "more pixels than" : "about as many pixels as")
-                + " the picture on " + where + ".";
+            if (drawn < pixels * 9 / 10)
+                note = fullscreen ? texts::T("settings.display.resolution_note.fewer_screen", args)
+                                  : texts::T("settings.display.resolution_note.fewer_window", args);
+            else if (drawn > pixels * 11 / 10)
+                note = fullscreen ? texts::T("settings.display.resolution_note.more_screen", args)
+                                  : texts::T("settings.display.resolution_note.more_window", args);
+            else
+                note = fullscreen ? texts::T("settings.display.resolution_note.as_many_screen", args)
+                                  : texts::T("settings.display.resolution_note.as_many_window", args);
         }
         TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
     }
@@ -5537,10 +9351,10 @@ private:
 
     static std::string FrameRateLabel(const std::string& value)
     {
-        if (value == "original") return "original frame rate";
-        if (value == "display") return "display refresh rate";
-        if (value == "unlimited") return "unlimited FPS";
-        return value + " FPS";
+        if (value == "original") return texts::T("settings.display.frame_rate_label.original");
+        if (value == "display") return texts::T("settings.display.frame_rate_label.display");
+        if (value == "unlimited") return texts::T("settings.display.frame_rate_label.unlimited");
+        return texts::T("settings.display.frame_rate_label.fps", {{"rate", value}});
     }
 
     void FrameRateChoice()
@@ -5548,28 +9362,43 @@ private:
         static constexpr const char* values[] = {"original", "display", "30", "60", "120", "144", "unlimited"};
         int selected = -1;
         for (int i = 0; i < 7; ++i) if (draft_.frame_rate == values[i]) selected = i;
-        if (Segmented("##frame_rate", &selected, {"Original", "Display", "30", "60", "120", "144", "Unlimited"},
+        if (Segmented("##frame_rate", &selected,
+                      {texts::T("settings.display.motion.frame_rate.original"),
+                       texts::T("settings.display.motion.frame_rate.display"), "30", "60", "120", "144",
+                       texts::T("settings.display.motion.frame_rate.unlimited")},
                       ImGui::GetContentRegionAvail().x))
         { draft_.frame_rate = values[selected]; dirty_ = true; }
         const auto rate = ParseFrameRate(draft_.frame_rate);
         if (!rate) return;
         std::string note;
-        if (selected < 0) note = "Saved value: " + draft_.frame_rate + " FPS. ";
+        if (selected < 0)
+            note = texts::T("settings.display.frame_rate_note.saved", {{"value", draft_.frame_rate}}) + " ";
         if (rate->kind != FrameRate::Kind::Original)
         {
             const double display = StartDisplayRefresh();
             const auto pacing = DecideFramePacing(*rate, display, draft_.vsync);
             const auto hz = [](double value) { return std::to_string(int(std::lround(value))); };
             if (pacing.vsync_paces && KnownRefreshRate(display))
-                note += "VSync holds it to this display's " + hz(display) + " Hz.";
+                note += texts::T("settings.display.frame_rate_note.vsync_holds", {{"hz", hz(display)}});
             else if (KnownRefreshRate(display) && pacing.target_hz > display + 0.5)
-                note += "This display refreshes at " + hz(display) + " Hz, so it cannot show every frame.";
+                note += texts::T("settings.display.frame_rate_note.cannot_show_all", {{"hz", hz(display)}});
             else if (pacing.target_hz == 0.0)
-                note += "No limit: the game draws as fast as your computer allows.";
+                note += texts::T("settings.display.frame_rate_note.no_limit");
             else if (KnownRefreshRate(display))
-                note += "This display refreshes at " + hz(display) + " Hz.";
+                note += texts::T("settings.display.frame_rate_note.refreshes", {{"hz", hz(display)}});
         }
         if (!note.empty()) TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
+    }
+
+    void BackgroundFrameRateChoice()
+    {
+        int selected = -1;
+        for (int i = 0; i < int(std::size(kBackgroundFrameRates)); ++i)
+            if (draft_.background_frame_rate == kBackgroundFrameRates[i]) selected = i;
+        ImGui::BeginDisabled(!draft_.background_throttle);
+        if (Segmented("##background_frame_rate", &selected, {"15", "30", "60"}, ImGui::GetContentRegionAvail().x))
+        { draft_.background_frame_rate = kBackgroundFrameRates[selected]; dirty_ = true; }
+        ImGui::EndDisabled();
     }
 
     void AntialiasingKindChoice()
@@ -5578,25 +9407,58 @@ private:
         for (const auto& choice : kAntialiasingChoices)
             if (draft_.antialiasing == choice.value) selected = &choice;
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        if (ImGui::BeginCombo("##antialiasing", selected ? selected->label : draft_.antialiasing.c_str()))
+        if (ImGui::BeginCombo("##antialiasing", selected ? AntialiasingName(*selected) : draft_.antialiasing.c_str()))
         {
             for (const auto& choice : kAntialiasingChoices)
-                if (ImGui::Selectable(choice.label, selected == &choice))
+                if (ImGui::Selectable(StableLabel(AntialiasingName(choice), choice.value).c_str(), selected == &choice))
                 { draft_.antialiasing = choice.value; dirty_ = true; }
             ImGui::EndCombo();
         }
         // The chosen kind's note; the launcher reads only known values.
         for (const auto& choice : kAntialiasingChoices)
             if (draft_.antialiasing == choice.value)
-                TextWrappedColored(CurrentFonts().caption, color::muted, choice.description);
+                TextWrappedColored(CurrentFonts().caption, color::muted, AntialiasingAbout(choice));
+    }
+
+    // An antialiasing kind's name and note (kAntialiasingChoices) in the
+    // player's language.
+    static const char* AntialiasingName(const mscharged::AntialiasingChoice& choice)
+    {
+        const std::string_view value = choice.value;
+        if (value == "off") return texts::T("settings.display.antialiasing.off.name");
+        if (value == "fxaa") return texts::T("settings.display.antialiasing.fxaa.name");
+        if (value == "4x") return texts::T("settings.display.antialiasing.msaa.name");
+        if (value == "4x_fxaa") return texts::T("settings.display.antialiasing.msaa_fxaa.name");
+        if (value == "4x_ssaa") return texts::T("settings.display.antialiasing.ssaa.name");
+        return choice.label;
+    }
+    static const char* AntialiasingAbout(const mscharged::AntialiasingChoice& choice)
+    {
+        const std::string_view value = choice.value;
+        if (value == "off") return texts::T("settings.display.antialiasing.off.about");
+        if (value == "fxaa") return texts::T("settings.display.antialiasing.fxaa.about");
+        if (value == "4x") return texts::T("settings.display.antialiasing.msaa.about");
+        if (value == "4x_fxaa") return texts::T("settings.display.antialiasing.msaa_fxaa.about");
+        if (value == "4x_ssaa") return texts::T("settings.display.antialiasing.ssaa.about");
+        return choice.description;
+    }
+
+    // A label in the player's language for a widget that takes its ImGui ID
+    // from its label (Selectable, table header): the ID stays `id` in every
+    // language.
+    static std::string StableLabel(const char* text, std::string_view id)
+    {
+        return std::string(text).append("###").append(id);
     }
 
     void FpsCornerChoice()
     {
-        static constexpr std::pair<const char*, const char*> corners[] = {
-            {"top-left", "Top left"}, {"top-right", "Top right"},
-            {"bottom-left", "Bottom left"}, {"bottom-right", "Bottom right"}};
-        const char* preview = "Top right";
+        const std::pair<const char*, const char*> corners[] = {
+            {"top-left", texts::T("settings.display.overlay.corner.top_left")},
+            {"top-right", texts::T("settings.display.overlay.corner.top_right")},
+            {"bottom-left", texts::T("settings.display.overlay.corner.bottom_left")},
+            {"bottom-right", texts::T("settings.display.overlay.corner.bottom_right")}};
+        const char* preview = corners[1].second;
         for (const auto& [value, name] : corners)
             if (draft_.fps_overlay_corner == value) preview = name;
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
@@ -5604,7 +9466,7 @@ private:
         if (ImGui::BeginCombo("##fps_corner", preview))
         {
             for (const auto& [value, name] : corners)
-                if (ImGui::Selectable(name, draft_.fps_overlay_corner == value))
+                if (ImGui::Selectable(StableLabel(name, value).c_str(), draft_.fps_overlay_corner == value))
                 { draft_.fps_overlay_corner = value; dirty_ = true; }
             ImGui::EndCombo();
         }
@@ -5616,20 +9478,20 @@ private:
     {
         const auto& profile = draft_.PadProfileOf(slot);
         const auto type = PadType(int(slot));
-        const bool builtin = draft_.PadProfileIndex(slot) < 0;
+        const bool builtin = profile.follows.has_value();
         const auto family = platform::GamepadFamilyOf(type);
-        const auto bindings = builtin ? platform::DefaultGamepadBindings(family)
+        const auto bindings = builtin ? platform::DefaultGamepadBindings(family, *profile.follows)
                                       : platform::ParseGamepadBindings(profile.inputs);
-        const bool swap = profile.swap_sticks;
         const auto& fonts = CurrentFonts();
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(16, 14));
         if (ImGui::BeginTooltip())
         {
             TextColored(fonts.label, color::text,
-                        ("Profile: " + profile.name
-                         + (builtin ? std::string(" (") + platform::GamepadFamilyName(family) + ")" : std::string()))
+                        (builtin ? texts::T("settings.controls.pad_tooltip.profile_family",
+                                            {{"name", profile.name}, {"family", platform::GamepadFamilyName(family)}})
+                                 : texts::T("settings.controls.pad_tooltip.profile", {{"name", profile.name}}))
                             .c_str());
-            TextColored(fonts.caption, color::muted, "Your controller's button for each Wii input. Click to change.");
+            TextColored(fonts.caption, color::muted, texts::T("settings.controls.pad_tooltip.about"));
             const auto row = [&](const std::string& pad, const char* wii) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
@@ -5650,26 +9512,30 @@ private:
                 }
                 ImGui::PopStyleVar();
             };
-            table("BUTTONS", "##pad_buttons", [&] {
+            table(texts::T("settings.controls.pad_tooltip.buttons"), "##pad_buttons", [&] {
                 for (std::size_t n = 0; n < GamepadActionC; ++n)
-                    row(PadBindingLabel(bindings[n], type), kGamepadActions[n].label);
+                    row(PadBindingLabel(bindings[n], type), PadActionName(n));
             });
-            table("NUNCHUK & MOTION", "##pad_sticks", [&] {
-                row(swap ? "Right stick" : "Left stick", "Nunchuk stick");
+            table(texts::T("settings.controls.pad_tooltip.nunchuk_motion"), "##pad_sticks", [&] {
+                row(NunchukStickName(profile), texts::T("settings.controls.pad.nunchuk_stick"));
                 for (std::size_t n = GamepadActionC; n < GamepadActionRecenterPointer; ++n)
-                    row(PadBindingLabel(bindings[n], type), kGamepadActions[n].label);
-                row(profile.gyro_pointer ? "Gyro" : swap ? "Left stick" : "Right stick", "Pointer");
+                    row(PadBindingLabel(bindings[n], type), PadActionName(n));
+                row(PointerName(profile), texts::T("settings.controls.pad.pointer"));
                 if (profile.gyro_pointer)
                     row(PadBindingLabel(bindings[GamepadActionRecenterPointer], type),
-                        kGamepadActions[GamepadActionRecenterPointer].label);
+                        PadActionName(GamepadActionRecenterPointer));
             });
             ImGui::Dummy({0, Dp(6)});
+            const std::string inner = std::to_string(profile.inner_deadzone),
+                              outer = std::to_string(profile.outer_deadzone),
+                              trigger = std::to_string(profile.trigger_press);
             TextColored(fonts.caption, color::muted,
-                        ("Stick dead zones " + std::to_string(profile.inner_deadzone) + "-"
-                         + std::to_string(profile.outer_deadzone) + "%, triggers press at "
-                         + std::to_string(profile.trigger_press) + "%"
-                         + (profile.gyro_pointer ? ", gyro speed " + std::to_string(profile.gyro_speed) + "%"
-                                                 : std::string()))
+                        (profile.gyro_pointer
+                             ? texts::T("settings.controls.pad_tooltip.feel_gyro",
+                                        {{"inner", inner}, {"outer", outer}, {"trigger", trigger},
+                                         {"gyro", std::to_string(profile.gyro_speed)}})
+                             : texts::T("settings.controls.pad_tooltip.feel",
+                                        {{"inner", inner}, {"outer", outer}, {"trigger", trigger}}))
                             .c_str());
             ImGui::EndTooltip();
         }
@@ -5701,13 +9567,20 @@ private:
         if (input == platform::kGamepadTriggerBase + SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) return pick("RT", "R2", "ZR", "R");
         if (platform::IsGamepadStickDirection(input))
         {
-            static const char* const ways[] = {" up", " down", " left", " right"};
             const int direction = input - platform::kGamepadStickBase;
-            return (direction >= platform::RightStickUp ? pick("Right stick", "Right stick", "Right stick", "C-stick")
-                                                        : std::string("Left stick"))
-                + ways[direction % 4];
+            const std::string stick = direction >= platform::RightStickUp
+                ? pick(texts::T("settings.controls.pad.right_stick"), texts::T("settings.controls.pad.right_stick"),
+                       texts::T("settings.controls.pad.right_stick"), texts::T("settings.controls.pad.c_stick"))
+                : std::string(texts::T("settings.controls.pad.left_stick"));
+            switch (direction % 4)
+            {
+            case 0: return texts::T("settings.controls.pad.stick_up", {{"stick", stick}});
+            case 1: return texts::T("settings.controls.pad.stick_down", {{"stick", stick}});
+            case 2: return texts::T("settings.controls.pad.stick_left", {{"stick", stick}});
+            default: return texts::T("settings.controls.pad.stick_right", {{"stick", stick}});
+            }
         }
-        if (input < 0 || input >= SDL_GAMEPAD_BUTTON_COUNT) return "Not set";
+        if (input < 0 || input >= SDL_GAMEPAD_BUTTON_COUNT) return texts::T("settings.controls.pad.not_set");
         const auto button = SDL_GamepadButton(input);
         if (button <= SDL_GAMEPAD_BUTTON_NORTH)
         {
@@ -5717,10 +9590,10 @@ private:
             case SDL_GAMEPAD_BUTTON_LABEL_B: return "B";
             case SDL_GAMEPAD_BUTTON_LABEL_X: return "X";
             case SDL_GAMEPAD_BUTTON_LABEL_Y: return "Y";
-            case SDL_GAMEPAD_BUTTON_LABEL_CROSS: return "Cross";
-            case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE: return "Circle";
-            case SDL_GAMEPAD_BUTTON_LABEL_SQUARE: return "Square";
-            case SDL_GAMEPAD_BUTTON_LABEL_TRIANGLE: return "Triangle";
+            case SDL_GAMEPAD_BUTTON_LABEL_CROSS: return texts::T("settings.controls.pad.cross");
+            case SDL_GAMEPAD_BUTTON_LABEL_CIRCLE: return texts::T("settings.controls.pad.circle");
+            case SDL_GAMEPAD_BUTTON_LABEL_SQUARE: return texts::T("settings.controls.pad.square");
+            case SDL_GAMEPAD_BUTTON_LABEL_TRIANGLE: return texts::T("settings.controls.pad.triangle");
             default: break;
             }
             static const char* const face[] = {"A", "B", "X", "Y"};
@@ -5728,33 +9601,75 @@ private:
         }
         switch (button)
         {
-        case SDL_GAMEPAD_BUTTON_BACK: return pick("Back", "Share", "Minus");
-        case SDL_GAMEPAD_BUTTON_GUIDE: return pick("Guide", "PS", "Home");
-        case SDL_GAMEPAD_BUTTON_START: return pick("Start", "Options", "Plus", "Start");
-        case SDL_GAMEPAD_BUTTON_LEFT_STICK: return pick("Left stick click", "L3", "Left stick click");
-        case SDL_GAMEPAD_BUTTON_RIGHT_STICK: return pick("Right stick click", "R3", "Right stick click");
+        case SDL_GAMEPAD_BUTTON_BACK:
+            return pick(texts::T("settings.controls.pad.back"), texts::T("settings.controls.pad.share"),
+                        texts::T("settings.controls.pad.minus"));
+        case SDL_GAMEPAD_BUTTON_GUIDE:
+            return pick(texts::T("settings.controls.pad.guide"), "PS", texts::T("settings.controls.pad.home"));
+        case SDL_GAMEPAD_BUTTON_START:
+            return pick(texts::T("settings.controls.pad.start"), texts::T("settings.controls.pad.options"),
+                        texts::T("settings.controls.pad.plus"), texts::T("settings.controls.pad.start"));
+        case SDL_GAMEPAD_BUTTON_LEFT_STICK:
+            return pick(texts::T("settings.controls.pad.left_stick_click"), "L3",
+                        texts::T("settings.controls.pad.left_stick_click"));
+        case SDL_GAMEPAD_BUTTON_RIGHT_STICK:
+            return pick(texts::T("settings.controls.pad.right_stick_click"), "R3",
+                        texts::T("settings.controls.pad.right_stick_click"));
         case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return pick("LB", "L1", "L");
         case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return pick("RB", "R1", "R", "Z");
-        case SDL_GAMEPAD_BUTTON_DPAD_UP: return "D-pad up";
-        case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return "D-pad down";
-        case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return "D-pad left";
-        case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return "D-pad right";
-        case SDL_GAMEPAD_BUTTON_MISC1: return pick("Share", "Mic", "Capture");
-        case SDL_GAMEPAD_BUTTON_MISC3: return gamecube ? "R click" : "Misc 3";
-        case SDL_GAMEPAD_BUTTON_MISC4: return gamecube ? "L click" : "Misc 4";
-        case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1: return "Paddle R1";
-        case SDL_GAMEPAD_BUTTON_LEFT_PADDLE1: return "Paddle L1";
-        case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2: return "Paddle R2";
-        case SDL_GAMEPAD_BUTTON_LEFT_PADDLE2: return "Paddle L2";
-        case SDL_GAMEPAD_BUTTON_TOUCHPAD: return "Touchpad";
-        default: return "Button " + std::to_string(int(button));
+        case SDL_GAMEPAD_BUTTON_DPAD_UP: return texts::T("settings.controls.pad.dpad_up");
+        case SDL_GAMEPAD_BUTTON_DPAD_DOWN: return texts::T("settings.controls.pad.dpad_down");
+        case SDL_GAMEPAD_BUTTON_DPAD_LEFT: return texts::T("settings.controls.pad.dpad_left");
+        case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: return texts::T("settings.controls.pad.dpad_right");
+        case SDL_GAMEPAD_BUTTON_MISC1:
+            return pick(texts::T("settings.controls.pad.share"), texts::T("settings.controls.pad.mic"),
+                        texts::T("settings.controls.pad.capture"));
+        case SDL_GAMEPAD_BUTTON_MISC3:
+            return gamecube ? texts::T("settings.controls.pad.r_click") : texts::T("settings.controls.pad.misc3");
+        case SDL_GAMEPAD_BUTTON_MISC4:
+            return gamecube ? texts::T("settings.controls.pad.l_click") : texts::T("settings.controls.pad.misc4");
+        case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE1: return texts::T("settings.controls.pad.paddle", {{"paddle", "R1"}});
+        case SDL_GAMEPAD_BUTTON_LEFT_PADDLE1: return texts::T("settings.controls.pad.paddle", {{"paddle", "L1"}});
+        case SDL_GAMEPAD_BUTTON_RIGHT_PADDLE2: return texts::T("settings.controls.pad.paddle", {{"paddle", "R2"}});
+        case SDL_GAMEPAD_BUTTON_LEFT_PADDLE2: return texts::T("settings.controls.pad.paddle", {{"paddle", "L2"}});
+        case SDL_GAMEPAD_BUTTON_TOUCHPAD: return texts::T("settings.controls.pad.touchpad");
+        default: return texts::T("settings.controls.pad.button", {{"number", std::to_string(int(button))}});
         }
+    }
+
+    // The stick of the Nunchuk stick and what moves the pointer.
+    static const char* NunchukStickName(const Settings::PadProfile& profile)
+    {
+        return profile.sticks == GamepadSticks::Swapped ? texts::T("settings.controls.pad.right_stick")
+                                                        : texts::T("settings.controls.pad.left_stick");
+    }
+    static const char* PointerName(const Settings::PadProfile& profile)
+    {
+        return profile.gyro_pointer                    ? texts::T("settings.controls.pad.gyro")
+            : profile.sticks == GamepadSticks::Split ? texts::T("settings.controls.pad.right_stick")
+                                                     : texts::T("settings.controls.pad.left_stick");
+    }
+
+    // A gamepad action's name and note (kGamepadActions) in the player's
+    // language: the Wii input's (common.json's pad_actions), and the gyro
+    // pointer's recentring.
+    static const char* PadActionName(std::size_t action)
+    {
+        if (action == GamepadActionRecenterPointer) return texts::T("settings.controls.pad.recenter_pointer.name");
+        return texts::TableText("pad_actions", kGamepadActions[action].key, "name");
+    }
+    static const char* PadActionAbout(std::size_t action)
+    {
+        if (!kGamepadActions[action].note) return nullptr;
+        if (action == GamepadActionRecenterPointer) return texts::T("settings.controls.pad.recenter_pointer.about");
+        return texts::TableText("pad_actions", kGamepadActions[action].key, "about");
     }
 
     static std::string PadBindingLabel(const platform::GamepadBinding& binding, SDL_GamepadType type)
     {
         std::string text = PadInputLabel(binding[0], type);
-        if (binding[1] != platform::kGamepadNone) text += " / " + PadInputLabel(binding[1], type);
+        for (std::size_t n = 1; n < platform::GamepadBindingSize(binding); ++n)
+            text += " / " + PadInputLabel(binding[n], type);
         return text;
     }
 
@@ -5812,11 +9727,12 @@ private:
         auto label = [&](int w, int h) { return SizeLabel(w, h, any_shape); };
         const std::array<int, 2> current{draft_.width, draft_.height};
         const bool listed = std::find(sizes.begin(), sizes.end(), current) != sizes.end();
-        const std::string preview = label(draft_.width, draft_.height) + (listed ? "" : "  (current)");
+        const std::string preview = listed ? label(draft_.width, draft_.height)
+            : texts::T("settings.display.window_size.current", {{"size", label(draft_.width, draft_.height)}});
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         if (ImGui::BeginCombo("##size", preview.c_str(), ImGuiComboFlags_HeightLarge))
         {
-            if (!listed) ImGui::Selectable(preview.c_str(), true);
+            if (!listed) ImGui::Selectable(StableLabel(preview.c_str(), "current").c_str(), true);
             for (const auto& size : sizes)
                 if (ImGui::Selectable(label(size[0], size[1]).c_str(), size == current))
                 { draft_.width = size[0]; draft_.height = size[1]; dirty_ = true; }
@@ -5825,8 +9741,9 @@ private:
         if (!fits(draft_.width, draft_.height))
         {
             const auto shrunk = platform::FitWindowSize(draft_.width, draft_.height, usable.w, usable.h);
-            const std::string note = "More than a window can take on this display: the game opens it at "
-                + std::to_string(shrunk.width) + " x " + std::to_string(shrunk.height) + ", the largest that fits.";
+            const std::string note = texts::T("settings.display.window_size.too_large",
+                                              {{"width", std::to_string(shrunk.width)},
+                                               {"height", std::to_string(shrunk.height)}});
             TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
         }
         else if (!any_shape)
@@ -5835,8 +9752,10 @@ private:
             const auto shaped = SnapToShape(draft_.width, draft_.height, shape_w, shape_h);
             if (shaped.height != draft_.height)
             {
-                const std::string note = "Not " + std::string(four_three ? "4:3" : "16:9") + ": the game opens it at "
-                    + std::to_string(shaped.width) + " x " + std::to_string(shaped.height) + ", the picture's shape.";
+                const std::string note = texts::T("settings.display.window_size.not_shape",
+                                                  {{"shape", four_three ? "4:3" : "16:9"},
+                                                   {"width", std::to_string(shaped.width)},
+                                                   {"height", std::to_string(shaped.height)}});
                 TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
             }
         }
@@ -5880,19 +9799,23 @@ private:
         std::sort(sizes.begin(), sizes.end(), [](const auto& a, const auto& b) {
             return a[0] != b[0] ? a[0] > b[0] : a[1] > b[1];
         });
-        const std::string desktop_label = "Desktop" + (desktop ? "   (" + SizeLabel(desktop->w, desktop->h, false) + ")"
-                                                               : std::string());
+        const std::string desktop_label = desktop
+            ? texts::T("settings.display.fullscreen_resolution.desktop_size",
+                       {{"size", SizeLabel(desktop->w, desktop->h, false)}})
+            : std::string(texts::T("settings.display.fullscreen_resolution.desktop"));
         const auto chosen = ParseResolution(draft_.fullscreen_resolution);
         const std::array<int, 2> current{chosen.width, chosen.height};
         const bool listed = chosen.width == 0 || std::find(sizes.begin(), sizes.end(), current) != sizes.end();
         const std::string preview = chosen.width == 0 ? desktop_label
-            : SizeLabel(chosen.width, chosen.height, true) + (listed ? "" : "  (not on this display)");
+            : listed ? SizeLabel(chosen.width, chosen.height, true)
+                     : texts::T("settings.display.fullscreen_resolution.not_on_display",
+                                {{"size", SizeLabel(chosen.width, chosen.height, true)}});
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         if (ImGui::BeginCombo("##fullscreen_resolution", preview.c_str(), ImGuiComboFlags_HeightLarge))
         {
-            if (ImGui::Selectable(desktop_label.c_str(), chosen.width == 0))
+            if (ImGui::Selectable(StableLabel(desktop_label.c_str(), "desktop").c_str(), chosen.width == 0))
             { draft_.fullscreen_resolution = std::string(kDesktopResolution); dirty_ = true; }
-            if (!listed) ImGui::Selectable(preview.c_str(), true);
+            if (!listed) ImGui::Selectable(StableLabel(preview.c_str(), "current").c_str(), true);
             for (const auto& size : sizes)
                 if (ImGui::Selectable(SizeLabel(size[0], size[1], true).c_str(), size == current))
                 { draft_.fullscreen_resolution = FormatResolution(size[0], size[1]); dirty_ = true; }
@@ -5900,12 +9823,12 @@ private:
         }
         if (!listed)
             TextWrappedColored(CurrentFonts().caption, color::warning,
-                               "This display has no such mode, so fullscreen keeps the display's own resolution.");
+                               texts::T("settings.display.fullscreen_resolution.no_such_mode"));
         else if (chosen.width && desktop && desktop->w > 0 && desktop->h > 0
                  && std::abs(double(chosen.width) * desktop->h / (double(chosen.height) * desktop->w) - 1.0) > 0.01)
         {
-            const std::string note = "Another shape than this " + SizeLabel(desktop->w, desktop->h, false)
-                + " display: some displays stretch it; others show bars.";
+            const std::string note = texts::T("settings.display.fullscreen_resolution.other_shape",
+                                              {{"size", SizeLabel(desktop->w, desktop->h, false)}});
             TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
         }
     }
@@ -5913,15 +9836,19 @@ private:
     void DisplayChoice()
     {
         const float width = ImGui::GetContentRegionAvail().x;
-        std::string preview = "Default display";
+        const char* default_display = texts::T("settings.display.screen.display.default");
+        std::string preview = default_display;
         if (draft_.monitor > 0)
-            preview = draft_.monitor <= int(displays_.size()) ? displays_[size_t(draft_.monitor - 1)]
-                                                               : "Display " + std::to_string(draft_.monitor) + " (not connected)";
+            preview = draft_.monitor <= int(displays_.size())
+                ? displays_[size_t(draft_.monitor - 1)]
+                : texts::T("settings.display.screen.display.not_connected",
+                           {{"number", std::to_string(draft_.monitor)}});
         ImGui::SetNextItemWidth(width);
         ImGui::BeginDisabled(displays_.size() <= 1 && draft_.monitor == 0);
         if (ImGui::BeginCombo("##monitor", preview.c_str()))
         {
-            if (ImGui::Selectable("Default display", draft_.monitor == 0)) { draft_.monitor = 0; dirty_ = true; }
+            if (ImGui::Selectable(StableLabel(default_display, "default").c_str(), draft_.monitor == 0))
+            { draft_.monitor = 0; dirty_ = true; }
             for (size_t i = 0; i < displays_.size(); ++i)
                 if (ImGui::Selectable(displays_[i].c_str(), draft_.monitor == int(i) + 1))
                 { draft_.monitor = int(i) + 1; dirty_ = true; }
@@ -5932,40 +9859,42 @@ private:
 
     void AudioPage()
     {
-        PageHeader("Audio", "The game's volume and the level of each kind of sound. The music, sound effect and "
-                            "voice settings in the game's own Options menu still apply.");
-        BeginCard("##output", "Output", "Plays through your system's default audio device.", Icon::Audio);
+        PageHeader(texts::T("settings.audio.title"), texts::T("settings.audio.about"));
+        BeginCard("##output", texts::T("settings.audio.output.title"), texts::T("settings.audio.output.about"),
+                  Icon::Audio);
         if (BeginRows("##audio_rows"))
         {
-            Row("Master volume", "Scales the game's speaker output, like the volume of a TV.");
+            Row(texts::T("settings.audio.output.master_volume.name"),
+                texts::T("settings.audio.output.master_volume.about"));
             ImGui::BeginDisabled(draft_.mute);
             if (PercentSlider("##volume", &draft_.master_volume, ImGui::GetContentRegionAvail().x)) dirty_ = true;
             ImGui::EndDisabled();
-            Row("Mute", "Silences the game without changing the volume.");
+            Row(texts::T("settings.audio.output.mute.name"), texts::T("settings.audio.output.mute.about"));
             if (Toggle("##mute", &draft_.mute)) dirty_ = true;
             EndRows();
         }
         EndCard();
 
         // [audio] <group>_volume: applied by the game module when the game starts.
-        BeginCard("##sound_levels", "Sound levels",
-                  "Each kind of sound as a share of the level the game gives it, on the PC only. Applies when the game starts.",
-                  Icon::Sliders);
+        BeginCard("##sound_levels", texts::T("settings.audio.sound_levels.title"),
+                  texts::T("settings.audio.sound_levels.about"), Icon::Sliders);
         if (BeginRows("##sound_level_rows"))
         {
             ImGui::BeginDisabled(draft_.mute);
             for (std::size_t n = 0; n < kSoundGroups.size(); ++n)
             {
-                Row(kSoundGroups[n].name, kSoundGroups[n].description);
+                Row(texts::SoundGroupName(kSoundGroups[n]), texts::SoundGroupAbout(kSoundGroups[n]));
                 ImGui::PushID(kSoundGroups[n].key);
                 if (PercentSlider("##level", &draft_.sound_volumes[n], ImGui::GetContentRegionAvail().x)) dirty_ = true;
                 ImGui::PopID();
             }
             ImGui::EndDisabled();
-            Row("Reset levels", "Every kind of sound back to 100%, the game's own mix.");
+            Row(texts::T("settings.audio.sound_levels.reset.name"),
+                texts::T("settings.audio.sound_levels.reset.about"));
             const auto defaults = DefaultSoundVolumes();
-            if (SecondaryButton("sound_levels_reset", "Reset levels", {ImGui::GetContentRegionAvail().x, Dp(40)},
-                                draft_.sound_volumes != defaults, Icon::Refresh))
+            if (SecondaryButton("sound_levels_reset", texts::T("settings.audio.sound_levels.reset.button"),
+                                {ImGui::GetContentRegionAvail().x, Dp(40)}, draft_.sound_volumes != defaults,
+                                Icon::Refresh))
             {
                 draft_.sound_volumes = defaults;
                 dirty_ = true;
@@ -6100,11 +10029,16 @@ private:
     std::string RemoteName(const std::string& id) const
     {
         const auto* remote = ConnectedRemote(id);
-        const std::string model = remote && remote->plus ? "Wii Remote Plus" : "Wii Remote";
+        const std::string model = remote && remote->plus ? texts::T("settings.controls.remote.wii_remote_plus")
+                                                         : texts::T("settings.controls.remote.wii_remote");
         const int slot = platform::WiimoteDolphinBarSlot(id);
-        if (slot >= 0) return model + " (DolphinBar slot " + std::to_string(slot + 1) + ")";
+        if (slot >= 0)
+            return texts::T("settings.controls.remote.in_dolphinbar",
+                            {{"model", model}, {"slot", std::to_string(slot + 1)}});
         const auto address = platform::WiimoteBluetoothAddress(id);
-        return model + " (Bluetooth " + (address.size() > 8 ? address.substr(address.size() - 8) : address) + ")";
+        return texts::T("settings.controls.remote.over_bluetooth",
+                        {{"model", model},
+                         {"address", address.size() > 8 ? address.substr(address.size() - 8) : address}});
     }
 
     // Windows: connect and pair Wii Remotes over Bluetooth (wiimote_bluetooth.h).
@@ -6112,36 +10046,35 @@ private:
     {
         const auto search = bluetooth_search_.Status();
         if (!search.supported || !BeginRows("##bluetooth_rows")) return;
-        Row("Continuous scanning", !search.adapter ? "No Bluetooth adapter found."
-                                   : draft_.bluetooth_search
-                                       ? "Press 1+2 on a Wii Remote to connect it, here and when a player's Remote "
-                                         "drops out of a game."
-                                       : "Off: after 1+2 press Refresh, or pair the Remote with Sync.");
+        Row(texts::T("settings.controls.bluetooth.scanning.name"),
+            !search.adapter         ? texts::T("settings.controls.bluetooth.scanning.no_adapter")
+            : draft_.bluetooth_search ? texts::T("settings.controls.bluetooth.scanning.on")
+                                      : texts::T("settings.controls.bluetooth.scanning.off"));
         if (Toggle("##bluetooth_search", &draft_.bluetooth_search)) dirty_ = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Searching can briefly disturb other Bluetooth devices, such as headphones.\n"
-                              "In a game it searches only while a player's Wii Remote is missing.");
-        std::string text = search.syncing ? "Syncing: press the red SYNC button under the Remote's battery cover now."
-                           : search.resetting ? "Forgetting the paired Wii Remotes..."
-                           : "Sync pairs a Remote for good: press Sync, then the red SYNC button under its battery "
-                             "cover. It then connects with any button.";
-        if (!search.syncing && !search.resetting && !search.last.empty()) text += " Last: " + search.last + ".";
-        Row("Bluetooth pairing", text.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.controls.bluetooth.scanning.tooltip"));
+        std::string text = search.syncing     ? texts::T("settings.controls.bluetooth.pairing.syncing")
+                           : search.resetting ? texts::T("settings.controls.bluetooth.pairing.forgetting")
+                                              : texts::T("settings.controls.bluetooth.pairing.about");
+        if (!search.syncing && !search.resetting && !search.last.empty())
+            text += " " + texts::T("settings.controls.bluetooth.pairing.last", {{"result", search.last}});
+        Row(texts::T("settings.controls.bluetooth.pairing.name"), text.c_str());
         const bool idle = !search.syncing && !search.resetting;
         const float gap = Dp(8), width = (ImGui::GetContentRegionAvail().x - 2 * gap) / 3;
-        if (SecondaryButton("##bluetooth_refresh", "Refresh", {width, Dp(36)}, idle)) bluetooth_search_.Refresh();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Search once (4 s): press 1+2 on the Remote first.");
+        if (SecondaryButton("##bluetooth_refresh", texts::T("settings.controls.bluetooth.refresh"), {width, Dp(36)},
+                            idle))
+            bluetooth_search_.Refresh();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.controls.bluetooth.refresh_tooltip"));
         ImGui::SameLine(0, gap);
-        if (SecondaryButton("##bluetooth_sync", search.syncing ? "Syncing..." : "Sync", {width, Dp(36)}, idle))
+        if (SecondaryButton("##bluetooth_sync",
+                            search.syncing ? texts::T("settings.controls.bluetooth.syncing")
+                                           : texts::T("settings.controls.bluetooth.sync"),
+                            {width, Dp(36)}, idle))
             bluetooth_search_.Sync();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Pair Wii Remotes for good (about 12 s), as on a Wii.\n"
-                              "A paired Remote connects with any button, also in a game.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.controls.bluetooth.sync_tooltip"));
         ImGui::SameLine(0, gap);
-        if (SecondaryButton("##bluetooth_reset", "Reset", {width, Dp(36)}, idle)) bluetooth_search_.Reset();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Forget every Wii Remote Windows remembers, for one that no longer connects\n"
-                              "(for example after it was synced with a Wii again). Sync it again afterwards.");
+        if (SecondaryButton("##bluetooth_reset", texts::T("settings.controls.bluetooth.reset"), {width, Dp(36)}, idle))
+            bluetooth_search_.Reset();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.controls.bluetooth.reset_tooltip"));
         EndRows();
     }
 
@@ -6160,8 +10093,7 @@ private:
         const auto note = MissingControllersNote(players, lineup);
         // The layout stays put while remotes come and go: a fixed subtitle and
         // one line of status chips, whatever the remotes do.
-        BeginCard("##players", "Players",
-                  "Players fill in order and each controller plays once. Changes apply when the game starts.",
+        BeginCard("##players", texts::T("settings.controls.players.title"), texts::T("settings.controls.players.about"),
                   Icon::Gamepad);
         bool chip = false;
         const auto next_chip = [&] { if (chip) ImGui::SameLine(0, Dp(8)); chip = true; };
@@ -6173,47 +10105,53 @@ private:
         else if (status.dolphinbar_other_mode)
         {
             next_chip();
-            Chip("DolphinBar: switch to mode 4", color::warning, Icon::Warning);
+            Chip(texts::T("settings.controls.players.dolphinbar_mode"), color::warning, Icon::Warning);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("The DolphinBar is in a mouse or gamepad mode. Press its MODE button until light 4 is on.");
+                ImGui::SetTooltip("%s", texts::T("settings.controls.players.dolphinbar_mode_tooltip"));
         }
         if (bluetooth)
         {
             next_chip();
-            const auto text = "Bluetooth: " + std::to_string(bluetooth) + (bluetooth == 1 ? " Wii Remote" : " Wii Remotes");
+            const auto text = texts::Count("settings.controls.players.bluetooth_remotes", bluetooth);
             Chip(text.c_str(), color::success, Icon::Check);
         }
         if (status.no_permission)
         {
             next_chip();
-            Chip("Wii Remote without access", color::warning, Icon::Warning);
+            Chip(texts::T("settings.controls.players.no_access"), color::warning, Icon::Warning);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("A Wii Remote is connected, but this user can't open it.");
+                ImGui::SetTooltip("%s", texts::T("settings.controls.players.no_access_tooltip"));
         }
         if (!chip)
         {
-            Chip(wii_known_ ? "No Wii Remote" : "Looking for Wii Remotes...", color::muted,
-                 wii_known_ ? Icon::Info : Icon::None);
+            Chip(wii_known_ ? texts::T("settings.controls.players.no_remote")
+                            : texts::T("settings.controls.players.looking"),
+                 color::muted, wii_known_ ? Icon::Info : Icon::None);
             if (wii_known_)
             {
                 ImGui::SameLine(0, Dp(10));
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(5));
-                TextColored(CurrentFonts().caption, color::muted,
-                            "Pair one over Bluetooth, or use a Mayflash DolphinBar in mode 4.");
+                TextColored(CurrentFonts().caption, color::muted, texts::T("settings.controls.players.no_remote_hint"));
             }
         }
 
         const auto name = [&](const std::string& device) {
-            if (device == "keyboard") return std::string("Keyboard & mouse");
-            if (device == "off") return std::string("Off");
+            if (device == "keyboard") return std::string(texts::T("settings.controls.players.keyboard"));
+            if (device == "off") return std::string(texts::T("settings.controls.players.off"));
             if (device.rfind("gamepad", 0) == 0)
             {
                 const int slot = device.back() - '1';
-                return slot < int(gamepad_names_.size()) ? "Gamepad " + std::to_string(slot + 1) + ": " + gamepad_names_[slot]
-                                                         : "Gamepad " + std::to_string(slot + 1) + "  (not connected)";
+                const std::string number = std::to_string(slot + 1);
+                return slot < int(gamepad_names_.size())
+                    ? texts::T("settings.controls.players.gamepad_named",
+                               {{"number", number}, {"name", gamepad_names_[slot]}})
+                    : texts::T("settings.controls.players.gamepad_missing", {{"number", number}});
             }
             const auto* remote = ConnectedRemote(device);
-            return RemoteName(device) + (!remote ? "  (not connected)" : remote->nunchuk ? " + Nunchuk" : "");
+            if (!remote) return texts::T("settings.controls.players.remote_missing", {{"remote", RemoteName(device)}});
+            if (remote->nunchuk)
+                return texts::T("settings.controls.players.remote_nunchuk", {{"remote", RemoteName(device)}});
+            return RemoteName(device);
         };
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 5));
         if (ImGui::BeginTable("##player_slots", 4))
@@ -6231,7 +10169,7 @@ private:
                 const bool enabled = n == 0 || players[n - 1] != "off";
                 ImGui::AlignTextToFramePadding();
                 TextColored(CurrentFonts().label, enabled || n == 0 ? color::text : color::dim,
-                            ("Player " + std::to_string(n + 1)).c_str());
+                            texts::T("settings.controls.players.player", {{"number", std::to_string(n + 1)}}).c_str());
                 ImGui::TableSetColumnIndex(1);
                 ImGui::BeginDisabled(!enabled);
                 // A gamepad also shows its profile beside it.
@@ -6247,9 +10185,11 @@ private:
                         // Choosing another player's device swaps the two; an
                         // empty player cannot take one (that would leave a gap).
                         if (other >= 0 && players[n] == "off") return;
-                        const auto label = name(device)
-                            + (other >= 0 ? "  (swap with player " + std::to_string(other + 1) + ")" : "");
-                        if (ImGui::Selectable(label.c_str(), players[n] == device))
+                        const auto label = other >= 0
+                            ? texts::T("settings.controls.players.swap",
+                                       {{"device", name(device)}, {"player", std::to_string(other + 1)}})
+                            : name(device);
+                        if (ImGui::Selectable(StableLabel(label.c_str(), device).c_str(), players[n] == device))
                         {
                             if (other >= 0) players[other] = players[n];
                             players[n] = device;
@@ -6285,7 +10225,8 @@ private:
                     DrawIcon(ImGui::GetWindowDrawList(), Icon::Warning, {pos.x + Dp(9), pos.y + Dp(12.5f)}, Dp(17),
                              Col(color::warning));
                     ImGui::Dummy(Dp(25, 25));
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Not connected. Connect it before you start the game.");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", texts::T("settings.controls.players.missing_tooltip"));
                 }
                 ImGui::TableSetColumnIndex(2);
                 if (shown.rfind("gamepad", 0) == 0)
@@ -6297,7 +10238,8 @@ private:
                 if (shown == "keyboard")
                 {
                     if (SecondaryButton("##keys", "", Dp(36, 30), true, Icon::Sliders)) OpenKeyboardView();
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keyboard & mouse keys");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", texts::T("settings.controls.players.keys_tooltip"));
                 }
                 ImGui::PopID();
             }
@@ -6312,8 +10254,7 @@ private:
         if (std::any_of(players.begin(), players.end(),
                         [](const std::string& device) { return device != "keyboard" && device != "off"; }))
         {
-            const std::string rule = "Controllers that are not connected when the game starts drop out. With nobody "
-                                     "left, keyboard & mouse plays as player 1.";
+            const std::string rule = texts::T("settings.controls.players.drop_out_rule");
             const auto& fonts = CurrentFonts();
             const float width = ImGui::GetContentRegionAvail().x;
             const auto height = [&](const std::string& text) {
@@ -6329,8 +10270,8 @@ private:
         // Single player on a Wii Remote or gamepad only.
         if (players[0] != "keyboard" && players[1] == "off" && BeginRows("##mouse_rows"))
         {
-            Row("Mouse pointer", "The mouse also points for player 1: left click is A, right click is B. "
-                "The controller keeps working. Only when player 1 plays alone.");
+            Row(texts::T("settings.controls.players.mouse_pointer.name"),
+                texts::T("settings.controls.players.mouse_pointer.about"));
             if (Toggle("##mouse_pointer", &draft_.mouse_pointer)) dirty_ = true;
             EndRows();
         }
@@ -6338,16 +10279,15 @@ private:
         if (status.no_permission && BeginRows("##wiimote_access_rows"))
         {
 #if defined(__linux__)
-            Row("Wii Remote access", "A Wii Remote is connected, but this user can't open it. Install the udev rule "
-                "(copy the commands, run them in a terminal), then turn the remote off and on.");
-            if (SecondaryButton("##copy_udev", "Copy commands", {ImGui::GetContentRegionAvail().x, Dp(36)}, true, Icon::Copy))
+            Row(texts::T("settings.controls.players.access.name"), texts::T("settings.controls.players.access.udev"));
+            if (SecondaryButton("##copy_udev", texts::T("settings.controls.players.access.copy_commands"),
+                                {ImGui::GetContentRegionAvail().x, Dp(36)}, true, Icon::Copy))
             {
                 if (SDL_SetClipboardText(kWiimoteUdevCommands))
-                    Notice("Udev rule commands copied to the clipboard.", NoticeKind::Success);
+                    Notice(texts::T("settings.controls.players.access.copied"), NoticeKind::Success);
             }
 #else
-            Row("Wii Remote access", "A Wii Remote is connected, but it could not be opened. Close other programs "
-                "that use it (Dolphin, Steam), then turn the remote off and on.");
+            Row(texts::T("settings.controls.players.access.name"), texts::T("settings.controls.players.access.in_use"));
             ImGui::Dummy({0, 0});
 #endif
             EndRows();
@@ -6370,32 +10310,36 @@ private:
         if (!RemotePlayer() && draft_.sensor_bar == defaults.sensor_bar &&
             draft_.ir_sensitivity == defaults.ir_sensitivity && draft_.speaker_volume == defaults.speaker_volume)
             return;
-        BeginCard("##wii_remote", "Wii Remote", "As in the Wii's own settings. Changes apply when the game starts.",
-                  Icon::Target);
+        BeginCard("##wii_remote", texts::T("settings.controls.wii_remote.title"),
+                  texts::T("settings.controls.wii_remote.about"), Icon::Target);
         if (BeginRows("##wii_remote_rows"))
         {
-            Row("Sensor bar", "Where your sensor bar or DolphinBar sits. The game aims the Wii Remote pointer from it.");
+            Row(texts::T("settings.controls.wii_remote.sensor_bar.name"),
+                texts::T("settings.controls.wii_remote.sensor_bar.about"));
             int position = draft_.sensor_bar == "top" ? 0 : 1;
-            if (Segmented("##sensor_bar", &position, {"Above the screen", "Below the screen"},
+            if (Segmented("##sensor_bar", &position,
+                          {texts::T("settings.controls.wii_remote.sensor_bar.above"),
+                           texts::T("settings.controls.wii_remote.sensor_bar.below")},
                           ImGui::GetContentRegionAvail().x))
             {
                 draft_.sensor_bar = position == 0 ? "top" : "bottom";
                 dirty_ = true;
             }
-            Row("Sensitivity", "How readily the Remote's camera sees the sensor bar (3 is the Wii's default). Raise it "
-                "when the pointer drops out far from the bar, lower it when lamps or windows disturb it.");
+            Row(texts::T("settings.controls.wii_remote.sensitivity.name"),
+                texts::T("settings.controls.wii_remote.sensitivity.about"));
             int level = std::clamp(draft_.ir_sensitivity, 1, 5) - 1;
             if (Segmented("##ir_sensitivity", &level, {"1", "2", "3", "4", "5"}, ImGui::GetContentRegionAvail().x))
             {
                 draft_.ir_sensitivity = level + 1;
                 dirty_ = true;
             }
-            Row("Speaker volume", "Sounds the game plays on each player's Wii Remote; they play on the TV as well. "
-                "Off sends no sound to the Remotes.");
-            if (PercentSlider("##speaker_volume", &draft_.speaker_volume, ImGui::GetContentRegionAvail().x, "Off"))
+            Row(texts::T("settings.controls.wii_remote.speaker.name"),
+                texts::T("settings.controls.wii_remote.speaker.about"));
+            if (PercentSlider("##speaker_volume", &draft_.speaker_volume, ImGui::GetContentRegionAvail().x,
+                              texts::T("settings.controls.wii_remote.speaker.off")))
                 dirty_ = true;
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Speaker sound depends on the Bluetooth link: if it crackles, turn it down or off.");
+                ImGui::SetTooltip("%s", texts::T("settings.controls.wii_remote.speaker.tooltip"));
             EndRows();
         }
         EndCard();
@@ -6410,16 +10354,18 @@ private:
             [](const std::string& device) { return device != "keyboard" && device != "off"; });
         if (!controller && draft_.rumble == defaults.rumble && draft_.rumble_strength == defaults.rumble_strength)
             return;
-        BeginCard("##rumble", "Rumble", nullptr, Icon::Gamepad);
+        BeginCard("##rumble", texts::T("settings.controls.rumble.title"), nullptr, Icon::Gamepad);
         if (BeginRows("##rumble_rows"))
         {
-            Row("Rumble", "The game's rumble on Wii Remotes and gamepads, like the Wii's rumble setting.");
+            Row(texts::T("settings.controls.rumble.rumble.name"), texts::T("settings.controls.rumble.rumble.about"));
             if (Toggle("##rumble", &draft_.rumble)) dirty_ = true;
             if (GamepadPlayer() || draft_.rumble_strength != defaults.rumble_strength)
             {
-                Row("Gamepad strength", "How strongly gamepads rumble. A Wii Remote's motor is either on or off.");
+                Row(texts::T("settings.controls.rumble.strength.name"),
+                    texts::T("settings.controls.rumble.strength.about"));
                 ImGui::BeginDisabled(!draft_.rumble);
-                if (PercentSlider("##rumble_strength", &draft_.rumble_strength, ImGui::GetContentRegionAvail().x, "Off"))
+                if (PercentSlider("##rumble_strength", &draft_.rumble_strength, ImGui::GetContentRegionAvail().x,
+                                  texts::T("settings.controls.rumble.strength.off")))
                     dirty_ = true;
                 ImGui::EndDisabled();
             }
@@ -6486,8 +10432,8 @@ private:
         if (name.empty()) return;
         if (const auto hotkey = DraftHotkeys().Find(code); hotkey != HotkeyCount)
         {
-            Notice(name + " is the hotkey " + kHotkeys[hotkey].label
-                       + " (Hotkeys on the Controls page) and cannot be assigned.",
+            Notice(texts::T("settings.controls.keyboard.is_hotkey",
+                            {{"key", name}, {"hotkey", texts::HotkeyActionName(kHotkeys[hotkey])}}),
                    NoticeKind::Warning);
             return;
         }
@@ -6504,8 +10450,9 @@ private:
                 if (binding[k] != code) continue;
                 if (binding[1 - k] == platform::kKeyNone)
                 {
-                    Notice(name + " is the only key of " + kKeyActions[other].label
-                               + ". Give that action another key first.", NoticeKind::Warning);
+                    Notice(texts::T("settings.controls.keyboard.only_key",
+                                    {{"key", name}, {"action", texts::KeyActionName(kKeyActions[other])}}),
+                           NoticeKind::Warning);
                     return;
                 }
                 binding = {binding[1 - k], platform::kKeyNone};
@@ -6517,8 +10464,11 @@ private:
         draft_.keys[action] = platform::FormatKeyBinding(mine);
         if (moved >= 0) draft_.keys[moved] = platform::FormatKeyBinding(bindings[moved]);
         dirty_ = true;
-        Notice(name + " now presses " + kKeyActions[action].label
-                   + (moved >= 0 ? std::string(" (moved from ") + kKeyActions[moved].label + ")" : std::string()) + ".",
+        Notice(moved >= 0 ? texts::T("settings.controls.keyboard.now_presses_moved",
+                                     {{"key", name}, {"action", texts::KeyActionName(kKeyActions[action])},
+                                      {"from", texts::KeyActionName(kKeyActions[moved])}})
+                          : texts::T("settings.controls.keyboard.now_presses",
+                                     {{"key", name}, {"action", texts::KeyActionName(kKeyActions[action])}}),
                NoticeKind::Info);
     }
 
@@ -6533,7 +10483,7 @@ private:
         if (which < 0 || which >= int(HotkeyCount)) return;
         if (code >= SDL_SCANCODE_LCTRL && code <= SDL_SCANCODE_RGUI) return;
         hotkey_capture_ = -1;
-        const char* label = kHotkeys[std::size_t(which)].label;
+        const char* label = texts::HotkeyActionName(kHotkeys[std::size_t(which)]);
         const platform::Hotkey hotkey{code, platform::HotkeyModifiers(mod)};
         if (hotkey.modifiers == SDL_KMOD_NONE && !(mod & SDL_KMOD_GUI))
         {
@@ -6543,13 +10493,13 @@ private:
                 if (draft_.hotkeys[std::size_t(which)] == kNoHotkey) return;
                 draft_.hotkeys[std::size_t(which)] = kNoHotkey;
                 dirty_ = true;
-                Notice(std::string(label) + " has no hotkey now.", NoticeKind::Info);
+                Notice(texts::T("settings.controls.hotkeys.no_hotkey_now", {{"hotkey", label}}), NoticeKind::Info);
                 return;
             }
         }
         if (mod & SDL_KMOD_GUI)
         {
-            Notice("Combinations with the Windows or Command key stay with the system.", NoticeKind::Warning);
+            Notice(texts::T("settings.controls.hotkeys.system_keys"), NoticeKind::Warning);
             return;
         }
         const std::string name = platform::HotkeyLabel(hotkey);
@@ -6559,7 +10509,9 @@ private:
             if (hotkeys.keys[other] == hotkey)
             {
                 if (int(other) != which)
-                    Notice(name + " is already the hotkey " + kHotkeys[other].label + ".", NoticeKind::Warning);
+                    Notice(texts::T("settings.controls.hotkeys.already",
+                                    {{"key", name}, {"hotkey", texts::HotkeyActionName(kHotkeys[other])}}),
+                           NoticeKind::Warning);
                 return;
             }
         // A key pressed alone would also press its keyboard & mouse action.
@@ -6569,28 +10521,27 @@ private:
             for (std::size_t action = 0; action < KeyActionCount; ++action)
                 if (bindings[action][0] == code || bindings[action][1] == code)
                 {
-                    Notice(name + " presses " + kKeyActions[action].label + " for keyboard & mouse. Give that action "
-                               "another key first, or hold Ctrl, Shift or Alt with it.",
+                    Notice(texts::T("settings.controls.hotkeys.key_taken",
+                                    {{"key", name}, {"action", texts::KeyActionName(kKeyActions[action])}}),
                            NoticeKind::Warning);
                     return;
                 }
         }
         draft_.hotkeys[std::size_t(which)] = platform::HotkeyName(hotkey);
         dirty_ = true;
-        Notice(name + " is now the hotkey " + label + ".", NoticeKind::Info);
+        Notice(texts::T("settings.controls.hotkeys.now_hotkey", {{"key", name}, {"hotkey", label}}), NoticeKind::Info);
     }
 
     // [hotkeys]: keys of the game window, whoever plays, each a key alone or
     // with Ctrl, Shift or Alt. No HUD sits with its key.
     void HotkeysCard()
     {
-        BeginCard("##hotkeys", "Hotkeys", "Keys of the game window, whoever plays. Click a hotkey, then press the new "
-                  "key, alone or with Ctrl, Shift or Alt. Escape cancels; Backspace or Delete leaves it unused.",
+        BeginCard("##hotkeys", texts::T("settings.controls.hotkeys.title"), texts::T("settings.controls.hotkeys.about"),
                   Icon::Keyboard);
         const auto hotkeys = DraftHotkeys();
         bool clicked = false;
         const auto hotkey = [&](HotkeyIndex which) {
-            Row(kHotkeys[which].label, kHotkeys[which].note);
+            Row(texts::HotkeyActionName(kHotkeys[which]), texts::HotkeyActionAbout(kHotkeys[which]));
             const bool waiting = hotkey_capture_ == int(which);
             std::vector<std::string> keys;
             if (waiting)
@@ -6598,17 +10549,18 @@ private:
                 // The modifiers held so far, then the key still to come.
                 const SDL_Keymod held = platform::HotkeyModifiers(SDL_GetModState());
                 keys = platform::HotkeyKeys({SDL_SCANCODE_A, held});
-                keys.back() = keys.size() > 1 ? "..." : "Press keys...";
+                keys.back() = keys.size() > 1 ? "..." : texts::T("settings.controls.hotkeys.press_keys");
             }
             else if (hotkeys[which].key) keys = platform::HotkeyKeys(hotkeys[which]);
-            else keys = {"Not set"};
+            else keys = {texts::T("settings.controls.hotkeys.not_set")};
             ImGui::PushID(int(which));
             if (KeyComboButton("##hotkey", keys, waiting))
             {
                 clicked = true;
                 hotkey_capture_ = waiting ? -1 : int(which);
             }
-            if (ImGui::IsItemHovered() && !waiting) ImGui::SetTooltip("Click, then press the new keys");
+            if (ImGui::IsItemHovered() && !waiting)
+                ImGui::SetTooltip("%s", texts::T("settings.controls.hotkeys.tooltip"));
             ImGui::PopID();
         };
         if (BeginRows("##hotkey_rows"))
@@ -6618,17 +10570,19 @@ private:
             hotkey(HotkeyStretch);
             hotkey(HotkeyResolutionUp);
             hotkey(HotkeyResolutionDown);
+            hotkey(HotkeyPanel);
+            hotkey(HotkeyOptions);
             hotkey(HotkeyHud);
-            const std::string key = hotkeys[HotkeyHud].key ? platform::HotkeyLabel(hotkeys[HotkeyHud])
-                                                           : std::string("its hotkey");
-            const std::string note = "The scoreboard, player markers and captions. Off starts matches without them, "
-                "for clean recordings; " + key + " shows them. The Mega Strike meter and its defence always stay.";
-            Row("Show the HUD when a match starts", note.c_str());
+            const std::string note = hotkeys[HotkeyHud].key
+                ? texts::T("settings.controls.hotkeys.show_hud.about",
+                           {{"key", platform::HotkeyLabel(hotkeys[HotkeyHud])}})
+                : std::string(texts::T("settings.controls.hotkeys.show_hud.about_no_key"));
+            Row(texts::T("settings.controls.hotkeys.show_hud.name"), note.c_str());
             if (Toggle("##show_hud", &draft_.show_hud)) dirty_ = true;
             EndRows();
         }
-        if (SecondaryButton("##reset_hotkeys", "Reset keys", Dp(140, 36), draft_.hotkeys != DefaultHotkeyNames(),
-                            Icon::Refresh))
+        if (SecondaryButton("##reset_hotkeys", texts::T("settings.controls.hotkeys.reset"), Dp(140, 36),
+                            draft_.hotkeys != DefaultHotkeyNames(), Icon::Refresh))
         {
             draft_.hotkeys = DefaultHotkeyNames();
             hotkey_capture_ = -1;
@@ -6643,25 +10597,26 @@ private:
     // while no action does.
     static std::string PointerNote(const platform::KeyBindings& bindings)
     {
-        const auto click = [&](const char* name, Uint8 button, const char* fallback) {
+        const auto click = [&](const char* id, Uint8 button, const char* fallback) {
             std::string actions;
             const auto input = platform::MouseKeyInput(button);
             for (std::size_t n = 0; n < KeyActionCount; ++n)
                 if (bindings[n][0] == input || bindings[n][1] == input)
-                    actions += (actions.empty() ? "" : ", ") + std::string(kKeyActions[n].label);
-            return std::string(name) + " click is "
-                   + (actions.empty() ? std::string(fallback) + " until an action takes it" : actions);
+                    actions += (actions.empty() ? "" : ", ") + std::string(texts::KeyActionName(kKeyActions[n]));
+            if (actions.empty())
+                actions = texts::T("settings.controls.keyboard.mouse.until_taken", {{"button", fallback}});
+            return texts::T(id, {{"what", actions}});
         };
-        return click("left", SDL_BUTTON_LEFT, "A") + "; " + click("right", SDL_BUTTON_RIGHT, "B");
+        return click("settings.controls.keyboard.mouse.left_click", SDL_BUTTON_LEFT, "A") + "; "
+               + click("settings.controls.keyboard.mouse.right_click", SDL_BUTTON_RIGHT, "B");
     }
 
     void KeyboardView()
     {
-        if (SecondaryButton("##back", "Players", Dp(124, 36), true, Icon::Back)) { CloseKeyboardView(); return; }
+        if (SecondaryButton("##back", texts::T("settings.controls.back_to_players"), Dp(124, 36), true, Icon::Back))
+        { CloseKeyboardView(); return; }
         ImGui::Dummy(Dp(0, 6));
-        PageHeader("Keyboard & mouse", "Click a key, then press the new key or a mouse button (click the key "
-                   "again for the left button). Each action takes up to two. Left and right click are A and B "
-                   "while no action takes them. Changes are saved when you go back.");
+        PageHeader(texts::T("settings.controls.keyboard.title"), texts::T("settings.controls.keyboard.about"));
         const auto bindings = DraftBindings();
         bool clicked = false, on_waiting = false;
         const auto rows = [&](std::size_t first, std::size_t last) {
@@ -6675,11 +10630,11 @@ private:
                     ImGui::PushID(int(n));
                     ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
                     ImGui::TableSetColumnIndex(0);
-                    TextColored(CurrentFonts().label, color::text, kKeyActions[n].label);
-                    if (kKeyActions[n].note)
+                    TextColored(CurrentFonts().label, color::text, texts::KeyActionName(kKeyActions[n]));
+                    if (const char* note = texts::KeyActionAbout(kKeyActions[n]))
                     {
                         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
-                        TextColored(CurrentFonts().caption, color::muted, kKeyActions[n].note);
+                        TextColored(CurrentFonts().caption, color::muted, note);
                     }
                     ImGui::TableSetColumnIndex(1);
                     for (int slot = 0; slot < 2; ++slot)
@@ -6687,8 +10642,8 @@ private:
                         const platform::KeyInput code = bindings[n][slot];
                         if (slot == 1 && code == platform::kKeyNone && bindings[n][0] == platform::kKeyNone) break;
                         const bool waiting = capture_action_ == int(n) && capture_slot_ == slot;
-                        const std::string label = waiting ? "Press a key..." : code != platform::kKeyNone
-                            ? platform::KeyInputName(code) : "+";
+                        const std::string label = waiting ? texts::T("settings.controls.keyboard.press_key")
+                            : code != platform::kKeyNone ? platform::KeyInputName(code) : "+";
                         if (slot) ImGui::SameLine(0, Dp(6));
                         ImGui::PushID(slot);
                         if (KeyCapButton("##key", label.c_str(), waiting))
@@ -6704,9 +10659,10 @@ private:
                         }
                         if (waiting && ImGui::IsItemHovered()) on_waiting = true;
                         if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip(waiting ? "Press a key or mouse button; click here for the left button"
-                                              : code != platform::kKeyNone ? "Click, then press the new key or mouse button"
-                                                                           : "Add a second key or mouse button");
+                            ImGui::SetTooltip("%s", waiting ? texts::T("settings.controls.keyboard.waiting_tooltip")
+                                                    : code != platform::kKeyNone
+                                                        ? texts::T("settings.controls.keyboard.change_tooltip")
+                                                        : texts::T("settings.controls.keyboard.add_tooltip"));
                         ImGui::PopID();
                     }
                     if (bindings[n][1] != platform::kKeyNone)
@@ -6717,7 +10673,8 @@ private:
                             draft_.keys[n] = platform::FormatKeyBinding({bindings[n][0], platform::kKeyNone});
                             dirty_ = true;
                         }
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove the second key");
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("%s", texts::T("settings.controls.keyboard.remove_tooltip"));
                     }
                     ImGui::PopID();
                 }
@@ -6725,25 +10682,28 @@ private:
             }
             ImGui::PopStyleVar();
         };
-        BeginCard("##remote_keys", "Wii Remote", "Buttons of the keyboard's Wii Remote.", Icon::Keyboard);
+        BeginCard("##remote_keys", texts::T("settings.controls.keyboard.remote.title"),
+                  texts::T("settings.controls.keyboard.remote.about"), Icon::Keyboard);
         rows(KeyActionA, KeyActionStickUp);
         EndCard();
-        BeginCard("##nunchuk_keys", "Nunchuk & motion", "The Nunchuk stick and buttons, and the shakes.", Icon::Gamepad);
+        BeginCard("##nunchuk_keys", texts::T("settings.controls.keyboard.nunchuk.title"),
+                  texts::T("settings.controls.keyboard.nunchuk.about"), Icon::Gamepad);
         rows(KeyActionStickUp, KeyActionCount);
         EndCard();
-        BeginCard("##mouse_keys", "Mouse",
-                  "The screenshot, HUD and fullscreen keys are under Hotkeys on the Controls page.", Icon::Mouse);
+        BeginCard("##mouse_keys", texts::T("settings.controls.keyboard.mouse.title"),
+                  texts::T("settings.controls.keyboard.mouse.about"), Icon::Mouse);
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
         if (ImGui::BeginTable("##fixed_keys", 2))
         {
             ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
             ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch);
-            KeyRow("Pointer", {"Mouse"}, PointerNote(bindings).c_str(), "Point at menu items");
+            KeyRow(texts::T("settings.controls.pad.pointer"), {texts::T("settings.controls.keyboard.mouse.mouse")},
+                   PointerNote(bindings).c_str(), texts::T("settings.controls.keyboard.mouse.point"));
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
-        if (SecondaryButton("##reset_keys", "Reset to defaults", Dp(180, 36), draft_.keys != Settings::DefaultKeys(),
-                            Icon::Refresh))
+        if (SecondaryButton("##reset_keys", texts::T("settings.controls.keyboard.reset"), Dp(180, 36),
+                            draft_.keys != Settings::DefaultKeys(), Icon::Refresh))
         {
             draft_.keys = Settings::DefaultKeys();
             capture_action_ = capture_slot_ = -1;
@@ -6786,11 +10746,8 @@ private:
         if (dirty_ && config_ok_) Save();
     }
 
-    // Profile `index` (-1: the built-in Default).
-    const Settings::PadProfile& ProfileAt(int index) const
-    {
-        return index < 0 ? Settings::DefaultPadProfile() : draft_.pad_profiles[std::size_t(index)];
-    }
+    // Profile `index` (below 0: built in, see Settings::PadProfileAt).
+    const Settings::PadProfile& ProfileAt(int index) const { return draft_.PadProfileAt(index); }
 
     // The profile kind of gamepad `slot`'s connected controller, or "" when it
     // is not connected.
@@ -6818,11 +10775,12 @@ private:
         return pad_slot_ < pads_.size() ? PadType(int(pad_slot_)) : platform::GamepadFamilyType(PageFamily());
     }
 
-    // Profile `index` as shown: the built-in Default in the page controller's layout.
+    // Profile `index` as shown: a built-in layout (Default, Classic 1.1) for
+    // the page's controller.
     Settings::PadProfile ShownProfile(int index) const
     {
         auto profile = ProfileAt(index);
-        if (index < 0) profile.inputs = platform::DefaultGamepadInputs(PageFamily());
+        if (profile.follows) profile.inputs = platform::DefaultGamepadInputs(PageFamily(), *profile.follows);
         return profile;
     }
 
@@ -6831,7 +10789,8 @@ private:
         std::string users;
         for (std::size_t slot = 0; slot < kGamepadSlots; ++slot)
             if (draft_.PadProfileIndex(slot) == index)
-                users += (users.empty() ? "" : ", ") + std::string("Gamepad ") + std::to_string(slot + 1);
+                users += (users.empty() ? "" : ", ")
+                    + texts::T("settings.controls.gamepad.gamepad_number", {{"number", std::to_string(slot + 1)}});
         return users;
     }
 
@@ -6840,31 +10799,48 @@ private:
     {
         for (int n = int(draft_.pad_profiles.size()) + 1;; ++n)
         {
-            const auto name = "Profile " + std::to_string(n);
+            const auto name = texts::T("settings.controls.gamepad.new_profile_name", {{"number", std::to_string(n)}});
             if (std::none_of(draft_.pad_profiles.begin(), draft_.pad_profiles.end(),
                              [&](const auto& profile) { return SamePadProfileName(profile.name, name); }))
                 return name;
         }
     }
 
-    // Selectables for Default and the profiles of `kind` (every profile, with
-    // its kind, when `kind` is empty), plus `current`; returns the chosen
-    // index (-1 Default) or -2 when nothing was chosen.
+    // Selectables for the built-in profiles, then the named ones, of `kind`
+    // (every profile, with its kind, when `kind` is empty), plus `current`;
+    // returns the chosen index or kNoProfileChosen.
+    static constexpr int kNoProfileChosen = -1000;
     int ProfileOptions(int current, const std::string& kind)
     {
-        int chosen = -2;
-        for (int n = -1; n < int(draft_.pad_profiles.size()); ++n)
+        std::vector<int> indices{-1};
+        for (std::size_t n = 0; n < Settings::BuiltinPadProfiles().size(); ++n)
+            indices.push_back(Settings::BuiltinPadProfileIndex(n));
+        for (int n = 0; n < int(draft_.pad_profiles.size()); ++n) indices.push_back(n);
+        int chosen = kNoProfileChosen;
+        for (const int n : indices)
         {
             const auto& profile = ProfileAt(n);
-            if (n >= 0 && n != current && !kind.empty() && profile.controller != kind) continue;
+            // A built-in layout fits every controller.
+            const bool fixed = !profile.follows;
+            if (fixed && n != current && !kind.empty() && profile.controller != kind) continue;
             ImGui::PushID(n);
-            std::string label = n < 0 ? std::string(kDefaultGamepadProfile) + " (built-in)" : profile.name;
-            if (n >= 0 && (kind.empty() || profile.controller != kind))
-                label += std::string("  (") + platform::GamepadKindName(profile.controller) + ")";
-            if (ImGui::Selectable(label.c_str(), n == current)) chosen = n;
+            std::string label = n < 0 ? texts::T("settings.controls.gamepad.built_in", {{"name", profile.name}})
+                                      : profile.name;
+            if (fixed && (kind.empty() || profile.controller != kind))
+                label = texts::T("settings.controls.gamepad.for_kind",
+                                 {{"profile", label}, {"kind", KindName(profile.controller)}});
+            if (ImGui::Selectable(StableLabel(label.c_str(), "profile").c_str(), n == current)) chosen = n;
             ImGui::PopID();
         }
         return chosen;
+    }
+
+    // The controllers a profile kind is for (platform::GamepadKindName) in the
+    // player's language: Nintendo, GameCube, Xbox and PlayStation.
+    static std::string KindName(std::string_view kind)
+    {
+        if (kind == "nintendo" || kind == "gamecube") return platform::GamepadKindName(kind);
+        return texts::T("settings.controls.gamepad.xbox_and_playstation");
     }
 
     // Gamepad presses while an input waits for one: a button, a trigger
@@ -6916,8 +10892,20 @@ private:
         else pad_inputs_held_.erase({pad, input});
     }
 
-    // A press while an input waits: it takes that slot, moving it from another
-    // action of the profile unless it is that action's only input.
+    // The other actions of `bindings` that `input` presses too.
+    static std::string SharedPadActions(const platform::GamepadBindings& bindings, std::size_t action,
+                                        platform::GamepadInput input)
+    {
+        std::string actions;
+        for (std::size_t other = 0; other < GamepadActionCount; ++other)
+            if (other != action && platform::GamepadBindingHas(bindings[other], input))
+                actions += (actions.empty() ? "" : ", ") + std::string(PadActionName(other));
+        return actions;
+    }
+
+    // A press while an input waits: it takes that slot. An input may press
+    // several actions at once (Default's Start presses 1 and +); the page
+    // warns about it.
     void CaptureGamepadInput(platform::GamepadInput input)
     {
         const int action = pad_capture_action_, slot = pad_capture_slot_;
@@ -6928,31 +10916,18 @@ private:
         const std::string name = PadInputLabel(input, PageType());
         auto bindings = platform::ParseGamepadBindings(profile.inputs);
         auto& mine = bindings[std::size_t(action)];
-        if (mine[0] == input || mine[1] == input) return;
-        int moved = -1;
-        for (std::size_t other = 0; other < GamepadActionCount; ++other)
-        {
-            if (int(other) == action) continue;
-            auto& binding = bindings[other];
-            for (int k = 0; k < 2; ++k)
-            {
-                if (binding[k] != input) continue;
-                binding = {binding[1 - k], platform::kGamepadNone};
-                moved = int(other);
-            }
-        }
-        mine[slot] = input;
-        if (mine[0] == platform::kGamepadNone) mine = {mine[1], platform::kGamepadNone};
+        if (platform::GamepadBindingHas(mine, input)) return;
+        if (std::size_t(slot) < platform::GamepadBindingSize(mine)) mine[std::size_t(slot)] = input;
+        else platform::AddGamepadInput(mine, input);
         profile.inputs[std::size_t(action)] = platform::FormatGamepadBinding(mine);
-        if (moved >= 0) profile.inputs[std::size_t(moved)] = platform::FormatGamepadBinding(bindings[moved]);
         dirty_ = true;
-        const bool emptied = moved >= 0 && bindings[std::size_t(moved)][0] == platform::kGamepadNone;
-        Notice(name + " now presses " + kGamepadActions[action].label
-                   + (moved >= 0 ? std::string(" (moved from ") + kGamepadActions[moved].label
-                                       + (emptied ? ", which now has no button)" : ")")
-                                 : std::string())
-                   + ".",
-               emptied ? NoticeKind::Warning : NoticeKind::Info);
+        const auto shared = SharedPadActions(bindings, std::size_t(action), input);
+        Notice(shared.empty()
+                   ? texts::T("settings.controls.gamepad.now_presses",
+                              {{"button", name}, {"action", PadActionName(std::size_t(action))}})
+                   : texts::T("settings.controls.gamepad.now_presses_shared",
+                              {{"button", name}, {"action", PadActionName(std::size_t(action))}, {"others", shared}}),
+               shared.empty() ? NoticeKind::Info : NoticeKind::Warning);
     }
 
     // A combo choosing the profile of gamepad `slot`: Default and the
@@ -6963,11 +10938,11 @@ private:
         const int current = draft_.PadProfileIndex(slot);
         const auto kind = SlotKind(slot);
         const auto& profile = ProfileAt(current);
-        const bool mismatch = current >= 0 && !kind.empty() && profile.controller != kind;
+        const bool mismatch = !profile.follows && !kind.empty() && profile.controller != kind;
         if (ImGui::BeginCombo(id, profile.name.c_str()))
         {
             const int chosen = ProfileOptions(current, kind);
-            if (chosen > -2)
+            if (chosen != kNoProfileChosen)
             {
                 draft_.pad_profile_names[slot] = ProfileAt(chosen).name;
                 dirty_ = true;
@@ -6975,10 +10950,11 @@ private:
             ImGui::EndCombo();
         }
         if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen(id))
-            ImGui::SetTooltip(mismatch ? "%s is made for %s controllers; this gamepad is another kind."
-                                       : "Button profile of this gamepad%s",
-                              mismatch ? profile.name.c_str() : "",
-                              mismatch ? platform::GamepadKindName(profile.controller) : "");
+            ImGui::SetTooltip("%s", mismatch ? texts::T("settings.controls.gamepad.made_for",
+                                                        {{"name", profile.name},
+                                                         {"kind", KindName(profile.controller)}})
+                                                   .c_str()
+                                             : texts::T("settings.controls.gamepad.profile_tooltip"));
     }
 
     void EditProfile(int index)
@@ -6997,31 +10973,32 @@ private:
         auto copy = ShownProfile(edit_profile_);
         copy.name = NewProfileName();
         copy.controller = PageKind();
+        copy.follows.reset();
         profiles.push_back(copy);
         EditProfile(int(profiles.size()) - 1);
         dirty_ = true;
         return true;
     }
 
-    // The built-in Default never changes: a change to it goes into a copy,
+    // A built-in profile never changes: a change to it goes into a copy,
     // which the page's gamepad plays with from then on. Null when all
     // profile slots are taken.
     Settings::PadProfile* OwnCopyForChange()
     {
+        const auto builtin = ProfileAt(edit_profile_).name;
         if (!CopyShownProfile())
         {
-            Notice("Default cannot change and all 16 profiles are in use. Delete one to make your own.",
-                   NoticeKind::Warning);
+            Notice(texts::T("settings.controls.gamepad.builtin_full", {{"name", builtin}}), NoticeKind::Warning);
             return nullptr;
         }
         auto& copy = draft_.pad_profiles.back();
-        std::string user = "It is not assigned to a gamepad yet.";
+        std::string user = texts::T("settings.controls.gamepad.copy_unassigned");
         if (pad_slot_ < kGamepadSlots)
         {
             draft_.pad_profile_names[pad_slot_] = copy.name;
-            user = "Gamepad " + std::to_string(pad_slot_ + 1) + " plays with it.";
+            user = texts::T("settings.controls.gamepad.copy_assigned", {{"number", std::to_string(pad_slot_ + 1)}});
         }
-        Notice("Default cannot change, so your changes go into " + copy.name + ", a copy. " + user,
+        Notice(texts::T("settings.controls.gamepad.copy_made", {{"name", builtin}, {"copy", copy.name}}) + " " + user,
                NoticeKind::Info);
         return &copy;
     }
@@ -7030,12 +11007,12 @@ private:
     {
         auto& profiles = draft_.pad_profiles;
         const bool builtin = edit_profile_ < 0;
-        const std::string assigns = "Gamepad " + std::to_string(pad_slot_ + 1)
-            + " plays with the profile shown here when you go back. Gamepads can share a profile; keep one per player.";
-        BeginCard("##profile", "Profile", assigns.c_str(), Icon::Gamepad);
+        const std::string assigns = texts::T("settings.controls.gamepad.profile.about",
+                                             {{"number", std::to_string(pad_slot_ + 1)}});
+        BeginCard("##profile", texts::T("settings.controls.gamepad.profile.title"), assigns.c_str(), Icon::Gamepad);
         if (BeginRows("##profile_rows"))
         {
-            Row("Edit profile", nullptr);
+            Row(texts::T("settings.controls.gamepad.profile.edit"), nullptr);
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (renaming_)
             {
@@ -7050,9 +11027,10 @@ private:
                         return &other != &profile && SamePadProfileName(other.name, name);
                     });
                     if (!ValidPadProfileName(name))
-                        Notice("A profile name has 1 to 32 characters, without quotes, brackets, = or |, "
-                               "and is not Default.", NoticeKind::Warning);
-                    else if (taken) Notice("Another profile is already named " + name + ".", NoticeKind::Warning);
+                        Notice(texts::T("settings.controls.gamepad.profile.invalid_name"), NoticeKind::Warning);
+                    else if (taken)
+                        Notice(texts::T("settings.controls.gamepad.profile.name_taken", {{"name", name}}),
+                               NoticeKind::Warning);
                     else if (name != profile.name)
                     {
                         for (auto& assigned : draft_.pad_profile_names)
@@ -7065,32 +11043,40 @@ private:
             else if (ImGui::BeginCombo("##edit_profile", ProfileAt(edit_profile_).name.c_str()))
             {
                 const int chosen = ProfileOptions(edit_profile_, SlotKind(pad_slot_));
-                if (chosen > -2) EditProfile(chosen);
+                if (chosen != kNoProfileChosen) EditProfile(chosen);
                 ImGui::EndCombo();
             }
             EndRows();
         }
         // Which controller the page follows.
-        const std::string kind_name = platform::GamepadKindName(PageKind());
+        const std::string kind_name = KindName(PageKind());
         const std::string controller = pad_slot_ < gamepad_names_.size()
-            ? gamepad_names_[pad_slot_] + ": profiles for " + kind_name + " controllers."
-            : "Gamepad " + std::to_string(pad_slot_ + 1) + " is not connected: all profiles are listed, buttons named for "
-                + kind_name + " controllers.";
+            ? texts::T("settings.controls.gamepad.profile.connected",
+                       {{"controller", gamepad_names_[pad_slot_]}, {"kind", kind_name}})
+            : texts::T("settings.controls.gamepad.profile.not_connected",
+                       {{"number", std::to_string(pad_slot_ + 1)}, {"kind", kind_name}});
         TextColored(CurrentFonts().caption, color::muted, controller.c_str());
         const auto users = ProfileUsers(edit_profile_);
+        const std::string used = users.empty()
+            ? std::string(texts::T("settings.controls.gamepad.profile.unused"))
+            : texts::T("settings.controls.gamepad.profile.used_by", {{"users", users}});
         TextColored(CurrentFonts().caption, color::muted,
-                    ((builtin ? std::string("Built-in: changing a button below makes your own copy. ") : std::string())
-                     + (users.empty() ? "No gamepad plays with this profile." : "Used by " + users + "."))
+                    (builtin ? texts::T("settings.controls.gamepad.profile.builtin_copy") + std::string(" ") + used
+                             : used)
                         .c_str());
         ImGui::Dummy(Dp(0, 4));
-        if (SecondaryButton("##new_profile", "New", Dp(110, 36), profiles.size() < kMaxGamepadProfiles, Icon::Copy)
+        if (SecondaryButton("##new_profile", texts::T("settings.controls.gamepad.profile.new"), Dp(110, 36),
+                            profiles.size() < kMaxGamepadProfiles, Icon::Copy)
             && CopyShownProfile())
-            Notice(profiles.back().name + " starts as a copy of the profile you were editing.", NoticeKind::Info);
+            Notice(texts::T("settings.controls.gamepad.profile.new_made", {{"name", profiles.back().name}}),
+                   NoticeKind::Info);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(profiles.size() < kMaxGamepadProfiles ? "A new profile, copied from this one"
-                                                                    : "Up to 16 profiles");
+            ImGui::SetTooltip("%s", profiles.size() < kMaxGamepadProfiles
+                                        ? texts::T("settings.controls.gamepad.profile.new_tooltip")
+                                        : texts::T("settings.controls.gamepad.profile.new_full_tooltip"));
         ImGui::SameLine(0, Dp(8));
-        if (SecondaryButton("##rename_profile", "Rename", Dp(120, 36), !builtin && !renaming_, Icon::None))
+        if (SecondaryButton("##rename_profile", texts::T("settings.controls.gamepad.profile.rename"), Dp(120, 36),
+                            !builtin && !renaming_, Icon::None))
         {
             renaming_ = rename_focus_ = true;
             confirm_delete_ = false;
@@ -7098,7 +11084,9 @@ private:
         }
         ImGui::SameLine(0, Dp(8));
         // Deleting asks once more; gamepads using the profile play with Default.
-        if (SecondaryButton("##delete_profile", confirm_delete_ ? "Really delete?" : "Delete",
+        if (SecondaryButton("##delete_profile",
+                            confirm_delete_ ? texts::T("settings.controls.gamepad.profile.really_delete")
+                                            : texts::T("settings.controls.gamepad.profile.delete"),
                             Dp(confirm_delete_ ? 170 : 120, 36), !builtin, Icon::Error))
         {
             if (!confirm_delete_) confirm_delete_ = true;
@@ -7110,13 +11098,18 @@ private:
                     if (SamePadProfileName(assigned, removed)) assigned = kDefaultGamepadProfile;
                 EditProfile(-1);
                 dirty_ = true;
-                Notice("Deleted " + removed + ". Its gamepads now play with Default.", NoticeKind::Info);
+                Notice(texts::T("settings.controls.gamepad.profile.deleted",
+                                {{"name", removed}, {"default", kDefaultGamepadProfile}}),
+                       NoticeKind::Info);
             }
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(builtin ? "The built-in profile cannot be deleted"
-                                      : confirm_delete_ ? "Click again to delete; gamepads using it switch to Default"
-                                                        : "Delete this profile");
+            ImGui::SetTooltip("%s", (builtin ? texts::T("settings.controls.gamepad.profile.builtin_delete_tooltip")
+                                     : confirm_delete_
+                                         ? texts::T("settings.controls.gamepad.profile.confirm_delete_tooltip",
+                                                    {{"default", kDefaultGamepadProfile}})
+                                         : texts::T("settings.controls.gamepad.profile.delete_tooltip"))
+                                        .c_str());
         else if (confirm_delete_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             confirm_delete_ = false;
         EndCard();
@@ -7124,15 +11117,15 @@ private:
 
     void GamepadView()
     {
-        if (SecondaryButton("##back", "Players", Dp(124, 36), true, Icon::Back)) { CloseGamepadView(); return; }
+        if (SecondaryButton("##back", texts::T("settings.controls.back_to_players"), Dp(124, 36), true, Icon::Back))
+        { CloseGamepadView(); return; }
         ImGui::Dummy(Dp(0, 6));
-        PageHeader("Gamepad profiles", "Mario Strikers Charged is played with a Wii Remote and Nunchuk. Your "
-                   "controller stands in for them: a profile says which of its buttons presses each Wii button. "
-                   "Pick a profile per gamepad, here or on the Players list. To change a button, select it below "
-                   "and press the new one on the controller. Changes are saved when you go back.");
-        if (edit_profile_ >= int(draft_.pad_profiles.size())) edit_profile_ = -1;
+        PageHeader(texts::T("settings.controls.gamepad.title"), texts::T("settings.controls.gamepad.about"));
+        if (edit_profile_ >= int(draft_.pad_profiles.size())
+            || edit_profile_ < Settings::BuiltinPadProfileIndex(Settings::BuiltinPadProfiles().size() - 1))
+            edit_profile_ = -1;
         ProfileCard();
-        // The built-in Default never changes: its first change makes an own copy.
+        // A built-in profile never changes: its first change makes an own copy.
         const bool builtin = edit_profile_ < 0;
         Settings::PadProfile scratch = ShownProfile(edit_profile_);
         auto& profile = builtin ? scratch : draft_.pad_profiles[std::size_t(edit_profile_)];
@@ -7151,21 +11144,23 @@ private:
                     ImGui::PushID(int(n));
                     ImGui::TableNextRow(ImGuiTableRowFlags_None, Dp(40));
                     ImGui::TableSetColumnIndex(0);
-                    TextColored(CurrentFonts().label, color::text, kGamepadActions[n].label);
-                    if (kGamepadActions[n].note)
+                    TextColored(CurrentFonts().label, color::text, PadActionName(n));
+                    if (const char* note = PadActionAbout(n))
                     {
                         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
-                        TextColored(CurrentFonts().caption, color::muted, kGamepadActions[n].note);
+                        TextColored(CurrentFonts().caption, color::muted, note);
                     }
                     ImGui::TableSetColumnIndex(1);
-                    for (int slot = 0; slot < 2; ++slot)
+                    const auto used = platform::GamepadBindingSize(bindings[n]);
+                    for (int slot = 0; slot < int(platform::kGamepadBindingInputs); ++slot)
                     {
-                        const auto input = bindings[n][slot];
-                        if (slot == 1 && bindings[n][0] == platform::kGamepadNone) break;
+                        // The inputs, then a slot to add one more.
+                        if (std::size_t(slot) > used) break;
+                        const auto input = bindings[n][std::size_t(slot)];
                         const bool waiting = pad_capture_action_ == int(n) && pad_capture_slot_ == slot;
-                        const std::string label = waiting ? "Press a button..."
+                        const std::string label = waiting ? texts::T("settings.controls.gamepad.press_button")
                             : input != platform::kGamepadNone ? PadInputLabel(input, type)
-                            : slot == 0 ? "Not set" : "+";
+                            : slot == 0 ? texts::T("settings.controls.pad.not_set") : "+";
                         if (slot) ImGui::SameLine(0, Dp(6));
                         ImGui::PushID(slot);
                         if (KeyCapButton("##input", label.c_str(), waiting) && (waiting || editable()))
@@ -7175,26 +11170,46 @@ private:
                             pad_capture_slot_ = waiting ? -1 : slot;
                         }
                         if (ImGui::IsItemHovered() && !waiting)
-                            ImGui::SetTooltip(input != platform::kGamepadNone
-                                                  ? "Select, then press the new button or push a stick on the controller"
-                                                  : slot == 0 ? "No button presses this. Select, then press one."
-                                                              : "Add a second button");
+                            ImGui::SetTooltip("%s", input != platform::kGamepadNone
+                                                        ? texts::T("settings.controls.gamepad.change_tooltip")
+                                                    : slot == 0 ? texts::T("settings.controls.gamepad.none_tooltip")
+                                                                : texts::T("settings.controls.gamepad.add_tooltip"));
                         ImGui::PopID();
                     }
-                    if (bindings[n][0] != platform::kGamepadNone)
+                    if (used > 0)
                     {
-                        // Removes the second button, or the only one (no button then).
-                        const bool two = bindings[n][1] != platform::kGamepadNone;
+                        // Removes the last button, or the only one (no button then).
                         ImGui::SameLine(0, Dp(6));
                         if (SecondaryButton("##remove", "", Dp(30, 30), true, Icon::Error))
                             if (auto* target = editable())
                             {
-                                target->inputs[n] = platform::FormatGamepadBinding(
-                                    {two ? bindings[n][0] : platform::kGamepadNone, platform::kGamepadNone});
+                                auto binding = bindings[n];
+                                binding[used - 1] = platform::kGamepadNone;
+                                target->inputs[n] = platform::FormatGamepadBinding(binding);
                                 dirty_ = true;
                             }
                         if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip(two ? "Remove the second button" : "Remove the button (none presses this)");
+                            ImGui::SetTooltip("%s", used > 1
+                                                        ? texts::T("settings.controls.gamepad.remove_last_tooltip")
+                                                        : texts::T("settings.controls.gamepad.remove_only_tooltip"));
+                    }
+                    // Inputs that press other actions too.
+                    std::string shared;
+                    for (std::size_t k = 0; k < used; ++k)
+                    {
+                        const auto others = SharedPadActions(bindings, n, bindings[n][k]);
+                        if (!others.empty())
+                            shared += (shared.empty() ? "" : "; ")
+                                + texts::T("settings.controls.gamepad.also_presses",
+                                           {{"button", PadInputLabel(bindings[n][k], type)}, {"others", others}});
+                    }
+                    if (!shared.empty())
+                    {
+                        ImGui::SameLine(0, Dp(10));
+                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(7));
+                        TextColored(CurrentFonts().caption, color::warning, shared.c_str());
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("%s", texts::T("settings.controls.gamepad.both_tooltip"));
                     }
                     ImGui::PopID();
                 }
@@ -7202,41 +11217,44 @@ private:
             }
             ImGui::PopStyleVar();
         };
-        BeginCard("##pad_remote", "Wii Remote Buttons",
-                  "Press each Wii Remote input, followed by the controller button you want to map to it.",
-                  Icon::Gamepad);
+        BeginCard("##pad_remote", texts::T("settings.controls.gamepad.remote.title"),
+                  texts::T("settings.controls.gamepad.remote.about"), Icon::Gamepad);
         rows(GamepadActionA, GamepadActionC);
         EndCard();
-        BeginCard("##pad_nunchuk", "Nunchuk & Motion",
-                  "The Nunchuk stick and pointer on the controller's sticks or gyro, the Nunchuk buttons and "
-                  "the shakes.",
-                  Icon::Gamepad);
-        const bool swap = profile.swap_sticks;
+        BeginCard("##pad_nunchuk", texts::T("settings.controls.gamepad.nunchuk.title"),
+                  texts::T("settings.controls.gamepad.nunchuk.about"), Icon::Gamepad);
+        const auto sticks = profile.sticks;
         const bool gyro = profile.gyro_pointer;
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
         if (ImGui::BeginTable("##pad_sticks", 2))
         {
             ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
             ImGui::TableSetupColumn("inputs", ImGuiTableColumnFlags_WidthStretch);
-            KeyRow("Nunchuk Stick", {swap ? "Right stick" : "Left stick"}, nullptr, "Move");
-            KeyRow("Pointer", {gyro ? "Gyro" : swap ? "Left stick" : "Right stick"}, nullptr,
-                   "Point at menu items and Mega Strike shots");
+            KeyRow(texts::T("settings.controls.gamepad.nunchuk.stick"), {NunchukStickName(profile)}, nullptr,
+                   texts::T("settings.controls.gamepad.nunchuk.stick_note"));
+            KeyRow(texts::T("settings.controls.pad.pointer"), {PointerName(profile)}, nullptr,
+                   texts::T("settings.controls.gamepad.nunchuk.pointer_note"));
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
         if (BeginRows("##pad_swap_rows"))
         {
-            Row("Swap sticks", "Nunchuk stick on the right stick, pointer on the left.");
-            bool swapped = swap;
-            if (Toggle("##swap_sticks", &swapped))
+            Row(texts::T("settings.controls.gamepad.sticks.name"), texts::T("settings.controls.gamepad.sticks.about"));
+            int stick_choice = int(sticks);
+            if (Segmented("##sticks", &stick_choice,
+                          {texts::T("settings.controls.gamepad.sticks.nunchuk_left"),
+                           texts::T("settings.controls.gamepad.sticks.nunchuk_right"),
+                           texts::T("settings.controls.gamepad.sticks.shared")},
+                          ImGui::GetContentRegionAvail().x)
+                && stick_choice != int(sticks))
                 if (auto* target = editable())
                 {
-                    target->swap_sticks = swapped;
+                    target->sticks = GamepadSticks(stick_choice);
                     dirty_ = true;
                 }
             // Gyro pointer (issue #14).
-            Row("Gyro pointer", "Point by turning the controller, like a Wii Remote, instead of with the stick. "
-                "For controllers with a gyro, such as PlayStation and Switch Pro controllers.");
+            Row(texts::T("settings.controls.gamepad.gyro_pointer.name"),
+                texts::T("settings.controls.gamepad.gyro_pointer.about"));
             bool gyro_on = gyro;
             if (Toggle("##gyro_pointer", &gyro_on))
                 if (auto* target = editable())
@@ -7247,8 +11265,8 @@ private:
             if (gyro)
             {
                 BeginSubRows();
-                Row("Gyro speed", "At 100%, turning the controller about 25 degrees moves the pointer across "
-                    "the picture.");
+                Row(texts::T("settings.controls.gamepad.gyro_speed.name"),
+                    texts::T("settings.controls.gamepad.gyro_speed.about"));
                 int speed = profile.gyro_speed;
                 if (PercentSlider("##gyro_speed", &speed, ImGui::GetContentRegionAvail().x, nullptr, kMinGyroSpeed,
                                   kMaxGyroSpeed)
@@ -7258,25 +11276,30 @@ private:
                         target->gyro_speed = speed;
                         dirty_ = true;
                     }
-                // The stick the gyro frees can press the D-pad.
-                const int free_stick = swap ? platform::LeftStickUp : platform::RightStickUp;
+                EndSubRows();
+            }
+            // A stick that neither moves the Nunchuk stick nor points (the
+            // right one with shared sticks, the one the gyro frees) can press
+            // the D-pad.
+            if (gyro || sticks == GamepadSticks::Shared)
+            {
+                const int free_stick = sticks == GamepadSticks::Swapped ? platform::LeftStickUp : platform::RightStickUp;
                 bool stick_dpad = true;
                 for (int n = 0; n < 4; ++n)
                 {
                     const auto& binding = bindings[GamepadActionUp + std::size_t(n)];
                     const auto input = platform::kGamepadStickBase + free_stick + n;
-                    stick_dpad = stick_dpad && (binding[0] == input || binding[1] == input);
+                    stick_dpad = stick_dpad && platform::GamepadBindingHas(binding, input);
                 }
-                const std::string stick_dpad_label = std::string(swap ? "Left" : "Right") + " stick as D-pad";
-                Row(stick_dpad_label.c_str(), "Push it to press the D-pad: in a match, a deke with the ball and a "
-                    "slide tackle without it.");
+                Row(free_stick == platform::LeftStickUp ? texts::T("settings.controls.gamepad.stick_dpad.left")
+                                                        : texts::T("settings.controls.gamepad.stick_dpad.right"),
+                    texts::T("settings.controls.gamepad.stick_dpad.about"));
                 if (Toggle("##stick_dpad", &stick_dpad))
                     if (auto* target = editable())
                     {
                         SetStickDpad(*target, free_stick, stick_dpad);
                         dirty_ = true;
                     }
-                EndSubRows();
             }
             EndRows();
         }
@@ -7295,29 +11318,28 @@ private:
                         return true;
             return false;
         };
-        const int nunchuk_stick = swap ? platform::RightStickUp : platform::LeftStickUp;
-        const int pointer_stick = swap ? platform::LeftStickUp : platform::RightStickUp;
+        const int nunchuk_stick = sticks == GamepadSticks::Swapped ? platform::RightStickUp : platform::LeftStickUp;
+        const int pointer_stick = sticks == GamepadSticks::Split ? platform::RightStickUp : platform::LeftStickUp;
         std::string stick_note;
         if (stick_bound(nunchuk_stick))
-            stick_note = std::string(swap ? "The right" : "The left")
-                + " stick moves the Nunchuk stick and presses buttons too: pushing it does both.";
+            stick_note = nunchuk_stick == platform::LeftStickUp
+                ? texts::T("settings.controls.gamepad.stick_bound.left_nunchuk")
+                : texts::T("settings.controls.gamepad.stick_bound.right_nunchuk");
         else if (!gyro && stick_bound(pointer_stick))
-            stick_note = std::string(swap ? "The left" : "The right")
-                + " stick moves the pointer and presses buttons too: pushing it does both. "
-                  "With the gyro pointer on, it only presses the buttons.";
+            stick_note = pointer_stick == platform::LeftStickUp
+                ? texts::T("settings.controls.gamepad.stick_bound.left_pointer")
+                : texts::T("settings.controls.gamepad.stick_bound.right_pointer");
         if (!stick_note.empty()) TextWrappedColored(CurrentFonts().caption, color::warning, stick_note.c_str());
         EndCard();
 
         // Dead zones and trigger press point (issue #62), tried live on the
         // page's gamepad.
-        BeginCard("##pad_deadzones", "Dead zones & triggers",
-                  "How far a stick or trigger must move before it counts. Try it on the controller below.",
-                  Icon::Sliders);
+        BeginCard("##pad_deadzones", texts::T("settings.controls.gamepad.dead_zones.title"),
+                  texts::T("settings.controls.gamepad.dead_zones.about"), Icon::Sliders);
         if (BeginRows("##pad_deadzone_rows"))
         {
-            Row("Real Nunchuk stick", "The Nunchuk stick plays like a real one: its octagonal edge and the game's own "
-                "dead zone, which snaps nearly straight pushes straight. The dead zones below then shape the "
-                "pointer stick only.");
+            Row(texts::T("settings.controls.gamepad.dead_zones.octagon.name"),
+                texts::T("settings.controls.gamepad.dead_zones.octagon.about"));
             bool octagon = profile.octagon_stick;
             if (Toggle("##octagon_stick", &octagon))
                 if (auto* target = editable())
@@ -7336,32 +11358,32 @@ private:
                         dirty_ = true;
                     }
             };
-            slider("Inner dead zone", "The stick rests until it is tilted this far. Raise it if a worn stick drifts.",
-                   "##inner_deadzone", profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone,
-                   &Settings::PadProfile::inner_deadzone);
-            slider("Outer dead zone", "From this tilt on the stick is pushed all the way. 71% plays like a Nunchuk "
-                   "on the Wii; higher leaves more room for fine moves and slow pointing.",
-                   "##outer_deadzone", profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone,
-                   &Settings::PadProfile::outer_deadzone);
-            slider("Trigger press point", "A trigger presses its button past this much of its travel.",
-                   "##trigger_press", profile.trigger_press, kMinTriggerPress, kMaxTriggerPress,
-                   &Settings::PadProfile::trigger_press);
+            slider(texts::T("settings.controls.gamepad.dead_zones.inner.name"),
+                   texts::T("settings.controls.gamepad.dead_zones.inner.about"), "##inner_deadzone",
+                   profile.inner_deadzone, kMinInnerDeadzone, kMaxInnerDeadzone, &Settings::PadProfile::inner_deadzone);
+            slider(texts::T("settings.controls.gamepad.dead_zones.outer.name"),
+                   texts::T("settings.controls.gamepad.dead_zones.outer.about"), "##outer_deadzone",
+                   profile.outer_deadzone, kMinOuterDeadzone, kMaxOuterDeadzone, &Settings::PadProfile::outer_deadzone);
+            slider(texts::T("settings.controls.gamepad.dead_zones.trigger.name"),
+                   texts::T("settings.controls.gamepad.dead_zones.trigger.about"), "##trigger_press",
+                   profile.trigger_press, kMinTriggerPress, kMaxTriggerPress, &Settings::PadProfile::trigger_press);
             EndRows();
         }
         DeadzonePreview(profile);
         // Defaults of the controller shown above.
         const auto defaults = platform::DefaultGamepadInputs(PageFamily());
-        const Settings::PadProfile default_profile;
+        const auto& default_profile = Settings::DefaultPadProfile();
         const bool changed = platform::ParseGamepadBindings(profile.inputs) != platform::ParseGamepadBindings(defaults)
-            || swap || profile.inner_deadzone != default_profile.inner_deadzone
+            || sticks != default_profile.sticks || profile.inner_deadzone != default_profile.inner_deadzone
             || profile.outer_deadzone != default_profile.outer_deadzone
             || profile.trigger_press != default_profile.trigger_press
             || profile.octagon_stick != default_profile.octagon_stick || profile.gyro_pointer != default_profile.gyro_pointer || profile.gyro_speed != default_profile.gyro_speed;
         ImGui::Dummy(Dp(0, 4));
-        if (SecondaryButton("##reset_pad", "Reset to defaults", Dp(180, 36), changed, Icon::Refresh))
+        if (SecondaryButton("##reset_pad", texts::T("settings.controls.gamepad.reset"), Dp(180, 36), changed,
+                            Icon::Refresh))
         {
             profile.inputs = defaults;
-            profile.swap_sticks = false;
+            profile.sticks = default_profile.sticks;
             profile.inner_deadzone = default_profile.inner_deadzone;
             profile.outer_deadzone = default_profile.outer_deadzone;
             profile.trigger_press = default_profile.trigger_press;
@@ -7371,7 +11393,9 @@ private:
             pad_capture_action_ = pad_capture_slot_ = -1;
             dirty_ = true;
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Buttons, sticks, gyro, dead zones and triggers as in Default");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", texts::T("settings.controls.gamepad.reset_tooltip",
+                                             {{"default", kDefaultGamepadProfile}}).c_str());
         EndCard();
         // A click anywhere else stops waiting for a press.
         if (pad_capture_action_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
@@ -7389,16 +11413,12 @@ private:
         for (int n = 0; n < 4; ++n)
         {
             const auto input = platform::kGamepadStickBase + first_direction + n;
-            for (auto& binding : bindings)
-            {
-                if (binding[1] == input) binding[1] = platform::kGamepadNone;
-                if (binding[0] == input) binding = {binding[1], platform::kGamepadNone};
-            }
+            for (auto& binding : bindings) platform::RemoveGamepadInput(binding, input);
             const std::size_t action = GamepadActionUp + std::size_t(n);
             auto& dpad = bindings[action];
-            if (on) dpad = dpad[0] != platform::kGamepadNone ? platform::GamepadBinding{dpad[0], input}
-                                                             : platform::GamepadBinding{input, platform::kGamepadNone};
-            else if (dpad[0] == platform::kGamepadNone) dpad = defaults[action];
+            // A full D-pad action gives up its last button for the stick.
+            if (on && !platform::AddGamepadInput(dpad, input)) dpad.back() = input;
+            else if (!on && dpad[0] == platform::kGamepadNone) dpad = defaults[action];
         }
         for (std::size_t action = 0; action < GamepadActionCount; ++action)
             if (bindings[action] != before[action]) profile.inputs[action] = platform::FormatGamepadBinding(bindings[action]);
@@ -7415,15 +11435,20 @@ private:
         if (!pad)
         {
             TextWrappedColored(fonts.caption, color::muted,
-                               ("Connect gamepad " + std::to_string(pad_slot_ + 1) + " to try the gyro here.").c_str());
+                               texts::T("settings.controls.gamepad.gyro_preview.connect",
+                                        {{"number", std::to_string(pad_slot_ + 1)}})
+                                   .c_str());
             return;
         }
-        const std::string name = pad_slot_ < gamepad_names_.size() ? gamepad_names_[pad_slot_] : "This controller";
+        const std::string name = pad_slot_ < gamepad_names_.size()
+            ? gamepad_names_[pad_slot_]
+            : std::string(texts::T("settings.controls.gamepad.gyro_preview.this_controller"));
         if (!SDL_GamepadHasSensor(pad, SDL_SENSOR_GYRO))
         {
             TextWrappedColored(fonts.caption, color::warning,
-                               (name + " has no gyro: its " + (profile.swap_sticks ? "left" : "right")
-                                + " stick moves the pointer instead.")
+                               (profile.sticks == GamepadSticks::Split
+                                    ? texts::T("settings.controls.gamepad.gyro_preview.no_gyro_right", {{"name", name}})
+                                    : texts::T("settings.controls.gamepad.gyro_preview.no_gyro_left", {{"name", name}}))
                                    .c_str());
             return;
         }
@@ -7447,7 +11472,8 @@ private:
         const float width = std::min(ImGui::GetContentRegionAvail().x, Dp(320)), height = width * 9.0f / 16.0f;
         const ImVec2 origin = ImGui::GetCursorScreenPos(), end{origin.x + width, origin.y + height};
         if (ImGui::InvisibleButton("##gyro_preview", {width, height})) CentreGyroPreview();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click to centre the pointer");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", texts::T("settings.controls.gamepad.gyro_preview.click_tooltip"));
         auto* draw = ImGui::GetWindowDrawList();
         draw->AddRectFilled(origin, end, Col(color::field), Dp(8));
         // Hairlines as thin rectangles: SDL's software renderer drops parts of long lines.
@@ -7459,9 +11485,12 @@ private:
         draw->AddCircle(dot, Dp(11), Col(color::accent, 0.45f), 24, Dp(1.5f));
         draw->AddCircleFilled(dot, Dp(6), Col(color::accent_hi));
         const std::string centre = recenter_binding[0] != platform::kGamepadNone
-            ? PadInputLabel(recenter_binding[0], SDL_GetGamepadType(pad)) + " or a click centres it."
-            : "A click centres it.";
-        TextWrappedColored(fonts.caption, color::muted, ("Turn " + name + " to move the pointer. " + centre).c_str());
+            ? texts::T("settings.controls.gamepad.gyro_preview.button_centres",
+                       {{"button", PadInputLabel(recenter_binding[0], SDL_GetGamepadType(pad))}})
+            : std::string(texts::T("settings.controls.gamepad.gyro_preview.click_centres"));
+        TextWrappedColored(fonts.caption, color::muted,
+                           (texts::T("settings.controls.gamepad.gyro_preview.turn", {{"name", name}}) + " " + centre)
+                               .c_str());
     }
 
     // Readings of the gamepad whose gyro the preview shows.
@@ -7510,7 +11539,9 @@ private:
         if (!pad)
         {
             TextWrappedColored(CurrentFonts().caption, color::muted,
-                               ("Connect gamepad " + std::to_string(pad_slot_ + 1) + " to try these here.").c_str());
+                               texts::T("settings.controls.gamepad.dead_zones.connect",
+                                        {{"number", std::to_string(pad_slot_ + 1)}})
+                                   .c_str());
             return;
         }
         ImGui::Dummy(Dp(0, 8));
@@ -7525,10 +11556,12 @@ private:
             const ImVec2 size = TextSize(font, text.c_str());
             DrawLabel(draw, font, {centre_x - size.x * 0.5f, y}, Col(tint), text.c_str());
         };
-        const auto stick = [&](float left, bool left_stick, bool nunchuk) {
+        const auto stick = [&](float left, bool left_stick, bool nunchuk, bool pointer) {
             const ImVec2 c{left + radius, origin.y + radius};
             const auto x_axis = left_stick ? SDL_GAMEPAD_AXIS_LEFTX : SDL_GAMEPAD_AXIS_RIGHTX;
             const auto y_axis = left_stick ? SDL_GAMEPAD_AXIS_LEFTY : SDL_GAMEPAD_AXIS_RIGHTY;
+            const char* stick_name = left_stick ? texts::T("settings.controls.pad.left_stick")
+                                                : texts::T("settings.controls.pad.right_stick");
             float x = axis(x_axis), y = axis(y_axis);
             if (const float length = std::hypot(x, y); length > 1.0f) { x /= length; y /= length; }
             // Hairlines as thin rectangles: SDL's software renderer drops parts of long lines.
@@ -7552,9 +11585,10 @@ private:
                 const ImVec4 dot = pushed <= 0.0f ? color::muted : pushed >= 1.0f ? color::accent_hi : color::accent;
                 draw->AddCircleFilled({c.x + counts[0] * unit, c.y - counts[1] * unit}, Dp(6), Col(dot));
                 centred(c.x, origin.y + radius * 2 + Dp(6), fonts.caption, color::muted,
-                        std::string(left_stick ? "Left stick" : "Right stick") + ": real Nunchuk");
+                        texts::T("settings.controls.gamepad.dead_zones.stick_real_nunchuk", {{"stick", stick_name}}));
                 centred(c.x, origin.y + radius * 2 + Dp(22), fonts.caption, pushed > 0 ? color::text : color::dim,
-                        std::to_string(int(std::lround(pushed * 100))) + "% pushed");
+                        texts::T("settings.controls.gamepad.dead_zones.pushed",
+                                 {{"percent", std::to_string(int(std::lround(pushed * 100)))}}));
                 return;
             }
             const auto tilt = platform::GamepadStickTilt(pad, x_axis, y_axis, profile.inner_deadzone,
@@ -7577,11 +11611,17 @@ private:
                     buttons = buttons
                         || (platform::IsGamepadStickDirection(input)
                             && (input - platform::kGamepadStickBase >= platform::RightStickUp) != left_stick);
-            const std::string name = std::string(left_stick ? "Left stick" : "Right stick") + ": "
-                + (nunchuk ? "Nunchuk" : !profile.gyro_pointer ? "pointer" : buttons ? "buttons" : "not used");
+            const std::initializer_list<texts::Arg> stick_arg = {{"stick", stick_name}};
+            const std::string name = nunchuk && pointer
+                ? texts::T("settings.controls.gamepad.dead_zones.stick_nunchuk_pointer", stick_arg)
+                : nunchuk ? texts::T("settings.controls.gamepad.dead_zones.stick_nunchuk", stick_arg)
+                : pointer ? texts::T("settings.controls.gamepad.dead_zones.stick_pointer", stick_arg)
+                : buttons ? texts::T("settings.controls.gamepad.dead_zones.stick_buttons", stick_arg)
+                          : texts::T("settings.controls.gamepad.dead_zones.stick_unused", stick_arg);
             centred(c.x, origin.y + radius * 2 + Dp(6), fonts.caption, color::muted, name);
             centred(c.x, origin.y + radius * 2 + Dp(22), fonts.caption, pushed > 0 ? color::text : color::dim,
-                    std::to_string(int(std::lround(pushed * 100))) + "% pushed");
+                    texts::T("settings.controls.gamepad.dead_zones.pushed",
+                             {{"percent", std::to_string(int(std::lround(pushed * 100)))}}));
         };
         const auto trigger = [&](float left, SDL_GamepadAxis which) {
             const float top = origin.y, bottom = origin.y + radius * 2;
@@ -7597,12 +11637,15 @@ private:
             const auto name = PadInputLabel(platform::kGamepadTriggerBase + which, SDL_GetGamepadType(pad));
             centred(left + bar_w * 0.5f, origin.y + radius * 2 + Dp(6), fonts.caption, color::muted, name);
             centred(left + bar_w * 0.5f, origin.y + radius * 2 + Dp(22), fonts.caption,
-                    pressed ? color::accent : color::dim, pressed ? "on" : "off");
+                    pressed ? color::accent : color::dim,
+                    pressed ? texts::T("settings.controls.gamepad.dead_zones.trigger_on")
+                            : texts::T("settings.controls.gamepad.dead_zones.trigger_off"));
         };
         float left = origin.x + Dp(4);
-        stick(left, true, !profile.swap_sticks);
+        const bool stick_pointer = !profile.gyro_pointer;
+        stick(left, true, profile.sticks != GamepadSticks::Swapped, stick_pointer && profile.sticks != GamepadSticks::Split);
         left += radius * 2 + gap;
-        stick(left, false, profile.swap_sticks);
+        stick(left, false, profile.sticks == GamepadSticks::Swapped, stick_pointer && profile.sticks == GamepadSticks::Split);
         left += radius * 2 + gap;
         trigger(left, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
         left += bar_w + gap;
@@ -7612,27 +11655,30 @@ private:
 
     void ControlsMain()
     {
-        PageHeader("Controls", "Play with keyboard and mouse, an Xbox, PlayStation or other gamepad, or a Wii Remote with Nunchuk. Keep the game window focused.");
+        PageHeader(texts::T("settings.controls.title"), texts::T("settings.controls.about"));
         PlayersCard();
         WiiRemoteCard();
         RumbleCard();
         HotkeysCard();
 
-        BeginCard("##controller", "Controller test", "Check a gamepad's buttons and sticks. Assign gamepads to players above.", Icon::Gamepad);
+        BeginCard("##controller", texts::T("settings.controls.test.title"), texts::T("settings.controls.test.about"),
+                  Icon::Gamepad);
         if (!gamepad_)
-            TextWrappedColored(CurrentFonts().body, color::muted, "No controller detected.");
+            TextWrappedColored(CurrentFonts().body, color::muted, texts::T("settings.controls.test.none"));
         else
         {
             const char* name = SDL_GetGamepadName(gamepad_);
-            Chip(name ? name : "Connected controller", color::accent, Icon::Gamepad);
+            Chip(name ? name : texts::T("settings.controls.test.connected"), color::accent, Icon::Gamepad);
             const float x = float(SDL_GetGamepadAxis(gamepad_, SDL_GAMEPAD_AXIS_LEFTX)) / 32768.0f;
             const float y = float(SDL_GetGamepadAxis(gamepad_, SDL_GAMEPAD_AXIS_LEFTY)) / 32768.0f;
-            const std::string stick = "Left stick  X " + std::to_string(int(std::lround(x * 100))) + "%   Y "
-                + std::to_string(int(std::lround(y * 100))) + "%";
+            const std::string stick = texts::T("settings.controls.test.left_stick",
+                                               {{"x", std::to_string(int(std::lround(x * 100)))},
+                                                {"y", std::to_string(int(std::lround(y * 100)))}});
             TextColored(CurrentFonts().body, color::text, stick.c_str());
             const SDL_GamepadButton buttons[] = {SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST,
                                                 SDL_GAMEPAD_BUTTON_WEST, SDL_GAMEPAD_BUTTON_NORTH};
-            const char* labels[] = {"South", "East", "West", "North"};
+            const char* labels[] = {texts::T("settings.controls.test.south"), texts::T("settings.controls.test.east"),
+                                    texts::T("settings.controls.test.west"), texts::T("settings.controls.test.north")};
             for (int i = 0; i < 4; ++i)
             {
                 if (i) ImGui::SameLine(0, Dp(8));
@@ -7653,16 +11699,23 @@ private:
         dirty_ = true;
         if (clean) Save();
         if (draft_.tweaks[GameTweakIndex(GameTweak::SuperTeam)])
-            Notice("The Super Team uses " + PathUtf8(library_strikers_.front().filename()) + " from your game folder.",
+            Notice(texts::T("settings.gameplay.super_team.uses_found",
+                            {{"file", PathUtf8(library_strikers_.front().filename())}}),
                    NoticeKind::Success);
     }
 
     void BrowseGameCubeDisc()
     {
-        static const SDL_DialogFileFilter filters[] = {
-            {"GameCube disc images (ISO / RVZ / GCM)", "iso;rvz;gcm;ISO;RVZ;GCM"}, {"All files", "*"}};
+        // The dialog reads its filters until it closes; their names follow the
+        // language while no dialog is open (texts stay valid).
+        static SDL_DialogFileFilter filters[] = {{"", "iso;rvz;gcm;ISO;RVZ;GCM"}, {"", "*"}};
         {
             std::lock_guard<std::mutex> lock(gamecube_dialog_->mutex);
+            if (!gamecube_dialog_->active)
+            {
+                filters[0].name = texts::T("settings.gameplay.super_team.disc_images");
+                filters[1].name = texts::T("settings.gameplay.super_team.all_files");
+            }
             gamecube_dialog_->active = true;
         }
         const fs::path current = draft_.gamecube_disc.empty() ? fs::path()
@@ -7678,19 +11731,21 @@ private:
         const DiscProbe probe = ProbeDisc(path);
         if (probe.kind != DiscProbe::Kind::OtherGame || !IsStrikersGameId(probe.info.game_id))
         {
-            Notice(PathUtf8(path.filename()) + " is not a Super Mario Strikers (GameCube) image.", NoticeKind::Error);
+            Notice(texts::T("settings.gameplay.super_team.not_strikers", {{"file", PathUtf8(path.filename())}}),
+                   NoticeKind::Error);
             return;
         }
         draft_.gamecube_disc = SettingsPath(path);
         dirty_ = true;
-        Notice("The Super Team uses " + PathUtf8(path.filename()) + ".", NoticeKind::Success);
+        Notice(texts::T("settings.gameplay.super_team.uses", {{"file", PathUtf8(path.filename())}}),
+               NoticeKind::Success);
     }
 
     void SuperTeamRows()
     {
         const auto index = GameTweakIndex(GameTweak::SuperTeam);
         const auto& info = kGameTweaks[index];
-        Row(info.name, info.description);
+        Row(texts::TweakName(info), texts::TweakAbout(info));
         if (Toggle("##tweak_super_team", &draft_.tweaks[index]))
         {
             dirty_ = true;
@@ -7698,12 +11753,15 @@ private:
         }
         if (!draft_.tweaks[index]) return;
         BeginSubRows();
-        Row("Side", "The team whose captain and sidekicks are robots.");
+        Row(texts::T("settings.gameplay.super_team.side.name"), texts::T("settings.gameplay.super_team.side.about"));
         const char* sides[] = {"away", "home", "both"};
         int side = 0;
         for (int i = 0; i < 3; ++i)
             if (draft_.super_team_side == sides[i]) side = i;
-        if (Segmented("##super_team_side", &side, {"Away team", "Home team", "Both teams"},
+        if (Segmented("##super_team_side", &side,
+                      {texts::T("settings.gameplay.super_team.side.away"),
+                       texts::T("settings.gameplay.super_team.side.home"),
+                       texts::T("settings.gameplay.super_team.side.both")},
                       ImGui::GetContentRegionAvail().x))
         {
             draft_.super_team_side = sides[side];
@@ -7715,11 +11773,11 @@ private:
             browsing = gamecube_dialog_->active;
         }
         const std::string path = draft_.gamecube_disc.empty()
-            ? std::string("None found in your game folder. Choose your Super Mario Strikers image.")
+            ? std::string(texts::T("settings.gameplay.super_team.disc.none_found"))
             : PathUtf8(ResolveGameCubeDiscPath(draft_, file_.path));
-        Row("GameCube disc", path.c_str());
+        Row(texts::T("settings.gameplay.super_team.disc.name"), path.c_str());
         const std::string label = draft_.gamecube_disc.empty()
-            ? std::string("Choose image...")
+            ? std::string(texts::T("settings.gameplay.super_team.disc.choose"))
             : PathUtf8(PathFromUtf8(draft_.gamecube_disc).filename());
         if (SecondaryButton("gamecube_disc", label.c_str(), {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()},
                             !browsing && config_ok_, Icon::Disc))
@@ -7780,28 +11838,29 @@ private:
 
     void TrainingRows()
     {
-        Row("Item", "The item your team starts every kickoff with. It stays after you use it. A single shell, "
-                    "banana or Bob-omb comes out medium or giant at random, a giant one always giant.");
+        Row(texts::T("settings.gameplay.training.item.name"), texts::T("settings.gameplay.training.item.about"));
         if (ChoiceButton("training_item", draft_.training_item, kTrainingItems, kTrainingItemNames)) dirty_ = true;
-        Row("Captain", "Start training's captain, with their sidekicks from the Teams page.");
+        Row(texts::T("settings.gameplay.training.captain.name"), texts::T("settings.gameplay.training.captain.about"));
         if (ChoiceButton("training_captain", draft_.training_captain, kTrainingCaptains, kCaptainNames)) dirty_ = true;
-        Row("Stadium", "Start training's stadium.");
+        Row(texts::T("settings.gameplay.training.stadium.name"), texts::T("settings.gameplay.training.stadium.about"));
         if (ChoiceButton("training_stadium", draft_.training_stadium, kTrainingStadiums, kStadiumNames)) dirty_ = true;
-        Row("Your team", "The side you play: home or away. Controller 1 plays it.");
+        Row(texts::T("settings.gameplay.training.side.name"), texts::T("settings.gameplay.training.side.about"));
         {
             static constexpr std::array<const char*, 2> keys{"home", "away"};
-            static constexpr const char* labels[] = {"Home", "Away"};
+            const char* labels[] = {texts::T("settings.gameplay.training.side.home"),
+                                    texts::T("settings.gameplay.training.side.away")};
             if (ChoiceButton("training_side", draft_.training_side, keys, labels)) dirty_ = true;
         }
-        Row("Opponent captain", "The other team's captain, with their sidekicks from the Teams page. The same as "
-                                "yours plays as Bowser, or Mario against Bowser.");
+        Row(texts::T("settings.gameplay.training.opponent_captain.name"),
+            texts::T("settings.gameplay.training.opponent_captain.about"));
         if (ChoiceButton("training_away_captain", draft_.training_away_captain, kTrainingCaptains, kCaptainNames))
             dirty_ = true;
-        Row("Opponent fielders", "How many of the other team's four fielders play, the captain last to go; the rest "
-                                 "vanish at every kickoff, as in the Strikers 101 lessons.");
+        Row(texts::T("settings.gameplay.training.opponent_fielders.name"),
+            texts::T("settings.gameplay.training.opponent_fielders.about"));
         {
             static constexpr std::array<const char*, 5> keys{"0", "1", "2", "3", "4"};
-            static constexpr const char* labels[] = {"None", "1", "2", "3", "All 4"};
+            const char* labels[] = {texts::T("settings.gameplay.training.opponent_fielders.none"), "1", "2", "3",
+                                    texts::T("settings.gameplay.training.opponent_fielders.all")};
             std::string value = std::to_string(draft_.training_away_fielders);
             if (ChoiceButton("training_away_fielders", value, keys, labels))
             {
@@ -7809,19 +11868,19 @@ private:
                 dirty_ = true;
             }
         }
-        Row("Opponent skill", "How well the other team's players play. Training is the level of the Strikers 101 "
-                              "lessons, below Rookie.");
+        Row(texts::T("settings.gameplay.training.opponent_skill.name"),
+            texts::T("settings.gameplay.training.opponent_skill.about"));
         if (ChoiceButton("training_away_skill", draft_.training_away_skill, kTrainingSkills, kSkillNames)) dirty_ = true;
-        Row("Opponent goalie", "Whether the other team's goalie plays. Off, the goal is empty.");
+        Row(texts::T("settings.gameplay.training.opponent_goalie.name"),
+            texts::T("settings.gameplay.training.opponent_goalie.about"));
         if (Toggle("##training_away_goalie", &draft_.training_away_goalie)) dirty_ = true;
-        Row("Skip intro and replays", "The match starts at the kickoff, and a goal goes straight to the next one, without its "
-                                      "celebration and replay. A Mega Strike's goal keeps its own.");
+        Row(texts::T("settings.gameplay.training.skip_goals.name"),
+            texts::T("settings.gameplay.training.skip_goals.about"));
         if (Toggle("##training_skip_goals", &draft_.training_skip_goals)) dirty_ = true;
         const std::string blocker = PlayBlocker();
-        Row("Start training", "Starts the game straight into a match to 10 goals that never ends on them, past the "
-                              "intro and the menus.");
-        if (SecondaryButton("start_training", "Start training", {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()},
-                            blocker.empty(), Icon::Play))
+        Row(texts::T("settings.gameplay.training.start.name"), texts::T("settings.gameplay.training.start.about"));
+        if (SecondaryButton("start_training", texts::T("settings.gameplay.training.start.button"),
+                            {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()}, blocker.empty(), Icon::Play))
             training_requested_ = true;
         if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", blocker.c_str());
@@ -7831,7 +11890,7 @@ private:
     {
         const auto index = GameTweakIndex(tweak);
         const auto& info = kGameTweaks[index];
-        Row(info.name, info.description);
+        Row(texts::TweakName(info), texts::TweakAbout(info));
         const std::string id = std::string("##tweak_") + info.key;
         if (Toggle(id.c_str(), &draft_.tweaks[index])) dirty_ = true;
     }
@@ -7840,14 +11899,14 @@ private:
     {
         const ImVec2 header = ImGui::GetCursorScreenPos();
         const float right = header.x + ImGui::GetContentRegionAvail().x;
-        PageHeader("Gameplay", "Optional tweaks that change the original game. With all of them off, the game plays "
-                               "as on the Wii.");
+        PageHeader(texts::T("settings.gameplay.title"), texts::T("settings.gameplay.about"));
         const ImVec2 content = ImGui::GetCursorScreenPos();
         const auto& fonts = CurrentFonts();
-        const ImVec2 label = TextSize(fonts.body, "All tweaks");
+        const char* all_tweaks = texts::T("settings.gameplay.all_tweaks");
+        const ImVec2 label = TextSize(fonts.body, all_tweaks);
         DrawLabel(ImGui::GetWindowDrawList(), fonts.body,
                   {right - Dp(60) - label.x, header.y + (FontSize(fonts.title) - label.y) * 0.5f},
-                  Col(color::muted), "All tweaks");
+                  Col(color::muted), all_tweaks);
         ImGui::SetCursorScreenPos({right - Dp(48), header.y + (FontSize(fonts.title) - Dp(28)) * 0.5f});
         bool all_enabled = std::all_of(draft_.tweaks.begin(), draft_.tweaks.end(), [](bool enabled) { return enabled; });
         if (Toggle("##all_tweaks", &all_enabled))
@@ -7855,19 +11914,20 @@ private:
             draft_.tweaks.fill(all_enabled);
             dirty_ = true;
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Turn all gameplay tweaks on or off.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.gameplay.all_tweaks_tooltip"));
         ImGui::SetCursorScreenPos(content);
 
-        BeginCard("##menus", "Menus & startup", nullptr, Icon::Play);
+        BeginCard("##menus", texts::T("settings.gameplay.menus.title"), nullptr, Icon::Play);
         if (BeginRows("##menus_rows"))
         {
             TweakRow(GameTweak::SkipIntro);
             TweakRow(GameTweak::FastMenus);
+            TweakRow(GameTweak::OverrideRetailMenus);
             EndRows();
         }
         EndCard();
 
-        BeginCard("##matches", "Matches & unlocks", nullptr, Icon::Target);
+        BeginCard("##matches", texts::T("settings.gameplay.matches.title"), nullptr, Icon::Target);
         if (BeginRows("##matches_rows"))
         {
             TweakRow(GameTweak::CpuVsCpu);
@@ -7880,7 +11940,7 @@ private:
         }
         EndCard();
 
-        BeginCard("##competitive", "Competitive gameplay", nullptr, Icon::Trophy);
+        BeginCard("##competitive", texts::T("settings.gameplay.competitive.title"), nullptr, Icon::Trophy);
         if (BeginRows("##competitive_rows"))
         {
             TweakRow(GameTweak::FastTerrain);
@@ -7893,7 +11953,7 @@ private:
         }
         EndCard();
 
-        BeginCard("##training", "Training", nullptr, Icon::Pitch);
+        BeginCard("##training", texts::T("settings.gameplay.training.title"), nullptr, Icon::Pitch);
         if (BeginRows("##training_rows"))
         {
             TrainingRows();
@@ -7917,7 +11977,8 @@ private:
         if (pack_copy_.valid() && pack_copy_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
             const std::string error = pack_copy_.get();
-            if (error.empty()) Notice(pack_copy_name_ + " was added to your texture packs.", NoticeKind::Success);
+            if (error.empty())
+                Notice(texts::T("settings.gameplay.mods.pack_added", {{"pack", pack_copy_name_}}), NoticeKind::Success);
             else Notice(error, NoticeKind::Error);
             pack_copy_name_.clear();
             texture_rescan_ = true;
@@ -7973,11 +12034,11 @@ private:
         const fs::path folder = TextureFolder();
         std::error_code error;
         if (fs::equivalent(source.parent_path(), folder, error))
-            Notice(pack->name + " is already in your texture packs folder.", NoticeKind::Info);
+            Notice(texts::T("settings.gameplay.mods.already_in_folder", {{"pack", pack->name}}), NoticeKind::Info);
         else if (pack_copy_.valid())
-            Notice("Wait until " + pack_copy_name_ + " is added.", NoticeKind::Warning);
+            Notice(texts::T("settings.gameplay.mods.wait_for_copy", {{"pack", pack_copy_name_}}), NoticeKind::Warning);
         else if (fs::exists(folder / source.filename(), error))
-            Notice("Your texture packs folder already has a " + pack->name + ".", NoticeKind::Warning);
+            Notice(texts::T("settings.gameplay.mods.folder_has_pack", {{"pack", pack->name}}), NoticeKind::Warning);
         else
         {
             pack_copy_name_ = pack->name;
@@ -7992,7 +12053,9 @@ private:
     {
         std::error_code error;
         fs::create_directories(folder, error);
-        if (error) return "Cannot create " + PathUtf8(folder) + ": " + error.message();
+        if (error)
+            return texts::T("settings.gameplay.mods.cannot_create",
+                            {{"path", PathUtf8(folder)}, {"error", error.message()}});
         const auto name = source.filename();
         const auto temporary = folder / PathFromUtf8("." + PathUtf8(name) + ".adding");
         fs::remove_all(temporary, error);
@@ -8005,19 +12068,19 @@ private:
         if (!error) return {};
         std::error_code ignored;
         fs::remove_all(temporary, ignored);
-        return "Cannot add " + PathUtf8(name) + ": " + error.message();
+        return texts::T("settings.gameplay.mods.cannot_add", {{"name", PathUtf8(name)}, {"error", error.message()}});
     }
 
     void ModsCard()
     {
         const auto& fonts = CurrentFonts();
         PollTexturePacks();
-        BeginCard("##mods", "Mods", "Texture packs replace the game's textures with sharper ones. They change only "
-                                    "how the game looks.", Icon::Sliders);
+        BeginCard("##mods", texts::T("settings.gameplay.mods.title"), texts::T("settings.gameplay.mods.about"),
+                  Icon::Sliders);
         if (BeginRows("##mods_rows"))
         {
-            Row("Texture packs", "Texture packs made for Dolphin, from the folder below. Drop a pack's folder or .zip "
-                                 "file onto this page to add it.");
+            Row(texts::T("settings.gameplay.mods.texture_packs.name"),
+                texts::T("settings.gameplay.mods.texture_packs.about"));
             if (Toggle("##texture_packs", &draft_.texture_packs)) dirty_ = true;
             EndRows();
         }
@@ -8030,9 +12093,7 @@ private:
         {
             TexturePackTable(packs);
             if (packs.size() > 1)
-                TextWrappedColored(fonts.caption, color::dim,
-                                   "Drag a pack to change the order: where two packs replace the same texture, the "
-                                   "higher one wins.");
+                TextWrappedColored(fonts.caption, color::dim, texts::T("settings.gameplay.mods.order_note"));
         }
         else if (pack_copy_name_.empty())
             PackDropZone();
@@ -8041,25 +12102,23 @@ private:
         ImGui::Dummy({0, Dp(6)});
         if (BeginRows("##dump_rows"))
         {
-            Row("Dump textures", "For pack makers: each texture no pack replaces is saved to data/texture_dumps, "
-                                 "named as texture packs need it. Takes disk space and can make the game stutter.");
+            Row(texts::T("settings.gameplay.mods.dump.name"), texts::T("settings.gameplay.mods.dump.about"));
             if (Toggle("##dump_textures", &draft_.dump_textures)) dirty_ = true;
             const fs::path dumps = DataFolder(base_) / "texture_dumps";
             std::error_code error;
             ImGui::SameLine(0, Dp(12));
-            if (GhostButton("open_dumps", "Open", {GhostWidth("Open", Icon::Folder), Dp(30)},
+            const char* open = texts::T("settings.gameplay.mods.dump.open");
+            if (GhostButton("open_dumps", open, {GhostWidth(open, Icon::Folder), Dp(30)},
                             fs::is_directory(dumps, error), Icon::Folder))
                 OpenPath(dumps);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s", fs::is_directory(dumps, error) ? PathUtf8(dumps).c_str()
-                                                                       : "Made when the game first dumps a texture.");
+                ImGui::SetTooltip("%s", fs::is_directory(dumps, error)
+                                            ? PathUtf8(dumps).c_str()
+                                            : texts::T("settings.gameplay.mods.dump.not_made"));
             EndRows();
         }
         ImGui::Dummy({0, Dp(2)});
-        TextWrappedColored(fonts.caption, color::muted,
-            "Tweaks and texture packs apply when the game starts. For a bug report, try again with the tweaks off "
-            "(or start the game with --no-tweaks) and without texture packs to check whether one of them is "
-            "involved.");
+        TextWrappedColored(fonts.caption, color::muted, texts::T("settings.gameplay.mods.bug_report_note"));
         EndCard();
     }
 
@@ -8077,8 +12136,8 @@ private:
         { std::lock_guard<std::mutex> lock(folder_dialog_->mutex); browsing = folder_dialog_->active; }
         const bool can_select = !browsing && config_ok_ && draft_.texture_packs;
 
-        const char* change = "Change...";
-        const char* open = "Open";
+        const char* change = texts::T("settings.gameplay.mods.folder.change");
+        const char* open = texts::T("settings.gameplay.mods.folder.open");
         const float change_w = TextSize(fonts.body, change).x + Dp(32);
         const float open_w = GhostWidth(open, Icon::Folder);
         const float change_x = max.x - Dp(12) - change_w;
@@ -8102,11 +12161,11 @@ private:
         ImVec4 tint = color::muted;
         if (texture_scanning_ && texture_packs_.empty())
         {
-            status = "Looking for texture packs...";
+            status = texts::T("settings.gameplay.mods.folder.looking");
             tint = color::info;
         }
         else if (!fs::is_directory(path, error))
-            status = "Not there yet: Open makes it, and a dropped pack goes into it";
+            status = texts::T("settings.gameplay.mods.folder.missing");
         else
         {
             const auto off = platform::SplitPackNames(draft_.texture_packs_off);
@@ -8118,9 +12177,10 @@ private:
                     textures += pack.textures;
                 }
             const auto count = texture_packs_.size();
-            status = count == 0 ? "No texture packs"
-                : std::to_string(count) + (count == 1 ? " pack" : " packs") + ", " + std::to_string(used) + " in use ("
-                    + std::to_string(textures) + " textures)";
+            status = count == 0 ? std::string(texts::T("settings.gameplay.mods.folder.no_packs"))
+                : texts::Count("settings.gameplay.mods.folder.packs", count,
+                               {{"used", std::to_string(used)},
+                                {"textures", texts::Count("settings.gameplay.mods.textures", textures)}});
         }
         const float text_x = box.x + Dp(36 + 14), text_w = std::max(Dp(80), refresh_x - Dp(14) - text_x);
         const float lines = FontSize(fonts.label) + Dp(3) + FontSize(fonts.caption);
@@ -8128,29 +12188,33 @@ private:
         DrawPath(draw, fonts.label, {text_x, top}, text_w, color::text, PathUtf8(path));
         DrawClipped(draw, fonts.caption, {text_x, top + FontSize(fonts.label) + Dp(3)}, text_w, tint, status);
         if (picked) BrowseFolder(FolderPurpose::TextureFolder, path);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\nClick to select another texture packs folder.",
-                                                      PathUtf8(path).c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s\n%s", PathUtf8(path).c_str(),
+                              texts::T("settings.gameplay.mods.folder.click_tooltip"));
 
         ImGui::SetCursorScreenPos({refresh_x, center - Dp(17)});
         if (GhostButton("refresh_texture_packs", "", Dp(34, 34), config_ok_ && !texture_scanning_, Icon::Refresh))
             texture_rescan_ = true;
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Look for texture packs again.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.gameplay.mods.folder.refresh_tooltip"));
         ImGui::SetCursorScreenPos({open_x, center - Dp(17)});
         if (GhostButton("open_texture_folder", open, {open_w, Dp(34)}, config_ok_, Icon::Folder))
         {
             fs::create_directories(path, error);
-            if (error) Notice("Cannot create " + PathUtf8(path) + ": " + error.message(), NoticeKind::Error);
+            if (error)
+                Notice(texts::T("settings.gameplay.mods.cannot_create",
+                                {{"path", PathUtf8(path)}, {"error", error.message()}}),
+                       NoticeKind::Error);
             else
             {
                 OpenPath(path);
                 texture_rescan_ = true;
             }
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show the folder (it is made when missing).");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.gameplay.mods.folder.open_tooltip"));
         ImGui::SetCursorScreenPos({change_x, center - Dp(17)});
         if (SecondaryButton("change_texture_folder", change, {change_w, Dp(34)}, can_select))
             BrowseFolder(FolderPurpose::TextureFolder, path);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Select another texture packs folder.");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.gameplay.mods.folder.change_tooltip"));
         ImGui::SetCursorScreenPos(pos);
         ImGui::Dummy({width, height});
     }
@@ -8162,7 +12226,10 @@ private:
         const ImVec2 at = ImGui::GetCursorScreenPos();
         const float line = Dp(44);
         Spinner({at.x + Dp(22), at.y + line * 0.5f}, Dp(7), Col(color::info));
-        const std::string text = "Adding " + pack_copy_name_ + " (" + std::to_string(pack_copy_textures_) + " textures)...";
+        const std::string text = texts::T("settings.gameplay.mods.adding",
+                                          {{"pack", pack_copy_name_},
+                                           {"textures", texts::Count("settings.gameplay.mods.textures",
+                                                                     pack_copy_textures_)}});
         DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x + Dp(44), at.y + (line - FontSize(fonts.body)) * 0.5f},
                   Col(color::muted), text.c_str());
         ImGui::Dummy({ImGui::GetContentRegionAvail().x, line});
@@ -8194,8 +12261,8 @@ private:
         const float cx = pos.x + width * 0.5f;
         draw->AddCircleFilled({cx, pos.y + Dp(30)}, Dp(17), Col(color::accent, 0.12f));
         DrawIcon(draw, Icon::Download, {cx, pos.y + Dp(30)}, Dp(18), Col(color::accent));
-        const char* title = "Drop a texture pack here";
-        const char* detail = "A pack's folder (such as R4Q) or its .zip file: it is copied into the folder above.";
+        const char* title = texts::T("settings.gameplay.mods.drop.title");
+        const char* detail = texts::T("settings.gameplay.mods.drop.about");
         DrawLabel(draw, fonts.label, {cx - TextSize(fonts.label, title).x * 0.5f, pos.y + Dp(54)}, Col(color::text), title);
         DrawLabel(draw, fonts.caption, {cx - TextSize(fonts.caption, detail).x * 0.5f, pos.y + Dp(54) + FontSize(fonts.label) + Dp(4)},
                   Col(color::muted), detail);
@@ -8213,10 +12280,13 @@ private:
                               ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_NoClip))
         {
             const auto fixed = ImGuiTableColumnFlags_WidthFixed;
-            ImGui::TableSetupColumn("ORDER", fixed, Dp(58));
-            ImGui::TableSetupColumn("PACK", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("TEXTURES", fixed, Dp(84));
-            ImGui::TableSetupColumn("IN USE", fixed, Dp(64));
+            const auto column = [](const char* name, const char* id, ImGuiTableColumnFlags flags, float width) {
+                ImGui::TableSetupColumn(StableLabel(name, id).c_str(), flags, width);
+            };
+            column(texts::T("settings.gameplay.mods.table.order"), "order", fixed, Dp(58));
+            column(texts::T("settings.gameplay.mods.table.pack"), "pack", ImGuiTableColumnFlags_WidthStretch, 0.0f);
+            column(texts::T("settings.gameplay.mods.table.textures"), "textures", fixed, Dp(84));
+            column(texts::T("settings.gameplay.mods.table.in_use"), "in_use", fixed, Dp(64));
             ImGui::TableSetupColumn("##menu", fixed, Dp(34));
             ImGui::TableNextRow(ImGuiTableRowFlags_Headers, Dp(24));
             ImGui::PushFont(fonts.caption);
@@ -8294,7 +12364,8 @@ private:
             draw->AddRect(box_min, box_max, Col(color::accent, 0.6f), Dp(12), 0, Dp(1.2f));
         if (hover > 0.0f) draw->AddRectFilled(box_min, box_max, Col(color::text, 0.05f * hover), Dp(12));
         if (hovered && !dragging)
-            ImGui::SetTooltip("%s%s", PathUtf8(pack.path).c_str(), reorder ? "\nDrag to change the order." : "");
+            ImGui::SetTooltip("%s%s%s", PathUtf8(pack.path).c_str(), reorder ? "\n" : "",
+                              reorder ? texts::T("settings.gameplay.mods.table.drag_tooltip") : "");
         const float fade = on ? 1.0f : 0.55f;
         const float center = cell.y + height * 0.5f;
 
@@ -8324,15 +12395,17 @@ private:
         const float lines = FontSize(fonts.label) + Dp(3) + FontSize(fonts.caption);
         const float top = center - lines * 0.5f;
         DrawClipped(draw, fonts.label, {text_x, top}, text_w, Mix(color::muted, color::text, fade), pack.name);
-        std::string detail = pack.archive ? "Zip file" : "Folder";
+        std::string detail = pack.archive ? texts::T("settings.gameplay.mods.table.zip_file")
+                                          : texts::T("settings.gameplay.mods.table.folder");
         ImVec4 detail_tint = color::muted;
         if (!readable)
         {
-            detail = "Cannot be read: " + pack.error;
+            detail = texts::T("settings.gameplay.mods.table.unreadable", {{"error", pack.error}});
             detail_tint = color::danger;
         }
         else if (!on)
-            detail += ", not in use";
+            detail = pack.archive ? texts::T("settings.gameplay.mods.table.zip_file_off")
+                                  : texts::T("settings.gameplay.mods.table.folder_off");
         DrawClipped(draw, fonts.caption, {text_x, top + FontSize(fonts.label) + Dp(3)}, text_w, detail_tint, detail);
 
         // Textures, and whether it is in use.
@@ -8350,7 +12423,7 @@ private:
         ImGui::TableSetColumnIndex(4);
         ImGui::SetCursorScreenPos({ImGui::GetCursorScreenPos().x, center - Dp(16)});
         if (GhostButton("menu", "", Dp(32, 32), true, Icon::More)) ImGui::OpenPopup("pack_menu");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("More");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.gameplay.mods.table.more_tooltip"));
         const float width = Dp(220);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(6, 6));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
@@ -8359,13 +12432,16 @@ private:
         if (ImGui::BeginPopup("pack_menu"))
         {
             ImGui::BeginDisabled(!reorder || n == 0);
-            if (MenuAction("up", "Move up", width)) MoveTexturePack(packs, n, n - 1);
+            if (MenuAction("up", texts::T("settings.gameplay.mods.table.move_up"), width))
+                MoveTexturePack(packs, n, n - 1);
             ImGui::EndDisabled();
             ImGui::BeginDisabled(!reorder || n + 1 >= packs.size());
-            if (MenuAction("down", "Move down", width)) MoveTexturePack(packs, n, n + 1);
+            if (MenuAction("down", texts::T("settings.gameplay.mods.table.move_down"), width))
+                MoveTexturePack(packs, n, n + 1);
             ImGui::EndDisabled();
             MenuSeparator(width);
-            if (MenuAction("show", "Show in folder", width)) OpenPath(pack.path.parent_path());
+            if (MenuAction("show", texts::T("settings.gameplay.mods.table.show_in_folder"), width))
+                OpenPath(pack.path.parent_path());
             ImGui::EndPopup();
         }
         ImGui::PopStyleColor();
@@ -8375,56 +12451,61 @@ private:
 
     void AdvancedPage()
     {
-        PageHeader("Advanced", "Troubleshooting and development options. The defaults suit most players.");
-        BeginCard("##interface", "Interface", nullptr, Icon::Sliders);
+        PageHeader(texts::T("settings.advanced.title"), texts::T("settings.advanced.about"));
+        BeginCard("##interface", texts::T("settings.advanced.interface.title"), nullptr, Icon::Sliders);
         if (BeginRows("##interface_rows"))
         {
-            Row("Launcher size", "Scales this launcher. Automatic follows your display's scaling setting.");
-            const char* values[] = {"auto", "75", "100", "125", "150", "175", "200"};
-            const char* names[] = {"Automatic", "75%", "100%", "125%", "150%", "175%", "200%"};
+            Row(texts::T("settings.advanced.interface.launcher_size.name"),
+                texts::T("settings.advanced.interface.launcher_size.about"));
             const char* preview = draft_.ui_scale.c_str();
-            for (int i = 0; i < 7; ++i) if (draft_.ui_scale == values[i]) preview = names[i];
+            for (const auto& size : kLauncherSizes)
+                if (draft_.ui_scale == size.value) preview = texts::ChoiceLabel("launcher_sizes", size);
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             if (ImGui::BeginCombo("##ui_scale", preview))
             {
-                for (int i = 0; i < 7; ++i)
-                    if (ImGui::Selectable(names[i], draft_.ui_scale == values[i])) { draft_.ui_scale = values[i]; dirty_ = true; }
+                for (const auto& size : kLauncherSizes)
+                    if (ImGui::Selectable(StableLabel(texts::ChoiceLabel("launcher_sizes", size), size.value).c_str(),
+                                          draft_.ui_scale == size.value))
+                    { draft_.ui_scale = size.value; dirty_ = true; }
                 ImGui::EndCombo();
             }
-            Row("Reopen after the game", "Opens the launcher again when you close the game.");
+            Row(texts::T("settings.advanced.interface.reopen.name"),
+                texts::T("settings.advanced.interface.reopen.about"));
             if (Toggle("##reopen_after_game", &draft_.reopen_after_game)) dirty_ = true;
             EndRows();
         }
         EndCard();
 
-        BeginCard("##updates", "Updates",
-                  "Each start of the launcher installs a newer build by itself. A release plays online only while "
-                  "it is the newest one.",
+        BeginCard("##updates", texts::T("settings.advanced.updates.title"), texts::T("settings.advanced.updates.about"),
                   Icon::Download);
         if (BeginRows("##update_rows"))
         {
-            Row("Status", UpdateSummary().c_str());
+            Row(texts::T("settings.advanced.updates.status"), UpdateSummary().c_str());
             ImGui::BeginDisabled(!updates_ || !config_ok_ || UpdateBusy());
-            if (SecondaryButton("##check_now", "Check now", Dp(150, 38), true, Icon::Refresh))
+            if (SecondaryButton("##check_now", texts::T("settings.advanced.updates.check_now"), Dp(150, 38), true,
+                                Icon::Refresh))
                 CheckForUpdates(UpdatePrompt::Any, UpdateChannelSetting());
             ImGui::EndDisabled();
             EndRows();
         }
         EndCard();
 
-        BeginCard("##graphics", "Graphics", nullptr, Icon::Display);
+        BeginCard("##graphics", texts::T("settings.advanced.graphics.title"), nullptr, Icon::Display);
         if (BeginRows("##graphics_rows"))
         {
 #if defined(_WIN32)
             // Automatic is its own choice: only it may switch to DirectX 12.
-            Row("Graphics API", "Automatic uses Vulkan, or DirectX 12 when Vulkan cannot start. Used the next time you start the game.");
-            const char* preview = draft_.backend == "auto" ? "Automatic" : "Choose a graphics API";
+            Row(texts::T("settings.advanced.graphics.api.name"),
+                texts::T("settings.advanced.graphics.api.about_windows"));
+            const char* automatic = texts::T("settings.advanced.graphics.api.automatic");
+            const char* preview =
+                draft_.backend == "auto" ? automatic : texts::T("settings.advanced.graphics.api.choose");
             for (const auto& choice : kGraphicsBackends)
                 if (draft_.backend == choice.value) preview = choice.label;
             ImGui::SetNextItemWidth(-1);
             if (ImGui::BeginCombo("##graphics_api", preview))
             {
-                if (ImGui::Selectable("Automatic", draft_.backend == "auto"))
+                if (ImGui::Selectable(StableLabel(automatic, "auto").c_str(), draft_.backend == "auto"))
                 { draft_.backend = "auto"; dirty_ = true; }
                 for (const auto& choice : kGraphicsBackends)
                     if (ImGui::Selectable(choice.label, draft_.backend == choice.value))
@@ -8432,7 +12513,7 @@ private:
                 ImGui::EndCombo();
             }
 #else
-            Row("Graphics API", "Used the next time you start the game.");
+            Row(texts::T("settings.advanced.graphics.api.name"), texts::T("settings.advanced.graphics.api.about"));
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(4));
             Chip(kGraphicsBackends.front().label, color::info);
 #endif
@@ -8443,50 +12524,62 @@ private:
         }
         EndCard();
 
-        BeginCard("##diagnostics", "Diagnostics & analytics", "Local tools for investigating performance and graphics issues.", Icon::Info);
+        BeginCard("##diagnostics", texts::T("settings.advanced.diagnostics.title"),
+                  texts::T("settings.advanced.diagnostics.about"), Icon::Info);
         if (BeginRows("##diagnostic_rows"))
         {
-            Row("Performance stats", "Records frame times for each game session, with the arena and settings, and a summary per arena. Saves a CSV and summary in the logs folder; testers can share them.");
+            Row(texts::T("settings.advanced.diagnostics.performance_stats.name"),
+                texts::T("settings.advanced.diagnostics.performance_stats.about"));
             if (Toggle("##frame_logging", &draft_.frame_logging)) dirty_ = true;
 
             const auto recordings = base_ / "logs";
             const auto recordingsFolder = PathUtf8(recordings);
-            Row("Frame recordings", recordingsFolder.c_str());
-            if (SecondaryButton("open_frame_recordings", "Open folder", {ImGui::GetContentRegionAvail().x, Dp(40)},
-                                true, Icon::Folder))
+            Row(texts::T("settings.advanced.diagnostics.recordings"), recordingsFolder.c_str());
+            if (SecondaryButton("open_frame_recordings", texts::T("settings.advanced.diagnostics.open_folder"),
+                                {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Folder))
             {
                 std::error_code error;
                 fs::create_directories(recordings, error);
                 OpenPath(recordings);
             }
 
-            Row("Shader cache", "Clears compiled shaders for all graphics APIs. The next launch prepares them again.");
-            if (SecondaryButton("clear_shader_cache", "Clear shader cache", {ImGui::GetContentRegionAvail().x, Dp(40)},
-                                true, Icon::Refresh))
+            Row(texts::T("settings.advanced.diagnostics.shader_cache.name"),
+                texts::T("settings.advanced.diagnostics.shader_cache.about"));
+            if (SecondaryButton("clear_shader_cache", texts::T("settings.advanced.diagnostics.shader_cache.clear"),
+                                {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Refresh))
             {
                 try
                 {
                     const auto cleared = platform::ClearShaderCache(platform::ShaderCacheDirectory(base_));
-                    Notice(cleared.removed_files ? "Shader cache cleared. Graphics will be prepared again on the next launch."
-                                                : "The shader cache is already empty.", NoticeKind::Success);
+                    Notice(cleared.removed_files ? texts::T("settings.advanced.diagnostics.shader_cache.cleared")
+                                                 : texts::T("settings.advanced.diagnostics.shader_cache.empty"),
+                           NoticeKind::Success);
                 }
                 catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
             }
 
-            Row("API validation", "Checks every graphics call for errors. Useful for bug reports, but slower.");
+            Row(texts::T("settings.advanced.diagnostics.validation.name"),
+                texts::T("settings.advanced.diagnostics.validation.about"));
             if (Toggle("##validation", &draft_.graphics_validation)) dirty_ = true;
 
-            Row("Log detail", "Which messages reach the console: errors, warnings, info or debug.");
-            const char* values[] = {"error", "warning", "info", "debug"};
-            int level = 2;
-            for (int i = 0; i < 4; ++i) if (draft_.log_level == values[i]) level = i;
-            if (Segmented("##log_level", &level, {"Errors", "Warnings", "Info", "Debug"}, ImGui::GetContentRegionAvail().x))
-            { draft_.log_level = values[level]; dirty_ = true; }
+            Row(texts::T("settings.advanced.diagnostics.log_detail.name"),
+                texts::T("settings.advanced.diagnostics.log_detail.about"));
+            int level = kDefaultLogLevel;
+            for (int i = 0; i < int(kLogLevels.size()); ++i) if (draft_.log_level == kLogLevels[std::size_t(i)].value) level = i;
+            if (Segmented("##log_level", &level,
+                          {texts::ChoiceLabel("log_levels", kLogLevels[0]),
+                           texts::ChoiceLabel("log_levels", kLogLevels[1]),
+                           texts::ChoiceLabel("log_levels", kLogLevels[2]),
+                           texts::ChoiceLabel("log_levels", kLogLevels[3])},
+                          ImGui::GetContentRegionAvail().x))
+            { draft_.log_level = kLogLevels[std::size_t(level)].value; dirty_ = true; }
 
-            Row("Verbose console", "Also prints development traces and the game's own debug output. Useful for bug reports.");
+            Row(texts::T("settings.advanced.diagnostics.verbose.name"),
+                texts::T("settings.advanced.diagnostics.verbose.about"));
             if (Toggle("##verbose_console", &draft_.verbose_console)) dirty_ = true;
 #if defined(_WIN32) || defined(__APPLE__)
-            Row("Log window", "Shows the log in a separate window while Recharged runs, for testing. Closing it doesn't stop the game.");
+            Row(texts::T("settings.advanced.diagnostics.log_window.name"),
+                texts::T("settings.advanced.diagnostics.log_window.about"));
             if (Toggle("##log_window", &draft_.log_window)) dirty_ = true;
 #endif
 
@@ -8494,31 +12587,38 @@ private:
         }
         EndCard();
 
-        BeginCard("##configuration", "Configuration", nullptr, Icon::Sliders);
+        BeginCard("##configuration", texts::T("settings.advanced.configuration.title"), nullptr, Icon::Sliders);
         if (BeginRows("##configuration_rows"))
         {
             const std::string settings_path = PathUtf8(file_.path);
-            Row("Settings file", settings_path.c_str());
-            if (SecondaryButton("open_settings", "Open folder", {ImGui::GetContentRegionAvail().x, Dp(40)},
-                                fs::exists(file_.path.parent_path()), Icon::Folder))
+            Row(texts::T("settings.advanced.configuration.settings_file"), settings_path.c_str());
+            if (SecondaryButton("open_settings", texts::T("settings.advanced.configuration.open_folder"),
+                                {ImGui::GetContentRegionAvail().x, Dp(40)}, fs::exists(file_.path.parent_path()),
+                                Icon::Folder))
                 OpenPath(file_.path.parent_path());
 
-            Row("Launch command", "Copies a command line that starts the game with these settings.");
-            if (SecondaryButton("copy_command", "Copy command", {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Copy))
+            Row(texts::T("settings.advanced.configuration.command.name"),
+                texts::T("settings.advanced.configuration.command.about"));
+            if (SecondaryButton("copy_command", texts::T("settings.advanced.configuration.command.copy"),
+                                {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Copy))
             {
                 const auto command = LaunchCommand();
-                if (SDL_SetClipboardText(command.c_str())) Notice("Launch command copied to the clipboard.", NoticeKind::Success);
-                else Notice(std::string("Cannot copy: ") + SDL_GetError(), NoticeKind::Error);
+                if (SDL_SetClipboardText(command.c_str()))
+                    Notice(texts::T("settings.advanced.configuration.command.copied"), NoticeKind::Success);
+                else
+                    Notice(texts::T("settings.advanced.configuration.command.cannot_copy", {{"error", SDL_GetError()}}),
+                           NoticeKind::Error);
             }
             EndRows();
         }
         EndCard();
 
-        BeginCard("##reset", "Reset", nullptr, Icon::Refresh);
+        BeginCard("##reset", texts::T("settings.advanced.reset.title"), nullptr, Icon::Refresh);
         if (BeginRows("##reset_rows"))
         {
-            Row("Restore defaults", "Resets every setting except your game image and game folder. Save to keep the result.");
-            if (SecondaryButton("defaults", "Restore defaults", {ImGui::GetContentRegionAvail().x, Dp(40)}, config_ok_, Icon::Refresh))
+            Row(texts::T("settings.advanced.reset.defaults.name"), texts::T("settings.advanced.reset.defaults.about"));
+            if (SecondaryButton("defaults", texts::T("settings.advanced.reset.defaults.button"),
+                                {ImGui::GetContentRegionAvail().x, Dp(40)}, config_ok_, Icon::Refresh))
             {
                 const auto disc = draft_.disc;
                 const auto folder = draft_.folder;
@@ -8528,7 +12628,7 @@ private:
                 draft_.folder = folder;
                 draft_.folder_subfolders = subfolders;
                 dirty_ = true;
-                Notice("Defaults restored. Save to keep them.", NoticeKind::Info);
+                Notice(texts::T("settings.advanced.reset.defaults.restored"), NoticeKind::Info);
             }
             EndRows();
         }
@@ -8583,14 +12683,15 @@ private:
 
         float y = pos.y + pad;
         const float x = pos.x + pad;
-        DrawTracked(draw, fonts.caption, {x, y}, Col(color::accent, 0.95f), "ABOUT", Dp(2.6f));
+        DrawTracked(draw, fonts.caption, {x, y}, Col(color::accent, 0.95f), texts::T("settings.about.overline"),
+                    Dp(2.6f));
         y += FontSize(fonts.caption) + Dp(6);
         DrawLogo(draw, {x - Dp(5), y}, logo);
         y += logo + Dp(6);
         const char* game = "Mario Strikers Charged";
         DrawLabel(draw, fonts.heading, {x, y}, Col(color::text), game);
         DrawLabel(draw, fonts.heading, {x + TextSize(fonts.heading, game).x, y}, Col(color::text, 0.72f),
-                  ", natively on your PC");
+                  texts::T("settings.about.natively"));
 
         ImGui::SetCursorScreenPos(pos);
         ImGui::Dummy({width, height});
@@ -8729,27 +12830,28 @@ private:
     // leaves the developers and the special thanks out of the issue reporters.
     void AboutDevelopers()
     {
-        BeginCard("##developers", "Developers", "The people who build Recharged.", Icon::Code);
-        PeopleTiles({"Yannick Suter", "Decompilation, native port and launcher", color::accent_hi},
-                    {"GoldenPalazzo", "Networking and gameplay fixes", color::info});
+        BeginCard("##developers", texts::T("settings.about.developers.title"),
+                  texts::T("settings.about.developers.about"), Icon::Code);
+        PeopleTiles({"Yannick Suter", texts::T("settings.about.developers.yannick"), color::accent_hi},
+                    {"GoldenPalazzo", texts::T("settings.about.developers.goldenpalazzo"), color::info});
         EndCard();
     }
 
     void AboutThanks()
     {
         const auto& fonts = CurrentFonts();
-        BeginCard("##thanks", "Thank you", "Recharged is shaped by the people who play it.", Icon::Heart);
+        BeginCard("##thanks", texts::T("settings.about.thanks.title"), texts::T("settings.about.thanks.about"),
+                  Icon::Heart);
 
-        AboutOverline("SPECIAL THANKS");
-        TextWrappedColored(fonts.body, color::text, "For intense testing, build after build.");
+        AboutOverline(texts::T("settings.about.thanks.special.overline"));
+        TextWrappedColored(fonts.body, color::text, texts::T("settings.about.thanks.special.about"));
         ImGui::Dummy({0, Dp(4)});
-        PeopleTiles({"einBirnenbaum", "Tester", color::accent}, {"GoldCobra", "Tester", color::warning});
+        PeopleTiles({"einBirnenbaum", texts::T("settings.about.thanks.special.tester"), color::accent},
+                    {"GoldCobra", texts::T("settings.about.thanks.special.tester"), color::warning});
 
         AboutDivider();
-        AboutOverline("ISSUE REPORTERS");
-        TextWrappedColored(fonts.body, color::text,
-            "Everyone who reported a problem or asked for a feature on GitHub. Every issue makes Recharged better: "
-            "this is how we roll!");
+        AboutOverline(texts::T("settings.about.thanks.reporters.overline"));
+        TextWrappedColored(fonts.body, color::text, texts::T("settings.about.thanks.reporters.about"));
         ImGui::Dummy({0, Dp(4)});
         NamePills("##reporters", kIssueReporters, std::size(kIssueReporters), false);
         ImGui::Dummy({0, Dp(6)});
@@ -8757,16 +12859,17 @@ private:
         const std::string issues = "https://github.com/" + identity.repository + "/issues/new";
         const ImVec2 button = Dp(200, 40);
         FlowNext(true, button.x);
-        if (SecondaryButton("report_problem", "Report a problem", button, true, Icon::Bug))
+        if (SecondaryButton("report_problem", texts::T("settings.about.thanks.reporters.report"), button, true,
+                            Icon::Bug))
             SDL_OpenURL((issues + "/choose").c_str());
         FlowNext(false, button.x);
-        if (SecondaryButton("suggest_feature", "Suggest a feature", button, true, Icon::Bulb))
+        if (SecondaryButton("suggest_feature", texts::T("settings.about.thanks.reporters.suggest"), button, true,
+                            Icon::Bulb))
             SDL_OpenURL((issues + "?template=feature_request.yml").c_str());
 
         AboutDivider();
-        AboutOverline("DECOMPILATION");
-        TextWrappedColored(fonts.body, color::text,
-            "To the contributors of the decompilation, who helped bring it over the last miles.");
+        AboutOverline(texts::T("settings.about.thanks.decompilation.overline"));
+        TextWrappedColored(fonts.body, color::text, texts::T("settings.about.thanks.decompilation.about"));
         ImGui::Dummy({0, Dp(4)});
         static constexpr const char* contributors[] = {"Jasu14", "vZylev", "GoldenPalazzo"};
         NamePills("##contributors", contributors, std::size(contributors), true);
@@ -8780,9 +12883,8 @@ private:
         const auto& fonts = CurrentFonts();
         auto* draw = ImGui::GetWindowDrawList();
         const char* invite = "https://discord.gg/de2YaWg";
-        const char* about = "The central hub of Mario Strikers players: tournaments, matchmaking and league play "
-                            "across the series, with fans, competitors and creators from around the world.";
-        const char* thanks = "Thank you for the matches, the feedback and all the enthusiasm!";
+        const char* about = texts::T("settings.about.community.about");
+        const char* thanks = texts::T("settings.about.community.thanks");
         const ImVec2 pos = ImGui::GetCursorScreenPos();
         const float width = ImGui::GetContentRegionAvail().x;
         const float pad = Dp(22), badge = Dp(52), button_height = Dp(40);
@@ -8810,16 +12912,18 @@ private:
         DrawDiscordMark(draw, center, badge * 0.56f, IM_COL32_WHITE, Col(Mix(lighter, color::discord, 0.5f)));
 
         float y = pos.y + pad;
-        DrawTracked(draw, fonts.caption, {text_x, y}, Col(Mix(color::discord, color::text, 0.45f)), "COMMUNITY", Dp(1.8f));
+        DrawTracked(draw, fonts.caption, {text_x, y}, Col(Mix(color::discord, color::text, 0.45f)),
+                    texts::T("settings.about.community.overline"), Dp(1.8f));
         y += FontSize(fonts.caption) + Dp(4);
-        DrawLabel(draw, fonts.heading, {text_x, y}, Col(color::text), "Mario Strikers on Discord");
+        DrawLabel(draw, fonts.heading, {text_x, y}, Col(color::text), texts::T("settings.about.community.title"));
         y += FontSize(fonts.heading) + Dp(8);
         draw->AddText(fonts.body, FontSize(fonts.body), {text_x, y}, Col(color::muted), about, nullptr, wrap);
         y += text_height(about) + Dp(4);
         draw->AddText(fonts.body, FontSize(fonts.body), {text_x, y}, Col(color::text), thanks, nullptr, wrap);
         y += text_height(thanks) + Dp(16);
         ImGui::SetCursorScreenPos({text_x, y});
-        if (DiscordButton("join_discord", "Join on Discord", {Dp(200), button_height})) SDL_OpenURL(invite);
+        if (DiscordButton("join_discord", texts::T("settings.about.community.join"), {Dp(200), button_height}))
+            SDL_OpenURL(invite);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", invite);
 
         ImGui::SetCursorScreenPos(pos);
@@ -8831,7 +12935,7 @@ private:
     void AboutFoundations()
     {
         const auto& fonts = CurrentFonts();
-        BeginCard("##foundations", "Built on", nullptr, Icon::Layers);
+        BeginCard("##foundations", texts::T("settings.about.foundations.title"), nullptr, Icon::Layers);
         const float title = Dp(30);
         auto decomp_heading = [&] {
             const ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -8839,7 +12943,7 @@ private:
             draw->AddRectFilled(pos, {pos.x + title, pos.y + title}, Col(color::accent, 0.12f), Dp(8));
             DrawIcon(draw, Icon::Disc, {pos.x + title * 0.5f, pos.y + title * 0.5f}, Dp(16), Col(color::accent));
             DrawLabel(draw, fonts.label, {pos.x + title + Dp(12), pos.y + (title - FontSize(fonts.label)) * 0.5f},
-                      Col(color::text), "The decompilation");
+                      Col(color::text), texts::T("settings.about.foundations.decompilation"));
             ImGui::Dummy({title, title + Dp(4)});
         };
         auto aurora_heading = [&] {
@@ -8856,13 +12960,8 @@ private:
             ImGui::SetCursorScreenPos(pos);
             ImGui::Dummy({0, title + Dp(4)});
         };
-        const char* decomp_text =
-            "Recharged compiles the reconstructed C/C++ source of Mario Strikers Charged to native code. The "
-            "original game logic runs unchanged; Recharged provides the platform underneath it: graphics, audio, "
-            "input, files and timing.";
-        const char* aurora_text =
-            "Aurora by Luke Street provides the GameCube/Wii platform layer the game runs on: GX graphics on "
-            "modern GPUs, plus windowing, input and system services.";
+        const char* decomp_text = texts::T("settings.about.foundations.decompilation_about");
+        const char* aurora_text = texts::T("settings.about.foundations.aurora_about");
         auto text = [&](const char* body) {
             TextWrappedColored(fonts.body, color::muted, body);
             ImGui::Dummy({0, Dp(6)});
@@ -8878,11 +12977,11 @@ private:
         {
             decomp_heading();
             text(decomp_text);
-            link("decomp_link", "Decompilation on GitHub", decomp_url);
+            link("decomp_link", texts::T("settings.about.foundations.decompilation_link"), decomp_url);
             ImGui::Dummy({0, Dp(14)});
             aurora_heading();
             text(aurora_text);
-            link("aurora_link", "Aurora on GitHub", aurora_url);
+            link("aurora_link", texts::T("settings.about.foundations.aurora_link"), aurora_url);
         }
         else
         {
@@ -8905,16 +13004,15 @@ private:
                 text(aurora_text);
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                link("decomp_link", "Decompilation on GitHub", decomp_url);
+                link("decomp_link", texts::T("settings.about.foundations.decompilation_link"), decomp_url);
                 ImGui::TableSetColumnIndex(2);
-                link("aurora_link", "Aurora on GitHub", aurora_url);
+                link("aurora_link", texts::T("settings.about.foundations.aurora_link"), aurora_url);
                 ImGui::EndTable();
             }
             ImGui::PopStyleVar();
         }
         AboutDivider();
-        TextWrappedColored(fonts.caption, color::muted,
-            "Unofficial project, not affiliated with Nintendo or Next Level Games. You need your own copy of the game.");
+        TextWrappedColored(fonts.caption, color::muted, texts::T("settings.about.foundations.unofficial"));
         ImGui::Dummy({0, Dp(2)});
         TextWrappedColored(fonts.caption, color::dim,
             "Recharged's original code, tools and documentation: CC0 1.0. Header artwork: the game's key art "
@@ -8930,39 +13028,56 @@ private:
     {
         const auto& fonts = CurrentFonts();
         const BuildIdentity identity = updates_ ? updates_->Build() : CurrentBuild();
-        std::vector<std::pair<const char*, std::string>> facts;
-        facts.emplace_back("Version", build::version);
-        facts.emplace_back("Origin", DescribeOrigin(identity));
-        if (identity.built) facts.emplace_back("Built", LocalTime(identity.built));
-        else if (identity.commit_time) facts.emplace_back("Commit time", LocalTime(identity.commit_time));
-        facts.emplace_back("Commit", identity.commit.substr(0, 12));
+        // Each fact on screen in the player's language, and in English in the
+        // copy for a bug report, as the log is.
+        struct Fact
+        {
+            const char* label;
+            const char* english;
+            std::string value;
+            std::string english_value;
+        };
+        std::vector<Fact> facts;
+        const auto add = [&](const char* label, const char* english, const std::string& value) {
+            facts.push_back({label, english, value, value});
+        };
+        add(texts::T("settings.about.build.version"), "Version", build::version);
+        add(texts::T("settings.about.build.origin"), "Origin", DescribeOrigin(identity));
+        if (identity.built) add(texts::T("settings.about.build.built"), "Built", LocalTime(identity.built));
+        else if (identity.commit_time)
+            add(texts::T("settings.about.build.commit_time"), "Commit time", LocalTime(identity.commit_time));
+        add(texts::T("settings.about.build.commit"), "Commit", identity.commit.substr(0, 12));
         const int sdl = SDL_GetVersion();
-        facts.emplace_back("Platform", std::string(SDL_GetPlatform()) + ", SDL " + std::to_string(SDL_VERSIONNUM_MAJOR(sdl))
-            + "." + std::to_string(SDL_VERSIONNUM_MINOR(sdl)) + "." + std::to_string(SDL_VERSIONNUM_MICRO(sdl)));
+        add(texts::T("settings.about.build.platform"), "Platform",
+            std::string(SDL_GetPlatform()) + ", SDL " + std::to_string(SDL_VERSIONNUM_MAJOR(sdl)) + "."
+                + std::to_string(SDL_VERSIONNUM_MINOR(sdl)) + "." + std::to_string(SDL_VERSIONNUM_MICRO(sdl)));
         const char* renderer = SDL_GetRendererName(renderer_);
         char display[96];
         std::snprintf(display, sizeof display, "%s, interface x%.2f, pixel density x%.2f",
                       renderer ? renderer : "unknown renderer", metrics_.ui, metrics_.density);
-        facts.emplace_back("Launcher display", display);
+        add(texts::T("settings.about.build.launcher_display"), "Launcher display", display);
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
-        facts.emplace_back("Game runtime", "Included");
+        facts.push_back({texts::T("settings.about.build.game_runtime"), "Game runtime",
+                         texts::T("settings.about.build.included"), "Included"});
 #else
-        facts.emplace_back("Game runtime", "Not included (launcher-only build)");
+        facts.push_back({texts::T("settings.about.build.game_runtime"), "Game runtime",
+                         texts::T("settings.about.build.not_included"), "Not included (launcher-only build)"});
 #endif
-        facts.emplace_back("Configuration", MSCHARGED_BUILD_CONFIG);
+        add(texts::T("settings.about.build.configuration"), "Configuration", MSCHARGED_BUILD_CONFIG);
 
-        BeginCard("##build", "This build", "For a bug report: copy these details and attach the log.", Icon::Info);
+        BeginCard("##build", texts::T("settings.about.build.title"), texts::T("settings.about.build.about"),
+                  Icon::Info);
         const int columns = ImGui::GetContentRegionAvail().x >= Dp(600) ? 3 : 2;
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 7));
         if (ImGui::BeginTable("##build_facts", columns, ImGuiTableFlags_SizingStretchSame))
         {
-            for (const auto& [label, value] : facts)
+            for (const auto& fact : facts)
             {
                 ImGui::TableNextColumn();
                 ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - Dp(16));
-                TextColored(fonts.caption, color::dim, label);
+                TextColored(fonts.caption, color::dim, fact.label);
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(4));
-                TextWrappedColored(fonts.body, color::text, value.c_str());
+                TextWrappedColored(fonts.body, color::text, fact.value.c_str());
                 ImGui::PopTextWrapPos();
             }
             ImGui::EndTable();
@@ -8972,14 +13087,15 @@ private:
 
         const ImVec2 button = Dp(200, 40);
         FlowNext(true, button.x);
-        if (SecondaryButton("copy_build", "Copy build details", button, true, Icon::Copy))
+        if (SecondaryButton("copy_build", texts::T("settings.about.build.copy"), button, true, Icon::Copy))
         {
             std::string text = "Recharged\n";
-            for (const auto& [label, value] : facts) text += std::string(label) + ": " + value + "\n";
-            if (SDL_SetClipboardText(text.c_str())) Notice("Build details copied to the clipboard.", NoticeKind::Success);
+            for (const auto& fact : facts) text += std::string(fact.english) + ": " + fact.english_value + "\n";
+            if (SDL_SetClipboardText(text.c_str()))
+                Notice(texts::T("settings.about.build.copied"), NoticeKind::Success);
         }
         FlowNext(false, button.x);
-        if (SecondaryButton("open_logs", "Open logs folder", button, true, Icon::Folder))
+        if (SecondaryButton("open_logs", texts::T("settings.about.build.open_logs"), button, true, Icon::Folder))
         {
             const fs::path log = platform::SessionLogPath();
             const fs::path folder = log.empty() ? base_ / "logs" : log.parent_path();
@@ -8988,9 +13104,9 @@ private:
             OpenPath(folder);
         }
         FlowNext(false, button.x);
-        const char* notes = identity.origin == BuildOrigin::Test ? "Pull request"
-                          : identity.origin == BuildOrigin::Release ? "Release notes"
-                                                                   : "All releases";
+        const char* notes = identity.origin == BuildOrigin::Test      ? texts::T("settings.about.build.pull_request")
+                          : identity.origin == BuildOrigin::Release ? texts::T("settings.about.build.release_notes")
+                                                                    : texts::T("settings.about.build.all_releases");
         if (SecondaryButton("build_notes", notes, button, true, Icon::GitHub)) SDL_OpenURL(BuildNotesUrl(identity).c_str());
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", BuildNotesUrl(identity).c_str());
         EndCard();
@@ -9024,6 +13140,7 @@ private:
     } sizzle_;
     SDL_Texture* aurora_logo_ = nullptr;
     float aurora_logo_width_ = 1, aurora_logo_height_ = 1;
+    SDL_Texture* flags_ = nullptr; // assets/flags/flags.png
     // Open standard gamepads (gamepad1-4 order); gamepad_ is the first.
     std::vector<SDL_Gamepad*> pads_;
     SDL_Gamepad* gamepad_ = nullptr;
@@ -9052,7 +13169,7 @@ private:
     // Gamepad profiles view: the profile being edited, its rename field and
     // the input waiting for a gamepad press.
     bool gamepad_view_ = false;
-    int edit_profile_ = -1; // -1: the built-in Default
+    int edit_profile_ = -1; // below 0: built in (-1 Default)
     std::size_t pad_slot_ = 0; // the gamepad the page was opened for
     bool renaming_ = false, rename_focus_ = false, confirm_delete_ = false;
     std::string rename_buffer_;
@@ -9079,19 +13196,27 @@ private:
     bool config_ok_ = false;
     bool dirty_ = false;
     bool play_prompt_ = false;
+    float profile_actions_ = 0.0f; // Player profile: where the rows' actions start, from the value
     // Start training: asked on the Gameplay page, and the start it makes.
     bool training_requested_ = false;
+    // A set's go seen: start its game (once per set and launcher).
+    bool competitive_go_ = false;
+    std::int64_t competitive_started_go_ = 0; // GoKey of the set's go this launcher started the game for
     bool training_ = false;
     NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
     int page_ = PagePlay;
-    int setup_page_ = PageMiis; // the Online/Match setup page its row opens
+    int group_page_[std::size(kNavGroups)] = {PageOnlineSettings}; // the page each group's row opens
     bool close_requested_ = false;
     bool pending_ = false;
     bool region_prompt_ = false;
     DiscCheck check_;
     // The PC's languages, for Automatic (read once).
     std::vector<std::string> pc_languages_ = mscharged::platform::PcLanguages();
+    // Recharged's own texts: the menu language they are in (LoadTexts), and
+    // the languages assets/lang has.
+    std::optional<std::string> texts_language_;
+    std::vector<texts::LanguageChoice> menu_languages_;
     std::future<DiscCheck> future_;
     // An image chosen with Browse, a drop or Locate, checked before it is pinned.
     std::future<DiscCheck> candidate_;
@@ -9145,11 +13270,89 @@ private:
     fs::path import_source_;
     ImportKind import_kind_ = ImportKind::Save;
     bool import_prompt_ = false;
+    // The Miis' heads (MiiFaces), and whether the game image's parts failed
+    // when last seen (logged once).
+    std::unique_ptr<MiiFaces> mii_faces_;
+    bool mii_faces_failed_ = false;
     // The Miis of the save folder in use and the times of their files when read.
     fs::path miis_folder_;
     std::vector<fs::file_time_type> miis_times_;
     mscharged::platform::MiiDatabaseStatus miis_;
-    std::string new_mii_name_;
+    // Player profile's Play with a Mii (MiiWizardPage): the step (0 the
+    // welcome, 1 Your Mii, 2 Go online), where the Mii comes from (0 a new
+    // one, 1 this computer's, 2 Dolphin's), the profile name and whether the
+    // player typed it, a Mii name typed instead of the one made from it, the
+    // new Mii's colour and face, the chosen Mii of this computer (the new
+    // one once made), and the sign-in on its way.
+    struct MiiWizard
+    {
+        int step = 0;
+        int source = 0;
+        std::string profile_name;
+        bool profile_typed = false;
+        bool own_mii_name = false;
+        std::string mii_name;
+        int color = 0;
+        // The new Mii's face: rolled from `seed`, or edited; its create ID
+        // counts from `created` until it is made.
+        std::uint32_t seed = 0;
+        platform::mii::MiiFace face;
+        std::int64_t created = 0;
+        std::optional<std::array<unsigned char, 8>> chosen;
+        bool signing_in = false;
+    };
+    MiiWizard wizard_;
+    // The Mii editor (MiiEditorPage): whether it is open and on which page,
+    // what it edits (Play with a Mii's new Mii, or one of this computer's:
+    // `add` for the player's own Mii not made here yet, `name_locked` for a
+    // Discord player's, named after their Discord name), the Mii as opened,
+    // the face and name being edited, the steps Undo takes back (a step per
+    // value changed, a slider's drag one step), the section and expression
+    // shown, and the head shown until the edited one is drawn.
+    struct MiiEditor
+    {
+        enum class Target { Wizard, Database };
+        struct Step
+        {
+            platform::mii::MiiFace face;
+            std::string name;
+        };
+        bool open = false;
+        int page = 0;
+        Target target = Target::Wizard;
+        std::string record;
+        bool add = false, name_locked = false;
+        platform::mii::MiiFace face, original_face;
+        std::string name, original_name;
+        std::vector<Step> undo;
+        std::string gesture;
+        bool released = true;
+        int section = 0, section_shown = -1;
+        int expression = 0;
+        platform::mii::MiiFace shown;
+        int shown_expression = 0;
+        bool has_shown = false;
+    };
+    MiiEditor mii_editor_;
+    unsigned mii_editor_frames_ = 0; // frames the editor was drawn in (the smoke test tells)
+    bool page_scroll_top_ = false; // the page shown from its top next frame
+    bool sign_out_prompt_ = false;
+    // Which Mii plays for a player whose Mii would be made from the account
+    // (DrawMiiReusePrompt): the player key asked for (once per sign-in), when
+    // it was looked at last, and the Mii chosen in the prompt.
+    std::string mii_reuse_asked_;
+    Uint64 mii_reuse_checked_ = 0;
+    std::optional<std::array<unsigned char, 8>> mii_reuse_choice_;
+    bool mii_reuse_preview_ = false; // a development capture asks it
+    bool signing_out_ = false; // Sign out pressed, the service not signed out yet
+    // The profiles that signed in here (platform::KnownProfile), read once;
+    // the status serial they were last brought up to date at.
+    std::vector<platform::KnownProfile> known_profiles_;
+    bool known_profiles_read_ = false;
+    std::uint64_t known_profiles_serial_ = 0;
+    bool preview_applied_ = false; // a development capture's made-up Mii state, set once
+    // The Mii made from a Discord account (PlayerOwnMii), for its key and name.
+    std::string keyed_mii_for_, keyed_mii_record_;
     // The Teams page: the captain shown, the slot whose menu is open, and the
     // lineups read from the save folder.
     int lineup_captain_ = 0;
@@ -9166,9 +13369,6 @@ private:
     fs::file_time_type presets_time_;
     launcher::MatchPresetList presets_;
     bool presets_loaded_ = false;
-    fs::path match_save_folder_;
-    fs::file_time_type match_save_time_;
-    mscharged::platform::MatchSaveStatus match_save_;
     std::optional<launcher::MatchPreset> preset_edit_;
     int preset_delete_ = -1;
     // The WFC server's count of players online (top bar of the Play page).
@@ -9176,6 +13376,35 @@ private:
     std::optional<PlayersOnline::Count> online_count_;
     // Update check and installation (#50).
     std::unique_ptr<UpdateService> updates_;
+    // Competitive play: the service, what it showed last, the sign-in page
+    // opened last and the last failure told.
+    std::unique_ptr<CompetitiveService> competitive_;
+    CompetitiveService::Status competitive_status_;
+    std::uint64_t competitive_opened_ = 0, competitive_errors_ = 0;
+    // The Discord friends (after the service: it goes first), what they
+    // showed last, the friends whose players were asked for and the last
+    // failure told.
+    std::unique_ptr<DiscordFriends> discord_friends_;
+    std::int64_t watched_match_ = 0;    // the open set, told when it ends without a result
+    bool watched_invite_ = false;       // it was still a challenge when last seen
+    std::int64_t alerted_ = 0;          // the last chime: a challenge's id * 2, or a go's GoKey * 2 + 1
+    std::int64_t countdown_go_ = 0;     // the go counting down (GoKey), and when the game starts (SDL ticks)
+    std::uint64_t countdown_end_ = 0;
+    std::string set_blocker_;           // why this computer can't play a set now (SetBlocker), or empty
+    // The challenge dialog: the challenge declined (it does not come back),
+    // the one accepted here and the last failure before its Accept, and why
+    // the set's game could not start.
+    std::int64_t challenge_declined_ = 0, challenge_accepted_ = 0;
+    std::uint64_t challenge_errors_ = 0;
+    std::string set_start_error_;
+    std::optional<platform::AlertSound> alert_sound_;
+    std::optional<platform::DiscordPresence> set_presence_; // the Discord status of a waiting set
+    DiscordFriends::Status discord_status_;
+    // The Discord friends' ids the service looks up (the game's online panel
+    // gets them too).
+    std::vector<std::string> discord_asked_;
+    std::uint64_t discord_errors_ = 0;
+    std::string test_player_name_;
     UpdateService::Status update_;
     bool update_dialog_ = false, update_capture_dialog_ = false, update_capture_install_ = false, restart_ = false;
     bool update_preview_ = false;
@@ -9520,12 +13749,20 @@ int main(int argc, char** argv)
         std::optional<ResolvedLaunch> frontend_launch;
         int result;
         fs::path restart, reopen;
+        bool reopen_on = false;
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
             frontend_launch = launcher.FrontendLaunch();
             if (launcher.RestartRequested()) restart = launcher.RestartExecutable();
-            else if (frontend_launch && frontend_launch->settings.reopen_after_game) reopen = launcher.RestartExecutable();
+            // A set's game always opens the launcher again, into its lobby;
+            // otherwise as [launcher] reopen_after_game says (the game's
+            // Settings can switch it while it runs).
+            else if (frontend_launch)
+            {
+                reopen = launcher.RestartExecutable();
+                reopen_on = frontend_launch->settings.reopen_after_game || frontend_launch->start_competitive;
+            }
         } // Destroy the launcher/ImGui/SDL session before Aurora initializes.
         if (!restart.empty())
         {
@@ -9540,7 +13777,7 @@ int main(int argc, char** argv)
         SetAppName();
 #ifdef MSCHARGED_HAS_ORIGINAL_FRONTEND
         // [launcher] reopen_after_game: closing the game starts this launcher again.
-        if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(reopen, argc, argv);
+        if (!reopen.empty()) mscharged::platform::ArmLauncherReopen(reopen, argc, argv, reopen_on);
         if (frontend_launch) return RunOriginalGame(argc, argv, &*frontend_launch, true,
             OriginalMainScene::FrontendSequence, GameTitle().c_str());
 #endif

@@ -1,5 +1,7 @@
 #include "launcher/update_check.h"
 
+#include "bootstrap/texts.h"
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -387,11 +389,17 @@ std::string DescribeReplacement(std::string_view replaced, const BuildIdentity& 
         if (same_number && !version.commit.empty()) text += " (" + version.commit.substr(0, 8) + ")";
         return text;
     };
-    std::string target = label(now);
-    if (build.origin == BuildOrigin::Release) target = "release " + target;
-    else if (build.origin == BuildOrigin::Test) target = "test build " + target;
-    return std::string(CompareVersions(now, before) < 0 ? "Switched" : "Updated") + " from " + label(before) + " to "
-        + target + ".";
+    // Back to an older version is a switch.
+    const bool back = CompareVersions(now, before) < 0;
+    const std::string from = label(before), to = label(now);
+    if (build.origin == BuildOrigin::Release)
+        return back ? texts::T("launcher.update.replaced.switched_to_release", {{"from", from}, {"to", to}})
+                    : texts::T("launcher.update.replaced.updated_to_release", {{"from", from}, {"to", to}});
+    if (build.origin == BuildOrigin::Test)
+        return back ? texts::T("launcher.update.replaced.switched_to_test_build", {{"from", from}, {"to", to}})
+                    : texts::T("launcher.update.replaced.updated_to_test_build", {{"from", from}, {"to", to}});
+    return back ? texts::T("launcher.update.replaced.switched", {{"from", from}, {"to", to}})
+                : texts::T("launcher.update.replaced.updated", {{"from", from}, {"to", to}});
 }
 
 std::string ExpectedSha256(const PackageAsset& asset, std::string_view checksums)

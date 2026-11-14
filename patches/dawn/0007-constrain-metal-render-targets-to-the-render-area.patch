@@ -1,0 +1,122 @@
+Subject: Constrain Metal render targets to the render area
+
+Upstream-base: 1155e0ed531126f33a1279afa029349651ca1c93
+Classification: Metal performance.
+
+Recharged gives each multisampled EFB pass a render area, the bounding box
+of what it draws, so that load, store and resolve skip the rest of
+the EFB (render area on Vulkan, resolve rectangle on D3D12). Metal has no
+render area, but renderTargetWidth/renderTargetHeight constrain the render
+target to a size counted from the origin; MoltenVK implements Vulkan render
+areas the same way. Enable RenderPassRenderArea on Metal and constrain the
+render target to the area's far corner when every attachment loads and stores:
+the pixels between the origin and the area are then loaded, stored and
+resolved as they were. Other passes, and passes that must initialize their
+attachments, keep the whole render target. As on Vulkan, the viewport still
+defaults to the whole attachments and the scissor to the render area.
+
+diff --git a/src/dawn/native/metal/CommandBufferMTL.mm b/src/dawn/native/metal/CommandBufferMTL.mm
+index 79bc5b4..d2317bd 100644
+--- a/src/dawn/native/metal/CommandBufferMTL.mm
++++ b/src/dawn/native/metal/CommandBufferMTL.mm
+@@ -183,6 +183,39 @@ NSRef<MTLComputePassDescriptor> CreateMTLComputePassDescriptor(BeginComputePassC
+     return descriptorRef;
+ }
+ 
++// Recharged: whether the render area leaves out part of the attachments.
++bool HasPartialRenderArea(const BeginRenderPassCmd* renderPass) {
++    const RenderAreaRect& area = renderPass->renderArea;
++    return area.x != 0 || area.y != 0 || area.width != renderPass->width ||
++           area.height != renderPass->height;
++}
++
++// Recharged: whether every attachment loads its contents and stores them again.
++bool LoadsAndStoresAllAttachments(MTLRenderPassDescriptor* descriptor) {
++    for (uint32_t i = 0; i < kMaxColorAttachments; ++i) {
++        MTLRenderPassColorAttachmentDescriptor* color = descriptor.colorAttachments[i];
++        if (color.texture == nil) {
++            continue;
++        }
++        if (color.loadAction != MTLLoadActionLoad ||
++            (color.storeAction != MTLStoreActionStore &&
++             color.storeAction != MTLStoreActionStoreAndMultisampleResolve)) {
++            return false;
++        }
++    }
++    MTLRenderPassDepthAttachmentDescriptor* depth = descriptor.depthAttachment;
++    if (depth.texture != nil &&
++        (depth.loadAction != MTLLoadActionLoad || depth.storeAction != MTLStoreActionStore)) {
++        return false;
++    }
++    MTLRenderPassStencilAttachmentDescriptor* stencil = descriptor.stencilAttachment;
++    if (stencil.texture != nil &&
++        (stencil.loadAction != MTLLoadActionLoad || stencil.storeAction != MTLStoreActionStore)) {
++        return false;
++    }
++    return true;
++}
++
+ NSRef<MTLRenderPassDescriptor> CreateMTLRenderPassDescriptor(
+     const Device* device,
+     BeginRenderPassCmd* renderPass,
+@@ -425,6 +458,18 @@ NSRef<MTLRenderPassDescriptor> CreateMTLRenderPassDescriptor(
+         }
+     }
+ 
++    // Recharged: Metal has no render area, but it constrains the render target to a size counted
++    // from the origin (MoltenVK does the same for Vulkan render areas). Load, store and resolve
++    // actions then skip everything beyond the area's far corner. The pixels between the origin
++    // and the area are still loaded, stored and resolved, which leaves them as they were only
++    // when every attachment loads and stores; other passes, and passes that must initialize their
++    // attachments, keep the whole render target.
++    if (HasPartialRenderArea(renderPass) && !renderPass->forceFullRenderArea &&
++        LoadsAndStoresAllAttachments(descriptor)) {
++        descriptor.renderTargetWidth = renderPass->renderArea.x + renderPass->renderArea.width;
++        descriptor.renderTargetHeight = renderPass->renderArea.y + renderPass->renderArea.height;
++    }
++
+     return descriptorRef;
+ }
+ 
+@@ -1799,6 +1844,27 @@ MaybeError CommandBuffer::EncodeRenderPass(
+     // Apply default frag depth
+     immediates.SetClampFragDepth(0.0, 1.0);
+ 
++    // Recharged: with a render area the viewport still defaults to the whole attachments and the
++    // scissor to the render area, as on Vulkan. Metal's own defaults follow the render target,
++    // which CreateMTLRenderPassDescriptor may have constrained.
++    if (HasPartialRenderArea(renderPassCmd)) {
++        MTLViewport viewport;
++        viewport.originX = 0.0;
++        viewport.originY = 0.0;
++        viewport.width = static_cast<double>(renderPassCmd->width);
++        viewport.height = static_cast<double>(renderPassCmd->height);
++        viewport.znear = 0.0;
++        viewport.zfar = 1.0;
++        [encoder setViewport:viewport];
++
++        MTLScissorRect scissor;
++        scissor.x = renderPassCmd->renderArea.x;
++        scissor.y = renderPassCmd->renderArea.y;
++        scissor.width = renderPassCmd->renderArea.width;
++        scissor.height = renderPassCmd->renderArea.height;
++        [encoder setScissorRect:scissor];
++    }
++
+     auto EncodeRenderBundleCommand = [&](CommandIterator* iter, Command type) {
+         switch (type) {
+             case Command::Draw: {
+diff --git a/src/dawn/native/metal/PhysicalDeviceMTL.mm b/src/dawn/native/metal/PhysicalDeviceMTL.mm
+index 2d7e995..390ffc8 100644
+--- a/src/dawn/native/metal/PhysicalDeviceMTL.mm
++++ b/src/dawn/native/metal/PhysicalDeviceMTL.mm
+@@ -671,6 +671,9 @@ void PhysicalDevice::InitializeSupportedFeaturesImpl() {
+ 
+     EnableFeature(Feature::DepthClipControl);
+ 
++    // Recharged: render areas constrain the render target (CommandBufferMTL.mm).
++    EnableFeature(Feature::RenderPassRenderArea);
++
+     EnableFeature(Feature::Depth32FloatStencil8);
+ 
+ // TODO(dawn:2249): Enable on iOS. Some XCode or SDK versions seem to not match the docs.

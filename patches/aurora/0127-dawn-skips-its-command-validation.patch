@@ -1,0 +1,27 @@
+From: mscharged-port
+Subject: Dawn skips its command validation
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance. Apply after 0126.
+
+Dawn validates every command on the render thread before it records it for
+the driver (about a third of the render thread's time in a match). Dawn's
+skip_validation toggle is now set unless the backend debug layers are on:
+the recorded driver commands are the same, robust buffer and shader access
+stay on. Owner decision 2026-11-13 (earlier builds kept validation).
+
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index bbf9999..61f7659 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -1045,6 +1045,11 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     // spirv-val of Tint's output is a debug check, run on every pipeline even
+     // when the blob cache hits. It follows the backend debug layers.
+     if (!g_config.enableBackendValidation) disableToggles.push_back("enable_spirv_validation");
++    // Without the backend debug layers Dawn does not validate every command on
++    // the render thread. The commands it records for the driver are the same;
++    // robust buffer and shader access stay on (they change generated code,
++    // validation does not).
++    if (!g_config.enableBackendValidation) enableToggles.push_back("skip_validation");
+     wgpu::DawnTogglesDescriptor togglesDescriptor(wgpu::DawnTogglesDescriptor::Init{
+         .nextInChain = &cacheDescriptor,
+         .enabledToggleCount = enableToggles.size(),

@@ -80,16 +80,37 @@ target_link_libraries(charged_players_online PUBLIC charged_http PRIVATE charged
 add_library(charged_match_presets STATIC src/launcher/match_presets.cpp)
 target_include_directories(charged_match_presets PUBLIC src)
 target_compile_features(charged_match_presets PUBLIC cxx_std_17)
-target_link_libraries(charged_match_presets PUBLIC charged_host)
+target_link_libraries(charged_match_presets PUBLIC charged_host charged_competitive)
 # New Miis for players without any (the Miis page).
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/MiiMaker.cmake")
-add_executable(mscharged src/launcher/main.cpp src/launcher/ui_kit.cpp src/launcher/release_notes_view.cpp)
+# The Discord friends (docs/COMPETITIVE.md), with the Discord Social SDK when
+# MSCHARGED_DISCORD_SOCIAL_SDK names it.
+add_library(charged_discord_friends STATIC src/launcher/discord_friends.cpp)
+target_include_directories(charged_discord_friends PUBLIC src)
+target_compile_features(charged_discord_friends PUBLIC cxx_std_17)
+target_link_libraries(charged_discord_friends PUBLIC charged_competitive charged_session_log)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DiscordSocialSdk.cmake")
+mscharged_discord_social_sdk(charged_discord_friends)
+if(BUILD_TESTING)
+    add_executable(discord_friends_tests tests/discord_friends.cpp)
+    target_link_libraries(discord_friends_tests PRIVATE charged_discord_friends)
+    mscharged_discord_social_sdk_beside(discord_friends_tests)
+    add_test(NAME discord_friends COMMAND discord_friends_tests)
+    set_tests_properties(discord_friends PROPERTIES TIMEOUT 60)
+endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Texts.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/GameOverlay.cmake")
+add_executable(mscharged src/launcher/main.cpp src/launcher/release_notes_view.cpp
+    src/launcher/competitive_service.cpp)
 # The program players start: recharged (recharged.exe). The target keeps its old name.
 # On Windows it is a Windows (GUI) program, so no console opens with it (#61).
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
     charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_graphics_cards
-    charged_texture_packs charged_mii_maker charged_match_presets charged_players_online)
+    charged_texture_packs charged_mii_maker charged_match_presets charged_competitive charged_discord_friends
+    charged_alert_sound charged_discord charged_ui_kit charged_overlay charged_mii_faces charged_players_online charged_texts)
+mscharged_discord_social_sdk_beside(mscharged)
+mscharged_stage_texts(mscharged)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")
 mscharged_stage_pipeline_catalog(mscharged)
 if(APPLE)
@@ -153,6 +174,13 @@ add_custom_command(TARGET mscharged POST_BUILD
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/robot_goalie.map"
             "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/README.md"
             "$<TARGET_FILE_DIR:mscharged>/assets/gameplay"
+    # The flags beside players' names, in the game menu and the launcher.
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:mscharged>/assets/flags"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/flags.png"
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/README.md"
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/LICENSE-flag-icons"
+            "$<TARGET_FILE_DIR:mscharged>/assets/flags"
     VERBATIM)
 # Resource edits must refresh the copied files even without a C++ source edit.
 set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
@@ -167,6 +195,9 @@ set_property(TARGET mscharged APPEND PROPERTY LINK_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/LICENSES/Apache-2.0.txt"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/robot_goalie.map"
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/gameplay/README.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/flags.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/README.md"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/flags/LICENSE-flag-icons"
     "${MSCHARGED_IMGUI_PREPARED}/misc/fonts/Roboto-Medium.ttf"
     "${MSCHARGED_AURORA_PREPARED}/assets/aurora.png")
 
@@ -175,6 +206,20 @@ if(BUILD_TESTING)
         COMMAND mscharged --smoke-test --config "${CMAKE_CURRENT_BINARY_DIR}/launcher-test-missing.ini")
     set_tests_properties(launcher_smoke PROPERTIES
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software" TIMEOUT 30)
+    # The Online pages with made-up states: Play with a Mii's steps, a Mii
+    # player's profile (with its Sign out asked), the Mii editor (a Mii's
+    # face, its hair, a new Mii's), a Discord player's.
+    foreach(preview IN ITEMS preview-mii-new preview-mii-go preview-mii-profile-signout preview-mii-editor
+            preview-mii-editor-hair preview-mii-new-editor preview)
+        add_test(NAME launcher_smoke_${preview}
+            COMMAND mscharged --smoke-test --config "${CMAKE_CURRENT_BINARY_DIR}/launcher-test-missing.ini")
+        set_tests_properties(launcher_smoke_${preview} PROPERTIES
+            ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software;RECHARGED_CAPTURE_DISCORD=${preview}"
+            TIMEOUT 30)
+        if(preview MATCHES "editor")
+            set_tests_properties(launcher_smoke_${preview} PROPERTIES PASS_REGULAR_EXPRESSION "Mii editor was drawn")
+        endif()
+    endforeach()
     add_executable(launcher_ui_metrics_tests tests/launcher_ui_metrics.cpp)
     target_include_directories(launcher_ui_metrics_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     add_test(NAME launcher_ui_metrics COMMAND launcher_ui_metrics_tests)
