@@ -1,5 +1,41 @@
 #include "so_host.h"
 
+#if defined(__SWITCH__)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <switch.h>
+
+// Horizon lists no network interfaces: the console's current address and mask
+// come from its network service.
+void so_host_find_ipv4_info(struct so_host_ipv4* out)
+{
+    *out = (struct so_host_ipv4){ 0 };
+    if (R_SUCCEEDED(nifmInitialize(NifmServiceType_User)))
+    {
+        u32 address = 0, netmask = 0, gateway = 0, dns[2] = { 0 };
+        if (R_SUCCEEDED(nifmGetCurrentIpConfigInfo(&address, &netmask, &gateway, &dns[0], &dns[1])))
+        {
+            out->addr = address;
+            out->netmask = netmask;
+        }
+        nifmExit();
+    }
+
+    if (out->addr == 0)
+    {
+        out->addr = htonl(INADDR_LOOPBACK);
+        out->netmask = htonl(0xFF000000u);
+    }
+    out->broadcast = out->addr | ~out->netmask;
+}
+
+uint32_t so_host_find_ipv4(void)
+{
+    struct so_host_ipv4 info;
+    so_host_find_ipv4_info(&info);
+    return info.addr;
+}
+#else
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -68,3 +104,4 @@ uint32_t so_host_find_ipv4(void)
     so_host_find_ipv4_info(&info);
     return info.addr;
 }
+#endif

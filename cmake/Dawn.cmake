@@ -36,7 +36,15 @@ function(mscharged_add_dawn)
     set(DAWN_BUILD_FUZZERS OFF)
     set(DAWN_USE_GLFW OFF)
     set(DAWN_ENABLE_D3D12 OFF)
-    if(APPLE)
+    if(NINTENDO_SWITCH)
+        # Vulkan through NVK, linked in (tools/switch/build-nvk.sh), rendering
+        # to the console's window (patches/dawn 0007).
+        set(DAWN_PLATFORM_SWITCH ON)
+        set(DAWN_USE_WAYLAND OFF)
+        set(DAWN_USE_X11 OFF)
+        set(DAWN_ENABLE_VULKAN ON)
+        set(DAWN_ENABLE_METAL OFF)
+    elseif(APPLE)
         set(CMAKE_OBJCXX_STANDARD 20)
         set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
         set(DAWN_USE_WAYLAND OFF)
@@ -88,6 +96,10 @@ function(mscharged_add_dawn)
         # Aurora links the monolithic target, which bypasses dawn_native's
         # runtime-copy dependency. Normal game builds need the same DLLs.
         add_dependencies(webgpu_dawn copy_d3dcompiler_dll)
+    endif()
+    if(NINTENDO_SWITCH)
+        # Dawn calls the driver's entry point directly: the driver follows it.
+        target_link_libraries(webgpu_dawn PUBLIC charged_switch_vulkan)
     endif()
     if(WIN32 AND MINGW)
         # SharedFence uses CompareObjectHandles, available on our Windows 10+

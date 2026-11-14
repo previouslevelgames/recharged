@@ -9,7 +9,11 @@ namespace mscharged::platform {
 // Host loader services only. PE resolves every normal import before any module
 // constructor runs. ELF/Mach-O retain their current RTLD_LAZY boundary.
 // This does not supply missing source/SDK definitions or admit a game profile.
+// A path whose file name names one of the program's static game images
+// (cmake/StaticGameImages.cmake) loads that image instead of a file.
 void* LoadNativeModule(const std::filesystem::path& path);
+// Whether LoadNativeModule can load the path: a static game image or a file.
+bool NativeModuleAvailable(const std::filesystem::path& path);
 // Windows: keeps [base, base + size) reserved until the next LoadNativeModule,
 // which frees it for the module whose fixed image base it is. The host
 // allocates bottom-up into the same low 2 GB, and a fullscreen graphics device

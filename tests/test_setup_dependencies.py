@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from setup_dependencies import DAWN_COMMON, DAWN_VULKAN, LAUNCHER, RETRY_DELAYS, RUNTIME, SetupError, setup
+from setup_dependencies import DAWN_COMMON, DAWN_VULKAN, LAUNCHER, RETRY_DELAYS, RUNTIME, SWITCH, SetupError, setup
 
 
 class DependencySetupTests(unittest.TestCase):
@@ -49,7 +49,7 @@ class DependencySetupTests(unittest.TestCase):
         cls.commit(cls.freetype)
         cls.template = cls.base / "parent"
         cls.init(cls.template)
-        for path in (*RUNTIME, "extern/qtbase"):
+        for path in (*RUNTIME, *(path for path in SWITCH if path not in RUNTIME), "extern/qtbase"):
             source = cls.dawn if path == "extern/dawn" else cls.freetype if path == "extern/freetype" else cls.leaf
             cls.git(cls.template, "submodule", "add", str(source), path)
         cls.commit(cls.template)
@@ -126,6 +126,17 @@ class DependencySetupTests(unittest.TestCase):
         self.assertTrue(all(self.initialized(path) for path in LAUNCHER))
         self.assertTrue(all(not self.initialized(path) for path in RUNTIME if path not in LAUNCHER))
         self.assertFalse(self.initialized("extern/qtbase"))
+
+    def test_switch_takes_its_own_sdl_and_no_nod(self):
+        self.run_setup(switch=True, system="Linux", shallow=True)
+        self.assertTrue(all(self.initialized(path) for path in SWITCH))
+        for path in ("extern/sdl3on2", "extern/mesa-switch", "extern/aurora"):
+            self.assert_leaf_pin(path)
+        for path in (*DAWN_COMMON, *DAWN_VULKAN):
+            self.assert_leaf_pin("extern/dawn/" + path)
+        self.assert_leaf_pin("extern/freetype/subprojects/dlg")
+        for path in ("extern/nod", "extern/corrosion", "extern/sdl", "extern/qtbase"):
+            self.assertFalse(self.initialized(path))
 
     def take_sources_offline(self):
         offline = self.base / "leaf-offline"

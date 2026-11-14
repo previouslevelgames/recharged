@@ -138,6 +138,18 @@
         "MSCHARGED_BUILD_SCENE_PREVIEW": true,
         "MSCHARGED_BUILD_LAUNCHER": true
       }
+    },
+    {
+      "name": "switch",
+      "inherits": "frontend-runtime",
+      "displayName": "Nintendo Switch homebrew (Release; run in tools/switch/devkitpro.sh)",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/NintendoSwitch.cmake",
+      "cacheVariables": {
+        "BUILD_TESTING": false,
+        "MSCHARGED_BUILD_LAUNCHER": false,
+        "MSCHARGED_BUILD_ORIGINAL_LOADING_DIAGNOSTIC": false,
+        "MSCHARGED_STATIC_GAME": true
+      }
     }
   ],
   "buildPresets": [
@@ -178,6 +190,13 @@
     {
       "name": "scene",
       "configurePreset": "scene"
+    },
+    {
+      "name": "switch",
+      "configurePreset": "switch",
+      "targets": [
+        "mscharged_nro"
+      ]
     }
   ],
   "testPresets": [
@@ -368,6 +387,19 @@
         {
           "type": "test",
           "name": "scene"
+        }
+      ]
+    },
+    {
+      "name": "switch",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "switch"
+        },
+        {
+          "type": "build",
+          "name": "switch"
         }
       ]
     }
