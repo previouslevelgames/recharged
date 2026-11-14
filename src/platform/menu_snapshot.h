@@ -88,6 +88,10 @@ struct ChargedMenuSnapshot
     int network_match;
     // The player forfeited it (CHARGED_MENU_FORFEIT): on the way out.
     int forfeiting;
+    // The trophy room (CHARGED_MENU_TROPHY_ROOM): where the front end's
+    // camera is on its way to or from the cut online tournament's trophy
+    // (ChargedTrophyRoom).
+    int trophy_room;
 };
 
 enum ChargedMenu
@@ -129,6 +133,19 @@ enum ChargedMenuCommandKind
     CHARGED_MENU_CURSORS = 11,  // the game hands its players' cursors over (`value` 1) or draws them (0)
     CHARGED_MENU_FORFEIT = 12,  // the online match is left, as the game leaves it when the disc lid opens
     CHARGED_MENU_MAIN_OPTIONS = 13, // the main menu's OPTIONS is pressed (the way to the Credits from there)
+    CHARGED_MENU_TROPHY_ROOM = 14, // from the game's online menu into the trophy room (`value` 1, the trophy
+                                   // `which`: eCupPersona) or back out of it (`value` 0)
+};
+
+// The trophy room: the front end's camera on the trophy of the game's cut
+// online tournament (its fe_presentation script, as NetTournManager calls it),
+// entered from the game's online menu, which stays on the scene stack.
+enum ChargedTrophyRoom
+{
+    CHARGED_TROPHY_ROOM_OUT = 0,      // the online menu's own camera (or no online menu)
+    CHARGED_TROPHY_ROOM_ENTERING = 1, // the camera on its way, the trophy loading
+    CHARGED_TROPHY_ROOM_IN = 2,       // the camera on the trophy, in its loop
+    CHARGED_TROPHY_ROOM_LEAVING = 3,  // the camera on its way back to the online menu's
 };
 
 // The game's own menu sounds (CHARGED_MENU_SOUND): a button lit, pressed,
