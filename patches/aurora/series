@@ -120,5 +120,8 @@
 0124-render-area-of-multisampled-efb-passes.patch
 0125-staging-copies-in-whole-256-kib-blocks.patch
 0126-draw-done-without-waiting-for-the-render-worker.patch
+0127-dawn-skips-its-command-validation.patch
+0128-reuse-staged-index-lists.patch
 0129-one-submit-per-packet.patch
 0130-d3d12-resolves-only-what-efb-passes-draw.patch
+0131-gx-draws-leave-out-unchanged-bindings.patch
