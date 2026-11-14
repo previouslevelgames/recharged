@@ -642,13 +642,15 @@ void MousePlayerCycle() {
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
 }
-// Middle and side mouse buttons press the keyboard actions bound to them (#62);
-// left and right click stay A and B.
+// Mouse buttons press the keyboard actions bound to them (#62); left and right
+// click are A and B while no action takes them.
 void MouseKeysCycle() {
     using namespace mscharged::platform;
     Check(ParseKeyBinding("mouse 4 | Return") == KeyBinding{kMouseKeyBase + SDL_BUTTON_X1, SDL_SCANCODE_RETURN}
               && FormatKeyBinding(ParseKeyBinding("Mouse Middle|mouse 5")) == "Mouse Middle | Mouse 5"
-              && MouseKeyInput(SDL_BUTTON_LEFT) == kKeyNone && MouseButtonOf(SDL_SCANCODE_A) == 0,
+              && FormatKeyBinding(ParseKeyBinding("mouse left | MOUSE RIGHT")) == "Mouse Left | Mouse Right"
+              && MouseButtonOf(MouseKeyInput(SDL_BUTTON_LEFT)) == SDL_BUTTON_LEFT
+              && MouseKeyInput(SDL_BUTTON_X2 + 1) == kKeyNone && MouseButtonOf(SDL_SCANCODE_A) == 0,
           "Mouse button names");
     ConfigureWpadSDL({0,3,false,false});
     DesktopWpadSettings settings{};
@@ -674,7 +676,26 @@ void MouseKeysCycle() {
     MouseButton(SDL_BUTTON_LEFT, true);
     Until([&] { return Report().button == WPAD_BUTTON_A; }, "Left click stopped pressing A");
     MouseButton(SDL_BUTTON_LEFT, false);
+    MouseButton(SDL_BUTTON_RIGHT, true);
+    Until([&] { return Report().button == WPAD_BUTTON_B; }, "Right click stopped pressing B");
+    MouseButton(SDL_BUTTON_RIGHT, false);
     Until([&] { return Report().button == 0; }, "A mouse button release kept a press");
+    ShutdownDesktopWpad();
+    WPADShutdown();
+    // Left and right click bound to actions press those, and no longer A or B.
+    settings.keys[mscharged::KeyActionTwo] = ParseKeyBinding("Mouse Left");
+    settings.keys[mscharged::KeyActionA] = ParseKeyBinding("Return | Mouse Right");
+    InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard & mouse did not reconnect");
+    MouseButton(SDL_BUTTON_LEFT, true);
+    Until([&] { return Report().button == WPAD_BUTTON_2; }, "Left click bound to 2 did not press only 2");
+    MouseButton(SDL_BUTTON_LEFT, false);
+    MouseButton(SDL_BUTTON_RIGHT, true);
+    Until([&] { return Report().button == WPAD_BUTTON_A; }, "Right click bound to A did not press only A");
+    MouseButton(SDL_BUTTON_RIGHT, false);
+    Until([&] { return Report().button == 0; }, "A bound click release kept a press");
     ShutdownDesktopWpad();
     WPADShutdown();
 }
@@ -1296,7 +1317,7 @@ int main() {
 #endif
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys, stick directions as buttons, the gyro pointer, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys (left and right click too), stick directions as buttons, the gyro pointer, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         mscharged::platform::ShutdownHotkeys();

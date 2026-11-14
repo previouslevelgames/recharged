@@ -13,9 +13,10 @@
 
 namespace mscharged::platform {
 // A keyboard & mouse input: an SDL scancode, or one of the mouse buttons an
-// action can take (kMouseKeyBase + SDL button: middle, and the side buttons
-// X1 and X2, named "Mouse 4" and "Mouse 5"; issue #62). Left and right click
-// stay A and B. kKeyNone (SDL_SCANCODE_UNKNOWN) = unused.
+// action can take (kMouseKeyBase + SDL button: left, right, middle, and the
+// side buttons X1 and X2, named "Mouse 4" and "Mouse 5"; issue #62). Left and
+// right click are A and B while no action takes them.
+// kKeyNone (SDL_SCANCODE_UNKNOWN) = unused.
 using KeyInput = int;
 inline constexpr KeyInput kKeyNone = SDL_SCANCODE_UNKNOWN;
 inline constexpr KeyInput kMouseKeyBase = SDL_SCANCODE_COUNT;
@@ -34,6 +35,8 @@ using KeyBindings = std::array<KeyBinding, KeyActionCount>;
 // "Return | Mouse 4" (SDL key names, or mouse button names). Unknown names
 // are left out.
 KeyBinding ParseKeyBinding(std::string_view text);
+// Whether an action of `bindings` takes `input`.
+bool BindsInput(const KeyBindings& bindings, KeyInput input);
 std::string FormatKeyBinding(const KeyBinding& binding);
 
 // A hotkey of the game window: a key, pressed with exactly the Ctrl, Shift and

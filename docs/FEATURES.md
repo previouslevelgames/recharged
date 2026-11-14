@@ -34,8 +34,9 @@ come from the reconstructed source, unchanged.
 - **Keyboard & mouse** play as a Wii Remote with Nunchuk; the mouse is the
   pointer, shown by the game's own hand (the system cursor stays hidden over
   the game). Every key can be changed in the launcher, up to two per action,
-  and the middle and side mouse buttons (Mouse 4, Mouse 5) can take a key's
-  place ([#62](https://github.com/previouslevelgames/recharged/issues/62)).
+  and every mouse button (left, right, middle, Mouse 4, Mouse 5) can take a
+  key's place ([#62](https://github.com/previouslevelgames/recharged/issues/62));
+  left and right click are A and B while no action takes them.
   On the game's friend code screen the number keys type a code, Ctrl+V
   (Cmd+V on a Mac) pastes one, spaces and dashes included, Backspace removes
   the last digit and Delete clears the code.

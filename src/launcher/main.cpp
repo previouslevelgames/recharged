@@ -607,8 +607,11 @@ public:
                     CaptureKey(event.key.scancode);
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && hotkey_capture_ >= 0)
                     CaptureHotkey(event.key.scancode, event.key.mod);
-                // Middle and side mouse buttons can take a key's place (#62).
+                // Mouse buttons can take a key's place (#62); a left click is
+                // taken on the waiting keycap itself (KeyboardView), elsewhere
+                // it stops the wait.
                 if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && capture_action_ >= 0
+                    && event.button.button != SDL_BUTTON_LEFT
                     && platform::MouseKeyInput(event.button.button) != platform::kKeyNone)
                     CaptureKey(platform::MouseKeyInput(event.button.button));
                 GamepadCaptureEvent(event);
@@ -6636,14 +6639,31 @@ private:
         if (hotkey_capture_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) hotkey_capture_ = -1;
     }
 
+    // What left and right click do: the actions that take them, or A and B
+    // while no action does.
+    static std::string PointerNote(const platform::KeyBindings& bindings)
+    {
+        const auto click = [&](const char* name, Uint8 button, const char* fallback) {
+            std::string actions;
+            const auto input = platform::MouseKeyInput(button);
+            for (std::size_t n = 0; n < KeyActionCount; ++n)
+                if (bindings[n][0] == input || bindings[n][1] == input)
+                    actions += (actions.empty() ? "" : ", ") + std::string(kKeyActions[n].label);
+            return std::string(name) + " click is "
+                   + (actions.empty() ? std::string(fallback) + " until an action takes it" : actions);
+        };
+        return click("left", SDL_BUTTON_LEFT, "A") + "; " + click("right", SDL_BUTTON_RIGHT, "B");
+    }
+
     void KeyboardView()
     {
         if (SecondaryButton("##back", "Players", Dp(124, 36), true, Icon::Back)) { CloseKeyboardView(); return; }
         ImGui::Dummy(Dp(0, 6));
-        PageHeader("Keyboard & mouse", "Click a key, then press the new key or a middle or side mouse button "
-                   "(Mouse 4, Mouse 5). Each action takes up to two. Changes are saved when you go back.");
+        PageHeader("Keyboard & mouse", "Click a key, then press the new key or a mouse button (click the key "
+                   "again for the left button). Each action takes up to two. Left and right click are A and B "
+                   "while no action takes them. Changes are saved when you go back.");
         const auto bindings = DraftBindings();
-        bool clicked = false;
+        bool clicked = false, on_waiting = false;
         const auto rows = [&](std::size_t first, std::size_t last) {
             ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, Dp(0, 6));
             if (ImGui::BeginTable("##keys", 2))
@@ -6674,12 +6694,19 @@ private:
                         if (KeyCapButton("##key", label.c_str(), waiting))
                         {
                             clicked = true;
-                            capture_action_ = waiting ? -1 : int(n);
-                            capture_slot_ = waiting ? -1 : slot;
+                            // A click on the waiting keycap is the left button.
+                            if (waiting) CaptureKey(platform::MouseKeyInput(SDL_BUTTON_LEFT));
+                            else
+                            {
+                                capture_action_ = int(n);
+                                capture_slot_ = slot;
+                            }
                         }
-                        if (ImGui::IsItemHovered() && !waiting)
-                            ImGui::SetTooltip(code != platform::kKeyNone ? "Click, then press the new key or mouse button"
-                                                                         : "Add a second key or mouse button");
+                        if (waiting && ImGui::IsItemHovered()) on_waiting = true;
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(waiting ? "Press a key or mouse button; click here for the left button"
+                                              : code != platform::kKeyNone ? "Click, then press the new key or mouse button"
+                                                                           : "Add a second key or mouse button");
                         ImGui::PopID();
                     }
                     if (bindings[n][1] != platform::kKeyNone)
@@ -6711,7 +6738,7 @@ private:
         {
             ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed, Dp(220));
             ImGui::TableSetupColumn("keys", ImGuiTableColumnFlags_WidthStretch);
-            KeyRow("Pointer", {"Mouse"}, "left click is A, right click is B", "Point at menu items");
+            KeyRow("Pointer", {"Mouse"}, PointerNote(bindings).c_str(), "Point at menu items");
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();
@@ -6723,8 +6750,9 @@ private:
             dirty_ = true;
         }
         EndCard();
-        // A click anywhere else stops waiting for a key.
-        if (capture_action_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        // A click anywhere else stops waiting for a key; one on the waiting
+        // keycap is taken when it is released.
+        if (capture_action_ >= 0 && !clicked && !on_waiting && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             capture_action_ = capture_slot_ = -1;
     }
 

@@ -307,8 +307,8 @@ bool SDLCALL Watch(void*, SDL_Event* event) {
                        (event->button.button == SDL_BUTTON_LEFT || event->button.button == SDL_BUTTON_RIGHT ||
                         (state.settings.keyboard && mscharged::platform::MouseKeyInput(event->button.button) !=
                                                         mscharged::platform::kKeyNone))) {
-                // Left and right click are A and B; middle and the side buttons
-                // press the keyboard actions bound to them (issue #62).
+                // Mouse buttons press the keyboard actions bound to them (issue
+                // #62); left and right click are A and B while none takes them.
                 const Uint32 bit = SDL_BUTTON_MASK(event->button.button);
                 if (event->button.down && state.focused) {
                     auto& held = state.mouse_button_sources.try_emplace(event->button.which, 0).first->second;
@@ -746,11 +746,17 @@ void ServiceDesktopWpad() {
         const KeyboardInput keyboard_keys{keys, mouse_buttons};
         auto buttons = focused && state.settings.keyboard ? KeyboardButtons(keyboard_keys, state.settings.keys)
                                                           : std::array<bool, 11>{};
-        // Mouse buttons are independent raw Wii A/B signals; source KPAD and
-        // game listeners retain all edge/lock/invalid-pointer decisions.
+        // Left and right click are independent raw Wii A/B signals while no
+        // keyboard action takes them; source KPAD and game listeners retain
+        // all edge/lock/invalid-pointer decisions.
         if (focused && state.settings.mouse) {
-            buttons[0] = buttons[0] || (mouse_buttons & SDL_BUTTON_LMASK);
-            buttons[1] = buttons[1] || (mouse_buttons & SDL_BUTTON_RMASK);
+            const auto unbound = [&](Uint8 button) {
+                return !state.settings.keyboard ||
+                       !mscharged::platform::BindsInput(state.settings.keys,
+                                                        mscharged::platform::MouseKeyInput(button));
+            };
+            if (unbound(SDL_BUTTON_LEFT)) buttons[0] = buttons[0] || (mouse_buttons & SDL_BUTTON_LMASK);
+            if (unbound(SDL_BUTTON_RIGHT)) buttons[1] = buttons[1] || (mouse_buttons & SDL_BUTTON_RMASK);
         }
         // An unfocused Nunchuk is released and level, like the buttons above.
         mscharged::platform::NativeNunchukObservation nunchuk{};
