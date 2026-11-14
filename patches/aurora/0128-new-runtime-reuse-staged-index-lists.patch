@@ -1,0 +1,201 @@
+From: mscharged-port
+Subject: New runtime: reuse staged index lists
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance (feat/performance). Apply after 0127.
+
+The parser turns every quad, strip and fan draw into a triangle index list
+relative to the draw's own vertices, so the list depends only on the
+primitive and the vertex count; it rebuilt and staged it for every draw (the
+largest single cost of the FIFO consumer). The new runtime keeps the lists
+already staged in the current packet and points a draw with the same
+primitive and vertex count at the same bytes; a new list is written straight
+into the staging region by a plain loop (checked equal to prepare_idx_buffer
+for every primitive and 33408 vertex counts, including its 16-bit count). A
+draw whose list does not end the index region stays unmerged: the same
+triangles in the same order.
+
+diff --git a/lib/gfx/recording.cpp b/lib/gfx/recording.cpp
+index 375343f..521fdd0 100644
+--- a/lib/gfx/recording.cpp
++++ b/lib/gfx/recording.cpp
+@@ -1415,6 +1415,20 @@ Range push_indices(const uint8_t* data, size_t length, size_t alignment) {
+   return push(current_frame_packet().indices, data, length, alignment);
+ }
+ 
++uint32_t index_high_water() noexcept {
++  return g_recorder.active() ? static_cast<uint32_t>(current_frame_packet().indices.size()) : 0;
++}
++
++uint8_t* reserve_indices(size_t length, size_t alignment, Range& range) {
++  if (!check_recording("reserve_indices")) {
++    range = {};
++    return nullptr;
++  }
++  auto& indices = current_frame_packet().indices;
++  range = map(indices, length, alignment);
++  return indices.data() + range.offset;
++}
++
+ Range push_uniform(const uint8_t* data, size_t length) {
+   ZoneScoped;
+   if (!check_recording("push_uniform")) {
+diff --git a/lib/gfx/recording.hpp b/lib/gfx/recording.hpp
+index e8ddafa..5e604d7 100644
+--- a/lib/gfx/recording.hpp
++++ b/lib/gfx/recording.hpp
+@@ -78,6 +78,12 @@ Range push_verts(ArrayRef<T> data, size_t alignment) {
+   return push_verts(reinterpret_cast<const uint8_t*>(data.data()), data.size() * sizeof(T), alignment);
+ }
+ Range push_indices(const uint8_t* data, size_t length, size_t alignment);
++// Bytes staged so far in the recording's index region (0 without a recording).
++uint32_t index_high_water() noexcept;
++// Reserves length bytes in the index region exactly as push_indices places
++// them; the caller writes them through the returned pointer (null without a
++// recording) before the next push.
++uint8_t* reserve_indices(size_t length, size_t alignment, Range& range);
+ template <typename T>
+ Range push_indices(ArrayRef<T> data, size_t alignment) {
+   return push_indices(reinterpret_cast<const uint8_t*>(data.data()), data.size() * sizeof(T), alignment);
+diff --git a/lib/gx/command_processor.cpp b/lib/gx/command_processor.cpp
+index b2e9c23..d7fcf84 100644
+--- a/lib/gx/command_processor.cpp
++++ b/lib/gx/command_processor.cpp
+@@ -1,6 +1,7 @@
+ #include "command_processor.hpp"
+ 
+ #include "../gfx/depth_peek.hpp"
++#include "../gfx/frame.hpp"
+ #include "../gfx/recording.hpp"
+ #include "../internal.hpp"
+ #include "dolphin/gd/GDGeometry.h"
+@@ -14,6 +15,7 @@
+ #include "texture.hpp"
+ 
+ #include <tracy/Tracy.hpp>
++#include <absl/container/flat_hash_map.h>
+ 
+ #include <algorithm>
+ #include <bit>
+@@ -98,6 +100,53 @@ u16 prepare_idx_buffer(ByteBuffer& buf, GXPrimitive prim, u16 vtxStart, u16 vtxC
+   return numIndices;
+ }
+ 
++// New runtime: the lists of prepare_idx_buffer(.., vtxStart 0, ..), written in
++// place (the same values in the same order; the count keeps its 16-bit wrap).
++u32 index_list_count(GXPrimitive prim, u16 n) noexcept {
++  switch (prim) {
++  case GX_QUADS:
++    return (u32(n) + 3) / 4 * 6;
++  case GX_TRIANGLEFAN:
++  case GX_TRIANGLESTRIP:
++    return n < 3 ? n : 3 + (u32(n) - 3) * 3;
++  default: // GX_LINES, GX_LINESTRIP, GX_POINTS
++    return 6;
++  }
++}
++
++void write_index_list(u16* out, GXPrimitive prim, u16 n) noexcept {
++  if (prim == GX_QUADS) {
++    for (u32 v = 0; v < n; v += 4) {
++      out[0] = u16(v);
++      out[1] = u16(v + 1);
++      out[2] = u16(v + 2);
++      out[3] = u16(v + 2);
++      out[4] = u16(v + 3);
++      out[5] = u16(v);
++      out += 6;
++    }
++  } else if (prim == GX_TRIANGLEFAN || prim == GX_TRIANGLESTRIP) {
++    for (u32 v = 0; v < n && v < 3; ++v) *out++ = u16(v);
++    for (u32 v = 3; v < n; ++v) {
++      if (prim == GX_TRIANGLEFAN) {
++        out[0] = 0;
++        out[1] = u16(v - 1);
++      } else if ((v & 1) == 0) {
++        out[0] = u16(v - 2);
++        out[1] = u16(v - 1);
++      } else {
++        out[0] = u16(v - 1);
++        out[1] = u16(v - 2);
++      }
++      out[2] = u16(v);
++      out += 3;
++    }
++  } else {
++    static constexpr u16 Expansion[6] = {0, 1, 3, 3, 2, 0};
++    std::memcpy(out, Expansion, sizeof Expansion);
++  }
++}
++
+ // GX FIFO opcodes - use CP_ prefix to avoid clashing with GXCommandList.h macros
+ constexpr u8 CP_CMD_NOP = GX_NOP;
+ constexpr u8 CP_CMD_LOAD_CP_REG = GX_LOAD_CP_REG;
+@@ -149,6 +198,14 @@ struct DrawCache {
+ };
+ DrawCache sDrawCache;
+ u64 sUniformCoPlanarGeneration = 0;
++// New runtime: triangle index lists already staged in the current packet, by
++// primitive and vertex count; an unmerged draw's list depends on nothing else.
++struct IndexList {
++  gfx::Range range;
++  u32 count = 0;
++};
++absl::flat_hash_map<u32, IndexList> sIndexLists;
++uint32_t sIndexListsFrame = UINT32_MAX;
+ 
+ FogRangeLutKey fog_range_lut_key() noexcept {
+   const auto& state = g_gxState.fog;
+@@ -661,10 +718,28 @@ static void handle_draw_unmerged(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, g
+ 
+   if (prim != GX_TRIANGLES) {
+     ZoneScopedN("build idx buffer");
+-    static ByteBuffer idxBuf;
+-    numIndices = prepare_idx_buffer(idxBuf, prim, 0, vtxCount);
+-    idxRange = gfx::push_indices(idxBuf.data(), idxBuf.size(), 4);
+-    idxBuf.clear();
++    const bool reuse = gfx::new_runtime();
++    const u32 key = static_cast<u32>(prim) << 16 | vtxCount;
++    if (reuse && sIndexListsFrame != gfx::current_frame()) {
++      sIndexLists.clear();
++      sIndexListsFrame = gfx::current_frame();
++    }
++    if (const auto it = reuse ? sIndexLists.find(key) : sIndexLists.end(); it != sIndexLists.end()) {
++      idxRange = it->second.range;
++      numIndices = it->second.count;
++    } else if (reuse) {
++      const u32 count = index_list_count(prim, vtxCount);
++      if (auto* out = gfx::reserve_indices(count * sizeof(u16), 4, idxRange)) {
++        write_index_list(reinterpret_cast<u16*>(out), prim, vtxCount);
++      }
++      numIndices = static_cast<u16>(count);
++      sIndexLists.emplace(key, IndexList{idxRange, numIndices});
++    } else {
++      static ByteBuffer idxBuf;
++      numIndices = prepare_idx_buffer(idxBuf, prim, 0, vtxCount);
++      idxRange = gfx::push_indices(idxBuf.data(), idxBuf.size(), 4);
++      idxBuf.clear();
++    }
+   }
+ 
+   push_gx_draw(prim, fmt, vtxCount, vertRange, idxRange, numIndices);
+@@ -694,8 +769,12 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, ByteReader&
+   const bool cleanState = g_gxState.dirty == 0 && fmt == sDrawCache.lastDrawFmt && sDrawCache.lineMode == 0 &&
+                           prim != GX_LINES && prim != GX_LINESTRIP && prim != GX_POINTS;
+   auto* lastDraw = cleanState ? gfx::get_last_draw_command<DrawData>() : nullptr;
++  // A reused index list (new runtime) need not end the index region; such a
++  // draw stays unmerged, which draws the same triangles in the same order.
+   const bool canMerge = lastDraw != nullptr && lastDraw->instanceCount == 1 &&
+                         lastDraw->receiptTag == currentDrawReceipt &&
++                        (!gfx::new_runtime() || lastDraw->idxRange.size == 0 ||
++                         lastDraw->idxRange.offset + lastDraw->idxRange.size == gfx::index_high_water()) &&
+                         (!g_coPlanarState.enabled || sUniformCoPlanarGeneration == g_coPlanarState.generation);
+ 
+   // Push raw vertex data to buffer. Merged draws must remain contiguous with the previous range.
+@@ -965,6 +1044,7 @@ void handle_aurora(ByteReader& reader) noexcept {
+ 
+ void clear_draw_cache(bool resetReceipt) noexcept {
+   if (resetReceipt) currentDrawReceipt = 0;
++  sIndexLists.clear();
+   sDrawCache.bindGeneration = 0;
+   sDrawCache.uniformRange = {};
+   sDrawCache.fogRange = {};

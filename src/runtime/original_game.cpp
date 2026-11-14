@@ -1250,6 +1250,76 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         };
         // Once a second, after a game frame: the game's state for the Discord status.
         std::chrono::steady_clock::time_point lastPresence{};
+        // Performance work (feat/performance): RECHARGED_PIXEL_CHECK=<folder>
+        // checks that the new and the classic runtime draw the same pixels on
+        // this computer. In a match it freezes the game (and
+        // hides the HUD, whose item icons keep spinning), takes screenshots with
+        // the new, the classic and again the new runtime, compares the files and
+        // writes pixel-check.txt into the folder; then the match goes on. It
+        // starts 25 s after a match is first reported (its loading included).
+        const char* pixelCheckFolder=std::getenv("RECHARGED_PIXEL_CHECK");
+        auto devFreeze=reinterpret_cast<void(*)(int)>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_dev_freeze"));
+        auto devToggleHud=reinterpret_cast<void(*)()>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_toggle_hud"));
+        int pixelCheckStep=pixelCheckFolder && *pixelCheckFolder && devFreeze ? 0 : -1;
+        std::chrono::steady_clock::time_point pixelCheckStart{}, pixelCheckMatch{};
+        auto observePixelCheck = [&] {
+            if(pixelCheckStep<0)return;
+            const std::filesystem::path folder=mscharged::PathFromUtf8(pixelCheckFolder);
+            const auto now=std::chrono::steady_clock::now();
+            if(pixelCheckStep==0) {
+                ChargedPresenceSnapshot game{};
+                if(!presenceSnapshot || !presenceSnapshot(&game,sizeof game) || !game.in_match) {
+                    pixelCheckMatch={};
+                    return;
+                }
+                if(pixelCheckMatch==std::chrono::steady_clock::time_point{})pixelCheckMatch=now;
+                if(now-pixelCheckMatch<std::chrono::seconds(25))return;
+                std::error_code error;
+                std::filesystem::create_directories(folder,error);
+                devFreeze(1);
+                if(launch.settings.show_hud && devToggleHud)devToggleHud();
+                aurora_set_new_runtime(true);
+                pixelCheckStart=now; pixelCheckStep=1;
+                mscharged::platform::SessionLogLine("Pixel check: match frozen, taking screenshots");
+                return;
+            }
+            // Seconds after the freeze: a screenshot, or a change of the runtime.
+            struct Step { float second; const char* shot; int runtime; };
+            static constexpr Step kSteps[]={{2,"new1",-1},{3,"new2",-1},{4,nullptr,0},
+                {5,"classic1",-1},{6,"classic2",-1},{7,nullptr,1},{8,"new3",-1}};
+            constexpr int kStepCount=static_cast<int>(std::size(kSteps));
+            const float elapsed=std::chrono::duration<float>(now-pixelCheckStart).count();
+            while(pixelCheckStep<=kStepCount && elapsed>=kSteps[pixelCheckStep-1].second) {
+                const auto& step=kSteps[pixelCheckStep-1];
+                if(step.runtime>=0)aurora_set_new_runtime(step.runtime!=0);
+                if(step.shot)
+                    aurora_request_video_screenshot(mscharged::PathUtf8(folder/(std::string(step.shot)+".png")).c_str());
+                ++pixelCheckStep;
+            }
+            if(pixelCheckStep<=kStepCount || elapsed<10.0f)return;
+            const auto read=[&](const char* name) {
+                std::ifstream in(folder/(std::string(name)+".png"),std::ios::binary);
+                return std::string(std::istreambuf_iterator<char>(in),{});
+            };
+            const auto new1=read("new1"), new2=read("new2"), new3=read("new3");
+            const auto classic1=read("classic1"), classic2=read("classic2");
+            std::string verdict;
+            if(new1.empty() || new2.empty() || new3.empty() || classic1.empty() || classic2.empty())
+                verdict="INVALID: a screenshot is missing";
+            else if(new1!=new2 || new1!=new3 || classic1!=classic2)
+                verdict="INVALID: the frozen frame still changed (keep the HUD hidden, don't press H)";
+            else if(new1!=classic1)
+                verdict="FAIL: the classic runtime drew different pixels (compare new1.png and classic1.png)";
+            else
+                verdict="PASS: the new and the classic runtime drew identical pixels";
+            std::ofstream(folder/"pixel-check.txt")<<verdict<<"\n";
+            mscharged::platform::SessionLogLine("Pixel check: "+verdict);
+            if(launch.settings.show_hud && devToggleHud)devToggleHud();
+            devFreeze(0);
+            pixelCheckStep=-1;
+        };
         auto observePresence = [&] {
             if(!discordPresence)return;
             const auto now=std::chrono::steady_clock::now();
@@ -1472,7 +1542,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observePixelCheck(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
                 // this the buffer grows every frame until Aurora aborts on its
@@ -1561,7 +1631,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observePixelCheck(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
             if(sample){EndWithSnapshot(dataDirectory/"original-main-efb.ppm");snapshot=true;}

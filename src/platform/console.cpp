@@ -27,7 +27,9 @@ bool KeepOnNormalConsole(std::string_view module, std::string_view message)
 {
     return module == "aurora::gamepad" || module == "aurora::card"
         || (module == "aurora::gpu" && (message.rfind("Graphics adapter information", 0) == 0
-                                        || message.rfind("Using the chosen graphics card", 0) == 0));
+                                        || message.rfind("Using the chosen graphics card", 0) == 0))
+        // Performance work (feat/performance): which runtime RECHARGED_RUNTIME chose.
+        || (module == "aurora::gfx" && message.rfind("Render runtime", 0) == 0);
 }
 }
 

@@ -1,0 +1,117 @@
+From: mscharged-port
+Subject: New runtime: draw-done without waiting for the render worker
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance (feat/performance). Apply after 0125.
+
+After 0123 the FIFO consumer still waited at every draw-done token until the
+render worker had recorded and submitted the packet, so the game emitted its
+next frame only after the render worker's tail (Dawn's Vulkan recording at
+Submit). The new runtime latches the draw-done once the packet is queued on
+the render worker, which records and submits packets in order; the two frame
+slots bound how far recording runs ahead.
+
+The VI may present a display copy only after its packet is queued: a copy
+recorded in the new runtime becomes eligible when its packet is queued, so a
+present (queued on the same worker afterwards) runs on the GPU after it.
+
+The GPU commands and their order are unchanged.
+
+diff --git a/lib/gfx/frame.cpp b/lib/gfx/frame.cpp
+index ee816ff..36d44c5 100644
+--- a/lib/gfx/frame.cpp
++++ b/lib/gfx/frame.cpp
+@@ -835,7 +835,10 @@ void submit_hardware_frame() {
+     }
+     g_lastWorkSubmission = std::move(submission);
+   });
+-  render_worker::synchronize();
++  // The game continues once the packet is queued: the render worker records
++  // and submits it before any later work, including a VI present of one of
++  // its display copies, which the VI may select only from now on.
++  xfb::publish_recorded();
+ }
+ 
+ void submit_draw_done_and_wait() {
+diff --git a/lib/gfx/frame.hpp b/lib/gfx/frame.hpp
+index e4ddd26..07ad68c 100644
+--- a/lib/gfx/frame.hpp
++++ b/lib/gfx/frame.hpp
+@@ -41,8 +41,9 @@ void submit_hardware_frame_and_wait();
+ // the original path (a GPU wait at every draw-done token, staging copies
+ // before every pass); otherwise the new runtime runs.
+ bool new_runtime() noexcept;
+-// New runtime: hands the packet to the GPU without waiting for it, then waits
+-// for the previous packet with GPU work (at most one frame queued behind).
++// New runtime: queues the packet on the render worker and returns; the worker
++// submits it, then waits for the previous packet with GPU work (at most one
++// frame queued behind the CPU; the two frame slots bound the recording side).
+ void submit_hardware_frame();
+ void end_frame(EndFrameCallback callback);
+ uint32_t current_frame() noexcept;
+diff --git a/lib/gfx/xfb.cpp b/lib/gfx/xfb.cpp
+index 044a91b..b3d705b 100644
+--- a/lib/gfx/xfb.cpp
++++ b/lib/gfx/xfb.cpp
+@@ -13,6 +13,7 @@
+ #include <atomic>
+ #include <mutex>
+ #include <unordered_map>
++#include <vector>
+ 
+ namespace aurora::gfx::xfb {
+ namespace {
+@@ -25,6 +26,8 @@ std::unordered_map<uint32_t, std::shared_ptr<Snapshot>> g_snapshots;
+ // Newest copy per destination whose GPU work has completed. A later copy into
+ // a buffer the VI is still scanning stays pending until its own completion.
+ std::unordered_map<uint32_t, std::shared_ptr<Snapshot>> g_completed;
++// New runtime: copies recorded in the packet not yet queued for the GPU.
++std::vector<std::shared_ptr<Snapshot>> g_recorded;
+ uint64_t g_revision = 0;
+ 
+ struct alignas(16) CopyUniforms {
+@@ -200,6 +203,7 @@ void initialize() {
+ 
+ void shutdown() {
+   std::lock_guard lock{g_mutex};
++  g_recorded.clear();
+   g_completed.clear();
+   for (const auto& [physical, snapshot] : g_snapshots) {
+     AURORA_ASSERT(snapshot.use_count() == 1, "XFB {} still retained during graphics shutdown", physical);
+@@ -265,6 +269,7 @@ void copy_from_bp(uint32_t flags) {
+     std::lock_guard lock{g_mutex};
+     snapshot->revision = ++g_revision;
+     g_snapshots.insert_or_assign(physical, snapshot);
++    if (new_runtime()) g_recorded.push_back(snapshot);
+   }
+   // A scaled EFB keeps its detail for desktop pictures: copy the same source
+   // rectangle at its physical size first; the original YUYV copy below still
+@@ -312,6 +317,16 @@ void encode(const wgpu::CommandEncoder& encoder, wgpu::TextureView source,
+   pass.End();
+ }
+ 
++void publish_recorded() {
++  std::lock_guard lock{g_mutex};
++  for (auto& snapshot : g_recorded) {
++    snapshot->gpuComplete.store(true, std::memory_order_release);
++    auto& completed = g_completed[snapshot->physical];
++    if (!completed || completed->revision < snapshot->revision) completed = snapshot;
++  }
++  g_recorded.clear();
++}
++
+ std::shared_ptr<const Snapshot> find(const void* originalDestination) {
+   const uint32_t physical = OSCachedToPhysical(const_cast<void*>(originalDestination));
+   std::lock_guard lock{g_mutex};
+diff --git a/lib/gfx/xfb.hpp b/lib/gfx/xfb.hpp
+index 94f9af9..ab3dfd6 100644
+--- a/lib/gfx/xfb.hpp
++++ b/lib/gfx/xfb.hpp
+@@ -40,4 +40,8 @@ void encode(const wgpu::CommandEncoder& encoder, wgpu::TextureView source,
+ // buffer being scanned out does not replace it). Callers must release
+ // references before graphics/OS shutdown.
+ std::shared_ptr<const Snapshot> find(const void* originalDestination);
++// New runtime, FIFO consumer: once the packet holding the copies recorded
++// since the last call is queued for the GPU, the VI may present them (a
++// present is queued behind that packet).
++void publish_recorded();
+ } // namespace aurora::gfx::xfb

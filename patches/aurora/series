@@ -116,3 +116,14 @@
 0120-draw-to-the-switch-window.patch
 0121-run-imgui-without-sdl-on-the-switch.patch
 0122-time-the-native-gx-phases.patch
+0123-new-runtime-submit-without-waiting-for-the-gpu.patch
+0124-new-runtime-render-area-of-multisampled-efb-passes.patch
+0125-new-runtime-staging-copies-in-whole-256-kib-blocks.patch
+0126-new-runtime-draw-done-without-waiting-for-the-render-worker.patch
+0127-new-runtime-dawn-skips-its-command-validation.patch
+0128-new-runtime-reuse-staged-index-lists.patch
+0129-new-runtime-one-submit-per-packet.patch
+0130-new-runtime-d3d12-resolves-only-what-efb-passes-draw.patch
+0131-new-runtime-switch-between-the-runtimes-while-running.patch
+0132-new-runtime-gx-draws-leave-out-unchanged-bindings.patch
+0133-new-runtime-times-its-submits-for-the-frame-log.patch

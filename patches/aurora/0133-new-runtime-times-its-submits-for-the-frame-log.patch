@@ -1,0 +1,47 @@
+From: mscharged-port
+Subject: New runtime: count and time its submits for the frame log
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: test branch (feat/switch with feat/performance). Apply after 0132.
+
+The frame log's GX phases (0122) count and time the classic path's draw-done
+submits. The new runtime submits in submit_hardware_frame instead: count its
+draw-done frames, time its submit and its wait for the previous frame, so the
+frame log compares both runtimes.
+
+diff --git a/lib/gfx/frame.cpp b/lib/gfx/frame.cpp
+index 9e40c92..c642933 100644
+--- a/lib/gfx/frame.cpp
++++ b/lib/gfx/frame.cpp
+@@ -838,6 +838,8 @@ void submit_hardware_frame() {
+   finish();
+   const bool hasWork = recording_has_gpu_work();
+   end_frame([hasWork](wgpu::CommandEncoder& encoder, std::vector<AfterSubmitCallback> callbacks) {
++    phase_times::count(phase_times::DrawDoneFrames);
++    if (g_resources.stats.drawCallCount == 0) phase_times::count(phase_times::EmptyDrawDoneFrames);
+ #ifndef TRACY_ENABLE
+     if (!hasWork) {
+       // Nothing to execute (the empty draw-done packet of every swap): its
+@@ -849,9 +851,12 @@ void submit_hardware_frame() {
+     }
+ #endif
+     webgpu::gpu_prof::frame_end(encoder);
+-    const wgpu::CommandBufferDescriptor descriptor{.label = "Original GX native submission"};
+-    const auto commands = encoder.Finish(&descriptor);
+-    submit_packet(commands);
++    {
++      const phase_times::Span submit{phase_times::Submit};
++      const wgpu::CommandBufferDescriptor descriptor{.label = "Original GX native submission"};
++      const auto commands = encoder.Finish(&descriptor);
++      submit_packet(commands);
++    }
+     webgpu::gpu_prof::after_submit();
+     for (auto& callback : callbacks) if (callback) callback();
+     after_submit();
+@@ -862,6 +867,7 @@ void submit_hardware_frame() {
+     // busy, wait for the previous frame.
+     auto submission = track_submission();
+     if (g_lastWorkSubmission) {
++      const phase_times::Span gpuWait{phase_times::GpuWait};
+       wait_submission(*g_lastWorkSubmission);
+     }
+     g_lastWorkSubmission = std::move(submission);

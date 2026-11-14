@@ -1,0 +1,461 @@
+From: mscharged-port
+Subject: New runtime: submit without waiting for the GPU, one staging copy per frame
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance (feat/performance). Apply after 0122.
+
+Development switch of the performance work: RECHARGED_RUNTIME=classic keeps
+the path of the earlier patches; without it (or with any other value) the new
+runtime runs. The session log names the runtime ("Render runtime: ...").
+
+The classic path waits at every GX draw-done token until the GPU has run the
+packet: the game emits its next frame only once the GPU has finished the last
+one, so CPU and GPU take turns. By then the parser has copied every source
+byte the packet reads, and all later GPU work (the next packet, the VI
+present of a display copy) runs after it on the same queue. The new runtime
+only submits: the draw-done latches once the packet is submitted and the
+previous packet with GPU work has finished (one frame in flight), and a
+display copy counts as complete for the VI once it is submitted.
+
+The classic path copies the new staging ranges before every pass (up to four
+copies per pass, about 170 per match frame; Mesa's Intel driver spends 2-3 ms
+of every frame setting them up). The staging regions only grow within a
+native packet, so the new runtime copies each region once, in 16-byte blocks,
+in a submission ahead of the packet. Texture uploads keep their place.
+
+A final pass without draws, clears or readers (the empty draw-done packet of
+every glx swap) is skipped instead of loading, storing and resolving the EFB.
+
+The GPU commands, their order and the data they read are unchanged.
+
+diff --git a/lib/gfx/depth_peek.cpp b/lib/gfx/depth_peek.cpp
+index 08f7743..149a225 100644
+--- a/lib/gfx/depth_peek.cpp
++++ b/lib/gfx/depth_peek.cpp
+@@ -331,6 +331,11 @@ void request_snapshot() noexcept {
+   g_snapshotRequested = true;
+ }
+ 
++bool snapshot_pending() noexcept {
++  std::lock_guard lock{g_mutex};
++  return g_snapshotRequested;
++}
++
+ bool read_latest(uint16_t x, uint16_t y, uint32_t& z) noexcept {
+   std::lock_guard lock{g_mutex};
+   if (x >= g_latest.width || y >= g_latest.height || g_latest.data.empty()) {
+@@ -467,10 +472,7 @@ void reset() noexcept {
+   }
+ }
+ 
+-bool snapshot_requested() noexcept {
+-  std::lock_guard lock{g_mutex};
+-  return g_snapshotRequested;
+-}
++bool snapshot_requested() noexcept { return snapshot_pending(); }
+ 
+ void set_latest(uint32_t width, uint32_t height, const std::vector<uint32_t>& data) {
+   std::lock_guard lock{g_mutex};
+diff --git a/lib/gfx/depth_peek.hpp b/lib/gfx/depth_peek.hpp
+index 47e9a0a..8fabfaf 100644
+--- a/lib/gfx/depth_peek.hpp
++++ b/lib/gfx/depth_peek.hpp
+@@ -10,6 +10,8 @@ void initialize();
+ void shutdown();
+ 
+ void request_snapshot() noexcept;
++// Whether a requested snapshot still waits for the next frame-end pass.
++bool snapshot_pending() noexcept;
+ bool read_latest(uint16_t x, uint16_t y, uint32_t& z) noexcept;
+ 
+ void encode_frame_snapshot(const wgpu::CommandEncoder& cmd, const wgpu::TextureView& depthView,
+diff --git a/lib/gfx/encoding.cpp b/lib/gfx/encoding.cpp
+index a91a5e0..5f61175 100644
+--- a/lib/gfx/encoding.cpp
++++ b/lib/gfx/encoding.cpp
+@@ -346,6 +346,8 @@ constexpr uint64_t TextureUploadStagingOffset = StorageStagingOffset + StorageBu
+ 
+ constexpr uint32_t align_down_copy_offset(uint32_t value) noexcept { return value & ~3u; }
+ 
++void copy_texture_uploads(wgpu::CommandEncoder& cmd, FramePacket& frame, const FrameOp& op);
++
+ void copy_staging_buffer_range(wgpu::CommandEncoder& cmd, const FramePacket& frame, uint32_t& copied,
+                                uint32_t highWater, uint64_t stagingOffset, const wgpu::Buffer& dst) {
+   if (highWater <= copied) {
+@@ -383,7 +385,34 @@ void copy_staging_to_high_water(wgpu::CommandEncoder& cmd, FramePacket& frame, c
+   copy_staging_buffer_range(cmd, frame, frame.copied.indices, highWater.indices, IndexStagingOffset, res.indexBuffer);
+   copy_staging_buffer_range(cmd, frame, frame.copied.storage, highWater.storage, StorageStagingOffset,
+                             res.storageBuffer);
++  copy_texture_uploads(cmd, frame, op);
++}
++} // namespace
++
++namespace detail {
++bool encode_frame_buffer_copies(wgpu::CommandEncoder& cmd, const FramePacket& frame) {
++  bool copied = false;
++  const auto copy = [&](size_t size, uint64_t stagingOffset, uint64_t capacity, const wgpu::Buffer& dst) {
++    if (size == 0) {
++      return;
++    }
++    // Whole 16-byte blocks keep the copy on the driver's widest path. The
++    // padding stays inside the region, past every range a command reads.
++    const uint64_t end = std::min<uint64_t>(AURORA_ALIGN(static_cast<uint64_t>(size), 16), capacity);
++    cmd.CopyBufferToBuffer(staging_buffer(frame.stagingBuffer), stagingOffset, dst, 0, end);
++    copied = true;
++  };
++  auto& res = resources();
++  copy(frame.verts.size(), VertexStagingOffset, VertexBufferSize, res.vertexBuffer);
++  copy(frame.uniforms.size(), UniformStagingOffset, UniformBufferSize, res.uniformBuffer);
++  copy(frame.indices.size(), IndexStagingOffset, IndexBufferSize, res.indexBuffer);
++  copy(frame.storage.size(), StorageStagingOffset, StorageBufferSize, res.storageBuffer);
++  return copied;
++}
++} // namespace detail
+ 
++namespace {
++void copy_texture_uploads(wgpu::CommandEncoder& cmd, FramePacket& frame, const FrameOp& op) {
+   if constexpr (UseTextureBuffer) {
+     for (size_t i = frame.copied.textureUploadCount; i < op.textureUploads.size(); ++i) {
+       const auto& item = *op.textureUploads[i];
+@@ -398,7 +427,7 @@ void copy_staging_to_high_water(wgpu::CommandEncoder& cmd, FramePacket& frame, c
+       };
+       cmd.CopyBufferToTexture(&buf, &item.tex, &item.size);
+     }
+-    frame.copied.textureUpload = highWater.textureUpload;
++    frame.copied.textureUpload = op.highWater.textureUpload;
+     frame.copied.textureUploadCount = op.textureUploads.size();
+   }
+ }
+@@ -406,7 +435,13 @@ void copy_staging_to_high_water(wgpu::CommandEncoder& cmd, FramePacket& frame, c
+ 
+ namespace detail {
+ void encode_op(wgpu::CommandEncoder& cmd, FramePacket& frame, const FrameOp& op) {
+-  copy_staging_to_high_water(cmd, frame, op);
++  if (frame.deferBufferCopies) {
++    // New runtime: the buffer regions arrive in one copy ahead of the frame
++    // (encode_frame_buffer_copies); texture uploads keep their order here.
++    copy_texture_uploads(cmd, frame, op);
++  } else {
++    copy_staging_to_high_water(cmd, frame, op);
++  }
+   switch (op.type) {
+   case FrameOpType::RenderPass:
+     if (op.renderPass != nullptr) {
+diff --git a/lib/gfx/encoding.hpp b/lib/gfx/encoding.hpp
+index 1920bc8..077c98f 100644
+--- a/lib/gfx/encoding.hpp
++++ b/lib/gfx/encoding.hpp
+@@ -9,6 +9,9 @@ void bind_pipeline(const wgpu::RenderPipeline& pipeline, const wgpu::RenderPassE
+ 
+ namespace detail {
+ void encode_op(wgpu::CommandEncoder& encoder, FramePacket& frame, const FrameOp& op);
++// Copies every staging region of a deferred frame in one command each;
++// false when the frame staged nothing.
++bool encode_frame_buffer_copies(wgpu::CommandEncoder& encoder, const FramePacket& frame);
+ }
+ 
+ } // namespace aurora::gfx
+diff --git a/lib/gfx/frame.cpp b/lib/gfx/frame.cpp
+index 1401d21..ee816ff 100644
+--- a/lib/gfx/frame.cpp
++++ b/lib/gfx/frame.cpp
+@@ -2,6 +2,7 @@
+ #include "xfb.hpp"
+ 
+ #include "depth_peek.hpp"
++#include "encoding.hpp"
+ #include "phase_times.hpp"
+ #include "pipeline_cache.hpp"
+ #include "recording.hpp"
+@@ -24,9 +25,11 @@
+ #include <deque>
+ #include <mutex>
+ #include <memory>
++#include <cstdlib>
+ #include <cstring>
+ #include <optional>
+ #include <string>
++#include <string_view>
+ #include <thread>
+ #include <utility>
+ #include <vector>
+@@ -217,6 +220,30 @@ void pace_frame_start() {
+   }
+ }
+ 
++// New runtime, render worker only: GPU completion of the last submitted
++// native packet with GPU work, waited for once the next one is submitted.
++struct PendingSubmission {
++  wgpu::Future future;
++  std::shared_ptr<wgpu::QueueWorkDoneStatus> status;
++};
++std::optional<PendingSubmission> g_lastWorkSubmission;
++
++PendingSubmission track_submission() {
++  auto status = std::make_shared<wgpu::QueueWorkDoneStatus>(wgpu::QueueWorkDoneStatus::Error);
++  const auto future = g_queue.OnSubmittedWorkDone(
++      wgpu::CallbackMode::WaitAnyOnly, [status](wgpu::QueueWorkDoneStatus result, wgpu::StringView) { *status = result; });
++  return {future, std::move(status)};
++}
++
++void wait_submission(const PendingSubmission& submission) {
++  ZoneScopedN("Wait for previous GPU frame");
++  const auto waited = g_instance.WaitAny(submission.future, 5'000'000'000);
++  AURORA_ASSERT(waited == wgpu::WaitStatus::Success && *submission.status == wgpu::QueueWorkDoneStatus::Success,
++                "Original GX native submission failed to complete on the GPU");
++  AURORA_ASSERT(g_instance.WaitAny(g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
++                "Original GX native submission completed on a lost GPU device");
++}
++
+ void map_staging_buffer(size_t slot, bool releaseSlotOnCompletion = false) {
+   auto expected = BufferMapState::Unmapped;
+   if (!g_mappingStates[slot].compare_exchange_strong(expected, BufferMapState::Mapping, std::memory_order_acq_rel,
+@@ -275,6 +302,14 @@ std::optional<RegisteredEncoderTaskType> find_runtime_encoder_task_type(EncoderT
+ 
+ } // namespace detail
+ 
++bool new_runtime() noexcept {
++  static const bool value = [] {
++    const char* runtime = std::getenv("RECHARGED_RUNTIME");
++    return runtime == nullptr || std::string_view{runtime} != "classic";
++  }();
++  return value;
++}
++
+ wgpu::Device device() noexcept { return g_device; }
+ 
+ wgpu::Queue queue() noexcept { return g_queue; }
+@@ -386,6 +421,7 @@ void unregister_encoder_task_type(EncoderTaskId type) noexcept {
+ }
+ 
+ void initialize() {
++  Log.info("Render runtime: {}", new_runtime() ? "new" : "classic (RECHARGED_RUNTIME=classic)");
+   g_frameIndex = 0;
+   g_processEventsQueued.store(false, std::memory_order_release);
+   g_lastPresentNs.store(0, std::memory_order_release);
+@@ -534,6 +570,10 @@ void initialize() {
+ void shutdown() {
+   render_worker::synchronize();
+   render_worker::shutdown();
++  if (g_lastWorkSubmission) {
++    (void)g_instance.WaitAny(g_lastWorkSubmission->future, 5'000'000'000);
++    g_lastWorkSubmission.reset();
++  }
+   g_processEventsQueued.store(false, std::memory_order_release);
+   g_lastPresentNs.store(0, std::memory_order_release);
+   g_presentPeriodNs.store(0, std::memory_order_release);
+@@ -641,6 +681,7 @@ static bool begin_frame_impl(bool preserveEfb) {
+   frame.frameId = g_nextFrameId++;
+   frame.frameIndex = g_frameIndex;
+   frame.stagingBuffer = *stagingSlot;
++  frame.deferBufferCopies = preserveEfb && new_runtime();
+   size_t bufferOffset = 0;
+   const auto& stagingBuf = g_stagingBuffers[*stagingSlot];
+   const auto mapBuffer = [&](ByteBuffer& buf, uint64_t size) {
+@@ -693,6 +734,16 @@ void end_frame(EndFrameCallback callback) {
+     auto& packet = g_framePackets[frameSlot];
+     g_stagingBuffers[stagingSlot].Unmap();
+     g_mappingStates[stagingSlot].store(BufferMapState::Unmapped, std::memory_order_release);
++    if (packet.deferBufferCopies) {
++      // The staging regions only grow within a native packet: one copy each,
++      // submitted ahead of the passes that read them.
++      const wgpu::CommandEncoderDescriptor descriptor{.label = "Frame staging copies"};
++      auto copies = g_device.CreateCommandEncoder(&descriptor);
++      if (encode_frame_buffer_copies(copies, packet)) {
++        const auto commands = copies.Finish();
++        g_queue.Submit(1, &commands);
++      }
++    }
+     auto encoder = std::move(packet.encoder);
+     const auto stats = packet.stats;
+     auto afterSubmitCallbacks = std::move(packet.afterSubmitCallbacks);
+@@ -750,6 +801,39 @@ void submit_hardware_frame_and_wait() {
+         "Original GX native submission failed to complete on the GPU");
+     AURORA_ASSERT(g_instance.WaitAny(g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
+         "Original GX native submission completed on a lost GPU device");
++    // All submitted work is done: a pending new-runtime submission is too.
++    if (g_lastWorkSubmission) {
++      wait_submission(*g_lastWorkSubmission);
++      g_lastWorkSubmission.reset();
++    }
++  });
++  render_worker::synchronize();
++}
++
++void submit_hardware_frame() {
++  // The finish opcode only hands the packet to the GPU here. The parser has
++  // copied all source data it reads, and later GPU work (the next frame, the
++  // VI present of its XFB copy) runs after it on the same queue.
++  finish();
++  const bool hasWork = recording_has_gpu_work();
++  end_frame([hasWork](wgpu::CommandEncoder& encoder, std::vector<AfterSubmitCallback> callbacks) {
++    webgpu::gpu_prof::frame_end(encoder);
++    const wgpu::CommandBufferDescriptor descriptor{.label = "Original GX native submission"};
++    const auto commands = encoder.Finish(&descriptor);
++    g_queue.Submit(1, &commands);
++    webgpu::gpu_prof::after_submit();
++    for (auto& callback : callbacks) if (callback) callback();
++    after_submit();
++    if (!hasWork) {
++      return;
++    }
++    // At most one frame queued behind the CPU: with this one keeping the GPU
++    // busy, wait for the previous frame.
++    auto submission = track_submission();
++    if (g_lastWorkSubmission) {
++      wait_submission(*g_lastWorkSubmission);
++    }
++    g_lastWorkSubmission = std::move(submission);
+   });
+   render_worker::synchronize();
+ }
+diff --git a/lib/gfx/frame.hpp b/lib/gfx/frame.hpp
+index c37ce58..e4ddd26 100644
+--- a/lib/gfx/frame.hpp
++++ b/lib/gfx/frame.hpp
+@@ -37,6 +37,13 @@ bool begin_frame();
+ // FIFO-owned native packets use Load and actual finish submission, no surface.
+ bool begin_hardware_frame();
+ void submit_hardware_frame_and_wait();
++// Development switch of the performance work: RECHARGED_RUNTIME=classic keeps
++// the original path (a GPU wait at every draw-done token, staging copies
++// before every pass); otherwise the new runtime runs.
++bool new_runtime() noexcept;
++// New runtime: hands the packet to the GPU without waiting for it, then waits
++// for the previous packet with GPU work (at most one frame queued behind).
++void submit_hardware_frame();
+ void end_frame(EndFrameCallback callback);
+ uint32_t current_frame() noexcept;
+ void after_submit() noexcept;
+diff --git a/lib/gfx/frame_packet.hpp b/lib/gfx/frame_packet.hpp
+index 564e2f0..1227c64 100644
+--- a/lib/gfx/frame_packet.hpp
++++ b/lib/gfx/frame_packet.hpp
+@@ -203,6 +203,9 @@ struct FramePacket {
+   uint64_t frameId = 0;
+   uint32_t frameIndex = 0;
+   size_t stagingBuffer = 0;
++  // New runtime: one copy per staging region ahead of the whole frame
++  // instead of the new ranges before every pass.
++  bool deferBufferCopies = false;
+   StagingHighWater copied;
+   AuroraStats stats{};
+ };
+diff --git a/lib/gfx/recording.cpp b/lib/gfx/recording.cpp
+index 2c8fe38..b153bc9 100644
+--- a/lib/gfx/recording.cpp
++++ b/lib/gfx/recording.cpp
+@@ -5,6 +5,7 @@
+ #include "resource_cache.hpp"
+ 
+ #include "clear.hpp"
++#include "depth_peek.hpp"
+ #include "pipeline_cache.hpp"
+ #include "render_worker.hpp"
+ #include "tex_copy_conv.hpp"
+@@ -719,6 +720,22 @@ RecordedFrame end_recording() {
+   return recorded;
+ }
+ 
++bool recording_has_gpu_work() noexcept {
++  if (!g_recorder.active()) {
++    return false;
++  }
++  const auto& frame = g_recorder.frame();
++  if (!frame.textureCopies.empty() || !frame.encoderTasks.empty() || !frame.textureUploads.empty()) {
++    return true;
++  }
++  for (const auto& pass : frame.renderPasses) {
++    if (!pass.discardable || !pass.paletteConvs.empty()) {
++      return true;
++    }
++  }
++  return false;
++}
++
+ void shutdown_recording() {
+   for (auto& pool : g_passSnapshotPools) {
+     pool = {};
+@@ -1345,6 +1362,13 @@ void finish() {
+     frame.uniforms.append_zeroes(gx::MaxUniformSize);
+     auto& pass = frame.renderPasses[g_recorder.currentRenderPass];
+     pass.captureDepthSnapshot = true;
++    // New runtime: a final pass without draws, clears or readers leaves every
++    // pixel as it is; skip its load, store and resolve (the empty draw-done
++    // packet of every glx swap).
++    if (new_runtime() && !pass.has_content() && !pass.has_consumer() && pass.paletteConvs.empty() &&
++        !depth_peek::snapshot_pending()) {
++      pass.discardable = true;
++    }
+     enqueue_pass(frame, g_recorder.currentRenderPass);
+     g_recorder.currentRenderPass = UINT32_MAX;
+   }
+diff --git a/lib/gfx/recording.hpp b/lib/gfx/recording.hpp
+index ea34043..e8ddafa 100644
+--- a/lib/gfx/recording.hpp
++++ b/lib/gfx/recording.hpp
+@@ -23,6 +23,8 @@ RecordedFrame end_recording();
+ std::optional<RecordedFrame> split_recording_for_draw_done();
+ void shutdown_recording();
+ void increment_merged_draw_count() noexcept;
++// Whether the active recording encodes any GPU work (after finish()).
++bool recording_has_gpu_work() noexcept;
+ 
+ namespace testing {
+ void suppress_render_worker(bool suppress) noexcept;
+diff --git a/lib/gfx/xfb.cpp b/lib/gfx/xfb.cpp
+index 6d62e97..044a91b 100644
+--- a/lib/gfx/xfb.cpp
++++ b/lib/gfx/xfb.cpp
+@@ -1,5 +1,6 @@
+ #include "xfb.hpp"
+ 
++#include "frame.hpp"
+ #include "recording.hpp"
+ #include "resources.hpp"
+ #include "../gx/gx.hpp"
+@@ -122,16 +123,20 @@ TextureHandle new_packed_texture(uint32_t pairs, uint32_t height) {
+ 
+ void complete(const std::shared_ptr<Snapshot>& snapshot) {
+   // This runs strictly after the submission containing the captured copy.
+-  struct Completion { wgpu::QueueWorkDoneStatus status = wgpu::QueueWorkDoneStatus::Error; };
+-  auto completion = std::make_shared<Completion>();
+-  const auto future = webgpu::g_queue.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
+-      [completion](wgpu::QueueWorkDoneStatus status, wgpu::StringView) { completion->status = status; });
+-  const auto waited = webgpu::g_instance.WaitAny(future, 5'000'000'000);
+-  AURORA_ASSERT(waited == wgpu::WaitStatus::Success &&
+-      completion->status == wgpu::QueueWorkDoneStatus::Success,
+-      "Original GX XFB GPU copy did not complete");
+-  AURORA_ASSERT(webgpu::g_instance.WaitAny(webgpu::g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
+-      "Original GX XFB completed on a lost device");
++  // The new runtime does not wait: the VI presents a selected copy with a
++  // later submission on the same queue, which the GPU runs after the copy.
++  if (!new_runtime()) {
++    struct Completion { wgpu::QueueWorkDoneStatus status = wgpu::QueueWorkDoneStatus::Error; };
++    auto completion = std::make_shared<Completion>();
++    const auto future = webgpu::g_queue.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
++        [completion](wgpu::QueueWorkDoneStatus status, wgpu::StringView) { completion->status = status; });
++    const auto waited = webgpu::g_instance.WaitAny(future, 5'000'000'000);
++    AURORA_ASSERT(waited == wgpu::WaitStatus::Success &&
++        completion->status == wgpu::QueueWorkDoneStatus::Success,
++        "Original GX XFB GPU copy did not complete");
++    AURORA_ASSERT(webgpu::g_instance.WaitAny(webgpu::g_device.GetLostFuture(), 0) == wgpu::WaitStatus::TimedOut,
++        "Original GX XFB completed on a lost device");
++  }
+   snapshot->gpuComplete.store(true, std::memory_order_release);
+   std::lock_guard lock{g_mutex};
+   auto& completed = g_completed[snapshot->physical];
+diff --git a/lib/gx/fifo.cpp b/lib/gx/fifo.cpp
+index af00d73..2b81785 100644
+--- a/lib/gx/fifo.cpp
++++ b/lib/gx/fifo.cpp
+@@ -74,7 +74,9 @@ void latch_gpu_draw_done() {
+   const gfx::phase_times::Span latch{gfx::phase_times::FifoLatch};
+   if (sNativeRecording.load(std::memory_order_acquire)) {
+     AURORA_ASSERT(sHardwareFrameActive, "Original GX finish has no native recording");
+-    gfx::submit_hardware_frame_and_wait();
++    // The new runtime does not wait for the GPU here (gfx::new_runtime).
++    if (gfx::new_runtime()) gfx::submit_hardware_frame();
++    else gfx::submit_hardware_frame_and_wait();
+     sHardwareFrameActive = false;
+     // A source finish can precede its next draw within the same host receipt.
+     // Retire native cached ranges while retaining the FIFO-ordered tag.
