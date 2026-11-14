@@ -380,6 +380,9 @@ if(TARGET charged_overlay)
     target_link_libraries(charged_original_game_host PRIVATE charged_overlay charged_recharged_ui charged_ui_kit
         charged_mii_head charged_match_presets)
     target_compile_definitions(charged_original_game_host PRIVATE MSCHARGED_HAS_GAME_OVERLAY=1)
+else()
+    # Without the launcher (the Switch): the fallback fonts the overlay's texts use.
+    target_sources(charged_original_game_host PRIVATE src/launcher/fallback_fonts.cpp)
 endif()
 # The graphics cards the menus' Advanced settings offer, as the launcher's.
 if(TARGET charged_graphics_cards)

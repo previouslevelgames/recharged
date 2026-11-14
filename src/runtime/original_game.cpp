@@ -1638,8 +1638,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(!challengeSound) challengeSound.emplace();
                 challengeSound->Play(float(launch.settings.master_volume)/100.0f);
             }
+#if !defined(__SWITCH__) // no window to flash on the Switch
             if(host.window && !(SDL_GetWindowFlags(host.window)&SDL_WINDOW_INPUT_FOCUS))
                 SDL_FlashWindow(host.window,SDL_FLASH_UNTIL_FOCUSED);
+#endif
         };
         auto observeCompetitive = [&] {
             if(!competitive)return;

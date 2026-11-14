@@ -21,8 +21,10 @@
 #include <iterator>
 #include <string>
 
+#if !defined(__SWITCH__) // the Switch's ImGui runs without its SDL3 backend
 // Dear ImGui's SDL3 backend (built with Aurora): an SDL key's ImGui key.
 ImGuiKey ImGui_ImplSDL3_KeyEventToImGuiKey(SDL_Keycode keycode, SDL_Scancode scancode);
+#endif
 
 namespace mscharged::runtime {
 namespace {
@@ -98,9 +100,11 @@ struct MenuInputLayer {
             io.AddKeyEvent(ImGuiMod_Shift, (key->modifiers & SDL_KMOD_SHIFT) != 0);
             io.AddKeyEvent(ImGuiMod_Alt, (key->modifiers & SDL_KMOD_ALT) != 0);
             io.AddKeyEvent(ImGuiMod_Super, (key->modifiers & SDL_KMOD_GUI) != 0);
+#if !defined(__SWITCH__)
             const ImGuiKey imguiKey = ImGui_ImplSDL3_KeyEventToImGuiKey(key->keycode, key->scancode);
             io.AddKeyEvent(imguiKey, key->pressed);
             io.SetKeyEventNativeData(imguiKey, int(key->keycode), int(key->scancode), int(key->scancode));
+#endif
         } else if (const auto* text = event.payload.get_if<InputEvent::TextInput>()) {
             io.AddInputCharactersUTF8(text->text.c_str());
         } else if (const auto* pointer = event.payload.get_if<InputEvent::PointerChanged>()) {
@@ -179,12 +183,14 @@ void MenuInput::Capture(bool on)
         io.ClearInputMouse();
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
         io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+#if !defined(__SWITCH__) // no mouse on the Switch
         float x = 0, y = 0;
         if (window_ && SDL_GetMouseFocus() == window_) {
             SDL_GetMouseState(&x, &y);
             const ImVec2 at = SurfacePixels(x, y);
             io.AddMousePosEvent(at.x, at.y);
         }
+#endif
         aurora_imgui_set_overlay_input(true);
         if (layer_) aurora::input::set_layer_enabled(layer_, true);
         platform::SetNativeWpadPanelHold(true);
