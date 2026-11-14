@@ -1,0 +1,134 @@
+From: mscharged-port
+Subject: D3D12 resolves only what EFB passes draw
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host performance. Apply after 0129.
+
+0124 limits the render area of multisampled EFB passes on Vulkan, the only
+Dawn backend with RenderPassRenderAreaRect. D3D12 has Dawn's partial resolve
+instead (DawnPartialLoadResolveTexture, RenderPassDescriptorResolveRect): such
+a pass now resolves only the bounding box of its draws' scissors. Loads,
+stores and draws stay as they are. Dawn resolves the rectangle with the render
+pass's own resolve parameters, or with ResolveSubresourceRegion where it
+emulates render passes (instead of ResolveSubresource for the whole texture).
+Metal gets the render area from Dawn patch 0007.
+
+diff --git a/lib/gfx/encoding.cpp b/lib/gfx/encoding.cpp
+index 5611490..8715640 100644
+--- a/lib/gfx/encoding.cpp
++++ b/lib/gfx/encoding.cpp
+@@ -249,13 +249,18 @@ void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo,
+     };
+     depthStencilAttachmentPtr = &depthStencilAttachment;
+   }
+-  // A multisampled EFB pass without clears loads, stores and resolves only
+-  // the pixels its draws can write (Vulkan applies the three to the render
+-  // area only). The resolved copy source stays equal to the resolve of the
+-  // whole EFB: every pass resolves every pixel it changes.
++  // A multisampled EFB pass without clears resolves only the pixels its
++  // draws can write, the bounding box of their scissors (render area:
++  // Vulkan; Metal up to the area's far corner; D3D12 resolves that rectangle
++  // only). The resolved copy source stays equal to the resolve of the whole
++  // EFB: every pass resolves every pixel it changes. A pass with neither
++  // draws nor clears is not begun.
+   wgpu::RenderPassRenderAreaRect renderArea{};
+-  bool limitArea = false;
+-  if (webgpu::g_renderAreaSupported && passInfo.msaaSamples > 1 &&
++  wgpu::RenderPassDescriptorResolveRect resolveRect{};
++  const wgpu::ChainedStruct* areaChain = nullptr;
++  const wgpu::RenderPassRenderAreaRect* scissorArea = nullptr;
++  bool skipPass = false;
++  if ((webgpu::g_renderAreaSupported || webgpu::g_partialResolveSupported) && passInfo.msaaSamples > 1 &&
+       passInfo.colorAttachments[SceneColorAttachmentIndex].resolveView && !passInfo.drawBoundsFull) {
+     bool clears = passInfo.hasDepth && depthStencilAttachment.depthLoadOp == wgpu::LoadOp::Clear;
+     for (uint32_t i = 0; i < passInfo.colorAttachmentCount; ++i) {
+@@ -268,20 +273,28 @@ void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo,
+       const int64_t top = std::max<int64_t>(bounds.y, 0);
+       const int64_t right = std::min<int64_t>(int64_t{bounds.x} + std::max(bounds.width, 0), size.width);
+       const int64_t bottom = std::min<int64_t>(int64_t{bounds.y} + std::max(bounds.height, 0), size.height);
++      const auto x = static_cast<uint32_t>(left), y = static_cast<uint32_t>(top);
++      const auto width = static_cast<uint32_t>(right - left), height = static_cast<uint32_t>(bottom - top);
+       if (right <= left || bottom <= top) {
+-        // Nothing to draw: the EFB and its resolve stay as they are.
+-        limitArea = true;
++        skipPass = true;
++      } else if (webgpu::g_renderAreaSupported) {
++        renderArea.origin = {x, y};
++        renderArea.size = {width, height};
++        areaChain = &renderArea;
++        scissorArea = &renderArea;
+       } else {
+-        renderArea.origin = {static_cast<uint32_t>(left), static_cast<uint32_t>(top)};
+-        renderArea.size = {static_cast<uint32_t>(right - left), static_cast<uint32_t>(bottom - top)};
+-        limitArea = true;
++        resolveRect.colorOffsetX = resolveRect.resolveOffsetX = x;
++        resolveRect.colorOffsetY = resolveRect.resolveOffsetY = y;
++        resolveRect.width = width;
++        resolveRect.height = height;
++        areaChain = &resolveRect;
+       }
+     }
+   }
+   const auto label = passInfo.label.empty() ? fmt::format("Render pass {}", passIndex)
+                                             : fmt::format("{} {}", passInfo.label, passIndex);
+   const wgpu::RenderPassDescriptor renderPassDescriptor{
+-      .nextInChain = limitArea && renderArea.size.width != 0 ? &renderArea : nullptr,
++      .nextInChain = areaChain,
+       .label = label.c_str(),
+       .colorAttachmentCount = passInfo.colorAttachmentCount,
+       .colorAttachments = attachments.data(),
+@@ -289,9 +302,9 @@ void render(wgpu::CommandEncoder& cmd, FramePacket& frame, RenderPass& passInfo,
+       .timestampWrites = webgpu::gpu_prof::pass_writes(label),
+   };
+ 
+-  if (!limitArea || renderArea.size.width != 0) {
++  if (!skipPass) {
+     auto pass = cmd.BeginRenderPass(&renderPassDescriptor);
+-    render_pass(pass, frame, passInfo, renderArea.size.width != 0 ? &renderArea : nullptr);
++    render_pass(pass, frame, passInfo, scissorArea);
+     pass.End();
+   }
+ 
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index 61f7659..ba15313 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -76,6 +76,7 @@ bool g_hasCoreFeatures = false;
+ bool g_dualSourceBlendingSupported = false;
+ bool g_strictMathSupported = false;
+ bool g_renderAreaSupported = false;
++bool g_partialResolveSupported = false;
+ bool g_bcTexturesSupported = false;
+ bool g_astcTexturesSupported = false;
+ bool g_textureComponentSwizzleSupported = false;
+@@ -965,6 +966,7 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     g_dualSourceBlendingSupported = false;
+     g_strictMathSupported = false;
+     g_renderAreaSupported = false;
++    g_partialResolveSupported = false;
+     wgpu::SupportedFeatures supportedFeatures;
+     g_adapter.GetFeatures(&supportedFeatures);
+     for (size_t i = 0; i < supportedFeatures.featureCount; ++i) {
+@@ -1002,6 +1004,10 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+         g_renderAreaSupported = true;
+         requiredFeatures.push_back(feature);
+       }
++      if (feature == wgpu::FeatureName::DawnPartialLoadResolveTexture) {
++        g_partialResolveSupported = true;
++        requiredFeatures.push_back(feature);
++      }
+     }
+     std::string featureList;
+     for (auto featureName : requiredFeatures) {
+diff --git a/lib/webgpu/gpu.hpp b/lib/webgpu/gpu.hpp
+index 5d6991c..d7c7dd1 100644
+--- a/lib/webgpu/gpu.hpp
++++ b/lib/webgpu/gpu.hpp
+@@ -67,6 +67,8 @@ extern bool g_dualSourceBlendingSupported;
+ extern bool g_strictMathSupported;
+ // Render passes may name their render area (Vulkan).
+ extern bool g_renderAreaSupported;
++// Render passes may name the rectangle they resolve (D3D12).
++extern bool g_partialResolveSupported;
+ 
+ bool initialize(AuroraBackend backend, bool allowCpu);
+ void shutdown();
