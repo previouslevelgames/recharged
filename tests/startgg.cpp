@@ -91,6 +91,7 @@ void Event()
     CHECK(semi.state == StartggSetState::Created);
     CHECK(semi.winner.empty());
     CHECK(semi.prereq[0] == "1001" && semi.prereq[1] == "1003");
+    CHECK(semi.prereq_placement[0] == 1 && semi.prereq_placement[1] == 1);
     CHECK(!semi.slots[0].score.has_value()); // no standing yet
 
     // A participant without a start.gg account, a score not reported.
@@ -106,6 +107,8 @@ void Event()
     CHECK(losers.round == -1);
     CHECK(losers.slots[1].id.empty());
     CHECK(losers.slots[1].name.empty());
+    CHECK(losers.prereq_placement[0] == 2 && losers.prereq_placement[1] == 2); // the losers'
+    CHECK(first.prereq_placement[0] == 0); // a seed
 }
 
 void NextSet()

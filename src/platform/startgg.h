@@ -46,8 +46,11 @@ struct StartggSet
     std::string winner;      // the winning entrant's id, once decided
     StartggEntrant slots[2];
     // Where each slot's entrant comes from: the set whose winner or loser
-    // takes it (empty for a seed: start.gg's prereqType is not "set").
+    // takes it (empty for a seed: start.gg's prereqType is not "set"), and
+    // which of them: 1 its winner, 2 its loser (a losers' bracket's, a
+    // match for third place), 0 not said.
     std::string prereq[2];
+    int prereq_placement[2] = {0, 0};
 };
 
 struct StartggEvent
