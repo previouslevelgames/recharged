@@ -738,7 +738,7 @@
       },
       "validation": {
         "name": "API validation",
-        "about": "Checks every graphics call for errors, to find graphics bugs. Makes the game slower: leave it off to play or to record frame times."
+        "about": "Checks every graphics call for errors. Slows the game: keep it off to play or record frame times."
       },
       "log_detail": {
         "name": "Log detail",
