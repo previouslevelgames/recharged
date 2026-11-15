@@ -1114,7 +1114,9 @@ void List::Bracket(const std::vector<BracketSet>& sets, const char* winners, con
     const float view = rows_.x1 - rows_.x0, most = std::max(0.0f, layout.width - view);
     const float band = most > 0.0f ? kArrowSize + 16.0f : 0.0f; // the arrow buttons' row
     const float contentTop = y_;
-    Slot slot = Place(layout.height + band, false);
+    // Room under the last cards for the edge around the player's set.
+    constexpr float kEdge = 8.0f;
+    Slot slot = Place(layout.height + band + kEdge, false);
     const float step = kBracketCardWidth + kBracketColumnGap;
     // The player's set into view, once.
     if (!state_.entered)
