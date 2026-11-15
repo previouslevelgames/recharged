@@ -14,11 +14,15 @@
 
 #include "Game/BaseGameSceneManager.h"
 #include "Game/DB/CupInterface.h"
+#include "Game/Drawable/DrawableObj.h"
 #include "Game/FE/feCupFlow.h"
 #include "Game/GameSceneManager.h"
 #include "Game/NetTournManager.h"
 #include "Game/Render/FrontEndPresentation.h"
 #include "Game/SH/SHOnlineHub.h"
+#include "NL/gl/glMaterialParameters.h"
+#include "NL/gl/glModel.h"
+#include "NL/nlString.h"
 
 #include <cstdio>
 
@@ -45,6 +49,37 @@ void Out()
     if (NetTournManager* tournament = NetTournManager::Instance()) tournament->mCupPersona = sSavedPersona;
     sState = CHARGED_TROPHY_ROOM_OUT;
     sLeaveWanted = false;
+}
+
+// The tournament trophies are skinned models (each has its skeleton and
+// animation on the disc: art/animation/trophy*.shier and .cph), yet the
+// tournament draws one as a static PlanarShadowDrawable that nothing poses.
+// Their packets carry per-vertex matrix indices (stream 7); with no
+// SkinMatrices bound their material loads no bone matrices, the vertices
+// take whatever the last draw left in the matrix slots, and the trophy
+// lands off the picture. Bind the rest pose instead, as ShaderSkinMesh
+// binds a character's bones: identity bone matrices in the nine slots
+// glx_LoadSkinMatrices fills (GX_PNMTX1 to GX_PNMTX9).
+const float kRestPose[9][3][4] = {
+    {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}}, {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}},
+    {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}}, {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}},
+    {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}}, {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}},
+    {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}}, {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}},
+    {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}},
+};
+
+void PoseTrophy()
+{
+    static const unsigned long skinMatrices = nlStringLowerHash("SkinMatrices");
+    NetTournManager* tournament = NetTournManager::Instance();
+    auto* trophy = tournament ? static_cast<DrawableObject*>(tournament->mTrophyPresentation) : nullptr;
+    if (!trophy || !trophy->m_pModel) return;
+    for (unsigned long n = 0; n < trophy->m_pModel->numPackets; ++n) {
+        glModelPacket* packet = &trophy->m_pModel->packets[n];
+        if (!glModelPacketGetStream(packet, 7) || !glHasMaterialParameter(packet, skinMatrices)) continue;
+        glSetMaterialBufferParameter(packet, skinMatrices, reinterpret_cast<glMaterialBufferAddress>(kRestPose),
+                                     sizeof kRestPose);
+    }
 }
 
 void StartLeaving()
@@ -106,6 +141,7 @@ void ChargedTrophyRoomFrame()
     if (FrontEndPresentation::GetInstance()->IsActive()) return;
     if (sState == CHARGED_TROPHY_ROOM_ENTERING) {
         sState = CHARGED_TROPHY_ROOM_IN;
+        PoseTrophy();
         std::fputs("Trophy room: in\n", stderr);
         if (sLeaveWanted) StartLeaving();
     } else if (sState == CHARGED_TROPHY_ROOM_LEAVING) {
