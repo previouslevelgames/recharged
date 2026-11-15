@@ -24,7 +24,7 @@ const char* const kStartggEventQuery = R"(query RechargedEvent($slug: String!, $
         phaseGroup { id }
         slots {
           prereqId
-          entrant { id name participants { user { id } } }
+          entrant { id name participants { user { id discriminator } } }
           standing { stats { score { value } } }
         }
       }
@@ -66,7 +66,11 @@ StartggEntrant ReadEntrant(const JsonValue& slot)
     entrant.id = Id(value["id"]);
     entrant.name = value["name"].Text();
     for (const JsonValue& participant : value["participants"].Items())
+    {
         if (const std::string user = Id(participant["user"]["id"]); !user.empty()) entrant.user_ids.push_back(user);
+        if (const std::string& tag = participant["user"]["discriminator"].Text(); !tag.empty())
+            entrant.user_discriminators.push_back(tag);
+    }
     const JsonValue& score = slot["standing"]["stats"]["score"]["value"];
     if (score.type() == JsonValue::Type::Number) entrant.score = Int(score);
     return entrant;
@@ -161,6 +165,16 @@ void AddStartggPage(StartggEvent& event, StartggEvent page)
     for (auto& set : page.sets) event.sets.push_back(std::move(set));
 }
 
+bool StartggIsUser(const StartggEntrant& entrant, std::string_view user)
+{
+    if (user.empty()) return false;
+    for (const auto& id : entrant.user_ids)
+        if (id == user) return true;
+    for (const auto& tag : entrant.user_discriminators)
+        if (tag == user) return true;
+    return false;
+}
+
 bool StartggSetOpen(StartggSetState state)
 {
     switch (state)
@@ -184,8 +198,7 @@ const StartggSet* StartggNextSet(const StartggEvent& event, std::string_view use
         if (!StartggSetOpen(set.state)) continue;
         int mine = -1;
         for (int n = 0; n < 2 && mine < 0; ++n)
-            for (const auto& user : set.slots[n].user_ids)
-                if (user == user_id) mine = n;
+            if (StartggIsUser(set.slots[n], user_id)) mine = n;
         if (mine < 0) continue;
         // Being played or called first, then with its opponent known.
         const bool going = set.state == StartggSetState::Active || set.state == StartggSetState::Called;

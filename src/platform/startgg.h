@@ -30,8 +30,9 @@ struct StartggEntrant
     std::string id;   // the entrant's (empty: the slot is still open)
     std::string name; // as the event shows it (a team tag included)
     // The start.gg users of its participants (one in singles; empty for a
-    // participant without an account).
-    std::vector<std::string> user_ids;
+    // participant without an account): their ids, and their discriminators
+    // (the profile's public id, as in start.gg's user/<discriminator> links).
+    std::vector<std::string> user_ids, user_discriminators;
     std::optional<int> score; // games won in the set, once reported
 };
 
@@ -76,10 +77,14 @@ StartggAnswer ReadStartggAnswer(long status, std::string_view body);
 // A page's sets added to `event` (its other fields stay the first page's).
 void AddStartggPage(StartggEvent& event, StartggEvent page);
 
+// Whether one of the entrant's participants is the start.gg user `user`:
+// their id (digits) or their discriminator.
+bool StartggIsUser(const StartggEntrant& entrant, std::string_view user);
 // Whether the set is still to be played (or being played).
 bool StartggSetOpen(StartggSetState state);
 // The player's next set in the event: of their open sets (`user_id`, their
-// start.gg user's id), the one being played or called first, then one whose
-// opponent is known, in the event's order. Its slot of the player in *slot.
+// start.gg user's id or discriminator), the one being played or called
+// first, then one whose opponent is known, in the event's order. Its slot
+// of the player in *slot.
 const StartggSet* StartggNextSet(const StartggEvent& event, std::string_view user_id, int* slot = nullptr);
 } // namespace mscharged::platform

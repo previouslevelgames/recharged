@@ -12,7 +12,7 @@
             "phaseGroup": { "id": 70 },
             "slots": [
               { "prereqId": null,
-                "entrant": { "id": 501, "name": "Alice", "participants": [ { "user": { "id": 11 } } ] },
+                "entrant": { "id": 501, "name": "Alice", "participants": [ { "user": { "id": 11, "discriminator": "a11ce0de" } } ] },
                 "standing": { "stats": { "score": { "value": 2 } } } },
               { "prereqId": null,
                 "entrant": { "id": 502, "name": "Bob", "participants": [ { "user": { "id": 12 } } ] },
@@ -24,7 +24,7 @@
             "phaseGroup": { "id": 70 },
             "slots": [
               { "prereqId": "1001",
-                "entrant": { "id": 501, "name": "Alice", "participants": [ { "user": { "id": 11 } } ] },
+                "entrant": { "id": 501, "name": "Alice", "participants": [ { "user": { "id": 11, "discriminator": "a11ce0de" } } ] },
                 "standing": null },
               { "prereqId": "1003",
                 "entrant": { "id": 503, "name": "Carol", "participants": [ { "user": { "id": 13 } } ] },

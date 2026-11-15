@@ -35,8 +35,7 @@ bool InEvent(const platform::StartggEvent& event, std::string_view user)
 {
     for (const auto& set : event.sets)
         for (const auto& slot : set.slots)
-            for (const auto& id : slot.user_ids)
-                if (id == user) return true;
+            if (platform::StartggIsUser(slot, user)) return true;
     return false;
 }
 } // namespace

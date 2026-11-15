@@ -78,6 +78,10 @@ void Event()
     CHECK(first.slots[0].id == "501");
     CHECK(first.slots[0].name == "Alice");
     CHECK(first.slots[0].user_ids.size() == 1 && first.slots[0].user_ids[0] == "11");
+    CHECK(first.slots[0].user_discriminators.size() == 1 && first.slots[0].user_discriminators[0] == "a11ce0de");
+    CHECK(StartggIsUser(first.slots[0], "11") && StartggIsUser(first.slots[0], "a11ce0de"));
+    CHECK(!StartggIsUser(first.slots[0], "12") && !StartggIsUser(first.slots[0], ""));
+    CHECK(first.slots[1].user_discriminators.empty());
     CHECK(first.slots[0].score == 2);
     CHECK(first.slots[1].score == 0); // sent as 0.0
     CHECK(first.prereq[0].empty());
@@ -110,6 +114,9 @@ void NextSet()
     const StartggSet* set = StartggNextSet(event, "11", &slot);
     CHECK(set && set->id == "1002");
     CHECK(slot == 0);
+    // Alice by her profile's discriminator.
+    set = StartggNextSet(event, "a11ce0de", &slot);
+    CHECK(set && set->id == "1002");
     // Carol: the set being played comes before the next one.
     set = StartggNextSet(event, "13", &slot);
     CHECK(set && set->id == "1003");
