@@ -1,0 +1,57 @@
+From: mscharged-port
+Subject: Recharged's trophy room: a set's match goes in from the trophy
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A set started in Recharged's trophy room (src/platform/trophy_room.cpp)
+is a RANKED match, and the loading scene's 3D transition plays nothing
+for RANKED: the camera stayed on the trophy until the game loaded.
+
+The cut online tournament went into its games from the same trophy with
+its fe_presentation function TransitionOnlineTournamentToGame: the camera
+to trophychoosesides, the captains' holograms on their light cones (the
+function TransitionCupToChooseSides calls too), their trapdoor, the
+trophy let go. A new hook, mscharged_tweak_trophy_room_to_game, has the
+loading scene play it for such a match; the scene waits for it, as for
+the other sequences, before the front end goes.
+
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -230,6 +230,11 @@
+ // shows the front end's world in its place, and its buttons, its Back and
+ // its friends' invitations do nothing meanwhile.
+ bool mscharged_tweak_online_menu_held(void);
++// A match of a set started in Recharged's trophy room: the loading scene's
++// 3D transition plays the cut online tournament's way into its games
++// (TransitionOnlineTournamentToGame: the captains' holograms before the
++// trophy) instead of RANKED's nothing.
++bool mscharged_tweak_trophy_room_to_game(void);
+ // While the host draws the pause menu, a player's cursor (wiicursor.fen's
+ // cursor0-3) is drawn by the host on top of it: the front end marks the
+ // cursor's drawing (begin returns the state for end) and hands its pictures
+diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
+--- a/src/Game/SH/SHLoading.cpp
++++ b/src/Game/SH/SHLoading.cpp
+@@ -34,6 +34,7 @@
+ #include "Game/FE/FEAudio.h"
+ #if defined(MSCHARGED_TWEAKS)
+ #include "Game/FE/feTextureResource.h"
++#include "mscharged_tweaks.h"
+ #endif
+ 
+ static void DisplayBestOfText(MatchLoadingScene* scene, TLTextInstance* text, int numGames);
+@@ -166,6 +167,14 @@
+             {
+                 FrontEndPresentation::GetInstance()->Call("TransitionOnlineTournamentToGame");
+             }
++#if defined(MSCHARGED_TWEAKS)
++            // Recharged's trophy room: a set's RANKED match goes into its
++            // game as the cut tournament's did, from the trophy.
++            else if (mscharged_tweak_trophy_room_to_game())
++            {
++                FrontEndPresentation::GetInstance()->Call("TransitionOnlineTournamentToGame");
++            }
++#endif
+         }
+         else if (gameInfo->mCurrentMode == GameInfoManager::GM_FRIENDLY)
+         {

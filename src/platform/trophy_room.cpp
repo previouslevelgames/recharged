@@ -244,4 +244,14 @@ int ChargedTrophyRoomState() { return sState; }
 #if defined(MSCHARGED_TWEAKS)
 // Tweak patch 0073: the game's online menu waits while the room shows.
 bool mscharged_tweak_online_menu_held(void) { return sState != CHARGED_TROPHY_ROOM_OUT; }
+
+// Tweak patch 0074: a set's match goes into its game from the trophy, as the
+// cut tournament's did (its loading scene plays TransitionOnlineTournamentToGame,
+// whose last call lets the trophy go: the stadium frees it with the world).
+bool mscharged_tweak_trophy_room_to_game(void)
+{
+    if (sState != CHARGED_TROPHY_ROOM_IN || !ChargedCompetitiveWalking()) return false;
+    Log("the set's match goes in from the trophy");
+    return true;
+}
 #endif
