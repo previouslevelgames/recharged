@@ -623,6 +623,10 @@ bool mscharged_tweak_menu_scene_hidden(unsigned long scene)
 {
     static const unsigned long pauseMenu = nlStringLowerHash("art/fe/pausemenu_v3.fen");
     static const unsigned long options = nlStringLowerHash("art/fe/options_main_menu.fen");
+    // The trophy room: the game's online menu stays on top, undrawn, while
+    // the camera is on the trophy (or on its way there and back).
+    static const unsigned long onlineMenu = nlStringLowerHash("art/fe/online_menu.fen");
+    if (scene == onlineMenu && ChargedTrophyRoomState() != CHARGED_TROPHY_ROOM_OUT) return true;
     return (scene == pauseMenu || scene == options) && Replaced();
 }
 
