@@ -9,10 +9,12 @@ online tournament. The online menu stays on top of the scene stack, undrawn
 a press where RANKED was opened the RANKED screens from the trophy room.
 
 A new hook, mscharged_tweak_online_menu_held, holds the menu at rest while
-the room shows: SHOnlineHub::Update returns before its friends'
-invitations, its rankings refresh and its buttons and Back. A set's walk
-into its RANKED search (tweak patch 0056) and its way out after a lost
-connection come before it and still go from the trophy room.
+the room shows: SHOnlineHub::Update skips its friends' invitations (they
+wait for the menu) and returns before its buttons and Back. Its rankings
+refresh goes on, and with it the saves, the disconnect loss's restore and
+the online error's popup. A set's walk into its RANKED search (tweak patch
+0056) and its way out after a lost connection come before it and still go
+from the trophy room.
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 --- a/include/mscharged_tweaks.h
@@ -39,16 +41,30 @@ diff --git a/src/Game/SH/SHOnlineHub.cpp b/src/Game/SH/SHOnlineHub.cpp
  #endif
  
  static inline void ShowOnlineHubDialog(SHOnlineHub* hub, ePopupMenu type);
-@@ -206,6 +207,12 @@
+@@ -206,7 +207,15 @@
          return;
      }
  #endif
 +#if defined(MSCHARGED_TWEAKS)
 +    // Recharged's trophy room: the menu stays on top, undrawn, and waits
-+    // (a set's search above still goes from here).
-+    if (mState == ONLINE_HUB_READY && mscharged_tweak_online_menu_held())
-+        return;
-+#endif
++    // (a set's search above still goes from here). Its friends'
++    // invitations wait too; its rankings and their errors go on.
++    const bool held = mState == ONLINE_HUB_READY && mscharged_tweak_online_menu_held();
++    if (!held && !GameSceneManager::Instance()->IsOnStack(SCENE_POPUP_MENU) && g_pFriendManager->FindHostInvitation())
++#else
      if (!GameSceneManager::Instance()->IsOnStack(SCENE_POPUP_MENU) && g_pFriendManager->FindHostInvitation())
++#endif
      {
          FriendManager* friendManager = g_pFriendManager;
+         friendManager->mReturnScene = SCENE_ONLINE_MENU;
+@@ -221,6 +230,10 @@
+         ShowError(GetOnlineErrorPopup(g_pNetworkSession->mDWCErrorCode, true, 111));
+         return;
+     }
++#if defined(MSCHARGED_TWEAKS)
++    if (held)
++        return;
++#endif
+     for (int i = 0; i < 4; ++i)
+     {
+         u8 valid = true;
