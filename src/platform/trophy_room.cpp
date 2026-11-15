@@ -29,6 +29,7 @@
 #include "Game/SH/SHNavigation.h"
 #include "Game/SH/SHOnlineHub.h"
 #include "NL/gl/glMaterialParameters.h"
+#include "NL/gl/glMemory.h"
 #include "NL/gl/glModel.h"
 #include "NL/nlMemory.h"
 #include "NL/nlString.h"
@@ -61,6 +62,14 @@ bool sTrophyLoaded = false;
 bool sDiscardLoad = false;
 
 void OnCameraArrived(eCameraMessage) { sCameraArrived = true; }
+
+// The trophy room's log line, with the resource pool's free memory: in and
+// out ten times over, "out" must show the same figure each time.
+void Log(const char* what)
+{
+    GLResourcePool* pool = glGetCurrentResourcePool();
+    std::fprintf(stderr, "Trophy room: %s (pool free %lu)\n", what, pool ? pool->GetFreeMemory() : 0ul);
+}
 
 // As the script's native 23 (and 35 when `loop`): the presentation camera
 // `name`, in place of the current one.
@@ -125,7 +134,7 @@ void StartLeaving()
     PushCamera(kOnlineMenuCamera, false);
     sState = CHARGED_TROPHY_ROOM_LEAVING;
     sLeaveWanted = false;
-    std::fputs("Trophy room: leaving\n", stderr);
+    Log("leaving");
 }
 } // namespace
 
@@ -178,7 +187,7 @@ void ChargedTrophyRoomFrame()
         sDiscardLoad = sState == CHARGED_TROPHY_ROOM_ENTERING && !sTrophyLoaded;
         SetCupTrophiesVisible(true);
         Out();
-        std::fputs("Trophy room: the online menu left; trophy removed\n", stderr);
+        Log("the online menu left; trophy removed");
         return;
     }
     if (sState == CHARGED_TROPHY_ROOM_ENTERING) {
@@ -189,7 +198,7 @@ void ChargedTrophyRoomFrame()
         }
         if (!sTrophyLoaded || !sCameraArrived) return;
         sState = CHARGED_TROPHY_ROOM_IN;
-        std::fputs("Trophy room: in\n", stderr);
+        Log("in");
         if (sLeaveWanted) StartLeaving();
     } else if (sState == CHARGED_TROPHY_ROOM_LEAVING && sCameraArrived) {
         if (NetTournManager* tournament = NetTournManager::Instance()) tournament->DestroyTournamentTrophy();
@@ -200,7 +209,7 @@ void ChargedTrophyRoomFrame()
             navigation->SetBackButtonText(NAV_LOG_OUT);
         }
         Out();
-        std::fputs("Trophy room: out\n", stderr);
+        Log("out");
     }
 }
 
