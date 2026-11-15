@@ -1,6 +1,7 @@
 #pragma once
 
 #include "imgui.h"
+#include "ui/rui_bracket.h"
 
 #include <cstdint>
 #include <functional>
@@ -225,6 +226,11 @@ struct ListState
     double since = 0.0;
     bool dragging = false;
     float drag = 0.0f;
+    // A bracket's sideways scroll (design pixels), where it goes, and its
+    // drag by the hand (from `drag_x`, the bracket's point under it).
+    float scroll_x = 0.0f, target_x = 0.0f;
+    bool dragging_x = false;
+    float drag_x = 0.0f;
 };
 
 // A page's items on the TV's screen, immediate mode, top to bottom: section
@@ -272,6 +278,11 @@ public:
     // series as pips. Not lit.
     void Card(const Person* person, const char* kicker, const char* title, const std::vector<std::string>& lines,
               Tone tone = Tone::Neutral, int games = 0, int won = 0, int lost = 0);
+    // A bracket (LayOutBracket): the winners' section under `winners`, the
+    // losers' under `losers`, wider than the screen scrolled sideways by left
+    // and right, its arrow buttons or the hand's drag; the player's set
+    // comes into view when the page opens. Not lit.
+    void Bracket(const std::vector<BracketSet>& sets, const char* winners, const char* losers);
     // A leaderboard's row: its rank, the player's name (flag), the record and
     // the points; the player's own in gold.
     void BoardRow(int rank, const char* name, const char* record, const char* points, bool you,

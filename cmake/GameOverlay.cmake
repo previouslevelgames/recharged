@@ -40,5 +40,11 @@ target_link_libraries(charged_overlay PUBLIC charged_overlay_model charged_overl
 # TV set, its plates and rows, and the pages (OPTIONS, GAMEPLAY, GRAPHICS,
 # SOUND, the Recharged menu), drawn with ImGui in the game; the pages' models
 # are the overlay's.
-add_library(charged_recharged_ui STATIC src/ui/rui_kit.cpp src/ui/rui_pages.cpp)
+add_library(charged_recharged_ui STATIC src/ui/rui_kit.cpp src/ui/rui_pages.cpp src/ui/rui_bracket.cpp)
+if(BUILD_TESTING)
+    add_executable(rui_bracket_tests tests/rui_bracket.cpp src/ui/rui_bracket.cpp)
+    target_include_directories(rui_bracket_tests PRIVATE src)
+    target_compile_features(rui_bracket_tests PRIVATE cxx_std_17)
+    add_test(NAME rui_bracket COMMAND rui_bracket_tests)
+endif()
 target_link_libraries(charged_recharged_ui PUBLIC charged_overlay charged_texts)

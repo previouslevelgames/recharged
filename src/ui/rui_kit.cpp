@@ -7,6 +7,7 @@
 #include <cfloat>
 #include <cmath>
 #include <iterator>
+#include <map>
 #include <string>
 #include <utility>
 
@@ -1073,6 +1074,125 @@ void List::BoardRow(int rank, const char* name, const char* record, const char* 
     if (record && *record)
         p_.Text(fonts_.small, kSmallSize * 0.92f, rows_.x1 - 190.0f, mid, record, p_.Col(200, 210, 214),
                 p_.Col(6, 6, 6, 160), 1.5f, 1.0f);
+}
+
+namespace
+{
+// A set's card: its two entrants (name, score), the winner bright, the
+// player in gold; a green edge while it is played, the game's orange around
+// the player's next one.
+void BracketCard(const Painter& p, const Fonts& fonts, float x, float y, const BracketSet& set)
+{
+    const float w = kBracketCardWidth, h = kBracketCardHeight, mid = y + h * 0.5f;
+    p.Gradient(x, y, x + w, y + h, p.Col(24, 32, 38, 230), p.Col(8, 11, 13, 230));
+    p.Rect(x, mid - 1, x + w, mid + 1, p.Col(255, 255, 255, 22));
+    if (set.state == BracketSetState::Going) p.Rect(x, y, x + 6, y + h, p.Col(140, 228, 110), 2.0f);
+    if (set.yours) p.Frame(x - 3, y - 3, x + w + 3, y + h + 3, Orange(p), 6.0f, 2.5f);
+    const float size = kSmallSize * 0.9f;
+    for (int n = 0; n < 2; ++n)
+    {
+        const BracketEntrant& entrant = set.slots[n];
+        const float row = y + h * (n == 0 ? 0.25f : 0.75f);
+        const bool lost = set.state == BracketSetState::Done && !entrant.winner;
+        const ImU32 ink = entrant.name.empty() ? p.Col(130, 140, 146)
+            : entrant.you ? p.Col(255, 214, 80)
+            : lost ? p.Col(150, 160, 166) : p.Col(246, 248, 250);
+        p.draw->PushClipRect(p.At(x, y), p.At(x + w - 52.0f, y + h), true);
+        p.Text(fonts.small, size, x + 16.0f, row, entrant.name.empty() ? "â" : entrant.name.c_str(), ink,
+               p.Col(4, 6, 8, 200), 1.5f, 0.0f);
+        p.draw->PopClipRect();
+        if (!entrant.score.empty())
+            p.Text(fonts.small, size, x + w - 16.0f, row, entrant.score.c_str(),
+                   entrant.winner ? Orange(p) : p.Col(200, 210, 214), p.Col(4, 6, 8, 200), 1.5f, 1.0f);
+    }
+}
+} // namespace
+
+void List::Bracket(const std::vector<BracketSet>& sets, const char* winners, const char* losers)
+{
+    const BracketLayout layout = LayOutBracket(sets);
+    const float view = rows_.x1 - rows_.x0, most = std::max(0.0f, layout.width - view);
+    const float band = most > 0.0f ? kArrowSize + 16.0f : 0.0f; // the arrow buttons' row
+    const float contentTop = y_;
+    Slot slot = Place(layout.height + band, false);
+    const float step = kBracketCardWidth + kBracketColumnGap;
+    // The player's set into view, once.
+    if (!state_.entered)
+        if (const BracketCell* yours = YourBracketCell(layout, sets))
+        {
+            state_.target_x = state_.scroll_x = std::clamp(yours->x - (view - kBracketCardWidth) * 0.5f, 0.0f, most);
+            state_.target = std::max(0.0f, contentTop + band + yours->y - 120.0f);
+        }
+    // Sideways: left and right, the arrows, the hand's drag.
+    const ImVec2 at = p_.ToDesign(in_.pointer);
+    const bool over = in_.pointer_shown && Inside(at, rows_.x0, std::max(slot.top, rows_.top), rows_.x1,
+                                                  std::min(slot.bottom, listBottom_));
+    const float before = state_.target_x;
+    if (most > 0.0f)
+    {
+        if (in_.left) state_.target_x -= step;
+        if (in_.right) state_.target_x += step;
+        const float arrowY = slot.top + 4.0f, rightX = rows_.x1 - kArrowSize, leftX = rightX - kArrowSize - 12.0f;
+        const bool leftOn = state_.target_x > 0.5f, rightOn = state_.target_x < most - 0.5f;
+        const bool overLeft = over && leftOn && Inside(at, leftX, arrowY, leftX + kArrowSize, arrowY + kArrowSize);
+        const bool overRight =
+            over && rightOn && Inside(at, rightX, arrowY, rightX + kArrowSize, arrowY + kArrowSize);
+        ArrowSquare(p_, leftX, arrowY, kArrowSize, 0, leftOn, overLeft);
+        ArrowSquare(p_, rightX, arrowY, kArrowSize, 1, rightOn, overRight);
+        if (overLeft && in_.click) state_.target_x -= step;
+        else if (overRight && in_.click) state_.target_x += step;
+        else if (over && in_.click)
+        {
+            state_.dragging_x = true;
+            state_.drag_x = at.x + state_.target_x;
+        }
+    }
+    if (!in_.held) state_.dragging_x = false;
+    if (state_.dragging_x)
+    {
+        state_.target_x = std::clamp(state_.drag_x - at.x, 0.0f, most);
+        state_.scroll_x = state_.target_x;
+    }
+    state_.target_x = std::clamp(state_.target_x, 0.0f, most);
+    if (!state_.dragging_x && std::abs(state_.target_x - before) > 0.5f) Play(Sound::Hover);
+    Ease(state_.scroll_x, state_.target_x);
+    if (over) pointerOver_ = true;
+
+    const float ox = rows_.x0 - state_.scroll_x, oy = slot.top + band;
+    // The sections' titles stay at the left, as the captions.
+    auto title = [&](float y, const char* text) {
+        if (!text || !*text) return;
+        const std::string upper = Upper(text);
+        p_.Text(fonts_.small, kSmallSize, rows_.x0 + 4.0f, oy + y + 18.0f, upper.c_str(), Orange(p_),
+                p_.Col(4, 12, 16, 230), 2.0f, 0.0f);
+        const float after = rows_.x0 + 4.0f + p_.TextWidth(fonts_.small, kSmallSize, upper.c_str()) + 16.0f;
+        if (after < rows_.x1) p_.Rect(after, oy + y + 17.0f, rows_.x1, oy + y + 19.0f, Orange(p_, 80));
+    };
+    title(0.0f, winners);
+    if (layout.losers_top >= 0.0f) title(layout.losers_top, losers);
+    p_.draw->PushClipRect(p_.At(rows_.x0 - 8.0f, slot.top), p_.At(rows_.x1 + 8.0f, slot.bottom), true);
+    for (const auto& column : layout.columns)
+        p_.Text(fonts_.small, kSmallSize * 0.8f, ox + column.x, oy + column.y, column.caption.c_str(),
+                p_.Col(200, 210, 214, 220), p_.Col(4, 6, 8, 180), 1.5f, 0.5f);
+    // The lines: from the sets an entrant comes from (in the same section)
+    // to its set, as the game's own brackets draw them.
+    std::map<std::string, const BracketCell*> byId;
+    for (const auto& cell : layout.cells) byId[sets[cell.set].id] = &cell;
+    const ImU32 line = p_.Col(170, 186, 194, 150);
+    for (const auto& cell : layout.cells)
+        for (const auto& prereq : sets[cell.set].prereq)
+        {
+            const auto it = byId.find(prereq);
+            if (prereq.empty() || it == byId.end() || it->second->losers != cell.losers) continue;
+            const BracketCell& from = *it->second;
+            const float x0 = ox + from.x + kBracketCardWidth, y0 = oy + from.y + kBracketCardHeight * 0.5f;
+            const float x1 = ox + cell.x, y1 = oy + cell.y + kBracketCardHeight * 0.5f, xm = (x0 + x1) * 0.5f;
+            p_.Rect(x0, y0 - 1.0f, xm, y0 + 1.0f, line);
+            p_.Rect(xm - 1.0f, std::min(y0, y1) - 1.0f, xm + 1.0f, std::max(y0, y1) + 1.0f, line);
+            p_.Rect(xm, y1 - 1.0f, x1, y1 + 1.0f, line);
+        }
+    for (const auto& cell : layout.cells) BracketCard(p_, fonts_, ox + cell.x, oy + cell.y, sets[cell.set]);
+    p_.draw->PopClipRect();
 }
 
 std::optional<int> List::Cycle(const char* label, const char* value, const char* about)
