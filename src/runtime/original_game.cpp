@@ -103,6 +103,7 @@
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "runtime/host_menus.h"
 #include "runtime/mii_heads.h"
+#include "runtime/startgg_tournament.h"
 #endif
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "launcher/match_presets.h"
@@ -3142,6 +3143,29 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // development switch "Override retail menus" the game's pause menu,
         // Options and the main menu's ONLINE too (declared after what their
         // callbacks use, which outlives them).
+        // The TOURNAMENT page's start.gg event ([startgg]): a saved answer
+        // (file) or start.gg itself with the player's token (never logged).
+        std::unique_ptr<mscharged::platform::StartggFeed> startggFeed;
+        std::uint64_t startggShown=0;
+        if(!launch.settings.startgg_event.empty() || !launch.settings.startgg_file.empty()) {
+            const auto& s=launch.settings;
+            std::unique_ptr<mscharged::platform::StartggSource> source;
+            std::string from;
+            if(!s.startgg_file.empty()) {
+                auto file=mscharged::PathFromUtf8(s.startgg_file);
+                if(file.is_relative()) file=launch.config.path.parent_path()/file;
+                source=mscharged::platform::StartggFileSource(file);
+                from=" from the file "+s.startgg_file;
+            } else {
+                source=mscharged::platform::StartggHttpSource(s.startgg_dev_token,
+                    s.startgg_api.empty() ? std::string(mscharged::platform::kStartggApi) : s.startgg_api);
+                from=s.startgg_dev_token.empty() ? " (no dev_token: start.gg will refuse)" : "";
+            }
+            startggFeed=std::make_unique<mscharged::platform::StartggFeed>(std::move(source),s.startgg_event,
+                [](const std::string& text) { mscharged::platform::SessionLogLine(text); });
+            mscharged::platform::SessionLogLine("Menus: TOURNAMENT shows the start.gg event "+s.startgg_event+from
+                +(s.startgg_user.empty() ? " (no user: no next set)" : ""));
+        }
         std::optional<mscharged::runtime::HostMenus> hostMenus;
         // A set's forfeit sent: the game leaves its match once the server
         // answered, or after a moment without an answer.
@@ -3167,6 +3191,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 model.set_match=competitive && competitive->CurrentSet().has_value();
             };
             menusHost.image=overlayImage;
+            // start.gg is asked only while the page is in the stack; the model
+            // is made again only when an answer came.
+            if(startggFeed) menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open) {
+                startggFeed->SetOpen(open);
+                if(const auto version=startggFeed->Version(); version!=startggShown || version==0) {
+                    model=mscharged::runtime::StartggTournament(startggFeed->Latest(),launch.settings.startgg_user);
+                    startggShown=version;
+                }
+            };
             menusHost.online=applyOnline;
             menusHost.setting=applySetting;
             menusHost.option=applyOption;
