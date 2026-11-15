@@ -41,8 +41,9 @@ namespace {
 // The cut tournament's cameras: the trophy, and the online menu's.
 constexpr char kTrophyCamera[] = "trophycentreofgold";
 constexpr char kOnlineMenuCamera[] = "fechoosecaptains";
-// How long the camera takes, in seconds (0: a cut, as the cut tournament's).
-constexpr float kCameraTime = 0.0f;
+// How long the camera takes, in seconds: as the Road to Strikers Cup hub's
+// (TransitionToStrikerCupHub), where the cut tournament cut (0).
+constexpr float kCameraTime = 2.0f;
 
 int sState = CHARGED_TROPHY_ROOM_OUT;
 // The host asked to leave on the way in.
@@ -118,8 +119,7 @@ void PoseTrophy()
 
 void StartLeaving()
 {
-    if (NetTournManager* tournament = NetTournManager::Instance()) tournament->DestroyTournamentTrophy();
-    SetCupTrophiesVisible(true);
+    // The trophy stays in sight while the camera moves away (ChargedTrophyRoomFrame).
     PushCamera(kOnlineMenuCamera, false);
     sState = CHARGED_TROPHY_ROOM_LEAVING;
     sLeaveWanted = false;
@@ -188,6 +188,8 @@ void ChargedTrophyRoomFrame()
         std::fputs("Trophy room: in\n", stderr);
         if (sLeaveWanted) StartLeaving();
     } else if (sState == CHARGED_TROPHY_ROOM_LEAVING && sCameraArrived) {
+        if (NetTournManager* tournament = NetTournManager::Instance()) tournament->DestroyTournamentTrophy();
+        SetCupTrophiesVisible(true);
         Out();
         std::fputs("Trophy room: out\n", stderr);
     }
