@@ -200,16 +200,20 @@ void ChargedTrophyRoomFrame()
     // The online menu left the stack meanwhile (its own buttons still work
     // in the trophy room): its next screen has its own camera, the trophy
     // and the hidden cup trophies are put right here. A popup over it is
-    // fine, and so is a set's RANKED search, which takes the online menu's
-    // place (tweak patch 0056): it is played from the room.
-    const bool stays = manager->IsOnStack(SCENE_ONLINE_MENU)
-        || (ChargedCompetitiveWalking() && manager->IsOnStack(SCENE_ONLINE_MATCHMAKING_DRAFT));
-    if (!stays) {
+    // fine, and so is a set's walk: its RANKED search takes the online
+    // menu's place (tweak patch 0056) and is played from the room, until the
+    // set ends (back in the online menu after a search left).
+    if (!manager->IsOnStack(SCENE_ONLINE_MENU) && !ChargedCompetitiveWalking()) {
         if (NetTournManager* tournament = NetTournManager::Instance()) tournament->DestroyTournamentTrophy();
         sDiscardLoad = sState == CHARGED_TROPHY_ROOM_ENTERING && !sTrophyLoaded;
         SetCupTrophiesVisible(true);
         Out();
-        Log("the online menu left; trophy removed");
+        char line[96];
+        const unsigned long depth = manager->mCurrentStackDepth;
+        std::snprintf(line, sizeof line, "the online menu left (top scene %d); trophy removed",
+                      depth > 0 && depth <= BaseGameSceneManager::MAX_SCENE_DEPTH ? int(manager->m_sceneStack[depth - 1])
+                                                                                  : -1);
+        Log(line);
         return;
     }
     if (sState == CHARGED_TROPHY_ROOM_ENTERING) {
