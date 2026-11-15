@@ -37,8 +37,10 @@ namespace mscharged::runtime {
 // D-pad, the arrows and the mouse light an item, A presses, left and right
 // change a value, B goes back a page (to the pause menu, the cursor on the
 // button that opened it), the pause button resumes the match from any page.
-// The mouse draws the player's own hand. Use it on the presentation owner
-// thread, between game frames.
+// The mouse and each player's Wii Remote that points at the picture draw the
+// player's own hand (MenuInput::Hands); the pages follow the one that moved
+// or pressed last. Use it on the presentation owner thread, between game
+// frames.
 class HostMenus {
 public:
     using Clock = std::chrono::steady_clock;
@@ -174,6 +176,9 @@ private:
                      Clock::time_point now);
     void DrawPauseButtons(const Frame& frame, const Tv& tv, const ui::Fonts& fonts);
     void DrawHands(const Frame& frame, const ui::Input& in, bool overItem);
+    // The hand the mouse draws: the keyboard player's, else the one of the
+    // player the game's menus follow, else any player's.
+    const std::vector<ChargedMenuSnapshot::Quad>& MouseHand() const;
 
     Game game_;
     MenuInput& input_;
@@ -219,6 +224,8 @@ private:
     // the first event after an unknown position).
     bool pointerShown_ = false;
     std::optional<ImVec2> lastPointer_;
+    // The player whose hand the pages follow (MenuInput::Hands), -1 the mouse.
+    int pointerHand_ = -1;
     // The last hand of each player as the game drew it, around its pointer,
     // and this frame's (kept between frames for their room).
     std::array<std::vector<ChargedMenuSnapshot::Quad>, 4> hands_, newHands_;

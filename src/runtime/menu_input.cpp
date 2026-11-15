@@ -1,5 +1,6 @@
 #include "runtime/menu_input.h"
 
+#include "platform/desktop_presented_dpd.h"
 #include "platform/desktop_wpad.h"
 #include "platform/hotkey_filter.h"
 #include "platform/session_log.h"
@@ -76,19 +77,28 @@ int LowestChannel(std::uint32_t channels)
         if (channels & (1u << n)) return n;
     return -1;
 }
+
+// How far a Nunchuk stick (about +-100 at full tilt) is pushed past the
+// game's own dead zone of 15, 0..1; past 0.1 it moves the lit item.
+float StickAmount(int value) { return std::clamp((float(value) - 15.0f) / 56.0f, 0.0f, 1.0f); }
+constexpr float kStickSteers = 0.1f;
 } // namespace
 
 // The menus' input layer: while the pages are open it takes the mouse and the
 // keyboard from every layer below (the game's hidden cursor too) and gives
 // them to ImGui; the players' buttons come from the WPAD hold instead.
 struct MenuInputLayer {
-    static aurora::input::EventResult OnEvent(const aurora::input::InputEvent& event, void*)
+    static aurora::input::EventResult OnEvent(const aurora::input::InputEvent& event, void* userdata)
     {
         using aurora::input::InputEvent;
         using Kind = aurora::input::InputSource::Kind;
         const Kind kind = event.source.kind;
         if ((kind != Kind::Keyboard && kind != Kind::Mouse) || !ImGui::GetCurrentContext())
             return aurora::input::EventResult::Pass;
+        // A mouse that does not point in the game does nothing here either
+        // (taken all the same: the game gets no input while a page shows).
+        if (kind == Kind::Mouse && !static_cast<const MenuInput*>(userdata)->mousePoints_)
+            return aurora::input::EventResult::Consume;
         ImGuiIO& io = ImGui::GetIO();
         if (event.payload.is<InputEvent::Cancelled>()) {
             if (kind == Kind::Keyboard) io.ClearInputKeys();
@@ -126,7 +136,7 @@ struct MenuInputLayer {
     static aurora::input::PointerMode Pointer(void*) { return aurora::input::PointerMode::Hidden; }
 };
 
-MenuInput::MenuInput(SDL_Window* window) : window_(window)
+MenuInput::MenuInput(SDL_Window* window, bool kpadSensorHeight) : window_(window), kpadSensorHeight_(kpadSensorHeight)
 {
     layer_ = aurora::input::register_layer({
         .label = "recharged.menus",
@@ -168,10 +178,14 @@ void MenuInput::SetMenuKeys(std::function<void(MenuKey key, int channel)> keys) 
 
 void MenuInput::Capture(bool on)
 {
+    // The hands start again (none shows until it moves).
+    pointing_ = {};
+    hands_ = {};
     if (on) {
         ImGuiIO& io = ImGui::GetIO();
         controllerDown_ = 0;
         keyboardChannel_ = platform::DesktopKeyboardWpadChannel();
+        mousePoints_ = platform::DesktopMousePoints();
         // Drop what reached ImGui while it read no input, then start where the
         // mouse is.
         io.ClearEventsQueue();
@@ -180,7 +194,7 @@ void MenuInput::Capture(bool on)
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
         io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
         float x = 0, y = 0;
-        if (window_ && SDL_GetMouseFocus() == window_) {
+        if (mousePoints_ && window_ && SDL_GetMouseFocus() == window_) {
             SDL_GetMouseState(&x, &y);
             const ImVec2 at = SurfacePixels(x, y);
             io.AddMousePosEvent(at.x, at.y);
@@ -274,8 +288,63 @@ void MenuInput::Service(Clock::time_point now)
     // The pages' input: the players' buttons as keys, the pause pressed
     // again while the game refuses it.
     platform::SetHotkeysInMenu(true);
-    FeedControllers(platform::TakeNativeWpadPanelButtons());
+    const auto buttons = platform::TakeNativeWpadPanelButtons();
+    PointHands(buttons);
+    FeedControllers(buttons);
     RetryPause(now);
+}
+
+void MenuInput::PointHands(const platform::NativeWpadPanelButtons& buttons)
+{
+    // The game's picture in the window, as the mouse's camera maps it: the
+    // hand is where the mouse would be for the game to put its hand there.
+    platform::DesktopDpdProjection picture{};
+    const bool placed = window_ && platform::QueryPresentedDesktopDpd(nullptr, window_, &picture);
+    // A hundredth of the picture's height: moved this far from where it
+    // rests, a hand shows.
+    const float away = SurfacePixels(0.0f, picture.height).y * 0.01f;
+    constexpr std::uint16_t kSteer = WPAD_BUTTON_UP | WPAD_BUTTON_DOWN | WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT;
+    for (int n = 0; n < 4; ++n) {
+        Pointing& point = pointing_[std::size_t(n)];
+        Hand& hand = hands_[std::size_t(n)];
+        const Hand before = hand;
+        hand.moved = hand.click = false;
+        std::optional<std::array<double, 2>> at;
+        if (n != keyboardChannel_ && (buttons.cameras & (1u << n)))
+            at = point.camera.Update(buttons.camera[std::size_t(n)], buttons.sensor_bar_position, kpadSensorHeight_);
+        else point.camera.Reset();
+        // Pointing beyond the picture by more than a tenth of it: no hand.
+        if (at && (!placed || (*at)[0] < -0.1 || (*at)[0] > 1.1 || (*at)[1] < -0.1 || (*at)[1] > 1.1)) at.reset();
+        if (!at) {
+            point.rest.reset();
+            point.live = false;
+            hand.shown = false;
+        } else {
+            const ImVec2 where = SurfacePixels(picture.left + float((*at)[0]) * picture.width,
+                                               picture.top + float((*at)[1]) * picture.height);
+            // Steering with the D-pad or the stick (on a gamepad perhaps the
+            // pointer's too) moves the lit item: the hand rests until it
+            // moves away from where it is when the steering ends.
+            const bool steering = ((buttons.down[std::size_t(n)] | buttons.pressed[std::size_t(n)]) & kSteer)
+                || StickAmount(std::abs(buttons.stick_x[std::size_t(n)])) > kStickSteers
+                || StickAmount(std::abs(buttons.stick_y[std::size_t(n)])) > kStickSteers;
+            if (steering) point.live = false;
+            if (steering || !point.rest) point.rest = std::array<float, 2>{where.x, where.y};
+            if (!point.live && std::hypot(where.x - (*point.rest)[0], where.y - (*point.rest)[1]) > away)
+                point.live = true;
+            hand.shown = point.live;
+            hand.x = where.x;
+            hand.y = where.y;
+            hand.moved = hand.shown && (!before.shown || std::hypot(hand.x - before.x, hand.y - before.y) > 0.5f);
+        }
+        // A pressed while the hand shows is the hand's (where it is) until
+        // released; otherwise it presses the lit item (FeedControllers).
+        const bool aPressed = buttons.pressed[std::size_t(n)] & WPAD_BUTTON_A;
+        const bool aDown = buttons.down[std::size_t(n)] & WPAD_BUTTON_A;
+        if (aPressed) point.a = hand.click = hand.shown;
+        else if (!aDown) point.a = false;
+        hand.held = point.a;
+    }
 }
 
 void MenuInput::FeedControllers(const platform::NativeWpadPanelButtons& buttons)
@@ -291,6 +360,8 @@ void MenuInput::FeedControllers(const platform::NativeWpadPanelButtons& buttons)
         bool down = false, pressed = false;
         for (int n = 0; n < 4; ++n) {
             if (n == keyboardChannel_ && !keyboardToo) continue;
+            // A pressing where the player's hand is (PointHands).
+            if (entry.bit == WPAD_BUTTON_A && pointing_[std::size_t(n)].a) continue;
             down |= (buttons.down[n] & entry.bit) != 0;
             pressed |= (buttons.pressed[n] & entry.bit) != 0;
         }
@@ -314,8 +385,8 @@ void MenuInput::FeedControllers(const platform::NativeWpadPanelButtons& buttons)
         if (std::abs(buttons.stick_y[n]) > std::abs(y)) y = buttons.stick_y[n];
     }
     const auto axis = [&](ImGuiKey key, int value) {
-        const float amount = std::clamp((float(value) - 15.0f) / 56.0f, 0.0f, 1.0f);
-        io.AddKeyAnalogEvent(key, amount > 0.1f, amount);
+        const float amount = StickAmount(value);
+        io.AddKeyAnalogEvent(key, amount > kStickSteers, amount);
     };
     axis(ImGuiKey_GamepadLStickRight, x);
     axis(ImGuiKey_GamepadLStickLeft, -x);

@@ -367,8 +367,14 @@ has **ONLINE**, **OPTIONS** and **QUIT RECHARGED**:
 
 The D-pad, the arrow keys or the mouse pick an item, A or Enter presses it, − and
 + (Q and E) switch a page's categories, and B, Escape or Backspace go back a
-page. While the game is in its menus, the top-left corner shows the menu's keys
-(F1 or HOME), and a challenge you sent from the menu closes it when it is
+page. A Wii Remote points at the items as in the game's menus, and so does a
+gamepad's pointer stick or gyro (not a stick shared with the Nunchuk stick):
+the player's hand shows once it moves, and A presses what it points at; after
+the D-pad, A presses the lit item until the hand moves again. The mouse points
+only as in the game: for the keyboard & mouse player, or with **Mouse pointer**
+on for a controller playing alone. While the game is in its menus, the top-left
+corner shows the menu's keys (F1 or HOME), and a challenge you sent from the
+menu closes it when it is
 accepted: the game goes on into the set. While it is open the game behind it is
 blurred and gets no input: online matches go on, and in an offline match it
 presses the game's pause. In an online match the game's pause button (1 on a

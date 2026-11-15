@@ -796,6 +796,10 @@ int DesktopKeyboardWpadChannel() {
     if (!state.ready || !state.keyboard) return -1;
     return GetNativeWpadChannel(state.keyboard->virtual_id);
 }
+bool DesktopMousePoints() {
+    auto& state = Get();
+    return state.ready && state.settings.mouse;
+}
 void ShutdownDesktopWpad() {
     auto& state = Get();
     if (!state.ready) return;

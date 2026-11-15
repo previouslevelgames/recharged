@@ -102,6 +102,15 @@ struct NativeWpadPanelButtons
     std::array<std::uint16_t, 4> pressed{};
     // Each channel's Nunchuk stick (about +-100 at full tilt).
     std::array<std::int8_t, 4> stick_x{}, stick_y{};
+    // What each channel's own camera sees now (a Wii Remote's, a gamepad's
+    // pointer stick or gyro), for a hand of the panel's own: the game keeps
+    // seeing the pointer of before the hold. Bit n of `cameras`: channel n
+    // has one (the mouse's camera, lent to remotes or alongside a
+    // controller, is not one).
+    std::array<NativeDpdObservation, 4> camera{};
+    std::uint32_t cameras = 0;
+    // The Wii's sensor-bar position (0 below, 1 above the screen).
+    std::uint8_t sensor_bar_position = 0;
 };
 NativeWpadPanelButtons TakeNativeWpadPanelButtons();
 // While the panel holds: the game's own `button` (WPAD_BUTTON_*) pressed alone

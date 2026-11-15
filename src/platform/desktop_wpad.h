@@ -83,4 +83,7 @@ void ServiceDesktopWpad();
 void ShutdownDesktopWpad();
 // The WPAD channel (player - 1) the keyboard & mouse remote plays on, or -1.
 int DesktopKeyboardWpadChannel();
+// Whether the mouse points in the game: for the keyboard & mouse player, or
+// (controls.mouse_pointer) for a controller playing alone as player 1.
+bool DesktopMousePoints();
 } // namespace mscharged::platform

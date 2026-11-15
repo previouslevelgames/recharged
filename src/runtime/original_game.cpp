@@ -2006,9 +2006,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         };
         // The input of Recharged's menus (F1 or HOME): online the game goes
         // on; in an offline match in play opening them presses the game's pause.
+        // The players point at its pages as at the game's menus (the same
+        // pointer centre as the mouse's camera).
         std::optional<mscharged::runtime::MenuInput> menuInput;
         if(hostOverlay && interactive) {
-            menuInput.emplace(host.window);
+            menuInput.emplace(host.window,desktop.kpad_sensor_height);
             menuInput->SetPauseRule([&] {
                 ChargedPresenceSnapshot game{};
                 if(netplaySession || !presenceSnapshot || !presenceSnapshot(&game,sizeof game))return false;

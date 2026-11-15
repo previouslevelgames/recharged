@@ -376,6 +376,7 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
         input_.OpenPages(channel_, pausePress_);
         pointerShown_ = false;
         lastPointer_.reset();
+        pointerHand_ = -1;
     } else if (!wantInput && input_.PagesOpen()) input_.ClosePages();
     if (wantInput || pages_.empty()) pausePress_ = false;
 
@@ -590,23 +591,48 @@ ui::Input HostMenus::ReadInput()
 {
     ui::Input in;
     ImGuiIO& io = ImGui::GetIO();
-    const bool valid = ImGui::IsMousePosValid();
+    // The mouse only where it points in the game (MenuInput::MousePoints):
+    // ImGui's SDL backend also reads where it is on its own.
+    const bool mouse = input_.MousePoints();
+    const bool valid = mouse && ImGui::IsMousePosValid();
     in.pointer = io.MousePos;
     // (Not on the first frame the pages have the input.)
     in.pointer_moved = valid && lastPointer_ && (io.MousePos.x != lastPointer_->x || io.MousePos.y != lastPointer_->y);
     lastPointer_ = io.MousePos;
     if (in.pointer_moved) pointerShown_ = true;
     in.pointer_shown = pointerShown_ && valid;
-    in.click = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
-    in.held = ImGui::IsMouseDown(ImGuiMouseButton_Left);
-    in.wheel = io.MouseWheel;
+    in.click = mouse && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+    in.held = mouse && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+    // The players' hands (MenuInput::Hands): the pages follow one pointer, a
+    // hand that presses, else the mouse when it moves or clicks, else a hand
+    // that moves; one that goes leaves it to the mouse.
+    const auto& hands = input_.Hands();
+    int pressing = -1, moving = -1;
+    for (int n = 3; n >= 0; --n) {
+        const auto& hand = hands[std::size_t(n)];
+        if (hand.shown && hand.click) pressing = n;
+        if (hand.shown && hand.moved) moving = n;
+    }
+    if (pressing >= 0) pointerHand_ = pressing;
+    else if (in.pointer_moved || in.click) pointerHand_ = -1;
+    else if (moving >= 0) pointerHand_ = moving;
+    if (pointerHand_ >= 0 && !hands[std::size_t(pointerHand_)].shown) pointerHand_ = -1;
+    if (pointerHand_ >= 0) {
+        const auto& hand = hands[std::size_t(pointerHand_)];
+        in.pointer = {hand.x, hand.y};
+        in.pointer_shown = true;
+        in.pointer_moved = hand.moved;
+        in.click = hand.click;
+        in.held = hand.held;
+    }
+    in.wheel = mouse ? io.MouseWheel : 0.0f;
     in.up = Pressed({ImGuiKey_UpArrow, ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadLStickUp});
     in.down = Pressed({ImGuiKey_DownArrow, ImGuiKey_GamepadDpadDown, ImGuiKey_GamepadLStickDown});
     in.left = Pressed({ImGuiKey_LeftArrow, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadLStickLeft});
     in.right = Pressed({ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight, ImGuiKey_GamepadLStickRight});
     in.accept = Pressed({ImGuiKey_Enter, ImGuiKey_KeypadEnter, ImGuiKey_Space, ImGuiKey_GamepadFaceDown}, false);
     in.back = Pressed({ImGuiKey_Escape, ImGuiKey_Backspace, ImGuiKey_GamepadFaceRight}, false)
-        || ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+        || (mouse && ImGui::IsMouseClicked(ImGuiMouseButton_Right));
     in.resume = Pressed({ImGuiKey_GamepadFaceLeft}, false);
     // The categories beside: - and + (the keyboard's - and Tab), Q and E.
     in.previous = Pressed({ImGuiKey_GamepadL1, ImGuiKey_Minus, ImGuiKey_Q, ImGuiKey_PageUp}, false);
@@ -703,13 +729,22 @@ void HostMenus::DrawPauseButtons(const Frame& frame, const Tv& tv, const ui::Fon
     }
 }
 
+const std::vector<ChargedMenuSnapshot::Quad>& HostMenus::MouseHand() const
+{
+    int pad = input_.KeyboardChannel();
+    if (pad < 0 || pad > 3 || hands_[std::size_t(pad)].empty()) pad = menu_.controller;
+    if (pad < 0 || pad > 3 || hands_[std::size_t(pad)].empty())
+        for (pad = 0; pad < 3 && hands_[std::size_t(pad)].empty(); ++pad) {}
+    return hands_[std::size_t(pad)];
+}
+
 void HostMenus::DrawHands(const Frame& frame, const ui::Input& in, bool overItem)
 {
-    // The players' hands on top. On a page: the mouse's, the player's own
-    // hand as the game last drew it (its A over an item). Else the game's,
-    // as it drew them this frame (its hand, its number, the A over a
-    // button), last handed over first (the front end's view draws in
-    // reverse order).
+    // The players' hands on top. On a page: the mouse's and each pointing
+    // player's, the player's own hand as the game last drew it (its A over
+    // an item on the one the pages follow). Else the game's, as it drew them
+    // this frame (its hand, its number, the A over a button), last handed
+    // over first (the front end's view draws in reverse order).
     ImDrawList* drawList = ImGui::GetForegroundDrawList();
     const auto drawQuad = [&](const ChargedMenuSnapshot::Quad& quad, float dx, float dy) {
         void* texture = Texture(quad.texture);
@@ -728,20 +763,29 @@ void HostMenus::DrawHands(const Frame& frame, const ui::Input& in, bool overItem
             drawQuad(menu_.quads[n], 0.0f, 0.0f);
         return;
     }
-    if (!in.pointer_shown) return;
-    int pad = input_.KeyboardChannel();
-    if (pad < 0 || pad > 3 || hands_[std::size_t(pad)].empty()) pad = menu_.controller;
-    if (pad < 0 || pad > 3 || hands_[std::size_t(pad)].empty())
-        for (pad = 0; pad < 3 && hands_[std::size_t(pad)].empty(); ++pad) {}
-    const auto& hand = hands_[std::size_t(pad)];
-    const ImVec2 at = frame.ToUnits(in.pointer);
-    for (auto quad = hand.rbegin(); quad != hand.rend(); ++quad)
-        if (quad->texture != CHARGED_MENU_CURSOR_A_TEXTURE || overItem) drawQuad(*quad, at.x, at.y);
-    // No hand of the game's seen yet (a question before its menus): the
-    // plain pointer.
-    if (hand.empty())
-        ImGui::RenderMouseCursor(in.pointer, std::max(1.0f, frame.unit * 0.5f), ImGuiMouseCursor_Arrow, IM_COL32_WHITE,
-                                 IM_COL32_BLACK, IM_COL32(0, 0, 0, 48));
+    const auto drawHand = [&](const std::vector<ChargedMenuSnapshot::Quad>& hand, ImVec2 pointer, bool over) {
+        const ImVec2 at = frame.ToUnits(pointer);
+        for (auto quad = hand.rbegin(); quad != hand.rend(); ++quad)
+            if (quad->texture != CHARGED_MENU_CURSOR_A_TEXTURE || over) drawQuad(*quad, at.x, at.y);
+        // No hand of the game's seen yet (a question before its menus, a
+        // player who never pointed at them): the plain pointer.
+        if (hand.empty())
+            ImGui::RenderMouseCursor(pointer, std::max(1.0f, frame.unit * 0.5f), ImGuiMouseCursor_Arrow,
+                                     IM_COL32_WHITE, IM_COL32_BLACK, IM_COL32(0, 0, 0, 48));
+    };
+    // The others first, the one the pages follow on top.
+    const auto& hands = input_.Hands();
+    for (int n = 0; n < 4; ++n) {
+        const auto& hand = hands[std::size_t(n)];
+        if (hand.shown && n != pointerHand_) drawHand(hands_[std::size_t(n)], {hand.x, hand.y}, false);
+    }
+    if (pointerHand_ < 0) {
+        if (in.pointer_shown) drawHand(MouseHand(), in.pointer, overItem);
+        return;
+    }
+    if (pointerShown_ && input_.MousePoints() && ImGui::IsMousePosValid())
+        drawHand(MouseHand(), ImGui::GetIO().MousePos, false);
+    drawHand(hands_[std::size_t(pointerHand_)], in.pointer, overItem);
 }
 
 void HostMenus::Draw(float width, float height, const ui::Fonts& fonts)

@@ -707,7 +707,15 @@ NativeWpadPanelButtons TakeNativeWpadPanelButtons() {
         buttons.pressed[n] = state.panel_pressed[n];
         buttons.stick_x[n] = state.panel_stick_x[n];
         buttons.stick_y[n] = state.panel_stick_y[n];
+        // The channel's own camera: not the mouse's, lent to a remote without
+        // one or replacing a controller's (the mouse points as itself).
+        const auto* producer = FindDpdProducer(state.channels[n].id);
+        if (producer && !(int(n) == state.mouse_channel && state.mouse_pointer)) {
+            buttons.camera[n] = producer->observation;
+            buttons.cameras |= 1u << n;
+        }
     }
+    buttons.sensor_bar_position = state.settings.sensor_bar_position;
     state.panel_pressed = {};
     return buttons;
 }
