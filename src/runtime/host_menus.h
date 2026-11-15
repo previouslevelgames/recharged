@@ -81,6 +81,10 @@ public:
         // The TOURNAMENT page's model, each frame; `open` while the page is
         // in the stack (start.gg is asked only then). None: sample data.
         std::function<void(ui::TournamentModel&, bool open)> tournament;
+        // TOURNAMENT's READY: the player's next set starts (true: the game
+        // goes on from the trophy room into its RANKED search, and the pages
+        // go). None, or false: nothing starts.
+        std::function<bool()> tournament_ready;
         // The player forfeits the online match (the match menu's FORFEIT):
         // the host tells the server, then calls LeaveMatch. None: the match
         // is left at once.
@@ -99,6 +103,9 @@ public:
     std::optional<int> TakePromptAnswer();
     // Every page goes (a set going on into the game).
     void CloseAll();
+    // The set READY started is done, or its search was left: back in the
+    // trophy room, its page comes again.
+    void TournamentSetDone();
     // The game leaves the online match the player forfeited (Host::forfeit).
     void LeaveMatch();
     // Each host frame, after the game's frame and MenuInput::Service: the
@@ -212,6 +219,7 @@ private:
     std::optional<int> promptAnswer_;
     // TOURNAMENT's way into the trophy room, since when.
     TournamentWay tournament_ = TournamentWay::None;
+    bool tournamentPage_ = false; // TournamentSetDone: the page comes again in the room
     ui::TournamentModel tournamentModel_;
     Clock::time_point tournamentAt_{};
     void Tournament(TournamentWay way);

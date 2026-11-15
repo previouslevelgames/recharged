@@ -178,6 +178,8 @@ void HostMenus::CloseAll()
     ClearPages();
 }
 
+void HostMenus::TournamentSetDone() { tournamentPage_ = true; }
+
 void HostMenus::LeaveMatch() { Command(CHARGED_MENU_FORFEIT); }
 
 void HostMenus::CloseRecharged()
@@ -283,6 +285,14 @@ void HostMenus::ServiceTournament(Clock::time_point now)
         } else if (menu_.trophy_room == CHARGED_TROPHY_ROOM_OUT && waited) Tournament(TournamentWay::None);
         break;
     }
+    // Back in the room from a set READY started (its search left): the page
+    // again, once nothing else of ours shows; out of the room, never mind.
+    if (tournamentPage_ && menu_.trophy_room != CHARGED_TROPHY_ROOM_IN) tournamentPage_ = false;
+    else if (tournamentPage_ && pages_.empty() && !prompt_) {
+        tournamentPage_ = false;
+        channel_ = -1;
+        Push(ui::PageId::Tournament, 0, {}, Origin::TrophyRoom);
+    }
     // The room left without its BACK (the online menu gone, F7): its page goes.
     if (Opened(Origin::TrophyRoom) && menu_.trophy_room != CHARGED_TROPHY_ROOM_IN) ClearPages();
 }
@@ -361,7 +371,14 @@ void HostMenus::Apply(const ui::PageActions& actions, bool live, const overlay::
         }
         return;
     }
-    if (actions.tournament_ready) platform::SessionLogLine("Menus: TOURNAMENT READY (no set to play yet)");
+    if (actions.tournament_ready) {
+        // The set goes on from the trophy room, which stays: only the pages go.
+        if (host_.tournament_ready && host_.tournament_ready()) {
+            ClearPages();
+            return;
+        }
+        platform::SessionLogLine("Menus: TOURNAMENT READY (no set to play)");
+    }
     if (actions.wii_online) {
         // The game's own online, as its main menu's globe: these pages go.
         Command(CHARGED_MENU_WII_ONLINE);
