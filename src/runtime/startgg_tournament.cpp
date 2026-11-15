@@ -4,6 +4,8 @@
 
 #include <cctype>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace mscharged::runtime
 {
@@ -29,6 +31,48 @@ const char* StateText(platform::StartggSetState state)
     case platform::StartggSetState::Called: return T("menus.tournament.state_called");
     default: return T("menus.tournament.state_waiting");
     }
+}
+
+ui::BracketSetState BracketState(platform::StartggSetState state)
+{
+    switch (state)
+    {
+    case platform::StartggSetState::Completed: return ui::BracketSetState::Done;
+    case platform::StartggSetState::Active:
+    case platform::StartggSetState::Called: return ui::BracketSetState::Going;
+    default: return ui::BracketSetState::Waiting;
+    }
+}
+
+// The pool of the player's next set (else the event's first), in the
+// event's order.
+std::vector<ui::BracketSet> Bracket(const platform::StartggEvent& event, const platform::StartggSet* next,
+                                    std::string_view user)
+{
+    std::vector<ui::BracketSet> bracket;
+    if (event.sets.empty()) return bracket;
+    const std::string& group = next ? next->phase_group : event.sets.front().phase_group;
+    for (const auto& set : event.sets)
+    {
+        if (set.phase_group != group) continue;
+        ui::BracketSet cell;
+        cell.id = set.id;
+        cell.round = set.round;
+        cell.round_text = set.round_text;
+        cell.state = BracketState(set.state);
+        cell.yours = &set == next;
+        for (int n = 0; n < 2; ++n)
+        {
+            const platform::StartggEntrant& entrant = set.slots[n];
+            cell.slots[n].name = entrant.name;
+            if (entrant.score) cell.slots[n].score = *entrant.score < 0 ? "DQ" : std::to_string(*entrant.score);
+            cell.slots[n].winner = !entrant.id.empty() && entrant.id == set.winner;
+            cell.slots[n].you = platform::StartggIsUser(entrant, user);
+            cell.prereq[n] = set.prereq[n];
+        }
+        bracket.push_back(std::move(cell));
+    }
+    return bracket;
 }
 
 bool InEvent(const platform::StartggEvent& event, std::string_view user)
@@ -57,6 +101,7 @@ ui::TournamentModel StartggTournament(const platform::StartggFeed::Snapshot& fee
     if (!feed.error.empty()) model.note = T("menus.tournament.stale", {{"error", feed.error}});
     int mine = -1;
     const platform::StartggSet* set = platform::StartggNextSet(event, user, &mine);
+    model.bracket = Bracket(event, set, user);
     if (!set)
     {
         if (model.note.empty())

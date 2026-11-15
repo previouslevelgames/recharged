@@ -484,6 +484,32 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
         tournamentModel_.games = 3;
         tournamentModel_.sample = true;
         tournamentModel_.has_set = tournamentModel_.opponent_known = true;
+        // Four players, double elimination: the player's first set next.
+        auto set = [](const char* id, int round, const char* text, const char* a, const char* b,
+                      ui::BracketSetState state, const char* from_a = "", const char* from_b = "") {
+            ui::BracketSet cell;
+            cell.id = id;
+            cell.round = round;
+            cell.round_text = text;
+            cell.slots[0].name = a;
+            cell.slots[1].name = b;
+            cell.state = state;
+            cell.prereq[0] = from_a;
+            cell.prereq[1] = from_b;
+            return cell;
+        };
+        using State = ui::BracketSetState;
+        auto& bracket = tournamentModel_.bracket;
+        bracket = {set("1", 1, "Winners Semi-Final", "You", "Opponent", State::Waiting),
+                   set("2", 1, "Winners Semi-Final", "Mario", "Peach", State::Done),
+                   set("3", 2, "Winners Final", "", "Mario", State::Waiting, "1", "2"),
+                   set("4", 3, "Grand Final", "", "", State::Waiting, "3", "6"),
+                   set("5", -1, "Losers Round 1", "", "Peach", State::Waiting, "1", "2"),
+                   set("6", -2, "Losers Final", "", "", State::Waiting, "5", "3")};
+        bracket[0].yours = bracket[0].slots[0].you = true;
+        bracket[1].slots[0].winner = true;
+        bracket[1].slots[0].score = "2";
+        bracket[1].slots[1].score = "1";
     }
     ShowPrompt(now);
 
