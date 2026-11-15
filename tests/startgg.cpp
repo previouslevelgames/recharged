@@ -1,13 +1,16 @@
 // start.gg's answers for the TOURNAMENT page: the request, the event and its
 // sets read from saved answers (tests/fixtures/startgg, made up), the
-// player's next set, and the refusals (the rate limit, the token).
+// player's next set, the refusals (the rate limit, the token), and the
+// sources (a file; start.gg through a test's transport).
 #include "platform/json.h"
 #include "platform/startgg.h"
+#include "platform/startgg_source.h"
 
 #include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace mscharged::platform;
 
@@ -154,6 +157,73 @@ void Refusals()
     CHECK(!answer.event && !answer.rate_limited);
     CHECK(answer.error.find("502") != std::string::npos);
 }
+void Files()
+{
+    auto source = StartggFileSource(std::string(STARTGG_FIXTURES) + "/event.json");
+    StartggAnswer answer = source->Fetch("ignored");
+    CHECK(answer.event && answer.event->sets.size() == 4);
+    answer = StartggFileSource(std::string(STARTGG_FIXTURES) + "/missing.json")->Fetch("x");
+    CHECK(!answer.event);
+    CHECK(answer.error.find("missing.json") != std::string::npos);
+}
+
+void Http()
+{
+    const std::string token = "secret-token-123";
+    std::vector<HttpRequest> sent;
+    // Two pages, as start.gg would answer them.
+    auto twoPages = [&](const HttpRequest& request) {
+        sent.push_back(request);
+        const auto page = ParseJson(request.body)["variables"]["page"].Integer();
+        return HttpResponse{200, Fixture(page == 1 ? "event_page1.json" : "event_page2.json")};
+    };
+    StartggAnswer answer = StartggHttpSource(token, kStartggApi, twoPages)->Fetch("tournament/t/event/e");
+    CHECK(answer.event && answer.event->sets.size() == 2);
+    CHECK(sent.size() == 2);
+    if (!sent.empty())
+    {
+        const HttpRequest& request = sent[0];
+        CHECK(request.url == kStartggApi);
+        CHECK(request.method == "POST");
+        CHECK(!request.allow_http);
+        bool bearer = false, json = false;
+        for (const auto& header : request.headers)
+        {
+            bearer = bearer || header == "Authorization: Bearer " + token;
+            json = json || header == "Content-Type: application/json";
+        }
+        CHECK(bearer && json);
+        CHECK(ParseJson(request.body)["variables"]["slug"].Text() == "tournament/t/event/e");
+    }
+
+    // A refusal on a later page: no event half read, and never the token.
+    sent.clear();
+    auto limited = [&](const HttpRequest& request) {
+        sent.push_back(request);
+        if (sent.size() == 1) return HttpResponse{200, Fixture("event_page1.json")};
+        return HttpResponse{429, Fixture("rate_limit.json")};
+    };
+    answer = StartggHttpSource(token, kStartggApi, limited)->Fetch("e");
+    CHECK(!answer.event);
+    CHECK(answer.rate_limited);
+    CHECK(answer.error.find(token) == std::string::npos);
+
+    auto unreachable = [](const HttpRequest&) -> HttpResponse { throw HttpError("could not connect"); };
+    answer = StartggHttpSource(token, kStartggApi, unreachable)->Fetch("e");
+    CHECK(!answer.event);
+    CHECK(answer.error.find("could not connect") != std::string::npos);
+    CHECK(answer.error.find(token) == std::string::npos);
+
+    // Without a token, or over plain http elsewhere than this computer:
+    // nothing is sent.
+    sent.clear();
+    CHECK(!StartggHttpSource("", kStartggApi, twoPages)->Fetch("e").event);
+    CHECK(!StartggHttpSource(token, "http://api.start.gg/gql/alpha", twoPages)->Fetch("e").event);
+    CHECK(sent.empty());
+    answer = StartggHttpSource(token, "http://127.0.0.1:8765/gql", twoPages)->Fetch("e");
+    CHECK(answer.event.has_value());
+    CHECK(!sent.empty() && sent[0].allow_http);
+}
 } // namespace
 
 int main()
@@ -163,6 +233,8 @@ int main()
     NextSet();
     Pages();
     Refusals();
+    Files();
+    Http();
     if (failures) std::fprintf(stderr, "%d failure(s)\n", failures);
     else std::puts("startgg: all passed");
     return failures ? 1 : 0;
