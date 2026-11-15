@@ -63,7 +63,64 @@ void SingleElimination()
     CHECK(Near(f->y, (s1->y + s2->y) * 0.5f));
     CHECK(Near(f->x, kBracketCardWidth + kBracketColumnGap));
     CHECK(Near(layout.height, s2->y + kBracketCardHeight));
-    CHECK(layout.columns[0].caption == "Round 1");
+    bool captioned = false;
+    for (const auto& column : layout.columns)
+        if (column.column == 0) captioned = column.caption == "Round 1";
+    CHECK(captioned);
+}
+
+// Whether the line from a to b and the line from c to d cross (their ends'
+// heights in the wrong order).
+bool Crossing(const BracketCell& a, const BracketCell& b, const BracketCell& c, const BracketCell& d)
+{
+    return (a.y < c.y) != (b.y < d.y) && a.y != c.y && b.y != d.y;
+}
+
+void NoCrossings()
+{
+    // start.gg's order is not the bracket's: the final takes s2 first, the
+    // semi-finals take the quarter-finals out of their order.
+    const std::vector<BracketSet> sets{Set("q1", 1), Set("q2", 1), Set("q3", 1), Set("q4", 1),
+                                       Set("sA", 2, "q1", "q3"), Set("sB", 2, "q4", "q2"), Set("f", 3, "sB", "sA")};
+    const BracketLayout layout = LayOutBracket(sets);
+    struct Line
+    {
+        const char *from, *to;
+    };
+    const Line lines[] = {{"q1", "sA"}, {"q3", "sA"}, {"q4", "sB"}, {"q2", "sB"}, {"sB", "f"}, {"sA", "f"}};
+    for (const Line& one : lines)
+        for (const Line& other : lines)
+        {
+            const BracketCell *a = Cell(layout, sets, one.from), *b = Cell(layout, sets, one.to);
+            const BracketCell *c = Cell(layout, sets, other.from), *d = Cell(layout, sets, other.to);
+            CHECK(a && b && c && d);
+            if (a && b && c && d && a->column == c->column) CHECK(!Crossing(*a, *b, *c, *d));
+        }
+    // Each semi-final between its two quarter-finals, the final between them.
+    const BracketCell *sA = Cell(layout, sets, "sA"), *sB = Cell(layout, sets, "sB"), *f = Cell(layout, sets, "f");
+    const BracketCell *q4 = Cell(layout, sets, "q4"), *q2 = Cell(layout, sets, "q2");
+    if (sA && sB && f && q4 && q2)
+    {
+        CHECK(sB->y < sA->y); // the final's first
+        CHECK(Near(sB->y, (q4->y + q2->y) * 0.5f));
+        CHECK(Near(f->y, (sA->y + sB->y) * 0.5f));
+    }
+}
+
+void ThirdPlace()
+{
+    // The match for third place takes the semi-finals' losers: no set of
+    // theirs feeds it (the page leaves losers' prereqs out), so it goes on
+    // a row of its own, under the bracket, not level with the final.
+    const std::vector<BracketSet> sets{Set("s1", 1), Set("s2", 1), Set("f", 2, "s1", "s2"), Set("third", 2)};
+    const BracketLayout layout = LayOutBracket(sets);
+    const BracketCell *s2 = Cell(layout, sets, "s2"), *f = Cell(layout, sets, "f"), *third = Cell(layout, sets, "third");
+    CHECK(s2 && f && third);
+    if (s2 && f && third)
+    {
+        CHECK(third->column == f->column);
+        CHECK(third->y >= s2->y + kBracketCardHeight + kBracketRowGap - 0.01f);
+    }
 }
 
 void DoubleElimination()
@@ -105,6 +162,8 @@ int main()
     SingleElimination();
     DoubleElimination();
     Apart();
+    NoCrossings();
+    ThirdPlace();
     if (failures) std::fprintf(stderr, "%d failure(s)\n", failures);
     else std::puts("rui_bracket: all passed");
     return failures ? 1 : 0;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 #include <map>
 #include <utility>
 
@@ -16,8 +17,13 @@ BracketLayout LayOutBracket(const std::vector<BracketSet>& sets)
     {
         auto inSection = [losers](const BracketSet& set) { return (set.round < 0) == (losers == 1); };
         std::vector<int> rounds;
-        for (const auto& set : sets)
-            if (inSection(set)) rounds.push_back(std::abs(set.round));
+        std::map<std::string, std::size_t> byId; // the section's sets
+        for (std::size_t n = 0; n < sets.size(); ++n)
+            if (inSection(sets[n]))
+            {
+                rounds.push_back(std::abs(sets[n].round));
+                byId.emplace(sets[n].id, n);
+            }
         std::sort(rounds.begin(), rounds.end());
         rounds.erase(std::unique(rounds.begin(), rounds.end()), rounds.end());
         if (rounds.empty()) continue;
@@ -25,45 +31,80 @@ BracketLayout LayOutBracket(const std::vector<BracketSet>& sets)
         any = true;
         if (losers) out.losers_top = top;
         const float cardsTop = top + kBracketHead;
+        auto columnOf = [&](const BracketSet& set) {
+            return int(std::lower_bound(rounds.begin(), rounds.end(), std::abs(set.round)) - rounds.begin());
+        };
+        // The sets each set's winners come from, in this section.
+        auto feeders = [&](std::size_t n) {
+            std::vector<std::size_t> from;
+            for (const auto& prereq : sets[n].prereq)
+                if (const auto it = byId.find(prereq); !prereq.empty() && it != byId.end() && it->second != n
+                    && std::find(from.begin(), from.end(), it->second) == from.end())
+                    from.push_back(it->second);
+            return from;
+        };
+        // A tree from each last set back to the sets that feed it: a set with
+        // none takes the next row, any other stands level with the middle of
+        // its feeders, so each set's feeders sit together and no lines cross.
+        std::vector<bool> fed(sets.size(), false);
+        for (const auto& [id, n] : byId)
+            for (const std::size_t from : feeders(n)) fed[from] = true;
+        std::vector<std::size_t> roots;
+        for (std::size_t n = 0; n < sets.size(); ++n)
+            if (inSection(sets[n]) && !fed[n]) roots.push_back(n);
+        // The last rounds first (the final, then a match for third place),
+        // otherwise in the event's order.
+        std::stable_sort(roots.begin(), roots.end(),
+                         [&](std::size_t a, std::size_t b) { return columnOf(sets[a]) > columnOf(sets[b]); });
+        std::vector<float> ys(sets.size(), 0.0f);
+        std::vector<bool> placed(sets.size(), false);
+        std::map<int, float> columnFloor; // a column's next free height
+        float cursor = cardsTop;
+        auto place = [&](std::size_t n, float y) {
+            const int c = columnOf(sets[n]);
+            const auto it = columnFloor.find(c);
+            if (it != columnFloor.end()) y = std::max(y, it->second);
+            ys[n] = y;
+            placed[n] = true;
+            columnFloor[c] = y + kBracketCardHeight + kBracketRowGap;
+            cursor = std::max(cursor, y + kBracketCardHeight + kBracketRowGap);
+        };
+        std::vector<bool> visiting(sets.size(), false);
+        std::function<void(std::size_t)> layOut = [&](std::size_t n) {
+            if (placed[n] || visiting[n]) return;
+            visiting[n] = true;
+            float sum = 0.0f;
+            int count = 0;
+            for (const std::size_t from : feeders(n))
+            {
+                layOut(from);
+                if (!placed[from]) continue;
+                sum += ys[from];
+                ++count;
+            }
+            place(n, count ? sum / float(count) : cursor);
+        };
+        for (const std::size_t root : roots) layOut(root);
+        // (A loop of sets, which a bracket has not: the rest in order.)
+        for (const auto& [id, n] : byId) layOut(n);
+
         float bottom = cardsTop;
-        // The middle of each set placed in this section, by its id.
-        std::map<std::string, float> middles;
-        for (std::size_t c = 0; c < rounds.size(); ++c)
+        std::vector<std::size_t> order;
+        for (const auto& [id, n] : byId) order.push_back(n);
+        std::sort(order.begin(), order.end());
+        std::vector<bool> captioned(rounds.size(), false);
+        for (const std::size_t n : order)
         {
+            const int c = columnOf(sets[n]);
             const float x = float(c) * (kBracketCardWidth + kBracketColumnGap);
-            // Where each set of the column would go: level with its
-            // entrants' sets, else after the one before.
-            std::vector<std::pair<float, std::size_t>> wanted;
-            float next = cardsTop;
-            for (std::size_t n = 0; n < sets.size(); ++n)
+            out.cells.push_back({n, c, losers == 1, x, ys[n]});
+            bottom = std::max(bottom, ys[n] + kBracketCardHeight);
+            if (!captioned[std::size_t(c)])
             {
-                const BracketSet& set = sets[n];
-                if (!inSection(set) || std::abs(set.round) != rounds[c]) continue;
-                float sum = 0.0f;
-                int count = 0;
-                for (const auto& prereq : set.prereq)
-                    if (const auto it = middles.find(prereq); !prereq.empty() && it != middles.end())
-                    {
-                        sum += it->second;
-                        ++count;
-                    }
-                const float y = count ? sum / float(count) - kBracketCardHeight * 0.5f : next;
-                wanted.emplace_back(y, n);
-                next = std::max(next, y) + kBracketCardHeight + kBracketRowGap;
+                captioned[std::size_t(c)] = true;
+                out.columns.push_back(
+                    {c, losers == 1, x + kBracketCardWidth * 0.5f, top + kBracketHead * 0.72f, sets[n].round_text});
             }
-            std::stable_sort(wanted.begin(), wanted.end(),
-                             [](const auto& a, const auto& b) { return a.first < b.first; });
-            float floor = cardsTop;
-            for (const auto& [want, n] : wanted)
-            {
-                const float y = std::max(want, floor);
-                floor = y + kBracketCardHeight + kBracketRowGap;
-                out.cells.push_back({n, int(c), losers == 1, x, y});
-                middles[sets[n].id] = y + kBracketCardHeight * 0.5f;
-                bottom = std::max(bottom, y + kBracketCardHeight);
-            }
-            out.columns.push_back({int(c), losers == 1, x + kBracketCardWidth * 0.5f,
-                                   top + kBracketHead * 0.72f, sets[wanted.front().second].round_text});
         }
         out.width = std::max(out.width, float(rounds.size()) * (kBracketCardWidth + kBracketColumnGap)
                                             - kBracketColumnGap);

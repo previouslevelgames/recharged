@@ -68,8 +68,10 @@ struct BracketLayout
 };
 
 // The rounds in columns (by their number: the winners' up, the losers' by
-// their size), each set level with the middle of the sets its entrants come
-// from where it can be (in its own section), the sets of a column apart.
+// their size), laid out as trees from each section's last sets back: a set
+// level with the middle of the sets its winners come from (in its own
+// section), a set fed by none on the next row, so no lines cross; the sets
+// of a column apart.
 BracketLayout LayOutBracket(const std::vector<BracketSet>& sets);
 // The player's set's cell, or null.
 const BracketCell* YourBracketCell(const BracketLayout& layout, const std::vector<BracketSet>& sets);
