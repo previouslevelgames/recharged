@@ -15,8 +15,8 @@
 // Audio and Visual Options open); the ONLINE hub (the main menu's globe, the
 // Recharged menu's) with the player's set, PLAY (FRIENDS, RANDOM OPPONENT,
 // RANKED; a player's page and a challenge's setup), PROFILE (records and
-// friends) and LEADERBOARD; and the prompt over everything (a challenge, a
-// set's end). They draw from a
+// friends), LEADERBOARD and TOURNAMENT (over the trophy room); and the
+// prompt over everything (a challenge, a set's end). They draw from a
 // model the host fills each frame (the overlay's: overlay/game_overlay.h) and
 // say what the player did; the host applies it.
 namespace mscharged::ui
@@ -40,6 +40,7 @@ enum class PageId
     Prompt,      // a question over everything: a challenge, a set's end
     Match,       // an online match's menu (the game's pause; nothing pauses): CONTINUE, FORFEIT
     Forfeit,     // forfeit the online match? (then: on the way out)
+    Tournament,  // over the trophy room: the tournament, the player's next set, READY and BACK
 };
 
 // The categories of Settings (also where the pause menu's Audio and Visual
@@ -54,6 +55,18 @@ enum SettingsCategory
 
 // The search setup's key (PageId::Setup).
 inline constexpr const char* kSearchKey = overlay::kOnlinePanelSearchKey;
+
+// The tournament over the trophy room: its name and event, and the
+// player's next set in it.
+struct TournamentModel
+{
+    std::string name, event;
+    std::string round;    // the next set's ("Winners Round 1")
+    std::string opponent; // its opponent's name, and their initials for the picture
+    std::string opponent_initials;
+    int games = 3; // best of
+    bool sample = false; // made up (no start.gg yet)
+};
 
 // The game's own options, as its save holds them.
 struct GameValues
@@ -72,6 +85,10 @@ struct PageModel
     bool front_end = false;  // the game's menus, not a match
     bool credits = false;    // the game's Credits can be reached (its Options or its main menu shown)
     bool from_wheel = false; // the ONLINE hub opened from the main menu's globe: WII ONLINE goes on there
+    // The game's online menu is on top at rest: TOURNAMENT goes straight into
+    // the trophy room (from the globe it goes through WII ONLINE first).
+    bool online_menu = false;
+    TournamentModel tournament;
     // A match against another machine runs: the game's own options stay as
     // they are (changing them would change the game on one machine only).
     bool network_match = false;
@@ -104,6 +121,8 @@ struct PageActions
     int open_category = 0;      // its category to show first
     bool credits = false;       // the game's Credits (the front end's Options)
     bool wii_online = false;    // the game's own online, as its main menu's globe
+    bool tournament = false;    // TOURNAMENT: into the trophy room
+    bool tournament_ready = false; // the tournament's READY
     overlay::OnlinePanelActions online;
     overlay::RankedActions ranked;
     int answer = 0;    // the prompt: 1 its first button, 2 its second

@@ -195,6 +195,7 @@
     "play": "QUICK PLAY",
     "profile": "PROFILE",
     "leaderboard": "LEADERBOARD",
+    "tournament": "TOURNAMENT",
     "wii_online": "WII ONLINE"
   },
   "play": {
@@ -324,6 +325,12 @@
     "title": "MATCH",
     "continue": "CONTINUE",
     "forfeit": "FORFEIT"
+  },
+  "tournament": {
+    "title": "TOURNAMENT",
+    "sample": "Sample data: the tournament comes from start.gg in a later step.",
+    "ready": "READY",
+    "back": "BACK"
   },
   "forfeit": {
     "title": "FORFEIT",

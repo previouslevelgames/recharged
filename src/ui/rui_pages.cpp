@@ -411,6 +411,10 @@ void DrawOnline(const PageModel& model, List& list, PageActions& actions)
         ? T("menus.you.do_not_disturb") : nullptr;
     if (list.Plate(T("menus.online.profile"), nullptr, true, busy)) actions.open = PageId::Profile;
     if (list.Plate(T("menus.online.leaderboard"))) actions.open = PageId::Leaderboard;
+    if ((model.from_wheel || model.online_menu)
+        && list.Plate(T("menus.online.tournament"), nullptr, !locked,
+                      locked ? overlay::UpdateLockReason(online.update_lock).c_str() : nullptr))
+        actions.tournament = true;
     if (model.from_wheel
         && list.Plate(T("menus.online.wii_online"), nullptr, !locked,
                       locked ? overlay::UpdateLockReason(online.update_lock).c_str() : nullptr))
@@ -861,6 +865,19 @@ void DrawForfeit(const PageModel& model, List& list, PageActions& actions)
     if (list.Plate(T("menus.common.cancel"))) actions.back = true;
 }
 
+// TOURNAMENT, over the trophy room: the player's next set, READY, BACK.
+void DrawTournament(const PageModel& model, List& list, PageActions& actions)
+{
+    const auto& tournament = model.tournament;
+    if (tournament.sample) list.Note(T("menus.tournament.sample"));
+    const Person opponent = PersonOf(model, std::string{}, tournament.opponent_initials, 0, -1, std::string{});
+    const std::string games = texts::Count("menus.common.best_of", tournament.games);
+    list.Card(&opponent, tournament.name.c_str(), tournament.opponent.c_str(),
+              {tournament.round, tournament.event, games});
+    if (list.Plate(T("menus.tournament.ready"))) actions.tournament_ready = true;
+    if (list.Plate(T("menus.tournament.back"))) actions.back = true;
+}
+
 void DrawPrompt(const PageModel& model, List& list, PageActions& actions)
 {
     if (!model.prompt) return;
@@ -902,6 +919,7 @@ std::string PageTitle(PageId id, const std::string& key, const PageModel& model)
         return T("menus.prompt.title");
     case PageId::Match: return T("menus.match.title");
     case PageId::Forfeit: return T("menus.forfeit.title");
+    case PageId::Tournament: return T("menus.tournament.title");
     }
     return "";
 }
@@ -936,7 +954,8 @@ bool PageWide(PageId id)
     case PageId::Quit:
     case PageId::Prompt:
     case PageId::Match:
-    case PageId::Forfeit: return false;
+    case PageId::Forfeit:
+    case PageId::Tournament: return false;
     default: return true;
     }
 }
@@ -968,6 +987,7 @@ void DrawPage(PageId id, int category, const std::string& key, const PageModel& 
     case PageId::Ranked: DrawRanked(model, list, actions); break;
     case PageId::Leaderboard: DrawLeaderboard(category, model, list); break;
     case PageId::Prompt: DrawPrompt(model, list, actions); break;
+    case PageId::Tournament: DrawTournament(model, list, actions); break;
     case PageId::Match: DrawMatch(list, actions); break;
     case PageId::Forfeit: DrawForfeit(model, list, actions); break;
     }
