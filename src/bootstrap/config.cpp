@@ -509,8 +509,13 @@ Settings Decode(const Values& values, bool builtin = false)
             throw std::runtime_error(std::string("Invalid configuration: ") + key + " contains a line break or NUL");
         *value = it->second;
     }
-    if (s.startgg_user.find_first_not_of("0123456789") != std::string::npos)
-        throw std::runtime_error("Invalid configuration: startgg.user is not a start.gg user id (its digits)");
+    // The player's id (digits) or their profile's discriminator, also as its
+    // link's user/<discriminator>; kept in lowercase.
+    if (s.startgg_user.rfind("user/", 0) == 0) s.startgg_user.erase(0, 5);
+    for (auto& c : s.startgg_user) c = char(std::tolower(static_cast<unsigned char>(c)));
+    if (s.startgg_user.find_first_not_of("0123456789abcdefghijklmnopqrstuvwxyz") != std::string::npos)
+        throw std::runtime_error("Invalid configuration: startgg.user is not a start.gg user (its id, or its "
+                                 "discriminator as in user/<discriminator>)");
 
     choice("gameplay.super_team_side", s.super_team_side, {"away", "home", "both"});
     auto training = [&](const char* key, std::string& value, const auto& names) {

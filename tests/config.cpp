@@ -711,7 +711,9 @@ int main()
         SaveConfig(startgg, startgg.settings);
         Require(LoadConfig(path).settings.startgg_dev_token == "abc", "Saving dropped the start.gg token");
         Require(LoadConfig(host).contents.find("startgg") == std::string::npos, "Saving wrote start.gg settings");
-        std::ofstream(path) << "[startgg]\nuser = alice\n";
+        std::ofstream(path) << "[startgg]\nuser = user/997E615C\n";
+        Require(LoadConfig(path).settings.startgg_user == "997e615c", "A start.gg discriminator read");
+        std::ofstream(path) << "[startgg]\nuser = no such user\n";
         bool badUser = false;
         try { LoadConfig(path); } catch (const std::runtime_error&) { badUser = true; }
         Require(badUser, "A start.gg user that is not an id was read");
