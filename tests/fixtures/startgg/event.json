@@ -11,7 +11,7 @@
             "id": 1001, "state": 3, "round": 1, "fullRoundText": "Winners Round 1", "winnerId": 501,
             "phaseGroup": { "id": 70 },
             "slots": [
-              { "prereqId": null,
+              { "prereqId": "8801", "prereqType": "seed",
                 "entrant": { "id": 501, "name": "Alice", "participants": [ { "user": { "id": 11, "discriminator": "a11ce0de" } } ] },
                 "standing": { "stats": { "score": { "value": 2 } } } },
               { "prereqId": null,
@@ -23,10 +23,10 @@
             "id": 1002, "state": 1, "round": 2, "fullRoundText": "Winners Semi-Final",
             "phaseGroup": { "id": 70 },
             "slots": [
-              { "prereqId": "1001",
+              { "prereqId": "1001", "prereqType": "set",
                 "entrant": { "id": 501, "name": "Alice", "participants": [ { "user": { "id": 11, "discriminator": "a11ce0de" } } ] },
                 "standing": null },
-              { "prereqId": "1003",
+              { "prereqId": "1003", "prereqType": "set",
                 "entrant": { "id": 503, "name": "Carol", "participants": [ { "user": { "id": 13 } } ] },
                 "standing": null }
             ]
@@ -47,10 +47,10 @@
             "id": "preview_70_4", "state": 1, "round": -1, "fullRoundText": "Losers Round 1",
             "phaseGroup": { "id": 70 },
             "slots": [
-              { "prereqId": "1001",
+              { "prereqId": "1001", "prereqType": "set",
                 "entrant": { "id": 502, "name": "Bob", "participants": [ { "user": { "id": 12 } } ] },
                 "standing": null },
-              { "prereqId": "1003", "entrant": null, "standing": null }
+              { "prereqId": "1003", "prereqType": "set", "entrant": null, "standing": null }
             ]
           }
         ]

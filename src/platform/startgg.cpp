@@ -25,6 +25,7 @@ const char* const kStartggEventQuery = R"(query RechargedEvent($slug: String!, $
         phaseGroup { id }
         slots {
           prereqId
+          prereqType
           entrant { id name participants { user { id discriminator } } }
           standing { stats { score { value } } }
         }
@@ -91,7 +92,7 @@ StartggSet ReadSet(const JsonValue& node)
     for (std::size_t n = 0; n < 2 && n < slots.size(); ++n)
     {
         set.slots[n] = ReadEntrant(slots[n]);
-        set.prereq[n] = Id(slots[n]["prereqId"]);
+        if (slots[n]["prereqType"].Text() == "set") set.prereq[n] = Id(slots[n]["prereqId"]);
     }
     return set;
 }

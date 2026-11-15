@@ -85,7 +85,7 @@ void Event()
     CHECK(first.slots[1].user_discriminators.empty());
     CHECK(first.slots[0].score == 2);
     CHECK(first.slots[1].score == 0); // sent as 0.0
-    CHECK(first.prereq[0].empty());
+    CHECK(first.prereq[0].empty()); // a seed, not a set
 
     const StartggSet& semi = event.sets[1];
     CHECK(semi.state == StartggSetState::Created);

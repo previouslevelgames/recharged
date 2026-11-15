@@ -1,5 +1,5 @@
 { "data": { "event": { "id": 902, "name": "Singles", "tournament": { "name": "Two Pages" },
   "sets": { "pageInfo": { "totalPages": 2 }, "nodes": [
     { "id": 3002, "state": 6, "round": 2, "fullRoundText": "Winners Final", "phaseGroup": { "id": 72 },
-      "slots": [ { "prereqId": "3001", "entrant": { "id": 701, "name": "Alice", "participants": [ { "user": { "id": 11 } } ] } },
+      "slots": [ { "prereqId": "3001", "prereqType": "set", "entrant": { "id": 701, "name": "Alice", "participants": [ { "user": { "id": 11 } } ] } },
                  { "entrant": { "id": 703, "name": "Carol", "participants": [ { "user": { "id": 13 } } ] } } ] } ] } } } }
