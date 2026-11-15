@@ -3442,9 +3442,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // room with the cut tournament's Star trophy (eCupPersona 2),
                 // or back out of it.
                 if(const int presses=mscharged::platform::TakeTrophyRoomPresses(); presses>0 && known && menuCommand) {
-                    constexpr int starTrophy=2;
+                    constexpr int nextLevelTrophy=5;
                     const bool enter=menu.trophy_room==CHARGED_TROPHY_ROOM_OUT;
-                    const ChargedMenuCommand command{CHARGED_MENU_TROPHY_ROOM,starTrophy,enter ? 1 : 0};
+                    const ChargedMenuCommand command{CHARGED_MENU_TROPHY_ROOM,nextLevelTrophy,enter ? 1 : 0};
                     menuCommand(&command,sizeof command);
                 }
                 if(forfeitWaits && (competitive->ForfeitAnswered() || now-forfeitAsked>std::chrono::seconds(2))) {
