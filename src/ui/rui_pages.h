@@ -40,7 +40,8 @@ enum class PageId
     Prompt,      // a question over everything: a challenge, a set's end
     Match,       // an online match's menu (the game's pause; nothing pauses): CONTINUE, FORFEIT
     Forfeit,     // forfeit the online match? (then: on the way out)
-    Tournament,  // over the trophy room: the tournament, the player's next set, READY and BACK
+    Tournament,  // over the trophy room: the tournament, the player's next set, READY, BRACKET and BACK
+    Bracket,     // the tournament's bracket (the player's pool)
 };
 
 // The categories of Settings (also where the pause menu's Audio and Visual
@@ -70,6 +71,9 @@ struct TournamentModel
     bool opponent_known = false; // its opponent is decided (READY can be pressed)
     std::string score;           // the games so far ("1 - 0"), once reported
     std::string note;            // a line above: loading, start.gg failing, no set left
+    // The bracket of the player's pool (or the event's first), in the
+    // event's order.
+    std::vector<BracketSet> bracket;
 };
 
 // The game's own options, as its save holds them.

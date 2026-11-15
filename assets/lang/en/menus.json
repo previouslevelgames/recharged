@@ -340,7 +340,13 @@
     "state_active": "In progress",
     "state_called": "Called to play",
     "ready": "READY",
+    "bracket": "BRACKET",
     "back": "BACK"
+  },
+  "bracket": {
+    "title": "BRACKET",
+    "winners": "WINNERS",
+    "losers": "LOSERS"
   },
   "forfeit": {
     "title": "FORFEIT",

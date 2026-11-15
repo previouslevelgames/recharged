@@ -882,6 +882,19 @@ void DrawTournament(const PageModel& model, List& list, PageActions& actions)
     else if (!tournament.name.empty()) list.Card(nullptr, nullptr, tournament.name.c_str(), {tournament.event});
     if (list.Plate(T("menus.tournament.ready"), nullptr, tournament.has_set && tournament.opponent_known))
         actions.tournament_ready = true;
+    if (list.Plate(T("menus.tournament.bracket"), nullptr, !tournament.bracket.empty()))
+        actions.open = PageId::Bracket;
+    if (list.Plate(T("menus.tournament.back"))) actions.back = true;
+}
+
+// BRACKET: the player's pool, the winners' bracket above the losers'.
+void DrawBracket(const PageModel& model, List& list, PageActions& actions)
+{
+    const auto& bracket = model.tournament.bracket;
+    if (bracket.empty()) list.Note(T("menus.tournament.no_sets"));
+    const bool losers =
+        std::any_of(bracket.begin(), bracket.end(), [](const BracketSet& set) { return set.round < 0; });
+    list.Bracket(bracket, losers ? T("menus.bracket.winners") : nullptr, T("menus.bracket.losers"));
     if (list.Plate(T("menus.tournament.back"))) actions.back = true;
 }
 
@@ -927,6 +940,7 @@ std::string PageTitle(PageId id, const std::string& key, const PageModel& model)
     case PageId::Match: return T("menus.match.title");
     case PageId::Forfeit: return T("menus.forfeit.title");
     case PageId::Tournament: return T("menus.tournament.title");
+    case PageId::Bracket: return T("menus.bracket.title");
     }
     return "";
 }
@@ -995,6 +1009,7 @@ void DrawPage(PageId id, int category, const std::string& key, const PageModel& 
     case PageId::Leaderboard: DrawLeaderboard(category, model, list); break;
     case PageId::Prompt: DrawPrompt(model, list, actions); break;
     case PageId::Tournament: DrawTournament(model, list, actions); break;
+    case PageId::Bracket: DrawBracket(model, list, actions); break;
     case PageId::Match: DrawMatch(list, actions); break;
     case PageId::Forfeit: DrawForfeit(model, list, actions); break;
     }
