@@ -713,6 +713,19 @@ int main()
         Require(LoadConfig(host).contents.find("startgg") == std::string::npos, "Saving wrote start.gg settings");
         std::ofstream(path) << "[startgg]\nuser = user/997E615C\n";
         Require(LoadConfig(path).settings.startgg_user == "997e615c", "A start.gg discriminator read");
+        std::ofstream(path) << "[startgg]\nplayers = 997E615C:12345, user/ab12cd34 : 678 ,\n";
+        const auto players = LoadConfig(path).settings.startgg_players;
+        Require(players.size() == 2 && players[0] == std::pair<std::string, unsigned>{"997e615c", 12345u}
+                    && players[1] == std::pair<std::string, unsigned>{"ab12cd34", 678u},
+                "start.gg players read");
+        for (const char* bad : {"players = 997e615c\n", "players = 997e615c:0\n", "players = 997e615c:x1\n",
+                                "players = :12\n", "players = 997e615c:99999999999\n"})
+        {
+            std::ofstream(path) << "[startgg]\n" << bad;
+            bool refused = false;
+            try { LoadConfig(path); } catch (const std::runtime_error&) { refused = true; }
+            Require(refused, (std::string("start.gg players read from ") + bad).c_str());
+        }
         std::ofstream(path) << "[startgg]\nuser = no such user\n";
         bool badUser = false;
         try { LoadConfig(path); } catch (const std::runtime_error&) { badUser = true; }

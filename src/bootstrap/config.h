@@ -15,6 +15,7 @@
 #include <string_view>
 #include <set>
 #include <vector>
+#include <utility>
 
 namespace mscharged
 {
@@ -333,6 +334,10 @@ struct Settings
     // from start.gg's Developer Settings; file, a saved answer read instead
     // of asking start.gg; api, another endpoint (a test server here).
     std::string startgg_event, startgg_user, startgg_dev_token, startgg_file, startgg_api;
+    // players, until the profile service links start.gg users: who plays a
+    // set's opponent in RANKED, as "<start.gg user>:<WFC profile id>, ..."
+    // (the user as startgg.user, kept in lowercase).
+    std::vector<std::pair<std::string, unsigned>> startgg_players;
     // gameplay.super_team_side: the team the Super Team tweak dresses as
     // robots: away, home or both.
     std::string super_team_side = "away";
