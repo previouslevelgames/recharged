@@ -26,6 +26,7 @@
 #include "Game/NetTournManager.h"
 #include "Game/Render/FrontEndPresentation.h"
 #include "Game/Render/StadiumLoading.h"
+#include "Game/SH/SHNavigation.h"
 #include "Game/SH/SHOnlineHub.h"
 #include "NL/gl/glMaterialParameters.h"
 #include "NL/gl/glModel.h"
@@ -140,6 +141,8 @@ bool ChargedTrophyRoomEnter(int persona)
     if (persona < CUP_PERSONA_MUSHROOM || persona > CUP_PERSONA_NINTENDO) persona = CUP_PERSONA_MUSHROOM;
     sSavedPersona = tournament->mCupPersona;
     tournament->mCupPersona = persona;
+    // The navigation's Log Out goes with the online menu.
+    if (SHNavigation* navigation = GetNavigationScene()) navigation->HideButtons();
     SetCupTrophiesVisible(false);
     PushCamera(kTrophyCamera, true);
     sTrophyLoaded = false;
@@ -191,6 +194,11 @@ void ChargedTrophyRoomFrame()
     } else if (sState == CHARGED_TROPHY_ROOM_LEAVING && sCameraArrived) {
         if (NetTournManager* tournament = NetTournManager::Instance()) tournament->DestroyTournamentTrophy();
         SetCupTrophiesVisible(true);
+        // The online menu's navigation again, as SHOnlineHub sets it.
+        if (SHNavigation* navigation = GetNavigationScene()) {
+            navigation->SetButtons(NAVIGATION_BUTTON_BACK, true);
+            navigation->SetBackButtonText(NAV_LOG_OUT);
+        }
         Out();
         std::fputs("Trophy room: out\n", stderr);
     }
