@@ -31,7 +31,9 @@ struct BracketSet
     int round = 0;          // > 0 the winners' bracket (or a single one), < 0 the losers'
     std::string round_text; // its column's caption ("Winners Semi-Final")
     BracketEntrant slots[2];
-    std::string prereq[2]; // the sets its entrants come from (empty for a seed)
+    // The sets whose winners come here (empty for a seed, and for a set's
+    // loser): the lines, and where the set stands.
+    std::string prereq[2];
     BracketSetState state = BracketSetState::Waiting;
     bool yours = false; // the player's next set
 };

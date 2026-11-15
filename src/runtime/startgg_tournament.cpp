@@ -68,7 +68,9 @@ std::vector<ui::BracketSet> Bracket(const platform::StartggEvent& event, const p
             if (entrant.score) cell.slots[n].score = *entrant.score < 0 ? "DQ" : std::to_string(*entrant.score);
             cell.slots[n].winner = !entrant.id.empty() && entrant.id == set.winner;
             cell.slots[n].you = platform::StartggIsUser(entrant, user);
-            cell.prereq[n] = set.prereq[n];
+            // A line only from the set whose winner comes here (not into a
+            // losers' bracket or a match for third place).
+            if (set.prereq_placement[n] != 2) cell.prereq[n] = set.prereq[n];
         }
         bracket.push_back(std::move(cell));
     }
