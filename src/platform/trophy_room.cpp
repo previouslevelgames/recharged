@@ -31,6 +31,7 @@
 #include "NL/gl/glModel.h"
 #include "NL/nlMemory.h"
 #include "NL/nlString.h"
+#include "mscharged_tweaks.h"
 
 #include <cstdio>
 
@@ -196,3 +197,8 @@ void ChargedTrophyRoomFrame()
 }
 
 int ChargedTrophyRoomState() { return sState; }
+
+#if defined(MSCHARGED_TWEAKS)
+// Tweak patch 0073: the game's online menu waits while the room shows.
+bool mscharged_tweak_online_menu_held(void) { return sState != CHARGED_TROPHY_ROOM_OUT; }
+#endif

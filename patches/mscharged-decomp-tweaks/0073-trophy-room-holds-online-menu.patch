@@ -1,0 +1,54 @@
+From: mscharged-port
+Subject: Recharged's trophy room: the game's online menu waits
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+Recharged's trophy room (src/platform/trophy_room.cpp) takes the front
+end's camera from the game's online menu to the trophy of the game's cut
+online tournament. The online menu stays on top of the scene stack, undrawn
+(mscharged_tweak_menu_scene_hidden), and kept taking its players' buttons:
+a press where RANKED was opened the RANKED screens from the trophy room.
+
+A new hook, mscharged_tweak_online_menu_held, holds the menu at rest while
+the room shows: SHOnlineHub::Update returns before its friends'
+invitations, its rankings refresh and its buttons and Back. A set's walk
+into its RANKED search (tweak patch 0056) and its way out after a lost
+connection come before it and still go from the trophy room.
+
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -226,6 +226,10 @@
+ bool mscharged_tweak_menu_press_taken(int menu, int button, int pad);
+ // Once a frame (BeginFrameTask): what the host asked the game's menus to do.
+ void mscharged_tweak_menus_frame(void);
++// The game's online menu, on top and at rest, waits: Recharged's trophy room
++// shows the front end's world in its place, and its buttons, its Back and
++// its friends' invitations do nothing meanwhile.
++bool mscharged_tweak_online_menu_held(void);
+ // While the host draws the pause menu, a player's cursor (wiicursor.fen's
+ // cursor0-3) is drawn by the host on top of it: the front end marks the
+ // cursor's drawing (begin returns the state for end) and hands its pictures
+diff --git a/src/Game/SH/SHOnlineHub.cpp b/src/Game/SH/SHOnlineHub.cpp
+--- a/src/Game/SH/SHOnlineHub.cpp
++++ b/src/Game/SH/SHOnlineHub.cpp
+@@ -49,6 +49,7 @@
+ #if defined(MSCHARGED_TWEAKS)
+ #include "Game/SH/SHOnlinePlayerCount.h"
+ #include "mscharged_competitive.h"
++#include "mscharged_tweaks.h"
+ #endif
+ 
+ static inline void ShowOnlineHubDialog(SHOnlineHub* hub, ePopupMenu type);
+@@ -206,6 +207,12 @@
+         return;
+     }
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++    // Recharged's trophy room: the menu stays on top, undrawn, and waits
++    // (a set's search above still goes from here).
++    if (mState == ONLINE_HUB_READY && mscharged_tweak_online_menu_held())
++        return;
++#endif
+     if (!GameSceneManager::Instance()->IsOnStack(SCENE_POPUP_MENU) && g_pFriendManager->FindHostInvitation())
+     {
+         FriendManager* friendManager = g_pFriendManager;
