@@ -3439,13 +3439,12 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(known && menuSamples.match) menu.network_match=CHARGED_NETWORK_ONLINE;
                 hostMenus->Service(known ? &menu : nullptr,now);
                 // F7 (diagnostic): from the game's online menu into the trophy
-                // room, each time with the next of the cut tournament's ten
-                // trophies, or back out of it.
+                // room with the cut tournament's Star trophy (eCupPersona 2),
+                // or back out of it.
                 if(const int presses=mscharged::platform::TakeTrophyRoomPresses(); presses>0 && known && menuCommand) {
-                    static int trophy=-1;
+                    constexpr int starTrophy=2;
                     const bool enter=menu.trophy_room==CHARGED_TROPHY_ROOM_OUT;
-                    if(enter) trophy=(trophy+1)%10;
-                    const ChargedMenuCommand command{CHARGED_MENU_TROPHY_ROOM,trophy,enter ? 1 : 0};
+                    const ChargedMenuCommand command{CHARGED_MENU_TROPHY_ROOM,starTrophy,enter ? 1 : 0};
                     menuCommand(&command,sizeof command);
                 }
                 if(forfeitWaits && (competitive->ForfeitAnswered() || now-forfeitAsked>std::chrono::seconds(2))) {
