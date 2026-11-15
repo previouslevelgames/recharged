@@ -37,6 +37,9 @@
 
 #include <cstdio>
 
+// The game being played (null in the front end).
+class cGame;
+extern cGame* g_pGame;
 // The tournament trophy's texture bundle and model, loading (StadiumLoading.cpp).
 extern StadiumLoadResult gTournamentTrophyLoadResults[2];
 
@@ -182,12 +185,26 @@ void ChargedTrophyRoomFrame()
         sDiscardLoad = false;
     }
     if (sState == CHARGED_TROPHY_ROOM_OUT) return;
+    GameSceneManager* manager = GameSceneManager::Instance();
+    // The front end went into a game (DestroyFrontEndState frees its scenes,
+    // stadium and models at once, no frame between): the stadium freed the
+    // trophy with its other drawables, and the cup trophies went with the
+    // world. As the cut tournament (its native 0), the trophy is only let go.
+    if (!manager || g_pGame) {
+        if (NetTournManager* tournament = NetTournManager::Instance()) tournament->DetachTournamentTrophy();
+        sDiscardLoad = sState == CHARGED_TROPHY_ROOM_ENTERING && !sTrophyLoaded;
+        Out();
+        Log("the front end went into a game; the trophy went with its stadium");
+        return;
+    }
     // The online menu left the stack meanwhile (its own buttons still work
     // in the trophy room): its next screen has its own camera, the trophy
     // and the hidden cup trophies are put right here. A popup over it is
-    // fine.
-    GameSceneManager* manager = GameSceneManager::Instance();
-    if (!manager || !manager->IsOnStack(SCENE_ONLINE_MENU)) {
+    // fine, and so is a set's RANKED search, which takes the online menu's
+    // place (tweak patch 0056): it is played from the room.
+    const bool stays = manager->IsOnStack(SCENE_ONLINE_MENU)
+        || (ChargedCompetitiveWalking() && manager->IsOnStack(SCENE_ONLINE_MATCHMAKING_DRAFT));
+    if (!stays) {
         if (NetTournManager* tournament = NetTournManager::Instance()) tournament->DestroyTournamentTrophy();
         sDiscardLoad = sState == CHARGED_TROPHY_ROOM_ENTERING && !sTrophyLoaded;
         SetCupTrophiesVisible(true);
