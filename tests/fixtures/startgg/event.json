@@ -8,7 +8,7 @@
         "pageInfo": { "totalPages": 1 },
         "nodes": [
           {
-            "id": 1001, "state": 3, "round": 1, "fullRoundText": "Winners Round 1",
+            "id": 1001, "state": 3, "round": 1, "fullRoundText": "Winners Round 1", "winnerId": 501,
             "phaseGroup": { "id": 70 },
             "slots": [
               { "prereqId": null,

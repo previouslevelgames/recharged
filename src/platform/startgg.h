@@ -43,6 +43,7 @@ struct StartggSet
     int round = 0;          // > 0 in winners' (or a single bracket), < 0 in losers'
     std::string round_text; // "Winners Round 1"
     std::string phase_group; // its pool or bracket
+    std::string winner;      // the winning entrant's id, once decided
     StartggEntrant slots[2];
     // Where each slot's entrant comes from: the set whose winner or loser
     // takes it (empty for a seed).

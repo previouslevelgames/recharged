@@ -21,6 +21,7 @@ const char* const kStartggEventQuery = R"(query RechargedEvent($slug: String!, $
         state
         round
         fullRoundText
+        winnerId
         phaseGroup { id }
         slots {
           prereqId
@@ -85,6 +86,7 @@ StartggSet ReadSet(const JsonValue& node)
     set.round = Int(node["round"]);
     set.round_text = node["fullRoundText"].Text();
     set.phase_group = Id(node["phaseGroup"]["id"]);
+    set.winner = Id(node["winnerId"]);
     const auto& slots = node["slots"].Items();
     for (std::size_t n = 0; n < 2 && n < slots.size(); ++n)
     {

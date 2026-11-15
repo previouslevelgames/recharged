@@ -75,6 +75,7 @@ void Event()
     CHECK(first.round == 1);
     CHECK(first.round_text == "Winners Round 1");
     CHECK(first.phase_group == "70");
+    CHECK(first.winner == "501");
     CHECK(first.slots[0].id == "501");
     CHECK(first.slots[0].name == "Alice");
     CHECK(first.slots[0].user_ids.size() == 1 && first.slots[0].user_ids[0] == "11");
@@ -88,6 +89,7 @@ void Event()
 
     const StartggSet& semi = event.sets[1];
     CHECK(semi.state == StartggSetState::Created);
+    CHECK(semi.winner.empty());
     CHECK(semi.prereq[0] == "1001" && semi.prereq[1] == "1003");
     CHECK(!semi.slots[0].score.has_value()); // no standing yet
 
