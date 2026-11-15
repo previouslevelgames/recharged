@@ -125,3 +125,4 @@
 0129-one-submit-per-packet.patch
 0130-d3d12-resolves-only-what-efb-passes-draw.patch
 0131-gx-draws-leave-out-unchanged-bindings.patch
+0132-graphics-validation-leaves-out-shader-checks.patch

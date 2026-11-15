@@ -625,6 +625,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             +", graphics card "+shown.gpu
             +", performance overlay "+(shown.fps_overlay?shown.fps_overlay_corner:std::string("off"))
             +", graphics validation "+(shown.graphics_validation?"on":"off"));
+        if(shown.graphics_validation)
+            mscharged::platform::SessionLogLine("API validation is on: every graphics call is checked, so frames are "
+                "slower than in play. Turn it off under Advanced > API validation to play or to record frame times.");
         mscharged::platform::SessionLogLine(std::string("Startup: initializing ")
             +graphics->label+" graphics and the window");
         shaderCacheUse.emplace(mscharged::platform::ShaderCacheDirectory(executableDirectory));
@@ -2707,7 +2710,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 +std::to_string(windowWidth)+"x"+std::to_string(windowHeight)+", graphics "+graphics->label
                 +", 3D resolution "+shown.resolution+", antialiasing "+shown.antialiasing
                 +", frame rate "+shown.frame_rate+", vsync "+(shown.vsync?"on":"off")
-                +", performance mode "+(shown.performance_mode?"on":"off")+"\n");
+                +", performance mode "+(shown.performance_mode?"on":"off")
+                +", graphics validation "+(shown.graphics_validation?"on":"off")+"\n"
+                +(shown.graphics_validation
+                    ? "Note: API validation was on, so these frames are slower than in play.\n" : ""));
         wgpu::Texture retainedEFB;
         Check(!resizeCheck || nativeSend, "Resize qualification requires source-native send");
         while(!exit && (interactive || !snapshot)) {

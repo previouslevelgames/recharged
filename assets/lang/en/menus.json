@@ -106,7 +106,7 @@
     "performance_stats": "Performance stats",
     "performance_stats_about": "Records frame times for each game session, with the arena and settings, in the logs folder. From the next start.",
     "api_validation": "API validation",
-    "api_validation_about": "Checks every graphics call for errors. Useful for bug reports, but slower. From the next start.",
+    "api_validation_about": "Checks every graphics call for errors, to find graphics bugs. Makes the game slower: leave it off to play or to record frame times. From the next start.",
     "log_detail": "Log detail",
     "log_detail_about": "Which messages reach the console and the log. From the next start.",
     "verbose_console": "Verbose console",
