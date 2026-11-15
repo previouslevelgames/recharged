@@ -3,16 +3,19 @@ Subject: Recharged's trophy room: a set's match goes in from the trophy
 Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
 
 A set started in Recharged's trophy room (src/platform/trophy_room.cpp)
-is a RANKED match, and the loading scene's 3D transition plays nothing
-for RANKED: the camera stayed on the trophy until the game loaded.
+is a RANKED match, a friendly match to the game (GM_FRIENDLY with a
+flag): the loading scene's 3D transition plays the friendly match's
+StartOnlineGrudgeMatchSequence, which starts from the online menu's
+camera, and from the room the camera stayed on the trophy until the game
+loaded.
 
 The cut online tournament went into its games from the same trophy with
 its fe_presentation function TransitionOnlineTournamentToGame: the camera
 to trophychoosesides, the captains' holograms on their light cones (the
 function TransitionCupToChooseSides calls too), their trapdoor, the
 trophy let go. A new hook, mscharged_tweak_trophy_room_to_game, has the
-loading scene play it for such a match; the scene waits for it, as for
-the other sequences, before the front end goes.
+loading scene play it for such a match instead; the scene waits for it,
+as for the other sequences, before the front end goes.
 
 diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 --- a/include/mscharged_tweaks.h
@@ -24,7 +27,7 @@ diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
 +// A match of a set started in Recharged's trophy room: the loading scene's
 +// 3D transition plays the cut online tournament's way into its games
 +// (TransitionOnlineTournamentToGame: the captains' holograms before the
-+// trophy) instead of RANKED's nothing.
++// trophy) instead of the friendly match's sequence.
 +bool mscharged_tweak_trophy_room_to_game(void);
  // While the host draws the pause menu, a player's cursor (wiicursor.fen's
  // cursor0-3) is drawn by the host on top of it: the front end marks the
@@ -40,18 +43,18 @@ diff --git a/src/Game/SH/SHLoading.cpp b/src/Game/SH/SHLoading.cpp
  #endif
  
  static void DisplayBestOfText(MatchLoadingScene* scene, TLTextInstance* text, int numGames);
-@@ -166,6 +167,14 @@
-             {
-                 FrontEndPresentation::GetInstance()->Call("TransitionOnlineTournamentToGame");
-             }
-+#if defined(MSCHARGED_TWEAKS)
-+            // Recharged's trophy room: a set's RANKED match goes into its
-+            // game as the cut tournament's did, from the trophy.
-+            else if (mscharged_tweak_trophy_room_to_game())
-+            {
-+                FrontEndPresentation::GetInstance()->Call("TransitionOnlineTournamentToGame");
-+            }
-+#endif
-         }
-         else if (gameInfo->mCurrentMode == GameInfoManager::GM_FRIENDLY)
+@@ -157,6 +158,14 @@
+         GameInfoManager* gameInfo = GameInfoManager::Instance();
+         if (gameInfo->mIsOnlineMode)
          {
++#if defined(MSCHARGED_TWEAKS)
++            // Recharged's trophy room: a set's RANKED match (a friendly
++            // match to the game: RANKED is only a flag) goes into its game as
++            // the cut tournament's did, from the trophy.
++            if (mscharged_tweak_trophy_room_to_game())
++                FrontEndPresentation::GetInstance()->Call("TransitionOnlineTournamentToGame");
++            else
++#endif
+             if (gameInfo->mCurrentMode == GameInfoManager::GM_FRIENDLY)
+             {
+                 FEAudio::PlayAnimAudioEvent(0x7FEC4468, 0, 0, 1);
