@@ -1,0 +1,65 @@
+From: mscharged-port
+Subject: Admit the cut online tournament's trophy natives for the trophy room
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+Classification: temporary explicit original-source diagnostic admission; depends on 0284 and 0344.
+
+The trophy room (src/platform/trophy_room.cpp) moves the front end's camera
+from the game's online menu to the trophy of the game's cut online
+tournament, and back, with the fe_presentation functions NetTournManager
+calls: TransitionOnlineMenuToTournament and
+TransitionOnlineTournamentToMenu. Retail never runs that tournament, so the
+four natives those functions (and the way back from a match,
+TransitionOnlineTournamentToGame) call on the tournament's trophy were never
+admitted, and the frontend sequence diagnostic's default case threw on the
+first of them:
+
+  0  NetTournManager::DetachTournamentTrophy
+  3  NetTournManager::DestroyTournamentTrophy
+  13 BeginLoadTournamentTrophy (the trophy's .rlt and .rlg, as the
+     stadium's models load)
+  51 FinishLoadTournamentTrophy once both are loaded, else wait
+
+Under the named MSCHARGED_DIAGNOSTIC_FRONTEND_TROPHY_ROOM admission, move
+those four cases into the admitted set. Case bodies are unchanged; their
+callees are already native (the trophy's resource mark is a GLResourceMark
+held in a pointer, as DestroyTournamentTrophy gives it back).
+
+diff --git a/src/Game/Render/FrontEndPresentation_interp.cpp b/src/Game/Render/FrontEndPresentation_interp.cpp
+--- a/src/Game/Render/FrontEndPresentation_interp.cpp
++++ b/src/Game/Render/FrontEndPresentation_interp.cpp
+@@ -12,7 +12,7 @@
+ {
+     switch (function)
+     {
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TROPHY_ROOM))
+     case 0:
+         NetTournManager::Instance()->DetachTournamentTrophy();
+         break;
+@@ -46,7 +46,7 @@
+         break;
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TROPHY_ROOM))
+     case 3:
+         NetTournManager::Instance()->DestroyTournamentTrophy();
+         break;
+@@ -147,7 +147,7 @@
+     }
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TROPHY_ROOM))
+     case 13:
+         BeginLoadTournamentTrophy();
+         break;
+@@ -574,7 +574,7 @@
+     }
+ 
+ #endif
+-#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE)
++#if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TROPHY_ROOM))
+     case 51:
+         if (IsTournamentTrophyLoaded())
+             FinishLoadTournamentTrophy();

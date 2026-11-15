@@ -58,6 +58,13 @@ void StartLeaving()
 
 bool ChargedTrophyRoomEnter(int persona)
 {
+#if defined(MSCHARGED_DIAGNOSTIC_FRONTEND_SEQUENCE) && !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TROPHY_ROOM)
+    // The script's trophy natives are not admitted in this build (decomp
+    // patch 0765): the frontend sequence diagnostic would throw on them.
+    (void)persona;
+    std::fputs("Trophy room: not admitted in this build\n", stderr);
+    return false;
+#else
     if (sState != CHARGED_TROPHY_ROOM_OUT) return false;
     SHOnlineHub* hub = TopOnlineHub();
     FrontEndPresentation* presentation = FrontEndPresentation::GetInstance();
@@ -72,6 +79,7 @@ bool ChargedTrophyRoomEnter(int persona)
     sState = CHARGED_TROPHY_ROOM_ENTERING;
     std::fprintf(stderr, "Trophy room: entering (trophy %d)\n", persona);
     return true;
+#endif
 }
 
 void ChargedTrophyRoomLeave()
