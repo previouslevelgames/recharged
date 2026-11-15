@@ -92,6 +92,9 @@ struct ChargedMenuSnapshot
     // camera is on its way to or from the cut online tournament's trophy
     // (ChargedTrophyRoom).
     int trophy_room;
+    // The game's online menu is on top at rest: the trophy room can be
+    // entered now (its command would be taken).
+    int online_menu;
 };
 
 enum ChargedMenu

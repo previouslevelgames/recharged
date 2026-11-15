@@ -8,9 +8,12 @@
 // (TransitionOnlineMenuToTournament and TransitionOnlineTournamentToMenu)
 // itself. In the game's frame, between the host's commands.
 
+// Whether the room can be entered now: the game's online menu is the top
+// scene at rest, the presentation idle, the cut tournament inactive, and no
+// set's walk going through the online screens.
+bool ChargedTrophyRoomCanEnter();
 // Into the trophy room with the trophy `persona` (eCupPersona; another value:
-// the Mushroom trophy). False unless the game's online menu is the top scene
-// at rest, the presentation idle and the cut tournament inactive.
+// the Mushroom trophy). False unless ChargedTrophyRoomCanEnter.
 bool ChargedTrophyRoomEnter(int persona);
 // Back to the online menu's camera; on the way in, once the camera is there
 // and the trophy loaded.

@@ -729,6 +729,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_menu_snapshot(Cha
     if (!g_pGame) sForfeiting = false;
     s.forfeiting = sForfeiting ? 1 : 0;
     s.trophy_room = ChargedTrophyRoomState();
+    s.online_menu = ChargedTrophyRoomCanEnter() ? 1 : 0;
     s.taken_button = sTakenButton;
     s.taken_pad = sTakenPad;
     ReadGameOptions(s);

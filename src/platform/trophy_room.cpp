@@ -138,15 +138,20 @@ void StartLeaving()
 }
 } // namespace
 
-bool ChargedTrophyRoomEnter(int persona)
+bool ChargedTrophyRoomCanEnter()
 {
-    if (sState != CHARGED_TROPHY_ROOM_OUT || sDiscardLoad) return false;
+    if (sState != CHARGED_TROPHY_ROOM_OUT || sDiscardLoad || ChargedCompetitiveWalking()) return false;
     SHOnlineHub* hub = TopOnlineHub();
     FrontEndPresentation* presentation = FrontEndPresentation::GetInstance();
     NetTournManager* tournament = NetTournManager::Instance();
-    if (!hub || hub->mState != ONLINE_HUB_READY || presentation->IsActive() || !tournament
-        || tournament->mState != NET_TOURN_INACTIVE)
-        return false;
+    return hub && hub->mState == ONLINE_HUB_READY && presentation && !presentation->IsActive() && tournament
+        && tournament->mState == NET_TOURN_INACTIVE;
+}
+
+bool ChargedTrophyRoomEnter(int persona)
+{
+    if (!ChargedTrophyRoomCanEnter()) return false;
+    NetTournManager* tournament = NetTournManager::Instance();
     if (persona < CUP_PERSONA_MUSHROOM || persona > CUP_PERSONA_NINTENDO) persona = CUP_PERSONA_MUSHROOM;
     sSavedPersona = tournament->mCupPersona;
     tournament->mCupPersona = persona;
