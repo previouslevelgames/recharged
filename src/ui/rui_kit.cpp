@@ -1098,7 +1098,7 @@ void BracketCard(const Painter& p, const Fonts& fonts, float x, float y, const B
             : entrant.you ? p.Col(255, 214, 80)
             : lost ? p.Col(150, 160, 166) : p.Col(246, 248, 250);
         p.draw->PushClipRect(p.At(x, y), p.At(x + w - 52.0f, y + h), true);
-        p.Text(fonts.small, size, x + 16.0f, row, entrant.name.empty() ? "â" : entrant.name.c_str(), ink,
+        p.Text(fonts.small, size, x + 16.0f, row, entrant.name.empty() ? "\xE2\x80\x94" : entrant.name.c_str(), ink,
                p.Col(4, 6, 8, 200), 1.5f, 0.0f);
         p.draw->PopClipRect();
         if (!entrant.score.empty())
