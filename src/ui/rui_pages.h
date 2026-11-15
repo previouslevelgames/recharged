@@ -40,7 +40,7 @@ enum class PageId
     Prompt,      // a question over everything: a challenge, a set's end
     Match,       // an online match's menu (the game's pause; nothing pauses): CONTINUE, FORFEIT
     Forfeit,     // forfeit the online match? (then: on the way out)
-    Tournament,  // over the trophy room: the tournament, the player's next set, READY, BRACKET and BACK
+    Tournament,  // over the trophy room: the tournament, the player's next set, READY and BRACKET
     Bracket,     // the tournament's bracket (the player's pool)
 };
 

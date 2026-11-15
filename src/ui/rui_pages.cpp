@@ -865,7 +865,8 @@ void DrawForfeit(const PageModel& model, List& list, PageActions& actions)
     if (list.Plate(T("menus.common.cancel"))) actions.back = true;
 }
 
-// TOURNAMENT, over the trophy room: the player's next set, READY, BACK.
+// TOURNAMENT, over the trophy room: the player's next set, READY, BRACKET
+// (the footer's BACK leaves the room).
 void DrawTournament(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& tournament = model.tournament;
@@ -884,7 +885,6 @@ void DrawTournament(const PageModel& model, List& list, PageActions& actions)
         actions.tournament_ready = true;
     if (list.Plate(T("menus.tournament.bracket"), nullptr, !tournament.bracket.empty()))
         actions.open = PageId::Bracket;
-    if (list.Plate(T("menus.tournament.back"))) actions.back = true;
 }
 
 // BRACKET: the player's pool, the winners' bracket above the losers' (the
