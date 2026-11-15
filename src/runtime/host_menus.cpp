@@ -98,6 +98,9 @@ constexpr int kTournamentTrophy = 5;
 // How long the game may take to leave its main menu for WII ONLINE, and to
 // take the trophy room's command, before TOURNAMENT gives up.
 constexpr auto kTournamentGiveUp = std::chrono::seconds(3);
+// Back from a set's match, how long the trophy room waits for the game's
+// online menu (its results and saves come first).
+constexpr auto kTournamentReturnWait = std::chrono::seconds(60);
 
 const char* TournamentWayName(int way)
 {
@@ -178,7 +181,11 @@ void HostMenus::CloseAll()
     ClearPages();
 }
 
-void HostMenus::TournamentSetDone() { tournamentPage_ = true; }
+void HostMenus::TournamentSetDone(bool from_match)
+{
+    tournamentPage_ = true;
+    if (from_match) tournamentReturn_ = Clock::now() + kTournamentReturnWait;
+}
 
 void HostMenus::LeaveMatch() { Command(CHARGED_MENU_FORFEIT); }
 
@@ -284,6 +291,19 @@ void HostMenus::ServiceTournament(Clock::time_point now)
             Tournament(TournamentWay::None);
         } else if (menu_.trophy_room == CHARGED_TROPHY_ROOM_OUT && waited) Tournament(TournamentWay::None);
         break;
+    }
+    // Back from a set's match: the game comes back to its online menu, and
+    // the room again from there, as TOURNAMENT goes in (not over a page or
+    // a question of ours; the player gone elsewhere meanwhile: never mind).
+    if (tournamentReturn_) {
+        if (now > *tournamentReturn_) {
+            tournamentReturn_.reset();
+            platform::SessionLogLine("Menus: TOURNAMENT not back in the trophy room (the online menu never came)");
+        } else if (menu_.online_menu && tournament_ == TournamentWay::None && pages_.empty() && !prompt_) {
+            tournamentReturn_.reset();
+            platform::SessionLogLine("Menus: TOURNAMENT back in the trophy room after the set's match");
+            Tournament(TournamentWay::Room);
+        }
     }
     // Back in the room from a set READY started (its search left): the page
     // again, once nothing else of ours shows; out of the room, never mind.

@@ -3190,7 +3190,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(endSet) endSet();
             if(configureCompetitive) configureCompetitive(nullptr,sizeof(ChargedCompetitiveRules));
             startggPlaying.clear();
-            if(hostMenus) hostMenus->TournamentSetDone();
+            if(hostMenus) hostMenus->TournamentSetDone(wfc.set_stage==CHARGED_SET_OVER);
         };
         // A set's forfeit sent: the game leaves its match once the server
         // answered, or after a moment without an answer.

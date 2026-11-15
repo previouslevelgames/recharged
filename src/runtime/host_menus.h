@@ -104,8 +104,10 @@ public:
     // Every page goes (a set going on into the game).
     void CloseAll();
     // The set READY started is done, or its search was left: back in the
-    // trophy room, its page comes again.
-    void TournamentSetDone();
+    // trophy room, its page comes again. Back from its match
+    // (`from_match`), the room is asked again once the game's online menu
+    // is at rest (the game comes back to it).
+    void TournamentSetDone(bool from_match);
     // The game leaves the online match the player forfeited (Host::forfeit).
     void LeaveMatch();
     // Each host frame, after the game's frame and MenuInput::Service: the
@@ -220,6 +222,8 @@ private:
     // TOURNAMENT's way into the trophy room, since when.
     TournamentWay tournament_ = TournamentWay::None;
     bool tournamentPage_ = false; // TournamentSetDone: the page comes again in the room
+    // TournamentSetDone from a match: the room again until then (none: not asked).
+    std::optional<Clock::time_point> tournamentReturn_;
     ui::TournamentModel tournamentModel_;
     Clock::time_point tournamentAt_{};
     void Tournament(TournamentWay way);
