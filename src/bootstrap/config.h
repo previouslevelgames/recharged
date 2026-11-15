@@ -326,6 +326,12 @@ struct Settings
     bool rollback = true;
     bool rollback_test = false;
     std::string rollback_log;
+    // [startgg] (the TOURNAMENT page; read only, saving never writes them):
+    // event, the event's slug ("tournament/<t>/event/<e>"); user, the
+    // player's start.gg user id (its digits); dev_token, a personal token
+    // from start.gg's Developer Settings; file, a saved answer read instead
+    // of asking start.gg; api, another endpoint (a test server here).
+    std::string startgg_event, startgg_user, startgg_dev_token, startgg_file, startgg_api;
     // gameplay.super_team_side: the team the Super Team tweak dresses as
     // robots: away, home or both.
     std::string super_team_side = "away";

@@ -700,6 +700,21 @@ int main()
         Require(hostContents.find("rollback = true") != std::string::npos, "Saving did not add rollback");
         Require(hostContents.find("rollback_test") == std::string::npos
                 && hostContents.find("rollback_log") == std::string::npos, "Saving wrote the rollback test or log");
+        // [startgg]: read, kept by a save as they are, never written.
+        std::ofstream(path) << "[startgg]\nevent = tournament/t/event/e\nuser = 123\ndev_token = abc\n"
+                               "file = sg.json\napi = http://127.0.0.1:8765/gql\n";
+        auto startgg = LoadConfig(path);
+        Require(startgg.settings.startgg_event == "tournament/t/event/e" && startgg.settings.startgg_user == "123"
+                    && startgg.settings.startgg_dev_token == "abc" && startgg.settings.startgg_file == "sg.json"
+                    && startgg.settings.startgg_api == "http://127.0.0.1:8765/gql",
+                "start.gg settings read");
+        SaveConfig(startgg, startgg.settings);
+        Require(LoadConfig(path).settings.startgg_dev_token == "abc", "Saving dropped the start.gg token");
+        Require(LoadConfig(host).contents.find("startgg") == std::string::npos, "Saving wrote start.gg settings");
+        std::ofstream(path) << "[startgg]\nuser = alice\n";
+        bool badUser = false;
+        try { LoadConfig(path); } catch (const std::runtime_error&) { badUser = true; }
+        Require(badUser, "A start.gg user that is not an id was read");
         std::ofstream(path) << "[online]\nrollback = false\n";
         auto rollbackOff = LoadConfig(path);
         Require(!rollbackOff.settings.rollback, "Rollback off read");

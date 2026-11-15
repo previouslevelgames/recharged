@@ -17,6 +17,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -498,6 +499,18 @@ Settings Decode(const Values& values, bool builtin = false)
         throw std::runtime_error("Invalid configuration: online.rollback_log contains a line break or NUL");
     if (s.online_server.find_first_of("\r\n") != std::string::npos || s.online_server.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: the online server redirect contains a line break or NUL");
+    for (const auto& [key, value] : {std::pair{"startgg.event", &s.startgg_event}, {"startgg.user", &s.startgg_user},
+                                     {"startgg.dev_token", &s.startgg_dev_token}, {"startgg.file", &s.startgg_file},
+                                     {"startgg.api", &s.startgg_api}})
+    {
+        const auto it = values.find(key);
+        if (it == values.end()) continue;
+        if (it->second.find_first_of("\r\n") != std::string::npos || it->second.find('\0') != std::string::npos)
+            throw std::runtime_error(std::string("Invalid configuration: ") + key + " contains a line break or NUL");
+        *value = it->second;
+    }
+    if (s.startgg_user.find_first_not_of("0123456789") != std::string::npos)
+        throw std::runtime_error("Invalid configuration: startgg.user is not a start.gg user id (its digits)");
 
     choice("gameplay.super_team_side", s.super_team_side, {"away", "home", "both"});
     auto training = [&](const char* key, std::string& value, const auto& names) {
