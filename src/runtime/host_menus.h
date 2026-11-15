@@ -33,6 +33,9 @@ namespace mscharged::runtime {
 //   for it: GAMEPLAY, SETTINGS, and CREDITS and BACK handed back to it.
 // - The main menu's ONLINE (the globe): the ONLINE hub stands in for the
 //   game's way, which its WII ONLINE takes.
+// - The ONLINE hub's TOURNAMENT: from the game's online menu (through WII
+//   ONLINE from the globe) into the trophy room, and the TOURNAMENT page over
+//   it once the camera is on the trophy; its BACK (or B) goes back out.
 // While a page shows, the menus have the input (MenuInput::OpenPages): the
 // D-pad, the arrows and the mouse light an item, A presses, left and right
 // change a value, B goes back a page (to the pause menu, the cursor on the
@@ -110,6 +113,14 @@ private:
         Pause,     // the pause menu's Audio or Visual Options
         Anchored,  // stands in for the front end's Options scene
         Wheel,     // stands in for the main menu's globe
+        TrophyRoom, // over the trophy room (TOURNAMENT)
+    };
+    // TOURNAMENT's way into the trophy room.
+    enum class TournamentWay {
+        None,
+        Login,   // the game's WII ONLINE asked; the main menu not left yet
+        Online,  // through the game's login, until its online menu is at rest
+        Room,    // the trophy room asked; until the camera is on the trophy
     };
     struct Page {
         ui::PageId id;
@@ -196,6 +207,12 @@ private:
     // The prompt: its question, its answer to take.
     std::optional<overlay::OverlayPrompt> prompt_;
     std::optional<int> promptAnswer_;
+    // TOURNAMENT's way into the trophy room, since when.
+    TournamentWay tournament_ = TournamentWay::None;
+    Clock::time_point tournamentAt_{};
+    void Tournament(TournamentWay way);
+    // The trophy room's way: follows the game (its login, the room's camera).
+    void ServiceTournament(Clock::time_point now);
     // The game hands its players' cursors over while a page shows.
     bool cursors_ = false;
     ui::PageState pageState_;
