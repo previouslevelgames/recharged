@@ -60,7 +60,9 @@ ui::TournamentModel StartggTournament(const platform::StartggFeed::Snapshot& fee
     if (!set)
     {
         if (model.note.empty())
-            model.note = InEvent(event, user) ? T("menus.tournament.no_set") : T("menus.tournament.not_in");
+            model.note = event.sets.empty() ? T("menus.tournament.no_sets")
+                         : InEvent(event, user) ? T("menus.tournament.no_set")
+                                                : T("menus.tournament.not_in");
         return model;
     }
     const platform::StartggEntrant& opponent = set->slots[1 - mine];
