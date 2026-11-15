@@ -38,6 +38,12 @@ StartggFeed::Snapshot StartggFeed::Latest() const
     return snapshot_;
 }
 
+std::uint64_t StartggFeed::Version() const
+{
+    std::lock_guard lock(mutex_);
+    return snapshot_.version;
+}
+
 void StartggFeed::Run()
 {
     // The next fetch may go from then on (later after a rate limit).

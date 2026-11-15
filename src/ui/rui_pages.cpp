@@ -870,11 +870,18 @@ void DrawTournament(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& tournament = model.tournament;
     if (tournament.sample) list.Note(T("menus.tournament.sample"));
-    const Person opponent = PersonOf(model, std::string{}, tournament.opponent_initials, 0, -1, std::string{});
-    const std::string games = texts::Count("menus.common.best_of", tournament.games);
-    list.Card(&opponent, tournament.name.c_str(), tournament.opponent.c_str(),
-              {tournament.round, tournament.event, games});
-    if (list.Plate(T("menus.tournament.ready"))) actions.tournament_ready = true;
+    if (!tournament.note.empty()) list.Note(tournament.note.c_str());
+    if (tournament.has_set)
+    {
+        const Person opponent = PersonOf(model, std::string{}, tournament.opponent_initials, 0, -1, std::string{});
+        std::vector<std::string> lines{tournament.round, tournament.event};
+        if (tournament.games > 0) lines.push_back(texts::Count("menus.common.best_of", tournament.games));
+        if (!tournament.score.empty()) lines.push_back(tournament.score);
+        list.Card(&opponent, tournament.name.c_str(), tournament.opponent.c_str(), lines);
+    }
+    else if (!tournament.name.empty()) list.Card(nullptr, nullptr, tournament.name.c_str(), {tournament.event});
+    if (list.Plate(T("menus.tournament.ready"), nullptr, tournament.has_set && tournament.opponent_known))
+        actions.tournament_ready = true;
     if (list.Plate(T("menus.tournament.back"))) actions.back = true;
 }
 

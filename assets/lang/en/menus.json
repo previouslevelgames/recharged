@@ -328,7 +328,16 @@
   },
   "tournament": {
     "title": "TOURNAMENT",
-    "sample": "Sample data: the tournament comes from start.gg in a later step.",
+    "sample": "Sample data: recharged.ini's [startgg] event shows a start.gg event here.",
+    "loading": "Asking start.gg...",
+    "failed": "start.gg did not answer: {{error}}",
+    "stale": "start.gg did not answer, this is its last answer: {{error}}",
+    "no_set": "You have no set left to play in this event.",
+    "not_in": "You are not in this event's bracket (recharged.ini's [startgg] user is your start.gg user id).",
+    "opponent_waiting": "Opponent to be decided",
+    "state_waiting": "Not started",
+    "state_active": "In progress",
+    "state_called": "Called to play",
     "ready": "READY",
     "back": "BACK"
   },

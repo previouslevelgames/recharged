@@ -64,8 +64,12 @@ struct TournamentModel
     std::string round;    // the next set's ("Winners Round 1")
     std::string opponent; // its opponent's name, and their initials for the picture
     std::string opponent_initials;
-    int games = 3; // best of
-    bool sample = false; // made up (no start.gg yet)
+    int games = 3; // best of (0: not known)
+    bool sample = false; // made up (no start.gg event set)
+    bool has_set = false;        // the player has a next set (its card shows)
+    bool opponent_known = false; // its opponent is decided (READY can be pressed)
+    std::string score;           // the games so far ("1 - 0"), once reported
+    std::string note;            // a line above: loading, start.gg failing, no set left
 };
 
 // The game's own options, as its save holds them.

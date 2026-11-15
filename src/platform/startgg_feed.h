@@ -47,6 +47,8 @@ public:
         Clock::time_point fetched{};
     };
     Snapshot Latest() const;
+    // Latest's version, without copying the event.
+    std::uint64_t Version() const;
 
 private:
     void Run();

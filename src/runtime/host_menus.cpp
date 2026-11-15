@@ -472,6 +472,19 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
         } else if (now > *creditsWalk_) creditsWalk_.reset();
     }
     ServiceTournament(now);
+    if (host_.tournament) host_.tournament(tournamentModel_, Opened(Origin::TrophyRoom));
+    else {
+        // Made up without a start.gg event.
+        tournamentModel_ = {};
+        tournamentModel_.name = "Recharged Test Cup";
+        tournamentModel_.event = "Mario Strikers Charged Singles";
+        tournamentModel_.round = "Winners Round 1";
+        tournamentModel_.opponent = "Opponent";
+        tournamentModel_.opponent_initials = "OP";
+        tournamentModel_.games = 3;
+        tournamentModel_.sample = true;
+        tournamentModel_.has_set = tournamentModel_.opponent_known = true;
+    }
     ShowPrompt(now);
 
     // The input: the menus' while they show a page.
@@ -682,14 +695,7 @@ void HostMenus::BuildModel(ui::PageModel& model)
     model.prompt = prompt_ ? &*prompt_ : nullptr;
     model.from_wheel = Opened(Origin::Wheel);
     model.online_menu = menu_.online_menu != 0;
-    // Made up until start.gg (a later step).
-    model.tournament.name = "Recharged Test Cup";
-    model.tournament.event = "Mario Strikers Charged Singles";
-    model.tournament.round = "Winners Round 1";
-    model.tournament.opponent = "Opponent";
-    model.tournament.opponent_initials = "OP";
-    model.tournament.games = 3;
-    model.tournament.sample = true;
+    model.tournament = tournamentModel_;
     model.network_match = menu_.network_match != 0;
     model.forfeiting = menu_.forfeiting != 0 || forfeitAsked_;
     model.front_end = known_ ? menu_.front_end != 0 : true;
