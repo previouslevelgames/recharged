@@ -1,0 +1,62 @@
+{
+  "data": {
+    "event": {
+      "id": 900,
+      "name": "Mario Strikers Charged Singles",
+      "tournament": { "name": "Recharged Test Cup" },
+      "sets": {
+        "pageInfo": { "totalPages": 1 },
+        "nodes": [
+          {
+            "id": 1001, "state": 3, "round": 1, "fullRoundText": "Winners Round 1",
+            "phaseGroup": { "id": 70 },
+            "slots": [
+              { "prereqId": null,
+                "entrant": { "id": 501, "name": "Alice", "participants": [ { "user": { "id": 11 } } ] },
+                "standing": { "stats": { "score": { "value": 2 } } } },
+              { "prereqId": null,
+                "entrant": { "id": 502, "name": "Bob", "participants": [ { "user": { "id": 12 } } ] },
+                "standing": { "stats": { "score": { "value": 0.0 } } } }
+            ]
+          },
+          {
+            "id": 1002, "state": 1, "round": 2, "fullRoundText": "Winners Semi-Final",
+            "phaseGroup": { "id": 70 },
+            "slots": [
+              { "prereqId": "1001",
+                "entrant": { "id": 501, "name": "Alice", "participants": [ { "user": { "id": 11 } } ] },
+                "standing": null },
+              { "prereqId": "1003",
+                "entrant": { "id": 503, "name": "Carol", "participants": [ { "user": { "id": 13 } } ] },
+                "standing": null }
+            ]
+          },
+          {
+            "id": 1003, "state": 2, "round": 1, "fullRoundText": "Winners Round 1",
+            "phaseGroup": { "id": 70 },
+            "slots": [
+              { "prereqId": null,
+                "entrant": { "id": 503, "name": "Carol", "participants": [ { "user": { "id": 13 } } ] },
+                "standing": { "stats": { "score": { "value": 1 } } } },
+              { "prereqId": null,
+                "entrant": { "id": 504, "name": "Dave", "participants": [ { "user": null } ] },
+                "standing": { "stats": { "score": { "value": null } } } }
+            ]
+          },
+          {
+            "id": "preview_70_4", "state": 1, "round": -1, "fullRoundText": "Losers Round 1",
+            "phaseGroup": { "id": 70 },
+            "slots": [
+              { "prereqId": "1001",
+                "entrant": { "id": 502, "name": "Bob", "participants": [ { "user": { "id": 12 } } ] },
+                "standing": null },
+              { "prereqId": "1003", "entrant": null, "standing": null }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "extensions": { "cacheControl": { "version": 1 } },
+  "actionRecords": []
+}

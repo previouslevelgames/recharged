@@ -1,0 +1,5 @@
+{ "data": { "event": { "id": 902, "name": "Singles", "tournament": { "name": "Two Pages" },
+  "sets": { "pageInfo": { "totalPages": 2 }, "nodes": [
+    { "id": 3001, "state": 3, "round": 1, "fullRoundText": "Winners Round 1", "phaseGroup": { "id": 72 },
+      "slots": [ { "entrant": { "id": 701, "name": "Alice", "participants": [ { "user": { "id": 11 } } ] } },
+                 { "entrant": { "id": 702, "name": "Bob", "participants": [ { "user": { "id": 12 } } ] } } ] } ] } } } }
