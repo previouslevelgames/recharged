@@ -1,6 +1,7 @@
 #include "runtime/startgg_tournament.h"
 
 #include "bootstrap/texts.h"
+#include "platform/profile_service.h"
 
 #include <cctype>
 #include <string>
@@ -121,5 +122,56 @@ ui::TournamentModel StartggTournament(const platform::StartggFeed::Snapshot& fee
     const auto& own = set->slots[mine].score;
     if (own && opponent.score) model.score = std::to_string(*own) + " - " + std::to_string(*opponent.score);
     return model;
+}
+
+StartggPlay StartggSetToPlay(const platform::StartggFeed::Snapshot& feed, std::string_view user,
+                             const std::vector<std::pair<std::string, unsigned>>& players)
+{
+    StartggPlay play;
+    if (!feed.event)
+    {
+        play.error = "the event is not loaded";
+        return play;
+    }
+    int mine = -1;
+    const platform::StartggSet* set = platform::StartggNextSet(*feed.event, user, &mine);
+    if (!set)
+    {
+        play.error = "the player has no set to play";
+        return play;
+    }
+    const platform::StartggEntrant& opponent = set->slots[1 - mine];
+    play.set = set->id;
+    play.opponent = opponent.name;
+    if (opponent.id.empty())
+    {
+        play.error = "set " + set->id + " has no opponent yet";
+        return play;
+    }
+    platform::ProfilePlayer player;
+    player.name = opponent.name;
+    for (const auto& [startgg, profile] : players)
+        if (platform::StartggIsUser(opponent, startgg))
+        {
+            platform::WfcProfile wfc;
+            wfc.profile_id = profile;
+            player.wfc.push_back(wfc);
+        }
+    if (player.wfc.empty())
+    {
+        play.error = "the opponent " + opponent.name + " has no WFC profile in [startgg] players";
+        return play;
+    }
+    // The event's rules, until the organizer sets them: start.gg does not
+    // say a set's best of here.
+    platform::MatchRules rules;
+    rules.skill = "professional";
+    rules.limit = "time";
+    rules.time = 180;
+    rules.goals = 5;
+    rules.games = 3;
+    rules.stadium = "random";
+    play.rules = platform::ModuleRules(rules, player, &play.error);
+    return play;
 }
 } // namespace mscharged::runtime
