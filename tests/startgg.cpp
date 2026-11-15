@@ -1,15 +1,21 @@
 // start.gg's answers for the TOURNAMENT page: the request, the event and its
 // sets read from saved answers (tests/fixtures/startgg, made up), the
 // player's next set, the refusals (the rate limit, the token), and the
-// sources (a file; start.gg through a test's transport).
+// sources (a file; start.gg through a test's transport), and the feed that
+// asks only while the page is open.
 #include "platform/json.h"
 #include "platform/startgg.h"
+#include "platform/startgg_feed.h"
 #include "platform/startgg_source.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace mscharged::platform;
@@ -224,6 +230,68 @@ void Http()
     CHECK(answer.event.has_value());
     CHECK(!sent.empty() && sent[0].allow_http);
 }
+// A source that counts its fetches; rate limited while `limited`.
+class CountingSource final : public StartggSource
+{
+public:
+    std::atomic<int> fetches{0};
+    std::atomic<bool> limited{false};
+    StartggAnswer Fetch(std::string_view) override
+    {
+        ++fetches;
+        if (limited) return ReadStartggAnswer(429, Fixture("rate_limit.json"));
+        return ReadStartggAnswer(200, Fixture("event.json"));
+    }
+};
+
+// Waits up to a second for `done`.
+template <typename F> bool Within(F done)
+{
+    for (int n = 0; n < 200 && !done(); ++n) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    return done();
+}
+
+void Feed()
+{
+    using namespace std::chrono_literals;
+    auto owned = std::make_unique<CountingSource>();
+    CountingSource& source = *owned;
+    std::vector<std::string> logged;
+    std::mutex logMutex;
+    StartggFeed feed(std::move(owned), "e", [&](const std::string& line) {
+        std::lock_guard lock(logMutex);
+        logged.push_back(line);
+    }, 150ms, 400ms);
+    // Closed: nothing asked.
+    std::this_thread::sleep_for(50ms);
+    CHECK(source.fetches == 0);
+    CHECK(!feed.Latest().loaded);
+    // Opened: at once, then every interval.
+    feed.SetOpen(true);
+    CHECK(Within([&] { return feed.Latest().loaded; }));
+    CHECK(feed.Latest().event && feed.Latest().error.empty());
+    CHECK(Within([&] { return source.fetches >= 2; }));
+    // Closed: no more.
+    feed.SetOpen(false);
+    std::this_thread::sleep_for(30ms); // a fetch that had started
+    const int closedAt = source.fetches;
+    std::this_thread::sleep_for(250ms);
+    CHECK(source.fetches == closedAt);
+    // Rate limited: the event stays, the error shows, and it waits longer.
+    source.limited = true;
+    feed.SetOpen(true);
+    CHECK(Within([&] { return feed.Latest().rate_limited; }));
+    CHECK(feed.Latest().event.has_value());
+    const int limitedAt = source.fetches;
+    std::this_thread::sleep_for(250ms); // past the interval, not the wait
+    CHECK(source.fetches == limitedAt);
+    source.limited = false;
+    CHECK(Within([&] { return !feed.Latest().rate_limited && feed.Latest().error.empty(); }));
+    feed.SetOpen(false);
+    std::lock_guard lock(logMutex);
+    CHECK(logged.size() == 2);
+    CHECK(!logged.empty() && logged[0].find("rate limit") != std::string::npos);
+}
 } // namespace
 
 int main()
@@ -235,6 +303,7 @@ int main()
     Refusals();
     Files();
     Http();
+    Feed();
     if (failures) std::fprintf(stderr, "%d failure(s)\n", failures);
     else std::puts("startgg: all passed");
     return failures ? 1 : 0;
