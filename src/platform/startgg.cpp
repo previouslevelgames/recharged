@@ -176,6 +176,8 @@ void AddStartggPage(StartggEvent& event, StartggEvent page)
 bool StartggIsUser(const StartggEntrant& entrant, std::string_view user)
 {
     if (user.empty()) return false;
+    // An entrant by its own id (one entered without an account has no user).
+    if (user.rfind("entrant/", 0) == 0) return !entrant.id.empty() && user.substr(8) == entrant.id;
     for (const auto& id : entrant.user_ids)
         if (id == user) return true;
     for (const auto& tag : entrant.user_discriminators)

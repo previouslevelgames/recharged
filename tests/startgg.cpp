@@ -82,6 +82,8 @@ void Event()
     CHECK(first.slots[0].user_discriminators.size() == 1 && first.slots[0].user_discriminators[0] == "a11ce0de");
     CHECK(StartggIsUser(first.slots[0], "11") && StartggIsUser(first.slots[0], "a11ce0de"));
     CHECK(!StartggIsUser(first.slots[0], "12") && !StartggIsUser(first.slots[0], ""));
+    CHECK(StartggIsUser(first.slots[0], "entrant/501") && !StartggIsUser(first.slots[0], "entrant/50"));
+    CHECK(!StartggIsUser(first.slots[0], "501") && !StartggIsUser(StartggEntrant{}, "entrant/"));
     CHECK(first.slots[1].user_discriminators.empty());
     CHECK(first.slots[0].score == 2);
     CHECK(first.slots[1].score == 0); // sent as 0.0

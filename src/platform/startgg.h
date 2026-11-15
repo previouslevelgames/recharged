@@ -82,7 +82,8 @@ StartggAnswer ReadStartggAnswer(long status, std::string_view body);
 void AddStartggPage(StartggEvent& event, StartggEvent page);
 
 // Whether one of the entrant's participants is the start.gg user `user`:
-// their id (digits) or their discriminator.
+// their id (digits) or their discriminator; or, as "entrant/<id>", the
+// entrant itself (also one entered by name, without an account).
 bool StartggIsUser(const StartggEntrant& entrant, std::string_view user);
 // Whether the set is still to be played (or being played).
 bool StartggSetOpen(StartggSetState state);

@@ -509,13 +509,19 @@ Settings Decode(const Values& values, bool builtin = false)
             throw std::runtime_error(std::string("Invalid configuration: ") + key + " contains a line break or NUL");
         *value = it->second;
     }
-    // The player's id (digits) or their profile's discriminator, also as its
-    // link's user/<discriminator>; kept in lowercase.
-    if (s.startgg_user.rfind("user/", 0) == 0) s.startgg_user.erase(0, 5);
-    for (auto& c : s.startgg_user) c = char(std::tolower(static_cast<unsigned char>(c)));
-    if (s.startgg_user.find_first_not_of("0123456789abcdefghijklmnopqrstuvwxyz") != std::string::npos)
-        throw std::runtime_error("Invalid configuration: startgg.user is not a start.gg user (its id, or its "
-                                 "discriminator as in user/<discriminator>)");
+    // A start.gg user: its id (digits) or its profile's discriminator, also
+    // as its link's user/<discriminator>; or an entrant as entrant/<id> (one
+    // entered by name has no user). Kept in lowercase; false when it is none.
+    const auto startggUser = [](std::string& user) {
+        if (user.rfind("user/", 0) == 0) user.erase(0, 5);
+        for (auto& c : user) c = char(std::tolower(static_cast<unsigned char>(c)));
+        if (user.rfind("entrant/", 0) == 0)
+            return user.size() > 8 && user.find_first_not_of("0123456789", 8) == std::string::npos;
+        return !user.empty() && user.find_first_not_of("0123456789abcdefghijklmnopqrstuvwxyz") == std::string::npos;
+    };
+    if (!s.startgg_user.empty() && !startggUser(s.startgg_user))
+        throw std::runtime_error("Invalid configuration: startgg.user is not a start.gg user (its id, its "
+                                 "discriminator as in user/<discriminator>, or entrant/<id>)");
     // The opponents' WFC profiles: "<user>:<profile id>", apart by commas.
     if (const auto it = values.find("startgg.players"); it != values.end())
     {
@@ -538,10 +544,7 @@ Settings Decode(const Values& values, bool builtin = false)
             std::string user = entry.substr(0, colon), profile = entry.substr(colon + 1);
             user.erase(user.find_last_not_of(" \t") + 1);
             profile.erase(0, profile.find_first_not_of(" \t"));
-            if (user.rfind("user/", 0) == 0) user.erase(0, 5);
-            for (auto& c : user) c = char(std::tolower(static_cast<unsigned char>(c)));
-            if (user.empty() || user.find_first_not_of("0123456789abcdefghijklmnopqrstuvwxyz") != std::string::npos
-                || profile.empty() || profile.size() > 10 || profile.find_first_not_of("0123456789") != std::string::npos)
+            if (!startggUser(user) || profile.empty() || profile.size() > 10 || profile.find_first_not_of("0123456789") != std::string::npos)
                 throw bad();
             const unsigned long long id = std::stoull(profile);
             if (id == 0 || id > 0xFFFFFFFFull) throw bad();
