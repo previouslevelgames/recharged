@@ -31,6 +31,17 @@ struct TournamentEnding
 };
 TournamentEnding TournamentEndingOf(const platform::TournamentPage& page, std::int64_t match);
 
+// What the player should hear about their set from the feed's last answer
+// (their own tournament's page): a game of it to play (ready, the opponent
+// known), or the opponent READY while they are not. `key` names that moment
+// (the set and its games played, or the match): the host tells it once.
+struct TournamentCall
+{
+    enum class Kind { None, SetReady, OpponentReady } kind = Kind::None;
+    std::string key, opponent, tournament;
+};
+TournamentCall TournamentCallOf(const platform::TournamentFeed::Snapshot& feed);
+
 // The ceremony's panel for that game (UTF-16 of the basic plane, at most 127
 // units each): its title, and who won, this player or the opponent.
 struct TournamentCeremony

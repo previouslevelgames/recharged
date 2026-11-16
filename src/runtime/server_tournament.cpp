@@ -303,6 +303,33 @@ std::u16string PanelText(std::string_view text)
 }
 } // namespace
 
+TournamentCall TournamentCallOf(const platform::TournamentFeed::Snapshot& feed)
+{
+    TournamentCall call;
+    if (!feed.signed_in || !feed.page || !feed.page->me) return call;
+    const auto& page = *feed.page;
+    const auto& me = *page.me;
+    if (page.tournament.state != "running" || !me.entrant || me.dropped || !me.eligible || !me.set) return call;
+    const auto* set = page.Set(me.set);
+    if (!set || !set->home || !set->away) return call;
+    const std::int64_t opponent = set->home == me.player ? set->away : set->home;
+    call.opponent = NameOf(page, opponent);
+    call.tournament = page.tournament.name;
+    const int played = std::max(set->home_wins, 0) + std::max(set->away_wins, 0);
+    if (set->state == "ready")
+    {
+        call.kind = TournamentCall::Kind::SetReady;
+        call.key = "ready:" + std::to_string(set->id) + ":" + std::to_string(played);
+    }
+    else if (set->state == "playing" && feed.match && feed.match->id == set->match && feed.match->opponent_ready
+             && !feed.match->you_ready)
+    {
+        call.kind = TournamentCall::Kind::OpponentReady;
+        call.key = "opponent:" + std::to_string(set->match);
+    }
+    return call;
+}
+
 TournamentCeremony TournamentCeremonyOf(const platform::TournamentPage& page, std::int64_t match)
 {
     TournamentCeremony ceremony;

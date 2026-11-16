@@ -381,6 +381,12 @@ if(TARGET charged_overlay)
     target_link_libraries(charged_original_game_host PRIVATE charged_overlay charged_recharged_ui charged_ui_kit
         charged_mii_head charged_match_presets charged_startgg)
     target_compile_definitions(charged_original_game_host PRIVATE MSCHARGED_HAS_GAME_OVERLAY=1)
+    if(BUILD_TESTING)
+        # The profile server's tournament as the trophy room's pages show it.
+        add_executable(server_tournament_tests tests/server_tournament.cpp src/runtime/server_tournament.cpp)
+        target_link_libraries(server_tournament_tests PRIVATE charged_competitive charged_recharged_ui)
+        add_test(NAME server_tournament COMMAND server_tournament_tests)
+    endif()
 else()
     # Without the launcher (the Switch): the fallback fonts the overlay's texts use.
     target_sources(charged_original_game_host PRIVATE src/launcher/fallback_fonts.cpp)

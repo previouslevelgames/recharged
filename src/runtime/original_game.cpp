@@ -3192,6 +3192,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         std::unique_ptr<mscharged::platform::TournamentFeed> tournamentFeed;
         std::uint64_t tournamentShown=0, tournamentListShown=0;
         std::int64_t tournamentShownId=0;
+        // The last moment of the player's set told (TournamentCallOf), at
+        // which feed answer.
+        std::string tournamentCallKey;
+        std::uint64_t tournamentCalled=0;
         if(!startggFeed) {
             std::string off;
             tournamentFeed=mscharged::platform::TournamentFeed::Start(launch.settings.profile_server,
@@ -3291,6 +3295,32 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             };
             if(tournamentFeed) {
                 menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open,const std::string& shown) {
+                    // The player's set is ready, or the opponent READY: said
+                    // once, with the challenge's chime (not during a set's
+                    // game or its way there).
+                    if(const auto version=tournamentFeed->Version(); version!=tournamentCalled) {
+                        tournamentCalled=version;
+                        const auto call=mscharged::runtime::TournamentCallOf(tournamentFeed->Latest());
+                        // (Another tournament on the pages says nothing: the
+                        // last moment told stays.)
+                        if(!call.key.empty() && call.key!=tournamentCallKey) {
+                            tournamentCallKey=call.key;
+                            using Kind=mscharged::runtime::TournamentCall::Kind;
+                            const bool busy=competitive && (competitive->InMatch() || competitive->CurrentSet());
+                            if(call.kind!=Kind::None && !busy) {
+                                mscharged::platform::SessionLogLine(std::string("Tournament: ")
+                                    +(call.kind==Kind::SetReady ? "the set against " : "READY from ")+call.opponent
+                                    +(call.kind==Kind::SetReady ? " is ready" : ""));
+                                alert();
+                                if(hostOverlay)
+                                    hostOverlay->ShowMessage(texts::T(call.kind==Kind::SetReady
+                                            ? "menus.messages.tournament_set_ready"
+                                            : "menus.messages.tournament_opponent_ready",
+                                        {{"tournament",call.tournament},{"name",call.opponent}}),
+                                        std::chrono::steady_clock::now());
+                            }
+                        }
+                    }
                     tournamentFeed->SetOpen(open);
                     std::int64_t id=0;
                     if(!shown.empty()) std::from_chars(shown.data(),shown.data()+shown.size(),id);

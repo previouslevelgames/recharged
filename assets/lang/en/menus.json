@@ -549,6 +549,8 @@
     "your_opponent": "Your opponent",
     "unnamed_opponent": "your opponent",
     "set_start": "Set against {{name}}: off to RANKED",
+    "tournament_set_ready": "{{tournament}}: your set against {{name}} is ready. TOURNAMENT in the online menu, then READY",
+    "tournament_opponent_ready": "{{tournament}}: {{name}} is READY for your set",
     "set_waits": "The set waits: go back to the main menu or the online menu, and the game takes you to RANKED",
     "set_replaced": "Your other Recharged plays the set against {{name}}",
     "set_no_result": "The set against {{name}} ended without a result",
