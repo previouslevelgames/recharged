@@ -195,6 +195,8 @@ void HostMenus::TournamentSetDone(bool from_match)
 
 void HostMenus::TournamentSetStarts() { ClearPages(); }
 
+bool HostMenus::InTrophyRoom() const { return menu_.trophy_room == CHARGED_TROPHY_ROOM_IN; }
+
 void HostMenus::LeaveMatch() { Command(CHARGED_MENU_FORFEIT); }
 
 void HostMenus::CloseRecharged()

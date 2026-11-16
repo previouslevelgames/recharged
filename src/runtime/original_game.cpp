@@ -3203,6 +3203,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // which feed answer.
         std::string tournamentCallKey;
         std::uint64_t tournamentCalled=0;
+        // The trophy room showed at the last look (READY holds only there).
+        bool tournamentInRoom=false;
         if(!startggFeed) {
             std::string off;
             tournamentFeed=mscharged::platform::TournamentFeed::Start(launch.settings.profile_server,
@@ -3329,6 +3331,18 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                             }
                         }
                     }
+                    // READY holds in the trophy room only: out of it (its
+                    // BACK, the online menu left) before the set goes, it is
+                    // taken back, so that a set always goes on from the room.
+                    const bool inRoom=hostMenus && hostMenus->InTrophyRoom();
+                    if(tournamentInRoom && !inRoom && !(competitive && competitive->CurrentSet())) {
+                        const auto latest=tournamentFeed->Latest();
+                        if(latest.match && latest.match->you_ready && latest.match->stage=="open") {
+                            mscharged::platform::SessionLogLine("Tournament: READY taken back (the player left the trophy room)");
+                            tournamentFeed->Ready(false);
+                        }
+                    }
+                    tournamentInRoom=inRoom;
                     tournamentFeed->SetOpen(open);
                     std::int64_t id=0;
                     if(!shown.empty()) std::from_chars(shown.data(),shown.data()+shown.size(),id);

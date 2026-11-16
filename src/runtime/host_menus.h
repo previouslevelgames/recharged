@@ -123,6 +123,8 @@ public:
     // A tournament set READY asked for goes (both players are ready): it goes
     // on from the trophy room, which stays; only the pages go.
     void TournamentSetStarts();
+    // The trophy room shows (its camera there), as the game's last snapshot says.
+    bool InTrophyRoom() const;
     // The game leaves the online match the player forfeited (Host::forfeit).
     void LeaveMatch();
     // Each host frame, after the game's frame and MenuInput::Service: the
