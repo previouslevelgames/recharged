@@ -355,6 +355,14 @@ struct TournamentEntrant
     int place = 0;        // from 1, once it is over
 };
 
+// Where one of a tournament set's players comes from: a seed (from 0; past
+// the entrants, a bye), or another set's winner or loser.
+struct TournamentFrom
+{
+    enum class Kind { None, Seed, Winner, Loser } kind = Kind::None;
+    std::int64_t value = 0; // the seed, or the set's id
+};
+
 struct TournamentSet
 {
     std::int64_t id = 0;
@@ -367,6 +375,7 @@ struct TournamentSet
     std::string decided_by; // match, organizer or walkover
     int home_wins = -1, away_wins = -1; // -1: no score
     std::int64_t match = 0;
+    TournamentFrom from[2];
 };
 
 // The player's own place in a tournament (with a session).

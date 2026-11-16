@@ -6,6 +6,7 @@
 #include "platform/json.h"
 #include "platform/online_panel_feed.h"
 #include "platform/profile_service.h"
+#include "platform/tournament_feed.h"
 
 #include <chrono>
 #include <cstdio>
@@ -903,8 +904,10 @@ void Tournaments()
           R"("place":null},{"player":{"id":8,"name":"Bowser","account":"discord"},"seed":1,"dropped":false,)"
           R"("place":null}],"sets":[{"id":30,"index":0,"side":"winners","round":1,"position":0,"games":5,)"
           R"("state":"ready","home":7,"away":8,"winner":null,"decided_by":null,"home_wins":null,)"
+          R"("from":[{"seed":0},{"seed":1}],)"
           R"("away_wins":null,"match":null},{"id":31,"index":1,"side":"grand_final","round":1,"position":0,)"
           R"("games":5,"state":"pending","home":null,"away":null,"winner":null,"decided_by":null,)"
+          R"("from":[{"winner":30},{"loser":30}],)"
           R"("home_wins":null,"away_wins":null,"match":null}],"me":{"player":7,"entrant":true,"eligible":true,)"
           R"("reason":null,"dropped":false,"place":null,"set":30},"poll_interval":5})";
     const std::string made = R"({"match":{"id":12,"state":"accepted","side":"challenger","opponent":{"id":8,)"
@@ -937,6 +940,10 @@ void Tournaments()
         CHECK(shown.sets.size() == 2 && shown.sets[0].state == "ready" && shown.sets[0].home == 7
               && shown.sets[0].away == 8 && shown.sets[0].games == 5 && shown.sets[0].home_wins == -1
               && shown.sets[0].match == 0 && shown.sets[1].home == 0 && shown.sets[1].side == "grand_final");
+        using Kind = TournamentFrom::Kind;
+        CHECK(shown.sets[0].from[1].kind == Kind::Seed && shown.sets[0].from[1].value == 1
+              && shown.sets[1].from[0].kind == Kind::Winner && shown.sets[1].from[1].kind == Kind::Loser
+              && shown.sets[1].from[1].value == 30);
         CHECK(shown.me && shown.me->entrant && shown.me->eligible && shown.me->set == 30 && shown.me->reason.empty());
         CHECK(shown.Set(30) == &shown.sets[0] && !shown.Set(99) && shown.Entrant(8) == &shown.entrants[1]);
         CHECK(shown.poll_interval == 5);
@@ -968,6 +975,76 @@ void Tournaments()
     CHECK(ParseJson(kSet)["tournament"].IsNull());
 }
 
+// The tournament the page shows, and the feed asking for it and acting on it.
+void TournamentFeedRounds()
+{
+    auto tournament = [](std::int64_t id, const char* state, bool joined) {
+        ProfileTournament t;
+        t.id = id;
+        t.state = state;
+        t.joined = joined;
+        return t;
+    };
+    CHECK(!ChooseTournament({}));
+    CHECK(ChooseTournament({tournament(1, "finished", true), tournament(2, "running", false)}) == 1u);
+    CHECK(ChooseTournament({tournament(1, "registration", false), tournament(2, "running", false)}) == 0u);
+    CHECK(ChooseTournament({tournament(1, "registration", false), tournament(2, "registration", true)}) == 1u);
+    CHECK(ChooseTournament({tournament(1, "registration", true), tournament(2, "running", true)}) == 1u);
+    CHECK(ChooseTournament({tournament(1, "finished", false), tournament(2, "cancelled", false)}) == 0u);
+    if (!HttpUnavailable().empty()) return;
+
+    const std::string list = R"({"tournaments":[{"id":4,"name":"Cup","format":"single","state":"running",)"
+                             R"("joined":true,"best_of":3,"finals_best_of":3,"entrants":2}]})";
+    const std::string page = R"({"tournament":{"id":4,"name":"Cup","format":"single","state":"running",)"
+                             R"("best_of":3,"finals_best_of":3,"entrants":2},"entrants":[],"sets":[{"id":30,)"
+                             R"("state":"STATE","home":7,"away":8,"games":3,"match":MATCH}],"me":{"player":7,)"
+                             R"("entrant":true,"eligible":true,"set":30},"poll_interval":60})";
+    auto with = [](std::string text, const std::string& state, const std::string& match) {
+        text.replace(text.find("STATE"), 5, state);
+        text.replace(text.find("MATCH"), 5, match);
+        return text;
+    };
+    const std::string match = R"({"id":12,"state":"accepted","stage":"open","you_ready":true,)"
+                              R"("opponent_ready":false,"opponent":{"id":8,"name":"Bowser"}})";
+    const std::vector<Exchange> exchanges{
+        {"GET /api/v1/tournaments", 200, list},
+        {"GET /api/v1/tournaments/4", 200, with(page, "ready", "null")},
+        {"POST /api/v1/tournaments/4/sets/30/ready", 200, R"({"match":)" + match + "}"},
+        {"GET /api/v1/tournaments", 200, list},
+        {"GET /api/v1/tournaments/4", 200, with(page, "playing", "12")},
+        {"GET /api/v1/matches/current", 200, R"({"match":)" + match + R"(,"poll_interval":2})"},
+    };
+    const auto folder = std::filesystem::temp_directory_path()
+        / ("recharged-feed-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        const auto file = folder / "online" / "game.session";
+        SaveProfileSession(file, {server.Url(), "t9", "Mario"});
+        auto feed = TournamentFeed::Start(server.Url(), file, nullptr, nullptr);
+        CHECK(feed != nullptr);
+        auto wait = [&](auto&& done) {
+            for (int n = 0; n < 500 && !done(feed->Latest()); ++n)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            return feed->Latest();
+        };
+        feed->SetOpen(true);
+        auto shown = wait([](const TournamentFeed::Snapshot& s) { return s.loaded; });
+        CHECK(shown.signed_in && shown.page && shown.page->tournament.id == 4 && shown.page->me
+              && shown.page->me->set == 30 && !shown.match && shown.error.empty());
+        feed->Ready(true);
+        shown = wait([](const TournamentFeed::Snapshot& s) { return !s.busy && s.match.has_value(); });
+        CHECK(!shown.busy && shown.action_error.empty() && shown.match && shown.match->id == 12
+              && shown.match->you_ready && !shown.match->opponent_ready);
+        CHECK(feed->ReadyMatch() == 12);
+    }
+    std::filesystem::remove_all(folder);
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+        CHECK(sent[0].authorization == "Bearer t9" && sent[2].body == R"({"ready":true})");
+}
+
 int main()
 {
     Addresses();
@@ -983,6 +1060,7 @@ int main()
     FeedChallengeRules();
     Tournaments();
 #endif
+    TournamentFeedRounds();
     if (failures)
     {
         std::fprintf(stderr, "%d profile service checks failed\n", failures);

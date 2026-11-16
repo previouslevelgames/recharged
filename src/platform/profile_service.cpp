@@ -285,6 +285,18 @@ TournamentPage ParseTournamentPage(const JsonValue& value)
         set.home_wins = int(item["home_wins"].Integer().value_or(-1));
         set.away_wins = int(item["away_wins"].Integer().value_or(-1));
         set.match = item["match"].Integer().value_or(0);
+        const auto& from = item["from"].Items();
+        for (std::size_t n = 0; n < 2 && n < from.size(); ++n)
+        {
+            using Kind = TournamentFrom::Kind;
+            for (const auto& [name, kind] :
+                 {std::pair{"seed", Kind::Seed}, std::pair{"winner", Kind::Winner}, std::pair{"loser", Kind::Loser}})
+                if (const auto value = from[n][name].Integer())
+                {
+                    set.from[n].kind = kind;
+                    set.from[n].value = *value;
+                }
+        }
         page.sets.push_back(std::move(set));
     }
     if (const auto& me = value["me"]; me.IsObject())
