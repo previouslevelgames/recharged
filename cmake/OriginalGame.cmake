@@ -377,7 +377,7 @@ target_link_libraries(charged_original_game_host PRIVATE charged_texts)
 # (src/overlay, built with the launcher, through Aurora's ImGui).
 if(TARGET charged_overlay)
     target_sources(charged_original_game_host PRIVATE src/runtime/host_menus.cpp src/runtime/mii_heads.cpp
-        src/runtime/startgg_tournament.cpp)
+        src/runtime/startgg_tournament.cpp src/runtime/server_tournament.cpp)
     target_link_libraries(charged_original_game_host PRIVATE charged_overlay charged_recharged_ui charged_ui_kit
         charged_mii_head charged_match_presets charged_startgg)
     target_compile_definitions(charged_original_game_host PRIVATE MSCHARGED_HAS_GAME_OVERLAY=1)
