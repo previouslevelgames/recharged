@@ -8,6 +8,7 @@
 #include "runtime/texture_pack_loading.h"
 #include "platform/graphics_backend.h"
 #include "runtime/original_sh_menu_diagnostic.h"
+#include <charconv>
 #include <aurora/aurora.h>
 #include <aurora/hardware.h>
 #include "bootstrap/antialiasing.h"
@@ -3189,7 +3190,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // server's tournament (asked on a thread of its own while the page is
         // open), whose sets are the server's.
         std::unique_ptr<mscharged::platform::TournamentFeed> tournamentFeed;
-        std::uint64_t tournamentShown=0;
+        std::uint64_t tournamentShown=0, tournamentListShown=0;
+        std::int64_t tournamentShownId=0;
         if(!startggFeed) {
             std::string off;
             tournamentFeed=mscharged::platform::TournamentFeed::Start(launch.settings.profile_server,
@@ -3249,7 +3251,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             menusHost.image=overlayImage;
             // start.gg is asked only while the page is in the stack; the model
             // is made again only when an answer came.
-            if(startggFeed) menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open) {
+            if(startggFeed) menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open,const std::string&) {
                 startggFeed->SetOpen(open);
                 if(const auto version=startggFeed->Version(); version!=startggShown || version==0) {
                     model=mscharged::runtime::StartggTournament(startggFeed->Latest(),launch.settings.startgg_user);
@@ -3288,11 +3290,22 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 return true;
             };
             if(tournamentFeed) {
-                menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open) {
+                menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open,const std::string& shown) {
                     tournamentFeed->SetOpen(open);
-                    if(const auto version=tournamentFeed->Version(); version!=tournamentShown || version==0) {
-                        model=mscharged::runtime::ServerTournament(tournamentFeed->Latest());
+                    std::int64_t id=0;
+                    if(!shown.empty()) std::from_chars(shown.data(),shown.data()+shown.size(),id);
+                    tournamentFeed->Show(id);
+                    if(const auto version=tournamentFeed->Version();
+                       version!=tournamentShown || version==0 || id!=tournamentShownId) {
+                        model=mscharged::runtime::ServerTournament(tournamentFeed->Latest(),id);
                         tournamentShown=version;
+                        tournamentShownId=id;
+                    }
+                };
+                menusHost.tournaments=[&](mscharged::ui::TournamentListModel& model) {
+                    if(const auto version=tournamentFeed->Version(); version!=tournamentListShown || version==0) {
+                        model=mscharged::runtime::ServerTournaments(tournamentFeed->Latest());
+                        tournamentListShown=version;
                     }
                 };
                 // READY (or taken back) goes to the server: the set starts

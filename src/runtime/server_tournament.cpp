@@ -109,10 +109,64 @@ std::string Place(int place)
 }
 } // namespace
 
-ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& feed)
+ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapshot& feed)
+{
+    ui::TournamentListModel model;
+    if (feed.tournaments.empty())
+    {
+        model.note = !feed.loaded            ? std::string(T("menus.tournament.server.loading"))
+                     : !feed.error.empty()   ? T("menus.tournament.server.failed", {{"error", feed.error}})
+                                             : std::string(T("menus.tournaments.none"));
+        return model;
+    }
+    if (!feed.error.empty()) model.note = T("menus.tournament.server.stale", {{"error", feed.error}});
+    const auto entry = [](const platform::ProfileTournament& t) {
+        ui::TournamentEntry entry;
+        entry.key = std::to_string(t.id);
+        entry.name = t.name;
+        const bool open = t.state == "registration", running = t.state == "running";
+        entry.kicker = open && t.joined      ? T("menus.tournaments.yours_registration")
+                       : open                ? T("menus.tournaments.registration")
+                       : running && t.joined ? T("menus.tournaments.yours_running")
+                       : running             ? T("menus.tournaments.running")
+                                             : T("menus.tournaments.finished");
+        const std::string count = std::to_string(t.entrants);
+        const std::string entrants =
+            t.max_entrants > 0 ? T("menus.tournaments.entrants_max", {{"count", count}, {"max", std::to_string(t.max_entrants)}})
+                               : T("menus.tournaments.entrants", {{"count", count}});
+        entry.value = t.place > 0 ? T("menus.tournaments.place_short", {{"place", Place(t.place)}}) : entrants;
+        entry.tone = t.joined && (open || running) ? ui::Tone::Good : ui::Tone::Neutral;
+        entry.lines.push_back(T("menus.tournaments.format",
+                                {{"format", T(t.format == "double" ? "menus.tournament.server.double"
+                                                                   : "menus.tournament.server.single")},
+                                 {"rule_set", t.rule_set}}));
+        entry.lines.push_back(T("menus.tournaments.best_of", {{"best_of", std::to_string(t.best_of)},
+                                                              {"finals", std::to_string(t.finals_best_of)}}));
+        entry.lines.push_back(entrants);
+        if (t.place > 0) entry.lines.push_back(T("menus.tournaments.place", {{"place", Place(t.place)}}));
+        return entry;
+    };
+    const auto featured = platform::ChooseTournament(feed.tournaments);
+    if (featured) model.featured = entry(feed.tournaments[*featured]);
+    for (std::size_t at = 0; at < feed.tournaments.size(); ++at)
+    {
+        const auto& t = feed.tournaments[at];
+        if (at == featured || t.state == "cancelled") continue;
+        (t.state == "finished" ? model.past : model.others).push_back(entry(t));
+    }
+    return model;
+}
+
+ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& feed, std::int64_t shown)
 {
     ui::TournamentModel model;
     model.games = 0;
+    // The page asked for another than the feed's last answer: it comes.
+    if (shown && feed.page && feed.page->tournament.id != shown)
+    {
+        model.note = T("menus.tournament.server.loading");
+        return model;
+    }
     if (!feed.page)
     {
         model.name = T("menus.tournament.title");

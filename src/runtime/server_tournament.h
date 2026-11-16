@@ -12,7 +12,13 @@ namespace mscharged::runtime
 // feed's last answers): the tournament, the player's set in it, whether
 // they can join or leave, and a note while it loads, when the server fails,
 // when they need Discord, before the start and after their last set.
-ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& feed);
+// `shown`: the tournament the page asked for (0: the feed's choice), a
+// note while the feed's answer is another's.
+ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& feed, std::int64_t shown = 0);
+// The TOURNAMENTS page's: the player's own tournament (else the newest) in
+// the big card, the others open for entries or under way, the last that
+// ended (none called off).
+ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapshot& feed);
 
 // Whether winning the game about to be played in match `match` (the
 // player's set's) ends the tournament: for this player (own), for the

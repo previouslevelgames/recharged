@@ -295,7 +295,7 @@ void HostMenus::ServiceTournament(Clock::time_point now)
             // A page the player opened meanwhile (F1) goes: the room has its own.
             ClearPages();
             channel_ = -1;
-            Push(ui::PageId::Tournament, 0, {}, Origin::TrophyRoom);
+            PushRoomPages(false);
             Tournament(TournamentWay::None);
         } else if (menu_.trophy_room == CHARGED_TROPHY_ROOM_OUT && waited) Tournament(TournamentWay::None);
         break;
@@ -323,10 +323,20 @@ void HostMenus::ServiceTournament(Clock::time_point now)
     else if (tournamentPage_ && settled && pages_.empty() && !prompt_) {
         tournamentPage_ = false;
         channel_ = -1;
-        Push(ui::PageId::Tournament, 0, {}, Origin::TrophyRoom);
+        PushRoomPages(true);
     }
     // The room left without its BACK (the online menu gone, F7): its page goes.
     if (Opened(Origin::TrophyRoom) && menu_.trophy_room != CHARGED_TROPHY_ROOM_IN) ClearPages();
+}
+
+void HostMenus::PushRoomPages(bool own)
+{
+    if (!host_.tournaments) {
+        Push(ui::PageId::Tournament, 0, {}, Origin::TrophyRoom);
+        return;
+    }
+    Push(ui::PageId::Tournaments, 0, {}, Origin::TrophyRoom);
+    if (own) Push(ui::PageId::Tournament);
 }
 
 void HostMenus::Back()
@@ -523,7 +533,17 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
         } else if (now > *creditsWalk_) creditsWalk_.reset();
     }
     ServiceTournament(now);
-    if (host_.tournament) host_.tournament(tournamentModel_, Opened(Origin::TrophyRoom));
+    if (host_.tournament) {
+        // The TOURNAMENT page on top shows its tournament.
+        std::string shown;
+        for (auto page = pages_.rbegin(); page != pages_.rend(); ++page)
+            if (page->id == ui::PageId::Tournament) {
+                shown = page->key;
+                break;
+            }
+        host_.tournament(tournamentModel_, Opened(Origin::TrophyRoom), shown);
+        if (host_.tournaments) host_.tournaments(tournamentListModel_);
+    }
     else {
         // Made up without a start.gg event.
         tournamentModel_ = {};
@@ -773,6 +793,7 @@ void HostMenus::BuildModel(ui::PageModel& model)
     model.from_wheel = Opened(Origin::Wheel);
     model.online_menu = menu_.online_menu != 0;
     model.tournament = tournamentModel_;
+    model.tournaments = tournamentListModel_;
     model.network_match = menu_.network_match != 0;
     model.forfeiting = menu_.forfeiting != 0 || forfeitAsked_;
     model.front_end = known_ ? menu_.front_end != 0 : true;

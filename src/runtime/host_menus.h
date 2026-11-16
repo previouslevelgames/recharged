@@ -82,9 +82,14 @@ public:
         std::function<void(const overlay::GameOptionChange&)> option;
         // The game ends, as when its window is closed (QUIT RECHARGED).
         std::function<void()> quit;
-        // The TOURNAMENT page's model, each frame; `open` while the page is
-        // in the stack (start.gg is asked only then). None: sample data.
-        std::function<void(ui::TournamentModel&, bool open)> tournament;
+        // The TOURNAMENT page's model, each frame; `open` while the room's
+        // pages are in the stack (start.gg is asked only then); `shown`: the
+        // key of the TOURNAMENT page on top (a tournament's id, empty for the
+        // player's own). None: sample data.
+        std::function<void(ui::TournamentModel&, bool open, const std::string& shown)> tournament;
+        // The TOURNAMENTS page's model, each frame. None: the room opens
+        // TOURNAMENT straight away (start.gg's one event).
+        std::function<void(ui::TournamentListModel&)> tournaments;
         // TOURNAMENT's READY: the player's next set starts (true: the game
         // goes on from the trophy room into its RANKED search, and the pages
         // go). None, or false: nothing starts.
@@ -236,6 +241,10 @@ private:
     std::optional<Clock::time_point> tournamentReturn_;
     Clock::time_point tournamentSettled_{}; // TournamentSetDone: the room's state taken from then
     ui::TournamentModel tournamentModel_;
+    ui::TournamentListModel tournamentListModel_;
+    // The room's first page: TOURNAMENTS (with the player's own TOURNAMENT
+    // over it after a set, `own`), or TOURNAMENT alone without a list.
+    void PushRoomPages(bool own);
     Clock::time_point tournamentAt_{};
     void Tournament(TournamentWay way);
     // The trophy room's way: follows the game (its login, the room's camera).
