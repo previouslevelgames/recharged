@@ -914,7 +914,9 @@ void Tournaments()
                              R"("name":"Bowser"},"rule_set":"Competitive","rules":{"tweaks":[],"skill":"rookie",)"
                              R"("limit":"goals","time":180,"goals":10,"games":5,"stadium":"random"},)"
                              R"("rules_hash":"h","stage":"open","you_ready":true,"opponent_ready":false,)"
-                             R"("tournament":{"id":4,"name":"Recharged Cup","set":30,"side":"winners","round":1}}})";
+                             R"("tournament":{"id":4,"name":"Recharged Cup","set":30,"side":"winners","round":1,)"
+                             R"("games":5,"home_wins":0,"away_wins":1,"won":0,"lost":1,"state":"ready",)"
+                             R"("winner":null,"home":"you"}}})";
     const std::vector<Exchange> exchanges{
         {"GET /api/v1/tournaments", 200, R"({"tournaments":[)" + tournament.substr(0, tournament.size() - 1)
                                              + R"(,"joined":true}]})"},
@@ -959,7 +961,9 @@ void Tournaments()
         const auto match = api.TournamentReady(4, 30, true);
         CHECK(match && match->id == 12 && match->stage == "open" && match->rules.games == 5
               && match->tournament.id == 4 && match->tournament.set == 30 && match->tournament.name == "Recharged Cup"
-              && match->tournament.side == "winners" && match->tournament.round == 1);
+              && match->tournament.side == "winners" && match->tournament.round == 1 && match->tournament.games == 5
+              && match->tournament.won == 0 && match->tournament.lost == 1 && match->tournament.state == "ready"
+              && match->tournament.winner.empty() && match->tournament.home == "you");
         CHECK(!api.TournamentReady(4, 30, false));
         CHECK(api.LeaveTournament(4).tournament.id == 4);
     }

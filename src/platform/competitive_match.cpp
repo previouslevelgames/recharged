@@ -495,14 +495,27 @@ extern "C" __attribute__((visibility("default"))) void charged_configure_display
 // whose win of this game ends the tournament: this player's, the opponent's.
 int sTournamentTrophy = -1;
 bool sTrophyIfOwnWins = false, sTrophyIfOpponentWins = false;
+// The ceremony's texts: its title, and who won (this player, the opponent).
+unsigned short sTrophyTitle[128] = {}, sTrophyOwnText[128] = {}, sTrophyOpponentText[128] = {};
 
-extern "C" __attribute__((visibility("default"))) void charged_configure_tournament_trophy(int persona, bool own_wins,
-                                                                                          bool opponent_wins)
+void CopyTrophyText(unsigned short (&to)[128], const unsigned short* from)
+{
+    std::size_t at = 0;
+    for (; from && from[at] && at + 1 < std::size(to); ++at) to[at] = from[at];
+    to[at] = 0;
+}
+
+extern "C" __attribute__((visibility("default"))) void charged_configure_tournament_trophy(
+    int persona, bool own_wins, bool opponent_wins, const unsigned short* title, const unsigned short* own_text,
+    const unsigned short* opponent_text)
 {
     const bool any = persona >= 0 && persona < 10 && (own_wins || opponent_wins);
     sTournamentTrophy = any ? persona : -1;
     sTrophyIfOwnWins = any && own_wins;
     sTrophyIfOpponentWins = any && opponent_wins;
+    CopyTrophyText(sTrophyTitle, any ? title : nullptr);
+    CopyTrophyText(sTrophyOwnText, any ? own_text : nullptr);
+    CopyTrophyText(sTrophyOpponentText, any ? opponent_text : nullptr);
 }
 
 #if defined(MSCHARGED_TWEAKS)
@@ -518,6 +531,15 @@ int mscharged_tweak_tournament_trophy(int winner_side)
 }
 
 int mscharged_tweak_tournament_trophy_template(void) { return sTournamentTrophy; }
+
+bool mscharged_tweak_tournament_trophy_texts(int winner_side, const unsigned short** title,
+                                             const unsigned short** description)
+{
+    if (mscharged_tweak_tournament_trophy(winner_side) < 0 || !title || !description || !sTrophyTitle[0]) return false;
+    *title = sTrophyTitle;
+    *description = winner_side == LocalSide() ? sTrophyOwnText : sTrophyOpponentText;
+    return true;
+}
 #endif
 
 // Host entry, between frames: the set is over (or failed) and the host has

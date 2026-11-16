@@ -231,6 +231,12 @@ ProfileMatch ParseMatch(const JsonValue& value)
         match.tournament.name = tournament["name"].Text();
         match.tournament.side = tournament["side"].Text();
         match.tournament.round = int(tournament["round"].Integer().value_or(0));
+        match.tournament.games = int(tournament["games"].Integer().value_or(0));
+        match.tournament.won = int(tournament["won"].Integer().value_or(0));
+        match.tournament.lost = int(tournament["lost"].Integer().value_or(0));
+        match.tournament.state = tournament["state"].Text();
+        match.tournament.winner = tournament["winner"].Text();
+        match.tournament.home = tournament["home"].Text();
     }
     return match;
 }

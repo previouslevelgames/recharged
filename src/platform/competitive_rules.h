@@ -100,8 +100,12 @@ typedef void (*ChargedConfigureDisplayNamesFunction)(const unsigned short* own, 
 // Game module entry, between frames: the tournament trophy (a cup persona,
 // 0 to 9; -1 none) whose ceremony ends this set's game when its win ends the
 // tournament: this player's win (own_wins), the opponent's (opponent_wins)
-// (tweak patch 0076). Both false or -1: the usual end.
-typedef void (*ChargedConfigureTournamentTrophyFunction)(int persona, bool own_wins, bool opponent_wins);
+// (tweak patch 0076). Both false or -1: the usual end. The ceremony's panel
+// says `title` (UTF-16, null-terminated, at most 127 units kept) over
+// `own_text` or `opponent_text`, by who won (null: the game's own texts).
+typedef void (*ChargedConfigureTournamentTrophyFunction)(int persona, bool own_wins, bool opponent_wins,
+                                                         const unsigned short* title, const unsigned short* own_text,
+                                                         const unsigned short* opponent_text);
 // Game module entry ([advanced] log_level = debug): DWC's reports of the WFC
 // login, matchmaking and NAT negotiation go to the game's output (the log).
 typedef void (*ChargedConfigureDwcReportFunction)(bool on);

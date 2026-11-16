@@ -373,7 +373,9 @@
       "losers_round": "Losers Round {{round}}",
       "losers_final": "Losers Final",
       "grand_final": "Grand Final",
-      "grand_final_reset": "Grand Final Reset"
+      "grand_final_reset": "Grand Final Reset",
+      "ceremony_title": "{{tournament}} won!",
+      "ceremony_winner": "{{name}} wins the tournament!"
     }
   },
   "bracket": {
@@ -459,7 +461,12 @@
     "won": "You won the set",
     "lost": "You lost the set",
     "draw": "The set is a draw",
-    "against": "Against {{name}}"
+    "against": "Against {{name}}",
+    "tournament_game_won": "You won game {{game}}",
+    "tournament_game_lost": "You lost game {{game}}",
+    "tournament_game_draw": "Game {{game}} was a draw: it is played again",
+    "tournament_set_goes_on": "{{tournament}}: {{won}} - {{lost}} in the set. The next game starts from the trophy room.",
+    "tournament_set_over": "{{tournament}}: the set ended {{won}} - {{lost}}."
   },
   "presence": {
     "online": "Online",

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace mscharged::runtime
@@ -210,15 +211,63 @@ ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& f
     }
     return model;
 }
+namespace
+{
+// The player's set played by match `match` (the page asked after it was made).
+const platform::TournamentSet* SetOfMatch(const platform::TournamentPage& page, std::int64_t match)
+{
+    if (!page.me || !match) return nullptr;
+    const std::int64_t you = page.me->player;
+    for (const auto& candidate : page.sets)
+        if (candidate.match == match && (candidate.home == you || candidate.away == you)) return &candidate;
+    return nullptr;
+}
+
+// UTF-8 as the game's panel shows it: the basic plane, at most 127 units
+// (characters past it and invalid bytes left out).
+std::u16string PanelText(std::string_view text)
+{
+    std::u16string shown;
+    for (std::size_t n = 0; n < text.size() && shown.size() < 127;)
+    {
+        const auto lead = static_cast<unsigned char>(text[n]);
+        const std::size_t length = lead < 0x80 ? 1 : (lead & 0xE0) == 0xC0 ? 2 : (lead & 0xF0) == 0xE0 ? 3
+                                 : (lead & 0xF8) == 0xF0                   ? 4
+                                                                           : 1;
+        char32_t c = length == 1 ? lead : lead & (0x7F >> length);
+        bool valid = (length == 1 && lead < 0x80) || length > 1;
+        for (std::size_t k = 1; k < length && valid; ++k)
+        {
+            const auto next = n + k < text.size() ? static_cast<unsigned char>(text[n + k]) : 0;
+            valid = (next & 0xC0) == 0x80;
+            c = (c << 6) | (next & 0x3F);
+        }
+        n += length;
+        if (valid && c >= 0x20 && c <= 0xFFFF && !(c >= 0xD800 && c < 0xE000)) shown += char16_t(c);
+    }
+    return shown;
+}
+} // namespace
+
+TournamentCeremony TournamentCeremonyOf(const platform::TournamentPage& page, std::int64_t match)
+{
+    TournamentCeremony ceremony;
+    const auto* set = SetOfMatch(page, match);
+    if (!set) return ceremony;
+    const std::int64_t you = page.me->player;
+    const std::int64_t opponent = set->home == you ? set->away : set->home;
+    ceremony.title = PanelText(T("menus.tournament.server.ceremony_title", {{"tournament", page.tournament.name}}));
+    ceremony.own = PanelText(T("menus.tournament.server.ceremony_winner", {{"name", NameOf(page, you)}}));
+    ceremony.opponent = PanelText(T("menus.tournament.server.ceremony_winner", {{"name", NameOf(page, opponent)}}));
+    return ceremony;
+}
+
 TournamentEnding TournamentEndingOf(const platform::TournamentPage& page, std::int64_t match)
 {
     TournamentEnding ending;
-    if (!page.me || !match) return ending;
-    const std::int64_t you = page.me->player;
-    const platform::TournamentSet* set = nullptr;
-    for (const auto& candidate : page.sets)
-        if (candidate.match == match && (candidate.home == you || candidate.away == you)) set = &candidate;
+    const platform::TournamentSet* set = SetOfMatch(page, match);
     if (!set || set->games <= 0) return ending;
+    const std::int64_t you = page.me->player;
     const bool home = set->home == you;
     // The set ends the tournament when the player in its home place (true)
     // or away place wins it.

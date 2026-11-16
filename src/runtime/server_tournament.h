@@ -3,6 +3,9 @@
 #include "platform/tournament_feed.h"
 #include "ui/rui_pages.h"
 
+#include <cstdint>
+#include <string>
+
 namespace mscharged::runtime
 {
 // The TOURNAMENT page's model from the profile server's tournament (the
@@ -21,4 +24,12 @@ struct TournamentEnding
     bool own = false, opponent = false;
 };
 TournamentEnding TournamentEndingOf(const platform::TournamentPage& page, std::int64_t match);
+
+// The ceremony's panel for that game (UTF-16 of the basic plane, at most 127
+// units each): its title, and who won, this player or the opponent.
+struct TournamentCeremony
+{
+    std::u16string title, own, opponent;
+};
+TournamentCeremony TournamentCeremonyOf(const platform::TournamentPage& page, std::int64_t match);
 } // namespace mscharged::runtime

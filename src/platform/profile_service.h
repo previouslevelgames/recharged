@@ -287,6 +287,11 @@ struct MatchTournament
     std::string name;
     std::string side; // winners, losers, grand_final or grand_final_reset
     int round = 0;
+    int games = 0;          // the set's best of
+    int won = 0, lost = 0;  // the set's games won so far: the player's, the opponent's
+    std::string state;      // the set's (TournamentSet::state)
+    std::string winner;     // the set's once finished: "you" or "opponent"
+    std::string home;       // who is at home in the set's next game: "you" or "opponent"
 };
 
 struct ProfileMatch

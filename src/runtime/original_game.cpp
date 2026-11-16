@@ -3335,13 +3335,20 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     if(match!=tournamentFeed->ReadyMatch())return false;
                     mscharged::platform::SessionLogLine("Tournament: set's match "+std::to_string(match)
                         +" goes on from the trophy room");
+                    const auto latest=tournamentFeed->Latest();
                     if(configureTrophy) {
-                        const auto latest=tournamentFeed->Latest();
                         const auto ending=latest.page
                             ? mscharged::runtime::TournamentEndingOf(*latest.page,match)
                             : mscharged::runtime::TournamentEnding{};
+                        const auto ceremony=latest.page
+                            ? mscharged::runtime::TournamentCeremonyOf(*latest.page,match)
+                            : mscharged::runtime::TournamentCeremony{};
+                        const auto units=[](const std::u16string& text) {
+                            return reinterpret_cast<const unsigned short*>(text.c_str());
+                        };
                         configureTrophy(ending.own || ending.opponent ? mscharged::runtime::kTournamentTrophy : -1,
-                            ending.own,ending.opponent);
+                            ending.own,ending.opponent,units(ceremony.title),units(ceremony.own),
+                            units(ceremony.opponent));
                         if(ending.own || ending.opponent)
                             mscharged::platform::SessionLogLine(std::string("Tournament: this game can end the"
                                 " tournament (with the trophy's ceremony) if ")+(ending.own && ending.opponent ? "either"
@@ -3354,7 +3361,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     if(match!=tournamentFeed->ReadyMatch())return false;
                     mscharged::platform::SessionLogLine("Tournament: set's match "+std::to_string(match)
                         +(over ? " is over" : " ended without its series"));
-                    if(configureTrophy) configureTrophy(-1,false,false);
+                    if(configureTrophy) configureTrophy(-1,false,false,nullptr,nullptr,nullptr);
                     hostMenus->TournamentSetDone(over);
                     return true;
                 };

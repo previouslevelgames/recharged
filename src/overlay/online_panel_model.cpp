@@ -321,6 +321,29 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
             set.status = T("menus.sets.results_differ_about");
             set.tone = Tone::Bad;
         }
+        else if (const auto& tournament = match.tournament; tournament.id != 0)
+        {
+            // A tournament set's game (one match each): the set goes on from
+            // the trophy room until it has its winner.
+            const std::string won = std::to_string(tournament.won), lost = std::to_string(tournament.lost);
+            if (tournament.state == "finished")
+            {
+                set.title = tournament.winner == "you" ? T("menus.sets.won") : T("menus.sets.lost");
+                set.status = T("menus.sets.tournament_set_over", {{"tournament", tournament.name}, {"won", won}, {"lost", lost}});
+            }
+            else
+            {
+                const bool draw = match.winner != "you" && match.winner != "opponent";
+                const std::string game = std::to_string(tournament.won + tournament.lost + (draw ? 1 : 0));
+                set.title = match.winner == "you"    ? T("menus.sets.tournament_game_won", {{"game", game}})
+                    : match.winner == "opponent"     ? T("menus.sets.tournament_game_lost", {{"game", game}})
+                                                     : T("menus.sets.tournament_game_draw", {{"game", game}});
+                set.status = T("menus.sets.tournament_set_goes_on",
+                               {{"tournament", tournament.name}, {"won", won}, {"lost", lost}});
+            }
+            set.tone = match.winner == "you" ? Tone::Good : match.winner == "opponent" ? Tone::Bad : Tone::Neutral;
+            return set;
+        }
         else
         {
             set.title = match.winner == "you" ? T("menus.sets.won")
