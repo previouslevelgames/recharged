@@ -40,7 +40,8 @@ enum class PageId
     Prompt,      // a question over everything: a challenge, a set's end
     Match,       // an online match's menu (the game's pause; nothing pauses): CONTINUE, FORFEIT
     Forfeit,     // forfeit the online match? (then: on the way out)
-    Tournament,  // over the trophy room: the tournament, the player's next set, READY and BRACKET
+    Tournaments, // over the trophy room: the newest tournament (or the player's) and the others, to open
+    Tournament,  // over the trophy room: the tournament (key: its id, empty for the player's), the next set, READY and BRACKET
     Bracket,     // the tournament's bracket (the player's pool)
 };
 
@@ -80,6 +81,25 @@ struct TournamentModel
     std::vector<BracketSet> bracket;
 };
 
+// The tournaments over the trophy room (TOURNAMENTS): one in a big card (the
+// player's own, else the newest), the others still open or running, and the
+// last that ended; each opens its page (TOURNAMENT, key: `key`).
+struct TournamentEntry
+{
+    std::string key;    // its id
+    std::string name;
+    std::string kicker; // its state ("OPEN FOR ENTRIES")
+    std::string value;  // a short fact in its row ("3 of 8", "2nd")
+    std::vector<std::string> lines; // the big card's
+    Tone tone = Tone::Neutral;
+};
+struct TournamentListModel
+{
+    std::string note; // loading, the server failing, none
+    std::optional<TournamentEntry> featured;
+    std::vector<TournamentEntry> others, past;
+};
+
 // The game's own options, as its save holds them.
 struct GameValues
 {
@@ -101,6 +121,7 @@ struct PageModel
     // the trophy room (from the globe it goes through WII ONLINE first).
     bool online_menu = false;
     TournamentModel tournament;
+    TournamentListModel tournaments;
     // A match against another machine runs: the game's own options stay as
     // they are (changing them would change the game on one machine only).
     bool network_match = false;

@@ -9,7 +9,9 @@
 #include "platform/competitive_rules.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -865,6 +867,39 @@ void DrawForfeit(const PageModel& model, List& list, PageActions& actions)
     if (list.Plate(T("menus.common.cancel"))) actions.back = true;
 }
 
+// TOURNAMENTS, over the trophy room: the big card (the player's own or the
+// newest) with its way in, then the others and the last that ended, each a
+// row that opens its page (the footer's BACK leaves the room).
+void DrawTournaments(const PageModel& model, List& list, PageActions& actions)
+{
+    const auto& tournaments = model.tournaments;
+    const auto open = [&](const TournamentEntry& entry) {
+        actions.open = PageId::Tournament;
+        actions.open_key = entry.key;
+    };
+    if (!tournaments.note.empty()) list.Note(tournaments.note.c_str());
+    if (const auto& featured = tournaments.featured)
+    {
+        std::string initials;
+        for (const char c : featured->name)
+            if (std::isalnum(static_cast<unsigned char>(c)) && initials.size() < 2)
+                initials += char(std::toupper(static_cast<unsigned char>(c)));
+        const Person picture = PersonOf(model, std::string{}, initials.empty() ? "?" : initials,
+                                        std::int64_t(std::hash<std::string>{}(featured->key) & 0x7FFFFFFF), -1,
+                                        std::string{});
+        list.Card(&picture, featured->kicker.c_str(), featured->name.c_str(), featured->lines, featured->tone);
+        if (list.Plate(T("menus.tournaments.open"))) open(*featured);
+    }
+    const auto rows = [&](const char* caption, const std::vector<TournamentEntry>& entries) {
+        if (entries.empty()) return;
+        list.Caption(caption);
+        for (const auto& entry : entries)
+            if (list.Row(entry.name.c_str(), entry.value.c_str(), entry.kicker.c_str())) open(entry);
+    };
+    rows(T("menus.tournaments.others"), tournaments.others);
+    rows(T("menus.tournaments.past"), tournaments.past);
+}
+
 // TOURNAMENT, over the trophy room: the player's next set, READY, BRACKET
 // (the footer's BACK leaves the room).
 void DrawTournament(const PageModel& model, List& list, PageActions& actions)
@@ -944,6 +979,7 @@ std::string PageTitle(PageId id, const std::string& key, const PageModel& model)
         return T("menus.prompt.title");
     case PageId::Match: return T("menus.match.title");
     case PageId::Forfeit: return T("menus.forfeit.title");
+    case PageId::Tournaments: return T("menus.tournaments.title");
     case PageId::Tournament: return T("menus.tournament.title");
     case PageId::Bracket: return T("menus.bracket.title");
     }
@@ -1013,6 +1049,7 @@ void DrawPage(PageId id, int category, const std::string& key, const PageModel& 
     case PageId::Ranked: DrawRanked(model, list, actions); break;
     case PageId::Leaderboard: DrawLeaderboard(category, model, list); break;
     case PageId::Prompt: DrawPrompt(model, list, actions); break;
+    case PageId::Tournaments: DrawTournaments(model, list, actions); break;
     case PageId::Tournament: DrawTournament(model, list, actions); break;
     case PageId::Bracket: DrawBracket(model, list); break;
     case PageId::Match: DrawMatch(list, actions); break;
