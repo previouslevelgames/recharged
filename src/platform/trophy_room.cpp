@@ -254,4 +254,13 @@ bool mscharged_tweak_trophy_room_to_game(void)
     Log("the set's match goes in from the trophy");
     return true;
 }
+
+// Tweak patch 0075: a set's search from the room goes back to the online
+// menu, whose room is still there (not to the RANKED screen, out of it).
+int mscharged_tweak_search_back_scene(int scene)
+{
+    if (sState != CHARGED_TROPHY_ROOM_IN || !ChargedCompetitiveWalking()) return scene;
+    Log("the set's search goes back to the room");
+    return SCENE_ONLINE_MENU;
+}
 #endif
