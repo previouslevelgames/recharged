@@ -65,6 +65,10 @@ bool sTrophyLoaded = false;
 bool sDiscardLoad = false;
 // The set's search going back to the room is logged once a set.
 bool sSearchBackSaid = false;
+// The set's search screen goes back to the room (tweak patch 0075): it
+// stays in the online menu's place a moment after the set ended (it leaves
+// at its next update, tweak patch 0058).
+bool sSearchFromRoom = false;
 
 void OnCameraArrived(eCameraMessage) { sCameraArrived = true; }
 
@@ -180,6 +184,9 @@ void ChargedTrophyRoomLeave()
 void ChargedTrophyRoomFrame()
 {
     if (!ChargedCompetitiveWalking()) sSearchBackSaid = false;
+    if (GameSceneManager* manager = GameSceneManager::Instance();
+        !ChargedCompetitiveWalking() && (!manager || !manager->IsOnStack(SCENE_ONLINE_MATCHMAKING_DRAFT)))
+        sSearchFromRoom = false;
     if (sDiscardLoad && IsTournamentTrophyLoaded()) {
         for (StadiumLoadResult& result : gTournamentTrophyLoadResults) {
             nlFree(result.mData);
@@ -205,8 +212,9 @@ void ChargedTrophyRoomFrame()
     // and the hidden cup trophies are put right here. A popup over it is
     // fine, and so is a set's walk: its RANKED search takes the online
     // menu's place (tweak patch 0056) and is played from the room, until the
-    // set ends (back in the online menu after a search left).
-    if (!manager->IsOnStack(SCENE_ONLINE_MENU) && !ChargedCompetitiveWalking()) {
+    // set ends (back in the online menu after a search left, also the
+    // search of a set called off meanwhile).
+    if (!manager->IsOnStack(SCENE_ONLINE_MENU) && !ChargedCompetitiveWalking() && !sSearchFromRoom) {
         if (NetTournManager* tournament = NetTournManager::Instance()) tournament->DestroyTournamentTrophy();
         sDiscardLoad = sState == CHARGED_TROPHY_ROOM_ENTERING && !sTrophyLoaded;
         SetCupTrophiesVisible(true);
@@ -266,6 +274,7 @@ int mscharged_tweak_search_back_scene(int scene)
     // (The search's screen asks on each of its makings: said once a set.)
     if (!sSearchBackSaid) Log("the set's search goes back to the room");
     sSearchBackSaid = true;
+    sSearchFromRoom = true;
     return SCENE_ONLINE_MENU;
 }
 #endif

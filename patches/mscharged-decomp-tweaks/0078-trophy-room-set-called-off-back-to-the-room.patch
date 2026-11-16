@@ -1,0 +1,29 @@
+From: mscharged-port
+Subject: Recharged's trophy room: a set called off during its search goes back to the room
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A set's search that the set's end leaves (0058) goes out of the online
+menus, as the online menu's LOG OUT does (0063): the player has to log in
+again. A set searched from Recharged's trophy room (0075: its way back is
+the online menu) now goes back to the online menu instead, as the search's
+Back does there, whose room is still there; its page comes again.
+
+diff --git a/src/Game/SH/SHOnlineMatchmakingDraft.cpp b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
+index 91aa4c6..e045810 100644
+--- a/src/Game/SH/SHOnlineMatchmakingDraft.cpp
++++ b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
+@@ -420,6 +420,14 @@ void SHOnlineMatchmakingDraft::Update(float fDeltaT)
+     {
+         CancelOnlineMatchmaking();
+         FEAudio::StopAnimAudioEvent(0x89B1FC93, (void*)0x2A);
++        // A set's search from Recharged's trophy room (tweak patch 0075):
++        // back to the online menu, whose room is still there, as its Back.
++        if (mReturnScene == SCENE_ONLINE_MENU)
++        {
++            GameSceneManager::Instance()->Push(SCENE_ONLINE_MENU, SCREEN_BACK, true);
++            FEMusic::StartStreamIfDifferent(8);
++            return;
++        }
+         GameSceneManager::Instance()->Pop();
+         FEAudio::PlayAnimAudioEvent(0x4430B152, 0, 0, true);
+         FrontEndPresentation::GetInstance()->Call("TransitionOnlineMatchToMainMenu");
