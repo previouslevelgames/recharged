@@ -3203,6 +3203,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // which feed answer.
         std::string tournamentCallKey;
         std::uint64_t tournamentCalled=0;
+        // The opponent's READY that came while the player was busy (its key):
+        // asked again once they are free.
+        std::string tournamentCallHeld;
         // The trophy room showed at the last look (READY holds only there).
         bool tournamentInRoom=false;
         if(!startggFeed) {
@@ -3307,16 +3310,20 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open,const std::string& shown) {
                     // The player's set is ready, or the opponent READY: said
                     // once, with the challenge's chime (not during a set's
-                    // game or its way there).
-                    if(const auto version=tournamentFeed->Version(); version!=tournamentCalled) {
+                    // game or its way there: a set ready then goes unsaid,
+                    // the opponent's READY waits until the player is free).
+                    const bool busy=competitive && (competitive->InMatch() || competitive->CurrentSet());
+                    if(const auto version=tournamentFeed->Version(); version!=tournamentCalled
+                       || (!tournamentCallHeld.empty() && !busy)) {
                         tournamentCalled=version;
                         const auto call=mscharged::runtime::TournamentCallOf(tournamentFeed->Latest());
+                        using Kind=mscharged::runtime::TournamentCall::Kind;
+                        const bool held=busy && call.kind==Kind::OpponentReady;
+                        tournamentCallHeld=held ? call.key : std::string();
                         // (Another tournament on the pages says nothing: the
                         // last moment told stays.)
-                        if(!call.key.empty() && call.key!=tournamentCallKey) {
+                        if(!call.key.empty() && call.key!=tournamentCallKey && !held) {
                             tournamentCallKey=call.key;
-                            using Kind=mscharged::runtime::TournamentCall::Kind;
-                            const bool busy=competitive && (competitive->InMatch() || competitive->CurrentSet());
                             if(call.kind!=Kind::None && !busy) {
                                 mscharged::platform::SessionLogLine(std::string("Tournament: ")
                                     +(call.kind==Kind::SetReady ? "the set against " : "READY from ")+call.opponent
