@@ -127,6 +127,7 @@ struct PageModel
     bool network_match = false;
     bool forfeiting = false; // the player forfeited it: on the way out
     bool set_match = false;  // the online match is a set's (a forfeit gives the set up)
+    bool tournament_match = false; // a tournament set's game (a forfeit gives that game up)
     // A picture's texture (a player's Mii: "mii:own", "miidata:<record>"), 0
     // for none; the host's, for this frame.
     const std::function<ImTextureID(const std::string&)>* image = nullptr;

@@ -862,7 +862,9 @@ void DrawForfeit(const PageModel& model, List& list, PageActions& actions)
         list.Note(T("menus.forfeit.leaving"));
         return;
     }
-    list.Note(model.set_match ? T("menus.forfeit.set_note") : T("menus.forfeit.match_note"));
+    list.Note(model.tournament_match ? T("menus.forfeit.tournament_note")
+              : model.set_match      ? T("menus.forfeit.set_note")
+                                     : T("menus.forfeit.match_note"));
     if (list.Plate(T("menus.forfeit.forfeit"))) actions.forfeit = true;
     if (list.Plate(T("menus.common.cancel"))) actions.back = true;
 }

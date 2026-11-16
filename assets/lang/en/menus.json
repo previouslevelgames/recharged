@@ -406,6 +406,7 @@
     "leaving": "Leaving the match...",
     "match_note": "The match ends for both of you and counts as a loss for you.",
     "set_note": "The set ends for both of you: you lose it, whatever the score.",
+    "tournament_note": "You lose this game, whatever the score; the set goes on from the trophy room.",
     "forfeit": "FORFEIT"
   },
   "prompt": {

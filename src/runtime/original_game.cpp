@@ -1919,6 +1919,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // there its page comes again (set once the menus exist).
         std::function<bool(std::int64_t match)> tournamentSetStarts;
         std::function<bool(std::int64_t match,bool over)> tournamentSetEnds;
+        // The set on its way is a tournament's (one game a match): its
+        // forfeit gives that game up.
+        bool tournamentSetOn=false;
         auto holdButtons = [&] { mscharged::platform::SetNativeWpadHold(walkHold); };
         std::optional<mscharged::platform::AlertSound> challengeSound;
         // [online] challenge_sound: the chime at the master volume (not muted),
@@ -3251,6 +3254,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 buildOverlayModel(model.overlay,needs.leaderboard,needs.online,needs.settings,needs.stats);
                 if(menuSamples.online) SampleOnline(model.overlay);
                 model.set_match=competitive && competitive->CurrentSet().has_value();
+                model.tournament_match=model.set_match && tournamentSetOn;
             };
             menusHost.image=overlayImage;
             // start.gg is asked only while the page is in the stack; the model
@@ -3408,6 +3412,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                                 : ending.own ? "this player" : "the opponent")+" wins it");
                     }
                     hostMenus->TournamentSetStarts();
+                    tournamentSetOn=true;
                     return true;
                 };
                 tournamentSetEnds=[&](std::int64_t match,bool over) {
@@ -3416,6 +3421,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         +(over ? " is over" : " ended without its series"));
                     if(configureTrophy) configureTrophy(-1,false,false,nullptr,nullptr,nullptr);
                     if(configureSetSide) configureSetSide(-1);
+                    tournamentSetOn=false;
                     hostMenus->TournamentSetDone(over);
                     return true;
                 };
