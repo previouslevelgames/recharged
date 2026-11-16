@@ -318,6 +318,15 @@ void HostMenus::ServiceTournament(Clock::time_point now)
             platform::SessionLogLine("Menus: TOURNAMENT back in the trophy room after the set");
             tournamentOwn_ = true;
             Tournament(TournamentWay::Room);
+        } else if (menu_.main_menu && tournament_ == TournamentWay::None && pages_.empty() && !prompt_) {
+            // The game left the online menus with the match (a forfeit's
+            // lost connection): in again through WII ONLINE, as TOURNAMENT
+            // from the main menu goes.
+            tournamentReturn_.reset();
+            platform::SessionLogLine("Menus: TOURNAMENT back in the trophy room after the set, through WII ONLINE");
+            tournamentOwn_ = true;
+            Command(CHARGED_MENU_WII_ONLINE);
+            Tournament(TournamentWay::Login);
         }
     }
     // Back in the room from a set READY started (its search left): the page
