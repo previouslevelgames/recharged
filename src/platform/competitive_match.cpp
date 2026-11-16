@@ -490,6 +490,36 @@ extern "C" __attribute__((visibility("default"))) void charged_configure_display
     for (NameRoom& room : sRooms) room = NameRoom{};
 }
 
+// The tournament trophy of a set that may end the tournament
+// (charged_configure_tournament_trophy): its cup persona, -1 for none, and
+// whose win of this game ends the tournament: this player's, the opponent's.
+int sTournamentTrophy = -1;
+bool sTrophyIfOwnWins = false, sTrophyIfOpponentWins = false;
+
+extern "C" __attribute__((visibility("default"))) void charged_configure_tournament_trophy(int persona, bool own_wins,
+                                                                                          bool opponent_wins)
+{
+    const bool any = persona >= 0 && persona < 10 && (own_wins || opponent_wins);
+    sTournamentTrophy = any ? persona : -1;
+    sTrophyIfOwnWins = any && own_wins;
+    sTrophyIfOpponentWins = any && opponent_wins;
+}
+
+#if defined(MSCHARGED_TWEAKS)
+// Tweak patch 0076: the game that ends a tournament ends with its trophy's
+// ceremony, for the side whose win does it.
+int mscharged_tweak_tournament_trophy(int winner_side)
+{
+    if (sTournamentTrophy < 0 || (winner_side != 0 && winner_side != 1)) return -1;
+    const short side = LocalSide();
+    if (side < 0) return -1;
+    const bool own = winner_side == side;
+    return (own ? sTrophyIfOwnWins : sTrophyIfOpponentWins) ? sTournamentTrophy : -1;
+}
+
+int mscharged_tweak_tournament_trophy_template(void) { return sTournamentTrophy; }
+#endif
+
 // Host entry, between frames: the set is over (or failed) and the host has
 // done with it; the game is no set's any more, and its popups and menus are
 // the player's again.

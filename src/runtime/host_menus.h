@@ -14,6 +14,10 @@
 #include <vector>
 
 namespace mscharged::runtime {
+// The trophy TOURNAMENT shows (eCupPersona: the Next Level Games cup's), and
+// whose ceremony ends a tournament's last game.
+inline constexpr int kTournamentTrophy = 5;
+
 
 // Recharged's menus in the look of the game's (the UI kit, src/ui): one TV
 // set over the game, with a stack of pages in it.

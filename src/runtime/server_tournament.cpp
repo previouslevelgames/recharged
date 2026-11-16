@@ -210,4 +210,30 @@ ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& f
     }
     return model;
 }
+TournamentEnding TournamentEndingOf(const platform::TournamentPage& page, std::int64_t match)
+{
+    TournamentEnding ending;
+    if (!page.me || !match) return ending;
+    const std::int64_t you = page.me->player;
+    const platform::TournamentSet* set = nullptr;
+    for (const auto& candidate : page.sets)
+        if (candidate.match == match && (candidate.home == you || candidate.away == you)) set = &candidate;
+    if (!set || set->games <= 0) return ending;
+    const bool home = set->home == you;
+    // The set ends the tournament when the player in its home place (true)
+    // or away place wins it.
+    const auto ends = [&](bool home_wins) {
+        if (set->side == "grand_final_reset") return true;
+        if (set->side == "grand_final") return home_wins; // home: from the winners' bracket
+        return page.tournament.format == "single" && set->side == "winners"
+            && set->round == LastRound(page, "winners");
+    };
+    const int needed = set->games / 2 + 1;
+    const int home_wins = std::max(set->home_wins, 0), away_wins = std::max(set->away_wins, 0);
+    const bool home_takes = home_wins + 1 >= needed && ends(true);
+    const bool away_takes = away_wins + 1 >= needed && ends(false);
+    ending.own = home ? home_takes : away_takes;
+    ending.opponent = home ? away_takes : home_takes;
+    return ending;
+}
 } // namespace mscharged::runtime

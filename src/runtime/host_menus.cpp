@@ -93,8 +93,6 @@ bool OnlinePage(ui::PageId id)
     default: return false;
     }
 }
-// The trophy TOURNAMENT shows (eCupPersona: the Next Level Games cup's).
-constexpr int kTournamentTrophy = 5;
 // How long the game may take to leave its main menu for WII ONLINE, and to
 // take the trophy room's command, before TOURNAMENT gives up.
 constexpr auto kTournamentGiveUp = std::chrono::seconds(3);

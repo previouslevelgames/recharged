@@ -1870,6 +1870,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto configureNames=reinterpret_cast<ChargedConfigureDisplayNamesFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_display_names"));
         std::optional<std::pair<std::u16string,std::u16string>> namesGiven;
+        // A tournament's last game ends with its trophy's ceremony (tweak
+        // patch 0076), given for each game of a set that may end it.
+        auto configureTrophy=reinterpret_cast<ChargedConfigureTournamentTrophyFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tournament_trophy"));
         // At debug level DWC's own reports of the WFC login, matchmaking and
         // NAT negotiation, which the game switches off, go to the log.
         if(launch.settings.log_level=="debug")
@@ -3331,6 +3335,18 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     if(match!=tournamentFeed->ReadyMatch())return false;
                     mscharged::platform::SessionLogLine("Tournament: set's match "+std::to_string(match)
                         +" goes on from the trophy room");
+                    if(configureTrophy) {
+                        const auto latest=tournamentFeed->Latest();
+                        const auto ending=latest.page
+                            ? mscharged::runtime::TournamentEndingOf(*latest.page,match)
+                            : mscharged::runtime::TournamentEnding{};
+                        configureTrophy(ending.own || ending.opponent ? mscharged::runtime::kTournamentTrophy : -1,
+                            ending.own,ending.opponent);
+                        if(ending.own || ending.opponent)
+                            mscharged::platform::SessionLogLine(std::string("Tournament: this game can end the"
+                                " tournament (with the trophy's ceremony) if ")+(ending.own && ending.opponent ? "either"
+                                : ending.own ? "this player" : "the opponent")+" wins it");
+                    }
                     hostMenus->TournamentSetStarts();
                     return true;
                 };
@@ -3338,6 +3354,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     if(match!=tournamentFeed->ReadyMatch())return false;
                     mscharged::platform::SessionLogLine("Tournament: set's match "+std::to_string(match)
                         +(over ? " is over" : " ended without its series"));
+                    if(configureTrophy) configureTrophy(-1,false,false);
                     hostMenus->TournamentSetDone(over);
                     return true;
                 };

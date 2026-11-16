@@ -97,6 +97,11 @@ typedef void (*ChargedStopRankedFunction)(void);
 // (UTF-16, ScreenName) for its RANKED screens, this player's and the
 // opponent's (null or empty: the Mii name stays); both null: none.
 typedef void (*ChargedConfigureDisplayNamesFunction)(const unsigned short* own, const unsigned short* opponent);
+// Game module entry, between frames: the tournament trophy (a cup persona,
+// 0 to 9; -1 none) whose ceremony ends this set's game when its win ends the
+// tournament: this player's win (own_wins), the opponent's (opponent_wins)
+// (tweak patch 0076). Both false or -1: the usual end.
+typedef void (*ChargedConfigureTournamentTrophyFunction)(int persona, bool own_wins, bool opponent_wins);
 // Game module entry ([advanced] log_level = debug): DWC's reports of the WFC
 // login, matchmaking and NAT negotiation go to the game's output (the log).
 typedef void (*ChargedConfigureDwcReportFunction)(bool on);
