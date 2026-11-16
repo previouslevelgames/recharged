@@ -21,12 +21,15 @@ namespace mscharged::platform
 // that finished (none called off). Its index, none when there is none.
 std::optional<std::size_t> ChooseTournament(const std::vector<ProfileTournament>& tournaments);
 
-// The TOURNAMENT page's tournament from the profile server, asked on a
-// thread of its own so the game never waits: only while the page is open,
-// at once when it opens, then every poll interval the server gives. The
-// player's actions (join, leave, READY) go on the same thread, then the page
-// is asked again. The session is read from its file at each round, so a
-// sign-in while the game runs counts.
+// The tournaments from the profile server, asked on a thread of its own so
+// the game never waits: while the pages are open at once and then every
+// poll interval the server gives, the tournament they show (Show, else the
+// feed's choice); while they are closed, more seldom (kWatchSeconds while
+// the player is in a tournament, else kIdleSeconds), the player's own, so
+// the game can say when their set is ready. The player's actions (join,
+// leave, READY) go on the same thread, then the page is asked again. The
+// session is read from its file at each round, so a sign-in while the game
+// runs counts.
 class TournamentFeed
 {
 public:
@@ -40,8 +43,13 @@ public:
     TournamentFeed(const TournamentFeed&) = delete;
     TournamentFeed& operator=(const TournamentFeed&) = delete;
 
-    // The page opened or closed: it asks only while open.
+    // The pages opened or closed (closed: the shown one is the feed's
+    // choice again).
     void SetOpen(bool open);
+    // The tournament the pages show, by id (0: the feed's choice); asked at
+    // once.
+    void Show(std::int64_t id);
+    static constexpr int kWatchSeconds = 20, kIdleSeconds = 60;
     // The player's actions on the shown tournament (and their set).
     void Join();
     void Leave();
@@ -81,6 +89,8 @@ private:
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     bool open_ = false, stop_ = false;
+    std::int64_t shown_ = 0;
+    bool shownChanged_ = false;
     Action pending_ = Action::None;
     Snapshot snapshot_;
     std::int64_t readyMatch_ = 0;

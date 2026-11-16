@@ -1010,6 +1010,13 @@ void TournamentFeedRounds()
         text.replace(text.find("MATCH"), 5, match);
         return text;
     };
+    const std::string two = R"({"tournaments":[{"id":4,"name":"Cup","format":"single","state":"running",)"
+                            R"("joined":true,"best_of":3,"finals_best_of":3,"entrants":2},{"id":5,"name":"Old",)"
+                            R"("format":"double","state":"finished","joined":true,"place":2,"best_of":3,)"
+                            R"("finals_best_of":3,"entrants":4}]})";
+    const std::string other = R"({"tournament":{"id":5,"name":"Old","format":"double","state":"finished",)"
+                              R"("best_of":3,"finals_best_of":3,"entrants":4},"entrants":[],"sets":[],)"
+                              R"("me":{"player":7,"entrant":true,"eligible":true,"place":2},"poll_interval":60})";
     const std::string match = R"({"id":12,"state":"accepted","stage":"open","you_ready":true,)"
                               R"("opponent_ready":false,"opponent":{"id":8,"name":"Bowser"}})";
     const std::vector<Exchange> exchanges{
@@ -1019,6 +1026,9 @@ void TournamentFeedRounds()
         {"GET /api/v1/tournaments", 200, list},
         {"GET /api/v1/tournaments/4", 200, with(page, "playing", "12")},
         {"GET /api/v1/matches/current", 200, R"({"match":)" + match + R"(,"poll_interval":2})"},
+        // The pages show another tournament (Show).
+        {"GET /api/v1/tournaments", 200, two},
+        {"GET /api/v1/tournaments/5", 200, other},
     };
     const auto folder = std::filesystem::temp_directory_path()
         / ("recharged-feed-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -1043,6 +1053,10 @@ void TournamentFeedRounds()
         CHECK(!shown.busy && shown.action_error.empty() && shown.match && shown.match->id == 12
               && shown.match->you_ready && !shown.match->opponent_ready);
         CHECK(feed->ReadyMatch() == 12);
+        feed->Show(5);
+        shown = wait([](const TournamentFeed::Snapshot& s) { return s.page && s.page->tournament.id == 5; });
+        CHECK(shown.page && shown.page->tournament.id == 5 && shown.tournaments.size() == 2
+              && shown.tournaments[1].place == 2 && shown.tournaments[0].place == 0);
     }
     std::filesystem::remove_all(folder);
     CHECK(sent.size() == exchanges.size());

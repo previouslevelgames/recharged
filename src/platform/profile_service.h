@@ -349,6 +349,7 @@ struct ProfileTournament
     int max_entrants = 0; // 0: no limit
     int entrants = 0;
     bool joined = false; // in the list, with a session
+    int place = 0;       // the player's, from 1, once it ended (in the list, with a session)
     std::int64_t starts_at = 0, started_at = 0, ended_at = 0; // unix seconds, 0: none
 };
 

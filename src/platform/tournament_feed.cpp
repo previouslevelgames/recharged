@@ -1,5 +1,6 @@
 #include "platform/tournament_feed.h"
 
+#include <algorithm>
 #include <functional>
 #include <initializer_list>
 #include <utility>
@@ -64,6 +65,18 @@ void TournamentFeed::SetOpen(bool open)
         std::lock_guard lock(mutex_);
         if (open_ == open) return;
         open_ = open;
+        if (!open) shown_ = 0;
+    }
+    wake_.notify_all();
+}
+
+void TournamentFeed::Show(std::int64_t id)
+{
+    {
+        std::lock_guard lock(mutex_);
+        if (shown_ == id) return;
+        shown_ = id;
+        shownChanged_ = true;
     }
     wake_.notify_all();
 }
@@ -104,28 +117,38 @@ std::int64_t TournamentFeed::ReadyMatch() const
 
 void TournamentFeed::Run()
 {
-    Clock::time_point next{};
+    // The next round while the pages are open, and while they are closed
+    // (the first a moment after the game starts).
+    Clock::time_point next{}, watch = Clock::now() + std::chrono::seconds(5);
     std::unique_lock lock(mutex_);
     while (!stop_)
     {
-        if (pending_ == Action::None)
+        if (pending_ == Action::None && !shownChanged_)
         {
-            if (!open_)
+            const bool open = open_;
+            const auto due = open ? next : watch;
+            if (Clock::now() < due)
             {
-                wake_.wait(lock, [this] { return stop_ || open_ || pending_ != Action::None; });
-                continue;
-            }
-            if (Clock::now() < next)
-            {
-                wake_.wait_until(lock, next, [this] { return stop_ || !open_ || pending_ != Action::None; });
+                wake_.wait_until(lock, due, [this, open] {
+                    return stop_ || open_ != open || shownChanged_ || pending_ != Action::None;
+                });
                 continue;
             }
         }
         const Action action = std::exchange(pending_, Action::None);
+        shownChanged_ = false;
         lock.unlock();
         Round(action);
         lock.lock();
-        next = Clock::now() + std::chrono::seconds(pollSeconds_);
+        const auto now = Clock::now();
+        next = now + std::chrono::seconds(pollSeconds_);
+        // The player in a tournament open for entries or running: their set
+        // may come any time.
+        const bool watching = std::any_of(snapshot_.tournaments.begin(), snapshot_.tournaments.end(),
+                                          [](const ProfileTournament& t) {
+                                              return t.joined && (t.state == "running" || t.state == "registration");
+                                          });
+        watch = now + std::chrono::seconds(watching ? kWatchSeconds : kIdleSeconds);
     }
 }
 
@@ -184,7 +207,17 @@ void TournamentFeed::Round(Action action)
         }
         tournaments = api.Tournaments();
         listed = true;
-        if (const auto at = ChooseTournament(tournaments))
+        // The one the pages show, while they are open and it is listed; else
+        // the feed's choice.
+        std::optional<std::size_t> at;
+        {
+            std::lock_guard lock(mutex_);
+            if (open_ && shown_)
+                for (std::size_t n = 0; n < tournaments.size(); ++n)
+                    if (tournaments[n].id == shown_) at = n;
+        }
+        if (!at) at = ChooseTournament(tournaments);
+        if (at)
         {
             page = api.Tournament(tournaments[*at].id);
             pollSeconds_ = page->poll_interval;
