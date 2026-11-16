@@ -905,7 +905,7 @@ void Tournaments()
           R"("place":null}],"sets":[{"id":30,"index":0,"side":"winners","round":1,"position":0,"games":5,)"
           R"("state":"ready","home":7,"away":8,"winner":null,"decided_by":null,"home_wins":null,)"
           R"("from":[{"seed":0},{"seed":1}],)"
-          R"("away_wins":null,"match":null},{"id":31,"index":1,"side":"grand_final","round":1,"position":0,)"
+          R"("away_wins":null,"match":null,"game_home":8},{"id":31,"index":1,"side":"grand_final","round":1,"position":0,)"
           R"("games":5,"state":"pending","home":null,"away":null,"winner":null,"decided_by":null,)"
           R"("from":[{"winner":30},{"loser":30}],)"
           R"("home_wins":null,"away_wins":null,"match":null}],"me":{"player":7,"entrant":true,"eligible":true,)"
@@ -941,7 +941,8 @@ void Tournaments()
               && shown.entrants[0].place == 0);
         CHECK(shown.sets.size() == 2 && shown.sets[0].state == "ready" && shown.sets[0].home == 7
               && shown.sets[0].away == 8 && shown.sets[0].games == 5 && shown.sets[0].home_wins == -1
-              && shown.sets[0].match == 0 && shown.sets[1].home == 0 && shown.sets[1].side == "grand_final");
+              && shown.sets[0].match == 0 && shown.sets[1].home == 0 && shown.sets[1].side == "grand_final"
+              && shown.sets[0].game_home == 8 && shown.sets[1].game_home == 0);
         using Kind = TournamentFrom::Kind;
         CHECK(shown.sets[0].from[1].kind == Kind::Seed && shown.sets[0].from[1].value == 1
               && shown.sets[1].from[0].kind == Kind::Winner && shown.sets[1].from[1].kind == Kind::Loser

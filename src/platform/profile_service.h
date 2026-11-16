@@ -380,6 +380,10 @@ struct TournamentSet
     std::string decided_by; // match, organizer or walkover
     int home_wins = -1, away_wins = -1; // -1: no score
     std::int64_t match = 0;
+    // Who plays at home in its next game while ready or playing (0: none):
+    // the players take turns (the lower seed first), the game swaps its
+    // sides to follow.
+    std::int64_t game_home = 0;
     TournamentFrom from[2];
 };
 

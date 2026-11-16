@@ -32,4 +32,8 @@ struct TournamentCeremony
     std::u16string title, own, opponent;
 };
 TournamentCeremony TournamentCeremonyOf(const platform::TournamentPage& page, std::int64_t match);
+
+// This player's side in the game of match `match` by the set's turn (the
+// server's game_home): 0 home, 1 away, -1 none (the game's own sides).
+int TournamentSideOf(const platform::TournamentPage& page, std::int64_t match);
 } // namespace mscharged::runtime

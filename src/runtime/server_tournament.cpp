@@ -262,6 +262,14 @@ TournamentCeremony TournamentCeremonyOf(const platform::TournamentPage& page, st
     return ceremony;
 }
 
+int TournamentSideOf(const platform::TournamentPage& page, std::int64_t match)
+{
+    const auto* set = SetOfMatch(page, match);
+    if (!set || !set->game_home || !set->home || !set->away) return -1;
+    if (set->game_home != set->home && set->game_home != set->away) return -1;
+    return set->game_home == page.me->player ? 0 : 1;
+}
+
 TournamentEnding TournamentEndingOf(const platform::TournamentPage& page, std::int64_t match)
 {
     TournamentEnding ending;

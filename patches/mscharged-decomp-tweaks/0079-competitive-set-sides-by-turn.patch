@@ -1,0 +1,132 @@
+From: mscharged-port
+Subject: Competitive play: a tournament set's players take the home side in turn
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+RANKED puts the draft's first team at home (StartNetworkedGame). The sets
+of Recharged's tournaments give the home side in turn (the lower seed in
+the first game). Each machine's draft entry now says the side its player
+takes, in two spare bits of its simulation profile byte (0067): a machine
+of an older release sends neither, and its host reads such a byte as a
+release it does not share (the canonical profile; a new host masks them
+off). When both entries ask for the sides the other way round than the
+draft gives them, every machine swaps the draft's two teams and the
+lineups in the game start message alike, before anything reads them: the
+decision comes from the draft alone, so the machines agree.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+index 669a4b9..8048c3a 100644
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -127,6 +127,14 @@ bool mscharged_competitive_draft_mirror(void);
+ int mscharged_competitive_mirror_dressed_side(void);
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// A set's game (tweak patch 0078): this machine's side by the set's turn,
++// 0 home or 1 away, -1 for the game's own, which its draft entry asks for;
++// and the game swapped its sides for it (this machine's side now).
++int mscharged_competitive_set_side(void);
++void mscharged_competitive_sides_swapped(int side);
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/include/mscharged_sim_profile.h b/include/mscharged_sim_profile.h
+index 9480847..c8d5bbf 100644
+--- a/include/mscharged_sim_profile.h
++++ b/include/mscharged_sim_profile.h
+@@ -28,6 +28,14 @@
+ #define MSCHARGED_SIM_USA_JAPAN_KOREA (MSCHARGED_SIM_R4QE01 | MSCHARGED_SIM_R4QJ01 | MSCHARGED_SIM_R4QK01)
+ #define MSCHARGED_SIM_EUROPE (MSCHARGED_SIM_R4QP01_REV1 | MSCHARGED_SIM_R4QP01_REV2)
+ 
++// A draft entry's profile byte also carries the side its machine's player
++// takes in a set's game by the set's turn (tweak patch 0078), above the
++// releases: a machine of an older release sends neither bit, and reads
++// such a byte as a release it does not share (the canonical profile).
++#define MSCHARGED_SIM_RELEASES 0x3Fu
++#define MSCHARGED_SIM_SET_HOME 0x40u
++#define MSCHARGED_SIM_SET_AWAY 0x80u
++
+ // The profile every network match falls back to when its machines' own
+ // profiles differ.
+ #define MSCHARGED_SIM_CANONICAL MSCHARGED_SIM_R4QP01_REV2
+diff --git a/src/Game/NetworkLobby.cpp b/src/Game/NetworkLobby.cpp
+index f8ab099..551b2b5 100644
+--- a/src/Game/NetworkLobby.cpp
++++ b/src/Game/NetworkLobby.cpp
+@@ -1,6 +1,7 @@
+ #include <dwc/dwc_main.h>
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_sim_profile.h"
++#include "mscharged_competitive.h"
+ #endif
+ #include <dwc/dwc_match.h>
+ #include <dwc/dwc_transport.h>
+@@ -1129,6 +1130,11 @@ void NetworkLobby::BuildLocalMachineInfo(
+     info->mGuestEnabled = HasOnlineTwoLocalPlayers();
+ #if defined(MSCHARGED_TWEAKS)
+     info->mSimProfile = MSCHARGED_SIM_NATIVE;
++    // Tweak patch 0078: the side this player takes in a set's game.
++    if (mscharged_competitive_set_side() == 0)
++        info->mSimProfile |= MSCHARGED_SIM_SET_HOME;
++    else if (mscharged_competitive_set_side() == 1)
++        info->mSimProfile |= MSCHARGED_SIM_SET_AWAY;
+ #endif
+ }
+ 
+diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
+index c287afc..6a33230 100644
+--- a/src/Game/NetworkSession.cpp
++++ b/src/Game/NetworkSession.cpp
+@@ -368,7 +368,7 @@ static void ChooseDraftSimProfile(NetMessageDraft* message)
+         count = 8;
+     for (int i = 0; i < count; ++i)
+     {
+-        natives[i] = message->mEntries[i].mSimProfile;
++        natives[i] = message->mEntries[i].mSimProfile & MSCHARGED_SIM_RELEASES;
+     }
+     const int ranked = IsOnlineRankedMatch() && !mscharged_competitive_set_draft(message);
+     message->mSimProfile = (u8)mscharged_sim_resolve(natives, count, ranked ? 1 : 0);
+@@ -2224,6 +2224,41 @@ void NetworkSession::StartNetworkedGame(NetMessageGameStart* message)
+ 
+     u32 seed = message->mRandomSeed;
+     SetNetworkRandomSeed(seed);
++#if defined(MSCHARGED_TWEAKS)
++    // Recharged's tournaments (tweak patch 0078): the set's players take the
++    // home side in turn. RANKED puts the draft's first team at home; when
++    // both machines' draft entries ask for the sides the other way round,
++    // every machine swaps the draft's two teams and the lineups in this
++    // message alike, before anything reads them. From the draft alone, so
++    // the machines agree: one that asks nothing (an older release, a set
++    // without turns) leaves the game's own sides.
++    if (IsOnlineRankedMatch() && message->mTournamentGame == 0 && mMachineCount == 2
++        && NetworkDraft::Instance()->mTeamCount == 2)
++    {
++        int asked[2];
++        for (int machine = 0; machine < 2; ++machine)
++        {
++            const u8 profile = draftMessage.mEntries[machine].mSimProfile;
++            asked[machine] = (profile & MSCHARGED_SIM_SET_HOME) ? 0 : (profile & MSCHARGED_SIM_SET_AWAY) ? 1 : -1;
++        }
++        // Machine 0's side as below.
++        const int first = NetworkDraft::Instance()->GetDraftTeam(0)->mPlayers[0].mPeerIndex != 0;
++        if (asked[0] >= 0 && asked[1] >= 0 && asked[0] != asked[1] && asked[0] != first)
++        {
++            NetworkDraftTeam* teams = NetworkDraft::Instance()->mTeams;
++            NetworkDraftTeam home = teams[0];
++            teams[0] = teams[1];
++            teams[1] = home;
++            for (int character = 0; character < 4; ++character)
++            {
++                const u8 lineup = message->mHomeCharacters[character];
++                message->mHomeCharacters[character] = message->mAwayCharacters[character];
++                message->mAwayCharacters[character] = lineup;
++            }
++            mscharged_competitive_sides_swapped(asked[mLocalMachineId == 1 ? 1 : 0]);
++        }
++    }
++#endif
+     GameInfoManager::GetInstance()->SetStadium(message->mStadium);
+     GameInfoManager::GetInstance()->SetTeam(0, message->mHomeCharacters[0]);
+     GameInfoManager::GetInstance()->SetSidekick(

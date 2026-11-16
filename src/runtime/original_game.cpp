@@ -1874,6 +1874,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // patch 0076), given for each game of a set that may end it.
         auto configureTrophy=reinterpret_cast<ChargedConfigureTournamentTrophyFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tournament_trophy"));
+        // A tournament set's players take the home side in turn (tweak patch 0078).
+        auto configureSetSide=reinterpret_cast<ChargedConfigureSetSideFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_set_side"));
         // At debug level DWC's own reports of the WFC login, matchmaking and
         // NAT negotiation, which the game switches off, go to the log.
         if(launch.settings.log_level=="debug")
@@ -3336,6 +3339,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     mscharged::platform::SessionLogLine("Tournament: set's match "+std::to_string(match)
                         +" goes on from the trophy room");
                     const auto latest=tournamentFeed->Latest();
+                    if(configureSetSide) {
+                        const int side=latest.page ? mscharged::runtime::TournamentSideOf(*latest.page,match) : -1;
+                        configureSetSide(side);
+                        if(side>=0)
+                            mscharged::platform::SessionLogLine(std::string("Tournament: this player is ")
+                                +(side==0 ? "home" : "away")+" in this game (the set's turn)");
+                    }
                     if(configureTrophy) {
                         const auto ending=latest.page
                             ? mscharged::runtime::TournamentEndingOf(*latest.page,match)
@@ -3362,6 +3372,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     mscharged::platform::SessionLogLine("Tournament: set's match "+std::to_string(match)
                         +(over ? " is over" : " ended without its series"));
                     if(configureTrophy) configureTrophy(-1,false,false,nullptr,nullptr,nullptr);
+                    if(configureSetSide) configureSetSide(-1);
                     hostMenus->TournamentSetDone(over);
                     return true;
                 };

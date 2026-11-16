@@ -518,7 +518,28 @@ extern "C" __attribute__((visibility("default"))) void charged_configure_tournam
     CopyTrophyText(sTrophyOpponentText, any ? opponent_text : nullptr);
 }
 
+// This player's side in the set's game (charged_configure_set_side): 0 home,
+// 1 away, -1 the game's own.
+int sSetSide = -1;
+
+extern "C" __attribute__((visibility("default"))) void charged_configure_set_side(int side)
+{
+    sSetSide = side == 0 || side == 1 ? side : -1;
+}
+
 #if defined(MSCHARGED_TWEAKS)
+// Tweak patch 0078: a set's game (not the Game Menu's RANKED) on its way.
+extern "C" int mscharged_competitive_set_side(void)
+{
+    return sSetStage != CHARGED_SET_NONE && !sRankedWalk ? sSetSide : -1;
+}
+
+extern "C" void mscharged_competitive_sides_swapped(int side)
+{
+    std::fprintf(stderr, "Competitive: the game's sides swapped for the set's turn: this player is %s\n",
+                 side == 0 ? "home" : "away");
+}
+
 // Tweak patch 0076: the game that ends a tournament ends with its trophy's
 // ceremony, for the side whose win does it.
 int mscharged_tweak_tournament_trophy(int winner_side)
@@ -556,6 +577,7 @@ extern "C" __attribute__((visibility("default"))) void charged_competitive_end_s
     }
     sLeaveOnline = sSetStage == CHARGED_SET_FAILED && !sRankedWalk;
     sSetStage = CHARGED_SET_NONE;
+    sSetSide = -1;
     sSetPopup = -1;
     sPlayerChoosesMii = false;
     sStartedInGame = false;

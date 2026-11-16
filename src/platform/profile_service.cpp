@@ -291,6 +291,7 @@ TournamentPage ParseTournamentPage(const JsonValue& value)
         set.home_wins = int(item["home_wins"].Integer().value_or(-1));
         set.away_wins = int(item["away_wins"].Integer().value_or(-1));
         set.match = item["match"].Integer().value_or(0);
+        set.game_home = item["game_home"].Integer().value_or(0);
         const auto& from = item["from"].Items();
         for (std::size_t n = 0; n < 2 && n < from.size(); ++n)
         {
