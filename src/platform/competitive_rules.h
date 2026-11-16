@@ -108,8 +108,8 @@ typedef void (*ChargedConfigureTournamentTrophyFunction)(int persona, bool own_w
                                                          const unsigned short* opponent_text);
 // Game module entry, between frames: this player's side in the set's game
 // about to start, 0 home or 1 away (-1: the game's own, by its draft): the
-// game swaps its sides to follow it, on both machines alike (tweak patch
-// 0079). The set's end clears it.
+// game swaps its sides to follow it: the draft host's side decides it for
+// every machine (tweak patch 0079). The set's end clears it.
 typedef void (*ChargedConfigureSetSideFunction)(int side);
 // Game module entry ([advanced] log_level = debug): DWC's reports of the WFC
 // login, matchmaking and NAT negotiation go to the game's output (the log).

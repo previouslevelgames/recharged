@@ -528,7 +528,7 @@ extern "C" __attribute__((visibility("default"))) void charged_configure_set_sid
 }
 
 #if defined(MSCHARGED_TWEAKS)
-// Tweak patch 0078: a set's game (not the Game Menu's RANKED) on its way.
+// Tweak patch 0079: a set's game (not the Game Menu's RANKED) on its way.
 extern "C" int mscharged_competitive_set_side(void)
 {
     return sSetStage != CHARGED_SET_NONE && !sRankedWalk ? sSetSide : -1;

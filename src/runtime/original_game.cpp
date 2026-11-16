@@ -1874,7 +1874,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // patch 0076), given for each game of a set that may end it.
         auto configureTrophy=reinterpret_cast<ChargedConfigureTournamentTrophyFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tournament_trophy"));
-        // A tournament set's players take the home side in turn (tweak patch 0078).
+        // A tournament set's players take the home side in turn (tweak patch 0079).
         auto configureSetSide=reinterpret_cast<ChargedConfigureSetSideFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_set_side"));
         // At debug level DWC's own reports of the WFC login, matchmaking and
