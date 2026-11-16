@@ -104,6 +104,9 @@ constexpr auto kTournamentGiveUp = std::chrono::seconds(3);
 // match of their own from there).
 constexpr auto kTournamentReturnWait = std::chrono::seconds(60);
 constexpr auto kTournamentLeftWait = std::chrono::seconds(120);
+// The set done, how long the host lets the game settle the trophy room: the
+// room goes out in the game's next frame once the walk that held it ends.
+constexpr auto kTournamentSettle = std::chrono::milliseconds(500);
 
 const char* TournamentWayName(int way)
 {
@@ -186,8 +189,10 @@ void HostMenus::CloseAll()
 
 void HostMenus::TournamentSetDone(bool from_match)
 {
+    const Clock::time_point now = Clock::now();
     tournamentPage_ = true;
-    tournamentReturn_ = Clock::now() + (from_match ? kTournamentReturnWait : kTournamentLeftWait);
+    tournamentSettled_ = now + kTournamentSettle;
+    tournamentReturn_ = now + (from_match ? kTournamentReturnWait : kTournamentLeftWait);
 }
 
 void HostMenus::LeaveMatch() { Command(CHARGED_MENU_FORFEIT); }
@@ -300,7 +305,8 @@ void HostMenus::ServiceTournament(Clock::time_point now)
     // the room again from there, as TOURNAMENT goes in (not over a page or
     // a question of ours; the player gone elsewhere meanwhile: never mind).
     // Still in the room, its page only (below).
-    if (tournamentReturn_) {
+    const bool settled = now >= tournamentSettled_;
+    if (tournamentReturn_ && settled) {
         if (menu_.trophy_room == CHARGED_TROPHY_ROOM_IN) tournamentReturn_.reset();
         else if (now > *tournamentReturn_) {
             tournamentReturn_.reset();
@@ -313,8 +319,8 @@ void HostMenus::ServiceTournament(Clock::time_point now)
     }
     // Back in the room from a set READY started (its search left): the page
     // again, once nothing else of ours shows; out of the room, never mind.
-    if (tournamentPage_ && menu_.trophy_room != CHARGED_TROPHY_ROOM_IN) tournamentPage_ = false;
-    else if (tournamentPage_ && pages_.empty() && !prompt_) {
+    if (tournamentPage_ && settled && menu_.trophy_room != CHARGED_TROPHY_ROOM_IN) tournamentPage_ = false;
+    else if (tournamentPage_ && settled && pages_.empty() && !prompt_) {
         tournamentPage_ = false;
         channel_ = -1;
         Push(ui::PageId::Tournament, 0, {}, Origin::TrophyRoom);

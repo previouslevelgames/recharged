@@ -224,6 +224,7 @@ private:
     bool tournamentPage_ = false; // TournamentSetDone: the page comes again in the room
     // TournamentSetDone: the room again until then (none: not asked).
     std::optional<Clock::time_point> tournamentReturn_;
+    Clock::time_point tournamentSettled_{}; // TournamentSetDone: the room's state taken from then
     ui::TournamentModel tournamentModel_;
     Clock::time_point tournamentAt_{};
     void Tournament(TournamentWay way);
