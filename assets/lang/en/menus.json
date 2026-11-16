@@ -254,6 +254,7 @@
     "accept": "ACCEPT",
     "decline": "DECLINE",
     "ready": "READY TO PLAY!",
+    "trophy_room": "TO THE TROPHY ROOM",
     "rematch": "REMATCH",
     "cancel_set": "CANCEL SET",
     "stop_searching": "STOP SEARCHING"

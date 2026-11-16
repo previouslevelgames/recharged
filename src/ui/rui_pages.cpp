@@ -370,6 +370,12 @@ void DrawSet(const PageModel& model, List& list, PageActions& actions)
     if (set.can_accept && list.Plate(T("menus.you.accept"))) actions.online.accept = true;
     if (set.can_decline && list.Plate(T("menus.you.decline"))) actions.online.decline = true;
     if (set.can_ready && list.Plate(T("menus.you.ready"))) actions.online.ready = true;
+    // A tournament's set: on to the trophy room, the player's tournament.
+    if (set.trophy_room && (model.from_wheel || model.online_menu) && list.Plate(T("menus.you.trophy_room")))
+    {
+        actions.tournament = true;
+        actions.tournament_own = true;
+    }
     if (set.can_rematch && list.Plate(T("menus.you.rematch"))) actions.online.rematch = true;
     if (set.can_cancel)
     {

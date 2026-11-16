@@ -156,6 +156,7 @@ struct PageActions
     bool credits = false;       // the game's Credits (the front end's Options)
     bool wii_online = false;    // the game's own online, as its main menu's globe
     bool tournament = false;    // TOURNAMENT: into the trophy room
+    bool tournament_own = false; // with `tournament`: on the player's own TOURNAMENT (their set's card)
     bool tournament_ready = false; // the tournament's READY (or its take-back, when you_ready)
     bool tournament_join = false, tournament_leave = false;
     overlay::OnlinePanelActions online;

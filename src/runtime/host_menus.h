@@ -237,6 +237,9 @@ private:
     // TOURNAMENT's way into the trophy room, since when.
     TournamentWay tournament_ = TournamentWay::None;
     bool tournamentPage_ = false; // TournamentSetDone: the page comes again in the room
+    // The way into the room ends on the player's own TOURNAMENT (their set's
+    // card asked, or the room comes again after a set).
+    bool tournamentOwn_ = false;
     // TournamentSetDone: the room again until then (none: not asked).
     std::optional<Clock::time_point> tournamentReturn_;
     Clock::time_point tournamentSettled_{}; // TournamentSetDone: the room's state taken from then

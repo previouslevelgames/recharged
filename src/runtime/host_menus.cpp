@@ -295,7 +295,7 @@ void HostMenus::ServiceTournament(Clock::time_point now)
             // A page the player opened meanwhile (F1) goes: the room has its own.
             ClearPages();
             channel_ = -1;
-            PushRoomPages(false);
+            PushRoomPages(std::exchange(tournamentOwn_, false));
             Tournament(TournamentWay::None);
         } else if (menu_.trophy_room == CHARGED_TROPHY_ROOM_OUT && waited) Tournament(TournamentWay::None);
         break;
@@ -314,6 +314,7 @@ void HostMenus::ServiceTournament(Clock::time_point now)
         } else if (menu_.online_menu && tournament_ == TournamentWay::None && pages_.empty() && !prompt_) {
             tournamentReturn_.reset();
             platform::SessionLogLine("Menus: TOURNAMENT back in the trophy room after the set");
+            tournamentOwn_ = true;
             Tournament(TournamentWay::Room);
         }
     }
@@ -405,6 +406,7 @@ void HostMenus::Apply(const ui::PageActions& actions, bool live, const overlay::
         // Into the trophy room: straight from the game's online menu, else
         // through the game's own WII ONLINE first. These pages go meanwhile.
         const bool online = menu_.online_menu != 0;
+        tournamentOwn_ = actions.tournament_own;
         ClearPages();
         if (online) Tournament(TournamentWay::Room);
         else {
