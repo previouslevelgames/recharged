@@ -63,6 +63,8 @@ bool sTrophyLoaded = false;
 // A trophy still loading when the online menu left: its data is freed once
 // it arrives, without putting it in the world.
 bool sDiscardLoad = false;
+// The set's search going back to the room is logged once a set.
+bool sSearchBackSaid = false;
 
 void OnCameraArrived(eCameraMessage) { sCameraArrived = true; }
 
@@ -177,6 +179,7 @@ void ChargedTrophyRoomLeave()
 
 void ChargedTrophyRoomFrame()
 {
+    if (!ChargedCompetitiveWalking()) sSearchBackSaid = false;
     if (sDiscardLoad && IsTournamentTrophyLoaded()) {
         for (StadiumLoadResult& result : gTournamentTrophyLoadResults) {
             nlFree(result.mData);
@@ -260,7 +263,9 @@ bool mscharged_tweak_trophy_room_to_game(void)
 int mscharged_tweak_search_back_scene(int scene)
 {
     if (sState != CHARGED_TROPHY_ROOM_IN || !ChargedCompetitiveWalking()) return scene;
-    Log("the set's search goes back to the room");
+    // (The search's screen asks on each of its makings: said once a set.)
+    if (!sSearchBackSaid) Log("the set's search goes back to the room");
+    sSearchBackSaid = true;
     return SCENE_ONLINE_MENU;
 }
 #endif
