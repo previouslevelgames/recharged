@@ -18,7 +18,7 @@ namespace mscharged::platform
 // Of the profile server's tournaments, the one the TOURNAMENT page shows:
 // a running one the player is in, else one open for entries they joined,
 // else the newest open for entries, else the newest running, else the last
-// that ended. Its index, none for an empty list.
+// that finished (none called off). Its index, none when there is none.
 std::optional<std::size_t> ChooseTournament(const std::vector<ProfileTournament>& tournaments);
 
 // The TOURNAMENT page's tournament from the profile server, asked on a

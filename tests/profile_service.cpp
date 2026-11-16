@@ -990,7 +990,8 @@ void TournamentFeedRounds()
     CHECK(ChooseTournament({tournament(1, "registration", false), tournament(2, "running", false)}) == 0u);
     CHECK(ChooseTournament({tournament(1, "registration", false), tournament(2, "registration", true)}) == 1u);
     CHECK(ChooseTournament({tournament(1, "registration", true), tournament(2, "running", true)}) == 1u);
-    CHECK(ChooseTournament({tournament(1, "finished", false), tournament(2, "cancelled", false)}) == 0u);
+    CHECK(ChooseTournament({tournament(1, "cancelled", false), tournament(2, "finished", false)}) == 1u);
+    CHECK(!ChooseTournament({tournament(1, "cancelled", true)}));
     if (!HttpUnavailable().empty()) return;
 
     const std::string list = R"({"tournaments":[{"id":4,"name":"Cup","format":"single","state":"running",)"

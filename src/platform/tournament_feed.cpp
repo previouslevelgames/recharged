@@ -20,8 +20,8 @@ std::optional<std::size_t> ChooseTournament(const std::vector<ProfileTournament>
              [](const ProfileTournament& t) { return t.state == "running"; },
          })
         if (const auto at = first(wanted)) return at;
-    if (tournaments.empty()) return std::nullopt;
-    return 0;
+    // Else the last that ended, with its standings; one called off says nothing.
+    return first([](const ProfileTournament& t) { return t.state == "finished"; });
 }
 
 std::unique_ptr<TournamentFeed> TournamentFeed::Start(const std::string& server_setting,
