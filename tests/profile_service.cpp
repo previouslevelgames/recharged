@@ -3,6 +3,7 @@
 // libcurl) the requests themselves against a small HTTP server here.
 #include "platform/competitive_rules.h"
 #include "platform/http_client.h"
+#include "platform/json.h"
 #include "platform/online_panel_feed.h"
 #include "platform/profile_service.h"
 
@@ -887,6 +888,86 @@ void FeedChallengeRules()
 #endif
 } // namespace
 
+// Tournaments: the list, a page with its bracket and the player's place,
+// joining, READY with its match, and a player without Discord refused.
+void Tournaments()
+{
+    if (!HttpUnavailable().empty()) return;
+    const std::string tournament = R"({"id":4,"name":"Recharged Cup","organizer":null,"format":"double",)"
+                                   R"("state":"running","rule_set":"Competitive","rules":{"tweaks":[],"skill":"rookie",)"
+                                   R"("limit":"goals","time":180,"goals":10,"games":3,"stadium":"random"},"best_of":3,)"
+                                   R"("finals_best_of":5,"max_entrants":null,"entrants":2,"starts_at":null,)"
+                                   R"("created_at":1,"started_at":2,"ended_at":null})";
+    const std::string page = R"({"tournament":)" + tournament
+        + R"(,"entrants":[{"player":{"id":7,"name":"Mario","account":"discord"},"seed":0,"dropped":false,)"
+          R"("place":null},{"player":{"id":8,"name":"Bowser","account":"discord"},"seed":1,"dropped":false,)"
+          R"("place":null}],"sets":[{"id":30,"index":0,"side":"winners","round":1,"position":0,"games":5,)"
+          R"("state":"ready","home":7,"away":8,"winner":null,"decided_by":null,"home_wins":null,)"
+          R"("away_wins":null,"match":null},{"id":31,"index":1,"side":"grand_final","round":1,"position":0,)"
+          R"("games":5,"state":"pending","home":null,"away":null,"winner":null,"decided_by":null,)"
+          R"("home_wins":null,"away_wins":null,"match":null}],"me":{"player":7,"entrant":true,"eligible":true,)"
+          R"("reason":null,"dropped":false,"place":null,"set":30},"poll_interval":5})";
+    const std::string made = R"({"match":{"id":12,"state":"accepted","side":"challenger","opponent":{"id":8,)"
+                             R"("name":"Bowser"},"rule_set":"Competitive","rules":{"tweaks":[],"skill":"rookie",)"
+                             R"("limit":"goals","time":180,"goals":10,"games":5,"stadium":"random"},)"
+                             R"("rules_hash":"h","stage":"open","you_ready":true,"opponent_ready":false,)"
+                             R"("tournament":{"id":4,"name":"Recharged Cup","set":30,"side":"winners","round":1}}})";
+    const std::vector<Exchange> exchanges{
+        {"GET /api/v1/tournaments", 200, R"({"tournaments":[)" + tournament.substr(0, tournament.size() - 1)
+                                             + R"(,"joined":true}]})"},
+        {"GET /api/v1/tournaments/4", 200, page},
+        {"POST /api/v1/tournaments/4/join", 403, R"({"error":"discord_required","message":"connect Discord"})"},
+        {"POST /api/v1/tournaments/4/sets/30/ready", 200, made},
+        {"POST /api/v1/tournaments/4/sets/30/ready", 200, R"({"match":null})"},
+        {"DELETE /api/v1/tournaments/4/join", 200, page},
+    };
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        ProfileService api(server.Url(), "t1");
+        const auto listed = api.Tournaments();
+        CHECK(listed.size() == 1 && listed[0].id == 4 && listed[0].name == "Recharged Cup"
+              && listed[0].format == "double" && listed[0].state == "running" && listed[0].joined
+              && listed[0].best_of == 3 && listed[0].finals_best_of == 5 && listed[0].max_entrants == 0
+              && listed[0].entrants == 2 && listed[0].rules.goals == 10 && listed[0].started_at == 2
+              && listed[0].ended_at == 0);
+        const auto shown = api.Tournament(4);
+        CHECK(shown.entrants.size() == 2 && shown.entrants[1].player.name == "Bowser" && shown.entrants[1].seed == 1
+              && shown.entrants[0].place == 0);
+        CHECK(shown.sets.size() == 2 && shown.sets[0].state == "ready" && shown.sets[0].home == 7
+              && shown.sets[0].away == 8 && shown.sets[0].games == 5 && shown.sets[0].home_wins == -1
+              && shown.sets[0].match == 0 && shown.sets[1].home == 0 && shown.sets[1].side == "grand_final");
+        CHECK(shown.me && shown.me->entrant && shown.me->eligible && shown.me->set == 30 && shown.me->reason.empty());
+        CHECK(shown.Set(30) == &shown.sets[0] && !shown.Set(99) && shown.Entrant(8) == &shown.entrants[1]);
+        CHECK(shown.poll_interval == 5);
+        try
+        {
+            api.JoinTournament(4);
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 403);
+        }
+        const auto match = api.TournamentReady(4, 30, true);
+        CHECK(match && match->id == 12 && match->stage == "open" && match->rules.games == 5
+              && match->tournament.id == 4 && match->tournament.set == 30 && match->tournament.name == "Recharged Cup"
+              && match->tournament.side == "winners" && match->tournament.round == 1);
+        CHECK(!api.TournamentReady(4, 30, false));
+        CHECK(api.LeaveTournament(4).tournament.id == 4);
+    }
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+    {
+        CHECK(sent[0].authorization == "Bearer t1");
+        CHECK(sent[3].body == R"({"ready":true})" && sent[4].body == R"({"ready":false})");
+        CHECK(sent[5].body.empty());
+    }
+    // A set's match from a server without tournaments has none.
+    CHECK(ParseJson(kSet)["tournament"].IsNull());
+}
+
 int main()
 {
     Addresses();
@@ -900,6 +981,7 @@ int main()
     KnownWfc();
     FeedDiscordFriends();
     FeedChallengeRules();
+    Tournaments();
 #endif
     if (failures)
     {
