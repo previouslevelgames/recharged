@@ -85,6 +85,9 @@ public:
         // goes on from the trophy room into its RANKED search, and the pages
         // go). None, or false: nothing starts.
         std::function<bool()> tournament_ready;
+        // TOURNAMENT's JOIN (true) or LEAVE (false), for the profile
+        // server's tournaments. None: not shown.
+        std::function<void(bool join)> tournament_entry;
         // The player forfeits the online match (the match menu's FORFEIT):
         // the host tells the server, then calls LeaveMatch. None: the match
         // is left at once.
@@ -108,6 +111,9 @@ public:
     // game's online menu, `from_match` or not), the room is asked again
     // once the game's online menu is at rest (the game comes back to it).
     void TournamentSetDone(bool from_match);
+    // A tournament set READY asked for goes (both players are ready): it goes
+    // on from the trophy room, which stays; only the pages go.
+    void TournamentSetStarts();
     // The game leaves the online match the player forfeited (Host::forfeit).
     void LeaveMatch();
     // Each host frame, after the game's frame and MenuInput::Service: the

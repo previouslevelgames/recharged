@@ -195,6 +195,8 @@ void HostMenus::TournamentSetDone(bool from_match)
     tournamentReturn_ = now + (from_match ? kTournamentReturnWait : kTournamentLeftWait);
 }
 
+void HostMenus::TournamentSetStarts() { ClearPages(); }
+
 void HostMenus::LeaveMatch() { Command(CHARGED_MENU_FORFEIT); }
 
 void HostMenus::CloseRecharged()
@@ -409,8 +411,10 @@ void HostMenus::Apply(const ui::PageActions& actions, bool live, const overlay::
             ClearPages();
             return;
         }
-        platform::SessionLogLine("Menus: TOURNAMENT READY (no set to play)");
+        platform::SessionLogLine("Menus: TOURNAMENT READY (nothing starts from here now)");
     }
+    if ((actions.tournament_join || actions.tournament_leave) && host_.tournament_entry)
+        host_.tournament_entry(actions.tournament_join);
     if (actions.wii_online) {
         // The game's own online, as its main menu's globe: these pages go.
         Command(CHARGED_MENU_WII_ONLINE);

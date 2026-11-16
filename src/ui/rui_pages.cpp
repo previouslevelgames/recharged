@@ -881,8 +881,13 @@ void DrawTournament(const PageModel& model, List& list, PageActions& actions)
         list.Card(&opponent, tournament.name.c_str(), tournament.opponent.c_str(), lines);
     }
     else if (!tournament.name.empty()) list.Card(nullptr, nullptr, tournament.name.c_str(), {tournament.event});
-    if (list.Plate(T("menus.tournament.ready"), nullptr, tournament.has_set && tournament.opponent_known))
+    if (list.Plate(tournament.you_ready ? T("menus.tournament.server.unready") : T("menus.tournament.ready"), nullptr,
+                   tournament.has_set && tournament.opponent_known))
         actions.tournament_ready = true;
+    if (tournament.can_join && list.Plate(T("menus.tournament.server.join"), nullptr, true))
+        actions.tournament_join = true;
+    if (tournament.can_leave && list.Plate(T("menus.tournament.server.leave"), nullptr, true))
+        actions.tournament_leave = true;
     if (list.Plate(T("menus.tournament.bracket"), nullptr, !tournament.bracket.empty()))
         actions.open = PageId::Bracket;
 }

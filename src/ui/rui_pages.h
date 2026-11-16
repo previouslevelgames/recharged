@@ -71,6 +71,10 @@ struct TournamentModel
     bool opponent_known = false; // its opponent is decided (READY can be pressed)
     std::string score;           // the games so far ("1 - 0"), once reported
     std::string note;            // a line above: loading, start.gg failing, no set left
+    // The profile server's tournaments: JOIN or LEAVE shows, and the player
+    // pressed READY for their set (the button then takes it back).
+    bool can_join = false, can_leave = false;
+    bool you_ready = false;
     // The bracket of the player's pool (or the event's first), in the
     // event's order.
     std::vector<BracketSet> bracket;
@@ -130,7 +134,8 @@ struct PageActions
     bool credits = false;       // the game's Credits (the front end's Options)
     bool wii_online = false;    // the game's own online, as its main menu's globe
     bool tournament = false;    // TOURNAMENT: into the trophy room
-    bool tournament_ready = false; // the tournament's READY
+    bool tournament_ready = false; // the tournament's READY (or its take-back, when you_ready)
+    bool tournament_join = false, tournament_leave = false;
     overlay::OnlinePanelActions online;
     overlay::RankedActions ranked;
     int answer = 0;    // the prompt: 1 its first button, 2 its second
