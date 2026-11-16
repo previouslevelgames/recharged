@@ -556,8 +556,8 @@ List::~List()
     state_.reveal = false;
     state_.target = std::clamp(state_.target, 0.0f, std::max(0.0f, y_ - view));
     if (rail_) Rail(view);
-    // The lit item's name and help, in a box as the rows' bars: in the help
-    // area, else at the bottom of the rows.
+    // The lit item's help (its name is on its row), in a box as the rows'
+    // bars: in the help area, else at the bottom of the rows.
     state_.help = anyHelp_;
     std::optional<Area> box = help_area_;
     if (!box && anyHelp_) box = Area{rows_.x0, rail_ ? railX0_ + kRailWidth : rows_.x1, rows_.bottom - kHelpHeight + 10.0f,
@@ -569,18 +569,8 @@ List::~List()
         p_.Rect(a.x0, a.top, a.x1, a.top + 2, p_.Col(255, 255, 255, 18));
         p_.Rect(a.x0, a.top, a.x0 + 6, a.bottom, Orange(p_, 220), 2.0f);
         if (!help_.empty())
-        {
-            const bool titled = help_area_ && !helpTitle_.empty();
-            float y = a.top + 14.0f;
-            if (titled)
-            {
-                p_.Text(fonts_.small, kSmallSize, a.x0 + 22.0f, y + 12.0f, helpTitle_.c_str(), Orange(p_),
-                        p_.Col(4, 12, 16, 230), 2.0f, 0.0f);
-                y += 38.0f;
-            }
-            p_.Wrapped(fonts_.small, kSmallSize * 0.92f, a.x0 + 22.0f, y, a.x1 - a.x0 - 40.0f, help_.c_str(),
-                       p_.Col(232, 244, 248, 240));
-        }
+            p_.Wrapped(fonts_.small, kSmallSize * 0.92f, a.x0 + 22.0f, a.top + 14.0f, a.x1 - a.x0 - 40.0f,
+                       help_.c_str(), p_.Col(232, 244, 248, 240));
     }
     state_.entered = true;
 }
@@ -626,7 +616,7 @@ List::Slot List::ValueRow(const char* label, const char* about)
     Slot slot = Place(kRowHeight, true);
     LightUnderPointer(slot);
     RowBar(slot, label);
-    Help(label, about, slot.lit);
+    Help(about, slot.lit);
     return slot;
 }
 
@@ -643,13 +633,12 @@ void List::Chevron(float mid, bool lit)
             lit ? p_.Col(255, 255, 255) : p_.Col(190, 200, 206), p_.Col(6, 6, 6), 2.0f, 1.0f);
 }
 
-void List::Help(const char* label, const char* about, bool lit)
+void List::Help(const char* about, bool lit)
 {
     if (!about) return;
     anyHelp_ = true;
     if (!lit) return;
     help_ = about;
-    helpTitle_ = Upper(label);
 }
 
 void List::Caption(const char* text)
@@ -802,7 +791,7 @@ bool List::Plate(const char* label, const char* about, bool enabled, const char*
     if (value && *value)
         p.Text(fonts_.small, valueSize, cx + half - 26.0f, mid + 3.0f, value, Orange(p), p.Col(4, 12, 16, 220), 1.5f,
                1.0f);
-    Help(label, about, enabled && slot.lit);
+    Help(about, enabled && slot.lit);
     return enabled && Pressed(slot, false);
 }
 
@@ -988,7 +977,7 @@ bool List::PlayerRow(const Person& person, const char* name, const char* status,
     LightUnderPointer(slot);
     const bool lit = slot.lit;
     Bar(p_, rows_.x0, slot.top, rows_.x1, slot.bottom, lit, lit);
-    Help(name, about, lit);
+    Help(about, lit);
     const float mid = (slot.top + slot.bottom) * 0.5f;
     DrawPerson(p_, fonts_.row, rows_.x0 + 52.0f, mid, 32.0f, person);
     const float x = rows_.x0 + 104.0f;

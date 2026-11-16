@@ -45,15 +45,15 @@
     "in_match": "A match is on: it keeps the options it started with.",
     "menus": {
       "name": "Menus",
-      "about": "How the menus run; a change takes effect at once. Skip intro is in the launcher: it needs the game started again."
+      "about": "Changes take effect at once (Skip intro is in the launcher)."
     },
     "matches": {
       "name": "Matches",
-      "about": "Who plays and how the teams look; changes take effect from the next match. Robot goalies, Super Team and Unlock everything are in the launcher: they need the game started again."
+      "about": "Changes take effect from the next match (more are in the launcher)."
     },
     "competitive": {
       "name": "Competitive",
-      "about": "Rules for fairer matches; changes take effect from the next match."
+      "about": "Rules for fairer matches, from the next match."
     }
   },
   "settings": {
@@ -66,23 +66,23 @@
     "camera_online": "The match camera can be changed outside online matches.",
     "match_camera": "MATCH CAMERA",
     "camera": "Camera",
-    "camera_about": "DYNAMIC zooms in and out with the play; STATIC keeps the zoom level below. Saved with the game, as in its Visual Options.",
+    "camera_about": "DYNAMIC zooms with the play, STATIC keeps the zoom level below.",
     "static": "STATIC",
     "dynamic": "DYNAMIC",
     "zoom_level": "Zoom level",
-    "zoom_level_about": "How far the camera stays from the play (1 nearest), when it does not zoom by itself.",
+    "zoom_level_about": "How far the camera stays from the play (1 is nearest).",
     "window": "WINDOW",
     "fullscreen": "Fullscreen",
     "picture": "Picture",
     "stretch": "Stretch",
     "wider_view": "Wider view",
     "picture_about": "{{shape}} keeps the game's shape, Stretch fills the window.",
-    "picture_about_wider": "{{shape}} keeps the game's shape, Stretch fills the window, Wider view shows more of the stadium in matches.",
+    "picture_about_wider": "{{shape}} keeps the game's shape, Stretch fills the window, Wider view shows more of the field.",
     "rendering": "RENDERING",
     "resolution": "3D resolution",
-    "resolution_about": "How sharp the game draws its 3D: Full at the window's size ({{full}}), Native at the Wii's {{native}}, 2x to 4x at its multiples, for slower graphics cards.",
+    "resolution_about": "Full draws the 3D at {{full}}, Native at the Wii's {{native}}.",
     "performance_numbers": "Performance numbers",
-    "performance_numbers_about": "The frame rate and how busy the graphics card and processor are, in a corner of the picture."
+    "performance_numbers_about": "Shows the frame rate and the computer's load in a corner of the picture."
   },
   "advanced": {
     "launcher": "LAUNCHER",
@@ -90,30 +90,30 @@
     "reopen_launcher_about": "The launcher opens again when the game closes.",
     "no_launcher": "The game started without the launcher: closing it opens nothing.",
     "launcher_size": "Launcher size",
-    "launcher_size_about": "Scales the launcher. Automatic follows your display's scaling setting.",
+    "launcher_size_about": "Automatic follows your display's scaling.",
     "graphics": "GRAPHICS (NEXT START)",
     "graphics_api": "Graphics API",
-    "graphics_api_about": "Automatic uses Vulkan, or DirectX 12 when Vulkan cannot start. Used the next time you start the game.",
+    "graphics_api_about": "Automatic uses Vulkan, or DirectX 12 when Vulkan cannot start.",
     "graphics_api_only": "The one this computer's game uses.",
     "automatic": "Automatic",
     "graphics_card": "Graphics card",
-    "graphics_card_about": "Automatic uses the fastest. Used the next time you start the game.",
+    "graphics_card_about": "Automatic uses the fastest.",
     "automatic_fastest": "Automatic (fastest)",
     "card_not_found": "Not found: {{card}}",
     "looking": "Looking...",
     "looking_about": "Looking for the computer's graphics cards.",
     "diagnostics": "DIAGNOSTICS",
     "performance_stats": "Performance stats",
-    "performance_stats_about": "Records frame times for each game session, with the arena and settings, in the logs folder. From the next start.",
+    "performance_stats_about": "Records frame times in the logs folder, from the next start.",
     "api_validation": "API validation",
-    "api_validation_about": "Checks every graphics call for errors. Slows the game: keep it off to play or record frame times. From the next start.",
+    "api_validation_about": "Checks every graphics call for errors and slows the game, from the next start.",
     "log_detail": "Log detail",
-    "log_detail_about": "Which messages reach the console and the log. From the next start.",
+    "log_detail_about": "Which messages reach the console and the log, from the next start.",
     "verbose_console": "Verbose console",
     "verbose_console_about": "Also prints development traces and the game's own debug output.",
     "log_window": "Log window",
-    "log_window_about": "Shows the log in a separate window. Closing it doesn't stop the game.",
-    "launcher_note": "The settings file, the folders and resetting everything are in the launcher's Advanced page."
+    "log_window_about": "Shows the log in a separate window.",
+    "launcher_note": "The settings file, the folders and a full reset are in the launcher."
   },
   "sound": {
     "percent": "{{value}} %",
@@ -123,7 +123,7 @@
     "mute": "Mute",
     "sound_levels": "SOUND LEVELS",
     "game_levels": "THE GAME'S OWN LEVELS",
-    "game_levels_about": "The game's own volume bars, saved with the game as in its Audio Options; Recharged's levels above work on top of them.",
+    "game_levels_about": "The game's own volume bars, which Recharged's levels above adjust further.",
     "game_music": "Game music",
     "game_effects": "Game sound effects",
     "game_voices": "Game voices",

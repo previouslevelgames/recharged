@@ -142,7 +142,7 @@ play.
 
 ## Optional tweaks
 
-Off by default, except Feder's fair ball contests and Match point; with all
+Off by default, except Defence priority and Match point; with all
 of them off the game plays as on the Wii. Four fixes of the original game are always
 on: a goal net no longer stays dented after a
 goal ([#19](https://github.com/previouslevelgames/recharged/issues/19)),
@@ -201,7 +201,7 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   one, or your captain's own) and keeps every item it uses, in a match to 10
   goals that never ends on them (leave it from the pause menu), without the
   cheats of the saved Gameplay options. Every other match is unchanged.
-- **Feder's fair ball contests**: when players of both teams reach a loose
+- **Defence priority**: when players of both teams reach a loose
   ball in the same instant, the one the Wii game updates first takes it. It
   shuffles that order at every kickoff in a way that puts the home team
   first slightly more often (52 % of the time on average, up to 55 %).
@@ -210,8 +210,8 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   step instead, always home team first. With this option the defending
   team goes first, the one whose goal is on the ball's side of the field,
   again every simulation step and for those contests too (at kickoff, with
-  the ball on the center line, the order is only shuffled). Named after
-  Feder, who made a Gecko code for this on the Wii. On by default, as it is
+  the ball on the center line, the order is only shuffled). Based on
+  Feder's Gecko code for the Wii. On by default, as it is
   recommended to every player; online matches always play with it.
 - **Mirror match**: both teams can pick the same captain in Domination. The
   away team wears an away kit, in the menus as on the field: the game's own,

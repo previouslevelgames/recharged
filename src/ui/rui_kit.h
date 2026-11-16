@@ -293,7 +293,7 @@ private:
     // drawn, its help kept; its slot.
     Slot ValueRow(const char* label, const char* about);
     void RowBar(const Slot& slot, const char* label);
-    void Help(const char* label, const char* about, bool lit);
+    void Help(const char* about, bool lit);
     // Pressed: A on the lit item (`right` too: a page beside), or a click on it.
     bool Pressed(const Slot& slot, bool right);
     // The "›" at a row's right, white while lit.
@@ -324,7 +324,6 @@ private:
     float y_ = 0.0f; // content pixels
     int index_ = 0;
     std::string help_; // the lit item's (a copy: the page's texts may be its own)
-    std::string helpTitle_;
     bool rail_ = false;
     float railX0_ = 0.0f;
     bool anyHelp_ = false;

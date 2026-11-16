@@ -5,63 +5,63 @@
   "tweaks": {
     "skip_intro": {
       "name": "Skip intro",
-      "about": "Starts at the main menu: no notice screens, studio logo, intro movie or title screen. Loading still takes as long."
+      "about": "Starts at the main menu, without the intro screens and movie."
     },
     "fast_menus": {
       "name": "Fast menus",
-      "about": "Skips menu transitions, also in the pause menu and on the screens after a match. Matches, movies and the credits are unchanged."
+      "about": "Skips the transitions between menu screens."
     },
     "no_mega_strikes": {
       "name": "No Mega Strikes",
-      "about": "Mega Strikes are off for both teams, the usual competitive rule. Skillshots stay, and Strikers 101 lessons keep their own rules."
+      "about": "Mega Strikes are off for both teams."
     },
     "unlock_all": {
       "name": "Unlock everything",
-      "about": "All characters, stadiums and cheats, through the game's own unlock switch. Your save is not changed; cup finals then no longer feature the locked captains."
+      "about": "Unlocks all characters, stadiums and cheats without changing your save."
     },
     "cpu_vs_cpu": {
       "name": "CPU vs CPU",
-      "about": "The CPU plays both teams in Domination if you press Done on Choose Sides without picking a side. Any controller can still pause, and Choose Sides in the pause menu can hand a match over to the CPU too."
+      "about": "The CPU plays both teams when nobody picks a side in Domination."
     },
     "fast_terrain": {
       "name": "Fast terrain",
-      "about": "Every stadium plays like the fast, dry field of Bowser Stadium: same running speed, ball roll and bounce, no sliding on ice or mud, no slow sand in the Sand Tomb. Looks and hazards stay; online matches are unchanged."
+      "about": "Every stadium plays like the fast, dry field of Bowser Stadium."
     },
     "mirror_match": {
       "name": "Mirror match",
-      "about": "Both teams can pick the same captain in Domination. The away team wears an away kit, in the menus too: the game's own, or for Mario, Luigi, Wario and Waluigi one made from their kit (blue, sky blue, blue, orange). Online matches are unchanged."
+      "about": "Both teams can pick the same captain, the away team in an away kit."
     },
     "thunder_island_walls": {
       "name": "Thunder Island walls",
-      "about": "Thunder Island's open sides get the electric fence of every other stadium: the ball and items bounce off, and players knocked into it are electrocuted instead of falling off the island. The fence stays invisible; online matches are unchanged."
+      "about": "Thunder Island's open sides get the electric fence of every other stadium."
     },
     "blue_peach": {
       "name": "Blue Peach",
-      "about": "Peach's team wears her unused blue and yellow kit on the field: Peach, her sidekicks and her goalie. The game has no blue menu pictures, Mega Strike hand, banners or crowd for it, so those stay pink."
+      "about": "Peach's team wears her unused blue kit on the field."
     },
     "fair_ball_contests": {
-      "name": "Feder's fair ball contests",
-      "about": "When players of both teams reach a loose ball at once, the defending team (the one whose goal is on the ball's side of the field) takes it. On the Wii the home was favoured instead: the Wii game updates the players in an order it shuffles at kickoff, slightly in the home team's favour, and settles one-timers, first-time shots off rebounds and pass receptions with the home team always first. Named after Feder, who made a Gecko code for this on the Wii. On by default; online matches always play with it."
+      "name": "Defence priority",
+      "about": "When both teams reach a loose ball at once, the defending team gets it. Based on Feder's Gecko code for the Wii."
     },
     "robot_goalies": {
       "name": "Robot goalies",
-      "about": "Both goalies wear the robot Kritter skin of the Super Team from Super Mario Strikers, which the game's disc still holds unused: red lens eyes, metal plating and the robot jersey. Only the look changes."
+      "about": "Both goalies wear the unused robot Kritter skin from the game's disc."
     },
     "super_team": {
       "name": "Super Team (Work in Progress)",
-      "about": "A team's captain and sidekicks become the robots of the Super Team from Super Mario Strikers, fitted to each character's size. Needs a Super Mario Strikers (GameCube) disc image. Bowser, Petey Piranha and Boo keep their own look; only the look changes."
+      "about": "A team's players become Super Team robots from a Super Mario Strikers (GameCube) disc image."
     },
     "secure_stadiums": {
       "name": "Secure stadiums",
-      "about": "The game's Secure Stadium cheat in every offline match: no lightning, wind, flying debris, solar flares, bubbling lava, Storm Ship tilt, Thwomps or sand patches. The electric fences stay. Striker Challenges keep their rules; online matches are unchanged."
+      "about": "No stadium hazards such as lightning, wind or Thwomps in offline matches."
     },
     "match_point": {
       "name": "Match point",
-      "about": "In a match to a number of goals, the kickoff that finds both teams one goal from winning plays overtime's siren and sudden death music in place of the stadium's, until the match ends, and the HUD shows SUDDEN DEATH instead of First to. Only sound and HUD change. On by default."
+      "about": "Sudden death music plays when both teams are one goal from winning."
     },
     "override_retail_menus": {
       "name": "Override retail menus (Dev)",
-      "about": "Development switch: Recharged's own versions replace the game's menus as they are built, starting with the pause menu in a match, drawn over the blurred game. They open the same pages and do the same as the game's. On by default; off shows the game's own menus."
+      "about": "Recharged's own menus replace the game's."
     }
   },
   "sound_groups": {
@@ -83,11 +83,11 @@
     },
     "menu_volume": {
       "name": "Menus & HUD",
-      "about": "Menu clicks and prompts, the studio logo's jingle and the sounds of the match's on-screen display."
+      "about": "Menu clicks, prompts and the match's on-screen display."
     },
     "cutscene_volume": {
       "name": "Cutscenes",
-      "about": "Captain introductions, goal celebrations, Mega Strikes and the scenes after a match, with their own music and voices."
+      "about": "Captain introductions, goal celebrations, Mega Strikes and after-match scenes."
     },
     "movie_volume": {
       "name": "Movies",
