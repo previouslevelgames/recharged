@@ -485,7 +485,9 @@
     "tournament_game_lost": "You lost game {{game}}",
     "tournament_game_draw": "Game {{game}} was a draw: it is played again",
     "tournament_set_goes_on": "{{tournament}}: {{won}} - {{lost}} in the set. The next game starts from the trophy room.",
-    "tournament_set_over": "{{tournament}}: the set ended {{won}} - {{lost}}."
+    "tournament_set_over": "{{tournament}}: the set ended {{won}} - {{lost}}.",
+    "tournament_ready_in_room": "{{tournament}}: press READY in the trophy room.",
+    "tournament_opponent_ready": "{{name}} is READY in the trophy room ({{tournament}})."
   },
   "presence": {
     "online": "Online",

@@ -452,6 +452,28 @@ void TestSet()
     set.tournament.winner = "you";
     model = MakeOnlinePanelModel({}, set, context);
     CHECK(model.set.title == "You won the set" && model.set.status == "Recharged Cup: the set ended 2 - 1.");
+    CHECK(!model.set.trophy_room);
+    set.tournament = {};
+
+    // A tournament set's game to play: READY is the trophy room's, where the
+    // card sends the player; it is not called off from here.
+    set = Set("accepted", "challenged", "open");
+    set.tournament.id = 4;
+    set.tournament.name = "Recharged Cup";
+    set.opponent_ready = true;
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.stage == Stage::Ready && !model.set.can_ready && model.set.trophy_room);
+    CHECK(!model.set.can_cancel);
+    CHECK(model.set.status == "Mario is READY in the trophy room (Recharged Cup).");
+    set.opponent_ready = false;
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.status == "Recharged Cup: press READY in the trophy room.");
+    set.you_ready = true;
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.status == "Waiting for Mario to be ready" && model.set.trophy_room);
+    set.stage = "playing";
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.stage == Stage::Playing && !model.set.trophy_room && !model.set.can_cancel);
     set.tournament = {};
 
     // Ended without a result: nothing.
