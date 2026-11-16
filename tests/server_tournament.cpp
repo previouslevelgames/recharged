@@ -123,12 +123,35 @@ void Calls()
     out.signed_in = false;
     CHECK(runtime::TournamentCallOf(out).kind == Kind::None);
 }
+// The game a match goes on from, by the game's ids; none with a team unknown.
+void Resume()
+{
+    platform::ProfileMatch match;
+    CHECK(!runtime::TournamentResumeOf(match));
+    platform::TournamentResume resume;
+    resume.stadium = "the_palace";
+    resume.seconds = 70;
+    resume.you = {"bowser", {"birdo", "boo", "shy_guy"}, 1};
+    resume.opponent = {"mario", {"toad", "boo", "koopa"}, 2};
+    match.tournament.resume = resume;
+    const auto made = runtime::TournamentResumeOf(match);
+    CHECK(made && made->own_captain == 1 && made->opponent_captain == 0);
+    CHECK(made && made->own_sidekicks[0] == 3 && made->own_sidekicks[1] == 4 && made->own_sidekicks[2] == 7);
+    CHECK(made && made->opponent_sidekicks[2] == 1 && made->own_score == 1 && made->opponent_score == 2
+          && made->seconds == 70.0f);
+    match.tournament.resume->opponent.sidekicks.pop_back();
+    CHECK(!runtime::TournamentResumeOf(match));
+    match.tournament.resume = resume;
+    match.tournament.resume->you.captain = "unknown";
+    CHECK(!runtime::TournamentResumeOf(match));
+}
 } // namespace
 
 int main()
 {
     List();
     Calls();
+    Resume();
     if (failures)
     {
         std::fprintf(stderr, "%d server tournament checks failed\n", failures);

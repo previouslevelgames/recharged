@@ -527,12 +527,68 @@ extern "C" __attribute__((visibility("default"))) void charged_configure_set_sid
     sSetSide = side == 0 || side == 1 ? side : -1;
 }
 
+// The set's next game goes on from one that broke off
+// (charged_configure_set_resume): the teams, goals and clock then.
+bool sResumeOn = false;
+ChargedSetResume sResume{};
+// The match's start from its game start message (every machine alike): the
+// goals of home and away, and the clock; none for a game from the start.
+bool sGameResumes = false;
+int sGameScores[2] = {0, 0};
+float sGameSeconds = 0.0f;
+
+extern "C" __attribute__((visibility("default"))) void charged_configure_set_resume(const ChargedSetResume* resume,
+                                                                                    unsigned size)
+{
+    sResumeOn = resume && size == sizeof(ChargedSetResume);
+    sResume = sResumeOn ? *resume : ChargedSetResume{};
+}
+
+// Tweak patch 0080: this player's team for the draft to take by itself.
+extern "C" bool mscharged_competitive_resume_lineup(int* captain, int* sidekicks)
+{
+    if (!sResumeOn || sSetStage == CHARGED_SET_NONE || sRankedWalk || !captain || !sidekicks) return false;
+    *captain = sResume.own_captain;
+    for (int slot = 0; slot < 3; ++slot) sidekicks[slot] = sResume.own_sidekicks[slot];
+    return true;
+}
+
+// Tweak patch 0080: the draft host's start of the game: this player's goals,
+// the opponent's, the clock.
+extern "C" bool mscharged_competitive_resume_start(int* own, int* opponent, float* seconds)
+{
+    if (!sResumeOn || sSetStage == CHARGED_SET_NONE || sRankedWalk || !own || !opponent || !seconds) return false;
+    *own = sResume.own_score;
+    *opponent = sResume.opponent_score;
+    *seconds = sResume.seconds;
+    return true;
+}
+
+// Tweak patch 0080: the game start message's start (null: from the start).
+extern "C" void mscharged_competitive_game_resume(const int* scores, float seconds)
+{
+    sGameResumes = scores != nullptr;
+    sGameScores[0] = scores ? scores[0] : 0;
+    sGameScores[1] = scores ? scores[1] : 0;
+    sGameSeconds = scores ? seconds : 0.0f;
+    if (scores)
+        std::fprintf(stderr, "Competitive: the game goes on from %d-%d at %.0f seconds\n", sGameScores[0],
+                     sGameScores[1], double(sGameSeconds));
+}
+
 #if defined(MSCHARGED_TWEAKS)
 // Tweak patch 0079: a set's game (not the Game Menu's RANKED) on its way.
 extern "C" int mscharged_competitive_set_side(void)
 {
     return sSetStage != CHARGED_SET_NONE && !sRankedWalk ? sSetSide : -1;
 }
+
+int mscharged_tweak_resume_score(int side)
+{
+    return sGameResumes && (side == 0 || side == 1) ? sGameScores[side] : -1;
+}
+
+float mscharged_tweak_resume_clock(void) { return sGameResumes ? sGameSeconds : 0.0f; }
 
 extern "C" void mscharged_competitive_sides_swapped(int side)
 {
@@ -578,6 +634,8 @@ extern "C" __attribute__((visibility("default"))) void charged_competitive_end_s
     sLeaveOnline = sSetStage == CHARGED_SET_FAILED && !sRankedWalk;
     sSetStage = CHARGED_SET_NONE;
     sSetSide = -1;
+    sResumeOn = false;
+    sGameResumes = false;
     sSetPopup = -1;
     sPlayerChoosesMii = false;
     sStartedInGame = false;

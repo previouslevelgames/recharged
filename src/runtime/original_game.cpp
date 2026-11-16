@@ -1878,6 +1878,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // A tournament set's players take the home side in turn (tweak patch 0079).
         auto configureSetSide=reinterpret_cast<ChargedConfigureSetSideFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_set_side"));
+        // A tournament set's game that goes on from one that broke off
+        // (tweak patch 0080).
+        auto configureSetResume=reinterpret_cast<ChargedConfigureSetResumeFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_set_resume"));
         // At debug level DWC's own reports of the WFC login, matchmaking and
         // NAT negotiation, which the game switches off, go to the log.
         if(launch.settings.log_level=="debug")
@@ -3393,6 +3397,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                             mscharged::platform::SessionLogLine(std::string("Tournament: this player is ")
                                 +(side==0 ? "home" : "away")+" in this game (the set's turn)");
                     }
+                    if(configureSetResume) {
+                        const auto resume=latest.match && latest.match->id==match
+                            ? mscharged::runtime::TournamentResumeOf(*latest.match) : std::nullopt;
+                        configureSetResume(resume ? &*resume : nullptr,sizeof(ChargedSetResume));
+                        if(resume)
+                            mscharged::platform::SessionLogLine("Tournament: this game goes on from "
+                                +std::to_string(resume->own_score)+"-"+std::to_string(resume->opponent_score)
+                                +" at "+std::to_string(int(resume->seconds))+" seconds, the same teams");
+                    }
                     if(configureTrophy) {
                         const auto ending=latest.page
                             ? mscharged::runtime::TournamentEndingOf(*latest.page,match)
@@ -3421,6 +3434,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         +(over ? " is over" : " ended without its series"));
                     if(configureTrophy) configureTrophy(-1,false,false,nullptr,nullptr,nullptr);
                     if(configureSetSide) configureSetSide(-1);
+                    if(configureSetResume) configureSetResume(nullptr,sizeof(ChargedSetResume));
                     tournamentSetOn=false;
                     hostMenus->TournamentSetDone(over);
                     return true;

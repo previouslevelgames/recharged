@@ -343,6 +343,27 @@ TournamentCeremony TournamentCeremonyOf(const platform::TournamentPage& page, st
     return ceremony;
 }
 
+std::optional<ChargedSetResume> TournamentResumeOf(const platform::ProfileMatch& match)
+{
+    const auto& found = match.tournament.resume;
+    if (!found) return std::nullopt;
+    ChargedSetResume resume{};
+    const auto team = [](const platform::TournamentResume::Team& from, int& captain, int (&sidekicks)[3]) {
+        captain = platform::CaptainIndex(from.captain);
+        if (captain < 0 || from.sidekicks.size() != 3) return false;
+        for (int slot = 0; slot < 3; ++slot)
+            if ((sidekicks[slot] = platform::SidekickIndex(from.sidekicks[std::size_t(slot)])) < 0) return false;
+        return true;
+    };
+    if (!team(found->you, resume.own_captain, resume.own_sidekicks)
+        || !team(found->opponent, resume.opponent_captain, resume.opponent_sidekicks))
+        return std::nullopt;
+    resume.own_score = found->you.score;
+    resume.opponent_score = found->opponent.score;
+    resume.seconds = float(std::max(found->seconds, 0));
+    return resume;
+}
+
 int TournamentSideOf(const platform::TournamentPage& page, std::int64_t match)
 {
     const auto* set = SetOfMatch(page, match);

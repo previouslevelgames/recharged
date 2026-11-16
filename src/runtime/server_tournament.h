@@ -1,9 +1,11 @@
 #pragma once
 
+#include "platform/competitive_rules.h"
 #include "platform/tournament_feed.h"
 #include "ui/rui_pages.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace mscharged::runtime
@@ -49,6 +51,10 @@ struct TournamentCeremony
     std::u16string title, own, opponent;
 };
 TournamentCeremony TournamentCeremonyOf(const platform::TournamentPage& page, std::int64_t match);
+
+// The game the match `match` goes on from (its tournament context's resume)
+// for the game module: none without one, or with a team unknown.
+std::optional<ChargedSetResume> TournamentResumeOf(const platform::ProfileMatch& match);
 
 // This player's side in the game of match `match` by the set's turn (the
 // server's game_home): 0 home, 1 away, -1 none (the game's own sides).

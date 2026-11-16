@@ -281,6 +281,22 @@ struct MatchGame
 
 // A match as one of its players sees it.
 // The tournament set a match plays (servers with tournaments; id 0: none).
+// A tournament set's game that broke off, which the next goes on from: the
+// stadium, the seconds on its clock, whether the player was at home, and
+// each team as it was (captain, three sidekicks, goals).
+struct TournamentResume
+{
+    std::string stadium;
+    int seconds = 0;
+    bool you_home = false;
+    struct Team
+    {
+        std::string captain;
+        std::vector<std::string> sidekicks;
+        int score = 0;
+    } you, opponent;
+};
+
 struct MatchTournament
 {
     std::int64_t id = 0, set = 0;
@@ -292,6 +308,7 @@ struct MatchTournament
     std::string state;      // the set's (TournamentSet::state)
     std::string winner;     // the set's once finished: "you" or "opponent"
     std::string home;       // who is at home in the set's next game: "you" or "opponent"
+    std::optional<TournamentResume> resume; // the set's next game goes on from one that broke off
 };
 
 struct ProfileMatch

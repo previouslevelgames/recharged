@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cctype>
+#include <iterator>
 #include <map>
 #include <mutex>
 
@@ -277,6 +278,23 @@ std::u16string ScreenName(std::string_view name)
 std::string CaptainKey(int team)
 {
     return team >= 0 && team < int(kCaptains.size()) ? kCaptains[std::size_t(team)] : "";
+}
+
+int CaptainIndex(std::string_view key)
+{
+    for (std::size_t at = 0; at < kCaptains.size(); ++at)
+        if (key == kCaptains[at]) return int(at);
+    return -1;
+}
+
+int SidekickIndex(std::string_view key)
+{
+    // eSidekickID's order, as the match reports name them.
+    static constexpr const char* kSidekicks[] = {"toad", "koopa",     "hammer_bro", "birdo",
+                                                 "boo",  "dry_bones", "monty_mole", "shy_guy"};
+    for (std::size_t at = 0; at < std::size(kSidekicks); ++at)
+        if (key == kSidekicks[at]) return int(at);
+    return -1;
 }
 
 std::string StadiumKey(int stadium)

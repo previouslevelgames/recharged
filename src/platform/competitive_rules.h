@@ -111,6 +111,23 @@ typedef void (*ChargedConfigureTournamentTrophyFunction)(int persona, bool own_w
 // game swaps its sides to follow it: the draft host's side decides it for
 // every machine (tweak patch 0079). The set's end clears it.
 typedef void (*ChargedConfigureSetSideFunction)(int side);
+// A tournament set's game that goes on from one that broke off (tweak
+// patch 0080): this player's team and the opponent's (eTeamID; eSidekickID
+// each), their goals then, and the seconds on its clock then.
+struct ChargedSetResume
+{
+    int own_captain;
+    int own_sidekicks[3];
+    int opponent_captain;
+    int opponent_sidekicks[3];
+    int own_score, opponent_score;
+    float seconds;
+};
+// Game module entry, between frames: the set's next game goes on from
+// `resume` (null: from the start). The game skips its draft with these
+// teams; its draft host starts it from these goals and clock for both
+// machines. The set's end clears it.
+typedef void (*ChargedConfigureSetResumeFunction)(const ChargedSetResume* resume, unsigned size);
 // Game module entry ([advanced] log_level = debug): DWC's reports of the WFC
 // login, matchmaking and NAT negotiation go to the game's output (the log).
 typedef void (*ChargedConfigureDwcReportFunction)(bool on);
@@ -164,6 +181,10 @@ const std::vector<RuleChoice>& RuleTweakChoices();
 // The server's names (lowercase, '_' between words): eTeamID and eStadiumID,
 // empty for unknown values.
 std::string CaptainKey(int team);
+// The other way: a captain's eTeamID, a sidekick's eSidekickID, by their
+// names; -1 for none.
+int CaptainIndex(std::string_view key);
+int SidekickIndex(std::string_view key);
 std::string StadiumKey(int stadium);
 // "the_palace" as shown: "The Palace".
 std::string NameLabel(std::string_view name);

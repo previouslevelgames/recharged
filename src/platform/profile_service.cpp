@@ -237,6 +237,21 @@ ProfileMatch ParseMatch(const JsonValue& value)
         match.tournament.state = tournament["state"].Text();
         match.tournament.winner = tournament["winner"].Text();
         match.tournament.home = tournament["home"].Text();
+        if (const auto& resume = tournament["resume"]; resume.IsObject())
+        {
+            TournamentResume made;
+            made.stadium = resume["stadium"].Text();
+            made.seconds = int(resume["seconds"].Integer().value_or(0));
+            made.you_home = resume["home"].Text() == "you";
+            for (auto [team, key] : {std::pair{&made.you, "you"}, std::pair{&made.opponent, "opponent"}})
+            {
+                const auto& value = resume[key];
+                team->captain = value["captain"].Text();
+                for (const auto& sidekick : value["sidekicks"].Items()) team->sidekicks.push_back(sidekick.Text());
+                team->score = int(value["score"].Integer().value_or(0));
+            }
+            match.tournament.resume = std::move(made);
+        }
     }
     return match;
 }
