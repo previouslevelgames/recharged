@@ -391,8 +391,9 @@
     "yours_running": "YOUR TOURNAMENT",
     "format": "{{format}}  ·  {{rule_set}}",
     "best_of": "Sets best of {{best_of}}, finals best of {{finals}}",
-    "entrants": "{{count}} in",
-    "entrants_max": "{{count}} of {{max}} in",
+    "entrants_one": "{{count}} player",
+    "entrants_other": "{{count}} players",
+    "entrants_max": "{{count}}/{{max}} players",
     "place": "You finished {{place}}",
     "place_short": "{{place}}",
     "none": "No tournaments right now: an organizer opens them on the Recharged server."

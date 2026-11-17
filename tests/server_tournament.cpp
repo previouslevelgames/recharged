@@ -53,14 +53,20 @@ void List()
           && model.featured->tone == ui::Tone::Good);
     CHECK(model.featured && model.featured->lines.size() == 3
           && model.featured->lines[0] == "Double elimination  ·  Competitive"
-          && model.featured->lines[1] == "Sets best of 3, finals best of 5" && model.featured->lines[2] == "3 of 8 in");
+          && model.featured->lines[1] == "Sets best of 3, finals best of 5" && model.featured->lines[2] == "3/8 players");
     CHECK(model.others.size() == 1 && model.others[0].key == "9" && model.others[0].kicker == "OPEN FOR ENTRIES"
-          && model.others[0].value == "3 of 8 in");
+          && model.others[0].value == "3/8 players");
     CHECK(model.past.size() == 1 && model.past[0].key == "6" && model.past[0].value == "2nd"
           && model.past[0].lines.back() == "You finished 2nd");
     // Nobody's: the newest open for entries.
     feed.tournaments[1].joined = false;
     CHECK(runtime::ServerTournaments(feed).featured->key == "9");
+    // No cap on entries: the players alone.
+    feed.tournaments[0].max_entrants = 0;
+    feed.tournaments[0].entrants = 1;
+    CHECK(runtime::ServerTournaments(feed).featured->value == "1 player");
+    feed.tournaments[0].entrants = 2;
+    CHECK(runtime::ServerTournaments(feed).featured->value == "2 players");
 }
 
 Snapshot Running(const char* state, int home_wins, int away_wins)

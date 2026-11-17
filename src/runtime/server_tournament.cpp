@@ -130,10 +130,10 @@ ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapsh
                        : running && t.joined ? T("menus.tournaments.yours_running")
                        : running             ? T("menus.tournaments.running")
                                              : T("menus.tournaments.finished");
-        const std::string count = std::to_string(t.entrants);
         const std::string entrants =
-            t.max_entrants > 0 ? T("menus.tournaments.entrants_max", {{"count", count}, {"max", std::to_string(t.max_entrants)}})
-                               : T("menus.tournaments.entrants", {{"count", count}});
+            t.max_entrants > 0 ? T("menus.tournaments.entrants_max", {{"count", std::to_string(t.entrants)},
+                                                                       {"max", std::to_string(t.max_entrants)}})
+                               : texts::Count("menus.tournaments.entrants", t.entrants);
         entry.value = t.place > 0 ? T("menus.tournaments.place_short", {{"place", Place(t.place)}}) : entrants;
         entry.tone = t.joined && (open || running) ? ui::Tone::Good : ui::Tone::Neutral;
         entry.lines.push_back(T("menus.tournaments.format",
