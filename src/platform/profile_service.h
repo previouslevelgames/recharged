@@ -386,6 +386,16 @@ struct TournamentFrom
     std::int64_t value = 0; // the seed, or the set's id
 };
 
+// A game a tournament set played: each team's captain (the game's name)
+// and goals, home and away as the set has them; `interrupted` when it broke
+// off (or was forfeited) at this score.
+struct TournamentPlayedGame
+{
+    std::string home_captain, away_captain;
+    int home_score = 0, away_score = 0;
+    bool interrupted = false;
+};
+
 struct TournamentSet
 {
     std::int64_t id = 0;
@@ -403,6 +413,7 @@ struct TournamentSet
     // sides to follow.
     std::int64_t game_home = 0;
     TournamentFrom from[2];
+    std::vector<TournamentPlayedGame> played; // in their order
 };
 
 // The player's own place in a tournament (with a session).

@@ -320,6 +320,16 @@ TournamentPage ParseTournamentPage(const JsonValue& value)
                     set.from[n].value = *value;
                 }
         }
+        for (const auto& game : item["played"].Items())
+        {
+            TournamentPlayedGame played;
+            played.home_captain = game["home_captain"].Text();
+            played.away_captain = game["away_captain"].Text();
+            played.home_score = int(game["home_score"].Integer().value_or(0));
+            played.away_score = int(game["away_score"].Integer().value_or(0));
+            played.interrupted = game["interrupted"].Bool();
+            set.played.push_back(std::move(played));
+        }
         page.sets.push_back(std::move(set));
     }
     if (const auto& me = value["me"]; me.IsObject())
