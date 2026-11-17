@@ -216,6 +216,9 @@ void ChargedOnlineSeriesForfeit()
     if (!UnderWay()) return;
     sSeries.ended = 2;
     sSeries.stopped_by = kChargedOnlineForfeit;
+    // The forfeited game stays on screen until the connection closes: it
+    // begins no new series.
+    sAwaitingGame = true;
 }
 
 extern "C" __attribute__((visibility("default"))) bool charged_online_match_snapshot(
