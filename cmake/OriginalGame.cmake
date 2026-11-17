@@ -384,7 +384,7 @@ if(TARGET charged_overlay)
     if(BUILD_TESTING)
         # The profile server's tournament as the trophy room's pages show it.
         add_executable(server_tournament_tests tests/server_tournament.cpp src/runtime/server_tournament.cpp)
-        target_link_libraries(server_tournament_tests PRIVATE charged_competitive charged_recharged_ui)
+        target_link_libraries(server_tournament_tests PRIVATE charged_competitive charged_recharged_ui charged_discord)
         add_test(NAME server_tournament COMMAND server_tournament_tests)
     endif()
 else()

@@ -122,6 +122,7 @@ struct PageModel
     bool online_menu = false;
     TournamentModel tournament;
     TournamentListModel tournaments;
+    std::string bracket_picked; // the BRACKET's set whose games are listed (its id)
     // A match against another machine runs: the game's own options stay as
     // they are (changing them would change the game on one machine only).
     bool network_match = false;
@@ -159,6 +160,8 @@ struct PageActions
     bool tournament_own = false; // with `tournament`: on the player's own TOURNAMENT (their set's card)
     bool tournament_ready = false; // the tournament's READY (or its take-back, when you_ready)
     bool tournament_join = false, tournament_leave = false;
+    std::optional<std::string> bracket_pick;     // the BRACKET's set (its id) whose games to list
+    std::optional<BracketGame> game_results;      // a game's result on the game's results screen
     overlay::OnlinePanelActions online;
     overlay::RankedActions ranked;
     int answer = 0;    // the prompt: 1 its first button, 2 its second

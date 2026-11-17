@@ -25,6 +25,16 @@ enum class BracketSetState
     Done,
 };
 
+// A game a set played: its line under the bracket, and what the game's
+// results screen shows of it (the captains, eTeamID, and the goals, home
+// first).
+struct BracketGame
+{
+    std::string text;
+    int captains[2] = {-1, -1};
+    int goals[2] = {0, 0};
+};
+
 struct BracketSet
 {
     std::string id;
@@ -36,6 +46,8 @@ struct BracketSet
     std::string prereq[2];
     BracketSetState state = BracketSetState::Waiting;
     bool yours = false; // the player's next set
+    std::vector<BracketGame> games; // the games it played: its card is picked to list them
+    bool picked = false;            // its games are listed
 };
 
 // Design pixels: a set's card, the room between columns (for the lines) and

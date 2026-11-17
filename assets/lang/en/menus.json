@@ -401,7 +401,10 @@
   "bracket": {
     "title": "BRACKET",
     "winners": "WINNERS",
-    "losers": "LOSERS"
+    "losers": "LOSERS",
+    "pick": "Point at a set that was played to see its games.",
+    "game": "Game {{game}}: {{home}} {{home_score}} - {{away_score}} {{away}}",
+    "game_interrupted": "Game {{game}}: {{home}} {{home_score}} - {{away_score}} {{away}} (broke off)"
   },
   "forfeit": {
     "title": "FORFEIT",

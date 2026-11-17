@@ -937,13 +937,26 @@ void DrawTournament(const PageModel& model, List& list, PageActions& actions)
 
 // BRACKET: the player's pool, the winners' bracket above the losers' (the
 // footer's BACK goes back).
-void DrawBracket(const PageModel& model, List& list)
+void DrawBracket(const PageModel& model, List& list, PageActions& actions)
 {
-    const auto& bracket = model.tournament.bracket;
+    auto bracket = model.tournament.bracket;
     if (bracket.empty()) list.Note(T("menus.tournament.no_sets"));
+    const BracketSet* picked = nullptr;
+    for (auto& set : bracket)
+        if ((set.picked = !set.games.empty() && set.id == model.bracket_picked)) picked = &set;
     const bool losers =
         std::any_of(bracket.begin(), bracket.end(), [](const BracketSet& set) { return set.round < 0; });
-    list.Bracket(bracket, losers ? T("menus.bracket.winners") : nullptr, T("menus.bracket.losers"));
+    if (const auto pressed =
+            list.Bracket(bracket, losers ? T("menus.bracket.winners") : nullptr, T("menus.bracket.losers")))
+        actions.bracket_pick = bracket[*pressed].id;
+    // Under it, the picked set's games: each its result on the game's screen.
+    if (picked)
+        for (const auto& game : picked->games)
+        {
+            if (list.Plate(game.text.c_str())) actions.game_results = game;
+        }
+    else if (std::any_of(bracket.begin(), bracket.end(), [](const BracketSet& set) { return !set.games.empty(); }))
+        list.Note(T("menus.bracket.pick"));
 }
 
 void DrawPrompt(const PageModel& model, List& list, PageActions& actions)
@@ -1059,7 +1072,7 @@ void DrawPage(PageId id, int category, const std::string& key, const PageModel& 
     case PageId::Prompt: DrawPrompt(model, list, actions); break;
     case PageId::Tournaments: DrawTournaments(model, list, actions); break;
     case PageId::Tournament: DrawTournament(model, list, actions); break;
-    case PageId::Bracket: DrawBracket(model, list); break;
+    case PageId::Bracket: DrawBracket(model, list, actions); break;
     case PageId::Match: DrawMatch(list, actions); break;
     case PageId::Forfeit: DrawForfeit(model, list, actions); break;
     }

@@ -151,6 +151,33 @@ void Resume()
     match.tournament.resume->you.captain = "unknown";
     CHECK(!runtime::TournamentResumeOf(match));
 }
+
+// A set's games in the bracket: its card lists them, each with what the
+// game's results screen shows (the captains, the goals, home first).
+void Games()
+{
+    Snapshot feed = Running("finished", 1, 1);
+    platform::TournamentPlayedGame won, broke;
+    won.home_captain = "bowser_jr";
+    won.away_captain = "donkey_kong";
+    won.home_score = 10;
+    won.away_score = 1;
+    broke.home_captain = "donkey_kong";
+    broke.away_captain = "bowser_jr";
+    broke.home_score = 2;
+    broke.interrupted = true;
+    feed.page->sets[0].played = {won, broke};
+    const auto model = runtime::ServerTournament(feed);
+    CHECK(model.bracket.size() == 1 && model.bracket[0].games.size() == 2);
+    if (model.bracket.size() != 1 || model.bracket[0].games.size() != 2) return;
+    const auto& first = model.bracket[0].games[0];
+    CHECK(first.text == "Game 1: Bowser Jr. 10 - 1 Donkey Kong");
+    CHECK(first.captains[0] == 9 && first.captains[1] == 3 && first.goals[0] == 10 && first.goals[1] == 1);
+    CHECK(model.bracket[0].games[1].text == "Game 2: Donkey Kong 2 - 0 Bowser Jr. (broke off)");
+    // A captain the game does not know: no line for that game.
+    feed.page->sets[0].played[0].home_captain = "unknown";
+    CHECK(runtime::ServerTournament(feed).bracket[0].games.size() == 1);
+}
 } // namespace
 
 int main()
@@ -158,6 +185,7 @@ int main()
     List();
     Calls();
     Resume();
+    Games();
     if (failures)
     {
         std::fprintf(stderr, "%d server tournament checks failed\n", failures);

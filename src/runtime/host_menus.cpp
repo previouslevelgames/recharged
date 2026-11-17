@@ -434,6 +434,14 @@ void HostMenus::Apply(const ui::PageActions& actions, bool live, const overlay::
         }
         platform::SessionLogLine("Menus: TOURNAMENT READY (nothing starts from here now)");
     }
+    if (actions.bracket_pick) bracketPicked_ = *actions.bracket_pick;
+    if (actions.game_results) {
+        // Over the trophy room: these pages wait under the game's screen.
+        const auto& game = *actions.game_results;
+        platform::SessionLogLine("Menus: BRACKET " + game.text + " on the game's results screen");
+        Command(CHARGED_MENU_GAME_RESULTS, game.captains[0] | game.captains[1] << 8,
+                game.goals[0] | game.goals[1] << 16);
+    }
     if ((actions.tournament_join || actions.tournament_leave) && host_.tournament_entry)
         host_.tournament_entry(actions.tournament_join);
     if (actions.wii_online) {
@@ -810,6 +818,7 @@ void HostMenus::BuildModel(ui::PageModel& model)
     model.online_menu = menu_.online_menu != 0;
     model.tournament = tournamentModel_;
     model.tournaments = tournamentListModel_;
+    model.bracket_picked = bracketPicked_;
     model.network_match = menu_.network_match != 0;
     model.forfeiting = menu_.forfeiting != 0 || forfeitAsked_;
     model.front_end = known_ ? menu_.front_end != 0 : true;

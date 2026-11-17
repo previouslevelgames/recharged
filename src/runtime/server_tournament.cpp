@@ -1,6 +1,8 @@
 #include "runtime/server_tournament.h"
 
 #include "bootstrap/texts.h"
+#include "platform/competitive_rules.h"
+#include "platform/game_presence.h"
 
 #include <algorithm>
 #include <cctype>
@@ -91,6 +93,26 @@ std::vector<ui::BracketSet> Bracket(const platform::TournamentPage& page, std::i
             // A line only from the set whose winner comes here.
             if (set.from[n].kind == platform::TournamentFrom::Kind::Winner)
                 cell.prereq[n] = std::to_string(set.from[n].value);
+        }
+        int number = 0;
+        for (const auto& played : set.played)
+        {
+            ui::BracketGame game;
+            game.captains[0] = platform::CaptainIndex(played.home_captain);
+            game.captains[1] = platform::CaptainIndex(played.away_captain);
+            game.goals[0] = played.home_score;
+            game.goals[1] = played.away_score;
+            const char* home = platform::CaptainName(game.captains[0]);
+            const char* away = platform::CaptainName(game.captains[1]);
+            ++number;
+            if (!home || !away) continue;
+            game.text = T(played.interrupted ? "menus.bracket.game_interrupted" : "menus.bracket.game",
+                          {{"game", std::to_string(number)},
+                           {"home", home},
+                           {"away", away},
+                           {"home_score", std::to_string(played.home_score)},
+                           {"away_score", std::to_string(played.away_score)}});
+            cell.games.push_back(std::move(game));
         }
         bracket.push_back(std::move(cell));
     }

@@ -242,6 +242,7 @@ private:
     // The way into the room ends on the player's own TOURNAMENT (their set's
     // card asked, or the room comes again after a set).
     bool tournamentOwn_ = false;
+    std::string bracketPicked_; // the BRACKET's set whose games are listed
     // TournamentSetDone: the room again until then (none: not asked).
     std::optional<Clock::time_point> tournamentReturn_;
     Clock::time_point tournamentSettled_{}; // TournamentSetDone: the room's state taken from then

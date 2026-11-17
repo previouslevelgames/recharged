@@ -1081,13 +1081,15 @@ namespace
 // A set's card: its two entrants (name, score), the winner bright, the
 // player in gold; a green edge while it is played, the game's orange around
 // the player's next one.
-void BracketCard(const Painter& p, const Fonts& fonts, float x, float y, const BracketSet& set)
+void BracketCard(const Painter& p, const Fonts& fonts, float x, float y, const BracketSet& set, bool lit)
 {
     const float w = kBracketCardWidth, h = kBracketCardHeight, mid = y + h * 0.5f;
     p.Gradient(x, y, x + w, y + h, p.Col(24, 32, 38, 230), p.Col(8, 11, 13, 230));
     p.Rect(x, mid - 1, x + w, mid + 1, p.Col(255, 255, 255, 22));
     if (set.state == BracketSetState::Going) p.Rect(x, y, x + 6, y + h, p.Col(140, 228, 110), 2.0f);
     if (set.yours) p.Frame(x - 3, y - 3, x + w + 3, y + h + 3, Orange(p), 6.0f, 2.5f);
+    if (set.picked || lit)
+        p.Frame(x - 1, y - 1, x + w + 1, y + h + 1, p.Col(246, 248, 250, set.picked ? 230 : 120), 4.0f, 2.0f);
     const float size = kSmallSize * 0.9f;
     for (int n = 0; n < 2; ++n)
     {
@@ -1108,7 +1110,7 @@ void BracketCard(const Painter& p, const Fonts& fonts, float x, float y, const B
 }
 } // namespace
 
-void List::Bracket(const std::vector<BracketSet>& sets, const char* winners, const char* losers)
+std::optional<std::size_t> List::Bracket(const std::vector<BracketSet>& sets, const char* winners, const char* losers)
 {
     const BracketLayout layout = LayOutBracket(sets);
     const float view = rows_.x1 - rows_.x0, most = std::max(0.0f, layout.width - view);
@@ -1130,6 +1132,21 @@ void List::Bracket(const std::vector<BracketSet>& sets, const char* winners, con
     const bool over = in_.pointer_shown && Inside(at, rows_.x0, std::max(slot.top, rows_.top), rows_.x1,
                                                   std::min(slot.bottom, listBottom_));
     const float before = state_.target_x;
+    // The card under the hand of a set with games: pressed, it lists them.
+    std::optional<std::size_t> under;
+    for (const auto& cell : layout.cells)
+    {
+        const float x = rows_.x0 - state_.scroll_x + cell.x, y = slot.top + band + cell.y;
+        if (over && !sets[cell.set].games.empty()
+            && Inside(at, x, y, x + kBracketCardWidth, y + kBracketCardHeight))
+            under = cell.set;
+    }
+    std::optional<std::size_t> pressed;
+    if (under && in_.click && !state_.dragging_x)
+    {
+        pressed = under;
+        Play(Sound::Select);
+    }
     if (most > 0.0f)
     {
         if (in_.left) state_.target_x -= step;
@@ -1143,7 +1160,7 @@ void List::Bracket(const std::vector<BracketSet>& sets, const char* winners, con
         ArrowSquare(p_, rightX, arrowY, kArrowSize, 1, rightOn, overRight);
         if (overLeft && in_.click) state_.target_x -= step;
         else if (overRight && in_.click) state_.target_x += step;
-        else if (over && in_.click)
+        else if (over && in_.click && !pressed)
         {
             state_.dragging_x = true;
             state_.drag_x = at.x + state_.target_x;
@@ -1193,8 +1210,10 @@ void List::Bracket(const std::vector<BracketSet>& sets, const char* winners, con
             p_.Rect(xm - 1.0f, std::min(y0, y1) - 1.0f, xm + 1.0f, std::max(y0, y1) + 1.0f, line);
             p_.Rect(xm, y1 - 1.0f, x1, y1 + 1.0f, line);
         }
-    for (const auto& cell : layout.cells) BracketCard(p_, fonts_, ox + cell.x, oy + cell.y, sets[cell.set]);
+    for (const auto& cell : layout.cells)
+        BracketCard(p_, fonts_, ox + cell.x, oy + cell.y, sets[cell.set], under == cell.set);
     p_.draw->PopClipRect();
+    return pressed;
 }
 
 std::optional<int> List::Cycle(const char* label, const char* value, const char* about)
