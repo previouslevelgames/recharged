@@ -39,6 +39,7 @@
 #include "Game/FE/fePopupMenu.h"
 #include "Game/NetworkSession.h"
 #include "Game/SH/SHMainMenu.h"
+#include "Game/SH/SHGameResults.h"
 #include "Game/SH/SHNavigation.h"
 #include "Game/SH/SHOptions.h"
 #include "Game/SH/SHPause.h"
@@ -51,6 +52,7 @@
 #include "mscharged_tweaks.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <iterator>
 #include <cstddef>
 #include <cstdint>
@@ -508,6 +510,45 @@ void ReadGameOptions(ChargedMenuSnapshot& s)
 }
 
 // One of the host's commands, in the game's frame.
+// The game the results screen shows (CHARGED_MENU_GAME_RESULTS): the scene
+// reads it each frame while it is up.
+BasicGameInfo sResultsGame;
+
+bool GameResultsUp()
+{
+    GameSceneManager* manager = GameSceneManager::Instance();
+    return manager && manager->IsOnStack(SCENE_GAME_RESULTS);
+}
+
+// The cup's results screen of a game over the trophy room, as the cup's hub
+// shows a matchup's: only the captains and the goals known, the other
+// numbers nought.
+void ShowGameResults(int homeCaptain, int awayCaptain, int homeGoals, int awayGoals)
+{
+    if (ChargedTrophyRoomState() != CHARGED_TROPHY_ROOM_IN || GameResultsUp()) return;
+    if (homeCaptain < TEAM_MARIO || homeCaptain > TEAM_PETEY || awayCaptain < TEAM_MARIO || awayCaptain > TEAM_PETEY)
+        return;
+    GameSceneManager* manager = GameSceneManager::Instance();
+    // (Its DONE shows the scene it came from again: the online menu, undrawn
+    // in the room.)
+    BaseSceneHandler* hub = TopScene(manager, SCENE_ONLINE_MENU);
+    if (!hub) return;
+    const int captains[2] = {homeCaptain, awayCaptain}, goals[2] = {homeGoals, awayGoals};
+    sResultsGame = BasicGameInfo();
+    for (int side = 0; side < 2; ++side) {
+        sResultsGame.mTeamIndex[side] = captains[side];
+        sResultsGame.mSides[side].Initialize(eTeamID(captains[side]));
+        sResultsGame.mSides[side].mPlayerTotalStats.mNumGoalsFor = u16(goals[side]);
+        sResultsGame.SetFinalScore(side, short(goals[side]));
+    }
+    auto* results = static_cast<GameResultsScene*>(manager->Push(SCENE_GAME_RESULTS, SCREEN_NOTHING, false));
+    if (!results) return;
+    results->SetResultsData(&sResultsGame, hub, nullptr);
+    results->SetDisplayMode(NEWS_CUP_GAME_RESULTS);
+    std::fprintf(stderr, "Menus: a game's results screen over the trophy room (%d %d - %d %d)\n", homeCaptain,
+                 homeGoals, awayGoals, awayCaptain);
+}
+
 void Run(const ChargedMenuCommand& command)
 {
     GameInfoManager* info = GameInfoManager::Instance();
@@ -596,6 +637,10 @@ void Run(const ChargedMenuCommand& command)
         if (command.value) ChargedTrophyRoomEnter(command.which);
         else ChargedTrophyRoomLeave();
         break;
+    case CHARGED_MENU_GAME_RESULTS:
+        ShowGameResults(command.which & 0xFF, (command.which >> 8) & 0xFF, command.value & 0xFFFF,
+                        (command.value >> 16) & 0xFFFF);
+        break;
     default: break;
     }
 }
@@ -658,6 +703,13 @@ void mscharged_tweak_menus_frame(void)
     std::copy(sCommands, sCommands + count, commands);
     sCommandCount = 0;
     for (int n = 0; n < count; ++n) Run(commands[n]);
+    // The results screen gone puts the navigation's Log Out back: the room
+    // hides it again.
+    static bool resultsUp = false;
+    const bool up = GameResultsUp();
+    if (resultsUp && !up && ChargedTrophyRoomState() == CHARGED_TROPHY_ROOM_IN)
+        if (SHNavigation* navigation = GetNavigationScene()) navigation->HideButtons();
+    resultsUp = up;
     ChargedTrophyRoomFrame();
 }
 #endif
@@ -730,6 +782,7 @@ extern "C" __attribute__((visibility("default"))) bool charged_menu_snapshot(Cha
     s.forfeiting = sForfeiting ? 1 : 0;
     s.trophy_room = ChargedTrophyRoomState();
     s.online_menu = ChargedTrophyRoomCanEnter() ? 1 : 0;
+    s.game_results = GameResultsUp() ? 1 : 0;
     s.taken_button = sTakenButton;
     s.taken_pad = sTakenPad;
     ReadGameOptions(s);

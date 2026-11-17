@@ -95,6 +95,9 @@ struct ChargedMenuSnapshot
     // The game's online menu is on top at rest: the trophy room can be
     // entered now (its command would be taken).
     int online_menu;
+    // The game's results screen of a game (CHARGED_MENU_GAME_RESULTS) is
+    // up, over the trophy room: Recharged's pages wait under it.
+    int game_results;
 };
 
 enum ChargedMenu
@@ -138,6 +141,9 @@ enum ChargedMenuCommandKind
     CHARGED_MENU_MAIN_OPTIONS = 13, // the main menu's OPTIONS is pressed (the way to the Credits from there)
     CHARGED_MENU_TROPHY_ROOM = 14, // from the game's online menu into the trophy room (`value` 1, the trophy
                                    // `which`: eCupPersona) or back out of it (`value` 0)
+    CHARGED_MENU_GAME_RESULTS = 15, // in the trophy room, a game's result on the cup's results screen: the
+                                    // captains in `which` (eTeamID, home | away << 8), the goals in `value`
+                                    // (home | away << 16)
 };
 
 // The trophy room: the front end's camera on the trophy of the game's cut

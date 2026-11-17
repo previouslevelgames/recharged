@@ -597,8 +597,11 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
     }
     ShowPrompt(now);
 
+    // The game's results screen over the trophy room: the pages wait under
+    // it, the TV and the input go to the game until its DONE.
+    const bool aside = menu_.game_results != 0;
     // The input: the menus' while they show a page.
-    const bool wantInput = !pages_.empty();
+    const bool wantInput = !pages_.empty() && !aside;
     if (wantInput && (!input_.PagesOpen() || pausePress_)) {
         if (input_.PagesOpen()) input_.ClosePages();
         input_.OpenPages(channel_, pausePress_);
@@ -612,7 +615,7 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
     // the front end's Options until they go.
     const bool pauseShown = scene == CHARGED_MENU_PAUSE && !menu_.leaving;
     const bool optionsShown = scene == CHARGED_MENU_OPTIONS && !menu_.leaving && !anchorDone_;
-    const bool wantTv = !pages_.empty() || pauseShown || optionsShown;
+    const bool wantTv = (!pages_.empty() || pauseShown || optionsShown) && !aside;
     if (wantTv) {
         if (!shown_ || leaving_) {
             shownAt_ = now;
@@ -637,7 +640,7 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
 
     // The game hands its players' cursors over while a page of these shows
     // (the hand at the mouse is the player's own).
-    const bool wantCursors = shown_ && !pages_.empty();
+    const bool wantCursors = shown_ && !pages_.empty() && !aside;
     if (wantCursors != cursors_) {
         Command(CHARGED_MENU_CURSORS, 0, wantCursors ? 1 : 0);
         cursors_ = wantCursors;
