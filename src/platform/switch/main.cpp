@@ -1,7 +1,9 @@
 #include "bootstrap/config.h"
 #include "bootstrap/launch_options.h"
+#include "mscharged/build_version.h"
 #include "platform/disc.h"
 #include "platform/path.h"
+#include "platform/session_log.h"
 #include "runtime/original_game.h"
 
 #include <SDL3/SDL_filesystem.h>
@@ -53,6 +55,9 @@ std::filesystem::path FindGameFolderDisc()
 // disc on the command line.
 int main(int argc, char** argv)
 {
+    // logs/recharged.log beside the .nro, as the desktop launcher writes it:
+    // it also names an exception nobody caught before the crash report.
+    mscharged::platform::StartSessionLog(mscharged::build::version, argc, argv);
     std::vector<char*> arguments(argv, argv + argc);
     const bool given = std::any_of(arguments.begin() + 1, arguments.end(), [](const char* argument) {
         return std::string_view(argument) == "--disc" || std::string_view(argument) == "--disk";
