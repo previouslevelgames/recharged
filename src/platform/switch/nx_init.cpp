@@ -4,12 +4,16 @@
 #include "platform/switch/sqlite_vfs.h"
 
 #include <cerrno>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <pthread.h>
+#include <sys/iosupport.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 
 #include <switch.h>
 
@@ -81,6 +85,46 @@ extern "C" int __wrap_pthread_create(pthread_t* thread, const pthread_attr_t* at
         pthread_attr_init(&sized);
     if (size == 0) pthread_attr_setstacksize(&sized, 8u << 20);
     return __real_pthread_create(thread, &sized, start, arg);
+}
+
+// libnx has no thread detach: newlib's pthread_detach fails (ENOSYS), so
+// std::thread::detach() throws and the thread object, still joinable, ends the
+// program (the freeze watch's did at the game's first frame). A detached
+// thread is closed as a join closes it, by the first detach after it ended.
+namespace
+{
+Mutex g_detached_lock;
+std::vector<__pthread_t*>* g_detached = nullptr; // never freed: threads may detach while the program exits
+}
+
+extern "C" int __syscall_thread_detach(__pthread_t* thread)
+{
+    // The main thread has no pthread (its pthread_self() is -1).
+    if (thread == nullptr || thread == reinterpret_cast<__pthread_t*>(std::intptr_t(-1))) return EINVAL;
+    mutexLock(&g_detached_lock);
+    int result = 0;
+    try
+    {
+        if (g_detached == nullptr) g_detached = new std::vector<__pthread_t*>;
+        auto& threads = *g_detached;
+        // libnx's pthread begins with its Thread, whose handle is signalled once it has ended.
+        std::size_t kept = 0;
+        for (__pthread_t* detached : threads)
+        {
+            if (R_SUCCEEDED(svcWaitSynchronizationSingle(reinterpret_cast<Thread*>(detached)->handle, 0)))
+                __syscall_thread_join(detached);
+            else
+                threads[kept++] = detached;
+        }
+        threads.resize(kept);
+        threads.push_back(thread);
+    }
+    catch (const std::bad_alloc&)
+    {
+        result = ENOMEM;
+    }
+    mutexUnlock(&g_detached_lock);
+    return result;
 }
 
 // Horizon renames only onto a free name; POSIX replaces an existing file. The
