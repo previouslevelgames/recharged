@@ -10,3 +10,8 @@ code to modern compilers and native hardware, while
 `mscharged-decomp-tweaks/` holds every intended change (the optional tweaks and
 the listed bug fixes). The [architecture](../docs/ARCHITECTURE.md#from-the-decompilation-to-the-program)
 document describes how the build uses them.
+
+A folder named `<dependency>-switch/` (such as `aurora-switch/`) holds changes
+for the Nintendo Switch build only. They apply after the dependency's other
+series, and only when the build targets the Switch: the PC builds never see
+them.

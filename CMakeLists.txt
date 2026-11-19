@@ -209,6 +209,10 @@ function(mscharged_prepare_dependency name output)
     if(name IN_LIST MSCHARGED_FORMATTED_DEPENDENCIES)
         list(APPEND prepare_args ${MSCHARGED_PREPARE_FORMAT_ARGS})
     endif()
+    # The Switch's own patches (patches/<name>-switch) apply to its builds only.
+    if(NINTENDO_SWITCH)
+        list(APPEND prepare_args --layer switch)
+    endif()
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
                 --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" ${prepare_args}

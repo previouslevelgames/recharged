@@ -188,6 +188,41 @@ class SourcePreparationTests(unittest.TestCase):
                          ["one.patch", "example-tweaks/one.patch"])
         self.run_prepare(check=True)
 
+    def test_platform_layer_applies_only_when_selected(self):
+        self.patch("one.patch", "original\n", "first\n")
+        self.tweak_patch("one.patch", "first\n", "tweaked\n")
+        layer = self.root / "patches/example-switch"
+        layer.mkdir(parents=True)
+        (layer / "base").write_text(self.pin + "\n", newline="\n")
+        text = "".join(difflib.unified_diff(["tweaked\n"], ["switch\n"], fromfile="a/value.txt", tofile="b/value.txt"))
+        (layer / "one.patch").write_text(text, newline="\n")
+        (layer / "series").write_text("one.patch\n", newline="\n")
+        source = self.run_prepare()
+        self.assertEqual((source / "value.txt").read_text(), "tweaked\n")
+        key = json.loads((source.parent / "manifest.json").read_text())["key"]
+        source = self.run_prepare(layers=["switch"])
+        self.assertEqual((source / "value.txt").read_text(), "switch\n")
+        manifest = json.loads((source.parent / "manifest.json").read_text())
+        self.assertNotEqual(manifest["key"], key)
+        self.assertEqual([p["name"] for p in manifest["inputs"]["patches"]],
+                         ["one.patch", "example-tweaks/one.patch", "example-switch/one.patch"])
+        self.run_prepare(layers=["switch"], check=True)
+        with self.assertRaises(PreparationError):
+            self.run_prepare(check=True)  # the prepared tree has the layer: a build without it re-prepares
+        self.assertEqual((self.run_prepare() / "value.txt").read_text(), "tweaked\n")
+        with self.assertRaisesRegex(PreparationError, "Unknown patch layer"):
+            self.run_prepare(layers=["wii"])
+
+    def test_platform_layer_requires_the_pinned_base(self):
+        self.patch("one.patch", "original\n", "first\n")
+        layer = self.root / "patches/example-switch"
+        layer.mkdir(parents=True)
+        (layer / "base").write_text("0" * 40 + "\n", newline="\n")
+        (layer / "series").write_text("", newline="\n")
+        with self.assertRaisesRegex(PreparationError, "Patch base for example-switch"):
+            self.run_prepare(layers=["switch"])
+        self.run_prepare()  # without the layer, its directory is not read
+
     def test_tweak_series_requires_the_pinned_base(self):
         tweaks = self.tweak_patch("one.patch", "original\n", "tweaked\n")
         (tweaks / "base").write_text("0" * 40 + "\n", newline="\n")
