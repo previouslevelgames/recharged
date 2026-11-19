@@ -1619,6 +1619,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // the top-left corner (set with the overlay; none without it).
         std::optional<mscharged::runtime::HostOverlay::Hint> panelHint;
         std::chrono::steady_clock::time_point panelHintChecked{};
+#if defined(__SWITCH__)
+        std::chrono::steady_clock::time_point loadingChecked{};
+#endif
         // The set this game played last, for the card that offers it again.
         std::optional<mscharged::platform::CompetitiveHost::SetEnd> afterSet;
         // A set started in this game that waits for the main menu or the
@@ -2959,6 +2962,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 hostOverlay->Update(size.native_fb_width,size.native_fb_height,now);
             }
             if(windowMemory) windowMemory->Service(now);
+#if defined(__SWITCH__)
+            // The CPU's boost clock while the game only loads (nx_init.cpp).
+            if(presenceSnapshot && now-loadingChecked>=std::chrono::milliseconds(250)) {
+                loadingChecked=now;
+                ChargedPresenceSnapshot game{};
+                if(presenceSnapshot(&game,sizeof game)) charged_switch_follow_loading(game.task_state);
+            }
+#endif
             Check(interactive || now-start<std::chrono::seconds(sourceBoot?90:40),"Original source scene diagnostic timed out");
             if(nativeSend) {
                 {

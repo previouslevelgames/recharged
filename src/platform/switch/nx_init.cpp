@@ -1,6 +1,7 @@
 // Process setup and teardown on Horizon, in libnx's hooks around main(),
 // adapted from new-coke's Strikers port (CC0).
 #include "platform/switch/nx_init.h"
+#include "Game/Task/GameTaskState.h"
 #include "platform/switch/sqlite_vfs.h"
 
 #include <cerrno>
@@ -20,6 +21,16 @@
 namespace
 {
 int g_nxlink = -1;
+bool g_boosted = false;
+
+// Boost mode runs the CPU at 1785 MHz instead of 1020 and slows the GPU.
+void SetCpuBoost(bool on)
+{
+    if (on == g_boosted) return;
+    if (R_FAILED(appletSetCpuBoostMode(on ? ApmCpuBoostMode_FastLoad : ApmCpuBoostMode_Normal))) return;
+    g_boosted = on;
+    std::fprintf(stderr, "CPU boost: %s\n", on ? "on" : "off");
+}
 }
 
 extern "C" void userAppInit(void)
@@ -45,7 +56,7 @@ extern "C" void userAppInit(void)
     appletLockExit();
     // Shader compilation is CPU work: run the CPU at its load clock until the
     // graphics are prepared (the GPU idles meanwhile).
-    appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);
+    SetCpuBoost(true);
     // NVK lists only the GPUs it calls conformant without this; the Tegra X1
     // is not one of them.
     setenv("NVK_I_WANT_A_BROKEN_VULKAN_DRIVER", "1", 0);
@@ -55,7 +66,16 @@ extern "C" void userAppInit(void)
 
 extern "C" void charged_switch_end_startup_boost(void)
 {
-    appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
+    SetCpuBoost(false);
+}
+
+// The game's loading states show only a loading screen, which hardly uses the
+// GPU, while the CPU reads and sets up the next scene.
+extern "C" void charged_switch_follow_loading(unsigned task_state)
+{
+    constexpr unsigned kLoading =
+        TASK_BOOT | TASK_CLEAN_BOOT | TASK_BOOT_TO_FE | TASK_FE_TO_GAME | TASK_GAME_TO_FE | TASK_BOOT_TO_GAME;
+    SetCpuBoost((task_state & kLoading) != 0);
 }
 
 extern "C" void userAppExit(void)

@@ -11,6 +11,7 @@
 #include "Game/GameSceneManager.h"
 #include "Game/Sys/clock.h"
 #include "Game/Team.h"
+#include "NL/nlTask.h"
 
 extern "C" __attribute__((visibility("default"))) bool charged_presence_snapshot(ChargedPresenceSnapshot* snapshot,
                                                                                  unsigned size)
@@ -49,6 +50,8 @@ extern "C" __attribute__((visibility("default"))) bool charged_presence_snapshot
         s.ranked = info->mIsOnlineMode && info->mOnlineRankedMatch;
         s.strikers101 = info->mIsInStrikers101Mode != 0;
     }
+
+    if (const nlTaskManager* tasks = nlTaskManager::m_pInstance) s.task_state = tasks->mCurrentState;
 
     if (cGame* game = g_pGame)
     {

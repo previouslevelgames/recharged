@@ -30,6 +30,9 @@ struct ChargedPresenceSnapshot
     // A match's own menu is open: its pause menu, or a network error over it
     // (FrontEnd::m_bInPauseMenuState). The scenes above do not show it.
     int match_menu;
+    // The task manager's state (Game/Task/GameTaskState.h): the loading ones
+    // (TASK_BOOT_TO_FE, TASK_FE_TO_GAME...) run only a loading screen.
+    unsigned task_state;
 };
 
 #ifdef __cplusplus
