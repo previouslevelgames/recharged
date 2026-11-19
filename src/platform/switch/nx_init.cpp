@@ -127,6 +127,18 @@ extern "C" int __syscall_thread_detach(__pthread_t* thread)
     return result;
 }
 
+// SDL2's Switch port gives every priority but High (0x2B) Horizon's default
+// 0x3B, its audio thread's time-critical one too. That thread mixes little but
+// must not wait behind the game's pipeline threads (0x2C, patches/aurora-switch),
+// so time-critical becomes High (linked with --wrap=SDL_SYS_SetThreadPriority).
+extern "C" int __real_SDL_SYS_SetThreadPriority(int priority);
+
+extern "C" int __wrap_SDL_SYS_SetThreadPriority(int priority)
+{
+    constexpr int kHigh = 2, kTimeCritical = 3; // SDL2's SDL_ThreadPriority
+    return __real_SDL_SYS_SetThreadPriority(priority == kTimeCritical ? kHigh : priority);
+}
+
 // Horizon renames only onto a free name; POSIX replaces an existing file. The
 // NAND backing, settings and logs write a new file and rename it over the old
 // one, as the game's saves do (linked with --wrap=rename). Not atomic here: the

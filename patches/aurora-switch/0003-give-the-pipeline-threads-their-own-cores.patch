@@ -1,0 +1,71 @@
+From: mscharged-port
+Subject: Give the GX pipeline threads their own cores
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: Nintendo Switch host (Switch layer), no behaviour change. Apply after 0002.
+
+All pthreads start on core 0, and SDL2's Switch port gives every priority but
+High 0x3B, so the game thread, the FIFO processor and the render worker shared
+core 0 at the priority of every background worker. Each now starts on its own
+of the three application cores, at the priority of libnx's main thread.
+
+diff --git a/lib/thread.cpp b/lib/thread.cpp
+--- a/lib/thread.cpp
++++ b/lib/thread.cpp
+@@ -284,6 +284,45 @@
+   pthread_setname_np(pthread_self(), truncated.c_str());
+ #endif
+ }
++
++#if defined(__SWITCH__)
++// The Switch gives applications three cores at one clock. The game thread, the
++// FIFO processor and the render worker form a pipeline, so each starts on a
++// core of its own (Horizon may still move it to an idle one) at the priority of
++// libnx's main thread. Horizon does not share a core between threads of equal
++// priority by time: at SDL2's 0x3B, one of Dawn's pipeline compiles (0x3B)
++// could hold a pipeline thread up until it finished.
++struct SwitchPlace {
++  const char* name;
++  s32 core;
++};
++constexpr SwitchPlace kSwitchPlaces[]{
++    {"Main thread", 0},
++    {"Aurora FIFO processor", 1},
++    {"Aurora render worker", 2},
++};
++constexpr s32 kSwitchPipelinePriority = 0x2C;
++
++bool place_on_switch_core(const std::string& name) noexcept {
++  for (const auto& place : kSwitchPlaces) {
++    if (name != place.name) {
++      continue;
++    }
++    u64 cores = 0;
++    if (R_FAILED(svcGetInfo(&cores, InfoType_CoreMask, CUR_PROCESS_HANDLE, 0))) {
++      return false;
++    }
++    cores &= 0x7; // core 3 belongs to the system
++    if ((cores & (1u << place.core)) == 0) {
++      return false;
++    }
++    svcSetThreadPriority(CUR_THREAD_HANDLE, kSwitchPipelinePriority);
++    svcSetThreadCoreMask(CUR_THREAD_HANDLE, place.core, static_cast<u32>(cores));
++    return true;
++  }
++  return false;
++}
++#endif
+ } // namespace
+ 
+ uint64_t current_cpu_time_ns() noexcept {
+@@ -324,6 +363,11 @@
+ #endif
+   }
+ 
++#if defined(__SWITCH__)
++  if (place_on_switch_core(options.name)) {
++    return;
++  }
++#endif
+   SDL_SetCurrentThreadPriority(to_sdl_priority(options.priority));
+   if (options.affinity == Affinity::SharedCache) {
+     pin_shared_cache();

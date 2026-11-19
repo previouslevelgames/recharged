@@ -17,8 +17,10 @@ target_compile_features(mscharged PRIVATE cxx_std_20)
 target_include_directories(mscharged PRIVATE src)
 target_link_libraries(mscharged PRIVATE mscharged_build_info charged_host sqlite3 charged_switch_vulkan)
 # 8 MiB stacks for threads that ask for none, renames that replace a file as on
-# PC and a working folder without the device name (src/platform/switch/nx_init.cpp).
-target_link_options(mscharged PRIVATE -Wl,--wrap=pthread_create -Wl,--wrap=rename -Wl,--wrap=getcwd)
+# PC, a working folder without the device name and SDL2's audio thread above the
+# game's pipeline threads (src/platform/switch/nx_init.cpp).
+target_link_options(mscharged PRIVATE -Wl,--wrap=pthread_create -Wl,--wrap=rename -Wl,--wrap=getcwd
+    -Wl,--wrap=SDL_SYS_SetThreadPriority)
 
 # Beside the program, as on PC: the renderer configurations prepared at start
 # and the overlay's font.
