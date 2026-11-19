@@ -52,6 +52,9 @@ path.write_text(text + "ENV MESA_SWITCH_RUST_TARGET=aarch64-unknown-linux-gnu\n"
 PINS
 image="recharged-mesa-rust:$(sha256_stdin < "$src/Docker.rust" | cut -c1-12)"
 # NVK_DOCKER_RUN_OPTIONS (such as --cpus 6) reach the build container.
+# NVK at -O2 (mesa-switch builds it at -O1): its C code records every frame's
+# commands on the Switch's slow cores, and meson passes the level to NAK, the
+# Rust shader compiler behind every pipeline compile.
 python3 - "$src/build-switch.sh" "$image" <<'IMAGE_NAME'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
@@ -59,6 +62,7 @@ text = path.read_text()
 for old, new in [
     ('IMAGE_NAME="devkitpro-mesa-rust"', 'IMAGE_NAME="' + sys.argv[2] + '"'),
     ('docker run -d --name "$CONTAINER_NAME"', 'docker run -d ${NVK_DOCKER_RUN_OPTIONS:-} --name "$CONTAINER_NAME"'),
+    ("-Doptimization=1 ", "-Doptimization=2 "),
 ]:
     if text.count(old) != 1:
         sys.exit("Unexpected Mesa build script: " + old)
