@@ -108,6 +108,9 @@
 #include <aurora/imgui.h>
 #endif
 #include "runtime/pipeline_warmup.h"
+#if defined(__SWITCH__)
+#include "platform/switch/nx_init.h"
+#endif
 #include "mscharged/build_version.h"
 #include "runtime/frame_rate.h"
 #include "runtime/host_frame_pacing.h"
@@ -554,7 +557,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         case mscharged::GameCode::Usa: break;
         }
         const auto modulePath=executableDirectory/moduleFilename;
-        Check(std::filesystem::is_regular_file(modulePath),"Original-main source module is missing beside the executable");
+        Check(mscharged::platform::NativeModuleAvailable(modulePath),"Original-main source module is missing beside the executable");
         // Real host window/device/FIFO owner exists before any original module
         // constructors. Original main still owns its GXInit/glStartup decisions.
         if(mscharged::MoveOldDataFolder(executableDirectory))
@@ -784,6 +787,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             aurora_shutdown();
             throw;
         }
+#if defined(__SWITCH__)
+        charged_switch_end_startup_boost();
+#endif
         if(!graphicsPrepared) {
             aurora_shutdown();
             // [launcher] reopen_after_game: the launcher comes back instead (POSIX: in this process).
@@ -1614,8 +1620,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 if(!challengeSound) challengeSound.emplace();
                 challengeSound->Play(float(launch.settings.master_volume)/100.0f);
             }
+#if !defined(__SWITCH__) // no window to flash on the Switch
             if(host.window && !(SDL_GetWindowFlags(host.window)&SDL_WINDOW_INPUT_FOCUS))
                 SDL_FlashWindow(host.window,SDL_FLASH_UNTIL_FOCUSED);
+#endif
         };
         auto observeCompetitive = [&] {
             if(!competitive)return;

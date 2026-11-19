@@ -195,9 +195,10 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     target_sources(${target} PRIVATE src/platform/sim_profile.cpp)
     # The original game's globals in sections of their own (rbk_data/rbk_bss),
     # which a rollback saves with the arenas: a linker script on ELF (GNU ld,
-    # lld), and on PE and Mach-O a launcher that renames the same files'
-    # sections after each compile (the linker gathers them by name).
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # lld; a static game image takes its sections into the image's data), and
+    # on PE and Mach-O a launcher that renames the same files' sections after
+    # each compile (the linker gathers them by name).
+    if(CMAKE_SYSTEM_NAME MATCHES "^(Linux|NintendoSwitch)$")
         set(_rollback_sections "${CMAKE_CURRENT_SOURCE_DIR}/cmake/rollback_sections.ld")
         target_link_options(${target} PRIVATE "LINKER:-T,${_rollback_sections}")
         set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${_rollback_sections}")
@@ -262,6 +263,9 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     endif()
     if(WIN32)
         mscharged_import_original_windows_host(${target})
+    elseif(MSCHARGED_STATIC_GAME)
+        # Linked into the program (cmake/StaticGameImages.cmake), not loaded.
+        mscharged_make_static_game_image(${target} ${suffix})
     else()
         add_dependencies(charged_original_game_host ${target})
     endif()
@@ -280,6 +284,9 @@ mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_us
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_eu R4QP01_REV2 eu)
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_jp R4QJ01 jp)
 mscharged_add_original_frontend_diagnostic(mscharged_original_frontend_module_kr R4QK01 kr)
+if(MSCHARGED_STATIC_GAME AND TARGET mscharged)
+    mscharged_link_static_game_images(mscharged)
+endif()
 
 if(BUILD_TESTING)
     add_test(NAME original_module_vtables

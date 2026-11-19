@@ -3,12 +3,13 @@ include_guard(GLOBAL)
 # The original game runtime. One source module owns original main,
 # FE/font/resources, handlers and rendering; the host supplies one actual SDK
 # and window/device services before original construction.
-if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows)$" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
+if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows|NintendoSwitch)$" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8
         OR NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU" OR MSVC
         OR (WIN32 AND NOT (MINGW AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")))
-    message(FATAL_ERROR "The original-main source diagnostic requires 64-bit Linux, macOS or Windows (LLVM-MinGW) with GCC or Clang")
+    message(FATAL_ERROR "The original-main source diagnostic requires 64-bit Linux, macOS, Windows (LLVM-MinGW) or Nintendo Switch with GCC or Clang")
 endif()
 include(cmake/OriginalModuleLinkage.cmake)
+include(cmake/StaticGameImages.cmake)
 include(cmake/OriginalRetailReturnCompatibility.cmake)
 mscharged_preserve_original_return_semantics()
 include(cmake/NativeModuleLoader.cmake)
@@ -379,6 +380,9 @@ if(TARGET charged_overlay)
     target_link_libraries(charged_original_game_host PRIVATE charged_overlay charged_recharged_ui charged_ui_kit
         charged_mii_head charged_match_presets)
     target_compile_definitions(charged_original_game_host PRIVATE MSCHARGED_HAS_GAME_OVERLAY=1)
+else()
+    # Without the launcher (the Switch): the fallback fonts the overlay's texts use.
+    target_sources(charged_original_game_host PRIVATE src/launcher/fallback_fonts.cpp)
 endif()
 # The graphics cards the menus' Advanced settings offer, as the launcher's.
 if(TARGET charged_graphics_cards)
@@ -431,6 +435,9 @@ function(mscharged_link_original_game target)
         # main holds the game module's base from the start (#98).
         target_compile_definitions(${target} PRIVATE
             MSCHARGED_WINDOWS_GAME_MODULE_BASE=${MSCHARGED_WINDOWS_GAME_MODULE_BASE})
+    elseif(NINTENDO_SWITCH)
+        # One program with the game images linked in: nothing binds to it later.
+        target_link_options(${target} PRIVATE -Wl,--gc-sections)
     else()
         if(MSCHARGED_DIAGNOSTIC_FRONTEND_RESET)
             set(_host_exports original_main_reset_host_exports.map)

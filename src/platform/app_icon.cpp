@@ -1,15 +1,22 @@
 #include "platform/app_icon.h"
+
+#if !defined(__SWITCH__)
 #include "mscharged/app_icon_bytes.h"
 
 #include <SDL3/SDL_iostream.h>
 #include <SDL3/SDL_log.h>
 #include <SDL3/SDL_surface.h>
 #include <SDL3/SDL_video.h>
+#endif
 
 namespace mscharged::platform
 {
 void SetApplicationIcon(SDL_Window* window)
 {
+#if defined(__SWITCH__)
+    // The Homebrew Menu shows the .nro's own icon; Switch windows have none.
+    (void)window;
+#else
     auto* stream = SDL_IOFromConstMem(application_icon_png, sizeof(application_icon_png));
     auto* surface = stream ? SDL_LoadPNG_IO(stream, true) : nullptr;
     if (!surface)
@@ -21,5 +28,6 @@ void SetApplicationIcon(SDL_Window* window)
     // do not support window icons; that must not prevent the game from starting.
     SDL_SetWindowIcon(window, surface);
     SDL_DestroySurface(surface);
+#endif
 }
 }

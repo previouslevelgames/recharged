@@ -12,6 +12,11 @@ target_include_directories(charged_native_hbm_debug PUBLIC src
     "${MSCHARGED_AURORA_PREPARED}/include")
 target_compile_features(charged_native_hbm_debug PUBLIC cxx_std_20)
 target_compile_definitions(charged_native_hbm_debug PRIVATE TARGET_PC=1)
+if(NINTENDO_SWITCH)
+    # No dynamic loader to name symbols (src/platform/switch/include).
+    target_include_directories(charged_native_hbm_debug SYSTEM BEFORE PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/switch/include")
+endif()
 target_link_libraries(charged_native_hbm_debug PUBLIC
     charged_platform_thread aurora::os "${CMAKE_DL_LIBS}")
 

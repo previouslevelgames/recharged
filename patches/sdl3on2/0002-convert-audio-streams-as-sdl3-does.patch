@@ -1,0 +1,2173 @@
+Subject: Convert audio streams as SDL3 does
+Upstream-base: fbe120f5020f8bdcb9cbf5ae28d9859b29781119
+
+The game's sound output (src/platform/ai.cpp) relies on SDL3's streams:
+no-copy buffers that complete only once read, a source format that changes
+while earlier input still plays at its own rate, gain, an input channel map,
+pause and clear, and exact available and queued counts. Streams now keep their
+input as it was put, in chunks with their format and map, and convert it when
+read: SDL2's format and channel converters around a windowed-sinc resampler of
+the layer's own, as SDL2's holds back 512 frames and restarts its phase on
+every put. Device streams always pull through the SDL2 callback.
+
+diff --git a/README.md b/README.md
+index a6c30f3..29fb5a1 100644
+--- a/README.md
++++ b/README.md
+@@ -16,15 +16,13 @@ declared in `include/SDL3/s3_defs.h` and `include/SDL3_mixer/s3_mixer_defs.h` ex
+ 
+ ## Known differences from SDL3
+ 
+-- Only the default playback device opens. A device stream opened without a callback queues
+-  through SDL2's `SDL_QueueAudio`. SDL2 drains that queue a whole device buffer at a time and
+-  fills any shortfall with silence, so an application needs to keep more than one device buffer
+-  queued.
+-- `SDL_GetAudioStreamQueued` is exact while nothing has been read. SDL2 does not report how much
+-  input its resampler has consumed, so after reads the input behind the output is estimated from
+-  the rates and frame sizes.
+-- An audio stream's format cannot change once it is created; `SDL_SetAudioStreamFormat` is not
+-  mapped.
++- Only the default playback device opens. As in SDL3 it is asked for at least S16, stereo and
++  44100 Hz, and its stream converts to whatever format SDL2's driver then reports.
++- Streams convert with SDL2's format and channel converters and the layer's own windowed-sinc
++  resampler, so samples can differ from SDL3's in their last bits. Integer input at an unchanged
++  rate and unity gain comes out unchanged, as in SDL3. A resampled stream holds back its last 8
++  input frames (more when downsampling) until more input or a flush arrives.
++- `SDL_SetAudioStreamGain` and `SDL_GetAudioStreamGain` do not take the stream's lock.
+ - Setting a string property to NULL clears its value; it does not delete the property.
+ - SDL3 event types with no SDL2 source, such as pen and camera events, are not declared, and
+   `SDL_INIT_CAMERA` fails. `SDL_EVENT_FINGER_CANCELED` and the drop events are declared so code
+diff --git a/include/SDL3/SDL.h b/include/SDL3/SDL.h
+index fda5615..8ffe99d 100644
+--- a/include/SDL3/SDL.h
++++ b/include/SDL3/SDL.h
+@@ -1131,25 +1131,57 @@ enum {
+ #define SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK S3_AUDIO_DEVICE_DEFAULT_PLAYBACK
+ #define SDL_AUDIO_DEVICE_DEFAULT_RECORDING S3_AUDIO_DEVICE_DEFAULT_RECORDING
+ #define SDL_AudioFormat S3_AudioFormat
++#define SDL_AUDIO_MASK_BITSIZE S3_AUDIO_MASK_BITSIZE
++#define SDL_AUDIO_MASK_FLOAT S3_AUDIO_MASK_FLOAT
++#define SDL_AUDIO_MASK_BIG_ENDIAN S3_AUDIO_MASK_BIG_ENDIAN
++#define SDL_AUDIO_MASK_SIGNED S3_AUDIO_MASK_SIGNED
++#define SDL_AUDIO_UNKNOWN S3_AUDIO_UNKNOWN
+ #define SDL_AUDIO_U8 S3_AUDIO_U8
+ #define SDL_AUDIO_S8 S3_AUDIO_S8
+ #define SDL_AUDIO_S16LE S3_AUDIO_S16LE
+ #define SDL_AUDIO_S16BE S3_AUDIO_S16BE
+ #define SDL_AUDIO_S32LE S3_AUDIO_S32LE
++#define SDL_AUDIO_S32BE S3_AUDIO_S32BE
+ #define SDL_AUDIO_F32LE S3_AUDIO_F32LE
++#define SDL_AUDIO_F32BE S3_AUDIO_F32BE
+ #define SDL_AUDIO_S16 S3_AUDIO_S16
++#define SDL_AUDIO_S32 S3_AUDIO_S32
++#define SDL_AUDIO_F32 S3_AUDIO_F32
++#define SDL_AUDIO_BITSIZE S3_AUDIO_BITSIZE
++#define SDL_AUDIO_BYTESIZE S3_AUDIO_BYTESIZE
++#define SDL_AUDIO_ISFLOAT S3_AUDIO_ISFLOAT
++#define SDL_AUDIO_ISBIGENDIAN S3_AUDIO_ISBIGENDIAN
++#define SDL_AUDIO_ISLITTLEENDIAN S3_AUDIO_ISLITTLEENDIAN
++#define SDL_AUDIO_ISSIGNED S3_AUDIO_ISSIGNED
++#define SDL_AUDIO_ISINT S3_AUDIO_ISINT
++#define SDL_AUDIO_ISUNSIGNED S3_AUDIO_ISUNSIGNED
+ #define SDL_AudioSpec S3_AudioSpec
++#define SDL_AUDIO_FRAMESIZE S3_AUDIO_FRAMESIZE
+ #define SDL_AudioStream S3_AudioStream
+ #define SDL_AudioStreamCallback S3_AudioStreamCallback
++#define SDL_AudioStreamDataCompleteCallback S3_AudioStreamDataCompleteCallback
+ #define SDL_CreateAudioStream S3_CreateAudioStream
+ #define SDL_OpenAudioDeviceStream S3_OpenAudioDeviceStream
+ #define SDL_GetAudioStreamDevice S3_GetAudioStreamDevice
++#define SDL_PauseAudioStreamDevice S3_PauseAudioStreamDevice
+ #define SDL_ResumeAudioStreamDevice S3_ResumeAudioStreamDevice
++#define SDL_AudioStreamDevicePaused S3_AudioStreamDevicePaused
+ #define SDL_GetAudioDeviceFormat S3_GetAudioDeviceFormat
+ #define SDL_GetAudioDeviceName S3_GetAudioDeviceName
++#define SDL_GetAudioStreamFormat S3_GetAudioStreamFormat
++#define SDL_SetAudioStreamFormat S3_SetAudioStreamFormat
++#define SDL_GetAudioStreamGain S3_GetAudioStreamGain
++#define SDL_SetAudioStreamGain S3_SetAudioStreamGain
++#define SDL_GetAudioStreamInputChannelMap S3_GetAudioStreamInputChannelMap
++#define SDL_SetAudioStreamInputChannelMap S3_SetAudioStreamInputChannelMap
++#define SDL_SetAudioStreamGetCallback S3_SetAudioStreamGetCallback
+ #define SDL_PutAudioStreamData S3_PutAudioStreamData
+-#define SDL_GetAudioStreamQueued S3_GetAudioStreamQueued
++#define SDL_PutAudioStreamDataNoCopy S3_PutAudioStreamDataNoCopy
+ #define SDL_GetAudioStreamData S3_GetAudioStreamData
++#define SDL_GetAudioStreamAvailable S3_GetAudioStreamAvailable
++#define SDL_GetAudioStreamQueued S3_GetAudioStreamQueued
++#define SDL_FlushAudioStream S3_FlushAudioStream
++#define SDL_ClearAudioStream S3_ClearAudioStream
+ #define SDL_DestroyAudioStream S3_DestroyAudioStream
+ 
+ #define SDL_MessageBoxFlags S3_MessageBoxFlags
+diff --git a/include/SDL3/SDL_audio.h b/include/SDL3/SDL_audio.h
+new file mode 100644
+index 0000000..38d365c
+--- /dev/null
++++ b/include/SDL3/SDL_audio.h
+@@ -0,0 +1,6 @@
++#ifndef SDL3ON2_SDL_AUDIO_H_
++#define SDL3ON2_SDL_AUDIO_H_
++
++#include <SDL3/SDL.h>
++
++#endif
+diff --git a/include/SDL3/s3_defs.h b/include/SDL3/s3_defs.h
+index a921329..6a66c06 100644
+--- a/include/SDL3/s3_defs.h
++++ b/include/SDL3/s3_defs.h
+@@ -1052,38 +1052,75 @@ typedef Uint32 S3_AudioDeviceID;
+ 
+ typedef Uint32 S3_AudioFormat;
+ 
++#define S3_AUDIO_MASK_BITSIZE 0xFFu
++#define S3_AUDIO_MASK_FLOAT (1u << 8)
++#define S3_AUDIO_MASK_BIG_ENDIAN (1u << 12)
++#define S3_AUDIO_MASK_SIGNED (1u << 15)
++
++#define S3_AUDIO_UNKNOWN 0x0000u
+ #define S3_AUDIO_U8 0x0008u
+ #define S3_AUDIO_S8 0x8008u
+ #define S3_AUDIO_S16LE 0x8010u
+ #define S3_AUDIO_S16BE 0x9010u
+ #define S3_AUDIO_S32LE 0x8020u
++#define S3_AUDIO_S32BE 0x9020u
+ #define S3_AUDIO_F32LE 0x8120u
++#define S3_AUDIO_F32BE 0x9120u
+ 
+ #if defined(__BIG_ENDIAN__) || (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
+ #define S3_AUDIO_S16 S3_AUDIO_S16BE
++#define S3_AUDIO_S32 S3_AUDIO_S32BE
++#define S3_AUDIO_F32 S3_AUDIO_F32BE
+ #else
+ #define S3_AUDIO_S16 S3_AUDIO_S16LE
++#define S3_AUDIO_S32 S3_AUDIO_S32LE
++#define S3_AUDIO_F32 S3_AUDIO_F32LE
+ #endif
+ 
++#define S3_AUDIO_BITSIZE(x) ((x) & S3_AUDIO_MASK_BITSIZE)
++#define S3_AUDIO_BYTESIZE(x) (S3_AUDIO_BITSIZE(x) / 8)
++#define S3_AUDIO_ISFLOAT(x) ((x) & S3_AUDIO_MASK_FLOAT)
++#define S3_AUDIO_ISBIGENDIAN(x) ((x) & S3_AUDIO_MASK_BIG_ENDIAN)
++#define S3_AUDIO_ISLITTLEENDIAN(x) (!S3_AUDIO_ISBIGENDIAN(x))
++#define S3_AUDIO_ISSIGNED(x) ((x) & S3_AUDIO_MASK_SIGNED)
++#define S3_AUDIO_ISINT(x) (!S3_AUDIO_ISFLOAT(x))
++#define S3_AUDIO_ISUNSIGNED(x) (!S3_AUDIO_ISSIGNED(x))
++
+ typedef struct S3_AudioSpec {
+     S3_AudioFormat format;
+     int channels;
+     int freq;
+ } S3_AudioSpec;
+ 
++#define S3_AUDIO_FRAMESIZE(x) (S3_AUDIO_BYTESIZE((x).format) * (x).channels)
++
+ typedef struct S3_AudioStream S3_AudioStream;
+ 
+ typedef void(S3_CALL* S3_AudioStreamCallback)(void* userdata, S3_AudioStream* stream, int additional_amount, int total_amount);
++typedef void(S3_CALL* S3_AudioStreamDataCompleteCallback)(void* userdata, const void* buf, int buflen);
+ 
+ extern S3_AudioStream* S3_CreateAudioStream(const S3_AudioSpec* src_spec, const S3_AudioSpec* dst_spec);
+ extern S3_AudioStream* S3_OpenAudioDeviceStream(S3_AudioDeviceID devid, const S3_AudioSpec* spec, S3_AudioStreamCallback callback, void* userdata);
+ extern S3_AudioDeviceID S3_GetAudioStreamDevice(S3_AudioStream* stream);
++extern bool S3_PauseAudioStreamDevice(S3_AudioStream* stream);
+ extern bool S3_ResumeAudioStreamDevice(S3_AudioStream* stream);
++extern bool S3_AudioStreamDevicePaused(S3_AudioStream* stream);
+ extern bool S3_GetAudioDeviceFormat(S3_AudioDeviceID devid, S3_AudioSpec* spec, int* sample_frames);
+ extern const char* S3_GetAudioDeviceName(S3_AudioDeviceID devid);
++extern bool S3_GetAudioStreamFormat(S3_AudioStream* stream, S3_AudioSpec* src_spec, S3_AudioSpec* dst_spec);
++extern bool S3_SetAudioStreamFormat(S3_AudioStream* stream, const S3_AudioSpec* src_spec, const S3_AudioSpec* dst_spec);
++extern float S3_GetAudioStreamGain(S3_AudioStream* stream);
++extern bool S3_SetAudioStreamGain(S3_AudioStream* stream, float gain);
++extern int* S3_GetAudioStreamInputChannelMap(S3_AudioStream* stream, int* count);
++extern bool S3_SetAudioStreamInputChannelMap(S3_AudioStream* stream, const int* chmap, int count);
++extern bool S3_SetAudioStreamGetCallback(S3_AudioStream* stream, S3_AudioStreamCallback callback, void* userdata);
+ extern bool S3_PutAudioStreamData(S3_AudioStream* stream, const void* buf, int len);
+-extern int S3_GetAudioStreamQueued(S3_AudioStream* stream);
++extern bool S3_PutAudioStreamDataNoCopy(S3_AudioStream* stream, const void* buf, int len, S3_AudioStreamDataCompleteCallback callback, void* userdata);
+ extern int S3_GetAudioStreamData(S3_AudioStream* stream, void* buf, int len);
++extern int S3_GetAudioStreamAvailable(S3_AudioStream* stream);
++extern int S3_GetAudioStreamQueued(S3_AudioStream* stream);
++extern bool S3_FlushAudioStream(S3_AudioStream* stream);
++extern bool S3_ClearAudioStream(S3_AudioStream* stream);
+ extern void S3_DestroyAudioStream(S3_AudioStream* stream);
+ 
+ typedef Uint32 S3_MessageBoxFlags;
+diff --git a/src/s3_audio.c b/src/s3_audio.c
+new file mode 100644
+index 0000000..cdfded1
+--- /dev/null
++++ b/src/s3_audio.c
+@@ -0,0 +1,1553 @@
++// SDL3 audio streams: input keeps the format it was put in until the stream reads it.
++
++#include <assert.h>
++
++#include "s3_internal.h"
++
++static_assert(S3_AUDIO_U8 == AUDIO_U8, "AUDIO_U8");
++static_assert(S3_AUDIO_S8 == AUDIO_S8, "AUDIO_S8");
++static_assert(S3_AUDIO_S16LE == AUDIO_S16LSB, "AUDIO_S16LSB");
++static_assert(S3_AUDIO_S16BE == AUDIO_S16MSB, "AUDIO_S16MSB");
++static_assert(S3_AUDIO_S32LE == AUDIO_S32LSB, "AUDIO_S32LSB");
++static_assert(S3_AUDIO_S32BE == AUDIO_S32MSB, "AUDIO_S32MSB");
++static_assert(S3_AUDIO_F32LE == AUDIO_F32LSB, "AUDIO_F32LSB");
++static_assert(S3_AUDIO_F32BE == AUDIO_F32MSB, "AUDIO_F32MSB");
++static_assert(S3_AUDIO_F32 == AUDIO_F32SYS, "AUDIO_F32SYS");
++
++#define S3_AUDIO_MAX_CHANNELS 8
++
++// Frames converted at a time, and the smallest chunk copied input goes into.
++#define S3_AUDIO_BLOCK_FRAMES 1024
++#define S3_AUDIO_CHUNK_BYTES 4096
++
++// A Kaiser-windowed sinc with this many zero crossings a side, tabulated this finely.
++#define S3_RESAMPLER_ZERO_CROSSINGS 8
++#define S3_RESAMPLER_STEPS 256
++#define S3_RESAMPLER_TABLE_SIZE (S3_RESAMPLER_ZERO_CROSSINGS * S3_RESAMPLER_STEPS + 2)
++#define S3_RESAMPLER_CUTOFF 0.94
++#define S3_RESAMPLER_BETA 8.0
++
++// Input as it was put: its format, its channel map, and its bytes, copied or the caller's own.
++typedef struct S3_AudioChunk {
++    struct S3_AudioChunk* next;
++    S3_AudioSpec spec;
++    int chmap[S3_AUDIO_MAX_CHANNELS];
++    bool has_chmap;
++    // Input after this chunk starts afresh, as after a format change or a flush.
++    bool flushed;
++    // Borrowed bytes belong to the caller, who hears back through `complete` once they are read.
++    bool borrowed;
++    const Uint8* data;
++    int length;
++    int capacity;
++    int offset;
++    S3_AudioStreamDataCompleteCallback complete;
++    void* complete_userdata;
++} S3_AudioChunk;
++
++struct S3_AudioStream {
++    // SDL2's mutexes are recursive, so callbacks can use the stream they are called for.
++    SDL_mutex* lock;
++    SDL_AudioDeviceID device;
++    char* device_name;
++    int sample_frames;
++    Uint8 silence;
++    S3_AudioSpec src;
++    S3_AudioSpec dst;
++    int src_chmap[S3_AUDIO_MAX_CHANNELS];
++    bool src_has_chmap;
++    // The gain's float bits; read and written without the lock.
++    SDL_atomic_t gain;
++    S3_AudioStreamCallback get_callback;
++    void* get_userdata;
++
++    S3_AudioChunk* head;
++    S3_AudioChunk* tail;
++
++    // The run being read: input of one format and channel map, resampled continuously.
++    bool run_active;
++    // No more input belongs to the run; its last frames are followed by silence.
++    bool run_flushed;
++    S3_AudioSpec run_spec;
++    int run_chmap[S3_AUDIO_MAX_CHANNELS];
++    bool run_has_chmap;
++    SDL_AudioCVT run_decode;
++    // Frames the next output frame reads on each side, and the filter's scale for downsampling.
++    int run_reach;
++    float run_scale;
++    // The next output frame sits at input frame run_pos plus run_pos_num / run_out_rate.
++    int run_out_rate;
++    Sint64 run_pos;
++    Sint64 run_pos_num;
++    // Frames of the run converted to float so far; those from history_start on are kept.
++    Sint64 run_frames;
++    Sint64 history_start;
++    float* history;
++    int history_capacity;
++    float* weights;
++    int weights_capacity;
++
++    // Float frames of a run's layout to the destination format.
++    SDL_AudioCVT output;
++    int output_channels;
++    S3_AudioSpec output_dst;
++
++    float* frames;
++    Uint8* scratch;
++    size_t scratch_size;
++};
++
++static float s3_resampler_table[S3_RESAMPLER_TABLE_SIZE];
++static SDL_SpinLock s3_resampler_lock;
++static bool s3_resampler_ready;
++
++static double S3_BesselI0(double x)
++{
++    const double half = x / 2.0;
++    double term = 1.0;
++    double sum = 1.0;
++    int k;
++
++    for (k = 1; k < 32; k++) {
++        term *= half / (double)k;
++        sum += term * term;
++    }
++
++    return sum;
++}
++
++static void S3_PrepareResampler(void)
++{
++    SDL_AtomicLock(&s3_resampler_lock);
++
++    if (!s3_resampler_ready) {
++        const double pi = 3.14159265358979323846;
++        const double window_scale = 1.0 / S3_BesselI0(S3_RESAMPLER_BETA);
++        int index;
++
++        // Entry i is the filter i / STEPS zero crossings from its centre; the last two stay zero.
++        for (index = 0; index < S3_RESAMPLER_ZERO_CROSSINGS * S3_RESAMPLER_STEPS; index++) {
++            const double distance = (double)index / (double)S3_RESAMPLER_STEPS;
++            const double ratio = distance / (double)S3_RESAMPLER_ZERO_CROSSINGS;
++            const double x = pi * S3_RESAMPLER_CUTOFF * distance;
++            const double sinc = index == 0 ? 1.0 : SDL_sin(x) / x;
++
++            s3_resampler_table[index] = (float)(sinc * S3_BesselI0(S3_RESAMPLER_BETA * SDL_sqrt(1.0 - ratio * ratio)) * window_scale);
++        }
++
++        s3_resampler_ready = true;
++    }
++
++    SDL_AtomicUnlock(&s3_resampler_lock);
++}
++
++static float S3_ResamplerWeight(float distance)
++{
++    const float position = distance * (float)S3_RESAMPLER_STEPS;
++    int index;
++
++    if (position >= (float)(S3_RESAMPLER_ZERO_CROSSINGS * S3_RESAMPLER_STEPS)) {
++        return 0.0f;
++    }
++
++    index = (int)position;
++
++    return s3_resampler_table[index] + (position - (float)index) * (s3_resampler_table[index + 1] - s3_resampler_table[index]);
++}
++
++static bool S3_IsSupportedAudioFormat(S3_AudioFormat format)
++{
++    switch (format) {
++    case S3_AUDIO_U8:
++    case S3_AUDIO_S8:
++    case S3_AUDIO_S16LE:
++    case S3_AUDIO_S16BE:
++    case S3_AUDIO_S32LE:
++    case S3_AUDIO_S32BE:
++    case S3_AUDIO_F32LE:
++    case S3_AUDIO_F32BE:
++        return true;
++    default:
++        return false;
++    }
++}
++
++static bool S3_CheckAudioSpec(const S3_AudioSpec* spec, const char* format, const char* channels, const char* freq)
++{
++    if (!S3_IsSupportedAudioFormat(spec->format)) {
++        return SDL_InvalidParamError(format) == 0;
++    }
++
++    if (spec->channels < 1 || spec->channels > S3_AUDIO_MAX_CHANNELS) {
++        return SDL_InvalidParamError(channels) == 0;
++    }
++
++    if (spec->freq <= 0) {
++        return SDL_InvalidParamError(freq) == 0;
++    }
++
++    return true;
++}
++
++static int S3_AudioFrameBytes(const S3_AudioSpec* spec)
++{
++    return (int)S3_AUDIO_FRAMESIZE(*spec);
++}
++
++static bool S3_StreamReady(const S3_AudioStream* stream)
++{
++    if (stream->src.format == S3_AUDIO_UNKNOWN) {
++        SDL_SetError("Stream has no source format");
++        return false;
++    }
++
++    if (stream->dst.format == S3_AUDIO_UNKNOWN) {
++        SDL_SetError("Stream has no destination format");
++        return false;
++    }
++
++    return true;
++}
++
++static bool S3_SameInput(const S3_AudioSpec* a, const int* a_chmap, bool a_has_chmap, const S3_AudioSpec* b, const int* b_chmap, bool b_has_chmap)
++{
++    if (a->format != b->format || a->channels != b->channels || a->freq != b->freq || a_has_chmap != b_has_chmap) {
++        return false;
++    }
++
++    return !a_has_chmap || SDL_memcmp(a_chmap, b_chmap, sizeof(int) * (size_t)a->channels) == 0;
++}
++
++static bool S3_ReserveScratch(S3_AudioStream* stream, size_t size)
++{
++    Uint8* grown;
++
++    if (size <= stream->scratch_size) {
++        return true;
++    }
++
++    grown = (Uint8*)SDL_realloc(stream->scratch, size);
++    if (grown == NULL) {
++        SDL_SetError("Out of memory");
++        return false;
++    }
++
++    stream->scratch = grown;
++    stream->scratch_size = size;
++
++    return true;
++}
++
++// Hands borrowed input back to its owner, or frees copied input.
++static void S3_ReleaseChunk(S3_AudioChunk* chunk)
++{
++    if (chunk->borrowed && chunk->complete != NULL) {
++        chunk->complete(chunk->complete_userdata, chunk->data, chunk->length);
++    }
++
++    SDL_free(chunk);
++}
++
++static void S3_EndRun(S3_AudioStream* stream)
++{
++    stream->run_active = false;
++    stream->run_flushed = false;
++    stream->run_frames = 0;
++    stream->history_start = 0;
++}
++
++static int S3_RunReach(int in_rate, int out_rate)
++{
++    if (in_rate == out_rate) {
++        return 0;
++    }
++
++    // Downsampling widens the filter to keep the output's band limit.
++    return out_rate < in_rate ? (int)SDL_ceil((double)S3_RESAMPLER_ZERO_CROSSINGS * (double)in_rate / (double)out_rate) : S3_RESAMPLER_ZERO_CROSSINGS;
++}
++
++static bool S3_UpdateRunRate(S3_AudioStream* stream)
++{
++    const int in_rate = stream->run_spec.freq;
++    const int out_rate = stream->dst.freq;
++
++    // A stream not bound to a device can change its output rate while reading.
++    if (stream->run_out_rate != out_rate) {
++        stream->run_pos_num = stream->run_out_rate > 0 ? stream->run_pos_num * out_rate / stream->run_out_rate : 0;
++        stream->run_out_rate = out_rate;
++    }
++
++    stream->run_reach = S3_RunReach(in_rate, out_rate);
++    stream->run_scale = out_rate < in_rate ? (float)out_rate / (float)in_rate : 1.0f;
++
++    if (stream->run_reach * 2 > stream->weights_capacity) {
++        float* grown = (float*)SDL_realloc(stream->weights, sizeof(float) * (size_t)stream->run_reach * 2);
++
++        if (grown == NULL) {
++            SDL_SetError("Out of memory");
++            return false;
++        }
++
++        stream->weights = grown;
++        stream->weights_capacity = stream->run_reach * 2;
++    }
++
++    return true;
++}
++
++static bool S3_StartRun(S3_AudioStream* stream)
++{
++    const S3_AudioChunk* chunk = stream->head;
++
++    if (chunk == NULL) {
++        return false;
++    }
++
++    if (SDL_BuildAudioCVT(&stream->run_decode, (SDL_AudioFormat)chunk->spec.format, (Uint8)chunk->spec.channels, chunk->spec.freq,
++            AUDIO_F32SYS, (Uint8)chunk->spec.channels, chunk->spec.freq)
++        < 0) {
++        return false;
++    }
++
++    stream->run_active = true;
++    stream->run_flushed = false;
++    stream->run_spec = chunk->spec;
++    stream->run_has_chmap = chunk->has_chmap;
++    SDL_memcpy(stream->run_chmap, chunk->chmap, sizeof(stream->run_chmap));
++    stream->run_out_rate = stream->dst.freq;
++    stream->run_pos = 0;
++    stream->run_pos_num = 0;
++    stream->run_frames = 0;
++    stream->history_start = 0;
++
++    if (!S3_UpdateRunRate(stream)) {
++        stream->run_active = false;
++        return false;
++    }
++
++    return true;
++}
++
++// The run's frames known so far, read or queued, and whether that is all of them.
++static Sint64 S3_RunInput(const S3_AudioStream* stream, bool* flushed, const S3_AudioChunk** after)
++{
++    const S3_AudioChunk* chunk = stream->head;
++    const int frame_bytes = S3_AudioFrameBytes(&stream->run_spec);
++    Sint64 frames = stream->run_frames;
++
++    *flushed = stream->run_flushed;
++
++    // Queued input belongs to the run until a chunk that ends it.
++    while (!*flushed && chunk != NULL) {
++        frames += (chunk->length - chunk->offset) / frame_bytes;
++        *flushed = chunk->flushed;
++        chunk = chunk->next;
++    }
++
++    if (after != NULL) {
++        *after = chunk;
++    }
++
++    return frames;
++}
++
++// Output frames from input position pos + num / out_rate on, reading input frames no later than `last`.
++static Sint64 S3_CountOutputFrames(Sint64 pos, Sint64 num, int in_rate, int out_rate, Sint64 last)
++{
++    if (last < pos || in_rate <= 0 || out_rate <= 0) {
++        return 0;
++    }
++
++    if (in_rate == out_rate) {
++        return last - pos + 1;
++    }
++
++    return ((last - pos + 1) * out_rate - num + in_rate - 1) / in_rate;
++}
++
++// Output frames the queued input gives without more input, at the destination's current rate.
++static Sint64 S3_AvailableFrames(const S3_AudioStream* stream)
++{
++    const S3_AudioChunk* chunk = stream->head;
++    const int out_rate = stream->dst.freq;
++    Sint64 total = 0;
++
++    if (stream->run_active) {
++        const int in_rate = stream->run_spec.freq;
++        const Sint64 num = stream->run_out_rate > 0 ? stream->run_pos_num * out_rate / stream->run_out_rate : 0;
++        bool flushed;
++        const Sint64 known = S3_RunInput(stream, &flushed, &chunk);
++        // An open run's last frames wait for the input after them.
++        const Sint64 last = flushed ? known - 1 : known - 1 - S3_RunReach(in_rate, out_rate);
++
++        total += S3_CountOutputFrames(stream->run_pos, num, in_rate, out_rate, last);
++
++        if (!flushed) {
++            return total;
++        }
++    }
++
++    while (chunk != NULL && total < SDL_MAX_SINT32) {
++        const S3_AudioSpec spec = chunk->spec;
++        const int frame_bytes = S3_AudioFrameBytes(&spec);
++        Sint64 frames = 0;
++        bool flushed = false;
++
++        while (!flushed && chunk != NULL) {
++            frames += (chunk->length - chunk->offset) / frame_bytes;
++            flushed = chunk->flushed;
++            chunk = chunk->next;
++        }
++
++        total += S3_CountOutputFrames(0, 0, spec.freq, out_rate, flushed ? frames - 1 : frames - 1 - S3_RunReach(spec.freq, out_rate));
++    }
++
++    return total;
++}
++
++// Makes room to convert `frames` more frames, dropping those no output frame reads any more.
++static bool S3_ReserveHistory(S3_AudioStream* stream, int frames)
++{
++    const int channels = stream->run_spec.channels;
++    // The next output frame reads frame run_pos, or the filter's left side of it.
++    Sint64 keep = stream->run_reach > 0 ? stream->run_pos - stream->run_reach + 1 : stream->run_pos;
++    Sint64 held;
++
++    if (keep > stream->run_frames) {
++        keep = stream->run_frames;
++    }
++
++    if (keep > stream->history_start) {
++        SDL_memmove(stream->history,
++            stream->history + (size_t)(keep - stream->history_start) * (size_t)channels,
++            sizeof(float) * (size_t)(stream->run_frames - keep) * (size_t)channels);
++        stream->history_start = keep;
++    }
++
++    held = stream->run_frames - stream->history_start;
++
++    if (held + frames > stream->history_capacity) {
++        const int wanted = (int)SDL_max(held + frames, (Sint64)S3_AUDIO_BLOCK_FRAMES * 2);
++        float* grown = (float*)SDL_realloc(stream->history, sizeof(float) * (size_t)wanted * S3_AUDIO_MAX_CHANNELS);
++
++        if (grown == NULL) {
++            SDL_SetError("Out of memory");
++            return false;
++        }
++
++        stream->history = grown;
++        stream->history_capacity = wanted;
++    }
++
++    return true;
++}
++
++// Applies an input channel map: output channel c is input channel chmap[c], or silence for -1.
++static void S3_SwizzleFrames(Uint8* dst, const Uint8* src, int frames, const S3_AudioSpec* spec, const int* chmap)
++{
++    const size_t sample_bytes = S3_AUDIO_BYTESIZE(spec->format);
++    const Uint8 silence = spec->format == S3_AUDIO_U8 ? 0x80 : 0x00;
++    int frame;
++    int channel;
++
++    for (frame = 0; frame < frames; frame++) {
++        for (channel = 0; channel < spec->channels; channel++) {
++            if (chmap[channel] < 0) {
++                SDL_memset(dst, silence, sample_bytes);
++            } else {
++                SDL_memcpy(dst, src + (size_t)chmap[channel] * sample_bytes, sample_bytes);
++            }
++            dst += sample_bytes;
++        }
++        src += sample_bytes * (size_t)spec->channels;
++    }
++}
++
++// Converts the head chunk's next frames of the run to float, up to frame `target` of the run.
++static bool S3_DecodeRun(S3_AudioStream* stream, Sint64 target)
++{
++    S3_AudioChunk* chunk = stream->head;
++    const int frame_bytes = S3_AudioFrameBytes(&stream->run_spec);
++    const int channels = stream->run_spec.channels;
++    SDL_AudioCVT* cvt = &stream->run_decode;
++    float* into;
++    int frames;
++
++    if (chunk == NULL || stream->run_flushed) {
++        return true;
++    }
++
++    frames = (chunk->length - chunk->offset) / frame_bytes;
++    frames = (int)SDL_min((Sint64)frames, target - stream->run_frames);
++    frames = SDL_min(frames, S3_AUDIO_BLOCK_FRAMES);
++
++    if (frames > 0) {
++        const Uint8* src = chunk->data + chunk->offset;
++        const size_t bytes = (size_t)frames * (size_t)frame_bytes;
++
++        if (!S3_ReserveHistory(stream, frames) || !S3_ReserveScratch(stream, bytes * (size_t)(cvt->len_mult > 0 ? cvt->len_mult : 1))) {
++            return false;
++        }
++
++        into = stream->history + (size_t)(stream->run_frames - stream->history_start) * (size_t)channels;
++
++        if (chunk->has_chmap) {
++            S3_SwizzleFrames(stream->scratch, src, frames, &chunk->spec, chunk->chmap);
++            src = stream->scratch;
++        }
++
++        if (cvt->needed) {
++            if (src != stream->scratch) {
++                SDL_memcpy(stream->scratch, src, bytes);
++            }
++            cvt->buf = stream->scratch;
++            cvt->len = (int)bytes;
++            if (SDL_ConvertAudio(cvt) < 0) {
++                return false;
++            }
++            src = stream->scratch;
++        }
++
++        SDL_memcpy(into, src, sizeof(float) * (size_t)frames * (size_t)channels);
++        stream->run_frames += frames;
++        chunk->offset += frames * frame_bytes;
++    }
++
++    if (chunk->length - chunk->offset < frame_bytes) {
++        // The chunk is read: it leaves the queue before its owner hears of it.
++        stream->head = chunk->next;
++        if (stream->head == NULL) {
++            stream->tail = NULL;
++        }
++        if (chunk->flushed) {
++            stream->run_flushed = true;
++        }
++        S3_ReleaseChunk(chunk);
++    }
++
++    return true;
++}
++
++static void S3_ResampleFrame(S3_AudioStream* stream, float* out)
++{
++    const int channels = stream->run_spec.channels;
++    const int reach = stream->run_reach;
++    const float frac = (float)stream->run_pos_num / (float)stream->run_out_rate;
++    const Sint64 first = stream->run_pos - reach + 1;
++    float* weights = stream->weights;
++    float total = 0.0f;
++    int tap;
++    int channel;
++
++    for (tap = 0; tap < reach * 2; tap++) {
++        weights[tap] = S3_ResamplerWeight(SDL_fabsf((float)(reach - 1 - tap) + frac) * stream->run_scale);
++        total += weights[tap];
++    }
++
++    for (channel = 0; channel < channels; channel++) {
++        out[channel] = 0.0f;
++    }
++
++    // Frames before the run and after its end are silence.
++    for (tap = 0; tap < reach * 2; tap++) {
++        const Sint64 frame = first + tap;
++        const float weight = weights[tap] / total;
++        const float* in;
++
++        if (frame < stream->history_start || frame >= stream->run_frames || weight == 0.0f) {
++            continue;
++        }
++
++        in = stream->history + (size_t)(frame - stream->history_start) * (size_t)channels;
++        for (channel = 0; channel < channels; channel++) {
++            out[channel] += weight * in[channel];
++        }
++    }
++}
++
++// Produces up to `frames` float frames of the current run into stream->frames; 0 when it needs more input.
++static int S3_ProduceRunFrames(S3_AudioStream* stream, int frames)
++{
++    const int channels = stream->run_spec.channels;
++    int produced = 0;
++
++    if (!S3_UpdateRunRate(stream)) {
++        return -1;
++    }
++
++    while (produced < frames && stream->run_active) {
++        const int in_rate = stream->run_spec.freq;
++        const int out_rate = stream->run_out_rate;
++        const int reach = stream->run_reach;
++        bool flushed;
++        const Sint64 known = S3_RunInput(stream, &flushed, NULL);
++        const Sint64 last = flushed ? known - 1 : known - 1 - reach;
++        // Past a flushed run's end the filter reads silence, so nothing more need be converted.
++        const Sint64 converted = flushed && stream->run_frames == known ? SDL_MAX_SINT64 - reach : stream->run_frames;
++        Sint64 wanted;
++
++        if (stream->run_pos > last) {
++            break;
++        }
++
++        while (produced < frames && stream->run_pos <= last && stream->run_pos + reach < converted) {
++            float* out = stream->frames + (size_t)produced * (size_t)channels;
++
++            if (reach == 0) {
++                SDL_memcpy(out, stream->history + (size_t)(stream->run_pos - stream->history_start) * (size_t)channels, sizeof(float) * (size_t)channels);
++            } else {
++                S3_ResampleFrame(stream, out);
++            }
++
++            produced++;
++            stream->run_pos_num += in_rate;
++            stream->run_pos += stream->run_pos_num / out_rate;
++            stream->run_pos_num %= out_rate;
++        }
++
++        if (produced == frames || stream->run_pos > last) {
++            break;
++        }
++
++        // Convert what the rest of the request reads, and no further.
++        wanted = stream->run_pos + reach + 1 + ((Sint64)(frames - produced) * in_rate + out_rate - 1) / out_rate;
++        if (!S3_DecodeRun(stream, SDL_min(wanted, known))) {
++            return produced > 0 ? produced : -1;
++        }
++    }
++
++    return produced;
++}
++
++// Produces float frames from the run at the head of the input; `channels` says their layout.
++static int S3_ProduceFrames(S3_AudioStream* stream, int frames, int* channels)
++{
++    for (;;) {
++        int produced;
++
++        if (!stream->run_active && !S3_StartRun(stream)) {
++            return stream->head != NULL ? -1 : 0;
++        }
++
++        *channels = stream->run_spec.channels;
++        produced = S3_ProduceRunFrames(stream, frames);
++        if (produced != 0) {
++            return produced;
++        }
++
++        // A run ends once its last frame is read; the next input starts a new one.
++        if (stream->run_active && stream->run_flushed && stream->run_pos >= stream->run_frames) {
++            S3_EndRun(stream);
++            continue;
++        }
++
++        return 0;
++    }
++}
++
++static float S3_LoadGain(S3_AudioStream* stream)
++{
++    const int bits = SDL_AtomicGet(&stream->gain);
++    float gain;
++
++    SDL_memcpy(&gain, &bits, sizeof(gain));
++
++    return gain;
++}
++
++static void S3_Store16(Uint8* out, Uint16 value, bool big_endian)
++{
++    out[big_endian ? 0 : 1] = (Uint8)(value >> 8);
++    out[big_endian ? 1 : 0] = (Uint8)value;
++}
++
++static void S3_Store32(Uint8* out, Uint32 value, bool big_endian)
++{
++    int byte;
++
++    for (byte = 0; byte < 4; byte++) {
++        out[big_endian ? 3 - byte : byte] = (Uint8)(value >> (8 * byte));
++    }
++}
++
++// Rounds a scaled sample into [low, high]; NaN becomes silence.
++static Sint32 S3_QuantizeSample(double scaled, double low, double high)
++{
++    if (scaled != scaled) {
++        return 0;
++    }
++
++    if (scaled >= high) {
++        return (Sint32)high;
++    }
++
++    if (scaled <= low) {
++        return (Sint32)low;
++    }
++
++    return (Sint32)SDL_floor(scaled + 0.5);
++}
++
++// Float samples to an integer or float format. As in SDL3, 8- and 16-bit samples are scaled by
++// 128 and 32768 and rounded, so integer input that went through float comes back unchanged.
++static void S3_EncodeSamples(Uint8* out, const float* in, int samples, S3_AudioFormat format)
++{
++    const bool big_endian = S3_AUDIO_ISBIGENDIAN(format) != 0;
++    int index;
++
++    for (index = 0; index < samples; index++) {
++        const float sample = in[index];
++        Uint32 bits;
++
++        switch (format) {
++        case S3_AUDIO_U8:
++        case S3_AUDIO_S8: {
++            const Sint32 value = S3_QuantizeSample((double)sample * 128.0, -128.0, 127.0);
++
++            out[index] = (Uint8)(format == S3_AUDIO_U8 ? value + 128 : value);
++            break;
++        }
++        case S3_AUDIO_S16LE:
++        case S3_AUDIO_S16BE:
++            S3_Store16(out + (size_t)index * 2, (Uint16)S3_QuantizeSample((double)sample * 32768.0, -32768.0, 32767.0), big_endian);
++            break;
++        case S3_AUDIO_S32LE:
++        case S3_AUDIO_S32BE:
++            S3_Store32(out + (size_t)index * 4, (Uint32)S3_QuantizeSample((double)sample * 2147483648.0, -2147483648.0, 2147483647.0), big_endian);
++            break;
++        default:
++            SDL_memcpy(&bits, &sample, sizeof(bits));
++            S3_Store32(out + (size_t)index * 4, bits, big_endian);
++            break;
++        }
++    }
++}
++
++// Writes float frames of a run's layout to `out` in the destination format, with the gain applied.
++static bool S3_EmitFrames(S3_AudioStream* stream, Uint8* out, int frames, int channels, float gain)
++{
++    SDL_AudioCVT* cvt = &stream->output;
++    const float* samples = stream->frames;
++    int index;
++
++    if (gain != 1.0f) {
++        for (index = 0; index < frames * channels; index++) {
++            stream->frames[index] *= gain;
++        }
++    }
++
++    // A different channel count goes through SDL2's channel converters, which SDL3's match.
++    if (channels != stream->dst.channels) {
++        const size_t float_bytes = sizeof(float) * (size_t)frames * (size_t)channels;
++
++        if (stream->output_channels != channels || stream->output_dst.channels != stream->dst.channels) {
++            if (SDL_BuildAudioCVT(cvt, AUDIO_F32SYS, (Uint8)channels, stream->dst.freq, AUDIO_F32SYS, (Uint8)stream->dst.channels, stream->dst.freq) < 0) {
++                stream->output_channels = 0;
++                return false;
++            }
++            stream->output_channels = channels;
++            stream->output_dst = stream->dst;
++        }
++
++        if (!S3_ReserveScratch(stream, float_bytes * (size_t)(cvt->len_mult > 0 ? cvt->len_mult : 1))) {
++            return false;
++        }
++
++        SDL_memcpy(stream->scratch, stream->frames, float_bytes);
++        cvt->buf = stream->scratch;
++        cvt->len = (int)float_bytes;
++        if (SDL_ConvertAudio(cvt) < 0) {
++            return false;
++        }
++
++        samples = (const float*)stream->scratch;
++    }
++
++    S3_EncodeSamples(out, samples, frames * stream->dst.channels, stream->dst.format);
++
++    return true;
++}
++
++static S3_AudioStream* S3_AllocAudioStream(void)
++{
++    S3_AudioStream* stream = (S3_AudioStream*)SDL_calloc(1, sizeof(*stream));
++    const float unity = 1.0f;
++    int bits;
++
++    if (stream == NULL) {
++        SDL_SetError("Out of memory");
++        return NULL;
++    }
++
++    stream->lock = SDL_CreateMutex();
++    stream->frames = (float*)SDL_malloc(sizeof(float) * S3_AUDIO_BLOCK_FRAMES * S3_AUDIO_MAX_CHANNELS);
++    if (stream->lock == NULL || stream->frames == NULL) {
++        SDL_DestroyMutex(stream->lock);
++        SDL_free(stream->frames);
++        SDL_free(stream);
++        SDL_SetError("Out of memory");
++        return NULL;
++    }
++
++    SDL_memcpy(&bits, &unity, sizeof(bits));
++    SDL_AtomicSet(&stream->gain, bits);
++    S3_PrepareResampler();
++
++    return stream;
++}
++
++static void S3_FreeAudioStream(S3_AudioStream* stream)
++{
++    SDL_free(stream->history);
++    SDL_free(stream->weights);
++    SDL_free(stream->frames);
++    SDL_free(stream->scratch);
++    SDL_DestroyMutex(stream->lock);
++    SDL_free(stream);
++}
++
++bool S3_SetAudioStreamFormat(S3_AudioStream* stream, const S3_AudioSpec* src_spec, const S3_AudioSpec* dst_spec)
++{
++    if (stream == NULL) {
++        return SDL_InvalidParamError("stream") == 0;
++    }
++
++    if (src_spec != NULL && !S3_CheckAudioSpec(src_spec, "src_spec->format", "src_spec->channels", "src_spec->freq")) {
++        return false;
++    }
++
++    if (dst_spec != NULL && !S3_CheckAudioSpec(dst_spec, "dst_spec->format", "dst_spec->channels", "dst_spec->freq")) {
++        return false;
++    }
++
++    SDL_LockMutex(stream->lock);
++
++    // As in SDL3, the end bound to a device quietly keeps the device's format.
++    if (stream->device != 0) {
++        dst_spec = NULL;
++    }
++
++    if (src_spec != NULL) {
++        if (src_spec->channels != stream->src.channels) {
++            stream->src_has_chmap = false;
++        }
++        stream->src = *src_spec;
++    }
++
++    if (dst_spec != NULL) {
++        stream->dst = *dst_spec;
++    }
++
++    SDL_UnlockMutex(stream->lock);
++
++    return true;
++}
++
++S3_AudioStream* S3_CreateAudioStream(const S3_AudioSpec* src_spec, const S3_AudioSpec* dst_spec)
++{
++    S3_AudioStream* stream = S3_AllocAudioStream();
++
++    if (stream == NULL) {
++        return NULL;
++    }
++
++    // Either side may be left for SDL_SetAudioStreamFormat, as in SDL3.
++    if (!S3_SetAudioStreamFormat(stream, src_spec, dst_spec)) {
++        S3_FreeAudioStream(stream);
++        return NULL;
++    }
++
++    return stream;
++}
++
++bool S3_GetAudioStreamFormat(S3_AudioStream* stream, S3_AudioSpec* src_spec, S3_AudioSpec* dst_spec)
++{
++    if (stream == NULL) {
++        if (src_spec != NULL) {
++            SDL_zerop(src_spec);
++        }
++        if (dst_spec != NULL) {
++            SDL_zerop(dst_spec);
++        }
++        return SDL_InvalidParamError("stream") == 0;
++    }
++
++    SDL_LockMutex(stream->lock);
++    if (src_spec != NULL) {
++        *src_spec = stream->src;
++    }
++    if (dst_spec != NULL) {
++        *dst_spec = stream->dst;
++    }
++    SDL_UnlockMutex(stream->lock);
++
++    if (src_spec != NULL && src_spec->format == S3_AUDIO_UNKNOWN) {
++        SDL_SetError("Stream has no source format");
++        return false;
++    }
++
++    if (dst_spec != NULL && dst_spec->format == S3_AUDIO_UNKNOWN) {
++        SDL_SetError("Stream has no destination format");
++        return false;
++    }
++
++    return true;
++}
++
++float S3_GetAudioStreamGain(S3_AudioStream* stream)
++{
++    if (stream == NULL) {
++        SDL_InvalidParamError("stream");
++        return -1.0f;
++    }
++
++    return S3_LoadGain(stream);
++}
++
++bool S3_SetAudioStreamGain(S3_AudioStream* stream, float gain)
++{
++    int bits;
++
++    if (stream == NULL) {
++        return SDL_InvalidParamError("stream") == 0;
++    }
++
++    if (gain < 0.0f) {
++        return SDL_InvalidParamError("gain") == 0;
++    }
++
++    // SDL3 sets this under the stream's lock; it takes effect at the next read either way.
++    SDL_memcpy(&bits, &gain, sizeof(bits));
++    SDL_AtomicSet(&stream->gain, bits);
++
++    return true;
++}
++
++int* S3_GetAudioStreamInputChannelMap(S3_AudioStream* stream, int* count)
++{
++    int* chmap = NULL;
++    int channels = 0;
++
++    if (stream != NULL) {
++        SDL_LockMutex(stream->lock);
++        channels = stream->src.channels;
++        if (stream->src_has_chmap) {
++            chmap = (int*)SDL_malloc(sizeof(int) * (size_t)channels);
++            if (chmap != NULL) {
++                SDL_memcpy(chmap, stream->src_chmap, sizeof(int) * (size_t)channels);
++            }
++        }
++        SDL_UnlockMutex(stream->lock);
++    }
++
++    if (count != NULL) {
++        *count = channels;
++    }
++
++    return chmap;
++}
++
++bool S3_SetAudioStreamInputChannelMap(S3_AudioStream* stream, const int* chmap, int count)
++{
++    bool result = true;
++    int channel;
++
++    if (stream == NULL) {
++        return SDL_InvalidParamError("stream") == 0;
++    }
++
++    SDL_LockMutex(stream->lock);
++
++    if (count != stream->src.channels) {
++        result = SDL_SetError("Wrong number of channels") == 0;
++    } else if (chmap != NULL) {
++        bool identity = true;
++
++        for (channel = 0; channel < count; channel++) {
++            if (chmap[channel] < -1 || chmap[channel] >= count) {
++                result = SDL_SetError("Invalid channel mapping") == 0;
++                break;
++            }
++            identity = identity && chmap[channel] == channel;
++        }
++
++        // A map that changes nothing is SDL3's default map, so it is stored as none.
++        if (result) {
++            stream->src_has_chmap = !identity;
++            if (!identity) {
++                SDL_memcpy(stream->src_chmap, chmap, sizeof(int) * (size_t)count);
++            }
++        }
++    } else {
++        stream->src_has_chmap = false;
++    }
++
++    SDL_UnlockMutex(stream->lock);
++
++    return result;
++}
++
++bool S3_SetAudioStreamGetCallback(S3_AudioStream* stream, S3_AudioStreamCallback callback, void* userdata)
++{
++    if (stream == NULL) {
++        return SDL_InvalidParamError("stream") == 0;
++    }
++
++    SDL_LockMutex(stream->lock);
++    stream->get_callback = callback;
++    stream->get_userdata = userdata;
++    SDL_UnlockMutex(stream->lock);
++
++    return true;
++}
++
++static bool S3_QueueAudio(S3_AudioStream* stream, const void* buf, int len, bool borrowed, S3_AudioStreamDataCompleteCallback complete, void* userdata)
++{
++    S3_AudioChunk* tail;
++    S3_AudioChunk* chunk;
++    bool same;
++
++    SDL_LockMutex(stream->lock);
++
++    if (!S3_StreamReady(stream)) {
++        SDL_UnlockMutex(stream->lock);
++        return false;
++    }
++
++    if (len % S3_AudioFrameBytes(&stream->src) != 0) {
++        SDL_UnlockMutex(stream->lock);
++        SDL_SetError("Can't add partial sample frames");
++        return false;
++    }
++
++    tail = stream->tail;
++
++    // Input in another format or channel map ends what came before, which is then read to its end.
++    if (tail != NULL) {
++        same = !tail->flushed && S3_SameInput(&stream->src, stream->src_chmap, stream->src_has_chmap, &tail->spec, tail->chmap, tail->has_chmap);
++        if (!same) {
++            tail->flushed = true;
++        }
++    } else {
++        same = false;
++        if (stream->run_active && !stream->run_flushed
++            && !S3_SameInput(&stream->src, stream->src_chmap, stream->src_has_chmap, &stream->run_spec, stream->run_chmap, stream->run_has_chmap)) {
++            stream->run_flushed = true;
++        }
++    }
++
++    if (!borrowed && tail != NULL && same && !tail->borrowed && tail->capacity - tail->length >= len) {
++        SDL_memcpy((Uint8*)tail->data + tail->length, buf, (size_t)len);
++        tail->length += len;
++        SDL_UnlockMutex(stream->lock);
++        return true;
++    }
++
++    chunk = (S3_AudioChunk*)SDL_malloc(sizeof(*chunk) + (borrowed ? 0 : (size_t)SDL_max(len, S3_AUDIO_CHUNK_BYTES)));
++    if (chunk == NULL) {
++        SDL_UnlockMutex(stream->lock);
++        SDL_SetError("Out of memory");
++        return false;
++    }
++
++    SDL_zerop(chunk);
++    chunk->spec = stream->src;
++    chunk->has_chmap = stream->src_has_chmap;
++    if (chunk->has_chmap) {
++        SDL_memcpy(chunk->chmap, stream->src_chmap, sizeof(chunk->chmap));
++    }
++    chunk->borrowed = borrowed;
++    chunk->length = len;
++    if (borrowed) {
++        chunk->data = (const Uint8*)buf;
++        chunk->capacity = len;
++        chunk->complete = complete;
++        chunk->complete_userdata = userdata;
++    } else {
++        chunk->data = (const Uint8*)(chunk + 1);
++        chunk->capacity = SDL_max(len, S3_AUDIO_CHUNK_BYTES);
++        SDL_memcpy(chunk + 1, buf, (size_t)len);
++    }
++
++    if (tail != NULL) {
++        tail->next = chunk;
++    } else {
++        stream->head = chunk;
++    }
++    stream->tail = chunk;
++
++    SDL_UnlockMutex(stream->lock);
++
++    return true;
++}
++
++bool S3_PutAudioStreamData(S3_AudioStream* stream, const void* buf, int len)
++{
++    if (stream == NULL) {
++        return SDL_InvalidParamError("stream") == 0;
++    }
++
++    if (buf == NULL) {
++        return SDL_InvalidParamError("buf") == 0;
++    }
++
++    if (len < 0) {
++        return SDL_InvalidParamError("len") == 0;
++    }
++
++    if (len == 0) {
++        return true;
++    }
++
++    return S3_QueueAudio(stream, buf, len, false, NULL, NULL);
++}
++
++bool S3_PutAudioStreamDataNoCopy(S3_AudioStream* stream, const void* buf, int len, S3_AudioStreamDataCompleteCallback callback, void* userdata)
++{
++    if (stream == NULL) {
++        return SDL_InvalidParamError("stream") == 0;
++    }
++
++    if (buf == NULL) {
++        return SDL_InvalidParamError("buf") == 0;
++    }
++
++    if (len < 0) {
++        return SDL_InvalidParamError("len") == 0;
++    }
++
++    if (len == 0) {
++        if (callback != NULL) {
++            callback(userdata, buf, len);
++        }
++        return true;
++    }
++
++    return S3_QueueAudio(stream, buf, len, true, callback, userdata);
++}
++
++int S3_GetAudioStreamData(S3_AudioStream* stream, void* buf, int len)
++{
++    Uint8* out = (Uint8*)buf;
++    int frame_bytes;
++    float gain;
++    int total = 0;
++
++    if (stream == NULL) {
++        SDL_InvalidParamError("stream");
++        return -1;
++    }
++
++    if (buf == NULL) {
++        SDL_InvalidParamError("buf");
++        return -1;
++    }
++
++    if (len < 0) {
++        SDL_InvalidParamError("len");
++        return -1;
++    }
++
++    if (len == 0) {
++        return 0;
++    }
++
++    SDL_LockMutex(stream->lock);
++
++    if (!S3_StreamReady(stream)) {
++        SDL_UnlockMutex(stream->lock);
++        return -1;
++    }
++
++    gain = S3_LoadGain(stream);
++    frame_bytes = S3_AudioFrameBytes(&stream->dst);
++    len -= len % frame_bytes;
++
++    // SDL3 offers the callback every read, with amounts in bytes of the current input format.
++    if (stream->get_callback != NULL) {
++        Sint64 total_request = len / frame_bytes;
++        Sint64 additional_request = total_request - SDL_min(total_request, S3_AvailableFrames(stream));
++
++        if (stream->src.freq != stream->dst.freq) {
++            total_request = (total_request * stream->src.freq + stream->dst.freq - 1) / stream->dst.freq;
++            additional_request = (additional_request * stream->src.freq + stream->dst.freq - 1) / stream->dst.freq;
++        }
++
++        total_request *= S3_AudioFrameBytes(&stream->src);
++        additional_request *= S3_AudioFrameBytes(&stream->src);
++        stream->get_callback(stream->get_userdata, stream, (int)SDL_min(additional_request, SDL_MAX_SINT32), (int)SDL_min(total_request, SDL_MAX_SINT32));
++    }
++
++    while (total < len) {
++        int channels = 0;
++        const int produced = S3_ProduceFrames(stream, SDL_min((len - total) / frame_bytes, S3_AUDIO_BLOCK_FRAMES), &channels);
++
++        if (produced <= 0) {
++            if (produced < 0 && total == 0) {
++                total = -1;
++            }
++            break;
++        }
++
++        if (!S3_EmitFrames(stream, out + total, produced, channels, gain)) {
++            total = total > 0 ? total : -1;
++            break;
++        }
++
++        total += produced * frame_bytes;
++    }
++
++    SDL_UnlockMutex(stream->lock);
++
++    return total;
++}
++
++int S3_GetAudioStreamAvailable(S3_AudioStream* stream)
++{
++    Sint64 bytes = 0;
++
++    if (stream == NULL) {
++        SDL_InvalidParamError("stream");
++        return -1;
++    }
++
++    SDL_LockMutex(stream->lock);
++    if (S3_StreamReady(stream)) {
++        bytes = S3_AvailableFrames(stream) * S3_AudioFrameBytes(&stream->dst);
++    }
++    SDL_UnlockMutex(stream->lock);
++
++    return (int)SDL_min(bytes, SDL_MAX_SINT32);
++}
++
++int S3_GetAudioStreamQueued(S3_AudioStream* stream)
++{
++    const S3_AudioChunk* chunk;
++    Sint64 bytes = 0;
++
++    if (stream == NULL) {
++        SDL_InvalidParamError("stream");
++        return -1;
++    }
++
++    SDL_LockMutex(stream->lock);
++
++    for (chunk = stream->head; chunk != NULL; chunk = chunk->next) {
++        bytes += chunk->length - chunk->offset;
++    }
++
++    // Converted input the output has not reached yet still counts, as SDL3 reads only what it passes.
++    if (stream->run_active && stream->run_frames > stream->run_pos) {
++        bytes += (stream->run_frames - SDL_max(stream->run_pos, (Sint64)0)) * S3_AudioFrameBytes(&stream->run_spec);
++    }
++
++    SDL_UnlockMutex(stream->lock);
++
++    return (int)SDL_min(bytes, SDL_MAX_SINT32);
++}
++
++bool S3_FlushAudioStream(S3_AudioStream* stream)
++{
++    if (stream == NULL) {
++        return SDL_InvalidParamError("stream") == 0;
++    }
++
++    SDL_LockMutex(stream->lock);
++    if (stream->tail != NULL) {
++        stream->tail->flushed = true;
++    } else if (stream->run_active) {
++        stream->run_flushed = true;
++    }
++    SDL_UnlockMutex(stream->lock);
++
++    return true;
++}
++
++// Cancels all input; borrowed buffers go back to their owners, under the lock as in SDL3.
++static void S3_DropAudio(S3_AudioStream* stream)
++{
++    S3_AudioChunk* chunk = stream->head;
++
++    stream->head = NULL;
++    stream->tail = NULL;
++    S3_EndRun(stream);
++
++    while (chunk != NULL) {
++        S3_AudioChunk* next = chunk->next;
++
++        S3_ReleaseChunk(chunk);
++        chunk = next;
++    }
++}
++
++bool S3_ClearAudioStream(S3_AudioStream* stream)
++{
++    if (stream == NULL) {
++        return SDL_InvalidParamError("stream") == 0;
++    }
++
++    SDL_LockMutex(stream->lock);
++    S3_DropAudio(stream);
++    SDL_UnlockMutex(stream->lock);
++
++    return true;
++}
++
++static int S3_DefaultSampleFrames(int freq)
++{
++    if (freq <= 22050) {
++        return 512;
++    }
++
++    if (freq <= 48000) {
++        return 1024;
++    }
++
++    if (freq <= 96000) {
++        return 2048;
++    }
++
++    return 4096;
++}
++
++static S3_AudioStream* s3_device_streams[8];
++
++static void S3_TrackDeviceStream(S3_AudioStream* stream, bool add)
++{
++    size_t index;
++
++    for (index = 0; index < SDL_arraysize(s3_device_streams); index++) {
++        if (add && s3_device_streams[index] == NULL) {
++            s3_device_streams[index] = stream;
++            return;
++        }
++
++        if (!add && s3_device_streams[index] == stream) {
++            s3_device_streams[index] = NULL;
++            return;
++        }
++    }
++}
++
++static S3_AudioStream* S3_FindDeviceStream(S3_AudioDeviceID devid)
++{
++    size_t index;
++
++    for (index = 0; index < SDL_arraysize(s3_device_streams); index++) {
++        if (s3_device_streams[index] != NULL && (S3_AudioDeviceID)s3_device_streams[index]->device == devid) {
++            return s3_device_streams[index];
++        }
++    }
++
++    return NULL;
++}
++
++// SDL2's device thread pulls as SDL3's does: through the stream and its callback, then silence.
++static void SDLCALL S3_AudioDeviceCallback(void* userdata, Uint8* buffer, int len)
++{
++    S3_AudioStream* stream = (S3_AudioStream*)userdata;
++    int got = S3_GetAudioStreamData(stream, buffer, len);
++
++    if (got < 0) {
++        got = 0;
++    }
++
++    if (got < len) {
++        SDL_memset(buffer + got, stream->silence, (size_t)(len - got));
++    }
++}
++
++S3_AudioStream* S3_OpenAudioDeviceStream(S3_AudioDeviceID devid, const S3_AudioSpec* spec, S3_AudioStreamCallback callback, void* userdata)
++{
++    S3_AudioStream* stream;
++    SDL_AudioSpec desired;
++    SDL_AudioSpec obtained;
++    char* default_name = NULL;
++
++    if (devid != S3_AUDIO_DEVICE_DEFAULT_PLAYBACK) {
++        SDL_SetError("Only SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK is supported by sdl3on2");
++        return NULL;
++    }
++
++    if (spec != NULL && !S3_CheckAudioSpec(spec, "spec->format", "spec->channels", "spec->freq")) {
++        return NULL;
++    }
++
++    stream = S3_AllocAudioStream();
++    if (stream == NULL) {
++        return NULL;
++    }
++
++    // SDL3 asks the device for at least S16, stereo and 44100 Hz, and converts to whatever it gets.
++    SDL_zero(desired);
++    desired.format = AUDIO_S16SYS;
++    desired.channels = 2;
++    desired.freq = 44100;
++    if (spec != NULL) {
++        desired.format = S3_AUDIO_BITSIZE(spec->format) > 16 ? (SDL_AudioFormat)spec->format : AUDIO_S16SYS;
++        desired.channels = (Uint8)SDL_max(2, spec->channels);
++        desired.freq = SDL_max(44100, spec->freq);
++    }
++    desired.samples = (Uint16)S3_DefaultSampleFrames(desired.freq);
++    desired.callback = S3_AudioDeviceCallback;
++    desired.userdata = stream;
++
++    stream->device = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, SDL_AUDIO_ALLOW_ANY_CHANGE);
++    if (stream->device != 0 && !S3_IsSupportedAudioFormat(obtained.format)) {
++        // SDL3 has no unsigned 16-bit formats, so SDL2 converts to the requested one instead.
++        SDL_CloseAudioDevice(stream->device);
++        stream->device = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, SDL_AUDIO_ALLOW_ANY_CHANGE & ~SDL_AUDIO_ALLOW_FORMAT_CHANGE);
++    }
++
++    if (stream->device == 0) {
++        S3_FreeAudioStream(stream);
++        return NULL;
++    }
++
++    // SDL2 opens the device paused, as SDL3 opens a device stream; nothing reads it before this is set.
++    stream->dst.format = (S3_AudioFormat)obtained.format;
++    stream->dst.channels = obtained.channels;
++    stream->dst.freq = obtained.freq;
++    stream->src = spec != NULL ? *spec : stream->dst;
++    stream->sample_frames = obtained.samples;
++    stream->silence = obtained.silence;
++    stream->get_callback = callback;
++    stream->get_userdata = userdata;
++
++    if (SDL_GetDefaultAudioInfo(&default_name, NULL, 0) == 0 && default_name != NULL) {
++        stream->device_name = default_name;
++    } else if (SDL_GetNumAudioDevices(0) > 0 && SDL_GetAudioDeviceName(0, 0) != NULL) {
++        stream->device_name = SDL_strdup(SDL_GetAudioDeviceName(0, 0));
++    }
++
++    S3_TrackDeviceStream(stream, true);
++
++    return stream;
++}
++
++S3_AudioDeviceID S3_GetAudioStreamDevice(S3_AudioStream* stream)
++{
++    if (stream == NULL) {
++        SDL_InvalidParamError("stream");
++        return 0;
++    }
++
++    if (stream->device == 0) {
++        SDL_SetError("Audio stream not bound to an audio device");
++    }
++
++    return (S3_AudioDeviceID)stream->device;
++}
++
++// SDL2 pauses under the device's lock, which its thread holds while reading the stream,
++// so these never hold the stream's lock.
++bool S3_PauseAudioStreamDevice(S3_AudioStream* stream)
++{
++    if (S3_GetAudioStreamDevice(stream) == 0) {
++        return false;
++    }
++
++    SDL_PauseAudioDevice(stream->device, 1);
++
++    return true;
++}
++
++bool S3_ResumeAudioStreamDevice(S3_AudioStream* stream)
++{
++    if (S3_GetAudioStreamDevice(stream) == 0) {
++        return false;
++    }
++
++    SDL_PauseAudioDevice(stream->device, 0);
++
++    return true;
++}
++
++bool S3_AudioStreamDevicePaused(S3_AudioStream* stream)
++{
++    if (S3_GetAudioStreamDevice(stream) == 0) {
++        return false;
++    }
++
++    return SDL_GetAudioDeviceStatus(stream->device) == SDL_AUDIO_PAUSED;
++}
++
++bool S3_GetAudioDeviceFormat(S3_AudioDeviceID devid, S3_AudioSpec* spec, int* sample_frames)
++{
++    const S3_AudioStream* stream = S3_FindDeviceStream(devid);
++    SDL_AudioSpec native;
++
++    if (spec == NULL) {
++        SDL_SetError("Parameter 'spec' is invalid");
++        return false;
++    }
++
++    if (stream != NULL) {
++        *spec = stream->dst;
++        if (sample_frames != NULL) {
++            *sample_frames = stream->sample_frames;
++        }
++        return true;
++    }
++
++    if (devid != S3_AUDIO_DEVICE_DEFAULT_PLAYBACK) {
++        SDL_SetError("Invalid audio device instance");
++        return false;
++    }
++
++    if (SDL_GetDefaultAudioInfo(NULL, &native, 0) != 0) {
++        return false;
++    }
++
++    spec->format = (S3_AudioFormat)native.format;
++    spec->channels = native.channels;
++    spec->freq = native.freq;
++
++    if (sample_frames != NULL) {
++        *sample_frames = native.samples != 0 ? native.samples : S3_DefaultSampleFrames(native.freq);
++    }
++
++    return true;
++}
++
++const char* S3_GetAudioDeviceName(S3_AudioDeviceID devid)
++{
++    const S3_AudioStream* stream = S3_FindDeviceStream(devid);
++
++    if (stream != NULL && stream->device_name != NULL) {
++        return stream->device_name;
++    }
++
++    if (stream != NULL || devid == S3_AUDIO_DEVICE_DEFAULT_PLAYBACK) {
++        return "System audio playback device";
++    }
++
++    SDL_SetError("Invalid audio device instance");
++
++    return NULL;
++}
++
++int S3_GetAudioStreamInputRate(S3_AudioStream* stream)
++{
++    return stream != NULL ? stream->src.freq : 0;
++}
++
++void S3_DestroyAudioStream(S3_AudioStream* stream)
++{
++    if (stream == NULL) {
++        return;
++    }
++
++    // Closing joins SDL2's device thread, which takes the stream's lock, so it comes first.
++    if (stream->device != 0) {
++        S3_TrackDeviceStream(stream, false);
++        SDL_CloseAudioDevice(stream->device);
++        SDL_free(stream->device_name);
++    }
++
++    SDL_LockMutex(stream->lock);
++    S3_DropAudio(stream);
++    SDL_UnlockMutex(stream->lock);
++
++    S3_FreeAudioStream(stream);
++}
+diff --git a/src/s3_core.c b/src/s3_core.c
+index 3b8aa83..10d7556 100644
+--- a/src/s3_core.c
++++ b/src/s3_core.c
+@@ -265,414 +265,3 @@ bool S3_ShowSimpleMessageBox(S3_MessageBoxFlags flags, const char* title, const
+ 
+     return SDL_ShowSimpleMessageBox((Uint32)flags, title, message, window) == 0;
+ }
+-
+-struct S3_AudioStream {
+-    SDL_AudioStream* conversion;
+-    SDL_AudioDeviceID device;
+-    S3_AudioStreamCallback callback;
+-    void* userdata;
+-    Uint8 silence;
+-    S3_AudioSpec src;
+-    S3_AudioSpec dst;
+-    int sample_frames;
+-    char* device_name;
+-    SDL_mutex* mutex;
+-    // Bytes accepted in the input format and read back in the output format, under `mutex`.
+-    Uint64 input_put;
+-    Uint64 output_read;
+-};
+-
+-static int S3_DefaultSampleFrames(int freq)
+-{
+-    if (freq <= 22050) {
+-        return 512;
+-    }
+-
+-    if (freq <= 48000) {
+-        return 1024;
+-    }
+-
+-    if (freq <= 96000) {
+-        return 2048;
+-    }
+-
+-    return 4096;
+-}
+-
+-static int S3_AudioFrameBytes(const S3_AudioSpec* spec)
+-{
+-    return (int)(SDL_AUDIO_BITSIZE((SDL_AudioFormat)spec->format) / 8) * spec->channels;
+-}
+-
+-static bool S3_ValidAudioSpec(const S3_AudioSpec* spec)
+-{
+-    if (spec == NULL) {
+-        SDL_SetError("Parameter 'spec' is invalid");
+-        return false;
+-    }
+-
+-    if (spec->channels < 1 || spec->channels > 8 || spec->freq <= 0 || SDL_AUDIO_BITSIZE((SDL_AudioFormat)spec->format) == 0) {
+-        SDL_SetError("Invalid audio spec");
+-        return false;
+-    }
+-
+-    return true;
+-}
+-
+-S3_AudioStream* S3_CreateAudioStream(const S3_AudioSpec* src_spec, const S3_AudioSpec* dst_spec)
+-{
+-    S3_AudioStream* stream;
+-
+-    if (!S3_ValidAudioSpec(src_spec) || !S3_ValidAudioSpec(dst_spec)) {
+-        return NULL;
+-    }
+-
+-    stream = (S3_AudioStream*)SDL_calloc(1, sizeof(*stream));
+-    if (stream == NULL) {
+-        SDL_SetError("Out of memory");
+-        return NULL;
+-    }
+-
+-    stream->mutex = SDL_CreateMutex();
+-    if (stream->mutex == NULL) {
+-        SDL_free(stream);
+-        return NULL;
+-    }
+-
+-    stream->conversion = SDL_NewAudioStream((SDL_AudioFormat)src_spec->format,
+-        (Uint8)src_spec->channels,
+-        src_spec->freq,
+-        (SDL_AudioFormat)dst_spec->format,
+-        (Uint8)dst_spec->channels,
+-        dst_spec->freq);
+-
+-    if (stream->conversion == NULL) {
+-        SDL_DestroyMutex(stream->mutex);
+-        SDL_free(stream);
+-        return NULL;
+-    }
+-
+-    stream->src = *src_spec;
+-    stream->dst = *dst_spec;
+-
+-    return stream;
+-}
+-
+-static S3_AudioStream* s3_device_streams[8];
+-
+-static void S3_TrackDeviceStream(S3_AudioStream* stream, bool add)
+-{
+-    size_t index;
+-
+-    for (index = 0; index < SDL_arraysize(s3_device_streams); index++) {
+-        if (add && s3_device_streams[index] == NULL) {
+-            s3_device_streams[index] = stream;
+-            return;
+-        }
+-
+-        if (!add && s3_device_streams[index] == stream) {
+-            s3_device_streams[index] = NULL;
+-            return;
+-        }
+-    }
+-}
+-
+-static S3_AudioStream* S3_FindDeviceStream(S3_AudioDeviceID devid)
+-{
+-    size_t index;
+-
+-    for (index = 0; index < SDL_arraysize(s3_device_streams); index++) {
+-        if (s3_device_streams[index] != NULL && (S3_AudioDeviceID)s3_device_streams[index]->device == devid) {
+-            return s3_device_streams[index];
+-        }
+-    }
+-
+-    return NULL;
+-}
+-
+-static void SDLCALL S3_AudioDeviceCallback(void* userdata, Uint8* buffer, int len)
+-{
+-    S3_AudioStream* stream = (S3_AudioStream*)userdata;
+-    int available;
+-    int got;
+-
+-    SDL_LockMutex(stream->mutex);
+-    available = SDL_AudioStreamAvailable(stream->conversion);
+-    SDL_UnlockMutex(stream->mutex);
+-
+-    // SDL3 asks the app for the shortfall, in bytes of the stream's input format.
+-    if (available < len) {
+-        stream->callback(stream->userdata, stream, len - available, len);
+-    }
+-
+-    SDL_LockMutex(stream->mutex);
+-    got = SDL_AudioStreamGet(stream->conversion, buffer, len);
+-    if (got > 0) {
+-        stream->output_read += (Uint64)got;
+-    }
+-    SDL_UnlockMutex(stream->mutex);
+-
+-    if (got < 0) {
+-        got = 0;
+-    }
+-
+-    if (got < len) {
+-        SDL_memset(buffer + got, stream->silence, (size_t)(len - got));
+-    }
+-}
+-
+-S3_AudioStream* S3_OpenAudioDeviceStream(S3_AudioDeviceID devid, const S3_AudioSpec* spec, S3_AudioStreamCallback callback, void* userdata)
+-{
+-    S3_AudioStream* stream;
+-    SDL_AudioSpec desired;
+-    SDL_AudioSpec obtained;
+-    char* default_name = NULL;
+-
+-    if (devid != S3_AUDIO_DEVICE_DEFAULT_PLAYBACK) {
+-        SDL_SetError("Only SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK is supported by sdl3on2");
+-        return NULL;
+-    }
+-
+-    if (!S3_ValidAudioSpec(spec)) {
+-        return NULL;
+-    }
+-
+-    stream = (S3_AudioStream*)SDL_calloc(1, sizeof(*stream));
+-    if (stream == NULL) {
+-        SDL_SetError("Out of memory");
+-        return NULL;
+-    }
+-
+-    SDL_zero(desired);
+-    desired.freq = spec->freq;
+-    desired.format = (SDL_AudioFormat)spec->format;
+-    desired.channels = (Uint8)spec->channels;
+-    desired.samples = (Uint16)S3_DefaultSampleFrames(spec->freq);
+-
+-    if (callback != NULL) {
+-        stream->mutex = SDL_CreateMutex();
+-        stream->conversion = SDL_NewAudioStream(desired.format, desired.channels, desired.freq,
+-            desired.format, desired.channels, desired.freq);
+-        if (stream->mutex == NULL || stream->conversion == NULL) {
+-            SDL_FreeAudioStream(stream->conversion);
+-            SDL_DestroyMutex(stream->mutex);
+-            SDL_free(stream);
+-            return NULL;
+-        }
+-        stream->callback = callback;
+-        stream->userdata = userdata;
+-        desired.callback = S3_AudioDeviceCallback;
+-        desired.userdata = stream;
+-    }
+-
+-    // With no allowed changes SDL2 converts internally, so the stream stays in the caller's format.
+-    stream->device = SDL_OpenAudioDevice(NULL, 0, &desired, &obtained, 0);
+-    if (stream->device == 0) {
+-        SDL_FreeAudioStream(stream->conversion);
+-        SDL_DestroyMutex(stream->mutex);
+-        SDL_free(stream);
+-        return NULL;
+-    }
+-
+-    stream->src = *spec;
+-    stream->dst.format = (S3_AudioFormat)obtained.format;
+-    stream->dst.channels = obtained.channels;
+-    stream->dst.freq = obtained.freq;
+-    stream->sample_frames = obtained.samples;
+-    stream->silence = obtained.silence;
+-
+-    if (SDL_GetDefaultAudioInfo(&default_name, NULL, 0) == 0 && default_name != NULL) {
+-        stream->device_name = default_name;
+-    } else if (SDL_GetNumAudioDevices(0) > 0 && SDL_GetAudioDeviceName(0, 0) != NULL) {
+-        stream->device_name = SDL_strdup(SDL_GetAudioDeviceName(0, 0));
+-    }
+-
+-    S3_TrackDeviceStream(stream, true);
+-
+-    return stream;
+-}
+-
+-S3_AudioDeviceID S3_GetAudioStreamDevice(S3_AudioStream* stream)
+-{
+-    if (stream == NULL) {
+-        SDL_SetError("Parameter 'stream' is invalid");
+-        return 0;
+-    }
+-
+-    return (S3_AudioDeviceID)stream->device;
+-}
+-
+-bool S3_ResumeAudioStreamDevice(S3_AudioStream* stream)
+-{
+-    if (stream == NULL || stream->device == 0) {
+-        SDL_SetError("Parameter 'stream' is invalid");
+-        return false;
+-    }
+-
+-    SDL_PauseAudioDevice(stream->device, 0);
+-
+-    return true;
+-}
+-
+-bool S3_GetAudioDeviceFormat(S3_AudioDeviceID devid, S3_AudioSpec* spec, int* sample_frames)
+-{
+-    const S3_AudioStream* stream = S3_FindDeviceStream(devid);
+-    SDL_AudioSpec native;
+-
+-    if (spec == NULL) {
+-        SDL_SetError("Parameter 'spec' is invalid");
+-        return false;
+-    }
+-
+-    if (stream != NULL) {
+-        *spec = stream->dst;
+-        if (sample_frames != NULL) {
+-            *sample_frames = stream->sample_frames;
+-        }
+-        return true;
+-    }
+-
+-    if (devid != S3_AUDIO_DEVICE_DEFAULT_PLAYBACK) {
+-        SDL_SetError("Invalid audio device instance");
+-        return false;
+-    }
+-
+-    if (SDL_GetDefaultAudioInfo(NULL, &native, 0) != 0) {
+-        return false;
+-    }
+-
+-    spec->format = (S3_AudioFormat)native.format;
+-    spec->channels = native.channels;
+-    spec->freq = native.freq;
+-
+-    if (sample_frames != NULL) {
+-        *sample_frames = native.samples != 0 ? native.samples : S3_DefaultSampleFrames(native.freq);
+-    }
+-
+-    return true;
+-}
+-
+-const char* S3_GetAudioDeviceName(S3_AudioDeviceID devid)
+-{
+-    const S3_AudioStream* stream = S3_FindDeviceStream(devid);
+-
+-    if (stream != NULL && stream->device_name != NULL) {
+-        return stream->device_name;
+-    }
+-
+-    if (stream != NULL || devid == S3_AUDIO_DEVICE_DEFAULT_PLAYBACK) {
+-        return "System audio playback device";
+-    }
+-
+-    SDL_SetError("Invalid audio device instance");
+-
+-    return NULL;
+-}
+-
+-bool S3_PutAudioStreamData(S3_AudioStream* stream, const void* buf, int len)
+-{
+-    int rc;
+-
+-    if (stream == NULL) {
+-        SDL_SetError("Invalid audio stream");
+-        return false;
+-    }
+-
+-    if (stream->device != 0 && stream->callback == NULL) {
+-        return SDL_QueueAudio(stream->device, buf, (Uint32)len) == 0;
+-    }
+-
+-    SDL_LockMutex(stream->mutex);
+-    rc = SDL_AudioStreamPut(stream->conversion, buf, len);
+-    if (rc == 0 && len > 0) {
+-        stream->input_put += (Uint64)len;
+-    }
+-    SDL_UnlockMutex(stream->mutex);
+-
+-    return rc == 0;
+-}
+-
+-int S3_GetAudioStreamQueued(S3_AudioStream* stream)
+-{
+-    Uint64 put;
+-    Uint64 read;
+-    Uint64 used;
+-    Uint64 queued;
+-    int src_frame_bytes;
+-    int dst_frame_bytes;
+-
+-    if (stream == NULL) {
+-        SDL_SetError("Invalid audio stream");
+-        return -1;
+-    }
+-
+-    if (stream->device != 0 && stream->callback == NULL) {
+-        return (int)SDL_GetQueuedAudioSize(stream->device);
+-    }
+-
+-    SDL_LockMutex(stream->mutex);
+-    put = stream->input_put;
+-    read = stream->output_read;
+-    SDL_UnlockMutex(stream->mutex);
+-
+-    src_frame_bytes = S3_AudioFrameBytes(&stream->src);
+-    dst_frame_bytes = S3_AudioFrameBytes(&stream->dst);
+-    if (src_frame_bytes <= 0 || dst_frame_bytes <= 0 || stream->src.freq <= 0 || stream->dst.freq <= 0) {
+-        return put > (Uint64)SDL_MAX_SINT32 ? SDL_MAX_SINT32 : (int)put;
+-    }
+-
+-    // SDL2 cannot report the input its resampler has used, so it is estimated from the output read.
+-    used = read * (Uint64)src_frame_bytes * (Uint64)stream->src.freq
+-        / ((Uint64)dst_frame_bytes * (Uint64)stream->dst.freq);
+-    queued = put > used ? put - used : 0;
+-    queued -= queued % (Uint64)src_frame_bytes;
+-
+-    return queued > (Uint64)SDL_MAX_SINT32 ? SDL_MAX_SINT32 : (int)queued;
+-}
+-
+-int S3_GetAudioStreamData(S3_AudioStream* stream, void* buf, int len)
+-{
+-    int got;
+-
+-    // A device stream with no callback is SDL2's own queue, which has nothing to read back.
+-    if (stream == NULL || stream->conversion == NULL) {
+-        SDL_SetError("Invalid audio stream");
+-        return -1;
+-    }
+-
+-    SDL_LockMutex(stream->mutex);
+-    got = SDL_AudioStreamGet(stream->conversion, buf, len);
+-    if (got > 0) {
+-        stream->output_read += (Uint64)got;
+-    }
+-    SDL_UnlockMutex(stream->mutex);
+-
+-    return got;
+-}
+-
+-int S3_GetAudioStreamInputRate(S3_AudioStream* stream)
+-{
+-    return stream != NULL ? stream->src.freq : 0;
+-}
+-
+-void S3_DestroyAudioStream(S3_AudioStream* stream)
+-{
+-    if (stream == NULL) {
+-        return;
+-    }
+-
+-    if (stream->device != 0) {
+-        S3_TrackDeviceStream(stream, false);
+-        SDL_CloseAudioDevice(stream->device);
+-        SDL_free(stream->device_name);
+-    }
+-
+-    if (stream->conversion != NULL) {
+-        SDL_LockMutex(stream->mutex);
+-        SDL_FreeAudioStream(stream->conversion);
+-        SDL_UnlockMutex(stream->mutex);
+-        SDL_DestroyMutex(stream->mutex);
+-    }
+-
+-    SDL_free(stream);
+-}

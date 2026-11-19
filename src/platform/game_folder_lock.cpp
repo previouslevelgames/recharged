@@ -29,6 +29,10 @@ bool LockGameFolder(const std::filesystem::path& data_folder)
     const auto error = GetLastError();
     CloseHandle(lock);
     return error != ERROR_LOCK_VIOLATION && error != ERROR_SHARING_VIOLATION;
+#elif defined(__SWITCH__)
+    // The console runs one program at a time.
+    (void)file;
+    return true;
 #else
     const int lock = open(file.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (lock < 0) return true;
