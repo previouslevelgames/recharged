@@ -59,3 +59,7 @@ All in `/switch/recharged/`:
 - **Saves:** in `data/`.
 - **Log:** `logs/recharged.log`. After a crash, attach it and Atmosphère's
   report from `/atmosphere/crash_reports/` to the bug report.
+- **Performance stats:** with `frame_logging = true` under `[advanced]` in
+  `recharged.ini`, each session also writes `logs/frame-times_*.csv` and, when
+  the game is closed, a `.csv.summary.txt` beside it (see
+  [Settings](SETTINGS.md)); each row also says whether the Switch was docked.
