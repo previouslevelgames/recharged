@@ -708,6 +708,56 @@ void MousePlayerCycle() {
     mscharged::platform::ShutdownDesktopWpad();
     WPADShutdown();
 }
+// Keyboard & mouse stand in as player 1 while its gamepad is not connected at
+// start; the gamepad takes player 1 when it connects (#168), and a pad without
+// a player is never opened.
+void LateGamepadCycle() {
+    using mscharged::platform::DesktopKeyboardWpadChannel;
+    mscharged::platform::ConfigureWpadSDL({0,3,false,false});
+    mscharged::platform::DesktopWpadSettings settings{};
+    settings.keyboard = true;
+    settings.keyboard_channel = 0;
+    settings.keyboard_until_gamepad = true;
+    settings.gamepads = settings.gamepad_players = true;
+    settings.gamepad_channels = {0, -1, -1, -1};
+    mscharged::platform::SetNativeWpadReservedChannels(0b1);
+    mscharged::platform::InitializeDesktopWpad(window, settings);
+    WPADInit();
+    Event(SDL_EVENT_WINDOW_FOCUS_GAINED);
+    WPADDeviceType type{};
+    Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK; }, "Keyboard & mouse did not stand in as player 1");
+    Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+    Until([&] { return Report(0).button == WPAD_BUTTON_A; }, "Keyboard did not play as player 1");
+    Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+    Until([&] { return Report(0).button == 0; }, "Keyboard kept a press");
+    {
+        GenericPad pad;
+        Until([&] { return DesktopKeyboardWpadChannel() == -1; },
+              "Keyboard & mouse did not hand player 1 to the late gamepad");
+        Until([&] { return WPADProbe(0, &type) == WPAD_ERR_OK && type == WPAD_DEV_FREESTYLE; },
+              "The late gamepad did not connect as player 1");
+        Check(WPADSetDataFormat(0, WPAD_FMT_FS_BTN_ACC_DPD) == WPAD_ERR_OK, "Freestyle format was rejected");
+        const auto report = [] {
+            WPADFSStatus status{};
+            WPADRead(0, reinterpret_cast<WPADStatus*>(&status));
+            return status;
+        };
+        SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, true);
+        Until([&] { return report().button == WPAD_BUTTON_A; }, "The late gamepad did not play as player 1");
+        SDL_SetJoystickVirtualButton(pad.joystick, SDL_GAMEPAD_BUTTON_SOUTH, false);
+        Until([&] { return report().button == 0; }, "The late gamepad kept a press");
+        Event(SDL_EVENT_KEY_DOWN, SDL_SCANCODE_RETURN);
+        for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+        Check(report().button == 0, "Keyboard still played after the gamepad took player 1");
+        Event(SDL_EVENT_KEY_UP, SDL_SCANCODE_RETURN);
+        GenericPad extra;
+        for (int n = 0; n != 5; ++n) { Service(); SDL_Delay(2); }
+        Check(!SDL_GetGamepadFromID(extra.id), "A pad without a player was opened");
+        mscharged::platform::ShutdownDesktopWpad();
+    }
+    WPADShutdown();
+    mscharged::platform::SetNativeWpadReservedChannels(0);
+}
 // Mouse buttons press the keyboard actions bound to them (#62); left and right
 // click are A and B while no action takes them.
 void MouseKeysCycle() {
@@ -1507,6 +1557,7 @@ int main() {
         CustomGamepadCycle();
         ControllerFamilyCycle();
         MousePlayerCycle();
+        LateGamepadCycle();
         MouseKeysCycle();
         PanelHoldCycle();
         StickDirectionCycle();
@@ -1520,7 +1571,7 @@ int main() {
 #endif
         SDL_DestroyWindow(window); window = nullptr;
         SDL_Quit();
-        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, mouse buttons as keys (left and right click too), the host panel's hold, stick directions as buttons, the gyro pointer, shared sticks, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
+        std::printf("Raw keyboard-first WPAD profile: %u checks; selected keyboard, keyboard Nunchuk, fixed players, custom keys, gamepad players, custom gamepad layouts, stick dead zones and trigger press points, controller-family defaults, mouse beside a controller, a late gamepad taking player 1, mouse buttons as keys (left and right click too), the host panel's hold, stick directions as buttons, the gyro pointer, shared sticks, the fullscreen shortcut and retained generic profile pass. No original FE lifecycle/game acceptance.\n", checks);
         return 0;
     } catch (const std::exception& e) {
         mscharged::platform::ShutdownHotkeys();

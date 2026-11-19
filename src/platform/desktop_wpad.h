@@ -58,6 +58,10 @@ struct DesktopWpadSettings {
     // controls.rumble_strength: how strongly a gamepad's motors run when the
     // game rumbles (0-100 %). Wii Remotes have an on/off motor.
     int rumble_strength = 100;
+    // Keyboard & mouse only stand in on keyboard_channel because no configured
+    // controller was there at start: the gamepad that joins on that channel
+    // takes it over, and keyboard & mouse stop playing.
+    bool keyboard_until_gamepad = false;
 };
 
 // Native desktop buttons are carried by explicit SDL virtual core-Wii devices.

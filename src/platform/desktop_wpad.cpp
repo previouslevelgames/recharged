@@ -661,8 +661,6 @@ void ServiceDesktopWpad() {
             // a physical Wii extension into a button-only desktop controller.
             const auto vendor = SDL_GetGamepadVendorForID(ids[n]), product = SDL_GetGamepadProductForID(ids[n]);
             if (vendor == 0x057e && (product == 0x0306 || product == 0x0330)) continue;
-            auto* input = SDL_OpenGamepad(ids[n]);
-            if (!input) continue;
             std::unique_ptr<Device>* slot = nullptr;
             int index = 0;
             for (; index < int(state.pads.size()); ++index)
@@ -670,7 +668,23 @@ void ServiceDesktopWpad() {
                     slot = &state.pads[index];
                     break;
                 }
-            if (!slot) { SDL_CloseGamepad(input); break; }
+            // Every player has its pad: the others stay closed (opening them
+            // here would open and close them again at every service).
+            if (!slot) break;
+            auto* input = SDL_OpenGamepad(ids[n]);
+            if (!input) continue;
+            const char* name = SDL_GetGamepadName(input);
+            if (state.settings.gamepad_players && state.settings.keyboard_until_gamepad && state.keyboard &&
+                    state.settings.gamepad_channels[index] == state.settings.keyboard_channel) {
+                Retire(state.keyboard);
+                std::lock_guard lock(state.mutex);
+                state.settings.keyboard_until_gamepad = false;
+                SDL_Log("Gamepad %s connected: it is player %d instead of keyboard & mouse", name ? name : "",
+                    state.settings.keyboard_channel + 1);
+            }
+            if (state.settings.gamepad_players)
+                SDL_Log("Gamepad %d (%s, %04x:%04x) plays as player %d", index + 1, name ? name : "controller",
+                    vendor, product, state.settings.gamepad_channels[index] + 1);
             try {
                 *slot = MakeDevice(input);
                 (*slot)->profile = state.settings.gamepad_profiles[index];
