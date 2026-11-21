@@ -21,6 +21,9 @@
 #include "Game/FE/feRender.h"
 #include "Game/FE/feFinder.h"
 #include "Game/FE/feFinder_impl.h"
+// InlineHasher's constructors: without them the module calls address 0 on
+// Windows (its unresolved symbols link as 0) where no other unit kept a copy.
+#include "Game/FE/feInlineHasher.h"
 #include "Game/FE/fePackage.h"
 #include "Game/FE/fePointerButton.h"
 #include "Game/FE/fePresentation.h"
