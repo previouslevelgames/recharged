@@ -1,5 +1,6 @@
 #pragma once
 
+#include "platform/profile_service.h"
 #include "platform/save_import.h"
 
 #include <filesystem>
@@ -11,8 +12,10 @@
 // Match presets: named sets of match settings and cheats (the Matches page),
 // each a small INI file in a folder beside recharged.ini. Choosing one writes
 // it into the game save, for matches on this computer or online with friends.
-// Two are built in and cannot change: Default and Competitive. Independent of
-// SDL/ImGui so it can be unit tested.
+// Two are built in and cannot change: Retail ranked (the game's own ranked
+// rules, also a new save's settings) and Competitive (first to 10 goals,
+// with Fast terrain, No Mega Strikes and Thunder Island walls), as the
+// profile server has them. Independent of SDL/ImGui so it can be unit tested.
 namespace mscharged::launcher
 {
 struct MatchPreset
@@ -21,10 +24,23 @@ struct MatchPreset
     platform::MatchSettings settings;
     bool built_in = false;
     std::filesystem::path file; // the preset's file; empty for a built-in one
+    // For challenges too: the stadium ("random" or one of StadiumChoices'
+    // keys) and the gameplay tweaks both teams play with (RuleTweakChoices'
+    // keys). The skill only counts against the CPU.
+    std::string stadium = "random";
+    std::vector<std::string> tweaks;
 };
 
-// Default: what a new save starts with, no cheats. Competitive: Superstar,
-// best of 3, first to 10 goals, Secure, no other cheat.
+// A preset as a challenge's rules (a series of 9 plays 7: online sets go up
+// to 7 games).
+platform::MatchRules ChallengeRules(const MatchPreset& preset);
+// A new preset named `name` from a challenge's rules (one of the server's rule
+// sets): values the game's settings screen doesn't offer take its nearest.
+MatchPreset PresetFromRules(std::string name, const platform::MatchRules& rules);
+
+// Retail ranked: Rookie, best of 3, 3 minutes, a random stadium, no cheats
+// (a new save's settings). Competitive: first to 10 goals instead, with Fast
+// terrain, No Mega Strikes and Thunder Island walls.
 const std::vector<MatchPreset>& BuiltInMatchPresets();
 
 // Names are compared without case. A preset's name has 1 to 32 characters,

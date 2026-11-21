@@ -200,6 +200,13 @@ bool ChargedOnlineDossierGame(DesyncDossierHeader& header)
     return true;
 }
 
+void ChargedOnlineSeriesForfeit()
+{
+    if (!UnderWay()) return;
+    sSeries.ended = 2;
+    sSeries.stopped_by = kChargedOnlineForfeit;
+}
+
 extern "C" __attribute__((visibility("default"))) bool charged_online_match_snapshot(
     ChargedOnlineMatchSnapshot* snapshot, unsigned size)
 {

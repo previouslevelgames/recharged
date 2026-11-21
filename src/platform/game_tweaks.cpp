@@ -38,6 +38,10 @@ bool sTrainingAwayGoalie = true;
 bool sTrainingSkipGoal;
 int sTrainingAwaySkill = -1;
 bool sTrainingPlayAway;
+// Competitive play: a set's game (competitive_match.cpp) passes the title as
+// Skip intro does, and its menus' sounds are silent while it passes them.
+bool sSetStart;
+bool sMenusQuiet;
 bool sPerformanceMode;
 // Enforced updates (the host's src/launcher/online_gate.h): its verdict on
 // this release in OnlineGateState's numbers, and the message the main menu's
@@ -45,7 +49,8 @@ bool sPerformanceMode;
 enum { kOnlineOpen = 0, kOnlineChecking = 1, kOnlineOutdated = 2, kOnlineUnchecked = 3 };
 std::atomic<int> sOnlineGate{kOnlineOpen};
 const unsigned short* sOnlineLockMessage;
-// The popup's text, in English: Recharged's own texts are not translated yet.
+// The popup's text, in English: Recharged's texts (bootstrap/texts.h) are the
+// host's, and the game draws this with its own font.
 const char16_t kOnlineOutdatedText[] =
     u"A newer version of Recharged is out. Online play is off until you update: close the game and start the "
     u"launcher, which installs it.";
@@ -180,6 +185,37 @@ __attribute__((visibility("default"))) void charged_configure_tweaks(unsigned ma
     sHudHidden = mscharged_tweak_enabled(MSCHARGED_TWEAK_NO_HUD);
 }
 
+// Host entry while the game runs (the overlay's Game options, between
+// matches): the enabled tweaks change; the title, menus and HUD keep their
+// state. Each tweak reads its bit where it acts, so most take effect from the
+// next match.
+__attribute__((visibility("default"))) void charged_set_tweaks(unsigned mask)
+{
+    sEnabled = mask;
+}
+
+// Competitive play (competitive_match.cpp, at the host's
+// charged_configure_competitive_start): the title is passed at once, as by
+// Skip intro, and the main menu then goes online by itself.
+void mscharged_tweak_set_start(void)
+{
+    sSetStart = true;
+}
+
+// Competitive play (competitive_match.cpp): while a set's game passes its
+// menus by itself, their sounds (Menus & HUD) are silent.
+void mscharged_tweak_set_menus_quiet(bool quiet)
+{
+    sMenusQuiet = quiet;
+}
+
+// Competitive play: the set is over; the title is the player's again.
+void mscharged_tweak_set_end(void)
+{
+    sSetStart = false;
+    sMenusQuiet = false;
+}
+
 // Host entry (Training): the item of the team that trains (ePowerUpType, -1
 // none, 9 its captain's power-up); with `start`, the launcher's Start training: the title is passed at
 // once, as by Skip intro, into a match of `captain` (eTeamID) in `stadium`
@@ -305,8 +341,14 @@ unsigned long mscharged_tweak_rev1_ingame_texture_budget(unsigned long size)
     return sRev1Data ? 0x966666 : size;
 }
 
+// Competitive play (competitive_match.cpp): the set's rules have Mirror match.
+extern "C" bool mscharged_competitive_mirror_match(void);
+
 bool mscharged_tweak_enabled(int tweak)
 {
+    // A set's draft and games play Mirror match by its rules, whatever the
+    // player's own setting: both games dress the away team alike.
+    if (tweak == MSCHARGED_TWEAK_MIRROR_MATCH && mscharged_competitive_mirror_match()) return true;
     return tweak >= 0 && tweak < 32 && (sEnabled & (1u << tweak)) != 0;
 }
 
@@ -325,6 +367,11 @@ bool mscharged_tweak_hud_hidden(void)
     return sHudHidden;
 }
 
+bool mscharged_tweak_pause_menu_replaced(void)
+{
+    return mscharged_tweak_enabled(MSCHARGED_TWEAK_OVERRIDE_RETAIL_MENUS);
+}
+
 void mscharged_tweak_report_stadium(int stadium)
 {
     sStadium = stadium;
@@ -332,6 +379,7 @@ void mscharged_tweak_report_stadium(int stadium)
 
 float mscharged_tweak_sound_volume(const char* bank, unsigned category)
 {
+    if (sMenusQuiet && SoundGroupOf(bank, category) == kMenus) return -200.0f;
     return sSoundMixed ? sSoundDecibels[SoundGroupOf(bank, category)] : 0.0f;
 }
 
@@ -476,7 +524,7 @@ bool mscharged_tweak_take_title_press(void)
 
 bool mscharged_tweak_title_pending(void)
 {
-    return !sTitlePassed && (sTrainingStart || mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO));
+    return !sTitlePassed && (sTrainingStart || sSetStart || mscharged_tweak_enabled(MSCHARGED_TWEAK_SKIP_INTRO));
 }
 
 int mscharged_tweak_training_item(void)

@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -52,6 +53,10 @@ public:
     using Log = std::function<void(const std::string& line)>;
     // One HTTP request (HttpGet; a test answers for the server).
     using Request = std::function<HttpResponse(const HttpRequest& request)>;
+    // A question to the server: the body of its answer to a GET of `path`
+    // (HTTP 200), nothing otherwise (no answer, an older server).
+    using Ask = std::function<std::optional<std::string>(const std::string& path,
+                                                         const std::shared_ptr<HttpCancel>& cancel)>;
 
     // Reports to `server` (online.server: a host name or address), naming
     // this computer's operating system (HostOsName).
@@ -65,9 +70,12 @@ public:
     // is (another 4xx); not when the server could not take it then (403: not
     // logged in, 429, 5xx) or has no endpoint for it.
     static Send HttpSend(const std::string& server, Log log, Request request = {});
-    // Reports through `send`, a failed one tried again after `retry`.
+    // How Start asks: a GET of http://<server><path> through `request`.
+    static Ask HttpAsk(const std::string& server, Request request = {});
+    // Reports through `send`, a failed one tried again after `retry`; asks
+    // through `ask` (none: no questions) every `retry` / 2.5.
     OnlineReports(std::string release, std::string build, std::string os, Send send, Log log,
-                  std::chrono::milliseconds retry = std::chrono::seconds(5));
+                  std::chrono::milliseconds retry = std::chrono::seconds(5), Ask ask = {});
     // Stops the report under way; reports not sent yet are dropped.
     ~OnlineReports();
     OnlineReports(const OnlineReports&) = delete;
@@ -77,6 +85,10 @@ public:
     // Never waits for the network. Of several error codes shown between two
     // calls, only the last one is reported.
     void Observe(const ChargedOnlineMatchSnapshot& snapshot);
+    // A series that ended with the connection lost: whether the opponent
+    // forfeited it (the server knows from their report; servers from 1.2.21
+    // on): their Mii's name, once.
+    std::optional<std::string> TakeOpponentForfeit();
 
     // Keeps desync dossiers in `folder` (created when needed) until the
     // server has them; without a folder, none are sent. Those left by earlier

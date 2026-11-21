@@ -5,7 +5,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#else
+#elif !defined(__SWITCH__)
 #include <fstream>
 #include <sys/utsname.h>
 #if defined(__APPLE__)
@@ -27,7 +27,7 @@ constexpr const char* kArchitecture =
     "unknown CPU";
 #endif
 
-#if !defined(_WIN32) && !defined(__APPLE__)
+#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__SWITCH__)
 // The distribution's name from os-release (PRETTY_NAME), at most 40
 // characters so the architecture still fits; empty when there is none.
 std::string Distribution()

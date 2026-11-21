@@ -57,8 +57,9 @@ it in four steps:
    into one game module per game version. The decomp builds every release
    from the same source, selected by a version macro (`VERSION_R4QE01`,
    `VERSION_R4QP01_REV2`, `VERSION_R4QJ01`, `VERSION_R4QK01`; the Korean
-   release also takes its newer SDK's own copies of some files); Recharged
-   compiles the prepared tree once for each.
+   release also takes its newer SDK's own copies of some files, except DWC and
+   GameSpy, which it builds as the other releases do so that it can play
+   them online); Recharged compiles the prepared tree once for each.
 
 The patches fall into two series:
 

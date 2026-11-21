@@ -1,9 +1,12 @@
 #pragma once
 
 #include "bootstrap/config.h"
+#include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace mscharged
 {
@@ -43,6 +46,17 @@ struct ResolvedLaunch
     // (seconds since 1970), 0 when it did not: the game's online check
     // (launcher/online_gate.h) then needs no request of its own.
     std::int64_t update_verified = 0;
+    // A competitive set's go (the launcher's lobby, both pressed Ready to
+    // play!): the game goes from the title through the online login with the
+    // player's own Mii (its create ID) straight into RANKED against the set's
+    // opponent, and the launcher opens again afterwards.
+    bool start_competitive = false;
+    std::int64_t competitive_set = 0;
+    std::array<unsigned char, 8> competitive_mii{};
+    // The player's Discord friends as the launcher knows them (their Discord
+    // account ids; none while Discord isn't linked): the game's online panel
+    // shows those who play Recharged.
+    std::vector<std::string> discord_friends;
 };
 
 // Consume a shared option at argv[index], including its value where required.

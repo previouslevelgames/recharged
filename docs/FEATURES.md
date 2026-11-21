@@ -42,15 +42,18 @@ come from the reconstructed source, unchanged.
   the last digit and Delete clears the code.
 - **Gamepads**: Xbox, PlayStation, Switch Pro, GameCube (USB adapter) and
   other standard controllers stand in for the Wii Remote with Nunchuk the game
-  is played with, with rumble (its strength can be set). The right stick
-  moves the pointer, or the gyro of a controller that has one (PlayStation,
+  is played with, with rumble (its strength can be set). A stick moves the
+  pointer, or the gyro of a controller that has one (PlayStation,
   Switch Pro): turn it to point, like a Wii Remote
   ([#14](https://github.com/previouslevelgames/recharged/issues/14)).
   **Gamepad profiles** say which controller button presses each Wii button: a
-  built-in Default that gives each controller family its own layout
-  (Nintendo's A is its right button) plus up to 16 named profiles (up to two
-  buttons per Wii button, or none; sticks can be swapped, and a stick pushed
-  one way can press a button, such as the right stick as the D-pad for
+  built-in Default with the layout of the Classic Controller mod for the Wii
+  game (the left stick moves and points, the right stick is the D-pad), given
+  to each controller family by its labels (Nintendo's A is its right button),
+  the built-in Classic 1.1 (the earlier Default), plus up to 16 named
+  profiles (up to three buttons per Wii button, or none, and one button can
+  press several; the sticks can be split, swapped or shared, and a stick
+  pushed one way can press a button, such as the right stick as the D-pad for
   dekes). A profile also sets the sticks'
   inner and outer dead zones and the triggers' press point, tried live on the
   controller in the launcher; the defaults play like a Nunchuk on the Wii
@@ -82,11 +85,17 @@ come from the reconstructed source, unchanged.
 **Hotkeys** work whoever plays: **P** saves a screenshot, **H** shows or hides
 the HUD in a match, **F** stretches the picture over the window or gives it
 back its shape, **Page Up** and **Page Down** raise and lower the 3D resolution,
-and **Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
-window. Each can be changed under Controls → Hotkeys, to a key alone or with
+**Alt+Enter** (Option+Return on a Mac) switches between fullscreen and a
+window, and **F1** (or HOME on a controller) opens the **Recharged Game Menu** over the
+blurred game, in the game's own look (point at it with a Wii Remote, as at the game's menus): on **ONLINE** your set, the friends online,
+the players available, a RANKED match from anywhere in the menus and the
+leaderboards; on **OPTIONS** the gameplay options (**F2** opens them there) and
+the display, sound, controller and advanced settings, which change while the
+game runs (the launcher keeps only what the game needs before it starts). In an online match
+the game's pause button opens a menu to continue or forfeit. Each can be changed under Controls → Hotkeys, to a key alone or with
 Ctrl, Shift or Alt.
 
-**No HUD** (Controls → Hotkeys → *Show the HUD when a match starts* off):
+**No HUD** (the game's Settings → Controls → *HUD at kickoff* off):
 matches start without the scoreboard (score, clock, items, ability meter),
 the player markers and the captions (replay label, goal banner, super ability
 card), for clean recordings and screenshots; the HUD key shows them. The Mega
@@ -95,9 +104,9 @@ play.
 
 ## Picture and sound
 
-- Vulkan on Linux, Vulkan or DirectX 12 on Windows (Advanced → Graphics API),
-  Metal on macOS; on PCs with two GPUs, a choice of graphics card (Advanced →
-  Graphics card).
+- Vulkan on Linux, Vulkan or DirectX 12 on Windows (Advanced → Troubleshooting
+  → Graphics API), Metal on macOS; on PCs with two GPUs, a choice of graphics
+  card (Advanced → Troubleshooting → Graphics card).
 - Window or fullscreen on any monitor, at a resolution your graphics card
   offers (fullscreen keeps the display's own unless you pick another);
   Alt+Enter switches while playing. The window reopens at the size and place
@@ -114,12 +123,12 @@ play.
   into the window; **Original TV** keeps the console's TV look, optionally with
   the empty border a Wii sends around its picture.
 - **Antialiasing**: 4x MSAA by default, or FXAA, 4x MSAA + FXAA, or 4x SSAA,
-  which also smooths the edges inside textures (Display → Antialiasing).
-- **Performance mode** (the gear on Play): lighter matches without
+  which also smooths the edges inside textures (Game → Screen → Antialiasing).
+- **Performance mode** (the game's Settings → Display): lighter matches without
   antialiasing, crowd, background NPCs, ambient effects, bloom or stadium
   shadows. Gameplay, hazards and their effects remain unchanged.
 - **Frame rates**: the console's 60 FPS by default, or 30, 60, 120, 144, your
-  display's refresh rate or unlimited (Display → Frame rate). The game keeps its
+  display's refresh rate or unlimited (the game's Settings → Display). The game keeps its
   own speed: matches still simulate at their fixed 50 Hz and every frame is
   drawn from the game's own blend of its last two steps, so the extra frames
   are real motion, not interpolation added by Recharged.
@@ -127,14 +136,14 @@ play.
   rollback no longer fits in a frame. Each player's rate is their own: it does
   not have to match the opponent's.
 - V-sync and a performance overlay (FPS, CPU and GPU load) in any corner.
-- Master volume, mute and **sound levels** (Audio): music, sound effects,
+- Master volume, mute and **sound levels** (the game's Settings → Sound): music, sound effects,
   voices, the crowd, menus and HUD, cutscenes and movies each from 0 to 100 %,
   on top of the game's own music, effect and voice options.
 - **Screenshots** with the P key, or the one chosen under Controls → Hotkeys.
 
 ## Optional tweaks
 
-Off by default, except Feder's fair ball contests and Match point; with all
+Off by default, except Defence priority and Match point; with all
 of them off the game plays as on the Wii. Four fixes of the original game are always
 on: a goal net no longer stays dented after a
 goal ([#19](https://github.com/previouslevelgames/recharged/issues/19)),
@@ -147,7 +156,8 @@ shots pass through the goalies
 and no star with "x3" flashes in the top corners when the HUD leaves the
 screen after a goal
 ([#68](https://github.com/previouslevelgames/recharged/issues/68)).
-The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them on:
+The game's **OPTIONS → GAMEPLAY** (or `[gameplay]` in `recharged.ini`) turns them on; the Super Team
+is on the launcher's **Extras** page, as it needs a GameCube image:
 
 - **Skip intro**: start at the main menu, without the notice screens, studio
   logo, intro movie and title screen.
@@ -179,7 +189,7 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   music, which replaces the stadium's music until the match ends, and the HUD
   shows SUDDEN DEATH instead of "First to". A team alone one goal from
   winning changes nothing. Only sound and HUD change. On by default.
-- **Training**: **Start training** on the Gameplay page (or `--training`)
+- **Training**: **Start training** on the launcher's Extras page (or `--training`)
   goes past the intro and the menus straight into a Domination match with
   the chosen captain, the sidekicks of their lineup on the Teams page, and
   the chosen stadium, on the home or the away side. The other team has the captain you choose (Bowser by
@@ -193,7 +203,7 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   one, or your captain's own) and keeps every item it uses, in a match to 10
   goals that never ends on them (leave it from the pause menu), without the
   cheats of the saved Gameplay options. Every other match is unchanged.
-- **Feder's fair ball contests**: when players of both teams reach a loose
+- **Defence priority**: when players of both teams reach a loose
   ball in the same instant, the one the Wii game updates first takes it. It
   shuffles that order at every kickoff in a way that puts the home team
   first slightly more often (52 % of the time on average, up to 55 %).
@@ -202,15 +212,18 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   step instead, always home team first. With this option the defending
   team goes first, the one whose goal is on the ball's side of the field,
   again every simulation step and for those contests too (at kickoff, with
-  the ball on the center line, the order is only shuffled). Named after
-  Feder, who made a Gecko code for this on the Wii. On by default, as it is
+  the ball on the center line, the order is only shuffled). Based on
+  Feder's Gecko code for the Wii. On by default, as it is
   recommended to every player; online matches always play with it.
 - **Mirror match**: both teams can pick the same captain in Domination. The
   away team wears an away kit, in the menus as on the field: the game's own,
   or for Mario, Luigi, Wario and Waluigi, who have none, one made from their
   own kit (Mario blue, Luigi sky blue, Wario blue, Waluigi orange). Peach
   wears her blue kit; its menu pictures and Mega Strike hand are made the
-  same way. Online matches are unchanged.
+  same way. Online matches are unchanged, unless a battle's rules have Mirror
+  match: then both players can draft the same captain, and each sees their
+  own team in its usual kit and the opponent's in the away kit
+  ([competitive play](COMPETITIVE.md)).
 - **Blue Peach**: Peach's team wears her blue and yellow kit on the field
   (Peach, her sidekicks and her goalie). The game has it on the disc but only
   uses it against a captain of her colours, and nobody else is pink. Her menu
@@ -244,19 +257,22 @@ banner the game uses for its save, read from your own image. Click the one to
 play; images of versions this build cannot run yet are listed with the reason
 ([game images](SETTINGS.md#game-images)).
 
-Under **Online/Match setup**, its **Sidekicks** page sets the sidekicks each
+Under **Online**, its **Sidekicks** page sets the sidekicks each
 captain starts with, on a pitch laid out like the team plays: click a sidekick
 to put another one there. The game's sidekick screen then starts from that
 lineup, and what you choose there shows on the page: both are the lineups in
 your own game save ([saves](SETTINGS.md#saves)).
 
-Its **Match rules** page keeps presets of the match settings and cheats: skill,
-series, time or goals, and the stadium, player and power-up cheats, all of
-them whether your save has unlocked them or not. Use one for matches on this computer or online with
-friends, and it goes into your game save, as if chosen in the game's settings
-screen; ranked matches keep their rules. **Default** (a new save's settings)
-and **Competitive** (Superstar, best of 3, first to 10 goals, Secure Stadiums) are
-built in; the others are files of their own ([saves](SETTINGS.md#saves)).
+Its **Match rules** page keeps presets of a battle's rules: series, time or
+goals, the stadium, the gameplay tweaks both teams play with and the stadium,
+player and power-up cheats (all of them whether your save has unlocked them or
+not). A challenge or a search for an opponent starts from one and can still
+change any rule; ranked matches and tournaments bring their own rules.
+**Retail ranked** (the game's own ranked rules: best of 3, 3 minutes, a random
+stadium) and **Competitive** (best of 3, first to 10 goals, a random stadium,
+with Fast terrain, No Mega Strikes and Thunder Island walls) are built in,
+read-only and always there, with the server's own rule sets (**Copy** makes
+one your own); yours are files of their own ([saves](SETTINGS.md#saves)).
 
 It also **updates Recharged**: when a newer release is out it installs it in
 place by itself, with the release notes, and restarts; only the program's own
@@ -270,7 +286,7 @@ lets you choose which one to follow ([updates](SETTINGS.md#updates)).
 
 Texture packs made for Dolphin replace the game's textures, from a folder or
 straight from their `.zip` file, with several packs in an order you choose
-(Gameplay → Mods, [settings](SETTINGS.md#texture-packs)).
+(Extras → Mods, [settings](SETTINGS.md#texture-packs)).
 
 ## Online play
 
@@ -281,7 +297,9 @@ server instead. It is set up already; only a private instance of the server
 needs `[online] server` ([settings](SETTINGS.md#online)). Friend
 codes are typed on the game's friend code screen, as described under Controls.
 
-The launcher's Play page shows how many players are online on that server,
+The launcher's Play page shows the server's message when it has one (a
+restart, an event: its admins post it; the close button hides it until they
+post another), and how many players are online on that server,
 asked every minute: everyone logged in to it, from Recharged, a Wii or
 Dolphin, and in its tooltip how many of them are in a match. A server without
 this count (older than Recharged WFC 1.2.19) shows nothing.
@@ -299,7 +317,8 @@ these matches (see Picture and sound).
 
 While the Discord app runs on the same computer, your Discord profile shows the
 menu you are in or the match you play, with its mode, stadium, captains, score
-and match time ([settings](SETTINGS.md#discord-status)).
+and match time, and during an online set your opponent and the games won so
+far ([settings](SETTINGS.md#discord-status)).
 
 ## Not supported (yet)
 

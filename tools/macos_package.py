@@ -38,7 +38,7 @@ REWRITTEN = ("PACKAGE-README.md", "SOURCE-MANIFEST.json")
 # Mach-O: 64-bit (little-endian hosts), and universal (fat) files.
 MACHO_MAGIC = (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf")
 # The build's identity: both halves must agree on it.
-SAME_BUILD = ("version", "packaging_source_commit", "modules", "prepared")
+SAME_BUILD = ("version", "packaging_source_commit", "modules", "discord_social_sdk", "prepared")
 
 
 def is_macho(data):
@@ -104,14 +104,17 @@ def stage(arm64, x86_64, folder, merge=lipo):
     if set(packages) != set(ARCHITECTURES):
         raise PackageError("Expected the arm64 and the x86_64 macOS package")
     (first, first_files), (second, second_files) = (packages[architecture] for architecture in ARCHITECTURES)
-    if (any(first[key] != second[key] for key in SAME_BUILD)
+    if (any(first.get(key) != second.get(key) for key in SAME_BUILD)
             or first["cargo"]["lock_sha256"] != second["cargo"]["lock_sha256"]):
         raise PackageError("The macOS packages come from different builds")
     programs = {PROGRAM, *first["modules"]}
+    # The Discord Social SDK comes universal from Discord: the same file in
+    # both packages, kept as it is (sign_macos.py signs it with the modules).
+    libraries = {first["discord_social_sdk"]} if first.get("discord_social_sdk") else set()
     for files in (first_files, second_files):
         found = {name for name, (data, _) in files.items() if is_macho(data)}
-        if found != programs:
-            raise PackageError(f"Unexpected programs in a macOS package: {sorted(found ^ programs)}")
+        if found != programs | libraries:
+            raise PackageError(f"Unexpected programs in a macOS package: {sorted(found ^ (programs | libraries))}")
     names = (set(first_files) | set(second_files)) - programs - set(REWRITTEN)
     for name in sorted(names):
         if name in first_files and name in second_files:
@@ -186,7 +189,7 @@ def pack(folder, output, signature=read_signature, thin=lipo_thin):
     output.mkdir(parents=True, exist_ok=True)
     crates = {(item["name"], item["version"]): item
               for manifest in (first, second) for item in manifest["cargo"]["packages"]}
-    universal = {key: first[key] for key in SAME_BUILD}
+    universal = {key: first.get(key) for key in SAME_BUILD}
     universal.update({
         "format": 1, "platform": "macos", "architecture": "universal",
         "cargo": {"lock_sha256": first["cargo"]["lock_sha256"],
@@ -254,7 +257,8 @@ def check(paths):
                                            check=True).stdout.split())
                 if found != halves:
                     raise PackageError(f"{path.name}: {name} holds {sorted(found)}, not {sorted(halves)}")
-            for item in [MACOS_APP, *manifest["modules"]]:
+            libraries = [manifest["discord_social_sdk"]] if manifest.get("discord_social_sdk") else []
+            for item in [MACOS_APP, *manifest["modules"], *libraries]:
                 subprocess.run(["codesign", "--verify", "--strict", "--verbose=2", str(root / item)], check=True)
             if seal.get("notarized"):
                 retried("xcrun", "stapler", "validate", root / MACOS_APP)

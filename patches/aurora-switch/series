@@ -1,0 +1,3 @@
+0001-draw-to-the-switch-window.patch
+0002-run-imgui-without-sdl-on-the-switch.patch
+0003-give-the-pipeline-threads-their-own-cores.patch

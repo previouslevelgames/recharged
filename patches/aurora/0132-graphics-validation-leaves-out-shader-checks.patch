@@ -1,0 +1,32 @@
+From: mscharged-port
+Subject: Graphics validation leaves out the checks inside shaders
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host diagnostics. Apply after 0131.
+
+Validation (0005) asked Dawn for its full level, which on D3D12 also turns on
+the debug layer's GPU-based validation and on Metal the shader validation.
+GPU-based validation patches each pipeline on its first use in a command
+list: a Windows match with every pipeline made at start still stalled 0.2 to
+0.8 s on the first draws, and every frame was two to three times slower. The
+partial level keeps the API validation of every backend (the Vulkan layers
+are the same at both levels) without the shader checks.
+
+diff --git a/lib/webgpu/gpu.cpp b/lib/webgpu/gpu.cpp
+index ba15313..b2b4518 100644
+--- a/lib/webgpu/gpu.cpp
++++ b/lib/webgpu/gpu.cpp
+@@ -801,8 +801,13 @@ bool initialize(AuroraBackend auroraBackend, bool allowCpu) {
+     }};
+     dawn::native::DawnInstanceDescriptor dawnInstanceDescriptor{};
+     dawnInstanceDescriptor.nextInChain = &instanceTogglesDescriptor;
++    // The backend's API validation (the D3D12 debug layer, Metal's API
++    // validation, the Vulkan validation layers) without its checks inside
++    // shaders: D3D12's GPU-based validation patches each pipeline on its first
++    // draw, which stalls play although every pipeline was made at start, and
++    // it and Metal's shader validation slow every frame.
+     dawnInstanceDescriptor.backendValidationLevel = g_config.enableBackendValidation
+-        ? dawn::native::BackendValidationLevel::Full
++        ? dawn::native::BackendValidationLevel::Partial
+         : dawn::native::BackendValidationLevel::Disabled;
+     dawnInstanceDescriptor.SetLoggingCallback(wgpu_log);
+     dawnInstanceDescriptor.platform = dawn_platform();

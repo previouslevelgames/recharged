@@ -36,8 +36,12 @@
 #else
 #include <dlfcn.h>
 #include <fcntl.h>
+#if defined(__SWITCH__)
+#include <switch.h>
+#else
 #include <sys/ioctl.h>
 #include <sys/utsname.h>
+#endif
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
@@ -66,6 +70,7 @@ struct Stream
 {
     int pipe_read = -1;
     int console = -1;
+    bool line_start = true; // the log's next byte from it begins a line
 #ifdef _WIN32
     HANDLE wake = nullptr;                             // set by a Drain
     std::atomic<std::uint64_t> asked{0}, answered{0}; // Drain tickets
@@ -86,6 +91,29 @@ struct Log
     bool started = false;
 } g_log;
 
+// SetSessionLogTimes: every line of the log begins with its local time.
+std::atomic<bool> g_times{false};
+
+// "09:12:03.412 ", the local time to the millisecond.
+std::string TimeStamp()
+{
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(now);
+    const int millis = int(std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000);
+    char stamp[32] = "";
+    std::tm local{};
+#ifdef _WIN32
+    if (localtime_s(&local, &seconds) == 0)
+#else
+    if (localtime_r(&seconds, &local))
+#endif
+    {
+        const std::size_t length = std::strftime(stamp, sizeof stamp, "%H:%M:%S", &local);
+        std::snprintf(stamp + length, sizeof stamp - length, ".%03d ", millis);
+    }
+    return stamp;
+}
+
 void WriteLog(const char* data, std::size_t size)
 {
     if (g_log.file < 0 || !size) return;
@@ -99,10 +127,25 @@ void WriteLogUnlocked(const char* data, std::size_t size)
     if (g_log.file >= 0) (void)Write(g_log.file, data, size);
 }
 
-void Copy(const Stream& stream, const char* data, std::size_t size)
+void Copy(Stream& stream, const char* data, std::size_t size)
 {
     if (stream.console >= 0) (void)Write(stream.console, data, size);
-    WriteLog(data, size);
+    if (!g_times)
+    {
+        WriteLog(data, size);
+        return;
+    }
+    // Each line the stream begins gets the time.
+    std::string text;
+    text.reserve(size + 64);
+    const std::string stamp = TimeStamp();
+    for (std::size_t n = 0; n < size; ++n)
+    {
+        if (stream.line_start) text += stamp;
+        text += data[n];
+        stream.line_start = data[n] == '\n';
+    }
+    WriteLog(text.data(), text.size());
 }
 
 #ifdef _WIN32
@@ -175,9 +218,13 @@ void Reader(Stream* stream)
 std::size_t Pending(const Stream& stream)
 {
     if (stream.pipe_read < 0) return 0;
+#if defined(__SWITCH__)
+    return 0;
+#else
     int available = 0;
     if (ioctl(stream.pipe_read, FIONREAD, &available) != 0) return 0;
     return std::size_t(available);
+#endif
 }
 
 // Waits (up to a second) until the readers have copied what was written.
@@ -209,6 +256,11 @@ bool Redirect(int fd, Stream& stream)
     _close(ends[1]);
     SetStdHandle(fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE, HANDLE(_get_osfhandle(fd)));
     stream.wake = wake; // a Drain now waits for this stream's reader
+#elif defined(__SWITCH__)
+    // Horizon has no pipes: the output goes straight into the log file.
+    (void)ends;
+    (void)stream;
+    return g_log.file >= 0 && dup2(g_log.file, fd) >= 0;
 #else
     if (pipe(ends) != 0) return false;
     stream.console = dup(fd);
@@ -256,6 +308,10 @@ void Header(const char* version, int argc, char** argv)
     if (RegGetValueA(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", "ProcessorNameString",
                      RRF_RT_REG_SZ, nullptr, cpu, &size) == ERROR_SUCCESS)
         text += Line("CPU: %s\n", cpu);
+#elif defined(__SWITCH__)
+    const u32 horizon = hosversionGet();
+    text += Line("OS: Horizon %u.%u.%u%s\n", HOSVER_MAJOR(horizon), HOSVER_MINOR(horizon), HOSVER_MICRO(horizon),
+                 hosversionIsAtmosphere() ? " (Atmosph\xc3\xa8re)" : "");
 #else
     utsname name{};
     if (uname(&name) == 0) text += Line("OS: %s %s %s\n", name.sysname, name.release, name.machine);
@@ -332,7 +388,9 @@ void Unwind(CONTEXT& context)
 void WriteStack(CONTEXT context)
 {
     CrashWrite("Call stack:\n");
-    for (int frame = 0; frame < 64 && context.Rip; ++frame)
+    // A call to address 0 still has its return address on the stack: the
+    // first frame unwinds like a leaf function.
+    for (int frame = 0; frame < 64 && (frame == 0 || context.Rip); ++frame)
     {
         char where[MAX_PATH + 32], line[MAX_PATH + 64];
         Location(context.Rip, where, sizeof where);
@@ -483,6 +541,11 @@ void WriteNumber(char* out, std::size_t size, const char* format, unsigned long 
     std::snprintf(out, size, format, value);
 }
 
+#if defined(__SWITCH__)
+// Horizon delivers no signals for crashes: Atmosphère saves a crash report
+// (sdmc:/atmosphere/crash_reports) with the place it happened.
+void InstallCrashHandlers() {}
+#else
 void SignalHandler(int number, siginfo_t* info, void*)
 {
     if (!g_crashing.exchange(true))
@@ -530,6 +593,7 @@ void InstallCrashHandlers()
     sigemptyset(&action.sa_mask);
     for (const int number : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) sigaction(number, &action, nullptr);
 }
+#endif
 #endif
 
 // --- Freezes ------------------------------------------------------------
@@ -776,9 +840,15 @@ void StartSessionLog(const char* version, int argc, char** argv)
 
 fs::path SessionLogPath() { return g_log.file >= 0 ? g_log.path : fs::path(); }
 
+void SetSessionLogTimes(bool on) { g_times = on; }
+
+std::string LogTimeStamp() { return TimeStamp(); }
+
+bool SessionLogTimes() { return g_times; }
+
 void SessionLogLine(const std::string& text)
 {
-    const std::string line = text + "\n";
+    const std::string line = (g_times ? TimeStamp() : std::string()) + text + "\n";
     std::fflush(nullptr);
     Drain();
     WriteLog(line.data(), line.size());
@@ -899,6 +969,15 @@ void ReportFatalError(const std::string& message)
     if (g_log.file >= 0)
         text += L"\n\nDetails are in:\n" + g_log.path.wstring() + L"\n\nPlease attach that file to your bug report.";
     MessageBoxW(nullptr, text.c_str(), L"Recharged", MB_ICONERROR | MB_OK | MB_SETFOREGROUND);
+#elif defined(__SWITCH__)
+    // Nothing else shows on the console: its error screen does, with the
+    // message behind Details.
+    std::string details = message;
+    if (g_log.file >= 0)
+        details += "\n\nDetails are in " + g_log.path.string() + ". Please attach that file to your bug report.";
+    ErrorApplicationConfig error;
+    if (R_SUCCEEDED(errorApplicationCreate(&error, "The game stopped with an error.", details.c_str())))
+        errorApplicationShow(&error);
 #endif
 }
 } // namespace mscharged::platform

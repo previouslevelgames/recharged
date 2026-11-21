@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(mscharged_port VERSION 1.1.7 LANGUAGES C CXX)
+project(mscharged_port VERSION 1.2.0 LANGUAGES C CXX)
 
 # The game module replaces the global operator new/delete with allocators whose
 # scopes are global state. GCC 15 assumes replaceable new/delete leave global
@@ -65,6 +65,7 @@ endif()
 # person, so a release must never carry it: AUTO builds it into test and dev
 # builds only, and a release build refuses ON. CI passes the repository
 # variable RECHARGED_AUTOPILOT, so OFF there also takes it out of test builds.
+# Not on the Switch: no keyboard for the chord, whose wait needs SDL timers.
 set(MSCHARGED_AUTOPILOT AUTO CACHE STRING "Hidden autopilot for online tests: AUTO (test and dev builds), ON or OFF")
 set_property(CACHE MSCHARGED_AUTOPILOT PROPERTY STRINGS AUTO ON OFF)
 if(NOT MSCHARGED_AUTOPILOT MATCHES "^(AUTO|ON|OFF)$")
@@ -73,8 +74,11 @@ endif()
 if(MSCHARGED_AUTOPILOT STREQUAL "ON" AND MSCHARGED_BUILD_CHANNEL STREQUAL "release")
     message(FATAL_ERROR "A release build cannot carry the autopilot (MSCHARGED_AUTOPILOT=ON)")
 endif()
+if(MSCHARGED_AUTOPILOT STREQUAL "ON" AND NINTENDO_SWITCH)
+    message(FATAL_ERROR "The Switch build cannot carry the autopilot (MSCHARGED_AUTOPILOT=ON)")
+endif()
 if(MSCHARGED_AUTOPILOT STREQUAL "ON"
-   OR (MSCHARGED_AUTOPILOT STREQUAL "AUTO" AND NOT MSCHARGED_BUILD_CHANNEL STREQUAL "release"))
+   OR (MSCHARGED_AUTOPILOT STREQUAL "AUTO" AND NOT MSCHARGED_BUILD_CHANNEL STREQUAL "release" AND NOT NINTENDO_SWITCH))
     set(MSCHARGED_AUTOPILOT_ENABLED ON)
     # The host's chord exists only beside a module with the bot (cmake/OriginalFrontendDiagnostic.cmake).
     set_property(SOURCE src/platform/hotkey_filter.cpp src/runtime/original_game.cpp tests/desktop_wpad_profile_tests.cpp
@@ -109,8 +113,8 @@ if(MSCHARGED_BUILD_SCENE_PREVIEW)
 endif()
 if(MSCHARGED_BUILD_GX_CHECK)
     if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin"
-            AND NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
-        message(FATAL_ERROR "The GX runtime selects Linux/Vulkan, macOS/Metal or Windows/Vulkan")
+            AND NOT CMAKE_SYSTEM_NAME STREQUAL "Windows" AND NOT NINTENDO_SWITCH)
+        message(FATAL_ERROR "The GX runtime selects Linux/Vulkan, macOS/Metal, Windows/Vulkan or Switch/Vulkan")
     endif()
     if(MSCHARGED_BUILD_THP_AUDIO_DIAGNOSTIC AND NOT MSCHARGED_BUILD_GAME_STARTUP)
     message(FATAL_ERROR "Use the startup preset for the temporary original movie audio diagnostic")
@@ -209,6 +213,10 @@ function(mscharged_prepare_dependency name output)
     if(name IN_LIST MSCHARGED_FORMATTED_DEPENDENCIES)
         list(APPEND prepare_args ${MSCHARGED_PREPARE_FORMAT_ARGS})
     endif()
+    # The Switch's own patches (patches/<name>-switch) apply to its builds only.
+    if(NINTENDO_SWITCH)
+        list(APPEND prepare_args --layer switch)
+    endif()
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
                 --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" ${prepare_args}
@@ -229,8 +237,11 @@ function(mscharged_prepare_dependency name output)
 endfunction()
 
 mscharged_prepare_dependency(mscharged-decomp MSCHARGED_PREPARED)
-mscharged_prepare_dependency(nod MSCHARGED_NOD_PREPARED)
-mscharged_prepare_dependency(corrosion MSCHARGED_CORROSION_PREPARED)
+# nod is Rust, which has no standard library for the Switch.
+if(NOT NINTENDO_SWITCH)
+    mscharged_prepare_dependency(nod MSCHARGED_NOD_PREPARED)
+    mscharged_prepare_dependency(corrosion MSCHARGED_CORROSION_PREPARED)
+endif()
 file(READ "${MSCHARGED_PATCHES}/base" MSCHARGED_DECOMP_REVISION)
 string(STRIP "${MSCHARGED_DECOMP_REVISION}" MSCHARGED_DECOMP_REVISION)
 
@@ -245,9 +256,11 @@ function(mscharged_add_nod)
     include(cmake/MacOSLinkLibraries.cmake)
     mscharged_remove_macos_implicit_system_library(nod-static)
 endfunction()
-mscharged_add_nod()
-add_dependencies(_cargo-build_nod verify_prepared)
-include(cmake/NodLifecycle.cmake)
+if(NOT NINTENDO_SWITCH)
+    mscharged_add_nod()
+    add_dependencies(_cargo-build_nod verify_prepared)
+    include(cmake/NodLifecycle.cmake)
+endif()
 
 # This list deliberately covers only currently available, independently linked
 # source. The incomplete decomp is not yet a complete native game target.
@@ -273,6 +286,7 @@ add_library(charged_host STATIC
     src/platform/save_import.cpp
     src/platform/sha1.cpp
     src/platform/shader_cache.cpp
+    src/platform/game_folder_lock.cpp
 )
 target_include_directories(charged_host PUBLIC src)
 target_compile_features(charged_host PUBLIC cxx_std_17)
@@ -308,6 +322,9 @@ target_compile_definitions(mscharged_build_info INTERFACE
     MSCHARGED_DECOMP_REVISION="${MSCHARGED_DECOMP_REVISION}")
 target_link_libraries(mscharged-bootstrap PRIVATE mscharged_build_info)
 
+if(NINTENDO_SWITCH)
+    include(cmake/Switch.cmake)
+endif()
 if(MSCHARGED_BUILD_LAUNCHER OR MSCHARGED_BUILD_AURORA_HOST)
     include(cmake/SDL.cmake)
     include(cmake/AppIcon.cmake)
@@ -321,6 +338,8 @@ if(MSCHARGED_BUILD_LAUNCHER OR MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC OR B
 endif()
 if(MSCHARGED_BUILD_LAUNCHER)
     include(cmake/Launcher.cmake)
+elseif(NINTENDO_SWITCH)
+    include(cmake/SwitchProgram.cmake)
 endif()
 if(MSCHARGED_BUILD_GAME_STARTUP)
     include(cmake/GameStartup.cmake)
@@ -338,8 +357,12 @@ if(BUILD_TESTING OR MSCHARGED_BUILD_SCENE_PREVIEW OR MSCHARGED_BUILD_GAME_STARTU
     include(cmake/WorldObjects.cmake)
 endif()
 
+# Competitive play's profile service; the launcher and the game host link it.
+include(cmake/Competitive.cmake)
 # The Discord status (issue #71); the game host links it.
 include(cmake/Discord.cmake)
+# Mii heads from the game image's Mii parts (launcher, game overlay).
+include(cmake/MiiHead.cmake)
 
 if(MSCHARGED_BUILD_ORIGINAL_FRONTEND_DIAGNOSTIC)
     # The game runtime: the host enters original main in a game module.
@@ -348,6 +371,7 @@ endif()
 
 if(BUILD_TESTING)
     include(cmake/Network.cmake)
+    include(cmake/WiiDisc.cmake)
 endif()
 
 if(BUILD_TESTING)
@@ -426,6 +450,9 @@ if(BUILD_TESTING)
     target_link_libraries(shader_cache_tests PRIVATE charged_host)
     add_test(NAME shader_cache COMMAND shader_cache_tests)
     set_tests_properties(shader_cache PROPERTIES TIMEOUT 30)
+    add_executable(game_folder_lock_tests tests/game_folder_lock.cpp)
+    target_link_libraries(game_folder_lock_tests PRIVATE charged_host)
+    add_test(NAME game_folder_lock COMMAND game_folder_lock_tests)
     add_executable(launch_options_tests tests/launch_options.cpp)
     target_link_libraries(launch_options_tests PRIVATE charged_host)
     add_test(NAME launch_options COMMAND launch_options_tests)
@@ -467,6 +494,21 @@ if(BUILD_TESTING)
     find_package(Threads REQUIRED)
     target_link_libraries(game_tweaks_tests PRIVATE Threads::Threads)
     add_test(NAME game_tweaks COMMAND game_tweaks_tests)
+    # The rules a network match between releases plays by, in the module of
+    # every release (tweak patches 0066 and 0067).
+    foreach(_variant IN ITEMS us:R4QE01 eu:R4QP01_REV2 jp:R4QJ01 kr:R4QK01)
+        string(REPLACE ":" ";" _variant "${_variant}")
+        list(GET _variant 0 _suffix)
+        list(GET _variant 1 _version)
+        add_executable(sim_profile_${_suffix}_tests tests/sim_profile.cpp src/platform/sim_profile.cpp)
+        add_dependencies(sim_profile_${_suffix}_tests verify_prepared)
+        target_include_directories(sim_profile_${_suffix}_tests PRIVATE "${MSCHARGED_PREPARED}/include")
+        target_compile_definitions(sim_profile_${_suffix}_tests PRIVATE
+            MSCHARGED_NATIVE=1 MSCHARGED_GAME_MODULE=1 MSCHARGED_TWEAKS=1)
+        set_target_properties(sim_profile_${_suffix}_tests PROPERTIES MSCHARGED_GAME_VERSION ${_version})
+        target_compile_features(sim_profile_${_suffix}_tests PRIVATE cxx_std_17)
+        add_test(NAME sim_profile_${_suffix} COMMAND sim_profile_${_suffix}_tests)
+    endforeach()
     # The autopilot's sticks and shakes, read back the way the game reads the pad.
     add_executable(autopilot_pad_tests tests/autopilot_pad.cpp)
     target_include_directories(autopilot_pad_tests PRIVATE src)

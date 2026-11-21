@@ -139,23 +139,32 @@ def series_inputs(directory: Path, label: str, commit: str, prefix: str = ""):
     return patches, sha(series)
 
 
-def patch_inputs(root: Path, name: str, commit: str):
-    """The dependency's patch series, then its optional tweak series.
+LAYERS = ("switch",)
+
+
+def patch_inputs(root: Path, name: str, commit: str, layers=()):
+    """The dependency's patch series, its optional tweak series, then the
+    series of each selected platform layer.
 
     patches/<name>-tweaks holds opt-in game tweaks (mod phase), kept apart from
     the faithful series. Its hooks only act when the player enables a tweak, so
-    it is applied after the faithful series and recorded under its own names."""
+    it is applied after the faithful series and recorded under its own names.
+    patches/<name>-<layer> holds changes for one platform (the Switch): only its
+    builds select the layer, so the other platforms never apply it."""
     directory = root / "patches" / name
-    tweaks = root / "patches" / f"{name}-tweaks"
+    extras = [("tweaks", root / "patches" / f"{name}-tweaks")]
+    extras += [(layer, root / "patches" / f"{name}-{layer}") for layer in layers]
     if not directory.exists():
-        if tweaks.exists():
-            raise PreparationError(f"patches/{name}-tweaks requires patches/{name}")
+        for label, extra in extras:
+            if extra.exists():
+                raise PreparationError(f"patches/{name}-{label} requires patches/{name}")
         return [], None
     patches, series_sha = series_inputs(directory, name, commit)
-    if tweaks.exists():
-        extra, tweaks_sha = series_inputs(tweaks, f"{name}-tweaks", commit, prefix=f"{name}-tweaks/")
-        patches += extra
-        series_sha = sha(encoded([series_sha, tweaks_sha]))
+    for label, extra in extras:
+        if extra.exists():
+            more, extra_sha = series_inputs(extra, f"{name}-{label}", commit, prefix=f"{name}-{label}/")
+            patches += more
+            series_sha = sha(encoded([series_sha, extra_sha]))
     return patches, series_sha
 
 
@@ -259,7 +268,7 @@ def preparation_lock(directory: Path):
 def prepare(root: Path, build: Path, name: str, *, check=False,
             discard_generated=False, export_patch: Path | None = None,
             nested_submodules=None, clang_format: str | None = None,
-            format_config: Path | None = None, format_jobs: int | None = None) -> Path:
+            format_config: Path | None = None, format_jobs: int | None = None, layers=()) -> Path:
     """Prepare build/prepared/<name>/source, the tree that is compiled.
 
     For game sources (or with clang_format), prepared/<name>/patched holds the
@@ -274,7 +283,11 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
     export_roots = ("include", "libs", "src") if name == "mscharged-decomp" else None
     sources = submodule_inputs(root, name, export_roots=export_roots,
                               nested_submodules=nested_submodules)
-    patches, series_sha = patch_inputs(root, name, sources[0]["commit"])
+    layers = sorted(set(layers))
+    unknown = [layer for layer in layers if layer not in LAYERS]
+    if unknown:
+        raise PreparationError("Unknown patch layer: " + ", ".join(unknown))
+    patches, series_sha = patch_inputs(root, name, sources[0]["commit"], layers)
     inputs = {
         "dependency": name, "sources": [{k: s[k] for k in ("path", "commit")} for s in sources],
         "patches": [{k: p[k] for k in ("name", "sha256")} for p in patches],
@@ -411,6 +424,8 @@ def main():
                              "uses clang-format 16+ from PATH when available; off compiles an unformatted copy")
     parser.add_argument("--format-config", type=Path, help="Formatting definition (default: tools/formatting/prepared-sources.clang-format)")
     parser.add_argument("--format-jobs", type=int, help="Parallel formatting processes (default: CPU count)")
+    parser.add_argument("--layer", action="append", dest="layers", default=[], choices=LAYERS,
+                        help="Also apply the platform layer patches/<dependency>-<layer> (switch); repeat for each")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--check", action="store_true", help="Verify pins, inputs, and generated contents; do not regenerate")
     modes.add_argument("--discard-generated", action="store_true", help="Explicitly allow replacing edited generated sources")
@@ -431,7 +446,7 @@ def main():
         path = prepare(root, args.build_dir, args.dependency, check=args.check,
                        discard_generated=args.discard_generated, export_patch=args.export_patch,
                        nested_submodules=args.nested_submodules, clang_format=clang_format,
-                       format_config=args.format_config, format_jobs=args.format_jobs)
+                       format_config=args.format_config, format_jobs=args.format_jobs, layers=args.layers)
         print(path)
     except (PreparationError, OSError, ValueError) as error:
         parser.exit(1, f"Source preparation failed: {error}\n")

@@ -1,0 +1,197 @@
+Subject: Tweak: override retail menus, the pause menu, Options and ONLINE
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A development switch ("Override retail menus", tweak bit 15): Recharged's own
+versions of the game's menus stand in for the original ones as they are
+built: the match's pause menu (art/fe/pausemenu_v3.fen; the Strikers 101
+lessons have their own and keep it), the front end's Options, the main
+menu's OPTIONS (art/fe/options_main_menu.fen), and the main menu's ONLINE.
+
+The game's scenes still run and keep their flow: the pause menu pauses and
+resumes the match with its players' pointers and buttons, plays its slides
+and its hover and selection sounds, opens its pages (Choose Sides,
+Statistics or the challenge's Objectives, Controller Map) and asks before
+quitting; the Options keep their camera move, slides and way back. Only their
+drawing is left out (FERender::RenderScene): the host reads the scenes, their
+buttons and the players' cursors after each frame (src/platform/
+menu_snapshot.cpp) and draws Recharged's menus with them over the picture
+(src/runtime/host_menus.cpp, the UI kit in src/ui).
+
+The pause menu's Audio Options and Visual Options open Recharged's Sound and
+Graphics pages over the menu instead of the game's pages (PauseMenuScene::
+OnOptionPointerPress asks mscharged_tweak_menu_press_taken; the menu then
+stays as it is, ready again when the page closes). Those pages hold the game's
+own settings too (its volume bars, the camera's zoom), which the host sets
+through commands done once a frame in BeginFrameTask
+(mscharged_tweak_menus_frame), as is resuming from a page.
+
+The main menu's ONLINE (SHMainMenu::SelectItem) opens Recharged's online menu
+over the wheel instead of the game's way (its checks, the save's load, the
+Mii selection, the login and its online menu); its WII ONLINE presses ONLINE
+again through the same function, let through this time, so the game's own
+online is unchanged.
+
+The players' cursors (wiicursor.fen's cursor0-3) are the game's own on top of
+those menus: while one shows, FERender::RenderTimeLineAsset marks a cursor's
+drawing, and its pictures (RenderImageInstance, the instance's quad and
+matrix) and its number (nlFont::DrawString, the glyph quads and their matrix)
+are handed to the host instead of being drawn under the menu. The host draws
+them with the game's own textures, at the game's positions and colours, with
+the cursor's own slides (waiting, the A over a button, its pulsing ring).
+
+Off, nothing changes. The guarded hooks exist only in the opt-in native game
+module.
+
+diff --git a/src/Game/FE/feRender.cpp b/src/Game/FE/feRender.cpp
+index b1cc184..4ed2eab 100644
+--- a/src/Game/FE/feRender.cpp
++++ b/src/Game/FE/feRender.cpp
+@@ -187,6 +187,12 @@ void FERender::RenderTimeLineAsset(TLInstance* pTLInstance, float fCurrentTime,
+     PushTransformMatrix(pTLInstance, parentMatrix, combinedMatrix);
+ 
+     CalculateCurrentAssetColour(pTLInstance);
++#if defined(MSCHARGED_TWEAKS)
++    // Override retail menus (development switch): while the host draws the
++    // pause menu, a player's cursor is drawn by the host on top of it, from
++    // what this cursor's drawing hands over (its pictures and its number).
++    const int cursorCapture = mscharged_tweak_cursor_capture_begin(pTLInstance);
++#endif
+ 
+     switch (pTLInstance->GetType())
+     {
+@@ -237,6 +243,9 @@ void FERender::RenderTimeLineAsset(TLInstance* pTLInstance, float fCurrentTime,
+             curr = next;
+         }
+     }
++#if defined(MSCHARGED_TWEAKS)
++    mscharged_tweak_cursor_capture_end(cursorCapture);
++#endif
+ }
+ 
+ void FERender::BeginFrame()
+@@ -262,6 +271,15 @@ void FERender::RenderScene(FEScene* scene)
+         return;
+     }
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++    // Override retail menus (development switch): the host draws its own
++    // version of this menu (the match's pause menu, the front end's
++    // Options); the game's scene runs undrawn.
++    if (mscharged_tweak_menu_scene_hidden(scene->m_uHashID))
++    {
++        return;
++    }
++#endif
+ 
+     m_pRenderScene = scene;
+     s_currentAssetColour.c[0] = 1.0f;
+@@ -384,6 +402,13 @@ unsigned char FERender::RenderImageInstance(const TLImageInstance* pTLImageInsta
+         quad.m_uv[3].x = right - halfPixelU;
+         quad.m_uv[3].y = bottom + halfPixelV;
+         quad.SetColour(colour);
++#if defined(MSCHARGED_TWEAKS)
++        // Override retail menus: a cursor's picture goes to the host instead.
++        if (mscharged_tweak_cursor_capture_quad(textureHandle, &matTM, &quad))
++        {
++            return 1;
++        }
++#endif
+         glAttachQuad3((eGLView)m_pRenderScene->m_uRenderView, 0, 1, &quad);
+     }
+ 
+diff --git a/src/Game/SH/SHMainMenu.cpp b/src/Game/SH/SHMainMenu.cpp
+index 0c42cda..abbd081 100644
+--- a/src/Game/SH/SHMainMenu.cpp
++++ b/src/Game/SH/SHMainMenu.cpp
+@@ -407,6 +407,15 @@ void SHMainMenu::SelectItem(unsigned int index, void* context)
+     FEAudio::PlayAnimAudioEvent(0x0A93E9A0, 0, 0, true);
+     if (item == MAIN_MENU_ONLINE)
+     {
++#if defined(MSCHARGED_TWEAKS)
++        // Override retail menus: Recharged's online menu opens instead (its
++        // WII ONLINE comes back here, the game's way), also to say why online
++        // play waits for an update; the check below still keeps it closed.
++        if (mscharged_tweak_menu_press_taken(3, MAIN_MENU_ONLINE, (int)index))
++        {
++            return;
++        }
++#endif
+ #if defined(MSCHARGED_TWEAKS)
+         // Port: enforced updates. A release that is not the newest one, or
+         // could not check, plays offline: this popup's layout, with the port's
+diff --git a/src/Game/SH/SHPause.cpp b/src/Game/SH/SHPause.cpp
+index 91ac846..a637dde 100644
+--- a/src/Game/SH/SHPause.cpp
++++ b/src/Game/SH/SHPause.cpp
+@@ -456,9 +456,27 @@ void PauseMenuScene::OnOptionPointerPress(unsigned int index, void* context)
+         TransitionOut(TT_CHOOSE_SIDES);
+         break;
+     case PAUSE_AUDIO_OPTIONS:
++#if defined(MSCHARGED_TWEAKS)
++        // Override retail menus: Recharged's Sound page opens over the menu
++        // instead of the game's Audio Options; the menu stays as it is.
++        if (mscharged_tweak_menu_press_taken(1, PAUSE_AUDIO_OPTIONS, (int)index))
++        {
++            mSelectionMade = false;
++            break;
++        }
++#endif
+         TransitionOut(TT_AUDIO_OPTIONS);
+         break;
+     case PAUSE_VISUAL_OPTIONS:
++#if defined(MSCHARGED_TWEAKS)
++        // And its Graphics page (the camera's zoom with the display's
++        // settings) instead of the game's Visual Options.
++        if (mscharged_tweak_menu_press_taken(1, PAUSE_VISUAL_OPTIONS, (int)index))
++        {
++            mSelectionMade = false;
++            break;
++        }
++#endif
+         TransitionOut(TT_VISUAL_OPTIONS);
+         break;
+     case PAUSE_MATCH_INFO:
+diff --git a/src/Game/Task/BeginFrameTask.cpp b/src/Game/Task/BeginFrameTask.cpp
+index dc6533f..c70f99c 100644
+--- a/src/Game/Task/BeginFrameTask.cpp
++++ b/src/Game/Task/BeginFrameTask.cpp
+@@ -419,6 +419,11 @@ void BeginFrameTask::Run(float dt)
+     // presses of the host's H key.
+     mscharged_tweak_hud_frame();
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++    // Override retail menus: what the host's menus asked the game's to do
++    // (resume, a sound, the game's own options).
++    mscharged_tweak_menus_frame();
++#endif
+ #if !defined(MSCHARGED_DIAGNOSTIC_FRONTEND_TASK_CADENCE) || (defined(MSCHARGED_NATIVE) && defined(MSCHARGED_DIAGNOSTIC_FRONTEND_HOME))
+     if (gpHBMManager != NULL && gpHBMManager->mActive && gpHBMManager->mReady)
+     {
+diff --git a/src/NL/nlFont.cpp b/src/NL/nlFont.cpp
+index 950aad9..daea320 100644
+--- a/src/NL/nlFont.cpp
++++ b/src/NL/nlFont.cpp
+@@ -5,6 +5,7 @@
+ #include "NL/gl/glDraw2.h"
+ #include "NL/gl/glState.h"
+ #include "NL/gl/glStruct.h"
++#include "mscharged_tweaks.h"
+ 
+ #if defined(MSCHARGED_NATIVE)
+ #include <stdint.h>
+@@ -662,6 +663,15 @@ void nlFont::DrawString(GLView* View, const FontCharString& Text, const nlVector
+         }
+ 
+         nlFontWord UsedQuads = (nlFontWord)(pCurrentQuad - pQuads);
++#if defined(MSCHARGED_TWEAKS)
++        // Override retail menus: a cursor's text (the player's number) goes
++        // to the host instead.
++        if (UsedQuads != 0
++            && mscharged_tweak_cursor_capture_text(textureHandles[CurrentPage], pMatrix, pQuads, (int)UsedQuads))
++        {
++            UsedQuads = 0;
++        }
++#endif
+         if (UsedQuads != 0)
+         {
+             if (m_bScissorBox)

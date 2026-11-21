@@ -62,3 +62,11 @@
 	path = extern/corrosion
 	url = https://github.com/corrosion-rs/corrosion.git
 	shallow = true
+[submodule "extern/mesa-switch"]
+	path = extern/mesa-switch
+	url = https://github.com/danfromtico/mesa-switch.git
+	shallow = true
+[submodule "extern/sdl3on2"]
+	path = extern/sdl3on2
+	url = https://github.com/new-coke/sdl3on2.git
+	shallow = true

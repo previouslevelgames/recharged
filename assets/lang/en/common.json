@@ -1,0 +1,269 @@
+{
+  "language": {
+    "name": "English"
+  },
+  "tweaks": {
+    "skip_intro": {
+      "name": "Skip intro",
+      "about": "Starts at the main menu, without the intro screens and movie."
+    },
+    "fast_menus": {
+      "name": "Fast menus",
+      "about": "Skips the transitions between menu screens."
+    },
+    "no_mega_strikes": {
+      "name": "No Mega Strikes",
+      "about": "Mega Strikes are off for both teams."
+    },
+    "unlock_all": {
+      "name": "Unlock everything",
+      "about": "Unlocks all characters, stadiums and cheats without changing your save."
+    },
+    "cpu_vs_cpu": {
+      "name": "CPU vs CPU",
+      "about": "The CPU plays both teams when nobody picks a side in Domination."
+    },
+    "fast_terrain": {
+      "name": "Fast terrain",
+      "about": "Every stadium plays like the fast, dry field of Bowser Stadium."
+    },
+    "mirror_match": {
+      "name": "Mirror match",
+      "about": "Both teams can pick the same captain, the away team in an away kit."
+    },
+    "thunder_island_walls": {
+      "name": "Thunder Island walls",
+      "about": "Thunder Island's open sides get the electric fence of every other stadium."
+    },
+    "blue_peach": {
+      "name": "Blue Peach",
+      "about": "Peach's team wears her unused blue kit on the field."
+    },
+    "fair_ball_contests": {
+      "name": "Defence priority",
+      "about": "When both teams reach a loose ball at once, the defending team gets it. Based on Feder's Gecko code for the Wii."
+    },
+    "robot_goalies": {
+      "name": "Robot goalies",
+      "about": "Both goalies wear the unused robot Kritter skin from the game's disc."
+    },
+    "super_team": {
+      "name": "Super Team (Work in Progress)",
+      "about": "A team's players become Super Team robots from a Super Mario Strikers (GameCube) disc image."
+    },
+    "secure_stadiums": {
+      "name": "Secure stadiums",
+      "about": "No stadium hazards such as lightning, wind or Thwomps in offline matches."
+    },
+    "match_point": {
+      "name": "Match point",
+      "about": "Sudden death music plays when both teams are one goal from winning."
+    },
+    "override_retail_menus": {
+      "name": "Override retail menus (Dev)",
+      "about": "Recharged's own menus replace the game's."
+    }
+  },
+  "sound_groups": {
+    "music_volume": {
+      "name": "Music",
+      "about": "Menu and match music."
+    },
+    "effects_volume": {
+      "name": "Sound effects",
+      "about": "Kicks, tackles, items, the electric fence, stadium and weather sounds."
+    },
+    "voice_volume": {
+      "name": "Voices",
+      "about": "The characters' voice lines, also in the menus."
+    },
+    "crowd_volume": {
+      "name": "Crowd",
+      "about": "The stadium crowd's cheering and chants."
+    },
+    "menu_volume": {
+      "name": "Menus & HUD",
+      "about": "Menu clicks, prompts and the match's on-screen display."
+    },
+    "cutscene_volume": {
+      "name": "Cutscenes",
+      "about": "Captain introductions, goal celebrations, Mega Strikes and after-match scenes."
+    },
+    "movie_volume": {
+      "name": "Movies",
+      "about": "The intro movie, the stadium previews and the credits."
+    }
+  },
+  "key_actions": {
+    "a": {
+      "name": "A",
+      "about": "Confirm, select"
+    },
+    "b": {
+      "name": "B",
+      "about": "Back"
+    },
+    "one": {
+      "name": "1"
+    },
+    "two": {
+      "name": "2"
+    },
+    "plus": {
+      "name": "+ (Plus)"
+    },
+    "minus": {
+      "name": "− (Minus)"
+    },
+    "home": {
+      "name": "HOME"
+    },
+    "up": {
+      "name": "D-pad up"
+    },
+    "down": {
+      "name": "D-pad down"
+    },
+    "left": {
+      "name": "D-pad left"
+    },
+    "right": {
+      "name": "D-pad right"
+    },
+    "stick_up": {
+      "name": "Nunchuk stick up"
+    },
+    "stick_left": {
+      "name": "Nunchuk stick left"
+    },
+    "stick_down": {
+      "name": "Nunchuk stick down"
+    },
+    "stick_right": {
+      "name": "Nunchuk stick right"
+    },
+    "c": {
+      "name": "C",
+      "about": "Nunchuk button"
+    },
+    "z": {
+      "name": "Z",
+      "about": "Nunchuk button"
+    },
+    "shake_remote": {
+      "name": "Shake Remote",
+      "about": "Hit an opponent"
+    },
+    "shake_nunchuk": {
+      "name": "Shake Nunchuk",
+      "about": "Switch items"
+    }
+  },
+  "pad_actions": {
+    "a": {
+      "name": "A",
+      "about": "Pass / Confirm"
+    },
+    "b": {
+      "name": "B",
+      "about": "Shoot / Clear / Back"
+    },
+    "one": {
+      "name": "1",
+      "about": "Pause Menu"
+    },
+    "two": {
+      "name": "2"
+    },
+    "plus": {
+      "name": "+ (Plus)"
+    },
+    "minus": {
+      "name": "− (Minus)"
+    },
+    "home": {
+      "name": "HOME"
+    },
+    "up": {
+      "name": "D-pad up",
+      "about": "Fake / Slide Tackle"
+    },
+    "down": {
+      "name": "D-pad down",
+      "about": "Fake / Slide Tackle"
+    },
+    "left": {
+      "name": "D-pad left",
+      "about": "Fake / Slide Tackle"
+    },
+    "right": {
+      "name": "D-pad right",
+      "about": "Fake / Slide Tackle"
+    },
+    "c": {
+      "name": "C",
+      "about": "Use Item"
+    },
+    "z": {
+      "name": "Z",
+      "about": "Chip Ahead / Lob Pass"
+    },
+    "shake_remote": {
+      "name": "Shake Wii Remote",
+      "about": "Hit an Opponent"
+    },
+    "shake_nunchuk": {
+      "name": "Shake Nunchuk",
+      "about": "Swap Items"
+    }
+  },
+  "hotkeys": {
+    "screenshot": {
+      "name": "Screenshot",
+      "about": "Saved in the screenshots folder."
+    },
+    "hud": {
+      "name": "Show or hide the HUD",
+      "about": "In a match."
+    },
+    "stretch": {
+      "name": "Stretch the picture",
+      "about": "Fills the window (stretched, or the wider view in matches), or keeps the 16:9 or 4:3 shape. For this run."
+    },
+    "resolution_up": {
+      "name": "Higher 3D resolution",
+      "about": "Sharper, for this run."
+    },
+    "resolution_down": {
+      "name": "Lower 3D resolution",
+      "about": "Faster, for this run."
+    },
+    "fullscreen": {
+      "name": "Fullscreen or window",
+      "about": "For this run."
+    },
+    "panel": {
+      "name": "Recharged Game Menu",
+      "about": "Opens it over the game, as HOME does; Escape closes it."
+    },
+    "game_options": {
+      "name": "Game options",
+      "about": "Opens the Recharged Game Menu on its Game options tab."
+    }
+  },
+  "launcher_sizes": {
+    "auto": "Automatic",
+    "75": "75%",
+    "100": "100%",
+    "125": "125%",
+    "150": "150%",
+    "175": "175%",
+    "200": "200%"
+  },
+  "log_levels": {
+    "error": "Errors",
+    "warning": "Warnings",
+    "info": "Info",
+    "debug": "Debug"
+  }
+}

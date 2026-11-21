@@ -29,6 +29,13 @@ std::filesystem::path SessionLogPath();
 // A line for the log only (settings and devices a player does not need on
 // the console). A newline is added.
 void SessionLogLine(const std::string& text);
+// [advanced] log_level = debug: every line of the log from now on begins with
+// its local time to the millisecond ("09:12:03.412 "), the game's printed
+// output included. The console stays as it is.
+void SetSessionLogTimes(bool on);
+bool SessionLogTimes();
+// The local time as those lines begin with it.
+std::string LogTimeStamp();
 
 // Borrowed, null-terminated text from a game module. Any string allocation and
 // destruction stays in the host, which may use a different C++ allocator.

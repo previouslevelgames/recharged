@@ -7,21 +7,29 @@ namespace mscharged
 {
 // Actions of a standard gamepad playing as a Wii Remote with Nunchuk. Each
 // gamepad profile ([gamepad_profileN] in recharged.ini) gives every action
-// one or two inputs, written as SDL gamepad names separated by " | ":
+// one to three inputs, written as SDL gamepad names separated by " | ":
 // buttons (a, b, x, y = south, east, west, north; start, back, guide,
 // leftshoulder, leftstick, dpup, ...) or the triggers lefttrigger/righttrigger.
-// The Nunchuk stick and the pointer are the two analog sticks; with
-// gyro_pointer the controller's gyro points instead (issue #14).
+// The Nunchuk stick and the pointer are the analog sticks (see GamepadSticks);
+// with gyro_pointer the controller's gyro points instead (issue #14).
 struct GamepadAction
 {
     const char* key;      // INI key
     const char* label;    // launcher label
     const char* note;     // launcher description, or nullptr
     const char* defaults; // default inputs
+    const char* classic;  // inputs of the built-in Classic 1.1 profile
 };
 
 // The first eleven follow the Wii Remote button order of KeyActionIndex. The
 // last one is no Wii input: it centres the gyro pointer.
+//
+// The defaults are the layout of the Classic Controller mod for the Wii game,
+// by the controller's labels: the right stick and the right bumper (a deke
+// in a match) press the D-pad, the right trigger presses B too, Start and
+// Back press 1, and + and - (which switch stadiums) as well, as they do
+// nothing in a match; 2 is unused. The left stick moves both the Nunchuk stick
+// and the pointer (GamepadLayoutSticks).
 enum GamepadActionIndex : std::size_t
 {
     GamepadActionA, GamepadActionB, GamepadActionOne, GamepadActionTwo, GamepadActionPlus, GamepadActionMinus,
@@ -32,23 +40,40 @@ enum GamepadActionIndex : std::size_t
 };
 
 inline constexpr std::array<GamepadAction, GamepadActionCount> kGamepadActions{{
-    {"a", "A", "Pass / Confirm", "a"},
-    {"b", "B", "Shoot / Clear / Back", "b"},
-    {"one", "1", "Pause Menu", "x"},
-    {"two", "2", nullptr, "y"},
-    {"plus", "+ (Plus)", nullptr, "start"},
-    {"minus", "\xE2\x88\x92 (Minus)", nullptr, "back"},
-    {"home", "HOME", nullptr, "guide"},
-    {"up", "D-pad up", "Fake / Slide Tackle", "dpup"},
-    {"down", "D-pad down", "Fake / Slide Tackle", "dpdown"},
-    {"left", "D-pad left", "Fake / Slide Tackle", "dpleft"},
-    {"right", "D-pad right", "Fake / Slide Tackle", "dpright"},
-    {"c", "C", "Use Item", "leftshoulder"},
-    {"z", "Z", "Chip Ahead / Lob Pass", "lefttrigger"},
-    {"shake_remote", "Shake Wii Remote", "Hit an Opponent", "righttrigger"},
-    {"shake_nunchuk", "Shake Nunchuk", "Swap Items", "rightshoulder"},
-    {"recenter_pointer", "Recenter pointer", "Back to the middle", "rightstick"},
+    {"a", "A", "Pass / Confirm", "a", "a"},
+    {"b", "B", "Shoot / Clear / Back", "b | righttrigger", "b"},
+    {"one", "1", "Pause Menu", "start | back", "x"},
+    {"two", "2", nullptr, "none", "y"},
+    {"plus", "+ (Plus)", nullptr, "start", "start"},
+    {"minus", "\xE2\x88\x92 (Minus)", nullptr, "back", "back"},
+    {"home", "HOME", nullptr, "guide", "guide"},
+    {"up", "D-pad up", "Fake / Slide Tackle", "dpup | rightstick_up", "dpup"},
+    {"down", "D-pad down", "Fake / Slide Tackle", "dpdown | rightstick_down", "dpdown"},
+    {"left", "D-pad left", "Fake / Slide Tackle", "dpleft | rightstick_left", "dpleft"},
+    {"right", "D-pad right", "Fake / Slide Tackle", "dpright | rightstick_right | rightshoulder", "dpright"},
+    {"c", "C", "Use Item", "x", "leftshoulder"},
+    {"z", "Z", "Chip Ahead / Lob Pass", "lefttrigger", "lefttrigger"},
+    {"shake_remote", "Shake Wii Remote", "Hit an Opponent", "y", "righttrigger"},
+    {"shake_nunchuk", "Shake Nunchuk", "Swap Items", "leftshoulder", "rightshoulder"},
+    {"recenter_pointer", "Recenter pointer", "Back to the middle", "rightstick", "rightstick"},
 }};
+
+// Which sticks move the Nunchuk stick and the pointer (sticks = in a gamepad
+// profile): split (the left stick moves the Nunchuk stick, the right one
+// points), swapped, or shared: the left stick does both, as the Classic
+// Controller mod for the Wii game does, and the right stick is free, for the
+// D-pad. The gyro pointer, when on, leaves the stick to the Nunchuk.
+enum class GamepadSticks { Split, Swapped, Shared };
+inline constexpr std::array<const char*, 3> kGamepadSticksNames{"split", "swapped", "shared"};
+
+// Layouts of the built-in profiles that follow the connected controller's
+// family (platform::DefaultGamepadInputs): Default, and Classic, the Default
+// of versions up to 1.1.5. Their sticks:
+enum class GamepadLayout { Default, Classic };
+constexpr GamepadSticks GamepadLayoutSticks(GamepadLayout layout)
+{
+    return layout == GamepadLayout::Default ? GamepadSticks::Shared : GamepadSticks::Split;
+}
 
 // Stick dead zones and trigger press point of a gamepad profile, in percent
 // of travel (issue #62). Inside the inner dead zone the stick rests; from the
@@ -63,9 +88,11 @@ inline constexpr int kDefaultTriggerPress = 50, kMinTriggerPress = 10, kMaxTrigg
 inline constexpr int kDefaultGyroSpeed = 100, kMinGyroSpeed = 25, kMaxGyroSpeed = 300;
 
 inline constexpr std::size_t kGamepadSlots = 4;
-// Named gamepad profiles kept in recharged.ini, beside the built-in "Default"
-// (the defaults above), which is never stored, changed or deleted.
+// Named gamepad profiles kept in recharged.ini, beside the built-in ones,
+// which are never stored, changed or deleted: "Default" (the defaults above),
+// "Classic 1.1" and those of builtin_pad_profiles.h.
 inline constexpr std::size_t kMaxGamepadProfiles = 16;
 inline constexpr const char* kDefaultGamepadProfile = "Default";
+inline constexpr const char* kClassicGamepadProfile = "Classic 1.1";
 inline constexpr std::size_t kMaxGamepadProfileName = 32;
 } // namespace mscharged

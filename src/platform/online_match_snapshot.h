@@ -43,8 +43,8 @@ struct ChargedOnlineMatchSnapshot
     // 0 under way, 1 decided (a side won enough games), 2 stopped before.
     int ended;
     // What stopped it (ended 2): the result that did, 2 out of sync or 4 the
-    // connection lost (as a game's ending); 0 the online session ended
-    // without one.
+    // connection lost (as a game's ending); 5 this player forfeited it
+    // (kChargedOnlineForfeit); 0 the online session ended without one.
     int stopped_by;
     unsigned profile_id; // the WFC profile of the Mii online, 0 unknown
     int ranked;          // a ranked series; else one between friends
@@ -60,6 +60,13 @@ struct ChargedOnlineMatchSnapshot
 };
 
 #ifdef __cplusplus
+inline constexpr int kChargedOnlineForfeit = 5;
+
+// In the game module: the player forfeits the online match being played (the
+// match menu's FORFEIT, as the game leaves it): the series under way stops,
+// forfeited.
+void ChargedOnlineSeriesForfeit();
+
 // One result the game settles (NetworkStatsManager::
 // CalculateAndReportGameResult) applied to a series under way: the game
 // module's rule, which its test runs on the host. A result for a game already

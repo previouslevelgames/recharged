@@ -1,0 +1,49 @@
+From: mscharged-port
+Subject: Switch the desktop picture while the game runs
+Upstream-base: d664382f57002fbff143911c81b06b7e7a4b3ab4
+Classification: host presentation, no game behaviour change.
+
+The menus' DISPLAY page switches the picture style (smooth, sharp or the
+TV's signal) and the TV border while the game runs, as it already switches
+stretching: the next presented frame uses them, and the display copy's
+flicker filter follows the picture as at configuration.
+
+diff --git a/include/aurora/video.h b/include/aurora/video.h
+index cb06385..c3bff7a 100644
+--- a/include/aurora/video.h
++++ b/include/aurora/video.h
+@@ -98,6 +98,10 @@ void aurora_configure_video_output_hardware(const AuroraVIOutputConfig* config);
+ // (stretch) or keep its 16:9 or 4:3 shape, from the next presented frame. A
+ // window-sized EFB (VILockAspectRatio) follows the picture's new shape.
+ void aurora_set_video_output_stretch(bool stretch);
++// Owner thread, after configuration: the desktop picture (AuroraDesktopPicture)
++// and the TV frame (SIGNAL only) from the next presented frame, as configured
++// above; the display copy's flicker filter follows the picture.
++void aurora_set_video_output_picture(uint8_t desktop_picture, bool tv_frame);
+ // Owner thread, after configuration: from the next presented frame the window
+ // shows the picture blurred (behind a host panel), or sharp again. Host
+ // presentation only: screenshots and the game's own frames stay sharp.
+diff --git a/lib/gfx/scanout.cpp b/lib/gfx/scanout.cpp
+index f667edf..502156f 100644
+--- a/lib/gfx/scanout.cpp
++++ b/lib/gfx/scanout.cpp
+@@ -1004,6 +1004,19 @@ void aurora_set_video_output_stretch(bool stretch) {
+   // The window-sized EFB follows the presented picture's new shape.
+   aurora::window::set_frame_buffer_fill(stretch);
+ }
++void aurora_set_video_output_picture(uint8_t desktop_picture, bool tv_frame) {
++  if (desktop_picture > AURORA_DESKTOP_SHARP) throw std::invalid_argument("Unknown native desktop picture");
++  auto& state = aurora::gfx::scanout::State();
++  {
++    std::lock_guard lock(state.mutex);
++    if (!state.configured) return;
++    aurora::gfx::scanout::RequireOwner(state);
++    state.desktop_picture = desktop_picture;
++    state.tv_frame = tv_frame && desktop_picture == AURORA_DESKTOP_SIGNAL;
++  }
++  // Smooth and sharp desktop pictures skip the display copy's flicker filter.
++  aurora::gfx::xfb::set_flicker_filter(desktop_picture == AURORA_DESKTOP_SIGNAL);
++}
+ void aurora_set_video_output_blur(bool blur) {
+   auto& state = aurora::gfx::scanout::State();
+   std::lock_guard lock(state.mutex);
