@@ -26,7 +26,7 @@ enum class PageId
     Menu,        // the Recharged menu: ONLINE, OPTIONS, QUIT RECHARGED
     Options,     // the hub: GAMEPLAY, SETTINGS (and the game's CREDITS in the menus)
     Gameplay,    // Recharged's gameplay options, by category
-    Settings,    // the display (the game's match camera first), the sound, the rest
+    Settings,    // the display (the game's match camera first), the sound, the controllers, the rest
     Quit,        // QUIT RECHARGED: are you sure?
     Online,      // the hub: the player's set, PLAY, PROFILE, LEADERBOARD (and WII ONLINE from the main menu)
     Play,        // FRIENDS, RANDOM OPPONENT, RANKED
@@ -48,7 +48,8 @@ enum SettingsCategory
 {
     kSettingsDisplay = 0,
     kSettingsSound = 1,
-    kSettingsAdvanced = 2,
+    kSettingsControls = 2,
+    kSettingsAdvanced = 3,
 };
 
 // The search setup's key (PageId::Setup).

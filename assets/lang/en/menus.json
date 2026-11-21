@@ -45,11 +45,11 @@
     "in_match": "A match is on: it keeps the options it started with.",
     "menus": {
       "name": "Menus",
-      "about": "Changes take effect at once (Skip intro is in the launcher)."
+      "about": "Changes take effect at once; Skip intro from the next start."
     },
     "matches": {
       "name": "Matches",
-      "about": "Changes take effect from the next match (more are in the launcher)."
+      "about": "Changes take effect from the next match (the Super Team is in the launcher)."
     },
     "competitive": {
       "name": "Competitive",
@@ -60,7 +60,8 @@
     "title": "SETTINGS",
     "display": "DISPLAY",
     "sound": "SOUND",
-    "advanced": "ADVANCED"
+    "advanced": "ADVANCED",
+    "controls": "CONTROLS"
   },
   "display": {
     "camera_online": "The match camera can be changed outside online matches.",
@@ -82,7 +83,37 @@
     "resolution": "3D resolution",
     "resolution_about": "Full draws the 3D at {{full}}, Native at the Wii's {{native}}.",
     "performance_numbers": "Performance numbers",
-    "performance_numbers_about": "Shows the frame rate and the computer's load in a corner of the picture."
+    "performance_numbers_about": "Shows the frame rate and the computer's load in a corner of the picture.",
+    "style": "Picture style",
+    "style_about": "MODERN is crisp; TV adds the Wii's flicker filter and a TV's softness.",
+    "modern": "MODERN",
+    "original_tv": "TV",
+    "tv_border": "TV border",
+    "tv_border_about": "The empty border a Wii sends around its picture, which a TV hides.",
+    "upscaling": "Upscaling",
+    "upscaling_about": "How a lower 3D resolution fills the window. SHARP keeps pixels square.",
+    "smooth": "SMOOTH",
+    "sharp": "SHARP",
+    "performance_mode": "Performance mode",
+    "performance_mode_about": "No crowd, ambient effects or bloom, from the next match. Gameplay is unchanged.",
+    "motion": "MOTION",
+    "vsync": "VSync",
+    "vsync_about": "Shows each frame in step with the display, without tearing.",
+    "frame_rate": "Frame rate",
+    "frame_rate_about": "More frames for smoother motion; the game keeps its own speed.",
+    "rate_original": "Original (60)",
+    "rate_display": "Display rate",
+    "rate_unlimited": "Unlimited",
+    "rate_fps": "{{rate}} FPS",
+    "background": "In the background",
+    "background_about": "The most frames per second while another window has the focus, to save power.",
+    "background_off": "NO LIMIT",
+    "performance": "OVERLAY",
+    "corner": "Corner",
+    "top_left": "Top left",
+    "top_right": "Top right",
+    "bottom_left": "Bottom left",
+    "bottom_right": "Bottom right"
   },
   "advanced": {
     "launcher": "LAUNCHER",
@@ -113,7 +144,10 @@
     "verbose_console_about": "Also prints development traces and the game's own debug output.",
     "log_window": "Log window",
     "log_window_about": "Shows the log in a separate window.",
-    "launcher_note": "The settings file, the folders and a full reset are in the launcher."
+    "launcher_note": "The game images, the save folder and a full reset are in the launcher.",
+    "discord": "DISCORD",
+    "discord_status": "Discord status",
+    "discord_status_about": "Your Discord profile shows the menu or match you are in."
   },
   "sound": {
     "percent": "{{value}} %",
@@ -129,7 +163,32 @@
     "game_voices": "Game voices",
     "online": "ONLINE",
     "challenge_sound": "Challenge sound",
-    "challenge_sound_about": "A chime when someone challenges you or accepts your challenge."
+    "challenge_sound_about": "A chime when someone challenges you or accepts your challenge.",
+    "reset_levels": "RESET THE LEVELS",
+    "reset_levels_about": "Every sound level back to its default."
+  },
+  "controls": {
+    "rumble_caption": "RUMBLE",
+    "rumble": "Rumble",
+    "rumble_about": "The game's rumble on Wii Remotes and gamepads, like the Wii's own setting.",
+    "rumble_strength": "Gamepad strength",
+    "rumble_strength_about": "How strongly gamepads rumble. A Wii Remote's motor is only on or off.",
+    "play_caption": "PLAY",
+    "show_hud": "HUD at kickoff",
+    "show_hud_about": "Matches start with the scoreboard and markers shown. The HUD key still switches it.",
+    "mouse_pointer": "Mouse pointer",
+    "mouse_pointer_about": "The mouse also points for a player 1 who plays alone, from the next start.",
+    "wii_remote_caption": "WII REMOTE",
+    "sensor_bar": "Sensor bar",
+    "sensor_bar_about": "Where your sensor bar or DolphinBar sits, from the next start.",
+    "below": "BELOW",
+    "above": "ABOVE",
+    "ir_sensitivity": "Sensitivity",
+    "ir_sensitivity_about": "How readily the Remote sees the sensor bar (3 is the Wii's), from the next start.",
+    "speaker": "Speaker volume",
+    "speaker_about": "The Remotes' speakers. Turning them off or on counts from the next start.",
+    "speaker_off": "OFF",
+    "launcher_note": "Players, pairing and the keys and buttons are set up in the launcher."
   },
   "online": {
     "title": "ONLINE",

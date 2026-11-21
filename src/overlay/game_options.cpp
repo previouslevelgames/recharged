@@ -8,13 +8,13 @@ namespace mscharged::overlay
 {
 std::vector<GameOptionGroup> GameOptionGroups()
 {
-    // The options the game offers, in the categories and order of the
-    // launcher's Gameplay page (whose other options stay there).
+    // The options the game offers. The Super Team (it reads a GameCube image)
+    // and the development switch stay in the launcher's Extras.
     return {
         {"Menus & startup", texts::T("menus.gameplay.menus.name"), texts::T("menus.gameplay.menus.about"),
-         {GameTweak::FastMenus}},
+         {GameTweak::FastMenus, GameTweak::SkipIntro, GameTweak::UnlockAll}},
         {"Matches & unlocks", texts::T("menus.gameplay.matches.name"), texts::T("menus.gameplay.matches.about"),
-         {GameTweak::CpuVsCpu, GameTweak::MirrorMatch, GameTweak::BluePeach}},
+         {GameTweak::CpuVsCpu, GameTweak::MirrorMatch, GameTweak::BluePeach, GameTweak::RobotGoalies}},
         {"Competitive gameplay", texts::T("menus.gameplay.competitive.name"),
          texts::T("menus.gameplay.competitive.about"),
          {GameTweak::FastTerrain, GameTweak::SecureStadiums, GameTweak::ThunderIslandWalls,
@@ -29,5 +29,7 @@ bool GameOption(GameTweak tweak)
     return false;
 }
 
-bool GameOptionAtOnce(GameTweak tweak) { return tweak == GameTweak::FastMenus; }
+bool GameOptionAtOnce(GameTweak tweak) { return tweak == GameTweak::FastMenus || tweak == GameTweak::UnlockAll; }
+
+bool GameOptionNextStart(GameTweak tweak) { return tweak == GameTweak::SkipIntro; }
 } // namespace mscharged::overlay

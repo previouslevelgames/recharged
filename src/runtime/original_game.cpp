@@ -83,6 +83,8 @@
 #include "platform/rtc_policy.h"
 #include "platform/video_device.h"
 #include "platform/video_output_device.h"
+#include "platform/desktop_wpad.h"
+#include "platform/wiimote_hid.h"
 #include "platform/interrupt_controller.h"
 #include "platform/filesystem_boot.h"
 #include "platform/ipc_boot_buffer.h"
@@ -931,6 +933,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             static_cast<std::uint8_t>(launch.settings.ir_sensitivity),true,launch.settings.rumble};
         wpad.speaker_volume=static_cast<std::uint8_t>((launch.settings.speaker_volume*127+50)/100);
         wpad.remote_speaker=launch.settings.speaker_volume>0;
+        const bool speakerAtStart=wpad.remote_speaker;
         // Original WPADControlSpeaker ON: 0x08 in the European game, 0x80 in the others.
         wpad.remote_speaker_reg01=release->code==mscharged::GameCode::Europe ? 0x08 : 0x80;
         wpad.bluetooth_search=launch.settings.bluetooth_search;
@@ -1144,9 +1147,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             configureRev1(true);
             mscharged::platform::SessionLogLine("Release data: revision 1 on the revision 2 game code");
         }
+        // Also switched in the menus' DISPLAY page (from the next match).
+        auto* configurePerformanceMode=reinterpret_cast<void(*)(bool)>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_performance_mode"));
         {
-            auto* configurePerformanceMode=reinterpret_cast<void(*)(bool)>(
-                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_performance_mode"));
             if(configurePerformanceMode)
                 configurePerformanceMode(launch.settings.performance_mode);
             const std::string line="Performance mode: "+std::string(launch.settings.performance_mode?"on":"off")
@@ -1193,16 +1197,21 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // display.background_frame_rate while the window is minimized or,
         // outside Steam's Game Mode, another window has the focus; the
         // original's rate included.
+        // The menus' DISPLAY page changes them while the game runs (pacePlay).
         std::optional<mscharged::runtime::HostFramePacing> framePacing;
-        {
-            const auto rate=mscharged::ParseFrameRate(launch.settings.frame_rate).value_or(mscharged::FrameRate{});
-            int backgroundHz=interactive && launch.settings.background_throttle
-                ? launch.settings.background_frame_rate : 0;
+        auto* configurePacing=reinterpret_cast<void(*)(void(*)())>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_frame_pacing"));
+        // The background rate the settings ask for, 0 for none.
+        const auto backgroundRateOf=[interactive](const mscharged::Settings& settings,mscharged::FrameRate rate) {
+            int backgroundHz=interactive && settings.background_throttle ? settings.background_frame_rate : 0;
             // 60 FPS holds nothing at the original rate.
             if(rate.kind==mscharged::FrameRate::Kind::Original
                && mscharged::BackgroundFrameRate(rate,backgroundHz,0.0)==rate) backgroundHz=0;
-            auto* configurePacing=reinterpret_cast<void(*)(void(*)())>(
-                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_frame_pacing"));
+            return backgroundHz;
+        };
+        {
+            const auto rate=mscharged::ParseFrameRate(launch.settings.frame_rate).value_or(mscharged::FrameRate{});
+            const int backgroundHz=backgroundRateOf(launch.settings,rate);
             std::string line="Frame rate: ";
             if(!configurePacing || !nativeSend)
                 line+=rate.kind==mscharged::FrameRate::Kind::Original ? mscharged::DescribeFramePacing(rate,{},0.0)
@@ -1236,10 +1245,13 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::FindNativeModuleSymbol(module,"charged_menu_command"));
         std::optional<mscharged::platform::DiscordPresence> discordPresence;
         std::optional<mscharged::platform::GamePresence> gamePresence;
-        {
-            const bool ownApplication=!launch.settings.discord_application_id.empty();
-            const std::string application=ownApplication ? launch.settings.discord_application_id
-                : std::string(mscharged::build::discord_application_id);
+        const bool discordOwnApplication=!launch.settings.discord_application_id.empty();
+        const std::string discordApplication=discordOwnApplication ? launch.settings.discord_application_id
+            : std::string(mscharged::build::discord_application_id);
+        // Started here and again when the menus' ADVANCED page switches it on.
+        auto startDiscord=[&] {
+            const bool ownApplication=discordOwnApplication;
+            const std::string& application=discordApplication;
             std::string line="Discord status: ";
             if(!launch.settings.discord_status)
                 line+="off";
@@ -1267,7 +1279,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             }
             mscharged::platform::SessionLogLine(line);
             std::fprintf(stderr,"%s\n",line.c_str());
-        }
+        };
+        startDiscord();
         // Enforced updates: a release plays online only while it is the newest
         // release (launcher/online_gate.h). The gate tells the module its
         // verdict; the main menu's Online asks the module (tweak patch 0054).
@@ -2235,6 +2248,40 @@ int mscharged::RunOriginalGame(int argc, char** argv,
 #endif
             settings.log_window=advanced.log_window;
         };
+        // A display.frame_rate value as the DISPLAY page names it.
+        auto frameRateName=[](const std::string& value)->std::string {
+            if(value=="original") return texts::T("menus.display.rate_original");
+            if(value=="display") return texts::T("menus.display.rate_display");
+            if(value=="unlimited") return texts::T("menus.display.rate_unlimited");
+            return texts::T("menus.display.rate_fps",{{"rate",value}});
+        };
+        // The frame rate, VSync and background rate as the settings have them
+        // now: the host paces (or the game's VI again) from the next frame.
+        auto pacePlay=[&] {
+            const auto rate=mscharged::ParseFrameRate(launch.settings.frame_rate).value_or(mscharged::FrameRate{});
+            const int backgroundHz=backgroundRateOf(launch.settings,rate);
+            if(framePacing) framePacing->Configure(rate,launch.settings.vsync,backgroundHz);
+            else if(configurePacing && nativeSend
+                    && (rate.kind!=mscharged::FrameRate::Kind::Original || backgroundHz)) {
+                framePacing.emplace(rate,launch.settings.vsync,host.window,configurePacing,backgroundHz,
+                    !mscharged::UnderGamescope());
+                mscharged::platform::SessionLogLine("Frame rate: changed in the settings; "+framePacing->Description());
+            }
+        };
+        // The picture's style as the settings have it, from the next frame.
+        auto showPicture=[&] {
+            if(!nativeSend) return;
+            const auto& picture=launch.settings.picture;
+            mscharged::platform::SetNativeVideoOutputPicture(
+                picture=="sharp" ? mscharged::platform::NativeDesktopPicture::Sharp
+                : picture=="clean" ? mscharged::platform::NativeDesktopPicture::Clean
+                                   : mscharged::platform::NativeDesktopPicture::Signal,
+                launch.settings.tv_border);
+            mscharged::platform::SessionLogLine("Display: picture "+picture+(launch.settings.tv_border
+                ? ", TV border" : "")+" (Settings)");
+        };
+        // The modern picture to go back to from the TV's.
+        std::string modernPicture=launch.settings.picture=="soft" ? std::string("sharp") : launch.settings.picture;
         auto buildSettings=[&](mscharged::overlay::GameSettingsModel& settings) {
             settings.fullscreen=(SDL_GetWindowFlags(host.window)&SDL_WINDOW_FULLSCREEN)!=0;
             settings.pictures={widescreen ? "16:9" : "4:3",texts::T("menus.display.stretch")};
@@ -2265,6 +2312,37 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     {{"full",drawn("window")},{"native",drawn("native")}});
             }
             settings.performance_numbers=launch.settings.fps_overlay;
+            settings.performance_corner=1;
+            for(std::size_t n=0;n<std::size(mscharged::overlay::kPerformanceCorners);++n)
+                if(launch.settings.fps_overlay_corner==mscharged::overlay::kPerformanceCorners[n])
+                    settings.performance_corner=int(n);
+            settings.performance_mode=launch.settings.performance_mode;
+            settings.picture_style=launch.settings.picture=="soft" ? 1 : 0;
+            settings.sharp=launch.settings.picture!="clean";
+            settings.upscaling_shown=nativeSend && renderResolution!="window";
+            settings.tv_border=launch.settings.tv_border;
+            settings.vsync=launch.settings.vsync;
+            settings.frame_rates.clear();
+            settings.frame_rate=-1;
+            for(std::size_t n=0;n<std::size(mscharged::overlay::kFrameRates);++n) {
+                settings.frame_rates.push_back(frameRateName(mscharged::overlay::kFrameRates[n]));
+                if(launch.settings.frame_rate==mscharged::overlay::kFrameRates[n]) settings.frame_rate=int(n);
+            }
+            settings.frame_rate_other=frameRateName(launch.settings.frame_rate);
+            settings.background_rate=0;
+            if(launch.settings.background_throttle)
+                for(std::size_t n=0;n<std::size(mscharged::kBackgroundFrameRates);++n)
+                    if(launch.settings.background_frame_rate==mscharged::kBackgroundFrameRates[n])
+                        settings.background_rate=int(n)+1;
+            settings.rumble=launch.settings.rumble;
+            settings.rumble_strength=launch.settings.rumble_strength;
+            settings.mouse_pointer=launch.settings.mouse_pointer;
+            settings.show_hud=launch.settings.show_hud;
+            settings.sensor_bar_top=launch.settings.sensor_bar=="top";
+            settings.ir_sensitivity=launch.settings.ir_sensitivity;
+            settings.speaker_volume=launch.settings.speaker_volume;
+            settings.discord_available=!discordApplication.empty() && presenceSnapshot;
+            settings.discord_status=launch.settings.discord_status;
             settings.master_volume=launch.settings.master_volume;
             settings.mute=launch.settings.mute;
             settings.sound_volumes=launch.settings.sound_volumes;
@@ -2405,6 +2483,135 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             case GameSetting::LogWindow:
                 mscharged::platform::SetLogWindow(on);
                 save=[on](mscharged::Settings& s) { s.log_window=on; };
+                break;
+            case GameSetting::ResetSoundLevels: {
+                launch.settings.sound_volumes=mscharged::DefaultSoundVolumes();
+                const auto volumes=launch.settings.sound_volumes;
+                if(configureSoundVolumes) configureSoundVolumes(volumes.data(),int(volumes.size()));
+                save=[volumes](mscharged::Settings& s) { s.sound_volumes=volumes; };
+                break;
+            }
+            case GameSetting::PerformanceCorner:
+                if(change.value>=0 && std::size_t(change.value)<std::size(ov::kPerformanceCorners)) {
+                    const std::string corner=ov::kPerformanceCorners[std::size_t(change.value)];
+                    launch.settings.fps_overlay_corner=corner;
+                    if(launch.settings.fps_overlay)
+                        hostOverlay->SetPerformance(mscharged::runtime::ParseOverlayCorner(corner)
+                            .value_or(mscharged::runtime::OverlayCorner::TopRight));
+                    save=[corner](mscharged::Settings& s) { s.fps_overlay_corner=corner; };
+                }
+                break;
+            case GameSetting::PerformanceMode:
+                launch.settings.performance_mode=on;
+                if(configurePerformanceMode) configurePerformanceMode(on);
+                mscharged::platform::SessionLogLine(std::string("Performance mode: ")+(on ? "on" : "off")
+                    +" from the next match (Settings)");
+                save=[on](mscharged::Settings& s) { s.performance_mode=on; };
+                break;
+            case GameSetting::PictureStyle:
+            case GameSetting::Upscaling:
+            case GameSetting::TvBorder: {
+                auto& picture=launch.settings.picture;
+                if(change.setting==GameSetting::PictureStyle) {
+                    if(on && picture!="soft") modernPicture=picture;
+                    picture=on ? std::string("soft") : modernPicture;
+                } else if(change.setting==GameSetting::Upscaling) {
+                    picture=modernPicture=on ? "sharp" : "clean";
+                } else launch.settings.tv_border=on;
+                showPicture();
+                save=[picture,border=launch.settings.tv_border](mscharged::Settings& s) {
+                    s.picture=picture;
+                    s.tv_border=border;
+                };
+                break;
+            }
+            case GameSetting::VSync:
+                launch.settings.vsync=on;
+                aurora_enable_vsync(on);
+                pacePlay();
+                mscharged::platform::SessionLogLine(std::string("Display: vsync ")+(on ? "on" : "off")+" (Settings)");
+                save=[on](mscharged::Settings& s) { s.vsync=on; };
+                break;
+            case GameSetting::FrameRate:
+                if(change.value>=0 && std::size_t(change.value)<std::size(ov::kFrameRates)) {
+                    const std::string rate=ov::kFrameRates[std::size_t(change.value)];
+                    launch.settings.frame_rate=rate;
+                    pacePlay();
+                    save=[rate](mscharged::Settings& s) { s.frame_rate=rate; };
+                }
+                break;
+            case GameSetting::BackgroundRate:
+                if(change.value>=0 && std::size_t(change.value)<=std::size(mscharged::kBackgroundFrameRates)) {
+                    const bool throttle=change.value>0;
+                    if(throttle)
+                        launch.settings.background_frame_rate=mscharged::kBackgroundFrameRates[std::size_t(change.value)-1];
+                    launch.settings.background_throttle=throttle;
+                    pacePlay();
+                    save=[throttle,rate=launch.settings.background_frame_rate](mscharged::Settings& s) {
+                        s.background_throttle=throttle;
+                        s.background_frame_rate=rate;
+                    };
+                }
+                break;
+            case GameSetting::Rumble:
+                // As the HOME Menu's Wii Remote settings switch it.
+                launch.settings.rumble=on;
+                mscharged::platform::SetNativeWpadMotorEnabled(on);
+                mscharged::platform::SetWiimoteHidBindRumble(on);
+                save=[on](mscharged::Settings& s) { s.rumble=on; };
+                break;
+            case GameSetting::RumbleStrength:
+                launch.settings.rumble_strength=std::clamp(change.value,0,100);
+                mscharged::platform::SetDesktopRumbleStrength(launch.settings.rumble_strength);
+                save=[strength=launch.settings.rumble_strength](mscharged::Settings& s) {
+                    s.rumble_strength=strength;
+                };
+                break;
+            case GameSetting::MousePointer:
+                // From the next start: the players are fixed at start.
+                launch.settings.mouse_pointer=on;
+                save=[on](mscharged::Settings& s) { s.mouse_pointer=on; };
+                break;
+            case GameSetting::ShowHud: {
+                launch.settings.show_hud=on;
+                auto settings=launch.settings;
+                settings.tweaks=optionTweaks;
+                pendingTweaks=settings.ModuleTweakMask();
+                save=[on](mscharged::Settings& s) { s.show_hud=on; };
+                break;
+            }
+            case GameSetting::SensorBar: {
+                // From the next start, like the Wii's own setting.
+                const std::string bar=on ? "top" : "bottom";
+                launch.settings.sensor_bar=bar;
+                save=[bar](mscharged::Settings& s) { s.sensor_bar=bar; };
+                break;
+            }
+            case GameSetting::IrSensitivity:
+                if(change.value>=1 && change.value<=5) {
+                    launch.settings.ir_sensitivity=change.value;
+                    save=[level=change.value](mscharged::Settings& s) { s.ir_sensitivity=level; };
+                }
+                break;
+            case GameSetting::SpeakerVolume: {
+                // Speakers the game started with play at the new volume; off or
+                // on counts from the next start.
+                const int volume=std::clamp(change.value,0,100);
+                if(speakerAtStart)
+                    mscharged::platform::SetNativeWpadSpeakerVolume(static_cast<std::uint8_t>((volume*127+50)/100));
+                launch.settings.speaker_volume=volume;
+                save=[volume](mscharged::Settings& s) { s.speaker_volume=volume; };
+                break;
+            }
+            case GameSetting::DiscordStatus:
+                launch.settings.discord_status=on;
+                if(on && !discordPresence) startDiscord();
+                else if(!on && discordPresence) {
+                    discordPresence.reset();
+                    gamePresence.reset();
+                    mscharged::platform::SessionLogLine("Discord status: off (Settings)");
+                }
+                save=[on](mscharged::Settings& s) { s.discord_status=on; };
                 break;
             }
             // The menus' Advanced page shows what is saved (most of it counts

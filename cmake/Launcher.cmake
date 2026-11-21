@@ -72,8 +72,9 @@ target_include_directories(charged_image_library PUBLIC src)
 target_compile_features(charged_image_library PUBLIC cxx_std_17)
 target_link_libraries(charged_image_library PUBLIC charged_host charged_json)
 # Match presets: named match settings in files, written into the game save (the Matches page).
-# How many players are online on the WFC server, for the Play page.
-add_library(charged_players_online STATIC src/launcher/players_online.cpp)
+# How many players are online on the WFC server, and the server's message,
+# for the Play page.
+add_library(charged_players_online STATIC src/launcher/players_online.cpp src/launcher/server_message.cpp)
 target_include_directories(charged_players_online PUBLIC src)
 target_compile_features(charged_players_online PUBLIC cxx_std_17)
 target_link_libraries(charged_players_online PUBLIC charged_http PRIVATE charged_json)
@@ -234,6 +235,10 @@ if(BUILD_TESTING)
     target_link_libraries(launcher_players_online_tests PRIVATE charged_players_online)
     add_test(NAME launcher_players_online COMMAND launcher_players_online_tests)
     set_tests_properties(launcher_players_online PROPERTIES TIMEOUT 60)
+    add_executable(launcher_server_message_tests tests/launcher_server_message.cpp)
+    target_link_libraries(launcher_server_message_tests PRIVATE charged_players_online)
+    add_test(NAME launcher_server_message COMMAND launcher_server_message_tests)
+    set_tests_properties(launcher_server_message PROPERTIES TIMEOUT 60)
     add_executable(launcher_disc_search_tests tests/launcher_disc_search.cpp)
     target_link_libraries(launcher_disc_search_tests PRIVATE charged_image_library)
     add_test(NAME launcher_disc_search COMMAND launcher_disc_search_tests)

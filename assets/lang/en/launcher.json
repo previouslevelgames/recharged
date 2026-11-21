@@ -211,16 +211,10 @@
       "choose_image": "Choose your Mario Strikers Charged image (ISO, RVZ or WBFS) on the Game page.",
       "image_missing": "Your game image is missing. {{reason}}",
       "check_image": "Check your image on the Game page.",
-      "aspect": "Choose 16:9, 4:3 or Stretch as the aspect ratio on the Display page."
+      "aspect": "Set [display] aspect in recharged.ini to 16:9, 4:3 or stretch."
     },
     "tagline": "{{game}}, rebuilt to run natively on your PC.",
     "button": "PLAY",
-    "options": "Play options",
-    "options_menu": {
-      "performance_mode": "Performance mode",
-      "performance_mode_about": "No crowd, ambient effects, bloom or antialiasing. Gameplay is unchanged.",
-      "display_settings": "Display settings"
-    },
     "status": {
       "ready": "Ready to play",
       "searching": "Looking for your game image",
@@ -238,7 +232,7 @@
       "connect_controllers_other": "Connect them or choose who plays on the Controls page.",
       "tweaks_on_one": "{{count}} gameplay tweak on",
       "tweaks_on_other": "{{count}} gameplay tweaks on",
-      "tweaks_on_list": "Gameplay tweaks on:"
+      "tweaks_on_list": "Gameplay tweaks on (the game's OPTIONS > GAMEPLAY changes them):"
     },
     "missing": {
       "locate": "Locate...",
@@ -277,6 +271,10 @@
       "muted": "Audio muted",
       "volume": "Volume {{percent}}%",
       "custom_sound_levels": "Custom sound levels"
+    },
+    "message": {
+      "kicker": "FROM THE SERVER",
+      "close": "Close the message until the server posts another one"
     }
   },
   "online_blocker": {
@@ -289,10 +287,8 @@
     "player_profile": "Player profile",
     "match_rules": "Match rules",
     "sidekicks": "Sidekicks",
-    "display": "Display",
-    "audio": "Audio",
     "controls": "Controls",
-    "gameplay": "Gameplay",
+    "extras": "Extras",
     "advanced": "Advanced",
     "about": "About",
     "online": "Online"
@@ -333,7 +329,7 @@
   },
   "game": {
     "title": "Game",
-    "about": "Your Mario Strikers Charged images, the game's language, the Discord status and your saves.",
+    "about": "Your Mario Strikers Charged images, the game's language, the screen and your saves.",
     "command_line": "Command-line options apply to this run only",
     "language": {
       "title": "Game language",
@@ -346,12 +342,26 @@
       "automatic_is": "Automatic: {{language}}.",
       "menu_language_missing": "The saved menu language ({{language}}) is not in assets/lang; the menus are in English. Choose one above."
     },
-    "discord": {
-      "title": "Discord",
-      "about": "Show what you play on your Discord profile.",
-      "status": "Discord status",
-      "status_about": "Your profile shows the menu or match you are in, with the score and match time, while the Discord app runs on this computer.",
-      "unavailable": "This build has no Discord application, so it cannot show a Discord status."
+    "screen": {
+      "title": "Screen",
+      "about": "How the game opens. The rest of the picture is in the game's OPTIONS > SETTINGS.",
+      "window_size": {
+        "name": "Window size",
+        "about": "The game window's size when it opens in a window.",
+        "about_remembered": "The game window's size the first time; after that it keeps the size you leave it at."
+      },
+      "fullscreen_resolution": {
+        "name": "Fullscreen resolution",
+        "about": "The screen's resolution in fullscreen. Alt+Enter switches while playing."
+      },
+      "display": {
+        "name": "Display",
+        "about": "The screen the game opens on."
+      },
+      "antialiasing": {
+        "name": "Antialiasing",
+        "about": "Smooths jagged edges; the stronger kinds cost more GPU time. Counts from the next start."
+      }
     },
     "saves": {
       "title": "Save data",

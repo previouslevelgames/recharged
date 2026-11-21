@@ -35,8 +35,6 @@ HostFramePacing::HostFramePacing(FrameRate rate, bool vsync, SDL_Window* window,
       focus_counts_(focus_counts)
 {
     if (!configure_game_) throw std::invalid_argument("Host frame pacing needs the game's frame pacing entry");
-    if (rate.kind == FrameRate::Kind::Original && background_hz_ == 0)
-        throw std::invalid_argument("Host frame pacing at the original frame rate needs a background frame rate");
     background_ = background_hz_ != 0 && WindowInBackground(window_, focus_counts_);
     Apply(WindowRefreshRate(window_));
     next_check_ = std::chrono::steady_clock::now() + std::chrono::seconds(1);
@@ -84,6 +82,17 @@ bool HostFramePacing::SetRollbackCap(bool on)
     const FramePacing before = pacing_;
     Apply(display_hz_);
     return before.interval_ns != pacing_.interval_ns || before.vsync_paces != pacing_.vsync_paces;
+}
+
+void HostFramePacing::Configure(FrameRate rate, bool vsync, int background_hz)
+{
+    if (rate == rate_ && vsync == vsync_ && background_hz == background_hz_) return;
+    rate_ = rate;
+    vsync_ = vsync;
+    background_hz_ = background_hz;
+    background_ = background_hz_ != 0 && WindowInBackground(window_, focus_counts_);
+    Apply(display_hz_ < 0.0 ? WindowRefreshRate(window_) : display_hz_);
+    Log("changed in the settings");
 }
 
 FrameRate HostFramePacing::HeldRate(double display_hz) const

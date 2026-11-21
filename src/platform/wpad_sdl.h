@@ -117,5 +117,10 @@ NativeWpadPanelButtons TakeNativeWpadPanelButtons();
 // on `channel` (-1: the lowest connected one) for about 100 ms, such as its
 // pause in an offline match. The channel pressed, or -1 for none.
 int PressNativeWpadButton(int channel, std::uint16_t button);
+// The menus' CONTROLS page (owner thread), as the HOME Menu's Wii Remote
+// settings change them: rumble on or off (WPADEnableMotor) and the speakers'
+// volume (WPADSetSpeakerVolume, 0-127).
+void SetNativeWpadMotorEnabled(bool enabled);
+void SetNativeWpadSpeakerVolume(std::uint8_t volume);
 
 } // namespace mscharged::platform

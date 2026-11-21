@@ -7,13 +7,12 @@
 #include <string>
 #include <vector>
 
-// The menus' GAMEPLAY page (src/ui/rui_pages.cpp): the gameplay options that
-// can change while the game runs, in the launcher Gameplay page's categories,
-// with their names and descriptions from kGameTweaks. They count from the
-// next match (Fast menus at once); a running match keeps what it started
-// with, and online matches play by their own rules. Skip intro, Unlock
-// everything, Robot goalies, Super Team, texture packs and the display stay
-// in the launcher.
+// The menus' GAMEPLAY page (src/ui/rui_pages.cpp): the gameplay options, by
+// category, with their names and descriptions from kGameTweaks. They count
+// from the next match (Fast menus and Unlock everything at once, Skip intro
+// from the next start); a running match keeps what it started with, and
+// online matches play by their own rules. The Super Team, the development
+// switch and texture packs stay in the launcher's Extras.
 namespace mscharged::overlay
 {
 struct GameOptionsModel
@@ -35,13 +34,15 @@ struct GameOptionChange
 // only from the next match).
 bool GameOption(GameTweak tweak);
 bool GameOptionAtOnce(GameTweak tweak);
+// Whether it counts only from the game's next start.
+bool GameOptionNextStart(GameTweak tweak);
 
 // The page's categories in their order (the launcher Gameplay page's): each
 // one's title, what its options do and when (in the player's language), and
 // its options.
 struct GameOptionGroup
 {
-    const char* title;       // the launcher's name for it (not shown here: English)
+    const char* title;       // its name in logs (English)
     const char* short_title; // "Menus", "Matches", "Competitive"
     const char* about;
     std::vector<GameTweak> tweaks;

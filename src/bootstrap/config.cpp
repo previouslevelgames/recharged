@@ -121,6 +121,7 @@ Values Encode(const Settings& s)
             {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
             {"launcher.test_build", std::to_string(s.test_build)},
+            {"launcher.dismissed_message", std::to_string(s.dismissed_message)},
             {"discord.rich_presence", s.discord_status ? "true" : "false"},
             {"mods.texture_packs", s.texture_packs ? "true" : "false"}, {"mods.texture_folder", s.texture_folder},
             {"mods.texture_pack_order", s.texture_pack_order}, {"mods.texture_packs_off", s.texture_packs_off},
@@ -438,6 +439,7 @@ Settings Decode(const Values& values, bool builtin = false)
     boolean("launcher.show_welcome", s.show_welcome);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
     number("launcher.test_build", s.test_build, 0, 999999999);
+    number("launcher.dismissed_message", s.dismissed_message, 0, 2000000000);
     boolean("discord.rich_presence", s.discord_status);
     if (const auto it = values.find("discord.application_id"); it != values.end() && !it->second.empty())
     {

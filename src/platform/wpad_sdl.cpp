@@ -1305,3 +1305,8 @@ s32 WBCRead(void*, f64*, int) { return WPAD_ERR_NO_CONTROLLER; }
 s32 WBCSetZEROPoint(f64*, int) { return WPAD_ERR_NO_CONTROLLER; }
 s32 WBCGetTGCWeight(f64, f64*, void*) { return WPAD_ERR_NO_CONTROLLER; }
 }
+
+namespace mscharged::platform {
+void SetNativeWpadMotorEnabled(bool enabled) { WPADEnableMotor(enabled ? TRUE : FALSE); }
+void SetNativeWpadSpeakerVolume(std::uint8_t volume) { WPADSetSpeakerVolume(volume); }
+} // namespace mscharged::platform

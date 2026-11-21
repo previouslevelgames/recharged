@@ -1,7 +1,12 @@
 # Settings
 
-Everything the launcher sets is saved in `recharged.ini` beside the program;
-[`recharged.ini.example`](../recharged.ini.example) explains every key. This
+Everything the launcher and the game's menus set is saved in `recharged.ini`
+beside the program; [`recharged.ini.example`](../recharged.ini.example)
+explains every key. The launcher keeps what the game must know before it starts
+or needs files and folders; everything that can change while the game runs is
+in the game: **OPTIONS** in its main menu, or **F1** (HOME) → **OPTIONS** from
+anywhere, with **GAMEPLAY** and **SETTINGS** (*Display*, *Sound*, *Controls*,
+*Advanced*). This
 page covers the settings that need more than a label: game images, graphics,
 audio, Wii Remotes, saves, texture packs, updates and command-line options. For installing, see the
 [install guide](INSTALL.md); for the full list of features and controls, the
@@ -18,7 +23,7 @@ Everything stays in the program folder:
 | `data/pipeline_cache.db` | Compiled shaders for your graphics card |
 | `data/launcher/` | What the launcher found in your game images, and their banners |
 | `data/online/` | Your competitive play sign-in and your Discord friends' link, one file each per settings file (readable only by you) |
-| `texture_packs/` | Texture packs (or the folder set under *Gameplay → Mods*) |
+| `texture_packs/` | Texture packs (or the folder set under *Extras → Mods*) |
 | `data/texture_dumps/` | The game's textures, when *Dump textures* is on |
 | `logs/recharged.log` | The log of the last run |
 | `screenshots/` | Screenshots taken with the screenshot key (**P** by default), in the folder the game was started from |
@@ -93,21 +98,20 @@ prepared from the next start on. The log records each one
 (`Graphics: new pipeline compiled while drawing in … ms`); attaching such a
 log to an issue gets the pipeline added to the package for everyone.
 
-**Clear shader cache** (Advanced → Diagnostics & analytics) removes the compiled
+**Clear shader cache** (Advanced → Troubleshooting) removes the compiled
 shaders and the pipelines learned on this PC. The next start prepares the
 bundled list again. Saves, settings and frame recordings are kept.
 
-**Frame rate** (Display → Frame rate, `[display] frame_rate`) draws above the
+**Frame rate** (Settings → Display → Frame rate, `[display] frame_rate`) draws above the
 console's 60 FPS: `display` follows the refresh rate of the window's display,
 `unlimited` sets no limit, and a number from 30 to 1000 caps the rate. VSync
 holds any rate to the display's. The game keeps its own speed; movies and
 everything else timed by the Wii's video signal stay at their real rate. The
 log's `Frame rate:` line shows how frames are paced.
 
-**Throttle in background** (Display → Throttle in background,
-`[display] background_throttle`, on by default) draws at most
-**Background frame rate** (`background_frame_rate`: 15, 30 by default, or 60)
-frames per second while the game's window is minimized or another window has
+**In the background** (Settings → Display, `[display] background_throttle`
+and `background_frame_rate`: 15, 30 by default, or 60; *No limit* turns it off)
+draws at most that many frames per second while the game's window is minimized or another window has
 the focus, to save power. The chosen frame rate returns as soon as you go
 back to the game. Under gamescope (Steam's Game Mode, or gamescope on a
 desktop) the game always looks focused and visible, so it keeps its frame
@@ -115,7 +119,7 @@ rate there. The game keeps
 its own speed, online matches included; a few effects that change once per
 frame, such as blinking images, run slower while in the background.
 
-**Aspect ratio** (Display → Aspect ratio, `[display] aspect`). **16:9** (the
+**Picture** (Settings → Display → Picture, `[display] aspect`). **16:9** (the
 default) is the game's widescreen layout and **4:3** its original one; both
 keep their shape. A window keeps that shape when you resize it, so the picture
 fills it; a display of another shape (16:10, 21:9) shows bars beside or above
@@ -126,16 +130,15 @@ fills a screen of another shape in matches without stretching: the game shows
 more of the stadium at the sides of a wider screen (21:9) or above and below a
 taller one (16:10, the Steam Deck), with the HUD in the 16:9 middle. Menus keep
 their 16:9 picture. **F** switches the stretched picture or the wider view on
-and off while playing, for that run. The Display page
-tells what each choice does on your display.
+and off while playing, for that run.
 
-**3D resolution** (Display → 3D resolution, `[display] resolution`). **Full**
+**3D resolution** (Settings → Display → 3D resolution, `[display] resolution`). **Full**
 (`window`, the default) draws the game at the resolution its picture has on the
 screen, the sharpest. **Native** is the Wii's 640 x 448 and **2x-4x** its
 multiples, for slower graphics cards. **Page Up** and **Page Down** change it
 while playing, for that run.
 
-**Picture style** (Display → Picture style, `[display] picture`). **Modern**
+**Picture style** (Settings → Display → Picture style, `[display] picture`). **Modern**
 draws the game's picture crisp, straight into the window; when the 3D
 resolution is not Full, **Upscaling** scales it to the screen smoothly
 (`clean`) or with square pixels (`sharp`, the default). **Original TV**
@@ -143,24 +146,27 @@ resolution is not Full, **Upscaling** scales it to the screen smoothly
 (`tv_border = true`) also shows the empty border a Wii sends around its
 picture, which a TV hides.
 
-**Resolution** (Display → Resolution) lists the sizes your graphics card offers
-for the display. In a window it is the window's size (`[display] width` and
+**Window size** and **Fullscreen resolution** (launcher: Game → Screen) list the
+sizes your graphics card offers for the display. The window's size (`[display] width` and
 `height`), of the picture's shape while the window keeps it; a size larger
 than a window can take there opens as the largest window that fits. The game
 window also opens at the size and place you leave it at
 (`remember_window = false` turns that off; the place is `position`). Wayland
-desktops place windows themselves. In fullscreen it is the screen's resolution
+desktops place windows themselves. In fullscreen the screen has its resolution
 (`fullscreen_resolution`): **Desktop** (`desktop`, the default) keeps the
 display's own; another (`1280x720`) switches the display to it while the game
 runs. A resolution of another shape than the display may be stretched by the
 display or shown with bars.
 
-**Fullscreen** (Display → Mode, `[display] fullscreen`) covers the whole
-display, at the resolution chosen for it. **Alt+Enter** (Option+Return on a
-Mac, the `fullscreen` hotkey) switches between fullscreen and a window while
-playing, for that run only; that Enter never presses A.
+**Fullscreen** (Settings → Display → Fullscreen, `[display] fullscreen`) covers
+the whole display, at the resolution chosen for it, and is kept for the next
+start. **Alt+Enter** (Option+Return on a Mac, the `fullscreen` hotkey) switches
+between fullscreen and a window for that run only; that Enter never presses A.
+**Display** (Game → Screen, `[display] monitor`) chooses the screen the game
+opens on when there are several.
 
-**Antialiasing** (Display → Antialiasing, `[display] antialiasing`) smooths
+**Antialiasing** (launcher: Game → Screen → Antialiasing, `[display] antialiasing`,
+from the next start) smooths
 jagged edges. **4x MSAA** (`4x`, the default) smooths the edges of 3D shapes.
 **FXAA** (`fxaa`) smooths the finished picture at almost no cost, but softens
 fine detail and text a little. **4x MSAA + FXAA** (`4x_fxaa`) does both.
@@ -169,15 +175,16 @@ smooths the edges inside textures, such as stripes on banners; it costs the most
 **Off** (`off`) is the lightest. Multisampling always uses 4 samples: the
 graphics layer offers no 2x or 8x.
 
-**Performance mode** (the gear on the **Play** button,
-`[display] performance_mode`) lightens matches for weaker PCs: no
+**Performance mode** (Settings → Display, `[display] performance_mode`, from
+the next match; the antialiasing from the next start) lightens matches for weaker PCs: no
 antialiasing, crowd, background NPCs, ambient stadium effects, bloom, heat
 distortion, depth of field or stadium shadows. Gameplay is untouched: hazards,
 lightning, wind, debris, character and ball shadows stay, and so do the effects
 that show them. It keeps your 3D render size, leaves the menus as they are, and
 restores your antialiasing preference when turned off.
 
-**Performance overlay** (Display) shows `FPS | GPU | CPU` in a corner of your
+**Performance numbers** (Settings → Display, `[display] fps_overlay` and
+`fps_overlay_corner`) show `FPS | GPU | CPU` in a corner of your
 choice, also in fullscreen, and `LAT` in a network session and `DLY` and `RB`
 in a network match with rollback. GPU and CPU are total system usage, including
 other apps; drivers that hide the GPU counters show `N/A`. **LAT** is the
@@ -187,8 +194,8 @@ the most steps the game predicted at once since the last reading.
 
 ## Audio
 
-**Master volume** and **Mute** (Audio → Output) set the game's whole output.
-**Sound levels** (Audio, `[audio] music_volume` to `movie_volume`) set each kind
+**Master volume** and **Mute** (Settings → Sound) set the game's whole output.
+**Sound levels** (Settings → Sound, `[audio] music_volume` to `movie_volume`) set each kind
 of sound from 0 to 100 % of the level the game gives it, for example to turn
 the music down for a recording while voices and effects stay:
 
@@ -202,7 +209,7 @@ the music down for a recording while voices and effects stay:
 | Cutscenes | Captain introductions, goal celebrations, Mega Strikes and the scenes after a match, with their own music and voices |
 | Movies | The intro movie, the stadium previews and the credits |
 
-They apply when the game starts, to what plays on the PC only: the sounds the
+They change at once, for what plays on the PC only: the sounds the
 game also plays on a Wii Remote's speaker keep their level there, which the
 Remote's **Speaker volume** sets. The music, sound effect and voice settings
 in the game's own *Options* menu still apply on top and stay saved with your
@@ -236,8 +243,8 @@ extensions are not supported.
   your system's Bluetooth settings (no PIN).
 
 Over Bluetooth the Remote needs a separate sensor bar for its pointer.
-The **Wii Remote** card on the Controls page has the Wii's own Remote
-settings:
+The game's **Settings → Controls** has the Wii's own Remote settings (the
+sensor bar and sensitivity count from the next start):
 
 - **Sensor bar** (`controls.sensor_bar`): whether the bar sits at the
   `bottom` or `top` of the screen. It must be in view of the Remote's camera
@@ -248,11 +255,12 @@ settings:
   disturb it.
 - **Speaker volume** (`controls.speaker_volume`, 0-100, default 70 like the
   Wii): the game plays some sounds on each player's Remote as well as on the
-  TV. 0 sends no sound to the Remotes. How clean it sounds depends on the
+  TV. 0 sends no sound to the Remotes (turning the speakers off or on counts
+  from the next start, a new volume at once). How clean it sounds depends on the
   Bluetooth link; turn it down or off if it crackles. The log
   (`logs/recharged.log`) says when the connection was too slow for it.
 
-The **Rumble** card switches rumble for Wii Remotes and gamepads
+**Rumble** (Settings → Controls) switches rumble for Wii Remotes and gamepads
 (`controls.rumble`) and sets how strongly gamepads rumble
 (`controls.rumble_strength`, 0-100). A Wii Remote's motor is either on or
 off. A connected Wii Remote lights the light of its player, in the launcher
@@ -357,13 +365,15 @@ has **ONLINE**, **OPTIONS** and **QUIT RECHARGED**:
   player profile) and **WII ONLINE** (the game's own online menu). A player on
   another version of the game carries its tag (US, EU, JP, KR); a set between two
   versions plays by the European one.
-- **OPTIONS**: **GAMEPLAY**, the gameplay options that can change while the
-  game runs, in the launcher Gameplay page's categories (saved at once, counting
-  from the next match; Fast menus at once; online matches play by their own
-  rules), and **SETTINGS**, the settings that change at once: *Display*
-  (fullscreen, the picture's shape, the 3D resolution, the performance numbers),
-  *Sound* (master volume, mute, the sound levels, the challenge sound) and
-  *Advanced* (the launcher's advanced options apart from files and folders).
+- **OPTIONS**: **GAMEPLAY**, the gameplay options (saved at once, counting
+  from the next match; Fast menus and Unlock everything at once, Skip intro
+  from the next start; online matches play by their own rules), and
+  **SETTINGS**: *Display* (fullscreen, the picture's shape and style, the 3D
+  resolution, Performance mode, VSync, the frame rate, the performance
+  numbers), *Sound* (master volume, mute, the sound levels, the challenge
+  sound), *Controls* (rumble, the HUD at kickoff, the mouse pointer, the Wii
+  Remote settings) and *Advanced* (the Discord status, the launcher, the
+  graphics API and card, the diagnostics).
 
 The D-pad, the arrow keys or the mouse pick an item, A or Enter presses it, − and
 + (Q and E) switch a page's categories, and B, Escape or Backspace go back a
@@ -372,7 +382,7 @@ gamepad's pointer stick or gyro (not a stick shared with the Nunchuk stick):
 the player's hand shows once it moves, and A presses what it points at; after
 the D-pad, A presses the lit item until the hand moves again. The mouse points
 only as in the game: for the keyboard & mouse player, or with **Mouse pointer**
-on for a controller playing alone. While the game is in its menus, the top-left
+on for a controller playing alone (Settings → Controls, from the next start). While the game is in its menus, the top-left
 corner shows the menu's keys (F1 or HOME), and a challenge you sent from the
 menu closes it when it is
 accepted: the game goes on into the set. While it is open the game behind it is
@@ -389,7 +399,7 @@ name after the `Ctrl+`, `Shift+` and `Alt+` it needs (`Ctrl+Shift+F12`), or
 be a key of keyboard & mouse too; with Ctrl, Shift or Alt it can. The Windows
 and Command keys stay with the system. A settings file whose keyboard & mouse
 keys already use F, F1, Page Up or Page Down keeps them, with that hotkey unused.
-With **Show the HUD when a match starts** off (`show_hud = false`), every match
+With **HUD at kickoff** off (Settings → Controls, `show_hud = false`), every match
 starts without the scoreboard, player markers and captions, for clean
 recordings; the HUD key shows them, and the Mega Strike meter stays.
 
@@ -405,7 +415,7 @@ EOF
 sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw
 ```
 
-For diagnosis, **Advanced → Verbose console** (or `RECHARGED_WIIMOTE_DEBUG=1`)
+For diagnosis, the game's **Settings → Advanced → Verbose console** (or `RECHARGED_WIIMOTE_DEBUG=1`)
 logs every step of the Remote setup, including the devices the launcher sees
 and how each Remote answers.
 
@@ -476,7 +486,7 @@ Texture packs replace the game's textures with sharper images; they change
 only how the game looks. Recharged reads packs made for Dolphin: a pack is a
 folder or a `.zip` file of images named `tex1_<size>_<hash>_<format>.png` (or
 `.dds`), usually in a folder named `R4Q` (all versions) or after one version
-(`R4QE01`, `R4QP01`). Drop the pack's folder or `.zip` file onto **Gameplay →
+(`R4QE01`, `R4QP01`). Drop the pack's folder or `.zip` file onto **Extras →
 Mods**, which copies it into `texture_packs` in the program folder (`[mods]
 texture_folder`; you can choose another folder there), or put it there
 yourself. The list there switches packs on and off; drag a pack (or use its
@@ -505,8 +515,8 @@ stadium, captains, score and match time. During a set (Online) it shows
 your opponent and the games won so far, and while the set waits in the
 launcher what it waits for (your opponent's answer, getting ready); a
 challenge to you shows only once you accept it. The game talks only to the Discord
-app on your computer, which shows the status to your friends. Switch it off on
-the launcher's **Game** page (`[discord] rich_presence`); Discord's own
+app on your computer, which shows the status to your friends. Switch it off in
+the game's **Settings → Advanced** (`[discord] rich_presence`); Discord's own
 activity privacy setting hides it too. Builds that do not come from the
 project's releases and test builds have no Discord application and show no
 status, unless `[discord] application_id` names one.
@@ -551,7 +561,10 @@ Recharged Game Menu (**F1** or HOME, see Hotkeys). A dot before
 out, **Player profile** shows what playing online brings and its two ways in,
 **Connect Discord** and **Play with a Mii**, and the pages that need the
 sign-in point there. A private server's `https://` address (from its admins) goes in
-`[online] profile_server`; only the file changes it. A set is a series against
+`[online] profile_server`; only the file changes it. When that server's admins
+post a message (a restart, an event), the Play page shows it in the place of
+its summary cards until it ends; its close button hides it until they post
+another (`[launcher] dismissed_message`). A set is a series against
 one player, by the rules its challenge set: game length or goal limit, the
 games of the series, the stadium, the game's stadium, player and power-up
 cheats, and the *Competitive gameplay* tweaks both teams play with (the skill
@@ -685,7 +698,7 @@ own texts follow its text language. The translations are files in
 `assets/lang` beside the program (one folder per language); `assets/lang/README.md`
 explains how to make one.
 
-**Reopen after the game** (Advanced → Interface, `[launcher] reopen_after_game`,
+**Reopen the launcher** (the game's Settings → Advanced, `[launcher] reopen_after_game`,
 off by default) opens the launcher again when you close the game. A game that
 stops with an error message closes as before.
 
@@ -762,7 +775,8 @@ These options override the INI for one run, without saving:
 Each run writes `logs/recharged.log` beside the program: settings, devices,
 graphics adapter, warnings and errors. Attach it to an
 [issue](https://github.com/previouslevelgames/recharged/issues) when reporting a
-problem; it can contain your user name in paths. **Advanced → Log detail** and
+problem; it can contain your user name in paths. **Log detail** (launcher:
+Advanced → Troubleshooting, or the game's Settings → Advanced) and the game's
 **Verbose console** add more detail. With Log detail at *Debug*
 (`[advanced] log_level = debug`) every line begins with its time, and the log
 also gets the WFC library's reports of the online login and of finding and
@@ -770,7 +784,7 @@ connecting to an opponent. The lines of competitive sets (`Competitive:`)
 always have their time.
 
 On Windows and macOS no console or Terminal window opens with the game.
-**Advanced → Diagnostics & analytics → Log window** (`[advanced] log_window`,
+**Log window** (the game's Settings → Advanced, `[advanced] log_window`,
 off by default) shows the log as it is written, in a separate window (Terminal
 on macOS). Closing that window or selecting text in it does not stop or slow
 the game; it closes when the game ends (on Windows it stays open after an
@@ -779,8 +793,8 @@ also prints to that console, whose prompt returns at once
 (`start /wait recharged.exe` waits for the game). On macOS the `recharged`
 file beside the app runs it in Terminal with the output there.
 
-**Advanced → Diagnostics & analytics → Performance stats**
-(`[advanced] frame_logging`) records frame times: each session writes a
+**Performance stats** (the game's Settings → Advanced, from the next start,
+`[advanced] frame_logging`) records frame times: each session writes a
 `frame-times_<timestamp>_<process>.csv` in the `logs` folder beside the program
 (next to `recharged.log`), with one row per game frame (frame time, game-thread
 and process CPU, presents, draws, pipeline creations), and a `.csv.summary.txt`

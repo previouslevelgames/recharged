@@ -73,10 +73,10 @@ wider_view = false
 # its picture, which a TV hides.
 picture = sharp
 tv_border = false
-# Performance mode (gear menu on the Play button): lighter matches without
-# antialiasing, the crowd, background NPCs, ambient stadium effects, bloom,
-# heat distortion, depth of field and stadium shadows. The 3D render size,
-# gameplay, hazards and weather effects are unchanged.
+# Performance mode (the game's Settings > Display, from the next match):
+# lighter matches without antialiasing, the crowd, background NPCs, ambient
+# stadium effects, bloom, heat distortion, depth of field and stadium shadows.
+# The 3D render size, gameplay, hazards and weather effects are unchanged.
 performance_mode = false
 # Antialiasing: off; fxaa (smooths the finished picture, nearly free); 4x
 # (multisampling, the edges of 3D shapes); 4x_fxaa (both); or 4x_ssaa
@@ -296,7 +296,7 @@ show_hud = true
 # override_retail_menus: development switch; Recharged's own versions replace
 # the game's menus as they are built (first the pause menu in a match). On by
 # default; off shows the game's own menus.
-# Start training on the launcher's Gameplay page (or --training) goes
+# Start training on the launcher's Extras page (or --training) goes
 # straight into a Domination match with training_captain (mario, bowser,
 # daisy, donkeykong, luigi, peach, waluigi, wario, yoshi, bowserjr,
 # diddykong, petey) and their sidekicks from the save, in training_stadium
@@ -390,6 +390,9 @@ update_channel = auto
 # Test channel: the pull request whose test builds to follow (Test on the
 # Play page chooses it when several are open); 0 for this test build's own.
 test_build = 0
+# The server's message on the Play page that you closed (it shows again when
+# the server posts a new one).
+dismissed_message = 0
 
 [discord]
 # Show the menu or match you are in as your Discord status, while the Discord

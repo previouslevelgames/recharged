@@ -1,153 +1,16 @@
 {
   "display": {
-    "title": "Display",
-    "about": "How the game window opens and how its picture is drawn.",
-    "performance_mode_on": "Performance mode is on, so antialiasing stays off.",
-    "this_run_windowed": "This run: {{width}} x {{height}}, {{aspect}}, windowed, {{frame_rate}} (command line, not saved)",
-    "this_run_fullscreen": "This run: {{width}} x {{height}}, {{aspect}}, fullscreen, {{frame_rate}} (command line, not saved)",
-    "switches_while_playing": "{{key}} switches while playing.",
     "screen": {
-      "title": "Screen",
-      "mode": {
-        "name": "Mode",
-        "about": "Fullscreen covers the whole display, at the resolution below.",
-        "windowed": "Windowed",
-        "fullscreen": "Fullscreen"
-      },
-      "resolution": {
-        "name": "Resolution",
-        "window_about": "The window's size, from those your graphics card offers for this display.",
-        "window_about_remembered": "The window's size, from those your graphics card offers for this display. The game also keeps the size and place you leave its window at.",
-        "screen_about": "The screen's resolution. Desktop keeps the display's own; another switches the display to it while the game runs."
-      },
       "display": {
-        "name": "Display",
-        "about": "Where the game window opens.",
         "default": "Default display",
         "not_connected": "Display {{number}} (not connected)"
       }
-    },
-    "picture": {
-      "title": "Picture",
-      "aspect_ratio": {
-        "name": "Aspect ratio",
-        "about": "16:9 is the game's widescreen layout and 4:3 its original one; both keep their shape. Stretch fills the whole screen.",
-        "stretch": "Stretch"
-      },
-      "wider_view": {
-        "name": "Wider view",
-        "about": "In matches on a screen wider or taller than 16:9, shows more of the stadium instead of bars, with the HUD in the 16:9 middle. Menus keep their 16:9 picture."
-      },
-      "resolution": {
-        "name": "3D resolution",
-        "about": "Full draws the game at the resolution above, the sharpest. Native is the Wii's 640 x 448; 2x-4x are its multiples, for slower graphics cards.",
-        "key_changes_it": "{{key}} changes it while playing.",
-        "keys_change_it": "{{key}} and {{other}} change it while playing.",
-        "full": "Full",
-        "native": "Native"
-      },
-      "antialiasing": {
-        "name": "Antialiasing",
-        "about": "Smooths jagged edges. The stronger kinds cost more GPU time."
-      },
-      "style": {
-        "name": "Picture style",
-        "about": "Modern draws the game's picture crisp, straight into the window. Original TV adds the Wii's flicker filter and a TV's softness.",
-        "modern": "Modern",
-        "original_tv": "Original TV"
-      },
-      "tv_border": {
-        "name": "TV border",
-        "about": "The empty border a Wii sends around its picture, which a TV hides."
-      },
-      "upscaling": {
-        "name": "Upscaling",
-        "about": "How a 3D resolution other than Full reaches the resolution above. Sharp keeps pixels square.",
-        "smooth": "Smooth",
-        "sharp": "Sharp"
-      }
-    },
-    "motion": {
-      "title": "Motion",
-      "vsync": {
-        "name": "VSync",
-        "about": "Synchronizes frames with your display to prevent tearing."
-      },
-      "frame_rate": {
-        "name": "Frame rate",
-        "about": "Original is the console's 60 FPS. Higher rates draw more frames for smoother motion while the game keeps its own speed; Display follows your display's refresh rate.",
-        "original": "Original",
-        "display": "Display",
-        "unlimited": "Unlimited"
-      },
-      "throttle": {
-        "name": "Throttle in background",
-        "about": "Draws fewer frames while the game's window is minimized or another window has the focus, to save power. The full frame rate returns as soon as you go back."
-      },
-      "background_frame_rate": {
-        "name": "Background frame rate",
-        "about": "The frames per second at most while the game is in the background."
-      }
-    },
-    "overlay": {
-      "title": "Performance overlay",
-      "about": "FPS and system GPU and CPU usage; in network games the latency, and with rollback the input delay (DLY) and rollback frames (RB).",
-      "on_screen": {
-        "name": "On screen",
-        "about": "A compact row in a corner, also in fullscreen. Latency shows N/A until online play is available."
-      },
-      "corner": {
-        "name": "Corner",
-        "about": "Where the performance overlay sits.",
-        "top_left": "Top left",
-        "top_right": "Top right",
-        "bottom_left": "Bottom left",
-        "bottom_right": "Bottom right"
-      }
-    },
-    "aspect_note": {
-      "saved_auto": "Saved value auto: 16:9 or 4:3, whichever is closer to the screen's shape ({{shape}} here). Choose one above to change it.",
-      "saved_unsupported": "Saved value {{value}} is not supported by the game. Choose one above.",
-      "stretch_window": "Uses the {{shape}} layout and fills the window at any size, stretching the picture with it.",
-      "stretch_display": "Uses the {{shape}} layout and fills the whole display.",
-      "stretch_exactly": "Uses the {{shape}} layout, which fills this {{size}} display exactly.",
-      "stretch_wider": "Uses the {{shape}} layout and fills this {{size}} display; the picture is {{percent}}% wider than {{shape}}.",
-      "stretch_narrower": "Uses the {{shape}} layout and fills this {{size}} display; the picture is {{percent}}% narrower than {{shape}}.",
-      "wider_window": "The window can take any shape: in matches the wider view fills it with more of the stadium.",
-      "fills_display": "Fills the display.",
-      "wider_sides": "In matches, fills this {{size}} display with more of the stadium at the sides. Menus keep 16:9.",
-      "wider_above": "In matches, fills this {{size}} display with more of the stadium above and below. Menus keep 16:9.",
-      "window_keeps": "The window keeps the {{shape}} shape when you resize it, so the picture fills it. Maximized on a screen of another shape, it shows bars.",
-      "fills_exactly": "Fills this {{size}} display exactly.",
-      "bars_sides_one": "On this {{size}} display: bars of {{count}} pixel left and right.",
-      "bars_sides_other": "On this {{size}} display: bars of {{count}} pixels left and right.",
-      "bars_above_one": "On this {{size}} display: bars of {{count}} pixel above and below.",
-      "bars_above_other": "On this {{size}} display: bars of {{count}} pixels above and below.",
-      "stretch_or_wider_fills": "Stretch or the wider view fills it.",
-      "stretch_fills": "Stretch fills it."
-    },
-    "resolution_note": {
-      "on_screen": "{{name}}: {{width}} x {{height}} on this screen.",
-      "on_window": "{{name}}: {{width}} x {{height}} on this window.",
-      "fewer_screen": "{{name}}: {{width}} x {{height}}, fewer pixels than the picture on this screen.",
-      "fewer_window": "{{name}}: {{width}} x {{height}}, fewer pixels than the picture on this window.",
-      "more_screen": "{{name}}: {{width}} x {{height}}, more pixels than the picture on this screen.",
-      "more_window": "{{name}}: {{width}} x {{height}}, more pixels than the picture on this window.",
-      "as_many_screen": "{{name}}: {{width}} x {{height}}, about as many pixels as the picture on this screen.",
-      "as_many_window": "{{name}}: {{width}} x {{height}}, about as many pixels as the picture on this window."
     },
     "frame_rate_label": {
       "original": "original frame rate",
       "display": "display refresh rate",
       "unlimited": "unlimited FPS",
       "fps": "{{rate}} FPS"
-    },
-    "frame_rate_note": {
-      "saved": "Saved value: {{value}} FPS.",
-      "vsync_holds": "VSync holds it to this display's {{hz}} Hz.",
-      "cannot_show_all": "This display refreshes at {{hz}} Hz, so it cannot show every frame.",
-      "no_limit": "No limit: the game draws as fast as your computer allows.",
-      "refreshes": "This display refreshes at {{hz}} Hz."
     },
     "antialiasing": {
       "off": {
@@ -184,31 +47,6 @@
       "other_shape": "Another shape than this {{size}} display: some displays stretch it; others show bars."
     }
   },
-  "audio": {
-    "title": "Audio",
-    "about": "The game's volume and the level of each kind of sound. The music, sound effect and voice settings in the game's own Options menu still apply.",
-    "output": {
-      "title": "Output",
-      "about": "Plays through your system's default audio device.",
-      "master_volume": {
-        "name": "Master volume",
-        "about": "Scales the game's speaker output, like the volume of a TV."
-      },
-      "mute": {
-        "name": "Mute",
-        "about": "Silences the game without changing the volume."
-      }
-    },
-    "sound_levels": {
-      "title": "Sound levels",
-      "about": "Each kind of sound as a share of the level the game gives it, on the PC only. Applies when the game starts.",
-      "reset": {
-        "name": "Reset levels",
-        "about": "Every kind of sound back to 100%, the game's own mix.",
-        "button": "Reset levels"
-      }
-    }
-  },
   "controls": {
     "title": "Controls",
     "about": "Play with keyboard and mouse, an Xbox, PlayStation or other gamepad, or a Wii Remote with Nunchuk. Keep the game window focused.",
@@ -236,10 +74,6 @@
       "missing_tooltip": "Not connected. Connect it before you start the game.",
       "keys_tooltip": "Keyboard & mouse keys",
       "drop_out_rule": "Controllers that are not connected when the game starts drop out. With nobody left, keyboard & mouse plays as player 1.",
-      "mouse_pointer": {
-        "name": "Mouse pointer",
-        "about": "The mouse also points for player 1: left click is A, right click is B. The controller keeps working. Only when player 1 plays alone."
-      },
       "access": {
         "name": "Wii Remote access",
         "udev": "A Wii Remote is connected, but this user can't open it. Install the udev rule (copy the commands, run them in a terminal), then turn the remote off and on.",
@@ -277,49 +111,12 @@
       "reset": "Reset",
       "reset_tooltip": "Forget every Wii Remote Windows remembers, for one that no longer connects\n(for example after it was synced with a Wii again). Sync it again afterwards."
     },
-    "wii_remote": {
-      "title": "Wii Remote",
-      "about": "As in the Wii's own settings. Changes apply when the game starts.",
-      "sensor_bar": {
-        "name": "Sensor bar",
-        "about": "Where your sensor bar or DolphinBar sits. The game aims the Wii Remote pointer from it.",
-        "above": "Above the screen",
-        "below": "Below the screen"
-      },
-      "sensitivity": {
-        "name": "Sensitivity",
-        "about": "How readily the Remote's camera sees the sensor bar (3 is the Wii's default). Raise it when the pointer drops out far from the bar, lower it when lamps or windows disturb it."
-      },
-      "speaker": {
-        "name": "Speaker volume",
-        "about": "Sounds the game plays on each player's Wii Remote; they play on the TV as well. Off sends no sound to the Remotes.",
-        "off": "Off",
-        "tooltip": "Speaker sound depends on the Bluetooth link: if it crackles, turn it down or off."
-      }
-    },
-    "rumble": {
-      "title": "Rumble",
-      "rumble": {
-        "name": "Rumble",
-        "about": "The game's rumble on Wii Remotes and gamepads, like the Wii's rumble setting."
-      },
-      "strength": {
-        "name": "Gamepad strength",
-        "about": "How strongly gamepads rumble. A Wii Remote's motor is either on or off.",
-        "off": "Off"
-      }
-    },
     "hotkeys": {
       "title": "Hotkeys",
       "about": "Keys of the game window, whoever plays. Click a hotkey, then press the new key, alone or with Ctrl, Shift or Alt. Escape cancels; Backspace or Delete leaves it unused.",
       "press_keys": "Press keys...",
       "not_set": "Not set",
       "tooltip": "Click, then press the new keys",
-      "show_hud": {
-        "name": "Show the HUD when a match starts",
-        "about": "The scoreboard, player markers and captions. Off starts matches without them, for clean recordings; {{key}} shows them. The Mega Strike meter and its defence always stay.",
-        "about_no_key": "The scoreboard, player markers and captions. Off starts matches without them, for clean recordings; its hotkey shows them. The Mega Strike meter and its defence always stay."
-      },
       "reset": "Reset keys",
       "no_hotkey_now": "{{hotkey}} has no hotkey now.",
       "system_keys": "Combinations with the Windows or Command key stay with the system.",
@@ -550,17 +347,17 @@
       "feel_gyro": "Stick dead zones {{inner}}-{{outer}}%, triggers press at {{trigger}}%, gyro speed {{gyro}}%"
     }
   },
+  "extras": {
+    "title": "Extras",
+    "about": "What needs files or the launcher. The other gameplay options are in the game's OPTIONS > GAMEPLAY.",
+    "super_team": {
+      "title": "Super Team"
+    },
+    "development": {
+      "title": "Development"
+    }
+  },
   "gameplay": {
-    "title": "Gameplay",
-    "about": "Optional tweaks that change the original game. With all of them off, the game plays as on the Wii.",
-    "all_tweaks": "All tweaks",
-    "all_tweaks_tooltip": "Turn all gameplay tweaks on or off.",
-    "menus": {
-      "title": "Menus & startup"
-    },
-    "matches": {
-      "title": "Matches & unlocks"
-    },
     "super_team": {
       "side": {
         "name": "Side",
@@ -579,9 +376,6 @@
       "uses_found": "The Super Team uses {{file}} from your game folder.",
       "uses": "The Super Team uses {{file}}.",
       "not_strikers": "{{file}} is not a Super Mario Strikers (GameCube) image."
-    },
-    "competitive": {
-      "title": "Competitive gameplay"
     },
     "training": {
       "title": "Training",
@@ -698,10 +492,6 @@
       "launcher_size": {
         "name": "Launcher size",
         "about": "Scales this launcher. Automatic follows your display's scaling setting."
-      },
-      "reopen": {
-        "name": "Reopen after the game",
-        "about": "Opens the launcher again when you close the game."
       }
     },
     "updates": {
@@ -710,8 +500,11 @@
       "status": "Status",
       "check_now": "Check now"
     },
+    "troubleshooting": {
+      "title": "Troubleshooting",
+      "about": "For a game that does not start or runs badly. The other diagnostics are in the game's OPTIONS > SETTINGS > ADVANCED."
+    },
     "graphics": {
-      "title": "Graphics",
       "api": {
         "name": "Graphics API",
         "about": "Used the next time you start the game.",
@@ -721,13 +514,7 @@
       }
     },
     "diagnostics": {
-      "title": "Diagnostics & analytics",
-      "about": "Local tools for investigating performance and graphics issues.",
-      "performance_stats": {
-        "name": "Performance stats",
-        "about": "Records frame times for each game session, with the arena and settings, and a summary per arena. Saves a CSV and summary in the logs folder; testers can share them."
-      },
-      "recordings": "Frame recordings",
+      "recordings": "Logs",
       "open_folder": "Open folder",
       "shader_cache": {
         "name": "Shader cache",
@@ -736,21 +523,9 @@
         "cleared": "Shader cache cleared. Graphics will be prepared again on the next launch.",
         "empty": "The shader cache is already empty."
       },
-      "validation": {
-        "name": "API validation",
-        "about": "Checks every graphics call for errors. Slows the game: keep it off to play or record frame times."
-      },
       "log_detail": {
         "name": "Log detail",
         "about": "Which messages reach the console: errors, warnings, info or debug."
-      },
-      "verbose": {
-        "name": "Verbose console",
-        "about": "Also prints development traces and the game's own debug output. Useful for bug reports."
-      },
-      "log_window": {
-        "name": "Log window",
-        "about": "Shows the log in a separate window while Recharged runs, for testing. Closing it doesn't stop the game."
       }
     },
     "configuration": {

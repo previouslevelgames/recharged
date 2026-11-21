@@ -814,6 +814,12 @@ bool DesktopMousePoints() {
     auto& state = Get();
     return state.ready && state.settings.mouse;
 }
+void SetDesktopRumbleStrength(int percent) {
+    auto& state = Get();
+    if (!state.ready) return;
+    RequireOwner();
+    state.settings.rumble_strength = std::clamp(percent, 0, 100);
+}
 void ShutdownDesktopWpad() {
     auto& state = Get();
     if (!state.ready) return;

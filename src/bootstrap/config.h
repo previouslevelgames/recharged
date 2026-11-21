@@ -253,6 +253,9 @@ struct Settings
     // launcher.test_build: the pull request whose test builds the test channel
     // follows, chosen on the Play page; 0 for the running test build's own.
     int test_build = 0;
+    // launcher.dismissed_message: the server's message (its id) the player
+    // closed on the Play page; 0 for none.
+    int dismissed_message = 0;
     // discord.rich_presence: show what is being played as the Discord status
     // (issue #71), when the Discord app runs on this computer.
     bool discord_status = true;

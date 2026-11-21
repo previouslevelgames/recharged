@@ -39,6 +39,11 @@ public:
     // A network match with rollback holds the rate to kRollbackFrameRate
     // while it lasts; true when that changed the pacing.
     bool SetRollbackCap(bool on);
+    // The settings changed while the game runs (the menus' DISPLAY page): the
+    // rate, VSync and the background rate (0 for none) count from the next
+    // frame. The original rate without a background rate is the game's own
+    // VI pacing again.
+    void Configure(FrameRate rate, bool vsync, int background_hz);
 
 private:
     FrameRate HeldRate(double display_hz) const;

@@ -90,11 +90,12 @@ window, and **F1** (or HOME on a controller) opens the **Recharged Game Menu** o
 blurred game, in the game's own look (point at it with a Wii Remote, as at the game's menus): on **ONLINE** your set, the friends online,
 the players available, a RANKED match from anywhere in the menus and the
 leaderboards; on **OPTIONS** the gameplay options (**F2** opens them there) and
-the display, sound and advanced settings that change at once. In an online match
+the display, sound, controller and advanced settings, which change while the
+game runs (the launcher keeps only what the game needs before it starts). In an online match
 the game's pause button opens a menu to continue or forfeit. Each can be changed under Controls → Hotkeys, to a key alone or with
 Ctrl, Shift or Alt.
 
-**No HUD** (Controls → Hotkeys → *Show the HUD when a match starts* off):
+**No HUD** (the game's Settings → Controls → *HUD at kickoff* off):
 matches start without the scoreboard (score, clock, items, ability meter),
 the player markers and the captions (replay label, goal banner, super ability
 card), for clean recordings and screenshots; the HUD key shows them. The Mega
@@ -103,9 +104,9 @@ play.
 
 ## Picture and sound
 
-- Vulkan on Linux, Vulkan or DirectX 12 on Windows (Advanced → Graphics API),
-  Metal on macOS; on PCs with two GPUs, a choice of graphics card (Advanced →
-  Graphics card).
+- Vulkan on Linux, Vulkan or DirectX 12 on Windows (Advanced → Troubleshooting
+  → Graphics API), Metal on macOS; on PCs with two GPUs, a choice of graphics
+  card (Advanced → Troubleshooting → Graphics card).
 - Window or fullscreen on any monitor, at a resolution your graphics card
   offers (fullscreen keeps the display's own unless you pick another);
   Alt+Enter switches while playing. The window reopens at the size and place
@@ -122,12 +123,12 @@ play.
   into the window; **Original TV** keeps the console's TV look, optionally with
   the empty border a Wii sends around its picture.
 - **Antialiasing**: 4x MSAA by default, or FXAA, 4x MSAA + FXAA, or 4x SSAA,
-  which also smooths the edges inside textures (Display → Antialiasing).
-- **Performance mode** (the gear on Play): lighter matches without
+  which also smooths the edges inside textures (Game → Screen → Antialiasing).
+- **Performance mode** (the game's Settings → Display): lighter matches without
   antialiasing, crowd, background NPCs, ambient effects, bloom or stadium
   shadows. Gameplay, hazards and their effects remain unchanged.
 - **Frame rates**: the console's 60 FPS by default, or 30, 60, 120, 144, your
-  display's refresh rate or unlimited (Display → Frame rate). The game keeps its
+  display's refresh rate or unlimited (the game's Settings → Display). The game keeps its
   own speed: matches still simulate at their fixed 50 Hz and every frame is
   drawn from the game's own blend of its last two steps, so the extra frames
   are real motion, not interpolation added by Recharged.
@@ -135,7 +136,7 @@ play.
   rollback no longer fits in a frame. Each player's rate is their own: it does
   not have to match the opponent's.
 - V-sync and a performance overlay (FPS, CPU and GPU load) in any corner.
-- Master volume, mute and **sound levels** (Audio): music, sound effects,
+- Master volume, mute and **sound levels** (the game's Settings → Sound): music, sound effects,
   voices, the crowd, menus and HUD, cutscenes and movies each from 0 to 100 %,
   on top of the game's own music, effect and voice options.
 - **Screenshots** with the P key, or the one chosen under Controls → Hotkeys.
@@ -155,7 +156,8 @@ shots pass through the goalies
 and no star with "x3" flashes in the top corners when the HUD leaves the
 screen after a goal
 ([#68](https://github.com/previouslevelgames/recharged/issues/68)).
-The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them on:
+The game's **OPTIONS → GAMEPLAY** (or `[gameplay]` in `recharged.ini`) turns them on; the Super Team
+is on the launcher's **Extras** page, as it needs a GameCube image:
 
 - **Skip intro**: start at the main menu, without the notice screens, studio
   logo, intro movie and title screen.
@@ -187,7 +189,7 @@ The launcher's **Gameplay** page (or `[gameplay]` in `recharged.ini`) turns them
   music, which replaces the stadium's music until the match ends, and the HUD
   shows SUDDEN DEATH instead of "First to". A team alone one goal from
   winning changes nothing. Only sound and HUD change. On by default.
-- **Training**: **Start training** on the Gameplay page (or `--training`)
+- **Training**: **Start training** on the launcher's Extras page (or `--training`)
   goes past the intro and the menus straight into a Domination match with
   the chosen captain, the sidekicks of their lineup on the Teams page, and
   the chosen stadium, on the home or the away side. The other team has the captain you choose (Bowser by
@@ -284,7 +286,7 @@ lets you choose which one to follow ([updates](SETTINGS.md#updates)).
 
 Texture packs made for Dolphin replace the game's textures, from a folder or
 straight from their `.zip` file, with several packs in an order you choose
-(Gameplay → Mods, [settings](SETTINGS.md#texture-packs)).
+(Extras → Mods, [settings](SETTINGS.md#texture-packs)).
 
 ## Online play
 
@@ -295,7 +297,9 @@ server instead. It is set up already; only a private instance of the server
 needs `[online] server` ([settings](SETTINGS.md#online)). Friend
 codes are typed on the game's friend code screen, as described under Controls.
 
-The launcher's Play page shows how many players are online on that server,
+The launcher's Play page shows the server's message when it has one (a
+restart, an event: its admins post it; the close button hides it until they
+post another), and how many players are online on that server,
 asked every minute: everyone logged in to it, from Recharged, a Wii or
 Dolphin, and in its tooltip how many of them are in a match. A server without
 this count (older than Recharged WFC 1.2.19) shows nothing.

@@ -27,6 +27,7 @@
 #include "launcher/players_online.h"
 #include "launcher/release_banner.h"
 #include "launcher/release_notes.h"
+#include "launcher/server_message.h"
 #include "launcher/fallback_fonts.h"
 #include "launcher/ui_kit.h"
 #include "launcher/ui_metrics.h"
@@ -97,6 +98,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -463,15 +465,18 @@ void DrawMiiFace(ImDrawList* draw, ImVec2 center, float size, unsigned seed, flo
 
 // In the sidebar's order. The pages of a group (kNavGroups) follow each other.
 // The leaderboards and events are the Recharged Game Menu's (its Ranked and
-// Events tabs).
+// Events tabs); the settings that change while the game runs (the display
+// and sound, the gameplay options, the rumble...) are its OPTIONS.
 enum Page { PagePlay, PageGame, PageOnlineSettings, PageRules, PageSidekicks,
-            PageDisplay, PageAudio, PageControls, PageGameplay, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_ids[] = {"play",    "game",  "online-settings", "rules",    "sidekicks",
-                                    "display", "audio", "controls",        "gameplay", "advanced", "about"};
+            PageControls, PageExtras, PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_ids[] = {"play",     "game",   "online-settings", "rules", "sidekicks",
+                                    "controls", "extras", "advanced",        "about"};
 constexpr Icon page_icons[] = {Icon::Play,     Icon::Disc,   Icon::Person,  Icon::Clipboard, Icon::Pitch,
-                               Icon::Display,  Icon::Audio,  Icon::Keyboard, Icon::Target,  Icon::Sliders,
-                               Icon::Info};
+                               Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
 static_assert(std::size(page_ids) == PageCount && std::size(page_icons) == PageCount);
+// --page's names of the pages that were merged into others.
+constexpr std::pair<const char*, int> kOldPageIds[] = {{"display", PageGame}, {"audio", PageGame},
+                                                       {"gameplay", PageExtras}};
 
 // A page's name in the sidebar.
 const char* PageName(int page)
@@ -483,10 +488,8 @@ const char* PageName(int page)
     case PageOnlineSettings: return texts::T("launcher.pages.player_profile");
     case PageRules: return texts::T("launcher.pages.match_rules");
     case PageSidekicks: return texts::T("launcher.pages.sidekicks");
-    case PageDisplay: return texts::T("launcher.pages.display");
-    case PageAudio: return texts::T("launcher.pages.audio");
     case PageControls: return texts::T("launcher.pages.controls");
-    case PageGameplay: return texts::T("launcher.pages.gameplay");
+    case PageExtras: return texts::T("launcher.pages.extras");
     case PageAdvanced: return texts::T("launcher.pages.advanced");
     case PageAbout: return texts::T("launcher.pages.about");
     default: return "";
@@ -524,7 +527,7 @@ constexpr int NavGroupMostPages()
     return most;
 }
 static_assert(NavGroupOf(PageOnlineSettings) == 0 && NavGroupOf(PageRules) == 0 && NavGroupOf(PageSidekicks) == 0
-              && NavGroupOf(PageGameplay) == -1 && NavGroupOf(PageDisplay) == -1 && NavGroupOf(PageAdvanced) == -1);
+              && NavGroupOf(PageExtras) == -1 && NavGroupOf(PageControls) == -1 && NavGroupOf(PageAdvanced) == -1);
 constexpr bool OnlinePage(int page) { return NavGroupOf(page) == 0; }
 
 // The captains (eTeamID order) and the sidekicks (eSidekickID order), as the
@@ -886,6 +889,7 @@ public:
         if (const char* set = std::getenv(kCompetitiveSetVariable); set && *set && !capture_)
             competitive_started_go_ = std::strtoll(set, nullptr, 10);
         StartPlayersOnline();
+        StartServerMessage();
 #if !defined(__APPLE__)
         // The PC's graphics cards, for Advanced -> Graphics card and the log.
         graphics_cards_scan_ = std::async(std::launch::async, platform::ListGraphicsCards);
@@ -1021,10 +1025,10 @@ public:
                     RefreshGamepad();
                 if (event.type == SDL_EVENT_DISPLAY_ADDED || event.type == SDL_EVENT_DISPLAY_REMOVED)
                     RefreshDisplays();
-                // On the Gameplay page a dropped texture pack is added; anything
+                // On the Extras page a dropped texture pack is added; anything
                 // else is a game image or folder, as on the other pages.
                 if (event.type == SDL_EVENT_DROP_FILE && event.drop.data
-                    && !(page_ == PageGameplay && config_ok_ && AddTexturePack(PathFromUtf8(event.drop.data))))
+                    && !(page_ == PageExtras && config_ok_ && AddTexturePack(PathFromUtf8(event.drop.data))))
                     SelectDisc(event.drop.data);
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && capture_action_ >= 0)
                     CaptureKey(event.key.scancode);
@@ -1082,7 +1086,7 @@ public:
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
             const bool update_settled = update_preview_ || (!UpdateBusy() && !(update_capture_install_ && update_.offer));
             const bool settled = !pending_ && !searching_ && !library_scanning_ && !candidate_pending_
-                && !texture_scanning_ && update_settled && CompetitiveSettled()
+                && !texture_scanning_ && update_settled && CompetitiveSettled() && !server_message_fetch_
                 && (!mii_faces_ || mii_faces_->Settled());
             settled_frames = settled ? settled_frames + 1 : 0;
             if (!options_.screenshot.empty() && frame >= 12 && (settled_frames >= 3 || frame > 600))
@@ -1344,6 +1348,113 @@ private:
             return true;
         }
         catch (const std::exception& e) { Notice(e.what(), NoticeKind::Error); return false; }
+    }
+
+    // ------------------------------------------------------ server message
+    // The profile server's message for the Play page (ServerMessageFetch),
+    // asked once at the start. Development captures show a made-up one with
+    // RECHARGED_CAPTURE_MESSAGE (its Markdown, "warning:" first for a
+    // warning), or ask the server with RECHARGED_CAPTURE_MESSAGE=server.
+    void StartServerMessage()
+    {
+        const char* preview = capture_ ? std::getenv("RECHARGED_CAPTURE_MESSAGE") : nullptr;
+        if (capture_ && (!preview || std::string_view(preview) != "server"))
+        {
+            if (!preview || !*preview) return;
+            ServerMessage message;
+            message.id = 1;
+            message.markdown = preview;
+            if (message.markdown.rfind("warning:", 0) == 0)
+            {
+                message.warning = true;
+                message.markdown.erase(0, 8);
+            }
+            ShowServerMessage(std::move(message));
+            return;
+        }
+        if (!config_ok_ || !platform::HttpUnavailable().empty()) return;
+        const auto server = platform::ProfileServerAddress(file_.settings.profile_server);
+        if (!server) return;
+        server_message_fetch_ = std::make_unique<ServerMessageFetch>(
+            *server, [](const std::string& line) { platform::SessionLogLine(line); });
+    }
+
+    // Every frame: the answer, once it came.
+    void PollServerMessage()
+    {
+        if (!server_message_fetch_) return;
+        std::optional<ServerMessage> message;
+        if (!server_message_fetch_->Done(&message)) return;
+        server_message_fetch_.reset();
+        if (message) ShowServerMessage(std::move(*message));
+    }
+
+    void ShowServerMessage(ServerMessage message)
+    {
+        server_message_blocks_ = ParseReleaseNotes(message.markdown);
+        server_message_ = std::move(message);
+    }
+
+    // Whether the Play page shows it now: not closed, and not over.
+    bool ServerMessageShown() const
+    {
+        return server_message_ && server_message_->id != draft_.dismissed_message
+            && ServerMessageCurrent(*server_message_, std::int64_t(std::time(nullptr)));
+    }
+
+    // Closed: it stays closed ([launcher] dismissed_message), saved at once
+    // unless other changes wait to be saved with it.
+    void DismissServerMessage()
+    {
+        if (!server_message_) return;
+        if (server_message_->id > 2000000000)
+        {
+            server_message_.reset();
+            return;
+        }
+        const bool clean = !dirty_;
+        draft_.dismissed_message = int(server_message_->id);
+        dirty_ = true;
+        if (!clean || !config_ok_) return;
+        try
+        {
+            SaveConfig(file_, draft_);
+            dirty_ = false;
+        }
+        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+    }
+
+    // In the summary cards' place: the message, its Markdown scrolling when
+    // it is taller than the card, with a close button.
+    void ServerMessageBanner(ImVec2 pos, float width, float height)
+    {
+        const auto& fonts = CurrentFonts();
+        const bool warning = server_message_->warning;
+        const ImVec4 tint = warning ? color::warning : color::accent;
+        auto* draw = ImGui::GetWindowDrawList();
+        const ImVec2 max{pos.x + width, pos.y + height};
+        const float rounding = Dp(14);
+        draw->AddRectFilled(pos, max, Col(Mix(Mix(color::card, color::window, 0.15f), tint, 0.07f)), rounding);
+        draw->AddRect(pos, max, Col(Mix(color::border, tint, 0.45f)), rounding, 0, Dp(1));
+        draw->AddRectFilled({pos.x, pos.y + rounding}, {pos.x + Dp(3), max.y - rounding}, Col(tint));
+        const float pad = Dp(18), icon = Dp(18), left = pos.x + pad + icon + Dp(14);
+        DrawIcon(draw, warning ? Icon::Warning : Icon::Info, {pos.x + pad + icon * 0.5f, pos.y + pad + icon * 0.5f},
+                 icon, Col(tint));
+        const char* kicker = texts::T("launcher.play.message.kicker");
+        DrawTracked(draw, fonts.caption, {left, pos.y + pad + (icon - FontSize(fonts.caption)) * 0.5f},
+                    Col(tint, 0.95f), kicker, Dp(1.6f));
+        const float close = Dp(32);
+        ImGui::SetCursorScreenPos({max.x - Dp(10) - close, pos.y + Dp(10)});
+        if (GhostButton("##message_close", "", {close, close}, true, Icon::Close)) DismissServerMessage();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("launcher.play.message.close"));
+        const float top = pos.y + pad + icon + Dp(6);
+        ImGui::SetCursorScreenPos({left, top});
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0, 0, 0, 0});
+        ImGui::BeginChild("##message", {max.x - pad - left, max.y - Dp(12) - top});
+        const float text_width = ImGui::GetContentRegionAvail().x - (ImGui::GetScrollMaxY() > 0 ? Dp(10) : 0);
+        DrawReleaseNotes(server_message_blocks_, text_width);
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
     }
 
     // ------------------------------------------------------ players online
@@ -3205,6 +3316,7 @@ private:
         }
         UpdateCompetitive();
         if (players_online_) online_count_ = players_online_->Snapshot();
+        PollServerMessage();
         if (updates_)
         {
             update_ = updates_->Snapshot();
@@ -3703,7 +3815,7 @@ private:
     {
         if (page_ != PageControls && keyboard_view_) CloseKeyboardView();
         if (page_ != PageControls && gamepad_view_) CloseGamepadView();
-        if (page_ != PageGameplay) texture_page_open_ = false;
+        if (page_ != PageExtras) texture_page_open_ = false;
         // Bluetooth inquiries can disturb other Bluetooth devices: search only
         // while the Controls page is open (never in development captures).
         bluetooth_search_.SetActive(page_ == PageControls && config_ok_ && draft_.bluetooth_search && !capture_);
@@ -3740,10 +3852,8 @@ private:
             case PageSidekicks: SidekicksPage(); break;
             case PageRules: MatchRulesPage(); break;
             case PageOnlineSettings: OnlineSettingsPage(); break;
-            case PageDisplay: DisplayPage(); break;
-            case PageAudio: AudioPage(); break;
             case PageControls: ControlsPage(); break;
-            case PageGameplay: GameplayPage(); break;
+            case PageExtras: ExtrasPage(); break;
             case PageAdvanced: AdvancedPage(); break;
             default: AboutPage(); break;
             }
@@ -3843,19 +3953,17 @@ private:
         // Play button and status, over the bottom of the artwork.
         const std::string blocker = PlayBlocker();
         ImGui::SetCursorScreenPos({origin.x + pad, button_y});
-        const bool menu_open = ImGui::IsPopupOpen("play_options_menu");
-        const auto play = SplitPrimaryButton("play", texts::T("launcher.play.button"), {Dp(230), button},
-                                             {Dp(58), Icon::Gear, menu_open, draft_.performance_mode},
-                                             blocker.empty(), Icon::Play, true);
-        if (play.button) Play(quit);
-        if (!blocker.empty() && play.button_hovered) ImGui::SetTooltip("%s", blocker.c_str());
-        if (play.segment_hovered && !menu_open) ImGui::SetTooltip("%s", texts::T("launcher.play.options"));
-        if (play.segment) ImGui::OpenPopup("play_options_menu");
-        DrawPlayOptionsMenu({origin.x + pad + Dp(230), button_y});
-        DrawPlayStatus(blocker, {origin.x + pad + Dp(230 + 58 + 24), button_y + Dp(31)});
+        if (PrimaryButton("play", texts::T("launcher.play.button"), {Dp(230), button}, blocker.empty(), Icon::Play,
+                          true))
+            Play(quit);
+        if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("%s", blocker.c_str());
+        DrawPlayStatus(blocker, {origin.x + pad + Dp(230 + 24), button_y + Dp(31)});
 
-        // Summary cards.
-        if (cards_y + card + margin <= origin.y + size.y)
+        // Summary cards, or in their place the server's message.
+        if (cards_y + card + margin <= origin.y + size.y && ServerMessageShown())
+            ServerMessageBanner({origin.x + pad, cards_y}, size.x - pad * 2, card);
+        else if (cards_y + card + margin <= origin.y + size.y)
         {
             const float gap = Dp(16);
             const float width = (size.x - pad * 2 - gap * 2) / 3.0f;
@@ -3863,39 +3971,12 @@ private:
             SummaryCard("##disc_card", texts::T("launcher.play.cards.image"), Icon::Disc, width, PageGame,
                         DiscSummary());
             ImGui::SameLine(0, gap);
-            SummaryCard("##display_card", texts::T("launcher.play.cards.display"), Icon::Display, width, PageDisplay,
+            SummaryCard("##display_card", texts::T("launcher.play.cards.display"), Icon::Display, width, PageGame,
                         DisplaySummary());
             ImGui::SameLine(0, gap);
             SummaryCard("##language_card", texts::T("launcher.play.cards.language_audio"), Icon::Audio, width,
-                        PageAudio, LanguageSummary());
+                        PageGame, LanguageSummary());
         }
-    }
-
-    // The gear's menu opens above it, like a launcher's game options.
-    void DrawPlayOptionsMenu(ImVec2 anchor)
-    {
-        const float width = Dp(300);
-        ImGui::SetNextWindowPos({anchor.x, anchor.y - Dp(8)}, ImGuiCond_Always, {0.0f, 1.0f});
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(6, 6));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, Dp(2)});
-        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, Dp(10));
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, Mix(color::card, color::window, 0.25f));
-        if (ImGui::BeginPopup("play_options_menu"))
-        {
-            if (MenuToggle("performance_mode", texts::T("launcher.play.options_menu.performance_mode"),
-                           texts::T("launcher.play.options_menu.performance_mode_about"), &draft_.performance_mode,
-                           width))
-                dirty_ = true;
-            MenuSeparator(width);
-            if (MenuAction("display_settings", texts::T("launcher.play.options_menu.display_settings"), width))
-            {
-                page_ = PageDisplay;
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndPopup();
-        }
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar(3);
     }
 
     // Something to know before playing, under the Play status: a small glass
@@ -3908,7 +3989,7 @@ private:
         std::string text;      // what is so
         std::string secondary; // what follows from it; left out when the pill would be too wide
         std::string tooltip;
-        int page;
+        int page; // the page it opens, -1 for none
     };
 
     // At most `max_width` wide; true when clicked.
@@ -3942,7 +4023,8 @@ private:
         if (both)
             DrawLabel(draw, fonts.caption, {pos.x + left + label.x, middle - label.y * 0.5f}, Col(color::muted),
                       secondary.c_str());
-        DrawChevron(draw, {max.x - Dp(14) + Dp(2) * hover, middle}, Dp(10), Col(Mix(color::dim, color::text, hover)));
+        if (note.page >= 0)
+            DrawChevron(draw, {max.x - Dp(14) + Dp(2) * hover, middle}, Dp(10), Col(Mix(color::dim, color::text, hover)));
         if (hovered) ImGui::SetTooltip("%s", note.tooltip.c_str());
         return pressed;
     }
@@ -4020,7 +4102,7 @@ private:
             if (count)
                 notes.push_back({Icon::Target, color::accent, false,
                                  texts::Count("launcher.play.notes.tweaks_on", count), "",
-                                 texts::T("launcher.play.notes.tweaks_on_list") + names, PageGameplay});
+                                 texts::T("launcher.play.notes.tweaks_on_list") + names, -1});
         }
         // The notes take the disc line's place (the Game image card has it).
         if (!notes.empty()) detail.clear();
@@ -4054,7 +4136,7 @@ private:
         {
             ImGui::SetCursorScreenPos({pos.x, y + pill_top + float(i) * (pill + pill_gap)});
             ImGui::PushID(int(i));
-            if (StatusPill("##note", notes[i], limit - pos.x)) page_ = notes[i].page;
+            if (StatusPill("##note", notes[i], limit - pos.x) && notes[i].page >= 0) page_ = notes[i].page;
             ImGui::PopID();
         }
         ImGui::PopID();
@@ -4449,8 +4531,37 @@ private:
         }
         EndCard();
 
-        DiscordCard();
+        ScreenCard();
         SaveDataCard();
+    }
+
+    // What the game opens with: the window's size, the fullscreen resolution,
+    // the display and the antialiasing. Everything else about the picture
+    // changes while the game runs, in its OPTIONS > SETTINGS > DISPLAY.
+    void ScreenCard()
+    {
+        BeginCard("##screen", texts::T("launcher.game.screen.title"), texts::T("launcher.game.screen.about"),
+                  Icon::Display);
+        if (BeginRows("##screen_rows"))
+        {
+            Row(texts::T("launcher.game.screen.window_size.name"),
+                draft_.remember_window ? texts::T("launcher.game.screen.window_size.about_remembered")
+                                       : texts::T("launcher.game.screen.window_size.about"));
+            WindowSizeControl();
+            Row(texts::T("launcher.game.screen.fullscreen_resolution.name"),
+                texts::T("launcher.game.screen.fullscreen_resolution.about"));
+            FullscreenResolutionControl();
+            if (displays_.size() > 1 || draft_.monitor > 0)
+            {
+                Row(texts::T("launcher.game.screen.display.name"), texts::T("launcher.game.screen.display.about"));
+                DisplayChoice();
+            }
+            Row(texts::T("launcher.game.screen.antialiasing.name"),
+                texts::T("launcher.game.screen.antialiasing.about"));
+            AntialiasingKindChoice();
+            EndRows();
+        }
+        EndCard();
     }
 
     // Game -> Menu language ([interface] language): Automatic or one of the
@@ -4500,26 +4611,6 @@ private:
                 texts::T("launcher.game.language.menu_language_missing", {{"language", draft_.interface_language}});
             TextWrappedColored(fonts.caption, color::warning, text.c_str());
         }
-    }
-
-    // The Discord status (issue #71): on unless switched off; builds without
-    // a Discord application (forks, local builds) cannot show one.
-    void DiscordCard()
-    {
-        BeginCard("##discord", texts::T("launcher.game.discord.title"), texts::T("launcher.game.discord.about"),
-                  Icon::Link);
-        if (BeginRows("##discord_rows"))
-        {
-            const bool available = *mscharged::build::discord_application_id != '\0'
-                || !draft_.discord_application_id.empty();
-            Row(texts::T("launcher.game.discord.status"), available ? texts::T("launcher.game.discord.status_about")
-                                                                    : texts::T("launcher.game.discord.unavailable"));
-            ImGui::BeginDisabled(!available);
-            if (Toggle("##discord_status", &draft_.discord_status)) dirty_ = true;
-            ImGui::EndDisabled();
-            EndRows();
-        }
-        EndCard();
     }
 
     // Where the game keeps its Wii storage, and importing a save from Dolphin.
@@ -9025,328 +9116,11 @@ private:
                 texts::T("match_setup.language.automatic", {{"language", choice.language->label}}).c_str());
     }
 
-    void DisplayPage()
-    {
-        PageHeader(texts::T("settings.display.title"), texts::T("settings.display.about"));
-        if (draft_.performance_mode)
-        {
-            Chip(texts::T("settings.display.performance_mode_on"), color::info, Icon::Display);
-            ImGui::Dummy({0, Dp(4)});
-        }
-        const auto run = EffectiveLaunch().settings;
-        if (options_.launch.size || options_.launch.fullscreen || options_.launch.aspect || options_.launch.frame_rate)
-        {
-            const std::string width = std::to_string(run.width), height = std::to_string(run.height);
-            const std::string rate = FrameRateLabel(run.frame_rate);
-            const std::string text = run.fullscreen
-                ? texts::T("settings.display.this_run_fullscreen",
-                           {{"width", width}, {"height", height}, {"aspect", run.aspect}, {"frame_rate", rate}})
-                : texts::T("settings.display.this_run_windowed",
-                           {{"width", width}, {"height", height}, {"aspect", run.aspect}, {"frame_rate", rate}});
-            Chip(text.c_str(), color::info, Icon::Info);
-            ImGui::Dummy({0, Dp(2)});
-        }
-        const auto hotkeys = DraftHotkeys();
-        const auto key = [&](HotkeyIndex hotkey) { return platform::HotkeyLabel(hotkeys[hotkey]); };
-        // "F switches while playing.", after a row's note.
-        const auto switches = [&](HotkeyIndex hotkey) {
-            return hotkeys[hotkey].key
-                ? " " + texts::T("settings.display.switches_while_playing", {{"key", key(hotkey)}})
-                : std::string();
-        };
-
-        BeginCard("##window", texts::T("settings.display.screen.title"), nullptr, Icon::Display);
-        if (BeginRows("##window_rows"))
-        {
-            const std::string mode_note = texts::T("settings.display.screen.mode.about") + switches(HotkeyFullscreen);
-            Row(texts::T("settings.display.screen.mode.name"), mode_note.c_str());
-            int mode = draft_.fullscreen ? 1 : 0;
-            if (Segmented("##mode", &mode,
-                          {texts::T("settings.display.screen.mode.windowed"),
-                           texts::T("settings.display.screen.mode.fullscreen")},
-                          ImGui::GetContentRegionAvail().x))
-            { draft_.fullscreen = mode == 1; dirty_ = true; }
-
-            // One resolution row: the window's size, or the screen's in fullscreen.
-            if (!draft_.fullscreen)
-            {
-                Row(texts::T("settings.display.screen.resolution.name"),
-                    draft_.remember_window ? texts::T("settings.display.screen.resolution.window_about_remembered")
-                                           : texts::T("settings.display.screen.resolution.window_about"));
-                WindowSizeControl();
-            }
-            else
-            {
-                Row(texts::T("settings.display.screen.resolution.name"),
-                    texts::T("settings.display.screen.resolution.screen_about"));
-                FullscreenResolutionControl();
-            }
-
-            if (displays_.size() > 1 || draft_.monitor > 0)
-            {
-                Row(texts::T("settings.display.screen.display.name"),
-                    texts::T("settings.display.screen.display.about"));
-                DisplayChoice();
-            }
-            EndRows();
-        }
-        EndCard();
-
-        BeginCard("##picture", texts::T("settings.display.picture.title"), nullptr, Icon::Sliders);
-        if (BeginRows("##picture_rows"))
-        {
-            const std::string aspect_note = texts::T("settings.display.picture.aspect_ratio.about")
-                + switches(HotkeyStretch);
-            Row(texts::T("settings.display.picture.aspect_ratio.name"), aspect_note.c_str());
-            const char* values[] = {"16:9", "4:3", "stretch"};
-            int aspect = -1;
-            for (int i = 0; i < 3; ++i) if (draft_.aspect == values[i]) aspect = i;
-            if (Segmented("##aspect", &aspect,
-                          {"16:9", "4:3", texts::T("settings.display.picture.aspect_ratio.stretch")},
-                          ImGui::GetContentRegionAvail().x))
-            { draft_.aspect = values[aspect]; dirty_ = true; }
-            AspectNote(aspect < 0);
-            if (draft_.aspect == "16:9")
-            {
-                Row(texts::T("settings.display.picture.wider_view.name"),
-                    texts::T("settings.display.picture.wider_view.about"));
-                if (Toggle("##wider_view", &draft_.wider_view)) dirty_ = true;
-            }
-
-            std::string resolution_note = texts::T("settings.display.picture.resolution.about");
-            const bool up = hotkeys[HotkeyResolutionUp].key, down = hotkeys[HotkeyResolutionDown].key;
-            if (up && down)
-                resolution_note += " " + texts::T("settings.display.picture.resolution.keys_change_it",
-                                                  {{"key", key(HotkeyResolutionUp)},
-                                                   {"other", key(HotkeyResolutionDown)}});
-            else if (up || down)
-                resolution_note += " " + texts::T("settings.display.picture.resolution.key_changes_it",
-                                                  {{"key", key(up ? HotkeyResolutionUp : HotkeyResolutionDown)}});
-            Row(texts::T("settings.display.picture.resolution.name"), resolution_note.c_str());
-            const char* resolutions[] = {"window", "native", "2x", "3x", "4x"};
-            int resolution = 0;
-            for (int i = 0; i < 5; ++i) if (draft_.resolution == resolutions[i]) resolution = i;
-            if (Segmented("##resolution", &resolution,
-                          {texts::T("settings.display.picture.resolution.full"),
-                           texts::T("settings.display.picture.resolution.native"), "2x", "3x", "4x"},
-                          ImGui::GetContentRegionAvail().x))
-            { draft_.resolution = resolutions[resolution]; dirty_ = true; }
-            ResolutionNote();
-
-            Row(texts::T("settings.display.picture.antialiasing.name"),
-                texts::T("settings.display.picture.antialiasing.about"));
-            AntialiasingKindChoice();
-
-            Row(texts::T("settings.display.picture.style.name"), texts::T("settings.display.picture.style.about"));
-            int style = draft_.picture == "soft" ? 1 : 0;
-            if (Segmented("##style", &style,
-                          {texts::T("settings.display.picture.style.modern"),
-                           texts::T("settings.display.picture.style.original_tv")},
-                          ImGui::GetContentRegionAvail().x))
-            {
-                if (style == 1 && draft_.picture != "soft") modern_picture_ = draft_.picture;
-                draft_.picture = style == 1 ? "soft" : modern_picture_;
-                dirty_ = true;
-            }
-            if (draft_.picture == "soft")
-            {
-                BeginSubRows();
-                Row(texts::T("settings.display.picture.tv_border.name"),
-                    texts::T("settings.display.picture.tv_border.about"));
-                if (Toggle("##tv_border", &draft_.tv_border)) dirty_ = true;
-                EndSubRows();
-            }
-            else if (draft_.resolution != "window")
-            {
-                BeginSubRows();
-                Row(texts::T("settings.display.picture.upscaling.name"),
-                    texts::T("settings.display.picture.upscaling.about"));
-                int sharp = draft_.picture == "clean" ? 0 : 1;
-                if (Segmented("##upscaling", &sharp,
-                              {texts::T("settings.display.picture.upscaling.smooth"),
-                               texts::T("settings.display.picture.upscaling.sharp")},
-                              ImGui::GetContentRegionAvail().x))
-                { draft_.picture = sharp ? "sharp" : "clean"; dirty_ = true; }
-                EndSubRows();
-            }
-            EndRows();
-        }
-        EndCard();
-
-        BeginCard("##motion", texts::T("settings.display.motion.title"), nullptr, Icon::Play);
-        if (BeginRows("##motion_rows"))
-        {
-            Row(texts::T("settings.display.motion.vsync.name"), texts::T("settings.display.motion.vsync.about"));
-            if (Toggle("##vsync", &draft_.vsync)) dirty_ = true;
-
-            Row(texts::T("settings.display.motion.frame_rate.name"),
-                texts::T("settings.display.motion.frame_rate.about"));
-            FrameRateChoice();
-
-            Row(texts::T("settings.display.motion.throttle.name"), texts::T("settings.display.motion.throttle.about"));
-            if (Toggle("##background_throttle", &draft_.background_throttle)) dirty_ = true;
-
-            Row(texts::T("settings.display.motion.background_frame_rate.name"),
-                texts::T("settings.display.motion.background_frame_rate.about"));
-            BackgroundFrameRateChoice();
-            EndRows();
-        }
-        EndCard();
-
-        BeginCard("##frame_rate", texts::T("settings.display.overlay.title"),
-                  texts::T("settings.display.overlay.about"), Icon::Info);
-        if (BeginRows("##frame_rate_rows"))
-        {
-            Row(texts::T("settings.display.overlay.on_screen.name"),
-                texts::T("settings.display.overlay.on_screen.about"));
-            if (Toggle("##fps_overlay", &draft_.fps_overlay)) dirty_ = true;
-
-            Row(texts::T("settings.display.overlay.corner.name"), texts::T("settings.display.overlay.corner.about"));
-            FpsCornerChoice();
-            EndRows();
-        }
-        EndCard();
-    }
-
-    // A display.resolution value as players read it, as RenderResolutionLabel
-    // gives it: Full, Native, 2x...
-    static std::string ResolutionName(std::string_view resolution)
-    {
-        if (resolution == "window") return texts::T("settings.display.picture.resolution.full");
-        if (resolution == "native") return texts::T("settings.display.picture.resolution.native");
-        return std::string(resolution);
-    }
-
     // Whether the game's picture fills its window or display: stretched, or
     // with the wider view.
     bool PictureFills() const
     {
         return draft_.aspect == "stretch" || (draft_.aspect == "16:9" && draft_.wider_view);
-    }
-
-    // The screen the game's picture fills: the display (fullscreen) or the
-    // window, in pixels of its shape; {} when unknown.
-    ShapeSize PictureScreen() const
-    {
-        if (!draft_.fullscreen) return {draft_.width, draft_.height};
-        if (const auto chosen = ParseResolution(draft_.fullscreen_resolution); chosen.width) return chosen;
-        const SDL_DisplayMode* mode = StartDisplayMode();
-        if (!mode || mode->w <= 0 || mode->h <= 0) return {};
-        const float density = mode->pixel_density > 0 ? mode->pixel_density : 1.0f;
-        return {int(std::lround(mode->w * density)), int(std::lround(mode->h * density))};
-    }
-
-    // What the aspect ratio does on the display the game opens on.
-    void AspectNote(bool unknown)
-    {
-        std::string note;
-        const auto screen = PictureScreen();
-        const bool wide = WidescreenLayout(draft_.aspect, screen.width, screen.height);
-        const int aw = wide ? 16 : 4, ah = wide ? 9 : 3;
-        const std::string shape = wide ? "16:9" : "4:3";
-        const std::string size = std::to_string(screen.width) + " x " + std::to_string(screen.height);
-        if (unknown)
-            note = draft_.aspect == "auto"
-                ? texts::T("settings.display.aspect_note.saved_auto", {{"shape", shape}})
-                : texts::T("settings.display.aspect_note.saved_unsupported", {{"value", draft_.aspect}});
-        else if (draft_.aspect == "stretch")
-        {
-            const int percent = StretchPercent(screen.width, screen.height, aw, ah);
-            const std::string amount = std::to_string(std::abs(percent));
-            if (!draft_.fullscreen)
-                note = texts::T("settings.display.aspect_note.stretch_window", {{"shape", shape}});
-            else if (screen.width <= 0)
-                note = texts::T("settings.display.aspect_note.stretch_display", {{"shape", shape}});
-            else if (std::abs(percent) < 1)
-                note = texts::T("settings.display.aspect_note.stretch_exactly", {{"shape", shape}, {"size", size}});
-            else if (percent > 0)
-                note = texts::T("settings.display.aspect_note.stretch_wider",
-                                {{"shape", shape}, {"size", size}, {"percent", amount}});
-            else
-                note = texts::T("settings.display.aspect_note.stretch_narrower",
-                                {{"shape", shape}, {"size", size}, {"percent", amount}});
-        }
-        else if (PictureFills() && !draft_.fullscreen)
-            note = texts::T("settings.display.aspect_note.wider_window");
-        else if (PictureFills())
-        {
-            const auto bars = BarsAround(screen.width, screen.height, aw, ah);
-            if (bars.size <= 1 || screen.width <= 0) note = texts::T("settings.display.aspect_note.fills_display");
-            else
-                note = bars.sides ? texts::T("settings.display.aspect_note.wider_sides", {{"size", size}})
-                                  : texts::T("settings.display.aspect_note.wider_above", {{"size", size}});
-        }
-        else if (!draft_.fullscreen)
-            note = texts::T("settings.display.aspect_note.window_keeps", {{"shape", shape}});
-        else if (screen.width > 0)
-        {
-            const auto bars = BarsAround(screen.width, screen.height, aw, ah);
-            if (bars.size <= 1) note = texts::T("settings.display.aspect_note.fills_exactly", {{"size", size}});
-            else
-                note = (bars.sides
-                            ? texts::Count("settings.display.aspect_note.bars_sides", bars.size, {{"size", size}})
-                            : texts::Count("settings.display.aspect_note.bars_above", bars.size, {{"size", size}}))
-                    + " "
-                    + (wide ? texts::T("settings.display.aspect_note.stretch_or_wider_fills")
-                            : texts::T("settings.display.aspect_note.stretch_fills"));
-        }
-        if (!note.empty())
-            TextWrappedColored(CurrentFonts().caption, unknown ? color::warning : color::muted, note.c_str());
-    }
-
-    // The 3D resolution's size where the game opens.
-    void ResolutionNote()
-    {
-        const auto screen = PictureScreen();
-        if (screen.width <= 0 || screen.height <= 0) return;
-        const bool wide = WidescreenLayout(draft_.aspect, screen.width, screen.height);
-        const auto picture = PictureSize(screen.width, screen.height, wide ? 16 : 4, wide ? 9 : 3, PictureFills());
-        const int width = RenderWidth(draft_.resolution, picture.width);
-        const int height = RenderHeight(draft_.resolution, picture.height);
-        const std::initializer_list<texts::Arg> args = {
-            {"name", ResolutionName(draft_.resolution)}, {"width", std::to_string(width)},
-            {"height", std::to_string(height)}};
-        // On this screen (fullscreen) or this window.
-        const bool fullscreen = draft_.fullscreen;
-        std::string note;
-        if (RenderScale(draft_.resolution) == 0.0f)
-            note = fullscreen ? texts::T("settings.display.resolution_note.on_screen", args)
-                              : texts::T("settings.display.resolution_note.on_window", args);
-        else
-        {
-            const long long pixels = 1LL * picture.width * picture.height, drawn = 1LL * width * height;
-            if (drawn < pixels * 9 / 10)
-                note = fullscreen ? texts::T("settings.display.resolution_note.fewer_screen", args)
-                                  : texts::T("settings.display.resolution_note.fewer_window", args);
-            else if (drawn > pixels * 11 / 10)
-                note = fullscreen ? texts::T("settings.display.resolution_note.more_screen", args)
-                                  : texts::T("settings.display.resolution_note.more_window", args);
-            else
-                note = fullscreen ? texts::T("settings.display.resolution_note.as_many_screen", args)
-                                  : texts::T("settings.display.resolution_note.as_many_window", args);
-        }
-        TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
-    }
-
-    // The desktop mode of the display the game opens on (display.monitor; the
-    // default display when none is chosen), or null.
-    const SDL_DisplayMode* StartDisplayMode() const
-    {
-        SDL_DisplayID display = SDL_GetPrimaryDisplay();
-        if (draft_.monitor > 0 && draft_.monitor <= int(display_ids_.size()))
-            display = display_ids_[std::size_t(draft_.monitor - 1)];
-        return display ? SDL_GetDesktopDisplayMode(display) : nullptr;
-    }
-
-    // The refresh rate of the display the game opens on (display.monitor), 0
-    // when unknown.
-    double StartDisplayRefresh() const
-    {
-        const SDL_DisplayMode* mode = StartDisplayMode();
-        if (!mode) return 0.0;
-        if (mode->refresh_rate_numerator > 0 && mode->refresh_rate_denominator > 0)
-            return double(mode->refresh_rate_numerator) / double(mode->refresh_rate_denominator);
-        return KnownRefreshRate(mode->refresh_rate) ? double(mode->refresh_rate) : 0.0;
     }
 
     static std::string FrameRateLabel(const std::string& value)
@@ -9355,50 +9129,6 @@ private:
         if (value == "display") return texts::T("settings.display.frame_rate_label.display");
         if (value == "unlimited") return texts::T("settings.display.frame_rate_label.unlimited");
         return texts::T("settings.display.frame_rate_label.fps", {{"rate", value}});
-    }
-
-    void FrameRateChoice()
-    {
-        static constexpr const char* values[] = {"original", "display", "30", "60", "120", "144", "unlimited"};
-        int selected = -1;
-        for (int i = 0; i < 7; ++i) if (draft_.frame_rate == values[i]) selected = i;
-        if (Segmented("##frame_rate", &selected,
-                      {texts::T("settings.display.motion.frame_rate.original"),
-                       texts::T("settings.display.motion.frame_rate.display"), "30", "60", "120", "144",
-                       texts::T("settings.display.motion.frame_rate.unlimited")},
-                      ImGui::GetContentRegionAvail().x))
-        { draft_.frame_rate = values[selected]; dirty_ = true; }
-        const auto rate = ParseFrameRate(draft_.frame_rate);
-        if (!rate) return;
-        std::string note;
-        if (selected < 0)
-            note = texts::T("settings.display.frame_rate_note.saved", {{"value", draft_.frame_rate}}) + " ";
-        if (rate->kind != FrameRate::Kind::Original)
-        {
-            const double display = StartDisplayRefresh();
-            const auto pacing = DecideFramePacing(*rate, display, draft_.vsync);
-            const auto hz = [](double value) { return std::to_string(int(std::lround(value))); };
-            if (pacing.vsync_paces && KnownRefreshRate(display))
-                note += texts::T("settings.display.frame_rate_note.vsync_holds", {{"hz", hz(display)}});
-            else if (KnownRefreshRate(display) && pacing.target_hz > display + 0.5)
-                note += texts::T("settings.display.frame_rate_note.cannot_show_all", {{"hz", hz(display)}});
-            else if (pacing.target_hz == 0.0)
-                note += texts::T("settings.display.frame_rate_note.no_limit");
-            else if (KnownRefreshRate(display))
-                note += texts::T("settings.display.frame_rate_note.refreshes", {{"hz", hz(display)}});
-        }
-        if (!note.empty()) TextWrappedColored(CurrentFonts().caption, color::muted, note.c_str());
-    }
-
-    void BackgroundFrameRateChoice()
-    {
-        int selected = -1;
-        for (int i = 0; i < int(std::size(kBackgroundFrameRates)); ++i)
-            if (draft_.background_frame_rate == kBackgroundFrameRates[i]) selected = i;
-        ImGui::BeginDisabled(!draft_.background_throttle);
-        if (Segmented("##background_frame_rate", &selected, {"15", "30", "60"}, ImGui::GetContentRegionAvail().x))
-        { draft_.background_frame_rate = kBackgroundFrameRates[selected]; dirty_ = true; }
-        ImGui::EndDisabled();
     }
 
     void AntialiasingKindChoice()
@@ -9451,27 +9181,6 @@ private:
         return std::string(text).append("###").append(id);
     }
 
-    void FpsCornerChoice()
-    {
-        const std::pair<const char*, const char*> corners[] = {
-            {"top-left", texts::T("settings.display.overlay.corner.top_left")},
-            {"top-right", texts::T("settings.display.overlay.corner.top_right")},
-            {"bottom-left", texts::T("settings.display.overlay.corner.bottom_left")},
-            {"bottom-right", texts::T("settings.display.overlay.corner.bottom_right")}};
-        const char* preview = corners[1].second;
-        for (const auto& [value, name] : corners)
-            if (draft_.fps_overlay_corner == value) preview = name;
-        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-        ImGui::BeginDisabled(!draft_.fps_overlay);
-        if (ImGui::BeginCombo("##fps_corner", preview))
-        {
-            for (const auto& [value, name] : corners)
-                if (ImGui::Selectable(StableLabel(name, value).c_str(), draft_.fps_overlay_corner == value))
-                { draft_.fps_overlay_corner = value; dirty_ = true; }
-            ImGui::EndCombo();
-        }
-        ImGui::EndDisabled();
-    }
 
     // Gamepad `slot`'s profile as a two-column table: pad control, then Wii input.
     void GamepadLayoutTooltip(std::size_t slot)
@@ -9857,52 +9566,6 @@ private:
         ImGui::EndDisabled();
     }
 
-    void AudioPage()
-    {
-        PageHeader(texts::T("settings.audio.title"), texts::T("settings.audio.about"));
-        BeginCard("##output", texts::T("settings.audio.output.title"), texts::T("settings.audio.output.about"),
-                  Icon::Audio);
-        if (BeginRows("##audio_rows"))
-        {
-            Row(texts::T("settings.audio.output.master_volume.name"),
-                texts::T("settings.audio.output.master_volume.about"));
-            ImGui::BeginDisabled(draft_.mute);
-            if (PercentSlider("##volume", &draft_.master_volume, ImGui::GetContentRegionAvail().x)) dirty_ = true;
-            ImGui::EndDisabled();
-            Row(texts::T("settings.audio.output.mute.name"), texts::T("settings.audio.output.mute.about"));
-            if (Toggle("##mute", &draft_.mute)) dirty_ = true;
-            EndRows();
-        }
-        EndCard();
-
-        // [audio] <group>_volume: applied by the game module when the game starts.
-        BeginCard("##sound_levels", texts::T("settings.audio.sound_levels.title"),
-                  texts::T("settings.audio.sound_levels.about"), Icon::Sliders);
-        if (BeginRows("##sound_level_rows"))
-        {
-            ImGui::BeginDisabled(draft_.mute);
-            for (std::size_t n = 0; n < kSoundGroups.size(); ++n)
-            {
-                Row(texts::SoundGroupName(kSoundGroups[n]), texts::SoundGroupAbout(kSoundGroups[n]));
-                ImGui::PushID(kSoundGroups[n].key);
-                if (PercentSlider("##level", &draft_.sound_volumes[n], ImGui::GetContentRegionAvail().x)) dirty_ = true;
-                ImGui::PopID();
-            }
-            ImGui::EndDisabled();
-            Row(texts::T("settings.audio.sound_levels.reset.name"),
-                texts::T("settings.audio.sound_levels.reset.about"));
-            const auto defaults = DefaultSoundVolumes();
-            if (SecondaryButton("sound_levels_reset", texts::T("settings.audio.sound_levels.reset.button"),
-                                {ImGui::GetContentRegionAvail().x, Dp(40)}, draft_.sound_volumes != defaults,
-                                Icon::Refresh))
-            {
-                draft_.sound_volumes = defaults;
-                dirty_ = true;
-            }
-            EndRows();
-        }
-        EndCard();
-    }
 
     // Keycaps side by side. `together`: the keys are pressed at once
     // ("Alt + Enter"), not alternatives.
@@ -10267,14 +9930,6 @@ private:
                                                 (note.empty() ? rule : note).c_str(), nullptr, width);
             ImGui::Dummy({width, block});
         }
-        // Single player on a Wii Remote or gamepad only.
-        if (players[0] != "keyboard" && players[1] == "off" && BeginRows("##mouse_rows"))
-        {
-            Row(texts::T("settings.controls.players.mouse_pointer.name"),
-                texts::T("settings.controls.players.mouse_pointer.about"));
-            if (Toggle("##mouse_pointer", &draft_.mouse_pointer)) dirty_ = true;
-            EndRows();
-        }
         BluetoothRows();
         if (status.no_permission && BeginRows("##wiimote_access_rows"))
         {
@@ -10290,85 +9945,6 @@ private:
             Row(texts::T("settings.controls.players.access.name"), texts::T("settings.controls.players.access.in_use"));
             ImGui::Dummy({0, 0});
 #endif
-            EndRows();
-        }
-        EndCard();
-    }
-
-    bool GamepadPlayer() const
-    {
-        return std::any_of(draft_.players.begin(), draft_.players.end(),
-                           [](const std::string& device) { return device.rfind("gamepad", 0) == 0; });
-    }
-
-    // The Wii's Sensor Bar and Wii Remote settings. Shown from the settings,
-    // not from what is connected right now: the card stays while remotes come
-    // and go, and while a setting differs from the Wii's default.
-    void WiiRemoteCard()
-    {
-        const Settings defaults;
-        if (!RemotePlayer() && draft_.sensor_bar == defaults.sensor_bar &&
-            draft_.ir_sensitivity == defaults.ir_sensitivity && draft_.speaker_volume == defaults.speaker_volume)
-            return;
-        BeginCard("##wii_remote", texts::T("settings.controls.wii_remote.title"),
-                  texts::T("settings.controls.wii_remote.about"), Icon::Target);
-        if (BeginRows("##wii_remote_rows"))
-        {
-            Row(texts::T("settings.controls.wii_remote.sensor_bar.name"),
-                texts::T("settings.controls.wii_remote.sensor_bar.about"));
-            int position = draft_.sensor_bar == "top" ? 0 : 1;
-            if (Segmented("##sensor_bar", &position,
-                          {texts::T("settings.controls.wii_remote.sensor_bar.above"),
-                           texts::T("settings.controls.wii_remote.sensor_bar.below")},
-                          ImGui::GetContentRegionAvail().x))
-            {
-                draft_.sensor_bar = position == 0 ? "top" : "bottom";
-                dirty_ = true;
-            }
-            Row(texts::T("settings.controls.wii_remote.sensitivity.name"),
-                texts::T("settings.controls.wii_remote.sensitivity.about"));
-            int level = std::clamp(draft_.ir_sensitivity, 1, 5) - 1;
-            if (Segmented("##ir_sensitivity", &level, {"1", "2", "3", "4", "5"}, ImGui::GetContentRegionAvail().x))
-            {
-                draft_.ir_sensitivity = level + 1;
-                dirty_ = true;
-            }
-            Row(texts::T("settings.controls.wii_remote.speaker.name"),
-                texts::T("settings.controls.wii_remote.speaker.about"));
-            if (PercentSlider("##speaker_volume", &draft_.speaker_volume, ImGui::GetContentRegionAvail().x,
-                              texts::T("settings.controls.wii_remote.speaker.off")))
-                dirty_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", texts::T("settings.controls.wii_remote.speaker.tooltip"));
-            EndRows();
-        }
-        EndCard();
-    }
-
-    // controls.rumble for every controller, controls.rumble_strength for
-    // gamepads (a Wii Remote's motor is on or off).
-    void RumbleCard()
-    {
-        const Settings defaults;
-        const bool controller = std::any_of(draft_.players.begin(), draft_.players.end(),
-            [](const std::string& device) { return device != "keyboard" && device != "off"; });
-        if (!controller && draft_.rumble == defaults.rumble && draft_.rumble_strength == defaults.rumble_strength)
-            return;
-        BeginCard("##rumble", texts::T("settings.controls.rumble.title"), nullptr, Icon::Gamepad);
-        if (BeginRows("##rumble_rows"))
-        {
-            Row(texts::T("settings.controls.rumble.rumble.name"), texts::T("settings.controls.rumble.rumble.about"));
-            if (Toggle("##rumble", &draft_.rumble)) dirty_ = true;
-            if (GamepadPlayer() || draft_.rumble_strength != defaults.rumble_strength)
-            {
-                Row(texts::T("settings.controls.rumble.strength.name"),
-                    texts::T("settings.controls.rumble.strength.about"));
-                ImGui::BeginDisabled(!draft_.rumble);
-                if (PercentSlider("##rumble_strength", &draft_.rumble_strength, ImGui::GetContentRegionAvail().x,
-                                  texts::T("settings.controls.rumble.strength.off")))
-                    dirty_ = true;
-                ImGui::EndDisabled();
-            }
             EndRows();
         }
         EndCard();
@@ -10533,7 +10109,8 @@ private:
     }
 
     // [hotkeys]: keys of the game window, whoever plays, each a key alone or
-    // with Ctrl, Shift or Alt. No HUD sits with its key.
+    // with Ctrl, Shift or Alt. Whether matches start with the HUD is the
+    // game's CONTROLS setting.
     void HotkeysCard()
     {
         BeginCard("##hotkeys", texts::T("settings.controls.hotkeys.title"), texts::T("settings.controls.hotkeys.about"),
@@ -10573,12 +10150,6 @@ private:
             hotkey(HotkeyPanel);
             hotkey(HotkeyOptions);
             hotkey(HotkeyHud);
-            const std::string note = hotkeys[HotkeyHud].key
-                ? texts::T("settings.controls.hotkeys.show_hud.about",
-                           {{"key", platform::HotkeyLabel(hotkeys[HotkeyHud])}})
-                : std::string(texts::T("settings.controls.hotkeys.show_hud.about_no_key"));
-            Row(texts::T("settings.controls.hotkeys.show_hud.name"), note.c_str());
-            if (Toggle("##show_hud", &draft_.show_hud)) dirty_ = true;
             EndRows();
         }
         if (SecondaryButton("##reset_hotkeys", texts::T("settings.controls.hotkeys.reset"), Dp(140, 36),
@@ -11657,8 +11228,6 @@ private:
     {
         PageHeader(texts::T("settings.controls.title"), texts::T("settings.controls.about"));
         PlayersCard();
-        WiiRemoteCard();
-        RumbleCard();
         HotkeysCard();
 
         BeginCard("##controller", texts::T("settings.controls.test.title"), texts::T("settings.controls.test.about"),
@@ -11895,60 +11464,18 @@ private:
         if (Toggle(id.c_str(), &draft_.tweaks[index])) dirty_ = true;
     }
 
-    void GameplayPage()
+    // What needs files, folders or the launcher: the Super Team (it reads a
+    // GameCube image), Training (it starts the game), texture packs and the
+    // development switch. The other gameplay options are the game's OPTIONS >
+    // GAMEPLAY.
+    void ExtrasPage()
     {
-        const ImVec2 header = ImGui::GetCursorScreenPos();
-        const float right = header.x + ImGui::GetContentRegionAvail().x;
-        PageHeader(texts::T("settings.gameplay.title"), texts::T("settings.gameplay.about"));
-        const ImVec2 content = ImGui::GetCursorScreenPos();
-        const auto& fonts = CurrentFonts();
-        const char* all_tweaks = texts::T("settings.gameplay.all_tweaks");
-        const ImVec2 label = TextSize(fonts.body, all_tweaks);
-        DrawLabel(ImGui::GetWindowDrawList(), fonts.body,
-                  {right - Dp(60) - label.x, header.y + (FontSize(fonts.title) - label.y) * 0.5f},
-                  Col(color::muted), all_tweaks);
-        ImGui::SetCursorScreenPos({right - Dp(48), header.y + (FontSize(fonts.title) - Dp(28)) * 0.5f});
-        bool all_enabled = std::all_of(draft_.tweaks.begin(), draft_.tweaks.end(), [](bool enabled) { return enabled; });
-        if (Toggle("##all_tweaks", &all_enabled))
-        {
-            draft_.tweaks.fill(all_enabled);
-            dirty_ = true;
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.gameplay.all_tweaks_tooltip"));
-        ImGui::SetCursorScreenPos(content);
+        PageHeader(texts::T("settings.extras.title"), texts::T("settings.extras.about"));
 
-        BeginCard("##menus", texts::T("settings.gameplay.menus.title"), nullptr, Icon::Play);
-        if (BeginRows("##menus_rows"))
+        BeginCard("##super_team", texts::T("settings.extras.super_team.title"), nullptr, Icon::Trophy);
+        if (BeginRows("##super_team_rows"))
         {
-            TweakRow(GameTweak::SkipIntro);
-            TweakRow(GameTweak::FastMenus);
-            TweakRow(GameTweak::OverrideRetailMenus);
-            EndRows();
-        }
-        EndCard();
-
-        BeginCard("##matches", texts::T("settings.gameplay.matches.title"), nullptr, Icon::Target);
-        if (BeginRows("##matches_rows"))
-        {
-            TweakRow(GameTweak::CpuVsCpu);
-            TweakRow(GameTweak::MirrorMatch);
-            TweakRow(GameTweak::BluePeach);
-            TweakRow(GameTweak::RobotGoalies);
             SuperTeamRows();
-            TweakRow(GameTweak::UnlockAll);
-            EndRows();
-        }
-        EndCard();
-
-        BeginCard("##competitive", texts::T("settings.gameplay.competitive.title"), nullptr, Icon::Trophy);
-        if (BeginRows("##competitive_rows"))
-        {
-            TweakRow(GameTweak::FastTerrain);
-            TweakRow(GameTweak::SecureStadiums);
-            TweakRow(GameTweak::ThunderIslandWalls);
-            TweakRow(GameTweak::FairBallContests);
-            TweakRow(GameTweak::NoMegaStrikes);
-            TweakRow(GameTweak::MatchPoint);
             EndRows();
         }
         EndCard();
@@ -11962,11 +11489,19 @@ private:
         EndCard();
 
         ModsCard();
+
+        BeginCard("##development", texts::T("settings.extras.development.title"), nullptr, Icon::Sliders);
+        if (BeginRows("##development_rows"))
+        {
+            TweakRow(GameTweak::OverrideRetailMenus);
+            EndRows();
+        }
+        EndCard();
     }
 
     // ------------------------------------------------------- texture packs
     // The packs in the texture packs folder, read in the background when the
-    // Gameplay page opens, the folder changes, a pack is added or Refresh is chosen.
+    // Extras page opens, the folder changes, a pack is added or Refresh is chosen.
     void PollTexturePacks()
     {
         if (texture_scanning_ && texture_scan_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
@@ -12025,7 +11560,7 @@ private:
         dirty_ = true;
     }
 
-    // A folder or .zip file dropped onto the Gameplay page: a pack is copied
+    // A folder or .zip file dropped onto the Extras page: a pack is copied
     // into the texture packs folder in the background. False when it is none.
     bool AddTexturePack(const fs::path& source)
     {
@@ -12469,9 +12004,6 @@ private:
                     { draft_.ui_scale = size.value; dirty_ = true; }
                 ImGui::EndCombo();
             }
-            Row(texts::T("settings.advanced.interface.reopen.name"),
-                texts::T("settings.advanced.interface.reopen.about"));
-            if (Toggle("##reopen_after_game", &draft_.reopen_after_game)) dirty_ = true;
             EndRows();
         }
         EndCard();
@@ -12490,8 +12022,11 @@ private:
         }
         EndCard();
 
-        BeginCard("##graphics", texts::T("settings.advanced.graphics.title"), nullptr, Icon::Display);
-        if (BeginRows("##graphics_rows"))
+        // What helps when the game does not start or runs badly; the other
+        // diagnostics are the game's OPTIONS > SETTINGS > ADVANCED.
+        BeginCard("##troubleshooting", texts::T("settings.advanced.troubleshooting.title"),
+                  texts::T("settings.advanced.troubleshooting.about"), Icon::Info);
+        if (BeginRows("##troubleshooting_rows"))
         {
 #if defined(_WIN32)
             // Automatic is its own choice: only it may switch to DirectX 12.
@@ -12520,17 +12055,17 @@ private:
 #if !defined(__APPLE__)
             GraphicsCardRow();
 #endif
-            EndRows();
-        }
-        EndCard();
-
-        BeginCard("##diagnostics", texts::T("settings.advanced.diagnostics.title"),
-                  texts::T("settings.advanced.diagnostics.about"), Icon::Info);
-        if (BeginRows("##diagnostic_rows"))
-        {
-            Row(texts::T("settings.advanced.diagnostics.performance_stats.name"),
-                texts::T("settings.advanced.diagnostics.performance_stats.about"));
-            if (Toggle("##frame_logging", &draft_.frame_logging)) dirty_ = true;
+            Row(texts::T("settings.advanced.diagnostics.log_detail.name"),
+                texts::T("settings.advanced.diagnostics.log_detail.about"));
+            int level = kDefaultLogLevel;
+            for (int i = 0; i < int(kLogLevels.size()); ++i) if (draft_.log_level == kLogLevels[std::size_t(i)].value) level = i;
+            if (Segmented("##log_level", &level,
+                          {texts::ChoiceLabel("log_levels", kLogLevels[0]),
+                           texts::ChoiceLabel("log_levels", kLogLevels[1]),
+                           texts::ChoiceLabel("log_levels", kLogLevels[2]),
+                           texts::ChoiceLabel("log_levels", kLogLevels[3])},
+                          ImGui::GetContentRegionAvail().x))
+            { draft_.log_level = kLogLevels[std::size_t(level)].value; dirty_ = true; }
 
             const auto recordings = base_ / "logs";
             const auto recordingsFolder = PathUtf8(recordings);
@@ -12557,32 +12092,6 @@ private:
                 }
                 catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
             }
-
-            Row(texts::T("settings.advanced.diagnostics.validation.name"),
-                texts::T("settings.advanced.diagnostics.validation.about"));
-            if (Toggle("##validation", &draft_.graphics_validation)) dirty_ = true;
-
-            Row(texts::T("settings.advanced.diagnostics.log_detail.name"),
-                texts::T("settings.advanced.diagnostics.log_detail.about"));
-            int level = kDefaultLogLevel;
-            for (int i = 0; i < int(kLogLevels.size()); ++i) if (draft_.log_level == kLogLevels[std::size_t(i)].value) level = i;
-            if (Segmented("##log_level", &level,
-                          {texts::ChoiceLabel("log_levels", kLogLevels[0]),
-                           texts::ChoiceLabel("log_levels", kLogLevels[1]),
-                           texts::ChoiceLabel("log_levels", kLogLevels[2]),
-                           texts::ChoiceLabel("log_levels", kLogLevels[3])},
-                          ImGui::GetContentRegionAvail().x))
-            { draft_.log_level = kLogLevels[std::size_t(level)].value; dirty_ = true; }
-
-            Row(texts::T("settings.advanced.diagnostics.verbose.name"),
-                texts::T("settings.advanced.diagnostics.verbose.about"));
-            if (Toggle("##verbose_console", &draft_.verbose_console)) dirty_ = true;
-#if defined(_WIN32) || defined(__APPLE__)
-            Row(texts::T("settings.advanced.diagnostics.log_window.name"),
-                texts::T("settings.advanced.diagnostics.log_window.about"));
-            if (Toggle("##log_window", &draft_.log_window)) dirty_ = true;
-#endif
-
             EndRows();
         }
         EndCard();
@@ -13164,8 +12673,6 @@ private:
     bool keyboard_view_ = false;
     int capture_action_ = -1, capture_slot_ = -1;
     int hotkey_capture_ = -1; // Hotkeys card: the HotkeyIndex waiting for a key
-    // Display page: the Modern picture (clean or sharp) to return to from Original TV.
-    std::string modern_picture_ = "sharp";
     // Gamepad profiles view: the profile being edited, its rename field and
     // the input waiting for a gamepad press.
     bool gamepad_view_ = false;
@@ -13197,7 +12704,7 @@ private:
     bool dirty_ = false;
     bool play_prompt_ = false;
     float profile_actions_ = 0.0f; // Player profile: where the rows' actions start, from the value
-    // Start training: asked on the Gameplay page, and the start it makes.
+    // Start training: asked on the Extras page, and the start it makes.
     bool training_requested_ = false;
     // A set's go seen: start its game (once per set and launcher).
     bool competitive_go_ = false;
@@ -13374,6 +12881,10 @@ private:
     // The WFC server's count of players online (top bar of the Play page).
     std::unique_ptr<PlayersOnline> players_online_;
     std::optional<PlayersOnline::Count> online_count_;
+    // The server's message for the Play page, and its Markdown's blocks.
+    std::unique_ptr<ServerMessageFetch> server_message_fetch_;
+    std::optional<ServerMessage> server_message_;
+    std::vector<NoteBlock> server_message_blocks_;
     // Update check and installation (#50).
     std::unique_ptr<UpdateService> updates_;
     // Competitive play: the service, what it showed last, the sign-in page
@@ -13475,7 +12986,7 @@ int main(int argc, char** argv)
                          "--non-interactive makes that run a startup diagnostic: it ends once its first frame is captured,\n"
                          "or fails after 90 s.\n"
                          "Use --launcher to open settings; launcher checks and explicit runtime modes keep their selected mode.\n"
-                         "Development checks: --smoke-test | --screenshot FILE [--page play|game|display|audio|controls|advanced|about]\n";
+                         "Development checks: --smoke-test | --screenshot FILE [--page play|game|controls|extras|advanced|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
             std::cout << "Original startup prototype: --experimental-startup [--config FILE] (not playable)\n";
 #endif
@@ -13591,8 +13102,11 @@ int main(int argc, char** argv)
             else
             {
                 const auto it = std::find(std::begin(page_ids), std::end(page_ids), value);
-                if (it == std::end(page_ids)) { std::cerr << "Unknown launcher page: " << value << '\n'; return 2; }
-                options.page = int(it - std::begin(page_ids));
+                const auto old = std::find_if(std::begin(kOldPageIds), std::end(kOldPageIds),
+                                              [&](const auto& page) { return value == page.first; });
+                if (it == std::end(page_ids) && old == std::end(kOldPageIds))
+                { std::cerr << "Unknown launcher page: " << value << '\n'; return 2; }
+                options.page = it != std::end(page_ids) ? int(it - std::begin(page_ids)) : old->second;
                 options.page_selected = true;
             }
         }

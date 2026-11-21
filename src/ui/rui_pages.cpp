@@ -1,6 +1,7 @@
 #include "ui/rui_pages.h"
 
 #include "bootstrap/advanced_choices.h"
+#include "bootstrap/frame_rate.h"
 #include "bootstrap/game_tweaks.h"
 #include "bootstrap/sound_groups.h"
 #include "bootstrap/table_texts.h"
@@ -33,6 +34,23 @@ std::optional<int> VolumeBars(List& list, const char* label, int value, const ch
 {
     const std::string text = Percent(value);
     return list.Bars(label, value, 0, 100, 5, 20, text.c_str(), about);
+}
+
+// A choice of a list, stepped through by name (for lists too long for a row
+// of buttons); a list of one is shown as a fact.
+void CycleSetting(List& list, PageActions& actions, const char* label, const std::vector<std::string>& names,
+                  int chosen, const char* about, overlay::GameSetting setting)
+{
+    if (names.empty()) return;
+    const int count = int(names.size());
+    chosen = std::clamp(chosen, 0, count - 1);
+    if (count == 1)
+    {
+        list.Row(label, names.front().c_str(), about);
+        return;
+    }
+    if (const auto step = list.Cycle(label, names[std::size_t(chosen)].c_str(), about))
+        actions.setting = overlay::GameSettingChange{setting, (chosen + *step + count) % count};
 }
 
 void DrawMenu(List& list, PageActions& actions)
@@ -106,28 +124,119 @@ void DrawDisplay(const PageModel& model, List& list, PageActions& actions)
         if (const auto picked = list.Choice(T("menus.display.resolution"), settings.resolutions, settings.resolution,
                                             settings.resolution_about.c_str()))
             actions.setting = GameSettingChange{GameSetting::Resolution, *picked};
+    if (const auto tv = list.Switch(T("menus.display.style"), settings.picture_style == 1,
+                                    T("menus.display.style_about"), T("menus.display.modern"),
+                                    T("menus.display.original_tv")))
+        actions.setting = GameSettingChange{GameSetting::PictureStyle, *tv ? 1 : 0};
+    if (settings.picture_style == 1)
+        SettingSwitch(list, actions, T("menus.display.tv_border"), settings.tv_border, GameSetting::TvBorder,
+                      T("menus.display.tv_border_about"));
+    else if (settings.upscaling_shown)
+        if (const auto sharp = list.Switch(T("menus.display.upscaling"), settings.sharp,
+                                           T("menus.display.upscaling_about"), T("menus.display.smooth"),
+                                           T("menus.display.sharp")))
+            actions.setting = GameSettingChange{GameSetting::Upscaling, *sharp ? 1 : 0};
+    SettingSwitch(list, actions, T("menus.display.performance_mode"), settings.performance_mode,
+                  GameSetting::PerformanceMode, T("menus.display.performance_mode_about"));
+
+    list.Caption(T("menus.display.motion"));
+    SettingSwitch(list, actions, T("menus.display.vsync"), settings.vsync, GameSetting::VSync,
+                  T("menus.display.vsync_about"));
+    {
+        // A rate of recharged.ini the page does not offer is shown as it is
+        // until another is chosen.
+        std::vector<std::string> rates = settings.frame_rates;
+        int chosen = settings.frame_rate;
+        if (chosen < 0)
+        {
+            rates.push_back(settings.frame_rate_other);
+            chosen = int(rates.size()) - 1;
+        }
+        const int count = int(rates.size());
+        if (count > 0)
+            if (const auto step = list.Cycle(T("menus.display.frame_rate"), rates[std::size_t(chosen)].c_str(),
+                                             T("menus.display.frame_rate_about")))
+            {
+                const int offered = int(settings.frame_rates.size());
+                const int next = (chosen + *step + count) % count;
+                if (next < offered) actions.setting = GameSettingChange{GameSetting::FrameRate, next};
+                else if (offered > 0)
+                    actions.setting = GameSettingChange{GameSetting::FrameRate, *step > 0 ? 0 : offered - 1};
+            }
+    }
+    {
+        std::vector<std::string> rates{T("menus.display.background_off")};
+        for (const int rate : kBackgroundFrameRates) rates.push_back(std::to_string(rate));
+        if (const auto picked = list.Choice(T("menus.display.background"), rates, settings.background_rate,
+                                            T("menus.display.background_about")))
+            actions.setting = GameSettingChange{GameSetting::BackgroundRate, *picked};
+    }
+
+    list.Caption(T("menus.display.performance"));
     SettingSwitch(list, actions, T("menus.display.performance_numbers"), settings.performance_numbers,
                   GameSetting::PerformanceNumbers, T("menus.display.performance_numbers_about"));
+    if (settings.performance_numbers)
+    {
+        std::vector<std::string> corners{T("menus.display.top_left"), T("menus.display.top_right"),
+                                         T("menus.display.bottom_left"), T("menus.display.bottom_right")};
+        CycleSetting(list, actions, T("menus.display.corner"), corners, settings.performance_corner, nullptr,
+                     GameSetting::PerformanceCorner);
+    }
+}
+
+void DrawControls(const PageModel& model, List& list, PageActions& actions)
+{
+    using overlay::GameSetting;
+    using overlay::GameSettingChange;
+    const auto& settings = model.overlay.settings;
+    list.Caption(T("menus.controls.rumble_caption"));
+    SettingSwitch(list, actions, T("menus.controls.rumble"), settings.rumble, GameSetting::Rumble,
+                  T("menus.controls.rumble_about"));
+    if (settings.rumble)
+        if (const auto strength = VolumeBars(list, T("menus.controls.rumble_strength"), settings.rumble_strength,
+                                             T("menus.controls.rumble_strength_about")))
+            actions.setting = GameSettingChange{GameSetting::RumbleStrength, *strength};
+
+    list.Caption(T("menus.controls.play_caption"));
+    SettingSwitch(list, actions, T("menus.controls.show_hud"), settings.show_hud, GameSetting::ShowHud,
+                  T("menus.controls.show_hud_about"));
+    SettingSwitch(list, actions, T("menus.controls.mouse_pointer"), settings.mouse_pointer,
+                  GameSetting::MousePointer, T("menus.controls.mouse_pointer_about"));
+
+    list.Caption(T("menus.controls.wii_remote_caption"));
+    if (const auto top = list.Switch(T("menus.controls.sensor_bar"), settings.sensor_bar_top,
+                                     T("menus.controls.sensor_bar_about"), T("menus.controls.below"),
+                                     T("menus.controls.above")))
+        actions.setting = GameSettingChange{GameSetting::SensorBar, *top ? 1 : 0};
+    {
+        static const std::vector<std::string> kLevels{"1", "2", "3", "4", "5"};
+        if (const auto level = list.Choice(T("menus.controls.ir_sensitivity"), kLevels,
+                                           std::clamp(settings.ir_sensitivity, 1, 5) - 1,
+                                           T("menus.controls.ir_sensitivity_about")))
+            actions.setting = GameSettingChange{GameSetting::IrSensitivity, *level + 1};
+    }
+    {
+        const std::string text = settings.speaker_volume ? Percent(settings.speaker_volume)
+                                                         : std::string(T("menus.controls.speaker_off"));
+        if (const auto volume = list.Bars(T("menus.controls.speaker"), settings.speaker_volume, 0, 100, 10, 10,
+                                          text.c_str(), T("menus.controls.speaker_about")))
+            actions.setting = GameSettingChange{GameSetting::SpeakerVolume, *volume};
+    }
+    list.Note(T("menus.controls.launcher_note"));
 }
 
 void DrawAdvanced(const PageModel& model, List& list, PageActions& actions)
 {
     using overlay::GameSetting;
     const auto& settings = model.overlay.settings;
-    // A choice of a list, stepped through by name.
     const auto cycle = [&](const char* label, const std::vector<std::string>& names, int chosen, const char* about,
-                           GameSetting setting) {
-        if (names.empty()) return;
-        const int count = int(names.size());
-        chosen = std::clamp(chosen, 0, count - 1);
-        if (count == 1)
-        {
-            list.Row(label, names.front().c_str(), about);
-            return;
-        }
-        if (const auto step = list.Cycle(label, names[std::size_t(chosen)].c_str(), about))
-            actions.setting = overlay::GameSettingChange{setting, (chosen + *step + count) % count};
-    };
+                           GameSetting setting) { CycleSetting(list, actions, label, names, chosen, about, setting); };
+    if (settings.discord_available)
+    {
+        list.Caption(T("menus.advanced.discord"));
+        SettingSwitch(list, actions, T("menus.advanced.discord_status"), settings.discord_status,
+                      GameSetting::DiscordStatus, T("menus.advanced.discord_status_about"));
+    }
     list.Caption(T("menus.advanced.launcher"));
     if (settings.reopen_known)
         SettingSwitch(list, actions, T("menus.advanced.reopen_launcher"), settings.reopen_launcher,
@@ -184,6 +293,9 @@ void DrawSound(const PageModel& model, List& list, PageActions& actions)
         if (const auto volume = VolumeBars(list, texts::SoundGroupName(kSoundGroups[n]), settings.sound_volumes[n],
                                            texts::SoundGroupAbout(kSoundGroups[n])))
             actions.setting = GameSettingChange{GameSetting::SoundVolume, *volume, int(n)};
+    if (settings.sound_volumes != DefaultSoundVolumes()
+        && list.Plate(T("menus.sound.reset_levels"), T("menus.sound.reset_levels_about")))
+        actions.setting = GameSettingChange{GameSetting::ResetSoundLevels};
     if (model.game.known && !model.network_match)
     {
         list.Caption(T("menus.sound.game_levels"));
@@ -805,7 +917,8 @@ std::vector<std::string> PageCategories(PageId id)
         return names;
     }
     case PageId::Settings:
-        return {T("menus.settings.display"), T("menus.settings.sound"), T("menus.settings.advanced")};
+        return {T("menus.settings.display"), T("menus.settings.sound"), T("menus.settings.controls"),
+                T("menus.settings.advanced")};
     case PageId::Leaderboard: return {T("menus.leaderboard.season"), T("menus.leaderboard.today")};
     default: return {};
     }
@@ -841,6 +954,7 @@ void DrawPage(PageId id, int category, const std::string& key, const PageModel& 
     case PageId::Gameplay: DrawGameplay(category, model, list, actions); break;
     case PageId::Settings:
         if (category == kSettingsSound) DrawSound(model, list, actions);
+        else if (category == kSettingsControls) DrawControls(model, list, actions);
         else if (category == kSettingsAdvanced) DrawAdvanced(model, list, actions);
         else DrawDisplay(model, list, actions);
         break;

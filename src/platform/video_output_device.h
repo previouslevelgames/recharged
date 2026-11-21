@@ -19,4 +19,7 @@ enum class NativeDesktopPicture : std::uint8_t { Signal, Clean, Sharp };
 void ConfigureNativeVideoOutputHardware(const NativeSystemSettings& settings,
     NativeDesktopPicture picture = NativeDesktopPicture::Signal, bool fxaa = false, bool tv_frame = false,
     bool stretch = false);
+// display.picture and display.tv_border changed while the game runs (owner
+// thread, after configuration): from the next presented frame.
+void SetNativeVideoOutputPicture(NativeDesktopPicture picture, bool tv_frame);
 }

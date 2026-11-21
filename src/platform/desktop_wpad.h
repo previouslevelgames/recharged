@@ -90,4 +90,7 @@ int DesktopKeyboardWpadChannel();
 // Whether the mouse points in the game: for the keyboard & mouse player, or
 // (controls.mouse_pointer) for a controller playing alone as player 1.
 bool DesktopMousePoints();
+// controls.rumble_strength changed while the game runs (owner thread): the
+// gamepads' next rumble runs at `percent`.
+void SetDesktopRumbleStrength(int percent);
 } // namespace mscharged::platform

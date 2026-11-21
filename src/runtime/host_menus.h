@@ -199,6 +199,7 @@ private:
     std::optional<unsigned> taken_; // the module's count of taken presses, once known
     int channel_ = -1;
     bool pausePress_ = false;
+    bool capturePageShown_ = false; // RECHARGED_CAPTURE_PAGE opened its page
     // The player forfeited the online match: on the way out (the game leaves
     // it once the host has told the server).
     bool forfeitAsked_ = false;

@@ -9,6 +9,8 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <string_view>
+#include <cstdlib>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -212,6 +214,20 @@ void HostMenus::MenuKey(MenuInput::MenuKey key, int channel)
     if (key == MenuInput::MenuKey::Options) {
         Push(ui::PageId::Options);
         Push(ui::PageId::Gameplay);
+    }
+    // Development captures: RECHARGED_CAPTURE_PAGE=settings:N or gameplay:N
+    // opens that category of the page under the menu the first time it opens
+    // (with RECHARGED_CAPTURE_PANEL, without any key).
+    else if (const char* page = std::getenv("RECHARGED_CAPTURE_PAGE"); page && *page && !capturePageShown_) {
+        capturePageShown_ = true;
+        const std::string_view text(page);
+        const auto colon = text.find(':');
+        const int category = colon == std::string_view::npos ? 0 : std::atoi(page + colon + 1);
+        const auto name = text.substr(0, colon);
+        if (name == "settings" || name == "gameplay") {
+            Push(ui::PageId::Options);
+            Push(name == "settings" ? ui::PageId::Settings : ui::PageId::Gameplay, category);
+        }
     }
     // Over a match in play the game pauses (not a network match: it can't).
     pausePress_ = !menu_.network_match;
