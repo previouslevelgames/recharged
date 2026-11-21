@@ -388,7 +388,9 @@ void Unwind(CONTEXT& context)
 void WriteStack(CONTEXT context)
 {
     CrashWrite("Call stack:\n");
-    for (int frame = 0; frame < 64 && context.Rip; ++frame)
+    // A call to address 0 still has its return address on the stack: the
+    // first frame unwinds like a leaf function.
+    for (int frame = 0; frame < 64 && (frame == 0 || context.Rip); ++frame)
     {
         char where[MAX_PATH + 32], line[MAX_PATH + 64];
         Location(context.Rip, where, sizeof where);
