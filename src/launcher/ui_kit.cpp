@@ -181,55 +181,16 @@ void DrawIcon(ImDrawList* draw, Icon icon, ImVec2 c, float s, ImU32 color)
     }
     case Icon::Target:
     {
-        // Align the circular elements with ImGui's line rasterization.
-        const ImVec2 center{c.x + 0.5f, c.y + 0.5f};
-
-        // Outer ring.
-        draw->AddCircle(
-            center,
-            0.30f * s,
-            color,
-            0,
-            t
-        );
-
-        // Top and bottom markers.
-        draw->AddLine(
-            p(0.0f, -0.50f),
-            p(0.0f, -0.36f),
-            color,
-            t
-        );
-
-        draw->AddLine(
-            p(0.0f, 0.36f),
-            p(0.0f, 0.50f),
-            color,
-            t
-        );
-
-        // Left and right markers.
-        draw->AddLine(
-            p(-0.50f, 0.0f),
-            p(-0.36f, 0.0f),
-            color,
-            t
-        );
-
-        draw->AddLine(
-            p(0.36f, 0.0f),
-            p(0.50f, 0.0f),
-            color,
-            t
-        );
-
-        // Center point.
-        draw->AddCircleFilled(
-            center,
-            0.07f * s,
-            color
-        );
-
+        // Ring, the four markers and the dot around one centre on a pixel's
+        // middle, so that the small icon stays sharp.
+        const ImVec2 m{std::floor(c.x) + 0.5f, std::floor(c.y) + 0.5f};
+        const auto q = [&](float x, float y) { return ImVec2{m.x + x * s, m.y + y * s}; };
+        draw->AddCircle(m, 0.30f * s, color, 0, t);
+        draw->AddLine(q(0.0f, -0.52f), q(0.0f, -0.36f), color, t);
+        draw->AddLine(q(0.0f, 0.36f), q(0.0f, 0.52f), color, t);
+        draw->AddLine(q(-0.52f, 0.0f), q(-0.36f, 0.0f), color, t);
+        draw->AddLine(q(0.36f, 0.0f), q(0.52f, 0.0f), color, t);
+        draw->AddCircleFilled(m, std::max(1.2f, 0.08f * s), color);
         break;
     }
     case Icon::Play:

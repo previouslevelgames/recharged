@@ -69,8 +69,8 @@ MACOS_START_SCRIPT = b"""#!/bin/sh
 exec "$(dirname "$0")/Recharged.app/Contents/MacOS/recharged" "$@"
 """
 PUBLIC_FILES = ("README.md", "LICENSE", "recharged.ini.example", "docs/INSTALL.md", "docs/STEAM_DECK.md",
-                "docs/SWITCH.md", "docs/FEATURES.md", "docs/SETTINGS.md", "docs/TROUBLESHOOTING.md", "docs/ARCHITECTURE.md",
-                "docs/BUILDING.md", "docs/COMPETITIVE.md", "LICENSES/README.md", "LICENSES/Apache-2.0.txt",
+                "docs/SWITCH.md", "docs/FEATURES.md", "docs/SETTINGS.md", "docs/REPLAYS.md", "docs/TROUBLESHOOTING.md",
+                "docs/ARCHITECTURE.md", "docs/BUILDING.md", "docs/COMPETITIVE.md", "LICENSES/README.md", "LICENSES/Apache-2.0.txt",
                 "extern/README.md")
 # Ubuntu 24.04, the oldest system a Linux package supports: glibc 2.39 and the
 # GCC 14 runtime (libstdc++6 14). SteamOS 3.7 (Steam Deck): glibc 2.40 and the

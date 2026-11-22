@@ -6,12 +6,6 @@
         "not_connected": "Display {{number}} (not connected)"
       }
     },
-    "frame_rate_label": {
-      "original": "original frame rate",
-      "display": "display refresh rate",
-      "unlimited": "unlimited FPS",
-      "fps": "{{rate}} FPS"
-    },
     "antialiasing": {
       "off": {
         "name": "Off",
@@ -349,33 +343,27 @@
   },
   "extras": {
     "title": "Extras",
-    "about": "What needs files or the launcher. The other gameplay options are in the game's OPTIONS > GAMEPLAY.",
-    "super_team": {
-      "title": "Super Team"
+    "about": "What needs files or the launcher. The other gameplay options are in the game's OPTIONS > GAMEPLAY."
+  },
+  "replays": {
+    "title": "Replays",
+    "about": "Watch an offline match again. During a replay, Right plays it faster, Left slower or paused.",
+    "record": {
+      "name": "Keep replays",
+      "about": "Each offline match is saved as a replay when it ends."
     },
-    "development": {
-      "title": "Development"
-    }
+    "score": "{{home}} {{home_score}} - {{away_score}} {{away}}",
+    "training": "Training",
+    "unreadable": "Cannot be read",
+    "watch": "Watch this replay",
+    "open_folder": "Open folder",
+    "count_one": "{{count}} replay",
+    "count_other": "{{count}} replays",
+    "none": "No replays yet: one is kept after each offline match."
   },
   "gameplay": {
     "super_team": {
-      "side": {
-        "name": "Side",
-        "about": "The team whose captain and sidekicks are robots.",
-        "away": "Away team",
-        "home": "Home team",
-        "both": "Both teams"
-      },
-      "disc": {
-        "name": "GameCube disc",
-        "none_found": "None found in your game folder. Choose your Super Mario Strikers image.",
-        "choose": "Choose image..."
-      },
-      "disc_images": "GameCube disc images (ISO / RVZ / GCM)",
-      "all_files": "All files",
-      "uses_found": "The Super Team uses {{file}} from your game folder.",
-      "uses": "The Super Team uses {{file}}.",
-      "not_strikers": "{{file}} is not a Super Mario Strikers (GameCube) image."
+      "uses_found": "The Super Team uses {{file}} from your game folder."
     },
     "training": {
       "title": "Training",
@@ -469,13 +457,7 @@
         "show_in_folder": "Show in folder"
       },
       "order_note": "Drag a pack to change the order: where two packs replace the same texture, the higher one wins.",
-      "dump": {
-        "name": "Dump textures",
-        "about": "For pack makers: each texture no pack replaces is saved to data/texture_dumps, named as texture packs need it. Takes disk space and can make the game stutter.",
-        "open": "Open",
-        "not_made": "Made when the game first dumps a texture."
-      },
-      "bug_report_note": "Tweaks and texture packs apply when the game starts. For a bug report, try again with the tweaks off (or start the game with --no-tweaks) and without texture packs to check whether one of them is involved.",
+      "bug_report_note": "For a bug report, try again without texture packs to check whether one of them is involved.",
       "pack_added": "{{pack}} was added to your texture packs.",
       "already_in_folder": "{{pack}} is already in your texture packs folder.",
       "wait_for_copy": "Wait until {{pack}} is added.",
@@ -486,9 +468,16 @@
   },
   "advanced": {
     "title": "Advanced",
-    "about": "Troubleshooting and development options. The defaults suit most players.",
+    "about": "The launcher, its updates and Recharged's files. Options for testing and development are only in the settings file.",
     "interface": {
       "title": "Interface",
+      "menu_language": {
+        "name": "Menu language",
+        "about": "Recharged's own menus and messages; the game's texts follow its text language.",
+        "automatic": "Automatic",
+        "automatic_is": "Automatic: {{language}}.",
+        "missing": "The saved menu language ({{language}}) is not in assets/lang; the menus are in English. Choose one above."
+      },
       "launcher_size": {
         "name": "Launcher size",
         "about": "Scales this launcher. Automatic follows your display's scaling setting."
@@ -500,45 +489,11 @@
       "status": "Status",
       "check_now": "Check now"
     },
-    "troubleshooting": {
-      "title": "Troubleshooting",
-      "about": "For a game that does not start or runs badly. The other diagnostics are in the game's OPTIONS > SETTINGS > ADVANCED."
-    },
-    "graphics": {
-      "api": {
-        "name": "Graphics API",
-        "about": "Used the next time you start the game.",
-        "about_windows": "Automatic uses Vulkan, or DirectX 12 when Vulkan cannot start. Used the next time you start the game.",
-        "automatic": "Automatic",
-        "choose": "Choose a graphics API"
-      }
-    },
-    "diagnostics": {
-      "recordings": "Logs",
-      "open_folder": "Open folder",
-      "shader_cache": {
-        "name": "Shader cache",
-        "about": "Clears compiled shaders for all graphics APIs. The next launch prepares them again.",
-        "clear": "Clear shader cache",
-        "cleared": "Shader cache cleared. Graphics will be prepared again on the next launch.",
-        "empty": "The shader cache is already empty."
-      },
-      "log_detail": {
-        "name": "Log detail",
-        "about": "Which messages reach the console: errors, warnings, info or debug."
-      }
-    },
-    "configuration": {
-      "title": "Configuration",
+    "files": {
+      "title": "Files",
       "settings_file": "Settings file",
-      "open_folder": "Open folder",
-      "command": {
-        "name": "Launch command",
-        "about": "Copies a command line that starts the game with these settings.",
-        "copy": "Copy command",
-        "copied": "Launch command copied to the clipboard.",
-        "cannot_copy": "Cannot copy: {{error}}"
-      }
+      "logs": "Logs",
+      "open_folder": "Open folder"
     },
     "reset": {
       "title": "Reset",

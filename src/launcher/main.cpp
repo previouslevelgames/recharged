@@ -26,7 +26,7 @@
 #include "launcher/player_lineup.h"
 #include "launcher/players_online.h"
 #include "launcher/release_banner.h"
-#include "launcher/release_notes.h"
+#include "launcher/release_notes_view.h"
 #include "launcher/server_message.h"
 #include "launcher/fallback_fonts.h"
 #include "launcher/ui_kit.h"
@@ -43,6 +43,7 @@
 #include "platform/window_fit.h"
 #include "platform/disc.h"
 #include "platform/game_release.h"
+#include "platform/match_replay_file.h"
 #include "platform/pc_languages.h"
 #include "platform/console_verbosity.h"
 #include "platform/log_window.h"
@@ -137,13 +138,6 @@ void SetEnvironment(const char* name, const std::string& value)
     setenv(name, value.c_str(), 1);
 #endif
 }
-
-// The program, as tools/package_build.py ships it.
-#ifdef _WIN32
-constexpr const char* kExecutableName = "recharged.exe";
-#else
-constexpr const char* kExecutableName = "recharged";
-#endif
 
 // Seconds since 1970 as local date and time.
 std::string LocalTime(std::int64_t seconds)
@@ -467,15 +461,15 @@ void DrawMiiFace(ImDrawList* draw, ImVec2 center, float size, unsigned seed, flo
 // The leaderboards and events are the Recharged Game Menu's (its Ranked and
 // Events tabs); the settings that change while the game runs (the display
 // and sound, the gameplay options, the rumble...) are its OPTIONS.
-enum Page { PagePlay, PageGame, PageOnlineSettings, PageRules, PageSidekicks,
-            PageControls, PageExtras, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_ids[] = {"play",     "game",   "online-settings", "rules", "sidekicks",
-                                    "controls", "extras", "advanced",        "about"};
-constexpr Icon page_icons[] = {Icon::Play,     Icon::Disc,   Icon::Person,  Icon::Clipboard, Icon::Pitch,
-                               Icon::Keyboard, Icon::Target, Icon::Sliders, Icon::Info};
+enum Page { PagePlay, PageOnlineSettings, PageRules, PageSidekicks, PageGraphics,
+            PageControls, PageGame, PageExtras, PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_ids[] = {"play",     "online-settings", "rules",  "sidekicks", "graphics",
+                                    "controls", "game",            "extras", "advanced",  "about"};
+constexpr Icon page_icons[] = {Icon::Play,     Icon::Person, Icon::Clipboard, Icon::Pitch,   Icon::Display,
+                               Icon::Keyboard, Icon::Disc,   Icon::Target,    Icon::Sliders, Icon::Info};
 static_assert(std::size(page_ids) == PageCount && std::size(page_icons) == PageCount);
 // --page's names of the pages that were merged into others.
-constexpr std::pair<const char*, int> kOldPageIds[] = {{"display", PageGame}, {"audio", PageGame},
+constexpr std::pair<const char*, int> kOldPageIds[] = {{"display", PageGraphics}, {"audio", PageGame},
                                                        {"gameplay", PageExtras}};
 
 // A page's name in the sidebar.
@@ -484,6 +478,7 @@ const char* PageName(int page)
     switch (page)
     {
     case PagePlay: return texts::T("launcher.pages.play");
+    case PageGraphics: return texts::T("launcher.pages.graphics");
     case PageGame: return texts::T("launcher.pages.game");
     case PageOnlineSettings: return texts::T("launcher.pages.player_profile");
     case PageRules: return texts::T("launcher.pages.match_rules");
@@ -527,7 +522,8 @@ constexpr int NavGroupMostPages()
     return most;
 }
 static_assert(NavGroupOf(PageOnlineSettings) == 0 && NavGroupOf(PageRules) == 0 && NavGroupOf(PageSidekicks) == 0
-              && NavGroupOf(PageExtras) == -1 && NavGroupOf(PageControls) == -1 && NavGroupOf(PageAdvanced) == -1);
+              && NavGroupOf(PageGraphics) == -1 && NavGroupOf(PageGame) == -1 && NavGroupOf(PageExtras) == -1
+              && NavGroupOf(PageControls) == -1 && NavGroupOf(PageAdvanced) == -1);
 constexpr bool OnlinePage(int page) { return NavGroupOf(page) == 0; }
 
 // The captains (eTeamID order) and the sidekicks (eSidekickID order), as the
@@ -794,13 +790,6 @@ std::string FileUrl(const fs::path& path)
     return url;
 }
 
-std::string Quote(const std::string& text)
-{
-    std::string quoted = "\"";
-    for (const char c : text) { if (c == '"' || c == '\\') quoted += '\\'; quoted += c; }
-    return quoted + "\"";
-}
-
 using SurfacePtr = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>;
 
 // An RGBA32 image at half the size, each pixel the alpha-weighted mean of four:
@@ -883,6 +872,13 @@ public:
         image_cache_ = LoadImageCache(library_data_ / "library.json");
         page_ = options_.page;
         capture_ = options_.smoke_test || !options_.screenshot.empty();
+        // --replay: the launcher starts it once it found the image it needs;
+        // other starts from this launcher play as usual.
+        if (options_.launch.replay)
+        {
+            if (!capture_ && config_ok_) AskReplay(fs::absolute(*options_.launch.replay));
+            options_.launch.replay.reset();
+        }
         StartUpdates();
         StartCompetitive();
         // Back from a set's game: that set's game does not start again by itself.
@@ -1025,9 +1021,15 @@ public:
                     RefreshGamepad();
                 if (event.type == SDL_EVENT_DISPLAY_ADDED || event.type == SDL_EVENT_DISPLAY_REMOVED)
                     RefreshDisplays();
-                // On the Extras page a dropped texture pack is added; anything
-                // else is a game image or folder, as on the other pages.
+                // A dropped replay plays; on the Extras page a dropped texture
+                // pack is added; anything else is a game image or folder, as
+                // on the other pages.
                 if (event.type == SDL_EVENT_DROP_FILE && event.drop.data
+                    && replay::IsReplayFile(PathFromUtf8(event.drop.data)))
+                {
+                    if (config_ok_) AskReplay(PathFromUtf8(event.drop.data));
+                }
+                else if (event.type == SDL_EVENT_DROP_FILE && event.drop.data
                     && !(page_ == PageExtras && config_ok_ && AddTexturePack(PathFromUtf8(event.drop.data))))
                     SelectDisc(event.drop.data);
                 if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && capture_action_ >= 0)
@@ -1395,66 +1397,97 @@ private:
         server_message_ = std::move(message);
     }
 
-    // Whether the Play page shows it now: not closed, and not over.
+    // Whether the Play page shows it now: until it is over.
     bool ServerMessageShown() const
     {
-        return server_message_ && server_message_->id != draft_.dismissed_message
-            && ServerMessageCurrent(*server_message_, std::int64_t(std::time(nullptr)));
+        return server_message_ && ServerMessageCurrent(*server_message_, std::int64_t(std::time(nullptr)));
     }
 
-    // Closed: it stays closed ([launcher] dismissed_message), saved at once
-    // unless other changes wait to be saved with it.
-    void DismissServerMessage()
+    // The current path: a convex polygon with corners rounded to `radius`.
+    static void PathRoundedPolygon(ImDrawList* draw, const ImVec2* corners, int count, float radius)
     {
-        if (!server_message_) return;
-        if (server_message_->id > 2000000000)
+        constexpr float pi = 3.14159265f;
+        for (int i = 0; i < count; ++i)
         {
-            server_message_.reset();
-            return;
+            const ImVec2 corner = corners[i], before = corners[(i + count - 1) % count],
+                         after = corners[(i + 1) % count];
+            const auto unit = [](ImVec2 v) {
+                const float length = std::sqrt(v.x * v.x + v.y * v.y);
+                return ImVec2{v.x / length, v.y / length};
+            };
+            const ImVec2 u = unit({before.x - corner.x, before.y - corner.y});
+            const ImVec2 w = unit({after.x - corner.x, after.y - corner.y});
+            const float angle = std::acos(std::clamp(u.x * w.x + u.y * w.y, -1.0f, 1.0f));
+            const float along = radius / std::tan(angle * 0.5f), out = radius / std::sin(angle * 0.5f);
+            const ImVec2 middle = unit({u.x + w.x, u.y + w.y});
+            const ImVec2 centre{corner.x + middle.x * out, corner.y + middle.y * out};
+            const float from = std::atan2(corner.y + u.y * along - centre.y, corner.x + u.x * along - centre.x);
+            float turn = std::atan2(corner.y + w.y * along - centre.y, corner.x + w.x * along - centre.x) - from;
+            while (turn > pi) turn -= 2 * pi;
+            while (turn < -pi) turn += 2 * pi;
+            draw->PathArcTo(centre, radius, from, from + turn, 10);
         }
-        const bool clean = !dirty_;
-        draft_.dismissed_message = int(server_message_->id);
-        dirty_ = true;
-        if (!clean || !config_ok_) return;
-        try
-        {
-            SaveConfig(file_, draft_);
-            dirty_ = false;
-        }
-        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
     }
 
-    // In the summary cards' place: the message, its Markdown scrolling when
-    // it is taller than the card, with a close button.
-    void ServerMessageBanner(ImVec2 pos, float width, float height)
+    // The message's sign, solid (as road signs are), its mark cut out in
+    // `cut`: a rounded triangle with "!" for a warning, a disc with "i" for
+    // information.
+    static void DrawMessageSign(ImDrawList* draw, bool warning, ImVec2 c, float s, ImU32 ink, ImU32 cut)
     {
-        const auto& fonts = CurrentFonts();
+        const auto p = [&](float x, float y) { return ImVec2{c.x + x * s, c.y + y * s}; };
+        const float bar = 0.06f * s;
+        if (warning)
+        {
+            const ImVec2 corners[] = {p(0.0f, -0.47f), p(0.53f, 0.43f), p(-0.53f, 0.43f)};
+            PathRoundedPolygon(draw, corners, 3, 0.11f * s);
+            draw->PathFillConvex(ink);
+            draw->AddRectFilled(p(-0.06f, -0.17f), p(0.06f, 0.13f), cut, bar);
+            draw->AddCircleFilled(p(0.0f, 0.27f), 0.07f * s, cut, 16);
+        }
+        else
+        {
+            draw->AddCircleFilled(c, 0.48f * s, ink, 40);
+            draw->AddCircleFilled(p(0.0f, -0.24f), 0.07f * s, cut, 16);
+            draw->AddRectFilled(p(-0.06f, -0.08f), p(0.06f, 0.27f), cut, bar);
+        }
+    }
+
+    // Across the Play page under its top line: the message on a light card,
+    // its tone's colour and sign in a strip on its left, as tall as its text
+    // up to a limit past which the text scrolls. Returns its height, which
+    // the next frame's layout keeps room for (message_height_).
+    float ServerMessageBanner(ImVec2 pos, float width)
+    {
         const bool warning = server_message_->warning;
-        const ImVec4 tint = warning ? color::warning : color::accent;
-        auto* draw = ImGui::GetWindowDrawList();
-        const ImVec2 max{pos.x + width, pos.y + height};
-        const float rounding = Dp(14);
-        draw->AddRectFilled(pos, max, Col(Mix(Mix(color::card, color::window, 0.15f), tint, 0.07f)), rounding);
-        draw->AddRect(pos, max, Col(Mix(color::border, tint, 0.45f)), rounding, 0, Dp(1));
-        draw->AddRectFilled({pos.x, pos.y + rounding}, {pos.x + Dp(3), max.y - rounding}, Col(tint));
-        const float pad = Dp(18), icon = Dp(18), left = pos.x + pad + icon + Dp(14);
-        DrawIcon(draw, warning ? Icon::Warning : Icon::Info, {pos.x + pad + icon * 0.5f, pos.y + pad + icon * 0.5f},
-                 icon, Col(tint));
-        const char* kicker = texts::T("launcher.play.message.kicker");
-        DrawTracked(draw, fonts.caption, {left, pos.y + pad + (icon - FontSize(fonts.caption)) * 0.5f},
-                    Col(tint, 0.95f), kicker, Dp(1.6f));
-        const float close = Dp(32);
-        ImGui::SetCursorScreenPos({max.x - Dp(10) - close, pos.y + Dp(10)});
-        if (GhostButton("##message_close", "", {close, close}, true, Icon::Close)) DismissServerMessage();
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("launcher.play.message.close"));
-        const float top = pos.y + pad + icon + Dp(6);
-        ImGui::SetCursorScreenPos({left, top});
+        const ImVec4 tint = warning ? color::warning : color::info;
+        const ImVec4 ink{0.063f, 0.075f, 0.098f, 1.0f};
+        const float strip = Dp(46), pad_x = Dp(18), pad_y = Dp(13), rounding = Dp(6);
+        const float text_width = std::max(Dp(80), width - strip - pad_x * 2);
+        // The text first, in a child as tall as it is (up to the limit); the
+        // card is drawn after it into this window, which ImGui draws under
+        // its children.
+        ImGui::SetCursorScreenPos({pos.x + strip + pad_x, pos.y + pad_y});
+        ImGui::SetNextWindowSizeConstraints({text_width, 0.0f}, {text_width, Dp(150)});
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0, 0, 0, 0});
-        ImGui::BeginChild("##message", {max.x - pad - left, max.y - Dp(12) - top});
-        const float text_width = ImGui::GetContentRegionAvail().x - (ImGui::GetScrollMaxY() > 0 ? Dp(10) : 0);
-        DrawReleaseNotes(server_message_blocks_, text_width);
+        ImGui::BeginChild("##message", {text_width, 0.0f}, ImGuiChildFlags_AutoResizeY);
+        const float notes = ImGui::GetContentRegionAvail().x - (ImGui::GetScrollMaxY() > 0 ? Dp(10) : 0);
+        DrawReleaseNotes(server_message_blocks_, notes, LightNotePalette());
         ImGui::EndChild();
         ImGui::PopStyleColor();
+        const float height = std::max(Dp(50), ImGui::GetItemRectSize().y + pad_y * 2);
+        const ImVec2 max{pos.x + width, pos.y + height};
+        auto* draw = ImGui::GetWindowDrawList();
+        // Lifted off the artwork by a soft shadow.
+        for (int i = 3; i >= 1; --i)
+            draw->AddRectFilled({pos.x - Dp(float(i)), pos.y + Dp(float(i))},
+                                {max.x + Dp(float(i)), max.y + Dp(2.0f * float(i))}, Col(color::window, 0.14f),
+                                rounding + Dp(float(i)));
+        draw->AddRectFilled(pos, max, Col(ImVec4{0.965f, 0.969f, 0.976f, 0.98f}), rounding);
+        draw->AddRectFilled(pos, {pos.x + strip, max.y}, Col(tint), rounding, ImDrawFlags_RoundCornersLeft);
+        DrawMessageSign(draw, warning, {std::floor(pos.x + strip * 0.5f), std::floor(pos.y + height * 0.5f)}, Dp(26),
+                        Col(ink), Col(tint));
+        message_height_ = height;
+        return height;
     }
 
     // ------------------------------------------------------ players online
@@ -2045,16 +2078,16 @@ private:
                std::to_string(count.playing) + " in a match";
     }
 
-    // Left of the update status, while the WFC server tells: how many
-    // players are online there (PlayersOnline). `right`: where it ends.
-    void DrawPlayersOnline(float right, float y, float height)
+    // Top left of the Play page, while the WFC server tells: how many
+    // players are online there (PlayersOnline). `left`: where it begins.
+    void DrawPlayersOnline(float left, float y, float height)
     {
         if (!online_count_) return;
         const auto& fonts = CurrentFonts();
         const std::string text = std::to_string(online_count_->online) + " online";
         const ImVec2 label = TextSize(fonts.body, text.c_str());
         const float width = Dp(34) + label.x + Dp(18);
-        const ImVec2 pos{right - width, y}, max{right, y + height};
+        const ImVec2 pos{left, y}, max{left + width, y + height};
         ImGui::SetCursorScreenPos(pos);
         ImGui::InvisibleButton("##players_online", {width, height});
         const bool hovered = ImGui::IsItemHovered();
@@ -2141,7 +2174,6 @@ private:
                 = round ? look.text + (look.tooltip.empty() ? "" : "\n" + look.tooltip) : look.tooltip;
             if (!tooltip.empty()) ImGui::SetTooltip("%s", tooltip.c_str());
         }
-        DrawPlayersOnline(x - Dp(10), y, height);
         DrawTestBuildMenu(menu_anchor);
     }
 
@@ -3390,15 +3422,6 @@ private:
                 else if (!folder_dialog_->path.empty()) FolderChosen(folder_dialog_->path);
             }
         }
-        {
-            std::lock_guard<std::mutex> lock(gamecube_dialog_->mutex);
-            if (gamecube_dialog_->ready)
-            {
-                gamecube_dialog_->ready = false;
-                if (!gamecube_dialog_->error.empty()) Notice(gamecube_dialog_->error, NoticeKind::Error);
-                else if (!gamecube_dialog_->path.empty()) GameCubeDiscChosen(PathFromUtf8(gamecube_dialog_->path));
-            }
-        }
         if (pending_ && future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
             auto result = future_.get();
@@ -3430,7 +3453,7 @@ private:
         }
     }
 
-    // Advanced -> Graphics card (display.gpu): Automatic or one of the PC's cards.
+    // Graphics -> Graphics card (display.gpu): Automatic or one of the PC's cards.
     void GraphicsCardRow()
     {
 #if defined(_WIN32)
@@ -3622,6 +3645,17 @@ private:
         frontend_launch_->start_training = training_;
         frontend_launch_->update_verified = UpdateVerified();
         frontend_launch_->discord_friends = discord_asked_;
+        // A replay starts with the image it found; the game closes after it.
+        if (ReplayReady())
+        {
+            frontend_launch_->start_training = false;
+            frontend_launch_->disc_path = pending_replay_->image;
+            frontend_launch_->replay_path = pending_replay_->path;
+            platform::SessionLogLine("Replay: starting with " + PathUtf8(pending_replay_->image));
+            pending_replay_.reset();
+            quit = true;
+            return;
+        }
         // A set that goes while the game runs uses the player's own Mii: the
         // chosen one, or the one made from the account (made now if it isn't
         // there yet). Without it the game lets the player choose a Mii for
@@ -3646,24 +3680,86 @@ private:
         quit = true;
     }
 
-    std::string LaunchCommand() const
+    // A replay to play (--replay, a .msc file dropped on the window, or
+    // Extras -> Replays). It needs an image of the release and revision it was
+    // recorded with: the chosen image when it is one, otherwise one of the
+    // game folder; the game then starts with it, without changing the chosen
+    // image. Unsaved changes are asked about first, as Play does.
+    struct PendingReplay
     {
-        const auto launch = EffectiveLaunch();
-        const auto& s = launch.settings;
-        std::string command = Quote(PathUtf8(base_ / kExecutableName));
-        if (!launch.disc_path.empty()) command += " --disc " + Quote(PathUtf8(launch.disc_path));
-        command += s.fullscreen ? " --fullscreen" : " --window";
-        command += " --size " + std::to_string(s.width) + "x" + std::to_string(s.height);
-        command += " --aspect " + s.aspect;
-        command += " --frame-rate " + s.frame_rate;
-        // Tweaks come from the INI; without any here, keep the INI's off too.
-        if (s.GameTweakMask() == 0 && file_.settings.GameTweakMask() != 0) command += " --no-tweaks";
-        return command;
+        fs::path path;
+        DiscInfo needs;
+        fs::path image; // once found
+    };
+    std::optional<PendingReplay> pending_replay_;
+
+    bool ReplayReady() const { return pending_replay_ && !pending_replay_->image.empty(); }
+
+    void AskReplay(const fs::path& path)
+    {
+        if (pending_replay_) return;
+        // The whole file is checked here: a damaged one does not start the game.
+        std::vector<std::uint8_t> bytes, stream;
+        std::string error;
+        replay::FileInfo info;
+        replay::Setup setup;
+        if (!replay::ReadReplayFile(path, bytes, error) || !replay::DecodeFile(bytes.data(), bytes.size(), info, stream, error)
+            || !replay::ReadSetup(stream.data(), stream.size(), setup, error))
+        {
+            Notice(texts::T("launcher.replay.unreadable", {{"error", error}}), NoticeKind::Error);
+            return;
+        }
+        DiscInfo needs{};
+        needs.game_id = info.game_id;
+        needs.revision = std::uint8_t(info.revision);
+        pending_replay_ = PendingReplay{path, needs, {}};
+        platform::SessionLogLine("Replay asked: " + PathUtf8(path) + " (" + info.game_id + " revision "
+                                 + std::to_string(info.revision) + ", recorded by " + info.build + ")");
+        Notice(texts::T("launcher.replay.starting", {{"name", PathUtf8(path.filename())}}), NoticeKind::Info);
     }
+
+    void PollReplay(bool& quit)
+    {
+        if (!pending_replay_ || ReplayReady() || frontend_launch_) return;
+        const auto& wanted = pending_replay_->needs;
+        const auto fits = [&](const DiscInfo& info) {
+            return info.game_id == wanted.game_id && info.revision == wanted.revision && SupportedRelease(info);
+        };
+        // The chosen image's check first.
+        if (pending_ || searching_) return;
+        fs::path image;
+        if (check_.info && check_.selection == DiscSelection() && fits(*check_.info) && PinnedMissing().empty())
+            image = EffectiveLaunch().disc_path;
+        else
+        {
+            for (const auto& entry : library_)
+                if (entry.probe.kind == DiscProbe::Kind::Charged && fits(entry.probe.info))
+                {
+                    image = entry.path;
+                    break;
+                }
+            if (image.empty())
+            {
+                if (library_scanning_) return;
+                Notice(texts::T("launcher.replay.no_image", {{"release", RegionRevision(wanted)},
+                                                             {"id", wanted.game_id}}),
+                       NoticeKind::Error);
+                pending_replay_.reset();
+                return;
+            }
+        }
+        pending_replay_->image = image;
+        if (dirty_) play_prompt_ = true;
+        else Start(quit);
+    }
+
+    // What keeps the game from starting: a replay only needs the image it found.
+    std::string StartBlocker() const { return ReplayReady() ? std::string() : PlayBlocker(); }
 
     // ------------------------------------------------------------- layout
     void Draw(bool& quit)
     {
+        PollReplay(quit);
         auto& io = ImGui::GetIO();
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false) && config_ok_ && dirty_) Save();
         const ImVec2 size = io.DisplaySize;
@@ -3822,7 +3918,10 @@ private:
         // Which Wii Remotes answer: for the Players card, and for the Play
         // page when a player uses a remote.
         if (page_ == PageControls || (page_ == PagePlay && RemotePlayer())) PollWiimotes();
-        const float bar = Dp(74);
+        // The Play page has the bottom bar only for unsaved changes or a problem.
+        const bool bar_shown = page_ != PagePlay || dirty_ || !config_ok_ || notice_kind_ == NoticeKind::Warning
+            || notice_kind_ == NoticeKind::Error;
+        const float bar = bar_shown ? Dp(74) : 0.0f;
         const ImVec2 content{size.x, size.y - bar};
         // An Online page without a usable game image (it went away): the Game page.
         if (OnlinePage(page_) && !OnlineBlocker().empty()) page_ = PageGame;
@@ -3848,6 +3947,7 @@ private:
             else if (preset_edit_ && page_ == PageRules) PresetEditorPage();
             else switch (page_)
             {
+            case PageGraphics: GraphicsPage(); break;
             case PageGame: GamePage(); break;
             case PageSidekicks: SidekicksPage(); break;
             case PageRules: MatchRulesPage(); break;
@@ -3860,31 +3960,94 @@ private:
             ImGui::EndDisabled();
             ImGui::EndChild();
             ImGui::PopStyleVar();
+            // Development captures: RECHARGED_CAPTURE_SCROLL=bottom shows the
+            // page's end (the mouse wheel does nothing without a real window).
+            if (const char* scroll = capture_ ? std::getenv("RECHARGED_CAPTURE_SCROLL") : nullptr;
+                scroll && std::string_view(scroll) == "bottom")
+                ImGui::SetScrollY(ImGui::GetScrollMaxY());
             ImGui::EndChild();
             ImGui::PopStyleVar();
         }
-        DrawBottomBar({origin.x, origin.y + content.y}, {size.x, bar}, quit);
+        if (bar_shown) DrawBottomBar({origin.x, origin.y + content.y}, {size.x, bar}, quit);
     }
 
     void DrawPlayPage(ImVec2 origin, ImVec2 size, bool& quit)
     {
         const auto& fonts = CurrentFonts();
         auto* draw = ImGui::GetWindowDrawList();
-        // From the bottom up: the summary cards a margin above the bottom bar (but at
-        // most 64 below the button once the title area has its full height), the
-        // Play button a gap above them. The artwork runs down behind the button and
-        // fades out at the cards.
-        const float margin = Dp(42), gap = Dp(30), button = Dp(62), card = Dp(118);
-        const float hero = std::clamp(size.y - margin - card - gap - (button - Dp(30)), Dp(250), Dp(440));
-        const float button_y = origin.y + hero - Dp(30), below = button_y + button;
-        const float cards_y = std::clamp(origin.y + size.y - margin - card, below + gap, below + Dp(64));
-        const float art = cards_y - origin.y;
+        const float pad = Dp(44);
+        // The tagline under the logo, the game in white, the rest softer; on
+        // two lines where one does not fit (broken at the first space after
+        // the game).
+        const std::string game = "Mario Strikers Charged";
+        const std::string tagline = texts::T("launcher.play.tagline", {{"game", game}});
+        const std::size_t game_at = tagline.find(game);
+        const bool named = game_at != std::string::npos;
+        const std::string before = named ? tagline.substr(0, game_at) : tagline;
+        const std::string rest = named ? tagline.substr(game_at + game.size()) : std::string();
+        const float before_width = TextSize(fonts.heading, before.c_str()).x;
+        const float game_width = named ? TextSize(fonts.heading, game.c_str()).x : 0.0f;
+        const std::size_t break_at = rest.find(' ');
+        const float line_width = before_width + game_width + TextSize(fonts.heading, rest.c_str()).x;
+        const float two_width = std::max(
+            before_width + game_width + TextSize(fonts.heading, rest.substr(0, break_at).c_str()).x,
+            break_at == std::string::npos ? 0.0f : TextSize(fonts.heading, rest.c_str() + break_at + 1).x);
+
+        // From the page's corners: on the top line the players online and the
+        // update controls; in the bottom right corner the Play button with the
+        // status at its left, both ending on the bottom line; at the bottom
+        // left the title: the tagline on that line when it fits beside the
+        // status, otherwise just above that row, the logo above the tagline,
+        // as large as the room allows under the server's message, which runs
+        // across the page under the top line.
+        const float margin = Dp(42), button = Dp(62), button_width = Dp(230);
+        const float title_gap = Dp(10), row_gap = Dp(28), message_gap = Dp(22);
+        const float smallest = Dp(201) / logo_aspect_, largest = Dp(385) / logo_aspect_;
+        const float left = origin.x + pad, right = origin.x + size.x - pad;
+        const float bottom = origin.y + size.y - margin;
+        const float button_x = right - button_width, button_y = bottom - button;
+        const float status_right = button_x - Dp(28);
+        const std::string blocker = PlayBlocker();
+        const ImVec2 status = DrawPlayStatus(blocker, status_right, bottom, left, false);
+        const bool message = ServerMessageShown();
+        const float top = origin.y + Dp(84); // under the top line (which ends at 56), with air
+        const float above = message ? message_height_ + message_gap : Dp(4);
+        // Room beside the status on the bottom line, for the tagline (and the
+        // logo where the status reaches up beside it).
+        const float beside = (status.x < status_right ? status.x : button_x) - Dp(32) - left;
+        const auto logo_for = [&](float logo_bottom) {
+            return std::clamp(logo_bottom - top - above, smallest, largest);
+        };
+        bool low = false, one_line = line_width <= size.x * 0.75f - pad;
+        for (const bool one : {true, false})
+        {
+            const float width = one ? line_width : two_width;
+            if (width > beside) continue;
+            const float subtitle = one ? FontSize(fonts.heading) : FontSize(fonts.heading) * 2 + Dp(2);
+            const float logo_bottom = bottom - subtitle - title_gap;
+            if (status.y < logo_bottom && logo_for(logo_bottom) * logo_aspect_ > beside + Dp(8)
+                && smallest * logo_aspect_ > beside + Dp(8))
+                continue;
+            low = true;
+            one_line = one;
+            break;
+        }
+        const float subtitle = one_line ? FontSize(fonts.heading) : FontSize(fonts.heading) * 2 + Dp(2);
+        const float title_bottom = low ? bottom : std::min(button_y, status.y) - row_gap;
+        const float logo_bottom = title_bottom - subtitle - title_gap;
+        float logo = logo_for(logo_bottom);
+        // On the bottom line a logo reaching down beside the status keeps left of it.
+        if (low && status.y < logo_bottom) logo = std::max(smallest, std::min(logo, (beside + Dp(8)) / logo_aspect_));
+        float y = logo_bottom - logo;
+        // The artwork covers the top of the page and fades out at about two
+        // thirds of it (the logo and the Play row stand on the page below).
+        const float art = std::floor(size.y * 0.7f);
         hero_ = {origin.x, origin.y, size.x, art};
         hero_visible_ = true;
         const ImVec2 art_max{origin.x + size.x, origin.y + art};
         // Shades of the page colour over the artwork, eased in eight bands so that no
         // edge shows: the logo's side dark, the lower part dissolving into the page
-        // before the cards, a little shade under the update controls.
+        // towards the bottom, a little shade under the top line.
         const auto fade = [&](ImVec2 min, ImVec2 max, float from, float to, bool across) {
             constexpr int bands = 8;
             const auto ease = [](float t) { return t * t * (3.0f - 2.0f * t); };
@@ -3908,27 +4071,6 @@ private:
         draw->AddRectFilled({origin.x, art_max.y - Dp(8)}, art_max, Col(color::window));
         fade(origin, {art_max.x, origin.y + Dp(90)}, 0.35f, 0.0f, false);
 
-        const float pad = Dp(44);
-        // The title: the logo with its lightning reaching a little into the margin,
-        // and the subtitle under it, the game in white, the rest softer, on two
-        // lines in a narrow window (broken at the first space after the game).
-        // Both a little below the middle between the update controls and the
-        // button, beside Mario's head and shoulders.
-        const std::string game = "Mario Strikers Charged";
-        const std::string tagline = texts::T("launcher.play.tagline", {{"game", game}});
-        const std::size_t game_at = tagline.find(game);
-        const bool named = game_at != std::string::npos;
-        const std::string before = named ? tagline.substr(0, game_at) : tagline;
-        const std::string rest = named ? tagline.substr(game_at + game.size()) : std::string();
-        const float before_width = TextSize(fonts.heading, before.c_str()).x;
-        const float game_width = named ? TextSize(fonts.heading, game.c_str()).x : 0.0f;
-        const bool one_line =
-            before_width + game_width + TextSize(fonts.heading, rest.c_str()).x <= size.x * 0.75f - pad;
-        // The logo set by its width, its height following from its proportions.
-        const float logo = std::clamp(hero * 0.879f, Dp(201), Dp(385)) / logo_aspect_;
-        const float subtitle = one_line ? FontSize(fonts.heading) : FontSize(fonts.heading) * 2 + Dp(2);
-        const float top = origin.y + Dp(40), room = button_y - Dp(34) - top;
-        float y = top + std::max(0.0f, (room - logo - Dp(10) - subtitle) * 0.6f);
         // A soft glow from the logo's lit ball, so that the logo sits in the
         // scene, brighter while the sparks crackle.
         const ImVec2 ball{origin.x + pad - Dp(8) + logo * logo_aspect_ * 0.852f, y + logo * 0.232f};
@@ -3936,47 +4078,35 @@ private:
         for (int i = 20; i >= 1; --i)
             draw->AddCircleFilled(ball, logo * 0.055f * float(i), Col(color::logo, glow), 48);
         DrawLogo(draw, {origin.x + pad - Dp(8), y}, logo);
-        y += logo + Dp(10);
+        y += logo + title_gap;
         const ImU32 soft = Col(color::text, 0.86f);
-        const std::size_t space = one_line ? std::string::npos : rest.find(' ');
-        if (!before.empty()) DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y}, soft, before.c_str(), 1.2f);
+        const std::size_t space = one_line ? std::string::npos : break_at;
+        if (!before.empty()) DrawLabelShadowed(draw, fonts.heading, {left, y}, soft, before.c_str(), 1.2f);
         if (named)
-            DrawLabelShadowed(draw, fonts.heading, {origin.x + pad + before_width, y}, IM_COL32_WHITE, game.c_str(),
-                              1.2f);
-        DrawLabelShadowed(draw, fonts.heading, {origin.x + pad + before_width + game_width, y}, soft,
+            DrawLabelShadowed(draw, fonts.heading, {left + before_width, y}, IM_COL32_WHITE, game.c_str(), 1.2f);
+        DrawLabelShadowed(draw, fonts.heading, {left + before_width + game_width, y}, soft,
                           rest.substr(0, space).c_str(), 1.2f);
         if (space != std::string::npos)
-            DrawLabelShadowed(draw, fonts.heading, {origin.x + pad, y + FontSize(fonts.heading) + Dp(2)}, soft,
+            DrawLabelShadowed(draw, fonts.heading, {left, y + FontSize(fonts.heading) + Dp(2)}, soft,
                               rest.c_str() + space + 1, 1.2f);
         DrawUpdateBar(origin, size.x, pad);
+        // How many play online, opposite the update controls (as tall, on their line).
+        DrawPlayersOnline(left, origin.y + Dp(18), Dp(38));
 
-        // Play button and status, over the bottom of the artwork.
-        const std::string blocker = PlayBlocker();
-        ImGui::SetCursorScreenPos({origin.x + pad, button_y});
-        if (PrimaryButton("play", texts::T("launcher.play.button"), {Dp(230), button}, blocker.empty(), Icon::Play,
-                          true))
+        // The Play button and, at its left, the status.
+        ImGui::SetCursorScreenPos({button_x, button_y});
+        if (PrimaryButton("play", texts::T("launcher.play.button"), {button_width, button}, blocker.empty(),
+                          Icon::Play, true))
             Play(quit);
         if (!blocker.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("%s", blocker.c_str());
-        DrawPlayStatus(blocker, {origin.x + pad + Dp(230 + 24), button_y + Dp(31)});
+        DrawPlayStatus(blocker, status_right, bottom, left);
 
-        // Summary cards, or in their place the server's message.
-        if (cards_y + card + margin <= origin.y + size.y && ServerMessageShown())
-            ServerMessageBanner({origin.x + pad, cards_y}, size.x - pad * 2, card);
-        else if (cards_y + card + margin <= origin.y + size.y)
-        {
-            const float gap = Dp(16);
-            const float width = (size.x - pad * 2 - gap * 2) / 3.0f;
-            ImGui::SetCursorScreenPos({origin.x + pad, cards_y});
-            SummaryCard("##disc_card", texts::T("launcher.play.cards.image"), Icon::Disc, width, PageGame,
-                        DiscSummary());
-            ImGui::SameLine(0, gap);
-            SummaryCard("##display_card", texts::T("launcher.play.cards.display"), Icon::Display, width, PageGame,
-                        DisplaySummary());
-            ImGui::SameLine(0, gap);
-            SummaryCard("##language_card", texts::T("launcher.play.cards.language_audio"), Icon::Audio, width,
-                        PageGame, LanguageSummary());
-        }
+        // The server's message under the top line, as wide as the page (in a
+        // wide window no wider than a line reads well).
+        if (message) ServerMessageBanner({left, top}, std::min(right - left, Dp(900)));
+        else
+            message_height_ = 0.0f;
     }
 
     // Something to know before playing, under the Play status: a small glass
@@ -3992,19 +4122,39 @@ private:
         int page; // the page it opens, -1 for none
     };
 
+    // A note's pill at most `max_width` wide: its text (elided when needed),
+    // whether the secondary part fits too, and its width.
+    struct PillLayout
+    {
+        std::string text;
+        std::string secondary; // empty when left out
+        float width = 0.0f;
+    };
+    PillLayout MeasurePill(const StatusNote& note, float max_width) const
+    {
+        const auto& fonts = CurrentFonts();
+        const float left = Dp(30), right = Dp(26);
+        const float room = std::max(Dp(40), max_width - left - right);
+        const std::string secondary = note.secondary.empty() ? std::string() : "  \xC2\xB7  " + note.secondary;
+        const bool both = !secondary.empty() && TextSize(fonts.caption, (note.text + secondary).c_str()).x <= room;
+        PillLayout layout{Elide(fonts.caption, note.text, room), both ? secondary : std::string(), 0.0f};
+        layout.width = left + TextSize(fonts.caption, layout.text.c_str()).x
+            + (both ? TextSize(fonts.caption, secondary.c_str()).x : 0.0f) + right;
+        return layout;
+    }
+
     // At most `max_width` wide; true when clicked.
     bool StatusPill(const char* id, const StatusNote& note, float max_width)
     {
         const auto& fonts = CurrentFonts();
-        const float height = Dp(28), left = Dp(30), right = Dp(26);
-        const float room = std::max(Dp(40), max_width - left - right);
-        const std::string secondary = note.secondary.empty() ? std::string() : "  \xC2\xB7  " + note.secondary;
-        const bool both = !secondary.empty() && TextSize(fonts.caption, (note.text + secondary).c_str()).x <= room;
-        const std::string text = Elide(fonts.caption, note.text, room);
+        const float height = Dp(28), left = Dp(30);
+        const PillLayout layout = MeasurePill(note, max_width);
+        const std::string& text = layout.text;
+        const std::string& secondary = layout.secondary;
+        const bool both = !secondary.empty();
         const ImVec2 label = TextSize(fonts.caption, text.c_str());
-        const float extra = both ? TextSize(fonts.caption, secondary.c_str()).x : 0.0f;
         const ImVec2 pos = ImGui::GetCursorScreenPos();
-        const ImVec2 size{left + label.x + extra + right, height};
+        const ImVec2 size{layout.width, height};
         const bool pressed = ImGui::InvisibleButton(id, size);
         const bool hovered = ImGui::IsItemHovered();
         const float hover = Animate(ImGui::GetItemID(), hovered, 12.0f);
@@ -4029,18 +4179,20 @@ private:
         return pressed;
     }
 
-    // Right of the Play button, centred on it (`anchor`: the left edge at the
-    // button's middle): whether the game can start and, under that, what to
-    // know first, each opening its page: a controller that is not connected
-    // and who plays instead, the gameplay tweaks that are on.
-    void DrawPlayStatus(const std::string& blocker, ImVec2 anchor)
+    // Left of the Play button, ending on its bottom line (its right edge at
+    // `right`, its bottom at `bottom`, never left of `leftmost`): whether the
+    // game can start and, under that, what to know first, each opening its
+    // page: the image it starts, a controller that is not connected and who
+    // plays instead, the gameplay tweaks that are on. Returns its top left
+    // corner; `paint` false only measures.
+    ImVec2 DrawPlayStatus(const std::string& blocker, float right, float bottom, float leftmost, bool paint = true)
     {
         const auto& fonts = CurrentFonts();
         auto* draw = ImGui::GetWindowDrawList();
         ImVec4 tint = color::success;
         Icon icon = Icon::Check;
         bool spinner = false;
-        std::string headline = texts::T("launcher.play.status.ready");
+        std::string headline; // none when ready: the green button says it
         std::string detail;
         const bool missing = !PinnedMissing().empty() && !pending_ && !searching_;
         if (pending_ || searching_)
@@ -4073,12 +4225,16 @@ private:
                                                : texts::T("launcher.play.status.not_ready");
             detail = blocker;
         }
-        else if (check_.info)
-            detail = ReleaseTitle(*check_.info) + "  \xC2\xB7  " + RegionRevision(*check_.info) + "  \xC2\xB7  "
-                + check_.info->game_id;
+        const bool ready = !pending_ && !searching_ && !missing && blocker.empty() && check_.info;
         std::vector<StatusNote> notes;
         if (blocker.empty())
         {
+            // The image it starts, which the Game page changes.
+            if (ready)
+                notes.push_back({Icon::Disc, color::success, false, RegionRevision(*check_.info),
+                                 check_.info->game_id,
+                                 ReleaseTitle(*check_.info) + "\n" + PathUtf8(PathFromUtf8(DiscSelection()).filename()),
+                                 PageGame});
             // A player's controller that is not connected, and who plays instead.
             const auto lineup = StartLineup();
             const auto brief = MissingControllersBrief(draft_.players, lineup);
@@ -4090,61 +4246,92 @@ private:
                                      + texts::Count("launcher.play.notes.connect_controllers", missing_count),
                                  PageControls});
             }
-            // Gameplay tweaks change the original game: never silently.
+            // Gameplay tweaks change the original game: never silently (the
+            // development switch for the menus changes no gameplay).
             std::string names;
             int count = 0;
             for (std::size_t n = 0; n < kGameTweaks.size(); ++n)
-                if (draft_.tweaks[n])
+                if (draft_.tweaks[n] && kGameTweaks[n].tweak != GameTweak::OverrideRetailMenus)
                 {
                     names += std::string("\n\xE2\x80\xA2 ") + texts::TweakName(kGameTweaks[n]);
                     ++count;
                 }
             if (count)
-                notes.push_back({Icon::Target, color::accent, false,
+                notes.push_back({Icon::Sliders, color::accent, false,
                                  texts::Count("launcher.play.notes.tweaks_on", count), "",
                                  texts::T("launcher.play.notes.tweaks_on_list") + names, -1});
         }
-        // The notes take the disc line's place (the Game image card has it).
-        if (!notes.empty()) detail.clear();
-
-        const float limit = ImGui::GetWindowPos().x + ImGui::GetWindowSize().x - Dp(28);
-        const float text_x = anchor.x + Dp(30);
-        const float wrap = std::max(Dp(120), limit - text_x);
+        // As wide as its widest line, at most `most`; its lines start at its
+        // left edge (the headline after its icon), the block ends at `right`.
+        const float most = std::max(Dp(160), std::min(right - leftmost, Dp(460)));
+        const float inset = Dp(30);
+        const float wrap = most - inset;
         const float caption = FontSize(fonts.caption);
-        const float detail_height =
-            detail.empty() ? 0.0f : fonts.caption->CalcTextSizeA(caption, FLT_MAX, wrap, detail.c_str()).y;
-        // With one note the status is as tall as the button: its pill ends with it.
-        const float pill = Dp(28), pill_gap = Dp(6), pill_top = Dp(8);
-        float height = Dp(26) + detail_height;
-        if (!notes.empty()) height += pill_top + float(notes.size()) * (pill + pill_gap) - pill_gap;
+        const ImVec2 detail_size =
+            detail.empty() ? ImVec2{} : fonts.caption->CalcTextSizeA(caption, FLT_MAX, wrap, detail.c_str());
+        // The notes side by side under the headline, in as many rows as the
+        // width needs: with one row the status is as tall as the button, the
+        // row ending with it.
+        const float pill = Dp(28), pill_gap = Dp(6), pill_top = Dp(8), pill_space = Dp(8);
+        std::vector<ImVec2> places; // x from the status's left edge, row
+        int rows = 0;
+        float x = 0.0f, widest = 0.0f;
+        for (const auto& note : notes)
+        {
+            const float width = MeasurePill(note, most).width;
+            if (rows == 0 || (x > 0.0f && x + width > most))
+            {
+                x = 0.0f;
+                ++rows;
+            }
+            places.push_back({x, float(rows - 1)});
+            widest = std::max(widest, x + width);
+            x += width + pill_space;
+        }
+        // Ready to play, the green button says it: only the notes then.
+        const bool quiet = blocker.empty() && !pending_ && !searching_ && !missing;
+        float width = std::max({quiet ? 0.0f : inset + TextSize(fonts.label, headline.c_str()).x,
+                                inset + detail_size.x, widest});
+        if (missing) width = most;
+        width = std::min(width, most);
+        float height = quiet ? 0.0f : Dp(26) + detail_size.y;
+        if (rows) height += (quiet ? 0.0f : pill_top) + float(rows) * (pill + pill_gap) - pill_gap;
         if (missing) height += Dp(4) + Dp(32);
-        const ImVec2 pos{anchor.x, std::floor(anchor.y - height * 0.5f)};
+        const ImVec2 pos{std::floor(right - width), std::floor(bottom - height)};
+        if (!paint) return pos;
+        const float text_x = pos.x + inset;
 
-        if (spinner) Spinner({pos.x + Dp(11), pos.y + Dp(12)}, Dp(8), Col(tint));
-        else if (icon != Icon::None) DrawIcon(draw, icon, {pos.x + Dp(11), pos.y + Dp(12)}, Dp(20), Col(tint));
-        DrawLabel(draw, fonts.label, {text_x, pos.y + Dp(1)}, Col(color::text), headline.c_str());
-        float y = pos.y + Dp(26);
+        if (!quiet)
+        {
+            if (spinner) Spinner({pos.x + Dp(11), pos.y + Dp(12)}, Dp(8), Col(tint));
+            else if (icon != Icon::None) DrawIcon(draw, icon, {pos.x + Dp(11), pos.y + Dp(12)}, Dp(20), Col(tint));
+            DrawLabel(draw, fonts.label, {text_x, pos.y + Dp(1)}, Col(color::text), headline.c_str());
+        }
+        // Where the detail goes, the pills a little lower (quiet: at the top).
+        float y = quiet ? pos.y - pill_top : pos.y + Dp(26);
         if (!detail.empty())
         {
             draw->AddText(fonts.caption, caption, {text_x, y}, Col(color::muted), detail.c_str(), nullptr, wrap);
-            y += detail_height;
+            y += detail_size.y;
         }
         // The pills (and the missing image's buttons) start at the status's left
         // edge, under the icon, so that a pill's text lines up with the headline.
         ImGui::PushID("play_status");
         for (std::size_t i = 0; i < notes.size(); ++i)
         {
-            ImGui::SetCursorScreenPos({pos.x, y + pill_top + float(i) * (pill + pill_gap)});
+            const float left = pos.x + places[i].x;
+            ImGui::SetCursorScreenPos({left, y + pill_top + places[i].y * (pill + pill_gap)});
             ImGui::PushID(int(i));
-            if (StatusPill("##note", notes[i], limit - pos.x) && notes[i].page >= 0) page_ = notes[i].page;
+            if (StatusPill("##note", notes[i], pos.x + most - left) && notes[i].page >= 0) page_ = notes[i].page;
             ImGui::PopID();
         }
         ImGui::PopID();
         if (missing)
         {
             ImGui::SetCursorScreenPos({pos.x, y + Dp(4)});
-            MissingImageActions(limit);
+            MissingImageActions(right);
         }
+        return pos;
     }
 
     // What to do about a game image that has gone: locate it, use a copy of
@@ -4202,125 +4389,6 @@ private:
     // Browse for the pinned image where it is now, starting in its old folder
     // (or the nearest folder above it that is still there).
     void Locate() { Browse(ExistingFolder(PathFromUtf8(DiscSelection()).parent_path())); }
-
-    // A summary card's icon takes the accent, or amber or red for a problem.
-    struct Summary { std::string value; std::string detail; ImVec4 tint; };
-
-    // The pinned image: its region and revision first, in the status colours
-    // (green when it is ready to play).
-    Summary DiscSummary() const
-    {
-        if (searching_)
-            return {texts::T("launcher.play.cards.searching"), texts::T("launcher.play.cards.searching_about"),
-                    color::accent};
-        if (pending_)
-            return {texts::T("launcher.play.cards.checking"), texts::T("launcher.play.cards.checking_about"),
-                    color::accent};
-        if (DiscSelection().empty())
-            return {texts::T("launcher.play.cards.no_image"), texts::T("launcher.play.cards.no_image_about"),
-                    color::warning};
-        const std::string name = PathUtf8(PathFromUtf8(DiscSelection()).filename());
-        if (!PinnedMissing().empty())
-        {
-            const auto info = PinnedInfo();
-            return {info ? texts::T("launcher.play.cards.release_missing", {{"release", RegionRevision(*info)}})
-                         : std::string(texts::T("launcher.play.cards.image_missing")),
-                    texts::T("launcher.play.cards.not_found", {{"name", name}}), color::warning};
-        }
-        if (check_.info && check_.selection == DiscSelection())
-        {
-            const auto& info = *check_.info;
-            return {RegionRevision(info), info.game_id + "  \xC2\xB7  " + info.format + "  \xC2\xB7  " + name,
-                    SupportedRelease(info) ? color::success : color::warning};
-        }
-        if (!check_.error.empty()) return {texts::T("launcher.play.cards.image_problem"), check_.error, color::danger};
-        return {name, texts::T("launcher.play.cards.not_checked"), color::accent};
-    }
-
-    Summary DisplaySummary() const
-    {
-        const auto s = EffectiveLaunch().settings;
-        const std::string aspect = s.aspect == "auto" ? std::string(texts::T("launcher.play.cards.automatic_aspect"))
-            : s.aspect == "stretch"                   ? std::string(texts::T("launcher.play.cards.stretched"))
-                                                      : s.aspect;
-        std::string detail = aspect + "  -  "
-            + (s.vsync ? texts::T("launcher.play.cards.vsync_on") : texts::T("launcher.play.cards.vsync_off"));
-        if (s.frame_rate != "original") detail += "  -  " + FrameRateLabel(s.frame_rate);
-        if (s.performance_mode) detail += std::string("  -  ") + texts::T("launcher.play.cards.performance_mode");
-        if (!s.show_hud)
-        {
-            const auto hud = platform::HotkeyLabel(platform::ParseHotkeys(s.hotkeys)[HotkeyHud]);
-            detail += "  -  "
-                + (hud.empty() ? std::string(texts::T("launcher.play.cards.hud_hidden"))
-                               : texts::T("launcher.play.cards.hud_hidden_key", {{"key", hud}}));
-        }
-        return {s.fullscreen ? std::string(texts::T("launcher.play.cards.fullscreen"))
-                             : texts::T("launcher.play.cards.window", {{"width", std::to_string(s.width)},
-                                                                       {"height", std::to_string(s.height)}}),
-                detail, color::accent};
-    }
-
-    Summary LanguageSummary() const
-    {
-        const auto s = EffectiveLaunch().settings;
-        const auto choice = ChooseLanguage(Release(), s.language, pc_languages_);
-        const std::string language = choice.automatic
-            ? texts::T("launcher.play.cards.automatic_language", {{"language", choice.language->label}})
-            : std::string(choice.language->label);
-        const std::string volume = std::to_string(s.master_volume);
-        std::string audio = s.mute ? std::string(texts::T("launcher.play.cards.muted"))
-                                   : texts::T("launcher.play.cards.volume", {{"percent", volume}});
-        if (!s.mute && s.sound_volumes != DefaultSoundVolumes())
-            audio += std::string("  -  ") + texts::T("launcher.play.cards.custom_sound_levels");
-        return {texts::T("launcher.play.cards.text_language", {{"language", language}}), audio, color::accent};
-    }
-
-    void SummaryCard(const char* id, const char* title, Icon icon, float width, int page, const Summary& summary)
-    {
-        const auto& fonts = CurrentFonts();
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, Mix(color::card, color::window, 0.15f));
-        ImGui::PushStyleColor(ImGuiCol_Border, color::border);
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, Dp(16));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, Dp(18, 16));
-        ImGui::BeginChild(id, {width, Dp(118)}, ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        auto* draw = ImGui::GetWindowDrawList();
-        const ImVec2 pos = ImGui::GetCursorScreenPos();
-        draw->AddRectFilled(pos, {pos.x + Dp(30), pos.y + Dp(30)}, Col(summary.tint, 0.14f), Dp(9));
-        DrawIcon(draw, icon, {pos.x + Dp(15), pos.y + Dp(15)}, Dp(16), Col(summary.tint));
-        DrawLabel(draw, fonts.caption, {pos.x + Dp(40), pos.y + Dp(6)}, Col(color::muted), title);
-        const float inner = ImGui::GetContentRegionAvail().x;
-        DrawChevron(draw, {pos.x + inner - Dp(4), pos.y + Dp(14)}, Dp(14), Col(color::dim));
-        ImGui::SetCursorScreenPos({pos.x, pos.y + Dp(42)});
-        ImGui::PushFont(fonts.label);
-        ImGui::PushStyleColor(ImGuiCol_Text, color::text);
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + inner);
-        ImGui::TextUnformatted(summary.value.c_str());
-        ImGui::PopTextWrapPos();
-        ImGui::PopStyleColor();
-        ImGui::PopFont();
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - Dp(6));
-        ImGui::PushFont(fonts.caption);
-        ImGui::PushStyleColor(ImGuiCol_Text, color::muted);
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + inner);
-        ImGui::TextUnformatted(summary.detail.c_str());
-        ImGui::PopTextWrapPos();
-        ImGui::PopStyleColor();
-        ImGui::PopFont();
-        // The whole card opens its settings page.
-        ImGui::SetCursorScreenPos(ImGui::GetWindowPos());
-        if (ImGui::InvisibleButton("##open", ImGui::GetWindowSize())) page_ = page;
-        const float hover = Animate(ImGui::GetID("##hover"), ImGui::IsItemHovered(), 12.0f);
-        if (hover > 0.0f)
-        {
-            const ImVec2 min = ImGui::GetWindowPos();
-            const ImVec2 max{min.x + ImGui::GetWindowSize().x, min.y + ImGui::GetWindowSize().y};
-            ImGui::GetWindowDrawList()->AddRect(min, max, Col(color::accent, 0.55f * hover), Dp(16), 0, Dp(1.5f));
-        }
-        ImGui::EndChild();
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor(2);
-    }
 
     void DrawBottomBar(ImVec2 origin, ImVec2 size, bool& quit)
     {
@@ -4456,7 +4524,8 @@ private:
             if (PrimaryButton("save_play", texts::T("launcher.play_prompt.save_play"), Dp(170, 42), true, Icon::Play))
             {
                 ImGui::CloseCurrentPopup();
-                if (Save() && PlayBlocker().empty()) Start(quit);
+                if (Save() && StartBlocker().empty()) Start(quit);
+                pending_replay_.reset(); // a replay that did not start is not kept for the next Play
             }
             ImGui::SameLine(0, Dp(10));
             if (SecondaryButton("discard_play", texts::T("launcher.play_prompt.discard_play"), Dp(170, 42)))
@@ -4464,11 +4533,15 @@ private:
                 ImGui::CloseCurrentPopup();
                 // Back to the saved settings; start only if they can still play.
                 Reload();
-                if (config_ok_ && PlayBlocker().empty()) Start(quit);
+                if (config_ok_ && StartBlocker().empty()) Start(quit);
+                pending_replay_.reset();
             }
             ImGui::SameLine(0, Dp(10));
             if (SecondaryButton("cancel_play", texts::T("launcher.play_prompt.cancel"), Dp(100, 42)) || CancelPressed())
+            {
                 ImGui::CloseCurrentPopup();
+                pending_replay_.reset();
+            }
             ImGui::EndPopup();
         }
         ImGui::PopStyleVar();
@@ -4505,11 +4578,11 @@ private:
     }
 
     // -------------------------------------------------------------- pages
+    // The game itself: its images, its language and its saves.
     void GamePage()
     {
         PageHeader(texts::T("launcher.game.title"), texts::T("launcher.game.about"));
-        if (options_.launch.disc || options_.launch.size || options_.launch.fullscreen || options_.launch.aspect
-            || options_.launch.frame_rate)
+        if (options_.launch.disc)
         {
             Chip(texts::T("launcher.game.command_line"), color::info, Icon::Info);
             ImGui::Dummy({0, Dp(2)});
@@ -4524,52 +4597,111 @@ private:
             Row(texts::T("launcher.game.language.text_language"),
                 texts::T("launcher.game.language.text_language_about"));
             LanguageControl();
-            Row(texts::T("launcher.game.language.menu_language"),
-                texts::T("launcher.game.language.menu_language_about"));
-            MenuLanguageControl();
             EndRows();
         }
         EndCard();
 
-        ScreenCard();
         SaveDataCard();
     }
 
+    // How the game opens and what draws it. The picture's own settings (VSync,
+    // frame rate, picture style...) change while the game runs, in its
+    // OPTIONS > SETTINGS > DISPLAY.
+    void GraphicsPage()
+    {
+        PageHeader(texts::T("launcher.graphics.title"), texts::T("launcher.graphics.about"));
+        if (options_.launch.size || options_.launch.fullscreen || options_.launch.aspect || options_.launch.frame_rate)
+        {
+            Chip(texts::T("launcher.game.command_line"), color::info, Icon::Info);
+            ImGui::Dummy({0, Dp(2)});
+        }
+        ScreenCard();
+        RendererCard();
+    }
+
     // What the game opens with: the window's size, the fullscreen resolution,
-    // the display and the antialiasing. Everything else about the picture
-    // changes while the game runs, in its OPTIONS > SETTINGS > DISPLAY.
+    // the display and the antialiasing.
     void ScreenCard()
     {
-        BeginCard("##screen", texts::T("launcher.game.screen.title"), texts::T("launcher.game.screen.about"),
+        BeginCard("##screen", texts::T("launcher.graphics.screen.title"), texts::T("launcher.graphics.screen.about"),
                   Icon::Display);
         if (BeginRows("##screen_rows"))
         {
-            Row(texts::T("launcher.game.screen.window_size.name"),
-                draft_.remember_window ? texts::T("launcher.game.screen.window_size.about_remembered")
-                                       : texts::T("launcher.game.screen.window_size.about"));
+            Row(texts::T("launcher.graphics.screen.window_size.name"),
+                draft_.remember_window ? texts::T("launcher.graphics.screen.window_size.about_remembered")
+                                       : texts::T("launcher.graphics.screen.window_size.about"));
             WindowSizeControl();
-            Row(texts::T("launcher.game.screen.fullscreen_resolution.name"),
-                texts::T("launcher.game.screen.fullscreen_resolution.about"));
+            Row(texts::T("launcher.graphics.screen.fullscreen_resolution.name"),
+                texts::T("launcher.graphics.screen.fullscreen_resolution.about"));
             FullscreenResolutionControl();
             if (displays_.size() > 1 || draft_.monitor > 0)
             {
-                Row(texts::T("launcher.game.screen.display.name"), texts::T("launcher.game.screen.display.about"));
+                Row(texts::T("launcher.graphics.screen.display.name"),
+                    texts::T("launcher.graphics.screen.display.about"));
                 DisplayChoice();
             }
-            Row(texts::T("launcher.game.screen.antialiasing.name"),
-                texts::T("launcher.game.screen.antialiasing.about"));
+            Row(texts::T("launcher.graphics.screen.antialiasing.name"),
+                texts::T("launcher.graphics.screen.antialiasing.about"));
             AntialiasingKindChoice();
             EndRows();
         }
         EndCard();
     }
 
-    // Game -> Menu language ([interface] language): Automatic or one of the
-    // languages of assets/lang, each by its own name. The launcher changes to
-    // it at once.
+    // What draws the game: the graphics API (a choice on Windows only), the
+    // graphics card (macOS has one) and the shaders compiled for them. What
+    // helps when the game does not start or shows glitches.
+    void RendererCard()
+    {
+        BeginCard("##renderer", texts::T("launcher.graphics.renderer.title"),
+                  texts::T("launcher.graphics.renderer.about"), Icon::Layers);
+        if (BeginRows("##renderer_rows"))
+        {
+#if defined(_WIN32)
+            // Automatic is its own choice: only it may switch to DirectX 12.
+            Row(texts::T("launcher.graphics.api.name"), texts::T("launcher.graphics.api.about"));
+            const char* automatic = texts::T("launcher.graphics.api.automatic");
+            const char* preview = draft_.backend == "auto" ? automatic : texts::T("launcher.graphics.api.choose");
+            for (const auto& choice : kGraphicsBackends)
+                if (draft_.backend == choice.value) preview = choice.label;
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::BeginCombo("##graphics_api", preview))
+            {
+                if (ImGui::Selectable(StableLabel(automatic, "auto").c_str(), draft_.backend == "auto"))
+                { draft_.backend = "auto"; dirty_ = true; }
+                for (const auto& choice : kGraphicsBackends)
+                    if (ImGui::Selectable(choice.label, draft_.backend == choice.value))
+                    { draft_.backend = choice.value; dirty_ = true; }
+                ImGui::EndCombo();
+            }
+#endif
+#if !defined(__APPLE__)
+            GraphicsCardRow();
+#endif
+            Row(texts::T("launcher.graphics.shader_cache.name"), texts::T("launcher.graphics.shader_cache.about"));
+            if (SecondaryButton("clear_shader_cache", texts::T("launcher.graphics.shader_cache.clear"),
+                                {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Refresh))
+            {
+                try
+                {
+                    const auto cleared = platform::ClearShaderCache(platform::ShaderCacheDirectory(base_));
+                    Notice(cleared.removed_files ? texts::T("launcher.graphics.shader_cache.cleared")
+                                                 : texts::T("launcher.graphics.shader_cache.empty"),
+                           NoticeKind::Success);
+                }
+                catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+            }
+            EndRows();
+        }
+        EndCard();
+    }
+
+    // Advanced -> Menu language ([interface] language): Automatic or one of
+    // the languages of assets/lang, each by its own name. The launcher changes
+    // to it at once.
     void MenuLanguageControl()
     {
-        const char* automatic = texts::T("launcher.game.language.automatic");
+        const char* automatic = texts::T("settings.advanced.interface.menu_language.automatic");
         const auto named = [this](const std::string& code) -> const texts::LanguageChoice* {
             for (const auto& choice : menu_languages_)
                 if (choice.code == code) return &choice;
@@ -4601,14 +4733,14 @@ private:
         if (draft_.interface_language == "auto")
         {
             const auto* found = named(texts::Language());
-            const std::string text = texts::T("launcher.game.language.automatic_is",
+            const std::string text = texts::T("settings.advanced.interface.menu_language.automatic_is",
                                               {{"language", found ? found->name : texts::Language()}});
             TextWrappedColored(fonts.caption, color::muted, text.c_str());
         }
         else if (!named(draft_.interface_language))
         {
             const std::string text =
-                texts::T("launcher.game.language.menu_language_missing", {{"language", draft_.interface_language}});
+                texts::T("settings.advanced.interface.menu_language.missing", {{"language", draft_.interface_language}});
             TextWrappedColored(fonts.caption, color::warning, text.c_str());
         }
     }
@@ -9123,14 +9255,6 @@ private:
         return draft_.aspect == "stretch" || (draft_.aspect == "16:9" && draft_.wider_view);
     }
 
-    static std::string FrameRateLabel(const std::string& value)
-    {
-        if (value == "original") return texts::T("settings.display.frame_rate_label.original");
-        if (value == "display") return texts::T("settings.display.frame_rate_label.display");
-        if (value == "unlimited") return texts::T("settings.display.frame_rate_label.unlimited");
-        return texts::T("settings.display.frame_rate_label.fps", {{"rate", value}});
-    }
-
     void AntialiasingKindChoice()
     {
         const mscharged::AntialiasingChoice* selected = nullptr;
@@ -11257,9 +11381,9 @@ private:
         EndCard();
     }
 
-    // The Super Team needs a Super Mario Strikers (GameCube) image: one of the
-    // game folder is taken when none is set; turning the tweak on without one
-    // asks for it.
+    // The Super Team ([gameplay] super_team, only in the settings file) needs a
+    // Super Mario Strikers (GameCube) image ([game] gamecube_disc): one of the
+    // game folder is taken when none is set.
     void PrefillGameCubeDisc()
     {
         if (!draft_.gamecube_disc.empty() || library_strikers_.empty()) return;
@@ -11271,87 +11395,6 @@ private:
             Notice(texts::T("settings.gameplay.super_team.uses_found",
                             {{"file", PathUtf8(library_strikers_.front().filename())}}),
                    NoticeKind::Success);
-    }
-
-    void BrowseGameCubeDisc()
-    {
-        // The dialog reads its filters until it closes; their names follow the
-        // language while no dialog is open (texts stay valid).
-        static SDL_DialogFileFilter filters[] = {{"", "iso;rvz;gcm;ISO;RVZ;GCM"}, {"", "*"}};
-        {
-            std::lock_guard<std::mutex> lock(gamecube_dialog_->mutex);
-            if (!gamecube_dialog_->active)
-            {
-                filters[0].name = texts::T("settings.gameplay.super_team.disc_images");
-                filters[1].name = texts::T("settings.gameplay.super_team.all_files");
-            }
-            gamecube_dialog_->active = true;
-        }
-        const fs::path current = draft_.gamecube_disc.empty() ? fs::path()
-                                                              : ResolveGameCubeDiscPath(draft_, file_.path);
-        const fs::path start = !current.empty() ? current.parent_path() : ResolveGameFolder(draft_, file_.path);
-        const std::string location = PathUtf8(start);
-        SDL_ShowOpenFileDialog(DiscChosen, new std::shared_ptr<DialogResult>(gamecube_dialog_), window_, filters,
-                               int(std::size(filters)), location.empty() ? nullptr : location.c_str(), false);
-    }
-
-    void GameCubeDiscChosen(const fs::path& path)
-    {
-        const DiscProbe probe = ProbeDisc(path);
-        if (probe.kind != DiscProbe::Kind::OtherGame || !IsStrikersGameId(probe.info.game_id))
-        {
-            Notice(texts::T("settings.gameplay.super_team.not_strikers", {{"file", PathUtf8(path.filename())}}),
-                   NoticeKind::Error);
-            return;
-        }
-        draft_.gamecube_disc = SettingsPath(path);
-        dirty_ = true;
-        Notice(texts::T("settings.gameplay.super_team.uses", {{"file", PathUtf8(path.filename())}}),
-               NoticeKind::Success);
-    }
-
-    void SuperTeamRows()
-    {
-        const auto index = GameTweakIndex(GameTweak::SuperTeam);
-        const auto& info = kGameTweaks[index];
-        Row(texts::TweakName(info), texts::TweakAbout(info));
-        if (Toggle("##tweak_super_team", &draft_.tweaks[index]))
-        {
-            dirty_ = true;
-            if (draft_.tweaks[index] && draft_.gamecube_disc.empty()) BrowseGameCubeDisc();
-        }
-        if (!draft_.tweaks[index]) return;
-        BeginSubRows();
-        Row(texts::T("settings.gameplay.super_team.side.name"), texts::T("settings.gameplay.super_team.side.about"));
-        const char* sides[] = {"away", "home", "both"};
-        int side = 0;
-        for (int i = 0; i < 3; ++i)
-            if (draft_.super_team_side == sides[i]) side = i;
-        if (Segmented("##super_team_side", &side,
-                      {texts::T("settings.gameplay.super_team.side.away"),
-                       texts::T("settings.gameplay.super_team.side.home"),
-                       texts::T("settings.gameplay.super_team.side.both")},
-                      ImGui::GetContentRegionAvail().x))
-        {
-            draft_.super_team_side = sides[side];
-            dirty_ = true;
-        }
-        bool browsing;
-        {
-            std::lock_guard<std::mutex> lock(gamecube_dialog_->mutex);
-            browsing = gamecube_dialog_->active;
-        }
-        const std::string path = draft_.gamecube_disc.empty()
-            ? std::string(texts::T("settings.gameplay.super_team.disc.none_found"))
-            : PathUtf8(ResolveGameCubeDiscPath(draft_, file_.path));
-        Row(texts::T("settings.gameplay.super_team.disc.name"), path.c_str());
-        const std::string label = draft_.gamecube_disc.empty()
-            ? std::string(texts::T("settings.gameplay.super_team.disc.choose"))
-            : PathUtf8(PathFromUtf8(draft_.gamecube_disc).filename());
-        if (SecondaryButton("gamecube_disc", label.c_str(), {ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight()},
-                            !browsing && config_ok_, Icon::Disc))
-            BrowseGameCubeDisc();
-        EndSubRows();
     }
 
     // A choice from a list: a button with the chosen label that opens the
@@ -11464,21 +11507,15 @@ private:
         if (Toggle(id.c_str(), &draft_.tweaks[index])) dirty_ = true;
     }
 
-    // What needs files, folders or the launcher: the Super Team (it reads a
-    // GameCube image), Training (it starts the game), texture packs and the
-    // development switch. The other gameplay options are the game's OPTIONS >
-    // GAMEPLAY.
+    // What needs files, folders or the launcher: texture packs, Training (it
+    // starts the game) and the replays. The other gameplay options are the
+    // game's OPTIONS > GAMEPLAY; the Super Team and the development switch for
+    // the menus are only in the settings file.
     void ExtrasPage()
     {
         PageHeader(texts::T("settings.extras.title"), texts::T("settings.extras.about"));
 
-        BeginCard("##super_team", texts::T("settings.extras.super_team.title"), nullptr, Icon::Trophy);
-        if (BeginRows("##super_team_rows"))
-        {
-            SuperTeamRows();
-            EndRows();
-        }
-        EndCard();
+        ModsCard();
 
         BeginCard("##training", texts::T("settings.gameplay.training.title"), nullptr, Icon::Pitch);
         if (BeginRows("##training_rows"))
@@ -11488,14 +11525,127 @@ private:
         }
         EndCard();
 
-        ModsCard();
+        ReplaysCard();
+    }
 
-        BeginCard("##development", texts::T("settings.extras.development.title"), nullptr, Icon::Sliders);
-        if (BeginRows("##development_rows"))
+    // Extras -> Replays: whether matches are kept ([replays] record), the
+    // newest ones to watch again and their folder.
+    static constexpr std::size_t kReplaysListed = 1000;
+    std::vector<replay::Listing> replay_list_;
+    std::size_t replay_total_ = 0;
+    std::uint64_t replay_listed_at_ = 0; // SDL ticks; the folder is read again every two seconds
+
+    void ReplaysCard()
+    {
+        const auto& fonts = CurrentFonts();
+        const fs::path folder = replay::ReplayFolder(base_);
+        if (const auto now = SDL_GetTicks(); !replay_listed_at_ || now - replay_listed_at_ >= 2000)
         {
-            TweakRow(GameTweak::OverrideRetailMenus);
+            replay_listed_at_ = now;
+            replay_list_ = replay::ListReplays(folder, kReplaysListed, &replay_total_);
+        }
+        BeginCard("##replays", texts::T("settings.replays.title"), texts::T("settings.replays.about"), Icon::Play);
+        if (BeginRows("##replays_rows"))
+        {
+            Row(texts::T("settings.replays.record.name"), texts::T("settings.replays.record.about"));
+            if (Toggle("##replays_record", &draft_.replays_record)) dirty_ = true;
             EndRows();
         }
+        auto* draw = ImGui::GetWindowDrawList();
+        const float width = ImGui::GetContentRegionAvail().x;
+        // Every replay on one line, newest first, the line a button that starts
+        // it; the list scrolls past six lines.
+        if (!replay_list_.empty())
+        {
+            const auto captain = [](int team) {
+                return team >= 0 && team < int(std::size(kCaptainNames)) && kCaptainNames[team] ? kCaptainNames[team]
+                                                                                              : "?";
+            };
+            const float line = Dp(42);
+            const float height = line * float(std::min<std::size_t>(replay_list_.size(), 6));
+            ImGui::Dummy({0, Dp(6)});
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0, 0, 0, 0});
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.0f, 0.0f});
+            ImGui::BeginChild("##replay_list", {width, height});
+            auto* list = ImGui::GetWindowDrawList();
+            const float row = ImGui::GetContentRegionAvail().x - (ImGui::GetScrollMaxY() > 0 ? Dp(8) : 0.0f);
+            for (std::size_t n = 0; n < replay_list_.size(); ++n)
+            {
+                const auto& listing = replay_list_[n];
+                const auto& info = listing.info;
+                const bool readable = listing.error.empty() && info.home_team >= 0;
+                const bool can = listing.error.empty() && config_ok_ && !pending_replay_;
+                std::string title, detail;
+                if (readable)
+                {
+                    title = texts::T("settings.replays.score",
+                                     {{"home", captain(info.home_team)}, {"away", captain(info.away_team)},
+                                      {"home_score", std::to_string(info.score[0])},
+                                      {"away_score", std::to_string(info.score[1])}});
+                    detail = LocalTime(info.created) + "  \xC2\xB7  " + replay::MatchLength(info.steps);
+                    if (info.training) detail += std::string("  \xC2\xB7  ") + texts::T("settings.replays.training");
+                }
+                else
+                {
+                    title = PathUtf8(listing.path.filename());
+                    detail = listing.error.empty() ? LocalTime(info.created) : texts::T("settings.replays.unreadable");
+                }
+                const ImVec2 pos = ImGui::GetCursorScreenPos();
+                ImGui::PushID(int(n));
+                ImGui::BeginDisabled(!can);
+                const bool pressed = ImGui::InvisibleButton("##replay", {row, line});
+                ImGui::EndDisabled();
+                const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+                const float hover = Animate(ImGui::GetItemID(), hovered && can, 14.0f);
+                const float middle = pos.y + line * 0.5f;
+                if (n > 0)
+                    list->AddLine({pos.x + Dp(10), pos.y}, {pos.x + row - Dp(10), pos.y}, Col(color::border, 0.7f));
+                if (hover > 0.0f)
+                    list->AddRectFilled({pos.x, pos.y + Dp(2)}, {pos.x + row, pos.y + line - Dp(2)},
+                                        Col(color::card_hover, hover), Dp(8));
+                // A play badge that lights up as the line is pointed at.
+                const ImVec2 badge{std::floor(pos.x + Dp(22)), std::floor(middle)};
+                list->AddCircleFilled(badge, Dp(13), Col(Mix(color::field, color::accent, hover)), 32);
+                DrawIcon(list, Icon::Play, {badge.x + Dp(1.5f), badge.y}, Dp(11),
+                         Col(can ? Mix(color::accent, color::accent_ink, hover) : color::dim));
+                const ImVec2 detail_size = TextSize(fonts.caption, detail.c_str());
+                const float text_x = pos.x + Dp(48), detail_x = pos.x + row - Dp(12) - detail_size.x;
+                const std::string shown = Elide(fonts.label, title, std::max(Dp(40), detail_x - Dp(16) - text_x));
+                const ImVec2 title_size = TextSize(fonts.label, shown.c_str());
+                DrawLabel(list, fonts.label, {text_x, middle - title_size.y * 0.5f},
+                          Col(readable ? color::text : color::muted), shown.c_str());
+                DrawLabel(list, fonts.caption, {detail_x, middle - detail_size.y * 0.5f},
+                          Col(listing.error.empty() ? color::muted : color::warning), detail.c_str());
+                if (hovered)
+                    ImGui::SetTooltip("%s", listing.error.empty()
+                                                ? (texts::T("settings.replays.watch") + std::string("\n")
+                                                   + PathUtf8(listing.path)).c_str()
+                                                : (listing.error + "\n" + PathUtf8(listing.path)).c_str());
+                if (pressed && can) AskReplay(listing.path);
+                ImGui::PopID();
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor();
+        }
+        // Under it: how many there are and where, and the folder's button.
+        ImGui::Dummy({0, Dp(6)});
+        const char* open = texts::T("settings.replays.open_folder");
+        const float open_width = GhostWidth(open, Icon::Folder);
+        const ImVec2 footer = ImGui::GetCursorScreenPos();
+        const float button = Dp(34);
+        const std::string about = replay_list_.empty()
+            ? std::string(texts::T("settings.replays.none"))
+            : texts::Count("settings.replays.count", int(replay_total_)) + "  \xC2\xB7  " + PathUtf8(folder);
+        const std::string about_shown = Elide(fonts.caption, about, width - open_width - Dp(16));
+        const ImVec2 about_size = TextSize(fonts.caption, about_shown.c_str());
+        DrawLabel(draw, fonts.caption, {footer.x, footer.y + (button - about_size.y) * 0.5f}, Col(color::muted),
+                  about_shown.c_str());
+        ImGui::SetCursorScreenPos({footer.x + width - open_width, footer.y});
+        std::error_code error;
+        if (GhostButton("open_replays", open, {open_width, button}, fs::is_directory(folder, error), Icon::Folder))
+            OpenPath(folder);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", PathUtf8(folder).c_str());
         EndCard();
     }
 
@@ -11634,24 +11784,6 @@ private:
             PackDropZone();
         ImGui::EndDisabled();
 
-        ImGui::Dummy({0, Dp(6)});
-        if (BeginRows("##dump_rows"))
-        {
-            Row(texts::T("settings.gameplay.mods.dump.name"), texts::T("settings.gameplay.mods.dump.about"));
-            if (Toggle("##dump_textures", &draft_.dump_textures)) dirty_ = true;
-            const fs::path dumps = DataFolder(base_) / "texture_dumps";
-            std::error_code error;
-            ImGui::SameLine(0, Dp(12));
-            const char* open = texts::T("settings.gameplay.mods.dump.open");
-            if (GhostButton("open_dumps", open, {GhostWidth(open, Icon::Folder), Dp(30)},
-                            fs::is_directory(dumps, error), Icon::Folder))
-                OpenPath(dumps);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s", fs::is_directory(dumps, error)
-                                            ? PathUtf8(dumps).c_str()
-                                            : texts::T("settings.gameplay.mods.dump.not_made"));
-            EndRows();
-        }
         ImGui::Dummy({0, Dp(2)});
         TextWrappedColored(fonts.caption, color::muted, texts::T("settings.gameplay.mods.bug_report_note"));
         EndCard();
@@ -11984,12 +12116,19 @@ private:
         ImGui::PopID();
     }
 
+    // The launcher itself, its updates and where Recharged keeps its files.
+    // The options for testing and development are only in the settings file
+    // (docs/SETTINGS.md); the game's diagnostics are its OPTIONS > SETTINGS >
+    // ADVANCED.
     void AdvancedPage()
     {
         PageHeader(texts::T("settings.advanced.title"), texts::T("settings.advanced.about"));
         BeginCard("##interface", texts::T("settings.advanced.interface.title"), nullptr, Icon::Sliders);
         if (BeginRows("##interface_rows"))
         {
+            Row(texts::T("settings.advanced.interface.menu_language.name"),
+                texts::T("settings.advanced.interface.menu_language.about"));
+            MenuLanguageControl();
             Row(texts::T("settings.advanced.interface.launcher_size.name"),
                 texts::T("settings.advanced.interface.launcher_size.about"));
             const char* preview = draft_.ui_scale.c_str();
@@ -12022,101 +12161,25 @@ private:
         }
         EndCard();
 
-        // What helps when the game does not start or runs badly; the other
-        // diagnostics are the game's OPTIONS > SETTINGS > ADVANCED.
-        BeginCard("##troubleshooting", texts::T("settings.advanced.troubleshooting.title"),
-                  texts::T("settings.advanced.troubleshooting.about"), Icon::Info);
-        if (BeginRows("##troubleshooting_rows"))
-        {
-#if defined(_WIN32)
-            // Automatic is its own choice: only it may switch to DirectX 12.
-            Row(texts::T("settings.advanced.graphics.api.name"),
-                texts::T("settings.advanced.graphics.api.about_windows"));
-            const char* automatic = texts::T("settings.advanced.graphics.api.automatic");
-            const char* preview =
-                draft_.backend == "auto" ? automatic : texts::T("settings.advanced.graphics.api.choose");
-            for (const auto& choice : kGraphicsBackends)
-                if (draft_.backend == choice.value) preview = choice.label;
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::BeginCombo("##graphics_api", preview))
-            {
-                if (ImGui::Selectable(StableLabel(automatic, "auto").c_str(), draft_.backend == "auto"))
-                { draft_.backend = "auto"; dirty_ = true; }
-                for (const auto& choice : kGraphicsBackends)
-                    if (ImGui::Selectable(choice.label, draft_.backend == choice.value))
-                    { draft_.backend = choice.value; dirty_ = true; }
-                ImGui::EndCombo();
-            }
-#else
-            Row(texts::T("settings.advanced.graphics.api.name"), texts::T("settings.advanced.graphics.api.about"));
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + Dp(4));
-            Chip(kGraphicsBackends.front().label, color::info);
-#endif
-#if !defined(__APPLE__)
-            GraphicsCardRow();
-#endif
-            Row(texts::T("settings.advanced.diagnostics.log_detail.name"),
-                texts::T("settings.advanced.diagnostics.log_detail.about"));
-            int level = kDefaultLogLevel;
-            for (int i = 0; i < int(kLogLevels.size()); ++i) if (draft_.log_level == kLogLevels[std::size_t(i)].value) level = i;
-            if (Segmented("##log_level", &level,
-                          {texts::ChoiceLabel("log_levels", kLogLevels[0]),
-                           texts::ChoiceLabel("log_levels", kLogLevels[1]),
-                           texts::ChoiceLabel("log_levels", kLogLevels[2]),
-                           texts::ChoiceLabel("log_levels", kLogLevels[3])},
-                          ImGui::GetContentRegionAvail().x))
-            { draft_.log_level = kLogLevels[std::size_t(level)].value; dirty_ = true; }
-
-            const auto recordings = base_ / "logs";
-            const auto recordingsFolder = PathUtf8(recordings);
-            Row(texts::T("settings.advanced.diagnostics.recordings"), recordingsFolder.c_str());
-            if (SecondaryButton("open_frame_recordings", texts::T("settings.advanced.diagnostics.open_folder"),
-                                {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Folder))
-            {
-                std::error_code error;
-                fs::create_directories(recordings, error);
-                OpenPath(recordings);
-            }
-
-            Row(texts::T("settings.advanced.diagnostics.shader_cache.name"),
-                texts::T("settings.advanced.diagnostics.shader_cache.about"));
-            if (SecondaryButton("clear_shader_cache", texts::T("settings.advanced.diagnostics.shader_cache.clear"),
-                                {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Refresh))
-            {
-                try
-                {
-                    const auto cleared = platform::ClearShaderCache(platform::ShaderCacheDirectory(base_));
-                    Notice(cleared.removed_files ? texts::T("settings.advanced.diagnostics.shader_cache.cleared")
-                                                 : texts::T("settings.advanced.diagnostics.shader_cache.empty"),
-                           NoticeKind::Success);
-                }
-                catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
-            }
-            EndRows();
-        }
-        EndCard();
-
-        BeginCard("##configuration", texts::T("settings.advanced.configuration.title"), nullptr, Icon::Sliders);
-        if (BeginRows("##configuration_rows"))
+        BeginCard("##files", texts::T("settings.advanced.files.title"), nullptr, Icon::Folder);
+        if (BeginRows("##files_rows"))
         {
             const std::string settings_path = PathUtf8(file_.path);
-            Row(texts::T("settings.advanced.configuration.settings_file"), settings_path.c_str());
-            if (SecondaryButton("open_settings", texts::T("settings.advanced.configuration.open_folder"),
+            Row(texts::T("settings.advanced.files.settings_file"), settings_path.c_str());
+            if (SecondaryButton("open_settings", texts::T("settings.advanced.files.open_folder"),
                                 {ImGui::GetContentRegionAvail().x, Dp(40)}, fs::exists(file_.path.parent_path()),
                                 Icon::Folder))
                 OpenPath(file_.path.parent_path());
 
-            Row(texts::T("settings.advanced.configuration.command.name"),
-                texts::T("settings.advanced.configuration.command.about"));
-            if (SecondaryButton("copy_command", texts::T("settings.advanced.configuration.command.copy"),
-                                {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Copy))
+            const auto logs = base_ / "logs";
+            const auto logs_folder = PathUtf8(logs);
+            Row(texts::T("settings.advanced.files.logs"), logs_folder.c_str());
+            if (SecondaryButton("open_logs", texts::T("settings.advanced.files.open_folder"),
+                                {ImGui::GetContentRegionAvail().x, Dp(40)}, true, Icon::Folder))
             {
-                const auto command = LaunchCommand();
-                if (SDL_SetClipboardText(command.c_str()))
-                    Notice(texts::T("settings.advanced.configuration.command.copied"), NoticeKind::Success);
-                else
-                    Notice(texts::T("settings.advanced.configuration.command.cannot_copy", {{"error", SDL_GetError()}}),
-                           NoticeKind::Error);
+                std::error_code error;
+                fs::create_directories(logs, error);
+                OpenPath(logs);
             }
             EndRows();
         }
@@ -12763,7 +12826,6 @@ private:
     std::vector<SDL_DisplayID> display_ids_;
     std::shared_ptr<DialogResult> dialog_ = std::make_shared<DialogResult>();
     std::shared_ptr<DialogResult> folder_dialog_ = std::make_shared<DialogResult>();
-    std::shared_ptr<DialogResult> gamecube_dialog_ = std::make_shared<DialogResult>();
     FolderPurpose folder_purpose_ = FolderPurpose::SaveFolder;
     // The texture packs folder's packs (Gameplay -> Mods), read in the background.
     std::future<std::vector<platform::TexturePack>> texture_scan_;
@@ -12885,6 +12947,7 @@ private:
     std::unique_ptr<ServerMessageFetch> server_message_fetch_;
     std::optional<ServerMessage> server_message_;
     std::vector<NoteBlock> server_message_blocks_;
+    float message_height_ = 0.0f; // the message's height last frame, for the Play page's layout
     // Update check and installation (#50).
     std::unique_ptr<UpdateService> updates_;
     // Competitive play: the service, what it showed last, the sign-in page
@@ -13125,7 +13188,9 @@ int main(int argc, char** argv)
         + unsigned(options.experimental_options);
     const bool launcher_requested = options.launcher || options.smoke_test
         || !options.screenshot.empty() || options.page_selected;
-    // --disc, or --training, starts the game without the launcher.
+    // --disc, or --training, starts the game without the launcher. A replay
+    // without --disc opens the launcher, which finds the image it was
+    // recorded with and starts it.
     if (!runtime_modes && (options.launch.disc || options.launch.training) && !launcher_requested)
     {
         options.experimental_frontend = true;
@@ -13264,6 +13329,9 @@ int main(int argc, char** argv)
         int result;
         fs::path restart, reopen;
         bool reopen_on = false;
+        // A replay on the command line (opening a .msc file): the launcher is
+        // not opened again after it, as it would get that replay once more.
+        const bool replay_argument = options.launch.replay.has_value();
         {
             Launcher launcher;
             result = launcher.Run(std::move(options));
@@ -13275,7 +13343,8 @@ int main(int argc, char** argv)
             else if (frontend_launch)
             {
                 reopen = launcher.RestartExecutable();
-                reopen_on = frontend_launch->settings.reopen_after_game || frontend_launch->start_competitive;
+                reopen_on = (frontend_launch->settings.reopen_after_game || frontend_launch->start_competitive)
+                    && !replay_argument;
             }
         } // Destroy the launcher/ImGui/SDL session before Aurora initializes.
         if (!restart.empty())

@@ -253,9 +253,6 @@ struct Settings
     // launcher.test_build: the pull request whose test builds the test channel
     // follows, chosen on the Play page; 0 for the running test build's own.
     int test_build = 0;
-    // launcher.dismissed_message: the server's message (its id) the player
-    // closed on the Play page; 0 for none.
-    int dismissed_message = 0;
     // replays.record: every offline match is kept as a replay
     // (replays/replay_<time>.msc beside the program).
     bool replays_record = true;

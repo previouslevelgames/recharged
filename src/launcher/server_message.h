@@ -16,8 +16,8 @@ namespace mscharged::launcher
 // The WFC server's message for the Play page (a restart tonight, a tournament
 // on Sunday), which its admins post on the dashboard's Maintenance page:
 // GET <online.profile_server>/api/v1/message (Recharged WFC 1.2.25 and
-// later), asked once when the launcher starts. The player closes it on the
-// Play page ([launcher] dismissed_message) until the server posts another.
+// later), asked once when the launcher starts. It shows until it ends (or the
+// server takes it away).
 struct ServerMessage
 {
     std::int64_t id = 0;  // new for every post

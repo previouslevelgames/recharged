@@ -72,6 +72,8 @@ macOS. Once installed, the launcher keeps Recharged up to date in place.
   and high frame rates while the game keeps its original speed.
 - **Optional tweaks** such as skipping the intro or unlocking everything, three
   fixed bugs of the original game, and Dolphin texture packs.
+- **Replays** of every offline match, to watch again or send to a friend
+  ([replays](docs/REPLAYS.md)).
 
 See the [feature list](docs/FEATURES.md) and the
 [default controls](docs/FEATURES.md#default-bindings).
@@ -155,7 +157,8 @@ and [CONTRIBUTING](CONTRIBUTING.md) for how to report it.
 | [Steam Deck guide](docs/STEAM_DECK.md) | [Building from source](docs/BUILDING.md) |
 | [Nintendo Switch guide](docs/SWITCH.md) (homebrew) | [Dependencies](extern/README.md) |
 | [Features and controls](docs/FEATURES.md) | [Licenses](LICENSES/README.md) |
-| [Settings](docs/SETTINGS.md): Wii Remotes, saves, updates, options | [Contributing](CONTRIBUTING.md): reports, ideas, pull requests |
+| [Replays](docs/REPLAYS.md): watch your matches again | [Contributing](CONTRIBUTING.md): reports, ideas, pull requests |
+| [Settings](docs/SETTINGS.md): Wii Remotes, saves, updates, options | |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | |
 
 ## Credits

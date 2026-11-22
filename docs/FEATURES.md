@@ -104,9 +104,9 @@ play.
 
 ## Picture and sound
 
-- Vulkan on Linux, Vulkan or DirectX 12 on Windows (Advanced → Troubleshooting
+- Vulkan on Linux, Vulkan or DirectX 12 on Windows (Graphics → Rendering
   → Graphics API), Metal on macOS; on PCs with two GPUs, a choice of graphics
-  card (Advanced → Troubleshooting → Graphics card).
+  card (Graphics → Rendering → Graphics card).
 - Window or fullscreen on any monitor, at a resolution your graphics card
   offers (fullscreen keeps the display's own unless you pick another);
   Alt+Enter switches while playing. The window reopens at the size and place
@@ -123,7 +123,7 @@ play.
   into the window; **Original TV** keeps the console's TV look, optionally with
   the empty border a Wii sends around its picture.
 - **Antialiasing**: 4x MSAA by default, or FXAA, 4x MSAA + FXAA, or 4x SSAA,
-  which also smooths the edges inside textures (Game → Screen → Antialiasing).
+  which also smooths the edges inside textures (Graphics → Screen → Antialiasing).
 - **Performance mode** (the game's Settings → Display): lighter matches without
   antialiasing, crowd, background NPCs, ambient effects, bloom or stadium
   shadows. Gameplay, hazards and their effects remain unchanged.
@@ -156,8 +156,8 @@ shots pass through the goalies
 and no star with "x3" flashes in the top corners when the HUD leaves the
 screen after a goal
 ([#68](https://github.com/previouslevelgames/recharged/issues/68)).
-The game's **OPTIONS → GAMEPLAY** (or `[gameplay]` in `recharged.ini`) turns them on; the Super Team
-is on the launcher's **Extras** page, as it needs a GameCube image:
+The game's **OPTIONS → GAMEPLAY** (or `[gameplay]` in `recharged.ini`) turns them on; the Super Team,
+still unfinished, only `super_team = true` in `recharged.ini`:
 
 - **Skip intro**: start at the main menu, without the notice screens, studio
   logo, intro movie and title screen.
@@ -235,9 +235,9 @@ is on the launcher's **Extras** page, as it needs a GameCube image:
   goalie; Recharged lays it onto Charged's goalie (assets/gameplay). Only the
   look changes.
 - **Super Team** (work in progress): the captain and sidekicks of a team (the away team, the home
-  team or both) become the Super Team's robots. Their model comes from your own
+  team or both: `super_team_side = away`, `home` or `both`) become the Super Team's robots. Their model comes from your own
   Super Mario Strikers (GameCube) disc image: the launcher finds one in your
-  game folder, or asks for it when you turn the option on. Each robot is fitted
+  game folder (`[game] gamecube_disc` sets another). Each robot is fitted
   to its character's size and keeps the character's animations and play;
   Bowser, Petey Piranha and Boo keep their own look.
 
@@ -281,6 +281,13 @@ different versions never meet. **Release / Test** on the Play page switches betw
 official releases and test builds of changes not yet released, and back,
 asking before it installs anything; with several changes in testing, Test
 lets you choose which one to follow ([updates](SETTINGS.md#updates)).
+
+## Replays
+
+Every offline match is kept as a small replay file (a few KB a minute: the
+match's start and the players' inputs). The launcher's Extras page lists them;
+watching one plays the match again, up to four times as fast, and pauses it.
+You can send a replay to a friend with the same game ([replays](REPLAYS.md)).
 
 ## Texture packs
 

@@ -59,7 +59,7 @@ can also quarantine new unsigned programs; restore the file and allow it.
 - Update the graphics driver, from the GPU maker (Intel, AMD, NVIDIA) or the
   PC maker. Vulkan refuses Intel drivers below 101.2111, the last two parts of
   the driver version (as in 31.0.**101.2111**).
-- On a laptop with two GPUs, **Advanced → Troubleshooting → Graphics card** chooses the one that
+- On a laptop with two GPUs, **Graphics → Rendering → Graphics card** chooses the one that
   draws. If only the built-in GPU is listed, the other one is switched off:
   check Device Manager → Display adapters and the laptop's GPU mode (Hybrid or
   dedicated rather than integrated only).

@@ -390,9 +390,6 @@ update_channel = auto
 # Test channel: the pull request whose test builds to follow (Test on the
 # Play page chooses it when several are open); 0 for this test build's own.
 test_build = 0
-# The server's message on the Play page that you closed (it shows again when
-# the server posts a new one).
-dismissed_message = 0
 
 [discord]
 # Show the menu or match you are in as your Discord status, while the Discord

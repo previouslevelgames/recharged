@@ -24,7 +24,8 @@ Everything stays in the program folder:
 | `data/launcher/` | What the launcher found in your game images, and their banners |
 | `data/online/` | Your competitive play sign-in and your Discord friends' link, one file each per settings file (readable only by you) |
 | `texture_packs/` | Texture packs (or the folder set under *Extras → Mods*) |
-| `data/texture_dumps/` | The game's textures, when *Dump textures* is on |
+| `data/texture_dumps/` | The game's textures, when `[mods] dump_textures` is on |
+| `replays/` | A replay of every offline match ([replays](REPLAYS.md)) |
 | `logs/recharged.log` | The log of the last run |
 | `screenshots/` | Screenshots taken with the screenshot key (**P** by default), in the folder the game was started from |
 
@@ -71,14 +72,14 @@ disc.
 ## Graphics
 
 **Graphics API.** Linux uses Vulkan and macOS uses Metal. On Windows,
-**Advanced → Graphics API** chooses Automatic, Vulkan or DirectX 12 for the next
+**Graphics → Rendering → Graphics API** chooses Automatic, Vulkan or DirectX 12 for the next
 start (`[display] backend = auto`, `vulkan` or `d3d12`). Automatic uses Vulkan
 and switches to DirectX 12 when Vulkan cannot start, for example when the
 graphics driver is too old for it. A chosen API is never switched: if it fails,
 the game says so. Keep the shader compiler DLLs from the Windows package beside
 `recharged.exe`.
 
-**Graphics card** (Windows and Linux, **Advanced → Graphics card**,
+**Graphics card** (Windows and Linux, **Graphics → Rendering → Graphics card**,
 `[display] gpu`). *Automatic* draws with the fastest card; on a PC with two
 (a gaming laptop, say) you can choose one. The launcher lists the cards
 Windows offers (on Linux, those with a Vulkan driver) and stores the choice as
@@ -98,7 +99,7 @@ prepared from the next start on. The log records each one
 (`Graphics: new pipeline compiled while drawing in … ms`); attaching such a
 log to an issue gets the pipeline added to the package for everyone.
 
-**Clear shader cache** (Advanced → Troubleshooting) removes the compiled
+**Clear shader cache** (Graphics → Rendering) removes the compiled
 shaders and the pipelines learned on this PC. The next start prepares the
 bundled list again. Saves, settings and frame recordings are kept.
 
@@ -146,7 +147,7 @@ resolution is not Full, **Upscaling** scales it to the screen smoothly
 (`tv_border = true`) also shows the empty border a Wii sends around its
 picture, which a TV hides.
 
-**Window size** and **Fullscreen resolution** (launcher: Game → Screen) list the
+**Window size** and **Fullscreen resolution** (launcher: Graphics → Screen) list the
 sizes your graphics card offers for the display. The window's size (`[display] width` and
 `height`), of the picture's shape while the window keeps it; a size larger
 than a window can take there opens as the largest window that fits. The game
@@ -162,10 +163,10 @@ display or shown with bars.
 the whole display, at the resolution chosen for it, and is kept for the next
 start. **Alt+Enter** (Option+Return on a Mac, the `fullscreen` hotkey) switches
 between fullscreen and a window for that run only; that Enter never presses A.
-**Display** (Game → Screen, `[display] monitor`) chooses the screen the game
+**Display** (Graphics → Screen, `[display] monitor`) chooses the screen the game
 opens on when there are several.
 
-**Antialiasing** (launcher: Game → Screen → Antialiasing, `[display] antialiasing`,
+**Antialiasing** (launcher: Graphics → Screen → Antialiasing, `[display] antialiasing`,
 from the next start) smooths
 jagged edges. **4x MSAA** (`4x`, the default) smooths the edges of 3D shapes.
 **FXAA** (`fxaa`) smooths the finished picture at almost no cost, but softens
@@ -503,9 +504,26 @@ kit is found by colour); the Super Team keeps its own look. Outside matches a
 recoloured image shows only once it is ready, so the game can stop for a moment
 the first time one appears; during a match they load in the background too.
 
-**Dump textures** (`[mods] dump_textures`) is for pack makers: each
-texture no pack replaces is saved to `data/texture_dumps` as a `.dds` file
-named as packs need it.
+**Dump textures** (`[mods] dump_textures = true`, only in `recharged.ini`) is
+for pack makers: each texture no pack replaces is saved to `data/texture_dumps`
+as a `.dds` file named as packs need it.
+
+## Replays
+
+Every offline match (Domination, Training and the Cup's matches) is kept as a
+replay: `replays/replay_<date>-<time>.msc` beside the program, about 5 KB a
+minute. Watch them in the launcher's **Extras → Replays**, where **Keep
+replays** is `record`.
+
+```ini
+[replays]
+record = true   # false keeps no replays
+keep = 100      # the newest 100 stay, older ones are deleted; 0 keeps all
+```
+
+Only files whose names begin with `replay_` are ever deleted: rename a replay
+to keep it. Watching, the speed keys, the game image a replay needs and
+sharing replays are explained in [replays](REPLAYS.md).
 
 ## Discord status
 
@@ -562,9 +580,8 @@ out, **Player profile** shows what playing online brings and its two ways in,
 **Connect Discord** and **Play with a Mii**, and the pages that need the
 sign-in point there. A private server's `https://` address (from its admins) goes in
 `[online] profile_server`; only the file changes it. When that server's admins
-post a message (a restart, an event), the Play page shows it in the place of
-its summary cards until it ends; its close button hides it until they post
-another (`[launcher] dismissed_message`). A set is a series against
+post a message (a restart, an event), the Play page shows it at its top
+until it ends. A set is a series against
 one player, by the rules its challenge set: game length or goal limit, the
 games of the series, the stadium, the game's stadium, player and power-up
 cheats, and the *Competitive gameplay* tweaks both teams play with (the skill
@@ -691,7 +708,7 @@ in the original. The log's `Competitive:` lines tell what it did.
 
 ## The launcher
 
-**Menu language** (Game page, `[interface] language`, `auto` by default) is the
+**Menu language** (Advanced → Interface, `[interface] language`, `auto` by default) is the
 language of Recharged's own menus and messages, in the launcher and in the game:
 `auto` follows the PC's language when Recharged has it, else English. The game's
 own texts follow its text language. The translations are files in
@@ -765,6 +782,7 @@ These options override the INI for one run, without saving:
 | `--frame-rate original\|display\|unlimited\|FPS` | Frame rate |
 | `--no-tweaks` | All `[gameplay]` tweaks off (the bug fixes stay) |
 | `--training` | Start training: straight into a training match |
+| `--replay FILE` | Play a replay ([replays](REPLAYS.md)); a `.msc` file alone does the same |
 | `--config FILE` | Use another INI file |
 | `--launcher` | Open the launcher even with `--disc` |
 
@@ -775,9 +793,9 @@ These options override the INI for one run, without saving:
 Each run writes `logs/recharged.log` beside the program: settings, devices,
 graphics adapter, warnings and errors. Attach it to an
 [issue](https://github.com/previouslevelgames/recharged/issues) when reporting a
-problem; it can contain your user name in paths. **Log detail** (launcher:
-Advanced → Troubleshooting, or the game's Settings → Advanced) and the game's
-**Verbose console** add more detail. With Log detail at *Debug*
+problem; it can contain your user name in paths. **Log detail** (the game's
+Settings → Advanced, `[advanced] log_level`) and the game's **Verbose console**
+add more detail. With Log detail at *Debug*
 (`[advanced] log_level = debug`) every line begins with its time, and the log
 also gets the WFC library's reports of the online login and of finding and
 connecting to an opponent. The lines of competitive sets (`Competitive:`)

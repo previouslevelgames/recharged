@@ -121,7 +121,6 @@ Values Encode(const Settings& s)
             {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
             {"launcher.test_build", std::to_string(s.test_build)},
-            {"launcher.dismissed_message", std::to_string(s.dismissed_message)},
             {"replays.record", s.replays_record ? "true" : "false"},
             {"replays.keep", std::to_string(s.replays_keep)},
             {"discord.rich_presence", s.discord_status ? "true" : "false"},
@@ -441,7 +440,6 @@ Settings Decode(const Values& values, bool builtin = false)
     boolean("launcher.show_welcome", s.show_welcome);
     choice("launcher.update_channel", s.update_channel, {"auto", "release", "test"});
     number("launcher.test_build", s.test_build, 0, 999999999);
-    number("launcher.dismissed_message", s.dismissed_message, 0, 2000000000);
     boolean("replays.record", s.replays_record);
     number("replays.keep", s.replays_keep, 0, 100000);
     boolean("discord.rich_presence", s.discord_status);
