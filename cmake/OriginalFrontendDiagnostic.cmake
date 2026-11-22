@@ -193,6 +193,9 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     # Simulation profiles: the rules a network match between releases plays by
     # (tweak patches 0066 and 0067).
     target_sources(${target} PRIVATE src/platform/sim_profile.cpp)
+    # Match replays: the game's own input recorder writes every offline match
+    # and plays a replay back through the port (tweak patch 0071).
+    target_sources(${target} PRIVATE src/platform/match_replay.cpp src/platform/match_replay_stream.cpp)
     # The original game's globals in sections of their own (rbk_data/rbk_bss),
     # which a rollback saves with the arenas: a linker script on ELF (GNU ld,
     # lld; a static game image takes its sections into the image's data), and

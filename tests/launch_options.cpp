@@ -157,6 +157,27 @@ int main()
             Check(trained.start_training && trained.settings.GameTweakMask() == 0 && !played.start_training,
                 "--training did not start training, or changed the tweaks");
         }
+        // --replay FILE, or a .msc file alone (as opening it passes it).
+        Check(*Parse({"test", "--replay", "a.msc"}).replay == fs::path("a.msc")
+                && *Parse({"test", "--replay=b c.msc"}).replay == fs::path("b c.msc")
+                && *Parse({"test", "Final.MSC"}).replay == fs::path("Final.MSC") && !Parse({"test", "--window"}).replay,
+            "--replay not parsed");
+        {
+            LaunchOptions other;
+            const char* not_replay[] = {"test", "notes.txt"}; int at = 1;
+            Check(!ParseLaunchOption(2, not_replay, at, other) && !other.replay, "Any file taken as a replay");
+            const char* dashed[] = {"test", "-x.msc"}; at = 1;
+            Check(!ParseLaunchOption(2, dashed, at, other) && !other.replay, "An option taken as a replay");
+        }
+        Reject([&] { Parse({"test", "--replay"}); });
+        {
+            LaunchOptions replay; replay.replay = fs::path("replays/one.msc");
+            const auto played = ResolveLaunch(file, replay, nullptr, root / "working");
+            Check(played.replay_path == root / "working/replays/one.msc" && ResolveLaunch(file, {}).replay_path.empty(),
+                "--replay not resolved against the working directory");
+            LaunchOptions empty; empty.replay = fs::path();
+            Reject([&] { ResolveLaunch(file, empty); });
+        }
         // --frame-rate: this run's display.frame_rate, apart from the tweaks.
         for (const char* value : {"original", "display", "unlimited", "30", "120", "144", "1000"})
             Check(*Parse({"test", "--frame-rate", value}).frame_rate == value, "--frame-rate value not parsed");

@@ -8,6 +8,7 @@
 #error Game tweaks belong to the isolated original game module built with MSCHARGED_TWEAKS
 #endif
 #include "mscharged_tweaks.h"
+#include "platform/game_tweak_state.h"
 #include "platform/tweak_frame_state.h"
 
 #include <atomic>
@@ -709,3 +710,44 @@ void mscharged_tweak_load_frame_state(const MschargedTweakFrameState* state)
     sOriginalFrame = state->frame;
 }
 }
+
+namespace mscharged::platform
+{
+// Match replays (match_replay.cpp): what a recording keeps and a replay sets
+// again before its match.
+unsigned EnabledTweaks()
+{
+    return sEnabled;
+}
+
+void SetEnabledTweaks(unsigned mask)
+{
+    sEnabled = mask;
+}
+
+TrainingTweakState GetTrainingTweakState()
+{
+    TrainingTweakState state;
+    state.item = sTrainingItem;
+    state.item_count = sTrainingItemCount;
+    state.item_giant = sTrainingItemGiant;
+    state.away_fielders = sTrainingAwayFielders;
+    state.away_goalie = sTrainingAwayGoalie;
+    state.away_skill = sTrainingAwaySkill;
+    state.play_away = sTrainingPlayAway;
+    state.skip_goal = sTrainingSkipGoal;
+    return state;
+}
+
+void SetTrainingTweakState(const TrainingTweakState& state)
+{
+    sTrainingItem = state.item;
+    sTrainingItemCount = state.item_count == 3 || state.item_count == 5 ? state.item_count : 1;
+    sTrainingItemGiant = state.item_giant;
+    sTrainingAwayFielders = state.away_fielders < 0 ? 0 : state.away_fielders > 4 ? 4 : state.away_fielders;
+    sTrainingAwayGoalie = state.away_goalie;
+    sTrainingAwaySkill = state.away_skill < -1 ? -1 : state.away_skill > 5 ? 5 : state.away_skill;
+    sTrainingPlayAway = state.play_away;
+    sTrainingSkipGoal = state.skip_goal;
+}
+} // namespace mscharged::platform

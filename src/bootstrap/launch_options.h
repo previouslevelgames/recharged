@@ -24,6 +24,8 @@ struct LaunchOptions
     std::optional<std::string> frame_rate;
     bool no_tweaks = false; // --no-tweaks: play without the [gameplay] tweaks
     bool training = false;  // --training: Start training
+    // --replay FILE (or a .msc file alone): play that match again.
+    std::optional<std::filesystem::path> replay;
 };
 
 enum class SettingSource { Defaults, Config, Launcher, CommandLine, GameMode };
@@ -42,6 +44,9 @@ struct ResolvedLaunch
     // Start training (--training or the launcher's button): the game goes from
     // the title straight into a training match.
     bool start_training = false;
+    // A replay (--replay): the game goes from the title straight into the
+    // recorded match and plays it back; empty for none.
+    std::filesystem::path replay_path;
     // When the launcher that starts the game found this build up to date
     // (seconds since 1970), 0 when it did not: the game's online check
     // (launcher/online_gate.h) then needs no request of its own.
@@ -75,11 +80,12 @@ void ApplyGameModeDisplay(ResolvedLaunch& launch, bool game_mode);
 std::string DescribeLaunch(const ResolvedLaunch& launch);
 const char* SettingSourceName(SettingSource source);
 inline constexpr std::string_view LaunchOptionsHelp =
-    "Launch settings: [--config FILE] [--disc FILE | --disk FILE] [--window | --fullscreen] [--size WIDTHxHEIGHT] [--aspect auto|4:3|16:9|stretch] [--frame-rate original|display|unlimited|FPS] [--no-tweaks] [--training]\n"
+    "Launch settings: [--config FILE] [--disc FILE | --disk FILE] [--window | --fullscreen] [--size WIDTHxHEIGHT] [--aspect auto|4:3|16:9|stretch] [--frame-rate original|display|unlimited|FPS] [--no-tweaks] [--training] [--replay FILE]\n"
     "Command-line settings override the INI for this run only; later options win.\n"
     "--frame-rate takes original, display, unlimited or 30 to 1000 frames per second.\n"
     "--no-tweaks turns the [gameplay] tweaks off for this run.\n"
     "--training goes from the title straight into a training match.\n"
+    "--replay FILE (or the .msc file alone) plays a recorded match again; with --disc it starts at once.\n"
     "Options with values accept --option VALUE or --option=VALUE, before or after the runtime mode.\n"
     "INI disc paths are relative to that INI; command-line paths are relative to the working directory.\n";
 }

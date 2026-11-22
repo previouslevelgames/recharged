@@ -23,6 +23,9 @@
 #include "platform/disc.h"
 #include "platform/disc_message_images.h"
 #include "platform/game_release.h"
+#include "platform/match_replay_file.h"
+#include "platform/match_replay_status.h"
+#include "platform/match_replay_stream.h"
 #include "platform/pc_languages.h"
 #include <aurora/event.h>
 #include <aurora/gfx.h>
@@ -153,6 +156,39 @@ constexpr std::uint32_t kFifoDrainBytes=64u<<20;
 // ends the process without unwinding, so its last calls (a set called off, a
 // series reported) would never go out. They get a few seconds, never more.
 std::unique_ptr<mscharged::platform::CompetitiveHost>* sCompetitive=nullptr;
+// Match replays: what keeps a match still being recorded when the game powers
+// off (that path ends the process without unwinding), and for a replay that
+// plays, the module's speed setter and the speed its keys ask for (0 normal,
+// 1 twice, 2 four times as fast).
+std::function<void()>* sReplayExit=nullptr;
+std::atomic<ChargedSetReplaySpeedFunction> sReplaySpeedSetter{nullptr};
+std::atomic<int> sReplaySpeed{0};
+// The tweaks that change only the menus, the HUD and how fast the title is
+// passed: a replay keeps the viewer's (as the module does, match_replay.cpp).
+constexpr unsigned kReplayViewerTweaks=mscharged::GameTweakBit(mscharged::GameTweak::SkipIntro)
+    |mscharged::GameTweakBit(mscharged::GameTweak::FastMenus)|mscharged::GameTweakBit(mscharged::GameTweak::NoHud)
+    |mscharged::GameTweakBit(mscharged::GameTweak::OverrideRetailMenus);
+// A replay's speed keys: Right (or a gamepad's D-pad right) faster, Left
+// slower, and from normal speed paused.
+bool SDLCALL ReplaySpeedKeys(void*,SDL_Event* event) {
+    const auto setter=sReplaySpeedSetter.load();
+    if(!setter)return true;
+    int step=0;
+    if(event->type==SDL_EVENT_KEY_DOWN && !event->key.repeat
+       && !(event->key.mod&(SDL_KMOD_CTRL|SDL_KMOD_ALT|SDL_KMOD_GUI|SDL_KMOD_SHIFT))) {
+        if(event->key.scancode==SDL_SCANCODE_RIGHT)step=1;
+        else if(event->key.scancode==SDL_SCANCODE_LEFT)step=-1;
+    } else if(event->type==SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+        if(event->gbutton.button==SDL_GAMEPAD_BUTTON_DPAD_RIGHT)step=1;
+        else if(event->gbutton.button==SDL_GAMEPAD_BUTTON_DPAD_LEFT)step=-1;
+    }
+    if(step) {
+        const int speed=std::clamp(sReplaySpeed.load()+step,-1,2);
+        sReplaySpeed.store(speed);
+        setter(speed);
+    }
+    return true;
+}
 #if defined(MSCHARGED_AUTOPILOT)
 // Test builds' autopilot (src/platform/autopilot.cpp): C, P and U held
 // together hand the first player to a bot and back. Unannounced: no log line,
@@ -558,6 +594,27 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                                                               mscharged::platform::PcLanguages());
         const auto systemLanguage = languageChoice.language->sc_language;
         const auto releaseNote = mscharged::ReleaseNote(*release);
+        // A replay (--replay): it plays only on the release and revision it
+        // was recorded on (the game's data differ between them).
+        std::vector<std::uint8_t> replayStream;
+        mscharged::replay::Setup replaySetup;
+        if(!launch.replay_path.empty()) {
+            std::vector<std::uint8_t> bytes;
+            std::string error;
+            mscharged::replay::FileInfo info;
+            const bool read=mscharged::replay::ReadReplayFile(launch.replay_path,bytes,error)
+                && mscharged::replay::DecodeFile(bytes.data(),bytes.size(),info,replayStream,error)
+                && mscharged::replay::ReadSetup(replayStream.data(),replayStream.size(),replaySetup,error);
+            Check(read,("This replay cannot be played: "+error).c_str());
+            Check(info.game_id==release->game_id && info.revision==release->revision,
+                  ("This replay was recorded with "+info.game_id+" (revision "+std::to_string(info.revision)
+                   +"). Start it with that game image; this one is "+release->game_id+" (revision "
+                   +std::to_string(release->revision)+").").c_str());
+            std::string line="Replay: "+mscharged::PathUtf8(launch.replay_path)+", "
+                +mscharged::replay::MatchLength(replaySetup.steps)+", recorded by "+info.build;
+            if(info.build!=mscharged::build::version)line+=" (another build: the match may play differently)";
+            std::fprintf(stderr,"%s\n",line.c_str()); // the console and the log
+        }
         mscharged::platform::SessionLogLine("Game: " + std::string(release->title) + ", "
             + mscharged::ReleaseLabel(*release) + " (" + release->game_id + ")"
             + (releaseNote.empty() ? "" : ". " + releaseNote));
@@ -1009,10 +1066,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // [gameplay] tweaks: the enabled set, before original main, with
         // the No HUD bit of [hotkeys] show_hud = false.
         {
-            const unsigned tweaks=launch.settings.GameTweakMask();
+            // A replay plays with the tweaks it was recorded with, the title
+            // passed at once (Skip intro).
+            const unsigned moduleTweaks=replayStream.empty() ? launch.settings.ModuleTweakMask()
+                : (replaySetup.tweaks&~kReplayViewerTweaks)|(launch.settings.ModuleTweakMask()&kReplayViewerTweaks)
+                    |mscharged::GameTweakBit(mscharged::GameTweak::SkipIntro);
+            const unsigned tweaks=replayStream.empty() ? launch.settings.GameTweakMask() : moduleTweaks;
             auto* configureTweaks=reinterpret_cast<void(*)(unsigned)>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tweaks"));
-            if(configureTweaks) configureTweaks(launch.settings.ModuleTweakMask());
+            if(configureTweaks) configureTweaks(moduleTweaks);
             const auto line="Tweaks: "+(configureTweaks || !tweaks ? mscharged::DescribeGameTweaks(tweaks)
                 : "none (this build's game module has no tweaks)");
             mscharged::platform::SessionLogLine(line.c_str());
@@ -1147,6 +1209,86 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             configureRev1(true);
             mscharged::platform::SessionLogLine("Release data: revision 1 on the revision 2 game code");
         }
+        // Match replays (tweak patch 0071): every offline match is kept as a
+        // replay ([replays] record) in the replays folder beside the program,
+        // and --replay plays one back.
+        const auto replayTake=reinterpret_cast<ChargedTakeReplayFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_take_replay"));
+        const auto replayFinish=reinterpret_cast<ChargedFinishReplayFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_finish_replay"));
+        const auto replayStatus=reinterpret_cast<ChargedReplayStatusFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_replay_status"));
+        const auto replayFolder=mscharged::replay::ReplayFolder(executableDirectory);
+        {
+            const auto configureReplays=reinterpret_cast<ChargedConfigureReplaysFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_replays"));
+            const bool record=launch.settings.replays_record && replayStream.empty() && configureReplays && replayTake;
+            if(configureReplays)configureReplays(record?1:0);
+            std::string line="Replays: ";
+            if(!replayStream.empty()) {
+                const auto configureReplay=reinterpret_cast<ChargedConfigureReplayFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_replay"));
+                Check(configureReplay && replayStatus
+                      && configureReplay(replayStream.data(),unsigned(replayStream.size())),
+                      "This build's game module cannot play this replay");
+                sReplaySpeedSetter=reinterpret_cast<ChargedSetReplaySpeedFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_set_replay_speed"));
+                SDL_AddEventWatch(ReplaySpeedKeys,nullptr);
+                line+="playing one, none recorded";
+            } else if(record) line+="recorded to "+mscharged::PathUtf8(replayFolder)
+                +(launch.settings.replays_keep ? " (the newest "+std::to_string(launch.settings.replays_keep)+" kept)" : "");
+            else line+=configureReplays ? "off" : "off (this build's game module records none)";
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
+        // A finished recording to its file.
+        auto keepReplay=[&,gameId=std::string(release->game_id),revision=int(release->revision)](
+                            const std::vector<std::uint8_t>& stream) {
+            mscharged::replay::Setup setup;
+            std::string error;
+            std::string line="Replay: ";
+            if(!mscharged::replay::ReadSetup(stream.data(),stream.size(),setup,error))
+                line+="not kept ("+error+")";
+            else try {
+                mscharged::replay::FileInfo info;
+                info.build=mscharged::build::version;
+                info.game_id=gameId;
+                info.revision=revision;
+                info.created=std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                mscharged::replay::Summarize(setup,info);
+                const auto bytes=mscharged::replay::EncodeFile(info,stream.data(),stream.size());
+                const auto path=mscharged::replay::WriteReplay(replayFolder,
+                    mscharged::replay::ReplayFileName(info.created),bytes,error);
+                if(path.empty()) line+="not kept ("+error+")";
+                else {
+                    line+="kept "+mscharged::PathUtf8(path.filename())+" ("+mscharged::replay::MatchLength(setup.steps)
+                        +", "+std::to_string(setup.score[0])+"-"+std::to_string(setup.score[1])+", "
+                        +std::to_string((bytes.size()+1023)/1024)+" KB)";
+                    if(const int removed=mscharged::replay::PruneReplays(replayFolder,launch.settings.replays_keep))
+                        line+="; "+std::to_string(removed)+" older removed";
+                }
+            } catch(const std::exception& failure) {
+                line+=std::string("not kept (")+failure.what()+")";
+            }
+            std::fprintf(stderr,"%s\n",line.c_str());
+        };
+        auto takeReplays=[&] {
+            if(!replayTake)return;
+            for(int n=0;n<8;++n) {
+                const unsigned size=replayTake(nullptr,0);
+                if(!size)break;
+                std::vector<std::uint8_t> stream(size);
+                if(replayTake(stream.data(),size)!=size)break;
+                keepReplay(stream);
+            }
+        };
+        // The game closes during a match: what was recorded is kept.
+        std::function<void()> replayExit=[&] {
+            if(replayFinish)replayFinish();
+            takeReplays();
+        };
+        sReplayExit=&replayExit;
+        struct ReplayForPowerOff { ~ReplayForPowerOff() { sReplayExit=nullptr; sReplaySpeedSetter=nullptr; } } replayForPowerOff;
         // Also switched in the menus' DISPLAY page (from the next match).
         auto* configurePerformanceMode=reinterpret_cast<void(*)(bool)>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_performance_mode"));
@@ -1395,6 +1537,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // The opt-in frame timing log completes before the process ends.
             removal.before_removal=[](void*){
                 mscharged::platform::StopFreezeWatch();
+                if(sReplayExit && *sReplayExit)(*sReplayExit)();
                 // The last calls get a few seconds; a stuck one doesn't hold the close.
                 if(sCompetitive && *sCompetitive && !(*sCompetitive)->StopForExit(std::chrono::seconds(1)))
                     mscharged::platform::SessionLogLine("Competitive: the game closes without waiting for the server");
@@ -2955,6 +3098,55 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 +", frame rate "+shown.frame_rate+", vsync "+(shown.vsync?"on":"off")
                 +", performance mode "+(shown.performance_mode?"on":"off")
                 +", graphics validation "+(shown.graphics_validation?"on":"off")+"\n");
+        // After a game frame: finished recordings to their files; a replay's
+        // speed in the corner (for a few seconds as its match begins and
+        // after each change), a note when it no longer matches its recording,
+        // and its end, which closes the game a moment later.
+        std::optional<mscharged::runtime::HostOverlay::Hint> replayHint;
+        std::optional<std::chrono::steady_clock::time_point> replayEnded,replayHintUntil;
+        int replaySpeedShown=-1;
+        bool replayStepsSeen=false,replayDiffersShown=false,replayQuit=false;
+        auto observeReplays=[&] {
+            takeReplays();
+            if(replayStream.empty() || !replayStatus)return;
+            ChargedReplayStatus status{};
+            if(!replayStatus(&status,sizeof status))return;
+            const auto now=std::chrono::steady_clock::now();
+            if(status.speed!=replaySpeedShown || (status.steps && !replayStepsSeen)) {
+                replayStepsSeen=status.steps!=0;
+                replaySpeedShown=status.speed;
+                replayHint=mscharged::runtime::HostOverlay::Hint{{"Left","Right"},status.speed<0
+                    ? std::string(texts::T("menus.messages.replay_paused"))
+                    : status.speed==0 ? std::string(texts::T("menus.messages.replay_normal"))
+                    : texts::T("menus.messages.replay_fast",{{"factor",status.speed==1?"2":"4"}})};
+                replayHintUntil=now+std::chrono::seconds(5);
+                if(hostOverlay)hostOverlay->SetHint(replayHint);
+            } else if(replayHint && replayHintUntil && now>=*replayHintUntil && status.speed>=0) {
+                // Paused, the hint stays: it says how to go on.
+                replayHint.reset();
+                if(hostOverlay)hostOverlay->SetHint(std::nullopt);
+            }
+            if(status.differences && !replayDiffersShown) {
+                replayDiffersShown=true;
+                if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.replay_differs"),now);
+            }
+            if(status.finished && !replayEnded) {
+                replayEnded=now;
+                std::string line="Replay: ended after "+std::to_string(status.steps)+" of "+std::to_string(status.total)
+                    +" steps; "+std::to_string(status.checked-status.differences)+" of "+std::to_string(status.checked)
+                    +" checks matched the recording";
+                if(status.differences)line+=" (the first difference at step "+std::to_string(status.first_difference)+")";
+                if(status.error[0])line+=std::string("; ")+status.error;
+                std::fprintf(stderr,"%s\n",line.c_str());
+                if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.replay_finished"),now);
+            }
+            if(replayEnded && !replayQuit && now-*replayEnded>=std::chrono::seconds(3)) {
+                replayQuit=true;
+                SDL_Event quit{};
+                quit.type=SDL_EVENT_QUIT;
+                SDL_PushEvent(&quit);
+            }
+        };
         wgpu::Texture retainedEFB;
         Check(!resizeCheck || nativeSend, "Resize qualification requires source-native send");
         while(!exit && (interactive || !snapshot)) {
@@ -3154,7 +3346,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 ChargedPresenceSnapshot game{};
                 const bool menus=presenceSnapshot && presenceSnapshot(&game,sizeof game) && game.scene_count>0
                     && !(game.in_match && game.mode!=2);
-                hostOverlay->SetHint(menus ? panelHint : std::nullopt);
+                hostOverlay->SetHint(menus ? panelHint : replayHint);
             }
             // Changed game options reach the game between matches.
             if(pendingTweaks && setTweaks && !inMatch()) {
@@ -3194,7 +3386,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt(); ++frames;
                 mscharged::platform::FrameFinished(); // the freeze watch (#121)
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
@@ -3284,7 +3476,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt();
             mscharged::platform::FrameFinished(); // the freeze watch (#121)
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;
@@ -3411,6 +3603,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         if(priorBoot)
             mscharged::platform::Trace("Prior Boot diagnostic retains original effects/NPC resources and game arenas at terminal exit; full source cleanup remains pending.\n");
         mscharged::runtime::FrameTimingLog::FinishForProcessExit();
+        replayExit();
         mscharged::platform::SessionLogLine("=== Session ended ===");
         std::fflush(nullptr);mscharged::platform::TerminateProcessNow(0);
         } catch(const std::exception& e) {

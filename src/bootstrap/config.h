@@ -256,6 +256,11 @@ struct Settings
     // launcher.dismissed_message: the server's message (its id) the player
     // closed on the Play page; 0 for none.
     int dismissed_message = 0;
+    // replays.record: every offline match is kept as a replay
+    // (replays/replay_<time>.msc beside the program).
+    bool replays_record = true;
+    // replays.keep: the replays the folder keeps, the oldest going first; 0 keeps all.
+    int replays_keep = 100;
     // discord.rich_presence: show what is being played as the Discord status
     // (issue #71), when the Discord app runs on this computer.
     bool discord_status = true;

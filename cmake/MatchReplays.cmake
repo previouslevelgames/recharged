@@ -1,0 +1,15 @@
+# Match replays (tweak patch 0071): the compact stream of a match's inputs and
+# the .msc file it is kept in, for the game host and the launcher. The game
+# module compiles the stream itself (OriginalFrontendDiagnostic.cmake).
+include_guard(GLOBAL)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Zlib.cmake")
+add_library(charged_match_replays STATIC src/platform/match_replay_stream.cpp src/platform/match_replay_file.cpp)
+target_include_directories(charged_match_replays PUBLIC src)
+target_compile_features(charged_match_replays PUBLIC cxx_std_17)
+target_link_libraries(charged_match_replays PRIVATE ZLIB::ZLIB)
+if(BUILD_TESTING)
+    add_executable(match_replay_tests tests/match_replay.cpp)
+    target_link_libraries(match_replay_tests PRIVATE charged_match_replays)
+    add_test(NAME match_replays COMMAND match_replay_tests)
+    set_tests_properties(match_replays PROPERTIES TIMEOUT 120)
+endif()

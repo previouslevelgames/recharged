@@ -1,0 +1,385 @@
+Subject: Tweak: match replays, through the game's own input recorder
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+The retail game keeps a developer's input recorder (NetworkInputRecording)
+that no menu reaches: every local match's loading calls StartSinglePlayerGame,
+which gives the match a fresh seed and hands the recorder its setup
+(RecordedGameConfig); for every fixed step the router (SimpleInputRouter::
+OnInputReady) then writes each machine's packet: remap angle, the match's
+checksum, frame and seed, the deterministic events and every player's
+PackedDetInput record. Played back (mPlaybackEnabled at the loading,
+PlaybackRecordedGame), the router reads those packets instead of the pads
+(ProcessPlaybackFrame), the Mega Strike and visibility messages come from the
+recording, and the steps can run faster (g_numPacketPlaybackTurbo).
+
+The recorder wrote to a file of the console's debug folder through
+nlOpenFileDebug. Here its writes and reads go to the port
+(src/platform/match_replay.cpp, include/mscharged_replay.h), which keeps the
+match in a compact replay file and decides what it records: offline matches
+(Domination, Training, the Cup's) but no online, demo or challenge matches.
+The recorder is on when the port says so (InitializeNetworkInputRecording).
+
+A replay starts from the title, as Training's match does (Skip intro passes
+the title): the title takes the port's start instead of the main menu, and
+the port sets the recorded mode, teams, stadium, sides, settings and cheats
+without the save and pushes the loading, where PlaybackRecordedGame reads
+the recorded seed and setup. After the loading chose the difficulty the port
+notes it (recording) or sets the recorded one again (replay).
+
+The recorded checksum, frame and seed are compared by the port, which reports
+a difference itself: the router's own check (CheckSyncMismatch) gets the
+game's values, so a replay that differs plays on instead of raising the
+network error popup of that check.
+
+Off (the port records nothing and plays no replay), the recorder stays as in
+the original game. The guarded hooks exist only in the opt-in native game
+module.
+
+diff --git a/include/mscharged_replay.h b/include/mscharged_replay.h
+new file mode 100644
+index 0000000..99a6e81
+--- /dev/null
++++ b/include/mscharged_replay.h
+@@ -0,0 +1,60 @@
++#ifndef MSCHARGED_REPLAY_H
++#define MSCHARGED_REPLAY_H
++
++// Port tweak "Match replays" (tweak patch 0071): the original game's own
++// input recorder (NetworkInputRecording) writes every offline match through
++// the port, which keeps it in a replay file, and plays such a file back: the
++// title goes straight into the match, with its setup and seed, and the router
++// takes every step's inputs from the file (ProcessPlaybackFrame). The
++// functions are the port's src/platform/match_replay.cpp.
++#if defined(MSCHARGED_TWEAKS)
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// Whether the port records matches; read once, when the recorder is made.
++bool mscharged_tweak_replay_record_enabled(void);
++// A match begins (StartNetworkInputRecording, once the loading has its setup):
++// whether the port records it. Online and the game's challenges are not.
++bool mscharged_tweak_replay_begin(int localMachine, int machineCount, unsigned int seed, const void* config,
++                                  int configSize);
++// What the recorder writes for each step, in its order: each machine's packet
++// header, its deterministic events and network data, its players' records.
++void mscharged_tweak_replay_packet(int machine, unsigned short remap, unsigned int checksum, unsigned int frame,
++                                   unsigned int seed, unsigned int events, unsigned int dataSize);
++void mscharged_tweak_replay_event(const void* data, int size);
++void mscharged_tweak_replay_data(const void* data, int size);
++void mscharged_tweak_replay_input(int player, const void* record, unsigned char connected);
++// The recorder resets: the match it recorded, or the replay it played, is over.
++void mscharged_tweak_replay_end(void);
++
++// Whether a replay plays: the recorder reads from the port.
++bool mscharged_tweak_replay_playing(void);
++// The recorded header: seed, machines, their players and the game's config.
++bool mscharged_tweak_replay_read_start(unsigned int* seed, int* localMachine, int* machineCount, int* playerCounts,
++                                       void* config, int configSize);
++// The next packet of `machine`; the port compares the game's own checksum,
++// frame and seed with the recorded ones. False at the replay's end.
++bool mscharged_tweak_replay_read_packet(int machine, unsigned int checksum, unsigned int frame, unsigned int seed,
++                                        unsigned short* remap, unsigned int* events, unsigned int* dataSize);
++bool mscharged_tweak_replay_read_event(unsigned char* size, void* data);
++bool mscharged_tweak_replay_read_data(int size, void* data);
++bool mscharged_tweak_replay_read_input(int player, void* record, unsigned char* connected);
++// Each fixed step while a replay plays: the steps its speed adds to the one
++// the router runs (-1 while it is paused: the step then runs none).
++int mscharged_tweak_replay_extra_updates(void);
++// The title (passed as by Skip intro): whether it starts the replay's match
++// instead of going to the main menu, once; then, from its update, the start.
++bool mscharged_tweak_take_replay_start(void);
++void mscharged_tweak_replay_start_match(void);
++// After the loading chose the difficulty: a recorded match notes it, a replay
++// sets the recorded one again.
++void mscharged_tweak_replay_difficulty(void);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // MSCHARGED_TWEAKS
++#endif // MSCHARGED_REPLAY_H
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+index eaeb094..c32d7c8 100644
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -146,6 +146,7 @@
+ #include "mscharged_tweaks.h"
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_competitive.h"
++#include "mscharged_replay.h"
+ #endif
+ #else
+ #define OS_BUS_CLOCK_SPEED           (*(volatile u32*)0x800000F8)
+@@ -2014,6 +2015,11 @@ void InitializeGameState1(AsyncLoadingManager* manager)
+         }
+     }
+     GameInfoManager::Instance()->ApplyDifficultySettings();
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match replays": a recording notes the difficulty; a replay
++    // has the recorded one again.
++    mscharged_tweak_replay_difficulty();
++#endif
+     ReplayManager::Instance()->Initialize();
+     manager->mGameResourceMark = (void*)glGetCurrentResourcePool()->MarkResource();
+     g_pAudioSystem->GetBundleManager()->GetSoundMap()->SelectGroup(0);
+diff --git a/src/Game/NetworkInputRecording.cpp b/src/Game/NetworkInputRecording.cpp
+index ca3d1a9..cbb978f 100644
+--- a/src/Game/NetworkInputRecording.cpp
++++ b/src/Game/NetworkInputRecording.cpp
+@@ -11,6 +11,13 @@
+ #include "NL/nlMemory.h"
+ #include "NL/nlPrint.h"
+ #include "NL/nlString.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "Game/InputManager.h"
++#include "Game/InputRouter.h"
++#include "Game/NetworkGameConfig.h"
++#include "Game/NetworkRandomSeed.h"
++#include "mscharged_replay.h"
++#endif
+ 
+ struct NetworkRecordedFrameHeader
+ {
+@@ -64,6 +71,10 @@ void InitializeNetworkInputRecording()
+         state->mPlayerCounts[2] = 0;
+         state->mPlayerCounts[3] = 0;
+         state->Reset(true);
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Match replays": the port records the matches.
++        state->mRecordingEnabled = mscharged_tweak_replay_record_enabled();
++#endif
+     }
+     gNetworkInputRecording = state;
+ }
+@@ -83,6 +94,11 @@ void NetworkInputRecording::Reset(bool constructing)
+     }
+     else
+     {
++#if defined(MSCHARGED_TWEAKS)
++        // Port tweak "Match replays": the match the port recorded, or the
++        // replay it played, is over.
++        mscharged_tweak_replay_end();
++#endif
+         nlBufferedWriterFinish(&mWriter);
+         if (nlDebugFileIsValid(mDebugFile))
+         {
+@@ -129,6 +145,13 @@ void BuildNetworkRecordingPath(char* path, unsigned long size, const char* fileN
+ 
+ void NetworkInputRecording::StartNetworkInputRecording(int localMachine, int machineCount, u32 randomSeed, const void* config, int configSize)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match replays": the port keeps the recording, not a file in
++    // the console's debug folder, and records only the matches it can play
++    // back.
++    mRecording = mscharged_tweak_replay_begin(localMachine, machineCount, randomSeed, config, configSize);
++    return;
++#endif
+     mRecording = true;
+     if ((s8)mFileName[0] == 0)
+     {
+@@ -166,6 +189,25 @@ void NetworkInputRecording::StartNetworkInputRecording(int localMachine, int mac
+ 
+ bool NetworkInputRecording::ReadNetworkInputRecordingHeader()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match replays": the header of the replay that plays.
++    if (mscharged_tweak_replay_playing())
++    {
++        void* config = nlMalloc(sizeof(RecordedGameConfig), 8, false);
++        if (config == 0
++            || !mscharged_tweak_replay_read_start(&mRandomSeed, &mLocalMachine, &mMachineCount, mPlayerCounts, config,
++                                                  sizeof(RecordedGameConfig)))
++        {
++            if (config != 0)
++                nlFree(config);
++            return false;
++        }
++        mConfigSize = sizeof(RecordedGameConfig);
++        mConfig = config;
++        mPlaybackReady = true;
++        return true;
++    }
++#endif
+     NetworkRecordingHeader header;
+     nlAsyncFileBufferRead(&mReader, &header, sizeof(header));
+     if (header.mType != 13)
+@@ -185,11 +227,20 @@ bool NetworkInputRecording::ReadNetworkInputRecordingHeader()
+ 
+ int NetworkInputRecording::GetNetworkInputPlaybackExtraUpdates()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match replays": the replay's speed, which pauses it too.
++    if (mPlaybackReady && mscharged_tweak_replay_playing())
++        return mscharged_tweak_replay_extra_updates();
++#endif
+     return mPlaybackReady ? g_numPacketPlaybackTurbo : 0;
+ }
+ 
+ void NetworkInputRecording::WriteNetworkInputPacketHeader(s8 machine, u16 remapAngle, u32 checksum, u32 frame, u32 randomSeed, u32 eventCount, u32 dataSize)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    mscharged_tweak_replay_packet(machine, remapAngle, checksum, frame, randomSeed, eventCount, dataSize);
++    return;
++#endif
+     NetworkRecordedFrameHeader header;
+     header.mChecksum = checksum;
+     header.mFrame = frame;
+@@ -202,18 +253,30 @@ void NetworkInputRecording::WriteNetworkInputPacketHeader(s8 machine, u16 remapA
+ 
+ void NetworkInputRecording::WriteNetworkInputEvent(const DetermDataEvent* event)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    mscharged_tweak_replay_event(event->mData, event->mSize);
++    return;
++#endif
+     nlBufferedWriterWrite(&mWriter, &event->mSize, 1);
+     nlBufferedWriterWrite(&mWriter, event->mData, event->mSize);
+ }
+ 
+ void NetworkInputRecording::WriteData(const void* data, int size)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    mscharged_tweak_replay_data(data, size);
++    return;
++#endif
+     if (size > 0)
+         nlBufferedWriterWrite(&mWriter, data, size);
+ }
+ 
+ void NetworkInputRecording::WriteNetworkInputRecord(s8 player, const PackedDetInput* record, u8 connected)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    mscharged_tweak_replay_input(player, record, connected);
++    return;
++#endif
+     NetworkRecordedInput input;
+     input.mRecord = *record;
+     input.mConnected = connected;
+@@ -225,11 +288,36 @@ void NetworkInputRecording::WriteNetworkInputRecord(s8 player, const PackedDetIn
+ 
+ void NetworkInputRecording::Flush()
+ {
++#if defined(MSCHARGED_TWEAKS)
++    return;
++#endif
+     nlBufferedWriterFlushIfNeeded(&mWriter);
+ }
+ 
+ bool NetworkInputRecording::ReadNetworkInputPacketHeader(s8 machine, u16* remapAngle, u32* checksum, u32* frame, u32* randomSeed, u32* eventCount, u32* dataSize)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match replays": the replay's packet. The port compares the
++    // recorded checksum, frame and seed with the game's own and reports a
++    // difference itself; the router's check (CheckSyncMismatch) gets the
++    // game's values, so a replay that differs plays on, without the network
++    // error the check raises.
++    if (mscharged_tweak_replay_playing())
++    {
++        const u32 actualChecksum = GetInputRouter()->mCurrentCRC;
++        const u32 actualFrame = (u32)gInputManager->mFrameProvider->GetFrame();
++        const u32 actualSeed = GetNetworkRandomSeed();
++        if (!mscharged_tweak_replay_read_packet(machine, actualChecksum, actualFrame, actualSeed, remapAngle,
++                                                eventCount, dataSize))
++        {
++            return false;
++        }
++        *checksum = actualChecksum;
++        *frame = actualFrame;
++        *randomSeed = actualSeed;
++        return true;
++    }
++#endif
+     if (nlAsyncFileBufferGetRemaining(&mReader) < sizeof(NetworkRecordedFrameHeader))
+         return false;
+     NetworkRecordedFrameHeader header;
+@@ -245,6 +333,12 @@ bool NetworkInputRecording::ReadNetworkInputPacketHeader(s8 machine, u16* remapA
+ 
+ bool NetworkInputRecording::ReadNetworkInputEvent(DetermDataEvent* event)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_tweak_replay_playing())
++    {
++        return mscharged_tweak_replay_read_event(&event->mSize, event->mData);
++    }
++#endif
+     if ((u32)nlAsyncFileBufferGetRemaining(&mReader) < 1)
+         return false;
+     nlAsyncFileBufferRead(&mReader, &event->mSize, 1);
+@@ -256,6 +350,12 @@ bool NetworkInputRecording::ReadNetworkInputEvent(DetermDataEvent* event)
+ 
+ bool NetworkInputRecording::ReadNetworkInputData(int size, void* data)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_tweak_replay_playing())
++    {
++        return mscharged_tweak_replay_read_data(size, data);
++    }
++#endif
+     if (size == 0)
+         return true;
+     if (nlAsyncFileBufferGetRemaining(&mReader) < size)
+@@ -266,6 +366,12 @@ bool NetworkInputRecording::ReadNetworkInputData(int size, void* data)
+ 
+ bool NetworkInputRecording::ReadNetworkInputRecord(s8 player, PackedDetInput* record, u8* connected)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    if (mscharged_tweak_replay_playing())
++    {
++        return mscharged_tweak_replay_read_input(player, record, connected);
++    }
++#endif
+     NetworkRecordedInput input;
+     if (nlAsyncFileBufferGetRemaining(&mReader) < sizeof(input))
+         return false;
+diff --git a/src/Game/SH/SHTitleScreen.cpp b/src/Game/SH/SHTitleScreen.cpp
+index 0c2b825..bd00989 100644
+--- a/src/Game/SH/SHTitleScreen.cpp
++++ b/src/Game/SH/SHTitleScreen.cpp
+@@ -35,6 +35,7 @@
+ #if defined(MSCHARGED_TWEAKS)
+ #include "Game/Team.h"
+ #include "NL/plat/nlFlash.h"
++#include "mscharged_replay.h"
+ #endif
+ 
+ static bool sTitleDimmingTimeSet;
+@@ -151,6 +152,9 @@ inline void TitleScene::InitializePointerButtons()
+ static int sTrainingPad = -1;
+ static int sTrainingCaptain;
+ static int sTrainingStadium;
++// Port tweak "Match replays": the title passed into a replay's match, which
++// Update starts.
++static bool sReplayStart;
+ 
+ static void StartTrainingMatch(int pad, int captain, int stadium)
+ {
+@@ -212,6 +216,11 @@ void TitleScene::Update(float dt)
+         StartTrainingMatch(sTrainingPad, sTrainingCaptain, sTrainingStadium);
+         sTrainingPad = -1;
+     }
++    if (sReplayStart)
++    {
++        sReplayStart = false;
++        mscharged_tweak_replay_start_match();
++    }
+ #endif
+     if (mStartedDemo)
+         return;
+@@ -450,6 +459,14 @@ void TitleScene::OnControllerPointerPress(int index, void*)
+     FEAudio::PlayAnimAudioEvent(0x55C84A9D, 0, 0, 1);
+     SetPointerEnabled(1);
+ #if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match replays": the title goes straight into the replay's
++    // match (Update starts it), without the save, and stays under its loading.
++    if (mscharged_tweak_take_replay_start())
++    {
++        sReplayStart = true;
++        mStartedDemo = true;
++        return;
++    }
+     // Port tweak "Training": the title reads the save (Update starts the match
+     // then), stays under the match's loading, as under the demo match's, and
+     // takes no further press.

@@ -368,7 +368,7 @@ target_link_libraries(charged_original_game_host PRIVATE
     charged_native_hardware_owner
     charged_native_video_output_device charged_native_filesystem_boot
     charged_native_ipc_boot_buffer charged_original_rtc charged_discord charged_competitive charged_alert_sound
-    charged_texture_packs charged_updates
+    charged_texture_packs charged_updates charged_match_replays
     ZLIB::ZLIB Threads::Threads ${CMAKE_DL_LIBS})
 # Recharged's own texts (assets/lang) for its menus and messages.
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Texts.cmake")

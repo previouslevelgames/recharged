@@ -490,7 +490,12 @@
     "keeps_shape": "Picture keeps its {{shape}} shape",
     "resolution_highest": "3D resolution: {{resolution}} (the highest)",
     "resolution_lowest": "3D resolution: {{resolution}} (the lowest)",
-    "resolution_size": "3D resolution: {{resolution}} ({{width}} × {{height}})"
+    "resolution_size": "3D resolution: {{resolution}} ({{width}} × {{height}})",
+    "replay_paused": "Replay paused",
+    "replay_normal": "Replay at normal speed",
+    "replay_fast": "Replay at {{factor}}× speed",
+    "replay_differs": "This replay no longer matches its recording.",
+    "replay_finished": "Replay finished"
   },
   "notices": {
     "challenge_sent": "Challenge sent",
