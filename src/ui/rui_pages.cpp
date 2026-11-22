@@ -73,7 +73,7 @@ void DrawOptions(const PageModel& model, List& list, PageActions& actions)
     if (list.Plate(T("menus.options.gameplay")))
         actions.open = PageId::Gameplay;
     if (list.Plate(T("menus.options.settings"))) actions.open = PageId::Settings;
-    if (model.front_end && list.Plate(T("menus.options.credits"))) actions.credits = true;
+    if (model.credits && list.Plate(T("menus.options.credits"))) actions.credits = true;
 }
 
 void DrawGameplay(int category, const PageModel& model, List& list, PageActions& actions)

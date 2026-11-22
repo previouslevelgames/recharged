@@ -77,6 +77,10 @@ struct ChargedMenuSnapshot
     int auto_zoom, zoom_level;
     // The front end (the game's menus), not a match.
     int front_end;
+    // The main menu is the front end's top scene and takes a press (nothing
+    // chosen on it yet), with Recharged's menus on: its OPTIONS can be pressed
+    // (CHARGED_MENU_MAIN_OPTIONS) on the way to the Credits.
+    int main_menu;
     // A match against another machine is running (ChargedNetworkMatch).
     // Nothing of Recharged's menus may then change the game (its sounds draw
     // the random numbers both machines share): charged_menu_command takes
@@ -124,6 +128,7 @@ enum ChargedMenuCommandKind
     CHARGED_MENU_WII_ONLINE = 10, // the main menu's ONLINE the game's way (Mii, login, its online menu)
     CHARGED_MENU_CURSORS = 11,  // the game hands its players' cursors over (`value` 1) or draws them (0)
     CHARGED_MENU_FORFEIT = 12,  // the online match is left, as the game leaves it when the disc lid opens
+    CHARGED_MENU_MAIN_OPTIONS = 13, // the main menu's OPTIONS is pressed (the way to the Credits from there)
 };
 
 // The game's own menu sounds (CHARGED_MENU_SOUND): a button lit, pressed,

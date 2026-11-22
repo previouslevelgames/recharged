@@ -190,6 +190,9 @@ private:
     // The front end's Options hub went (BACK, CREDITS): it comes again only
     // with the scene's next visit.
     bool anchorDone_ = false;
+    // CREDITS chosen over the main menu: its OPTIONS were pressed, the
+    // Options' Credits follow once that scene takes input (until then).
+    std::optional<Clock::time_point> creditsWalk_;
     // The prompt: its question, its answer to take.
     std::optional<overlay::OverlayPrompt> prompt_;
     std::optional<int> promptAnswer_;

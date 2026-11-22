@@ -299,7 +299,13 @@ void HostMenus::Apply(const ui::PageActions& actions, bool live, const overlay::
         && host_.online(actions.online, actions.ranked, model))
         ClearPages();
     if (actions.credits) {
-        Command(CHARGED_MENU_PRESS, 2);
+        // The game's Credits are a button of its Options: pressed there; over
+        // the main menu its OPTIONS first, the Credits once they take input.
+        if (menu_.menu == CHARGED_MENU_OPTIONS && menu_.ready) Command(CHARGED_MENU_PRESS, 2);
+        else if (menu_.main_menu) {
+            Command(CHARGED_MENU_MAIN_OPTIONS);
+            creditsWalk_ = Clock::now() + std::chrono::seconds(5);
+        }
         anchorDone_ = true;
         ClearPages();
     }
@@ -382,6 +388,15 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
     } else {
         anchorDone_ = false;
         if (Opened(Origin::Anchored)) ClearPages();
+    }
+    // On the way to the Credits from the main menu: no OPTIONS page over the
+    // Options on the way, their Credits pressed once they take input.
+    if (creditsWalk_) {
+        anchorDone_ = true;
+        if (scene == CHARGED_MENU_OPTIONS && menu_.ready) {
+            Command(CHARGED_MENU_PRESS, 2);
+            creditsWalk_.reset();
+        } else if (now > *creditsWalk_) creditsWalk_.reset();
     }
     ShowPrompt(now);
 
@@ -595,6 +610,7 @@ void HostMenus::BuildModel(ui::PageModel& model)
     model.network_match = menu_.network_match != 0;
     model.forfeiting = menu_.forfeiting != 0 || forfeitAsked_;
     model.front_end = known_ ? menu_.front_end != 0 : true;
+    model.credits = known_ && ((menu_.menu == CHARGED_MENU_OPTIONS && menu_.ready) || menu_.main_menu);
     model.game.known = known_;
     model.game.music = menu_.music_volume;
     model.game.effects = menu_.effects_volume;

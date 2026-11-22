@@ -69,7 +69,8 @@ struct PageModel
     // The settings, the gameplay options, Online and Ranked (the overlay's).
     overlay::GameOverlayModel overlay;
     GameValues game;
-    bool front_end = false;  // the game's menus (the Credits are there), not a match
+    bool front_end = false;  // the game's menus, not a match
+    bool credits = false;    // the game's Credits can be reached (its Options or its main menu shown)
     bool from_wheel = false; // the ONLINE hub opened from the main menu's globe: WII ONLINE goes on there
     // A match against another machine runs: the game's own options stay as
     // they are (changing them would change the game on one machine only).

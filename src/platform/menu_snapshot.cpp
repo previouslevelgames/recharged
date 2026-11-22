@@ -164,6 +164,13 @@ SHMainMenu* TopMainMenu()
     return static_cast<SHMainMenu*>(TopScene(GameSceneManager::Instance(), SCENE_MAIN_MENU));
 }
 
+// The main menu on top and at rest: nothing chosen on it, no save loading.
+SHMainMenu* RestingMainMenu()
+{
+    SHMainMenu* menu = TopMainMenu();
+    return menu && !menu->mItemSelected && !menu->mWaitingForLoad ? menu : nullptr;
+}
+
 // The main menu's ONLINE pressed again the game's way (WII ONLINE): the hook
 // lets this one through.
 bool sPassMainOnline = false;
@@ -558,12 +565,17 @@ void Run(const ChargedMenuCommand& command)
     case CHARGED_MENU_WII_ONLINE:
         // As the globe's press (SHMainMenu::SelectItem: its checks, the
         // save's load, the Mii selection and the login follow).
-        if (SHMainMenu* menu = TopMainMenu(); menu && !menu->mItemSelected && !menu->mWaitingForLoad) {
+        if (SHMainMenu* menu = RestingMainMenu()) {
             sPassMainOnline = true;
             menu->SelectItem(gFEControllerIndex,
                              reinterpret_cast<void*>(static_cast<std::intptr_t>(MAIN_MENU_ONLINE)));
             sPassMainOnline = false;
         }
+        break;
+    case CHARGED_MENU_MAIN_OPTIONS:
+        // As the wheel's OPTIONS pressed (SHMainMenu::SelectItem).
+        if (SHMainMenu* menu = RestingMainMenu())
+            menu->SelectItem(gFEControllerIndex, reinterpret_cast<void*>(static_cast<std::intptr_t>(MAIN_MENU_OPTIONS)));
         break;
     case CHARGED_MENU_CURSORS:
         sCursors = command.value != 0;
@@ -710,6 +722,8 @@ extern "C" __attribute__((visibility("default"))) bool charged_menu_snapshot(Cha
     s.taken_pad = sTakenPad;
     ReadGameOptions(s);
     s.front_end = g_pGame == nullptr;
+    // (Only where the Options it leads to are Recharged's, ShownOptions.)
+    s.main_menu = Replaced() && RestingMainMenu() != nullptr;
     // As GetPointerPosition (feDPD.cpp) spans the picture: 854 units wide in
     // widescreen; the screen's height (also without a menu: the host's own).
     if (const gl_ScreenInfo* screen = glGetScreenInfo()) {
