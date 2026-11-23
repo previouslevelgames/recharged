@@ -8,6 +8,7 @@
 // checksums say otherwise from step n of each match: every machine shows
 // the game's sync error.
 #include "platform/rollback_state.h"
+#include "platform/match_replay_network.h"
 #include "Game/PackedDetInput.h"
 
 #include <cmath>
@@ -26,6 +27,21 @@ constexpr float kAheadSmoothing = 0.05f; // weight of each new measure of how fa
 constexpr float kSlowAbove = 0.75f;      // ahead of the others by more than this: slow down
 constexpr float kSlowUntil = 0.25f;      // until within this
 constexpr float kSlowdown = 0.1f;        // of each frame's time taken from the fixed steps while slowing
+
+// Match replays: what the router read before each step's last run (its frame
+// is the step's less one), by step, and the next step the recording takes
+// (0: the next step the router prepares). A step a rollback ran again has
+// the checksum and seed its step before left behind instead (rerun).
+struct Before
+{
+    unsigned frame = ~0u;
+    unsigned checksum = 0;
+    unsigned seed = 0;
+    bool rerun = false;
+};
+Before sBefore[kInputRing];
+unsigned sRecordNext = 0;
+bool sRecordStopped = false; // a step was gone before the recording took it
 } // namespace
 
 StepInputs& InputsFor(unsigned frame)
@@ -370,6 +386,58 @@ bool CanPredict(unsigned frame)
 }
 } // namespace
 
+void NoteReplayedStep(unsigned frame)
+{
+    Before& before = sBefore[frame % kInputRing];
+    if (before.frame == frame) before.rerun = true;
+}
+
+// Every step whose inputs, and every earlier step's, have all arrived goes to
+// the recording, in order: no rollback runs it again. While the rollback does
+// not track the match, its steps wait for their inputs (lockstep): each is
+// final as it gets them.
+void RecordFinalSteps()
+{
+    if (!mscharged::replay::RecordingNetworkMatch() || sRecordStopped || !sRecordNext) return;
+    State& s = *sState;
+    const unsigned oldest = OldestPredicted();
+    const unsigned through = oldest ? oldest - 1 : s.net.lastInputFrame;
+    mscharged::replay::NetworkStepMachine machines[kMachines];
+    for (; sRecordNext <= through; ++sRecordNext)
+    {
+        const unsigned frame = sRecordNext;
+        const StepInputs& inputs = InputsFor(frame);
+        const Before& before = sBefore[frame % kInputRing];
+        if (inputs.frame != frame || before.frame != frame || AnyPredicted(inputs))
+        {
+            Log("REPLAY RECORDING STOPS at frame %u: its inputs were gone before the recording took them\n", frame);
+            sRecordStopped = true;
+            return;
+        }
+        unsigned checksum = before.checksum, seed = before.seed;
+        if (before.rerun)
+        {
+            const Step& previous = s.steps[(frame - 1) % kRing];
+            if (previous.frame == frame - 1)
+            {
+                checksum = previous.checksum;
+                seed = previous.seed;
+            }
+        }
+        for (int machine = 0; machine < inputs.machineCount; ++machine)
+        {
+            const MachineInput& input = inputs.machines[machine];
+            machines[machine].players = input.players;
+            machines[machine].remap = input.remap;
+            machines[machine].records = input.records;
+            machines[machine].states = input.states;
+            machines[machine].events = input.eventCount;
+            machines[machine].event_data = input.events;
+        }
+        mscharged::replay::RecordNetworkStep(frame - 1, checksum, seed, inputs.machineCount, machines);
+    }
+}
+
 // The steps whose inputs have all arrived: their checksums are the match's,
 // sent to the other machines and compared with theirs.
 void UpdateConfirmed()
@@ -629,6 +697,7 @@ void NetplayFrameStart()
     }
     Resolve();
     UpdateConfirmed();
+    RecordFinalSteps();
     SyncTime();
     // A divergence ends the match as the game's own check did (which the
     // prediction bypasses): the network error, kept by objects no rollback
@@ -738,6 +807,9 @@ extern "C" int mscharged_rollback_network_reset(void)
     s.net.readWaiting = false;
     s.net.readStartedAt = 0;
     s.net.atGameStart = NetCountsNow();
+    for (Before& before : sBefore) before = Before{};
+    sRecordNext = 0;
+    sRecordStopped = false;
     Log("network match: input delay %d steps\n", s.options.inputDelay);
     FlushLog();
     return s.options.inputDelay;
@@ -790,6 +862,9 @@ extern "C" void mscharged_rollback_input_ready(void)
     StepInputs& kept = InputsFor(frame);
     // A step undone and run again: the inputs that arrived for it then.
     const bool again = kept.frame == frame;
+    // Match replays: the router's checksum and seed before this run.
+    sBefore[frame % kInputRing] = {frame, router->mCurrentCRC, GetNetworkRandomSeed(), false};
+    if (!sRecordNext && mscharged::replay::RecordingNetworkMatch()) sRecordNext = frame;
     StepInputs step{};
     step.frame = frame;
     step.machineCount = machines;
@@ -835,6 +910,7 @@ extern "C" void mscharged_rollback_input_ready(void)
     ApplyRollbackInputs(&s.pending);
     s.haveInputs = true;
     s.net.lastInputFrame = frame;
+    RecordFinalSteps();
 }
 
 extern "C" bool mscharged_rollback_can_capture(void)

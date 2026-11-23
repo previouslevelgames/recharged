@@ -99,6 +99,7 @@ bool Parse(const std::uint8_t* data, std::size_t size, Parsed& parsed, std::stri
         info.score[0] = int(Get(summary + 10, 2));
         info.score[1] = int(Get(summary + 12, 2));
         info.training = (summary[14] & 1) != 0;
+        info.network = (summary[14] & 2) != 0;
     }
     if (parsed.stream_size > kMaxStreamSize || (!header_only && parsed.packed_size > size - parsed.packed_at))
     {
@@ -137,7 +138,7 @@ std::vector<std::uint8_t> EncodeFile(const FileInfo& info, const std::uint8_t* s
     Put16(out, i16(info.stadium));
     Put16(out, std::uint16_t(std::clamp(info.score[0], 0, 65535)));
     Put16(out, std::uint16_t(std::clamp(info.score[1], 0, 65535)));
-    out.push_back(info.training ? 1 : 0);
+    out.push_back(std::uint8_t((info.training ? 1 : 0) | (info.network ? 2 : 0)));
     out.insert(out.end(), packed.begin(), packed.end());
     return out;
 }
@@ -151,6 +152,7 @@ void Summarize(const Setup& setup, FileInfo& info)
     info.score[0] = setup.score[0];
     info.score[1] = setup.score[1];
     info.training = setup.training != 0;
+    info.network = setup.machine_count > 1 || setup.online != 0;
 }
 
 std::string MatchLength(std::uint32_t steps)

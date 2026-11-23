@@ -62,6 +62,13 @@ void PutSetup(Bytes& out, const Setup& s)
     for (const auto value : s.player_counts) i32(value);
     Put32(out, s.steps);
     for (const auto value : s.score) i32(value);
+    // Network matches (later replays): read only when the setup has them.
+    Put8(out, s.online);
+    Put32(out, s.set_tweaks);
+    Put32(out, s.sim_profile);
+    Put32(out, std::uint32_t(std::uint64_t(s.series)));
+    Put32(out, std::uint32_t(std::uint64_t(s.series) >> 32));
+    i32(s.series_game);
 }
 
 // Reads from a bounded buffer; a read past its end fails and stays failed.
@@ -130,6 +137,14 @@ void GetSetup(Cursor& in, Setup& s)
     for (auto& value : s.player_counts) value = i32();
     s.steps = in.Get32();
     for (auto& value : s.score) value = i32();
+    // A replay from before network matches stops here: an offline match.
+    if (in.failed || in.at == in.size) return;
+    s.online = in.Get8();
+    s.set_tweaks = in.Get32();
+    s.sim_profile = in.Get32();
+    const std::uint64_t low = in.Get32();
+    s.series = std::int64_t(low | std::uint64_t(in.Get32()) << 32);
+    s.series_game = i32();
 }
 
 bool ValidCounts(const Setup& s)

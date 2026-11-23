@@ -203,6 +203,43 @@ void RoundTrips()
     Require(ReadSetup(stream.data(), stream.size(), setup, error) && setup.steps == 9000, "ReadSetup");
 }
 
+// A network match's fields come back; a replay written before them (its
+// setup ends at the score) reads as an offline match, as before.
+void NetworkFields()
+{
+    Setup online = MakeSetup(2, 1);
+    online.online = 1;
+    online.set_tweaks = 0x80;
+    online.sim_profile = 3;
+    online.series = 1'795'000'123'456LL;
+    online.series_game = 2;
+    const auto match = MakeMatch(online, 200, 1, 5);
+    const Bytes stream = Record(online, match);
+    Setup read;
+    std::string error;
+    Require(ReadSetup(stream.data(), stream.size(), read, error), "a network match's setup reads: " + error);
+    Require(read.online == 1 && read.set_tweaks == 0x80 && read.sim_profile == 3
+                && read.series == 1'795'000'123'456LL && read.series_game == 2,
+            "a network match's fields come back");
+    Replay(stream, online, match);
+
+    // The same stream as an older build wrote it: the setup 25 bytes shorter.
+    constexpr std::size_t kNetworkFields = 1 + 4 + 4 + 8 + 4;
+    Bytes older(stream.begin(), stream.end());
+    const std::uint32_t setup_size = std::uint32_t(older[4]) | std::uint32_t(older[5]) << 8
+        | std::uint32_t(older[6]) << 16 | std::uint32_t(older[7]) << 24;
+    older.erase(older.begin() + 8 + setup_size - kNetworkFields, older.begin() + 8 + setup_size);
+    const std::uint32_t shorter = setup_size - std::uint32_t(kNetworkFields);
+    for (int byte = 0; byte < 4; ++byte) older[4 + byte] = std::uint8_t(shorter >> (8 * byte));
+    Setup old;
+    Require(ReadSetup(older.data(), older.size(), old, error), "an older replay's setup reads: " + error);
+    Require(old.online == 0 && old.set_tweaks == 0 && old.sim_profile == 0 && old.series == 0
+                && old.series_game == 0 && old.seed == online.seed && old.score[1] == online.score[1],
+            "an older replay is an offline match with its own fields");
+    StreamReader reader;
+    Require(reader.Open(older.data(), older.size(), error), "an older replay opens: " + error);
+}
+
 void Refusals()
 {
     const Setup setup = MakeSetup(1, 2);
@@ -375,6 +412,7 @@ int main()
     try
     {
         RoundTrips();
+        NetworkFields();
         Refusals();
         Files();
     }

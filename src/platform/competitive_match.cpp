@@ -808,9 +808,29 @@ extern "C" const MschargedCompetitiveSettings* mscharged_competitive_begin(void)
     return &sSettings;
 }
 
+// A replay of a set's match (match_replay.cpp) plays by the set's tweaks it
+// recorded, whatever set (or none) this game is in.
+static bool sReplaying = false;
+static unsigned sReplayTweaks = 0;
+
+extern "C" void mscharged_competitive_replay(bool replaying, unsigned int tweaks)
+{
+    sReplaying = replaying;
+    sReplayTweaks = tweaks;
+}
+
+// The set's tweaks the match under way plays by, for its recording; 0 outside
+// a set's match.
+extern "C" unsigned int mscharged_competitive_match_tweaks(void)
+{
+    return sActive ? sMatch.tweaks : 0;
+}
+
 extern "C" bool mscharged_competitive_tweak(int tweak)
 {
-    return sActive && tweak >= 0 && tweak < 32 && ((sMatch.tweaks >> tweak) & 1u);
+    if (tweak < 0 || tweak >= 32) return false;
+    if (sReplaying) return (sReplayTweaks >> tweak) & 1u;
+    return sActive && ((sMatch.tweaks >> tweak) & 1u);
 }
 
 // The set's rules have Mirror match and this RANKED match's draft is against

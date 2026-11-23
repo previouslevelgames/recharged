@@ -118,6 +118,21 @@ struct Setup
     // How it went: the steps recorded, and the score when it ended.
     std::uint32_t steps = 0;
     std::int32_t score[2] = {};
+    // A network match (online or LAN): the steps are every machine's inputs
+    // as the rollback confirmed them, and a replay plays by the rules the
+    // match had online (the tweaks it switches off or on there, the set's).
+    // Replays before these fields read as an offline match.
+    std::uint8_t online = 0;
+    // The set's tweaks (bits of mscharged::GameTweak) a set's match plays with,
+    // whatever each player chose; 0 outside a set.
+    std::uint32_t set_tweaks = 0;
+    // The simulation profile the match ran by (mscharged_sim_profile.h), 0
+    // for the module's own.
+    std::uint32_t sim_profile = 0;
+    // Its series as the match reports name it (its start, Unix seconds by the
+    // game's clock) and the game of the series, from 1; 0 outside one.
+    std::int64_t series = 0;
+    std::int32_t series_game = 0;
 };
 
 // One machine's packet of a step, as the recorder reads it back.
@@ -139,6 +154,9 @@ class StreamWriter
 public:
     // False (nothing written) for counts out of range.
     bool Begin(const Setup& setup);
+    // Reserves `bytes` for the steps, so that writing them allocates nothing
+    // until they pass it.
+    void Reserve(std::size_t bytes) { steps_.reserve(bytes); }
     bool Active() const { return active_; }
     void Header(int machine, std::uint16_t remap, std::uint32_t checksum, std::uint32_t frame, std::uint32_t seed,
                 unsigned events, unsigned data_size);

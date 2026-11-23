@@ -340,6 +340,7 @@ void ReplaySteps(std::uint64_t frame, unsigned& next, int (*replay)(const Mschar
         const std::uint64_t faultsBefore = snapshots.faults;
         RollbackRedeliverMegaStrikeMeter(step.meter, step.meterCount);
         s.stats.meterRedelivered += step.meterCount;
+        if (s.options.netplay) NoteReplayedStep(next);
         if (replay(&step.inputs) < 0) ++s.stats.nisInReplay;
         const std::uint64_t checksumStart = NowNs();
         const unsigned now = RecordedChecksum(checksum, next);

@@ -8,7 +8,8 @@
 // then the header (u8 build length and the build, the 6-character game ID,
 // u8 revision, i64 creation time in seconds since 1970, u32 stream size,
 // u32 compressed size, then the match's summary: u32 steps, i16 home and away
-// captain, i16 stadium, u16 home and away score, u8 flags, bit 0 Training),
+// captain, i16 stadium, u16 home and away score, u8 flags, bit 0 Training, bit 1
+// a network match),
 // then the zlib stream. A reader skips header bytes it does not know.
 
 #include "platform/match_replay_stream.h"
@@ -39,6 +40,7 @@ struct FileInfo
     int stadium = -1; // eStadiumID
     int score[2] = {};
     bool training = false;
+    bool network = false; // online or LAN: every machine's inputs
 };
 
 // The game's fixed steps a second.
