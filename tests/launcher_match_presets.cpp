@@ -196,6 +196,15 @@ void Folder(const fs::path& root)
               && list.presets[3].settings.goals == 4,
           "A changed preset read back");
 
+    // Saved again after its file went away (deleted outside the launcher while
+    // its editor was open): the new file stays.
+    auto gone = LoadMatchPresets(folder).presets[3];
+    fs::remove(gone.file);
+    gone.settings.goals = 6;
+    Check(SaveMatchPreset(folder, gone, LoadMatchPresets(folder).presets) == folder / "sprint.ini"
+              && fs::exists(folder / "sprint.ini") && LoadMatchPresets(folder).presets[3].settings.goals == 6,
+          "A preset saved again after its file went away");
+
     // Files that are not presets are listed apart; so is a second file of a name.
     Put(folder / "broken.ini", "name = Broken\nskill = 9\n");
     Put(folder / "twin.ini", "name = SPRINT\n");

@@ -78,6 +78,11 @@ add_library(charged_players_online STATIC src/launcher/players_online.cpp src/la
 target_include_directories(charged_players_online PUBLIC src)
 target_compile_features(charged_players_online PUBLIC cxx_std_17)
 target_link_libraries(charged_players_online PUBLIC charged_http PRIVATE charged_json)
+# The Extras page's texture packs: the folder read and dropped packs added in the background.
+add_library(charged_launcher_texture_packs STATIC src/launcher/texture_pack_library.cpp)
+target_include_directories(charged_launcher_texture_packs PUBLIC src)
+target_compile_features(charged_launcher_texture_packs PUBLIC cxx_std_17)
+target_link_libraries(charged_launcher_texture_packs PUBLIC charged_texture_packs PRIVATE charged_texts)
 add_library(charged_match_presets STATIC src/launcher/match_presets.cpp)
 target_include_directories(charged_match_presets PUBLIC src)
 target_compile_features(charged_match_presets PUBLIC cxx_std_17)
@@ -108,7 +113,8 @@ add_executable(mscharged src/launcher/main.cpp src/launcher/release_notes_view.c
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)
 target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged_app_icon mscharged_build_info
     charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_graphics_cards
-    charged_texture_packs charged_mii_maker charged_match_presets charged_competitive charged_discord_friends
+    charged_texture_packs charged_launcher_texture_packs charged_mii_maker charged_match_presets charged_competitive
+    charged_discord_friends
     charged_alert_sound charged_discord charged_ui_kit charged_overlay charged_mii_faces charged_players_online charged_texts)
 mscharged_discord_social_sdk_beside(mscharged)
 mscharged_stage_texts(mscharged)
@@ -224,6 +230,10 @@ if(BUILD_TESTING)
     add_executable(launcher_ui_metrics_tests tests/launcher_ui_metrics.cpp)
     target_include_directories(launcher_ui_metrics_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     add_test(NAME launcher_ui_metrics COMMAND launcher_ui_metrics_tests)
+    add_executable(launcher_texture_packs_tests tests/launcher_texture_packs.cpp)
+    target_link_libraries(launcher_texture_packs_tests PRIVATE charged_launcher_texture_packs)
+    add_test(NAME launcher_texture_packs COMMAND launcher_texture_packs_tests
+        "${CMAKE_CURRENT_BINARY_DIR}/launcher-texture-packs-data")
     add_executable(launcher_match_presets_tests tests/launcher_match_presets.cpp)
     target_link_libraries(launcher_match_presets_tests PRIVATE charged_match_presets)
     add_test(NAME launcher_match_presets COMMAND launcher_match_presets_tests

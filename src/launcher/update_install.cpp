@@ -590,7 +590,7 @@ fs::path UnpackPackage(const fs::path& archive, const fs::path& destination, con
 }
 
 void ReplacePackage(const fs::path& base, const fs::path& staged, const fs::path& backup,
-                    const std::function<void(const std::string&)>& before_move)
+                    const std::function<void(const std::string&)>& before_move, bool* incomplete)
 {
     std::vector<std::pair<fs::path, fs::path>> moves;
     try
@@ -603,7 +603,10 @@ void ReplacePackage(const fs::path& base, const fs::path& staged, const fs::path
         for (auto it = moves.rbegin(); it != moves.rend(); ++it)
         {
             try { MovePath(it->second, it->first); }
-            catch (...) {}
+            catch (...)
+            {
+                if (incomplete) *incomplete = true;
+            }
         }
         throw;
     }
@@ -641,12 +644,16 @@ void InstallStagedPackage(const fs::path& base, const fs::path& staged, const fs
                << Generic(fs::relative(backup, UpdateFolder(base))) << '\n';
         if (!stream.flush()) Fail(texts::T("launcher.update.install.cannot_write", {{"path", PathUtf8(marker)}}));
     }
+    bool incomplete = false;
     try
     {
-        ReplacePackage(base, staged, backup);
+        ReplacePackage(base, staged, backup, {}, &incomplete);
     }
-    catch (...)
+    catch (const std::exception& error)
     {
+        // Moved back whole: as before the update. Half replaced: the marker
+        // stays, and the next start completes the update.
+        if (incomplete) throw UnfinishedReplacement(texts::T("launcher.update.install.unfinished", {{"error", error.what()}}));
         std::error_code ignored;
         fs::remove(marker, ignored);
         throw;
@@ -677,9 +684,11 @@ std::string FinishUpdates(const fs::path& base)
                              nullptr, {});
             fs::remove(marker, error);
         }
-        catch (const std::exception&)
+        catch (const std::exception& failure)
         {
-            return {}; // kept for the next start; the folder stays as it is
+            // The folder stays as it is, for the next start; the player is told.
+            Fail(texts::T("launcher.update.install.finish_failed",
+                          {{"error", failure.what()}, {"path", PathUtf8(folder)}}));
         }
     }
     std::string replaced;

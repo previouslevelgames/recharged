@@ -269,6 +269,14 @@ void CompetitiveService::Signed(ProfileService& api, const std::string& token, c
     next_poll_ = Clock::now() + (interval ? std::chrono::seconds(interval) : kMatchPoll);
 }
 
+bool CompetitiveService::SignInStillAsked(const std::string& id) const
+{
+    // StopSignIn (or a new sign-in) while the server's answer was on its way:
+    // the answer is not used.
+    std::lock_guard<std::mutex> lock(mutex_);
+    return !id.empty() && sign_in_id_ == id;
+}
+
 void CompetitiveService::Poll(ProfileService& api)
 {
     State state;
@@ -293,6 +301,7 @@ void CompetitiveService::Poll(ProfileService& api)
     if (state == State::SigningIn)
     {
         const auto result = api.PollSignIn(id);
+        if (!SignInStillAsked(id)) return;
         switch (result.status)
         {
         case SignInResult::Status::Waiting: return;
@@ -335,6 +344,7 @@ void CompetitiveService::Poll(ProfileService& api)
     if (connecting)
     {
         const auto result = api.PollSignIn(id);
+        if (!SignInStillAsked(id)) return;
         if (result.status == SignInResult::Status::SignedIn)
         {
             if (result.discord)
@@ -563,31 +573,31 @@ void CompetitiveService::SignOut()
     }, true);
 }
 
-void CompetitiveService::ReadyToPlay(bool ready)
+void CompetitiveService::ReadyToPlay(std::int64_t match_id, bool ready)
 {
-    Post([this, ready](ProfileService& api) {
+    Post([this, match_id, ready](ProfileService& api) {
         const auto current = Snapshot().match;
-        if (!current) return;
+        if (!current || current->id != match_id) return;
         const auto match = api.ReadyToPlay(current->id, ready);
         Change([&](Status& status) { status.match = match; });
     }, true);
 }
 
-void CompetitiveService::Accept()
+void CompetitiveService::Accept(std::int64_t match_id)
 {
-    Post([this](ProfileService& api) {
+    Post([this, match_id](ProfileService& api) {
         const auto current = Snapshot().match;
-        if (!current) return;
+        if (!current || current->id != match_id) return;
         const auto match = api.Accept(current->id);
         Change([&](Status& status) { status.match = match; });
     }, true);
 }
 
-void CompetitiveService::Decline()
+void CompetitiveService::Decline(std::int64_t match_id)
 {
-    Post([this](ProfileService& api) {
+    Post([this, match_id](ProfileService& api) {
         const auto current = Snapshot().match;
-        if (!current) return;
+        if (!current || current->id != match_id) return;
         const auto match = api.Decline(current->id);
         Change([&](Status& status) { status.match = match; });
     }, true);
@@ -605,11 +615,11 @@ void CompetitiveService::ChooseCountry(std::string choice)
     }, true);
 }
 
-void CompetitiveService::CancelMatch()
+void CompetitiveService::CancelMatch(std::int64_t match_id)
 {
-    Post([this](ProfileService& api) {
+    Post([this, match_id](ProfileService& api) {
         const auto current = Snapshot().match;
-        if (!current) return;
+        if (!current || current->id != match_id) return;
         const auto match = api.Cancel(current->id);
         Change([&](Status& status) { status.match = match; });
     }, true);

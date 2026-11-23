@@ -313,7 +313,7 @@ MatchPreset PresetFromRules(std::string name, const platform::MatchRules& rules)
     s.goal_limit = rules.limit == "goals";
     s.time = std::clamp((rules.time + 30) / 60, 2, 5) * 60;
     s.goals = std::clamp(rules.goals, 3, 10);
-    s.best_of = std::clamp(rules.games | 1, 1, 9);
+    s.best_of = std::clamp(rules.games | 1, 1, 7); // the editor offers 1 to 7, as ChallengeRules plays
     const auto index = [](const std::vector<platform::RuleChoice>& choices, const std::string& key) {
         for (std::size_t n = 0; n < choices.size(); ++n)
             if (key == choices[n].key) return int(n);
@@ -377,6 +377,18 @@ MatchPresetList LoadMatchPresets(const fs::path& folder)
     return list;
 }
 
+namespace
+{
+// Whether two paths name one file. fs::equivalent needs both to exist: a
+// preset whose own file went away compares by its path.
+bool SameFile(const fs::path& a, const fs::path& b)
+{
+    std::error_code error;
+    if (fs::exists(a, error) && fs::exists(b, error)) return fs::equivalent(a, b, error);
+    return fs::absolute(a, error).lexically_normal() == fs::absolute(b, error).lexically_normal();
+}
+} // namespace
+
 fs::path SaveMatchPreset(const fs::path& folder, const MatchPreset& preset, const std::vector<MatchPreset>& others)
 {
     if (preset.built_in) throw std::invalid_argument(texts::T("match_setup.presets.errors.built_in_change"));
@@ -390,7 +402,7 @@ fs::path SaveMatchPreset(const fs::path& folder, const MatchPreset& preset, cons
 
     const auto target = folder / PathFromUtf8(MatchPresetFileName(preset.name));
     std::error_code error;
-    const bool renamed = !preset.file.empty() && !fs::equivalent(preset.file, target, error);
+    const bool renamed = !preset.file.empty() && !SameFile(preset.file, target);
     if ((preset.file.empty() || renamed) && fs::exists(target, error))
         throw std::invalid_argument(
             texts::T("match_setup.presets.errors.file_taken", {{"file", PathUtf8(target.filename())}}));
@@ -410,7 +422,8 @@ fs::path SaveMatchPreset(const fs::path& folder, const MatchPreset& preset, cons
                     texts::T("match_setup.presets.errors.cannot_write", {{"path", PathUtf8(staging)}}));
         }
         fs::rename(staging, target);
-        if (renamed) fs::remove(preset.file);
+        // The old file of a renamed preset; saved all the same when it stays.
+        if (renamed) fs::remove(preset.file, error);
     }
     catch (const fs::filesystem_error& e)
     {

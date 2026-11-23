@@ -22,7 +22,11 @@ ImVec2 Sub(ImVec2 a, ImVec2 b) { return {a.x - b.x, a.y - b.y}; }
 
 ImU32 Col(const ImVec4& color, float alpha)
 {
-    return ImGui::ColorConvertFloat4ToU32({color.x, color.y, color.z, color.w * std::clamp(alpha, 0.0f, 1.0f)});
+    // ImGui's style alpha is lowered inside BeginDisabled: the launcher's own
+    // drawing dims with it, as ImGui's widgets do, so a disabled control looks it.
+    const float style = ImGui::GetCurrentContext() ? ImGui::GetStyle().Alpha : 1.0f;
+    return ImGui::ColorConvertFloat4ToU32(
+        {color.x, color.y, color.z, color.w * std::clamp(alpha, 0.0f, 1.0f) * style});
 }
 
 ImVec4 Mix(const ImVec4& a, const ImVec4& b, float t)
@@ -89,8 +93,6 @@ Fonts LoadFonts(const std::string& ttf, float font_raster, float density)
 }
 
 const Fonts& CurrentFonts() { return g_fonts; }
-void SetCurrentFonts(const Fonts& fonts) { g_fonts = fonts; }
-
 float FontSize(ImFont* font)
 {
     return font->FontSize * ImGui::GetIO().FontGlobalScale;
@@ -1094,33 +1096,6 @@ bool Toggle(const char* id, bool* value)
     return pressed;
 }
 
-bool MenuToggle(const char* id, const char* label, const char* description, bool* value, float width)
-{
-    ImGui::PushID(id);
-    const auto& fonts = CurrentFonts();
-    const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const ImVec2 pad = Dp(12, 10);
-    const ImVec2 switch_size = Dp(40, 24);
-    const float text_width = width - pad.x * 3 - switch_size.x;
-    const float label_height = FontSize(fonts.label);
-    const ImVec2 detail = fonts.caption->CalcTextSizeA(FontSize(fonts.caption), FLT_MAX, text_width, description);
-    const ImVec2 size{width, pad.y * 2 + label_height + Dp(3) + detail.y};
-    const bool pressed = ImGui::InvisibleButton("##row", size);
-    if (pressed) *value = !*value;
-    const bool hovered = ImGui::IsItemHovered();
-    const float hover = Animate(ImGui::GetID("##hover"), hovered, 14.0f);
-    const float on = Animate(ImGui::GetID("##on"), *value, 14.0f);
-    auto* draw = ImGui::GetWindowDrawList();
-    if (hover > 0.0f) draw->AddRectFilled(pos, Add(pos, size), Col(color::text, 0.06f * hover), Dp(7));
-    DrawLabel(draw, fonts.label, {pos.x + pad.x, pos.y + pad.y}, Col(color::text), label);
-    draw->AddText(fonts.caption, FontSize(fonts.caption), {pos.x + pad.x, pos.y + pad.y + label_height + Dp(3)},
-                  Col(color::muted), description, nullptr, text_width);
-    DrawSwitch(draw, {pos.x + width - pad.x - switch_size.x, pos.y + (size.y - switch_size.y) * 0.5f}, switch_size,
-               on, hover);
-    ImGui::PopID();
-    return pressed;
-}
-
 bool MenuAction(const char* id, const char* label, float width)
 {
     ImGui::PushID(id);
@@ -1293,7 +1268,7 @@ bool PercentSlider(const char* id, int* value, float width, const char* zero_lab
 
     // ImGui centres its grab between 2 px of padding at each end; the knob follows it.
     auto* draw = ImGui::GetWindowDrawList();
-    const float alpha = ImGui::GetStyle().Alpha; // dimmed while disabled (Mute)
+    const float alpha = 1.0f; // (Col dims it while disabled, Mute's)
     const float left = pos.x + 2.0f + knob * 0.5f, right = pos.x + track_width - 2.0f - knob * 0.5f;
     const float x = left + (right - left)
         * std::clamp(float(*value - minimum) / float(std::max(1, maximum - minimum)), 0.0f, 1.0f);
@@ -1323,7 +1298,7 @@ bool StepSlider(const char* id, int* value, int minimum, int maximum, float widt
     const float label_width = std::max(TextSize(fonts.body, label).x, Dp(28)) + Dp(12);
     const float track_width = std::max(Dp(60), width - label_width - 2 * button - Dp(16));
     auto* draw = ImGui::GetWindowDrawList();
-    const float alpha = ImGui::GetStyle().Alpha;
+    const float alpha = 1.0f; // (Col dims it while disabled)
     // Shown: the value as it reads left to right.
     int shown = reversed ? minimum + maximum - *value : *value;
     bool changed = false;
@@ -1515,28 +1490,6 @@ bool KeyComboButton(const char* id, const std::vector<std::string>& keys, bool w
         x = max.x;
     }
     return pressed;
-}
-
-void KeyCapArrow(int direction)
-{
-    const ImVec2 pos = ImGui::GetCursorScreenPos();
-    const ImVec2 size{Dp(30), Dp(28)};
-    auto* draw = ImGui::GetWindowDrawList();
-    draw->AddRectFilled({pos.x, pos.y + Dp(2)}, Add(pos, {size.x, size.y + Dp(2)}), Col(color::window), Dp(7));
-    draw->AddRectFilled(pos, Add(pos, size), Col(Mix(color::field, color::border, 0.5f)), Dp(7));
-    draw->AddRect(pos, Add(pos, size), Col(color::border), Dp(7), 0, Dp(1));
-    const ImVec2 c{pos.x + size.x * 0.5f, pos.y + size.y * 0.5f};
-    const float r = Dp(5);
-    ImVec2 a, b, tip;
-    switch (direction)
-    {
-    case 0: tip = {c.x, c.y - r}; a = {c.x - r, c.y + r * 0.6f}; b = {c.x + r, c.y + r * 0.6f}; break;
-    case 1: tip = {c.x, c.y + r}; a = {c.x + r, c.y - r * 0.6f}; b = {c.x - r, c.y - r * 0.6f}; break;
-    case 2: tip = {c.x - r, c.y}; a = {c.x + r * 0.6f, c.y + r}; b = {c.x + r * 0.6f, c.y - r}; break;
-    default: tip = {c.x + r, c.y}; a = {c.x - r * 0.6f, c.y - r}; b = {c.x - r * 0.6f, c.y + r}; break;
-    }
-    draw->AddTriangleFilled(tip, a, b, Col(color::text));
-    ImGui::Dummy({size.x, size.y + Dp(2)});
 }
 
 void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color)

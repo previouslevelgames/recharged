@@ -137,6 +137,21 @@ endif()
 
 set(MSCHARGED_PREPARER "${CMAKE_CURRENT_SOURCE_DIR}/tools/prepare_sources.py")
 set(MSCHARGED_PATCHES "${CMAKE_CURRENT_SOURCE_DIR}/patches/mscharged-decomp")
+# Extra patch series for a local experiment (tools/prepare_sources.py
+# --extra-series): DEPENDENCY=FOLDER entries, each applied after that
+# dependency's own series. Releases and test builds leave it empty.
+set(MSCHARGED_EXTRA_PATCH_SERIES "" CACHE STRING
+    "Extra patch series for a local experiment: DEPENDENCY=FOLDER entries, applied after that dependency's series")
+function(mscharged_check_extra_patch_series)
+    get_property(prepared GLOBAL PROPERTY MSCHARGED_PREPARED_DEPENDENCIES)
+    foreach(entry IN LISTS MSCHARGED_EXTRA_PATCH_SERIES)
+        string(REGEX REPLACE "=.*$" "" dependency "${entry}")
+        if(NOT dependency IN_LIST prepared)
+            message(FATAL_ERROR "MSCHARGED_EXTRA_PATCH_SERIES names ${dependency}, which this build does not prepare")
+        endif()
+    endforeach()
+endfunction()
+cmake_language(DEFER CALL mscharged_check_extra_patch_series)
 file(GLOB_RECURSE patch_inputs CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/patches/*")
 execute_process(
     COMMAND "${GIT_EXECUTABLE}" rev-parse --git-path index
@@ -217,6 +232,18 @@ function(mscharged_prepare_dependency name output)
     if(NINTENDO_SWITCH)
         list(APPEND prepare_args --layer switch)
     endif()
+    foreach(entry IN LISTS MSCHARGED_EXTRA_PATCH_SERIES)
+        if(NOT entry MATCHES "^([^=]+)=(.+)$")
+            message(FATAL_ERROR "MSCHARGED_EXTRA_PATCH_SERIES takes DEPENDENCY=FOLDER entries, not \"${entry}\"")
+        endif()
+        if(CMAKE_MATCH_1 STREQUAL name)
+            get_filename_component(series_folder "${CMAKE_MATCH_2}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+            list(APPEND prepare_args --extra-series "${series_folder}")
+            file(GLOB_RECURSE series_inputs CONFIGURE_DEPENDS "${series_folder}/*")
+            set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${series_inputs})
+        endif()
+    endforeach()
+    set_property(GLOBAL APPEND PROPERTY MSCHARGED_PREPARED_DEPENDENCIES "${name}")
     execute_process(
         COMMAND "${Python3_EXECUTABLE}" -B "${MSCHARGED_PREPARER}"
                 --build-dir "${CMAKE_BINARY_DIR}" --dependency "${name}" ${prepare_args}

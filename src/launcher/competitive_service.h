@@ -97,17 +97,18 @@ public:
     // Trades the Discord Social SDK's code (with its verifier and redirect)
     // or refresh token for its tokens; `done` gets them on the worker, or
     // the failure's words and whether Discord refused (the link has to be
-    // made again). Dropped with a change of server or signing out.
+    // made again). Dropped with a change of server (not by signing out).
     using DiscordTraded =
         std::function<void(const platform::DiscordTokens& tokens, const std::string& error, bool refused)>;
     void TradeDiscordToken(std::string code, std::string verifier, std::string redirect_uri,
                            std::string refresh_token, DiscordTraded done);
     // The set's Ready to play! (or taking it back): once more after its game
-    // could not start.
-    void ReadyToPlay(bool ready);
-    void Accept();
-    void Decline();
-    void CancelMatch();
+    // could not start. These act on the match `match_id` (the one the player
+    // saw), and do nothing when another one is current by the time they run.
+    void ReadyToPlay(std::int64_t match_id, bool ready);
+    void Accept(std::int64_t match_id);
+    void Decline(std::int64_t match_id);
+    void CancelMatch(std::int64_t match_id);
     // The flag beside the player's name: "auto", "none" or a country's two
     // capital letters (ProfileService::ChooseCountry).
     void ChooseCountry(std::string choice);
@@ -121,6 +122,8 @@ private:
     void Post(Task task, bool action);
     void Run();
     void Poll(platform::ProfileService& api);
+    // Whether the sign-in `id` is still the one waited for (not stopped).
+    bool SignInStillAsked(const std::string& id) const;
     void Connect(platform::ProfileService& api);
     void Signed(platform::ProfileService& api, const std::string& token, const platform::ProfilePlayer& player);
     void Fail(const std::exception& error);

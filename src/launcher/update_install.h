@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -44,10 +45,21 @@ std::filesystem::path UnpackPackage(const std::filesystem::path& archive, const 
 // Replaces the package installed in `base` by the unpacked package in
 // `staged`: each file either manifest lists moves to `backup` (when present),
 // then the new files move in, the manifest last. Any failure moves everything
-// back and rethrows. `before_move` (tests) sees each relative path first.
+// back and rethrows; when a move back fails as well, `*incomplete` (when
+// given) is set: the files stay half replaced. `before_move` (tests) sees each
+// relative path first.
 void ReplacePackage(const std::filesystem::path& base, const std::filesystem::path& staged,
                     const std::filesystem::path& backup,
-                    const std::function<void(const std::string&)>& before_move = {});
+                    const std::function<void(const std::string&)>& before_move = {}, bool* incomplete = nullptr);
+
+// InstallStagedPackage failed and could not move everything back: the folder
+// keeps the marker, the unpacked package and the previous files, so that
+// FinishUpdates completes the update at the next start (instead of deleting
+// the previous files that did not move back).
+struct UnfinishedReplacement : std::runtime_error
+{
+    using std::runtime_error::runtime_error;
+};
 
 // <base>/.update: downloads, the unpacked package and the previous files.
 std::filesystem::path UpdateFolder(const std::filesystem::path& base);
@@ -58,7 +70,8 @@ std::string InstallBlocker(const std::filesystem::path& base);
 // Run at launcher start: finishes a replacement an interrupted launcher left
 // half done, then removes what earlier updates left behind (files still in
 // use stay for the next start). Returns the version the last update
-// replaced, or empty.
+// replaced, or empty. Throws when a half done replacement cannot be finished
+// now (it is tried again at the next start).
 std::string FinishUpdates(const std::filesystem::path& base);
 
 // Downloads, unpacks and installs: see update_service.h. Marks the folder

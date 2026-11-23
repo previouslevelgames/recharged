@@ -187,6 +187,10 @@ void Rules()
     CHECK(ScreenName("\U0001F600\U0001F680").empty() && ScreenName("bad \xff byte").empty());
     CHECK(ScreenName(std::string(40, 'x')) == std::u16string(32, u'x'));
     CHECK(ScreenName("\xe3\x83\x9e\xe3\x83\xaa\xe3\x82\xaa") == u"\u30DE\u30EA\u30AA");
+    // Malformed UTF-8 is refused: an overlong form, a surrogate, a value past
+    // U+10FFFF, a missing continuation byte.
+    CHECK(ScreenName("a\xc0\xaf").empty() && ScreenName("a\xed\xa0\x80").empty()
+          && ScreenName("a\xf4\x90\x80\x80").empty() && ScreenName("a\xc3" "b").empty());
 }
 
 #ifndef _WIN32

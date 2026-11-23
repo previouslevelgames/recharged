@@ -60,9 +60,6 @@ struct Fonts
 // pixels per dp; io.FontGlobalScale maps the glyphs back to window units.
 Fonts LoadFonts(const std::string& ttf, float font_raster, float density);
 const Fonts& CurrentFonts();
-// The fonts the widgets draw with, for a host that loads its own (the game's
-// online panel); LoadFonts sets them too.
-void SetCurrentFonts(const Fonts& fonts);
 float FontSize(ImFont* font); // in window units, including FontGlobalScale
 
 // Theme for the current scale (call on a fresh style when the scale changes).
@@ -131,9 +128,8 @@ struct SplitPress
 };
 SplitPress SplitPrimaryButton(const char* id, const char* label, ImVec2 size, const SplitSegment& segment,
                               bool enabled, Icon icon = Icon::None, bool glow = false);
-// Dropdown menu rows (inside a popup), each `width` wide: a switch with a
-// description, an action with a chevron, and a divider.
-bool MenuToggle(const char* id, const char* label, const char* description, bool* value, float width);
+// Dropdown menu rows (inside a popup), each `width` wide: an action with a
+// chevron, and a divider.
 bool MenuAction(const char* id, const char* label, float width);
 void MenuSeparator(float width);
 // Text button without a frame until hovered, for quiet actions next to a primary button.
@@ -172,8 +168,6 @@ bool KeyCapButton(const char* id, const char* key, bool waiting);
 // Clickable keycaps of keys pressed together ("Ctrl + Shift + F12"), one
 // button; `waiting` shows them pulsing while they wait for key presses.
 bool KeyComboButton(const char* id, const std::vector<std::string>& keys, bool waiting);
-// Keycap with a drawn arrow: 0 up, 1 down, 2 left, 3 right (no font glyphs needed).
-void KeyCapArrow(int direction);
 void DrawChevron(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
 void DrawChevronDown(ImDrawList* draw, ImVec2 center, float size, ImU32 color);
 // The Discord logo, `width` wide (three quarters as tall), its eyes in `eyes`:

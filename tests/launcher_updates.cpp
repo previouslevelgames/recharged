@@ -644,6 +644,56 @@ void TestInstall(const fs::path& fixtures, const fs::path& work)
         Check(Tree(UpdateFolder(base) / "previous-1").empty(), "No previous files are left behind");
     }
 
+#ifndef _WIN32
+    // A failure half way whose move back fails too (a file in the way, as an
+    // antivirus lock on Windows): the old file stays among the previous ones,
+    // and the next start completes the update instead of deleting it.
+    {
+        const fs::path base = InstalledCopy(fixtures, work, "rollback-incomplete");
+        const fs::path root = UnpackPackage(fixtures / archive, UpdateFolder(base) / "staged-1");
+        const fs::path previous = UpdateFolder(base) / "previous-1";
+        std::string first;
+        int moves = 0;
+        bool incomplete = false;
+        Check(Throws([&] {
+                  ReplacePackage(base, root, previous,
+                                 [&](const std::string& relative) {
+                                     // The first file both packages have (its move back can be blocked).
+                                     if (first.empty() && fs::exists(root / relative) && fs::exists(base / relative))
+                                         first = relative;
+                                     if (++moves == 4)
+                                     {
+                                         // Blocks moving the first new file back, and so the old one too.
+                                         std::ofstream(root / first) << "in the way";
+                                         throw std::runtime_error("disk full");
+                                     }
+                                 },
+                                 &incomplete);
+              }),
+              "A failing move fails the replacement");
+        Check(incomplete, "A failed move back is reported");
+        Check(fs::exists(previous / first), "The old file stays among the previous ones");
+        // InstallStagedPackage keeps its marker then; the lock goes away by the next start.
+        std::ofstream(UpdateFolder(base) / "replacing") << "staged-1/" << root.filename().generic_string()
+                                                        << "\nprevious-1\n";
+        fs::remove(root / first);
+        Check(FinishUpdates(base) == "1.0.9+gaaaaaaaaaaaa", "The next start completes the update");
+        Check(Read(base / "recharged") == "new launcher\n" && Read(base / "docs/NEW.md") == "only in the new package\n"
+                  && !fs::exists(base / "docs/OLD.md")
+                  && ReadPackageManifest(base / kPackageManifest).version == "1.0.10+gbbbbbbbbbbbb",
+              "The completed update has every new file");
+    }
+
+    // A half done replacement that cannot be finished yet is not silent.
+    {
+        const fs::path base = InstalledCopy(fixtures, work, "finish-failing");
+        fs::create_directories(UpdateFolder(base));
+        std::ofstream(UpdateFolder(base) / "replacing") << "../outside\nprevious-1\n";
+        Check(Throws([&] { FinishUpdates(base); }), "An unfinishable replacement is reported");
+        Check(fs::exists(UpdateFolder(base) / "replacing"), "Its marker stays for the next start");
+    }
+#endif
+
     // An interrupted replacement (the launcher was killed) is completed at the next start.
     {
         const fs::path base = InstalledCopy(fixtures, work, "interrupted");

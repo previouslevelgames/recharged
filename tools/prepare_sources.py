@@ -142,29 +142,39 @@ def series_inputs(directory: Path, label: str, commit: str, prefix: str = ""):
 LAYERS = ("switch",)
 
 
-def patch_inputs(root: Path, name: str, commit: str, layers=()):
-    """The dependency's patch series, its optional tweak series, then the
-    series of each selected platform layer.
+def patch_inputs(root: Path, name: str, commit: str, layers=(), extra_series=()):
+    """The dependency's patch series, its optional tweak series, the series of
+    each selected platform layer, then each extra series in the given order.
 
     patches/<name>-tweaks holds opt-in game tweaks (mod phase), kept apart from
     the faithful series. Its hooks only act when the player enables a tweak, so
     it is applied after the faithful series and recorded under its own names.
     patches/<name>-<layer> holds changes for one platform (the Switch): only its
-    builds select the layer, so the other platforms never apply it."""
+    builds select the layer, so the other platforms never apply it.
+    An extra series is a folder of its own anywhere (base, series and its
+    patches) for a local experiment; builds for others never pass one. Its
+    patches are recorded as extra-<n>/<patch>, without the folder's path."""
     directory = root / "patches" / name
     extras = [("tweaks", root / "patches" / f"{name}-tweaks")]
     extras += [(layer, root / "patches" / f"{name}-{layer}") for layer in layers]
-    if not directory.exists():
+    patches, series_sha = [], None
+    if directory.exists():
+        patches, series_sha = series_inputs(directory, name, commit)
+        for label, extra in extras:
+            if extra.exists():
+                more, extra_sha = series_inputs(extra, f"{name}-{label}", commit, prefix=f"{name}-{label}/")
+                patches += more
+                series_sha = sha(encoded([series_sha, extra_sha]))
+    else:
         for label, extra in extras:
             if extra.exists():
                 raise PreparationError(f"patches/{name}-{label} requires patches/{name}")
-        return [], None
-    patches, series_sha = series_inputs(directory, name, commit)
-    for label, extra in extras:
-        if extra.exists():
-            more, extra_sha = series_inputs(extra, f"{name}-{label}", commit, prefix=f"{name}-{label}/")
-            patches += more
-            series_sha = sha(encoded([series_sha, extra_sha]))
+    for number, extra in enumerate(extra_series, 1):
+        if not (extra / "base").is_file() or not (extra / "series").is_file():
+            raise PreparationError(f"Extra patch series {extra} needs its own base and series files")
+        more, extra_sha = series_inputs(extra, f"extra series {extra}", commit, prefix=f"extra-{number}/")
+        patches += more
+        series_sha = sha(encoded([series_sha, extra_sha]))
     return patches, series_sha
 
 
@@ -268,7 +278,8 @@ def preparation_lock(directory: Path):
 def prepare(root: Path, build: Path, name: str, *, check=False,
             discard_generated=False, export_patch: Path | None = None,
             nested_submodules=None, clang_format: str | None = None,
-            format_config: Path | None = None, format_jobs: int | None = None, layers=()) -> Path:
+            format_config: Path | None = None, format_jobs: int | None = None, layers=(),
+            extra_series=()) -> Path:
     """Prepare build/prepared/<name>/source, the tree that is compiled.
 
     For game sources (or with clang_format), prepared/<name>/patched holds the
@@ -287,7 +298,11 @@ def prepare(root: Path, build: Path, name: str, *, check=False,
     unknown = [layer for layer in layers if layer not in LAYERS]
     if unknown:
         raise PreparationError("Unknown patch layer: " + ", ".join(unknown))
-    patches, series_sha = patch_inputs(root, name, sources[0]["commit"], layers)
+    extra_series = [Path(extra).resolve() for extra in extra_series]
+    repeated = sorted({str(extra) for extra in extra_series if extra_series.count(extra) > 1})
+    if repeated:
+        raise PreparationError("Extra patch series given twice: " + ", ".join(repeated))
+    patches, series_sha = patch_inputs(root, name, sources[0]["commit"], layers, extra_series)
     inputs = {
         "dependency": name, "sources": [{k: s[k] for k in ("path", "commit")} for s in sources],
         "patches": [{k: p[k] for k in ("name", "sha256")} for p in patches],
@@ -426,6 +441,9 @@ def main():
     parser.add_argument("--format-jobs", type=int, help="Parallel formatting processes (default: CPU count)")
     parser.add_argument("--layer", action="append", dest="layers", default=[], choices=LAYERS,
                         help="Also apply the platform layer patches/<dependency>-<layer> (switch); repeat for each")
+    parser.add_argument("--extra-series", action="append", dest="extra_series", default=[], type=Path, metavar="DIR",
+                        help="Also apply the patch series in DIR (its own base and series files) after the "
+                             "dependency's series, for a local experiment; repeat for each, applied in order")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--check", action="store_true", help="Verify pins, inputs, and generated contents; do not regenerate")
     modes.add_argument("--discard-generated", action="store_true", help="Explicitly allow replacing edited generated sources")
@@ -446,7 +464,8 @@ def main():
         path = prepare(root, args.build_dir, args.dependency, check=args.check,
                        discard_generated=args.discard_generated, export_patch=args.export_patch,
                        nested_submodules=args.nested_submodules, clang_format=clang_format,
-                       format_config=args.format_config, format_jobs=args.format_jobs, layers=args.layers)
+                       format_config=args.format_config, format_jobs=args.format_jobs, layers=args.layers,
+                       extra_series=args.extra_series)
         print(path)
     except (PreparationError, OSError, ValueError) as error:
         parser.exit(1, f"Source preparation failed: {error}\n")

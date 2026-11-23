@@ -139,6 +139,14 @@
       "other_package": "The download is the {{incoming}} package; this folder holds {{installed}}",
       "folder_in_the_way": "A folder is in the way of {{path}}",
       "cannot_keep": "Cannot keep the previous {{path}}",
+      "unfinished": "The update stopped half way ({{error}}). Start Recharged again to finish it.",
+      "no_package": "This release has no package for {{package}}.",
+      "no_checksum": "The release has no checksum for {{name}}.",
+      "download_failed": "The download failed with error {{status}}.",
+      "download_incomplete": "The download is incomplete.",
+      "download_damaged": "The download is damaged (its checksum does not match).",
+      "wrong_version": "The package holds version {{version}}, not the one offered.",
+      "finish_failed": "The last update could not be finished ({{error}}). It is tried again at the next start; its files are in {{path}}.",
       "manifest_format": "Unknown package manifest format in {{path}}",
       "manifest_incomplete": "Incomplete package manifest in {{path}}",
       "manifest_file": "Invalid file in the package manifest: {{path}}",
@@ -214,6 +222,12 @@
       "aspect": "Set [display] aspect in recharged.ini to 16:9, 4:3 or stretch."
     },
     "tagline": "{{game}}, rebuilt to run natively on your PC.",
+    "online": {
+      "count_one": "{{count}} online",
+      "count_other": "{{count}} online",
+      "about_one": "{{count}} player online, {{playing}} in a match",
+      "about_other": "{{count}} players online, {{playing}} in a match"
+    },
     "button": "PLAY",
     "status": {
       "searching": "Looking for your game image",
@@ -284,7 +298,9 @@
     "unsaved": "Your settings have unsaved changes.",
     "save_play": "Save and play",
     "discard_play": "Discard and play",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "not_started": "The game did not start: {{reason}}",
+    "settings_problem": "the saved settings have a problem."
   },
   "close_prompt": {
     "title": "Save your changes?",

@@ -4,6 +4,7 @@
 #include "bootstrap/table_texts.h"
 #include "bootstrap/texts.h"
 #include "platform/profile_service.h"
+#include "platform/utf8.h"
 
 #include <array>
 #include <cctype>
@@ -250,19 +251,9 @@ std::u16string ScreenName(std::string_view name)
     std::u16string shown;
     for (std::size_t n = 0; n < name.size();)
     {
-        const auto lead = static_cast<unsigned char>(name[n]);
-        const std::size_t length = lead < 0x80 ? 1 : (lead & 0xE0) == 0xC0 ? 2 : (lead & 0xF0) == 0xE0 ? 3
-                                 : (lead & 0xF8) == 0xF0                   ? 4
-                                                                           : 0;
-        if (!length || n + length > name.size()) return {};
-        char32_t c = length == 1 ? lead : lead & (0x7F >> length);
-        for (std::size_t k = 1; k < length; ++k)
-        {
-            const auto next = static_cast<unsigned char>(name[n + k]);
-            if ((next & 0xC0) != 0x80) return {};
-            c = (c << 6) | (next & 0x3F);
-        }
-        n += length;
+        const auto decoded = NextCodepoint(name, n);
+        if (!decoded) return {};
+        const char32_t c = *decoded;
         const bool space = c == U' ' || c == U'\t' || c == U'\u00A0' || c == U'\u3000';
         // The basic plane without control, surrogate, private-use and
         // invisible format characters (and variation selectors).

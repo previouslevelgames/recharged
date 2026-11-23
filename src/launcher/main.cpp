@@ -14,6 +14,7 @@
 #include "bootstrap/graphics_backend.h"
 #include "bootstrap/table_texts.h"
 #include "bootstrap/texts.h"
+#include "launcher/background_job.h"
 #include "launcher/competitive_service.h"
 #include "launcher/current_build.h"
 #include "launcher/discord_friends.h"
@@ -28,6 +29,7 @@
 #include "launcher/release_banner.h"
 #include "launcher/release_notes_view.h"
 #include "launcher/server_message.h"
+#include "launcher/texture_pack_library.h"
 #include "launcher/fallback_fonts.h"
 #include "launcher/ui_kit.h"
 #include "launcher/ui_metrics.h"
@@ -37,6 +39,7 @@
 #include "mscharged/build_version.h"
 #include "overlay/flags.h"
 #include "platform/competitive_rules.h"
+#include "platform/utf8.h"
 #include "platform/parse_float.h"
 #include "platform/name_glyphs.h"
 #include "platform/profile_service.h"
@@ -410,14 +413,9 @@ bool ValidProfileName(const std::string& name)
     std::size_t characters = 0;
     for (std::size_t n = 0; n < trimmed.size(); ++characters)
     {
-        const auto lead = static_cast<unsigned char>(trimmed[n]);
-        const std::size_t length = lead < 0x80 ? 1 : (lead & 0xE0) == 0xC0 ? 2 : (lead & 0xF0) == 0xE0 ? 3
-            : (lead & 0xF8) == 0xF0                                         ? 4
-                                                                            : 0;
-        if (!length || n + length > trimmed.size()) return false;
-        char32_t c = length == 1 ? lead : lead & (0x7F >> length);
-        for (std::size_t k = 1; k < length; ++k) c = (c << 6) | (static_cast<unsigned char>(trimmed[n + k]) & 0x3F);
-        n += length;
+        const auto decoded = mscharged::platform::NextCodepoint(trimmed, n);
+        if (!decoded) return false;
+        const char32_t c = *decoded;
         // Control characters, and the invisible format ones (soft hyphen,
         // zero-width and direction marks, word joiners, BOM, tags).
         if (c < 0x20 || (c >= 0x7F && c < 0xA0) || c == 0xAD || (c >= 0x600 && c <= 0x605) || c == 0x61C
@@ -427,34 +425,6 @@ bool ValidProfileName(const std::string& name)
             return false;
     }
     return characters >= 1 && characters <= 32;
-}
-
-// A Mii of the game's own online players, whose Mii data the launcher doesn't
-// have: a Mii-style face (a head with a bowl cut, eyes and a smile) on a
-// rounded square of one of the twelve favourite colours, as the Wii shows its
-// Mii icons. `seed` picks the colour.
-void DrawMiiFace(ImDrawList* draw, ImVec2 center, float size, unsigned seed, float alpha)
-{
-    const ImVec4 fill = MiiColor(int(seed % 12));
-    const float half = size * 0.5f;
-    draw->AddRectFilled({center.x - half, center.y - half}, {center.x + half, center.y + half}, Col(fill, alpha),
-                        size * 0.24f);
-    draw->AddRect({center.x - half, center.y - half}, {center.x + half, center.y + half},
-                  Col(ImVec4{1, 1, 1, 1}, 0.12f * alpha), size * 0.24f, 0, Dp(1));
-    const ImVec2 head{center.x, center.y + size * 0.06f};
-    const float radius = size * 0.30f;
-    draw->AddCircleFilled(head, radius, Col(ImVec4{1.0f, 0.84f, 0.67f, 1}, alpha), 24);
-    // The hair: the head's upper half, a little wider.
-    const ImU32 hair = Col(ImVec4{0.24f, 0.16f, 0.11f, 1}, alpha);
-    draw->PathArcTo(head, radius * 1.06f, 3.14159265f, 2.0f * 3.14159265f, 16);
-    draw->PathFillConvex(hair);
-    draw->AddRectFilled({head.x - radius * 1.06f, head.y - radius * 0.12f}, {head.x + radius * 1.06f, head.y + Dp(0.5f)},
-                        hair);
-    const ImU32 ink = Col(ImVec4{0.12f, 0.09f, 0.08f, 1}, alpha);
-    draw->AddCircleFilled({head.x - radius * 0.36f, head.y + radius * 0.30f}, radius * 0.11f, ink);
-    draw->AddCircleFilled({head.x + radius * 0.36f, head.y + radius * 0.30f}, radius * 0.11f, ink);
-    draw->PathArcTo({head.x, head.y + radius * 0.42f}, radius * 0.30f, 0.35f * 3.14159265f, 0.65f * 3.14159265f, 8);
-    draw->PathStroke(ink, 0, std::max(1.0f, radius * 0.09f));
 }
 
 // In the sidebar's order. The pages of a group (kNavGroups) follow each other.
@@ -757,6 +727,31 @@ bool SafeGameId(const std::string& id)
 
 enum class NoticeKind { Info, Success, Warning, Error };
 enum class FolderPurpose { SaveFolder, DolphinSave, DolphinMiis, GameFolder, TextureFolder };
+
+// What waits for an input to bind it, one at a time: a keyboard action's key
+// (the keyboard view), a hotkey (the Controls page's Hotkeys card) or a
+// gamepad action's input (the gamepad view). Leaving the page or view,
+// Revert, Escape and a click elsewhere stop the wait.
+struct InputCapture
+{
+    enum class Kind { None, Key, Hotkey, Pad };
+    Kind kind = Kind::None;
+    int action = -1; // the action (a HotkeyIndex for a hotkey)
+    int slot = -1;   // which of its bindings (none for a hotkey)
+
+    bool Waits(Kind wanted) const { return kind == wanted; }
+    bool WaitsFor(Kind wanted, int wanted_action, int wanted_slot = -1) const
+    {
+        return kind == wanted && action == wanted_action && slot == wanted_slot;
+    }
+    void Wait(Kind wanted, int wanted_action, int wanted_slot = -1)
+    {
+        kind = wanted;
+        action = wanted_action;
+        slot = wanted_slot;
+    }
+    void Cancel() { *this = InputCapture{}; }
+};
 // What the import prompt copies from Dolphin.
 enum class ImportKind { Save, Miis };
 
@@ -828,7 +823,14 @@ public:
     fs::path RestartExecutable() const { return InstalledLauncher(base_); }
 
     ResolvedLaunch EffectiveLaunch() const { return ResolveLaunch(file_, options_.launch, &draft_); }
-    std::string DiscSelection() const { return PathUtf8(EffectiveLaunch().disc_path); }
+    // The chosen image's path, as the game gets it. Asked many times a frame:
+    // computed from the draft directly (a whole ResolvedLaunch copies the
+    // settings file); a --disc on the command line goes through its rules.
+    std::string DiscSelection() const
+    {
+        if (options_.launch.disc) return PathUtf8(EffectiveLaunch().disc_path);
+        return draft_.disc.empty() ? std::string() : PathUtf8(ResolveDiscPath(draft_, file_.path).lexically_normal());
+    }
 
     ~Launcher()
     {
@@ -888,8 +890,7 @@ public:
         StartServerMessage();
 #if !defined(__APPLE__)
         // The PC's graphics cards, for Advanced -> Graphics card and the log.
-        graphics_cards_scan_ = std::async(std::launch::async, platform::ListGraphicsCards);
-        graphics_cards_listing_ = true;
+        graphics_cards_scan_.Start(platform::ListGraphicsCards);
 #endif
 
         // Created at the design size, then fitted once the window knows its
@@ -1011,7 +1012,7 @@ public:
             SDL_Event event;
             while (SDL_PollEvent(&event))
             {
-                const bool capturing = capture_action_ >= 0 || hotkey_capture_ >= 0;
+                const bool capturing = input_capture_.Waits(InputCapture::Kind::Key) || input_capture_.Waits(InputCapture::Kind::Hotkey);
                 if (!capturing || (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_TEXT_INPUT))
                     ImGui_ImplSDL3_ProcessEvent(&event);
                 if (event.type == SDL_EVENT_QUIT || (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED
@@ -1030,16 +1031,16 @@ public:
                     if (config_ok_) AskReplay(PathFromUtf8(event.drop.data));
                 }
                 else if (event.type == SDL_EVENT_DROP_FILE && event.drop.data
-                    && !(page_ == PageExtras && config_ok_ && AddTexturePack(PathFromUtf8(event.drop.data))))
+                    && !(page_ == PageExtras && config_ok_ && pack_library_.Add(PathFromUtf8(event.drop.data), TextureFolder())))
                     SelectDisc(event.drop.data);
-                if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && capture_action_ >= 0)
+                if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && input_capture_.Waits(InputCapture::Kind::Key))
                     CaptureKey(event.key.scancode);
-                if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && hotkey_capture_ >= 0)
+                if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && input_capture_.Waits(InputCapture::Kind::Hotkey))
                     CaptureHotkey(event.key.scancode, event.key.mod);
                 // Mouse buttons can take a key's place (#62); a left click is
                 // taken on the waiting keycap itself (KeyboardView), elsewhere
                 // it stops the wait.
-                if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && capture_action_ >= 0
+                if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && input_capture_.Waits(InputCapture::Kind::Key)
                     && event.button.button != SDL_BUTTON_LEFT
                     && platform::MouseKeyInput(event.button.button) != platform::kKeyNone)
                     CaptureKey(platform::MouseKeyInput(event.button.button));
@@ -1053,7 +1054,7 @@ public:
             // that set it is released, the gamepad does not drive the launcher.
             auto& io = ImGui::GetIO();
             if (pad_capture_release_ && pad_inputs_held_.empty()) pad_capture_release_ = false;
-            if (pad_capture_action_ >= 0 || pad_capture_release_) io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+            if (input_capture_.Waits(InputCapture::Kind::Pad) || pad_capture_release_) io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
             else io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
             PollResults();
             SyncLibrary();
@@ -1087,8 +1088,8 @@ public:
             RenderHero();
             ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer_);
             const bool update_settled = update_preview_ || (!UpdateBusy() && !(update_capture_install_ && update_.offer));
-            const bool settled = !pending_ && !searching_ && !library_scanning_ && !candidate_pending_
-                && !texture_scanning_ && update_settled && CompetitiveSettled() && !server_message_fetch_
+            const bool settled = !disc_check_.Busy() && !search_.Busy() && !library_scan_.Busy() && !candidate_.Busy()
+                && !pack_library_.Scanning() && update_settled && CompetitiveSettled() && !server_message_fetch_
                 && (!mii_faces_ || mii_faces_->Settled());
             settled_frames = settled ? settled_frames + 1 : 0;
             if (!options_.screenshot.empty() && frame >= 12 && (settled_frames >= 3 || frame > 600))
@@ -1308,12 +1309,34 @@ private:
         if (!first) RefreshDisplays();
     }
 
+    // Saves one choice at once (the update channel, the welcome seen, the Mii
+    // sign-in and online Mii), without the other unsaved changes: `change`
+    // goes into the draft and into the saved settings. A save that fails
+    // leaves it among the unsaved changes, so the bottom bar offers it again.
+    void SaveNow(const std::function<void(Settings&)>& change)
+    {
+        change(draft_);
+        if (!config_ok_) return;
+        try
+        {
+            Settings saved = file_.settings;
+            change(saved);
+            SaveConfig(file_, saved);
+        }
+        catch (const std::exception& error)
+        {
+            dirty_ = true;
+            Notice(error.what(), NoticeKind::Error);
+        }
+    }
+
     void Reload()
     {
         try
         {
             file_ = LoadConfig(file_.path, true);
             draft_ = file_.settings;
+            input_capture_.Cancel(); // what waited may be gone with the changes (a gamepad profile)
             LoadTexts();
             mscharged::platform::SetVerboseConsole(file_.settings.verbose_console);
             mscharged::platform::SetLogWindow(file_.settings.log_window);
@@ -1324,7 +1347,7 @@ private:
             if (check_.selection != DiscSelection())
             {
                 check_ = {};
-                if (renderer_ && !pending_) CheckDisc();
+                if (renderer_ && !disc_check_.Busy()) CheckDisc();
             }
             Notice(file_.exists ? texts::T("launcher.notices.settings_loaded")
                                 : texts::T("launcher.notices.first_start"),
@@ -1625,17 +1648,10 @@ private:
     // update back.
     void SaveUpdateChoice(const std::string& channel, int test_build)
     {
-        draft_.update_channel = channel;
-        draft_.test_build = test_build;
-        if (!config_ok_) return;
-        try
-        {
-            Settings saved = file_.settings;
-            saved.update_channel = channel;
-            saved.test_build = test_build;
-            SaveConfig(file_, saved);
-        }
-        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+        SaveNow([&](Settings& settings) {
+            settings.update_channel = channel;
+            settings.test_build = test_build;
+        });
     }
 
     // Release leaves the test builds; Test asks which one when several are open.
@@ -1716,8 +1732,13 @@ private:
     {
         using State = UpdateService::State;
         if (!enforced_install_) return;
-        if (update_.state == State::InstallFailed) ShowUpdateProblem(UpdateProblem::Failed, update_.error);
-        else if (update_.state == State::Available) ShowUpdateProblem(UpdateProblem::Cancelled, {});
+        if (update_.state == State::InstallFailed || update_.state == State::Available)
+        {
+            ShowUpdateProblem(update_.state == State::InstallFailed ? UpdateProblem::Failed : UpdateProblem::Cancelled,
+                              update_.state == State::InstallFailed ? update_.error : std::string());
+            // Nothing got installed: a switch that led here goes back (BeginSwitch).
+            CancelSwitch();
+        }
         else if (update_.state != State::Downloading && update_.state != State::Installing
                  && update_.state != State::Installed)
             enforced_install_ = false;
@@ -2074,8 +2095,7 @@ private:
     // "12 players online, 4 in a match"
     static std::string PlayersOnlineTooltip(const PlayersOnline::Count& count)
     {
-        return std::to_string(count.online) + (count.online == 1 ? " player" : " players") + " online, " +
-               std::to_string(count.playing) + " in a match";
+        return texts::Count("launcher.play.online.about", count.online, {{"playing", std::to_string(count.playing)}});
     }
 
     // Top left of the Play page, while the WFC server tells: how many
@@ -2084,7 +2104,7 @@ private:
     {
         if (!online_count_) return;
         const auto& fonts = CurrentFonts();
-        const std::string text = std::to_string(online_count_->online) + " online";
+        const std::string text = texts::Count("launcher.play.online.count", online_count_->online);
         const ImVec2 label = TextSize(fonts.body, text.c_str());
         const float width = Dp(34) + label.x + Dp(18);
         const ImVec2 pos{left, y}, max{left + width, y + height};
@@ -2890,15 +2910,8 @@ private:
     {
         ImGui::CloseCurrentPopup();
         welcome_pending_ = false;
-        draft_.show_welcome = false;
-        if (!config_ok_ || !file_.settings.show_welcome) return;
-        try
-        {
-            Settings saved = file_.settings;
-            saved.show_welcome = false;
-            SaveConfig(file_, saved);
-        }
-        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+        if (file_.settings.show_welcome) SaveNow([](Settings& settings) { settings.show_welcome = false; });
+        else draft_.show_welcome = false;
     }
 
     // A path as the settings keep it: relative inside the settings folder (it
@@ -2929,10 +2942,7 @@ private:
             Notice(texts::T("launcher.image.command_line"), NoticeKind::Info);
             return;
         }
-        candidate_pending_ = true;
-        candidate_ = std::async(std::launch::async, [path, known = KnownBanners()] {
-            return RunDiscCheck(PathFromUtf8(path), path, known);
-        });
+        candidate_.Start([path, known = KnownBanners()] { return RunDiscCheck(PathFromUtf8(path), path, known); });
     }
 
     void CandidateChecked(DiscCheck result)
@@ -2994,18 +3004,19 @@ private:
             if (path.empty())
             {
                 // Nothing chosen yet is not a read error; the card asks for a disc.
-                pending_ = false;
+                disc_check_.Drop();
                 check_ = {};
                 return;
             }
             const auto selection = PathUtf8(path);
-            pending_ = true;
             check_ = {};
-            future_ = std::async(std::launch::async, [path, selection, known = KnownBanners()] {
-                return RunDiscCheck(path, selection, known);
-            });
+            disc_check_.Start([path, selection, known = KnownBanners()] { return RunDiscCheck(path, selection, known); });
         }
-        catch (const std::exception& e) { pending_ = false; check_.error = e.what(); }
+        catch (const std::exception& e)
+        {
+            disc_check_.Drop();
+            check_.error = e.what();
+        }
     }
 
     // Nothing chosen yet (a first start): the game folder's scan chooses its
@@ -3022,7 +3033,7 @@ private:
     // to check it).
     void SearchUsualPlaces()
     {
-        if (searching_) return;
+        if (search_.Busy()) return;
         std::error_code error;
         const auto user_folder = [](SDL_Folder which) {
             const char* path = SDL_GetUserFolder(which);
@@ -3031,8 +3042,8 @@ private:
         const auto settings = fs::absolute(file_.path, error).parent_path();
         const auto home = user_folder(SDL_FOLDER_HOME), downloads = user_folder(SDL_FOLDER_DOWNLOADS);
         search_from_ = draft_.disc;
-        searching_ = true;
-        search_ = std::async(std::launch::async, [settings, home, downloads] {
+        search_folder_from_ = draft_.folder;
+        search_.Start([settings, home, downloads] {
             try
             {
                 std::vector<fs::path> drives;
@@ -3060,7 +3071,8 @@ private:
         });
         const fs::path found = !result.disc.empty() ? result.disc : result.charged.empty() ? fs::path()
                                                                                            : result.charged.front();
-        if (!found.empty() && !folder_has_game)
+        // (Not when the player chose a game folder meanwhile: its scan decides.)
+        if (!found.empty() && !folder_has_game && draft_.folder == search_folder_from_ && !library_scan_.Busy())
         {
             draft_.folder = SettingsPath(found.parent_path());
             dirty_ = true;
@@ -3083,7 +3095,7 @@ private:
         draft_.disc = SettingsPath(result.disc);
         dirty_ = true;
         check_ = {};
-        if (!pending_) CheckDisc();
+        if (!disc_check_.Busy()) CheckDisc();
         std::string text = texts::T("launcher.image.found", {{"name", PathUtf8(result.disc.filename())}}) + moved;
         if (result.supported > 1) text += std::string(" ") + texts::T("launcher.image.found_more");
         // Nothing else changed yet: keep it, so Play starts without asking first.
@@ -3136,7 +3148,8 @@ private:
         library_available_ = {};
         library_other_games_ = 0;
         library_limited_ = false;
-        if (library_scanning_)
+        library_strikers_ = {};
+        if (library_scan_.Busy())
         {
             library_rescan_ = true;
             library_progress_->cancel = true;
@@ -3147,10 +3160,8 @@ private:
         std::vector<fs::path> keep;
         if (!DiscSelection().empty()) keep.push_back(PathFromUtf8(DiscSelection()));
         library_progress_ = std::make_shared<ScanProgress>();
-        library_scanning_ = true;
         library_scan_folders_ = folders;
-        library_scan_ = std::async(std::launch::async, [folders, cache = image_cache_, known = KnownBanners(), keep,
-                                                        progress = library_progress_] {
+        library_scan_.Start([folders, cache = image_cache_, known = KnownBanners(), keep, progress = library_progress_] {
             try
             {
                 return ScanLibrary(folders, cache, known, keep, *progress, ProbeDisc, ReadReleaseBanner);
@@ -3166,7 +3177,6 @@ private:
 
     void LibraryScanDone(LibraryScan scan)
     {
-        library_scanning_ = false;
         if (!scan.cancelled)
         {
             // Keep what the pinned image's own check found meanwhile.
@@ -3223,7 +3233,7 @@ private:
     {
         if (!config_ok_) return;
         if (draft_.folder != scanned_folder_ || draft_.folder_subfolders != scanned_subfolders_) StartLibraryScan();
-        if (!library_scanning_ && SDL_GetTicks() - folders_probe_ > 3000)
+        if (!library_scan_.Busy() && SDL_GetTicks() - folders_probe_ > 3000)
         {
             folders_probe_ = SDL_GetTicks();
             for (std::size_t n = 0; n < library_available_.size() && n < library_folders_.size(); ++n)
@@ -3236,7 +3246,7 @@ private:
                 }
             }
         }
-        if (!pending_ && !check_.missing.empty() && check_.selection == DiscSelection()
+        if (!disc_check_.Busy() && !check_.missing.empty() && check_.selection == DiscSelection()
             && SDL_GetTicks() - missing_probe_ > 2000)
         {
             missing_probe_ = SDL_GetTicks();
@@ -3340,10 +3350,9 @@ private:
 
     void PollResults()
     {
-        if (graphics_cards_listing_ && graphics_cards_scan_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        if (auto cards = graphics_cards_scan_.Take())
         {
-            graphics_cards_listing_ = false;
-            graphics_cards_ = graphics_cards_scan_.get();
+            graphics_cards_ = std::move(*cards);
             platform::SessionLogLine(platform::DescribeGraphicsCards(graphics_cards_));
         }
         UpdateCompetitive();
@@ -3422,10 +3431,9 @@ private:
                 else if (!folder_dialog_->path.empty()) FolderChosen(folder_dialog_->path);
             }
         }
-        if (pending_ && future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        if (auto taken = disc_check_.Take())
         {
-            auto result = future_.get();
-            pending_ = false;
+            DiscCheck result = std::move(*taken);
             if (result.selection == DiscSelection())
             {
                 KeepCheck(PathFromUtf8(result.selection), result);
@@ -3439,18 +3447,13 @@ private:
             // The disc changed during the check: check the new one.
             else CheckDisc();
         }
-        if (candidate_pending_ && candidate_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-        {
-            candidate_pending_ = false;
-            CandidateChecked(candidate_.get());
-        }
-        if (library_scanning_ && library_scan_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-            LibraryScanDone(library_scan_.get());
-        if (searching_ && search_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-        {
-            searching_ = false;
-            DiscSearchDone(search_.get());
-        }
+        if (auto result = candidate_.Take()) CandidateChecked(std::move(*result));
+        // Texture packs: read while the Extras page is open; a dropped pack's
+        // result also arrives on another page.
+        for (const auto& event : pack_library_.Poll(TextureFolder(), page_ == PageExtras && config_ok_))
+            TexturePackEvent(event);
+        if (auto scan = library_scan_.Take()) LibraryScanDone(std::move(*scan));
+        if (auto found = search_.Take()) DiscSearchDone(std::move(*found));
     }
 
     // Graphics -> Graphics card (display.gpu): Automatic or one of the PC's cards.
@@ -3468,7 +3471,7 @@ private:
         std::string preview = automatic;
         if (chosen)
         {
-            preview = graphics_cards_listing_ ? draft_.gpu
+            preview = graphics_cards_scan_.Busy() ? draft_.gpu
                                               : texts::T("launcher.graphics_card.not_found", {{"card", draft_.gpu}});
             for (const auto& card : graphics_cards_)
                 if (card.id == *chosen) preview = card.name;
@@ -3488,7 +3491,7 @@ private:
                 if (ImGui::Selectable(label.c_str(), chosen && *chosen == card.id))
                 { draft_.gpu = GraphicsCardSetting(card.id); dirty_ = true; }
             }
-            if (graphics_cards_listing_) ImGui::TextDisabled("%s", texts::T("launcher.graphics_card.looking"));
+            if (graphics_cards_scan_.Busy()) ImGui::TextDisabled("%s", texts::T("launcher.graphics_card.looking"));
             ImGui::EndCombo();
         }
     }
@@ -3550,11 +3553,6 @@ private:
         return true;
     }
 
-    bool DiscReady() const
-    {
-        return config_ok_ && !pending_ && check_.info && check_.selection == DiscSelection();
-    }
-
     // What keeps this computer from a set: whatever keeps it from playing,
     // and an update it lacks (enforced updates, launcher/online_gate.h): an
     // official release whose check failed, or with a newer release it has not
@@ -3586,10 +3584,10 @@ private:
             return texts::T("launcher.play.blocker.checking_updates");
         if (enforced_install_) return texts::T("launcher.play.blocker.installing_update");
         if (!config_ok_) return texts::T("launcher.play.blocker.settings_problem");
-        if (searching_) return texts::T("launcher.play.blocker.searching");
-        if (pending_) return texts::T("launcher.play.blocker.checking");
+        if (search_.Busy()) return texts::T("launcher.play.blocker.searching");
+        if (disc_check_.Busy()) return texts::T("launcher.play.blocker.checking");
         if (DiscSelection().empty())
-            return autochoose_ != AutoChoice::None && library_scanning_
+            return autochoose_ != AutoChoice::None && library_scan_.Busy()
                 ? texts::T("launcher.play.blocker.reading_folder")
                 : texts::T("launcher.play.blocker.choose_image");
         if (!PinnedMissing().empty())
@@ -3639,12 +3637,19 @@ private:
         Start(quit);
     }
 
+    // The game's launch from the launcher's choices, for Play and a set's go.
+    ResolvedLaunch GameLaunch() const
+    {
+        ResolvedLaunch launch = EffectiveLaunch();
+        launch.update_verified = UpdateVerified();
+        launch.discord_friends = discord_asked_;
+        return launch;
+    }
+
     void Start(bool& quit)
     {
-        frontend_launch_ = EffectiveLaunch();
+        frontend_launch_ = GameLaunch();
         frontend_launch_->start_training = training_;
-        frontend_launch_->update_verified = UpdateVerified();
-        frontend_launch_->discord_friends = discord_asked_;
         // A replay starts with the image it found; the game closes after it.
         if (ReplayReady())
         {
@@ -3669,13 +3674,13 @@ private:
             try
             {
                 EnsurePlayerMii();
+                frontend_launch_->competitive_mii = mscharged::platform::KeyedMiiCreateId(key);
             }
             catch (const std::exception& e)
             {
                 platform::SessionLogLine(std::string("Your Mii for online sets could not be made: ") + e.what());
                 Notice(texts::T("launcher.notices.set_mii_failed", {{"error", e.what()}}), NoticeKind::Warning);
             }
-            frontend_launch_->competitive_mii = mscharged::platform::KeyedMiiCreateId(key);
         }
         quit = true;
     }
@@ -3726,7 +3731,7 @@ private:
             return info.game_id == wanted.game_id && info.revision == wanted.revision && SupportedRelease(info);
         };
         // The chosen image's check first.
-        if (pending_ || searching_) return;
+        if (disc_check_.Busy() || search_.Busy()) return;
         fs::path image;
         if (check_.info && check_.selection == DiscSelection() && fits(*check_.info) && PinnedMissing().empty())
             image = EffectiveLaunch().disc_path;
@@ -3740,7 +3745,7 @@ private:
                 }
             if (image.empty())
             {
-                if (library_scanning_) return;
+                if (library_scan_.Busy()) return;
                 Notice(texts::T("launcher.replay.no_image", {{"release", RegionRevision(wanted)},
                                                              {"id", wanted.game_id}}),
                        NoticeKind::Error);
@@ -3911,7 +3916,10 @@ private:
     {
         if (page_ != PageControls && keyboard_view_) CloseKeyboardView();
         if (page_ != PageControls && gamepad_view_) CloseGamepadView();
-        if (page_ != PageExtras) texture_page_open_ = false;
+        // An input still waiting for its key (a hotkey's) would take the next
+        // key pressed on another page, a text box's included.
+        if (page_ != PageControls) input_capture_.Cancel();
+        if (page_ != PageRules) preset_delete_ = -1;
         // Bluetooth inquiries can disturb other Bluetooth devices: search only
         // while the Controls page is open (never in development captures).
         bluetooth_search_.SetActive(page_ == PageControls && config_ok_ && draft_.bluetooth_search && !capture_);
@@ -4194,15 +4202,15 @@ private:
         bool spinner = false;
         std::string headline; // none when ready: the green button says it
         std::string detail;
-        const bool missing = !PinnedMissing().empty() && !pending_ && !searching_;
-        if (pending_ || searching_)
+        const bool missing = !PinnedMissing().empty() && !disc_check_.Busy() && !search_.Busy();
+        if (disc_check_.Busy() || search_.Busy())
         {
             tint = color::info;
             icon = Icon::None;
             spinner = true;
-            headline = searching_ ? texts::T("launcher.play.status.searching")
+            headline = search_.Busy() ? texts::T("launcher.play.status.searching")
                                   : texts::T("launcher.play.status.checking");
-            detail = searching_ ? texts::T("launcher.play.status.searching_where")
+            detail = search_.Busy() ? texts::T("launcher.play.status.searching_where")
                                 : texts::T("launcher.play.status.checking_what");
         }
         else if (missing)
@@ -4225,7 +4233,7 @@ private:
                                                : texts::T("launcher.play.status.not_ready");
             detail = blocker;
         }
-        const bool ready = !pending_ && !searching_ && !missing && blocker.empty() && check_.info;
+        const bool ready = !disc_check_.Busy() && !search_.Busy() && !missing && blocker.empty() && check_.info;
         std::vector<StatusNote> notes;
         if (blocker.empty())
         {
@@ -4289,7 +4297,7 @@ private:
             x += width + pill_space;
         }
         // Ready to play, the green button says it: only the notes then.
-        const bool quiet = blocker.empty() && !pending_ && !searching_ && !missing;
+        const bool quiet = blocker.empty() && !disc_check_.Busy() && !search_.Busy() && !missing;
         float width = std::max({quiet ? 0.0f : inset + TextSize(fonts.label, headline.c_str()).x,
                                 inset + detail_size.x, widest});
         if (missing) width = most;
@@ -4534,6 +4542,10 @@ private:
                 // Back to the saved settings; start only if they can still play.
                 Reload();
                 if (config_ok_ && StartBlocker().empty()) Start(quit);
+                else
+                    Notice(texts::T("launcher.play_prompt.not_started",
+                                    {{"reason", config_ok_ ? StartBlocker() : std::string(texts::T("launcher.play_prompt.settings_problem"))}}),
+                           NoticeKind::Warning);
                 pending_replay_.reset();
             }
             ImGui::SameLine(0, Dp(10));
@@ -4544,6 +4556,10 @@ private:
             }
             ImGui::EndPopup();
         }
+        // Another dialog closed the question unanswered (ImGui keeps one modal
+        // at a time): its replay doesn't wait for the next Play.
+        else if (ReplayReady() && !play_prompt_)
+            pending_replay_.reset();
         ImGui::PopStyleVar();
     }
 
@@ -4916,6 +4932,7 @@ private:
         competitive_->SetServer(platform::ProfileServerAddress(draft_.profile_server).value_or(std::string()));
         competitive_status_ = competitive_->Snapshot();
         if (competitive_status_.state != CompetitiveService::State::SignedIn) signing_out_ = false;
+        AdoptCodedMii();
         UpdateMiiWizard();
         if (!capture_)
         {
@@ -5377,6 +5394,19 @@ private:
     // The player's own Mii while signed in: the chosen one (nullopt when none
     // is chosen), else the one made from the account, whether or not it has
     // been made in the save folder yet.
+    // A Mii player's Mii is the one with the profile's friend code (found
+    // again on any computer, after Sign in through the game too): kept as
+    // online.mii once it is found. Once a frame, not from the drawing.
+    void AdoptCodedMii()
+    {
+        const auto& status = competitive_status_;
+        if (status.state != CompetitiveService::State::SignedIn || !ChosenOwnMii() || !status.player.MiiAccount())
+            return;
+        const auto id = platform::ParseMiiCreateId(draft_.online_mii);
+        if (const auto coded = ProfileCodedMii(id); coded && coded != id)
+            ChooseOnlineMii(platform::MiiCreateIdText(*coded));
+    }
+
     std::optional<OwnMii> PlayerOwnMii()
     {
         const auto& status = competitive_status_;
@@ -5388,13 +5418,10 @@ private:
             // profile's friend code, found again on any computer it is on
             // (after Sign in through the game, too), and kept as online.mii;
             // before its first online game, the Mii chosen with the profile.
+            // (AdoptCodedMii keeps it as online.mii; this only reads.)
             auto id = platform::ParseMiiCreateId(draft_.online_mii);
             if (status.player.MiiAccount())
-                if (const auto coded = ProfileCodedMii(id))
-                {
-                    if (coded != id) ChooseOnlineMii(platform::MiiCreateIdText(*coded));
-                    id = coded;
-                }
+                if (const auto coded = ProfileCodedMii(id)) id = coded;
             if (!id) return std::nullopt;
             own.id = *id;
         }
@@ -5478,6 +5505,7 @@ private:
         mscharged::platform::EnsureMii(
             mscharged::platform::MakeKeyedMii(mscharged::platform::FitMiiName(player.name, player.discord), key),
             folder, SaveTitleOf(Release()), folder / "backups");
+        ForgetInstalledMiis();
         return key;
     }
 
@@ -5492,7 +5520,7 @@ private:
         {
             set_start_error_ = blocker;
             Notice(texts::T("launcher.challenge.cannot_start", {{"reason", blocker}}), NoticeKind::Error);
-            competitive_->ReadyToPlay(false);
+            competitive_->ReadyToPlay(status.match->id, false);
             return;
         }
         // The player's own Mii: the chosen one, which must be here, or the
@@ -5505,7 +5533,7 @@ private:
             {
                 set_start_error_ = texts::T("launcher.challenge.choose_mii");
                 Notice(texts::T("launcher.challenge.cannot_start", {{"reason", set_start_error_}}), NoticeKind::Error);
-                competitive_->ReadyToPlay(false);
+                competitive_->ReadyToPlay(status.match->id, false);
                 return;
             }
             mii = own->id;
@@ -5520,15 +5548,17 @@ private:
             {
                 set_start_error_ = texts::T("launcher.challenge.mii_failed", {{"error", e.what()}});
                 Notice(set_start_error_, NoticeKind::Error);
-                competitive_->ReadyToPlay(false);
+                competitive_->ReadyToPlay(status.match->id, false);
                 return;
             }
         }
-        frontend_launch_ = EffectiveLaunch();
+        // The set's go leaves no moment to ask about unsaved changes, and the
+        // launcher closes: they are saved (as Play's Save and play).
+        if (dirty_ && config_ok_) Save();
+        frontend_launch_ = GameLaunch();
         frontend_launch_->start_competitive = true;
         frontend_launch_->competitive_set = status.match->id;
         frontend_launch_->competitive_mii = mii;
-        frontend_launch_->discord_friends = discord_asked_;
         // The game and the launcher it opens again afterwards see it.
         SetEnvironment(kCompetitiveSetVariable, std::to_string(GoKey(*status.match)));
         quit = true;
@@ -5686,7 +5716,7 @@ private:
                 || (CancelPressed() && !busy))
             {
                 challenge_declined_ = match.id;
-                competitive_->Decline();
+                competitive_->Decline(match.id);
             }
             // The answer in focus, with its cursor shown, so the first Return
             // or A answers (without the cursor ImGui spends it on showing it).
@@ -5703,7 +5733,7 @@ private:
                     challenge_accepted_ = match.id;
                     challenge_errors_ = status.error_serial;
                     set_start_error_.clear();
-                    competitive_->Accept();
+                    competitive_->Accept(match.id);
                 }
                 focus();
             }
@@ -5726,14 +5756,14 @@ private:
             const float again_width = retry ? PrimaryWidth(again, Icon::Play) : 0.0f;
             align_right(cancel_width + (retry ? Dp(10) + again_width : 0.0f));
             if (GhostButton("challenge_cancel", cancel, {cancel_width, height}, !busy, Icon::Close))
-                competitive_->CancelMatch();
+                competitive_->CancelMatch(match.id);
             if (retry)
             {
                 ImGui::SameLine(0, Dp(10));
                 if (PrimaryButton("challenge_again", again, {again_width, height}, !busy, Icon::Play))
                 {
                     set_start_error_.clear();
-                    competitive_->ReadyToPlay(true);
+                    competitive_->ReadyToPlay(match.id, true);
                 }
                 ImGui::SetItemDefaultFocus();
             }
@@ -5756,28 +5786,6 @@ private:
         return status.state != CompetitiveService::State::Connecting && !status.busy && discord_settled;
     }
 
-    // Match rules' first card: the server's rule set the player's challenges
-    // go out with, chosen from them as boxes (the game's online panel
-    // chooses it too), the chosen one in detail, kept in the settings file.
-    // The top of an Online page that needs the sign-in: its header, and while
-    // the player is signed out the way to Player profile, where the sign-in
-    // is. Whether the player is signed in.
-    bool OnlinePageTop(const char* title, const char* text)
-    {
-        PageHeader(title, text);
-        if (competitive_status_.state == CompetitiveService::State::SignedIn) return true;
-        BeginCard("##sign_in_first", texts::T("match_setup.online_top.sign_in_first"),
-                  texts::T("match_setup.online_top.sign_in_first_about"), Icon::Person);
-        const char* profile = texts::T("match_setup.online_top.player_profile");
-        if (GhostButton("sign_in_profile", profile, {GhostWidth(profile, Icon::Person), Dp(40)}, true, Icon::Person))
-            page_ = PageOnlineSettings;
-        EndCard();
-        return false;
-    }
-
-    // Online while not signed in: the two ways in (Connect Discord, Play with
-    // a Mii) and what playing online here brings; the Discord sign-in's code
-    // while it runs, and what is wrong when the server can't be used.
     // ------------------------------------------- profiles of this computer
     // A profile that signed in here is remembered (KnownProfile), so that
     // after signing out the launcher can offer it again by name for a Mii of
@@ -5893,6 +5901,9 @@ private:
         return profile;
     }
 
+    // Online while not signed in: the two ways in (Connect Discord, Play with
+    // a Mii) and what playing online here brings; the Discord sign-in's code
+    // while it runs, and what is wrong when the server can't be used.
     void OnlineWelcome()
     {
         using State = CompetitiveService::State;
@@ -5955,7 +5966,7 @@ private:
         }
         case State::NoServer:
             Callout(texts::T("match_setup.welcome.no_server",
-                             {{"key", "online.profile_server"}, {"file", file_.path.filename().string()}}),
+                             {{"key", "online.profile_server"}, {"file", PathUtf8(file_.path.filename())}}),
                     color::warning, Icon::Warning);
             break;
         default:
@@ -6041,9 +6052,6 @@ private:
         if (status.state == State::SignedOut && status.info.test) CompetitiveTestSignIn();
     }
 
-    // The welcome's two ways in, side by side: Connect Discord (the profile
-    // and Mii from the Discord account, Discord friends and tournaments) and
-    // Play with a Mii (no account), each with its button.
     // A Mii's sign-in through the game, chosen in the Mii wizard for a Mii
     // that plays for a profile already: what to do now, and the way to stop
     // waiting ([online] mii_sign_in, which the game clears once that Mii
@@ -6072,19 +6080,15 @@ private:
     // hint names, after a restart too; empty for none.
     void SetMiiSignIn(bool on, const std::string& with = {})
     {
-        draft_.mii_sign_in = on;
-        draft_.mii_sign_in_with = on ? with : std::string();
-        if (!config_ok_) return;
-        try
-        {
-            Settings saved = file_.settings;
-            saved.mii_sign_in = on;
-            saved.mii_sign_in_with = draft_.mii_sign_in_with;
-            SaveConfig(file_, saved);
-        }
-        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+        SaveNow([&](Settings& settings) {
+            settings.mii_sign_in = on;
+            settings.mii_sign_in_with = on ? with : std::string();
+        });
     }
 
+    // The welcome's two ways in, side by side: Connect Discord (the profile
+    // and Mii from the Discord account, Discord friends and tournaments) and
+    // Play with a Mii (no account), each with its button.
     void OnlineChoices(float width)
     {
         const auto& status = competitive_status_;
@@ -6592,6 +6596,7 @@ private:
                     try
                     {
                         platform::AddMii(record, folder, SaveTitleOf(Release()), folder / "backups");
+                        ForgetInstalledMiis();
                         break;
                     }
                     catch (const platform::MiiCreateIdTaken&) { if (attempt == 2) throw; }
@@ -6629,15 +6634,7 @@ private:
     // changes not saved yet; empty: none chosen.
     void ChooseOnlineMii(const std::string& id)
     {
-        draft_.online_mii = id;
-        if (!config_ok_) return;
-        try
-        {
-            Settings saved = file_.settings;
-            saved.online_mii = id;
-            SaveConfig(file_, saved);
-        }
-        catch (const std::exception& error) { Notice(error.what(), NoticeKind::Error); }
+        SaveNow([&](Settings& settings) { settings.online_mii = id; });
     }
 
     // ------------------------------------------------------------ Mii editor
@@ -6654,6 +6651,11 @@ private:
         editor.open = true;
         editor.page = page_;
         editor.target = for_wizard ? MiiEditor::Target::Wizard : MiiEditor::Target::Database;
+        if (!for_wizard)
+        {
+            editor.folder = SaveFolder();
+            editor.title = SaveTitleOf(Release());
+        }
         editor.record = record;
         editor.add = add;
         editor.name_locked = name_locked;
@@ -6707,8 +6709,8 @@ private:
         try
         {
             if (!editor.name_locked) platform::SetMiiRecordName(record, editor.name);
-            const auto folder = SaveFolder();
-            const auto title = SaveTitleOf(Release());
+            const auto& folder = editor.folder;
+            const auto title = editor.title.value_or(SaveTitleOf(Release()));
             // The player's own Mii, not made here yet, is added with this face.
             bool added = false;
             if (editor.add)
@@ -6719,6 +6721,7 @@ private:
                 }
                 catch (const platform::MiiCreateIdTaken&) {}
             if (!added) platform::ReplaceMii(record, folder, title, folder / "backups");
+            ForgetInstalledMiis();
             Notice(texts::T("match_setup.editor.saved", {{"mii", platform::MiiRecordName(record)}}),
                    NoticeKind::Success);
             CloseMiiEditor();
@@ -6733,10 +6736,6 @@ private:
         }
     }
 
-    // The editor: the Mii's head large with its expression, name and
-    // favourite colour on the left; its parts by section on the right, the
-    // types as thumbnails of the head with each; Cancel, Undo, Start over
-    // and Save under them.
     // An editor's page header (the Mii editor, a match preset's): a back
     // button before the title, which leaves as Cancel does, and its text.
     // Whether back was pressed.
@@ -6763,6 +6762,10 @@ private:
         return pressed;
     }
 
+    // The editor: the Mii's head large with its expression, name and
+    // favourite colour on the left; its parts by section on the right, the
+    // types as thumbnails of the head with each; Cancel, Undo, Random, Start
+    // over and Save under them.
     void MiiEditorPage()
     {
         auto& editor = mii_editor_;
@@ -7313,7 +7316,7 @@ private:
             if (const auto scheme = host.find("://"); scheme != std::string::npos) host.erase(0, scheme + 3);
             const std::string where
                 = texts::T("match_setup.profile.server_about",
-                           {{"key", "online.profile_server"}, {"file", file_.path.filename().string()}});
+                           {{"key", "online.profile_server"}, {"file", PathUtf8(file_.path.filename())}});
             Row(texts::T("match_setup.profile.server"), where.c_str());
             value(host + (status.info.version.empty() ? std::string() : "  ·  " + status.info.version), color::text,
                   &color::success);
@@ -7501,6 +7504,9 @@ private:
         if (ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar
                                                         | ImGuiWindowFlags_NoMove))
         {
+            // Asked for a player who is no longer the one signed in (signed
+            // out, another sign-in): Use would choose a Mii for nobody.
+            if (key != mii_reuse_asked_) ImGui::CloseCurrentPopup();
             const auto miis = ReusableMiis();
             const auto& player = competitive_status_.player;
             TextColored(fonts.heading, color::text, texts::T("match_setup.mii_reuse.title"));
@@ -7767,9 +7773,15 @@ private:
     // The Miis of the save folder in use, read again when a file they come
     // from changes (an import, a new Mii, or the game writing its storage: a
     // Mii's first login puts its profile in the online save).
+    // The game save's Miis. Asked several times a frame: the files' times are
+    // looked at twice a second at most; the launcher's own writes read them
+    // again at once (ForgetInstalledMiis).
     const mscharged::platform::MiiDatabaseStatus& InstalledMiis()
     {
         const auto folder = SaveFolder();
+        const Uint64 now = SDL_GetTicks();
+        if (folder == miis_folder_ && miis_checked_ && now - miis_checked_ < 500) return miis_;
+        miis_checked_ = now;
         std::vector<fs::file_time_type> times;
         for (const auto& file : mscharged::platform::InstalledMiiFiles(folder, SaveTitleOf(Release())))
         {
@@ -7784,6 +7796,14 @@ private:
             miis_ = mscharged::platform::InstalledMiis(folder, SaveTitleOf(Release()));
         }
         return miis_;
+    }
+
+    // After the launcher changed the Mii database (its write may not move the
+    // file's time on a coarse file system): read it again at the next ask.
+    void ForgetInstalledMiis()
+    {
+        miis_checked_ = 0;
+        miis_times_.clear();
     }
 
     // The sidekicks each captain starts with, in the game save of the save
@@ -8350,13 +8370,14 @@ private:
     void CopyPreset(const std::string& name, const platform::MatchRules& rules)
     {
         EditPreset(launcher::PresetFromRules(texts::T("match_setup.rules.copy_name", {{"name", name}}), rules));
-        page_scroll_top_ = true;
     }
 
+    // The editor opens at its top, wherever the list was scrolled to.
     void EditPreset(const launcher::MatchPreset& preset)
     {
         preset_edit_ = preset;
         preset_delete_ = -1;
+        page_scroll_top_ = true;
     }
 
     // The preset being made or changed, on a page of its own (as the Mii
@@ -8610,37 +8631,34 @@ private:
 
     void FolderChosen(const std::string& chosen)
     {
-        if (folder_purpose_ == FolderPurpose::SaveFolder)
+        const fs::path folder = PathFromUtf8(chosen);
+        switch (folder_purpose_)
         {
-            draft_.save_folder = chosen;
+        case FolderPurpose::SaveFolder:
+            // Relative to the settings file when inside its folder, as the
+            // game and texture folders: the install can move with its saves.
+            draft_.save_folder = SettingsPath(folder);
             dirty_ = true;
             return;
-        }
-        if (folder_purpose_ == FolderPurpose::GameFolder)
-        {
-            SelectGameFolder(PathFromUtf8(chosen));
+        case FolderPurpose::GameFolder: SelectGameFolder(folder); return;
+        case FolderPurpose::TextureFolder:
+            draft_.texture_folder = SettingsPath(folder);
+            dirty_ = true;
             return;
-        }
-        if (folder_purpose_ == FolderPurpose::DolphinMiis)
-        {
-            const auto database = mscharged::platform::ResolveDolphinMiiDatabase(PathFromUtf8(chosen));
-            if (database.empty())
+        case FolderPurpose::DolphinMiis:
+            if (const auto database = mscharged::platform::ResolveDolphinMiiDatabase(folder); !database.empty())
+                AskImport(database, ImportKind::Miis);
+            else
                 Notice(texts::T("match_setup.import.no_mii_database", {{"file", "RFL_DB.dat"}, {"folder", chosen}}),
                        NoticeKind::Warning);
-            else AskImport(database, ImportKind::Miis);
+            return;
+        case FolderPurpose::DolphinSave:
+            if (const auto save = mscharged::platform::ResolveDolphinSave(folder, Release().title_id, kSaveFile);
+                !save.empty())
+                AskImport(save, ImportKind::Save);
+            else Notice(texts::T("match_setup.import.no_save", {{"folder", chosen}}), NoticeKind::Warning);
             return;
         }
-        if (folder_purpose_ == FolderPurpose::TextureFolder)
-        {
-            draft_.texture_folder = SettingsPath(PathFromUtf8(chosen));
-            dirty_ = true;
-            return;
-        }
-        const auto save = mscharged::platform::ResolveDolphinSave(PathFromUtf8(chosen), Release().title_id,
-                                                                    kSaveFile);
-        if (save.empty())
-            Notice(texts::T("match_setup.import.no_save", {{"folder", chosen}}), NoticeKind::Warning);
-        else AskImport(save, ImportKind::Save);
     }
 
     void AskImport(const fs::path& source, ImportKind kind)
@@ -8657,6 +8675,7 @@ private:
             const auto folder = SaveFolder();
             const auto result = mscharged::platform::ImportDolphinSave(import_source_, folder, SaveTitleOf(Release()),
                                                                        kSaveFile, folder / "backups");
+            ForgetInstalledMiis();
             std::string files;
             for (const auto& name : result.files) files += (files.empty() ? "" : ", ") + name;
             Notice(result.backup.empty()
@@ -8678,6 +8697,7 @@ private:
             const auto folder = SaveFolder();
             const auto result = mscharged::platform::ImportDolphinMiis(import_source_, folder, SaveTitleOf(Release()),
                                                                        folder / "backups");
+            ForgetInstalledMiis();
             std::string names;
             for (const auto& name : result.names) names += (names.empty() ? "" : ", ") + name;
             Notice(result.backup.empty()
@@ -8789,7 +8809,7 @@ private:
     // The list belongs to a finished scan of exactly the current folder setting.
     bool FolderScanned() const
     {
-        return !library_scanning_ && scanned_folder_ == draft_.folder && scanned_subfolders_ == draft_.folder_subfolders;
+        return !library_scan_.Busy() && scanned_folder_ == draft_.folder && scanned_subfolders_ == draft_.folder_subfolders;
     }
 
     std::vector<ImageRow> ImageRows() const
@@ -8804,7 +8824,7 @@ private:
             row.chosen = true;
             row.outside = !inside;
             row.missing = !PinnedMissing().empty();
-            row.checking = pending_;
+            row.checking = disc_check_.Busy();
             row.image.path = PathFromUtf8(selection);
             const bool current = check_.selection == selection;
             if (const auto info = PinnedInfo())
@@ -8824,7 +8844,7 @@ private:
             ImageRow row;
             row.image = *image;
             row.chosen = !chosen.empty() && ImageCache::Key(image->path) == chosen;
-            row.checking = row.chosen && pending_;
+            row.checking = row.chosen && disc_check_.Busy();
             rows.push_back(std::move(row));
         }
         return rows;
@@ -8869,7 +8889,7 @@ private:
         if (library_other_games_ > 0) footer = texts::Count("match_setup.images.other_games", library_other_games_);
         if (library_limited_)
             footer += std::string(footer.empty() ? "" : " ") + texts::T("match_setup.images.limited");
-        const char* choose = candidate_pending_ ? texts::T("match_setup.images.checking_file")
+        const char* choose = candidate_.Busy() ? texts::T("match_setup.images.checking_file")
                                                 : texts::T("match_setup.images.choose_file");
         const ImVec2 button{GhostWidth(choose, Icon::Disc), Dp(34)};
         const ImVec2 at = ImGui::GetCursorScreenPos();
@@ -8884,7 +8904,7 @@ private:
         }
         ImGui::SetCursorScreenPos({at.x + width - button.x, at.y});
         if (GhostButton("choose_file", choose, button,
-                        config_ok_ && !options_.launch.disc && !DialogActive() && !candidate_pending_, Icon::Disc))
+                        config_ok_ && !options_.launch.disc && !DialogActive() && !candidate_.Busy(), Icon::Disc))
             Browse(ExistingFolder(GameFolder().path));
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", texts::T("match_setup.images.choose_file_tooltip"));
@@ -8968,10 +8988,10 @@ private:
             ImGui::SetTooltip("%s", texts::Count("match_setup.images.subfolders_tooltip", kLibraryDepth).c_str());
         draw->AddRectFilled({divider_x, center - Dp(14)}, {divider_x + Dp(1), center + Dp(14)}, Col(color::border));
         ImGui::SetCursorScreenPos({refresh_x, center - Dp(17)});
-        if (GhostButton("refresh_library", "", Dp(34, 34), config_ok_ && !library_scanning_, Icon::Refresh))
+        if (GhostButton("refresh_library", "", Dp(34, 34), config_ok_ && !library_scan_.Busy(), Icon::Refresh))
         {
             StartLibraryScan();
-            if (!DiscSelection().empty() && !pending_) CheckDisc();
+            if (!DiscSelection().empty() && !disc_check_.Busy()) CheckDisc();
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("match_setup.images.refresh_tooltip"));
         ImGui::SetCursorScreenPos({change_x, center - Dp(17)});
@@ -9218,6 +9238,8 @@ private:
     // Makes this image the one Play starts and says so.
     void UseImage(const fs::path& path, const DiscInfo& info, std::uintmax_t size)
     {
+        // An image dropped or picked earlier and still being checked doesn't replace this choice.
+        candidate_.Drop();
         Pin(path, info, size);
         Notice(texts::T("match_setup.images.play_now",
                         {{"file", PathUtf8(path.filename())}, {"version", RegionRevision(info)}}),
@@ -9746,7 +9768,17 @@ private:
             }
         }
         else if (now >= wii_next_probe_ns_)
+        {
+            wii_next_probe_ns_ = now + 2000000000ull;
             wii_probe_.Start(250);
+            // HID unavailable (the probe did not start): no remotes, and the
+            // Players card stops looking instead of trying every frame.
+            if (!wii_probe_.Active())
+            {
+                AcceptWiimoteProbe({});
+                wii_known_ = true;
+            }
+        }
     }
 
     // A remote that is still listed but missed one status answer keeps its
@@ -10088,17 +10120,21 @@ private:
         if (std::fabs(shift) > 0.5f) ImGui::Unindent(shift);
     }
 
+    // The keyboard and gamepad views save their changes when going back,
+    // unless other changes waited to be saved when they opened: those are not
+    // saved without asking, the bottom bar keeps them all.
     void OpenKeyboardView()
     {
         keyboard_view_ = true;
-        capture_action_ = capture_slot_ = hotkey_capture_ = -1;
+        view_opened_clean_ = !dirty_;
+        input_capture_.Cancel();
     }
 
     void CloseKeyboardView()
     {
         keyboard_view_ = false;
-        capture_action_ = capture_slot_ = -1;
-        if (dirty_ && config_ok_) Save();
+        input_capture_.Cancel();
+        if (view_opened_clean_ && dirty_ && config_ok_) Save();
     }
 
     platform::Hotkeys DraftHotkeys() const { return platform::ParseHotkeys(draft_.hotkeys); }
@@ -10125,9 +10161,9 @@ private:
     // moving it from another action unless it is that action's only key.
     void CaptureKey(platform::KeyInput code)
     {
-        const int action = capture_action_, slot = capture_slot_;
-        capture_action_ = capture_slot_ = -1;
-        if (action < 0) return;
+        if (!input_capture_.Waits(InputCapture::Kind::Key)) return;
+        const int action = input_capture_.action, slot = input_capture_.slot;
+        input_capture_.Cancel();
         const std::string name = platform::KeyInputName(code);
         if (name.empty()) return;
         if (const auto hotkey = DraftHotkeys().Find(code); hotkey != HotkeyCount)
@@ -10172,17 +10208,17 @@ private:
                NoticeKind::Info);
     }
 
-    // A key pressed while a hotkey's keycaps wait (hotkey_capture_: its
+    // A key pressed while a hotkey's keycaps wait (input_capture_: its
     // HotkeyIndex), with the Ctrl, Shift and Alt held (`mod`): Escape stops
     // waiting, Backspace or Delete leaves the hotkey unused, a modifier waits
     // for the key it goes with. The same keys as another hotkey, the Windows
     // or Command key, or a keyboard & mouse key pressed alone are refused.
     void CaptureHotkey(SDL_Scancode code, SDL_Keymod mod)
     {
-        const int which = hotkey_capture_;
+        const int which = input_capture_.Waits(InputCapture::Kind::Hotkey) ? input_capture_.action : -1;
         if (which < 0 || which >= int(HotkeyCount)) return;
         if (code >= SDL_SCANCODE_LCTRL && code <= SDL_SCANCODE_RGUI) return;
-        hotkey_capture_ = -1;
+        input_capture_.Cancel();
         const char* label = texts::HotkeyActionName(kHotkeys[std::size_t(which)]);
         const platform::Hotkey hotkey{code, platform::HotkeyModifiers(mod)};
         if (hotkey.modifiers == SDL_KMOD_NONE && !(mod & SDL_KMOD_GUI))
@@ -10243,7 +10279,7 @@ private:
         bool clicked = false;
         const auto hotkey = [&](HotkeyIndex which) {
             Row(texts::HotkeyActionName(kHotkeys[which]), texts::HotkeyActionAbout(kHotkeys[which]));
-            const bool waiting = hotkey_capture_ == int(which);
+            const bool waiting = input_capture_.WaitsFor(InputCapture::Kind::Hotkey, int(which));
             std::vector<std::string> keys;
             if (waiting)
             {
@@ -10258,7 +10294,8 @@ private:
             if (KeyComboButton("##hotkey", keys, waiting))
             {
                 clicked = true;
-                hotkey_capture_ = waiting ? -1 : int(which);
+                if (waiting) input_capture_.Cancel();
+                else input_capture_.Wait(InputCapture::Kind::Hotkey, int(which));
             }
             if (ImGui::IsItemHovered() && !waiting)
                 ImGui::SetTooltip("%s", texts::T("settings.controls.hotkeys.tooltip"));
@@ -10280,12 +10317,12 @@ private:
                             draft_.hotkeys != DefaultHotkeyNames(), Icon::Refresh))
         {
             draft_.hotkeys = DefaultHotkeyNames();
-            hotkey_capture_ = -1;
+            input_capture_.Cancel();
             dirty_ = true;
         }
         EndCard();
         // A click anywhere else stops waiting for keys.
-        if (hotkey_capture_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) hotkey_capture_ = -1;
+        if (input_capture_.Waits(InputCapture::Kind::Hotkey) && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) input_capture_.Cancel();
     }
 
     // What left and right click do: the actions that take them, or A and B
@@ -10336,7 +10373,7 @@ private:
                     {
                         const platform::KeyInput code = bindings[n][slot];
                         if (slot == 1 && code == platform::kKeyNone && bindings[n][0] == platform::kKeyNone) break;
-                        const bool waiting = capture_action_ == int(n) && capture_slot_ == slot;
+                        const bool waiting = input_capture_.WaitsFor(InputCapture::Kind::Key, int(n), slot);
                         const std::string label = waiting ? texts::T("settings.controls.keyboard.press_key")
                             : code != platform::kKeyNone ? platform::KeyInputName(code) : "+";
                         if (slot) ImGui::SameLine(0, Dp(6));
@@ -10346,11 +10383,7 @@ private:
                             clicked = true;
                             // A click on the waiting keycap is the left button.
                             if (waiting) CaptureKey(platform::MouseKeyInput(SDL_BUTTON_LEFT));
-                            else
-                            {
-                                capture_action_ = int(n);
-                                capture_slot_ = slot;
-                            }
+                            else input_capture_.Wait(InputCapture::Kind::Key, int(n), slot);
                         }
                         if (waiting && ImGui::IsItemHovered()) on_waiting = true;
                         if (ImGui::IsItemHovered())
@@ -10401,14 +10434,14 @@ private:
                             draft_.keys != Settings::DefaultKeys(), Icon::Refresh))
         {
             draft_.keys = Settings::DefaultKeys();
-            capture_action_ = capture_slot_ = -1;
+            input_capture_.Cancel();
             dirty_ = true;
         }
         EndCard();
         // A click anywhere else stops waiting for a key; one on the waiting
         // keycap is taken when it is released.
-        if (capture_action_ >= 0 && !clicked && !on_waiting && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            capture_action_ = capture_slot_ = -1;
+        if (input_capture_.Waits(InputCapture::Kind::Key) && !clicked && !on_waiting && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            input_capture_.Cancel();
     }
 
     // Gamepad profiles: the built-in Default and named button layouts kept in
@@ -10420,7 +10453,8 @@ private:
         pad_slot_ = slot;
         edit_profile_ = draft_.PadProfileIndex(slot);
         renaming_ = confirm_delete_ = false;
-        pad_capture_action_ = pad_capture_slot_ = -1;
+        view_opened_clean_ = !dirty_;
+        input_capture_.Cancel();
     }
 
     // Going back assigns the profile on screen to the gamepad the page was opened for.
@@ -10437,8 +10471,8 @@ private:
         }
         gamepad_view_ = false;
         renaming_ = confirm_delete_ = false;
-        pad_capture_action_ = pad_capture_slot_ = -1;
-        if (dirty_ && config_ok_) Save();
+        input_capture_.Cancel();
+        if (view_opened_clean_ && dirty_ && config_ok_) Save();
     }
 
     // Profile `index` (below 0: built in, see Settings::PadProfileAt).
@@ -10553,7 +10587,7 @@ private:
                 {
                     const auto input = platform::kGamepadStickBase + direction;
                     const bool pressed = platform::GamepadStickDirectionHeld(pad, input, held[direction]);
-                    if (pressed && !held[direction] && pad_capture_action_ >= 0) CaptureGamepadInput(input);
+                    if (pressed && !held[direction] && input_capture_.Waits(InputCapture::Kind::Pad)) CaptureGamepadInput(input);
                     held[direction] = pressed;
                     TrackPadInput(event.gaxis.which, input, pressed);
                 }
@@ -10563,7 +10597,7 @@ private:
         {
             auto& held = trigger_held_[event.gaxis.which][event.gaxis.axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER];
             const bool pressed = event.gaxis.value > platform::kGamepadTriggerPressed;
-            if (pressed && !held && pad_capture_action_ >= 0)
+            if (pressed && !held && input_capture_.Waits(InputCapture::Kind::Pad))
                 CaptureGamepadInput(platform::kGamepadTriggerBase + event.gaxis.axis);
             held = pressed;
             TrackPadInput(event.gaxis.which, platform::kGamepadTriggerBase + event.gaxis.axis, pressed);
@@ -10573,10 +10607,9 @@ private:
         if (event.type == SDL_EVENT_GAMEPAD_REMOVED)
             for (auto it = pad_inputs_held_.begin(); it != pad_inputs_held_.end();)
                 it = it->first == event.gdevice.which ? pad_inputs_held_.erase(it) : std::next(it);
-        if (pad_capture_action_ < 0) return;
+        if (!input_capture_.Waits(InputCapture::Kind::Pad)) return;
         if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) CaptureGamepadInput(event.gbutton.button);
-        else if (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == SDL_SCANCODE_ESCAPE)
-            pad_capture_action_ = pad_capture_slot_ = -1;
+        else if (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == SDL_SCANCODE_ESCAPE) input_capture_.Cancel();
     }
 
     // Gamepad buttons and triggers held down, to keep a captured press away
@@ -10603,10 +10636,14 @@ private:
     // warns about it.
     void CaptureGamepadInput(platform::GamepadInput input)
     {
-        const int action = pad_capture_action_, slot = pad_capture_slot_;
-        pad_capture_action_ = pad_capture_slot_ = -1;
+        if (!input_capture_.Waits(InputCapture::Kind::Pad)) return;
+        const int action = input_capture_.action, slot = input_capture_.slot;
+        input_capture_.Cancel();
         pad_capture_release_ = true;
-        if (action < 0 || edit_profile_ < 0 || platform::GamepadInputName(input).empty()) return;
+        // (The profile edited may be gone: Revert reloads the list.)
+        if (action < 0 || edit_profile_ < 0 || std::size_t(edit_profile_) >= draft_.pad_profiles.size()
+            || platform::GamepadInputName(input).empty())
+            return;
         auto& profile = draft_.pad_profiles[std::size_t(edit_profile_)];
         const std::string name = PadInputLabel(input, PageType());
         auto bindings = platform::ParseGamepadBindings(profile.inputs);
@@ -10656,7 +10693,7 @@ private:
     {
         edit_profile_ = index;
         renaming_ = confirm_delete_ = false;
-        pad_capture_action_ = pad_capture_slot_ = -1;
+        input_capture_.Cancel();
     }
 
     // A copy of the profile on screen, which the page then edits; false when
@@ -10852,7 +10889,7 @@ private:
                         // The inputs, then a slot to add one more.
                         if (std::size_t(slot) > used) break;
                         const auto input = bindings[n][std::size_t(slot)];
-                        const bool waiting = pad_capture_action_ == int(n) && pad_capture_slot_ == slot;
+                        const bool waiting = input_capture_.WaitsFor(InputCapture::Kind::Pad, int(n), slot);
                         const std::string label = waiting ? texts::T("settings.controls.gamepad.press_button")
                             : input != platform::kGamepadNone ? PadInputLabel(input, type)
                             : slot == 0 ? texts::T("settings.controls.pad.not_set") : "+";
@@ -10861,8 +10898,8 @@ private:
                         if (KeyCapButton("##input", label.c_str(), waiting) && (waiting || editable()))
                         {
                             clicked = true;
-                            pad_capture_action_ = waiting ? -1 : int(n);
-                            pad_capture_slot_ = waiting ? -1 : slot;
+                            if (waiting) input_capture_.Cancel();
+                            else input_capture_.Wait(InputCapture::Kind::Pad, int(n), slot);
                         }
                         if (ImGui::IsItemHovered() && !waiting)
                             ImGui::SetTooltip("%s", input != platform::kGamepadNone
@@ -11074,7 +11111,8 @@ private:
             || profile.trigger_press != default_profile.trigger_press
             || profile.octagon_stick != default_profile.octagon_stick || profile.gyro_pointer != default_profile.gyro_pointer || profile.gyro_speed != default_profile.gyro_speed;
         ImGui::Dummy(Dp(0, 4));
-        if (SecondaryButton("##reset_pad", texts::T("settings.controls.gamepad.reset"), Dp(180, 36), changed,
+        // (A built-in profile is not changed: it stays as it is made.)
+        if (SecondaryButton("##reset_pad", texts::T("settings.controls.gamepad.reset"), Dp(180, 36), changed && !builtin,
                             Icon::Refresh))
         {
             profile.inputs = defaults;
@@ -11085,7 +11123,7 @@ private:
             profile.octagon_stick = default_profile.octagon_stick;
             profile.gyro_pointer = default_profile.gyro_pointer;
             profile.gyro_speed = default_profile.gyro_speed;
-            pad_capture_action_ = pad_capture_slot_ = -1;
+            input_capture_.Cancel();
             dirty_ = true;
         }
         if (ImGui::IsItemHovered())
@@ -11093,8 +11131,7 @@ private:
                                              {{"default", kDefaultGamepadProfile}}).c_str());
         EndCard();
         // A click anywhere else stops waiting for a press.
-        if (pad_capture_action_ >= 0 && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            pad_capture_action_ = pad_capture_slot_ = -1;
+        if (input_capture_.Waits(InputCapture::Kind::Pad) && !clicked && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) input_capture_.Cancel();
     }
 
     // Adds a stick's four directions to the D-pad's inputs, after the D-pad's
@@ -11498,15 +11535,6 @@ private:
             ImGui::SetTooltip("%s", blocker.c_str());
     }
 
-    void TweakRow(GameTweak tweak)
-    {
-        const auto index = GameTweakIndex(tweak);
-        const auto& info = kGameTweaks[index];
-        Row(texts::TweakName(info), texts::TweakAbout(info));
-        const std::string id = std::string("##tweak_") + info.key;
-        if (Toggle(id.c_str(), &draft_.tweaks[index])) dirty_ = true;
-    }
-
     // What needs files, folders or the launcher: texture packs, Training (it
     // starts the game) and the replays. The other gameplay options are the
     // game's OPTIONS > GAMEPLAY; the Super Team and the development switch for
@@ -11531,19 +11559,41 @@ private:
     // Extras -> Replays: whether matches are kept ([replays] record), the
     // newest ones to watch again and their folder.
     static constexpr std::size_t kReplaysListed = 1000;
-    std::vector<replay::Listing> replay_list_;
-    std::size_t replay_total_ = 0;
-    std::uint64_t replay_listed_at_ = 0; // SDL ticks; the folder is read again every two seconds
+    // The replays folder, read in the background every two seconds while the
+    // card shows (each replay's header is read: not on the window's thread).
+    struct ReplayFolderList
+    {
+        std::vector<replay::Listing> listings;
+        std::size_t total = 0;
+        bool folder_exists = false;
+    };
+    BackgroundJob<ReplayFolderList> replay_listing_;
+    ReplayFolderList replays_;
+    bool replays_listed_ = false;
+    std::uint64_t replay_listed_at_ = 0; // SDL ticks of the last reading's start
 
     void ReplaysCard()
     {
         const auto& fonts = CurrentFonts();
         const fs::path folder = replay::ReplayFolder(base_);
-        if (const auto now = SDL_GetTicks(); !replay_listed_at_ || now - replay_listed_at_ >= 2000)
+        if (auto listed = replay_listing_.Take())
+        {
+            replays_ = std::move(*listed);
+            replays_listed_ = true;
+        }
+        if (const auto now = SDL_GetTicks();
+            !replay_listing_.Busy() && (!replay_listed_at_ || now - replay_listed_at_ >= 2000))
         {
             replay_listed_at_ = now;
-            replay_list_ = replay::ListReplays(folder, kReplaysListed, &replay_total_);
+            replay_listing_.Start([folder] {
+                ReplayFolderList list;
+                list.listings = replay::ListReplays(folder, kReplaysListed, &list.total);
+                std::error_code error;
+                list.folder_exists = fs::is_directory(folder, error);
+                return list;
+            });
         }
+        const auto& listings = replays_.listings;
         BeginCard("##replays", texts::T("settings.replays.title"), texts::T("settings.replays.about"), Icon::Play);
         if (BeginRows("##replays_rows"))
         {
@@ -11555,23 +11605,28 @@ private:
         const float width = ImGui::GetContentRegionAvail().x;
         // Every replay on one line, newest first, the line a button that starts
         // it; the list scrolls past six lines.
-        if (!replay_list_.empty())
+        if (!listings.empty())
         {
             const auto captain = [](int team) {
                 return team >= 0 && team < int(std::size(kCaptainNames)) && kCaptainNames[team] ? kCaptainNames[team]
                                                                                               : "?";
             };
             const float line = Dp(42);
-            const float height = line * float(std::min<std::size_t>(replay_list_.size(), 6));
+            const float height = line * float(std::min<std::size_t>(listings.size(), 6));
             ImGui::Dummy({0, Dp(6)});
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4{0, 0, 0, 0});
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.0f, 0.0f});
             ImGui::BeginChild("##replay_list", {width, height});
             auto* list = ImGui::GetWindowDrawList();
             const float row = ImGui::GetContentRegionAvail().x - (ImGui::GetScrollMaxY() > 0 ? Dp(8) : 0.0f);
-            for (std::size_t n = 0; n < replay_list_.size(); ++n)
+            // Only the lines in view are laid out (all of them are listed).
+            ImGuiListClipper clipper;
+            clipper.Begin(int(listings.size()), line);
+            while (clipper.Step())
+            for (int visible = clipper.DisplayStart; visible < clipper.DisplayEnd; ++visible)
             {
-                const auto& listing = replay_list_[n];
+                const std::size_t n = std::size_t(visible);
+                const auto& listing = listings[n];
                 const auto& info = listing.info;
                 const bool readable = listing.error.empty() && info.home_team >= 0;
                 const bool can = listing.error.empty() && config_ok_ && !pending_replay_;
@@ -11599,7 +11654,9 @@ private:
                 const float hover = Animate(ImGui::GetItemID(), hovered && can, 14.0f);
                 const float middle = pos.y + line * 0.5f;
                 if (n > 0)
-                    list->AddLine({pos.x + Dp(10), pos.y}, {pos.x + row - Dp(10), pos.y}, Col(color::border, 0.7f));
+                    // (A filled hairline: SDL's software renderer breaks up long thin lines.)
+                    list->AddRectFilled({pos.x + Dp(10), pos.y}, {pos.x + row - Dp(10), pos.y + 1.0f},
+                                        Col(color::border, 0.7f));
                 if (hover > 0.0f)
                     list->AddRectFilled({pos.x, pos.y + Dp(2)}, {pos.x + row, pos.y + line - Dp(2)},
                                         Col(color::card_hover, hover), Dp(8));
@@ -11634,132 +11691,72 @@ private:
         const float open_width = GhostWidth(open, Icon::Folder);
         const ImVec2 footer = ImGui::GetCursorScreenPos();
         const float button = Dp(34);
-        const std::string about = replay_list_.empty()
+        const std::string about = !replays_listed_ ? PathUtf8(folder) : listings.empty()
             ? std::string(texts::T("settings.replays.none"))
-            : texts::Count("settings.replays.count", int(replay_total_)) + "  \xC2\xB7  " + PathUtf8(folder);
+            : texts::Count("settings.replays.count", int(replays_.total)) + "  \xC2\xB7  " + PathUtf8(folder);
         const std::string about_shown = Elide(fonts.caption, about, width - open_width - Dp(16));
         const ImVec2 about_size = TextSize(fonts.caption, about_shown.c_str());
         DrawLabel(draw, fonts.caption, {footer.x, footer.y + (button - about_size.y) * 0.5f}, Col(color::muted),
                   about_shown.c_str());
         ImGui::SetCursorScreenPos({footer.x + width - open_width, footer.y});
         std::error_code error;
-        if (GhostButton("open_replays", open, {open_width, button}, fs::is_directory(folder, error), Icon::Folder))
+        if (GhostButton("open_replays", open, {open_width, button}, replays_.folder_exists, Icon::Folder))
             OpenPath(folder);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", PathUtf8(folder).c_str());
         EndCard();
     }
 
     // ------------------------------------------------------- texture packs
-    // The packs in the texture packs folder, read in the background when the
-    // Extras page opens, the folder changes, a pack is added or Refresh is chosen.
-    void PollTexturePacks()
-    {
-        if (texture_scanning_ && texture_scan_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-        {
-            texture_packs_ = texture_scan_.get();
-            texture_scanning_ = false;
-        }
-        if (pack_copy_.valid() && pack_copy_.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-        {
-            const std::string error = pack_copy_.get();
-            if (error.empty())
-                Notice(texts::T("settings.gameplay.mods.pack_added", {{"pack", pack_copy_name_}}), NoticeKind::Success);
-            else Notice(error, NoticeKind::Error);
-            pack_copy_name_.clear();
-            texture_rescan_ = true;
-        }
-        const bool opened = !texture_page_open_;
-        texture_page_open_ = true;
-        const auto folder = TextureFolder();
-        if (opened || PathUtf8(folder) != texture_scanned_folder_) texture_rescan_ = true;
-        if (texture_rescan_ && !texture_scanning_)
-        {
-            texture_rescan_ = false;
-            texture_scanned_folder_ = PathUtf8(folder);
-            texture_scanning_ = true;
-            texture_scan_ = std::async(std::launch::async, [folder] { return platform::FindTexturePacks(folder); });
-        }
-    }
-
     fs::path TextureFolder() const { return ResolveTextureFolder(draft_, file_.path).lexically_normal(); }
 
     // The packs in the player's order (mods.texture_pack_order).
     std::vector<platform::TexturePack> OrderedTexturePacks() const
     {
-        return platform::OrderTexturePacks(texture_packs_, platform::SplitPackNames(draft_.texture_pack_order));
+        return platform::OrderTexturePacks(pack_library_.Packs(), platform::SplitPackNames(draft_.texture_pack_order));
     }
 
     void MoveTexturePack(std::vector<platform::TexturePack> packs, std::size_t from, std::size_t to)
     {
-        if (from >= packs.size() || to >= packs.size() || from == to) return;
-        auto pack = std::move(packs[from]);
-        packs.erase(packs.begin() + std::ptrdiff_t(from));
-        packs.insert(packs.begin() + std::ptrdiff_t(to), std::move(pack));
-        std::vector<std::string> names;
-        for (const auto& item : packs) names.push_back(item.name);
-        draft_.texture_pack_order = platform::JoinPackNames(names);
-        dirty_ = true;
+        if (const auto order = PackOrderAfterMove(std::move(packs), from, to))
+        {
+            draft_.texture_pack_order = *order;
+            dirty_ = true;
+        }
     }
 
     void SetTexturePackOn(const std::string& name, bool on)
     {
-        auto off = platform::SplitPackNames(draft_.texture_packs_off);
-        off.erase(std::remove(off.begin(), off.end(), name), off.end());
-        if (!on) off.push_back(name);
-        draft_.texture_packs_off = platform::JoinPackNames(off);
+        draft_.texture_packs_off = PacksOffWith(draft_.texture_packs_off, name, on);
         dirty_ = true;
     }
 
-    // A folder or .zip file dropped onto the Extras page: a pack is copied
-    // into the texture packs folder in the background. False when it is none.
-    bool AddTexturePack(const fs::path& source)
+    // What became of a pack dropped onto the Extras page (TexturePackLibrary);
+    // something that is no pack is a game image or folder, as on other pages.
+    void TexturePackEvent(const TexturePackLibrary::Event& event)
     {
-        const auto pack = platform::ProbeTexturePack(source);
-        if (!pack) return false;
-        const fs::path folder = TextureFolder();
-        std::error_code error;
-        if (fs::equivalent(source.parent_path(), folder, error))
-            Notice(texts::T("settings.gameplay.mods.already_in_folder", {{"pack", pack->name}}), NoticeKind::Info);
-        else if (pack_copy_.valid())
-            Notice(texts::T("settings.gameplay.mods.wait_for_copy", {{"pack", pack_copy_name_}}), NoticeKind::Warning);
-        else if (fs::exists(folder / source.filename(), error))
-            Notice(texts::T("settings.gameplay.mods.folder_has_pack", {{"pack", pack->name}}), NoticeKind::Warning);
-        else
+        using Kind = TexturePackLibrary::Event::Kind;
+        switch (event.kind)
         {
-            pack_copy_name_ = pack->name;
-            pack_copy_textures_ = pack->textures;
-            pack_copy_ = std::async(std::launch::async, [source, folder] { return CopyTexturePack(source, folder); });
+        case Kind::Added:
+            Notice(texts::T("settings.gameplay.mods.pack_added", {{"pack", event.pack}}), NoticeKind::Success);
+            break;
+        case Kind::AddFailed: Notice(event.error, NoticeKind::Error); break;
+        case Kind::AlreadyInFolder:
+            Notice(texts::T("settings.gameplay.mods.already_in_folder", {{"pack", event.pack}}), NoticeKind::Info);
+            break;
+        case Kind::FolderHasPack:
+            Notice(texts::T("settings.gameplay.mods.folder_has_pack", {{"pack", event.pack}}), NoticeKind::Warning);
+            break;
+        case Kind::CopyBusy:
+            Notice(texts::T("settings.gameplay.mods.wait_for_copy", {{"pack", event.pack}}), NoticeKind::Warning);
+            break;
+        case Kind::NotAPack: SelectDisc(PathUtf8(event.source)); break;
         }
-        return true;
-    }
-
-    // Copies under a hidden name first, so the folder never lists half a pack.
-    static std::string CopyTexturePack(const fs::path& source, const fs::path& folder)
-    {
-        std::error_code error;
-        fs::create_directories(folder, error);
-        if (error)
-            return texts::T("settings.gameplay.mods.cannot_create",
-                            {{"path", PathUtf8(folder)}, {"error", error.message()}});
-        const auto name = source.filename();
-        const auto temporary = folder / PathFromUtf8("." + PathUtf8(name) + ".adding");
-        fs::remove_all(temporary, error);
-        error.clear();
-        if (fs::is_directory(source, error))
-            fs::copy(source, temporary, fs::copy_options::recursive, error);
-        else if (!error)
-            fs::copy_file(source, temporary, error);
-        if (!error) fs::rename(temporary, folder / name, error);
-        if (!error) return {};
-        std::error_code ignored;
-        fs::remove_all(temporary, ignored);
-        return texts::T("settings.gameplay.mods.cannot_add", {{"name", PathUtf8(name)}, {"error", error.message()}});
     }
 
     void ModsCard()
     {
         const auto& fonts = CurrentFonts();
-        PollTexturePacks();
         BeginCard("##mods", texts::T("settings.gameplay.mods.title"), texts::T("settings.gameplay.mods.about"),
                   Icon::Sliders);
         if (BeginRows("##mods_rows"))
@@ -11772,7 +11769,8 @@ private:
         ImGui::BeginDisabled(!draft_.texture_packs);
         TextureFolderPicker();
         ImGui::Dummy({0, Dp(4)});
-        if (!pack_copy_name_.empty()) PackCopyLine();
+        const bool adding = pack_library_.Checking() || pack_library_.Copying();
+        if (adding) PackCopyLine();
         const auto packs = OrderedTexturePacks();
         if (!packs.empty())
         {
@@ -11780,7 +11778,7 @@ private:
             if (packs.size() > 1)
                 TextWrappedColored(fonts.caption, color::dim, texts::T("settings.gameplay.mods.order_note"));
         }
-        else if (pack_copy_name_.empty())
+        else if (!adding)
             PackDropZone();
         ImGui::EndDisabled();
 
@@ -11826,24 +11824,24 @@ private:
         std::error_code error;
         std::string status;
         ImVec4 tint = color::muted;
-        if (texture_scanning_ && texture_packs_.empty())
+        if (pack_library_.Scanning() && pack_library_.Packs().empty())
         {
             status = texts::T("settings.gameplay.mods.folder.looking");
             tint = color::info;
         }
-        else if (!fs::is_directory(path, error))
+        else if (!pack_library_.FolderExists())
             status = texts::T("settings.gameplay.mods.folder.missing");
         else
         {
             const auto off = platform::SplitPackNames(draft_.texture_packs_off);
             std::size_t used = 0, textures = 0;
-            for (const auto& pack : texture_packs_)
+            for (const auto& pack : pack_library_.Packs())
                 if (pack.error.empty() && std::find(off.begin(), off.end(), pack.name) == off.end())
                 {
                     ++used;
                     textures += pack.textures;
                 }
-            const auto count = texture_packs_.size();
+            const auto count = pack_library_.Packs().size();
             status = count == 0 ? std::string(texts::T("settings.gameplay.mods.folder.no_packs"))
                 : texts::Count("settings.gameplay.mods.folder.packs", count,
                                {{"used", std::to_string(used)},
@@ -11860,8 +11858,8 @@ private:
                               texts::T("settings.gameplay.mods.folder.click_tooltip"));
 
         ImGui::SetCursorScreenPos({refresh_x, center - Dp(17)});
-        if (GhostButton("refresh_texture_packs", "", Dp(34, 34), config_ok_ && !texture_scanning_, Icon::Refresh))
-            texture_rescan_ = true;
+        if (GhostButton("refresh_texture_packs", "", Dp(34, 34), config_ok_ && !pack_library_.Scanning(), Icon::Refresh))
+            pack_library_.Rescan();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.gameplay.mods.folder.refresh_tooltip"));
         ImGui::SetCursorScreenPos({open_x, center - Dp(17)});
         if (GhostButton("open_texture_folder", open, {open_w, Dp(34)}, config_ok_, Icon::Folder))
@@ -11874,7 +11872,7 @@ private:
             else
             {
                 OpenPath(path);
-                texture_rescan_ = true;
+                pack_library_.Rescan();
             }
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", texts::T("settings.gameplay.mods.folder.open_tooltip"));
@@ -11893,10 +11891,12 @@ private:
         const ImVec2 at = ImGui::GetCursorScreenPos();
         const float line = Dp(44);
         Spinner({at.x + Dp(22), at.y + line * 0.5f}, Dp(7), Col(color::info));
-        const std::string text = texts::T("settings.gameplay.mods.adding",
-                                          {{"pack", pack_copy_name_},
-                                           {"textures", texts::Count("settings.gameplay.mods.textures",
-                                                                     pack_copy_textures_)}});
+        // Checked first (a large folder takes a while), then copied in.
+        const std::string text = pack_library_.Checking()
+            ? texts::T("settings.gameplay.mods.checking", {{"name", pack_library_.AddingName()}})
+            : texts::T("settings.gameplay.mods.adding",
+                       {{"pack", pack_library_.AddingName()},
+                        {"textures", texts::Count("settings.gameplay.mods.textures", pack_library_.AddingTextures())}});
         DrawLabel(ImGui::GetWindowDrawList(), fonts.body, {at.x + Dp(44), at.y + (line - FontSize(fonts.body)) * 0.5f},
                   Col(color::muted), text.c_str());
         ImGui::Dummy({ImGui::GetContentRegionAvail().x, line});
@@ -12734,8 +12734,8 @@ private:
     std::set<std::string> wii_held_; // remotes kept through one missed status answer
     // Controls: keyboard & mouse keys view, and the keycap waiting for a key.
     bool keyboard_view_ = false;
-    int capture_action_ = -1, capture_slot_ = -1;
-    int hotkey_capture_ = -1; // Hotkeys card: the HotkeyIndex waiting for a key
+    InputCapture input_capture_;
+    bool view_opened_clean_ = false; // no unsaved changes when the keyboard or gamepad view opened
     // Gamepad profiles view: the profile being edited, its rename field and
     // the input waiting for a gamepad press.
     bool gamepad_view_ = false;
@@ -12743,7 +12743,6 @@ private:
     std::size_t pad_slot_ = 0; // the gamepad the page was opened for
     bool renaming_ = false, rename_focus_ = false, confirm_delete_ = false;
     std::string rename_buffer_;
-    int pad_capture_action_ = -1, pad_capture_slot_ = -1;
     // Gyro pointer preview on the profile page: the pad whose gyro it shows,
     // its readings and the preview pointer (0..1 of the box).
     SDL_Gamepad* gyro_preview_pad_ = nullptr;
@@ -12778,7 +12777,6 @@ private:
     int page_ = PagePlay;
     int group_page_[std::size(kNavGroups)] = {PageOnlineSettings}; // the page each group's row opens
     bool close_requested_ = false;
-    bool pending_ = false;
     bool region_prompt_ = false;
     DiscCheck check_;
     // The PC's languages, for Automatic (read once).
@@ -12787,10 +12785,9 @@ private:
     // the languages assets/lang has.
     std::optional<std::string> texts_language_;
     std::vector<texts::LanguageChoice> menu_languages_;
-    std::future<DiscCheck> future_;
+    BackgroundJob<DiscCheck> disc_check_; // the chosen image's check
     // An image chosen with Browse, a drop or Locate, checked before it is pinned.
-    std::future<DiscCheck> candidate_;
-    bool candidate_pending_ = false;
+    BackgroundJob<DiscCheck> candidate_;
     DiscInfo region_prompt_info_{};
     Uint64 missing_probe_ = 0, folders_probe_ = 0;
     // The image library (#65): the last finished scan and the running one.
@@ -12804,9 +12801,9 @@ private:
     bool library_limited_ = false;
     std::string scanned_folder_; // the game folder setting of the last scan
     bool scanned_subfolders_ = true;
-    std::future<LibraryScan> library_scan_;
+    BackgroundJob<LibraryScan> library_scan_;
     std::shared_ptr<ScanProgress> library_progress_;
-    bool library_scanning_ = false, library_rescan_ = false;
+    bool library_rescan_ = false;
     // Who chooses an image when the next scan is done, if nothing is chosen then.
     enum class AutoChoice { None, FirstStart, NewFolder };
     AutoChoice autochoose_ = AutoChoice::None;
@@ -12815,27 +12812,18 @@ private:
     std::map<std::string, SDL_Texture*> banners_; // by disc ID
     std::set<std::string> banner_failures_, banner_missing_;
     // The background search for a disc image when none is chosen.
-    std::future<launcher::DiscSearchResult> search_;
+    BackgroundJob<launcher::DiscSearchResult> search_;
     // The PC's graphics cards (Advanced -> Graphics card), listed once at start.
-    std::future<std::vector<platform::GraphicsCard>> graphics_cards_scan_;
+    BackgroundJob<std::vector<platform::GraphicsCard>> graphics_cards_scan_;
     std::vector<platform::GraphicsCard> graphics_cards_;
-    bool graphics_cards_listing_ = false;
-    bool searching_ = false;
-    std::string search_from_;
+    std::string search_from_, search_folder_from_; // the disc and game folder settings when the search began
     std::vector<std::string> displays_;
     std::vector<SDL_DisplayID> display_ids_;
     std::shared_ptr<DialogResult> dialog_ = std::make_shared<DialogResult>();
     std::shared_ptr<DialogResult> folder_dialog_ = std::make_shared<DialogResult>();
     FolderPurpose folder_purpose_ = FolderPurpose::SaveFolder;
     // The texture packs folder's packs (Gameplay -> Mods), read in the background.
-    std::future<std::vector<platform::TexturePack>> texture_scan_;
-    std::vector<platform::TexturePack> texture_packs_;
-    std::string texture_scanned_folder_;
-    bool texture_scanning_ = false, texture_rescan_ = false, texture_page_open_ = false;
-    // A pack dropped onto the page, being copied into the folder: an error, or empty.
-    std::future<std::string> pack_copy_;
-    std::string pack_copy_name_;
-    std::size_t pack_copy_textures_ = 0;
+    TexturePackLibrary pack_library_; // the Extras page's texture packs
     fs::path import_source_;
     ImportKind import_kind_ = ImportKind::Save;
     bool import_prompt_ = false;
@@ -12846,6 +12834,7 @@ private:
     // The Miis of the save folder in use and the times of their files when read.
     fs::path miis_folder_;
     std::vector<fs::file_time_type> miis_times_;
+    Uint64 miis_checked_ = 0; // SDL ticks of the last look at the Mii files' times
     mscharged::platform::MiiDatabaseStatus miis_;
     // Player profile's Play with a Mii (MiiWizardPage): the step (0 the
     // welcome, 1 Your Mii, 2 Go online), where the Mii comes from (0 a new
@@ -12889,6 +12878,11 @@ private:
         bool open = false;
         int page = 0;
         Target target = Target::Wizard;
+        // The Mii database the edited Mii came from (Target::Database): Save
+        // writes it there, also when another image or save folder was chosen
+        // meanwhile.
+        fs::path folder;
+        std::optional<mscharged::platform::SaveTitle> title;
         std::string record;
         bool add = false, name_locked = false;
         platform::mii::MiiFace face, original_face;
@@ -13049,7 +13043,8 @@ int main(int argc, char** argv)
                          "--non-interactive makes that run a startup diagnostic: it ends once its first frame is captured,\n"
                          "or fails after 90 s.\n"
                          "Use --launcher to open settings; launcher checks and explicit runtime modes keep their selected mode.\n"
-                         "Development checks: --smoke-test | --screenshot FILE [--page play|game|controls|extras|advanced|about]\n";
+                         "Development checks: --smoke-test | --screenshot FILE [--page play|online-settings|rules|sidekicks|graphics|"
+                         "controls|game|extras|advanced|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
             std::cout << "Original startup prototype: --experimental-startup [--config FILE] (not playable)\n";
 #endif

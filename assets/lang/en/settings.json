@@ -436,6 +436,7 @@
       "textures_one": "{{count}} textures",
       "textures_other": "{{count}} textures",
       "adding": "Adding {{pack}} ({{textures}})...",
+      "checking": "Checking {{name}}...",
       "drop": {
         "title": "Drop a texture pack here",
         "about": "A pack's folder (such as R4Q) or its .zip file: it is copied into the folder above."
