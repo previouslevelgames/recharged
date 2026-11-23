@@ -176,13 +176,14 @@ const char* Cause(const ChargedOnlineMatchSnapshot& s)
 
 std::string Body(const ChargedOnlineMatchSnapshot& s, const std::string& release, const std::string& build,
                  const std::string& os, std::uint64_t series, const char* event, const ChargedOnlineGame* game,
-                 int number)
+                 int number, bool replays)
 {
     const int side = s.side == 1 ? 1 : 0;
     std::string out = "{\"profile_id\":" + std::to_string(s.profile_id) + ",\"release\":";
     AppendJsonString(out, release);
     AppendBuild(out, build);
     AppendOs(out, os);
+    if (replays) out += ",\"replays\":true";
     out += ",\"event\":";
     AppendJsonString(out, event);
     out += ",\"series\":" + std::to_string(series);
@@ -253,19 +254,78 @@ std::string Body(const ChargedOnlineMatchSnapshot& s, const std::string& release
 std::vector<std::string> OnlineMatchEvents(const ChargedOnlineMatchSnapshot* last,
                                            const ChargedOnlineMatchSnapshot& now, const std::string& release,
                                            const std::string& build, const std::string& os,
-                                           std::uint64_t series)
+                                           std::uint64_t series, bool replays)
 {
     std::vector<std::string> events;
     // No profile (the Mii never logged in): the server could not tell whose
     // report it was.
     if (!now.series || !now.profile_id) return events;
     const bool same = last && last->series == now.series;
-    if (!same) events.push_back(Body(now, release, build, os, series, "start", nullptr, 0));
+    if (!same) events.push_back(Body(now, release, build, os, series, "start", nullptr, 0, replays));
     const int games = std::clamp(now.games, 0, int(std::size(now.game)));
     for (int n = same ? std::clamp(last->games, 0, games) : 0; n < games; ++n)
-        events.push_back(Body(now, release, build, os, series, "game", &now.game[n], n + 1));
-    if (now.ended && !(same && last->ended)) events.push_back(Body(now, release, build, os, series, "end", nullptr, 0));
+        events.push_back(Body(now, release, build, os, series, "game", &now.game[n], n + 1, replays));
+    if (now.ended && !(same && last->ended))
+        events.push_back(Body(now, release, build, os, series, "end", nullptr, 0, replays));
     return events;
+}
+
+void OnlineReplayAnswers::Note(const std::string& report, const std::string& answer)
+{
+    try
+    {
+        const JsonValue sent = ParseJson(report);
+        const JsonValue got = ParseJson(answer);
+        const auto series = sent["series"].Integer();
+        const auto profile = sent["profile_id"].Integer();
+        if (!series || *series <= 0 || !profile || *profile <= 0) return;
+        const std::string& event = sent["event"].Text();
+        std::lock_guard lock(mutex_);
+        if (event == "start" && got["stream"].Bool())
+        {
+            if (std::find(streamed_.begin(), streamed_.end(), std::uint64_t(*series)) == streamed_.end())
+            {
+                if (streamed_.size() >= 8) streamed_.erase(streamed_.begin());
+                streamed_.push_back(std::uint64_t(*series));
+            }
+        }
+        else if (event == "game" && got["replay"].Bool())
+        {
+            const auto number = sent["game"]["number"].Integer();
+            if (number && *number >= 1 && *number <= 9 && wanted_.size() < 32)
+                wanted_.push_back({std::uint64_t(*series), int(*number), std::uint32_t(*profile)});
+        }
+    }
+    catch (const std::exception&)
+    {
+    }
+}
+
+bool OnlineReplayAnswers::Streamed(std::uint64_t series) const
+{
+    std::lock_guard lock(mutex_);
+    return std::find(streamed_.begin(), streamed_.end(), series) != streamed_.end();
+}
+
+std::vector<OnlineReplayAnswers::Wanted> OnlineReplayAnswers::TakeWanted()
+{
+    std::lock_guard lock(mutex_);
+    return std::exchange(wanted_, {});
+}
+
+void OnlineReplayAnswers::NameSeries(unsigned module_series, std::uint64_t number)
+{
+    std::lock_guard lock(mutex_);
+    if (names_.size() >= 8) names_.erase(names_.begin());
+    names_.emplace_back(module_series, number);
+}
+
+std::uint64_t OnlineReplayAnswers::SeriesNumber(unsigned module_series) const
+{
+    std::lock_guard lock(mutex_);
+    for (auto it = names_.rbegin(); it != names_.rend(); ++it)
+        if (it->first == module_series) return it->second;
+    return 0;
 }
 
 std::string OnlineErrorReport(const ChargedOnlineError& error, const std::string& release, const std::string& build)
@@ -309,9 +369,12 @@ std::unique_ptr<OnlineReports> OnlineReports::Start(const std::string& server, c
                                                     const std::string& build, Log log)
 {
     if (server.empty()) return nullptr;
-    Send send = HttpSend(server, log);
+    auto answers = std::make_shared<OnlineReplayAnswers>();
+    Send send = HttpSend(server, log, {}, [answers](const std::string& body, const std::string& answer) {
+        answers->Note(body, answer);
+    });
     return std::make_unique<OnlineReports>(release, build, HostOsName(), std::move(send), std::move(log),
-                                           std::chrono::seconds(5), HttpAsk(server));
+                                           std::chrono::seconds(5), HttpAsk(server), std::move(answers));
 }
 
 OnlineReports::Ask OnlineReports::HttpAsk(const std::string& server, Request request)
@@ -339,7 +402,7 @@ OnlineReports::Ask OnlineReports::HttpAsk(const std::string& server, Request req
     };
 }
 
-OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, Request request)
+OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, Request request, Answered answered)
 {
     if (!request) request = [](const HttpRequest& http) { return HttpGet(http); };
     // A server without match reports (another WFC server) answers 404, and
@@ -352,7 +415,7 @@ OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, 
         std::atomic<bool> dossiers{false};
     };
     auto off = std::make_shared<Endpoints>();
-    return [server, log = std::move(log), request = std::move(request), off](
+    return [server, log = std::move(log), request = std::move(request), off, answered = std::move(answered)](
                const std::string& path, const std::string& body, const std::shared_ptr<HttpCancel>& cancel) {
         const bool errors = path == kErrorsPath;
         const bool dossier = path == kDossiersPath;
@@ -394,6 +457,8 @@ OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, 
                 log(std::string("Match reports: the server refused ")
                     + (errors ? "an error code" : dossier ? "a desync dossier" : "a report")
                     + " (HTTP " + std::to_string(response.status) + "): " + response.body.substr(0, 200));
+            else if (response.status == 200 && answered && path == kReportsPath)
+                answered(body, response.body);
             return true;
         }
         catch (const HttpError& error)
@@ -405,9 +470,9 @@ OnlineReports::Send OnlineReports::HttpSend(const std::string& server, Log log, 
 }
 
 OnlineReports::OnlineReports(std::string release, std::string build, std::string os, Send send, Log log,
-                             std::chrono::milliseconds retry, Ask ask)
+                             std::chrono::milliseconds retry, Ask ask, std::shared_ptr<OnlineReplayAnswers> answers)
     : state_(std::make_shared<State>()), log_(log), release_(std::move(release)), build_(std::move(build)),
-      os_(std::move(os))
+      os_(std::move(os)), answers_(answers ? std::move(answers) : std::make_shared<OnlineReplayAnswers>())
 {
     thread_ = std::thread([state = state_, send = std::move(send), log = std::move(log), retry, ask = std::move(ask)] {
         std::unique_lock lock(state->mutex);
@@ -505,7 +570,9 @@ void OnlineReports::Observe(const ChargedOnlineMatchSnapshot& snapshot)
                              .count();
         series_ = std::max<std::uint64_t>(std::uint64_t(std::max<long long>(now, 0)), series_ + 1);
     }
-    const auto events = OnlineMatchEvents(seen_ ? &last_ : nullptr, snapshot, release_, build_, os_, series_);
+    if (begun) answers_->NameSeries(snapshot.series, series_);
+    const auto events =
+        OnlineMatchEvents(seen_ ? &last_ : nullptr, snapshot, release_, build_, os_, series_, replays_);
     // An error code shown since the last look (none before the first).
     const std::string error = snapshot.error.shown != last_.error.shown
         ? OnlineErrorReport(snapshot.error, release_, build_)

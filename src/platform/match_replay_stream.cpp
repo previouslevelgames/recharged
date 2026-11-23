@@ -355,6 +355,15 @@ void StreamWriter::Flush()
     if (machine_ == 0) ++setup_.steps;
 }
 
+void StreamWriter::StartBytes(Bytes& out) const
+{
+    Bytes setup;
+    PutSetup(setup, setup_);
+    Put32(out, kStreamVersion);
+    Put32(out, std::uint32_t(setup.size()));
+    out.insert(out.end(), setup.begin(), setup.end());
+}
+
 Bytes StreamWriter::Finish()
 {
     Flush();
@@ -389,6 +398,30 @@ bool StreamReader::Open(const std::uint8_t* data, std::size_t size, std::string&
     size_ = size;
     at_ = in.at;
     return true;
+}
+
+int StreamReader::StepsAhead(int most) const
+{
+    if (!data_ || !error_.empty() || events_left_ || data_left_ || records_left_) return 0;
+    StreamReader probe = *this;
+    std::uint8_t scratch[kMaxDataSize > kRecordSize ? kMaxDataSize : kRecordSize];
+    int steps = 0;
+    for (; steps < most; ++steps)
+        for (int machine = 0; machine < setup_.machine_count; ++machine)
+        {
+            PacketHeader header;
+            if (!probe.Header(machine, header)) return steps;
+            for (unsigned event = 0; event < header.events; ++event)
+            {
+                unsigned size = 0;
+                if (!probe.Event(scratch, size)) return steps;
+            }
+            if (!probe.Data(scratch, header.data_size)) return steps;
+            std::uint8_t connected = 0;
+            for (int player = 0; player < setup_.player_counts[machine]; ++player)
+                if (!probe.Record(machine, player, scratch, connected)) return steps;
+        }
+    return steps;
 }
 
 bool StreamReader::Need(std::size_t count)

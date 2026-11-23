@@ -1,5 +1,7 @@
 #include "platform/match_replay_file.h"
 
+#include "platform/json.h"
+
 #include "platform/path.h"
 
 #include <zlib.h>
@@ -340,5 +342,38 @@ std::vector<Listing> ListReplays(const std::filesystem::path& folder, std::size_
         listings.push_back(std::move(listing));
     }
     return listings;
+}
+bool ReadWatchTicket(const std::vector<std::uint8_t>& bytes, WatchTicket& ticket, std::string& error)
+{
+    static constexpr char magic[8] = {'M', 'S', 'C', 'R', 'P', 'L', 'Y', 0x1A};
+    if (bytes.size() < 12 || std::memcmp(bytes.data(), magic, sizeof magic) != 0) return false;
+    if ((bytes[8] | bytes[9] << 8) != 2) return false;
+    const std::size_t size = std::size_t(bytes[10] | bytes[11] << 8);
+    if (bytes.size() < 12 + size)
+    {
+        error = "The watch ticket is cut short.";
+        return false;
+    }
+    try
+    {
+        const auto header =
+            mscharged::platform::ParseJson(std::string_view(reinterpret_cast<const char*>(bytes.data() + 12), size));
+        const auto match = header["match"].Integer();
+        ticket.ticket = header["ticket"].Text();
+        ticket.release = header["release"].Text();
+        if (!match || *match <= 0 || ticket.ticket.empty() || ticket.ticket.size() > 256
+            || ticket.ticket.find_first_not_of("0123456789abcdef") != std::string::npos || ticket.release.size() != 4)
+        {
+            error = "The watch ticket does not name a match.";
+            return false;
+        }
+        ticket.match = *match;
+        return true;
+    }
+    catch (const std::exception&)
+    {
+        error = "The watch ticket cannot be read.";
+        return false;
+    }
 }
 } // namespace mscharged::replay

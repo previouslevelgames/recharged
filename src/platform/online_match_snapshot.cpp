@@ -186,16 +186,27 @@ void mscharged_tweak_online_error(int code)
     sError.profile_id = ProfileId();
 }
 
-bool ChargedOnlineDossierGame(DesyncDossierHeader& header)
+bool ChargedOnlineRecordingGame(unsigned& series, int& game, unsigned& profile_id)
 {
     // As a result does: a game the host has not looked at since its kickoff
     // begins its series.
     if (!Online()) return false;
     if (!UnderWay() && !sAwaitingGame && Begun()) Begin();
     if (!UnderWay() || !sSeries.profile_id) return false;
-    header.series = sSeries.series;
-    header.game = unsigned(sSeries.games) + 1;
-    header.profile_id = sSeries.profile_id;
+    series = sSeries.series;
+    game = sSeries.games + 1;
+    profile_id = sSeries.profile_id;
+    return true;
+}
+
+bool ChargedOnlineDossierGame(DesyncDossierHeader& header)
+{
+    unsigned series = 0, profile = 0;
+    int game = 0;
+    if (!ChargedOnlineRecordingGame(series, game, profile)) return false;
+    header.series = series;
+    header.game = unsigned(game);
+    header.profile_id = profile;
     header.side = unsigned(sSeries.side);
     return true;
 }

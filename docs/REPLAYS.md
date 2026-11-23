@@ -1,15 +1,17 @@
 # Replays
 
-Recharged keeps every offline match you play as a replay. You can watch a
-match again from the launcher, as fast as four times the normal speed, or
-send the file to a friend who has the same game.
+Recharged keeps the matches you play as replays, offline and online. You can
+watch a match again from the launcher, as fast as four times the normal speed,
+or send the file to a friend who has the same game.
 
 ## What is recorded
 
-- **Recorded:** Domination matches (exhibition matches), Training and the
-  matches of the Road to the Striker Cup.
-- **Not recorded:** online and LAN matches, the Striker Challenges,
-  Strikers 101 and the demo matches of the title screen.
+- **Recorded:** Domination matches (exhibition matches), Training, the
+  matches of the Road to the Striker Cup, and online and LAN matches: each
+  game of a set is a replay of its own, with every player's inputs as the
+  match confirmed them.
+- **Not recorded:** the Striker Challenges, Strikers 101 and the demo matches
+  of the title screen.
 
 A replay is written when its match ends, or when you close the game during
 the match. A match left within its first second is not kept. Replays go to the
@@ -75,7 +77,9 @@ release it shows a message naming the release the replay needs.
 ### Settings during a replay
 
 The match plays with the gameplay tweaks it was recorded with, whatever yours
-are now: Fast terrain, Mirror match, Training's options and so on. What only
+are now: Fast terrain, Mirror match, Training's options and so on. An online
+match plays by the rules it had online: the gameplay tweaks that online play
+switches off stay off, and a set plays by its rule set's tweaks. What only
 changes how the game looks or how fast you get through the start stays yours:
 Skip intro, Fast menus, and whether the HUD shows (the HUD key, H unless you
 changed it, still switches it).
@@ -155,7 +159,7 @@ A `.msc` file is little-endian:
 | 8 | `MSCRPLY` and the byte 0x1A |
 | 2 | File version (1) |
 | 2 | Size of the header that follows |
-| header | The Recharged version that recorded it (one length byte, then the text), the game ID (6 characters, such as `R4QE01`), the revision (1 byte), the time it was made (8 bytes, seconds since 1970), the size of the match data and of its compressed form (4 bytes each), then a summary for the launcher's list: the match's steps (4 bytes), the home and away captains and the stadium (2 bytes each), the two scores (2 bytes each) and a flags byte (bit 0: Training) |
+| header | The Recharged version that recorded it (one length byte, then the text), the game ID (6 characters, such as `R4QE01`), the revision (1 byte), the time it was made (8 bytes, seconds since 1970), the size of the match data and of its compressed form (4 bytes each), then a summary for the launcher's list: the match's steps (4 bytes), the home and away captains and the stadium (2 bytes each), the two scores (2 bytes each) and a flags byte (bit 0: Training, bit 1: an online or LAN match) |
 | rest | The match data, compressed with zlib |
 
 A reader skips header bytes it does not know, so later versions can add to

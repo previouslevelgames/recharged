@@ -175,6 +175,15 @@ public:
     void Data(const std::uint8_t* data, unsigned size);
     void Record(int machine, int player, const std::uint8_t* record, std::uint8_t connected);
     Setup& EditSetup() { return setup_; }
+    // The last packet into the steps once its last player's record came (a
+    // packet otherwise waits for the next one's Header): after a whole step,
+    // StepBytes holds every step so far.
+    void Settle() { Flush(); }
+    // The stream's start as it would be now (version, setup size, setup), and
+    // the steps written so far, which only grow until Finish or Clear: what a
+    // live stream sends while the match is played.
+    void StartBytes(Bytes& out) const;
+    const Bytes& StepBytes() const { return steps_; }
     // The stream (setup, then the steps); the writer is empty again.
     Bytes Finish();
     void Clear();
@@ -224,6 +233,17 @@ public:
     // Steps read so far (headers of machine 0).
     std::uint32_t Step() const { return step_; }
     const std::string& Error() const { return error_; }
+    // A live stream: the bytes from Open's start on that have arrived now
+    // (more of the same buffer; never fewer).
+    void Grow(std::size_t size)
+    {
+        if (size > size_) size_ = size;
+    }
+    // The whole steps ahead of the reader in the bytes it has, at most
+    // `most`: read on a copy, so the reader itself moves on only when the game
+    // reads, and never into a step that has not arrived whole. Only between
+    // steps.
+    int StepsAhead(int most) const;
 
 private:
     bool Need(std::size_t count);

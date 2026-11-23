@@ -1011,6 +1011,61 @@ void TestSender()
 }
 } // namespace
 
+// Replays: the reports say the game sends them, and the server's answers
+// about them reach OnlineReplayAnswers.
+void TestReplayAnswers()
+{
+    auto s = Series(1, 3);
+    s.games = 1;
+    s.game[0].scores[0] = 1;
+    const auto plain = OnlineMatchEvents(nullptr, s, "R4QE", kBuild, kOs, 1792000000);
+    const auto with = OnlineMatchEvents(nullptr, s, "R4QE", kBuild, kOs, 1792000000, true);
+    Require(plain.size() == 2 && with.size() == 2, "a start and a game");
+    for (int n = 0; n < 2; ++n)
+    {
+        Require(plain[n].find("\"replays\"") == std::string::npos, "a 1.1 server's reports are unchanged");
+        Require(ParseJson(with[n])["replays"].Bool(), "the reports say replays come when asked");
+    }
+
+    OnlineReplayAnswers answers;
+    answers.Note(with[0], "{\"match_id\":12,\"stream\":true}");
+    answers.Note(with[1], "{\"match_id\":12,\"replay\":true}");
+    answers.Note(with[1], "{\"match_id\":12}");
+    answers.Note(with[0], "not json");
+    answers.Note("{\"event\":\"game\",\"series\":-4,\"profile_id\":1,\"game\":{\"number\":1}}",
+                 "{\"replay\":true}");
+    Require(answers.Streamed(1792000000) && !answers.Streamed(1792000001), "the streamed series");
+    const auto wanted = answers.TakeWanted();
+    Require(wanted.size() == 1 && wanted[0].series == 1792000000 && wanted[0].game == 1
+                && wanted[0].profile_id == s.profile_id,
+            "the game asked for, once");
+    Require(answers.TakeWanted().empty(), "taken");
+    answers.NameSeries(1, 1792000000);
+    answers.NameSeries(2, 1792000500);
+    Require(answers.SeriesNumber(1) == 1792000000 && answers.SeriesNumber(2) == 1792000500
+                && answers.SeriesNumber(3) == 0,
+            "the module's series by their numbers");
+
+    // Start's sender hands each stored report and its answer over.
+    FakeHttp http;
+    std::vector<std::pair<std::string, std::string>> answered;
+    const auto send = OnlineReports::HttpSend("192.0.2.7", nullptr, http.Request(),
+                                              [&](const std::string& body, const std::string& answer) {
+                                                  answered.emplace_back(body, answer);
+                                              });
+    const auto cancel = std::make_shared<HttpCancel>();
+    http.answers[kReports] = {200, 400};
+    Require(send(kReports, with[0], cancel) && send(kReports, with[1], cancel), "both delivered");
+    Require(answered.size() == 1 && answered[0].first == with[0] && answered[0].second == "{}",
+            "only a stored report's answer");
+
+    // Observe names each series it sees.
+    OnlineReports reports("R4QE", kBuild, kOs, [](const auto&, const auto&, const auto&) { return true; }, nullptr);
+    reports.Observe(Series(7, 3));
+    Require(reports.ReplayAnswers()->SeriesNumber(7) == reports.LastSeriesNumber() && reports.LastModuleSeries() == 7,
+            "a series seen gets its number");
+}
+
 int main()
 {
     try
@@ -1021,6 +1076,7 @@ int main()
         TestHttpSend();
         TestSender();
         TestDossiers();
+        TestReplayAnswers();
     }
     catch (const std::exception& error)
     {

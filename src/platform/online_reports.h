@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -31,11 +32,42 @@ namespace mscharged::platform {
 // version) and the computer's `os` (HostOsName; left out when empty). A new
 // series number begins a series: its start, then any game and end it already
 // has. `series` is the number the reports give it (unique among this
-// player's series).
+// player's series). With `replays` the reports say that this game sends its
+// games' replays when the server asks (and streams them as they are played).
 std::vector<std::string> OnlineMatchEvents(const ChargedOnlineMatchSnapshot* last,
                                            const ChargedOnlineMatchSnapshot& now, const std::string& release,
                                            const std::string& build, const std::string& os,
-                                           std::uint64_t series);
+                                           std::uint64_t series, bool replays = false);
+
+// What the server answered to the reports it stored that concerns replays
+// (HttpSend's `answered`): the series whose games stream to it as they are
+// played (its answer to their start), and the games whose replay it asked for
+// (its answer to their game report); and the reports' numbers of the game
+// module's series (OnlineReports::Observe). Any thread.
+class OnlineReplayAnswers {
+public:
+    struct Wanted
+    {
+        std::uint64_t series = 0;
+        int game = 0;
+        std::uint32_t profile_id = 0;
+    };
+    // A report the server stored (its JSON body) and the server's answer.
+    void Note(const std::string& report, const std::string& answer);
+    bool Streamed(std::uint64_t series) const;
+    // The games asked for since the last call.
+    std::vector<Wanted> TakeWanted();
+    // The module's series `module_series` (ChargedOnlineMatchSnapshot::series)
+    // is the reports' `number`; SeriesNumber gives it back, 0 for one not seen.
+    void NameSeries(unsigned module_series, std::uint64_t number);
+    std::uint64_t SeriesNumber(unsigned module_series) const;
+
+private:
+    mutable std::mutex mutex_;
+    std::vector<std::uint64_t> streamed_; // the newest last
+    std::vector<Wanted> wanted_;
+    std::vector<std::pair<unsigned, std::uint64_t>> names_; // the newest last
+};
 
 // The body (JSON) of an error code the game showed; empty for a code the
 // server takes none of (only popups' codes, 1 to 999999).
@@ -50,6 +82,8 @@ public:
     // when the reports end.
     using Send = std::function<bool(const std::string& path, const std::string& body,
                                     const std::shared_ptr<HttpCancel>& cancel)>;
+    // A report the server stored and its answer (HTTP 200).
+    using Answered = std::function<void(const std::string& body, const std::string& answer)>;
     using Log = std::function<void(const std::string& line)>;
     // One HTTP request (HttpGet; a test answers for the server).
     using Request = std::function<HttpResponse(const HttpRequest& request)>;
@@ -69,13 +103,17 @@ public:
     // run. A dossier is delivered once accepted (200) or refused for what it
     // is (another 4xx); not when the server could not take it then (403: not
     // logged in, 429, 5xx) or has no endpoint for it.
-    static Send HttpSend(const std::string& server, Log log, Request request = {});
+    // A report the server stored goes to `answered` with its answer.
+    static Send HttpSend(const std::string& server, Log log, Request request = {}, Answered answered = {});
     // How Start asks: a GET of http://<server><path> through `request`.
     static Ask HttpAsk(const std::string& server, Request request = {});
     // Reports through `send`, a failed one tried again after `retry`; asks
     // through `ask` (none: no questions) every `retry` / 2.5.
+    // `answers` keeps what the server answered about replays (one of its own
+    // when none is given).
     OnlineReports(std::string release, std::string build, std::string os, Send send, Log log,
-                  std::chrono::milliseconds retry = std::chrono::seconds(5), Ask ask = {});
+                  std::chrono::milliseconds retry = std::chrono::seconds(5), Ask ask = {},
+                  std::shared_ptr<OnlineReplayAnswers> answers = {});
     // Stops the report under way; reports not sent yet are dropped.
     ~OnlineReports();
     OnlineReports(const OnlineReports&) = delete;
@@ -89,6 +127,15 @@ public:
     // forfeited it (the server knows from their report; servers from 1.2.21
     // on): their Mii's name, once.
     std::optional<std::string> TakeOpponentForfeit();
+
+    // The reports say this game sends replays when asked (before Observe).
+    void SetReplays(bool replays) { replays_ = replays; }
+    // The answers about replays (Start's HttpSend notes the server's), and
+    // the reports' numbers of the module's series as Observe saw them.
+    const std::shared_ptr<OnlineReplayAnswers>& ReplayAnswers() const { return answers_; }
+    // The series Observe saw last: the module's count and the reports' number.
+    unsigned LastModuleSeries() const { return seen_ ? last_.series : 0; }
+    std::uint64_t LastSeriesNumber() const { return series_; }
 
     // Keeps desync dossiers in `folder` (created when needed) until the
     // server has them; without a folder, none are sent. Those left by earlier
@@ -112,5 +159,7 @@ private:
     bool seen_ = false;
     ChargedOnlineMatchSnapshot last_{};
     std::uint64_t series_ = 0;
+    bool replays_ = false;
+    std::shared_ptr<OnlineReplayAnswers> answers_;
 };
 } // namespace mscharged::platform

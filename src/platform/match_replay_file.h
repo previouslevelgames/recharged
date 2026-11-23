@@ -64,6 +64,20 @@ bool ReadReplayFile(const std::filesystem::path& path, std::vector<std::uint8_t>
 // Reads only a file's header; false with `error` set.
 bool ReadReplayInfo(const std::filesystem::path& path, FileInfo& info, std::string& error);
 
+// A ticket to watch an online match as it is played, from the WFC server's
+// dashboard: a file of version 2 with this layout, whose header is JSON
+// {"match": 12, "ticket": "...", "release": "R4QE"} (live_watch.h plays it).
+struct WatchTicket
+{
+    std::int64_t match = 0;
+    std::string ticket;  // the server's, as it gave it
+    std::string release; // the game's code, R4QE, R4QP...
+};
+// Whether `bytes` is a watch ticket (and what it says); false with `error`
+// set for a ticket this build cannot read, false without one for any other
+// file.
+bool ReadWatchTicket(const std::vector<std::uint8_t>& bytes, WatchTicket& ticket, std::string& error);
+
 // replay_YYYYMMDD-HHMMSS.msc for a local time.
 std::string ReplayFileName(std::int64_t created);
 // The replays folder beside the program.

@@ -284,8 +284,8 @@ lets you choose which one to follow ([updates](SETTINGS.md#updates)).
 
 ## Replays
 
-Every offline match is kept as a small replay file (a few KB a minute: the
-match's start and the players' inputs). The launcher's Extras page lists them;
+Every match, offline and online, is kept as a small replay file (a few KB a
+minute: the match's start and the players' inputs). The launcher's Extras page lists them;
 watching one plays the match again, up to four times as fast, and pauses it.
 You can send a replay to a friend with the same game ([replays](REPLAYS.md)).
 

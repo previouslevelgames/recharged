@@ -3695,6 +3695,7 @@ private:
         fs::path path;
         DiscInfo needs;
         fs::path image; // once found
+        bool any_revision = false; // a watch ticket: any image of the release
     };
     std::optional<PendingReplay> pending_replay_;
 
@@ -3708,7 +3709,19 @@ private:
         std::string error;
         replay::FileInfo info;
         replay::Setup setup;
-        if (!replay::ReadReplayFile(path, bytes, error) || !replay::DecodeFile(bytes.data(), bytes.size(), info, stream, error)
+        // A watch ticket from the WFC server's dashboard: the game watches the
+        // match live, with any image of its release.
+        replay::WatchTicket ticket;
+        if (replay::ReadReplayFile(path, bytes, error) && replay::ReadWatchTicket(bytes, ticket, error))
+        {
+            DiscInfo needs{};
+            needs.game_id = ticket.release;
+            pending_replay_ = PendingReplay{path, needs, {}, true};
+            platform::SessionLogLine("Watch ticket: match " + std::to_string(ticket.match) + " (" + ticket.release + ")");
+            Notice(texts::T("launcher.replay.starting", {{"name", PathUtf8(path.filename())}}), NoticeKind::Info);
+            return;
+        }
+        if (!error.empty() || !replay::DecodeFile(bytes.data(), bytes.size(), info, stream, error)
             || !replay::ReadSetup(stream.data(), stream.size(), setup, error))
         {
             Notice(texts::T("launcher.replay.unreadable", {{"error", error}}), NoticeKind::Error);
@@ -3727,8 +3740,11 @@ private:
     {
         if (!pending_replay_ || ReplayReady() || frontend_launch_) return;
         const auto& wanted = pending_replay_->needs;
+        const bool any_revision = pending_replay_->any_revision;
         const auto fits = [&](const DiscInfo& info) {
-            return info.game_id == wanted.game_id && info.revision == wanted.revision && SupportedRelease(info);
+            return (any_revision ? info.game_id.compare(0, 4, wanted.game_id) == 0
+                                 : info.game_id == wanted.game_id && info.revision == wanted.revision)
+                && SupportedRelease(info);
         };
         // The chosen image's check first.
         if (disc_check_.Busy() || search_.Busy()) return;

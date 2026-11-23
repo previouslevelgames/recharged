@@ -11,6 +11,7 @@
 #include "platform/match_replay_network.h"
 #include "Game/PackedDetInput.h"
 
+#include <atomic>
 #include <cmath>
 
 namespace mscharged::rollback
@@ -42,6 +43,10 @@ struct Before
 Before sBefore[kInputRing];
 unsigned sRecordNext = 0;
 bool sRecordStopped = false; // a step was gone before the recording took it
+// The steps the match runs ahead of the inputs that have arrived (predicted),
+// after each frame: the live stream's sender (another thread) waits while the
+// connection is in trouble.
+std::atomic<int> sUnconfirmedSteps{0};
 } // namespace
 
 StepInputs& InputsFor(unsigned frame)
@@ -698,6 +703,11 @@ void NetplayFrameStart()
     Resolve();
     UpdateConfirmed();
     RecordFinalSteps();
+    {
+        const unsigned oldest = OldestPredicted();
+        sUnconfirmedSteps.store(oldest && s.latest >= oldest ? int(s.latest - oldest + 1) : 0,
+                                std::memory_order_relaxed);
+    }
     SyncTime();
     // A divergence ends the match as the game's own check did (which the
     // prediction bypasses): the network error, kept by objects no rollback
@@ -755,6 +765,12 @@ extern "C" bool mscharged_rollback_predicting(void)
     return g_pNetworkSessionBase->GetSessionMode() != NET_MODE_LOCAL && !gNetworkInputRecording->mPlaybackReady;
 }
 
+// Any thread: the steps the match ran ahead of its inputs at the last frame.
+extern "C" int mscharged_rollback_unconfirmed_steps(void)
+{
+    return sUnconfirmedSteps.load(std::memory_order_relaxed);
+}
+
 // Before the front end reads an image into the match's memory (a captain's
 // super ability picture): no rollback could go back past the read, so a
 // replay starts none (it runs under the hooks' lock already), nor does a
@@ -810,6 +826,7 @@ extern "C" int mscharged_rollback_network_reset(void)
     for (Before& before : sBefore) before = Before{};
     sRecordNext = 0;
     sRecordStopped = false;
+    sUnconfirmedSteps.store(0, std::memory_order_relaxed);
     Log("network match: input delay %d steps\n", s.options.inputDelay);
     FlushLog();
     return s.options.inputDelay;

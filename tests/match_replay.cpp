@@ -2,6 +2,7 @@
 // over comes back the same, in the same order), damaged streams and files are
 // refused without reading past their end, and the .msc file's packing, names
 // and pruning.
+#include "platform/live_ring.h"
 #include "platform/match_replay_file.h"
 #include "platform/match_replay_stream.h"
 
@@ -240,6 +241,115 @@ void NetworkFields()
     Require(reader.Open(older.data(), older.size(), error), "an older replay opens: " + error);
 }
 
+// A network match's live stream: written as it is played (its start as the
+// match begins, then each whole step), read while it still arrives.
+void LiveStreams()
+{
+    const Setup setup = MakeSetup(2, 1);
+    const auto packets = MakeMatch(setup, 1200, 1000, 41);
+    StreamWriter writer;
+    Require(writer.Begin(setup), "the writer takes the setup");
+    Bytes start;
+    writer.StartBytes(start);
+    std::vector<std::size_t> boundaries{0}; // the steps' bytes after each whole step
+    for (std::size_t at = 0; at < packets.size(); at += 2)
+    {
+        for (std::size_t machine = 0; machine < 2; ++machine)
+        {
+            const Packet& packet = packets[at + machine];
+            writer.Header(packet.machine, packet.remap, packet.checksum, packet.frame, packet.seed,
+                          unsigned(packet.events.size()), unsigned(packet.data.size()));
+            for (const auto& event : packet.events) writer.Event(event.data(), unsigned(event.size()));
+            writer.Data(packet.data.data(), unsigned(packet.data.size()));
+            for (std::size_t player = 0; player < packet.records.size(); ++player)
+                writer.Record(packet.machine, int(player), packet.records[player].data(), packet.connected[player]);
+        }
+        writer.Settle();
+        Require(writer.StepBytes().size() >= boundaries.back(), "the steps only grow");
+        boundaries.push_back(writer.StepBytes().size());
+    }
+    Bytes live = start;
+    live.insert(live.end(), writer.StepBytes().begin(), writer.StepBytes().end());
+    const Bytes finished = writer.Finish();
+    Setup final_setup;
+    std::string error;
+    Require(ReadSetup(finished.data(), finished.size(), final_setup, error) && final_setup.steps == 1200,
+            "the finished stream counts its steps");
+    const std::size_t final_start = finished.size() - (boundaries.back());
+    Require(std::equal(finished.begin() + std::ptrdiff_t(final_start), finished.end(), live.begin() + std::ptrdiff_t(start.size()),
+                       live.end()),
+            "the live stream's steps are the finished stream's");
+    Setup live_setup;
+    Require(ReadSetup(live.data(), live.size(), live_setup, error) && live_setup.steps == 0
+                && live_setup.stadium == setup.stadium,
+            "the live stream starts with the setup as the match began");
+
+    // Read while it arrives, in pieces cut anywhere: never into a step that
+    // has not arrived whole.
+    std::mt19937 random(7);
+    StreamReader reader;
+    std::size_t have = start.size() + 1 + random() % 40;
+    Require(reader.Open(live.data(), have, error), "the start opens the live stream: " + error);
+    std::size_t read_steps = 0;
+    std::size_t packet = 0;
+    while (read_steps < 1200)
+    {
+        const int ahead = reader.StepsAhead(5000);
+        std::size_t whole = 0;
+        while (whole + read_steps < 1200 && start.size() + boundaries[read_steps + whole + 1] <= have) ++whole;
+        Require(std::size_t(ahead) == whole, "the steps ahead are those that arrived whole");
+        for (int step = 0; step < ahead; ++step)
+            for (int machine = 0; machine < 2; ++machine, ++packet)
+            {
+                PacketHeader header;
+                Require(reader.Header(machine, header) && header.frame == packets[packet].frame,
+                        "a live step reads: " + reader.Error());
+                std::uint8_t data[300];
+                unsigned size = 0;
+                for (std::size_t event = 0; event < header.events; ++event) Require(reader.Event(data, size), "an event");
+                Require(reader.Data(data, header.data_size), "the network data");
+                std::uint8_t record[16], connected = 0;
+                Require(reader.Record(machine, 0, record, connected)
+                            && std::memcmp(record, packets[packet].records[0].data(), 16) == 0,
+                        "the record");
+            }
+        read_steps += std::size_t(ahead);
+        Require(reader.Error().empty(), "no step was read before it arrived");
+        if (have == live.size()) break;
+        have = std::min(live.size(), have + 1 + random() % 300);
+        reader.Grow(have);
+    }
+    Require(read_steps == 1200 && reader.StepsAhead(1) == 0, "the whole live stream reads");
+
+    // The ring the module hands it over in.
+    LiveRing<1024> ring;
+    std::uint8_t payload[600];
+    for (std::size_t n = 0; n < sizeof payload; ++n) payload[n] = std::uint8_t(n * 7);
+    std::vector<std::uint8_t> out(4096);
+    std::uint32_t sent = 0, received = 0;
+    for (int round = 0; round < 200; ++round)
+    {
+        const std::uint32_t size = std::uint32_t(random() % 400);
+        if (ring.Put(kLiveData, sent, payload, size)) ++sent;
+        else Require(sent > received, "only a ring holding messages refuses one");
+        if (random() % 2)
+        {
+            const std::size_t capacity = kLiveHeaderSize + std::size_t(random() % 700);
+            const std::size_t taken = ring.Take(out.data(), capacity);
+            Require(taken <= capacity, "Take stays in its buffer");
+            std::size_t at = 0;
+            LiveMessage message;
+            while (NextLiveMessage(out.data(), taken, at, message))
+            {
+                Require(message.kind == kLiveData && message.stream == received++, "messages come in order");
+                Require(std::memcmp(message.data, payload, message.size) == 0, "a message's bytes come back");
+            }
+            Require(at == taken, "Take copies whole messages only");
+        }
+    }
+    Require(!ring.Put(kLiveData, 0, payload, std::uint32_t(kLiveMostData + 1)), "a message over the most is refused");
+}
+
 void Refusals()
 {
     const Setup setup = MakeSetup(1, 2);
@@ -413,6 +523,7 @@ int main()
     {
         RoundTrips();
         NetworkFields();
+        LiveStreams();
         Refusals();
         Files();
     }

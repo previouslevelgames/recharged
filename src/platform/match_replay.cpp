@@ -18,9 +18,11 @@
 #include "mscharged_sim_profile.h"
 #include "mscharged_tweaks.h"
 #include "platform/game_tweak_state.h"
+#include "platform/live_ring.h"
 #include "platform/match_replay_network.h"
 #include "platform/match_replay_status.h"
 #include "platform/match_replay_stream.h"
+#include "platform/online_match_snapshot.h"
 
 #include "Game/DB/SaveLoad.h"
 #include "Game/DB/UserOptions.h"
@@ -32,13 +34,16 @@
 #include "Game/NetworkSession.h"
 #include "Game/Team.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <utility>
 #include <vector>
 
 extern "C" bool mscharged_rollback_predicting(void);
+extern "C" int mscharged_rollback_unconfirmed_steps(void);
 // The set's match and its tweaks (competitive_match.cpp).
 extern "C" unsigned int mscharged_competitive_match_tweaks(void);
 extern "C" void mscharged_competitive_replay(bool replaying, unsigned int tweaks);
@@ -68,9 +73,27 @@ constexpr std::uint32_t kShortestSteps = 50;
 constexpr std::size_t kReservedStreamBytes = 4u << 20;
 // Finished recordings the host has not taken yet; the oldest go past this.
 constexpr std::size_t kMostWaiting = 8;
+// A replay whose match takes no step for this many of the host's frames
+// (about 20 s) while it has steps left has stopped: its match ended before
+// the recording did (it played differently), or waits for screens a replay
+// does not have.
+constexpr int kStalledFrames = 1200;
 // The steps each speed adds to the router's one per step: paused (-1: none),
 // normal, twice and four times as fast.
 constexpr int kExtraSteps[4] = {-1, 0, 1, 3};
+// The live stream's ring (live_ring.h): minutes of a match even when the host
+// takes nothing for a while.
+constexpr std::size_t kLiveRingBytes = 1u << 18;
+// A live replay plays a moment behind the stream: the stream comes in bursts
+// (the players' games send every 100 ms), so after it ran out it waits until
+// kLiveBufferSteps have arrived (it never reads a step that has not arrived
+// whole); with more ahead it plays faster until it has caught up, up to
+// kLiveMostSteps a step.
+constexpr int kLiveBufferSteps = 15;   // 0.3 s
+constexpr int kLiveFastFrom = 25;      // 0.5 s behind: twice as fast
+constexpr int kLiveFasterFrom = 250;   // 5 s: four times
+constexpr int kLiveFastestFrom = 1000; // 20 s (joined during the game): eight times
+constexpr int kLiveMostSteps = 8;
 
 // [replays] record (the host, before original main).
 bool sRecordEnabled = true;
@@ -81,6 +104,26 @@ bool sDifficultyPending = false;
 // The match recorded is a network match: the rollback hands its steps over.
 bool sNetwork = false;
 std::vector<Bytes, MallocAllocator<Bytes>> sFinished;
+
+// The live stream of an online match being recorded ([replays] record, while
+// online.server is set): each step goes to the ring as it is written, for the
+// host's sender. Nothing waits: a step that does not fit stops the live stream
+// of that match (sLiveBroken), never the match or its recording.
+bool sLiveEnabled = false;
+LiveRing<kLiveRingBytes> sLive;
+std::uint32_t sLiveStream = 0;      // the network matches recorded so far
+bool sLiveBegun = false;            // the match's kLiveBegin is in the ring
+std::size_t sLiveSent = 0;          // its steps' bytes in the ring
+std::atomic<std::uint32_t> sLiveBroken{0}; // the stream that stopped (its number), 0 none
+// The host's numbers of the module's online series (charged_name_online_series):
+// a recording names its series as the reports do.
+struct SeriesName
+{
+    unsigned module_series = 0;
+    std::uint64_t number = 0;
+};
+SeriesName sSeriesNames[4];
+unsigned sSeriesOfRecording = 0; // the module's series of the match recorded, 0 not known
 
 // The replay to play: its stream, read in place.
 Bytes sReplay;
@@ -95,6 +138,17 @@ ChargedReplayStatus sStatus{};
 // A replay set the match's simulation profile and the set's tweaks: put the
 // module's own back at its end.
 bool sReplayRules = false;
+// A live replay: its stream arrives while it plays (the host's reader thread
+// writes past sLiveSize, then publishes it), in a buffer that never moves.
+bool sLiveReplay = false;
+std::uint8_t* sLiveBuffer = nullptr;
+std::size_t sLiveCapacity = 0;
+std::atomic<std::size_t> sLiveSize{0};
+std::atomic<bool> sLiveComplete{false};
+bool sLiveBuffering = true; // waiting for kLiveBufferSteps (at its start, after it ran out)
+// The steps the replay had read at the host's last look, and its looks since.
+std::uint32_t sProgressStep = 0;
+int sStalledFrames = 0;
 
 GameInfoManager* Info()
 {
@@ -109,6 +163,63 @@ void Log(const char* text)
 void SetError(const std::string& error)
 {
     std::snprintf(sStatus.error, sizeof sStatus.error, "%s", error.c_str());
+}
+
+std::uint64_t SeriesNumber(unsigned moduleSeries)
+{
+    for (const SeriesName& name : sSeriesNames)
+        if (moduleSeries && name.module_series == moduleSeries) return name.number;
+    return 0;
+}
+
+// Bytes of the match's stream into the ring, in messages of at most
+// kLiveMostData; false when one does not fit.
+bool LiveData(const std::uint8_t* data, std::size_t size)
+{
+    for (std::size_t at = 0; at < size;)
+    {
+        const std::size_t part = size - at < kLiveMostData ? size - at : kLiveMostData;
+        if (!sLive.Put(kLiveData, sLiveStream, data + at, std::uint32_t(part))) return false;
+        at += part;
+    }
+    return true;
+}
+
+void StopLive()
+{
+    if (sLiveBroken.load(std::memory_order_relaxed) == sLiveStream) return;
+    sLiveBroken.store(sLiveStream, std::memory_order_release);
+    Log("the live stream of this match stopped: the program did not take it in time");
+}
+
+// After a network step (whole in the writer): the steps not in the ring yet.
+// The stream begins once the match knows its series and game (online, from
+// its kickoff on): its start as it is then (the setup without its steps and
+// score yet), then every step so far.
+void LiveStep()
+{
+    if (!sLiveEnabled || !sNetwork || sLiveBroken.load(std::memory_order_relaxed) == sLiveStream) return;
+    if (!sLiveBegun)
+    {
+        LiveBegin begin;
+        int game = 0;
+        if (!ChargedOnlineRecordingGame(begin.module_series, game, begin.profile_id)) return;
+        begin.game = std::uint32_t(game);
+        Setup& setup = sWriter.EditSetup();
+        sSeriesOfRecording = begin.module_series;
+        setup.series_game = game;
+        setup.series = std::int64_t(SeriesNumber(begin.module_series));
+        Bytes start;
+        sWriter.StartBytes(start);
+        if (!sLive.Put(kLiveBegin, sLiveStream, &begin, sizeof begin) || !LiveData(start.data(), start.size()))
+            return StopLive();
+        sLiveBegun = true;
+        sLiveSent = 0;
+    }
+    const Bytes& steps = sWriter.StepBytes();
+    if (steps.size() <= sLiveSent) return;
+    if (!LiveData(steps.data() + sLiveSent, steps.size() - sLiveSent)) return StopLive();
+    sLiveSent = steps.size();
 }
 
 // The replay ends: at its end, or once its last step played.
@@ -126,7 +237,18 @@ void FinishPlaying()
 // The match recorded ends: its stream waits for the host.
 void FinishRecording()
 {
+    if (sNetwork && sLiveBegun)
+    {
+        sWriter.Settle();
+        LiveStep();
+        if (sLiveBroken.load(std::memory_order_relaxed) != sLiveStream && !sLive.Put(kLiveEnd, sLiveStream, nullptr, 0))
+            StopLive();
+    }
+    if (sNetwork && sSeriesOfRecording && !sWriter.EditSetup().series)
+        sWriter.EditSetup().series = std::int64_t(SeriesNumber(sSeriesOfRecording));
     sNetwork = false;
+    sLiveBegun = false;
+    sSeriesOfRecording = 0;
     if (!sWriter.Active() && !sWriter.Broken())
     {
         sWriter.Clear();
@@ -201,6 +323,11 @@ bool CaptureSetup(int localMachine, int machineCount, unsigned seed, const Recor
     for (int pad = 0; pad < 16; ++pad) setup.playing_sides[pad] = game.mPlayingSides[pad];
 
     RefreshRules(setup);
+    // The difficulty in effect now: a set's next game starts again in place
+    // (NetworkSession::RematchGame), without the loading that chooses one
+    // (mscharged_tweak_replay_difficulty, which notes it for a loaded match).
+    setup.difficulty[0] = Info()->mCurrentDifficulty[0];
+    setup.difficulty[1] = Info()->mCurrentDifficulty[1];
     const auto training = mscharged::platform::GetTrainingTweakState();
     setup.training_item = training.item;
     setup.training_item_count = training.item_count;
@@ -253,6 +380,8 @@ void RecordNetworkStep(std::uint32_t before_frame, std::uint32_t checksum, std::
         sWriter.EditSetup().score[0] = g_pTeams[0]->GetScore();
         sWriter.EditSetup().score[1] = g_pTeams[1]->GetScore();
     }
+    sWriter.Settle();
+    LiveStep();
 }
 } // namespace mscharged::replay
 
@@ -300,6 +429,13 @@ bool mscharged_tweak_replay_begin(int localMachine, int machineCount, unsigned i
     sWriteMachine = 0;
     sDifficultyPending = true;
     sNetwork = network;
+    if (network)
+    {
+        ++sLiveStream;
+        sLiveBegun = false;
+        sLiveSent = 0;
+        sSeriesOfRecording = 0;
+    }
     // The rollback hands the steps over: the router's own writes of the
     // original netcode would come in between them.
     return !network;
@@ -423,7 +559,26 @@ int mscharged_tweak_replay_extra_updates(void)
 {
     // The speed the host asked for, from this step on.
     const int speed = sSpeed.load(std::memory_order_relaxed);
-    return kExtraSteps[(speed < -1 ? -1 : speed > 2 ? 2 : speed) + 1];
+    const int extra = kExtraSteps[(speed < -1 ? -1 : speed > 2 ? 2 : speed) + 1];
+    if (!sLiveReplay) return extra;
+    // Live: the steps that have arrived whole set the pace.
+    const bool complete = sLiveComplete.load(std::memory_order_acquire);
+    sReader.Grow(sLiveSize.load(std::memory_order_acquire));
+    const int ahead = sReader.StepsAhead(kLiveFastestFrom + 1);
+    sStatus.behind = unsigned(ahead);
+    if (!ahead)
+    {
+        sLiveBuffering = true;
+        return complete ? 0 : -1; // its end (the router's read ends the replay), or waits
+    }
+    if (sLiveBuffering && ahead < kLiveBufferSteps && !complete) return -1;
+    sLiveBuffering = false;
+    int steps = extra + 1;
+    if (speed >= 0)
+        steps = std::max(steps, ahead > kLiveFastestFrom ? kLiveMostSteps : ahead > kLiveFasterFrom ? 4
+                                    : ahead > kLiveFastFrom                                      ? 2
+                                                                                                 : 1);
+    return std::min(steps, ahead) - 1;
 }
 
 bool mscharged_tweak_replay_read_event(unsigned char* size, void* data)
@@ -573,6 +728,76 @@ __attribute__((visibility("default"))) int charged_configure_replay(const void* 
     return 1;
 }
 
+// Host entry (before original main): whether online matches stream live as
+// they are recorded.
+__attribute__((visibility("default"))) void charged_configure_live(int enabled)
+{
+    sLiveEnabled = enabled != 0;
+}
+
+// Host entry, on the sender's thread: the live stream's messages that fit in
+// `capacity` (live_ring.h), the bytes copied; `stopped` gets the stream whose
+// live stream stopped (0 none) and `unconfirmed` the steps the match plays
+// ahead of the inputs that have arrived (a connection in trouble: the sender
+// waits).
+__attribute__((visibility("default"))) unsigned charged_take_live(void* out, unsigned capacity, unsigned* stopped,
+                                                                  int* unconfirmed)
+{
+    if (stopped) *stopped = sLiveBroken.load(std::memory_order_acquire);
+    if (unconfirmed) *unconfirmed = mscharged_rollback_unconfirmed_steps();
+    if (!out) return 0;
+    return unsigned(sLive.Take(static_cast<std::uint8_t*>(out), capacity));
+}
+
+// Host entry, after a game frame: the reports' number of the module's online
+// series `moduleSeries` (ChargedOnlineMatchSnapshot::series), which the
+// recordings of its games name.
+__attribute__((visibility("default"))) void charged_name_online_series(unsigned moduleSeries, unsigned long long number)
+{
+    if (!moduleSeries || !number || SeriesNumber(moduleSeries) == number) return;
+    for (int n = int(std::size(sSeriesNames)) - 1; n > 0; --n) sSeriesNames[n] = sSeriesNames[n - 1];
+    sSeriesNames[0] = {moduleSeries, number};
+}
+
+// Host entry (before original main): a live replay, its stream's first bytes
+// (at least its setup) and the most it may grow to.
+__attribute__((visibility("default"))) int charged_configure_live_replay(const void* start, unsigned size,
+                                                                         unsigned capacity)
+{
+    if (!start || size > capacity || sLiveBuffer) return 0;
+    sLiveBuffer = static_cast<std::uint8_t*>(std::malloc(capacity));
+    if (!sLiveBuffer) return 0;
+    std::memcpy(sLiveBuffer, start, size);
+    sLiveCapacity = capacity;
+    sLiveSize.store(size, std::memory_order_release);
+    std::string error;
+    if (!sReader.Open(sLiveBuffer, size, error))
+    {
+        SetError(error);
+        sPlaying = false;
+        return 0;
+    }
+    sLiveReplay = true;
+    sPlaying = true;
+    sStartTaken = sStarted = sFinishedPlaying = false;
+    sStatus = ChargedReplayStatus{};
+    sStatus.playing = 1;
+    sStatus.live = 1;
+    return 1;
+}
+
+// Host entry, from the live replay's reader thread: more of its stream.
+__attribute__((visibility("default"))) int charged_feed_live_replay(const void* data, unsigned size, int complete)
+{
+    if (!sLiveBuffer || sLiveComplete.load(std::memory_order_relaxed)) return 0;
+    const std::size_t at = sLiveSize.load(std::memory_order_relaxed);
+    if (size > sLiveCapacity - at) return 0;
+    if (size) std::memcpy(sLiveBuffer + at, data, size);
+    sLiveSize.store(at + size, std::memory_order_release);
+    if (complete) sLiveComplete.store(true, std::memory_order_release);
+    return 1;
+}
+
 __attribute__((visibility("default"))) unsigned charged_take_replay(void* out, unsigned capacity)
 {
     if (sFinished.empty()) return 0;
@@ -598,6 +823,28 @@ __attribute__((visibility("default"))) int charged_replay_status(ChargedReplaySt
     // ends there, as its game then waits for the other machine's screens
     // after the match, which a replay does not have, and asks for no more.
     if (mscharged_tweak_replay_playing() && sStatus.total && sReader.Step() >= sStatus.total) FinishPlaying();
+    // A live one once all its stream has arrived and played.
+    if (mscharged_tweak_replay_playing() && sLiveReplay && sLiveComplete.load(std::memory_order_acquire))
+    {
+        sReader.Grow(sLiveSize.load(std::memory_order_acquire));
+        if (sStarted && sReader.Step() && !sReader.StepsAhead(1)) FinishPlaying();
+    }
+    // One whose match takes no more steps while some are left (not paused,
+    // not waiting for a live stream's next ones).
+    if (mscharged_tweak_replay_playing() && sReader.Step())
+    {
+        const bool waiting = sSpeed.load(std::memory_order_relaxed) < 0 || !sReader.StepsAhead(1);
+        if (sReader.Step() != sProgressStep || waiting)
+        {
+            sProgressStep = sReader.Step();
+            sStalledFrames = 0;
+        }
+        else if (++sStalledFrames >= kStalledFrames)
+        {
+            SetError("its match took no more steps before the replay's end");
+            FinishPlaying();
+        }
+    }
     sStatus.finished = sFinishedPlaying ? 1 : 0;
     sStatus.speed = sSpeed.load(std::memory_order_relaxed);
     *status = sStatus;

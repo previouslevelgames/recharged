@@ -495,7 +495,13 @@
     "replay_normal": "Replay at normal speed",
     "replay_fast": "Replay at {{factor}}× speed",
     "replay_differs": "This replay no longer matches its recording.",
-    "replay_finished": "Replay finished"
+    "replay_finished": "Replay finished",
+    "watch_live": "Watching live",
+    "watch_catching_up": "Watching live, catching up",
+    "watch_waiting": "Game over: waiting for the match's next game",
+    "watch_next_game": "The next game begins: following the match",
+    "watch_over": "The match is over",
+    "watch_broke_off": "The match's stream broke off"
   },
   "notices": {
     "challenge_sent": "Challenge sent",

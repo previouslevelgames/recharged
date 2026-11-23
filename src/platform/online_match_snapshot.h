@@ -67,6 +67,13 @@ inline constexpr int kChargedOnlineForfeit = 5;
 // forfeited.
 void ChargedOnlineSeriesForfeit();
 
+// In the game module, during an online game (from its kickoff on): the series
+// it belongs to (the module's count, as ChargedOnlineMatchSnapshot::series),
+// which game of it this is (from 1) and the WFC profile playing it. A game
+// the host has not looked at since its kickoff begins its series, as its
+// result would. False offline, before the kickoff, or without a profile.
+bool ChargedOnlineRecordingGame(unsigned& series, int& game, unsigned& profile_id);
+
 // One result the game settles (NetworkStatsManager::
 // CalculateAndReportGameResult) applied to a series under way: the game
 // module's rule, which its test runs on the host. A result for a game already

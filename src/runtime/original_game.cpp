@@ -74,7 +74,9 @@
 #include "platform/netplay_snapshot.h"
 #include "platform/http_client.h"
 #include "platform/desync_dossier.h"
+#include "platform/live_watch.h"
 #include "platform/online_reports.h"
+#include "platform/online_replays.h"
 #include "launcher/current_build.h"
 #include "launcher/online_gate.h"
 #include "platform/presence_snapshot.h"
@@ -598,7 +600,39 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // was recorded on (the game's data differ between them).
         std::vector<std::uint8_t> replayStream;
         mscharged::replay::Setup replaySetup;
-        if(!launch.replay_path.empty()) {
+        // A watch ticket (a replay file of version 2 from the WFC server's
+        // dashboard): the match plays live from the server's stream.
+        std::unique_ptr<mscharged::platform::LiveWatch> liveWatch;
+        mscharged::platform::WatchTicket watchTicket;
+        std::vector<std::uint8_t> replayBytes;
+        std::string replayError;
+        const bool watching=!launch.replay_path.empty()
+            && mscharged::replay::ReadReplayFile(launch.replay_path,replayBytes,replayError)
+            && mscharged::platform::ReadWatchTicket(replayBytes,watchTicket,replayError);
+        Check(replayError.empty() || !watching,("This watch ticket cannot be used: "+replayError).c_str());
+        if(watching) {
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            Check(!launch.settings.online_server.empty(),
+                  "Watching a match needs the online server that made the ticket: set it in the launcher's Online page.");
+            Check(watchTicket.release==std::string(release->game_id,4),
+                  ("This match is played with "+watchTicket.release+": start the ticket with that game image; this one is "
+                   +std::string(release->game_id,4)+".").c_str());
+            liveWatch=std::make_unique<mscharged::platform::LiveWatch>(launch.settings.online_server,watchTicket,
+                [](const std::string& text) {
+                    mscharged::platform::SessionLogLine(text);
+                    std::fprintf(stderr,"%s\n",text.c_str());
+                });
+            std::fprintf(stderr,"Watching: match %lld from %s, waiting for its game\n",
+                         static_cast<long long>(watchTicket.match),launch.settings.online_server.c_str());
+            int game=0;
+            std::string error;
+            Check(liveWatch->WaitForGame(std::chrono::seconds(90),game,replayStream,error)
+                  && mscharged::replay::ReadSetup(replayStream.data(),replayStream.size(),replaySetup,error),
+                  ("Cannot watch this match: "+error).c_str());
+#else
+            Check(false,"Watching a match is not in this build.");
+#endif
+        } else if(!launch.replay_path.empty()) {
             std::vector<std::uint8_t> bytes;
             std::string error;
             mscharged::replay::FileInfo info;
@@ -1219,13 +1253,36 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         const auto replayStatus=reinterpret_cast<ChargedReplayStatusFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_replay_status"));
         const auto replayFolder=mscharged::replay::ReplayFolder(executableDirectory);
+        // Online games' replays to the WFC server: streamed as they are played
+        // and sent after each game when it asks (online_replays.h), once the
+        // match reports run.
+        bool recordingMatches=false;
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        std::unique_ptr<mscharged::platform::OnlineReplays> onlineReplays;
+#endif
         {
             const auto configureReplays=reinterpret_cast<ChargedConfigureReplaysFunction>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_replays"));
             const bool record=launch.settings.replays_record && replayStream.empty() && configureReplays && replayTake;
+            recordingMatches=record;
             if(configureReplays)configureReplays(record?1:0);
             std::string line="Replays: ";
-            if(!replayStream.empty()) {
+            if(liveWatch) {
+                // The stream so far, then the rest as the reader gets it.
+                const auto configureLive=reinterpret_cast<ChargedConfigureLiveReplayFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_live_replay"));
+                const auto feedLive=reinterpret_cast<ChargedFeedLiveReplayFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_feed_live_replay"));
+                constexpr unsigned kMostLiveStream=8u<<20; // the server's most for a game
+                Check(configureLive && feedLive && replayStatus
+                      && configureLive(replayStream.data(),unsigned(replayStream.size()),kMostLiveStream),
+                      "This build's game module cannot play this match live");
+                liveWatch->Feed(feedLive);
+                sReplaySpeedSetter=reinterpret_cast<ChargedSetReplaySpeedFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_set_replay_speed"));
+                SDL_AddEventWatch(ReplaySpeedKeys,nullptr);
+                line+="watching a match live, none recorded";
+            } else if(!replayStream.empty()) {
                 const auto configureReplay=reinterpret_cast<ChargedConfigureReplayFunction>(
                     mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_replay"));
                 Check(configureReplay && replayStatus
@@ -1266,6 +1323,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         +std::to_string((bytes.size()+1023)/1024)+" KB)";
                     if(const int removed=mscharged::replay::PruneReplays(replayFolder,launch.settings.replays_keep))
                         line+="; "+std::to_string(removed)+" older removed";
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+                    // An online game's: the server may ask for it.
+                    if(onlineReplays && setup.online && setup.series>0 && setup.series_game>0)
+                        onlineReplays->Kept(std::uint64_t(setup.series),setup.series_game,path);
+#endif
                 }
             } catch(const std::exception& failure) {
                 line+=std::string("not kept (")+failure.what()+")";
@@ -1473,6 +1535,29 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto desyncDossier=reinterpret_cast<ChargedDesyncDossierFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_desync_dossier"));
         if(onlineReports&&desyncDossier)onlineReports->KeepDossiers(dataDirectory/"desyncs");
+        // Recorded matches go to the server too: the reports say this game
+        // sends their replays when asked, and its online games stream as they
+        // are played while the server takes them.
+        const auto nameOnlineSeries=reinterpret_cast<ChargedNameOnlineSeriesFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_name_online_series"));
+        if(onlineReports && recordingMatches && nameOnlineSeries) {
+            const auto configureLive=reinterpret_cast<ChargedConfigureLiveFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_live"));
+            const auto takeLive=reinterpret_cast<ChargedTakeLiveFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_take_live"));
+            const bool live=configureLive && takeLive;
+            if(live)configureLive(1);
+            onlineReports->SetReplays(true);
+            onlineReplays=std::make_unique<mscharged::platform::OnlineReplays>(launch.settings.online_server,
+                onlineReports->ReplayAnswers(),live ? takeLive : nullptr,[](const std::string& text) {
+                    mscharged::platform::SessionLogLine(text);
+                    std::fprintf(stderr,"%s\n",text.c_str());
+                });
+            const std::string line=std::string("Online replays: sent when the server asks")
+                +(live ? ", streamed while played" : "");
+            mscharged::platform::SessionLogLine(line);
+            std::fprintf(stderr,"%s\n",line.c_str());
+        }
 #endif
         if(axModuleMemory)axModuleMemory->ConfirmLoaded(module);
 #if defined(MSCHARGED_HAS_ORIGINAL_GAME_AUDIO_INITIALIZE)
@@ -1664,6 +1749,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             lastOnlineMatch=now;
             ChargedOnlineMatchSnapshot snapshot{};
             if(onlineMatchSnapshot(&snapshot,sizeof snapshot))onlineReports->Observe(snapshot);
+            // The recordings of a series' games name it as the reports do.
+            if(onlineReplays && nameOnlineSeries && onlineReports->LastModuleSeries())
+                nameOnlineSeries(onlineReports->LastModuleSeries(),onlineReports->LastSeriesNumber());
 #endif
         };
         // Existing actual source GX/state/material/font/view initialization is
@@ -3106,17 +3194,25 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         std::optional<std::chrono::steady_clock::time_point> replayEnded,replayHintUntil;
         int replaySpeedShown=-1;
         bool replayStepsSeen=false,replayDiffersShown=false,replayQuit=false;
+        // A live match: catching up shown as it changes; at a game's end the
+        // next one, or the match's end.
+        bool liveCatchingUp=false,liveWaitingShown=false,liveBrokeShown=false;
+        std::chrono::steady_clock::time_point liveLoggedAt{};
         auto observeReplays=[&] {
             takeReplays();
             if(replayStream.empty() || !replayStatus)return;
             ChargedReplayStatus status{};
             if(!replayStatus(&status,sizeof status))return;
             const auto now=std::chrono::steady_clock::now();
-            if(status.speed!=replaySpeedShown || (status.steps && !replayStepsSeen)) {
+            const bool catchingUp=status.live && status.behind>50;
+            if(status.speed!=replaySpeedShown || (status.steps && !replayStepsSeen) || catchingUp!=liveCatchingUp) {
                 replayStepsSeen=status.steps!=0;
                 replaySpeedShown=status.speed;
+                liveCatchingUp=catchingUp;
                 replayHint=mscharged::runtime::HostOverlay::Hint{{"Left","Right"},status.speed<0
                     ? std::string(texts::T("menus.messages.replay_paused"))
+                    : catchingUp ? std::string(texts::T("menus.messages.watch_catching_up"))
+                    : status.live && status.speed==0 ? std::string(texts::T("menus.messages.watch_live"))
                     : status.speed==0 ? std::string(texts::T("menus.messages.replay_normal"))
                     : texts::T("menus.messages.replay_fast",{{"factor",status.speed==1?"2":"4"}})};
                 replayHintUntil=now+std::chrono::seconds(5);
@@ -3130,8 +3226,44 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 replayDiffersShown=true;
                 if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.replay_differs"),now);
             }
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            if(liveWatch) {
+                // How far the picture is behind the stream that arrived, now and then.
+                if(status.started && !status.finished && now-liveLoggedAt>=std::chrono::seconds(30)) {
+                    liveLoggedAt=now;
+                    char line[120];
+                    std::snprintf(line,sizeof line,"Watching: step %u, the picture %.2f s behind the stream",
+                                  status.steps,status.behind/50.0);
+                    mscharged::platform::SessionLogLine(line);
+                    std::fprintf(stderr,"%s\n",line);
+                }
+                // The stream broke off: what came plays, then the game closes.
+                if(liveWatch->Failed() && !liveBrokeShown) {
+                    liveBrokeShown=true;
+                    if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.watch_broke_off"),now);
+                }
+                if(status.finished && !liveWatch->NextGame() && !liveWatch->Over() && !liveWatch->Failed()) {
+                    // The game ended: the match's next one, or its end, comes.
+                    if(!liveWaitingShown) {
+                        liveWaitingShown=true;
+                        if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.watch_waiting"),now);
+                    }
+                    return;
+                }
+                if(liveBrokeShown && !status.finished && status.behind==0 && !replayEnded) replayEnded=now;
+            }
+#endif
             if(status.finished && !replayEnded) {
                 replayEnded=now;
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+                // The match's next game: this program starts again with the
+                // ticket and watches it from its start.
+                if(liveWatch && liveWatch->NextGame()) {
+                    mscharged::platform::SetLauncherReopen(true);
+                    if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.watch_next_game"),now);
+                } else if(liveWatch && hostOverlay)
+                    hostOverlay->ShowMessage(texts::T("menus.messages.watch_over"),now);
+#endif
                 std::string line="Replay: ended after "+std::to_string(status.steps)+" of "+std::to_string(status.total)
                     +" steps; "+std::to_string(status.checked-status.differences)+" of "+std::to_string(status.checked)
                     +" checks matched the recording";
