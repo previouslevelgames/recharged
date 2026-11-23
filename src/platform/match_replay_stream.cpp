@@ -4,6 +4,8 @@
 
 namespace mscharged::replay
 {
+inline namespace MSCHARGED_REPLAY_CODEC
+{
 namespace
 {
 // A packet's flags, in the order its parts follow the flag byte.
@@ -544,4 +546,5 @@ bool StreamReader::Record(int machine, int player, std::uint8_t* record, std::ui
     ++next_player_;
     return true;
 }
+} // inline namespace MSCHARGED_REPLAY_CODEC
 } // namespace mscharged::replay

@@ -25,7 +25,18 @@
 #include <string>
 #include <vector>
 
+// The game module compiles a copy of this codec. On Windows it links against
+// recharged.exe, which exports all its symbols: the module's copy takes names
+// of its own, or the exe's would clash with it.
+#if defined(MSCHARGED_GAME_MODULE)
+#define MSCHARGED_REPLAY_CODEC game_module
+#else
+#define MSCHARGED_REPLAY_CODEC program
+#endif
+
 namespace mscharged::replay
+{
+inline namespace MSCHARGED_REPLAY_CODEC
 {
 // Bytes from malloc: in the game module, new and the standard containers'
 // default allocator take the game's own heap.
@@ -239,4 +250,5 @@ private:
 // The setup alone, as the stream begins with it (for the host's checks and
 // listings); false with `error` set otherwise.
 bool ReadSetup(const std::uint8_t* data, std::size_t size, Setup& setup, std::string& error);
+} // inline namespace MSCHARGED_REPLAY_CODEC
 } // namespace mscharged::replay
