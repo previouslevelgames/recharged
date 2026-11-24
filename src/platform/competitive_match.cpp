@@ -993,6 +993,10 @@ extern "C" unsigned int mscharged_competitive_match_tweaks(void)
     return sActive ? sMatch.tweaks : 0;
 }
 
+// Tweak patch 0082: this online match plays a set's rules (from its start
+// through the screens after it).
+extern "C" bool mscharged_competitive_set_game(void) { return sActive && RankedOnline(); }
+
 extern "C" bool mscharged_competitive_tweak(int tweak)
 {
     if (tweak < 0 || tweak >= 32) return false;

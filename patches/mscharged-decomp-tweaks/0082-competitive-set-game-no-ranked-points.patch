@@ -1,0 +1,61 @@
+From: mscharged-port
+Subject: Competitive play: a Recharged set's game shows no RANKED points
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A challenge's or a tournament set's game meets in RANKED, so after its
+results the game showed the RANKED points screen (OVERLAY_ONLINE_RANKING:
+the result, the score and goal points, the total), but the profile server
+keeps those games off the boards: the points count for nothing. Such a
+game (mscharged_competitive_set_game: the match plays a set's rules) now
+goes straight on from its results, as a friend match does. The game's own
+RANKED, and Play RANKED, keep the screen.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+index b7f8cfb..1e4e681 100644
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -147,6 +147,13 @@ bool mscharged_competitive_resume_start(int* own, int* opponent, float* seconds)
+ void mscharged_competitive_game_resume(const int* scores, float seconds);
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// The online match played by a Recharged set's rules (a challenge's or a
++// tournament's), off the WFC boards: its results skip the RANKED points
++// (tweak patch 0082).
++bool mscharged_competitive_set_game(void);
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/Game/SH/SHPausePostGame.cpp b/src/Game/SH/SHPausePostGame.cpp
+index c1179ff..1b74e66 100644
+--- a/src/Game/SH/SHPausePostGame.cpp
++++ b/src/Game/SH/SHPausePostGame.cpp
+@@ -29,6 +29,9 @@
+ #include "NL/nlString.h"
+ #include "NL/nlFunction.inl"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_competitive.h"
++#endif
+ 
+ int gPostGameCountdownSeconds = 10;
+ 
+@@ -224,6 +227,16 @@ void PausePostGameScene::OnDoneTransitionComplete()
+                 g_pOverlayManager->Pop();
+                 ContinuePostGame(mIsNetworkGame);
+             }
++#endif
++#if defined(MSCHARGED_TWEAKS)
++            // Tweak patch 0082: a Recharged set's game counts no RANKED
++            // points (its server keeps it off the boards): no points screen,
++            // straight on as a friend match goes.
++            else if (mIsNetworkGame && IsOnlineRankedMatch() && mscharged_competitive_set_game())
++            {
++                g_pOverlayManager->Pop();
++                ContinuePostGame(mIsNetworkGame);
++            }
+ #endif
+             else if (mIsNetworkGame && IsOnlineRankedMatch())
+             {
