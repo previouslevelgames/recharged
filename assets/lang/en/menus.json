@@ -367,6 +367,7 @@
       "unready": "NOT READY",
       "single": "Single elimination",
       "double": "Double elimination",
+      "single_ash": "Single elimination + ash bracket",
       "round": "Round {{round}}",
       "final": "Final",
       "winners_round": "Winners Round {{round}}",
@@ -375,6 +376,8 @@
       "losers_final": "Losers Final",
       "grand_final": "Grand Final",
       "grand_final_reset": "Grand Final Reset",
+      "ash_round": "Ash Round {{round}}",
+      "ash_final": "Ash Final",
       "ceremony_title": "{{tournament}} won!",
       "ceremony_winner": "{{name}} wins the tournament!"
     }
@@ -402,6 +405,8 @@
     "title": "BRACKET",
     "winners": "WINNERS",
     "losers": "LOSERS",
+    "main": "MAIN BRACKET",
+    "ash": "ASH BRACKET",
     "pick": "Point at a set that was played to see its games.",
     "game": "Game {{game}}: {{home}} {{home_score}} - {{away_score}} {{away}}",
     "game_interrupted": "Game {{game}}: {{home}} {{home_score}} - {{away_score}} {{away}} (broke off)"

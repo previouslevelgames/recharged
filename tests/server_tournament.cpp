@@ -178,6 +178,45 @@ void Games()
     feed.page->sets[0].played[0].home_captain = "unknown";
     CHECK(runtime::ServerTournament(feed).bracket[0].games.size() == 1);
 }
+
+// Single elimination with an ash bracket: the ash sets below the main ones,
+// by their own round names; its final ends the tournament for nobody.
+void Ash()
+{
+    Snapshot feed = Running("ready", 0, 0);
+    auto& page = *feed.page;
+    page.tournament.format = "single_ash";
+    auto final_set = page.sets[0];
+    final_set.side = "winners";
+    final_set.round = 2;
+    final_set.games = 5;
+    auto ash_first = final_set, ash_final = final_set;
+    ash_first.id = 31;
+    ash_first.side = "ash";
+    ash_first.round = 1;
+    ash_first.state = "finished";
+    ash_first.match = 0;
+    ash_final.id = 32;
+    ash_final.side = "ash";
+    ash_final.round = 2;
+    ash_final.match = 13;
+    page.sets = {final_set, ash_first, ash_final};
+    const auto model = runtime::ServerTournament(feed);
+    CHECK(model.ash && model.event == "Single elimination + ash bracket  ·  Competitive");
+    CHECK(model.bracket.size() == 3);
+    if (model.bracket.size() != 3) return;
+    CHECK(model.bracket[0].round == 2 && model.bracket[0].round_text == "Final");
+    CHECK(model.bracket[1].round == -1 && model.bracket[1].round_text == "Ash Round 1");
+    CHECK(model.bracket[2].round == -2 && model.bracket[2].round_text == "Ash Final");
+    // One game from the set: the final's is the tournament's, the ash's not.
+    page.sets[0].home_wins = page.sets[2].home_wins = 2;
+    CHECK(runtime::TournamentEndingOf(page, 12).own);
+    const auto ash_ending = runtime::TournamentEndingOf(page, 13);
+    CHECK(!ash_ending.own && !ash_ending.opponent);
+    feed.tournaments = {page.tournament};
+    const auto list = runtime::ServerTournaments(feed);
+    CHECK(list.featured && list.featured->lines[0] == "Single elimination + ash bracket  ·  Competitive");
+}
 } // namespace
 
 int main()
@@ -186,6 +225,7 @@ int main()
     Calls();
     Resume();
     Games();
+    Ash();
     if (failures)
     {
         std::fprintf(stderr, "%d server tournament checks failed\n", failures);

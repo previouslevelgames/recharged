@@ -40,11 +40,23 @@ int LastRound(const platform::TournamentPage& page, const std::string& side)
     return last;
 }
 
-// "Winners Round 2", "Losers Final", "Grand Final".
+// The text of a tournament's format.
+const char* FormatText(const std::string& format)
+{
+    return format == "double"       ? T("menus.tournament.server.double")
+           : format == "single_ash" ? T("menus.tournament.server.single_ash")
+                                    : T("menus.tournament.server.single");
+}
+
+// "Winners Round 2", "Losers Final", "Grand Final", "Ash Final".
 std::string RoundText(const platform::TournamentPage& page, const platform::TournamentSet& set)
 {
-    const bool single = page.tournament.format == "single";
+    // Single elimination, with an ash bracket or not.
+    const bool single = page.tournament.format != "double";
     const std::string round = std::to_string(set.round);
+    if (set.side == "ash")
+        return set.round == LastRound(page, "ash") ? std::string(T("menus.tournament.server.ash_final"))
+                                                   : T("menus.tournament.server.ash_round", {{"round", round}});
     if (set.side == "grand_final") return T("menus.tournament.server.grand_final");
     if (set.side == "grand_final_reset") return T("menus.tournament.server.grand_final_reset");
     if (set.side == "losers")
@@ -64,7 +76,7 @@ ui::BracketSetState BracketState(const std::string& state)
 }
 
 // The whole bracket, in its order: the winners' rounds (the grand final and
-// its reset after them), the losers' below.
+// its reset after them), the losers' (or the ash bracket's) below.
 std::vector<ui::BracketSet> Bracket(const platform::TournamentPage& page, std::int64_t you, std::int64_t yours)
 {
     std::vector<ui::BracketSet> bracket;
@@ -74,7 +86,7 @@ std::vector<ui::BracketSet> Bracket(const platform::TournamentPage& page, std::i
         if (set.state == "void" && set.side == "grand_final_reset") continue;
         ui::BracketSet cell;
         cell.id = std::to_string(set.id);
-        cell.round = set.side == "losers"              ? -set.round
+        cell.round = set.side == "losers" || set.side == "ash" ? -set.round
                      : set.side == "grand_final"       ? winners + 1
                      : set.side == "grand_final_reset" ? winners + 2
                                                        : set.round;
@@ -159,8 +171,7 @@ ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapsh
         entry.value = t.place > 0 ? T("menus.tournaments.place_short", {{"place", Place(t.place)}}) : entrants;
         entry.tone = t.joined && (open || running) ? ui::Tone::Good : ui::Tone::Neutral;
         entry.lines.push_back(T("menus.tournaments.format",
-                                {{"format", T(t.format == "double" ? "menus.tournament.server.double"
-                                                                   : "menus.tournament.server.single")},
+                                {{"format", FormatText(t.format)},
                                  {"rule_set", t.rule_set}}));
         entry.lines.push_back(T("menus.tournaments.best_of", {{"best_of", std::to_string(t.best_of)},
                                                               {"finals", std::to_string(t.finals_best_of)}}));
@@ -200,9 +211,8 @@ ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& f
     const auto& page = *feed.page;
     const auto& tournament = page.tournament;
     model.name = tournament.name;
-    model.event = std::string(T(tournament.format == "double" ? "menus.tournament.server.double"
-                                                              : "menus.tournament.server.single"))
-        + "  ·  " + tournament.rule_set;
+    model.event = std::string(FormatText(tournament.format)) + "  ·  " + tournament.rule_set;
+    model.ash = tournament.format == "single_ash";
     const auto me = page.me;
     const std::int64_t you = me ? me->player : 0;
     const platform::TournamentSet* set = me && me->set ? page.Set(me->set) : nullptr;
@@ -406,7 +416,8 @@ TournamentEnding TournamentEndingOf(const platform::TournamentPage& page, std::i
     const auto ends = [&](bool home_wins) {
         if (set->side == "grand_final_reset") return true;
         if (set->side == "grand_final") return home_wins; // home: from the winners' bracket
-        return page.tournament.format == "single" && set->side == "winners"
+        // Single elimination's final (an ash bracket's ends nothing).
+        return page.tournament.format != "double" && set->side == "winners"
             && set->round == LastRound(page, "winners");
     };
     const int needed = set->games / 2 + 1;

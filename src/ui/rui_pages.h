@@ -79,6 +79,7 @@ struct TournamentModel
     // The bracket of the player's pool (or the event's first), in the
     // event's order.
     std::vector<BracketSet> bracket;
+    bool ash = false; // its lower section is the ash bracket, not the losers'
 };
 
 // The tournaments over the trophy room (TOURNAMENTS): one in a big card (the

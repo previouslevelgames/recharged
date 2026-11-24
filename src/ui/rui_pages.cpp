@@ -935,8 +935,8 @@ void DrawTournament(const PageModel& model, List& list, PageActions& actions)
         actions.open = PageId::Bracket;
 }
 
-// BRACKET: the player's pool, the winners' bracket above the losers' (the
-// footer's BACK goes back).
+// BRACKET: the player's pool, the winners' bracket above the losers' (or the
+// main bracket above the ash bracket; the footer's BACK goes back).
 void DrawBracket(const PageModel& model, List& list, PageActions& actions)
 {
     auto bracket = model.tournament.bracket;
@@ -946,8 +946,9 @@ void DrawBracket(const PageModel& model, List& list, PageActions& actions)
         if ((set.picked = !set.games.empty() && set.id == model.bracket_picked)) picked = &set;
     const bool losers =
         std::any_of(bracket.begin(), bracket.end(), [](const BracketSet& set) { return set.round < 0; });
-    if (const auto pressed =
-            list.Bracket(bracket, losers ? T("menus.bracket.winners") : nullptr, T("menus.bracket.losers")))
+    const bool ash = model.tournament.ash;
+    if (const auto pressed = list.Bracket(bracket, losers ? T(ash ? "menus.bracket.main" : "menus.bracket.winners") : nullptr,
+                                          T(ash ? "menus.bracket.ash" : "menus.bracket.losers")))
         actions.bracket_pick = bracket[*pressed].id;
     // Under it, the picked set's games: each its result on the game's screen.
     if (picked)

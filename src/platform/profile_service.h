@@ -301,7 +301,7 @@ struct MatchTournament
 {
     std::int64_t id = 0, set = 0;
     std::string name;
-    std::string side; // winners, losers, grand_final or grand_final_reset
+    std::string side; // winners, losers, grand_final, grand_final_reset or ash
     int round = 0;
     int games = 0;          // the set's best of
     int won = 0, lost = 0;  // the set's games won so far: the player's, the opponent's
@@ -400,7 +400,7 @@ struct TournamentSet
 {
     std::int64_t id = 0;
     int index = 0;    // in the bracket's order
-    std::string side; // winners, losers, grand_final or grand_final_reset
+    std::string side; // winners, losers, grand_final, grand_final_reset or ash
     int round = 0, position = 0, games = 0;
     // pending, ready, playing, finished, disputed or void.
     std::string state;
