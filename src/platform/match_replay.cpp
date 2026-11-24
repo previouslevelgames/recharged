@@ -17,6 +17,7 @@
 #include "mscharged_replay.h"
 #include "mscharged_sim_profile.h"
 #include "mscharged_tweaks.h"
+#include "platform/game_allocation_ownership.h"
 #include "platform/game_tweak_state.h"
 #include "platform/live_ring.h"
 #include "platform/match_replay_network.h"
@@ -26,12 +27,15 @@
 
 #include "Game/DB/SaveLoad.h"
 #include "Game/DB/UserOptions.h"
+#include "Game/Game.h"
 #include "Game/GameInfo.h"
 #include "Game/GameSceneManager.h"
 #include "Game/NetworkDebug.h"
 #include "Game/NetworkGameConfig.h"
 #include "Game/NetworkInputRecording.h"
 #include "Game/NetworkSession.h"
+#include "Game/NisPlayer.h"
+#include "Game/Render/Nis.h"
 #include "Game/Team.h"
 
 #include <algorithm>
@@ -78,6 +82,9 @@ constexpr std::size_t kMostWaiting = 8;
 // the recording did (it played differently), or waits for screens a replay
 // does not have.
 constexpr int kStalledFrames = 1200;
+// A replay waits at most this many steps' time (10 s) for what this computer
+// still loads (StillLoading) before it goes on anyway.
+constexpr int kMostLoadWait = 500;
 // The steps each speed adds to the router's one per step: paused (-1: none),
 // normal, twice and four times as fast.
 constexpr int kExtraSteps[4] = {-1, 0, 1, 3};
@@ -89,11 +96,10 @@ constexpr std::size_t kLiveRingBytes = 1u << 18;
 // kLiveBufferSteps have arrived (it never reads a step that has not arrived
 // whole); with more ahead it plays faster until it has caught up, up to
 // kLiveMostSteps a step.
-constexpr int kLiveBufferSteps = 15;   // 0.3 s
-constexpr int kLiveFastFrom = 25;      // 0.5 s behind: twice as fast
-constexpr int kLiveFasterFrom = 250;   // 5 s: four times
-constexpr int kLiveFastestFrom = 1000; // 20 s (joined during the game): eight times
-constexpr int kLiveMostSteps = 8;
+constexpr int kLiveBufferSteps = 15; // 0.3 s
+constexpr int kLiveFastFrom = 25;    // 0.5 s behind: twice as fast
+constexpr int kLiveFasterFrom = 250; // 5 s: four times, as fast as a replay plays
+constexpr int kLiveMostSteps = 4;
 
 // [replays] record (the host, before original main).
 bool sRecordEnabled = true;
@@ -149,10 +155,27 @@ bool sLiveBuffering = true; // waiting for kLiveBufferSteps (at its start, after
 // The steps the replay had read at the host's last look, and its looks since.
 std::uint32_t sProgressStep = 0;
 int sStalledFrames = 0;
+// The steps the replay has waited for this computer's loading (StillLoading).
+int sLoadWait = 0;
 
 GameInfoManager* Info()
 {
     return GameInfoManager::Instance();
+}
+
+// What this computer still loads that the recorded match had loaded by then:
+// a disc read into the game's memory, or a cutscene's animations. A network
+// match's replay starts a cutscene once the recorded machines said theirs was
+// loaded (Presentation::PlayNis), with whatever has arrived here: running
+// faster than the disc reads, it started one before its animations had, and
+// crashed on them (cPN_SAnimController without its cSAnim).
+bool StillLoading()
+{
+    if (mscharged::platform::CurrentGameByteProducers().pending) return true;
+    if (!g_pGame) return false;
+    for (Nis* nis : NisPlayer::Instance()->mLoaded)
+        if (nis && nis->mScriptStarted && nis->IsLoading()) return true;
+    return false;
 }
 
 void Log(const char* text)
@@ -560,11 +583,18 @@ int mscharged_tweak_replay_extra_updates(void)
     // The speed the host asked for, from this step on.
     const int speed = sSpeed.load(std::memory_order_relaxed);
     const int extra = kExtraSteps[(speed < -1 ? -1 : speed > 2 ? 2 : speed) + 1];
+    // No step while this computer still loads (at most kMostLoadWait).
+    if (!StillLoading()) sLoadWait = 0;
+    else if (sLoadWait < kMostLoadWait)
+    {
+        ++sLoadWait;
+        return -1;
+    }
     if (!sLiveReplay) return extra;
     // Live: the steps that have arrived whole set the pace.
     const bool complete = sLiveComplete.load(std::memory_order_acquire);
     sReader.Grow(sLiveSize.load(std::memory_order_acquire));
-    const int ahead = sReader.StepsAhead(kLiveFastestFrom + 1);
+    const int ahead = sReader.StepsAhead(kLiveFasterFrom + 1);
     sStatus.behind = unsigned(ahead);
     if (!ahead)
     {
@@ -575,9 +605,7 @@ int mscharged_tweak_replay_extra_updates(void)
     sLiveBuffering = false;
     int steps = extra + 1;
     if (speed >= 0)
-        steps = std::max(steps, ahead > kLiveFastestFrom ? kLiveMostSteps : ahead > kLiveFasterFrom ? 4
-                                    : ahead > kLiveFastFrom                                      ? 2
-                                                                                                 : 1);
+        steps = std::max(steps, ahead > kLiveFasterFrom ? kLiveMostSteps : ahead > kLiveFastFrom ? 2 : 1);
     return std::min(steps, ahead) - 1;
 }
 
