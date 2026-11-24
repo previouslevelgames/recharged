@@ -233,7 +233,7 @@ void LiveStep()
         setup.series_game = game;
         setup.series = std::int64_t(SeriesNumber(begin.module_series));
         Bytes start;
-        sWriter.StartBytes(start);
+        sWriter.StartBytes(start, true);
         if (!sLive.Put(kLiveBegin, sLiveStream, &begin, sizeof begin) || !LiveData(start.data(), start.size()))
             return StopLive();
         sLiveBegun = true;

@@ -182,7 +182,9 @@ public:
     // The stream's start as it would be now (version, setup size, setup), and
     // the steps written so far, which only grow until Finish or Clear: what a
     // live stream sends while the match is played.
-    void StartBytes(Bytes& out) const;
+    // `live`: no steps counted (a live stream's start comes after its first
+    // step; its count and score come only with the replay's file).
+    void StartBytes(Bytes& out, bool live = false) const;
     const Bytes& StepBytes() const { return steps_; }
     // The stream (setup, then the steps); the writer is empty again.
     Bytes Finish();

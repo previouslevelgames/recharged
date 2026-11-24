@@ -355,10 +355,12 @@ void StreamWriter::Flush()
     if (machine_ == 0) ++setup_.steps;
 }
 
-void StreamWriter::StartBytes(Bytes& out) const
+void StreamWriter::StartBytes(Bytes& out, bool live) const
 {
     Bytes setup;
-    PutSetup(setup, setup_);
+    Setup start = setup_;
+    if (live) start.steps = 0;
+    PutSetup(setup, start);
     Put32(out, kStreamVersion);
     Put32(out, std::uint32_t(setup.size()));
     out.insert(out.end(), setup.begin(), setup.end());
