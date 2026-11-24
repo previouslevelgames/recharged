@@ -33,9 +33,9 @@ namespace
 {
 ChargedOnlineMatchSnapshot sSeries{}; // the series under way, or the last one
 unsigned sSeriesCount = 0;
-// A series ended and the game that ended it may still be on screen: the next
-// series waits for another game.
-bool sAwaitingGame = false;
+// The last series is closed: it ended, and the game that ended it may still
+// be on screen. No series begins until that game is gone (the menus).
+bool sSeriesClosed = false;
 ChargedOnlineError sError{}; // the last error code shown
 
 bool UnderWay() { return sSeries.series && !sSeries.ended; }
@@ -120,7 +120,7 @@ void Begin()
 {
     sSeries = ChargedOnlineMatchSnapshot{};
     sSeries.series = ++sSeriesCount;
-    sAwaitingGame = false;
+    sSeriesClosed = false;
     GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
     sSeries.profile_id = ProfileId();
     sSeries.ranked = IsOnlineRankedMatch() ? 1 : 0;
@@ -175,7 +175,7 @@ void mscharged_tweak_online_game_result(int result, int homeScore, int awayScore
     }
     const bool underWay = UnderWay();
     ChargedOnlineSeriesResult(sSeries, result, reported != 0, played ? &game : nullptr);
-    if (underWay && !UnderWay()) sAwaitingGame = true;
+    if (underWay && !UnderWay()) sSeriesClosed = true;
 }
 
 void mscharged_tweak_online_error(int code)
@@ -191,7 +191,7 @@ bool ChargedOnlineRecordingGame(unsigned& series, int& game, unsigned& profile_i
     // As a result does: a game the host has not looked at since its kickoff
     // begins its series.
     if (!Online()) return false;
-    if (!UnderWay() && !sAwaitingGame && Begun()) Begin();
+    if (!UnderWay() && !sSeriesClosed && Begun()) Begin();
     if (!UnderWay() || !sSeries.profile_id) return false;
     series = sSeries.series;
     game = sSeries.games + 1;
@@ -218,7 +218,7 @@ void ChargedOnlineSeriesForfeit()
     sSeries.stopped_by = kChargedOnlineForfeit;
     // The forfeited game stays on screen until the connection closes: it
     // begins no new series.
-    sAwaitingGame = true;
+    sSeriesClosed = true;
 }
 
 extern "C" __attribute__((visibility("default"))) bool charged_online_match_snapshot(
@@ -231,15 +231,15 @@ extern "C" __attribute__((visibility("default"))) bool charged_online_match_snap
     const bool online = Online();
     if (!g_pGame || g_pGame->m_eGameState == GS_NONE || g_pGame->m_eGameState == GS_PRE_GAME
         || g_pGame->m_eGameState == GS_UNLOADING)
-        sAwaitingGame = false;
-    if (!UnderWay() && !sAwaitingGame && online && g_pGame
+        sSeriesClosed = false;
+    if (!UnderWay() && !sSeriesClosed && online && g_pGame
         && (g_pGame->m_eGameState == GS_KICKOFF || g_pGame->m_eGameState == GS_GAMEPLAY))
         Begin();
     else if (UnderWay() && !online)
     {
         sSeries.ended = 2;
         sSeries.stopped_by = 0; // with no result
-        sAwaitingGame = true;
+        sSeriesClosed = true;
     }
     *snapshot = sSeries;
     snapshot->error = sError;
