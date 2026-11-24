@@ -1,0 +1,119 @@
+From: mscharged-port
+Subject: Competitive play: a tournament set's player at home drafts first
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+The draft's first team picks first, and the draft sorts its teams by the
+players' RANKED records: in a Recharged tournament set the same player
+drafted first in every game, while the home side went in turn (0079).
+The draft host now names the machine whose team goes first, the one of
+the player at home in this game (a new field of the draft message,
+mFirstMachine), and every machine puts that team first after the sort.
+The game start then finds the sides already right (no swap). Outside a
+set's game the field says -1 and the draft keeps its order.
+
+diff --git a/include/Game/NetworkMessages.h b/include/Game/NetworkMessages.h
+index abc6b43..5596c6a 100644
+--- a/include/Game/NetworkMessages.h
++++ b/include/Game/NetworkMessages.h
+@@ -82,6 +82,7 @@ public:
+         }
+ #if defined(MSCHARGED_TWEAKS)
+         mSimProfile = 0;
++        mFirstMachine = -1;
+ #endif
+     }
+ 
+@@ -97,6 +98,10 @@ public:
+     // Tweak patch 0067: the simulation profile the host chose for the
+     // match, from its machines' own.
+     u8 mSimProfile;
++    // Tweak patch 0081: the machine whose team drafts first in a set's
++    // game (the draft host decides it for every machine); -1: the sorted
++    // order's.
++    s8 mFirstMachine;
+ #endif
+ }; // size: 0x414
+ 
+diff --git a/src/Game/NetworkDraft.cpp b/src/Game/NetworkDraft.cpp
+index 34794a8..067be73 100644
+--- a/src/Game/NetworkDraft.cpp
++++ b/src/Game/NetworkDraft.cpp
+@@ -108,6 +108,17 @@ void NetworkDraft::BeginSortedDraft(NetMessageDraft* message)
+     ChargedWii_qsort(mTeams, mTeamCount, sizeof(NetworkDraftTeam), CompareDraftTeams);
+ #else
+     qsort(mTeams, mTeamCount, sizeof(NetworkDraftTeam), CompareDraftTeams);
++#endif
++#if defined(MSCHARGED_TWEAKS)
++    // Tweak patch 0081: a set's game drafts first the team of the machine
++    // its host named (the player at home in it), on every machine.
++    if (mTeamCount == 2 && message->mFirstMachine >= 0
++        && mTeams[1].mPlayers[0].mPeerIndex == message->mFirstMachine)
++    {
++        NetworkDraftTeam first = mTeams[1];
++        mTeams[1] = mTeams[0];
++        mTeams[0] = first;
++    }
+ #endif
+     for (int teamIndex = 0; teamIndex < mTeamCount; ++teamIndex)
+     {
+diff --git a/src/Game/NetworkDraftMessages.cpp b/src/Game/NetworkDraftMessages.cpp
+index f291663..5e058a8 100644
+--- a/src/Game/NetworkDraftMessages.cpp
++++ b/src/Game/NetworkDraftMessages.cpp
+@@ -8,6 +8,7 @@ void NetMessageDraft::Serialize(NetworkMessageSerializer* serializer)
+     serializer->Transfer(&mPlayerSides, sizeof(mPlayerSides));
+ #if defined(MSCHARGED_TWEAKS)
+     serializer->Transfer(&mSimProfile, sizeof(mSimProfile));
++    serializer->Transfer(&mFirstMachine, sizeof(mFirstMachine));
+ #endif
+     NetworkDraftMachineInfo* entry = mEntries;
+     for (int i = 0; i < mMachineCount; ++entry, ++i)
+diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
+index acb9748..b928a8e 100644
+--- a/src/Game/NetworkSession.cpp
++++ b/src/Game/NetworkSession.cpp
+@@ -413,6 +413,20 @@ static void ChooseDraftSimProfile(NetMessageDraft* message)
+     message->mSimProfile = (u8)mscharged_sim_resolve(natives, count, ranked ? 1 : 0);
+ }
+ 
++// Recharged's tournaments (tweak patch 0081): the set's player at home in
++// this game (0079) drafts first. The draft sorts its teams by the players'
++// RANKED records, so the host, this machine `local`, names the machine
++// whose team goes first, and every machine puts it there.
++static void ChooseDraftFirstMachine(NetMessageDraft* message, int local)
++{
++    message->mFirstMachine = -1;
++    if (!IsOnlineRankedMatch() || message->mMachineCount != 2 || !mscharged_competitive_set_draft(message))
++        return;
++    const int wanted = mscharged_competitive_set_side();
++    if (wanted >= 0 && (local == 0 || local == 1))
++        message->mFirstMachine = (s8)(wanted == 0 ? local : 1 - local);
++}
++
+ #endif
+ 
+ void NetworkSession::SendDraftToEveryone(
+@@ -428,6 +442,11 @@ void NetworkSession::SendDraftToEveryone(
+     }
+ #if defined(MSCHARGED_TWEAKS)
+     ChooseDraftSimProfile(&message);
++    for (int machine = 0; machine < count; ++machine)
++    {
++        if (GetMachineRoster()->GetMachineAid(machine) == 0xFFFFFFFF)
++            ChooseDraftFirstMachine(&message, machine);
++    }
+ #endif
+ 
+     for (int machine = 0; machine < count; ++machine)
+@@ -457,6 +476,11 @@ void NetworkSession::SendDraftToEveryone(NetMessageDraft* message)
+ {
+ #if defined(MSCHARGED_TWEAKS)
+     ChooseDraftSimProfile(message);
++    for (int machine = 0; machine < message->mMachineCount; ++machine)
++    {
++        if (GetMachineRoster()->GetMachineAid(machine) == 0xFFFFFFFF)
++            ChooseDraftFirstMachine(message, machine);
++    }
+ #endif
+     for (int machine = 0; machine < message->mMachineCount; ++machine)
+     {
