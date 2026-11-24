@@ -70,6 +70,7 @@
 #include "platform/gyro_pointer.h"
 #include "platform/key_bindings.h"
 #include "platform/launcher_reopen.h"
+#include "platform/live_watch.h"
 #include "platform/wiimote_bluetooth.h"
 #include "platform/wiimote_hid.h"
 #ifdef MSCHARGED_HAS_GAME_STARTUP
@@ -93,6 +94,7 @@
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <future>
 #include <iostream>
@@ -3673,6 +3675,10 @@ private:
             frontend_launch_->start_training = false;
             frontend_launch_->disc_path = pending_replay_->image;
             frontend_launch_->replay_path = pending_replay_->path;
+            // A kept game of a match: the game follows the match's next one.
+            if (pending_replay_->path == kept_file_) frontend_launch_->replay_next_link = kept_next_link_;
+            kept_file_.clear();
+            kept_next_link_.clear();
             platform::SessionLogLine("Replay: starting with " + PathUtf8(pending_replay_->image));
             pending_replay_.reset();
             quit = true;
@@ -3715,6 +3721,76 @@ private:
         bool any_revision = false; // a watch ticket: any image of the release
     };
     std::optional<PendingReplay> pending_replay_;
+    // A game the WFC server kept (a ticket naming it, from the dashboard's
+    // Replay button): its file comes from the server first, then it plays as
+    // any replay; next_link is the match's next kept game, for the game to
+    // follow once the replay ended.
+    struct KeptDownload
+    {
+        fs::path file; // empty when it failed
+        std::string next_link;
+        std::string error;
+    };
+    BackgroundJob<KeptDownload> kept_download_;
+    fs::path kept_file_;
+    std::string kept_next_link_;
+
+    void FetchKept(const replay::WatchTicket& ticket)
+    {
+        const std::string server = file_.settings.online_server;
+        if (server.empty())
+        {
+            Notice(texts::T("launcher.replay.unreadable",
+                            {{"error", "Watching a match needs the online server that made the ticket: set it "
+                                       "in the launcher's Online page."}}),
+                   NoticeKind::Error);
+            return;
+        }
+        const std::string name =
+            "game " + std::to_string(ticket.game) + " of match " + std::to_string(ticket.match);
+        platform::SessionLogLine("Watch ticket: " + name + " (" + ticket.release + ") from " + server);
+        Notice(texts::T("launcher.replay.starting", {{"name", name}}), NoticeKind::Info);
+        kept_download_.Start([server, ticket] {
+            KeptDownload result;
+            std::vector<std::uint8_t> bytes;
+            int next = 0;
+            if (!platform::FetchKeptReplay(server, ticket, bytes, next, result.error)) return result;
+            const fs::path folder = fs::temp_directory_path() / "recharged-watch";
+            const fs::path target = folder
+                / ("match-" + std::to_string(ticket.match) + "-game-" + std::to_string(ticket.game) + ".msc");
+            std::error_code failure;
+            fs::create_directories(folder, failure);
+            std::ofstream out(target, std::ios::binary | std::ios::trunc);
+            out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
+            out.close();
+            if (!out)
+            {
+                result.error = "The replay could not be written to " + PathUtf8(folder) + ".";
+                return result;
+            }
+            result.file = target;
+            if (next > 0)
+                result.next_link = "recharged://replay/" + std::to_string(ticket.match) + "?game="
+                    + std::to_string(next) + "&ticket=" + ticket.ticket + "&release=" + ticket.release;
+            return result;
+        });
+    }
+
+    // The kept game's file, once it came: it plays as any replay.
+    void PollKept()
+    {
+        auto kept = kept_download_.Take();
+        if (!kept) return;
+        if (kept->file.empty())
+        {
+            platform::SessionLogLine("Watch ticket: " + kept->error);
+            Notice(texts::T("launcher.replay.unreadable", {{"error", kept->error}}), NoticeKind::Error);
+            return;
+        }
+        kept_file_ = kept->file;
+        kept_next_link_ = kept->next_link;
+        AskReplay(kept->file);
+    }
 
     bool ReplayReady() const { return pending_replay_ && !pending_replay_->image.empty(); }
 
@@ -3731,6 +3807,13 @@ private:
         replay::WatchTicket ticket;
         if (replay::ReadReplayFile(path, bytes, error) && replay::ReadWatchTicket(bytes, ticket, error))
         {
+            // A game the server kept: its file first, whose release and
+            // revision then choose the image.
+            if (ticket.game > 0)
+            {
+                FetchKept(ticket);
+                return;
+            }
             DiscInfo needs{};
             needs.game_id = ticket.release;
             pending_replay_ = PendingReplay{path, needs, {}, true};
@@ -3797,6 +3880,7 @@ private:
     // ------------------------------------------------------------- layout
     void Draw(bool& quit)
     {
+        PollKept();
         PollReplay(quit);
         auto& io = ImGui::GetIO();
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false) && config_ok_ && dirty_) Save();

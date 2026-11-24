@@ -327,6 +327,20 @@ int main()
                                     "recharged://watch/012?ticket=00&release=R4QE", "recharged://watch/12x?ticket=00&release=R4QE",
                                     "recharged://watch/12?release=R4QE"})
                 Reject([&] { Parse({"recharged", bad}); });
+            // A replay link (the Replay button): a kept game of the match.
+            const auto kept = Parse({"recharged", "recharged://replay/4553?game=2&ticket=00ff12&release=R4QP"});
+            Check(kept.replay && kept.replay->filename() == "watch-match-4553-game-2.msc",
+                "A replay link is no ticket file of its game");
+            const std::string kept_header =
+                "{\"match\": 4553, \"game\": 2, \"ticket\": \"00ff12\", \"release\": \"R4QP\"}";
+            std::string kept_expected = std::string("MSCRPLY\x1a\x02\x00", 10);
+            kept_expected += char(kept_header.size());
+            kept_expected += '\0';
+            Check(Read(*kept.replay) == kept_expected + kept_header, "The replay ticket file does not name its game");
+            fs::remove(*kept.replay);
+            for (const char* bad : {"recharged://replay/12?ticket=00&release=R4QE", "recharged://replay/12?game=0&ticket=00&release=R4QE",
+                                    "recharged://replay/12?game=10&ticket=00&release=R4QE"})
+                Reject([&] { Parse({"recharged", bad}); });
         }
         fs::current_path(previous_directory);
         fs::remove_all(root);

@@ -105,6 +105,8 @@ if(BUILD_TESTING)
     set_tests_properties(discord_friends PROPERTIES TIMEOUT 60)
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Texts.cmake")
+# The replay of a game the WFC server kept comes from it (platform/live_watch.h).
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/OnlineReports.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/GameOverlay.cmake")
 if(BUILD_TESTING)
     add_executable(watch_links_tests tests/watch_links.cpp src/platform/watch_link_handler.cpp)
@@ -121,7 +123,8 @@ target_link_libraries(mscharged PRIVATE charged_host charged_launcher_ui charged
     charged_wiimote_scan charged_session_log charged_updates charged_image_library charged_graphics_cards
     charged_texture_packs charged_launcher_texture_packs charged_mii_maker charged_match_presets charged_competitive
     charged_discord_friends
-    charged_alert_sound charged_discord charged_ui_kit charged_overlay charged_mii_faces charged_players_online charged_texts)
+    charged_alert_sound charged_discord charged_ui_kit charged_overlay charged_mii_faces charged_players_online charged_texts
+    charged_online_reports)
 mscharged_discord_social_sdk_beside(mscharged)
 mscharged_stage_texts(mscharged)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PipelineCatalog.cmake")

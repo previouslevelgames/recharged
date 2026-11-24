@@ -368,6 +368,16 @@ bool ReadWatchTicket(const std::vector<std::uint8_t>& bytes, WatchTicket& ticket
             return false;
         }
         ticket.match = *match;
+        ticket.game = 0;
+        if (const auto game = header["game"].Integer())
+        {
+            if (*game < 1 || *game > 9)
+            {
+                error = "The watch ticket does not name a game of the match.";
+                return false;
+            }
+            ticket.game = int(*game);
+        }
         return true;
     }
     catch (const std::exception&)

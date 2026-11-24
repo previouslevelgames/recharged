@@ -47,10 +47,12 @@ std::filesystem::path WriteWatchLinkTicket(std::string_view link, const std::fil
     std::string_view path = rest.substr(0, query_at);
     const std::string_view query = query_at == std::string_view::npos ? std::string_view() : rest.substr(query_at + 1);
     while (!path.empty() && path.back() == '/') path.remove_suffix(1);
-    if (path.substr(0, 6) != "watch/") return {};
-    const std::string_view match = path.substr(6);
+    // watch/<match>: as it is played; replay/<match>: a game the server kept.
+    const bool kept = path.substr(0, 7) == "replay/";
+    if (path.substr(0, 6) != "watch/" && !kept) return {};
+    const std::string_view match = path.substr(kept ? 7 : 6);
     if (!All(match, [](int c) { return std::isdigit(c); }) || match.size() > 18 || match.front() == '0') return {};
-    std::string_view ticket, release;
+    std::string_view ticket, release, game;
     for (std::string_view parameters = query; !parameters.empty();)
     {
         const auto end = parameters.find('&');
@@ -61,14 +63,17 @@ std::filesystem::path WriteWatchLinkTicket(std::string_view link, const std::fil
         const std::string_view name = parameter.substr(0, equals), value = parameter.substr(equals + 1);
         if (name == "ticket") ticket = value;
         else if (name == "release") release = value;
+        else if (name == "game") game = value;
     }
     if (!All(ticket, IsLowerHex) || ticket.size() > 256 || release.size() != 4
         || !All(release, [](int c) { return std::isalnum(c); }))
         return {};
+    if (kept && (game.size() != 1 || game[0] < '1' || game[0] > '9')) return {};
 
     // The dashboard's ticket file: "MSCRPLY" 0x1A, version 2, the header's
     // size, the header (JSON; every character above needs no escaping).
-    const std::string header = "{\"match\": " + std::string(match) + ", \"ticket\": \"" + std::string(ticket)
+    const std::string header = "{\"match\": " + std::string(match)
+        + (kept ? ", \"game\": " + std::string(game) : std::string()) + ", \"ticket\": \"" + std::string(ticket)
         + "\", \"release\": \"" + std::string(release) + "\"}";
     std::vector<char> file = {'M', 'S', 'C', 'R', 'P', 'L', 'Y', 0x1A, 2, 0};
     file.push_back(char(header.size() & 0xFF));
@@ -77,7 +82,8 @@ std::filesystem::path WriteWatchLinkTicket(std::string_view link, const std::fil
 
     std::error_code failure;
     std::filesystem::create_directories(folder, failure);
-    const auto target = folder / ("watch-match-" + std::string(match) + ".msc");
+    const auto target = folder
+        / ("watch-match-" + std::string(match) + (kept ? "-game-" + std::string(game) : std::string()) + ".msc");
     auto partial = target;
     partial += ".tmp";
     {

@@ -19,6 +19,104 @@ constexpr std::size_t kMostFrame = 16u << 20;
 constexpr int kConnectTimeout = 5000;
 } // namespace
 
+bool FetchKeptReplay(const std::string& server, const WatchTicket& ticket, std::vector<std::uint8_t>& file,
+                     int& next_game, std::string& error, std::chrono::milliseconds timeout)
+{
+    file.clear();
+    next_game = 0;
+    // The largest file the server keeps (1 MiB), its head and a margin.
+    constexpr std::size_t kMostAnswer = (1u << 20) + (64u << 10);
+    TcpClient connection;
+    if (!connection.Connect(server, kConnectTimeout, error))
+    {
+        error = "The server cannot be reached: " + error;
+        return false;
+    }
+    const std::string request = "GET /api/v1/wfc/replays/" + std::to_string(ticket.match) + "/"
+        + std::to_string(ticket.game) + " HTTP/1.1\r\nHost: " + server
+        + "\r\nUser-Agent: Recharged\r\nAccept: application/octet-stream\r\nAuthorization: Bearer " + ticket.ticket
+        + "\r\nConnection: close\r\n\r\n";
+    const auto until = std::chrono::steady_clock::now() + timeout;
+    auto late = [&] { return std::chrono::steady_clock::now() > until; };
+    for (std::size_t at = 0; at < request.size();)
+    {
+        const long sent = connection.SendSome(request.data() + at, request.size() - at);
+        if (sent < 0 || late())
+        {
+            error = "The connection to the server broke.";
+            return false;
+        }
+        at += std::size_t(sent);
+        if (!sent) connection.WaitReadable(5);
+    }
+    // The whole answer: the server closes the connection after it.
+    std::string answer;
+    char buffer[16384];
+    for (;;)
+    {
+        const long got = connection.ReceiveSome(buffer, sizeof buffer);
+        if (got < 0) break;
+        if (got > 0)
+        {
+            answer.append(buffer, std::size_t(got));
+            if (answer.size() > kMostAnswer)
+            {
+                error = "The server's answer is larger than a replay.";
+                return false;
+            }
+            continue;
+        }
+        if (late())
+        {
+            error = "The server did not answer in time.";
+            return false;
+        }
+        connection.WaitReadable(100);
+    }
+    const auto end = answer.find("\r\n\r\n");
+    int status = 0;
+    if (answer.compare(0, 5, "HTTP/") == 0 && end != std::string::npos)
+        if (const auto space = answer.find(' '); space < end) status = std::atoi(answer.c_str() + space + 1);
+    if (!status)
+    {
+        error = "The server's answer cannot be read.";
+        return false;
+    }
+    std::string head = answer.substr(0, end);
+    std::transform(head.begin(), head.end(), head.begin(), [](unsigned char c) { return char(std::tolower(c)); });
+    auto field = [&](const char* name) -> const char* {
+        const auto at = head.find(std::string("\r\n") + name + ":");
+        return at == std::string::npos ? nullptr : answer.c_str() + at + 3 + std::strlen(name);
+    };
+    if (status != 200)
+    {
+        error = status == 404 ? "The server keeps no replay of game " + std::to_string(ticket.game) + " of this match."
+            : status == 401 || status == 403
+            ? "The server does not take this ticket (a ticket lasts four hours, on the server that made it)."
+            : "The server answered HTTP " + std::to_string(status) + ".";
+        return false;
+    }
+    std::size_t length = answer.size() - end - 4;
+    if (const char* value = field("content-length"))
+    {
+        const std::size_t said = std::size_t(std::strtoull(value, nullptr, 10));
+        if (said > length)
+        {
+            error = "The replay came cut short.";
+            return false;
+        }
+        length = said;
+    }
+    if (const char* value = field("x-next-game"))
+    {
+        const long next = std::strtol(value, nullptr, 10);
+        if (next > ticket.game && next <= 9) next_game = int(next);
+    }
+    const auto* body = reinterpret_cast<const std::uint8_t*>(answer.data() + end + 4);
+    file.assign(body, body + length);
+    return true;
+}
+
 LiveWatch::LiveWatch(std::string server, WatchTicket ticket, Log log)
     : server_(std::move(server)), ticket_(std::move(ticket)), log_(std::move(log))
 {

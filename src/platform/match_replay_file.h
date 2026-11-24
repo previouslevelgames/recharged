@@ -64,14 +64,16 @@ bool ReadReplayFile(const std::filesystem::path& path, std::vector<std::uint8_t>
 // Reads only a file's header; false with `error` set.
 bool ReadReplayInfo(const std::filesystem::path& path, FileInfo& info, std::string& error);
 
-// A ticket to watch an online match as it is played, from the WFC server's
-// dashboard: a file of version 2 with this layout, whose header is JSON
-// {"match": 12, "ticket": "...", "release": "R4QE"} (live_watch.h plays it).
+// A ticket to watch an online match from the WFC server's dashboard: a file
+// of version 2 with this layout, whose header is JSON {"match": 12, "ticket":
+// "...", "release": "R4QE"} for the match as it is played (live_watch.h plays
+// it), with "game": 2 as well for the game's replay the server keeps.
 struct WatchTicket
 {
     std::int64_t match = 0;
     std::string ticket;  // the server's, as it gave it
     std::string release; // the game's code, R4QE, R4QP...
+    int game = 0;        // a kept game (1 to 9), 0 the match as it is played
 };
 // Whether `bytes` is a watch ticket (and what it says); false with `error`
 // set for a ticket this build cannot read, false without one for any other

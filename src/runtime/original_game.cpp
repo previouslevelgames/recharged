@@ -65,6 +65,7 @@
 #endif
 #include "platform/session_log.h"
 #include "platform/launcher_reopen.h"
+#include "bootstrap/watch_link.h"
 #include "platform/competitive_host.h"
 #include "platform/game_folder_lock.h"
 #include "overlay/flags.h"
@@ -3267,6 +3268,18 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.watch_next_game"),now);
                 } else if(liveWatch && hostOverlay)
                     hostOverlay->ShowMessage(texts::T("menus.messages.watch_over"),now);
+                // A kept game of a finished match (the dashboard's Replay):
+                // the match's next kept one, with its ticket, the same way.
+                if(!liveWatch && !launch.replay_next_link.empty()) {
+                    std::string error;
+                    const auto next=mscharged::WriteWatchLinkTicket(launch.replay_next_link,
+                                                                     std::filesystem::temp_directory_path(),error);
+                    if(!next.empty()) {
+                        mscharged::platform::ReopenWithReplay(next);
+                        if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.watch_next_game"),now);
+                    } else
+                        mscharged::platform::SessionLogLine("Replay: the match's next game cannot be opened: "+error);
+                }
 #endif
                 std::string line="Replay: ended after "+std::to_string(status.steps)+" of "+std::to_string(status.total)
                     +" steps; "+std::to_string(status.checked-status.differences)+" of "+std::to_string(status.checked)

@@ -29,6 +29,14 @@ namespace mscharged::platform
 using WatchTicket = mscharged::replay::WatchTicket;
 using mscharged::replay::ReadWatchTicket;
 
+// A game's replay the server keeps (a ticket naming the game, from the
+// dashboard's Replay button): the file as the game sent it from `server`
+// (online.server), and the match's next game whose replay the server keeps
+// (0 none). Waits at most `timeout`; false with `error` set.
+bool FetchKeptReplay(const std::string& server, const WatchTicket& ticket, std::vector<std::uint8_t>& file,
+                     int& next_game, std::string& error,
+                     std::chrono::milliseconds timeout = std::chrono::seconds(30));
+
 class LiveWatch
 {
 public:

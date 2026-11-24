@@ -651,6 +651,41 @@ void Watching()
                 "the game's skipped parts, in order, once");
     }
 
+    // A ticket naming a game: the server's kept replay of it, and the match's
+    // next kept game; a game it does not keep says so.
+    {
+        std::string header = "{\"match\": 12, \"game\": 2, \"ticket\": \"00ff\", \"release\": \"R4QP\"}";
+        std::vector<std::uint8_t> file = {'M', 'S', 'C', 'R', 'P', 'L', 'Y', 0x1A, 2, 0,
+                                          std::uint8_t(header.size()), 0};
+        file.insert(file.end(), header.begin(), header.end());
+        WatchTicket kept;
+        Require(ReadWatchTicket(file, kept, error) && kept.match == 12 && kept.game == 2, "a ticket names its game");
+        const std::string replay = Bytes(70000, 4);
+        std::string target, head;
+        FakeServer server([&](const Received& request, bool) {
+            target = request.target;
+            head = request.head;
+            if (request.target.find("/2") != std::string::npos)
+                return "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: "
+                    + std::to_string(replay.size()) + "\r\nX-Next-Game: 3\r\nConnection: close\r\n\r\n" + replay;
+            return Http(404, "{\"error\":\"the server keeps no replay of this game\"}");
+        });
+        std::vector<std::uint8_t> got;
+        int next = 0;
+        Require(FetchKeptReplay(server.Address(), kept, got, next, error), "the kept replay comes: " + error);
+        Require(target == "/api/v1/wfc/replays/12/2" && head.find("\r\nAuthorization: Bearer 00ff") != std::string::npos,
+                "for its match and game, the ticket out of the URL: " + target);
+        Require(std::string(got.begin(), got.end()) == replay && next == 3, "the whole file, and the next game");
+        kept.game = 4;
+        Require(!FetchKeptReplay(server.Address(), kept, got, next, error) && error.find("no replay of game 4") != std::string::npos,
+                "a game not kept says so: " + error);
+        header = "{\"match\": 12, \"game\": 10, \"ticket\": \"00ff\", \"release\": \"R4QP\"}";
+        file.resize(12);
+        file[10] = std::uint8_t(header.size());
+        file.insert(file.end(), header.begin(), header.end());
+        Require(!ReadWatchTicket(file, kept, error) && !error.empty(), "a ticket of no game of a match is refused");
+    }
+
     // A ticket the server does not take.
     {
         FakeServer server([](const Received&, bool) {

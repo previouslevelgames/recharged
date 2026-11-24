@@ -47,6 +47,11 @@ struct ResolvedLaunch
     // A replay (--replay): the game goes from the title straight into the
     // recorded match and plays it back; empty for none.
     std::filesystem::path replay_path;
+    // A game of a finished online match watched from the WFC server's
+    // dashboard (its Replay button): the recharged:// link of the match's next
+    // game whose replay the server keeps, which the game opens once the replay
+    // ended; empty for none.
+    std::string replay_next_link;
     // When the launcher that starts the game found this build up to date
     // (seconds since 1970), 0 when it did not: the game's online check
     // (launcher/online_gate.h) then needs no request of its own.
