@@ -486,6 +486,19 @@ int Feed(const void* data, unsigned size, int complete)
     return 1;
 }
 
+// The parts of cutscenes skipped, as the module got them.
+std::vector<std::pair<unsigned, unsigned>> sSkipsFed;
+void FeedSkip(unsigned part, unsigned after)
+{
+    std::lock_guard lock(sFedMutex);
+    sSkipsFed.emplace_back(part, after);
+}
+
+std::string Skip(unsigned part, unsigned after)
+{
+    return {char(part & 0xFF), char(part >> 8), char(after & 0xFF), char(after >> 8)};
+}
+
 std::string Frame(std::uint8_t kind, const std::string& payload)
 {
     std::string frame(1, char(kind));
@@ -512,6 +525,66 @@ std::string Chunked(const std::string& body)
         out += head + part + "\r\n";
     }
     return out + "0\r\n\r\n";
+}
+
+// A part of a cutscene the player skipped goes beside the stream at once, to
+// its own address; a server that predates skips (404) is asked no more.
+void Skips()
+{
+    auto skipped = [](const Received& request) {
+        return request.target.rfind("/api/v1/wfc/streams/skips?", 0) == 0;
+    };
+    for (const int status : {204, 404})
+    {
+        StreamServer stream;
+        FakeServer server([&](const Received& request, bool body_read) {
+            if (skipped(request)) return Http(status, "");
+            if (body_read)
+            {
+                stream.Took(request);
+                return Http(200, "{}");
+            }
+            return stream.Answer(request, false);
+        });
+        std::vector<std::string> log;
+        std::mutex log_mutex;
+        OnlineReplays replays(server.Address(), Answers(true), Take,
+                              [&](const std::string& line) {
+                                  std::lock_guard lock(log_mutex);
+                                  log.push_back(line);
+                              },
+                              Fast());
+        const std::uint32_t stream_number = status == 204 ? 7 : 8;
+        Begin(stream_number, 2);
+        Data(stream_number, Bytes(4000, 5));
+        Require(sRing.Put(kLiveSkip, stream_number, Skip(3, 150).data(), 4), "a skip fits");
+        Require(sRing.Put(kLiveSkip, stream_number, Skip(260, 0).data(), 4), "another skip fits");
+        Require(sRing.Put(kLiveEnd, stream_number, nullptr, 0), "the end fits");
+        auto said = [&] {
+            std::vector<std::string> targets;
+            for (const auto& request : server.Requests())
+                if (skipped(request)) targets.push_back(request.target);
+            return targets;
+        };
+        if (status == 204)
+        {
+            Require(WaitUntil([&] { return said().size() == 2; }), "both skips are said");
+            Require(said()[0] == "/api/v1/wfc/streams/skips?profile_id=1000000001&series=1792000000&game=2&section=3&after=150"
+                        && said()[1]
+                            == "/api/v1/wfc/streams/skips?profile_id=1000000001&series=1792000000&game=2&section=260&after=0",
+                    "each with its game, part and when: " + said()[0]);
+        }
+        else
+        {
+            Require(WaitUntil([&] {
+                        std::lock_guard lock(log_mutex);
+                        return !log.empty() && log.back().find("no cutscene skips") != std::string::npos;
+                    }),
+                    "a server without skips is logged");
+            std::this_thread::sleep_for(100ms);
+            Require(said().size() == 1, "and asked no more");
+        }
+    }
 }
 
 void Watching()
@@ -547,8 +620,9 @@ void Watching()
     // begins and the match ends.
     {
         const std::string body = Frame(0, "") + Frame(1, GameNumber(2)) + Frame(2, begin.substr(0, 10))
-            + Frame(2, begin.substr(10)) + Frame(2, steps.substr(0, 2000)) + Frame(0, "")
-            + Frame(2, steps.substr(2000)) + Frame(3, "") + Frame(1, GameNumber(3)) + Frame(2, "next game's");
+            + Frame(4, Skip(3, 150)) + Frame(2, begin.substr(10)) + Frame(2, steps.substr(0, 2000)) + Frame(0, "")
+            + Frame(4, Skip(260, 0)) + Frame(2, steps.substr(2000)) + Frame(3, "") + Frame(1, GameNumber(3))
+            + Frame(4, Skip(9, 9)) + Frame(2, "next game's");
         std::string target, head;
         FakeServer server([&](const Received& request, bool) {
             target = request.target;
@@ -567,11 +641,14 @@ void Watching()
                 "game 2 from its first byte");
         Require(target == "/api/v1/wfc/streams/12" && head.find("\r\nAuthorization: Bearer 00ff") != std::string::npos,
                 "the ticket's match, the ticket out of the URL: " + target);
-        live.Feed(Feed);
+        live.Feed(Feed, FeedSkip);
         Require(WaitUntil([&] { return live.Over(); }), "the match's end");
         std::lock_guard lock(sFedMutex);
         Require(std::string(got.begin(), got.end()) + sFed == begin + steps, "every byte of the game, once");
         Require(sFedComplete && live.NextGame() && !live.Failed(), "its end, and the next game begun");
+        // Those before the feed too; none of the next game's.
+        Require(sSkipsFed == std::vector<std::pair<unsigned, unsigned>>{{3, 150}, {260, 0}},
+                "the game's skipped parts, in order, once");
     }
 
     // A ticket the server does not take.
@@ -598,6 +675,7 @@ int main()
     {
         LiveStream();
         Replays();
+        Skips();
         Watching();
     }
     catch (const std::exception& error)

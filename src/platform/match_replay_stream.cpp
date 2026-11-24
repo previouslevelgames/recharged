@@ -71,6 +71,13 @@ void PutSetup(Bytes& out, const Setup& s)
     Put32(out, std::uint32_t(std::uint64_t(s.series)));
     Put32(out, std::uint32_t(std::uint64_t(s.series) >> 32));
     i32(s.series_game);
+    const unsigned skips = s.skip_count < kMaxSkips ? s.skip_count : kMaxSkips;
+    Put16(out, std::uint16_t(skips));
+    for (unsigned n = 0; n < skips; ++n)
+    {
+        Put16(out, s.skips[n].section);
+        Put16(out, s.skips[n].after);
+    }
 }
 
 // Reads from a bounded buffer; a read past its end fails and stays failed.
@@ -106,6 +113,8 @@ struct Cursor
 
 void GetSetup(Cursor& in, Setup& s)
 {
+    // What an older setup does not have keeps its default.
+    s = Setup{};
     const auto i32 = [&] { return std::int32_t(in.Get32()); };
     s.stadium = i32();
     s.home_team = i32();
@@ -147,6 +156,16 @@ void GetSetup(Cursor& in, Setup& s)
     const std::uint64_t low = in.Get32();
     s.series = std::int64_t(low | std::uint64_t(in.Get32()) << 32);
     s.series_game = i32();
+    // A replay from before skips were kept stops here: none.
+    if (in.failed || in.at == in.size) return;
+    const unsigned skips = in.Get16();
+    for (unsigned n = 0; n < skips && !in.failed; ++n)
+    {
+        Setup::Skip skip;
+        skip.section = in.Get16();
+        skip.after = in.Get16();
+        if (n < unsigned(kMaxSkips) && !in.failed) s.skips[s.skip_count++] = skip;
+    }
 }
 
 bool ValidCounts(const Setup& s)
@@ -359,7 +378,11 @@ void StreamWriter::StartBytes(Bytes& out, bool live) const
 {
     Bytes setup;
     Setup start = setup_;
-    if (live) start.steps = 0;
+    if (live)
+    {
+        start.steps = 0;
+        start.skip_count = 0;
+    }
     PutSetup(setup, start);
     Put32(out, kStreamVersion);
     Put32(out, std::uint32_t(setup.size()));

@@ -224,8 +224,9 @@ void NetworkFields()
             "a network match's fields come back");
     Replay(stream, online, match);
 
-    // The same stream as an older build wrote it: the setup 25 bytes shorter.
-    constexpr std::size_t kNetworkFields = 1 + 4 + 4 + 8 + 4;
+    // The same stream as an older build wrote it: the setup without the
+    // network fields and what came after them (the count of skips, none).
+    constexpr std::size_t kNetworkFields = 1 + 4 + 4 + 8 + 4 + 2;
     Bytes older(stream.begin(), stream.end());
     const std::uint32_t setup_size = std::uint32_t(older[4]) | std::uint32_t(older[5]) << 8
         | std::uint32_t(older[6]) << 16 | std::uint32_t(older[7]) << 24;
@@ -239,6 +240,59 @@ void NetworkFields()
             "an older replay is an offline match with its own fields");
     StreamReader reader;
     Require(reader.Open(older.data(), older.size(), error), "an older replay opens: " + error);
+}
+
+// The parts of cutscenes skipped come back with the setup; a live stream's
+// start names none (they go beside it, as they happen); a replay from before
+// them has none.
+void CutsceneSkips()
+{
+    Setup setup = MakeSetup(2, 1);
+    setup.online = 1;
+    setup.series_game = 2;
+    setup.skip_count = 3;
+    setup.skips[0] = {0, 150};
+    setup.skips[1] = {2, 0};
+    setup.skips[2] = {7, 65535};
+    const auto match = MakeMatch(setup, 120, 1, 13);
+    const Bytes stream = Record(setup, match);
+    Setup read;
+    std::string error;
+    Require(ReadSetup(stream.data(), stream.size(), read, error), "a setup with skips reads: " + error);
+    Require(read.skip_count == 3 && read.skips[0].section == 0 && read.skips[0].after == 150
+                && read.skips[1].section == 2 && read.skips[1].after == 0 && read.skips[2].section == 7
+                && read.skips[2].after == 65535 && read.series_game == 2,
+            "the parts skipped come back, after the fields before them");
+    Replay(stream, setup, match);
+
+    StreamWriter writer;
+    Require(writer.Begin(setup), "the writer takes a setup with skips");
+    Bytes start;
+    writer.StartBytes(start, true);
+    Setup live;
+    Require(ReadSetup(start.data(), start.size(), live, error) && live.skip_count == 0 && live.series_game == 2,
+            "a live stream's start names no skips");
+
+    // No more than kMaxSkips are kept.
+    Setup many = setup;
+    many.skip_count = std::uint16_t(kMaxSkips + 5);
+    for (int n = 0; n < kMaxSkips; ++n) many.skips[n] = {std::uint16_t(n), std::uint16_t(n * 3)};
+    const Bytes full = Record(many, MakeMatch(many, 30, 1, 2));
+    Require(ReadSetup(full.data(), full.size(), read, error) && read.skip_count == kMaxSkips
+                && read.skips[kMaxSkips - 1].section == kMaxSkips - 1,
+            "at most kMaxSkips are kept");
+
+    // A replay from before skips: its setup ends at the network fields.
+    setup.skip_count = 0;
+    const Bytes none = Record(setup, match);
+    Bytes older(none.begin(), none.end());
+    const std::uint32_t setup_size = std::uint32_t(older[4]) | std::uint32_t(older[5]) << 8
+        | std::uint32_t(older[6]) << 16 | std::uint32_t(older[7]) << 24;
+    older.erase(older.begin() + 8 + setup_size - 2, older.begin() + 8 + setup_size);
+    for (int byte = 0; byte < 4; ++byte) older[4 + byte] = std::uint8_t((setup_size - 2) >> (8 * byte));
+    Require(ReadSetup(older.data(), older.size(), read, error) && read.skip_count == 0 && read.series_game == 2,
+            "a replay from before skips has none: " + error);
+    Replay(older, setup, match);
 }
 
 // A network match's live stream: written as it is played (its start as the
@@ -523,6 +577,7 @@ int main()
     {
         RoundTrips();
         NetworkFields();
+        CutsceneSkips();
         LiveStreams();
         Refusals();
         Files();

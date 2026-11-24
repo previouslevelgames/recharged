@@ -1277,7 +1277,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 Check(configureLive && feedLive && replayStatus
                       && configureLive(replayStream.data(),unsigned(replayStream.size()),kMostLiveStream),
                       "This build's game module cannot play this match live");
-                liveWatch->Feed(feedLive);
+                // The parts of cutscenes its players skip (a module without
+                // them plays every cutscene in full, then catches up).
+                const auto feedSkip=reinterpret_cast<ChargedFeedLiveSkipFunction>(
+                    mscharged::platform::FindNativeModuleSymbol(module,"charged_feed_live_skip"));
+                liveWatch->Feed(feedLive,feedSkip);
                 sReplaySpeedSetter=reinterpret_cast<ChargedSetReplaySpeedFunction>(
                     mscharged::platform::FindNativeModuleSymbol(module,"charged_set_replay_speed"));
                 SDL_AddEventWatch(ReplaySpeedKeys,nullptr);

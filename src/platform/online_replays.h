@@ -80,6 +80,7 @@ private:
     bool Tick();
     void Drain();
     void SendLive(int unconfirmed);
+    void SendSkips();
     void SendReplays();
 
     std::string server_;
@@ -104,6 +105,7 @@ private:
     std::vector<std::unique_ptr<Upload>> uploads_;
     std::vector<std::uint8_t> taken_;
     bool replays_off_ = false; // the server takes none (404)
+    bool skips_off_ = false;   // the server passes no cutscene skips on (404, 405)
     std::thread thread_;
 };
 } // namespace mscharged::platform

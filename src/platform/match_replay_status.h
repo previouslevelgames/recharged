@@ -48,6 +48,9 @@ typedef int (*ChargedConfigureLiveReplayFunction)(const void* start, unsigned si
 // More of a live replay's stream, from one thread; `complete` once it has all
 // of it. Zero when it takes no more (full, or not a live replay).
 typedef int (*ChargedFeedLiveReplayFunction)(const void* data, unsigned size, int complete);
+// From the same thread: a player skipped part `part` of a cutscene of the game,
+// `after` hundredths of a second into it (the server's word, beside the stream).
+typedef void (*ChargedFeedLiveSkipFunction)(unsigned part, unsigned after);
 
 #ifdef __cplusplus
 }

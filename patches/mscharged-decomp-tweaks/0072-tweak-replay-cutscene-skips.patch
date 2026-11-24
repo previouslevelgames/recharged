@@ -1,0 +1,105 @@
+Subject: Tweak: replays skip the parts of cutscenes their players skipped
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A cutscene is no part of the fixed steps: the match stands still while it
+plays (FixedUpdateTask steps only in TASK_GAMEPLAY; a network match stops at
+the step where every machine said its cutscene was loaded), on each machine
+for as long as it lasts there. A player who skips a part the presentation's
+script marks (BeginByPass to EndByPass, numbered from 0 in each game by
+mByPassNumber) tells the other machine with NetMessageSkipNis, outside the
+steps. So a replay, or a match watched live, played every cutscene in full:
+it fell behind the players and raced through the next play to catch up.
+
+The port notes each press that counts for a part and how far into it
+(mscharged_tweak_presentation_pressed, made here or on the other machine),
+keeps that in the replay and sends it beside the live stream. A replay presses
+in the same parts as far into them, the way a press from another machine
+counts (mSkipPastByPass, which sends nothing), so the game's own rules decide
+the rest as they did for the players: a score that still counts holds the
+skip. The viewer's own presses still count. RECHARGED_TEST_CUTSCENE_SKIP=
+<seconds> presses for the local player in every part, for tests of the
+players' side, only where DetectSkipPress would take a press of that player's
+pad.
+
+diff --git a/include/mscharged_replay.h b/include/mscharged_replay.h
+index 4b66d91..86c87d4 100644
+--- a/include/mscharged_replay.h
++++ b/include/mscharged_replay.h
+@@ -51,6 +51,21 @@ void mscharged_tweak_replay_start_match(void);
+ // After the loading chose the difficulty: a recorded match notes it, a replay
+ // sets the recorded one again.
+ void mscharged_tweak_replay_difficulty(void);
++// Cutscenes (tweak patch 0072): a cutscene is no part of the steps, the
++// match stands still while it plays, so a replay presses skip in the parts of
++// them where its players did, as far into them. Presentation::Update, at each
++// update that is not paused: whether `inside` a part a player may skip, its
++// number in the game (the bypass number) and the update's time; whether to
++// press now, as its players did.
++bool mscharged_tweak_presentation_skip(bool inside, int part, float deltaT);
++// Where a player's press would count (DetectSkipPress, for a pad that may
++// skip): whether the local player presses now, in a match, for a test of the
++// players' side (RECHARGED_TEST_CUTSCENE_SKIP=<seconds> into each part).
++bool mscharged_tweak_presentation_test_press(void);
++// A press counts for part `part` now, made here or on another machine of a
++// network match (the game skips the part once nothing holds it: a score that
++// still counts); at each update until the part ends.
++void mscharged_tweak_presentation_pressed(int part);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/Game/Render/Presentation.cpp b/src/Game/Render/Presentation.cpp
+index 0650d39..9715c8c 100644
+--- a/src/Game/Render/Presentation.cpp
++++ b/src/Game/Render/Presentation.cpp
+@@ -68,6 +68,9 @@
+ #include "NL/nlTask.h"
+ #include "Game/Render/MegastrikeBackgroundOverlay.h"
+ #include "mscharged_tweaks.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_replay.h"
++#endif
+ 
+ static inline bool IsDuringGamePauseState();
+ static inline bool IsCupWinner();
+@@ -324,6 +327,12 @@ bool Presentation::DetectSkipPress()
+         {
+             continue;
+         }
++#if defined(MSCHARGED_TWEAKS)
++        if (mscharged_tweak_presentation_test_press())
++        {
++            return true;
++        }
++#endif
+         if (g_pPadManager->GetPad(i)->PlatJustReleased(7, true))
+         {
+             return true;
+@@ -523,6 +532,15 @@ void Presentation::Update(float deltaT)
+         ReplayChoreo::Instance().Update(deltaT);
+         ReplayCamera::UpdateTweakMode();
+ 
++#if defined(MSCHARGED_TWEAKS)
++        // Replays press where their players did, as a press from another
++        // machine counts (SkipPastByPass, which sends nothing).
++        if (mscharged_tweak_presentation_skip(mInsideByPass, mByPassNumber, deltaT)
++            && mSkipPastByPass < mByPassNumber)
++        {
++            mSkipPastByPass = mByPassNumber;
++        }
++#endif
+         bool skipPastByPass = false;
+         if (!mSkipPressed)
+         {
+@@ -536,6 +554,12 @@ void Presentation::Update(float deltaT)
+                 skipPastByPass = true;
+             }
+         }
++#if defined(MSCHARGED_TWEAKS)
++        if (mSkipPressed && mInsideByPass)
++        {
++            mscharged_tweak_presentation_pressed(mByPassNumber);
++        }
++#endif
+ 
+         if (mSkipPressed && mInsideByPass && !IsNumberDisplayCounting())
+         {

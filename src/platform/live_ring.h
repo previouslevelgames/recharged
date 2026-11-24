@@ -22,6 +22,7 @@ enum LiveKind : std::uint8_t
     kLiveBegin = 1, // a game's stream begins: LiveBegin
     kLiveData = 2,  // its next bytes: its replay stream (match_replay_stream.h) as it is written
     kLiveEnd = 3,   // its stream is complete
+    kLiveSkip = 4,  // a player skipped a part of a cutscene: u16 its number, u16 when (1/100 s into it)
 };
 
 // What a game's stream begins with: the game of the series it belongs to.

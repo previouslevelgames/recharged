@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 // Watching an online match as it is played: the WFC server's dashboard hands
@@ -46,7 +47,9 @@ public:
                      std::string& error);
     // From now on the game's further bytes go to `feed` (the module's), from
     // the reader's thread; the bytes WaitForGame gave are not given again.
-    void Feed(ChargedFeedLiveReplayFunction feed);
+    // The parts of cutscenes its players skipped go to `skip`, those that came
+    // before too.
+    void Feed(ChargedFeedLiveReplayFunction feed, ChargedFeedLiveSkipFunction skip = nullptr);
     // A later game of the match began; the match is over (the server ended
     // the stream); the connection broke or the server refused it.
     bool NextGame() const { return next_game_; }
@@ -70,6 +73,9 @@ private:
     std::size_t given_ = 0;
     bool complete_ = false;
     ChargedFeedLiveReplayFunction feed_ = nullptr;
+    ChargedFeedLiveSkipFunction skip_ = nullptr;
+    // The game's skips (part, when) before Feed.
+    std::vector<std::pair<unsigned, unsigned>> skips_;
     std::string error_;
     std::atomic<bool> next_game_{false};
     std::atomic<bool> over_{false};

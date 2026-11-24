@@ -77,6 +77,7 @@ inline constexpr int kMaxEventSize = 32;   // DetermDataEvent's data
 inline constexpr int kMaxEvents = 255;     // per packet
 inline constexpr int kMaxDataSize = 300;   // the router's serialized network message
 inline constexpr std::uint32_t kCheckpointSteps = 25;
+inline constexpr int kMaxSkips = 128;      // parts of cutscenes skipped, per game
 
 // What the match starts from: the game's own recorded configuration
 // (RecordedGameConfig) and what the port adds so that the match is the same
@@ -144,6 +145,17 @@ struct Setup
     // game's clock) and the game of the series, from 1; 0 outside one.
     std::int64_t series = 0;
     std::int32_t series_game = 0;
+    // The parts of cutscenes a player skipped (the presentation's bypass
+    // numbers, from 0 in each game) and when, in hundredths of a second after
+    // each part began: a replay skips them too, as far into them. A cutscene
+    // is no part of the steps: the match stands still while it plays.
+    struct Skip
+    {
+        std::uint16_t section = 0;
+        std::uint16_t after = 0;
+    };
+    std::uint16_t skip_count = 0;
+    Skip skips[kMaxSkips] = {};
 };
 
 // One machine's packet of a step, as the recorder reads it back.
@@ -183,7 +195,8 @@ public:
     // the steps written so far, which only grow until Finish or Clear: what a
     // live stream sends while the match is played.
     // `live`: no steps counted (a live stream's start comes after its first
-    // step; its count and score come only with the replay's file).
+    // step; its count and score come only with the replay's file) and no
+    // skips (they go beside the stream, as they happen).
     void StartBytes(Bytes& out, bool live = false) const;
     const Bytes& StepBytes() const { return steps_; }
     // The stream (setup, then the steps); the writer is empty again.

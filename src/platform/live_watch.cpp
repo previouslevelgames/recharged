@@ -13,7 +13,7 @@ namespace mscharged::platform
 namespace
 {
 // The server's frames (src/streams.rs there).
-constexpr std::uint8_t kFrameKeepalive = 0, kFrameGame = 1, kFrameData = 2, kFrameEnd = 3;
+constexpr std::uint8_t kFrameKeepalive = 0, kFrameGame = 1, kFrameData = 2, kFrameEnd = 3, kFrameSkip = 4;
 // A frame larger than this is no frame of the server's.
 constexpr std::size_t kMostFrame = 16u << 20;
 constexpr int kConnectTimeout = 5000;
@@ -55,10 +55,14 @@ bool LiveWatch::WaitForGame(std::chrono::milliseconds timeout, int& game, std::v
     return false;
 }
 
-void LiveWatch::Feed(ChargedFeedLiveReplayFunction feed)
+void LiveWatch::Feed(ChargedFeedLiveReplayFunction feed, ChargedFeedLiveSkipFunction skip)
 {
     std::lock_guard lock(mutex_);
     feed_ = feed;
+    skip_ = skip;
+    if (skip_)
+        for (const auto& [part, after] : skips_) skip_(part, after);
+    skips_.clear();
     if (!feed_) return;
     if (bytes_.size() > given_ || complete_)
         feed_(bytes_.data() + given_, unsigned(bytes_.size() - given_), complete_ ? 1 : 0);
@@ -97,6 +101,13 @@ void LiveWatch::Frame(std::uint8_t kind, const std::uint8_t* data, std::size_t s
         }
         else
             bytes_.insert(bytes_.end(), data, data + size);
+    }
+    else if (kind == kFrameSkip && size >= 4 && game_ && !next_game_)
+    {
+        // A player skipped a part of a cutscene: its number, and when.
+        const unsigned part = data[0] | data[1] << 8, after = data[2] | data[3] << 8;
+        if (skip_) skip_(part, after);
+        else if (skips_.size() < 512) skips_.emplace_back(part, after);
     }
     else if (kind == kFrameEnd && game_ && !next_game_)
     {

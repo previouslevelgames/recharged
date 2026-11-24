@@ -17,6 +17,10 @@ namespace
 {
 using Clock = std::chrono::steady_clock;
 constexpr const char* kStreamsPath = "/api/v1/wfc/streams";
+// Where a part of a cutscene the player skipped goes (a server before 1.2.28
+// has none: 404/405), and the tries a skip gets.
+constexpr const char* kSkipsPath = "/api/v1/wfc/streams/skips";
+constexpr int kSkipAttempts = 3;
 constexpr const char* kReplaysPath = "/api/v1/wfc/replays";
 // What one Take copies at most (room for any message, live_ring.h).
 constexpr std::size_t kTakeBytes = 64u << 10;
@@ -138,6 +142,13 @@ struct OnlineReplays::Live
     int attempts = 0;
     Clock::time_point retry_at{}, progress_at{};
     bool announced = false;
+    // The parts of cutscenes skipped (number, hundredths of a second into it)
+    // and those said so, one request at a time.
+    std::vector<std::pair<std::uint16_t, std::uint16_t>> skips;
+    std::size_t skips_said = 0;
+    OnlineReplaysRequest skip_request;
+    int skip_attempts = 0;
+    Clock::time_point skip_retry_at{};
 };
 
 struct OnlineReplays::Upload
@@ -201,6 +212,7 @@ bool OnlineReplays::Tick()
     int unconfirmed = 0;
     if (take_) take_(nullptr, 0, &stopped, &unconfirmed);
     SendLive(unconfirmed);
+    SendSkips();
     SendReplays();
     return (live_ && live_->state != Live::State::Done) || !uploads_.empty();
 }
@@ -239,6 +251,9 @@ void OnlineReplays::Drain()
                 else
                     live_->bytes.append(reinterpret_cast<const char*>(message.data), message.size);
             }
+            else if (message.kind == replay::kLiveSkip && message.size >= 4 && live_->skips.size() < 512)
+                live_->skips.emplace_back(std::uint16_t(message.data[0] | message.data[1] << 8),
+                                          std::uint16_t(message.data[2] | message.data[3] << 8));
             else if (message.kind == replay::kLiveEnd)
             {
                 live_->complete = true;
@@ -361,6 +376,49 @@ void OnlineReplays::SendLive(int unconfirmed)
     }
     if (status < 0 && !live.ended) return reconnect();
     give_up("the server refused it, HTTP " + std::to_string(status) + (body.empty() ? "" : ": " + body.substr(0, 120)));
+}
+
+// A part of a cutscene the player skipped goes to the server at once, beside
+// the stream: the match stands still while a cutscene plays, and each machine
+// plays it as long as it lasts there, so the server's spectators skip it too.
+void OnlineReplays::SendSkips()
+{
+    if (!live_ || skips_off_) return;
+    Live& live = *live_;
+    if (live.skips_said >= live.skips.size() || !live.announced) return;
+    const auto now = Clock::now();
+    auto next = [&] {
+        ++live.skips_said;
+        live.skip_attempts = 0;
+    };
+    auto again = [&] {
+        live.skip_request.Close();
+        live.skip_retry_at = now + limits_.retry;
+        if (++live.skip_attempts >= kSkipAttempts) next();
+    };
+    if (!live.skip_request.IsOpen())
+    {
+        if (now < live.skip_retry_at) return;
+        const auto [part, after] = live.skips[live.skips_said];
+        const std::string target = std::string(kSkipsPath) + "?profile_id=" + std::to_string(live.begin.profile_id)
+            + "&series=" + std::to_string(live.series) + "&game=" + std::to_string(live.begin.game)
+            + "&section=" + std::to_string(part) + "&after=" + std::to_string(after);
+        std::string error;
+        if (!live.skip_request.Open(server_, Head(server_, target, "Content-Length: 0\r\n"), error)) return again();
+    }
+    if (live.skip_request.Write(limits_.live_per_tick) < 0) return again();
+    std::string body;
+    const int status = live.skip_request.Answer(body);
+    if (!status) return;
+    live.skip_request.Close();
+    if (status == 404 || status == 405)
+    {
+        skips_off_ = true;
+        if (log_) log_("Live stream: the server passes no cutscene skips on (it predates them)");
+        return;
+    }
+    if (status < 0) return again();
+    next();
 }
 
 void OnlineReplays::SendReplays()

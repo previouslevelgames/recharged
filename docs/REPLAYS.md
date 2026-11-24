@@ -60,6 +60,10 @@ from a file does not open the launcher again.
 A replay never reads or writes your save. A Cup match plays back as a
 single match, so watching it does not change your Cup.
 
+Cutscenes play as the players saw them: a part of one a player skipped
+(a goal's celebration, its replay) is skipped in the replay too, at the same
+moment.
+
 ### The game image a replay needs
 
 A replay plays only with the release and revision of the game it was
@@ -163,6 +167,7 @@ A `.msc` file is little-endian:
 | rest | The match data, compressed with zlib |
 
 A reader skips header bytes it does not know, so later versions can add to
-the header. The match data begin with the setup, then one record per game
-step: one byte when no input changed, otherwise only the bytes that changed,
-and every 25 steps the checksum and seed the replay is compared with.
+the header. The match data begin with the setup (which also lists the parts of
+cutscenes the players skipped, and when), then one record per game step: one
+byte when no input changed, otherwise only the bytes that changed, and every
+25 steps the checksum and seed the replay is compared with.

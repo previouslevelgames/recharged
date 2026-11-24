@@ -41,6 +41,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <utility>
@@ -158,6 +159,19 @@ int sStalledFrames = 0;
 // The steps the replay has waited for this computer's loading (StillLoading).
 int sLoadWait = 0;
 
+// Cutscenes (tweak patch 0072): the part of one a player may skip now (-1
+// none), how long it has played, whether the test or the replay pressed in it,
+// and whether its press was noted.
+int sPart = -1;
+float sPartTime = 0.0f;
+bool sPartPressed = false;
+bool sPartNoted = false;
+// A replay: the parts of cutscenes its players skipped, by number, each as
+// when (hundredths of a second into it) plus one; 0 not skipped. The live
+// replay's reader thread adds those the server passes on.
+constexpr int kMostParts = 512;
+std::atomic<std::uint32_t> sSkipAt[kMostParts];
+
 GameInfoManager* Info()
 {
     return GameInfoManager::Instance();
@@ -176,6 +190,35 @@ bool StillLoading()
     for (Nis* nis : NisPlayer::Instance()->mLoaded)
         if (nis && nis->mScriptStarted && nis->IsLoading()) return true;
     return false;
+}
+
+// RECHARGED_TEST_CUTSCENE_SKIP: the seconds after which the local player
+// skips every part of a cutscene, as if pressed (tests of the players' side);
+// below 0 off.
+float TestSkipAfter()
+{
+    static const float after = [] {
+        const char* value = std::getenv("RECHARGED_TEST_CUTSCENE_SKIP");
+        if (!value || !*value) return -1.0f;
+        char* end = nullptr;
+        const float seconds = std::strtof(value, &end);
+        return end != value && seconds >= 0.0f && seconds < 600.0f ? seconds : -1.0f;
+    }();
+    return after;
+}
+
+void ClearSkips()
+{
+    for (auto& at : sSkipAt) at.store(0, std::memory_order_relaxed);
+}
+
+// A part a replay's players skipped `after` hundredths of a second into it;
+// the first word on it stays.
+void NoteSkip(unsigned part, unsigned after)
+{
+    if (part >= unsigned(kMostParts)) return;
+    std::uint32_t none = 0;
+    sSkipAt[part].compare_exchange_strong(none, std::min(after, 65535u) + 1, std::memory_order_relaxed);
 }
 
 void Log(const char* text)
@@ -731,6 +774,74 @@ void mscharged_tweak_replay_difficulty(void)
     }
 }
 
+// Each presentation update that is not paused: the part of a cutscene a player
+// may skip now and how long it has played. A replay presses in a part where
+// its players did, once it has played as long.
+bool mscharged_tweak_presentation_skip(bool inside, int part, float deltaT)
+{
+    if (!inside)
+    {
+        sPart = -1;
+        return false;
+    }
+    if (part != sPart)
+    {
+        sPart = part;
+        sPartTime = 0.0f;
+        sPartPressed = sPartNoted = false;
+    }
+    else if (deltaT > 0.0f && deltaT < 0.5f)
+        sPartTime += deltaT;
+    if (!sPlaying || part < 0 || part >= kMostParts) return false;
+    const std::uint32_t at = sSkipAt[part].load(std::memory_order_relaxed);
+    if (!at || sPartTime * 100.0f + 0.5f < float(at - 1)) return false;
+    if (!sPartPressed)
+    {
+        sPartPressed = true;
+        char line[96];
+        std::snprintf(line, sizeof line, "presses skip in part %d of a cutscene %.2f s in, as its players did", part,
+                      double(sPartTime));
+        Log(line);
+    }
+    return true;
+}
+
+// Where a press of a pad that may skip would count: the test's press, once a
+// part, in a match.
+bool mscharged_tweak_presentation_test_press(void)
+{
+    const float test = TestSkipAfter();
+    if (sPlaying || test < 0.0f || sPart < 0 || sPartPressed || sPartTime < test) return false;
+    sPartPressed = true;
+    return true;
+}
+
+// A press counts for `part` (made here or on the other machine): a recorded
+// match keeps when, once a part, and its live stream says so at once (beside
+// its steps: the match stands still while the cutscene plays, and each
+// machine plays it as long as it lasts there).
+void mscharged_tweak_presentation_pressed(int part)
+{
+    if (sPlaying || part < 0 || part > 0xFFFF || part != sPart || sPartNoted) return;
+    sPartNoted = true;
+    const unsigned after = unsigned(std::min(sPartTime * 100.0f, 65535.0f));
+    if (sWriter.Active())
+    {
+        Setup& setup = sWriter.EditSetup();
+        bool known = false;
+        for (unsigned n = 0; n < setup.skip_count && !known; ++n) known = setup.skips[n].section == part;
+        if (!known && setup.skip_count < kMaxSkips)
+            setup.skips[setup.skip_count++] = {std::uint16_t(part), std::uint16_t(after)};
+    }
+    if (sLiveEnabled && sNetwork && sLiveBegun && sLiveBroken.load(std::memory_order_relaxed) != sLiveStream)
+    {
+        const std::uint8_t skip[4] = {std::uint8_t(part), std::uint8_t(part >> 8), std::uint8_t(after),
+                                      std::uint8_t(after >> 8)};
+        // One that does not fit is lost: spectators then catch up instead.
+        sLive.Put(kLiveSkip, sLiveStream, skip, sizeof skip);
+    }
+}
+
 // Host entry (before original main): whether matches are recorded.
 __attribute__((visibility("default"))) void charged_configure_replays(int record)
 {
@@ -753,6 +864,9 @@ __attribute__((visibility("default"))) int charged_configure_replay(const void* 
     sStatus = ChargedReplayStatus{};
     sStatus.playing = 1;
     sStatus.total = sReader.GetSetup().steps;
+    ClearSkips();
+    const Setup& setup = sReader.GetSetup();
+    for (unsigned n = 0; n < setup.skip_count; ++n) NoteSkip(setup.skips[n].section, setup.skips[n].after);
     return 1;
 }
 
@@ -811,6 +925,7 @@ __attribute__((visibility("default"))) int charged_configure_live_replay(const v
     sStatus = ChargedReplayStatus{};
     sStatus.playing = 1;
     sStatus.live = 1;
+    ClearSkips();
     return 1;
 }
 
@@ -824,6 +939,14 @@ __attribute__((visibility("default"))) int charged_feed_live_replay(const void* 
     sLiveSize.store(at + size, std::memory_order_release);
     if (complete) sLiveComplete.store(true, std::memory_order_release);
     return 1;
+}
+
+// Host entry, from the live replay's reader thread: a player skipped part
+// `part` of a cutscene `after` hundredths of a second into it (the server's
+// word, beside the stream).
+__attribute__((visibility("default"))) void charged_feed_live_skip(unsigned part, unsigned after)
+{
+    if (sLiveReplay) NoteSkip(part, after);
 }
 
 __attribute__((visibility("default"))) unsigned charged_take_replay(void* out, unsigned capacity)
