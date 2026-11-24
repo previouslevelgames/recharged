@@ -6,6 +6,10 @@
 namespace mscharged::platform
 {
 // Nothing is ever armed: the game ends its session log itself.
+void ArmLauncherReopen(const std::filesystem::path&, int, char**, bool) {}
+bool LauncherReopenKnown() { return false; }
+void SetLauncherReopen(bool) {}
+bool LauncherReopenOn() { return false; }
 bool ReopenLauncher(const char*)
 {
     return false;

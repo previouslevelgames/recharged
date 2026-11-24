@@ -152,8 +152,9 @@ bool TcpClient::Connect(const std::string& server, int timeout_ms, std::string& 
         fcntl(candidate, F_SETFD, FD_CLOEXEC);
         setsockopt(candidate, SOL_SOCKET, SO_SNDBUF, &kSendBuffer, sizeof kSendBuffer);
 #ifdef SO_NOSIGPIPE
-        const int one = 1;
-        setsockopt(candidate, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+        // macOS: a closed connection fails the write instead of raising SIGPIPE.
+        const int no_sigpipe = 1;
+        setsockopt(candidate, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof no_sigpipe);
 #endif
         // Background traffic, where the system lets a program mark it.
         if (address->ai_family == AF_INET)
