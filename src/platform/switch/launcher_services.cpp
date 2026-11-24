@@ -10,6 +10,7 @@ void ArmLauncherReopen(const std::filesystem::path&, int, char**, bool) {}
 bool LauncherReopenKnown() { return false; }
 void SetLauncherReopen(bool) {}
 bool LauncherReopenOn() { return false; }
+void ReopenWithReplay(const std::filesystem::path&) {}
 bool ReopenLauncher(const char*)
 {
     return false;

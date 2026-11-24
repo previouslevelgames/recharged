@@ -15,6 +15,12 @@ bool LauncherReopenKnown();
 void SetLauncherReopen(bool on);
 bool LauncherReopenOn();
 
+// A live match being watched goes on with its next game: when the game
+// closes, this program starts again with `replay` (the watch ticket) alone, as
+// opening the file would, whatever its own arguments were (a link the system
+// handed the launcher, macOS).
+void ReopenWithReplay(const std::filesystem::path& replay);
+
 // Call where the game closes normally, in place of the session's last log
 // line. Nothing armed (or the program is gone): returns false, and the caller
 // ends its log as usual. Armed: ends the session log with `reason` and starts

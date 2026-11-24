@@ -3259,7 +3259,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // The match's next game: this program starts again with the
                 // ticket and watches it from its start.
                 if(liveWatch && liveWatch->NextGame()) {
-                    mscharged::platform::SetLauncherReopen(true);
+                    mscharged::platform::ReopenWithReplay(launch.replay_path);
                     if(hostOverlay)hostOverlay->ShowMessage(texts::T("menus.messages.watch_next_game"),now);
                 } else if(liveWatch && hostOverlay)
                     hostOverlay->ShowMessage(texts::T("menus.messages.watch_over"),now);

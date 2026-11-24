@@ -307,6 +307,7 @@ endif()
 add_library(charged_host STATIC
     src/bootstrap/config.cpp
     src/bootstrap/launch_options.cpp
+    src/bootstrap/watch_link.cpp
     src/platform/disc.cpp
     src/platform/disc_message_images.cpp
     src/platform/game_release.cpp

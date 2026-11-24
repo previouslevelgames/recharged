@@ -106,8 +106,14 @@ if(BUILD_TESTING)
 endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Texts.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/GameOverlay.cmake")
+if(BUILD_TESTING)
+    add_executable(watch_links_tests tests/watch_links.cpp src/platform/watch_link_handler.cpp)
+    target_include_directories(watch_links_tests PRIVATE src)
+    target_compile_features(watch_links_tests PRIVATE cxx_std_17)
+    add_test(NAME watch_links COMMAND watch_links_tests)
+endif()
 add_executable(mscharged src/launcher/main.cpp src/launcher/release_notes_view.cpp
-    src/launcher/competitive_service.cpp)
+    src/launcher/competitive_service.cpp src/platform/watch_link_handler.cpp)
 # The program players start: recharged (recharged.exe). The target keeps its old name.
 # On Windows it is a Windows (GUI) program, so no console opens with it (#61).
 set_target_properties(mscharged PROPERTIES OUTPUT_NAME recharged WIN32_EXECUTABLE TRUE)

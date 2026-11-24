@@ -11,6 +11,8 @@
 #include "bootstrap/antialiasing.h"
 #include "bootstrap/display_shape.h"
 #include "bootstrap/launch_options.h"
+#include "bootstrap/watch_link.h"
+#include "platform/watch_link_handler.h"
 #include "bootstrap/graphics_backend.h"
 #include "bootstrap/table_texts.h"
 #include "bootstrap/texts.h"
@@ -874,6 +876,10 @@ public:
         image_cache_ = LoadImageCache(library_data_ / "library.json");
         page_ = options_.page;
         capture_ = options_.smoke_test || !options_.screenshot.empty();
+        // The WFC server's Watch button opens this program (recharged:// links).
+        if (!capture_)
+            if (const auto line = platform::RegisterWatchLinks(InstalledLauncher(base_)); !line.empty())
+                platform::SessionLogLine(line);
         // --replay: the launcher starts it once it found the image it needs;
         // other starts from this launcher play as usual.
         if (options_.launch.replay)
@@ -1025,7 +1031,18 @@ public:
                 // A dropped replay plays; on the Extras page a dropped texture
                 // pack is added; anything else is a game image or folder, as
                 // on the other pages.
-                if (event.type == SDL_EVENT_DROP_FILE && event.drop.data
+                // A watch link the system hands over (macOS: the Watch button
+                // of the WFC server's dashboard): its ticket plays like a replay.
+                if (event.type == SDL_EVENT_DROP_FILE && event.drop.data && IsWatchLink(event.drop.data))
+                {
+                    std::string error;
+                    const auto ticket = WriteWatchLinkTicket(event.drop.data, fs::temp_directory_path(), error);
+                    if (ticket.empty())
+                        Notice(texts::T("launcher.replay.unreadable", {{"error", error}}), NoticeKind::Error);
+                    else if (config_ok_)
+                        AskReplay(ticket);
+                }
+                else if (event.type == SDL_EVENT_DROP_FILE && event.drop.data
                     && replay::IsReplayFile(PathFromUtf8(event.drop.data)))
                 {
                     if (config_ok_) AskReplay(PathFromUtf8(event.drop.data));

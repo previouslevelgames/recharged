@@ -1,4 +1,5 @@
 #include "bootstrap/launch_options.h"
+#include "bootstrap/watch_link.h"
 #include "platform/path.h"
 #include <cctype>
 #include <charconv>
@@ -45,6 +46,16 @@ bool ParseLaunchOption(int argc, const char* const* argv, int& index, LaunchOpti
     if (token == "--fullscreen") { options.fullscreen = true; return true; }
     if (token == "--no-tweaks") { options.no_tweaks = true; return true; }
     if (token == "--training") { options.training = true; return true; }
+    // A watch link (the WFC server's Watch button): its ticket, as a file in
+    // the temporary folder, plays like a replay file.
+    if (IsWatchLink(token))
+    {
+        std::string error;
+        const auto ticket = WriteWatchLinkTicket(token, std::filesystem::temp_directory_path(), error);
+        if (ticket.empty()) throw std::invalid_argument(error);
+        options.replay = ticket;
+        return true;
+    }
     // A replay file alone, as opening it with Recharged passes it.
     if (token.size() > 4 && token.substr(0, 1) != "-")
     {

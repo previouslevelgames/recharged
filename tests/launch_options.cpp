@@ -308,6 +308,26 @@ int main()
         std::ofstream(root / "package/mscharged.ini") << "[game]\ndisc = changed.rvz\n";
         Check(Read(DefaultConfigPath(root / "package/bin")) == "[game]\ndisc = old.rvz\n",
             "recharged.ini replaced by older settings");
+        // A watch link (the WFC server's Watch button): its ticket file, played
+        // like a replay; links a browser mangles a little still read.
+        {
+            const auto watched = Parse({"recharged", "recharged://watch/4553?ticket=00ff12&release=R4QE"});
+            Check(watched.replay && watched.replay->filename() == "watch-match-4553.msc"
+                && watched.replay->parent_path() == fs::temp_directory_path(), "A watch link is no ticket file");
+            const std::string header = "{\"match\": 4553, \"ticket\": \"00ff12\", \"release\": \"R4QE\"}";
+            std::string expected = std::string("MSCRPLY\x1a\x02\x00", 10);
+            expected += char(header.size());
+            expected += '\0';
+            Check(Read(*watched.replay) == expected + header, "The watch ticket file is not the dashboard's");
+            Check(Parse({"recharged", "Recharged:watch/4553/?release=R4QE&x=1&ticket=00ff12"}).replay->filename()
+                    == "watch-match-4553.msc", "A watch link with a slash, another order and case is refused");
+            fs::remove(*watched.replay);
+            for (const char* bad : {"recharged://watch/?ticket=00&release=R4QE", "recharged://watch/12?ticket=0G&release=R4QE",
+                                    "recharged://watch/12?ticket=00&release=R4", "recharged://play/12?ticket=00&release=R4QE",
+                                    "recharged://watch/012?ticket=00&release=R4QE", "recharged://watch/12x?ticket=00&release=R4QE",
+                                    "recharged://watch/12?release=R4QE"})
+                Reject([&] { Parse({"recharged", bad}); });
+        }
         fs::current_path(previous_directory);
         fs::remove_all(root);
         std::cout << checks << " launch parsing, precedence, provenance, path and no-write checks passed.\n";
