@@ -29,16 +29,19 @@ constexpr float kSlowAbove = 0.75f;      // ahead of the others by more than thi
 constexpr float kSlowUntil = 0.25f;      // until within this
 constexpr float kSlowdown = 0.1f;        // of each frame's time taken from the fixed steps while slowing
 
-// Match replays: what the router read before each step's last run (its frame
-// is the step's less one), by step, and the next step the recording takes
-// (0: the next step the router prepares). A step a rollback ran again has
-// the checksum and seed its step before left behind instead (rerun).
+// Match replays: what the router read before each step's run (its frame is
+// the step's less one), by step, and the next step the recording takes (0:
+// the next step the router prepares). While the rollback follows the match,
+// the checksum and seed its step before left behind as it ran last are
+// recorded instead: the router computes its checksum once per game frame, so
+// after a rollback that redid the frame's state without moving to another
+// frame it still holds the one from before (a replay then found a few
+// recorded checkpoints that the match never had).
 struct Before
 {
     unsigned frame = ~0u;
     unsigned checksum = 0;
     unsigned seed = 0;
-    bool rerun = false;
 };
 Before sBefore[kInputRing];
 unsigned sRecordNext = 0;
@@ -391,12 +394,6 @@ bool CanPredict(unsigned frame)
 }
 } // namespace
 
-void NoteReplayedStep(unsigned frame)
-{
-    Before& before = sBefore[frame % kInputRing];
-    if (before.frame == frame) before.rerun = true;
-}
-
 // Every step whose inputs, and every earlier step's, have all arrived goes to
 // the recording, in order: no rollback runs it again. While the rollback does
 // not track the match, its steps wait for their inputs (lockstep): each is
@@ -420,14 +417,16 @@ void RecordFinalSteps()
             return;
         }
         unsigned checksum = before.checksum, seed = before.seed;
-        if (before.rerun)
+        // The rollback's own save of the step before, while it still vouches
+        // for it: saved by the tracking now running (before any tracking the
+        // ring is zero, which reads as frame 0; a set's next game starts its
+        // frames again) and not undone since (beyond latest: it runs again).
+        const Step& previous = s.steps[(frame - 1) % kRing];
+        if (s.active && previous.frame == frame - 1 && frame - 1 >= s.trackingFrom && frame - 1 <= s.latest
+            && !s.options.poses)
         {
-            const Step& previous = s.steps[(frame - 1) % kRing];
-            if (previous.frame == frame - 1)
-            {
-                checksum = previous.checksum;
-                seed = previous.seed;
-            }
+            checksum = previous.checksum;
+            seed = previous.seed;
         }
         for (int machine = 0; machine < inputs.machineCount; ++machine)
         {
@@ -880,7 +879,7 @@ extern "C" void mscharged_rollback_input_ready(void)
     // A step undone and run again: the inputs that arrived for it then.
     const bool again = kept.frame == frame;
     // Match replays: the router's checksum and seed before this run.
-    sBefore[frame % kInputRing] = {frame, router->mCurrentCRC, GetNetworkRandomSeed(), false};
+    sBefore[frame % kInputRing] = {frame, router->mCurrentCRC, GetNetworkRandomSeed()};
     if (!sRecordNext && mscharged::replay::RecordingNetworkMatch()) sRecordNext = frame;
     StepInputs step{};
     step.frame = frame;

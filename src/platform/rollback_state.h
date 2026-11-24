@@ -513,7 +513,6 @@ void UpdateConfirmed();
 void NetplayFrameStart();
 // Match replays (match_replay_network.h): a step a rollback runs again, and
 // the steps whose inputs have all arrived, handed to the recording.
-void NoteReplayedStep(unsigned frame);
 void RecordFinalSteps();
 bool OverlayNumbers(int& delay, int& predicted);
 NetCounts NetCountsNow();
