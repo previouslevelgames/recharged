@@ -608,6 +608,7 @@ void Run(const ChargedMenuCommand& command)
         // As the globe's press (SHMainMenu::SelectItem: its checks, the
         // save's load, the Mii selection and the login follow).
         if (SHMainMenu* menu = RestingMainMenu()) {
+            ChargedCompetitiveSameMii(command.value != 0);
             sPassMainOnline = true;
             menu->SelectItem(gFEControllerIndex,
                              reinterpret_cast<void*>(static_cast<std::intptr_t>(MAIN_MENU_ONLINE)));

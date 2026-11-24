@@ -321,11 +321,11 @@ void HostMenus::ServiceTournament(Clock::time_point now)
         } else if (menu_.main_menu && tournament_ == TournamentWay::None && pages_.empty() && !prompt_) {
             // The game left the online menus with the match (a forfeit's
             // lost connection): in again through WII ONLINE, as TOURNAMENT
-            // from the main menu goes.
+            // from the main menu goes, with the Mii that played the set.
             tournamentReturn_.reset();
             platform::SessionLogLine("Menus: TOURNAMENT back in the trophy room after the set, through WII ONLINE");
             tournamentOwn_ = true;
-            Command(CHARGED_MENU_WII_ONLINE);
+            Command(CHARGED_MENU_WII_ONLINE, 0, 1);
             Tournament(TournamentWay::Login);
         }
     }

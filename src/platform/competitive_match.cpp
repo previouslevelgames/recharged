@@ -102,6 +102,12 @@ bool sRankedWalk = false;
 constexpr u32 kDwcReport = 0x1 | 0x2 | 0x8 | 0x20 | 0x40 | 0x80 | 0x200 | 0x400 | 0x20000 | 0x40000;
 u32 sDwcReport = 0;
 
+// Back in through WII ONLINE after a set (ChargedCompetitiveSameMii): the Mii
+// screen chooses the Mii online last (sRejoinMii), then its card uses it.
+enum class Rejoin { None, ChooseMii, UseMii };
+Rejoin sRejoin = Rejoin::None;
+RFLCreateID sRejoinMii{};
+
 bool OnSet() { return sSetStage != CHARGED_SET_NONE; }
 
 // The ranked walk is done (the search began) or stopped: the screens and the
@@ -763,6 +769,15 @@ extern "C" void mscharged_competitive_search_back(void)
 
 bool ChargedCompetitiveWalking() { return sSetStage != CHARGED_SET_NONE; }
 
+void ChargedCompetitiveSameMii(bool on)
+{
+    sRejoin = Rejoin::None;
+    GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
+    if (!on || !info || gNetworkSaveSlotIndex < 0 || gNetworkSaveSlotIndex >= 10) return;
+    std::memcpy(&sRejoinMii, info->GetSaveSlotIdAddress(gNetworkSaveSlotIndex), sizeof sRejoinMii);
+    sRejoin = Rejoin::ChooseMii;
+}
+
 extern "C" bool mscharged_competitive_take_main_menu(void)
 {
     if (sSetStage != CHARGED_SET_BOOT || PopupOnTop()) return false;
@@ -772,6 +787,20 @@ extern "C" bool mscharged_competitive_take_main_menu(void)
 
 extern "C" int mscharged_competitive_mii_position(const int* official_indices, int count)
 {
+    if (sSetStage == CHARGED_SET_NONE && sRejoin == Rejoin::ChooseMii && !PopupOnTop())
+    {
+        u16 index = 0;
+        sRejoin = Rejoin::None;
+        if (RFLSearchOfficialData(&sRejoinMii, &index))
+            for (int position = 0; position < count; ++position)
+                if (official_indices[position] == index)
+                {
+                    sRejoin = Rejoin::UseMii;
+                    return position;
+                }
+        std::fputs("Competitive: the Mii online last is gone; the player chooses one\n", stderr);
+        return -1;
+    }
     if (sSetStage != CHARGED_SET_MII || PopupOnTop()) return -1;
     u16 index = 0;
     if (RFLSearchOfficialData(&sSetMii, &index))
@@ -793,6 +822,11 @@ extern "C" int mscharged_competitive_mii_position(const int* official_indices, i
 
 extern "C" bool mscharged_competitive_take_use(void)
 {
+    if (sSetStage == CHARGED_SET_NONE && sRejoin == Rejoin::UseMii)
+    {
+        sRejoin = Rejoin::None;
+        return true;
+    }
     if (sSetStage != CHARGED_SET_OVERLAY || PopupOnTop()) return false;
     sSetStage = CHARGED_SET_LOGIN;
     return true;
@@ -828,6 +862,7 @@ extern "C" bool mscharged_competitive_take_ranked(void)
 // it goes on into the RANKED search with the Mii in use.
 extern "C" bool mscharged_competitive_take_online_menu(void)
 {
+    sRejoin = Rejoin::None;
     if (sSetStage != CHARGED_SET_BOOT || PopupOnTop()) return false;
     if (sRankedWalk) EndRankedWalk();
     else sSetStage = CHARGED_SET_SEARCH;

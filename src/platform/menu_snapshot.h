@@ -135,7 +135,8 @@ enum ChargedMenuCommandKind
     CHARGED_MENU_RESUME = 7,    // the pause menu resumes the match (as its Resume)
     CHARGED_MENU_PRESS = 8,     // the Options' button `which` is pressed (2: Credits)
     CHARGED_MENU_BACK = 9,      // the Options go back to the main menu (as its BACK)
-    CHARGED_MENU_WII_ONLINE = 10, // the main menu's ONLINE the game's way (Mii, login, its online menu)
+    CHARGED_MENU_WII_ONLINE = 10, // the main menu's ONLINE the game's way (Mii, login, its online menu);
+                                  // `value` 1: the Mii online last is chosen and used, as the player would
     CHARGED_MENU_CURSORS = 11,  // the game hands its players' cursors over (`value` 1) or draws them (0)
     CHARGED_MENU_FORFEIT = 12,  // the online match is left, as the game leaves it when the disc lid opens
     CHARGED_MENU_MAIN_OPTIONS = 13, // the main menu's OPTIONS is pressed (the way to the Credits from there)
@@ -209,4 +210,9 @@ bool ChargedMenuAnswersPopup(int popup_type);
 // the game's online screens is on; its own press of the main menu's ONLINE
 // goes the game's way.
 bool ChargedCompetitiveWalking();
+// Game module (competitive_match.cpp): `on`, the next Mii screen chooses the
+// Mii online last (its save slot, gNetworkSaveSlotIndex) and its card uses
+// it, as the player would; not on this computer, or off: the player chooses.
+// Gone once the online menu shows.
+void ChargedCompetitiveSameMii(bool on);
 #endif
