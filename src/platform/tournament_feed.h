@@ -104,6 +104,8 @@ private:
     std::int64_t readyMatch_ = 0;
     std::int64_t ownId_ = 0; // the tournament of the last READY
     int pollSeconds_ = 5;
+    // Stops a request on its way when the feed goes (the game closes).
+    std::shared_ptr<class HttpCancel> cancel_;
     std::thread thread_;
 };
 } // namespace mscharged::platform

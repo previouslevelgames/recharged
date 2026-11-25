@@ -1,5 +1,7 @@
 #include "platform/tournament_feed.h"
 
+#include "platform/http_client.h"
+
 #include <algorithm>
 #include <functional>
 #include <initializer_list>
@@ -54,7 +56,8 @@ std::unique_ptr<TournamentFeed> TournamentFeed::Start(const std::string& server_
 }
 
 TournamentFeed::TournamentFeed(std::string server, std::filesystem::path session_file, Log log)
-    : server_(std::move(server)), sessionFile_(std::move(session_file)), log_(std::move(log))
+    : server_(std::move(server)), sessionFile_(std::move(session_file)), log_(std::move(log)),
+      cancel_(std::make_shared<HttpCancel>())
 {
     thread_ = std::thread([this] { Run(); });
 }
@@ -65,6 +68,7 @@ TournamentFeed::~TournamentFeed()
         std::lock_guard lock(mutex_);
         stop_ = true;
     }
+    cancel_->Cancel();
     wake_.notify_all();
     thread_.join();
 }
@@ -167,6 +171,7 @@ void TournamentFeed::Round(Action action)
     const auto session = LoadProfileSession(sessionFile_);
     const bool signed_in = session && session->server == server_;
     ProfileService api(server_, signed_in ? session->token : std::string());
+    api.SetCancel(cancel_);
     api.SetActivity("game");
     std::string error, action_error;
     std::optional<TournamentPage> shown, own;

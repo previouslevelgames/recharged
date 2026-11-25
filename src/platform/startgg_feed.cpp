@@ -18,6 +18,7 @@ StartggFeed::~StartggFeed()
         std::lock_guard lock(mutex_);
         stop_ = true;
     }
+    source_->Cancel();
     wake_.notify_all();
     thread_.join();
 }

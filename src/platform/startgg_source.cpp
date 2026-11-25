@@ -47,6 +47,8 @@ public:
         if (!transport_) transport_ = [](const HttpRequest& request) { return HttpGet(request); };
     }
 
+    void Cancel() override { cancel_->Cancel(); }
+
     StartggAnswer Fetch(std::string_view slug) override
     {
         StartggAnswer first;
@@ -82,6 +84,7 @@ private:
         request.body = StartggEventRequest(slug, page);
         request.headers = {"Content-Type: application/json", "Authorization: Bearer " + token_};
         request.max_size = 4u << 20;
+        request.cancel = cancel_;
         try
         {
             const HttpResponse response = transport_(request);
@@ -97,6 +100,7 @@ private:
 
     std::string token_, url_;
     StartggTransport transport_;
+    std::shared_ptr<HttpCancel> cancel_ = std::make_shared<HttpCancel>();
 };
 } // namespace
 

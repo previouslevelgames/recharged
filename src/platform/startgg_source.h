@@ -20,6 +20,9 @@ public:
     virtual ~StartggSource() = default;
     // The event `slug` with all its sets (every page), or why not.
     virtual StartggAnswer Fetch(std::string_view slug) = 0;
+    // From another thread: the Fetch on its way ends now, and any after it
+    // (the feed goes).
+    virtual void Cancel() {}
 };
 
 // start.gg's GraphQL endpoint.
