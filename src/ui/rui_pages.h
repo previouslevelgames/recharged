@@ -121,8 +121,9 @@ struct PageModel
     // The game's online menu is on top at rest: TOURNAMENT goes straight into
     // the trophy room (from the globe it goes through WII ONLINE first).
     bool online_menu = false;
-    TournamentModel tournament;
-    TournamentListModel tournaments;
+    // The host's tournament pages' models, for this frame.
+    const TournamentModel* tournament = nullptr;
+    const TournamentListModel* tournaments = nullptr;
     std::string bracket_picked; // the BRACKET's set whose games are listed (its id)
     // A match against another machine runs: the game's own options stay as
     // they are (changing them would change the game on one machine only).

@@ -880,7 +880,8 @@ void DrawForfeit(const PageModel& model, List& list, PageActions& actions)
 // row that opens its page (the footer's BACK leaves the room).
 void DrawTournaments(const PageModel& model, List& list, PageActions& actions)
 {
-    const auto& tournaments = model.tournaments;
+    if (!model.tournaments) return;
+    const auto& tournaments = *model.tournaments;
     const auto open = [&](const TournamentEntry& entry) {
         actions.open = PageId::Tournament;
         actions.open_key = entry.key;
@@ -912,7 +913,8 @@ void DrawTournaments(const PageModel& model, List& list, PageActions& actions)
 // (the footer's BACK leaves the room).
 void DrawTournament(const PageModel& model, List& list, PageActions& actions)
 {
-    const auto& tournament = model.tournament;
+    if (!model.tournament) return;
+    const auto& tournament = *model.tournament;
     if (tournament.sample) list.Note(T("menus.tournament.sample"));
     if (!tournament.note.empty()) list.Note(tournament.note.c_str());
     if (tournament.has_set)
@@ -939,14 +941,15 @@ void DrawTournament(const PageModel& model, List& list, PageActions& actions)
 // main bracket above the ash bracket; the footer's BACK goes back).
 void DrawBracket(const PageModel& model, List& list, PageActions& actions)
 {
-    auto bracket = model.tournament.bracket;
+    if (!model.tournament) return;
+    auto bracket = model.tournament->bracket;
     if (bracket.empty()) list.Note(T("menus.tournament.no_sets"));
     const BracketSet* picked = nullptr;
     for (auto& set : bracket)
         if ((set.picked = !set.games.empty() && set.id == model.bracket_picked)) picked = &set;
     const bool losers =
         std::any_of(bracket.begin(), bracket.end(), [](const BracketSet& set) { return set.round < 0; });
-    const bool ash = model.tournament.ash;
+    const bool ash = model.tournament->ash;
     if (const auto pressed = list.Bracket(bracket, losers ? T(ash ? "menus.bracket.main" : "menus.bracket.winners") : nullptr,
                                           T(ash ? "menus.bracket.ash" : "menus.bracket.losers")))
         actions.bracket_pick = bracket[*pressed].id;

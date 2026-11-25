@@ -821,8 +821,8 @@ void HostMenus::BuildModel(ui::PageModel& model)
     model.prompt = prompt_ ? &*prompt_ : nullptr;
     model.from_wheel = Opened(Origin::Wheel);
     model.online_menu = menu_.online_menu != 0;
-    model.tournament = tournamentModel_;
-    model.tournaments = tournamentListModel_;
+    model.tournament = &tournamentModel_;
+    model.tournaments = &tournamentListModel_;
     model.bracket_picked = bracketPicked_;
     model.network_match = menu_.network_match != 0;
     model.forfeiting = menu_.forfeiting != 0 || forfeitAsked_;
