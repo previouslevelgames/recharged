@@ -89,6 +89,7 @@ struct TournamentEntry
 {
     std::string key;    // its id
     std::string name;
+    std::string initials; // the big card's picture
     std::string kicker; // its state ("OPEN FOR ENTRIES")
     std::string value;  // a short fact in its row ("3 of 8", "2nd")
     std::vector<std::string> lines; // the big card's

@@ -9,7 +9,6 @@
 #include "platform/competitive_rules.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cstddef>
 #include <functional>
 #include <string>
@@ -889,11 +888,7 @@ void DrawTournaments(const PageModel& model, List& list, PageActions& actions)
     if (!tournaments.note.empty()) list.Note(tournaments.note.c_str());
     if (const auto& featured = tournaments.featured)
     {
-        std::string initials;
-        for (const char c : featured->name)
-            if (std::isalnum(static_cast<unsigned char>(c)) && initials.size() < 2)
-                initials += char(std::toupper(static_cast<unsigned char>(c)));
-        const Person picture = PersonOf(model, std::string{}, initials.empty() ? "?" : initials,
+        const Person picture = PersonOf(model, std::string{}, featured->initials,
                                         std::int64_t(std::hash<std::string>{}(featured->key) & 0x7FFFFFFF), -1,
                                         std::string{});
         list.Card(&picture, featured->kicker.c_str(), featured->name.c_str(), featured->lines, featured->tone);

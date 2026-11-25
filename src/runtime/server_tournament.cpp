@@ -157,6 +157,7 @@ ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapsh
         ui::TournamentEntry entry;
         entry.key = std::to_string(t.id);
         entry.name = t.name;
+        entry.initials = TournamentInitials(t.name);
         const bool open = t.state == "registration", running = t.state == "running";
         entry.kicker = open && t.joined      ? T("menus.tournaments.yours_registration")
                        : open                ? T("menus.tournaments.registration")
@@ -276,7 +277,7 @@ ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& f
     model.opponent_known = opponent != 0 && (set->state == "ready" || set->state == "playing") && !feed.busy;
     const std::string name = opponent ? NameOf(page, opponent) : std::string();
     model.opponent = opponent ? name : std::string(T("menus.tournament.opponent_waiting"));
-    model.opponent_initials = opponent ? TournamentInitials(name) : "?";
+    model.opponent_initials = TournamentInitials(name);
     if (set->home_wins >= 0 && set->away_wins >= 0)
         model.score = set->home == you ? std::to_string(set->home_wins) + " - " + std::to_string(set->away_wins)
                                        : std::to_string(set->away_wins) + " - " + std::to_string(set->home_wins);
