@@ -339,7 +339,7 @@ void HostMenus::ServiceTournament(Clock::time_point now)
             Tournament(TournamentWay::None);
         break;
     case TournamentWay::Room:
-        if (menu_.trophy_room == CHARGED_TROPHY_ROOM_IN) {
+        if (InTrophyRoom()) {
             // A page the player opened meanwhile (F1) goes: the room has its own.
             ClearPages();
             channel_ = -1;
@@ -354,37 +354,42 @@ void HostMenus::ServiceTournament(Clock::time_point now)
     // a question of ours; the player gone elsewhere meanwhile: never mind).
     // Still in the room, its page only (below).
     const bool settled = now >= tournamentSettled_;
+    const bool inRoom = InTrophyRoom();
+    const bool idle = tournament_ == TournamentWay::None && pages_.empty() && !prompt_;
     if (tournamentReturn_ && settled) {
-        if (menu_.trophy_room == CHARGED_TROPHY_ROOM_IN) tournamentReturn_.reset();
+        if (inRoom) tournamentReturn_.reset();
         else if (now > *tournamentReturn_) {
             tournamentReturn_.reset();
             platform::SessionLogLine("Menus: TOURNAMENT not back in the trophy room (the online menu never came)");
-        } else if (menu_.online_menu && tournament_ == TournamentWay::None && pages_.empty() && !prompt_) {
+        } else if (idle && (menu_.online_menu || menu_.main_menu)) {
             tournamentReturn_.reset();
-            platform::SessionLogLine("Menus: TOURNAMENT back in the trophy room after the set");
             tournamentOwn_ = true;
-            Tournament(TournamentWay::Room);
-        } else if (menu_.main_menu && tournament_ == TournamentWay::None && pages_.empty() && !prompt_) {
-            // The game left the online menus with the match (a forfeit's
-            // lost connection): in again through WII ONLINE, as TOURNAMENT
-            // from the main menu goes, with the Mii that played the set.
-            tournamentReturn_.reset();
-            platform::SessionLogLine("Menus: TOURNAMENT back in the trophy room after the set, through WII ONLINE");
-            tournamentOwn_ = true;
-            Command(CHARGED_MENU_WII_ONLINE, 0, 1);
-            Tournament(TournamentWay::Login);
+            if (menu_.online_menu) {
+                platform::SessionLogLine("Menus: TOURNAMENT back in the trophy room after the set");
+                Tournament(TournamentWay::Room);
+            } else {
+                // The game left the online menus with the match (a forfeit's
+                // lost connection): in again through WII ONLINE, as TOURNAMENT
+                // from the main menu goes, with the Mii that played the set.
+                platform::SessionLogLine(
+                    "Menus: TOURNAMENT back in the trophy room after the set, through WII ONLINE");
+                Command(CHARGED_MENU_WII_ONLINE, 0, 1);
+                Tournament(TournamentWay::Login);
+            }
         }
     }
     // Back in the room from a set READY started (its search left): the page
     // again, once nothing else of ours shows; out of the room, never mind.
-    if (tournamentPage_ && settled && menu_.trophy_room != CHARGED_TROPHY_ROOM_IN) tournamentPage_ = false;
-    else if (tournamentPage_ && settled && pages_.empty() && !prompt_) {
-        tournamentPage_ = false;
-        channel_ = -1;
-        PushRoomPages(true);
+    if (tournamentPage_ && settled) {
+        if (!inRoom) tournamentPage_ = false;
+        else if (pages_.empty() && !prompt_) {
+            tournamentPage_ = false;
+            channel_ = -1;
+            PushRoomPages(true);
+        }
     }
     // The room left without its BACK (the online menu gone): its page goes.
-    if (Opened(Origin::TrophyRoom) && menu_.trophy_room != CHARGED_TROPHY_ROOM_IN) ClearPages();
+    if (Opened(Origin::TrophyRoom) && !inRoom) ClearPages();
 }
 
 void HostMenus::PushRoomPages(bool own)
