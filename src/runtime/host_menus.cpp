@@ -96,6 +96,9 @@ bool OnlinePage(ui::PageId id)
 // How long the game may take to leave its main menu for WII ONLINE, and to
 // take the trophy room's command, before TOURNAMENT gives up.
 constexpr auto kTournamentGiveUp = std::chrono::seconds(3);
+// How long its login to WFC may take: stopped on an error screen, the
+// player isn't taken to the room later, when they go online themselves.
+constexpr auto kTournamentLoginGiveUp = std::chrono::seconds(60);
 // Back from a set's match, how long the trophy room waits for the game's
 // online menu (its results and saves come first); its search left, how long
 // the player may stay on the game's screens it left them on (shorter than a
@@ -288,9 +291,11 @@ void HostMenus::ServiceTournament(Clock::time_point now)
         else if (waited) Tournament(TournamentWay::None);
         break;
     case TournamentWay::Online:
-        // Back on the main menu (the login called off) or in a match: no room.
+        // Back on the main menu (the login called off), in a match, or the
+        // login stuck: no room.
         if (menu_.online_menu) Tournament(TournamentWay::Room);
-        else if (menu_.main_menu || !menu_.front_end) Tournament(TournamentWay::None);
+        else if (menu_.main_menu || !menu_.front_end || now - tournamentAt_ > kTournamentLoginGiveUp)
+            Tournament(TournamentWay::None);
         break;
     case TournamentWay::Room:
         if (menu_.trophy_room == CHARGED_TROPHY_ROOM_IN) {
@@ -337,7 +342,7 @@ void HostMenus::ServiceTournament(Clock::time_point now)
         channel_ = -1;
         PushRoomPages(true);
     }
-    // The room left without its BACK (the online menu gone, F7): its page goes.
+    // The room left without its BACK (the online menu gone): its page goes.
     if (Opened(Origin::TrophyRoom) && menu_.trophy_room != CHARGED_TROPHY_ROOM_IN) ClearPages();
 }
 
