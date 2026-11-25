@@ -103,7 +103,7 @@ BracketLayout LayOutBracket(const std::vector<BracketSet>& sets)
             {
                 captioned[std::size_t(c)] = true;
                 out.columns.push_back(
-                    {c, losers == 1, x + kBracketCardWidth * 0.5f, top + kBracketHead * 0.72f, sets[n].round_text});
+                    {c, x + kBracketCardWidth * 0.5f, top + kBracketHead * 0.72f, sets[n].round_text});
             }
         }
         out.width = std::max(out.width, float(rounds.size()) * (kBracketCardWidth + kBracketColumnGap)

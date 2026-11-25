@@ -66,7 +66,6 @@ struct BracketCell
 struct BracketColumn
 {
     int column;
-    bool losers;
     float x, y; // its caption's middle
     std::string caption;
 };
