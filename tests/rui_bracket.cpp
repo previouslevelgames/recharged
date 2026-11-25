@@ -78,7 +78,7 @@ bool Crossing(const BracketCell& a, const BracketCell& b, const BracketCell& c, 
 
 void NoCrossings()
 {
-    // start.gg's order is not the bracket's: the final takes s2 first, the
+    // The sets' order is not the bracket's: the final takes s2 first, the
     // semi-finals take the quarter-finals out of their order.
     const std::vector<BracketSet> sets{Set("q1", 1), Set("q2", 1), Set("q3", 1), Set("q4", 1),
                                        Set("sA", 2, "q1", "q3"), Set("sB", 2, "q4", "q2"), Set("f", 3, "sB", "sA")};

@@ -499,58 +499,6 @@ Settings Decode(const Values& values, bool builtin = false)
         throw std::runtime_error("Invalid configuration: online.rollback_log contains a line break or NUL");
     if (s.online_server.find_first_of("\r\n") != std::string::npos || s.online_server.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: the online server redirect contains a line break or NUL");
-    for (const auto& [key, value] : {std::pair{"startgg.event", &s.startgg_event}, {"startgg.user", &s.startgg_user},
-                                     {"startgg.dev_token", &s.startgg_dev_token}, {"startgg.file", &s.startgg_file},
-                                     {"startgg.api", &s.startgg_api}})
-    {
-        const auto it = values.find(key);
-        if (it == values.end()) continue;
-        if (it->second.find_first_of("\r\n") != std::string::npos || it->second.find('\0') != std::string::npos)
-            throw std::runtime_error(std::string("Invalid configuration: ") + key + " contains a line break or NUL");
-        *value = it->second;
-    }
-    // A start.gg user: its id (digits) or its profile's discriminator, also
-    // as its link's user/<discriminator>; or an entrant as entrant/<id> (one
-    // entered by name has no user). Kept in lowercase; false when it is none.
-    const auto startggUser = [](std::string& user) {
-        if (user.rfind("user/", 0) == 0) user.erase(0, 5);
-        for (auto& c : user) c = char(std::tolower(static_cast<unsigned char>(c)));
-        if (user.rfind("entrant/", 0) == 0)
-            return user.size() > 8 && user.find_first_not_of("0123456789", 8) == std::string::npos;
-        return !user.empty() && user.find_first_not_of("0123456789abcdefghijklmnopqrstuvwxyz") == std::string::npos;
-    };
-    if (!s.startgg_user.empty() && !startggUser(s.startgg_user))
-        throw std::runtime_error("Invalid configuration: startgg.user is not a start.gg user (its id, its "
-                                 "discriminator as in user/<discriminator>, or entrant/<id>)");
-    // The opponents' WFC profiles: "<user>:<profile id>", apart by commas.
-    if (const auto it = values.find("startgg.players"); it != values.end())
-    {
-        const std::string& list = it->second;
-        for (std::size_t start = 0; start <= list.size();)
-        {
-            std::size_t end = list.find(',', start);
-            if (end == std::string::npos) end = list.size();
-            std::string entry = list.substr(start, end - start);
-            start = end + 1;
-            entry.erase(0, entry.find_first_not_of(" \t"));
-            entry.erase(entry.find_last_not_of(" \t") + 1);
-            if (entry.empty()) continue;
-            const auto bad = [&] {
-                return std::runtime_error("Invalid configuration: startgg.players' \"" + entry
-                                          + "\" is not <start.gg user>:<WFC profile id>");
-            };
-            const std::size_t colon = entry.find(':');
-            if (colon == std::string::npos) throw bad();
-            std::string user = entry.substr(0, colon), profile = entry.substr(colon + 1);
-            user.erase(user.find_last_not_of(" \t") + 1);
-            profile.erase(0, profile.find_first_not_of(" \t"));
-            if (!startggUser(user) || profile.empty() || profile.size() > 10 || profile.find_first_not_of("0123456789") != std::string::npos)
-                throw bad();
-            const unsigned long long id = std::stoull(profile);
-            if (id == 0 || id > 0xFFFFFFFFull) throw bad();
-            s.startgg_players.emplace_back(user, unsigned(id));
-        }
-    }
 
     choice("gameplay.super_team_side", s.super_team_side, {"away", "home", "both"});
     auto training = [&](const char* key, std::string& value, const auto& names) {

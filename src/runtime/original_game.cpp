@@ -105,7 +105,6 @@
 #include "runtime/host_menus.h"
 #include "runtime/mii_heads.h"
 #include "runtime/server_tournament.h"
-#include "runtime/startgg_tournament.h"
 #endif
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "launcher/match_presets.h"
@@ -3169,33 +3168,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // development switch "Override retail menus" the game's pause menu,
         // Options and the main menu's ONLINE too (declared after what their
         // callbacks use, which outlives them).
-        // The TOURNAMENT page's start.gg event ([startgg]): a saved answer
-        // (file) or start.gg itself with the player's token (never logged).
-        std::unique_ptr<mscharged::platform::StartggFeed> startggFeed;
         // (The feeds' versions start at 0: never shown, the first one is built.)
         constexpr std::uint64_t kNotShown=~std::uint64_t{0};
-        std::uint64_t startggShown=kNotShown;
-        if(!launch.settings.startgg_event.empty() || !launch.settings.startgg_file.empty()) {
-            const auto& s=launch.settings;
-            std::unique_ptr<mscharged::platform::StartggSource> source;
-            std::string from;
-            if(!s.startgg_file.empty()) {
-                auto file=mscharged::PathFromUtf8(s.startgg_file);
-                if(file.is_relative()) file=launch.config.path.parent_path()/file;
-                source=mscharged::platform::StartggFileSource(file);
-                from=" from the file "+s.startgg_file;
-            } else {
-                source=mscharged::platform::StartggHttpSource(s.startgg_dev_token,
-                    s.startgg_api.empty() ? std::string(mscharged::platform::kStartggApi) : s.startgg_api);
-                from=s.startgg_dev_token.empty() ? " (no dev_token: start.gg will refuse)" : "";
-            }
-            startggFeed=std::make_unique<mscharged::platform::StartggFeed>(std::move(source),s.startgg_event,
-                [](const std::string& text) { mscharged::platform::SessionLogLine(text); });
-            mscharged::platform::SessionLogLine("Menus: TOURNAMENT shows the start.gg event "+s.startgg_event+from
-                +(s.startgg_user.empty() ? " (no user: no next set)" : ""));
-        }
-        // Without a start.gg event, the TOURNAMENT page shows the profile
-        // server's tournament (asked on a thread of its own while the page is
+        // The TOURNAMENT page shows the profile server's tournament (asked on a thread of its own while the page is
         // open), whose sets are the server's.
         std::unique_ptr<mscharged::platform::TournamentFeed> tournamentFeed;
         std::uint64_t tournamentShown=kNotShown, tournamentListShown=kNotShown;
@@ -3209,39 +3184,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         std::string tournamentCallHeld;
         // The trophy room showed at the last look (READY holds only there).
         bool tournamentInRoom=false;
-        if(!startggFeed) {
+        {
             std::string off;
             tournamentFeed=mscharged::platform::TournamentFeed::Start(launch.settings.profile_server,
                 mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
                 [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
             if(!tournamentFeed) mscharged::platform::SessionLogLine("Menus: TOURNAMENT has no tournaments ("+off+")");
         }
-        // The start.gg set READY started (its id), until the game module's
-        // set is over, failed or left (observeStartgg).
-        std::string startggPlaying;
         std::optional<mscharged::runtime::HostMenus> hostMenus;
-        // The start.gg set READY started: once the game module's set is over
-        // (back from its match), failed or left, the set ends there and the
-        // rules go; back in the trophy room its page comes again.
-        std::chrono::steady_clock::time_point startggChecked{};
-        auto observeStartgg = [&] {
-            if(startggPlaying.empty() || !wfcSnapshot)return;
-            const auto now=std::chrono::steady_clock::now();
-            if(now-startggChecked<std::chrono::milliseconds(250))return;
-            startggChecked=now;
-            ChargedWfcSnapshot wfc{};
-            if(!wfcSnapshot(&wfc,sizeof wfc))return;
-            const char* how=wfc.set_stage==CHARGED_SET_OVER ? "back from its match"
-                : wfc.set_stage==CHARGED_SET_FAILED ? "failed"
-                : wfc.set_stage==CHARGED_SET_LEFT ? "left"
-                : wfc.set_stage==CHARGED_SET_NONE ? "stopped" : nullptr;
-            if(!how)return;
-            mscharged::platform::SessionLogLine("start.gg: set "+startggPlaying+" "+how);
-            if(endSet) endSet();
-            if(configureCompetitive) configureCompetitive(nullptr,sizeof(ChargedCompetitiveRules));
-            startggPlaying.clear();
-            if(hostMenus) hostMenus->TournamentSetDone(wfc.set_stage==CHARGED_SET_OVER);
-        };
         // A set's forfeit sent: the game leaves its match once the server
         // answered, or after a moment without an answer.
         bool forfeitWaits=false;
@@ -3267,46 +3217,6 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 model.tournament_match=model.set_match && tournamentSetOn;
             };
             menusHost.image=overlayImage;
-            // start.gg is asked only while the page is in the stack; the model
-            // is made again only when an answer came.
-            if(startggFeed) menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open,const std::string&) {
-                startggFeed->SetOpen(open);
-                if(const auto version=startggFeed->Version(); version!=startggShown) {
-                    model=mscharged::runtime::StartggTournament(startggFeed->Latest(),launch.settings.startgg_user);
-                    startggShown=version;
-                }
-            };
-            // READY: the next set as a RANKED set against its opponent's WFC
-            // profile, from the trophy room ([startgg] players for now).
-            if(startggFeed) menusHost.tournament_ready=[&] {
-                const auto play=mscharged::runtime::StartggSetToPlay(startggFeed->Latest(),
-                    launch.settings.startgg_user,launch.settings.startgg_players);
-                if(!play.rules) {
-                    mscharged::platform::SessionLogLine("start.gg: READY, nothing starts ("+play.error+")");
-                    return false;
-                }
-                if(!configureStart || !configureCompetitive || !wfcSnapshot) {
-                    mscharged::platform::SessionLogLine("start.gg: READY, this build's game module has no sets");
-                    return false;
-                }
-                ChargedWfcSnapshot wfc{};
-                if(!wfcSnapshot(&wfc,sizeof wfc) || wfc.set_stage!=CHARGED_SET_NONE || wfc.ranked_stage!=CHARGED_SET_NONE
-                   || (competitive && competitive->CurrentSet())) {
-                    mscharged::platform::SessionLogLine("start.gg: READY, another set is on its way");
-                    return false;
-                }
-                // From the online menu the walk takes the Mii in use.
-                if(!configureCompetitive(&*play.rules,sizeof(ChargedCompetitiveRules))
-                   || !configureStart(launch.competitive_mii.data(),unsigned(launch.competitive_mii.size()))) {
-                    configureCompetitive(nullptr,sizeof(ChargedCompetitiveRules));
-                    mscharged::platform::SessionLogLine("start.gg: READY, the game module refused the set");
-                    return false;
-                }
-                startggPlaying=play.set;
-                mscharged::platform::SessionLogLine("start.gg: set "+play.set+" against "+play.opponent
-                    +" goes into RANKED (best of "+std::to_string(play.rules->games)+")");
-                return true;
-            };
             if(tournamentFeed) {
                 menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open,const std::string& shown) {
                     // The player's set is ready, or the opponent READY: said
@@ -3830,7 +3740,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeStartgg(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt(); ++frames;
                 mscharged::platform::FrameFinished(); // the freeze watch (#121)
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
@@ -3920,7 +3830,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeStartgg(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt();
             mscharged::platform::FrameFinished(); // the freeze watch (#121)
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;

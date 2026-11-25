@@ -83,12 +83,12 @@ public:
         // The game ends, as when its window is closed (QUIT RECHARGED).
         std::function<void()> quit;
         // The TOURNAMENT page's model, each frame; `open` while the room's
-        // pages are in the stack (start.gg is asked only then); `shown`: the
+        // pages are in the stack (the server is asked often only then); `shown`: the
         // key of the TOURNAMENT page on top (a tournament's id, empty for the
         // player's own). None: sample data.
         std::function<void(ui::TournamentModel&, bool open, const std::string& shown)> tournament;
         // The TOURNAMENTS page's model, each frame. None: the room opens
-        // TOURNAMENT straight away (start.gg's one event).
+        // TOURNAMENT straight away.
         std::function<void(ui::TournamentListModel&)> tournaments;
         // TOURNAMENT's READY: the player's next set starts (true: the game
         // goes on from the trophy room into its RANKED search, and the pages

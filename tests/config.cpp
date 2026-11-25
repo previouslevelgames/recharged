@@ -700,40 +700,6 @@ int main()
         Require(hostContents.find("rollback = true") != std::string::npos, "Saving did not add rollback");
         Require(hostContents.find("rollback_test") == std::string::npos
                 && hostContents.find("rollback_log") == std::string::npos, "Saving wrote the rollback test or log");
-        // [startgg]: read, kept by a save as they are, never written.
-        std::ofstream(path) << "[startgg]\nevent = tournament/t/event/e\nuser = 123\ndev_token = abc\n"
-                               "file = sg.json\napi = http://127.0.0.1:8765/gql\n";
-        auto startgg = LoadConfig(path);
-        Require(startgg.settings.startgg_event == "tournament/t/event/e" && startgg.settings.startgg_user == "123"
-                    && startgg.settings.startgg_dev_token == "abc" && startgg.settings.startgg_file == "sg.json"
-                    && startgg.settings.startgg_api == "http://127.0.0.1:8765/gql",
-                "start.gg settings read");
-        SaveConfig(startgg, startgg.settings);
-        Require(LoadConfig(path).settings.startgg_dev_token == "abc", "Saving dropped the start.gg token");
-        Require(LoadConfig(host).contents.find("startgg") == std::string::npos, "Saving wrote start.gg settings");
-        std::ofstream(path) << "[startgg]\nuser = user/997E615C\n";
-        Require(LoadConfig(path).settings.startgg_user == "997e615c", "A start.gg discriminator read");
-        std::ofstream(path) << "[startgg]\nuser = Entrant/25310998\n";
-        Require(LoadConfig(path).settings.startgg_user == "entrant/25310998", "A start.gg entrant read");
-        std::ofstream(path) << "[startgg]\nplayers = 997E615C:12345, user/ab12cd34 : 678 ,entrant/25310998:9\n";
-        const auto players = LoadConfig(path).settings.startgg_players;
-        Require(players.size() == 3 && players[0] == std::pair<std::string, unsigned>{"997e615c", 12345u}
-                    && players[1] == std::pair<std::string, unsigned>{"ab12cd34", 678u}
-                    && players[2] == std::pair<std::string, unsigned>{"entrant/25310998", 9u},
-                "start.gg players read");
-        for (const char* bad : {"players = 997e615c\n", "players = 997e615c:0\n", "players = 997e615c:x1\n",
-                                "players = :12\n", "players = 997e615c:99999999999\n",
-                                "players = entrant/:12\n", "players = entrant/x1:12\n", "user = entrant/\n"})
-        {
-            std::ofstream(path) << "[startgg]\n" << bad;
-            bool refused = false;
-            try { LoadConfig(path); } catch (const std::runtime_error&) { refused = true; }
-            Require(refused, (std::string("start.gg players read from ") + bad).c_str());
-        }
-        std::ofstream(path) << "[startgg]\nuser = no such user\n";
-        bool badUser = false;
-        try { LoadConfig(path); } catch (const std::runtime_error&) { badUser = true; }
-        Require(badUser, "A start.gg user that is not an id was read");
         std::ofstream(path) << "[online]\nrollback = false\n";
         auto rollbackOff = LoadConfig(path);
         Require(!rollbackOff.settings.rollback, "Rollback off read");

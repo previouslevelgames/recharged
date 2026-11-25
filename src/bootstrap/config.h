@@ -327,19 +327,6 @@ struct Settings
     bool rollback = true;
     bool rollback_test = false;
     std::string rollback_log;
-    // [startgg] (the TOURNAMENT page; read only, saving never writes them):
-    // event, the event's slug ("tournament/<t>/event/<e>"); user, the
-    // player's start.gg user: its id (digits) or its profile's discriminator
-    // (user/<discriminator> in its links, kept without "user/"), or an
-    // entrant as entrant/<id> (its link's; one entered by name has no
-    // user); dev_token, a personal token
-    // from start.gg's Developer Settings; file, a saved answer read instead
-    // of asking start.gg; api, another endpoint (a test server here).
-    std::string startgg_event, startgg_user, startgg_dev_token, startgg_file, startgg_api;
-    // players, until the profile service links start.gg users: who plays a
-    // set's opponent in RANKED, as "<start.gg user>:<WFC profile id>, ..."
-    // (the user as startgg.user, kept in lowercase).
-    std::vector<std::pair<std::string, unsigned>> startgg_players;
     // gameplay.super_team_side: the team the Super Team tweak dresses as
     // robots: away, home or both.
     std::string super_team_side = "away";

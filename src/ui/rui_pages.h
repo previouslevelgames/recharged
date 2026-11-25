@@ -67,11 +67,11 @@ struct TournamentModel
     std::string opponent; // its opponent's name, and their initials for the picture
     std::string opponent_initials;
     int games = 3; // best of (0: not known)
-    bool sample = false; // made up (no start.gg event set)
+    bool sample = false; // made up (no tournaments to show)
     bool has_set = false;        // the player has a next set (its card shows)
     bool opponent_known = false; // its opponent is decided (READY can be pressed)
     std::string score;           // the games so far ("1 - 0"), once reported
-    std::string note;            // a line above: loading, start.gg failing, no set left
+    std::string note;            // a line above: loading, the server failing, no set left
     // The profile server's tournaments: JOIN or LEAVE shows, and the player
     // pressed READY for their set (the button then takes it back).
     bool can_join = false, can_leave = false;
