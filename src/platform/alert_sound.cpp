@@ -58,16 +58,16 @@ void AlertSound::Play(float gain)
     if (gain <= 0.0f || failed_) return;
     if (!stream_)
     {
-        if (!SDL_WasInit(SDL_INIT_AUDIO))
+        // A hold of its own on SDL's audio, even when the game's sounds have
+        // one: theirs come and go, and the last one gone quits SDL's audio,
+        // which destroys this stream with it.
+        if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
         {
-            if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
-            {
-                std::fprintf(stderr, "Challenge sound: no audio (%s)\n", SDL_GetError());
-                failed_ = true;
-                return;
-            }
-            opened_audio_ = true;
+            std::fprintf(stderr, "Challenge sound: no audio (%s)\n", SDL_GetError());
+            failed_ = true;
+            return;
         }
+        opened_audio_ = true;
         const SDL_AudioSpec spec{SDL_AUDIO_F32, 1, rate_};
         stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
         if (!stream_)

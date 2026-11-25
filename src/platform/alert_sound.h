@@ -28,7 +28,7 @@ public:
 
 private:
     SDL_AudioStream* stream_ = nullptr;
-    bool opened_audio_ = false; // SDL's audio was started here
+    bool opened_audio_ = false; // SDL's audio is held here
     bool failed_ = false;
     int rate_ = 48000;
 };
