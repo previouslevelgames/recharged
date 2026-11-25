@@ -51,6 +51,9 @@ public:
     // A replay of an online game kept in `file` (the game's thread): sent
     // once the server asked for it.
     void Kept(std::uint64_t series, int game, std::filesystem::path file);
+    // The same in memory, for a PC that keeps no replays (Keep replays off):
+    // the server has every online game all the same.
+    void Kept(std::uint64_t series, int game, std::vector<std::uint8_t> bytes);
 
     // The traffic's limits, for tests.
     struct Limits
@@ -97,6 +100,7 @@ private:
         std::uint64_t series = 0;
         int game = 0;
         std::filesystem::path file;
+        std::vector<std::uint8_t> bytes; // or the file itself, none written
     };
     std::vector<KeptFile> kept_; // the game's thread hands them over here
 

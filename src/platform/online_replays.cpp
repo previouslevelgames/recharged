@@ -155,6 +155,7 @@ struct OnlineReplays::Upload
 {
     OnlineReplayAnswers::Wanted wanted;
     std::filesystem::path file;
+    std::vector<std::uint8_t> bytes; // the file in memory, for a PC that keeps no replays
     Clock::time_point asked_at{}, retry_at{};
     int attempts = 0;
     bool sending = false;
@@ -190,7 +191,15 @@ void OnlineReplays::Kept(std::uint64_t series, int game, std::filesystem::path f
     if (!series || game < 1) return;
     std::lock_guard lock(mutex_);
     if (kept_.size() >= 16) kept_.erase(kept_.begin());
-    kept_.push_back({series, game, std::move(file)});
+    kept_.push_back({series, game, std::move(file), {}});
+}
+
+void OnlineReplays::Kept(std::uint64_t series, int game, std::vector<std::uint8_t> bytes)
+{
+    if (!series || game < 1 || bytes.empty()) return;
+    std::lock_guard lock(mutex_);
+    if (kept_.size() >= 16) kept_.erase(kept_.begin());
+    kept_.push_back({series, game, {}, std::move(bytes)});
 }
 
 void OnlineReplays::Run()
@@ -440,10 +449,13 @@ void OnlineReplays::SendReplays()
     {
         std::lock_guard lock(mutex_);
         for (const auto& upload : uploads_)
-            if (upload->file.empty())
+            if (upload->file.empty() && upload->bytes.empty())
                 for (const auto& kept : kept_)
                     if (kept.series == upload->wanted.series && kept.game == upload->wanted.game)
+                    {
                         upload->file = kept.file;
+                        upload->bytes = kept.bytes;
+                    }
     }
     // Only between games: never while one is played.
     const bool playing = live_ && !live_->complete && !live_->stopped;
@@ -453,16 +465,21 @@ void OnlineReplays::SendReplays()
         const std::string game = "game " + std::to_string(upload.wanted.game) + " of series "
             + std::to_string(upload.wanted.series);
         bool drop = replays_off_ || (!upload.sending && now - upload.asked_at > kReplayWait);
-        if (!drop && !upload.sending && !upload.file.empty() && !playing && now >= upload.retry_at
-            && it == uploads_.begin())
+        if (!drop && !upload.sending && (!upload.file.empty() || !upload.bytes.empty()) && !playing
+            && now >= upload.retry_at && it == uploads_.begin())
         {
-            std::ifstream in(upload.file, std::ios::binary);
-            const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            std::ifstream in;
+            std::string bytes(upload.bytes.begin(), upload.bytes.end());
+            if (bytes.empty())
+            {
+                in.open(upload.file, std::ios::binary);
+                bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            }
             const std::string target = std::string(kReplaysPath) + "?profile_id="
                 + std::to_string(upload.wanted.profile_id) + "&series=" + std::to_string(upload.wanted.series)
                 + "&game=" + std::to_string(upload.wanted.game);
             std::string error;
-            if (!in.good() && !in.eof())
+            if (upload.bytes.empty() && !in.good() && !in.eof())
                 drop = true;
             else if (bytes.empty() || bytes.size() > kMostReplay)
                 drop = true;

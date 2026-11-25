@@ -1257,16 +1257,23 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // Online games' replays to the WFC server: streamed as they are played
         // and sent after each game when it asks (online_replays.h), once the
         // match reports run.
-        bool recordingMatches=false;
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+        // Online games are recorded for the server whether or not this PC keeps
+        // replays: streamed while played, sent when the server asks.
+        bool recordingOnline=false;
         std::unique_ptr<mscharged::platform::OnlineReplays> onlineReplays;
 #endif
         {
             const auto configureReplays=reinterpret_cast<ChargedConfigureReplaysFunction>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_replays"));
             const bool record=launch.settings.replays_record && replayStream.empty() && configureReplays && replayTake;
-            recordingMatches=record;
             if(configureReplays)configureReplays(record?1:0);
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+            const auto configureOnline=reinterpret_cast<ChargedConfigureReplaysFunction>(
+                mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_online_replays"));
+            recordingOnline=replayStream.empty() && configureOnline && replayTake;
+            if(configureOnline)configureOnline(recordingOnline?1:0);
+#endif
             std::string line="Replays: ";
             if(liveWatch) {
                 // The stream so far, then the rest as the reader gets it.
@@ -1319,6 +1326,19 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     std::chrono::system_clock::now().time_since_epoch()).count();
                 mscharged::replay::Summarize(setup,info);
                 const auto bytes=mscharged::replay::EncodeFile(info,stream.data(),stream.size());
+                [[maybe_unused]] const bool online=setup.online && setup.series>0 && setup.series_game>0;
+#ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
+                // This PC keeps no replays: an online game goes to the server only.
+                if(!launch.settings.replays_record) {
+                    if(onlineReplays && online) {
+                        onlineReplays->Kept(std::uint64_t(setup.series),setup.series_game,bytes);
+                        line+="for the server only, none kept here ("+mscharged::replay::MatchLength(setup.steps)+", "
+                            +std::to_string(setup.score[0])+"-"+std::to_string(setup.score[1])+")";
+                    } else line+="not kept (Keep replays is off)";
+                    std::fprintf(stderr,"%s\n",line.c_str());
+                    return;
+                }
+#endif
                 const auto path=mscharged::replay::WriteReplay(replayFolder,
                     mscharged::replay::ReplayFileName(info.created),bytes,error);
                 if(path.empty()) line+="not kept ("+error+")";
@@ -1330,7 +1350,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         line+="; "+std::to_string(removed)+" older removed";
 #ifdef MSCHARGED_HAS_ONLINE_SERVER_OVERRIDE
                     // An online game's: the server may ask for it.
-                    if(onlineReplays && setup.online && setup.series>0 && setup.series_game>0)
+                    if(onlineReplays && online)
                         onlineReplays->Kept(std::uint64_t(setup.series),setup.series_game,path);
 #endif
                 }
@@ -1545,7 +1565,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // are played while the server takes them.
         const auto nameOnlineSeries=reinterpret_cast<ChargedNameOnlineSeriesFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_name_online_series"));
-        if(onlineReports && recordingMatches && nameOnlineSeries) {
+        if(onlineReports && recordingOnline && nameOnlineSeries) {
             const auto configureLive=reinterpret_cast<ChargedConfigureLiveFunction>(
                 mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_live"));
             const auto takeLive=reinterpret_cast<ChargedTakeLiveFunction>(

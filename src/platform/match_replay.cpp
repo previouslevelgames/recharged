@@ -104,6 +104,9 @@ constexpr int kLiveMostSteps = 4;
 
 // [replays] record (the host, before original main).
 bool sRecordEnabled = true;
+// Online matches are recorded for the server whatever this PC keeps
+// (charged_configure_online_replays).
+bool sRecordOnline = false;
 // The match being recorded, and the machine of the packet being written.
 StreamWriter sWriter;
 int sWriteMachine = 0;
@@ -454,14 +457,15 @@ void RecordNetworkStep(std::uint32_t before_frame, std::uint32_t checksum, std::
 extern "C" {
 bool mscharged_tweak_replay_record_enabled(void)
 {
-    return sRecordEnabled && !sPlaying;
+    return (sRecordEnabled || sRecordOnline) && !sPlaying;
 }
 
 bool mscharged_tweak_replay_begin(int localMachine, int machineCount, unsigned int seed, const void* config,
                                   int configSize)
 {
     FinishRecording();
-    if (!sRecordEnabled || sPlaying || !config || configSize < int(sizeof(RecordedGameConfig))) return false;
+    if ((!sRecordEnabled && !sRecordOnline) || sPlaying || !config || configSize < int(sizeof(RecordedGameConfig)))
+        return false;
     GameInfoManager* info = Info();
     char line[120];
     // Offline matches the replay can start again: Domination (Training's
@@ -470,6 +474,9 @@ bool mscharged_tweak_replay_begin(int localMachine, int machineCount, unsigned i
     // over their steps as all their inputs arrive. The demo, the challenges
     // and Strikers 101 have state of their own.
     const bool network = machineCount > 1 || info->IsOnline();
+    // An online match goes to the server whether or not this PC keeps replays
+    // (the host keeps no file of it then); any other only when it does.
+    if (!sRecordEnabled && !(sRecordOnline && info->IsOnline())) return false;
     const bool offlineMode
         = info->mCurrentMode == GameInfoManager::GM_FRIENDLY || info->mCurrentMode == GameInfoManager::GM_CUP;
     if (network ? !mscharged_rollback_predicting() || machineCount < 2
@@ -846,6 +853,13 @@ void mscharged_tweak_presentation_pressed(int part)
 __attribute__((visibility("default"))) void charged_configure_replays(int record)
 {
     sRecordEnabled = record != 0;
+}
+
+// Host entry (before original main): whether online matches are recorded for
+// the server, whatever charged_configure_replays says.
+__attribute__((visibility("default"))) void charged_configure_online_replays(int record)
+{
+    sRecordOnline = record != 0;
 }
 
 // Host entry (before original main): the replay to play. Nonzero when it can.

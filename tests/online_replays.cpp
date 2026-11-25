@@ -474,6 +474,41 @@ void Replays()
             "logged");
     std::filesystem::remove_all(folder);
 }
+// A PC that keeps no replays (Keep replays off) hands an online game over in
+// memory: the server gets it as from a file.
+void ReplaysInMemory()
+{
+    const std::string bytes = Bytes(50000, 11);
+    FakeServer server([](const Received&, bool body_read) { return body_read ? Http(200, "{\"match_id\":8}") : ""; });
+    std::vector<std::string> log;
+    std::mutex log_mutex;
+    auto answers = Answers(false);
+    OnlineReplays replays(server.Address(), answers, Take,
+                          [&](const std::string& line) {
+                              std::lock_guard lock(log_mutex);
+                              log.push_back(line);
+                          },
+                          Fast());
+    Begin(7, 2);
+    answers->Note("{\"event\":\"game\",\"series\":1792000100,\"profile_id\":1000000001,\"game\":{\"number\":1}}",
+                  "{\"match_id\":8,\"replay\":true}");
+    replays.Kept(1792000100, 1, std::vector<std::uint8_t>(bytes.begin(), bytes.end()));
+    std::this_thread::sleep_for(150ms);
+    Require(server.Requests().empty(), "no replay from memory while a game is played");
+    Require(sRing.Put(kLiveEnd, 7, nullptr, 0), "the end fits");
+    Require(WaitUntil([&] { return server.Requests().size() == 1 && server.Requests()[0].whole; }),
+            "the replay from memory goes after the game");
+    const auto request = server.Requests()[0];
+    Require(request.target == "/api/v1/wfc/replays?profile_id=1000000001&series=1792000100&game=1",
+            "for its game: " + request.target);
+    Require(request.body == bytes, "the bytes, whole");
+    Require(WaitUntil([&] {
+                std::lock_guard lock(log_mutex);
+                return !log.empty() && log.back() == "Replays: sent game 1 of series 1792000100";
+            }),
+            "logged");
+}
+
 // What the game module took of a live replay.
 std::mutex sFedMutex;
 std::string sFed;
@@ -710,6 +745,7 @@ int main()
     {
         LiveStream();
         Replays();
+        ReplaysInMemory();
         Skips();
         Watching();
     }

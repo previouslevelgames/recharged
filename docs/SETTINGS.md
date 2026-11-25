@@ -517,11 +517,13 @@ replays** is `record`.
 
 ```ini
 [replays]
-record = true   # false keeps no replays
+record = true   # false keeps no replays on this PC
 keep = 100      # the newest 100 stay, older ones are deleted; 0 keeps all
 ```
 
-Only files whose names begin with `replay_` are ever deleted: rename a replay
+Online games go to the server whatever `record` says: it streams them to
+spectators and keeps the ones it asks for. Only files whose names begin with
+`replay_` are ever deleted: rename a replay
 to keep it. Watching, the speed keys, the game image a replay needs and
 sharing replays are explained in [replays](REPLAYS.md).
 

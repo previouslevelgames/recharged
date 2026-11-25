@@ -96,9 +96,11 @@ record = true   # false: no new replays are kept
 keep = 100      # the newest 100 stay, older ones are deleted; 0 keeps all
 ```
 
-**Keep replays** in **Extras → Replays** is `record`. Only files whose names
-begin with `replay_` count for `keep` and are ever deleted: to keep a replay
-for good, rename it (for example `final-6-0.msc`) or move it elsewhere.
+**Keep replays** in **Extras → Replays** is `record`. It decides only what
+stays on this PC: online games go to the server either way, which streams them
+to spectators while they are played and keeps the ones it asks for. Only files
+whose names begin with `replay_` count for `keep` and are ever deleted: to keep
+a replay for good, rename it (for example `final-6-0.msc`) or move it elsewhere.
 Renamed replays still show in the launcher and play the same way.
 
 ## Sharing replays
