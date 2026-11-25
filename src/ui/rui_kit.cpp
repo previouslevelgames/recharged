@@ -644,10 +644,14 @@ void List::Help(const char* about, bool lit)
 
 void List::Caption(const char* text)
 {
+    const Slot slot = Place(kCaptionHeight, false);
+    CaptionAt(slot.bottom - 16.0f, text);
+}
+
+void List::CaptionAt(float y, const char* text)
+{
     // The game's orange, in capitals.
     const std::string upper = Upper(text);
-    const Slot slot = Place(kCaptionHeight, false);
-    const float y = slot.bottom - 16.0f;
     p_.Text(fonts_.small, kSmallSize, rows_.x0 + 4.0f, y, upper.c_str(), Orange(p_), p_.Col(4, 12, 16, 230), 2.0f, 0.0f);
     const float after = rows_.x0 + 4.0f + p_.TextWidth(fonts_.small, kSmallSize, upper.c_str()) + 16.0f;
     if (after < rows_.x1) p_.Rect(after, y - 1, rows_.x1, y + 1, Orange(p_, 80));
@@ -1180,12 +1184,7 @@ std::optional<std::size_t> List::Bracket(const std::vector<BracketSet>& sets, co
     const float ox = rows_.x0 - state_.scroll_x, oy = slot.top + band;
     // The sections' titles stay at the left, as the captions.
     auto title = [&](float y, const char* text) {
-        if (!text || !*text) return;
-        const std::string upper = Upper(text);
-        p_.Text(fonts_.small, kSmallSize, rows_.x0 + 4.0f, oy + y + 18.0f, upper.c_str(), Orange(p_),
-                p_.Col(4, 12, 16, 230), 2.0f, 0.0f);
-        const float after = rows_.x0 + 4.0f + p_.TextWidth(fonts_.small, kSmallSize, upper.c_str()) + 16.0f;
-        if (after < rows_.x1) p_.Rect(after, oy + y + 17.0f, rows_.x1, oy + y + 19.0f, Orange(p_, 80));
+        if (text && *text) CaptionAt(oy + y + 18.0f, text);
     };
     title(0.0f, winners);
     if (layout.losers_top >= 0.0f) title(layout.losers_top, losers);

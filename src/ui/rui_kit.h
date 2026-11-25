@@ -299,6 +299,8 @@ private:
         int index;
     };
     Slot Place(float height, bool litable);
+    // A caption's text and rule on the line at `y` (Caption, the bracket's sections).
+    void CaptionAt(float y, const char* text);
     // The hand over the slot lights it (`slot.lit` follows).
     void LightUnderPointer(Slot& slot);
     // A row with a value: placed, lit under the hand, its bar and label
