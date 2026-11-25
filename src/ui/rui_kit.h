@@ -282,8 +282,10 @@ public:
     // losers' under `losers`, wider than the screen scrolled sideways by left
     // and right, its arrow buttons or the hand's drag; the player's set
     // comes into view when the page opens. Not lit.
+    // `picked`: the id of the set whose games are listed (its card framed).
     // The set whose card the hand pressed (one with games), by its index.
-    std::optional<std::size_t> Bracket(const std::vector<BracketSet>& sets, const char* winners, const char* losers);
+    std::optional<std::size_t> Bracket(const std::vector<BracketSet>& sets, const std::string& picked,
+                                       const char* winners, const char* losers);
     // A leaderboard's row: its rank, the player's name (flag), the record and
     // the points; the player's own in gold.
     void BoardRow(int rank, const char* name, const char* record, const char* points, bool you,

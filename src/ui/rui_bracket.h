@@ -47,7 +47,6 @@ struct BracketSet
     BracketSetState state = BracketSetState::Waiting;
     bool yours = false; // the player's next set
     std::vector<BracketGame> games; // the games it played: its card is picked to list them
-    bool picked = false;            // its games are listed
 };
 
 // Design pixels: a set's card, the room between columns (for the lines) and

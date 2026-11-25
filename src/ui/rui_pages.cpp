@@ -942,15 +942,16 @@ void DrawTournament(const PageModel& model, List& list, PageActions& actions)
 void DrawBracket(const PageModel& model, List& list, PageActions& actions)
 {
     if (!model.tournament) return;
-    auto bracket = model.tournament->bracket;
+    const auto& bracket = model.tournament->bracket;
     if (bracket.empty()) list.Note(T("menus.tournament.no_sets"));
-    const BracketSet* picked = nullptr;
-    for (auto& set : bracket)
-        if ((set.picked = !set.games.empty() && set.id == model.bracket_picked)) picked = &set;
+    const auto found = std::find_if(bracket.begin(), bracket.end(), [&](const BracketSet& set) {
+        return !set.games.empty() && set.id == model.bracket_picked;
+    });
+    const BracketSet* picked = found == bracket.end() ? nullptr : &*found;
     const bool losers =
         std::any_of(bracket.begin(), bracket.end(), [](const BracketSet& set) { return set.round < 0; });
     const bool ash = model.tournament->ash;
-    if (const auto pressed = list.Bracket(bracket, losers ? T(ash ? "menus.bracket.main" : "menus.bracket.winners") : nullptr,
+    if (const auto pressed = list.Bracket(bracket, model.bracket_picked, losers ? T(ash ? "menus.bracket.main" : "menus.bracket.winners") : nullptr,
                                           T(ash ? "menus.bracket.ash" : "menus.bracket.losers")))
         actions.bracket_pick = bracket[*pressed].id;
     // Under it, the picked set's games: each its result on the game's screen.

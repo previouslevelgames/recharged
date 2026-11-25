@@ -1085,15 +1085,15 @@ namespace
 // A set's card: its two entrants (name, score), the winner bright, the
 // player in gold; a green edge while it is played, the game's orange around
 // the player's next one.
-void BracketCard(const Painter& p, const Fonts& fonts, float x, float y, const BracketSet& set, bool lit)
+void BracketCard(const Painter& p, const Fonts& fonts, float x, float y, const BracketSet& set, bool picked, bool lit)
 {
     const float w = kBracketCardWidth, h = kBracketCardHeight, mid = y + h * 0.5f;
     p.Gradient(x, y, x + w, y + h, p.Col(24, 32, 38, 230), p.Col(8, 11, 13, 230));
     p.Rect(x, mid - 1, x + w, mid + 1, p.Col(255, 255, 255, 22));
     if (set.state == BracketSetState::Going) p.Rect(x, y, x + 6, y + h, p.Col(140, 228, 110), 2.0f);
     if (set.yours) p.Frame(x - 3, y - 3, x + w + 3, y + h + 3, Orange(p), 6.0f, 2.5f);
-    if (set.picked || lit)
-        p.Frame(x - 1, y - 1, x + w + 1, y + h + 1, p.Col(246, 248, 250, set.picked ? 230 : 120), 4.0f, 2.0f);
+    if (picked || lit)
+        p.Frame(x - 1, y - 1, x + w + 1, y + h + 1, p.Col(246, 248, 250, picked ? 230 : 120), 4.0f, 2.0f);
     const float size = kSmallSize * 0.9f;
     for (int n = 0; n < 2; ++n)
     {
@@ -1114,7 +1114,8 @@ void BracketCard(const Painter& p, const Fonts& fonts, float x, float y, const B
 }
 } // namespace
 
-std::optional<std::size_t> List::Bracket(const std::vector<BracketSet>& sets, const char* winners, const char* losers)
+std::optional<std::size_t> List::Bracket(const std::vector<BracketSet>& sets, const std::string& picked,
+                                         const char* winners, const char* losers)
 {
     const BracketLayout layout = LayOutBracket(sets);
     const float view = rows_.x1 - rows_.x0, most = std::max(0.0f, layout.width - view);
@@ -1210,7 +1211,11 @@ std::optional<std::size_t> List::Bracket(const std::vector<BracketSet>& sets, co
             p_.Rect(xm, y1 - 1.0f, x1, y1 + 1.0f, line);
         }
     for (const auto& cell : layout.cells)
-        BracketCard(p_, fonts_, ox + cell.x, oy + cell.y, sets[cell.set], under == cell.set);
+    {
+        const BracketSet& set = sets[cell.set];
+        BracketCard(p_, fonts_, ox + cell.x, oy + cell.y, set, !set.games.empty() && set.id == picked,
+                    under == cell.set);
+    }
     p_.draw->PopClipRect();
     return pressed;
 }
