@@ -114,6 +114,47 @@ const char* TournamentWayName(int way)
     static const char* const names[] = {"none", "login", "online", "room"};
     return way >= 0 && way < int(std::size(names)) ? names[way] : "?";
 }
+
+// TOURNAMENT without a feed: a made-up tournament.
+ui::TournamentModel SampleTournament()
+{
+    ui::TournamentModel model;
+    model.name = "Recharged Test Cup";
+    model.event = "Mario Strikers Charged Singles";
+    model.round = "Winners Round 1";
+    model.opponent = "Opponent";
+    model.opponent_initials = "OP";
+    model.games = 3;
+    model.sample = true;
+    model.has_set = model.opponent_known = true;
+    // Four players, double elimination: the player's first set next.
+    auto set = [](const char* id, int round, const char* text, const char* a, const char* b,
+                  ui::BracketSetState state, const char* from_a = "", const char* from_b = "") {
+        ui::BracketSet cell;
+        cell.id = id;
+        cell.round = round;
+        cell.round_text = text;
+        cell.slots[0].name = a;
+        cell.slots[1].name = b;
+        cell.state = state;
+        cell.prereq[0] = from_a;
+        cell.prereq[1] = from_b;
+        return cell;
+    };
+    using State = ui::BracketSetState;
+    auto& bracket = model.bracket;
+    bracket = {set("1", 1, "Winners Semi-Final", "You", "Opponent", State::Waiting),
+               set("2", 1, "Winners Semi-Final", "Mario", "Peach", State::Done),
+               set("3", 2, "Winners Final", "", "Mario", State::Waiting, "1", "2"),
+               set("4", 3, "Grand Final", "", "", State::Waiting, "3", "6"),
+               set("5", -1, "Losers Round 1", "", "Peach", State::Waiting, "1", "2"),
+               set("6", -2, "Losers Final", "", "", State::Waiting, "5", "3")};
+    bracket[0].yours = bracket[0].slots[0].you = true;
+    bracket[1].slots[0].winner = true;
+    bracket[1].slots[0].score = "2";
+    bracket[1].slots[1].score = "1";
+    return model;
+}
 } // namespace
 
 HostMenus::HostMenus(Game game, MenuInput& input, Host host) : game_(game), input_(input), host_(std::move(host))
@@ -570,44 +611,8 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
         host_.tournament(tournamentModel_, Opened(Origin::TrophyRoom), shown);
         if (host_.tournaments) host_.tournaments(tournamentListModel_);
     }
-    else {
-        // Made up without a start.gg event.
-        tournamentModel_ = {};
-        tournamentModel_.name = "Recharged Test Cup";
-        tournamentModel_.event = "Mario Strikers Charged Singles";
-        tournamentModel_.round = "Winners Round 1";
-        tournamentModel_.opponent = "Opponent";
-        tournamentModel_.opponent_initials = "OP";
-        tournamentModel_.games = 3;
-        tournamentModel_.sample = true;
-        tournamentModel_.has_set = tournamentModel_.opponent_known = true;
-        // Four players, double elimination: the player's first set next.
-        auto set = [](const char* id, int round, const char* text, const char* a, const char* b,
-                      ui::BracketSetState state, const char* from_a = "", const char* from_b = "") {
-            ui::BracketSet cell;
-            cell.id = id;
-            cell.round = round;
-            cell.round_text = text;
-            cell.slots[0].name = a;
-            cell.slots[1].name = b;
-            cell.state = state;
-            cell.prereq[0] = from_a;
-            cell.prereq[1] = from_b;
-            return cell;
-        };
-        using State = ui::BracketSetState;
-        auto& bracket = tournamentModel_.bracket;
-        bracket = {set("1", 1, "Winners Semi-Final", "You", "Opponent", State::Waiting),
-                   set("2", 1, "Winners Semi-Final", "Mario", "Peach", State::Done),
-                   set("3", 2, "Winners Final", "", "Mario", State::Waiting, "1", "2"),
-                   set("4", 3, "Grand Final", "", "", State::Waiting, "3", "6"),
-                   set("5", -1, "Losers Round 1", "", "Peach", State::Waiting, "1", "2"),
-                   set("6", -2, "Losers Final", "", "", State::Waiting, "5", "3")};
-        bracket[0].yours = bracket[0].slots[0].you = true;
-        bracket[1].slots[0].winner = true;
-        bracket[1].slots[0].score = "2";
-        bracket[1].slots[1].score = "1";
-    }
+    // Made up without a tournament feed (built once).
+    else if (!tournamentModel_.sample) tournamentModel_ = SampleTournament();
     ShowPrompt(now);
 
     // The game's results screen over the trophy room: the pages wait under
