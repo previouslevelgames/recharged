@@ -54,6 +54,12 @@ void List()
     CHECK(model.featured && model.featured->lines.size() == 3
           && model.featured->lines[0] == "Double elimination  ·  Competitive"
           && model.featured->lines[1] == "Sets best of 3, finals best of 5" && model.featured->lines[2] == "3/8 players");
+    // Semifinals played to other games than the sets say so.
+    feed.tournaments[1].semifinals_best_of = 5;
+    CHECK(runtime::ServerTournaments(feed).featured->lines[1]
+          == "Sets best of 3 (semifinals best of 5), finals best of 5");
+    feed.tournaments[1].semifinals_best_of = 3;
+    CHECK(runtime::ServerTournaments(feed).featured->lines[1] == "Sets best of 3, finals best of 5");
     CHECK(model.others.size() == 1 && model.others[0].key == "9" && model.others[0].kicker == "OPEN FOR ENTRIES"
           && model.others[0].value == "3/8 players");
     CHECK(model.past.size() == 1 && model.past[0].key == "6" && model.past[0].value == "2nd"

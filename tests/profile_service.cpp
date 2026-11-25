@@ -897,7 +897,7 @@ void Tournaments()
     const std::string tournament = R"({"id":4,"name":"Recharged Cup","organizer":null,"format":"double",)"
                                    R"("state":"running","rule_set":"Competitive","rules":{"tweaks":[],"skill":"rookie",)"
                                    R"("limit":"goals","time":180,"goals":10,"games":3,"stadium":"random"},"best_of":3,)"
-                                   R"("finals_best_of":5,"max_entrants":null,"entrants":2,"starts_at":null,)"
+                                   R"("semifinals_best_of":5,"finals_best_of":5,"max_entrants":null,"entrants":2,"starts_at":null,)"
                                    R"("created_at":1,"started_at":2,"ended_at":null})";
     const std::string page = R"({"tournament":)" + tournament
         + R"(,"entrants":[{"player":{"id":7,"name":"Mario","account":"discord"},"seed":0,"dropped":false,)"
@@ -934,7 +934,7 @@ void Tournaments()
         const auto listed = api.Tournaments();
         CHECK(listed.size() == 1 && listed[0].id == 4 && listed[0].name == "Recharged Cup"
               && listed[0].format == "double" && listed[0].state == "running" && listed[0].joined
-              && listed[0].best_of == 3 && listed[0].finals_best_of == 5 && listed[0].max_entrants == 0
+              && listed[0].best_of == 3 && listed[0].semifinals_best_of == 5 && listed[0].finals_best_of == 5 && listed[0].max_entrants == 0
               && listed[0].entrants == 2 && listed[0].rules.goals == 10 && listed[0].started_at == 2
               && listed[0].ended_at == 0);
         const auto shown = api.Tournament(4);

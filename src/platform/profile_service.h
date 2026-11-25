@@ -362,7 +362,8 @@ struct ProfileTournament
     std::string state;  // registration, running, finished or cancelled
     std::string rule_set;
     MatchRules rules;
-    int best_of = 0, finals_best_of = 0;
+    // The semifinals' best of: 0 from a server without it (the sets').
+    int best_of = 0, semifinals_best_of = 0, finals_best_of = 0;
     int max_entrants = 0; // 0: no limit
     int entrants = 0;
     bool joined = false; // in the list, with a session

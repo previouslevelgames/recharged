@@ -266,6 +266,7 @@ ProfileTournament ParseTournament(const JsonValue& value)
     tournament.rule_set = value["rule_set"].Text();
     tournament.rules = ParseRules(value["rules"]);
     tournament.best_of = int(value["best_of"].Integer().value_or(0));
+    tournament.semifinals_best_of = int(value["semifinals_best_of"].Integer().value_or(0));
     tournament.finals_best_of = int(value["finals_best_of"].Integer().value_or(0));
     tournament.max_entrants = int(value["max_entrants"].Integer().value_or(0));
     tournament.entrants = int(value["entrants"].Integer().value_or(0));

@@ -173,8 +173,12 @@ ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapsh
         entry.lines.push_back(T("menus.tournaments.format",
                                 {{"format", FormatText(t.format)},
                                  {"rule_set", t.rule_set}}));
-        entry.lines.push_back(T("menus.tournaments.best_of", {{"best_of", std::to_string(t.best_of)},
-                                                              {"finals", std::to_string(t.finals_best_of)}}));
+        // The semifinals only when they differ from the other sets.
+        const bool semifinals = t.semifinals_best_of > 0 && t.semifinals_best_of != t.best_of;
+        entry.lines.push_back(T(semifinals ? "menus.tournaments.best_of_semifinals" : "menus.tournaments.best_of",
+                                {{"best_of", std::to_string(t.best_of)},
+                                 {"semifinals", std::to_string(t.semifinals_best_of)},
+                                 {"finals", std::to_string(t.finals_best_of)}}));
         entry.lines.push_back(entrants);
         if (t.place > 0) entry.lines.push_back(T("menus.tournaments.place", {{"place", Place(t.place)}}));
         return entry;
