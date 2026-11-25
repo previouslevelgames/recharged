@@ -1989,8 +1989,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     // The menus it was challenged or accepted from close: the
                     // game goes on into the set (a tournament's from the
                     // trophy room, which stays).
-                    if(tournamentSetStarts && tournamentSetStarts(start->match)) {}
-                    else if(closeMenus) closeMenus();
+                    if(!(tournamentSetStarts && tournamentSetStarts(start->match)) && closeMenus) closeMenus();
                     if(hostOverlay)
                         hostOverlay->ShowMessage(texts::T("menus.messages.set_start",{{"name",start->opponent}}),now);
                 } else mscharged::platform::SessionLogLine("Competitive: set "+std::to_string(start->match)
@@ -3173,7 +3172,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // The TOURNAMENT page's start.gg event ([startgg]): a saved answer
         // (file) or start.gg itself with the player's token (never logged).
         std::unique_ptr<mscharged::platform::StartggFeed> startggFeed;
-        std::uint64_t startggShown=0;
+        // (The feeds' versions start at 0: never shown, the first one is built.)
+        constexpr std::uint64_t kNotShown=~std::uint64_t{0};
+        std::uint64_t startggShown=kNotShown;
         if(!launch.settings.startgg_event.empty() || !launch.settings.startgg_file.empty()) {
             const auto& s=launch.settings;
             std::unique_ptr<mscharged::platform::StartggSource> source;
@@ -3197,7 +3198,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // server's tournament (asked on a thread of its own while the page is
         // open), whose sets are the server's.
         std::unique_ptr<mscharged::platform::TournamentFeed> tournamentFeed;
-        std::uint64_t tournamentShown=0, tournamentListShown=0;
+        std::uint64_t tournamentShown=kNotShown, tournamentListShown=kNotShown;
         std::int64_t tournamentShownId=0;
         // The last moment of the player's set told (TournamentCallOf), at
         // which feed answer.
@@ -3270,7 +3271,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             // is made again only when an answer came.
             if(startggFeed) menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open,const std::string&) {
                 startggFeed->SetOpen(open);
-                if(const auto version=startggFeed->Version(); version!=startggShown || version==0) {
+                if(const auto version=startggFeed->Version(); version!=startggShown) {
                     model=mscharged::runtime::StartggTournament(startggFeed->Latest(),launch.settings.startgg_user);
                     startggShown=version;
                 }
@@ -3355,14 +3356,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     if(!shown.empty()) std::from_chars(shown.data(),shown.data()+shown.size(),id);
                     tournamentFeed->Show(id);
                     if(const auto version=tournamentFeed->Version();
-                       version!=tournamentShown || version==0 || id!=tournamentShownId) {
+                       version!=tournamentShown || id!=tournamentShownId) {
                         model=mscharged::runtime::ServerTournament(tournamentFeed->Latest(),id);
                         tournamentShown=version;
                         tournamentShownId=id;
                     }
                 };
                 menusHost.tournaments=[&](mscharged::ui::TournamentListModel& model) {
-                    if(const auto version=tournamentFeed->Version(); version!=tournamentListShown || version==0) {
+                    if(const auto version=tournamentFeed->Version(); version!=tournamentListShown) {
                         model=mscharged::runtime::ServerTournaments(tournamentFeed->Latest());
                         tournamentListShown=version;
                     }
