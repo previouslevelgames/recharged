@@ -3,8 +3,6 @@
 #include "platform/http_client.h"
 
 #include <algorithm>
-#include <functional>
-#include <initializer_list>
 #include <utility>
 
 namespace mscharged::platform
@@ -16,15 +14,17 @@ std::optional<std::size_t> ChooseTournament(const std::vector<ProfileTournament>
             if (wanted(tournaments[at])) return at;
         return std::nullopt;
     };
-    for (const auto& wanted : std::initializer_list<std::function<bool(const ProfileTournament&)>>{
-             [](const ProfileTournament& t) { return t.joined && t.state == "running"; },
-             [](const ProfileTournament& t) { return t.joined && t.state == "registration"; },
-             [](const ProfileTournament& t) { return t.state == "registration"; },
-             [](const ProfileTournament& t) { return t.state == "running"; },
-         })
+    static bool (*const kOrder[])(const ProfileTournament&) = {
+        [](const ProfileTournament& t) { return t.joined && t.state == "running"; },
+        [](const ProfileTournament& t) { return t.joined && t.state == "registration"; },
+        [](const ProfileTournament& t) { return t.state == "registration"; },
+        [](const ProfileTournament& t) { return t.state == "running"; },
+        // Else the last that ended, with its standings; one called off says nothing.
+        [](const ProfileTournament& t) { return t.state == "finished"; },
+    };
+    for (const auto wanted : kOrder)
         if (const auto at = first(wanted)) return at;
-    // Else the last that ended, with its standings; one called off says nothing.
-    return first([](const ProfileTournament& t) { return t.state == "finished"; });
+    return std::nullopt;
 }
 
 std::optional<std::size_t> OwnTournament(const std::vector<ProfileTournament>& tournaments, std::int64_t pinned)
