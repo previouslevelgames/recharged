@@ -187,7 +187,13 @@ void TournamentFeed::Round(Action action)
                 case Action::Unready:
                     if (!shown->me || !shown->me->set) throw ProfileError("You have no set to play", 0);
                     if (const auto made = api.TournamentReady(id, shown->me->set, action == Action::Ready))
+                    {
                         readied = made->id;
+                        // At once, not with the page asked below: the
+                        // opponent's READY may make the set go meanwhile.
+                        std::lock_guard lock(mutex_);
+                        readyMatch_ = readied;
+                    }
                     break;
                 case Action::None: break;
                 }
@@ -251,7 +257,6 @@ void TournamentFeed::Round(Action action)
         snapshot_.action_error = std::move(action_error);
         snapshot_.busy = pending_ != Action::None;
     }
-    if (readied) readyMatch_ = readied;
     snapshot_.fetched = Clock::now();
 }
 } // namespace mscharged::platform
