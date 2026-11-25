@@ -21,7 +21,6 @@ std::atomic<SDL_WindowID> sWindow{0};
 std::atomic<bool> sWatching{false};
 std::atomic<int> sStretchToggles{0};
 std::atomic<int> sResolutionSteps{0};
-std::atomic<int> sTrophyRoomPresses{0};
 void (*sToggleLayers)() = nullptr;
 void (*sCycleLayer)() = nullptr;
 void (*sToggleHud)() = nullptr;
@@ -64,14 +63,13 @@ void RequestDrawDump()
     }
 }
 
-// The diagnostic keys (F7 trophy room, F8 draw dump, F9 and F10 rendering
-// layers); a hotkey set on one of them takes it.
+// The diagnostic keys (F8 draw dump, F9 and F10 rendering layers); a hotkey
+// set on one of them takes it.
 bool SDLCALL Watch(void*, SDL_Event* event)
 {
     if (event->type == SDL_EVENT_KEY_DOWN && !event->key.repeat && event->key.windowID != 0
         && event->key.windowID == sWindow.load())
     {
-        if (event->key.scancode == SDL_SCANCODE_F7) ++sTrophyRoomPresses;
         if (event->key.scancode == SDL_SCANCODE_F8) RequestDrawDump();
         if (event->key.scancode == SDL_SCANCODE_F9 && sToggleLayers) sToggleLayers();
         if (event->key.scancode == SDL_SCANCODE_F10 && sCycleLayer) sCycleLayer();
@@ -104,8 +102,6 @@ DisplayHotkeyPresses TakeDisplayHotkeyPresses()
 {
     return {sStretchToggles.exchange(0), sResolutionSteps.exchange(0)};
 }
-
-int TakeTrophyRoomPresses() { return sTrophyRoomPresses.exchange(0); }
 
 void SetDebugLayerKeys(void (*toggle)(), void (*cycle)())
 {

@@ -19,9 +19,6 @@ struct DisplayHotkeyPresses
     int resolution_steps = 0;
 };
 DisplayHotkeyPresses TakeDisplayHotkeyPresses();
-// Presses of the diagnostic trophy room key (F7) since the last call: the
-// game's online menu goes into the trophy room, or back out of it.
-int TakeTrophyRoomPresses();
 // Diagnostic rendering-layer keys (F9 listed layers, F10 cycle one layer),
 // provided by the game module; null leaves the keys unused.
 void SetDebugLayerKeys(void (*toggle)(), void (*cycle)());
