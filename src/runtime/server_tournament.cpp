@@ -338,8 +338,8 @@ std::u16string PanelText(std::string_view text)
 TournamentCall TournamentCallOf(const platform::TournamentFeed::Snapshot& feed)
 {
     TournamentCall call;
-    if (!feed.signed_in || !feed.page || !feed.page->me) return call;
-    const auto& page = *feed.page;
+    if (!feed.signed_in || !feed.own || !feed.own->me) return call;
+    const auto& page = *feed.own;
     const auto& me = *page.me;
     if (page.tournament.state != "running" || !me.entrant || me.dropped || !me.eligible || !me.set) return call;
     const auto* set = page.Set(me.set);

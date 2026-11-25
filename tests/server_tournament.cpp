@@ -96,7 +96,7 @@ Snapshot Running(const char* state, int home_wins, int away_wins)
     me.entrant = me.eligible = true;
     me.set = 30;
     page.me = me;
-    feed.page = page;
+    feed.page = feed.own = page;
     return feed;
 }
 
@@ -123,7 +123,7 @@ void Calls()
     // Waiting for the sets before it, out, or signed out: nothing.
     CHECK(runtime::TournamentCallOf(Running("pending", -1, -1)).kind == Kind::None);
     auto out = Running("ready", -1, -1);
-    out.page->me->dropped = true;
+    out.own->me->dropped = true;
     CHECK(runtime::TournamentCallOf(out).kind == Kind::None);
     out = Running("ready", -1, -1);
     out.signed_in = false;

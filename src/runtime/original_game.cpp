@@ -3320,8 +3320,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         using Kind=mscharged::runtime::TournamentCall::Kind;
                         const bool held=busy && call.kind==Kind::OpponentReady;
                         tournamentCallHeld=held ? call.key : std::string();
-                        // (Another tournament on the pages says nothing: the
-                        // last moment told stays.)
+                        // (Of the player's own tournament, whatever the pages
+                        // show.)
                         if(!call.key.empty() && call.key!=tournamentCallKey && !held) {
                             tournamentCallKey=call.key;
                             if(call.kind!=Kind::None && !busy) {
@@ -3412,7 +3412,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                         +" goes on from the trophy room");
                     const auto latest=tournamentFeed->Latest();
                     if(configureSetSide) {
-                        const int side=latest.page ? mscharged::runtime::TournamentSideOf(*latest.page,match) : -1;
+                        const int side=latest.own ? mscharged::runtime::TournamentSideOf(*latest.own,match) : -1;
                         configureSetSide(side);
                         if(side>=0)
                             mscharged::platform::SessionLogLine(std::string("Tournament: this player is ")
@@ -3428,11 +3428,11 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                                 +" at "+std::to_string(int(resume->seconds))+" seconds, the same teams");
                     }
                     if(configureTrophy) {
-                        const auto ending=latest.page
-                            ? mscharged::runtime::TournamentEndingOf(*latest.page,match)
+                        const auto ending=latest.own
+                            ? mscharged::runtime::TournamentEndingOf(*latest.own,match)
                             : mscharged::runtime::TournamentEnding{};
-                        const auto ceremony=latest.page
-                            ? mscharged::runtime::TournamentCeremonyOf(*latest.page,match)
+                        const auto ceremony=latest.own
+                            ? mscharged::runtime::TournamentCeremonyOf(*latest.own,match)
                             : mscharged::runtime::TournamentCeremony{};
                         const auto units=[](const std::u16string& text) {
                             return reinterpret_cast<const unsigned short*>(text.c_str());

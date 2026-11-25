@@ -1024,6 +1024,8 @@ void TournamentFeedRounds()
                               R"("me":{"player":7,"entrant":true,"eligible":true,"place":2},"poll_interval":60})";
     const std::string match = R"({"id":12,"state":"accepted","stage":"open","you_ready":true,)"
                               R"("opponent_ready":false,"opponent":{"id":8,"name":"Bowser"}})";
+    const std::string taken_back = R"({"id":12,"state":"accepted","stage":"open","you_ready":false,)"
+                                   R"("opponent_ready":false,"opponent":{"id":8,"name":"Bowser"}})";
     const std::vector<Exchange> exchanges{
         {"GET /api/v1/tournaments", 200, list},
         {"GET /api/v1/tournaments/4", 200, with(page, "ready", "null")},
@@ -1031,9 +1033,19 @@ void TournamentFeedRounds()
         {"GET /api/v1/tournaments", 200, list},
         {"GET /api/v1/tournaments/4", 200, with(page, "playing", "12")},
         {"GET /api/v1/matches/current", 200, R"({"match":)" + match + R"(,"poll_interval":2})"},
-        // The pages show another tournament (Show).
+        // The pages show another tournament (Show): the player's own, of
+        // their READY, is asked too.
         {"GET /api/v1/tournaments", 200, two},
         {"GET /api/v1/tournaments/5", 200, other},
+        {"GET /api/v1/tournaments/4", 200, with(page, "playing", "12")},
+        {"GET /api/v1/matches/current", 200, R"({"match":)" + match + R"(,"poll_interval":2})"},
+        // READY taken back there goes to the own one; the page shown that
+        // fails to come stays as it was.
+        {"POST /api/v1/tournaments/4/sets/30/ready", 200, R"({"match":)" + taken_back + "}"},
+        {"GET /api/v1/tournaments", 200, two},
+        {"GET /api/v1/tournaments/5", 500, R"({"error":"down"})"},
+        {"GET /api/v1/tournaments/4", 200, with(page, "playing", "12")},
+        {"GET /api/v1/matches/current", 200, R"({"match":)" + taken_back + R"(,"poll_interval":2})"},
     };
     const auto folder = std::filesystem::temp_directory_path()
         / ("recharged-feed-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -1062,12 +1074,19 @@ void TournamentFeedRounds()
         shown = wait([](const TournamentFeed::Snapshot& s) { return s.page && s.page->tournament.id == 5; });
         CHECK(shown.page && shown.page->tournament.id == 5 && shown.tournaments.size() == 2
               && shown.tournaments[1].place == 2 && shown.tournaments[0].place == 0);
+        shown = wait([](const TournamentFeed::Snapshot& s) { return s.own && s.match; });
+        CHECK(shown.own && shown.own->tournament.id == 4 && shown.match && shown.match->you_ready);
+        feed->Ready(false);
+        shown = wait([](const TournamentFeed::Snapshot& s) { return !s.busy && s.match && !s.match->you_ready; });
+        CHECK(shown.action_error.empty() && shown.match && !shown.match->you_ready && !shown.error.empty()
+              && shown.page && shown.page->tournament.id == 5 && shown.own && shown.own->tournament.id == 4);
     }
     std::filesystem::remove_all(folder);
     CHECK(sent.size() == exchanges.size());
     for (const auto& request : sent) CHECK(request.expected);
     if (sent.size() == exchanges.size())
-        CHECK(sent[0].authorization == "Bearer t9" && sent[2].body == R"({"ready":true})");
+        CHECK(sent[0].authorization == "Bearer t9" && sent[2].body == R"({"ready":true})"
+              && sent[10].body == R"({"ready":false})");
 }
 
 int main()

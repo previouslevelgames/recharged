@@ -25,6 +25,16 @@ std::optional<std::size_t> ChooseTournament(const std::vector<ProfileTournament>
     return first([](const ProfileTournament& t) { return t.state == "finished"; });
 }
 
+std::optional<std::size_t> OwnTournament(const std::vector<ProfileTournament>& tournaments, std::int64_t pinned)
+{
+    for (std::size_t at = 0; at < tournaments.size(); ++at)
+        if (pinned && tournaments[at].id == pinned && tournaments[at].joined && tournaments[at].state == "running")
+            return at;
+    for (std::size_t at = 0; at < tournaments.size(); ++at)
+        if (tournaments[at].joined && tournaments[at].state == "running") return at;
+    return std::nullopt;
+}
+
 std::unique_ptr<TournamentFeed> TournamentFeed::Start(const std::string& server_setting,
                                                       std::filesystem::path session_file, Log log, std::string* off)
 {
@@ -159,60 +169,81 @@ void TournamentFeed::Round(Action action)
     ProfileService api(server_, signed_in ? session->token : std::string());
     api.SetActivity("game");
     std::string error, action_error;
-    std::vector<ProfileTournament> tournaments;
-    std::optional<TournamentPage> page;
-    std::optional<ProfileMatch> match;
-    std::int64_t readied = 0;
-    bool listed = false;
-    try
+    std::optional<TournamentPage> shown, own;
+    std::int64_t pinned = 0;
     {
-        // The action first, on the tournament shown.
-        std::optional<TournamentPage> shown;
+        std::lock_guard lock(mutex_);
+        shown = snapshot_.page;
+        own = snapshot_.own;
+        pinned = ownId_;
+    }
+    // The action first: joining, leaving and READY on the tournament shown,
+    // a READY taken back on the player's own (where it was pressed, whatever
+    // the pages show now).
+    const auto& target = action == Action::Unready && own ? own : shown;
+    if (action != Action::None && !signed_in) action_error = "Sign in to play tournaments";
+    else if (action != Action::None && !target) action_error = "No tournament to play";
+    else if (action != Action::None)
+    {
+        const TournamentPage& on = *target;
+        const std::int64_t id = on.tournament.id;
+        std::int64_t readied = 0;
+        try
         {
-            std::lock_guard lock(mutex_);
-            shown = snapshot_.page;
-        }
-        if (action != Action::None && !signed_in) action_error = "Sign in to play tournaments";
-        else if (action != Action::None && !shown) action_error = "No tournament to play";
-        if (action != Action::None && signed_in && shown)
-        {
-            const std::int64_t id = shown->tournament.id;
-            try
+            switch (action)
             {
-                switch (action)
+            case Action::Join: api.JoinTournament(id); break;
+            case Action::Leave: api.LeaveTournament(id); break;
+            case Action::Ready:
+            case Action::Unready:
+                if (!on.me || !on.me->set) throw ProfileError("You have no set to play", 0);
+                if (const auto made = api.TournamentReady(id, on.me->set, action == Action::Ready))
                 {
-                case Action::Join: shown = api.JoinTournament(id); break;
-                case Action::Leave: shown = api.LeaveTournament(id); break;
-                case Action::Ready:
-                case Action::Unready:
-                    if (!shown->me || !shown->me->set) throw ProfileError("You have no set to play", 0);
-                    if (const auto made = api.TournamentReady(id, shown->me->set, action == Action::Ready))
-                    {
-                        readied = made->id;
-                        // At once, not with the page asked below: the
-                        // opponent's READY may make the set go meanwhile.
-                        std::lock_guard lock(mutex_);
-                        readyMatch_ = readied;
-                    }
-                    break;
-                case Action::None: break;
+                    readied = made->id;
+                    // At once, not with the page asked below: the
+                    // opponent's READY may make the set go meanwhile.
+                    std::lock_guard lock(mutex_);
+                    readyMatch_ = readied;
+                    if (action == Action::Ready) pinned = ownId_ = id;
                 }
-                if (log_)
-                    log_(std::string("Tournament: ")
-                         + (action == Action::Join    ? "joined "
-                            : action == Action::Leave ? "left "
-                            : action == Action::Ready ? "READY in "
-                                                      : "READY taken back in ")
-                         + shown->tournament.name + (readied ? " (match " + std::to_string(readied) + ")" : ""));
+                break;
+            case Action::None: break;
             }
-            catch (const ProfileError& e)
-            {
-                action_error = e.what();
-                if (log_) log_(std::string("Tournament: the action failed: ") + e.what());
-            }
+            if (log_)
+                log_(std::string("Tournament: ")
+                     + (action == Action::Join    ? "joined "
+                        : action == Action::Leave ? "left "
+                        : action == Action::Ready ? "READY in "
+                                                  : "READY taken back in ")
+                     + on.tournament.name + (readied ? " (match " + std::to_string(readied) + ")" : ""));
         }
-        tournaments = api.Tournaments();
-        listed = true;
+        catch (const ProfileError& e)
+        {
+            action_error = e.what();
+            if (log_) log_(std::string("Tournament: the action failed: ") + e.what());
+        }
+    }
+    // Then the list, the page shown and the player's own, and the match of
+    // their set: each kept as it was when its own ask fails.
+    std::vector<ProfileTournament> tournaments;
+    std::optional<TournamentPage> page, own_page;
+    std::optional<ProfileMatch> match;
+    bool listed = false, page_known = false, own_known = false, match_known = false;
+    const auto ask = [&](auto&& asking) {
+        try
+        {
+            asking();
+            return true;
+        }
+        catch (const ProfileError& e)
+        {
+            error = e.what();
+            return false;
+        }
+    };
+    listed = ask([&] { tournaments = api.Tournaments(); });
+    if (listed)
+    {
         // The one the pages show, while they are open and it is listed; else
         // the feed's choice.
         std::optional<std::size_t> at;
@@ -223,20 +254,23 @@ void TournamentFeed::Round(Action action)
                     if (tournaments[n].id == shown_) at = n;
         }
         if (!at) at = ChooseTournament(tournaments);
-        if (at)
-        {
+        const auto own_at = OwnTournament(tournaments, pinned);
+        page_known = ask([&] {
+            if (!at) return;
             page = api.Tournament(tournaments[*at].id);
             pollSeconds_ = page->poll_interval;
-            // The player's set plays: their match says who is ready.
-            if (signed_in && page->me && page->me->set)
-                if (const auto* set = page->Set(page->me->set); set && set->state == "playing" && set->match)
-                    if (auto current = api.CurrentMatch(); current && current->id == set->match)
-                        match = std::move(current);
-        }
-    }
-    catch (const ProfileError& e)
-    {
-        error = e.what();
+        });
+        own_known = ask([&] {
+            if (!own_at) return;
+            if (page && page->tournament.id == tournaments[*own_at].id) own_page = page;
+            else own_page = api.Tournament(tournaments[*own_at].id);
+        });
+        // The player's set plays: their match says who is ready.
+        match_known = own_known && ask([&] {
+            if (!signed_in || !own_page || !own_page->me || !own_page->me->set) return;
+            if (const auto* set = own_page->Set(own_page->me->set); set && set->state == "playing" && set->match)
+                if (auto current = api.CurrentMatch(); current && current->id == set->match) match = std::move(current);
+        });
     }
     std::lock_guard lock(mutex_);
     const bool was_failing = !snapshot_.error.empty();
@@ -245,12 +279,10 @@ void TournamentFeed::Round(Action action)
     snapshot_.loaded = true;
     ++snapshot_.version;
     snapshot_.signed_in = signed_in;
-    if (listed)
-    {
-        snapshot_.tournaments = std::move(tournaments);
-        snapshot_.page = std::move(page);
-        snapshot_.match = std::move(match);
-    }
+    if (listed) snapshot_.tournaments = std::move(tournaments);
+    if (page_known) snapshot_.page = std::move(page);
+    if (own_known) snapshot_.own = std::move(own_page);
+    if (match_known) snapshot_.match = std::move(match);
     snapshot_.error = std::move(error);
     if (action != Action::None)
     {
