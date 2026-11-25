@@ -1022,6 +1022,15 @@ void TournamentFeedRounds()
     const std::string other = R"({"tournament":{"id":5,"name":"Old","format":"double","state":"finished",)"
                               R"("best_of":3,"finals_best_of":3,"entrants":4},"entrants":[],"sets":[],)"
                               R"("me":{"player":7,"entrant":true,"eligible":true,"place":2},"poll_interval":60})";
+    // Cup called off, and another open for entries: the pages stay on Cup.
+    const std::string called_off =
+        R"({"tournaments":[{"id":6,"name":"Next","format":"single","state":"registration","joined":false,)"
+        R"("best_of":3,"finals_best_of":3,"entrants":1},{"id":4,"name":"Cup","format":"single",)"
+        R"("state":"cancelled","joined":true,"best_of":3,"finals_best_of":3,"entrants":2}]})";
+    const std::string called_off_page =
+        R"({"tournament":{"id":4,"name":"Cup","format":"single","state":"cancelled","best_of":3,)"
+        R"("finals_best_of":3,"entrants":2},"entrants":[],"sets":[],"me":{"player":7,"entrant":true,)"
+        R"("eligible":true},"poll_interval":60})";
     const std::string match = R"({"id":12,"state":"accepted","stage":"open","you_ready":true,)"
                               R"("opponent_ready":false,"opponent":{"id":8,"name":"Bowser"}})";
     const std::string taken_back = R"({"id":12,"state":"accepted","stage":"open","you_ready":false,)"
@@ -1046,6 +1055,10 @@ void TournamentFeedRounds()
         {"GET /api/v1/tournaments/5", 500, R"({"error":"down"})"},
         {"GET /api/v1/tournaments/4", 200, with(page, "playing", "12")},
         {"GET /api/v1/matches/current", 200, R"({"match":)" + taken_back + R"(,"poll_interval":2})"},
+        // Back on the feed's choice (Cup, chosen when the pages opened), Cup
+        // called off: it stays, not the one open for entries.
+        {"GET /api/v1/tournaments", 200, called_off},
+        {"GET /api/v1/tournaments/4", 200, called_off_page},
     };
     const auto folder = std::filesystem::temp_directory_path()
         / ("recharged-feed-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -1080,6 +1093,10 @@ void TournamentFeedRounds()
         shown = wait([](const TournamentFeed::Snapshot& s) { return !s.busy && s.match && !s.match->you_ready; });
         CHECK(shown.action_error.empty() && shown.match && !shown.match->you_ready && !shown.error.empty()
               && shown.page && shown.page->tournament.id == 5 && shown.own && shown.own->tournament.id == 4);
+        feed->Show(0);
+        shown = wait([](const TournamentFeed::Snapshot& s) { return s.tournaments.size() == 2 && !s.own; });
+        CHECK(shown.page && shown.page->tournament.id == 4 && shown.page->tournament.state == "cancelled"
+              && !shown.own && shown.error.empty());
     }
     std::filesystem::remove_all(folder);
     CHECK(sent.size() == exchanges.size());

@@ -98,6 +98,9 @@ private:
     std::condition_variable wake_;
     bool open_ = false, stop_ = false;
     std::int64_t shown_ = 0;
+    // The one the feed chose for the pages while they are open: it stays
+    // (called off, ended) until they close.
+    std::int64_t chosen_ = 0;
     bool shownChanged_ = false;
     Action pending_ = Action::None;
     Snapshot snapshot_;

@@ -79,7 +79,7 @@ void TournamentFeed::SetOpen(bool open)
         std::lock_guard lock(mutex_);
         if (open_ == open) return;
         open_ = open;
-        if (!open) shown_ = 0;
+        if (!open) shown_ = chosen_ = 0;
     }
     wake_.notify_all();
 }
@@ -250,15 +250,16 @@ void TournamentFeed::Round(Action action)
     if (listed)
     {
         // The one the pages show, while they are open and it is listed; else
-        // the feed's choice.
+        // the feed's choice, the same while they stay open.
         std::optional<std::size_t> at;
         {
             std::lock_guard lock(mutex_);
-            if (open_ && shown_)
+            if (const auto wanted = !open_ ? 0 : shown_ ? shown_ : chosen_)
                 for (std::size_t n = 0; n < tournaments.size(); ++n)
-                    if (tournaments[n].id == shown_) at = n;
+                    if (tournaments[n].id == wanted) at = n;
+            if (!at) at = ChooseTournament(tournaments);
+            if (open_ && !shown_) chosen_ = at ? tournaments[*at].id : 0;
         }
-        if (!at) at = ChooseTournament(tournaments);
         const auto own_at = OwnTournament(tournaments, pinned);
         page_known = ask([&] {
             if (!at) return;
