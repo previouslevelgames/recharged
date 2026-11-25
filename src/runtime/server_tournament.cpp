@@ -12,12 +12,7 @@
 
 namespace mscharged::runtime
 {
-namespace
-{
-using texts::T;
-
-// Up to two letters of a name for its picture.
-std::string Initials(const std::string& name)
+std::string TournamentInitials(const std::string& name)
 {
     std::string initials;
     for (const char c : name)
@@ -25,6 +20,10 @@ std::string Initials(const std::string& name)
             initials += char(std::toupper(static_cast<unsigned char>(c)));
     return initials.empty() ? "?" : initials;
 }
+
+namespace
+{
+using texts::T;
 
 std::string NameOf(const platform::TournamentPage& page, std::int64_t player)
 {
@@ -277,7 +276,7 @@ ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& f
     model.opponent_known = opponent != 0 && (set->state == "ready" || set->state == "playing") && !feed.busy;
     const std::string name = opponent ? NameOf(page, opponent) : std::string();
     model.opponent = opponent ? name : std::string(T("menus.tournament.opponent_waiting"));
-    model.opponent_initials = opponent ? Initials(name) : "?";
+    model.opponent_initials = opponent ? TournamentInitials(name) : "?";
     if (set->home_wins >= 0 && set->away_wins >= 0)
         model.score = set->home == you ? std::to_string(set->home_wins) + " - " + std::to_string(set->away_wins)
                                        : std::to_string(set->away_wins) + " - " + std::to_string(set->home_wins);

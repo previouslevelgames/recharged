@@ -30,7 +30,7 @@ constexpr std::array<const char*, 12> kCaptains{"mario", "bowser", "daisy", "don
 constexpr std::array<GameTweak, 4> kRuleTweaks{GameTweak::FastTerrain, GameTweak::NoMegaStrikes,
                                                GameTweak::ThunderIslandWalls, GameTweak::MirrorMatch};
 
-template <std::size_t N> int IndexOf(const std::array<const char*, N>& names, const std::string& name)
+template <std::size_t N> int IndexOf(const std::array<const char*, N>& names, std::string_view name)
 {
     for (std::size_t n = 0; n < N; ++n)
         if (name == names[n]) return int(n);
@@ -280,21 +280,14 @@ std::string CaptainKey(int team)
     return team >= 0 && team < int(kCaptains.size()) ? kCaptains[std::size_t(team)] : "";
 }
 
-int CaptainIndex(std::string_view key)
-{
-    for (std::size_t at = 0; at < kCaptains.size(); ++at)
-        if (key == kCaptains[at]) return int(at);
-    return -1;
-}
+int CaptainIndex(std::string_view key) { return IndexOf(kCaptains, key); }
 
 int SidekickIndex(std::string_view key)
 {
     // eSidekickID's order, as the match reports name them.
-    static constexpr const char* kSidekicks[] = {"toad", "koopa",     "hammer_bro", "birdo",
-                                                 "boo",  "dry_bones", "monty_mole", "shy_guy"};
-    for (std::size_t at = 0; at < std::size(kSidekicks); ++at)
-        if (key == kSidekicks[at]) return int(at);
-    return -1;
+    static constexpr std::array<const char*, 8> kSidekicks{"toad", "koopa",     "hammer_bro", "birdo",
+                                                           "boo",  "dry_bones", "monty_mole", "shy_guy"};
+    return IndexOf(kSidekicks, key);
 }
 
 std::string StadiumKey(int stadium)

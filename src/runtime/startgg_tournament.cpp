@@ -2,8 +2,8 @@
 
 #include "bootstrap/texts.h"
 #include "platform/profile_service.h"
+#include "runtime/server_tournament.h"
 
-#include <cctype>
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,16 +13,6 @@ namespace mscharged::runtime
 namespace
 {
 using texts::T;
-
-// Up to two letters of a name for its picture.
-std::string Initials(const std::string& name)
-{
-    std::string initials;
-    for (const char c : name)
-        if (std::isalnum(static_cast<unsigned char>(c)) && initials.size() < 2)
-            initials += char(std::toupper(static_cast<unsigned char>(c)));
-    return initials;
-}
 
 const char* StateText(platform::StartggSetState state)
 {
@@ -117,7 +107,7 @@ ui::TournamentModel StartggTournament(const platform::StartggFeed::Snapshot& fee
     model.has_set = true;
     model.opponent_known = !opponent.id.empty();
     model.opponent = model.opponent_known ? opponent.name : T("menus.tournament.opponent_waiting");
-    model.opponent_initials = model.opponent_known ? Initials(opponent.name) : "?";
+    model.opponent_initials = model.opponent_known ? TournamentInitials(opponent.name) : "?";
     model.round = set->round_text + "  ·  " + StateText(set->state);
     const auto& own = set->slots[mine].score;
     if (own && opponent.score) model.score = std::to_string(*own) + " - " + std::to_string(*opponent.score);

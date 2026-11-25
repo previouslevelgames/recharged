@@ -10,6 +10,10 @@
 
 namespace mscharged::runtime
 {
+// Up to two letters of a name for the opponent's picture (in capitals), "?"
+// for none; the start.gg page's too.
+std::string TournamentInitials(const std::string& name);
+
 // The TOURNAMENT page's model from the profile server's tournament (the
 // feed's last answers): the tournament, the player's set in it, whether
 // they can join or leave, and a note while it loads, when the server fails,
