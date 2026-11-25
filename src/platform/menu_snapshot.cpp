@@ -509,7 +509,6 @@ void ReadGameOptions(ChargedMenuSnapshot& s)
     s.zoom_level = std::clamp(int(4.0f * visual.mCameraZoomLevel + 0.5f), 0, 4);
 }
 
-// One of the host's commands, in the game's frame.
 // The game the results screen shows (CHARGED_MENU_GAME_RESULTS): the scene
 // reads it each frame while it is up.
 BasicGameInfo sResultsGame;
@@ -549,6 +548,7 @@ void ShowGameResults(int homeCaptain, int awayCaptain, int homeGoals, int awayGo
                  homeGoals, awayGoals, awayCaptain);
 }
 
+// One of the host's commands, in the game's frame.
 void Run(const ChargedMenuCommand& command)
 {
     GameInfoManager* info = GameInfoManager::Instance();

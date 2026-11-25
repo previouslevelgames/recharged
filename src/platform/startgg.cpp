@@ -185,6 +185,9 @@ bool StartggIsUser(const StartggEntrant& entrant, std::string_view user)
     return false;
 }
 
+namespace
+{
+// Whether the set is still to be played (or being played).
 bool StartggSetOpen(StartggSetState state)
 {
     switch (state)
@@ -197,6 +200,7 @@ bool StartggSetOpen(StartggSetState state)
     default: return false;
     }
 }
+} // namespace
 
 const StartggSet* StartggNextSet(const StartggEvent& event, std::string_view user_id, int* slot)
 {

@@ -84,7 +84,7 @@ void Log(const char* what)
 // `name`, in place of the current one.
 void PushCamera(const char* name, bool loop)
 {
-    sCameraArrived = kCameraTime == 0.0f;
+    sCameraArrived = false;
     PushPresentationCamera(name, OnCameraArrived, kCameraTime, true);
     if (auto* camera = static_cast<cAnimCamera*>(cCameraManager::PeekCamera())) camera->m_bCyclic = loop;
 }

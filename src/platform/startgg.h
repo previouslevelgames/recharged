@@ -85,8 +85,6 @@ void AddStartggPage(StartggEvent& event, StartggEvent page);
 // their id (digits) or their discriminator; or, as "entrant/<id>", the
 // entrant itself (also one entered by name, without an account).
 bool StartggIsUser(const StartggEntrant& entrant, std::string_view user);
-// Whether the set is still to be played (or being played).
-bool StartggSetOpen(StartggSetState state);
 // The player's next set in the event: of their open sets (`user_id`, their
 // start.gg user's id or discriminator), the one being played or called
 // first, then one whose opponent is known, in the event's order. Its slot
