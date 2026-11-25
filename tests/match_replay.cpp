@@ -127,6 +127,23 @@ Bytes Record(const Setup& setup, const std::vector<Packet>& packets)
     return writer.Finish();
 }
 
+// A resumed game's start at the setup's end: whether it resumes, the goals of
+// both sides and the clock's seconds.
+constexpr std::size_t kResumeFields = 1 + 4 + 4 + 4;
+
+// The stream as an older build wrote it: its setup without its last `count`
+// bytes.
+Bytes WithoutSetupEnd(const Bytes& stream, std::size_t count)
+{
+    Bytes older(stream.begin(), stream.end());
+    const std::uint32_t setup_size = std::uint32_t(older[4]) | std::uint32_t(older[5]) << 8
+        | std::uint32_t(older[6]) << 16 | std::uint32_t(older[7]) << 24;
+    older.erase(older.begin() + 8 + setup_size - count, older.begin() + 8 + setup_size);
+    const std::uint32_t shorter = setup_size - std::uint32_t(count);
+    for (int byte = 0; byte < 4; ++byte) older[4 + byte] = std::uint8_t(shorter >> (8 * byte));
+    return older;
+}
+
 // Plays the stream back the way the game reads it and compares.
 void Replay(const Bytes& stream, const Setup& setup, const std::vector<Packet>& packets)
 {
@@ -225,14 +242,10 @@ void NetworkFields()
     Replay(stream, online, match);
 
     // The same stream as an older build wrote it: the setup without the
-    // network fields and what came after them (the count of skips, none).
-    constexpr std::size_t kNetworkFields = 1 + 4 + 4 + 8 + 4 + 2;
-    Bytes older(stream.begin(), stream.end());
-    const std::uint32_t setup_size = std::uint32_t(older[4]) | std::uint32_t(older[5]) << 8
-        | std::uint32_t(older[6]) << 16 | std::uint32_t(older[7]) << 24;
-    older.erase(older.begin() + 8 + setup_size - kNetworkFields, older.begin() + 8 + setup_size);
-    const std::uint32_t shorter = setup_size - std::uint32_t(kNetworkFields);
-    for (int byte = 0; byte < 4; ++byte) older[4 + byte] = std::uint8_t(shorter >> (8 * byte));
+    // network fields and what came after them (the count of skips, none, and
+    // a resumed game's start).
+    constexpr std::size_t kNetworkFields = 1 + 4 + 4 + 8 + 4 + 2 + kResumeFields;
+    const Bytes older = WithoutSetupEnd(stream, kNetworkFields);
     Setup old;
     Require(ReadSetup(older.data(), older.size(), old, error), "an older replay's setup reads: " + error);
     Require(old.online == 0 && old.set_tweaks == 0 && old.sim_profile == 0 && old.series == 0
@@ -285,14 +298,49 @@ void CutsceneSkips()
     // A replay from before skips: its setup ends at the network fields.
     setup.skip_count = 0;
     const Bytes none = Record(setup, match);
-    Bytes older(none.begin(), none.end());
-    const std::uint32_t setup_size = std::uint32_t(older[4]) | std::uint32_t(older[5]) << 8
-        | std::uint32_t(older[6]) << 16 | std::uint32_t(older[7]) << 24;
-    older.erase(older.begin() + 8 + setup_size - 2, older.begin() + 8 + setup_size);
-    for (int byte = 0; byte < 4; ++byte) older[4 + byte] = std::uint8_t((setup_size - 2) >> (8 * byte));
+    const Bytes older = WithoutSetupEnd(none, 2 + kResumeFields);
     Require(ReadSetup(older.data(), older.size(), read, error) && read.skip_count == 0 && read.series_game == 2,
             "a replay from before skips has none: " + error);
     Replay(older, setup, match);
+}
+
+// A tournament set's game that went on from one that broke off: its start
+// (goals and clock) comes back, in a live stream's start too; a replay from
+// before it starts from 0-0.
+void ResumedGames()
+{
+    Setup setup = MakeSetup(2, 1);
+    setup.online = 1;
+    setup.series_game = 3;
+    setup.skip_count = 1;
+    setup.skips[0] = {4, 20};
+    setup.resumes = 1;
+    setup.start_score[0] = 2;
+    setup.start_score[1] = 1;
+    setup.start_seconds = 140.5f;
+    const auto match = MakeMatch(setup, 90, 1, 21);
+    const Bytes stream = Record(setup, match);
+    Setup read;
+    std::string error;
+    Require(ReadSetup(stream.data(), stream.size(), read, error), "a resumed game's setup reads: " + error);
+    Require(read.resumes == 1 && read.start_score[0] == 2 && read.start_score[1] == 1
+                && read.start_seconds == 140.5f && read.skip_count == 1 && read.skips[0].after == 20,
+            "a resumed game's start comes back, after the skips");
+    Replay(stream, setup, match);
+
+    StreamWriter writer;
+    Require(writer.Begin(setup), "the writer takes a resumed game's setup");
+    Bytes start;
+    writer.StartBytes(start, true);
+    Setup live;
+    Require(ReadSetup(start.data(), start.size(), live, error) && live.resumes == 1 && live.start_score[0] == 2
+                && live.start_seconds == 140.5f && live.skip_count == 0,
+            "a live stream's start says where the game started");
+
+    const Bytes older = WithoutSetupEnd(stream, kResumeFields);
+    Require(ReadSetup(older.data(), older.size(), read, error) && read.resumes == 0 && read.start_score[0] == 0
+                && read.start_seconds == 0.0f && read.skip_count == 1,
+            "a replay from before resumed games starts from 0-0: " + error);
 }
 
 // A network match's live stream: written as it is played (its start as the
@@ -578,6 +626,7 @@ int main()
         RoundTrips();
         NetworkFields();
         CutsceneSkips();
+        ResumedGames();
         LiveStreams();
         Refusals();
         Files();

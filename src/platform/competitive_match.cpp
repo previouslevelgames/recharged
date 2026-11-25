@@ -582,6 +582,17 @@ extern "C" void mscharged_competitive_game_resume(const int* scores, float secon
                      sGameScores[1], double(sGameSeconds));
 }
 
+// The recording of the match under way (match_replay.cpp): where its game
+// start message started it (false: from the start).
+extern "C" bool mscharged_competitive_game_start(int* scores, float* seconds)
+{
+    if (!sGameResumes || !scores || !seconds) return false;
+    scores[0] = sGameScores[0];
+    scores[1] = sGameScores[1];
+    *seconds = sGameSeconds;
+    return true;
+}
+
 #if defined(MSCHARGED_TWEAKS)
 // Tweak patch 0079: a set's game (not the Game Menu's RANKED) on its way.
 extern "C" int mscharged_competitive_set_side(void)
