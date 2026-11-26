@@ -3267,7 +3267,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     tournamentFeed->Show(id);
                     if(const auto version=tournamentFeed->Version();
                        version!=tournamentShown || id!=tournamentShownId) {
-                        model=mscharged::runtime::ServerTournament(tournamentFeed->Latest(),id);
+                        model=mscharged::runtime::ServerTournament(tournamentFeed->Latest(),id,std::int64_t(std::time(nullptr)));
                         tournamentShown=version;
                         tournamentShownId=id;
                     }

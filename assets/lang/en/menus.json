@@ -344,6 +344,8 @@
       "entries_open": "Entries are open: {{count}} in so far.",
       "joined": "You are in: the bracket comes when the organizer starts it ({{count}} in so far).",
       "full": "Entries are full.",
+      "entries_closed": "Entries are closed: the bracket comes when the organizer starts it.",
+      "entries_close": "Entries close {{when}}.",
       "not_in": "It has started without you.",
       "left": "You left this tournament.",
       "out": "You are out of this tournament.",

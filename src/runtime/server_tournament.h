@@ -19,8 +19,10 @@ std::string TournamentInitials(const std::string& name);
 // they can join or leave, and a note while it loads, when the server fails,
 // when they need Discord, before the start and after their last set.
 // `shown`: the tournament the page asked for (0: the feed's choice), a
-// note while the feed's answer is another's.
-ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& feed, std::int64_t shown = 0);
+// note while the feed's answer is another's. `now`: this computer's clock (Unix
+// seconds), for the schedule: no JOIN once entries closed.
+ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& feed, std::int64_t shown = 0,
+                                     std::int64_t now = 0);
 // The TOURNAMENTS page's: the player's own tournament (else the newest) in
 // the big card, the others open for entries or under way, the last that
 // ended (none called off). `now`: this computer's clock (Unix seconds), for

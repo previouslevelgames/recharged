@@ -129,6 +129,28 @@ Snapshot Running(const char* state, int home_wins, int away_wins)
     return feed;
 }
 
+// JOIN while entries are open; once they closed, a note says so instead.
+void JoinSchedule()
+{
+    const std::int64_t now = 1'800'000'000;
+    auto feed = Running("ready", -1, -1);
+    feed.page->tournament.state = "registration";
+    feed.page->sets.clear();
+    feed.page->me->entrant = false;
+    feed.page->me->set = 0;
+    auto model = runtime::ServerTournament(feed, 0, now);
+    CHECK(model.can_join && model.note == "Entries are open: 3 in so far.");
+    feed.page->tournament.registration_ends_at = now + 60;
+    model = runtime::ServerTournament(feed, 0, now);
+    CHECK(model.can_join && model.note.rfind("Entries are open: 3 in so far.  Entries close ", 0) == 0);
+    model = runtime::ServerTournament(feed, 0, now + 60);
+    CHECK(!model.can_join && model.note == "Entries are closed: the bracket comes when the organizer starts it.");
+    // One in it may still leave.
+    feed.page->me->entrant = true;
+    model = runtime::ServerTournament(feed, 0, now + 60);
+    CHECK(!model.can_join && model.can_leave);
+}
+
 // A game of the player's set to play, once each; the opponent READY first.
 void Calls()
 {
@@ -252,6 +274,7 @@ int main()
 {
     List();
     ListSchedule();
+    JoinSchedule();
     Calls();
     Resume();
     Games();

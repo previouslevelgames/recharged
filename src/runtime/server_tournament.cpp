@@ -215,7 +215,7 @@ ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapsh
     return model;
 }
 
-ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& feed, std::int64_t shown)
+ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& feed, std::int64_t shown, std::int64_t now)
 {
     ui::TournamentModel model;
     model.games = 0;
@@ -262,11 +262,19 @@ ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& f
     const bool full = tournament.max_entrants > 0 && count >= tournament.max_entrants;
     if (tournament.state == "registration")
     {
-        model.can_join = !me->entrant && !full && !feed.busy;
+        // Entries close at their time, by this computer's clock (the server
+        // refuses a late JOIN either way).
+        const bool closing = tournament.registration_ends_at > 0;
+        const bool closed = closing && tournament.registration_ends_at <= now;
+        model.can_join = !me->entrant && !full && !closed && !feed.busy;
         model.can_leave = me->entrant && !feed.busy;
         note(me->entrant ? T("menus.tournament.server.joined", {{"count", std::to_string(count)}})
              : full      ? std::string(T("menus.tournament.server.full"))
+             : closed    ? std::string(T("menus.tournament.server.entries_closed"))
                          : T("menus.tournament.server.entries_open", {{"count", std::to_string(count)}}));
+        if (closing && !closed)
+            note(T("menus.tournament.server.entries_close",
+                   {{"when", platform::DescribeChatTime(now, tournament.registration_ends_at)}}));
         return model;
     }
     if (tournament.state == "cancelled")
