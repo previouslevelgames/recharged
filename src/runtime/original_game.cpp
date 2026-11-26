@@ -1799,6 +1799,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 launch.settings.interface_language,mscharged::platform::PcLanguages());
             mscharged::platform::NoteNameGlyphs(mscharged::texts::AllTexts());
             mscharged::platform::SessionLogLine("Interface language: "+language);
+            // The window's title says what this run plays after the port's
+            // name and build: a replay (a file, or a game the server keeps) or
+            // a match watched live.
+            const char* kind=watching
+                ? (watchTicket.game>0 ? mscharged::texts::T("common.window.replay")
+                                      : mscharged::texts::T("common.window.spectator"))
+                : !launch.replay_path.empty() ? mscharged::texts::T("common.window.replay") : nullptr;
+            if(kind && !SDL_SetWindowTitle(host.window,(windowTitle+" - "+kind).c_str()))
+                mscharged::platform::SessionLogLine(std::string("Window title: ")+SDL_GetError());
         }
         if(nativeSend)
             hostOverlay.emplace(executableDirectory/"assets"/"launcher"/"Roboto-Medium.ttf",
