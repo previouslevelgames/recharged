@@ -330,6 +330,12 @@ struct ProfileServerInfo
     // launcher's Discord Social SDK uses. Empty without Discord sign-in, and
     // from servers before 1.2.0.
     std::string discord_application;
+
+    // Whether the server is `major`.`minor`.`patch` or later.
+    bool AtLeast(int major, int minor, int patch) const;
+    // One profile per player (servers from 1.3.1): unique names, a face of
+    // its own, sign-in from the game save, Discord to connect and disconnect.
+    bool Profiles() const { return AtLeast(1, 3, 1); }
 };
 
 // The Discord Social SDK's tokens, which the server trades for the launcher
@@ -355,7 +361,10 @@ struct SignInStart
 
 struct SignInResult
 {
-    enum class Status { Waiting, SignedIn, Refused, Expired };
+    // DiscordHasProfile: Discord was connected to a profile that has played,
+    // and the Discord account has a profile of its own (`player`): the player
+    // chooses whether the one signed in goes into it (TakeOver, `takeover`).
+    enum class Status { Waiting, SignedIn, Refused, Expired, DiscordHasProfile };
     Status status = Status::Waiting;
     std::string token;
     ProfilePlayer player;
@@ -363,6 +372,38 @@ struct SignInResult
     // A Discord sign-in that Discord granted the Social SDK's scopes (servers
     // from 1.2.1): the SDK's tokens, which link the Discord friends at once.
     std::optional<DiscordTokens> discord;
+    // The sign-in made the player (a Discord account without a profile yet),
+    // or switched to the Discord account's own profile, which the new one
+    // went into (servers from 1.3.1).
+    bool created = false;
+    bool welcome_back = false;
+    std::string takeover; // DiscordHasProfile
+};
+
+// A Mii of the player's game save for the server (POST /api/v1/me/miis): its
+// WFC profile, its record, and its slot of the online save (servers from
+// 1.3.1 keep it to restore it).
+struct UploadedMii
+{
+    std::int32_t profile_id = 0;
+    std::string record; // 74 bytes
+    std::string slot;   // kOnlineSlotBytes, or empty
+};
+
+// What a fresh install needs to be the player again (GET /api/v1/me/restore):
+// the profile's face and the online save slots of its WFC profiles, the
+// latest bound first.
+struct ProfileRestore
+{
+    struct Slot
+    {
+        std::int32_t profile_id = 0;
+        std::string game; // R4QE, R4QP, R4QJ, R4QK
+        std::string friend_code;
+        std::string bytes;
+    };
+    std::string mii; // 74 bytes, or empty
+    std::vector<Slot> slots;
 };
 
 struct ReadyAnswer
@@ -428,14 +469,30 @@ public:
     // new profile each time (POST /api/v1/sign-in/mii). A ProfileError with
     // Status() 429 when the server takes no more for now.
     SignInResult MiiSignIn(const std::string& name);
-    // The game, logged in to WFC as `profile_id` with `login_ticket`: the
-    // profile that WFC profile identifies (a player who plays with a Mii),
-    // with a new session. 404 when it identifies nobody.
-    SignInResult WfcSignIn(std::uint32_t profile_id, const std::string& login_ticket);
+    // Continue with a Mii of the game save that plays for a profile: what its
+    // online slot proves (ReadOnlineSlot), as the game's WFC login does
+    // (servers from 1.3.1).
+    SignInResult SaveSignIn(std::uint64_t user_id, const std::string& gsbrcd);
+    // Discord had a profile of its own: the one signed in goes into it, and
+    // the result has its name, face and friend code.
+    SignInResult TakeOver(const std::string& takeover);
+    // Whether a player could take `name` now: only a hint while it is typed.
+    bool NameFree(const std::string& name);
+    // The player is called `name` from now on; a ProfileError of status 409
+    // when another player is.
+    ProfilePlayer Rename(const std::string& name);
+    // The profile's own face (a 74-byte Mii record).
+    ProfilePlayer ChooseMii(const std::string& record);
+    // The player goes on without Discord; 409 while no Mii signs it in again.
+    ProfilePlayer DisconnectDiscord();
+    // An old save's Mii, imported: its profile goes into the signed-in one,
+    // whose name, face and friend code then are its.
+    ProfilePlayer TakeOverSave(std::uint64_t user_id, const std::string& gsbrcd);
+    ProfileRestore Restore();
     // Of these WFC profiles (a game save's Miis, at most 32), those that play
-    // for a profile already, and how it signs in again: "game" (that Mii's
-    // WFC login, WfcSignIn) or its account ("discord", "test"). No names. 404
-    // from a server before 1.2.4.
+    // for a profile already, and how it signs in again: "game" (that Mii,
+    // SaveSignIn) or its account ("discord", "test"). No names. 404 from a
+    // server before 1.2.4.
     std::vector<std::pair<std::uint32_t, std::string>> KnownWfc(const std::vector<std::uint32_t>& profile_ids);
     std::vector<RuleSet> RuleSets();
 
@@ -490,7 +547,7 @@ public:
     // record), at most 32, for others' menus to draw them; the server keeps
     // those of profiles that are the player's. How many it kept; 404 from a
     // server before 1.2.22.
-    int UploadMiis(const std::vector<std::pair<std::int32_t, std::string>>& miis);
+    int UploadMiis(const std::vector<UploadedMii>& miis);
     // The launcher's Ready to play! (or taking it back).
     ProfileMatch ReadyToPlay(std::int64_t match, bool ready);
     // The ended set again: the same opponent and rules.

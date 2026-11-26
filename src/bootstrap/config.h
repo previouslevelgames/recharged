@@ -300,15 +300,6 @@ struct Settings
     // written in lowercase); Player profile chooses it. Empty: none chosen,
     // and a Discord player's Mii is made from their Discord name.
     std::string online_mii;
-    // [online] mii_sign_in: a player who played with a Mii before asked to
-    // sign in again through the game: once a Mii of theirs logs in to WFC, the
-    // game asks the server for the profile that Mii's online account
-    // identifies, saves its session and sets this back to false.
-    bool mii_sign_in = false;
-    // [online] mii_sign_in_with: the Mii of the game save the player picked
-    // for that (its create ID, as online_mii), so the launcher names it after
-    // a restart too. Only read while mii_sign_in is true; empty: none picked.
-    std::string mii_sign_in_with;
     // [online] rollback (on by default): network matches predict the inputs
     // still on their way and roll back when they differ, instead of waiting
     // for them. Every machine in the match must have it on (the input delay
@@ -390,8 +381,6 @@ void SaveGameTweak(const std::filesystem::path& path, GameTweak tweak, bool on);
 // `path` saved, the rest of the file as it is. Throws when the file cannot be
 // read or written, or `name` has a line break or NUL.
 void SaveChallengeRules(const std::filesystem::path& path, const std::string& name);
-// [online] mii_sign_in alone (the game clears it once it signed in again).
-void SaveMiiSignIn(const std::filesystem::path& path, bool on);
 // Settings as `change` leaves them, saved over the file (the game's Settings tab).
 void SaveSettings(const std::filesystem::path& path, const std::function<void(Settings&)>& change);
 std::filesystem::path ResolveDiscPath(const Settings& settings, const std::filesystem::path& config);

@@ -253,7 +253,41 @@ SignInResult ParseSignIn(const JsonValue& value)
         result.status = SignInResult::Status::Refused;
         result.message = value["message"].Text();
     }
+    else if (status == "discord_has_profile")
+    {
+        result.status = SignInResult::Status::DiscordHasProfile;
+        result.player = ParsePlayer(value["player"]);
+        result.takeover = value["takeover"].Text();
+        if (result.takeover.empty()) throw ProfileError("The server sent no choice", 200);
+    }
+    result.created = value["created"].Bool();
+    result.welcome_back = value["welcome_back"].Bool();
     return result;
+}
+
+// `text` for a URL's query: unreserved characters as they are, others %XX.
+std::string QueryValue(std::string_view text)
+{
+    std::string out;
+    for (const unsigned char c : text)
+    {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') out += char(c);
+        else
+        {
+            char escaped[4];
+            std::snprintf(escaped, sizeof escaped, "%%%02X", unsigned(c));
+            out += escaped;
+        }
+    }
+    return out;
+}
+
+std::string SaveBody(std::uint64_t user_id, const std::string& gsbrcd)
+{
+    std::string body = "{\"user_id\":" + std::to_string(user_id) + ",\"gsbrcd\":";
+    AppendJsonString(body, gsbrcd);
+    body += '}';
+    return body;
 }
 } // namespace
 
@@ -488,12 +522,74 @@ SignInResult ProfileService::MiiSignIn(const std::string& name)
     return ParseSignIn(Call("POST", "/api/v1/sign-in/mii", &body).body);
 }
 
-SignInResult ProfileService::WfcSignIn(std::uint32_t profile_id, const std::string& login_ticket)
+bool ProfileServerInfo::AtLeast(int major, int minor, int patch) const
 {
-    std::string body = "{\"profile_id\":" + std::to_string(profile_id) + ",\"login_ticket\":";
-    AppendJsonString(body, login_ticket);
+    int parts[3] = {0, 0, 0};
+    if (std::sscanf(version.c_str(), "%d.%d.%d", &parts[0], &parts[1], &parts[2]) < 2) return false;
+    if (parts[0] != major) return parts[0] > major;
+    if (parts[1] != minor) return parts[1] > minor;
+    return parts[2] >= patch;
+}
+
+SignInResult ProfileService::SaveSignIn(std::uint64_t user_id, const std::string& gsbrcd)
+{
+    const auto body = SaveBody(user_id, gsbrcd);
+    return ParseSignIn(Call("POST", "/api/v1/sign-in/save", &body).body);
+}
+
+SignInResult ProfileService::TakeOver(const std::string& takeover)
+{
+    std::string body = "{\"takeover\":";
+    AppendJsonString(body, takeover);
     body += '}';
-    return ParseSignIn(Call("POST", "/api/v1/sign-in/wfc", &body).body);
+    return ParseSignIn(Call("POST", "/api/v1/sign-in/take-over", &body).body);
+}
+
+bool ProfileService::NameFree(const std::string& name)
+{
+    return Call("GET", "/api/v1/names?name=" + QueryValue(name), nullptr).body["free"].Bool();
+}
+
+ProfilePlayer ProfileService::Rename(const std::string& name)
+{
+    std::string body = "{\"name\":";
+    AppendJsonString(body, name);
+    body += '}';
+    return ParsePlayer(Call("PUT", "/api/v1/me/name", &body).body);
+}
+
+ProfilePlayer ProfileService::ChooseMii(const std::string& record)
+{
+    const std::string body = "{\"data\":\"" + Base64Encode(record) + "\"}";
+    return ParsePlayer(Call("PUT", "/api/v1/me/mii", &body).body);
+}
+
+ProfilePlayer ProfileService::DisconnectDiscord()
+{
+    return ParsePlayer(Call("DELETE", "/api/v1/me/discord", nullptr).body);
+}
+
+ProfilePlayer ProfileService::TakeOverSave(std::uint64_t user_id, const std::string& gsbrcd)
+{
+    const auto body = SaveBody(user_id, gsbrcd);
+    return ParsePlayer(Call("POST", "/api/v1/me/take-over-save", &body).body);
+}
+
+ProfileRestore ProfileService::Restore()
+{
+    const auto answer = Call("GET", "/api/v1/me/restore", nullptr);
+    ProfileRestore restore;
+    if (const auto mii = Base64Decode(answer.body["mii"].Text()); mii && mii->size() == 74) restore.mii = *mii;
+    for (const auto& item : answer.body["slots"].Items())
+    {
+        ProfileRestore::Slot slot;
+        slot.profile_id = std::int32_t(item["profile_id"].Integer().value_or(0));
+        slot.game = item["game"].Text();
+        slot.friend_code = item["friend_code"].Text();
+        if (const auto bytes = Base64Decode(item["data"].Text())) slot.bytes = *bytes;
+        if (slot.profile_id > 0 && !slot.bytes.empty()) restore.slots.push_back(std::move(slot));
+    }
+    return restore;
 }
 
 std::vector<std::pair<std::uint32_t, std::string>> ProfileService::KnownWfc(
@@ -668,14 +764,16 @@ PlayerStats ProfileService::Stats()
     return stats;
 }
 
-int ProfileService::UploadMiis(const std::vector<std::pair<std::int32_t, std::string>>& miis)
+int ProfileService::UploadMiis(const std::vector<UploadedMii>& miis)
 {
     std::string body = "{\"miis\":[";
     for (std::size_t n = 0; n < miis.size() && n < 32; ++n)
     {
         if (n) body += ",";
-        body += "{\"profile_id\":" + std::to_string(miis[n].first) + ",\"data\":\"" + Base64Encode(miis[n].second)
-            + "\"}";
+        body += "{\"profile_id\":" + std::to_string(miis[n].profile_id) + ",\"data\":\""
+            + Base64Encode(miis[n].record) + "\"";
+        if (!miis[n].slot.empty()) body += ",\"slot\":\"" + Base64Encode(miis[n].slot) + "\"";
+        body += "}";
     }
     body += "]}";
     return int(Call("POST", "/api/v1/me/miis", &body).body["stored"].Integer().value_or(0));

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -90,7 +91,70 @@ struct InstalledMii {
     // and its whole 74-byte record (the face, for a picture of it).
     std::array<unsigned char, 8> create_id{};
     std::string record;
+    // Its slot of the online save as the file holds it (kOnlineSlotBytes),
+    // empty without one: ReadOnlineSlot tells whether it has logged in.
+    std::string slot;
 };
+
+// A Mii's slot of the game's online save (GameInfoSaveSlot): its whole
+// online self once it has logged in to WFC, kept by its create ID: its WFC
+// login id, the game's own friend roster for it, its records.
+inline constexpr std::size_t kOnlineSlotBytes = 0xB10;
+// Where a slot keeps its Mii's own data (mMiiData), which starts with the
+// Mii's 74-byte record.
+inline constexpr std::size_t kOnlineSlotMiiOffset = 0xABE;
+
+// What a slot holds for WFC (DWCAccUserData, its authentic login id). The
+// game logs in with these alone (DWCi_RemoteLogin), whatever console the slot
+// came from, so they prove the Mii as the game's own login does.
+struct MiiOnlineSlot {
+    std::string bytes; // the slot, as the online save holds it
+    std::array<unsigned char, 8> create_id{};
+    std::int32_t profile_id = 0; // its WFC profile
+    std::uint32_t game_code = 0; // R4QE, R4QP, R4QJ, R4QK
+    std::uint64_t user_id = 0;   // the console's userid, 43 bits
+    std::string gsbrcd;          // the game code and the slot's player id, as NAS gets them
+};
+
+// `bytes` as a slot that has logged in to WFC: its user data pass DWC's
+// checks (size word in either byte order, CRC) and hold an authentic login
+// id and a profile. nullopt otherwise: before the Mii's first login, or when
+// the game would make new user data (a new friend code) at its next one.
+std::optional<MiiOnlineSlot> ReadOnlineSlot(const std::string& bytes);
+
+// Write `slot` into the online save of the NAND backing at `nand_root` (a new
+// one when there is none): in place of the slot of the same Mii (create ID),
+// else in a free one. Its Mii, `record` (74 bytes with the slot's create ID),
+// is added to the Mii database first when no Mii has that create ID, so that
+// the game lists it with the slot. The online save and the catalog it
+// replaces are copied to `backup_parent`/<timestamp> first, which is
+// returned (empty for a new save folder). Throws std::invalid_argument for a
+// slot ReadOnlineSlot refuses or a record of another create ID, and a
+// readable std::runtime_error for a full online save (10 Miis), a full or
+// damaged Mii database or an unusable save folder; nothing is changed then.
+std::filesystem::path RestoreOnlineSlot(const MiiOnlineSlot& slot, const std::string& record,
+                                        const std::filesystem::path& nand_root, const SaveTitle& title,
+                                        const std::filesystem::path& backup_parent);
+
+// Where another save keeps what a Mii is online: its Mii database and the
+// game's online save. `chosen` is a Dolphin user folder (Wii/...), an old
+// Recharged folder (the program's folder, its data folder or its save
+// folder, the files named as on any system), or a folder inside them; the
+// game `title_id`'s files. Empty paths when there are none.
+struct OnlineImportSource {
+    std::filesystem::path miis, online;
+};
+OnlineImportSource ResolveOnlineImport(const std::filesystem::path& chosen, std::uint64_t title_id);
+
+// The Miis of `source` that have been online (their slot holds a WFC login),
+// each brought into the NAND backing at `nand_root` with its slot
+// (RestoreOnlineSlot): the same friend codes, the game's own friend roster and
+// records. The backing's other Miis and slots stay. The imported Miis, as
+// InstalledMiis lists them. Throws a readable std::runtime_error when the
+// source has no such Mii, or as RestoreOnlineSlot; Miis brought in before a
+// failure stay.
+std::vector<InstalledMii> ImportOnlineMiis(const OnlineImportSource& source, const std::filesystem::path& nand_root,
+                                           const SaveTitle& title, const std::filesystem::path& backup_parent);
 
 struct MiiDatabaseStatus {
     MiiDatabaseState state = MiiDatabaseState::Missing;

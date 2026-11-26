@@ -2046,93 +2046,6 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 hostOverlay->ShowMessage(texts::T("menus.messages.ranked_waits"),now);
             }
         };
-        // [online] mii_sign_in: a player who played with a Mii before signs in
-        // again here. Once a Mii is logged in to WFC (and there is no session),
-        // the server gives back the profile that Mii's online account
-        // identifies, asked off the frame, once per WFC profile; the session is
-        // saved, the flag cleared, and competitive play starts as with the
-        // launcher's session.
-        struct MiiSignInAnswer {
-            bool signedIn=false;
-            std::string token, name, error;
-            std::string message; // the error as the player reads it (Recharged's own words in their language)
-        };
-        bool miiSignIn=launch.settings.mii_sign_in;
-        std::uint32_t miiSignInTried=0;
-        std::future<MiiSignInAnswer> miiSignInAnswer;
-        std::chrono::steady_clock::time_point lastMiiSignIn{};
-        std::optional<std::string> miiSignInServer;
-        auto observeMiiSignIn = [&] {
-            if(!miiSignIn || competitive || !wfcSnapshot || !configureCompetitive)return;
-            const auto now=std::chrono::steady_clock::now();
-            if(miiSignInAnswer.valid()) {
-                if(miiSignInAnswer.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
-                const auto answer=miiSignInAnswer.get();
-                if(!answer.signedIn) {
-                    mscharged::platform::SessionLogLine("Competitive: signing in again with this Mii: "+answer.error);
-                    if(hostOverlay) hostOverlay->ShowMessage(answer.message,now);
-                    return;
-                }
-                const auto file=mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),
-                    launch.config.path);
-                try {
-                    mscharged::platform::SaveProfileSession(file,{*miiSignInServer,answer.token,answer.name});
-                    mscharged::SaveMiiSignIn(launch.config.path,false);
-                } catch(const std::exception& error) {
-                    mscharged::platform::SessionLogLine(std::string("Competitive: the session was not saved: ")+error.what());
-                }
-                miiSignIn=false;
-                std::string off;
-                competitive=mscharged::platform::CompetitiveHost::Start(launch.settings.profile_server,file,
-                    [](const std::string& text) {
-                        const std::string time=mscharged::platform::SessionLogTimes() ? std::string()
-                            : mscharged::platform::LogTimeStamp();
-                        std::fprintf(stderr,"%s%s\n",time.c_str(),text.c_str());
-                    },&off);
-                const auto line=competitive ? "Competitive: on, signed in again as "+competitive->PlayerName()+" by this Mii"
-                    : "Competitive: off ("+off+")";
-                mscharged::platform::SessionLogLine(line);
-                if(hostOverlay && competitive)
-                    hostOverlay->ShowMessage(texts::T("menus.messages.signed_in_again",{{"name",answer.name}}),now);
-                return;
-            }
-            if(now-lastMiiSignIn<std::chrono::seconds(1))return;
-            lastMiiSignIn=now;
-            ChargedWfcSnapshot wfc{};
-            if(!wfcSnapshot(&wfc,sizeof wfc) || !wfc.logged_in || wfc.profile_id==0 || wfc.profile_id==miiSignInTried)return;
-            if(!miiSignInServer) miiSignInServer=mscharged::platform::ProfileServerAddress(launch.settings.profile_server);
-            if(!miiSignInServer) {
-                miiSignIn=false;
-                return;
-            }
-            miiSignInTried=wfc.profile_id;
-            miiSignInAnswer=std::async(std::launch::async,
-                [server=*miiSignInServer,profile=std::uint32_t(wfc.profile_id),ticket=std::string(wfc.login_ticket)] {
-                    MiiSignInAnswer answer;
-                    try {
-                        mscharged::platform::ProfileService api(server);
-                        api.SetActivity("game");
-                        const auto result=api.WfcSignIn(profile,ticket);
-                        answer.signedIn=result.status==mscharged::platform::SignInResult::Status::SignedIn
-                            && !result.token.empty();
-                        answer.token=result.token;
-                        answer.name=result.player.name;
-                        if(!answer.signedIn) {
-                            answer.error=result.message.empty() ? "the server refused it" : result.message;
-                            answer.message=result.message.empty() ? texts::T("menus.messages.mii_refused")
-                                : result.message;
-                        }
-                    } catch(const mscharged::platform::ProfileError& error) {
-                        const bool unknown=error.Status()==404;
-                        answer.error=unknown ? "this Mii plays for no Recharged profile" : error.what();
-                        answer.message=unknown ? texts::T("menus.messages.mii_unknown") : error.what();
-                    } catch(const std::exception& error) {
-                        answer.error=answer.message=error.what();
-                    }
-                    return answer;
-                });
-            mscharged::platform::SessionLogLine("Competitive: signing in again with the Mii logged in to WFC");
-        };
         // A question over everything (the menus' prompt page): a challenge
         // (accept, and the set starts in this game; or decline), or after a set
         // the same set again (a rematch, or Ready to play! again for one that
@@ -2360,7 +2273,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // The Miis of the player's save that went online (each has its WFC
         // profile in its friend code), for the server: others' menus show them.
         auto ownMiisForServer=[&]() {
-            std::vector<std::pair<std::int32_t,std::string>> miis;
+            std::vector<mscharged::platform::UploadedMii> miis;
             try {
                 const auto installed=mscharged::platform::InstalledMiis(
                     mscharged::TitleSaveFolder(mscharged::ResolveSaveFolder(launch.settings,launch.config.path,
@@ -2368,7 +2281,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     mscharged::platform::SaveTitle{release->title_id,0x1001,release->title_group});
                 for(const auto& mii:installed.miis)
                     if(mii.friend_code!=0 && mii.record.size()==74 && miis.size()<32)
-                        miis.emplace_back(std::int32_t(std::uint32_t(mii.friend_code&0xFFFFFFFFu)),mii.record);
+                        miis.push_back({std::int32_t(std::uint32_t(mii.friend_code&0xFFFFFFFFu)),mii.record,
+                            mscharged::platform::ReadOnlineSlot(mii.slot) ? mii.slot : std::string()});
             } catch(const std::exception& error) {
                 mscharged::platform::SessionLogLine(std::string("Menus: your Miis are not sent (")+error.what()+")");
             }
@@ -2898,7 +2812,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto buildOverlayModel=[&](mscharged::overlay::GameOverlayModel& model,bool leaderboard,bool online=true,
                                    bool settings=true,bool stats=false) {
             namespace ov=mscharged::overlay;
-            // Signed in again through the game (mii_sign_in): its data from now on.
+            // Competitive play that started after the overlay: its data from now on.
             if(!panelFeed && competitive && !panelFeedLate) {
                 panelFeedLate=true;
                 std::string off;
@@ -3558,7 +3472,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // caught up, instead of growing it to the full-drain limit below.
                 aurora::gx::fifo::rebase_if_caught_up();
                 if(frameTiming)frameTiming->BeginFrame();
-                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt(); ++frames;
+                frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt(); ++frames;
                 mscharged::platform::FrameFinished(); // the freeze watch (#121)
                 if(frameTiming){ if(takeStadium)frameTiming->SetArena(takeStadium()); frameTiming->EndFrame(ReadFrameTimingCounters()); }
                 // Nothing else drains once no host observation is due: without
@@ -3648,7 +3562,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             if(!aurora_begin_frame()){std::this_thread::yield();continue;}
             const auto receipt=AuroraGXBeginDrawReceipt();Check(receipt,"Real source frame draw receipt unavailable");
             const float delta=std::chrono::duration<float>(now-previous).count(); previous=now;
-            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeMiiSignIn(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt();
+            frame(delta); observeOptions(); observeBoot(); observePresence(); observeCompetitive(); observeRanked(); observeNetplay(); observeOnlineMatch(); observeReplays(); AuroraGXEndDrawReceipt();
             mscharged::platform::FrameFinished(); // the freeze watch (#121)
             const bool sample=!snapshot && now-start>=std::chrono::seconds(3) && quiet>=2 &&
                 (!optionsScene || optionsReady) && bootReady;

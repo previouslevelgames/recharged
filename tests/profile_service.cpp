@@ -1,6 +1,7 @@
 // The profile service client of competitive play: server addresses, the
 // saved session, the rules the game module gets, and (where the system has
 // libcurl) the requests themselves against a small HTTP server here.
+#include "platform/base64.h"
 #include "platform/competitive_rules.h"
 #include "platform/http_client.h"
 #include "platform/online_panel_feed.h"
@@ -625,43 +626,87 @@ void MiiAccounts()
     }
 }
 
-// Signing in again through the game: its WFC login proof, without a session
-// and as the game; a WFC profile that identifies nobody is refused (404).
-void WfcSignIn()
+// One profile per player (servers from 1.3.1): what a sign-in says about the
+// profile, signing in from the game save, its name, face and Discord, and what
+// brings it back on a fresh install.
+void Profiles()
 {
+    ProfileServerInfo info;
+    info.version = "1.3.1";
+    CHECK(info.Profiles() && info.AtLeast(1, 3, 0) && !info.AtLeast(1, 3, 2) && info.AtLeast(0, 9, 9));
+    info.version = "1.2.29";
+    CHECK(!info.Profiles());
+    info.version = "2.0";
+    CHECK(info.Profiles());
+    info.version = "";
+    CHECK(!info.Profiles());
     if (!HttpUnavailable().empty()) return;
+    const std::string player = R"({"id":7,"name":"Anosch","account":"mii","friend_code":"0868-9934-5920"})";
+    const std::string slot(0xB10, 'S');
     const std::vector<Exchange> exchanges{
-        {"POST /api/v1/sign-in/wfc", 404, R"({"error":"no Recharged profile signs in with this WFC profile"})"},
-        {"POST /api/v1/sign-in/wfc", 200,
-         R"({"status":"signed_in","token":"w1","player":{"id":11,"name":"Bob the Builder","account":"mii",)"
-         R"("friend_code":"0868-9934-5920"}})"},
+        {"GET /api/v1/sign-in/abc", 200,
+         R"({"status":"signed_in","token":"t1","player":)" + player + R"(,"created":true})"},
+        {"GET /api/v1/sign-in/def", 200,
+         R"({"status":"discord_has_profile","player":)" + player + R"(,"takeover":"tk"})"},
+        {"POST /api/v1/sign-in/save", 200, R"({"status":"signed_in","token":"t2","player":)" + player + "}"},
+        {"POST /api/v1/sign-in/take-over", 200,
+         R"({"status":"signed_in","token":"t3","player":)" + player + R"(,"welcome_back":true})"},
+        {"GET /api/v1/names?name=Nelly%20B.%C3%A9", 200, R"({"name":"Nelly B.é","free":true})"},
+        {"PUT /api/v1/me/name", 409, R"({"error":"that name is taken: choose another one"})"},
+        {"PUT /api/v1/me/mii", 200, player},
+        {"DELETE /api/v1/me/discord", 200, player},
+        {"POST /api/v1/me/take-over-save", 200, player},
+        {"GET /api/v1/me/restore", 200,
+         R"({"mii":")" + Base64Encode(std::string(74, 'm')) + R"(","slots":[{"profile_id":1000000000,"game":"R4QE",)"
+             R"("friend_code":"0868-9934-5920","data":")" + Base64Encode(slot) + R"("},{"profile_id":0,"data":"AA=="}]})"},
+        {"POST /api/v1/me/miis", 200, R"({"stored":1,"slots":1})"},
     };
     std::vector<Sent> sent;
     {
         Server server(exchanges, sent);
-        ProfileService api(server.Url());
-        api.SetActivity("game");
+        ProfileService api(server.Url(), "session");
+        const auto created = api.PollSignIn("abc");
+        CHECK(created.status == SignInResult::Status::SignedIn && created.created && !created.welcome_back);
+        const auto asked = api.PollSignIn("def");
+        CHECK(asked.status == SignInResult::Status::DiscordHasProfile && asked.takeover == "tk"
+              && asked.player.name == "Anosch");
+        CHECK(api.SaveSignIn(0x123456789ABull, "R4QE24qnjff").token == "t2");
+        const auto back = api.TakeOver("tk");
+        CHECK(back.token == "t3" && back.welcome_back);
+        CHECK(api.NameFree("Nelly B.\xC3\xA9"));
         try
         {
-            api.WfcSignIn(1000000001u, "lt-other");
+            api.Rename("Kiki");
             CHECK(false);
         }
         catch (const ProfileError& e)
         {
-            CHECK(e.Status() == 404);
+            CHECK(e.Status() == 409 && std::string(e.what()) == "That name is taken: choose another one");
         }
-        const auto back = api.WfcSignIn(1000000000u, "lt-\"x\"");
-        CHECK(back.status == SignInResult::Status::SignedIn && back.token == "w1" && back.player.id == 11
-              && back.player.MiiAccount() && back.player.friend_code == "0868-9934-5920");
+        CHECK(api.ChooseMii(std::string(74, '\x07')).name == "Anosch");
+        CHECK(api.DisconnectDiscord().id == 7);
+        CHECK(api.TakeOverSave(5, "R4QPaaaaaaa").id == 7);
+        const auto restore = api.Restore();
+        CHECK(restore.mii.size() == 74 && restore.slots.size() == 1);
+        if (restore.slots.size() == 1)
+            CHECK(restore.slots[0].profile_id == 1000000000 && restore.slots[0].game == "R4QE"
+                  && restore.slots[0].bytes == slot);
+        CHECK(api.UploadMiis({{1000000000, std::string(74, 'r'), slot}, {1000000001, std::string(74, 'q'), {}}})
+              == 1);
     }
     CHECK(sent.size() == exchanges.size());
-    for (const auto& request : sent) CHECK(request.expected);
+    for (const auto& one : sent) CHECK(one.expected);
     if (sent.size() == exchanges.size())
     {
-        CHECK(sent[0].body == R"({"profile_id":1000000001,"login_ticket":"lt-other"})");
-        CHECK(sent[1].body == R"({"profile_id":1000000000,"login_ticket":"lt-\"x\""})"
-              && sent[1].authorization.empty() && sent[1].activity == "game"
-              && sent[1].content_type == "application/json");
+        CHECK(sent[2].body == R"({"user_id":1250999896491,"gsbrcd":"R4QE24qnjff"})");
+        CHECK(sent[3].body == R"({"takeover":"tk"})");
+        CHECK(sent[5].body == R"({"name":"Kiki"})" && sent[5].authorization == "Bearer session");
+        CHECK(sent[6].body == R"({"data":")" + Base64Encode(std::string(74, '\x07')) + "\"}");
+        CHECK(sent[8].body == R"({"user_id":5,"gsbrcd":"R4QPaaaaaaa"})");
+        CHECK(sent[10].body
+              == R"({"miis":[{"profile_id":1000000000,"data":")" + Base64Encode(std::string(74, 'r')) + R"(","slot":")"
+                  + Base64Encode(slot) + R"("},{"profile_id":1000000001,"data":")" + Base64Encode(std::string(74, 'q'))
+                  + R"("}]})");
     }
 }
 
@@ -896,8 +941,8 @@ int main()
 #ifndef _WIN32
     Requests();
     MiiAccounts();
-    WfcSignIn();
     KnownWfc();
+    Profiles();
     FeedDiscordFriends();
     FeedChallengeRules();
 #endif

@@ -11,11 +11,9 @@
     "save": "Save"
   },
   "online_top": {
-    "player_profile": "Player profile"
+    "player_profile": "Online player profile"
   },
   "welcome": {
-    "title": "Play online, the easy way",
-    "subtitle": "Connect Discord, or play with a Mii: no friend codes, no setup.",
     "finish_in_browser": "Finish in your browser",
     "check_code": "Go on only if the page there shows this code:",
     "open_again": "Open the page again",
@@ -23,41 +21,12 @@
     "no_server": "Online play needs a server: {{key}} in {{file}} is not a server's address (https://, or http:// for one on this computer or network).",
     "no_answer": "The server doesn't answer. The launcher tries again shortly.",
     "error_retry": "{{error}} The launcher tries again shortly.",
-    "benefits": {
-      "one_click": {
-        "title": "Online in one click",
-        "text": "Skip the Wii's friend codes and setup: your profile is ready in a minute, with Discord or a Mii."
-      },
-      "challenges": {
-        "title": "Challenges over the game",
-        "text": "Press {{key}} (or {{button}}) in the game for the Recharged Game Menu: see who is online and challenge them."
-      },
-      "sets": {
-        "title": "Real sets, fair rules",
-        "text": "Best-of series by competitive rules that both players see before they accept."
-      },
-      "tournaments": {
-        "title": "Tournaments",
-        "text": "Your next tournament game, opponent and rules, in the game's Events tab. With Discord."
-      },
-      "soon": "Soon"
-    },
     "server": "Server: {{host}}"
   },
   "choices": {
-    "discord": "Your profile and Mii come from your Discord account. Brings your Discord friends, and tournaments when they start.",
-    "mii": "No account needed: choose a name and a Mii. Friends, challenges and sets work the same.",
-    "no_mii": "This server offers no Mii sign-in yet.",
-    "footer": "With Discord, your profile takes your Discord name and picture, and your friends list goes from Discord straight to this computer. A Mii player can connect Discord later and keeps their profile."
-  },
-  "come_back": {
-    "hint": "Press Play and go online with {{mii}} (Online on the main menu): once it has logged in, the game signs you in again with the profile that Mii plays for.",
-    "hint_your_mii": "Press Play and go online with your Mii (Online on the main menu): once it has logged in, the game signs you in again with the profile that Mii plays for.",
-    "never_mind": "Never mind"
+    "no_mii": "This server offers no Mii sign-in yet."
   },
   "mii": {
-    "sign_in_with": "Sign in with {{mii}}",
-    "your_mii": "Your Mii",
     "name_hint": "Mii name",
     "favourite_colour": "Favourite colour",
     "friend_code": "Friend code {{code}}",
@@ -65,53 +34,14 @@
     "not_made": "Your Mii could not be made: {{error}}"
   },
   "wizard": {
-    "play_with_a_mii": "Play with a Mii",
-    "page_about": "No account needed: a name and a Mii, and you're online.",
     "blockers": {
-      "choose_name": "Choose your name.",
-      "name_length": "Your name has 1 to 32 characters.",
-      "mii_name": "Your Mii's name has 1 to 10 characters, without emoji.",
       "damaged": "This computer's Mii database is damaged: import your Miis from Dolphin instead.",
-      "full": "This computer has 100 Miis already: choose one of them.",
-      "choose_mii": "Choose your Mii.",
-      "has_profile": "This Mii has a profile already: sign in with it."
-    },
-    "step_1": "Step 1 of 2: the name others see, and the Mii that plays for you.",
-    "name": "Name",
-    "name_about": "What others see in the lobby, in friend lists and in sets. Up to 32 characters.",
-    "name_hint": "Your name online",
-    "mii_name_label": "Your Mii's name in the game, up to 10 characters:",
-    "mii_name_reset": "Made from my name",
-    "mii_name_line": "In the game your Mii is called \"{{mii}}\".",
-    "change": "Change",
-    "your_mii_about": "A new one, or one you have: on this computer, or in Dolphin.",
-    "source": {
-      "new": "New",
-      "this_computer": "This computer",
-      "dolphin": "Dolphin"
+      "full": "This computer has 100 Miis already: choose one of them."
     },
     "another_face": "Another face",
     "edit_face": "Edit face",
-    "random_face_note": "A random face from the Wii's own Mii maker: roll another, or edit it. The Mii is made when you go online.",
-    "database_damaged": "The game cannot read this computer's Mii database. Import your Miis from Dolphin instead.",
-    "no_miis": "No Miis on this computer yet: make a new one, or import yours from Dolphin.",
-    "has_profile_named": "{{mii}} plays for {{name}} already. Sign in again with it instead of making a second profile for this Mii, or choose another Mii.",
-    "has_profile_discord": "{{mii}} plays for a profile with Discord already. Sign in again with it instead of making a second profile for this Mii, or choose another Mii.",
-    "has_profile_recharged": "{{mii}} plays for a Recharged profile already. Sign in again with it instead of making a second profile for this Mii, or choose another Mii.",
-    "dolphin_about": "Play with the Miis you have in Dolphin: they replace this computer's Miis (those are backed up first), then you choose yours.",
     "found_in": "Found in {{path}}.",
-    "import_miis": "Import Dolphin Miis",
-    "no_dolphin_miis": "No Dolphin Miis found. Choose Dolphin's user folder.",
     "choose_folder": "Choose folder...",
-    "choose_another_folder": "Choose another folder...",
-    "go_online": "Go online",
-    "step_2": "Step 2 of 2: Recharged signs you in with your name and your Mii.",
-    "mii_line": "Your Mii \"{{mii}}\"",
-    "mii_line_new": "Your Mii \"{{mii}}\", made when you go online",
-    "no_password": "No account and no password: this computer keeps you signed in. Friends, challenges and sets work as they do with Discord.",
-    "discord_later": "Tournaments and Discord friends need Discord: connect it later on Player profile and your profile stays. After its first online game this Mii also brings you back if you sign out: log in with it in the game.",
-    "going_online": "Going online...",
-    "unreachable": "The server can't be reached right now.",
     "online_as": "You're online as {{name}}."
   },
   "editor": {
@@ -145,13 +75,10 @@
     "part_none": "None"
   },
   "profile": {
-    "about_mii": "Your profile, your Mii and the server you play on.",
-    "about_discord": "Your profile, your Discord friends and the server you play on.",
     "sign_out": "Sign out",
-    "account_mii": "Account: Mii  ·  {{code}}",
-    "account_mii_no_code": "Account: Mii  ·  friend code after your first online game",
-    "account_discord": "@{{name}}  ·  Signed in with Discord",
-    "signed_in": "Signed in",
+    "account_mii": "Friend code {{code}}",
+    "account_mii_no_code": "Friend code after your first online game",
+    "account_discord": "@{{name}} on Discord",
     "no_mii": "None",
     "friend_code": "Friend code",
     "friend_code_about": "For the game's own online menus.",
@@ -160,11 +87,6 @@
     "after_first_game": "After your first online game",
     "none_yet": "None yet",
     "code_copied": "Friend code copied: {{code}}.",
-    "discord_friends": "Discord friends",
-    "friends_linked": "Your Discord friends, and how many of them play Recharged.",
-    "friends_connecting": "Connecting to Discord.",
-    "friends_missing": "Builds made from source go without Discord friends.",
-    "friends_not_linked": "This server didn't link them with your sign-in: Link asks Discord once.",
     "linked": "Linked  ·  {{friends}}, {{players}} on Recharged",
     "friends_one": "{{count}} friend",
     "friends_other": "{{count}} friends",
@@ -178,15 +100,11 @@
     "server_about": "Set by {{key}} in {{file}}.",
     "discord_taken": "{{error}} That Discord account plays with its own profile: to use it, sign out here and connect Discord on Player profile. Or connect another Discord account to this profile.",
     "own_mii": {
-      "discord": "Plays your sets: made from your Discord name, the same on every computer.",
-      "elsewhere": "Not on this computer. Bring the game's data folder from the computer you play on: once your Mii has played online, Recharged finds it by its friend code.",
-      "mii_account": "Your profile's Mii: it plays your sets and online games.",
-      "chosen": "Plays your sets: the Mii of this computer you chose."
+      "elsewhere": "Not on this computer: Discord, or Import with your old game folder, brings it here."
     },
     "discord": "Discord",
     "discord_code": "Finish in your browser. Go on only if the page there shows this code.",
-    "open_again": "Open again",
-    "discord_connect_about": "Connect it for tournaments and your Discord friends. Your name, friends and Mii stay."
+    "open_again": "Open again"
   },
   "activity": {
     "online": "Online",
@@ -203,21 +121,10 @@
     "none": "No flag"
   },
   "sign_out": {
-    "title": "Sign out?",
-    "no_friend_code": "This Mii hasn't played online yet: signing out loses this profile for good.",
-    "come_back": "You come back by logging in with this Mii in the game: start the game, go online with {{mii}}, and Recharged signs you in again. There is no password.",
-    "come_back_your_mii": "You come back by logging in with this Mii in the game: start the game, go online with your Mii, and Recharged signs you in again. There is no password."
-  },
-  "mii_reuse": {
-    "title": "Play with a Mii you have?",
-    "one": "Your profile plays online with a Mii. This computer has one already: play with it, or make a new one from your name.",
-    "one_discord": "Your profile plays online with a Mii. This computer has one already: play with it, or make a new one from your Discord name.",
-    "many_one": "Your profile plays online with a Mii. This computer has {{count}} already: play with one of them, or make a new one from your name.",
-    "many_other": "Your profile plays online with a Mii. This computer has {{count}} already: play with one of them, or make a new one from your name.",
-    "many_discord_one": "Your profile plays online with a Mii. This computer has {{count}} already: play with one of them, or make a new one from your Discord name.",
-    "many_discord_other": "Your profile plays online with a Mii. This computer has {{count}} already: play with one of them, or make a new one from your Discord name.",
-    "use": "Use this Mii",
-    "make_new": "Make a new one"
+    "title": "Switch profile?",
+    "no_friend_code": "Your Mii hasn't been online yet: without Discord, nothing brings this profile back.",
+    "come_back": "Continue with {{mii}} brings you back on this computer, Discord on any other.",
+    "come_back_your_mii": "Continue with your Mii brings you back on this computer, Discord on any other."
   },
   "test_player": {
     "title": "Test player",
@@ -470,5 +377,86 @@
     "auto": "Auto",
     "unavailable": "The saved language is not available in this version; the game uses Automatic ({{language}}). Choose one above.",
     "automatic": "Automatic: {{language}}."
+  },
+  "profile_page": {
+    "title": "Online player profile",
+    "about": "Your name and face online. Discord is optional.",
+    "switch": "Switch profile",
+    "discord_about": "Your profile on any computer: Discord brings back your name, face and friend code.",
+    "welcome_back": "Welcome back, {{name}}.",
+    "restored": "Welcome back, {{name}}: your profile is on this computer again.",
+    "not_restored": "Your profile couldn't be brought to this computer: {{error}}",
+    "back": {
+      "title": "Welcome back",
+      "about": "Profiles of this computer's game save.",
+      "mii": "{{mii}} · {{code}}",
+      "continue": "Continue",
+      "old_server": "This server is too old for this: update it to 1.3.1.",
+      "more_one": "Show {{count}} more",
+      "more_other": "Show {{count}} more"
+    },
+    "create": {
+      "title": "Create a profile",
+      "about": "A name and a face. No Discord needed: connect it any time.",
+      "button": "Create profile",
+      "page_title": "Create your profile",
+      "page_about": "The name and face others see, in Recharged and in the game.",
+      "name": "Name",
+      "name_about": "Others see it in the lobby, in friend lists and in sets. Up to 32 characters.",
+      "name_hint": "Your name online",
+      "name_free": "This name is free.",
+      "name_taken": "Another player has this name.",
+      "name_rule": "A name has 1 to 32 characters.",
+      "choose_name": "Choose your name.",
+      "mii_name": "Your name needs letters a Mii can show.",
+      "gone": "That Mii is no longer on this computer.",
+      "face": "Face",
+      "face_about": "Your Mii: others see it in the game and in Recharged.",
+      "using": "The face of {{mii}}",
+      "new_face": "A new face",
+      "or_mii": "Or take a Mii of this computer:",
+      "no_discord": "Without Discord this profile lives in this computer's game folder. Connect Discord any time to keep it everywhere.",
+      "working": "Working..."
+    },
+    "finish": {
+      "title": "Finish your profile",
+      "about": "Discord made your profile: choose its name and face."
+    },
+    "import": {
+      "link": "Import from Dolphin or an old Recharged folder...",
+      "title": "Import profiles",
+      "about": "The Miis that have been online in another save come here with their friend codes. Your Miis here stay.",
+      "dolphin": "Import from Dolphin",
+      "none": "No Mii that has been online in {{folder}}.",
+      "done": "Imported {{names}}."
+    },
+    "imported": {
+      "title": "Use an imported profile?",
+      "text": "Using one puts its profile into {{name}}: its name, face and friend code win, and the sets of both stay.",
+      "use": "Use it",
+      "keep": "Keep mine",
+      "used": "Done: you're {{name}} now, on any computer with Discord."
+    },
+    "choice": {
+      "title": "Your Discord has a profile",
+      "text": "Your Discord account plays as {{other}}. Put {{this}} into it? {{this}}'s name, face and friend code win, and the sets of both stay.",
+      "yes": "Put it in",
+      "no": "Not now"
+    },
+    "disconnect": {
+      "title": "Disconnect Discord?",
+      "text": "You stay signed in here. On other computers, only your Mii's game save brings this profile back."
+    },
+    "rows": {
+      "name": "Name",
+      "name_about": "Unique: nobody else has it. Your Mii takes it too.",
+      "rename": "Rename",
+      "face": "Face",
+      "face_about": "Your Mii: others see it in the game and in Recharged.",
+      "discord_about": "Keep this profile on any computer, and bring your Discord friends.",
+      "discord_connected_about": "Brings this profile to any computer, and your Discord friends.",
+      "discord_as": "Connected as {{name}}",
+      "disconnect": "Disconnect"
+    }
   }
 }

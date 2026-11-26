@@ -8,6 +8,7 @@
 #include "platform/save_import.h"
 #include <revolution/ipc.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
@@ -776,6 +777,144 @@ void RunFriendCodes(const fs::path& root) {
               "A damaged online save gave friend codes or slots");
 }
 
+// A slot of the online save as the port writes it (little-endian words), for
+// the Mii `create_id`: its user data with the authentic login id `user_id`
+// and `player_id`, and the profile `profile`.
+std::string OnlineSlotBytes(const std::array<unsigned char, 8>& create_id, std::uint64_t user_id,
+                            std::uint32_t player_id, std::int32_t profile, std::uint32_t login_type = 1) {
+    std::string slot(kOnlineSlotBytes, '\0');
+    const auto little = [&](std::size_t offset, std::uint32_t value) {
+        for (std::size_t n = 0; n < 4; ++n) slot[offset + n] = char(value >> (8 * n));
+    };
+    little(0, 0x40);
+    little(0x04, 1u << 11); // the pseudo login id: not what logs in
+    little(0x10, login_type << 11 | std::uint32_t(user_id >> 32));
+    little(0x14, std::uint32_t(user_id));
+    little(0x18, player_id);
+    little(0x1C, std::uint32_t(profile));
+    little(0x24, 0x52345145);
+    little(0x3C, Crc32(slot.substr(0, 0x3C), 0));
+    std::copy(create_id.begin(), create_id.end(), slot.begin() + 0xA80);
+    for (std::size_t n = 0x340; n < 0x380; ++n) slot[n] = char(n); // a friend roster
+    return slot;
+}
+
+// A Mii's online slot is its WFC login: ReadOnlineSlot finds what the game's
+// NAS login sends, and RestoreOnlineSlot puts the slot and its Mii into another
+// save, where the game lists them with the same friend code.
+void RunOnlineSlots(const fs::path& root) {
+    const auto mii = MakeRandomMii("Anosch", 7, 1700000000);
+    const auto id = MiiRecordCreateId(mii);
+    const auto bytes = OnlineSlotBytes(id, 0x123456789ABULL, 0x89ABCDEF, 1000000000);
+    const auto slot = ReadOnlineSlot(bytes);
+    Check(slot && slot->user_id == 0x123456789ABULL && slot->gsbrcd == "R4QE24qnjff"
+              && slot->profile_id == 1000000000 && slot->game_code == 0x52345145 && slot->create_id == id
+              && slot->bytes == bytes,
+          "An online slot's WFC login differs from what the game sends");
+    // The Wii's byte order reads the same.
+    auto big = bytes;
+    for (std::size_t n = 0; n < 0x40; n += 4) std::reverse(big.begin() + std::ptrdiff_t(n), big.begin() + std::ptrdiff_t(n + 4));
+    Check(ReadOnlineSlot(big) && ReadOnlineSlot(big)->gsbrcd == slot->gsbrcd, "A slot in the Wii's byte order");
+    // Before its first login, with damaged user data, or not a slot: none.
+    auto damaged = bytes;
+    damaged[0x18] ^= 1;
+    Check(!ReadOnlineSlot(OnlineSlotBytes(id, 1, 2, 3, 0)) && !ReadOnlineSlot(OnlineSlotBytes(id, 1, 2, 0))
+              && !ReadOnlineSlot(damaged) && !ReadOnlineSlot(bytes.substr(1)),
+          "A slot that never logged in, or damaged, read as a login");
+
+    // A fresh install: no save at all. The slot comes back with its Mii.
+    const auto fresh = root / "online-slots";
+    fs::remove_all(fresh);
+    Check(RestoreOnlineSlot(*slot, mii, fresh, kTitle, root / "backups").empty(), "A fresh restore made a backup");
+    auto status = InstalledMiis(fresh, kTitle);
+    Check(status.state == MiiDatabaseState::Ready && status.miis.size() == 1 && status.miis[0].name == "Anosch"
+              && status.miis[0].friend_code == FriendCode(1000000000, 0x52345145) && status.miis[0].slot == bytes,
+          "A restored slot is not listed with its Mii and friend code");
+    InitializeNativeFilesystem({fresh, kTitle.title_id, kTitle.uid, kTitle.gid});
+    const auto online = IosRead(kHome + "/nocopy/Online");
+    Check(online.size() == 28352 && online.compare(8, kOnlineSlotBytes, bytes) == 0,
+          "The restored online save does not read through the IOS device");
+    for (const auto& path : {kHome + "/nocopy", kHome + "/nocopy/Online"}) {
+        const auto attr = Attr(path);
+        Check(attr.uid == kTitle.uid && attr.gid == kTitle.gid && attr.owner == 3 && !attr.group && !attr.other,
+              "The online save's folder or file has other permissions than the game gives them");
+    }
+    ShutdownNativeFilesystem();
+
+    // Again (the server's newer copy): in place, after a backup.
+    auto newer = OnlineSlotBytes(id, 0x123456789ABULL, 0x89ABCDEF, 1000000000);
+    newer[0x340] = 'N';
+    const auto backup = RestoreOnlineSlot(*ReadOnlineSlot(newer), mii, fresh, kTitle, root / "backups");
+    Check(!backup.empty() && Bytes(backup / "Online") == online, "The replaced online save was not backed up");
+    status = InstalledMiis(fresh, kTitle);
+    Check(status.miis.size() == 1 && status.miis[0].slot == newer, "A slot restored again was not replaced");
+
+    // Ten Miis online: no room for an eleventh. Another Mii's record refused.
+    for (std::uint32_t n = 1; n < 10; ++n) {
+        const auto other = MakeRandomMii("Mii", n, 1700000000 + 10 * n);
+        RestoreOnlineSlot(*ReadOnlineSlot(OnlineSlotBytes(MiiRecordCreateId(other), n, n, std::int32_t(n))), other,
+                          fresh, kTitle, root / "backups");
+    }
+    Check(InstalledMiis(fresh, kTitle).miis.size() == 10, "Ten restored slots");
+    const auto last = MakeRandomMii("Last", 99, 1800000000);
+    const auto before = Bytes(fresh / "metadata.txt");
+    Reject([&] { RestoreOnlineSlot(*ReadOnlineSlot(OnlineSlotBytes(MiiRecordCreateId(last), 9, 9, 9)), last, fresh,
+                                   kTitle, root / "backups"); },
+           "An eleventh slot was restored");
+    Reject([&] { RestoreOnlineSlot(*slot, last, fresh, kTitle, root / "backups"); },
+           "A slot was restored with another Mii");
+    Check(InstalledMiis(fresh, kTitle).miis.size() == 10 && Bytes(fresh / "metadata.txt") == before,
+          "A refused restore changed the save folder");
+
+    // Import from another save: Dolphin's, an old Recharged folder's (names as
+    // Linux keeps them, or as Windows does). The computer's own Miis stay.
+    const auto database = Bytes(fresh / "data" / "shared2" / "menu" / "FaceLib" / "RFL_DB.dat");
+    const auto online_save = Bytes(fresh / "data" / "title" / "00010000" / "52345145" / "data" / "nocopy" / "Online");
+    Check(!database.empty() && online_save.size() == 28352, "The restored save's files are not where Linux keeps them");
+    const auto dolphin = root / "import-dolphin";
+    fs::remove_all(dolphin);
+    Put(dolphin / "Wii" / "shared2" / "menu" / "FaceLib" / "RFL_DB.dat", database);
+    Put(dolphin / "Wii" / "title" / "00010000" / "52345145" / "data" / "nocopy" / "Online", online_save);
+    const auto windows = root / "import-windows";
+    fs::remove_all(windows);
+    const auto hex = [](const std::string& name) {
+        std::string out = "n";
+        for (const unsigned char c : name) {
+            static const char digits[] = "0123456789abcdef";
+            out += digits[c >> 4];
+            out += digits[c & 15];
+        }
+        return out;
+    };
+    Put(windows / "data" / "nand" / "data" / hex("shared2") / hex("menu") / hex("FaceLib") / hex("RFL_DB.dat"),
+        database);
+    Put(windows / "data" / "nand" / "data" / hex("title") / hex("00010000") / hex("52345145") / hex("data")
+            / hex("nocopy") / hex("Online"),
+        online_save);
+    for (const auto& [chosen, name] : {std::pair{dolphin, "Dolphin"}, std::pair{dolphin / "Wii", "Dolphin's Wii"},
+                                       std::pair{fresh, "Recharged"}, std::pair{windows, "Windows Recharged"}}) {
+        const auto source = ResolveOnlineImport(chosen, kTitle.title_id);
+        Check(Bytes(source.miis) == database && Bytes(source.online) == online_save,
+              (std::string("An import from a ") + name + " folder found no Miis").c_str());
+    }
+    Check(ResolveOnlineImport(root / "backups", kTitle.title_id).miis.empty(), "An unrelated folder found Miis");
+    const auto target = root / "import-target";
+    fs::remove_all(target);
+    const auto peach = MakeRandomMii("Peach", 3, 1600000000);
+    AddMii(peach, target, kTitle, root / "backups");
+    const auto imported = ImportOnlineMiis(ResolveOnlineImport(dolphin, kTitle.title_id), target, kTitle,
+                                           root / "backups");
+    status = InstalledMiis(target, kTitle);
+    Check(imported.size() == 10 && status.miis.size() == 11, "Not every Mii that went online came along");
+    bool anosch = false, peach_kept = false;
+    for (const auto& mii : status.miis) {
+        if (mii.name == "Anosch") anosch = mii.friend_code == FriendCode(1000000000, 0x52345145) && mii.slot == newer;
+        if (mii.name == "Peach") peach_kept = !mii.friend_code;
+    }
+    Check(anosch && peach_kept, "An imported Mii lost its friend code, or a Mii here was changed");
+    Reject([&] { ImportOnlineMiis({}, target, kTitle, root / "backups"); }, "An empty source imported");
+}
+
 void SetEnvironment(const char* name, const fs::path& value) {
 #ifdef _WIN32
     const std::wstring wide(name, name + std::strlen(name));
@@ -976,6 +1115,7 @@ int main(int argc, char** argv) {
         RunSidekicks(fs::path(argv[1]));
         RunMatchSettings(fs::path(argv[1]));
         RunFriendCodes(fs::path(argv[1]));
+        RunOnlineSlots(fs::path(argv[1]));
         RunFind(fs::path(argv[1]));
         RunOrphans(fs::path(argv[1]));
         RunRefusedRetry();

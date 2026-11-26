@@ -114,8 +114,6 @@ Values Encode(const Settings& s)
             {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"online.challenge_rules", s.challenge_rules},
             {"online.mii", s.online_mii},
-            {"online.mii_sign_in", s.mii_sign_in ? "true" : "false"},
-            {"online.mii_sign_in_with", s.mii_sign_in_with},
             {"launcher.reopen_after_game", s.reopen_after_game ? "true" : "false"},
             {"launcher.show_welcome", s.show_welcome ? "true" : "false"},
             {"launcher.update_channel", s.update_channel},
@@ -475,7 +473,6 @@ Settings Decode(const Values& values, bool builtin = false)
     if (s.profile_server.find_first_of("\r\n") != std::string::npos || s.profile_server.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: online.profile_server contains a line break or NUL");
     boolean("online.rollback", s.rollback);
-    boolean("online.mii_sign_in", s.mii_sign_in);
     // A Mii's create ID: 16 hex digits, kept in lowercase; empty for none.
     auto create_id = [&](const char* key, std::string& value) {
         const auto it = values.find(key);
@@ -489,7 +486,6 @@ Settings Decode(const Values& values, bool builtin = false)
         value = id;
     };
     create_id("online.mii", s.online_mii);
-    create_id("online.mii_sign_in_with", s.mii_sign_in_with);
     boolean("online.rollback_test", s.rollback_test);
     if (const auto it = values.find("online.rollback_log"); it != values.end()) s.rollback_log = it->second;
     if (s.rollback_log.find_first_of("\r\n") != std::string::npos || s.rollback_log.find('\0') != std::string::npos)
@@ -805,15 +801,6 @@ void SaveSettings(const std::filesystem::path& path, const std::function<void(Se
     auto file = LoadConfig(path, true);
     auto settings = file.settings;
     change(settings);
-    SaveConfig(file, settings);
-}
-
-void SaveMiiSignIn(const std::filesystem::path& path, bool on)
-{
-    auto file = LoadConfig(path, true);
-    auto settings = file.settings;
-    settings.mii_sign_in = on;
-    if (!on) settings.mii_sign_in_with.clear();
     SaveConfig(file, settings);
 }
 

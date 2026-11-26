@@ -420,12 +420,6 @@ rich_presence = true
 # or of your presets, Online -> Match rules), by its name: the one sent last;
 # empty: the server's first.
 challenge_rules =
-# Playing with a Mii (without Discord): your profile's one Mii, by its create
-# ID (chosen with the profile; the launcher finds it again by its friend code).
+# Your online player profile's Mii (its face in the game), by its create ID:
+# chosen or made with the profile; the launcher finds it again by its friend code.
 mii =
-# Played with a Mii before: true signs you in again through the game, once
-# your Mii logs in to WFC (Player profile sets it; the game clears it).
-mii_sign_in = false
-# The Mii of your game save picked for that, by its create ID (the launcher
-# names it while mii_sign_in is true).
-mii_sign_in_with =
