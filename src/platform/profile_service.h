@@ -368,7 +368,9 @@ struct ProfileTournament
     int entrants = 0;
     bool joined = false; // in the list, with a session
     int place = 0;       // the player's, from 1, once it ended (in the list, with a session)
-    std::int64_t starts_at = 0, started_at = 0, ended_at = 0; // unix seconds, 0: none
+    // Unix seconds, 0: none. Entries close at registration_ends_at (none:
+    // when it starts); its sets are played from starts_at.
+    std::int64_t registration_ends_at = 0, starts_at = 0, started_at = 0, ended_at = 0;
 };
 
 struct TournamentEntrant

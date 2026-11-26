@@ -272,6 +272,7 @@ ProfileTournament ParseTournament(const JsonValue& value)
     tournament.entrants = int(value["entrants"].Integer().value_or(0));
     tournament.joined = value["joined"].Bool();
     tournament.place = int(value["place"].Integer().value_or(0));
+    tournament.registration_ends_at = value["registration_ends_at"].Integer().value_or(0);
     tournament.starts_at = value["starts_at"].Integer().value_or(0);
     tournament.started_at = value["started_at"].Integer().value_or(0);
     tournament.ended_at = value["ended_at"].Integer().value_or(0);
