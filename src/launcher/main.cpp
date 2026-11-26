@@ -435,12 +435,12 @@ bool ValidProfileName(const std::string& name)
 // The leaderboards and events are the Recharged Game Menu's (its Ranked and
 // Events tabs); the settings that change while the game runs (the display
 // and sound, the gameplay options, the rumble...) are its OPTIONS.
-enum Page { PagePlay, PageOnlineSettings, PageRules, PageSidekicks, PageReplays, PageGame,
-            PageExtras, PageGraphics, PageControls, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_ids[] = {"play",   "online-settings", "rules",    "sidekicks", "replays", "game",
-                                    "extras", "graphics",        "controls", "advanced",  "about"};
-constexpr Icon page_icons[] = {Icon::Play,   Icon::Person,  Icon::Clipboard, Icon::Pitch,   Icon::Archive, Icon::Disc,
-                               Icon::Target, Icon::Display, Icon::Keyboard,  Icon::Sliders, Icon::Info};
+enum Page { PagePlay, PageOnlineSettings, PageRules, PageSidekicks, PageGame, PageGraphics,
+            PageControls, PageAdvanced, PageExtras, PageReplays, PageAbout, PageCount };
+constexpr const char* page_ids[] = {"play",     "online-settings", "rules",  "sidekicks", "game", "graphics",
+                                    "controls", "advanced",        "extras", "replays",   "about"};
+constexpr Icon page_icons[] = {Icon::Play,     Icon::Person,  Icon::Clipboard, Icon::Pitch,   Icon::Disc, Icon::Display,
+                               Icon::Keyboard, Icon::Sliders, Icon::Target,    Icon::Archive, Icon::Info};
 static_assert(std::size(page_ids) == PageCount && std::size(page_icons) == PageCount);
 // --page's names of the pages that were merged into others.
 constexpr std::pair<const char*, int> kOldPageIds[] = {{"display", PageGraphics}, {"audio", PageGame},
@@ -13343,8 +13343,8 @@ int main(int argc, char** argv)
                          "--non-interactive makes that run a startup diagnostic: it ends once its first frame is captured,\n"
                          "or fails after 90 s.\n"
                          "Use --launcher to open settings; launcher checks and explicit runtime modes keep their selected mode.\n"
-                         "Development checks: --smoke-test | --screenshot FILE [--page play|online-settings|rules|sidekicks|replays|"
-                         "game|extras|graphics|controls|advanced|about]\n";
+                         "Development checks: --smoke-test | --screenshot FILE [--page play|online-settings|rules|sidekicks|game|"
+                         "graphics|controls|advanced|extras|replays|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
             std::cout << "Original startup prototype: --experimental-startup [--config FILE] (not playable)\n";
 #endif
