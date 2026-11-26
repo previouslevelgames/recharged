@@ -1023,6 +1023,14 @@ extern "C" bool mscharged_competitive_draft_mirror(void)
     return Applies() && ((sRules.tweaks >> MSCHARGED_TWEAK_MIRROR_MATCH) & 1u);
 }
 
+// The set's rules have no Defence priority (the home side wins the ball
+// contests): in this RANKED draft against the set's opponent the player
+// away drafts first (tweak patch 0084). The host's rules, as above.
+extern "C" bool mscharged_competitive_draft_away_first(void)
+{
+    return Applies() && !((sRules.tweaks >> MSCHARGED_TWEAK_FAIR_BALL_CONTESTS) & 1u);
+}
+
 // Mirror match for the tweak's hooks (game_tweaks.cpp): from the set's draft
 // (both teams may then have one captain) through the screens after its
 // match, which keeps the rules it started with. Only in RANKED: once the
