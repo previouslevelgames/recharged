@@ -20,6 +20,8 @@ namespace
 namespace fs = std::filesystem;
 using platform::MatchSettings;
 
+constexpr std::string_view kFairBallContests = "fair_ball_contests";
+
 std::string Lower(std::string text)
 {
     for (auto& c : text) c = char(std::tolower(static_cast<unsigned char>(c)));
@@ -86,7 +88,7 @@ const std::vector<MatchPreset>& BuiltInMatchPresets()
         competitive.name = "Competitive";
         competitive.settings.goal_limit = true;
         competitive.settings.goals = 10;
-        competitive.tweaks = {"fast_terrain", "no_mega_strikes", "thunder_island_walls"};
+        competitive.tweaks = {"fair_ball_contests", "fast_terrain", "no_mega_strikes", "thunder_island_walls"};
         return std::vector<MatchPreset>{retail, competitive};
     }();
     return presets;
@@ -196,8 +198,20 @@ std::string MatchPresetText(const MatchPreset& preset)
          << "powerup_cheat = " << kPowerupTokens.at(std::size_t(s.powerup_cheat)) << '\n'
          << "stadium = " << preset.stadium << '\n'
          << "tweaks = ";
-    for (std::size_t n = 0; n < preset.tweaks.size(); ++n) text << (n ? ", " : "") << preset.tweaks[n];
-    text << '\n';
+    // Fair ball contests on their own line: a file without it (from before
+    // they were a rule) has them, as every online match had.
+    bool first = true, fair = false;
+    for (const auto& tweak : preset.tweaks)
+    {
+        if (tweak == kFairBallContests)
+        {
+            fair = true;
+            continue;
+        }
+        text << (first ? "" : ", ") << tweak;
+        first = false;
+    }
+    text << '\n' << kFairBallContests << " = " << (fair ? "yes" : "no") << '\n';
     return text.str();
 }
 
@@ -205,6 +219,7 @@ std::optional<MatchPreset> ParseMatchPreset(std::string_view text, std::string* 
 {
     MatchPreset preset;
     bool named = false;
+    std::optional<bool> fair;
     auto fail = [&](int line, const std::string& why) -> std::optional<MatchPreset> {
         if (error)
             *error = line ? texts::T("match_setup.presets.errors.line",
@@ -257,6 +272,7 @@ std::optional<MatchPreset> ParseMatchPreset(std::string_view text, std::string* 
                             texts::T("match_setup.presets.errors.cannot_be", {{"key", "stadium"}, {"value", value}}));
             preset.stadium = value;
         }
+        else if (key == kFairBallContests && (value == "yes" || value == "no")) fair = value == "yes";
         else if (key == "tweaks")
         {
             preset.tweaks.clear();
@@ -274,9 +290,14 @@ std::optional<MatchPreset> ParseMatchPreset(std::string_view text, std::string* 
             }
         }
         else if (key == "skill" || key == "best_of" || key == "win_by" || key == "minutes" || key == "goals"
-                 || key == "stadium_cheat" || key == "player_cheat" || key == "powerup_cheat")
+                 || key == "stadium_cheat" || key == "player_cheat" || key == "powerup_cheat"
+                 || key == kFairBallContests)
             return fail(line, texts::T("match_setup.presets.errors.cannot_be", {{"key", key}, {"value", value}}));
     }
+    // Fair ball contests: as their line says, else on (a file from before
+    // they were a rule, or written by hand without them).
+    std::erase(preset.tweaks, std::string(kFairBallContests));
+    if (fair.value_or(true)) preset.tweaks.emplace_back(kFairBallContests);
     if (!named) return fail(0, texts::T("match_setup.presets.errors.no_name"));
     if (!platform::ValidMatchSettings(preset.settings))
         return fail(0, texts::T("match_setup.presets.errors.bad_setting"));

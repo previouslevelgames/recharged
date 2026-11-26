@@ -14,8 +14,9 @@
 // it into the game save, for matches on this computer or online with friends.
 // Two are built in and cannot change: Retail ranked (the game's own ranked
 // rules, also a new save's settings) and Competitive (first to 10 goals,
-// with Fast terrain, No Mega Strikes and Thunder Island walls), as the
-// profile server has them. Independent of SDL/ImGui so it can be unit tested.
+// with Fast terrain, No Mega Strikes and Thunder Island walls), both with
+// Defence priority, as the profile server has them. Independent of
+// SDL/ImGui so it can be unit tested.
 namespace mscharged::launcher
 {
 struct MatchPreset
@@ -26,9 +27,10 @@ struct MatchPreset
     std::filesystem::path file; // the preset's file; empty for a built-in one
     // For challenges too: the stadium ("random" or one of StadiumChoices'
     // keys) and the gameplay tweaks both teams play with (RuleTweakChoices'
-    // keys). The skill only counts against the CPU.
+    // keys), fair ball contests (Defence priority) unless taken off. The
+    // skill only counts against the CPU.
     std::string stadium = "random";
-    std::vector<std::string> tweaks;
+    std::vector<std::string> tweaks{"fair_ball_contests"};
 };
 
 // A preset as a challenge's rules (a series of 9 plays 7: online sets go up
@@ -39,8 +41,9 @@ platform::MatchRules ChallengeRules(const MatchPreset& preset);
 MatchPreset PresetFromRules(std::string name, const platform::MatchRules& rules);
 
 // Retail ranked: Rookie, best of 3, 3 minutes, a random stadium, no cheats
-// (a new save's settings). Competitive: first to 10 goals instead, with Fast
-// terrain, No Mega Strikes and Thunder Island walls.
+// (a new save's settings), with Defence priority. Competitive: first to 10
+// goals instead, with Defence priority, Fast terrain, No Mega Strikes and
+// Thunder Island walls.
 const std::vector<MatchPreset>& BuiltInMatchPresets();
 
 // Names are compared without case. A preset's name has 1 to 32 characters,
