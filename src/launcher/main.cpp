@@ -5361,7 +5361,7 @@ private:
     {
         auto& status = competitive_status_;
         status.info.discord = status.info.mii = true;
-        status.info.version = "1.3.1";
+        status.info.version = "1.3.0";
         if (status.server.empty()) status.server = draft_.profile_server;
         status.error.clear();
         status.busy = false;
@@ -6103,7 +6103,7 @@ private:
 
     // The profiles this computer's game save brings back: its Miis that play
     // for one (ProfileOfMii), each with Continue. Its online slot signs in
-    // (servers from 1.3.1), as the game's own WFC login would, without the game.
+    // (servers from 1.3.0), as the game's own WFC login would, without the game.
     void WelcomeBackCard()
     {
         std::vector<std::pair<const platform::InstalledMii*, MiiProfile>> back;
@@ -6138,7 +6138,7 @@ private:
             ImGui::SetCursorScreenPos({at.x + width - button - Dp(12), at.y + (height - Dp(40)) * 0.5f});
             if (profile.sign_in == "discord")
             {
-                // A server before 1.3.1: Discord brings that profile back.
+                // A server before 1.3.0: Discord brings that profile back.
                 if (status.info.discord && DiscordButton("back_discord", texts::T("match_setup.discord.connect"),
                                                          {button, Dp(40)})
                     && !status.busy)
@@ -7388,7 +7388,7 @@ private:
         if (!status.profile_error.empty() && !profile_renaming_)
             Callout(status.profile_error + (status.profile_error.back() == '.' ? "" : "."), color::warning,
                     Icon::Warning);
-        // Connecting Discord was refused (a server before 1.3.1: that
+        // Connecting Discord was refused (a server before 1.3.0: that
         // Discord account has a profile of its own).
         if (!status.connect_error.empty())
         {
@@ -7400,7 +7400,7 @@ private:
         }
     }
 
-    // The profile's name, and Rename (servers from 1.3.1): one name, unique
+    // The profile's name, and Rename (servers from 1.3.0): one name, unique
     // on the server, which the game's Mii takes too (UpdateRenames).
     void NameRow()
     {
@@ -7489,7 +7489,7 @@ private:
     }
 
     // The profile's Discord row: connected (as whom, its Discord friends, and
-    // Disconnect from servers 1.3.1 on), or Connect Discord (the sign-in with
+    // Disconnect from servers 1.3.0 on), or Connect Discord (the sign-in with
     // the session joins Discord to this profile), and its code while it runs.
     void DiscordRow()
     {

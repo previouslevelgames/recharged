@@ -635,14 +635,14 @@ void MiiAccounts()
     }
 }
 
-// One profile per player (servers from 1.3.1): what a sign-in says about the
+// One profile per player (servers from 1.3.0): what a sign-in says about the
 // profile, signing in from the game save, its name, face and Discord, and what
 // brings it back on a fresh install.
 void Profiles()
 {
     ProfileServerInfo info;
-    info.version = "1.3.1";
-    CHECK(info.Profiles() && info.AtLeast(1, 3, 0) && !info.AtLeast(1, 3, 2) && info.AtLeast(0, 9, 9));
+    info.version = "1.3.0";
+    CHECK(info.Profiles() && info.AtLeast(1, 2, 29) && !info.AtLeast(1, 3, 1) && info.AtLeast(0, 9, 9));
     info.version = "1.2.29";
     CHECK(!info.Profiles());
     info.version = "2.0";

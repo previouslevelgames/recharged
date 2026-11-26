@@ -468,9 +468,9 @@ struct ProfileServerInfo
 
     // Whether the server is `major`.`minor`.`patch` or later.
     bool AtLeast(int major, int minor, int patch) const;
-    // One profile per player (servers from 1.3.1): unique names, a face of
+    // One profile per player (servers from 1.3.0): unique names, a face of
     // its own, sign-in from the game save, Discord to connect and disconnect.
-    bool Profiles() const { return AtLeast(1, 3, 1); }
+    bool Profiles() const { return AtLeast(1, 3, 0); }
 };
 
 // The Discord Social SDK's tokens, which the server trades for the launcher
@@ -509,7 +509,7 @@ struct SignInResult
     std::optional<DiscordTokens> discord;
     // The sign-in made the player (a Discord account without a profile yet),
     // or switched to the Discord account's own profile, which the new one
-    // went into (servers from 1.3.1).
+    // went into (servers from 1.3.0).
     bool created = false;
     bool welcome_back = false;
     std::string takeover; // DiscordHasProfile
@@ -517,7 +517,7 @@ struct SignInResult
 
 // A Mii of the player's game save for the server (POST /api/v1/me/miis): its
 // WFC profile, its record, and its slot of the online save (servers from
-// 1.3.1 keep it to restore it).
+// 1.3.0 keep it to restore it).
 struct UploadedMii
 {
     std::int32_t profile_id = 0;
@@ -606,7 +606,7 @@ public:
     SignInResult MiiSignIn(const std::string& name);
     // Continue with a Mii of the game save that plays for a profile: what its
     // online slot proves (ReadOnlineSlot), as the game's WFC login does
-    // (servers from 1.3.1).
+    // (servers from 1.3.0).
     SignInResult SaveSignIn(std::uint64_t user_id, const std::string& gsbrcd);
     // Discord had a profile of its own: the one signed in goes into it, and
     // the result has its name, face and friend code.

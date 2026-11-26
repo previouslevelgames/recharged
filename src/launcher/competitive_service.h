@@ -79,7 +79,7 @@ public:
         };
         std::optional<DiscordChoice> discord_choice;
         // What brings the signed-in profile back on this computer (servers
-        // from 1.3.1, asked at each sign-in): its face and its Miis' online
+        // from 1.3.0, asked at each sign-in): its face and its Miis' online
         // slots. `restore_serial` changes with each answer.
         platform::ProfileRestore restore;
         std::uint64_t restore_serial = 0;
