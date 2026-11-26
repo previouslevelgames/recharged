@@ -52,6 +52,9 @@ extern "C" int mscharged_rollback_unconfirmed_steps(void);
 // The set's match and its tweaks (competitive_match.cpp).
 extern "C" unsigned int mscharged_competitive_match_tweaks(void);
 extern "C" void mscharged_competitive_replay(bool replaying, unsigned int tweaks);
+extern "C" bool mscharged_competitive_game_start(int* scores, float* seconds);
+extern "C" void mscharged_competitive_game_resume(const int* scores, float seconds);
+extern "C" bool mscharged_competitive_set_game(void);
 
 namespace
 {
@@ -63,7 +66,8 @@ constexpr unsigned kViewerTweaks = (1u << MSCHARGED_TWEAK_SKIP_INTRO) | (1u << M
     | (1u << MSCHARGED_TWEAK_NO_HUD) | (1u << MSCHARGED_TWEAK_OVERRIDE_RETAIL_MENUS);
 // Online, the players' own gameplay tweaks are off (their hooks test
 // IsOnline), but Feder's fair ball contests, which every online match plays
-// by. A recording of an online match keeps the tweaks as they acted, so its
+// by except a set's, which has them by its rules (tweak patch 0083). A
+// recording of an online match keeps the tweaks as they acted, so its
 // replay, which plays offline, acts the same; a set's tweaks come apart, as
 // the set's (Setup::set_tweaks).
 constexpr unsigned kOffOnline = (1u << MSCHARGED_TWEAK_NO_MEGA_STRIKES) | (1u << MSCHARGED_TWEAK_UNLOCK_ALL)
@@ -345,7 +349,8 @@ void FinishRecording()
 
 // The rules the match plays by, as the game holds them now: the gameplay
 // settings and cheats, the mode, the tweaks as they act (online, the players'
-// own are off: kOffOnline), a set's tweaks and the simulation profile.
+// own are off: kOffOnline), a set's tweaks, the simulation profile and where a
+// game that goes on from one that broke off starts.
 void RefreshRules(Setup& setup)
 {
     GameInfoManager* info = Info();
@@ -368,9 +373,17 @@ void RefreshRules(Setup& setup)
     setup.training = g_bTrainingMatch ? 1 : 0;
     setup.tweaks = mscharged::platform::EnabledTweaks();
     setup.online = info->IsOnline() ? 1 : 0;
-    if (setup.online) setup.tweaks = (setup.tweaks & ~kOffOnline) | kOnOnline;
+    if (setup.online)
+        setup.tweaks = mscharged_competitive_set_game() ? setup.tweaks & ~(kOffOnline | kOnOnline)
+                                                        : (setup.tweaks & ~kOffOnline) | kOnOnline;
     setup.set_tweaks = mscharged_competitive_match_tweaks();
     setup.sim_profile = mscharged_sim_profile();
+    int scores[2] = {0, 0};
+    float seconds = 0.0f;
+    setup.resumes = mscharged_competitive_game_start(scores, &seconds) ? 1 : 0;
+    setup.start_score[0] = scores[0];
+    setup.start_score[1] = scores[1];
+    setup.start_seconds = seconds;
 }
 
 // The match's setup as the game holds it once the loading chose it.
@@ -555,6 +568,7 @@ void mscharged_tweak_replay_end(void)
     {
         mscharged_sim_reset_profile();
         mscharged_competitive_replay(false, 0);
+        mscharged_competitive_game_resume(nullptr, 0.0f);
         sReplayRules = false;
     }
 }
@@ -722,6 +736,10 @@ void mscharged_tweak_replay_start_match(void)
     // set's tweaks: the replay does too, until it ends.
     if (setup.sim_profile) mscharged_sim_set_profile(setup.sim_profile);
     mscharged_competitive_replay(true, setup.set_tweaks);
+    // A game that went on from one that broke off starts where it did (tweak
+    // patch 0080); any other from 0-0, whatever game this machine played last.
+    const int scores[2] = {setup.start_score[0], setup.start_score[1]};
+    mscharged_competitive_game_resume(setup.resumes ? scores : nullptr, setup.start_seconds);
     sReplayRules = true;
     mscharged::platform::TrainingTweakState training;
     training.item = setup.training_item;

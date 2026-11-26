@@ -270,6 +270,18 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
                 set.tone = match.opponent_ready && !locked ? Tone::Good : Tone::Neutral;
                 set.can_ready = !context.in_match && !locked;
             }
+            // A tournament set's game: its READY (and the take-back) is the
+            // trophy room's, where the set goes on from; the card sends the
+            // player there.
+            if (match.tournament.id != 0)
+            {
+                set.can_ready = false;
+                set.trophy_room = !locked;
+                if (match.opponent_online && !match.you_ready && !locked)
+                    set.status = match.opponent_ready
+                        ? T("menus.sets.tournament_opponent_ready", {opponent, {"tournament", match.tournament.name}})
+                        : T("menus.sets.tournament_ready_in_room", {{"tournament", match.tournament.name}});
+            }
         }
         else if (match.stage == "go")
         {
@@ -310,6 +322,9 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
                 set.can_cancel = false;
             }
         }
+        // A tournament's set is not called off from here: a game is given up
+        // with its forfeit, READY taken back in the trophy room.
+        if (match.tournament.id != 0) set.can_cancel = false;
         return set;
     }
     if (match.state == "finished" || match.state == "disputed")
@@ -320,6 +335,30 @@ OnlinePanelSet MakeSet(const ProfileMatch& match, const OnlinePanelContext& cont
             set.title = T("menus.sets.results_differ");
             set.status = T("menus.sets.results_differ_about");
             set.tone = Tone::Bad;
+        }
+        else if (const auto& tournament = match.tournament; tournament.id != 0)
+        {
+            // A tournament set's game (one match each): the set goes on from
+            // the trophy room until it has its winner.
+            const std::string won = std::to_string(tournament.won), lost = std::to_string(tournament.lost);
+            if (tournament.state == "finished")
+            {
+                set.title = tournament.winner == "you" ? T("menus.sets.won") : T("menus.sets.lost");
+                set.status = T("menus.sets.tournament_set_over", {{"tournament", tournament.name}, {"won", won}, {"lost", lost}});
+            }
+            else
+            {
+                const bool draw = match.winner != "you" && match.winner != "opponent";
+                const std::string game = std::to_string(tournament.won + tournament.lost + (draw ? 1 : 0));
+                set.title = match.winner == "you"    ? T("menus.sets.tournament_game_won", {{"game", game}})
+                    : match.winner == "opponent"     ? T("menus.sets.tournament_game_lost", {{"game", game}})
+                                                     : T("menus.sets.tournament_game_draw", {{"game", game}});
+                set.status = T("menus.sets.tournament_set_goes_on",
+                               {{"tournament", tournament.name}, {"won", won}, {"lost", lost}});
+                set.trophy_room = !locked;
+            }
+            set.tone = match.winner == "you" ? Tone::Good : match.winner == "opponent" ? Tone::Bad : Tone::Neutral;
+            return set;
         }
         else
         {

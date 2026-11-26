@@ -214,7 +214,10 @@ still unfinished, only `super_team = true` in `recharged.ini`:
   again every simulation step and for those contests too (at kickoff, with
   the ball on the center line, the order is only shuffled). Based on
   Feder's Gecko code for the Wii. On by default, as it is
-  recommended to every player; online matches always play with it.
+  recommended to every player; online matches always play with it, except a
+  Recharged set, which plays with it when its rules have it. A tournament
+  set without it, where the home team wins those contests, has the player
+  away draft first.
 - **Mirror match**: both teams can pick the same captain in Domination. The
   away team wears an away kit, in the menus as on the field: the game's own,
   or for Mario, Luigi, Wario and Waluigi, who have none, one made from their

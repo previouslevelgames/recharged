@@ -78,6 +78,11 @@ void PutSetup(Bytes& out, const Setup& s)
         Put16(out, s.skips[n].section);
         Put16(out, s.skips[n].after);
     }
+    Put8(out, s.resumes);
+    for (const auto value : s.start_score) i32(value);
+    std::uint32_t seconds = 0;
+    std::memcpy(&seconds, &s.start_seconds, sizeof seconds);
+    Put32(out, seconds);
 }
 
 // Reads from a bounded buffer; a read past its end fails and stays failed.
@@ -166,6 +171,12 @@ void GetSetup(Cursor& in, Setup& s)
         skip.after = in.Get16();
         if (n < unsigned(kMaxSkips) && !in.failed) s.skips[s.skip_count++] = skip;
     }
+    // A replay from before resumed games stops here: from the start.
+    if (in.failed || in.at == in.size) return;
+    s.resumes = in.Get8();
+    for (auto& value : s.start_score) value = i32();
+    const std::uint32_t seconds = in.Get32();
+    std::memcpy(&s.start_seconds, &seconds, sizeof seconds);
 }
 
 bool ValidCounts(const Setup& s)

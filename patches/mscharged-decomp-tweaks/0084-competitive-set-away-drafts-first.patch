@@ -1,0 +1,56 @@
+From: mscharged-port
+Subject: Competitive play: without Defence priority the player away drafts first
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A Recharged set's game drafts first the player at home (0081). Without
+Defence priority in the set's rules (0083) the home side also wins the
+ball contests, so the player away now drafts first instead: the draft host
+names that player's machine (mscharged_competitive_draft_away_first, from
+the host's rules), and the game start swaps the sides back (0079), so the
+home side stays the set's turn. With Defence priority, and outside a set's
+game, nothing changes.
+
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+index 9f2fafa..4d56e64 100644
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -154,6 +154,14 @@ void mscharged_competitive_game_resume(const int* scores, float seconds);
+ bool mscharged_competitive_set_game(void);
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// The set's rules have no Defence priority, so the home side wins the ball
++// contests: in this RANKED draft against the set's opponent the player away
++// drafts first (tweak patch 0084). The host's rules, as the match is not set
++// up yet.
++bool mscharged_competitive_draft_away_first(void);
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
+index 0aae8de..1621290 100644
+--- a/src/Game/NetworkSession.cpp
++++ b/src/Game/NetworkSession.cpp
+@@ -416,15 +416,18 @@ static void ChooseDraftSimProfile(NetMessageDraft* message)
+ // Recharged's tournaments (tweak patch 0081): the set's player at home in
+ // this game (0079) drafts first. The draft sorts its teams by the players'
+ // RANKED records, so the host, this machine `local`, names the machine
+-// whose team goes first, and every machine puts it there.
++// whose team goes first, and every machine puts it there. Tweak patch 0084:
++// without Defence priority (the home side wins the ball contests) the player
++// away drafts first instead; the game start then swaps the sides (0079).
+ static void ChooseDraftFirstMachine(NetMessageDraft* message, int local)
+ {
+     message->mFirstMachine = -1;
+     if (!IsOnlineRankedMatch() || message->mMachineCount != 2 || !mscharged_competitive_set_draft(message))
+         return;
+     const int wanted = mscharged_competitive_set_side();
++    const int first = mscharged_competitive_draft_away_first() ? 1 : 0;
+     if (wanted >= 0 && (local == 0 || local == 1))
+-        message->mFirstMachine = (s8)(wanted == 0 ? local : 1 - local);
++        message->mFirstMachine = (s8)(wanted == first ? local : 1 - local);
+ }
+ 
+ #endif

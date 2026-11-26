@@ -14,6 +14,10 @@
 #include <vector>
 
 namespace mscharged::runtime {
+// The trophy TOURNAMENT shows (eCupPersona: the Next Level Games cup's), and
+// whose ceremony ends a tournament's last game.
+inline constexpr int kTournamentTrophy = 5;
+
 
 // Recharged's menus in the look of the game's (the UI kit, src/ui): one TV
 // set over the game, with a stack of pages in it.
@@ -33,6 +37,9 @@ namespace mscharged::runtime {
 //   for it: GAMEPLAY, SETTINGS, and CREDITS and BACK handed back to it.
 // - The main menu's ONLINE (the globe): the ONLINE hub stands in for the
 //   game's way, which its WII ONLINE takes.
+// - The ONLINE hub's TOURNAMENT: from the game's online menu (through WII
+//   ONLINE from the globe) into the trophy room, and the TOURNAMENT page over
+//   it once the camera is on the trophy; its BACK (or B) goes back out.
 // While a page shows, the menus have the input (MenuInput::OpenPages): the
 // D-pad, the arrows and the mouse light an item, A presses, left and right
 // change a value, B goes back a page (to the pause menu, the cursor on the
@@ -75,6 +82,21 @@ public:
         std::function<void(const overlay::GameOptionChange&)> option;
         // The game ends, as when its window is closed (QUIT RECHARGED).
         std::function<void()> quit;
+        // The TOURNAMENT page's model, each frame; `open` while the room's
+        // pages are in the stack (the server is asked often only then); `shown`: the
+        // key of the TOURNAMENT page on top (a tournament's id, empty for the
+        // player's own). None: sample data.
+        std::function<void(ui::TournamentModel&, bool open, const std::string& shown)> tournament;
+        // The TOURNAMENTS page's model, each frame. None: the room opens
+        // TOURNAMENT straight away.
+        std::function<void(ui::TournamentListModel&)> tournaments;
+        // TOURNAMENT's READY: the player's next set starts (true: the game
+        // goes on from the trophy room into its RANKED search, and the pages
+        // go). None, or false: nothing starts.
+        std::function<bool()> tournament_ready;
+        // TOURNAMENT's JOIN (true) or LEAVE (false), for the profile
+        // server's tournaments. None: not shown.
+        std::function<void(bool join)> tournament_entry;
         // The player forfeits the online match (the match menu's FORFEIT):
         // the host tells the server, then calls LeaveMatch. None: the match
         // is left at once.
@@ -93,6 +115,16 @@ public:
     std::optional<int> TakePromptAnswer();
     // Every page goes (a set going on into the game).
     void CloseAll();
+    // The set READY started is done, or its search was left: still in the
+    // trophy room, its page comes again; out of it (the walk left the
+    // game's online menu, `from_match` or not), the room is asked again
+    // once the game's online menu is at rest (the game comes back to it).
+    void TournamentSetDone(bool from_match);
+    // A tournament set READY asked for goes (both players are ready): it goes
+    // on from the trophy room, which stays; only the pages go.
+    void TournamentSetStarts();
+    // The trophy room shows (its camera there), as the game's last snapshot says.
+    bool InTrophyRoom() const;
     // The game leaves the online match the player forfeited (Host::forfeit).
     void LeaveMatch();
     // Each host frame, after the game's frame and MenuInput::Service: the
@@ -110,6 +142,14 @@ private:
         Pause,     // the pause menu's Audio or Visual Options
         Anchored,  // stands in for the front end's Options scene
         Wheel,     // stands in for the main menu's globe
+        TrophyRoom, // over the trophy room (TOURNAMENT)
+    };
+    // TOURNAMENT's way into the trophy room.
+    enum class TournamentWay {
+        None,
+        Login,   // the game's WII ONLINE asked; the main menu not left yet
+        Online,  // through the game's login, until its online menu is at rest
+        Room,    // the trophy room asked; until the camera is on the trophy
     };
     struct Page {
         ui::PageId id;
@@ -196,6 +236,25 @@ private:
     // The prompt: its question, its answer to take.
     std::optional<overlay::OverlayPrompt> prompt_;
     std::optional<int> promptAnswer_;
+    // TOURNAMENT's way into the trophy room, since when.
+    TournamentWay tournament_ = TournamentWay::None;
+    bool tournamentPage_ = false; // TournamentSetDone: the page comes again in the room
+    // The way into the room ends on the player's own TOURNAMENT (their set's
+    // card asked, or the room comes again after a set).
+    bool tournamentOwn_ = false;
+    std::string bracketPicked_; // the BRACKET's set whose games are listed
+    // TournamentSetDone: the room again until then (none: not asked).
+    std::optional<Clock::time_point> tournamentReturn_;
+    Clock::time_point tournamentSettled_{}; // TournamentSetDone: the room's state taken from then
+    ui::TournamentModel tournamentModel_;
+    ui::TournamentListModel tournamentListModel_;
+    // The room's first page: TOURNAMENTS (with the player's own TOURNAMENT
+    // over it after a set, `own`), or TOURNAMENT alone without a list.
+    void PushRoomPages(bool own);
+    Clock::time_point tournamentAt_{};
+    void Tournament(TournamentWay way);
+    // The trophy room's way: follows the game (its login, the room's camera).
+    void ServiceTournament(Clock::time_point now);
     // The game hands its players' cursors over while a page shows.
     bool cursors_ = false;
     ui::PageState pageState_;

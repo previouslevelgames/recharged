@@ -26,7 +26,9 @@ works as on the Wii, with friend codes, ranked matches and rankings.
    launcher starts one, a game that already runs goes on without closing. No
    intro, no menus, no friend codes to trade, no searching. You pick your
    captain and sidekicks in the game's own draft, just like on the Wii; the
-   draft shows you both by your full Recharged names.
+   draft shows you both by your full Recharged names. In a tournament the
+   player at home drafts first, or the player away when the set has no
+   defence priority.
 5. You play the series under the set's rules, for example best of 3, three
    minutes per game, no Mega Strikes.
 6. The game stays open after the series and shows the result. Ask for a
@@ -162,7 +164,7 @@ already has a Recharged profile can't join another one.
 ## The same rules for both players
 
 Every set has one set of rules, the same for both players: the competitive
-gameplay tweaks (such as no Mega Strikes, fast terrain and Thunder Island
+gameplay tweaks (such as defence priority, no Mega Strikes, fast terrain and Thunder Island
 walls, or mirror match: both players may draft the same captain, and each sees
 their own team in its usual kit and the opponent's in the away kit), the game
 length or goal limit, the number of games, the stadium and the game's stadium,

@@ -156,6 +156,12 @@ struct Setup
     };
     std::uint16_t skip_count = 0;
     Skip skips[kMaxSkips] = {};
+    // A tournament set's game that went on from one that broke off (tweak
+    // patch 0080): the goals it started from (home, away) and the seconds its
+    // clock started at. Replays before these fields start from 0-0.
+    std::uint8_t resumes = 0;
+    std::int32_t start_score[2] = {};
+    float start_seconds = 0.0f;
 };
 
 // One machine's packet of a step, as the recorder reads it back.

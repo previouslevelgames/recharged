@@ -429,6 +429,53 @@ void TestSet()
     model = MakeOnlinePanelModel({}, set, context);
     CHECK(model.set.stage == Stage::Ended && model.set.title == "The results differ" && model.set.tone == Tone::Bad);
 
+    // A tournament set's game: the game's result and the set's score, which
+    // goes on from the trophy room; no rematch. Its last game: the set's.
+    set = Set("finished", "challenger", "finished");
+    set.winner = "opponent";
+    set.tournament.id = 4;
+    set.tournament.name = "Recharged Cup";
+    set.tournament.games = 3;
+    set.tournament.won = 0;
+    set.tournament.lost = 1;
+    set.tournament.state = "ready";
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.stage == Stage::Ended && model.set.title == "You lost game 1" && model.set.tone == Tone::Bad);
+    CHECK(model.set.status == "Recharged Cup: 0 - 1 in the set. The next game starts from the trophy room.");
+    CHECK(!model.set.can_rematch);
+    set.winner = "draw";
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.title == "Game 2 was a draw: it is played again");
+    set.winner = "you";
+    set.tournament.won = 2;
+    set.tournament.state = "finished";
+    set.tournament.winner = "you";
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.title == "You won the set" && model.set.status == "Recharged Cup: the set ended 2 - 1.");
+    CHECK(!model.set.trophy_room);
+    set.tournament = {};
+
+    // A tournament set's game to play: READY is the trophy room's, where the
+    // card sends the player; it is not called off from here.
+    set = Set("accepted", "challenged", "open");
+    set.tournament.id = 4;
+    set.tournament.name = "Recharged Cup";
+    set.opponent_ready = true;
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.stage == Stage::Ready && !model.set.can_ready && model.set.trophy_room);
+    CHECK(!model.set.can_cancel);
+    CHECK(model.set.status == "Mario is READY in the trophy room (Recharged Cup).");
+    set.opponent_ready = false;
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.status == "Recharged Cup: press READY in the trophy room.");
+    set.you_ready = true;
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.status == "Waiting for Mario to be ready" && model.set.trophy_room);
+    set.stage = "playing";
+    model = MakeOnlinePanelModel({}, set, context);
+    CHECK(model.set.stage == Stage::Playing && !model.set.trophy_room && !model.set.can_cancel);
+    set.tournament = {};
+
     // Ended without a result: nothing.
     for (const char* state : {"declined", "cancelled", "expired"})
     {

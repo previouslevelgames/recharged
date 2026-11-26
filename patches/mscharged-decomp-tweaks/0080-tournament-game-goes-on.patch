@@ -1,0 +1,266 @@
+From: mscharged-port
+Subject: Competitive play: a tournament game that broke off goes on from where it was
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A game of a Recharged tournament set that broke off (a player closed
+their game or lost the connection) is not counted: the set's next game
+goes on from it, on the same sides (0079) with the same teams, from its
+goals and clock. The draft takes this machine's team by itself, without
+the captains' and sidekicks' screens (NetworkDraft: the captain on its
+turn, the sidekicks once theirs comes). The draft host puts the goals
+(home, away, once the sides are swapped) and the seconds on the clock in
+the game start message (mResume, mStartScores, mStartSeconds), which every
+machine takes: the match starts from them (cGame's scores, its clock and
+the HUD's scores, as a Striker Challenge's start from its goals).
+
+diff --git a/include/Game/NetworkMessages.h b/include/Game/NetworkMessages.h
+index 0f8ac92..abc6b43 100644
+--- a/include/Game/NetworkMessages.h
++++ b/include/Game/NetworkMessages.h
+@@ -31,6 +31,11 @@ public:
+     // Tweak patch 0079: the draft's two teams swap places for a set's
+     // game (the draft host decides it for every machine).
+     /* 0x28 */ u8 mSwapSides;
++    // Tweak patch 0080: a set's game that goes on from one that broke off
++    // starts from these goals (home, away) and seconds on its clock.
++    /* 0x29 */ u8 mResume;
++    /* 0x2A */ u8 mStartScores[2];
++    /* 0x2C */ u16 mStartSeconds;
+ #endif
+ };
+ 
+diff --git a/include/mscharged_competitive.h b/include/mscharged_competitive.h
+index f934d3d..b4fd5c7 100644
+--- a/include/mscharged_competitive.h
++++ b/include/mscharged_competitive.h
+@@ -136,6 +136,17 @@ int mscharged_competitive_set_side(void);
+ void mscharged_competitive_sides_swapped(int side);
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// A tournament set's game that goes on from one that broke off (tweak patch
++// 0080): this machine's team for its draft to take by itself (captain,
++// three sidekicks); the draft host's start of it (this player's goals, the
++// opponent's, the seconds on the clock); and every machine's, from the
++// game start message (home's and away's goals; null: from the start).
++bool mscharged_competitive_resume_lineup(int* captain, int* sidekicks);
++bool mscharged_competitive_resume_start(int* own, int* opponent, float* seconds);
++void mscharged_competitive_game_resume(const int* scores, float seconds);
++#endif
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+index d8160c6..c37cca9 100644
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -287,6 +287,11 @@ const unsigned short* mscharged_tweak_take_online_lock_message(void);
+ // whose model the matches of a set that may end the tournament load, or -1.
+ int mscharged_tweak_tournament_trophy(int winner_side);
+ int mscharged_tweak_tournament_trophy_template(void);
++// A tournament set's game that goes on from one that broke off (tweak patch
++// 0080): side `side`'s goals to start from (-1: from 0), and the seconds its
++// clock starts at.
++int mscharged_tweak_resume_score(int side);
++float mscharged_tweak_resume_clock(void);
+ // That game's "cup" panel: its title, and the text under it for the winner
+ // (`winner_side`), the host's (false: the game's own texts).
+ bool mscharged_tweak_tournament_trophy_texts(int winner_side, const unsigned short** title,
+diff --git a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
+index 3d96690..7f996c4 100644
+--- a/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
++++ b/src/Game/FE/Overlay/OverlayHandlerHUD.cpp
+@@ -487,6 +487,14 @@ void HUDScoreDisplay::ResetScores()
+             mScore[i] = g_pStrikerChallenge->mScore[i];
+             mNewScore[i] = g_pStrikerChallenge->mScore[i];
+         }
++#if defined(MSCHARGED_TWEAKS)
++        // Tweak patch 0080: a set's game that goes on, from its goals then.
++        if (mscharged_tweak_resume_score(i) >= 0)
++        {
++            mScore[i] = mscharged_tweak_resume_score(i);
++            mNewScore[i] = mScore[i];
++        }
++#endif
+         char scoreString[16];
+         nlSNPrintf(scoreString, sizeof(scoreString), "%d", mScore[i]);
+         nlStrToWcs(scoreString, mScoreBuffer[i], 32);
+diff --git a/src/Game/Game.cpp b/src/Game/Game.cpp
+index d4139b2..261edcb 100644
+--- a/src/Game/Game.cpp
++++ b/src/Game/Game.cpp
+@@ -860,7 +860,13 @@ void cGame::BeginGame(bool bRematch, bool bStraightToKickoff)
+     }
+     gNPCManager->ResetNPCs();
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Tweak patch 0080: a set's game that goes on from one that broke off
++    // starts at the seconds its clock had then.
++    m_pGameClock->Reset(mscharged_tweak_resume_clock(), 999999.0f, 1.0f);
++#else
+     m_pGameClock->Reset(0.0f, 999999.0f, 1.0f);
++#endif
+     m_pGameClock->Stop();
+     m_pPostGameDoneClock->Reset(0.0f, 1.5f, 1.0f);
+     m_pPostGameDoneClock->Stop();
+@@ -870,6 +876,15 @@ void cGame::BeginGame(bool bRematch, bool bStraightToKickoff)
+         gpNumberDisplay->SetScores(0, 0);
+         g_pTeams[0]->m_nScore = 0;
+         g_pTeams[1]->m_nScore = 0;
++#if defined(MSCHARGED_TWEAKS)
++        // Tweak patch 0080: and from its goals then.
++        if (mscharged_tweak_resume_score(0) >= 0)
++        {
++            g_pTeams[0]->m_nScore = mscharged_tweak_resume_score(0);
++            g_pTeams[1]->m_nScore = mscharged_tweak_resume_score(1);
++            gpNumberDisplay->SetScores(g_pTeams[0]->m_nScore, g_pTeams[1]->m_nScore);
++        }
++#endif
+     }
+     else
+     {
+diff --git a/src/Game/NetTournManager.cpp b/src/Game/NetTournManager.cpp
+index b58b254..74f38c7 100644
+--- a/src/Game/NetTournManager.cpp
++++ b/src/Game/NetTournManager.cpp
+@@ -375,6 +375,9 @@ bool NetTournManager::SendTournamentGameStart(NetworkTournamentGame* game)
+     NetMessageGameStart message;
+ #if defined(MSCHARGED_TWEAKS)
+     message.mSwapSides = 0;
++    message.mResume = 0;
++    message.mStartScores[0] = message.mStartScores[1] = 0;
++    message.mStartSeconds = 0;
+ #endif
+     message.mRandomSeed = randomSeed;
+     message.mMachineIndex = 0;
+diff --git a/src/Game/NetworkDraft.cpp b/src/Game/NetworkDraft.cpp
+index b7c097a..34794a8 100644
+--- a/src/Game/NetworkDraft.cpp
++++ b/src/Game/NetworkDraft.cpp
+@@ -331,6 +331,12 @@ bool NetworkDraft::HasDisconnectedPlayer(int team) const
+     return false;
+ }
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Tweak patch 0080: this machine took its captain by itself; its sidekicks
++// go once the sidekicks' turn comes.
++static bool sResumeSidekicks = false;
++#endif
++
+ void NetworkDraft::Update(float dt)
+ {
+     if (mState != NET_DRAFT_IDLE)
+@@ -371,6 +377,22 @@ void NetworkDraft::Update(float dt)
+         break;
+     case NET_DRAFT_SIDEKICKS:
+     {
++#if defined(MSCHARGED_TWEAKS)
++        // Tweak patch 0080: the team a set's game goes on with.
++        if (sResumeSidekicks)
++        {
++            int captain = -1;
++            int sidekicks[3];
++            sResumeSidekicks = false;
++            if (mscharged_competitive_resume_lineup(&captain, sidekicks))
++            {
++                for (int slot = 0; slot < 3; ++slot)
++                    GameInfoManager::Instance()->SetSidekick(0, sidekicks[slot], slot);
++                mCurrentDraftingTeam = mMyTeamIndex;
++                SendSidekickChoice();
++            }
++        }
++#endif
+         if (mTimeToChooseSidekicks > 0.0f)
+         {
+             mTimeToChooseSidekicks -= dt;
+@@ -493,6 +515,22 @@ void NetworkDraft::AdvanceDraftTeam()
+             return;
+ 
+         mCurrentDraftingTeam = mMyTeamIndex;
++#if defined(MSCHARGED_TWEAKS)
++        // Tweak patch 0080: a set's game that goes on from one that broke
++        // off takes its team by itself, without the captains' and the
++        // sidekicks' screens (its sidekicks once their turn comes).
++        {
++            int captain = -1;
++            int sidekicks[3];
++            if (mscharged_competitive_resume_lineup(&captain, sidekicks))
++            {
++                GameInfoManager::Instance()->SetTeam(0, captain);
++                SendCaptainChoice();
++                sResumeSidekicks = true;
++                return;
++            }
++        }
++#endif
+         StartCaptainChoice(this);
+     }
+     else
+diff --git a/src/Game/NetworkGameStartMessage.cpp b/src/Game/NetworkGameStartMessage.cpp
+index 8720ee0..fa15bc0 100644
+--- a/src/Game/NetworkGameStartMessage.cpp
++++ b/src/Game/NetworkGameStartMessage.cpp
+@@ -22,6 +22,10 @@ void NetMessageGameStart::Serialize(NetworkMessageSerializer* serializer)
+     serializer->Transfer(&mThirdGameRandomSeed, sizeof(mThirdGameRandomSeed));
+ #if defined(MSCHARGED_TWEAKS)
+     serializer->Transfer(&mSwapSides, sizeof(mSwapSides));
++    serializer->Transfer(&mResume, sizeof(mResume));
++    serializer->Transfer(&mStartScores[0], sizeof(mStartScores[0]));
++    serializer->Transfer(&mStartScores[1], sizeof(mStartScores[1]));
++    serializer->Transfer(&mStartSeconds, sizeof(mStartSeconds));
+ #endif
+ }
+ 
+diff --git a/src/Game/NetworkSession.cpp b/src/Game/NetworkSession.cpp
+index e9a4076..acb9748 100644
+--- a/src/Game/NetworkSession.cpp
++++ b/src/Game/NetworkSession.cpp
+@@ -331,6 +331,9 @@ void NetworkSession::SendGameStartToEveryone()
+     // the draft's first team at home (StartNetworkedGame): when this
+     // machine's player is on the other side, every machine swaps the teams.
+     message.mSwapSides = 0;
++    message.mResume = 0;
++    message.mStartScores[0] = message.mStartScores[1] = 0;
++    message.mStartSeconds = 0;
+     if (IsOnlineRankedMatch() && machineCount == 2 && NetworkDraft::Instance()->mTeamCount == 2)
+     {
+         const int wanted = mscharged_competitive_set_side();
+@@ -344,6 +347,20 @@ void NetworkSession::SendGameStartToEveryone()
+         const int first = NetworkDraft::Instance()->GetDraftTeam(0)->mPlayers[0].mPeerIndex != 0;
+         if (wanted >= 0 && local >= 0)
+             message.mSwapSides = wanted != (local == 0 ? first : !first);
++        // Tweak patch 0080: a set's game that goes on from one that broke
++        // off starts from its goals and clock, as this machine has them, by
++        // this machine's side once swapped.
++        int own = 0;
++        int opponent = 0;
++        float seconds = 0.0f;
++        if (local >= 0 && mscharged_competitive_resume_start(&own, &opponent, &seconds))
++        {
++            const int side = (local == 0 ? first : !first) != (message.mSwapSides != 0) ? 1 : 0;
++            message.mResume = 1;
++            message.mStartScores[side] = (u8)(own < 0 ? 0 : own > 99 ? 99 : own);
++            message.mStartScores[1 - side] = (u8)(opponent < 0 ? 0 : opponent > 99 ? 99 : opponent);
++            message.mStartSeconds = (u16)(seconds < 0.0f ? 0.0f : seconds > 3600.0f ? 3600.0f : seconds);
++        }
+     }
+ #endif
+ 
+@@ -2266,6 +2283,16 @@ void NetworkSession::StartNetworkedGame(NetMessageGameStart* message)
+         const int first = teams[0].mPlayers[0].mPeerIndex != 0;
+         mscharged_competitive_sides_swapped(mLocalMachineId == 0 ? first : !first);
+     }
++    // Tweak patch 0080: where the game starts from, the draft host's.
++    if (message->mResume != 0 && IsOnlineRankedMatch() && message->mTournamentGame == 0)
++    {
++        const int scores[2] = { message->mStartScores[0], message->mStartScores[1] };
++        mscharged_competitive_game_resume(scores, (float)message->mStartSeconds);
++    }
++    else
++    {
++        mscharged_competitive_game_resume(0, 0.0f);
++    }
+ #endif
+     GameInfoManager::GetInstance()->SetStadium(message->mStadium);
+     GameInfoManager::GetInstance()->SetTeam(0, message->mHomeCharacters[0]);

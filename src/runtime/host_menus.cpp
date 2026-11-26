@@ -93,6 +93,68 @@ bool OnlinePage(ui::PageId id)
     default: return false;
     }
 }
+// How long the game may take to leave its main menu for WII ONLINE, and to
+// take the trophy room's command, before TOURNAMENT gives up.
+constexpr auto kTournamentGiveUp = std::chrono::seconds(3);
+// How long its login to WFC may take: stopped on an error screen, the
+// player isn't taken to the room later, when they go online themselves.
+constexpr auto kTournamentLoginGiveUp = std::chrono::seconds(60);
+// Back from a set's match, how long the trophy room waits for the game's
+// online menu (its results and saves come first); its search left, how long
+// the player may stay on the game's screens it left them on (shorter than a
+// match of their own from there).
+constexpr auto kTournamentReturnWait = std::chrono::seconds(60);
+constexpr auto kTournamentLeftWait = std::chrono::seconds(120);
+// The set done, how long the host lets the game settle the trophy room: the
+// room goes out in the game's next frame once the walk that held it ends.
+constexpr auto kTournamentSettle = std::chrono::milliseconds(500);
+
+const char* TournamentWayName(int way)
+{
+    static const char* const names[] = {"none", "login", "online", "room"};
+    return way >= 0 && way < int(std::size(names)) ? names[way] : "?";
+}
+
+// TOURNAMENT without a feed: a made-up tournament.
+ui::TournamentModel SampleTournament()
+{
+    ui::TournamentModel model;
+    model.name = "Recharged Test Cup";
+    model.event = "Mario Strikers Charged Singles";
+    model.round = "Winners Round 1";
+    model.opponent = "Opponent";
+    model.opponent_initials = "OP";
+    model.games = 3;
+    model.sample = true;
+    model.has_set = model.opponent_known = true;
+    // Four players, double elimination: the player's first set next.
+    auto set = [](const char* id, int round, const char* text, const char* a, const char* b,
+                  ui::BracketSetState state, const char* from_a = "", const char* from_b = "") {
+        ui::BracketSet cell;
+        cell.id = id;
+        cell.round = round;
+        cell.round_text = text;
+        cell.slots[0].name = a;
+        cell.slots[1].name = b;
+        cell.state = state;
+        cell.prereq[0] = from_a;
+        cell.prereq[1] = from_b;
+        return cell;
+    };
+    using State = ui::BracketSetState;
+    auto& bracket = model.bracket;
+    bracket = {set("1", 1, "Winners Semi-Final", "You", "Opponent", State::Waiting),
+               set("2", 1, "Winners Semi-Final", "Mario", "Peach", State::Done),
+               set("3", 2, "Winners Final", "", "Mario", State::Waiting, "1", "2"),
+               set("4", 3, "Grand Final", "", "", State::Waiting, "3", "6"),
+               set("5", -1, "Losers Round 1", "", "Peach", State::Waiting, "1", "2"),
+               set("6", -2, "Losers Final", "", "", State::Waiting, "5", "3")};
+    bracket[0].yours = bracket[0].slots[0].you = true;
+    bracket[1].slots[0].winner = true;
+    bracket[1].slots[0].score = "2";
+    bracket[1].slots[1].score = "1";
+    return model;
+}
 } // namespace
 
 HostMenus::HostMenus(Game game, MenuInput& input, Host host) : game_(game), input_(input), host_(std::move(host))
@@ -167,6 +229,18 @@ void HostMenus::CloseAll()
     ClearPages();
 }
 
+void HostMenus::TournamentSetDone(bool from_match)
+{
+    const Clock::time_point now = Clock::now();
+    tournamentPage_ = true;
+    tournamentSettled_ = now + kTournamentSettle;
+    tournamentReturn_ = now + (from_match ? kTournamentReturnWait : kTournamentLeftWait);
+}
+
+void HostMenus::TournamentSetStarts() { ClearPages(); }
+
+bool HostMenus::InTrophyRoom() const { return menu_.trophy_room == CHARGED_TROPHY_ROOM_IN; }
+
 void HostMenus::LeaveMatch() { Command(CHARGED_MENU_FORFEIT); }
 
 void HostMenus::CloseRecharged()
@@ -234,10 +308,111 @@ void HostMenus::MenuKey(MenuInput::MenuKey key, int channel)
     Play(ui::Sound::Select);
 }
 
+void HostMenus::Tournament(TournamentWay way)
+{
+    if (way == tournament_) return;
+    char line[64];
+    std::snprintf(line, sizeof line, "Menus: TOURNAMENT %s -> %s", TournamentWayName(int(tournament_)),
+                  TournamentWayName(int(way)));
+    platform::SessionLogLine(line);
+    tournament_ = way;
+    tournamentAt_ = Clock::now();
+    if (way == TournamentWay::Room) Command(CHARGED_MENU_TROPHY_ROOM, kTournamentTrophy, 1);
+}
+
+void HostMenus::ServiceTournament(Clock::time_point now)
+{
+    const bool waited = now - tournamentAt_ > kTournamentGiveUp;
+    switch (tournament_) {
+    case TournamentWay::None: break;
+    case TournamentWay::Login:
+        // (The command runs in the game's next frame: the main menu may still
+        // be choosing in this snapshot.)
+        if (!menu_.main_menu) Tournament(TournamentWay::Online);
+        else if (waited) Tournament(TournamentWay::None);
+        break;
+    case TournamentWay::Online:
+        // Back on the main menu (the login called off), in a match, or the
+        // login stuck: no room.
+        if (menu_.online_menu) Tournament(TournamentWay::Room);
+        else if (menu_.main_menu || !menu_.front_end || now - tournamentAt_ > kTournamentLoginGiveUp)
+            Tournament(TournamentWay::None);
+        break;
+    case TournamentWay::Room:
+        if (InTrophyRoom()) {
+            // A page the player opened meanwhile (F1) goes: the room has its own.
+            ClearPages();
+            channel_ = -1;
+            PushRoomPages(std::exchange(tournamentOwn_, false));
+            Tournament(TournamentWay::None);
+        } else if (menu_.trophy_room == CHARGED_TROPHY_ROOM_OUT && waited) Tournament(TournamentWay::None);
+        break;
+    }
+    // Back from a set's match, or its search left (the walk took the game
+    // out of its online menu): the game comes back to its online menu, and
+    // the room again from there, as TOURNAMENT goes in (not over a page or
+    // a question of ours; the player gone elsewhere meanwhile: never mind).
+    // Still in the room, its page only (below).
+    const bool settled = now >= tournamentSettled_;
+    const bool inRoom = InTrophyRoom();
+    const bool idle = tournament_ == TournamentWay::None && pages_.empty() && !prompt_;
+    if (tournamentReturn_ && settled) {
+        if (inRoom) tournamentReturn_.reset();
+        else if (now > *tournamentReturn_) {
+            tournamentReturn_.reset();
+            platform::SessionLogLine("Menus: TOURNAMENT not back in the trophy room (the online menu never came)");
+        } else if (idle && (menu_.online_menu || menu_.main_menu)) {
+            tournamentReturn_.reset();
+            tournamentOwn_ = true;
+            if (menu_.online_menu) {
+                platform::SessionLogLine("Menus: TOURNAMENT back in the trophy room after the set");
+                Tournament(TournamentWay::Room);
+            } else {
+                // The game left the online menus with the match (a forfeit's
+                // lost connection): in again through WII ONLINE, as TOURNAMENT
+                // from the main menu goes, with the Mii that played the set.
+                platform::SessionLogLine(
+                    "Menus: TOURNAMENT back in the trophy room after the set, through WII ONLINE");
+                Command(CHARGED_MENU_WII_ONLINE, 0, 1);
+                Tournament(TournamentWay::Login);
+            }
+        }
+    }
+    // Back in the room from a set READY started (its search left): the page
+    // again, once nothing else of ours shows; out of the room, never mind.
+    if (tournamentPage_ && settled) {
+        if (!inRoom) tournamentPage_ = false;
+        else if (pages_.empty() && !prompt_) {
+            tournamentPage_ = false;
+            channel_ = -1;
+            PushRoomPages(true);
+        }
+    }
+    // The room left without its BACK (the online menu gone): its page goes.
+    if (Opened(Origin::TrophyRoom) && !inRoom) ClearPages();
+}
+
+void HostMenus::PushRoomPages(bool own)
+{
+    if (!host_.tournaments) {
+        Push(ui::PageId::Tournament, 0, {}, Origin::TrophyRoom);
+        return;
+    }
+    Push(ui::PageId::Tournaments, 0, {}, Origin::TrophyRoom);
+    if (own) Push(ui::PageId::Tournament);
+}
+
 void HostMenus::Back()
 {
     if (pages_.empty() || Leaving()) return;
     Play(ui::Sound::Back);
+    // TOURNAMENT: back out of the trophy room; the page goes with the camera
+    // leaving, the game's online menu shows again once it is back.
+    if (pages_.size() == 1 && pages_.front().origin == Origin::TrophyRoom) {
+        Command(CHARGED_MENU_TROPHY_ROOM, 0, 0);
+        ClearPages();
+        return;
+    }
     // The prompt: its second answer ("Decline", "Not now").
     if (pages_.back().id == ui::PageId::Prompt) {
         promptAnswer_ = 2;
@@ -289,6 +464,37 @@ void HostMenus::Apply(const ui::PageActions& actions, bool live, const overlay::
         if (host_.forfeit) host_.forfeit();
         else LeaveMatch();
     }
+    if (actions.tournament) {
+        // Into the trophy room: straight from the game's online menu, else
+        // through the game's own WII ONLINE first. These pages go meanwhile.
+        const bool online = menu_.online_menu != 0;
+        tournamentOwn_ = actions.tournament_own;
+        ClearPages();
+        if (online) Tournament(TournamentWay::Room);
+        else {
+            Command(CHARGED_MENU_WII_ONLINE);
+            Tournament(TournamentWay::Login);
+        }
+        return;
+    }
+    if (actions.tournament_ready) {
+        // The set goes on from the trophy room, which stays: only the pages go.
+        if (host_.tournament_ready && host_.tournament_ready()) {
+            ClearPages();
+            return;
+        }
+        platform::SessionLogLine("Menus: TOURNAMENT READY (nothing starts from here now)");
+    }
+    if (actions.bracket_pick) bracketPicked_ = *actions.bracket_pick;
+    if (actions.game_results) {
+        // Over the trophy room: these pages wait under the game's screen.
+        const auto& game = *actions.game_results;
+        platform::SessionLogLine("Menus: BRACKET " + game.text + " on the game's results screen");
+        Command(CHARGED_MENU_GAME_RESULTS, game.captains[0] | game.captains[1] << 8,
+                game.goals[0] | game.goals[1] << 16);
+    }
+    if ((actions.tournament_join || actions.tournament_leave) && host_.tournament_entry)
+        host_.tournament_entry(actions.tournament_join);
     if (actions.wii_online) {
         // The game's own online, as its main menu's globe: these pages go.
         Command(CHARGED_MENU_WII_ONLINE);
@@ -398,10 +604,27 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
             creditsWalk_.reset();
         } else if (now > *creditsWalk_) creditsWalk_.reset();
     }
+    ServiceTournament(now);
+    if (host_.tournament) {
+        // The TOURNAMENT page on top shows its tournament.
+        std::string shown;
+        for (auto page = pages_.rbegin(); page != pages_.rend(); ++page)
+            if (page->id == ui::PageId::Tournament) {
+                shown = page->key;
+                break;
+            }
+        host_.tournament(tournamentModel_, Opened(Origin::TrophyRoom), shown);
+        if (host_.tournaments) host_.tournaments(tournamentListModel_);
+    }
+    // Made up without a tournament feed (built once).
+    else if (!tournamentModel_.sample) tournamentModel_ = SampleTournament();
     ShowPrompt(now);
 
+    // The game's results screen over the trophy room: the pages wait under
+    // it, the TV and the input go to the game until its DONE.
+    const bool aside = menu_.game_results != 0;
     // The input: the menus' while they show a page.
-    const bool wantInput = !pages_.empty();
+    const bool wantInput = !pages_.empty() && !aside;
     if (wantInput && (!input_.PagesOpen() || pausePress_)) {
         if (input_.PagesOpen()) input_.ClosePages();
         input_.OpenPages(channel_, pausePress_);
@@ -415,7 +638,7 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
     // the front end's Options until they go.
     const bool pauseShown = scene == CHARGED_MENU_PAUSE && !menu_.leaving;
     const bool optionsShown = scene == CHARGED_MENU_OPTIONS && !menu_.leaving && !anchorDone_;
-    const bool wantTv = !pages_.empty() || pauseShown || optionsShown;
+    const bool wantTv = (!pages_.empty() || pauseShown || optionsShown) && !aside;
     if (wantTv) {
         if (!shown_ || leaving_) {
             shownAt_ = now;
@@ -440,7 +663,7 @@ void HostMenus::Service(const ChargedMenuSnapshot* menu, Clock::time_point now)
 
     // The game hands its players' cursors over while a page of these shows
     // (the hand at the mouse is the player's own).
-    const bool wantCursors = shown_ && !pages_.empty();
+    const bool wantCursors = shown_ && !pages_.empty() && !aside;
     if (wantCursors != cursors_) {
         Command(CHARGED_MENU_CURSORS, 0, wantCursors ? 1 : 0);
         cursors_ = wantCursors;
@@ -607,6 +830,10 @@ void HostMenus::BuildModel(ui::PageModel& model)
     model.image = host_.image ? &host_.image : nullptr;
     model.prompt = prompt_ ? &*prompt_ : nullptr;
     model.from_wheel = Opened(Origin::Wheel);
+    model.online_menu = menu_.online_menu != 0;
+    model.tournament = &tournamentModel_;
+    model.tournaments = &tournamentListModel_;
+    model.bracket_picked = bracketPicked_;
     model.network_match = menu_.network_match != 0;
     model.forfeiting = menu_.forfeiting != 0 || forfeitAsked_;
     model.front_end = known_ ? menu_.front_end != 0 : true;

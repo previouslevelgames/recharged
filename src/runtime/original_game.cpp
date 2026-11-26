@@ -8,6 +8,7 @@
 #include "runtime/texture_pack_loading.h"
 #include "platform/graphics_backend.h"
 #include "runtime/original_sh_menu_diagnostic.h"
+#include <charconv>
 #include <aurora/aurora.h>
 #include <aurora/hardware.h>
 #include "bootstrap/antialiasing.h"
@@ -103,6 +104,7 @@
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "runtime/host_menus.h"
 #include "runtime/mii_heads.h"
+#include "runtime/server_tournament.h"
 #endif
 #if defined(MSCHARGED_HAS_GAME_OVERLAY)
 #include "launcher/match_presets.h"
@@ -113,6 +115,7 @@
 #include "platform/save_import.h"
 #include "platform/match_kind.h"
 #include "platform/online_panel_feed.h"
+#include "platform/tournament_feed.h"
 #include <aurora/imgui.h>
 #endif
 #include "runtime/pipeline_warmup.h"
@@ -1876,6 +1879,17 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         auto configureNames=reinterpret_cast<ChargedConfigureDisplayNamesFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_display_names"));
         std::optional<std::pair<std::u16string,std::u16string>> namesGiven;
+        // A tournament's last game ends with its trophy's ceremony (tweak
+        // patch 0076), given for each game of a set that may end it.
+        auto configureTrophy=reinterpret_cast<ChargedConfigureTournamentTrophyFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_tournament_trophy"));
+        // A tournament set's players take the home side in turn (tweak patch 0079).
+        auto configureSetSide=reinterpret_cast<ChargedConfigureSetSideFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_set_side"));
+        // A tournament set's game that goes on from one that broke off
+        // (tweak patch 0080).
+        auto configureSetResume=reinterpret_cast<ChargedConfigureSetResumeFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_set_resume"));
         // At debug level DWC's own reports of the WFC login, matchmaking and
         // NAT negotiation, which the game switches off, go to the log.
         if(launch.settings.log_level=="debug")
@@ -1912,6 +1926,14 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // Recharged's menus all close (a set going on into the game; set once
         // they exist).
         std::function<void()> closeMenus;
+        // A set of the profile server's tournament READY asked for: it goes on
+        // from the trophy room (true when `match` is that set's), and back
+        // there its page comes again (set once the menus exist).
+        std::function<bool(std::int64_t match)> tournamentSetStarts;
+        std::function<bool(std::int64_t match,bool over)> tournamentSetEnds;
+        // The set on its way is a tournament's (one game a match): its
+        // forfeit gives that game up.
+        bool tournamentSetOn=false;
         auto holdButtons = [&] { mscharged::platform::SetNativeWpadHold(walkHold); };
         std::optional<mscharged::platform::AlertSound> challengeSound;
         // A challenge's chime at the master volume (not when muted), and the
@@ -1972,8 +1994,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     setStartedHere=true;
                     alert();
                     // The menus it was challenged or accepted from close: the
-                    // game goes on into the set.
-                    if(closeMenus) closeMenus();
+                    // game goes on into the set (a tournament's from the
+                    // trophy room, which stays).
+                    if(!(tournamentSetStarts && tournamentSetStarts(start->match)) && closeMenus) closeMenus();
                     if(hostOverlay)
                         hostOverlay->ShowMessage(texts::T("menus.messages.set_start",{{"name",start->opponent}}),now);
                 } else mscharged::platform::SessionLogLine("Competitive: set "+std::to_string(start->match)
@@ -1993,7 +2016,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // A set a player left or called off goes again as a rematch.
                 const bool rematch=end->how==How::Left || end->how==How::OpponentLeft
                     || end->how==How::OpponentGone;
-                if(end->how==How::Replaced) {
+                // A tournament's set: no rematch, its page says what comes next.
+                if(tournamentSetEnds && tournamentSetEnds(end->match,end->how==How::Over
+                       || end->how==How::Forfeited || end->how==How::OpponentForfeited)) {
+                } else if(end->how==How::Replaced) {
                     // A second Recharged of the player's took the set: this game has no part in it.
                     if(hostOverlay)
                         hostOverlay->ShowMessage(texts::T("menus.messages.set_replaced",{{"name",opponent}}),now);
@@ -3059,6 +3085,29 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         // development switch "Override retail menus" the game's pause menu,
         // Options and the main menu's ONLINE too (declared after what their
         // callbacks use, which outlives them).
+        // (The feeds' versions start at 0: never shown, the first one is built.)
+        constexpr std::uint64_t kNotShown=~std::uint64_t{0};
+        // The TOURNAMENT page shows the profile server's tournament (asked on a thread of its own while the page is
+        // open), whose sets are the server's.
+        std::unique_ptr<mscharged::platform::TournamentFeed> tournamentFeed;
+        std::uint64_t tournamentShown=kNotShown, tournamentListShown=kNotShown;
+        std::int64_t tournamentShownId=0;
+        // The last moment of the player's set told (TournamentCallOf), at
+        // which feed answer.
+        std::string tournamentCallKey;
+        std::uint64_t tournamentCalled=0;
+        // The opponent's READY that came while the player was busy (its key):
+        // asked again once they are free.
+        std::string tournamentCallHeld;
+        // The trophy room showed at the last look (READY holds only there).
+        bool tournamentInRoom=false;
+        {
+            std::string off;
+            tournamentFeed=mscharged::platform::TournamentFeed::Start(launch.settings.profile_server,
+                mscharged::platform::ProfileSessionFile(mscharged::DataFolder(executableDirectory),launch.config.path),
+                [](const std::string& text) { mscharged::platform::SessionLogLine(text); },&off);
+            if(!tournamentFeed) mscharged::platform::SessionLogLine("Menus: TOURNAMENT has no tournaments ("+off+")");
+        }
         std::optional<mscharged::runtime::HostMenus> hostMenus;
         // A set's forfeit sent: the game leaves its match once the server
         // answered, or after a moment without an answer.
@@ -3082,8 +3131,88 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 buildOverlayModel(model.overlay,needs.leaderboard,needs.online,needs.settings,needs.stats);
                 if(menuSamples.online) SampleOnline(model.overlay);
                 model.set_match=competitive && competitive->CurrentSet().has_value();
+                model.tournament_match=model.set_match && tournamentSetOn;
             };
             menusHost.image=overlayImage;
+            if(tournamentFeed) {
+                menusHost.tournament=[&](mscharged::ui::TournamentModel& model,bool open,const std::string& shown) {
+                    // The player's set is ready, or the opponent READY: said
+                    // once, with the challenge's chime (not during a set's
+                    // game or its way there: a set ready then goes unsaid,
+                    // the opponent's READY waits until the player is free).
+                    const bool busy=competitive && (competitive->InMatch() || competitive->CurrentSet());
+                    if(const auto version=tournamentFeed->Version(); version!=tournamentCalled
+                       || (!tournamentCallHeld.empty() && !busy)) {
+                        tournamentCalled=version;
+                        const auto call=mscharged::runtime::TournamentCallOf(tournamentFeed->Latest(),std::int64_t(std::time(nullptr)));
+                        using Kind=mscharged::runtime::TournamentCall::Kind;
+                        const bool held=busy && call.kind==Kind::OpponentReady;
+                        tournamentCallHeld=held ? call.key : std::string();
+                        // (Of the player's own tournament, whatever the pages
+                        // show.)
+                        if(!call.key.empty() && call.key!=tournamentCallKey && !held) {
+                            tournamentCallKey=call.key;
+                            if(call.kind!=Kind::None && !busy) {
+                                mscharged::platform::SessionLogLine(std::string("Tournament: ")
+                                    +(call.kind==Kind::SetReady ? "the set against " : "READY from ")+call.opponent
+                                    +(call.kind==Kind::SetReady ? " is ready" : ""));
+                                alert();
+                                if(hostOverlay)
+                                    hostOverlay->ShowMessage(texts::T(call.kind==Kind::SetReady
+                                            ? "menus.messages.tournament_set_ready"
+                                            : "menus.messages.tournament_opponent_ready",
+                                        {{"tournament",call.tournament},{"name",call.opponent}}),
+                                        std::chrono::steady_clock::now());
+                            }
+                        }
+                    }
+                    // READY holds in the trophy room only: out of it (its
+                    // BACK, the online menu left) before the set goes, it is
+                    // taken back, so that a set always goes on from the room.
+                    const bool inRoom=hostMenus && hostMenus->InTrophyRoom();
+                    if(tournamentInRoom && !inRoom && !(competitive && competitive->CurrentSet())) {
+                        const auto latest=tournamentFeed->Latest();
+                        if(latest.match && latest.match->you_ready && latest.match->stage=="open") {
+                            mscharged::platform::SessionLogLine("Tournament: READY taken back (the player left the trophy room)");
+                            tournamentFeed->Ready(false);
+                        }
+                    }
+                    tournamentInRoom=inRoom;
+                    tournamentFeed->SetOpen(open);
+                    std::int64_t id=0;
+                    if(!shown.empty()) std::from_chars(shown.data(),shown.data()+shown.size(),id);
+                    tournamentFeed->Show(id);
+                    if(const auto version=tournamentFeed->Version();
+                       version!=tournamentShown || id!=tournamentShownId) {
+                        model=mscharged::runtime::ServerTournament(tournamentFeed->Latest(),id,std::int64_t(std::time(nullptr)));
+                        tournamentShown=version;
+                        tournamentShownId=id;
+                    }
+                };
+                menusHost.tournaments=[&](mscharged::ui::TournamentListModel& model) {
+                    if(const auto version=tournamentFeed->Version(); version!=tournamentListShown) {
+                        model=mscharged::runtime::ServerTournaments(tournamentFeed->Latest(),std::int64_t(std::time(nullptr)));
+                        tournamentListShown=version;
+                    }
+                };
+                // READY (or taken back) goes to the server: the set starts
+                // once both are ready (observeCompetitive, tournamentSetStarts).
+                menusHost.tournament_ready=[&] {
+                    if(!competitive) {
+                        mscharged::platform::SessionLogLine("Tournament: READY, but competitive play is off"
+                            " (not signed in to the profile server)");
+                        return false;
+                    }
+                    const auto latest=tournamentFeed->Latest();
+                    const bool ready=!(latest.match && latest.match->you_ready);
+                    tournamentFeed->Ready(ready);
+                    return false;
+                };
+                menusHost.tournament_entry=[&](bool join) {
+                    if(join) tournamentFeed->Join();
+                    else tournamentFeed->Leave();
+                };
+            }
             menusHost.online=applyOnline;
             menusHost.setting=applySetting;
             menusHost.option=applyOption;
@@ -3104,6 +3233,62 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 std::move(menusHost));
             hostOverlay->SetMenus(&*hostMenus);
             closeMenus=[&] { hostMenus->CloseAll(); };
+            if(tournamentFeed) {
+                tournamentSetStarts=[&](std::int64_t match) {
+                    if(match!=tournamentFeed->ReadyMatch())return false;
+                    mscharged::platform::SessionLogLine("Tournament: set's match "+std::to_string(match)
+                        +" goes on from the trophy room");
+                    const auto latest=tournamentFeed->Latest();
+                    if(configureSetSide) {
+                        const int side=latest.own ? mscharged::runtime::TournamentSideOf(*latest.own,match) : -1;
+                        configureSetSide(side);
+                        if(side>=0)
+                            mscharged::platform::SessionLogLine(std::string("Tournament: this player is ")
+                                +(side==0 ? "home" : "away")+" in this game (the set's turn)");
+                    }
+                    if(configureSetResume) {
+                        const auto resume=latest.match && latest.match->id==match
+                            ? mscharged::runtime::TournamentResumeOf(*latest.match) : std::nullopt;
+                        configureSetResume(resume ? &*resume : nullptr,sizeof(ChargedSetResume));
+                        if(resume)
+                            mscharged::platform::SessionLogLine("Tournament: this game goes on from "
+                                +std::to_string(resume->own_score)+"-"+std::to_string(resume->opponent_score)
+                                +" at "+std::to_string(int(resume->seconds))+" seconds, the same teams");
+                    }
+                    if(configureTrophy) {
+                        const auto ending=latest.own
+                            ? mscharged::runtime::TournamentEndingOf(*latest.own,match)
+                            : mscharged::runtime::TournamentEnding{};
+                        const auto ceremony=latest.own
+                            ? mscharged::runtime::TournamentCeremonyOf(*latest.own,match)
+                            : mscharged::runtime::TournamentCeremony{};
+                        const auto units=[](const std::u16string& text) {
+                            return reinterpret_cast<const unsigned short*>(text.c_str());
+                        };
+                        configureTrophy(ending.own || ending.opponent ? mscharged::runtime::kTournamentTrophy : -1,
+                            ending.own,ending.opponent,units(ceremony.title),units(ceremony.own),
+                            units(ceremony.opponent));
+                        if(ending.own || ending.opponent)
+                            mscharged::platform::SessionLogLine(std::string("Tournament: this game can end the"
+                                " tournament (with the trophy's ceremony) if ")+(ending.own && ending.opponent ? "either"
+                                : ending.own ? "this player" : "the opponent")+" wins it");
+                    }
+                    hostMenus->TournamentSetStarts();
+                    tournamentSetOn=true;
+                    return true;
+                };
+                tournamentSetEnds=[&](std::int64_t match,bool over) {
+                    if(match!=tournamentFeed->ReadyMatch())return false;
+                    mscharged::platform::SessionLogLine("Tournament: set's match "+std::to_string(match)
+                        +(over ? " is over" : " ended without its series"));
+                    if(configureTrophy) configureTrophy(-1,false,false,nullptr,nullptr,nullptr);
+                    if(configureSetSide) configureSetSide(-1);
+                    if(configureSetResume) configureSetResume(nullptr,sizeof(ChargedSetResume));
+                    tournamentSetOn=false;
+                    hostMenus->TournamentSetDone(over);
+                    return true;
+                };
+            }
             const bool replaced=launch.settings.GameTweakMask()
                 & mscharged::GameTweakBit(mscharged::GameTweak::OverrideRetailMenus);
             mscharged::platform::SessionLogLine(replaced ? "Menus: Recharged's, also for the game's (Override retail menus)"

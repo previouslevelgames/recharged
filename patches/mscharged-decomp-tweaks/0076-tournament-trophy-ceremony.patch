@@ -1,0 +1,120 @@
+From: mscharged-port
+Subject: Recharged's tournaments: the game that wins one ends with the trophy's ceremony
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+The cut online tournament ended its last game with the tournament trophy's
+ceremony: the presentation script asks PRESENTATION_IS_CUP_PERSONA_WINNER
+(IsCupPersonaWinner: online, GM_ONLINE_TOURNAMENT and the last playoff
+round), then Presentation::LoadNis loads <trophy>_<name> (the disc has all
+ten, mushroomcup_win_home_2.nis to nintendocup_win_home_2.nis, beside the
+Strikers Cup's), with the trophy's model from
+AsyncLoadingManager::LoadTrophyTemplates.
+
+Recharged's tournaments play their sets as RANKED matches. Two hooks let
+them have the same ending without the game's tournament mode:
+mscharged_tweak_tournament_trophy gives the trophy for a game won by a
+side (the presentation then takes the persona's ceremony), and
+mscharged_tweak_tournament_trophy_template the trophy whose model the
+match loads. That model goes by the disc's names: the cut branch asks for
+Trophy<persona>Cup, which only the Next Level trophy is called.
+
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -280,6 +280,13 @@ bool mscharged_tweak_training_item_giant(void);
+ // once, the message of the popup that says so.
+ bool mscharged_tweak_online_locked(void);
+ const unsigned short* mscharged_tweak_take_online_lock_message(void);
++// Recharged's tournaments (tweak patch 0076): the game that wins one ends
++// with the tournament trophy's ceremony, as the cut online tournament's
++// would have. The trophy (a cup persona, 0 to 9) for a game won by
++// `winner_side` (0 home, 1 away), or -1 for the usual end; and the trophy
++// whose model the matches of a set that may end the tournament load, or -1.
++int mscharged_tweak_tournament_trophy(int winner_side);
++int mscharged_tweak_tournament_trophy_template(void);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/Game/AsyncLoading.cpp b/src/Game/AsyncLoading.cpp
+--- a/src/Game/AsyncLoading.cpp
++++ b/src/Game/AsyncLoading.cpp
+@@ -2505,6 +2505,32 @@ void OnOnDemandFrontEndBundleLoaded(void*, unsigned long, unsigned long)
+ void AsyncLoadingManager::LoadTrophyTemplates()
+ {
+     char trophyName[64];
++#if defined(MSCHARGED_TWEAKS)
++    // Recharged's tournaments (tweak patch 0076): the tournament trophy, for
++    // the ceremony of a game that may win one. By the disc's names: the cut
++    // tournament's branch below asks for Trophy<persona>Cup, which only the
++    // Next Level trophy is called.
++    {
++        static const char* const sTournamentTrophies[10] = {
++            "TrophyMushroom",
++            "TrophyFlower",
++            "TrophyStar",
++            "TrophySunshine",
++            "TrophyBanana",
++            "TrophyNextlevelCup",
++            "TrophyKonga",
++            "TrophySand",
++            "TrophyLava",
++            "TrophyNintendo",
++        };
++        const int persona = mscharged_tweak_tournament_trophy_template();
++        if (persona >= 0 && persona < 10)
++        {
++            gNPCManager->CreateNPCTemplate(sTournamentTrophies[persona], false);
++            return;
++        }
++    }
++#endif
+     if (GetConfigBool(Config::Global(), "TrophyTest", false))
+     {
+         gNPCManager->CreateNPCTemplate("TrophyBanana", false);
+diff --git a/src/Game/Render/Presentation.cpp b/src/Game/Render/Presentation.cpp
+--- a/src/Game/Render/Presentation.cpp
++++ b/src/Game/Render/Presentation.cpp
+@@ -151,6 +151,16 @@ static inline bool IsCupPersonaWinner()
+         return true;
+     }
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Recharged's tournaments: this game wins one (tweak patch 0076).
++    if (mscharged_tweak_tournament_trophy(
++            NisPlayer::Instance()->mWinnerSide[NIS_GAME_WINNER])
++        >= 0)
++    {
++        return true;
++    }
++#endif
++
+     int winnerSide = NisPlayer::Instance()->mWinnerSide[NIS_GAME_WINNER];
+     GameInfoManager* gameInfo = GameInfoManager::Instance();
+     int winnerTeam
+@@ -1535,6 +1545,26 @@ void Presentation::LoadNis(const char* name, int variant)
+     char fullName[64];
+     int winnerTeam;
+     bool isCupWinner;
++#if defined(MSCHARGED_TWEAKS)
++    // Recharged's tournaments (tweak patch 0076): the tournament trophy's
++    // part of the ceremony, as the cut online tournament named it.
++    {
++        const int persona = mscharged_tweak_tournament_trophy(
++            NisPlayer::Instance()->mWinnerSide[NIS_GAME_WINNER]);
++        if (persona >= 0)
++        {
++            nlSNPrintf(fullName, sizeof(fullName), "%s_%s",
++                GetCupPersonaTrophyNames()[persona], name);
++            if (!mByPassing)
++            {
++                NisPlayer::Instance()->Load(fullName, NIS_TARGET_NONE,
++                    NIS_NO_STADIUM_OFFSET, NIS_NO_FILTER, NIS_DO_NOT_CARE,
++                    variant, -1);
++            }
++            return;
++        }
++    }
++#endif
+     if (sUseCupPersonaTrophy)
+     {
+         isCupWinner = true;

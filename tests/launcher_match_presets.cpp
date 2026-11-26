@@ -39,17 +39,21 @@ void BuiltIn()
     first_to_10.goals = 10;
     Check(presets[0].settings == MatchSettings{} && presets[1].settings == first_to_10,
           "Retail ranked: a new save's settings; Competitive: first to 10 goals");
-    Check(presets[0].tweaks.empty() && presets[0].stadium == "random" && presets[1].stadium == "random"
-              && presets[1].tweaks == std::vector<std::string>{"fast_terrain", "no_mega_strikes", "thunder_island_walls"},
-          "Competitive: Fast terrain, No Mega Strikes, Thunder Island walls");
+    Check(presets[0].tweaks == std::vector<std::string>{"fair_ball_contests"} && presets[0].stadium == "random"
+              && presets[1].stadium == "random"
+              && presets[1].tweaks
+                     == std::vector<std::string>{"fair_ball_contests", "fast_terrain", "no_mega_strikes",
+                                                 "thunder_island_walls"},
+          "Both Defence priority; Competitive: Fast terrain, No Mega Strikes, Thunder Island walls");
     Check(MatchSummary(presets[0].settings) == "Rookie, best of 3, 3 minutes", MatchSummary(presets[0].settings));
     Check(MatchSummary(presets[1].settings) == "Rookie, best of 3, first to 10 goals", MatchSummary(presets[1].settings));
     // As the profile server starts with them.
     const auto retail = ChallengeRules(presets[0]), competitive = ChallengeRules(presets[1]);
     Check(retail.skill == "rookie" && retail.limit == "time" && retail.time == 180 && retail.goals == 5
-              && retail.games == 3 && retail.stadium == "random" && retail.tweaks.empty()
+              && retail.games == 3 && retail.stadium == "random"
+              && retail.tweaks == std::vector<std::string>{"fair_ball_contests"}
               && retail.stadium_cheat == "none" && competitive.limit == "goals" && competitive.goals == 10
-              && competitive.games == 3 && competitive.tweaks.size() == 3,
+              && competitive.games == 3 && competitive.tweaks.size() == 4,
           "The server's Retail ranked and Competitive rules");
     MatchSettings odd;
     odd.skill = 7;
@@ -113,7 +117,21 @@ void Text()
     Check(!ParseMatchPreset("name = Mine\nstadium = moon\n"), "A stadium the game hasn't");
     Check(!ParseMatchPreset("name = Mine\ntweaks = fast_terrain, super_team\n"), "A tweak no set has");
     parsed = ParseMatchPreset("name = Mine\n");
-    Check(parsed && parsed->stadium == "random" && parsed->tweaks.empty(), "Without them: random, none");
+    Check(parsed && parsed->stadium == "random" && parsed->tweaks == std::vector<std::string>{"fair_ball_contests"},
+          "Without them: random, Defence priority");
+    // Defence priority on its own line; a file from before it was a rule has it.
+    parsed = ParseMatchPreset("name = Mine\ntweaks = fast_terrain\nfair_ball_contests = no\n");
+    Check(parsed && parsed->tweaks == std::vector<std::string>{"fast_terrain"}, "Defence priority taken off");
+    parsed = ParseMatchPreset("name = Mine\ntweaks = fast_terrain\n");
+    Check(parsed && parsed->tweaks == std::vector<std::string>{"fast_terrain", "fair_ball_contests"},
+          "An older file has Defence priority");
+    Check(!ParseMatchPreset("name = Mine\nfair_ball_contests = maybe\n"), "Defence priority is yes or no");
+    preset.tweaks = {"fair_ball_contests", "no_mega_strikes"};
+    const auto fair = MatchPresetText(preset);
+    parsed = ParseMatchPreset(fair);
+    Check(fair.find("tweaks = no_mega_strikes\nfair_ball_contests = yes\n") != std::string::npos && parsed
+              && parsed->tweaks == std::vector<std::string>{"no_mega_strikes", "fair_ball_contests"},
+          "Defence priority written and read back");
     preset.stadium = "random";
     preset.tweaks.clear();
     s.powerup_cheat = 11;

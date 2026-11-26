@@ -15,8 +15,8 @@
 // Audio and Visual Options open); the ONLINE hub (the main menu's globe, the
 // Recharged menu's) with the player's set, PLAY (FRIENDS, RANDOM OPPONENT,
 // RANKED; a player's page and a challenge's setup), PROFILE (records and
-// friends) and LEADERBOARD; and the prompt over everything (a challenge, a
-// set's end). They draw from a
+// friends), LEADERBOARD and TOURNAMENT (over the trophy room); and the
+// prompt over everything (a challenge, a set's end). They draw from a
 // model the host fills each frame (the overlay's: overlay/game_overlay.h) and
 // say what the player did; the host applies it.
 namespace mscharged::ui
@@ -40,6 +40,9 @@ enum class PageId
     Prompt,      // a question over everything: a challenge, a set's end
     Match,       // an online match's menu (the game's pause; nothing pauses): CONTINUE, FORFEIT
     Forfeit,     // forfeit the online match? (then: on the way out)
+    Tournaments, // over the trophy room: the newest tournament (or the player's) and the others, to open
+    Tournament,  // over the trophy room: the tournament (key: its id, empty for the player's), the next set, READY and BRACKET
+    Bracket,     // the tournament's bracket (the player's pool)
 };
 
 // The categories of Settings (also where the pause menu's Audio and Visual
@@ -54,6 +57,50 @@ enum SettingsCategory
 
 // The search setup's key (PageId::Setup).
 inline constexpr const char* kSearchKey = overlay::kOnlinePanelSearchKey;
+
+// The tournament over the trophy room: its name and event, and the
+// player's next set in it.
+struct TournamentModel
+{
+    std::string name, event;
+    std::string round;    // the next set's ("Winners Round 1")
+    std::string opponent; // its opponent's name, and their initials for the picture
+    std::string opponent_initials;
+    int games = 3; // best of (0: not known)
+    bool sample = false; // made up (no tournaments to show)
+    bool has_set = false;        // the player has a next set (its card shows)
+    bool opponent_known = false; // its opponent is decided (READY can be pressed)
+    std::string score;           // the games so far ("1 - 0"), once reported
+    std::string note;            // a line above: loading, the server failing, no set left
+    // The profile server's tournaments: JOIN or LEAVE shows, and the player
+    // pressed READY for their set (the button then takes it back).
+    bool can_join = false, can_leave = false;
+    bool you_ready = false;
+    // The bracket of the player's pool (or the event's first), in the
+    // event's order.
+    std::vector<BracketSet> bracket;
+    bool ash = false; // its lower section is the ash bracket, not the losers'
+};
+
+// The tournaments over the trophy room (TOURNAMENTS): one in a big card (the
+// player's own, else the newest), the others still open or running, and the
+// last that ended; each opens its page (TOURNAMENT, key: `key`).
+struct TournamentEntry
+{
+    std::string key;    // its id
+    std::string name;
+    std::string initials; // the big card's picture
+    std::string kicker; // its state ("OPEN FOR ENTRIES")
+    std::string value;  // a short fact in its row ("3 of 8", "2nd")
+    std::vector<std::string> lines; // the big card's
+    Tone tone = Tone::Neutral;
+};
+struct TournamentListModel
+{
+    std::string note; // loading, the server failing, none
+    std::optional<TournamentEntry> featured;
+    std::vector<TournamentEntry> others, past;
+};
 
 // The game's own options, as its save holds them.
 struct GameValues
@@ -72,11 +119,19 @@ struct PageModel
     bool front_end = false;  // the game's menus, not a match
     bool credits = false;    // the game's Credits can be reached (its Options or its main menu shown)
     bool from_wheel = false; // the ONLINE hub opened from the main menu's globe: WII ONLINE goes on there
+    // The game's online menu is on top at rest: TOURNAMENT goes straight into
+    // the trophy room (from the globe it goes through WII ONLINE first).
+    bool online_menu = false;
+    // The host's tournament pages' models, for this frame.
+    const TournamentModel* tournament = nullptr;
+    const TournamentListModel* tournaments = nullptr;
+    std::string bracket_picked; // the BRACKET's set whose games are listed (its id)
     // A match against another machine runs: the game's own options stay as
     // they are (changing them would change the game on one machine only).
     bool network_match = false;
     bool forfeiting = false; // the player forfeited it: on the way out
     bool set_match = false;  // the online match is a set's (a forfeit gives the set up)
+    bool tournament_match = false; // a tournament set's game (a forfeit gives that game up)
     // A picture's texture (a player's Mii: "mii:own", "miidata:<record>"), 0
     // for none; the host's, for this frame.
     const std::function<ImTextureID(const std::string&)>* image = nullptr;
@@ -104,6 +159,12 @@ struct PageActions
     int open_category = 0;      // its category to show first
     bool credits = false;       // the game's Credits (the front end's Options)
     bool wii_online = false;    // the game's own online, as its main menu's globe
+    bool tournament = false;    // TOURNAMENT: into the trophy room
+    bool tournament_own = false; // with `tournament`: on the player's own TOURNAMENT (their set's card)
+    bool tournament_ready = false; // the tournament's READY (or its take-back, when you_ready)
+    bool tournament_join = false, tournament_leave = false;
+    std::optional<std::string> bracket_pick;     // the BRACKET's set (its id) whose games to list
+    std::optional<BracketGame> game_results;      // a game's result on the game's results screen
     overlay::OnlinePanelActions online;
     overlay::RankedActions ranked;
     int answer = 0;    // the prompt: 1 its first button, 2 its second

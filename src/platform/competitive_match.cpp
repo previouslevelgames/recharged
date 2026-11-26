@@ -102,6 +102,12 @@ bool sRankedWalk = false;
 constexpr u32 kDwcReport = 0x1 | 0x2 | 0x8 | 0x20 | 0x40 | 0x80 | 0x200 | 0x400 | 0x20000 | 0x40000;
 u32 sDwcReport = 0;
 
+// Back in through WII ONLINE after a set (ChargedCompetitiveSameMii): the Mii
+// screen chooses the Mii online last (sRejoinMii), then its card uses it.
+enum class Rejoin { None, ChooseMii, UseMii };
+Rejoin sRejoin = Rejoin::None;
+RFLCreateID sRejoinMii{};
+
 bool OnSet() { return sSetStage != CHARGED_SET_NONE; }
 
 // The ranked walk is done (the search began) or stopped: the screens and the
@@ -490,6 +496,146 @@ extern "C" __attribute__((visibility("default"))) void charged_configure_display
     for (NameRoom& room : sRooms) room = NameRoom{};
 }
 
+// The tournament trophy of a set that may end the tournament
+// (charged_configure_tournament_trophy): its cup persona, -1 for none, and
+// whose win of this game ends the tournament: this player's, the opponent's.
+int sTournamentTrophy = -1;
+bool sTrophyIfOwnWins = false, sTrophyIfOpponentWins = false;
+// The ceremony's texts: its title, and who won (this player, the opponent).
+unsigned short sTrophyTitle[128] = {}, sTrophyOwnText[128] = {}, sTrophyOpponentText[128] = {};
+
+void CopyTrophyText(unsigned short (&to)[128], const unsigned short* from)
+{
+    std::size_t at = 0;
+    for (; from && from[at] && at + 1 < std::size(to); ++at) to[at] = from[at];
+    to[at] = 0;
+}
+
+extern "C" __attribute__((visibility("default"))) void charged_configure_tournament_trophy(
+    int persona, bool own_wins, bool opponent_wins, const unsigned short* title, const unsigned short* own_text,
+    const unsigned short* opponent_text)
+{
+    const bool any = persona >= 0 && persona < 10 && (own_wins || opponent_wins);
+    sTournamentTrophy = any ? persona : -1;
+    sTrophyIfOwnWins = any && own_wins;
+    sTrophyIfOpponentWins = any && opponent_wins;
+    CopyTrophyText(sTrophyTitle, any ? title : nullptr);
+    CopyTrophyText(sTrophyOwnText, any ? own_text : nullptr);
+    CopyTrophyText(sTrophyOpponentText, any ? opponent_text : nullptr);
+}
+
+// This player's side in the set's game (charged_configure_set_side): 0 home,
+// 1 away, -1 the game's own.
+int sSetSide = -1;
+
+extern "C" __attribute__((visibility("default"))) void charged_configure_set_side(int side)
+{
+    sSetSide = side == 0 || side == 1 ? side : -1;
+}
+
+// The set's next game goes on from one that broke off
+// (charged_configure_set_resume): the teams, goals and clock then.
+bool sResumeOn = false;
+ChargedSetResume sResume{};
+// The match's start from its game start message (every machine alike): the
+// goals of home and away, and the clock; none for a game from the start.
+bool sGameResumes = false;
+int sGameScores[2] = {0, 0};
+float sGameSeconds = 0.0f;
+
+extern "C" __attribute__((visibility("default"))) void charged_configure_set_resume(const ChargedSetResume* resume,
+                                                                                    unsigned size)
+{
+    sResumeOn = resume && size == sizeof(ChargedSetResume);
+    sResume = sResumeOn ? *resume : ChargedSetResume{};
+}
+
+// Tweak patch 0080: this player's team for the draft to take by itself.
+extern "C" bool mscharged_competitive_resume_lineup(int* captain, int* sidekicks)
+{
+    if (!sResumeOn || sSetStage == CHARGED_SET_NONE || sRankedWalk || !captain || !sidekicks) return false;
+    *captain = sResume.own_captain;
+    for (int slot = 0; slot < 3; ++slot) sidekicks[slot] = sResume.own_sidekicks[slot];
+    return true;
+}
+
+// Tweak patch 0080: the draft host's start of the game: this player's goals,
+// the opponent's, the clock.
+extern "C" bool mscharged_competitive_resume_start(int* own, int* opponent, float* seconds)
+{
+    if (!sResumeOn || sSetStage == CHARGED_SET_NONE || sRankedWalk || !own || !opponent || !seconds) return false;
+    *own = sResume.own_score;
+    *opponent = sResume.opponent_score;
+    *seconds = sResume.seconds;
+    return true;
+}
+
+// Tweak patch 0080: the game start message's start (null: from the start).
+extern "C" void mscharged_competitive_game_resume(const int* scores, float seconds)
+{
+    sGameResumes = scores != nullptr;
+    sGameScores[0] = scores ? scores[0] : 0;
+    sGameScores[1] = scores ? scores[1] : 0;
+    sGameSeconds = scores ? seconds : 0.0f;
+    if (scores)
+        std::fprintf(stderr, "Competitive: the game goes on from %d-%d at %.0f seconds\n", sGameScores[0],
+                     sGameScores[1], double(sGameSeconds));
+}
+
+// The recording of the match under way (match_replay.cpp): where its game
+// start message started it (false: from the start).
+extern "C" bool mscharged_competitive_game_start(int* scores, float* seconds)
+{
+    if (!sGameResumes || !scores || !seconds) return false;
+    scores[0] = sGameScores[0];
+    scores[1] = sGameScores[1];
+    *seconds = sGameSeconds;
+    return true;
+}
+
+#if defined(MSCHARGED_TWEAKS)
+// Tweak patch 0079: a set's game (not the Game Menu's RANKED) on its way.
+extern "C" int mscharged_competitive_set_side(void)
+{
+    return sSetStage != CHARGED_SET_NONE && !sRankedWalk ? sSetSide : -1;
+}
+
+int mscharged_tweak_resume_score(int side)
+{
+    return sGameResumes && (side == 0 || side == 1) ? sGameScores[side] : -1;
+}
+
+float mscharged_tweak_resume_clock(void) { return sGameResumes ? sGameSeconds : 0.0f; }
+
+extern "C" void mscharged_competitive_sides_swapped(int side)
+{
+    std::fprintf(stderr, "Competitive: the game's sides swapped for the set's turn: this player is %s\n",
+                 side == 0 ? "home" : "away");
+}
+
+// Tweak patch 0076: the game that ends a tournament ends with its trophy's
+// ceremony, for the side whose win does it.
+int mscharged_tweak_tournament_trophy(int winner_side)
+{
+    if (sTournamentTrophy < 0 || (winner_side != 0 && winner_side != 1)) return -1;
+    const short side = LocalSide();
+    if (side < 0) return -1;
+    const bool own = winner_side == side;
+    return (own ? sTrophyIfOwnWins : sTrophyIfOpponentWins) ? sTournamentTrophy : -1;
+}
+
+int mscharged_tweak_tournament_trophy_template(void) { return sTournamentTrophy; }
+
+bool mscharged_tweak_tournament_trophy_texts(int winner_side, const unsigned short** title,
+                                             const unsigned short** description)
+{
+    if (mscharged_tweak_tournament_trophy(winner_side) < 0 || !title || !description || !sTrophyTitle[0]) return false;
+    *title = sTrophyTitle;
+    *description = winner_side == LocalSide() ? sTrophyOwnText : sTrophyOpponentText;
+    return true;
+}
+#endif
+
 // Host entry, between frames: the set is over (or failed) and the host has
 // done with it; the game is no set's any more, and its popups and menus are
 // the player's again.
@@ -504,6 +650,9 @@ extern "C" __attribute__((visibility("default"))) void charged_competitive_end_s
     }
     sLeaveOnline = sSetStage == CHARGED_SET_FAILED && !sRankedWalk;
     sSetStage = CHARGED_SET_NONE;
+    sSetSide = -1;
+    sResumeOn = false;
+    sGameResumes = false;
     sSetPopup = -1;
     sPlayerChoosesMii = false;
     sStartedInGame = false;
@@ -631,6 +780,15 @@ extern "C" void mscharged_competitive_search_back(void)
 
 bool ChargedCompetitiveWalking() { return sSetStage != CHARGED_SET_NONE; }
 
+void ChargedCompetitiveSameMii(bool on)
+{
+    sRejoin = Rejoin::None;
+    GameInfoManager* info = nlSingleton<GameInfoManager>::Instance();
+    if (!on || !info || gNetworkSaveSlotIndex < 0 || gNetworkSaveSlotIndex >= 10) return;
+    std::memcpy(&sRejoinMii, info->GetSaveSlotIdAddress(gNetworkSaveSlotIndex), sizeof sRejoinMii);
+    sRejoin = Rejoin::ChooseMii;
+}
+
 extern "C" bool mscharged_competitive_take_main_menu(void)
 {
     if (sSetStage != CHARGED_SET_BOOT || PopupOnTop()) return false;
@@ -640,6 +798,20 @@ extern "C" bool mscharged_competitive_take_main_menu(void)
 
 extern "C" int mscharged_competitive_mii_position(const int* official_indices, int count)
 {
+    if (sSetStage == CHARGED_SET_NONE && sRejoin == Rejoin::ChooseMii && !PopupOnTop())
+    {
+        u16 index = 0;
+        sRejoin = Rejoin::None;
+        if (RFLSearchOfficialData(&sRejoinMii, &index))
+            for (int position = 0; position < count; ++position)
+                if (official_indices[position] == index)
+                {
+                    sRejoin = Rejoin::UseMii;
+                    return position;
+                }
+        std::fputs("Competitive: the Mii online last is gone; the player chooses one\n", stderr);
+        return -1;
+    }
     if (sSetStage != CHARGED_SET_MII || PopupOnTop()) return -1;
     u16 index = 0;
     if (RFLSearchOfficialData(&sSetMii, &index))
@@ -661,6 +833,11 @@ extern "C" int mscharged_competitive_mii_position(const int* official_indices, i
 
 extern "C" bool mscharged_competitive_take_use(void)
 {
+    if (sSetStage == CHARGED_SET_NONE && sRejoin == Rejoin::UseMii)
+    {
+        sRejoin = Rejoin::None;
+        return true;
+    }
     if (sSetStage != CHARGED_SET_OVERLAY || PopupOnTop()) return false;
     sSetStage = CHARGED_SET_LOGIN;
     return true;
@@ -696,6 +873,7 @@ extern "C" bool mscharged_competitive_take_ranked(void)
 // it goes on into the RANKED search with the Mii in use.
 extern "C" bool mscharged_competitive_take_online_menu(void)
 {
+    sRejoin = Rejoin::None;
     if (sSetStage != CHARGED_SET_BOOT || PopupOnTop()) return false;
     if (sRankedWalk) EndRankedWalk();
     else sSetStage = CHARGED_SET_SEARCH;
@@ -826,6 +1004,10 @@ extern "C" unsigned int mscharged_competitive_match_tweaks(void)
     return sActive ? sMatch.tweaks : 0;
 }
 
+// Tweak patch 0082: this online match plays a set's rules (from its start
+// through the screens after it).
+extern "C" bool mscharged_competitive_set_game(void) { return sActive && RankedOnline(); }
+
 extern "C" bool mscharged_competitive_tweak(int tweak)
 {
     if (tweak < 0 || tweak >= 32) return false;
@@ -839,6 +1021,14 @@ extern "C" bool mscharged_competitive_tweak(int tweak)
 extern "C" bool mscharged_competitive_draft_mirror(void)
 {
     return Applies() && ((sRules.tweaks >> MSCHARGED_TWEAK_MIRROR_MATCH) & 1u);
+}
+
+// The set's rules have no Defence priority (the home side wins the ball
+// contests): in this RANKED draft against the set's opponent the player
+// away drafts first (tweak patch 0084). The host's rules, as above.
+extern "C" bool mscharged_competitive_draft_away_first(void)
+{
+    return Applies() && !((sRules.tweaks >> MSCHARGED_TWEAK_FAIR_BALL_CONTESTS) & 1u);
 }
 
 // Mirror match for the tweak's hooks (game_tweaks.cpp): from the set's draft

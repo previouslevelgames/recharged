@@ -227,7 +227,7 @@ std::string DescribeChatTime(std::int64_t now, std::int64_t when);
 // The rules a match is played by (docs/profiles.md, "Rules").
 struct MatchRules
 {
-    std::vector<std::string> tweaks; // fast_terrain, no_mega_strikes, thunder_island_walls
+    std::vector<std::string> tweaks; // fair_ball_contests, fast_terrain, no_mega_strikes, thunder_island_walls, mirror_match
     std::string skill;               // training, rookie, professional, superstar, legend
     std::string limit;               // time or goals
     int time = 0;                    // seconds
@@ -280,6 +280,37 @@ struct MatchGame
 };
 
 // A match as one of its players sees it.
+// The tournament set a match plays (servers with tournaments; id 0: none).
+// A tournament set's game that broke off, which the next goes on from: the
+// stadium, the seconds on its clock, whether the player was at home, and
+// each team as it was (captain, three sidekicks, goals).
+struct TournamentResume
+{
+    std::string stadium;
+    int seconds = 0;
+    bool you_home = false;
+    struct Team
+    {
+        std::string captain;
+        std::vector<std::string> sidekicks;
+        int score = 0;
+    } you, opponent;
+};
+
+struct MatchTournament
+{
+    std::int64_t id = 0, set = 0;
+    std::string name;
+    std::string side; // winners, losers, grand_final, grand_final_reset or ash
+    int round = 0;
+    int games = 0;          // the set's best of
+    int won = 0, lost = 0;  // the set's games won so far: the player's, the opponent's
+    std::string state;      // the set's (TournamentSet::state)
+    std::string winner;     // the set's once finished: "you" or "opponent"
+    std::string home;       // who is at home in the set's next game: "you" or "opponent"
+    std::optional<TournamentResume> resume; // the set's next game goes on from one that broke off
+};
+
 struct ProfileMatch
 {
     std::int64_t id = 0;
@@ -307,6 +338,7 @@ struct ProfileMatch
     // A finished set one player gave up: "you" or "opponent"; empty without a
     // forfeit (and from servers before forfeits).
     std::string forfeited_by;
+    MatchTournament tournament;
 
     // Still to be played: challenged or accepted.
     bool Open() const { return state == "challenged" || state == "accepted"; }
@@ -317,6 +349,109 @@ struct ProfileMatch
     {
         return state == "challenged"
             || (state == "accepted" && (stage.empty() || stage == "go" || stage == "playing"));
+    }
+};
+
+// A tournament the server runs (docs/tournaments.md of recharged-wfc-srv):
+// a bracket of single or double elimination whose sets are matches.
+struct ProfileTournament
+{
+    std::int64_t id = 0;
+    std::string name;
+    std::string format; // single or double
+    std::string state;  // registration, running, finished or cancelled
+    std::string rule_set;
+    MatchRules rules;
+    // The semifinals' best of: 0 from a server without it (the sets').
+    int best_of = 0, semifinals_best_of = 0, finals_best_of = 0;
+    int max_entrants = 0; // 0: no limit
+    int entrants = 0;
+    bool joined = false; // in the list, with a session
+    int place = 0;       // the player's, from 1, once it ended (in the list, with a session)
+    // Unix seconds, 0: none. Entries close at registration_ends_at (none:
+    // when it starts); its sets are played from starts_at.
+    std::int64_t registration_ends_at = 0, starts_at = 0, started_at = 0, ended_at = 0;
+};
+
+struct TournamentEntrant
+{
+    ProfilePlayer player; // id, name, avatar_url, mii_data, discord, account
+    int seed = -1;        // from 0, once it started
+    bool dropped = false; // left, or disqualified
+    int place = 0;        // from 1, once it is over
+};
+
+// Where one of a tournament set's players comes from: a seed (from 0; past
+// the entrants, a bye), or another set's winner or loser.
+struct TournamentFrom
+{
+    enum class Kind { None, Seed, Winner, Loser } kind = Kind::None;
+    std::int64_t value = 0; // the seed, or the set's id
+};
+
+// A game a tournament set played: each team's captain (the game's name)
+// and goals, home and away as the set has them; `interrupted` when it broke
+// off (or was forfeited) at this score.
+struct TournamentPlayedGame
+{
+    std::string home_captain, away_captain;
+    int home_score = 0, away_score = 0;
+    bool interrupted = false;
+};
+
+struct TournamentSet
+{
+    std::int64_t id = 0;
+    int index = 0;    // in the bracket's order
+    std::string side; // winners, losers, grand_final, grand_final_reset or ash
+    int round = 0, position = 0, games = 0;
+    // pending, ready, playing, finished, disputed or void.
+    std::string state;
+    std::int64_t home = 0, away = 0, winner = 0; // player ids, 0: none
+    std::string decided_by; // match, organizer or walkover
+    int home_wins = -1, away_wins = -1; // -1: no score
+    std::int64_t match = 0;
+    // Who plays at home in its next game while ready or playing (0: none):
+    // the players take turns (the lower seed first), the game swaps its
+    // sides to follow.
+    std::int64_t game_home = 0;
+    TournamentFrom from[2];
+    std::vector<TournamentPlayedGame> played; // in their order
+};
+
+// The player's own place in a tournament (with a session).
+struct TournamentMe
+{
+    std::int64_t player = 0;
+    bool entrant = false;
+    // A player without Discord can't play: `reason` is then
+    // "discord_required".
+    bool eligible = false;
+    std::string reason;
+    bool dropped = false;
+    int place = 0;
+    std::int64_t set = 0; // their set to play now, else the next one waiting
+};
+
+struct TournamentPage
+{
+    ProfileTournament tournament;
+    std::vector<TournamentEntrant> entrants; // by seed once it started
+    std::vector<TournamentSet> sets;         // in the bracket's order
+    std::optional<TournamentMe> me;
+    int poll_interval = 5;
+
+    const TournamentEntrant* Entrant(std::int64_t player) const
+    {
+        for (const auto& entrant : entrants)
+            if (entrant.player.id == player) return &entrant;
+        return nullptr;
+    }
+    const TournamentSet* Set(std::int64_t id) const
+    {
+        for (const auto& set : sets)
+            if (set.id == id) return &set;
+        return nullptr;
     }
 };
 
@@ -505,6 +640,16 @@ public:
     ProfileMatch ChallengePlayer(std::int64_t opponent_id, const MatchRules& rules, const std::string& name);
     // The same by the player's id, from the lobby's lists.
     ProfileMatch ChallengePlayer(std::int64_t opponent_id, std::int64_t rule_set);
+    // Tournaments (servers with them; 404 before): open for entries or
+    // running, then the last that ended; one with its bracket; joining and
+    // leaving (the page after); READY for the player's set, or taken back:
+    // the set's match, none for a READY taken back before there was one. A
+    // player without Discord gets a ProfileError with Status() 403.
+    std::vector<ProfileTournament> Tournaments();
+    TournamentPage Tournament(std::int64_t id);
+    TournamentPage JoinTournament(std::int64_t id);
+    TournamentPage LeaveTournament(std::int64_t id);
+    std::optional<ProfileMatch> TournamentReady(std::int64_t id, std::int64_t set, bool ready);
     // The friends after adding one (by player id or Discord username) or
     // taking one off.
     std::vector<ProfilePlayer> AddFriend(std::int64_t player_id);

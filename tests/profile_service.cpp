@@ -1,11 +1,14 @@
 // The profile service client of competitive play: server addresses, the
 // saved session, the rules the game module gets, and (where the system has
 // libcurl) the requests themselves against a small HTTP server here.
+#include "bootstrap/game_tweaks.h"
 #include "platform/base64.h"
 #include "platform/competitive_rules.h"
 #include "platform/http_client.h"
+#include "platform/json.h"
 #include "platform/online_panel_feed.h"
 #include "platform/profile_service.h"
+#include "platform/tournament_feed.h"
 
 #include <chrono>
 #include <cstdio>
@@ -163,7 +166,13 @@ void Rules()
     rules.stadium_cheat = rules.player_cheat = rules.powerup_cheat = "none";
     CHECK(StadiumCheatChoices().size() == 6 && PlayerCheatChoices().size() == 5 && PowerupCheatChoices().size() == 12
           && StadiumChoices().size() == 17 && std::string(StadiumChoices()[11].label) == "The Palace"
-          && RuleTweakChoices().size() == 4);
+          && RuleTweakChoices().size() == 5);
+    // Fair ball contests: a rule like the others, the module's tweak bit.
+    rules.tweaks = {"fair_ball_contests"};
+    const auto fair = ModuleRules(rules, opponent);
+    CHECK(fair && fair->tweaks == mscharged::GameTweakBit(mscharged::GameTweak::FairBallContests));
+    CHECK(DescribeRules(rules).find("Defence priority") != std::string::npos);
+    rules.tweaks = {"fast_terrain", "no_mega_strikes", "thunder_island_walls"};
     rules.limit = "time";
     rules.time = 150;
     rules.games = 1;
@@ -932,6 +941,225 @@ void FeedChallengeRules()
 #endif
 } // namespace
 
+// Tournaments: the list, a page with its bracket and the player's place,
+// joining, READY with its match, and a player without Discord refused.
+void Tournaments()
+{
+    if (!HttpUnavailable().empty()) return;
+    const std::string tournament = R"({"id":4,"name":"Recharged Cup","organizer":null,"format":"double",)"
+                                   R"("state":"running","rule_set":"Competitive","rules":{"tweaks":[],"skill":"rookie",)"
+                                   R"("limit":"goals","time":180,"goals":10,"games":3,"stadium":"random"},"best_of":3,)"
+                                   R"("semifinals_best_of":5,"finals_best_of":5,"max_entrants":null,"entrants":2,)"
+                                   R"("registration_ends_at":1795000000,"starts_at":1795003600,)"
+                                   R"("created_at":1,"started_at":2,"ended_at":null})";
+    const std::string page = R"({"tournament":)" + tournament
+        + R"(,"entrants":[{"player":{"id":7,"name":"Mario","account":"discord"},"seed":0,"dropped":false,)"
+          R"("place":null},{"player":{"id":8,"name":"Bowser","account":"discord"},"seed":1,"dropped":false,)"
+          R"("place":null}],"sets":[{"id":30,"index":0,"side":"winners","round":1,"position":0,"games":5,)"
+          R"("state":"ready","home":7,"away":8,"winner":null,"decided_by":null,"home_wins":null,)"
+          R"("from":[{"seed":0},{"seed":1}],)"
+          R"("away_wins":null,"match":null,"game_home":8,"played":[{"home_captain":"mario","away_captain":)"
+          R"("bowser","home_score":3,"away_score":10,"stadium":"the_palace","interrupted":false}]},{"id":31,"index":1,"side":"grand_final","round":1,"position":0,)"
+          R"("games":5,"state":"pending","home":null,"away":null,"winner":null,"decided_by":null,)"
+          R"("from":[{"winner":30},{"loser":30}],)"
+          R"("home_wins":null,"away_wins":null,"match":null}],"me":{"player":7,"entrant":true,"eligible":true,)"
+          R"("reason":null,"dropped":false,"place":null,"set":30},"poll_interval":5})";
+    const std::string made = R"({"match":{"id":12,"state":"accepted","side":"challenger","opponent":{"id":8,)"
+                             R"("name":"Bowser"},"rule_set":"Competitive","rules":{"tweaks":[],"skill":"rookie",)"
+                             R"("limit":"goals","time":180,"goals":10,"games":5,"stadium":"random"},)"
+                             R"("rules_hash":"h","stage":"open","you_ready":true,"opponent_ready":false,)"
+                             R"("tournament":{"id":4,"name":"Recharged Cup","set":30,"side":"winners","round":1,)"
+                             R"("games":5,"home_wins":0,"away_wins":1,"won":0,"lost":1,"state":"ready",)"
+                             R"("winner":null,"home":"you"}}})";
+    const std::vector<Exchange> exchanges{
+        {"GET /api/v1/tournaments", 200, R"({"tournaments":[)" + tournament.substr(0, tournament.size() - 1)
+                                             + R"(,"joined":true}]})"},
+        {"GET /api/v1/tournaments/4", 200, page},
+        {"POST /api/v1/tournaments/4/join", 403, R"({"error":"discord_required","message":"connect Discord"})"},
+        {"POST /api/v1/tournaments/4/sets/30/ready", 200, made},
+        {"POST /api/v1/tournaments/4/sets/30/ready", 200, R"({"match":null})"},
+        {"DELETE /api/v1/tournaments/4/join", 200, page},
+    };
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        ProfileService api(server.Url(), "t1");
+        const auto listed = api.Tournaments();
+        CHECK(listed.size() == 1 && listed[0].id == 4 && listed[0].name == "Recharged Cup"
+              && listed[0].format == "double" && listed[0].state == "running" && listed[0].joined
+              && listed[0].best_of == 3 && listed[0].semifinals_best_of == 5 && listed[0].finals_best_of == 5 && listed[0].max_entrants == 0
+              && listed[0].entrants == 2 && listed[0].rules.goals == 10 && listed[0].started_at == 2
+              && listed[0].ended_at == 0 && listed[0].registration_ends_at == 1795000000
+              && listed[0].starts_at == 1795003600);
+        const auto shown = api.Tournament(4);
+        CHECK(shown.entrants.size() == 2 && shown.entrants[1].player.name == "Bowser" && shown.entrants[1].seed == 1
+              && shown.entrants[0].place == 0);
+        CHECK(shown.sets.size() == 2 && shown.sets[0].state == "ready" && shown.sets[0].home == 7
+              && shown.sets[0].away == 8 && shown.sets[0].games == 5 && shown.sets[0].home_wins == -1
+              && shown.sets[0].match == 0 && shown.sets[1].home == 0 && shown.sets[1].side == "grand_final"
+              && shown.sets[0].game_home == 8 && shown.sets[1].game_home == 0);
+        CHECK(shown.sets[0].played.size() == 1 && shown.sets[0].played[0].home_captain == "mario"
+              && shown.sets[0].played[0].away_captain == "bowser" && shown.sets[0].played[0].home_score == 3
+              && shown.sets[0].played[0].away_score == 10 && !shown.sets[0].played[0].interrupted
+              && shown.sets[1].played.empty());
+        using Kind = TournamentFrom::Kind;
+        CHECK(shown.sets[0].from[1].kind == Kind::Seed && shown.sets[0].from[1].value == 1
+              && shown.sets[1].from[0].kind == Kind::Winner && shown.sets[1].from[1].kind == Kind::Loser
+              && shown.sets[1].from[1].value == 30);
+        CHECK(shown.me && shown.me->entrant && shown.me->eligible && shown.me->set == 30 && shown.me->reason.empty());
+        CHECK(shown.Set(30) == &shown.sets[0] && !shown.Set(99) && shown.Entrant(8) == &shown.entrants[1]);
+        CHECK(shown.poll_interval == 5);
+        try
+        {
+            api.JoinTournament(4);
+            CHECK(false);
+        }
+        catch (const ProfileError& e)
+        {
+            CHECK(e.Status() == 403);
+        }
+        const auto match = api.TournamentReady(4, 30, true);
+        CHECK(match && match->id == 12 && match->stage == "open" && match->rules.games == 5
+              && match->tournament.id == 4 && match->tournament.set == 30 && match->tournament.name == "Recharged Cup"
+              && match->tournament.side == "winners" && match->tournament.round == 1 && match->tournament.games == 5
+              && match->tournament.won == 0 && match->tournament.lost == 1 && match->tournament.state == "ready"
+              && match->tournament.winner.empty() && match->tournament.home == "you");
+        CHECK(!api.TournamentReady(4, 30, false));
+        CHECK(api.LeaveTournament(4).tournament.id == 4);
+    }
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+    {
+        CHECK(sent[0].authorization == "Bearer t1");
+        CHECK(sent[3].body == R"({"ready":true})" && sent[4].body == R"({"ready":false})");
+        CHECK(sent[5].body.empty());
+    }
+    // A set's match from a server without tournaments has none.
+    CHECK(ParseJson(kSet)["tournament"].IsNull());
+}
+
+// The tournament the page shows, and the feed asking for it and acting on it.
+void TournamentFeedRounds()
+{
+    auto tournament = [](std::int64_t id, const char* state, bool joined) {
+        ProfileTournament t;
+        t.id = id;
+        t.state = state;
+        t.joined = joined;
+        return t;
+    };
+    CHECK(!ChooseTournament({}));
+    CHECK(ChooseTournament({tournament(1, "finished", true), tournament(2, "running", false)}) == 1u);
+    CHECK(ChooseTournament({tournament(1, "registration", false), tournament(2, "running", false)}) == 0u);
+    CHECK(ChooseTournament({tournament(1, "registration", false), tournament(2, "registration", true)}) == 1u);
+    CHECK(ChooseTournament({tournament(1, "registration", true), tournament(2, "running", true)}) == 1u);
+    CHECK(ChooseTournament({tournament(1, "cancelled", false), tournament(2, "finished", false)}) == 1u);
+    CHECK(!ChooseTournament({tournament(1, "cancelled", true)}));
+    if (!HttpUnavailable().empty()) return;
+
+    const std::string list = R"({"tournaments":[{"id":4,"name":"Cup","format":"single","state":"running",)"
+                             R"("joined":true,"best_of":3,"finals_best_of":3,"entrants":2}]})";
+    const std::string page = R"({"tournament":{"id":4,"name":"Cup","format":"single","state":"running",)"
+                             R"("best_of":3,"finals_best_of":3,"entrants":2},"entrants":[],"sets":[{"id":30,)"
+                             R"("state":"STATE","home":7,"away":8,"games":3,"match":MATCH}],"me":{"player":7,)"
+                             R"("entrant":true,"eligible":true,"set":30},"poll_interval":60})";
+    auto with = [](std::string text, const std::string& state, const std::string& match) {
+        text.replace(text.find("STATE"), 5, state);
+        text.replace(text.find("MATCH"), 5, match);
+        return text;
+    };
+    const std::string two = R"({"tournaments":[{"id":4,"name":"Cup","format":"single","state":"running",)"
+                            R"("joined":true,"best_of":3,"finals_best_of":3,"entrants":2},{"id":5,"name":"Old",)"
+                            R"("format":"double","state":"finished","joined":true,"place":2,"best_of":3,)"
+                            R"("finals_best_of":3,"entrants":4}]})";
+    const std::string other = R"({"tournament":{"id":5,"name":"Old","format":"double","state":"finished",)"
+                              R"("best_of":3,"finals_best_of":3,"entrants":4},"entrants":[],"sets":[],)"
+                              R"("me":{"player":7,"entrant":true,"eligible":true,"place":2},"poll_interval":60})";
+    // Cup called off, and another open for entries: the pages stay on Cup.
+    const std::string called_off =
+        R"({"tournaments":[{"id":6,"name":"Next","format":"single","state":"registration","joined":false,)"
+        R"("best_of":3,"finals_best_of":3,"entrants":1},{"id":4,"name":"Cup","format":"single",)"
+        R"("state":"cancelled","joined":true,"best_of":3,"finals_best_of":3,"entrants":2}]})";
+    const std::string called_off_page =
+        R"({"tournament":{"id":4,"name":"Cup","format":"single","state":"cancelled","best_of":3,)"
+        R"("finals_best_of":3,"entrants":2},"entrants":[],"sets":[],"me":{"player":7,"entrant":true,)"
+        R"("eligible":true},"poll_interval":60})";
+    const std::string match = R"({"id":12,"state":"accepted","stage":"open","you_ready":true,)"
+                              R"("opponent_ready":false,"opponent":{"id":8,"name":"Bowser"}})";
+    const std::string taken_back = R"({"id":12,"state":"accepted","stage":"open","you_ready":false,)"
+                                   R"("opponent_ready":false,"opponent":{"id":8,"name":"Bowser"}})";
+    const std::vector<Exchange> exchanges{
+        {"GET /api/v1/tournaments", 200, list},
+        {"GET /api/v1/tournaments/4", 200, with(page, "ready", "null")},
+        {"POST /api/v1/tournaments/4/sets/30/ready", 200, R"({"match":)" + match + "}"},
+        {"GET /api/v1/tournaments", 200, list},
+        {"GET /api/v1/tournaments/4", 200, with(page, "playing", "12")},
+        {"GET /api/v1/matches/current", 200, R"({"match":)" + match + R"(,"poll_interval":2})"},
+        // The pages show another tournament (Show): the player's own, of
+        // their READY, is asked too.
+        {"GET /api/v1/tournaments", 200, two},
+        {"GET /api/v1/tournaments/5", 200, other},
+        {"GET /api/v1/tournaments/4", 200, with(page, "playing", "12")},
+        {"GET /api/v1/matches/current", 200, R"({"match":)" + match + R"(,"poll_interval":2})"},
+        // READY taken back there goes to the own one; the page shown that
+        // fails to come stays as it was.
+        {"POST /api/v1/tournaments/4/sets/30/ready", 200, R"({"match":)" + taken_back + "}"},
+        {"GET /api/v1/tournaments", 200, two},
+        {"GET /api/v1/tournaments/5", 500, R"({"error":"down"})"},
+        {"GET /api/v1/tournaments/4", 200, with(page, "playing", "12")},
+        {"GET /api/v1/matches/current", 200, R"({"match":)" + taken_back + R"(,"poll_interval":2})"},
+        // Back on the feed's choice (Cup, chosen when the pages opened), Cup
+        // called off: it stays, not the one open for entries.
+        {"GET /api/v1/tournaments", 200, called_off},
+        {"GET /api/v1/tournaments/4", 200, called_off_page},
+    };
+    const auto folder = std::filesystem::temp_directory_path()
+        / ("recharged-feed-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::vector<Sent> sent;
+    {
+        Server server(exchanges, sent);
+        const auto file = folder / "online" / "game.session";
+        SaveProfileSession(file, {server.Url(), "t9", "Mario"});
+        auto feed = TournamentFeed::Start(server.Url(), file, nullptr, nullptr);
+        CHECK(feed != nullptr);
+        auto wait = [&](auto&& done) {
+            for (int n = 0; n < 500 && !done(feed->Latest()); ++n)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            return feed->Latest();
+        };
+        feed->SetOpen(true);
+        auto shown = wait([](const TournamentFeed::Snapshot& s) { return s.loaded; });
+        CHECK(shown.signed_in && shown.page && shown.page->tournament.id == 4 && shown.page->me
+              && shown.page->me->set == 30 && !shown.match && shown.error.empty());
+        feed->Ready(true);
+        shown = wait([](const TournamentFeed::Snapshot& s) { return !s.busy && s.match.has_value(); });
+        CHECK(!shown.busy && shown.action_error.empty() && shown.match && shown.match->id == 12
+              && shown.match->you_ready && !shown.match->opponent_ready);
+        CHECK(feed->ReadyMatch() == 12);
+        feed->Show(5);
+        shown = wait([](const TournamentFeed::Snapshot& s) { return s.page && s.page->tournament.id == 5; });
+        CHECK(shown.page && shown.page->tournament.id == 5 && shown.tournaments.size() == 2
+              && shown.tournaments[1].place == 2 && shown.tournaments[0].place == 0);
+        shown = wait([](const TournamentFeed::Snapshot& s) { return s.own && s.match; });
+        CHECK(shown.own && shown.own->tournament.id == 4 && shown.match && shown.match->you_ready);
+        feed->Ready(false);
+        shown = wait([](const TournamentFeed::Snapshot& s) { return !s.busy && s.match && !s.match->you_ready; });
+        CHECK(shown.action_error.empty() && shown.match && !shown.match->you_ready && !shown.error.empty()
+              && shown.page && shown.page->tournament.id == 5 && shown.own && shown.own->tournament.id == 4);
+        feed->Show(0);
+        shown = wait([](const TournamentFeed::Snapshot& s) { return s.tournaments.size() == 2 && !s.own; });
+        CHECK(shown.page && shown.page->tournament.id == 4 && shown.page->tournament.state == "cancelled"
+              && !shown.own && shown.error.empty());
+    }
+    std::filesystem::remove_all(folder);
+    CHECK(sent.size() == exchanges.size());
+    for (const auto& request : sent) CHECK(request.expected);
+    if (sent.size() == exchanges.size())
+        CHECK(sent[0].authorization == "Bearer t9" && sent[2].body == R"({"ready":true})"
+              && sent[10].body == R"({"ready":false})");
+}
+
 int main()
 {
     Addresses();
@@ -945,7 +1173,9 @@ int main()
     Profiles();
     FeedDiscordFriends();
     FeedChallengeRules();
+    Tournaments();
 #endif
+    TournamentFeedRounds();
     if (failures)
     {
         std::fprintf(stderr, "%d profile service checks failed\n", failures);

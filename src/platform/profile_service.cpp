@@ -224,7 +224,131 @@ ProfileMatch ParseMatch(const JsonValue& value)
     match.rematch_of = value["rematch_of"].Integer().value_or(0);
     match.random = value["random"].Bool();
     match.forfeited_by = value["forfeited_by"].Text();
+    if (const auto& tournament = value["tournament"]; tournament.IsObject())
+    {
+        match.tournament.id = tournament["id"].Integer().value_or(0);
+        match.tournament.set = tournament["set"].Integer().value_or(0);
+        match.tournament.name = tournament["name"].Text();
+        match.tournament.side = tournament["side"].Text();
+        match.tournament.round = int(tournament["round"].Integer().value_or(0));
+        match.tournament.games = int(tournament["games"].Integer().value_or(0));
+        match.tournament.won = int(tournament["won"].Integer().value_or(0));
+        match.tournament.lost = int(tournament["lost"].Integer().value_or(0));
+        match.tournament.state = tournament["state"].Text();
+        match.tournament.winner = tournament["winner"].Text();
+        match.tournament.home = tournament["home"].Text();
+        if (const auto& resume = tournament["resume"]; resume.IsObject())
+        {
+            TournamentResume made;
+            made.stadium = resume["stadium"].Text();
+            made.seconds = int(resume["seconds"].Integer().value_or(0));
+            made.you_home = resume["home"].Text() == "you";
+            for (auto [team, key] : {std::pair{&made.you, "you"}, std::pair{&made.opponent, "opponent"}})
+            {
+                const auto& value = resume[key];
+                team->captain = value["captain"].Text();
+                for (const auto& sidekick : value["sidekicks"].Items()) team->sidekicks.push_back(sidekick.Text());
+                team->score = int(value["score"].Integer().value_or(0));
+            }
+            match.tournament.resume = std::move(made);
+        }
+    }
     return match;
+}
+
+ProfileTournament ParseTournament(const JsonValue& value)
+{
+    ProfileTournament tournament;
+    tournament.id = value["id"].Integer().value_or(0);
+    tournament.name = value["name"].Text();
+    tournament.format = value["format"].Text();
+    tournament.state = value["state"].Text();
+    tournament.rule_set = value["rule_set"].Text();
+    tournament.rules = ParseRules(value["rules"]);
+    tournament.best_of = int(value["best_of"].Integer().value_or(0));
+    tournament.semifinals_best_of = int(value["semifinals_best_of"].Integer().value_or(0));
+    tournament.finals_best_of = int(value["finals_best_of"].Integer().value_or(0));
+    tournament.max_entrants = int(value["max_entrants"].Integer().value_or(0));
+    tournament.entrants = int(value["entrants"].Integer().value_or(0));
+    tournament.joined = value["joined"].Bool();
+    tournament.place = int(value["place"].Integer().value_or(0));
+    tournament.registration_ends_at = value["registration_ends_at"].Integer().value_or(0);
+    tournament.starts_at = value["starts_at"].Integer().value_or(0);
+    tournament.started_at = value["started_at"].Integer().value_or(0);
+    tournament.ended_at = value["ended_at"].Integer().value_or(0);
+    return tournament;
+}
+
+TournamentPage ParseTournamentPage(const JsonValue& value)
+{
+    TournamentPage page;
+    page.tournament = ParseTournament(value["tournament"]);
+    for (const auto& item : value["entrants"].Items())
+    {
+        TournamentEntrant entrant;
+        entrant.player = ParsePlayer(item["player"]);
+        entrant.seed = int(item["seed"].Integer().value_or(-1));
+        entrant.dropped = item["dropped"].Bool();
+        entrant.place = int(item["place"].Integer().value_or(0));
+        page.entrants.push_back(std::move(entrant));
+    }
+    for (const auto& item : value["sets"].Items())
+    {
+        TournamentSet set;
+        set.id = item["id"].Integer().value_or(0);
+        set.index = int(item["index"].Integer().value_or(0));
+        set.side = item["side"].Text();
+        set.round = int(item["round"].Integer().value_or(0));
+        set.position = int(item["position"].Integer().value_or(0));
+        set.games = int(item["games"].Integer().value_or(0));
+        set.state = item["state"].Text();
+        set.home = item["home"].Integer().value_or(0);
+        set.away = item["away"].Integer().value_or(0);
+        set.winner = item["winner"].Integer().value_or(0);
+        set.decided_by = item["decided_by"].Text();
+        set.home_wins = int(item["home_wins"].Integer().value_or(-1));
+        set.away_wins = int(item["away_wins"].Integer().value_or(-1));
+        set.match = item["match"].Integer().value_or(0);
+        set.game_home = item["game_home"].Integer().value_or(0);
+        const auto& from = item["from"].Items();
+        for (std::size_t n = 0; n < 2 && n < from.size(); ++n)
+        {
+            using Kind = TournamentFrom::Kind;
+            for (const auto& [name, kind] :
+                 {std::pair{"seed", Kind::Seed}, std::pair{"winner", Kind::Winner}, std::pair{"loser", Kind::Loser}})
+                if (const auto value = from[n][name].Integer())
+                {
+                    set.from[n].kind = kind;
+                    set.from[n].value = *value;
+                }
+        }
+        for (const auto& game : item["played"].Items())
+        {
+            TournamentPlayedGame played;
+            played.home_captain = game["home_captain"].Text();
+            played.away_captain = game["away_captain"].Text();
+            played.home_score = int(game["home_score"].Integer().value_or(0));
+            played.away_score = int(game["away_score"].Integer().value_or(0));
+            played.interrupted = game["interrupted"].Bool();
+            set.played.push_back(std::move(played));
+        }
+        page.sets.push_back(std::move(set));
+    }
+    if (const auto& me = value["me"]; me.IsObject())
+    {
+        TournamentMe mine;
+        mine.player = me["player"].Integer().value_or(0);
+        mine.entrant = me["entrant"].Bool();
+        mine.eligible = me["eligible"].Bool();
+        mine.reason = me["reason"].Text();
+        mine.dropped = me["dropped"].Bool();
+        mine.place = int(me["place"].Integer().value_or(0));
+        mine.set = me["set"].Integer().value_or(0);
+        page.me = mine;
+    }
+    if (const auto interval = value["poll_interval"].Integer(); interval && *interval >= 1 && *interval <= 60)
+        page.poll_interval = int(*interval);
+    return page;
 }
 
 SignInResult ParseSignIn(const JsonValue& value)
@@ -981,6 +1105,40 @@ std::string DescribeChatTime(std::int64_t now, std::int64_t when)
     if (same_day(yesterday)) return std::string("Yesterday ") + clock;
     std::strftime(day, sizeof day, then.tm_year == today.tm_year ? "%d %B" : "%d %B %Y", &then);
     return std::string(day[0] == '0' ? day + 1 : day) + ", " + clock;
+}
+
+std::vector<ProfileTournament> ProfileService::Tournaments()
+{
+    std::vector<ProfileTournament> tournaments;
+    const auto answer = Call("GET", "/api/v1/tournaments", nullptr);
+    for (const auto& item : answer.body["tournaments"].Items()) tournaments.push_back(ParseTournament(item));
+    return tournaments;
+}
+
+TournamentPage ProfileService::Tournament(std::int64_t id)
+{
+    return ParseTournamentPage(Call("GET", "/api/v1/tournaments/" + Integer(id), nullptr).body);
+}
+
+TournamentPage ProfileService::JoinTournament(std::int64_t id)
+{
+    const std::string empty = "{}";
+    return ParseTournamentPage(Call("POST", "/api/v1/tournaments/" + Integer(id) + "/join", &empty).body);
+}
+
+TournamentPage ProfileService::LeaveTournament(std::int64_t id)
+{
+    return ParseTournamentPage(Call("DELETE", "/api/v1/tournaments/" + Integer(id) + "/join", nullptr).body);
+}
+
+std::optional<ProfileMatch> ProfileService::TournamentReady(std::int64_t id, std::int64_t set, bool ready)
+{
+    const std::string body = ready ? "{\"ready\":true}" : "{\"ready\":false}";
+    const auto answer
+        = Call("POST", "/api/v1/tournaments/" + Integer(id) + "/sets/" + Integer(set) + "/ready", &body);
+    const auto& match = answer.body["match"];
+    if (!match.IsObject()) return std::nullopt;
+    return ParseMatch(match);
 }
 
 ProfileMatch ProfileService::ReadyToPlay(std::int64_t match, bool ready)

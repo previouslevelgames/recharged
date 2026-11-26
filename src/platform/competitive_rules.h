@@ -97,6 +97,37 @@ typedef void (*ChargedStopRankedFunction)(void);
 // (UTF-16, ScreenName) for its RANKED screens, this player's and the
 // opponent's (null or empty: the Mii name stays); both null: none.
 typedef void (*ChargedConfigureDisplayNamesFunction)(const unsigned short* own, const unsigned short* opponent);
+// Game module entry, between frames: the tournament trophy (a cup persona,
+// 0 to 9; -1 none) whose ceremony ends this set's game when its win ends the
+// tournament: this player's win (own_wins), the opponent's (opponent_wins)
+// (tweak patch 0076). Both false or -1: the usual end. The ceremony's panel
+// says `title` (UTF-16, null-terminated, at most 127 units kept) over
+// `own_text` or `opponent_text`, by who won (null: the game's own texts).
+typedef void (*ChargedConfigureTournamentTrophyFunction)(int persona, bool own_wins, bool opponent_wins,
+                                                         const unsigned short* title, const unsigned short* own_text,
+                                                         const unsigned short* opponent_text);
+// Game module entry, between frames: this player's side in the set's game
+// about to start, 0 home or 1 away (-1: the game's own, by its draft): the
+// game swaps its sides to follow it: the draft host's side decides it for
+// every machine (tweak patch 0079). The set's end clears it.
+typedef void (*ChargedConfigureSetSideFunction)(int side);
+// A tournament set's game that goes on from one that broke off (tweak
+// patch 0080): this player's team and the opponent's (eTeamID; eSidekickID
+// each), their goals then, and the seconds on its clock then.
+struct ChargedSetResume
+{
+    int own_captain;
+    int own_sidekicks[3];
+    int opponent_captain;
+    int opponent_sidekicks[3];
+    int own_score, opponent_score;
+    float seconds;
+};
+// Game module entry, between frames: the set's next game goes on from
+// `resume` (null: from the start). The game skips its draft with these
+// teams; its draft host starts it from these goals and clock for both
+// machines. The set's end clears it.
+typedef void (*ChargedConfigureSetResumeFunction)(const ChargedSetResume* resume, unsigned size);
 // Game module entry ([advanced] log_level = debug): DWC's reports of the WFC
 // login, matchmaking and NAT negotiation go to the game's output (the log).
 typedef void (*ChargedConfigureDwcReportFunction)(bool on);
@@ -144,12 +175,16 @@ std::string RuleChoiceLabel(const std::vector<RuleChoice>& choices, const std::s
 // The key `step` places from `key` among `choices`, round at the ends (the
 // first for a key not there).
 std::string StepRuleChoice(const std::vector<RuleChoice>& choices, const std::string& key, int step);
-// The tweaks a set's rules may switch on (fast_terrain, no_mega_strikes,
+// The tweaks a set's rules may switch on (fair_ball_contests, fast_terrain, no_mega_strikes,
 // thunder_island_walls, mirror_match), with their names.
 const std::vector<RuleChoice>& RuleTweakChoices();
 // The server's names (lowercase, '_' between words): eTeamID and eStadiumID,
 // empty for unknown values.
 std::string CaptainKey(int team);
+// The other way: a captain's eTeamID, a sidekick's eSidekickID, by their
+// names; -1 for none.
+int CaptainIndex(std::string_view key);
+int SidekickIndex(std::string_view key);
 std::string StadiumKey(int stadium);
 // "the_palace" as shown: "The Palace".
 std::string NameLabel(std::string_view name);

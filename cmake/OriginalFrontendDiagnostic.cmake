@@ -184,6 +184,16 @@ function(mscharged_add_original_frontend_diagnostic target version suffix)
     # Override retail menus (development switch): the game's menus Recharged
     # stands in for, read after a frame, and the host's commands (tweak patch 0070).
     target_sources(${target} PRIVATE src/platform/menu_snapshot.cpp)
+    # The trophy room (CHARGED_MENU_TROPHY_ROOM): the camera on the cut online
+    # tournament's trophy, from the game's online menu.
+    target_sources(${target} PRIVATE src/platform/trophy_room.cpp)
+    # Its four presentation natives on the tournament's trophy (decomp patch
+    # 0765), with the online menu it starts from, the cameras it moves and the
+    # cup's natives that hide and show the cup trophies (7 and 36).
+    if(MSCHARGED_DIAGNOSTIC_FRONTEND_ONLINE AND MSCHARGED_DIAGNOSTIC_FRONTEND_CAMERAS
+       AND MSCHARGED_DIAGNOSTIC_FRONTEND_CUP)
+        target_compile_definitions(${target} PRIVATE MSCHARGED_DIAGNOSTIC_FRONTEND_TROPHY_ROOM=1)
+    endif()
     # Competitive play: the match's rules (tweak patch 0055) and the game's WFC
     # login, read by the host after a frame.
     target_sources(${target} PRIVATE src/platform/competitive_match.cpp)

@@ -1,0 +1,70 @@
+From: mscharged-port
+Subject: Recharged's trophy room: a set's search goes back to the room
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A set started in Recharged's trophy room searches RANKED from the online
+menu (tweak patch 0056: the search's screen takes the menu's place). The
+search's Back went where the retail search goes back, the RANKED screen
+(one player or two), out of the room: the camera and the Strikers Cup's
+trophies came back, and only a second Back reached the online menu.
+
+A new hook, mscharged_tweak_search_back_scene, gives the search's screen
+the online menu as its way back instead (its Back, and after its
+errors), whose room is still there; the online menu, made again, keeps
+its navigation's Log Out hidden while the room holds it.
+
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -235,6 +235,10 @@
+ // (TransitionOnlineTournamentToGame: the captains' holograms before the
+ // trophy) instead of the friendly match's sequence.
+ bool mscharged_tweak_trophy_room_to_game(void);
++// The RANKED search's screen back to `scene` (its Back, and after its
++// errors): a set's search from Recharged's trophy room goes back to the
++// online menu instead (SCENE_ONLINE_MENU), whose room is still there.
++int mscharged_tweak_search_back_scene(int scene);
+ // While the host draws the pause menu, a player's cursor (wiicursor.fen's
+ // cursor0-3) is drawn by the host on top of it: the front end marks the
+ // cursor's drawing (begin returns the state for end) and hands its pictures
+diff --git a/src/Game/SH/SHOnlineHub.cpp b/src/Game/SH/SHOnlineHub.cpp
+--- a/src/Game/SH/SHOnlineHub.cpp
++++ b/src/Game/SH/SHOnlineHub.cpp
+@@ -148,6 +148,12 @@
+             {
+                 scene->SetButtons(NAVIGATION_BUTTON_BACK, true);
+                 scene->SetBackButtonText(NAV_LOG_OUT);
++#if defined(MSCHARGED_TWEAKS)
++                // Back in Recharged's trophy room (from a set's search):
++                // its Log Out stays hidden with the menu.
++                if (mscharged_tweak_online_menu_held())
++                    scene->HideButtons();
++#endif
+             }
+             InitializeButtons();
+             mInitialized = true;
+diff --git a/src/Game/SH/SHOnlineMatchmakingDraft.cpp b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
+--- a/src/Game/SH/SHOnlineMatchmakingDraft.cpp
++++ b/src/Game/SH/SHOnlineMatchmakingDraft.cpp
+@@ -31,6 +31,7 @@
+ #include "Game/FE/tlDefault.h"
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_competitive.h"
++#include "mscharged_tweaks.h"
+ #endif
+ 
+ int gOnlineLocalControllerIndices[2] = { -1, -1 };
+@@ -124,8 +125,13 @@
+         UpdateDraftTeams();
+         UpdateDraftStatuses();
+     }
++#if defined(MSCHARGED_TWEAKS)
++    mBackButton.SetBackScene(mscharged_tweak_search_back_scene(0x29));
++    mReturnScene = mscharged_tweak_search_back_scene(0x29);
++#else
+     mBackButton.SetBackScene(0x29);
+     mReturnScene = 0x29;
++#endif
+     if (CanCancelOnlineMatchmaking())
+         mCanCancel = true;
+     else

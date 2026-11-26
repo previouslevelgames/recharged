@@ -117,6 +117,9 @@ struct OnlinePanelSet
     int won = 0, lost = 0, games = 0;
     // What the player can do now (OnlinePanelActions).
     bool can_accept = false, can_decline = false, can_ready = false, can_cancel = false, can_rematch = false;
+    // A tournament set's: it goes on from the trophy room (the card's
+    // TOURNAMENT goes there, to the player's tournament).
+    bool trophy_room = false;
     std::string cancel_label; // "Withdraw" or "Cancel set"
 };
 

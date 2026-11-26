@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -365,6 +366,12 @@ void DrawSet(const PageModel& model, List& list, PageActions& actions)
     if (set.can_accept && list.Plate(T("menus.you.accept"))) actions.online.accept = true;
     if (set.can_decline && list.Plate(T("menus.you.decline"))) actions.online.decline = true;
     if (set.can_ready && list.Plate(T("menus.you.ready"))) actions.online.ready = true;
+    // A tournament's set: on to the trophy room, the player's tournament.
+    if (set.trophy_room && (model.from_wheel || model.online_menu) && list.Plate(T("menus.you.trophy_room")))
+    {
+        actions.tournament = true;
+        actions.tournament_own = true;
+    }
     if (set.can_rematch && list.Plate(T("menus.you.rematch"))) actions.online.rematch = true;
     if (set.can_cancel)
     {
@@ -408,6 +415,10 @@ void DrawOnline(const PageModel& model, List& list, PageActions& actions)
         ? T("menus.you.do_not_disturb") : nullptr;
     if (list.Plate(T("menus.online.profile"), nullptr, true, busy)) actions.open = PageId::Profile;
     if (list.Plate(T("menus.online.leaderboard"))) actions.open = PageId::Leaderboard;
+    if ((model.from_wheel || model.online_menu)
+        && list.Plate(T("menus.online.tournament"), nullptr, !locked,
+                      locked ? overlay::UpdateLockReason(online.update_lock).c_str() : nullptr))
+        actions.tournament = true;
     if (model.from_wheel
         && list.Plate(T("menus.online.wii_online"), nullptr, !locked,
                       locked ? overlay::UpdateLockReason(online.update_lock).c_str() : nullptr))
@@ -853,9 +864,96 @@ void DrawForfeit(const PageModel& model, List& list, PageActions& actions)
         list.Note(T("menus.forfeit.leaving"));
         return;
     }
-    list.Note(model.set_match ? T("menus.forfeit.set_note") : T("menus.forfeit.match_note"));
+    list.Note(model.tournament_match ? T("menus.forfeit.tournament_note")
+              : model.set_match      ? T("menus.forfeit.set_note")
+                                     : T("menus.forfeit.match_note"));
     if (list.Plate(T("menus.forfeit.forfeit"))) actions.forfeit = true;
     if (list.Plate(T("menus.common.cancel"))) actions.back = true;
+}
+
+// TOURNAMENTS, over the trophy room: the big card (the player's own or the
+// newest) with its way in, then the others and the last that ended, each a
+// row that opens its page (the footer's BACK leaves the room).
+void DrawTournaments(const PageModel& model, List& list, PageActions& actions)
+{
+    if (!model.tournaments) return;
+    const auto& tournaments = *model.tournaments;
+    const auto open = [&](const TournamentEntry& entry) {
+        actions.open = PageId::Tournament;
+        actions.open_key = entry.key;
+    };
+    if (!tournaments.note.empty()) list.Note(tournaments.note.c_str());
+    if (const auto& featured = tournaments.featured)
+    {
+        const Person picture = PersonOf(model, std::string{}, featured->initials,
+                                        std::int64_t(std::hash<std::string>{}(featured->key) & 0x7FFFFFFF), -1,
+                                        std::string{});
+        list.Card(&picture, featured->kicker.c_str(), featured->name.c_str(), featured->lines, featured->tone);
+        if (list.Plate(T("menus.tournaments.open"))) open(*featured);
+    }
+    const auto rows = [&](const char* caption, const std::vector<TournamentEntry>& entries) {
+        if (entries.empty()) return;
+        list.Caption(caption);
+        for (const auto& entry : entries)
+            if (list.Row(entry.name.c_str(), entry.value.c_str(), entry.kicker.c_str())) open(entry);
+    };
+    rows(T("menus.tournaments.others"), tournaments.others);
+    rows(T("menus.tournaments.past"), tournaments.past);
+}
+
+// TOURNAMENT, over the trophy room: the player's next set, READY, BRACKET
+// (the footer's BACK leaves the room).
+void DrawTournament(const PageModel& model, List& list, PageActions& actions)
+{
+    if (!model.tournament) return;
+    const auto& tournament = *model.tournament;
+    if (tournament.sample) list.Note(T("menus.tournament.sample"));
+    if (!tournament.note.empty()) list.Note(tournament.note.c_str());
+    if (tournament.has_set)
+    {
+        const Person opponent = PersonOf(model, std::string{}, tournament.opponent_initials, 0, -1, std::string{});
+        std::vector<std::string> lines{tournament.round, tournament.event};
+        if (tournament.games > 0) lines.push_back(texts::Count("menus.common.best_of", tournament.games));
+        if (!tournament.score.empty()) lines.push_back(tournament.score);
+        list.Card(&opponent, tournament.name.c_str(), tournament.opponent.c_str(), lines);
+    }
+    else if (!tournament.name.empty()) list.Card(nullptr, nullptr, tournament.name.c_str(), {tournament.event});
+    if (list.Plate(tournament.you_ready ? T("menus.tournament.server.unready") : T("menus.tournament.ready"), nullptr,
+                   tournament.has_set && tournament.opponent_known))
+        actions.tournament_ready = true;
+    if (tournament.can_join && list.Plate(T("menus.tournament.server.join"), nullptr, true))
+        actions.tournament_join = true;
+    if (tournament.can_leave && list.Plate(T("menus.tournament.server.leave"), nullptr, true))
+        actions.tournament_leave = true;
+    if (list.Plate(T("menus.tournament.bracket"), nullptr, !tournament.bracket.empty()))
+        actions.open = PageId::Bracket;
+}
+
+// BRACKET: the player's pool, the winners' bracket above the losers' (or the
+// main bracket above the ash bracket; the footer's BACK goes back).
+void DrawBracket(const PageModel& model, List& list, PageActions& actions)
+{
+    if (!model.tournament) return;
+    const auto& bracket = model.tournament->bracket;
+    if (bracket.empty()) list.Note(T("menus.tournament.no_sets"));
+    const auto found = std::find_if(bracket.begin(), bracket.end(), [&](const BracketSet& set) {
+        return !set.games.empty() && set.id == model.bracket_picked;
+    });
+    const BracketSet* picked = found == bracket.end() ? nullptr : &*found;
+    const bool losers =
+        std::any_of(bracket.begin(), bracket.end(), [](const BracketSet& set) { return set.round < 0; });
+    const bool ash = model.tournament->ash;
+    if (const auto pressed = list.Bracket(bracket, model.bracket_picked, losers ? T(ash ? "menus.bracket.main" : "menus.bracket.winners") : nullptr,
+                                          T(ash ? "menus.bracket.ash" : "menus.bracket.losers")))
+        actions.bracket_pick = bracket[*pressed].id;
+    // Under it, the picked set's games: each its result on the game's screen.
+    if (picked)
+        for (const auto& game : picked->games)
+        {
+            if (list.Plate(game.text.c_str())) actions.game_results = game;
+        }
+    else if (std::any_of(bracket.begin(), bracket.end(), [](const BracketSet& set) { return !set.games.empty(); }))
+        list.Note(T("menus.bracket.pick"));
 }
 
 void DrawPrompt(const PageModel& model, List& list, PageActions& actions)
@@ -899,6 +997,9 @@ std::string PageTitle(PageId id, const std::string& key, const PageModel& model)
         return T("menus.prompt.title");
     case PageId::Match: return T("menus.match.title");
     case PageId::Forfeit: return T("menus.forfeit.title");
+    case PageId::Tournaments: return T("menus.tournaments.title");
+    case PageId::Tournament: return T("menus.tournament.title");
+    case PageId::Bracket: return T("menus.bracket.title");
     }
     return "";
 }
@@ -933,7 +1034,8 @@ bool PageWide(PageId id)
     case PageId::Quit:
     case PageId::Prompt:
     case PageId::Match:
-    case PageId::Forfeit: return false;
+    case PageId::Forfeit:
+    case PageId::Tournament: return false;
     default: return true;
     }
 }
@@ -965,6 +1067,9 @@ void DrawPage(PageId id, int category, const std::string& key, const PageModel& 
     case PageId::Ranked: DrawRanked(model, list, actions); break;
     case PageId::Leaderboard: DrawLeaderboard(category, model, list); break;
     case PageId::Prompt: DrawPrompt(model, list, actions); break;
+    case PageId::Tournaments: DrawTournaments(model, list, actions); break;
+    case PageId::Tournament: DrawTournament(model, list, actions); break;
+    case PageId::Bracket: DrawBracket(model, list, actions); break;
     case PageId::Match: DrawMatch(list, actions); break;
     case PageId::Forfeit: DrawForfeit(model, list, actions); break;
     }
