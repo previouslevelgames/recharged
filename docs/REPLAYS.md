@@ -29,7 +29,7 @@ same start. A replay holds no names and no account or save data.
 
 ## Watching a replay
 
-In the launcher, go to **Extras → Replays**. The card lists your replays,
+In the launcher, go to **Replays**. The page lists your replays,
 newest first, each on one line with its captains and score, the date, the
 match's length and whether it was Training; click one to watch it. **Open
 folder** opens the `replays` folder.
@@ -96,7 +96,7 @@ record = true   # false: no new replays are kept
 keep = 100      # the newest 100 stay, older ones are deleted; 0 keeps all
 ```
 
-**Keep replays** in **Extras → Replays** is `record`. It decides only what
+**Keep replays** in **Replays** is `record`. It decides only what
 stays on this PC: online games go to the server either way, which streams them
 to spectators while they are played and keeps the ones it asks for. Only files
 whose names begin with `replay_` count for `keep` and are ever deleted: to keep

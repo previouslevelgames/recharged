@@ -266,12 +266,14 @@
     "player_profile": "Online player profile",
     "match_rules": "Match rules",
     "sidekicks": "Sidekicks",
+    "replays": "Replays",
     "graphics": "Graphics",
     "controls": "Controls",
     "extras": "Extras",
     "advanced": "Advanced",
     "about": "About",
-    "online": "Online"
+    "online": "Online",
+    "configuration": "Configuration"
   },
   "sidebar": {
     "overline": "NATIVE PC PORT",

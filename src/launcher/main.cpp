@@ -435,12 +435,12 @@ bool ValidProfileName(const std::string& name)
 // The leaderboards and events are the Recharged Game Menu's (its Ranked and
 // Events tabs); the settings that change while the game runs (the display
 // and sound, the gameplay options, the rumble...) are its OPTIONS.
-enum Page { PagePlay, PageOnlineSettings, PageRules, PageSidekicks, PageGraphics,
-            PageControls, PageGame, PageExtras, PageAdvanced, PageAbout, PageCount };
-constexpr const char* page_ids[] = {"play",     "online-settings", "rules",  "sidekicks", "graphics",
-                                    "controls", "game",            "extras", "advanced",  "about"};
-constexpr Icon page_icons[] = {Icon::Play,     Icon::Person, Icon::Clipboard, Icon::Pitch,   Icon::Display,
-                               Icon::Keyboard, Icon::Disc,   Icon::Target,    Icon::Sliders, Icon::Info};
+enum Page { PagePlay, PageOnlineSettings, PageRules, PageSidekicks, PageReplays, PageGame,
+            PageExtras, PageGraphics, PageControls, PageAdvanced, PageAbout, PageCount };
+constexpr const char* page_ids[] = {"play",   "online-settings", "rules",    "sidekicks", "replays", "game",
+                                    "extras", "graphics",        "controls", "advanced",  "about"};
+constexpr Icon page_icons[] = {Icon::Play,   Icon::Person,  Icon::Clipboard, Icon::Pitch,   Icon::Archive, Icon::Disc,
+                               Icon::Target, Icon::Display, Icon::Keyboard,  Icon::Sliders, Icon::Info};
 static_assert(std::size(page_ids) == PageCount && std::size(page_icons) == PageCount);
 // --page's names of the pages that were merged into others.
 constexpr std::pair<const char*, int> kOldPageIds[] = {{"display", PageGraphics}, {"audio", PageGame},
@@ -457,6 +457,7 @@ const char* PageName(int page)
     case PageOnlineSettings: return texts::T("launcher.pages.player_profile");
     case PageRules: return texts::T("launcher.pages.match_rules");
     case PageSidekicks: return texts::T("launcher.pages.sidekicks");
+    case PageReplays: return texts::T("launcher.pages.replays");
     case PageControls: return texts::T("launcher.pages.controls");
     case PageExtras: return texts::T("launcher.pages.extras");
     case PageAdvanced: return texts::T("launcher.pages.advanced");
@@ -473,9 +474,12 @@ struct NavGroupInfo
     int first;
     int count;
 };
-constexpr NavGroupInfo kNavGroups[] = {{Icon::Chat, PageOnlineSettings, 3}};
+constexpr NavGroupInfo kNavGroups[] = {{Icon::Chat, PageOnlineSettings, 3}, {Icon::Gear, PageGraphics, 3}};
 // A group's name in the sidebar (kNavGroups order).
-const char* NavGroupName(int group) { return group == 0 ? texts::T("launcher.pages.online") : ""; }
+const char* NavGroupName(int group)
+{
+    return group == 0 ? texts::T("launcher.pages.online") : group == 1 ? texts::T("launcher.pages.configuration") : "";
+}
 constexpr int NavGroupOf(int page)
 {
     for (int group = 0; group < int(std::size(kNavGroups)); ++group)
@@ -496,8 +500,8 @@ constexpr int NavGroupMostPages()
     return most;
 }
 static_assert(NavGroupOf(PageOnlineSettings) == 0 && NavGroupOf(PageRules) == 0 && NavGroupOf(PageSidekicks) == 0
-              && NavGroupOf(PageGraphics) == -1 && NavGroupOf(PageGame) == -1 && NavGroupOf(PageExtras) == -1
-              && NavGroupOf(PageControls) == -1 && NavGroupOf(PageAdvanced) == -1);
+              && NavGroupOf(PageReplays) == -1 && NavGroupOf(PageGame) == -1 && NavGroupOf(PageExtras) == -1
+              && NavGroupOf(PageGraphics) == 1 && NavGroupOf(PageControls) == 1 && NavGroupOf(PageAdvanced) == 1);
 constexpr bool OnlinePage(int page) { return NavGroupOf(page) == 0; }
 
 // The captains (eTeamID order) and the sidekicks (eSidekickID order), as the
@@ -3709,7 +3713,7 @@ private:
     }
 
     // A replay to play (--replay, a .msc file dropped on the window, or
-    // Extras -> Replays). It needs an image of the release and revision it was
+    // the Replays page). It needs an image of the release and revision it was
     // recorded with: the chosen image when it is one, otherwise one of the
     // game folder; the game then starts with it, without changing the chosen
     // image. Unsaved changes are asked about first, as Play does.
@@ -4082,6 +4086,7 @@ private:
             case PageOnlineSettings: OnlineSettingsPage(); break;
             case PageControls: ControlsPage(); break;
             case PageExtras: ExtrasPage(); break;
+            case PageReplays: ReplaysPage(); break;
             case PageAdvanced: AdvancedPage(); break;
             default: AboutPage(); break;
             }
@@ -11834,12 +11839,16 @@ private:
             EndRows();
         }
         EndCard();
-
-        ReplaysCard();
     }
 
-    // Extras -> Replays: whether matches are kept ([replays] record), the
-    // newest ones to watch again and their folder.
+    // Replays: whether matches are kept ([replays] record), the newest ones
+    // to watch again and their folder. A page of its own: more is to come
+    // (stats).
+    void ReplaysPage()
+    {
+        PageHeader(texts::T("settings.replays.title"), texts::T("settings.replays.about"));
+        ReplaysCard();
+    }
     static constexpr std::size_t kReplaysListed = 1000;
     // The replays folder, read in the background every two seconds while the
     // card shows (each replay's header is read: not on the window's thread).
@@ -11876,7 +11885,7 @@ private:
             });
         }
         const auto& listings = replays_.listings;
-        BeginCard("##replays", texts::T("settings.replays.title"), texts::T("settings.replays.about"), Icon::Play);
+        BeginCard("##replays", nullptr);
         if (BeginRows("##replays_rows"))
         {
             Row(texts::T("settings.replays.record.name"), texts::T("settings.replays.record.about"));
@@ -13057,7 +13066,7 @@ private:
     NoticeKind notice_kind_ = NoticeKind::Info;
     std::string notice_;
     int page_ = PagePlay;
-    int group_page_[std::size(kNavGroups)] = {PageOnlineSettings}; // the page each group's row opens
+    int group_page_[std::size(kNavGroups)] = {PageOnlineSettings, PageGraphics}; // the page each group's row opens
     bool close_requested_ = false;
     bool region_prompt_ = false;
     DiscCheck check_;
@@ -13336,8 +13345,8 @@ int main(int argc, char** argv)
                          "--non-interactive makes that run a startup diagnostic: it ends once its first frame is captured,\n"
                          "or fails after 90 s.\n"
                          "Use --launcher to open settings; launcher checks and explicit runtime modes keep their selected mode.\n"
-                         "Development checks: --smoke-test | --screenshot FILE [--page play|online-settings|rules|sidekicks|graphics|"
-                         "controls|game|extras|advanced|about]\n";
+                         "Development checks: --smoke-test | --screenshot FILE [--page play|online-settings|rules|sidekicks|replays|"
+                         "game|extras|graphics|controls|advanced|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
             std::cout << "Original startup prototype: --experimental-startup [--config FILE] (not playable)\n";
 #endif
