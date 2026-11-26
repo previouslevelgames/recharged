@@ -5385,11 +5385,9 @@ private:
                 std::vector<const platform::InstalledMii*> coded;
                 for (const auto& mii : miis)
                     if (mii.friend_code) coded.push_back(&mii);
-                for (const auto* mii : coded)
-                {
-                    status.known_miis.emplace_back(std::uint32_t(mii->friend_code), "game");
-                    status.known_asked.push_back(std::uint32_t(mii->friend_code));
-                }
+                // One of them plays for a profile, as on most computers.
+                for (const auto* mii : coded) status.known_asked.push_back(std::uint32_t(mii->friend_code));
+                if (!coded.empty()) status.known_miis.emplace_back(std::uint32_t(coded.front()->friend_code), "game");
                 if (first && !coded.empty())
                 {
                     known_profiles_read_ = true;
@@ -6098,7 +6096,7 @@ private:
         if (const auto scheme = host.find("://"); scheme != std::string::npos) host.erase(0, scheme + 3);
         const std::string server = texts::T("match_setup.welcome.server", {{"host", host}})
             + (status.info.version.empty() ? std::string() : "  ·  " + status.info.version);
-        ImGui::Dummy({0, Dp(10)});
+        ImGui::Dummy({0, Dp(2)});
         const float width = ImGui::GetContentRegionAvail().x;
         ImGui::SetCursorPosX(ImGui::GetCursorPosX()
                              + std::max(0.0f, (width - TextSize(fonts.caption, server.c_str()).x) * 0.5f));
@@ -6120,7 +6118,7 @@ private:
         BeginCard("##welcome_back", texts::T("match_setup.profile_page.back.title"),
                   texts::T("match_setup.profile_page.back.about"), Icon::Person);
         auto* draw = ImGui::GetWindowDrawList();
-        const float width = ImGui::GetContentRegionAvail().x, height = Dp(64), figure = Dp(46), button = Dp(160);
+        const float width = ImGui::GetContentRegionAvail().x, height = Dp(58), figure = Dp(42), button = Dp(160);
         // A few at first: a family's computer may have many.
         constexpr std::size_t kShown = 3;
         const std::size_t shown = show_all_back_ ? back.size() : std::min(back.size(), kShown);
@@ -6181,7 +6179,6 @@ private:
             Callout(status.mii_error + (status.mii_error.back() == '.' ? "" : "."), color::danger, Icon::Error);
         }
         EndCard();
-        ImGui::Dummy({0, Dp(14)});
     }
 
     // The two ways to a profile side by side: Connect Discord (the profile on
@@ -6205,13 +6202,14 @@ private:
              color::accent},
         };
         const float width = ImGui::GetContentRegionAvail().x;
-        const float gap = Dp(14), tile = (width - gap) * 0.5f, pad = Dp(20), badge = Dp(44), button = Dp(48);
+        const float gap = Dp(14), tile = (width - gap) * 0.5f, pad = Dp(18), badge = Dp(38), button = Dp(44);
         const float text_width = tile - pad * 2;
         float text_height = 0.0f;
         for (const auto& choice : choices)
             text_height = std::max(text_height, fonts.body->CalcTextSizeA(FontSize(fonts.body), FLT_MAX, text_width,
                                                                           choice.text).y);
-        const float height = pad + badge + Dp(14) + FontSize(fonts.heading) + Dp(6) + text_height + Dp(18) + button + pad;
+        // The badge beside the title, the text under both, the button at the bottom.
+        const float height = pad + badge + Dp(10) + text_height + Dp(14) + button + pad;
         const ImVec2 top = ImGui::GetCursorScreenPos();
         for (int n = 0; n < 2; ++n)
         {
@@ -6224,11 +6222,11 @@ private:
             draw->AddRectFilled({icon.x - badge * 0.5f, icon.y - badge * 0.5f},
                                 {icon.x + badge * 0.5f, icon.y + badge * 0.5f}, Col(choice.tint, n == 0 ? 1.0f : 0.16f),
                                 Dp(12));
-            if (n == 0) DrawDiscordMark(draw, icon, Dp(26), IM_COL32_WHITE, Col(choice.tint));
-            else DrawIcon(draw, Icon::Person, icon, Dp(22), Col(choice.tint));
-            const float y = at.y + pad + badge + Dp(14);
-            DrawLabel(draw, fonts.heading, {at.x + pad, y}, Col(color::text), choice.title);
-            draw->AddText(fonts.body, FontSize(fonts.body), {at.x + pad, y + FontSize(fonts.heading) + Dp(6)},
+            if (n == 0) DrawDiscordMark(draw, icon, Dp(22), IM_COL32_WHITE, Col(choice.tint));
+            else DrawIcon(draw, Icon::Person, icon, Dp(19), Col(choice.tint));
+            DrawLabel(draw, fonts.heading, {at.x + pad + badge + Dp(14), icon.y - FontSize(fonts.heading) * 0.5f},
+                      Col(color::text), choice.title);
+            draw->AddText(fonts.body, FontSize(fonts.body), {at.x + pad, at.y + pad + badge + Dp(10)},
                           Col(color::muted), choice.text, nullptr, text_width);
             ImGui::SetCursorScreenPos({at.x + pad, end.y - pad - button});
             const auto unavailable = [&](const char* why) {
@@ -6255,11 +6253,11 @@ private:
         }
         ImGui::SetCursorScreenPos(top);
         ImGui::Dummy({width, height});
-        ImGui::Dummy({0, Dp(8)});
+        ImGui::Dummy({0, Dp(2)});
         const char* import = texts::T("match_setup.profile_page.import.link");
         const float link = GhostWidth(import, Icon::Copy);
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (width - link) * 0.5f));
-        if (GhostButton("profile_import", import, {link, Dp(36)}, config_ok_, Icon::Copy)) profile_import_prompt_ = true;
+        if (GhostButton("profile_import", import, {link, Dp(34)}, config_ok_, Icon::Copy)) profile_import_prompt_ = true;
     }
 
     // ------------------------------------------------------- profile maker
