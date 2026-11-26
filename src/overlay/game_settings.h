@@ -49,7 +49,6 @@ struct GameSettingsModel
     int master_volume = 100;          // 0-100 %
     bool mute = false;
     SoundVolumes sound_volumes = DefaultSoundVolumes(); // kSoundGroups' order, 0-100 %
-    bool challenge_sound = true;
     // The controllers.
     bool rumble = true;
     int rumble_strength = 100;  // gamepads, 0-100 %
@@ -91,7 +90,6 @@ enum class GameSetting
     MasterVolume,   // value: 0-100
     Mute,
     SoundVolume,    // group: the kSoundGroups index; value: 0-100
-    ChallengeSound,
     ResetSoundLevels,
     ReopenLauncher,
     LauncherSize,       // value: the index in launcher_sizes

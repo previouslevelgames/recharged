@@ -265,5 +265,9 @@
     "warning": "Warnings",
     "info": "Info",
     "debug": "Debug"
+  },
+  "window": {
+    "replay": "REPLAY",
+    "spectator": "SPECTATOR"
   }
 }

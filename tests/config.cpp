@@ -639,15 +639,13 @@ int main()
             SaveChallengeRules(path, "");
             Require(LoadConfig(path).settings.challenge_rules.empty(), "And back to the server's first");
         }
-        // [online] challenge_sound: on by default, off kept.
-        Require(defaults.challenge_sound, "Challenge sound default");
-        std::ofstream(path) << "[online]\nchallenge_sound = false\n";
+        // The challenge sound always plays: its old switch is retired.
+        std::ofstream(path) << "[online]\nchallenge_sound = false\nrollback = true\n";
         auto soundFile = LoadConfig(path);
-        Require(!soundFile.settings.challenge_sound, "Challenge sound read");
-        soundFile.settings.challenge_sound = true;
         SaveConfig(soundFile, soundFile.settings);
-        Require(LoadConfig(path).contents.find("challenge_sound = true") != std::string::npos,
-                "Saving wrote the challenge sound");
+        const auto soundSaved = LoadConfig(path).contents;
+        Require(soundSaved.find("challenge_sound") == std::string::npos
+            && soundSaved.find("rollback = true") != std::string::npos, "The challenge sound's old switch is removed");
         // [online] mii: none by default; a create ID read in lowercase and
         // saved, anything else refused.
         Require(defaults.online_mii.empty(), "Online Mii default");
@@ -663,31 +661,10 @@ int main()
         miiFile.settings.online_mii.clear();
         SaveConfig(miiFile, miiFile.settings);
         Require(LoadConfig(path).settings.online_mii.empty(), "The online Mii cleared");
-        // [online] mii_sign_in: off by default; the game's save of it alone
-        // keeps the rest of the file.
-        Require(!defaults.mii_sign_in, "Mii sign-in off by default");
-        std::ofstream(path) << "; mine\n[online]\nmii_sign_in = true\nmine = 1\n";
-        Require(LoadConfig(path).settings.mii_sign_in, "Mii sign-in read");
-        SaveMiiSignIn(path, false);
-        Require(!LoadConfig(path).settings.mii_sign_in && LoadConfig(path).contents.find("; mine") != std::string::npos
-                    && LoadConfig(path).contents.find("mine = 1") != std::string::npos,
-                "The game's Mii sign-in save keeps the file");
         for (const char* bad : {"82c6fc69", "82c6fc69a1b2c3d4ff", "82c6fc69a1b2c3dz", "Nelly"})
         {
             std::ofstream(path) << "[online]\nmii = " << bad << "\n";
             Reject([&] { LoadConfig(path); });
-            std::ofstream(path) << "[online]\nmii_sign_in_with = " << bad << "\n";
-            Reject([&] { LoadConfig(path); });
-        }
-        // [online] mii_sign_in_with: the Mii picked for it, kept over a save.
-        Require(defaults.mii_sign_in_with.empty(), "No Mii picked to sign in with by default");
-        std::ofstream(path) << "[online]\nmii_sign_in = true\nmii_sign_in_with = 82C6FC69A1B2C3D4\n";
-        {
-            auto picked = LoadConfig(path);
-            Require(picked.settings.mii_sign_in_with == "82c6fc69a1b2c3d4", "The Mii picked to sign in with read");
-            SaveConfig(picked, picked.settings);
-            Require(LoadConfig(path).settings.mii_sign_in_with == "82c6fc69a1b2c3d4",
-                    "The Mii picked to sign in with saved");
         }
         std::ofstream(path) << "[online]\nrollback = true\nrollback_test = true\nrollback_delay = 9\nrollback_log = rb.txt\n";
         auto rollbackFile = LoadConfig(path);

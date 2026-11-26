@@ -56,7 +56,7 @@ public:
     // The Miis of the player's WFC profiles (profile id, the Mii's 74-byte
     // record), sent to the server once with the next answers, so others'
     // menus show them; a server without Miis (before 1.2.22) is not asked again.
-    void SetOwnMiis(std::vector<std::pair<std::int32_t, std::string>> miis);
+    void SetOwnMiis(std::vector<UploadedMii> miis);
     // What the game does, for the server's lists ("game" or "match"), and
     // in a match its kind (MatchKindOf).
     void SetActivity(std::string activity, std::string match_kind = {});
@@ -135,7 +135,7 @@ private:
     std::condition_variable wake_;
     bool stop_ = false, open_ = false, due_ = false, want_leaderboard_ = false, want_stats_ = false;
     // The player's Miis to send, until sent (or the server has no Miis).
-    std::vector<std::pair<std::int32_t, std::string>> own_miis_;
+    std::vector<UploadedMii> own_miis_;
     std::string activity_ = "game", match_kind_;
     std::string challenge_rules_;
     std::shared_ptr<class HttpCancel> cancel_;

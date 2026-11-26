@@ -222,10 +222,12 @@ if(BUILD_TESTING)
         COMMAND mscharged --smoke-test --config "${CMAKE_CURRENT_BINARY_DIR}/launcher-test-missing.ini")
     set_tests_properties(launcher_smoke PROPERTIES
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_RENDER_DRIVER=software" TIMEOUT 30)
-    # The Online pages with made-up states: Play with a Mii's steps, a Mii
-    # player's profile (with its Sign out asked), the Mii editor (a Mii's
-    # face, its hair, a new Mii's), a Discord player's.
-    foreach(preview IN ITEMS preview-mii-new preview-mii-go preview-mii-profile-signout preview-mii-editor
+    # The Online player profile page with made-up states: signed out (with
+    # Welcome back), Create, Import, Finish, a profile (renaming it, Switch
+    # profile asked, Discord's own profile found), the Mii editor (a Mii's
+    # face, its hair, Create's new Mii's), a Discord player's.
+    foreach(preview IN ITEMS preview-welcome preview-profile-create preview-profile-import preview-profile-finish
+            preview-mii-profile-rename preview-mii-profile-signout preview-discord-choice preview-mii-editor
             preview-mii-editor-hair preview-mii-new-editor preview)
         add_test(NAME launcher_smoke_${preview}
             COMMAND mscharged --smoke-test --config "${CMAKE_CURRENT_BINARY_DIR}/launcher-test-missing.ini")

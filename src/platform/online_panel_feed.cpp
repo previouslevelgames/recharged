@@ -88,7 +88,7 @@ void OnlinePanelFeed::WantStats(bool want)
     if (want) wake_.notify_all();
 }
 
-void OnlinePanelFeed::SetOwnMiis(std::vector<std::pair<std::int32_t, std::string>> miis)
+void OnlinePanelFeed::SetOwnMiis(std::vector<UploadedMii> miis)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     own_miis_ = std::move(miis);
@@ -265,7 +265,7 @@ void OnlinePanelFeed::Fetch(ProfileService& api)
     Snapshot fresh;
     fresh.me = api.Me();
     bool leaderboard = false, stats = false;
-    std::vector<std::pair<std::int32_t, std::string>> miis;
+    std::vector<UploadedMii> miis;
     {
         // The rule sets and the server's version change rarely: once. The
         // Discord friends stay as they were if the server can't say now.

@@ -241,13 +241,28 @@ void CompetitiveService::Connect(ProfileService& api)
     }
 }
 
-void CompetitiveService::Signed(ProfileService& api, const std::string& token, const platform::ProfilePlayer& player)
+void CompetitiveService::Signed(ProfileService& api, const std::string& token, const platform::ProfilePlayer& player,
+                                bool created, bool welcome_back)
 {
     // Everything the page shows signed in, before it shows it.
     api.SetToken(token);
     const auto sets = api.RuleSets();
     int interval = 0;
     const auto match = api.CurrentMatch(&interval);
+    // What brings the profile back on this computer, if it isn't here.
+    std::optional<platform::ProfileRestore> restore;
+    if (Snapshot().info.Profiles())
+    {
+        try
+        {
+            restore = api.Restore();
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled()) throw;
+            platform::SessionLogLine(std::string("Online: the profile's Miis are not restored: ") + e.what());
+        }
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (running_ != generation_) return;
     platform::SaveProfileSession(session_file_, {api.Server(), token, player.name});
@@ -263,6 +278,15 @@ void CompetitiveService::Signed(ProfileService& api, const std::string& token, c
     status_.connecting_discord = false;
     status_.connect_error.clear();
     status_.mii_error.clear();
+    status_.discord_choice.reset();
+    status_.created = created;
+    status_.welcome_back = welcome_back;
+    ++status_.sign_ins;
+    if (restore)
+    {
+        status_.restore = std::move(*restore);
+        ++status_.restore_serial;
+    }
     ++status_.serial;
     next_me_ = Clock::now() + kPlayerPoll;
     next_discord_ = Clock::now();
@@ -319,10 +343,11 @@ void CompetitiveService::Poll(ProfileService& api)
                     platform::SessionLogLine(std::string("Discord friends: the link is not kept: ") + e.what());
                 }
             }
-            Signed(api, result.token, result.player);
+            Signed(api, result.token, result.player, result.created, result.welcome_back);
             return;
         case SignInResult::Status::Refused:
         case SignInResult::Status::Expired:
+        case SignInResult::Status::DiscordHasProfile:
             Change([&](Status& status) {
                 status.state = State::SignedOut;
                 status.code.clear();
@@ -358,10 +383,22 @@ void CompetitiveService::Poll(ProfileService& api)
                     platform::SessionLogLine(std::string("Discord friends: the link is not kept: ") + e.what());
                 }
             }
-            Signed(api, result.token, result.player);
+            Signed(api, result.token, result.player, result.created, result.welcome_back);
             return;
         }
-        if (result.status != SignInResult::Status::Waiting)
+        if (result.status == SignInResult::Status::DiscordHasProfile)
+        {
+            Change([&](Status& status) {
+                status.connecting_discord = false;
+                status.code.clear();
+                status.url.clear();
+                status.discord_choice = Status::DiscordChoice{result.player, result.takeover};
+            });
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (running_ == generation_) sign_in_id_.clear();
+            connecting = false;
+        }
+        else if (result.status != SignInResult::Status::Waiting)
         {
             Change([&](Status& status) {
                 status.connecting_discord = false;
@@ -535,6 +572,128 @@ void CompetitiveService::MiiSignIn(const std::string& name)
                                                           : result.message;
             });
     }, true);
+}
+
+void CompetitiveService::SaveSignIn(std::uint64_t user_id, std::string gsbrcd)
+{
+    Post([this, user_id, gsbrcd](ProfileService& api) {
+        Change([](Status& status) { status.mii_error.clear(); });
+        SignInResult result;
+        try
+        {
+            result = api.SaveSignIn(user_id, gsbrcd);
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled()) throw;
+            Change([&](Status& status) { status.mii_error = MiiSignInError(e); });
+            return;
+        }
+        if (result.status == SignInResult::Status::SignedIn) Signed(api, result.token, result.player);
+        else
+            Change([&](Status& status) { status.mii_error = texts::T("match_setup.service.sign_in_refused"); });
+    }, true);
+}
+
+void CompetitiveService::TakeOver()
+{
+    Post([this](ProfileService& api) {
+        const auto choice = Snapshot().discord_choice;
+        if (!choice) return;
+        SignInResult result;
+        try
+        {
+            result = api.TakeOver(choice->takeover);
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled() || e.SignedOut()) throw;
+            Change([&](Status& status) {
+                status.discord_choice.reset();
+                status.connect_error = e.what();
+            });
+            return;
+        }
+        if (result.discord)
+        {
+            try
+            {
+                platform::SaveDiscordLink(discord_link_file_, {api.Server(), result.discord->refresh_token});
+            }
+            catch (const std::exception& e)
+            {
+                platform::SessionLogLine(std::string("Discord friends: the link is not kept: ") + e.what());
+            }
+        }
+        Signed(api, result.token, result.player);
+    }, true);
+}
+
+void CompetitiveService::DropDiscordChoice()
+{
+    Change([](Status& status) { status.discord_choice.reset(); });
+}
+
+void CompetitiveService::CheckName(std::string name)
+{
+    Post([this, name](ProfileService& api) {
+        std::optional<bool> free;
+        try
+        {
+            free = api.NameFree(name);
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled()) throw;
+        }
+        Change([&](Status& status) {
+            status.checked_name = name;
+            status.name_free = free;
+        });
+    }, false);
+}
+
+void CompetitiveService::ChangeProfile(std::function<platform::ProfilePlayer(ProfileService&)> change)
+{
+    Post([this, change](ProfileService& api) {
+        try
+        {
+            auto player = change(api);
+            Change([&](Status& status) {
+                status.player = std::move(player);
+                status.profile_error.clear();
+                ++status.profile_serial;
+            });
+        }
+        catch (const ProfileError& e)
+        {
+            if (e.Cancelled() || e.SignedOut()) throw;
+            Change([&](Status& status) {
+                status.profile_error = e.Status() ? e.what() : texts::T("match_setup.service.no_answer");
+                ++status.profile_serial;
+            });
+        }
+    }, true);
+}
+
+void CompetitiveService::Rename(std::string name)
+{
+    ChangeProfile([name](ProfileService& api) { return api.Rename(name); });
+}
+
+void CompetitiveService::ChooseMii(std::string record)
+{
+    ChangeProfile([record](ProfileService& api) { return api.ChooseMii(record); });
+}
+
+void CompetitiveService::DisconnectDiscord()
+{
+    ChangeProfile([](ProfileService& api) { return api.DisconnectDiscord(); });
+}
+
+void CompetitiveService::TakeOverSave(std::uint64_t user_id, std::string gsbrcd)
+{
+    ChangeProfile([user_id, gsbrcd](ProfileService& api) { return api.TakeOverSave(user_id, gsbrcd); });
 }
 
 void CompetitiveService::StopSignIn()

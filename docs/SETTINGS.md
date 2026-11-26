@@ -571,8 +571,8 @@ writes `rollback_test` or `rollback_log`.
 Sets against other Recharged players are played by the rules of the project's
 online server, `https://rechargedwfc.net`. The launcher's **Online** pages set
 them up: **Player profile** (who you are signed in as, your Mii, your friend
-code, your Discord friends or Connect Discord, your flag, the challenge sound,
-the server, and Sign out, which also ends the Discord link on this computer),
+code, your Discord friends or Connect Discord, your flag, the server, and
+Sign out, which also ends the Discord link on this computer),
 **Match rules** (the presets a challenge starts from, see *Match settings*,
 and the server's rule sets) and **Sidekicks**. Your friends, the players
 available, your set, the RANKED leaderboards and the events are in the
@@ -589,31 +589,35 @@ games of the series, the stadium, the game's stadium, player and power-up
 cheats, and the *Competitive gameplay* tweaks both teams play with (the skill
 level is only for the CPU).
 
-1. Sign in on **Online** → **Player profile**, one of two ways (Discord is not
-   needed to play):
+1. Make your profile on **Online** → **Online player profile**. A profile is a
+   name (yours alone on the server: nobody else can take it) and a face, a Mii
+   the game shows too, named after you (cut to a Mii's 10 characters). Discord
+   is optional. The page offers, from the top:
+   - **Welcome back**: the profiles of this computer's game save. **Continue**
+     signs in with that Mii's online data, without starting the game.
    - **Connect Discord**: the browser opens a page that shows a code; go on
-     only if it is the code the launcher shows. Your profile takes your Discord
-     name and picture, and brings your Discord friends and tournaments.
-   - **Play with a Mii**: no account. Step 1 asks your name (what others see,
-     up to 32 characters) and your Mii: a new one (a random face in the
-     favourite colour you choose: **Another face** rolls a new one, **Edit
-     face** opens the Mii editor; it is named after you, cut to the Mii's 10
-     characters, or **Change** names it yourself), one of this computer's, or
-     yours from Dolphin (they replace this computer's Miis, which are backed up
-     first). Step 2, **Go online**, makes the new Mii and signs you in; this
-     computer keeps you signed in. A profile has one Mii: it is kept as
-     `[online] mii` (its create ID) and plays your sets and online games;
-     **Edit** on Player profile changes its face. Once it has played online,
-     the launcher finds it on any computer by the profile's friend code.
-     Friends, challenges and sets work as with Discord. **Connect Discord** on
-     Player profile (or on Events) joins Discord to the same profile later:
-     your profile then takes your Discord name and picture, your friends and
-     Mii stay. A Discord account that already has a profile of its own can't
-     join it. **Sign out** asks first: once your Mii has played online, it
-     brings the profile back (**Played with a Mii before? Sign in through the
-     game** under the two choices, `[online] mii_sign_in`: the game signs you
-     in again once that Mii logs in to WFC); before that, signing out loses
-     it for good.
+     only if it is the code the launcher shows. A Discord account that has a
+     profile brings it back on any computer: its name, face and friend code
+     (the Mii and its online data come into the game save). A new one makes a
+     profile, whose name and face you choose next (**Finish your profile**).
+   - **Create a profile**: a name and a face (**Another face** rolls a new
+     one, **Edit face** opens the Mii editor), or a Mii of this computer.
+     Without Discord the profile lives in this computer's game folder.
+   - **Import from Dolphin or an old Recharged folder**: the Miis that have
+     been online there come into this computer's save with their friend codes;
+     their profiles then show under Welcome back.
+
+   Signed in, the profile shows its name (**Rename**), its face (**Edit
+   face**), its friend code and Discord: **Connect Discord** keeps the
+   profile on any computer and brings your Discord friends, **Disconnect**
+   takes it off again (once your Mii has played online). Connecting a Discord
+   account that has a profile of its own: a profile made a moment ago goes
+   into it at once; one that has played asks whether it goes into it (its
+   name, face and friend code win, the sets of both stay). Importing while
+   signed in asks the same for an imported profile. The profile's Mii is kept
+   as `[online] mii` (its create ID) and plays your sets and online games.
+   **Switch profile** signs out: Continue brings the profile back on this
+   computer once its Mii has been online, Discord on any other.
 2. Challenge a player who has Recharged open from the Recharged Game Menu:
    **Challenge** opens the challenge's setup. It starts from the preset used
    last (`[online] challenge_rules`): one of the server's rule sets or one of
@@ -633,9 +637,8 @@ level is only for the CPU).
    from 1.2.12 on). A player in a match, in an online draft or in a set can be
    challenged once it is over.
    A chime plays, and the window flashes when it is in the background, when
-   someone challenges you and when your challenge is accepted
-   (`[online] challenge_sound`, on by default; at the master volume, not when
-   muted).
+   someone challenges you and when your challenge is accepted (at the master
+   volume, not when muted).
 3. Once they accept, both games go on by themselves: the launcher starts the
    set's game, and a game that already runs (the challenge was accepted on its
    card) goes on from its main menu or online menu, without closing. The game

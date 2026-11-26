@@ -63,6 +63,33 @@ public:
         // No answer (`known_asked` empty) from a server before 1.2.4.
         std::vector<std::pair<std::uint32_t, std::string>> known_miis;
         std::vector<std::uint32_t> known_asked;
+        // The last sign-in made the profile (a Discord account new here),
+        // or brought back the one the Discord account had (a profile made a
+        // moment ago went into it): `sign_ins` counts them, so the page reacts
+        // to each once.
+        bool created = false, welcome_back = false;
+        std::uint64_t sign_ins = 0;
+        // Connecting Discord found that the Discord account has a profile of
+        // its own and the one signed in has played: the player chooses
+        // (TakeOver, or DropDiscordChoice to keep things as they are).
+        struct DiscordChoice
+        {
+            platform::ProfilePlayer player; // the Discord account's profile
+            std::string takeover;
+        };
+        std::optional<DiscordChoice> discord_choice;
+        // What brings the signed-in profile back on this computer (servers
+        // from 1.3.1, asked at each sign-in): its face and its Miis' online
+        // slots. `restore_serial` changes with each answer.
+        platform::ProfileRestore restore;
+        std::uint64_t restore_serial = 0;
+        // CheckName's last answer: whether `name` is free (nullopt: not known).
+        std::string checked_name;
+        std::optional<bool> name_free;
+        // Why the last change of the profile failed (a taken name...), for the
+        // page; `profile_serial` changes with every finished one.
+        std::string profile_error;
+        std::uint64_t profile_serial = 0;
         bool busy = false;           // an action is running
         std::uint64_t serial = 0;    // changes with every change
     };
@@ -86,6 +113,24 @@ public:
     // Without Discord: a new profile by `name` (1-32 characters), for the
     // Mii the player chose; a failure goes to Status::mii_error.
     void MiiSignIn(const std::string& name);
+    // Continue with a Mii of the game save that plays for a profile: its
+    // online slot's login (platform::ReadOnlineSlot). A failure goes to
+    // Status::mii_error.
+    void SaveSignIn(std::uint64_t user_id, std::string gsbrcd);
+    // The answer to Status::discord_choice: the profile signed in goes into
+    // the Discord account's, whose name, face and friend code it gets; or
+    // nothing changes.
+    void TakeOver();
+    void DropDiscordChoice();
+    // Whether `name` is free now (Status::name_free), for the hint while it is typed.
+    void CheckName(std::string name);
+    // The profile's name and face; a failure goes to Status::profile_error.
+    void Rename(std::string name);
+    void ChooseMii(std::string record);
+    // The profile goes on without Discord.
+    void DisconnectDiscord();
+    // An old save's Mii, imported while signed in: its profile goes into this one.
+    void TakeOverSave(std::uint64_t user_id, std::string gsbrcd);
     void StopSignIn();
     void SignOut();
     // The player's Discord friends (DiscordFriends): who of them plays
@@ -125,7 +170,11 @@ private:
     // Whether the sign-in `id` is still the one waited for (not stopped).
     bool SignInStillAsked(const std::string& id) const;
     void Connect(platform::ProfileService& api);
-    void Signed(platform::ProfileService& api, const std::string& token, const platform::ProfilePlayer& player);
+    void Signed(platform::ProfileService& api, const std::string& token, const platform::ProfilePlayer& player,
+                bool created = false, bool welcome_back = false);
+    // Runs `change` (a call that changes the profile) as an action: its player
+    // goes to Status::player, its failure to Status::profile_error.
+    void ChangeProfile(std::function<platform::ProfilePlayer(platform::ProfileService&)> change);
     void Fail(const std::exception& error);
     void SignedOutHere(const char* reason);
     void Change(const std::function<void(Status&)>& change);
