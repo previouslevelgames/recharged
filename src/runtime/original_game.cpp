@@ -3274,7 +3274,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 };
                 menusHost.tournaments=[&](mscharged::ui::TournamentListModel& model) {
                     if(const auto version=tournamentFeed->Version(); version!=tournamentListShown) {
-                        model=mscharged::runtime::ServerTournaments(tournamentFeed->Latest());
+                        model=mscharged::runtime::ServerTournaments(tournamentFeed->Latest(),std::int64_t(std::time(nullptr)));
                         tournamentListShown=version;
                     }
                 };

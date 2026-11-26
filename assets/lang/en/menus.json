@@ -390,6 +390,9 @@
     "entrants_one": "{{count}} player",
     "entrants_other": "{{count}} players",
     "entrants_max": "{{count}}/{{max}} players",
+    "entries_close": "Entries close {{when}}",
+    "entries_closed": "Entries closed",
+    "games_from": "Games from {{when}}",
     "place": "You finished {{place}}",
     "place_short": "{{place}}",
     "none": "No tournaments right now: an organizer opens them on the Recharged server."

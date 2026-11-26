@@ -23,8 +23,9 @@ std::string TournamentInitials(const std::string& name);
 ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& feed, std::int64_t shown = 0);
 // The TOURNAMENTS page's: the player's own tournament (else the newest) in
 // the big card, the others open for entries or under way, the last that
-// ended (none called off).
-ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapshot& feed);
+// ended (none called off). `now`: this computer's clock (Unix seconds), for
+// the schedule.
+ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapshot& feed, std::int64_t now = 0);
 
 // Whether winning the game about to be played in match `match` (the
 // player's set's) ends the tournament: for this player (own), for the

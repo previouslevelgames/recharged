@@ -75,6 +75,29 @@ void List()
     CHECK(runtime::ServerTournaments(feed).featured->value == "2 players");
 }
 
+// The schedule in the big card while it matters: when entries close, then
+// that they did; when the games begin, until they do.
+void ListSchedule()
+{
+    const std::int64_t now = 1'800'000'000;
+    Snapshot feed;
+    feed.loaded = true;
+    feed.tournaments = {Listed(9, "New Cup", "registration", true)};
+    const auto line = [&](std::int64_t at) {
+        const auto model = runtime::ServerTournaments(feed, at);
+        return model.featured && model.featured->lines.size() == 4 ? model.featured->lines[2] : std::string();
+    };
+    CHECK(line(now).empty());
+    feed.tournaments[0].registration_ends_at = now + 3600;
+    feed.tournaments[0].starts_at = now + 7200;
+    CHECK(line(now).rfind("Entries close ", 0) == 0 && line(now).find("  ·  Games from ") != std::string::npos);
+    CHECK(line(now + 3600).rfind("Entries closed  ·  Games from ", 0) == 0);
+    // Under way: the entries said no more, the games until they begin.
+    feed.tournaments[0].state = "running";
+    CHECK(line(now + 3600).rfind("Games from ", 0) == 0);
+    CHECK(line(now + 7200).empty());
+}
+
 Snapshot Running(const char* state, int home_wins, int away_wins)
 {
     Snapshot feed;
@@ -228,6 +251,7 @@ void Ash()
 int main()
 {
     List();
+    ListSchedule();
     Calls();
     Resume();
     Games();

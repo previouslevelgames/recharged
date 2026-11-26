@@ -140,9 +140,29 @@ std::string Place(int place)
                                                    : "th";
     return std::to_string(place) + suffix;
 }
+
+// A tournament's schedule while it matters, by this computer's clock (`now`,
+// Unix seconds): when its entries close (or that they did) while it is open
+// for entries, when its games begin until they do. Empty: nothing to say.
+std::string ScheduleText(const platform::ProfileTournament& t, std::int64_t now)
+{
+    std::string text;
+    const auto add = [&](std::string part) {
+        if (!text.empty()) text += "  ·  ";
+        text += std::move(part);
+    };
+    const bool open = t.state == "registration";
+    if (open && t.registration_ends_at > 0)
+        add(t.registration_ends_at > now
+                ? T("menus.tournaments.entries_close", {{"when", platform::DescribeChatTime(now, t.registration_ends_at)}})
+                : std::string(T("menus.tournaments.entries_closed")));
+    if ((open || t.state == "running") && t.starts_at > now)
+        add(T("menus.tournaments.games_from", {{"when", platform::DescribeChatTime(now, t.starts_at)}}));
+    return text;
+}
 } // namespace
 
-ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapshot& feed)
+ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapshot& feed, std::int64_t now)
 {
     ui::TournamentListModel model;
     if (feed.tournaments.empty())
@@ -153,7 +173,7 @@ ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapsh
         return model;
     }
     if (!feed.error.empty()) model.note = T("menus.tournament.server.stale", {{"error", feed.error}});
-    const auto entry = [](const platform::ProfileTournament& t) {
+    const auto entry = [now](const platform::ProfileTournament& t) {
         ui::TournamentEntry entry;
         entry.key = std::to_string(t.id);
         entry.name = t.name;
@@ -179,6 +199,7 @@ ui::TournamentListModel ServerTournaments(const platform::TournamentFeed::Snapsh
                                 {{"best_of", std::to_string(t.best_of)},
                                  {"semifinals", std::to_string(t.semifinals_best_of)},
                                  {"finals", std::to_string(t.finals_best_of)}}));
+        if (auto schedule = ScheduleText(t, now); !schedule.empty()) entry.lines.push_back(std::move(schedule));
         entry.lines.push_back(entrants);
         if (t.place > 0) entry.lines.push_back(T("menus.tournaments.place", {{"place", Place(t.place)}}));
         return entry;
