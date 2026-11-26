@@ -175,7 +175,7 @@ std::string RuleChoiceLabel(const std::vector<RuleChoice>& choices, const std::s
 // The key `step` places from `key` among `choices`, round at the ends (the
 // first for a key not there).
 std::string StepRuleChoice(const std::vector<RuleChoice>& choices, const std::string& key, int step);
-// The tweaks a set's rules may switch on (fast_terrain, no_mega_strikes,
+// The tweaks a set's rules may switch on (fair_ball_contests, fast_terrain, no_mega_strikes,
 // thunder_island_walls, mirror_match), with their names.
 const std::vector<RuleChoice>& RuleTweakChoices();
 // The server's names (lowercase, '_' between words): eTeamID and eStadiumID,

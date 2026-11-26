@@ -227,7 +227,7 @@ std::string DescribeChatTime(std::int64_t now, std::int64_t when);
 // The rules a match is played by (docs/profiles.md, "Rules").
 struct MatchRules
 {
-    std::vector<std::string> tweaks; // fast_terrain, no_mega_strikes, thunder_island_walls
+    std::vector<std::string> tweaks; // fair_ball_contests, fast_terrain, no_mega_strikes, thunder_island_walls, mirror_match
     std::string skill;               // training, rookie, professional, superstar, legend
     std::string limit;               // time or goals
     int time = 0;                    // seconds

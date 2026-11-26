@@ -1,6 +1,7 @@
 // The profile service client of competitive play: server addresses, the
 // saved session, the rules the game module gets, and (where the system has
 // libcurl) the requests themselves against a small HTTP server here.
+#include "bootstrap/game_tweaks.h"
 #include "platform/competitive_rules.h"
 #include "platform/http_client.h"
 #include "platform/json.h"
@@ -164,7 +165,13 @@ void Rules()
     rules.stadium_cheat = rules.player_cheat = rules.powerup_cheat = "none";
     CHECK(StadiumCheatChoices().size() == 6 && PlayerCheatChoices().size() == 5 && PowerupCheatChoices().size() == 12
           && StadiumChoices().size() == 17 && std::string(StadiumChoices()[11].label) == "The Palace"
-          && RuleTweakChoices().size() == 4);
+          && RuleTweakChoices().size() == 5);
+    // Fair ball contests: a rule like the others, the module's tweak bit.
+    rules.tweaks = {"fair_ball_contests"};
+    const auto fair = ModuleRules(rules, opponent);
+    CHECK(fair && fair->tweaks == mscharged::GameTweakBit(mscharged::GameTweak::FairBallContests));
+    CHECK(DescribeRules(rules).find("Defence priority") != std::string::npos);
+    rules.tweaks = {"fast_terrain", "no_mega_strikes", "thunder_island_walls"};
     rules.limit = "time";
     rules.time = 150;
     rules.games = 1;
