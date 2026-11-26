@@ -162,7 +162,7 @@ already has a Recharged profile can't join another one.
 ## The same rules for both players
 
 Every set has one set of rules, the same for both players: the competitive
-gameplay tweaks (such as no Mega Strikes, fast terrain and Thunder Island
+gameplay tweaks (such as defence priority, no Mega Strikes, fast terrain and Thunder Island
 walls, or mirror match: both players may draft the same captain, and each sees
 their own team in its usual kit and the opponent's in the away kit), the game
 length or goal limit, the number of games, the stadium and the game's stadium,

@@ -54,6 +54,7 @@ extern "C" unsigned int mscharged_competitive_match_tweaks(void);
 extern "C" void mscharged_competitive_replay(bool replaying, unsigned int tweaks);
 extern "C" bool mscharged_competitive_game_start(int* scores, float* seconds);
 extern "C" void mscharged_competitive_game_resume(const int* scores, float seconds);
+extern "C" bool mscharged_competitive_set_game(void);
 
 namespace
 {
@@ -65,7 +66,8 @@ constexpr unsigned kViewerTweaks = (1u << MSCHARGED_TWEAK_SKIP_INTRO) | (1u << M
     | (1u << MSCHARGED_TWEAK_NO_HUD) | (1u << MSCHARGED_TWEAK_OVERRIDE_RETAIL_MENUS);
 // Online, the players' own gameplay tweaks are off (their hooks test
 // IsOnline), but Feder's fair ball contests, which every online match plays
-// by. A recording of an online match keeps the tweaks as they acted, so its
+// by except a set's, which has them by its rules (tweak patch 0083). A
+// recording of an online match keeps the tweaks as they acted, so its
 // replay, which plays offline, acts the same; a set's tweaks come apart, as
 // the set's (Setup::set_tweaks).
 constexpr unsigned kOffOnline = (1u << MSCHARGED_TWEAK_NO_MEGA_STRIKES) | (1u << MSCHARGED_TWEAK_UNLOCK_ALL)
@@ -371,7 +373,9 @@ void RefreshRules(Setup& setup)
     setup.training = g_bTrainingMatch ? 1 : 0;
     setup.tweaks = mscharged::platform::EnabledTweaks();
     setup.online = info->IsOnline() ? 1 : 0;
-    if (setup.online) setup.tweaks = (setup.tweaks & ~kOffOnline) | kOnOnline;
+    if (setup.online)
+        setup.tweaks = mscharged_competitive_set_game() ? setup.tweaks & ~(kOffOnline | kOnOnline)
+                                                        : (setup.tweaks & ~kOffOnline) | kOnOnline;
     setup.set_tweaks = mscharged_competitive_match_tweaks();
     setup.sim_profile = mscharged_sim_profile();
     int scores[2] = {0, 0};
