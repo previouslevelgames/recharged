@@ -69,7 +69,7 @@ with the score.
   be found.
 - A chime plays when someone challenges you or accepts your challenge, and
   the window flashes while it is in the background, so a challenge isn't
-  missed (Player profile → **Challenge sound**).
+  missed.
 - A challenge lasts only as long as Recharged is open: close Recharged and
   your open challenges are gone, with nothing to clean up.
 - A flag beside a player's name shows their country: the one the server finds

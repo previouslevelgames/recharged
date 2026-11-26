@@ -5141,18 +5141,16 @@ private:
             countdown_go_ = 0;
     }
 
-    // The challenge sound ([online] challenge_sound): the chime at the master
-    // volume (not when muted), and the window flashes while it is in the
-    // background.
-    void Alert(bool flash = true)
+    // A challenge's chime at the master volume (not when muted), and the
+    // window flashes while it is in the background.
+    void Alert()
     {
-        if (!draft_.challenge_sound) return;
         if (!draft_.mute)
         {
             if (!alert_sound_) alert_sound_.emplace();
             alert_sound_->Play(float(draft_.master_volume) / 100.0f);
         }
-        if (flash && window_ && !(SDL_GetWindowFlags(window_) & SDL_WINDOW_INPUT_FOCUS))
+        if (window_ && !(SDL_GetWindowFlags(window_) & SDL_WINDOW_INPUT_FOCUS))
             SDL_FlashWindow(window_, SDL_FLASH_UNTIL_FOCUSED);
     }
 
@@ -7326,9 +7324,8 @@ private:
             DrawLabel(draw, fonts.label, {x, start.y}, Col(tint), text.c_str());
             ImGui::Dummy({x - start.x + TextSize(fonts.label, text.c_str()).x, line});
         };
-        // The rows' actions (Change and Edit of your Mii, Play of the sound)
-        // start in one column right after the widest of their values, so each
-        // reads with its value.
+        // The rows' actions (Change and Edit of your Mii) start in one column
+        // right after the widest of their values, so each reads with its value.
         {
             const float mii = own && (own->here || !ChosenOwnMii())
                 ? Dp(30) + Dp(10) + TextSize(fonts.label, own->name.c_str()).x
@@ -7413,20 +7410,6 @@ private:
                 Row(texts::T("match_setup.profile.flag"), texts::T("match_setup.profile.flag_about"));
                 FlagCombo(player, status.busy);
             }
-
-            // The challenge sound, with a way to hear it.
-            Row(texts::T("match_setup.profile.challenge_sound"), texts::T("match_setup.profile.challenge_sound_about"));
-            const ImVec2 sound = ImGui::GetCursorScreenPos();
-            if (Toggle("##challenge_sound", &draft_.challenge_sound)) dirty_ = true;
-            // Its action in the actions' column, beside the switch.
-            ImGui::SameLine(0, 0);
-            ImGui::SetCursorScreenPos({sound.x + profile_actions_, sound.y + (Dp(28) - Dp(32)) * 0.5f});
-            const char* play = texts::T("match_setup.profile.play_sound");
-            if (SecondaryButton("hear_chime", play, {ActionWidth(play, Icon::Play), Dp(32)},
-                                draft_.challenge_sound && !draft_.mute, Icon::Play))
-                Alert(false);
-            if (draft_.mute && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s", texts::T("match_setup.profile.muted"));
 
             // The server: only the settings file changes it.
             std::string host = status.server;

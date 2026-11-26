@@ -161,9 +161,6 @@
     "game_music": "Game music",
     "game_effects": "Game sound effects",
     "game_voices": "Game voices",
-    "online": "ONLINE",
-    "challenge_sound": "Challenge sound",
-    "challenge_sound_about": "A chime when someone challenges you or accepts your challenge.",
     "reset_levels": "RESET THE LEVELS",
     "reset_levels_about": "Every sound level back to its default."
   },

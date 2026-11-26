@@ -639,15 +639,13 @@ int main()
             SaveChallengeRules(path, "");
             Require(LoadConfig(path).settings.challenge_rules.empty(), "And back to the server's first");
         }
-        // [online] challenge_sound: on by default, off kept.
-        Require(defaults.challenge_sound, "Challenge sound default");
-        std::ofstream(path) << "[online]\nchallenge_sound = false\n";
+        // The challenge sound always plays: its old switch is retired.
+        std::ofstream(path) << "[online]\nchallenge_sound = false\nrollback = true\n";
         auto soundFile = LoadConfig(path);
-        Require(!soundFile.settings.challenge_sound, "Challenge sound read");
-        soundFile.settings.challenge_sound = true;
         SaveConfig(soundFile, soundFile.settings);
-        Require(LoadConfig(path).contents.find("challenge_sound = true") != std::string::npos,
-                "Saving wrote the challenge sound");
+        const auto soundSaved = LoadConfig(path).contents;
+        Require(soundSaved.find("challenge_sound") == std::string::npos
+            && soundSaved.find("rollback = true") != std::string::npos, "The challenge sound's old switch is removed");
         // [online] mii: none by default; a create ID read in lowercase and
         // saved, anything else refused.
         Require(defaults.online_mii.empty(), "Online Mii default");

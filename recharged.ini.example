@@ -420,9 +420,6 @@ rich_presence = true
 # or of your presets, Online -> Match rules), by its name: the one sent last;
 # empty: the server's first.
 challenge_rules =
-# A chime (and a flashing window in the background) when someone challenges
-# you or accepts your challenge (Online -> Player profile).
-challenge_sound = true
 # Playing with a Mii (without Discord): your profile's one Mii, by its create
 # ID (chosen with the profile; the launcher finds it again by its friend code).
 mii =

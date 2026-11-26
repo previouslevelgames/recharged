@@ -113,7 +113,6 @@ Values Encode(const Settings& s)
             {"interface.language", s.interface_language},
             {"online.server", s.online_server}, {"online.rollback", s.rollback ? "true" : "false"},
             {"online.challenge_rules", s.challenge_rules},
-            {"online.challenge_sound", s.challenge_sound ? "true" : "false"},
             {"online.mii", s.online_mii},
             {"online.mii_sign_in", s.mii_sign_in ? "true" : "false"},
             {"online.mii_sign_in_with", s.mii_sign_in_with},
@@ -476,7 +475,6 @@ Settings Decode(const Values& values, bool builtin = false)
     if (s.profile_server.find_first_of("\r\n") != std::string::npos || s.profile_server.find('\0') != std::string::npos)
         throw std::runtime_error("Invalid configuration: online.profile_server contains a line break or NUL");
     boolean("online.rollback", s.rollback);
-    boolean("online.challenge_sound", s.challenge_sound);
     boolean("online.mii_sign_in", s.mii_sign_in);
     // A Mii's create ID: 16 hex digits, kept in lowercase; empty for none.
     auto create_id = [&](const char* key, std::string& value) {
@@ -582,12 +580,13 @@ Values Parse(const std::string& contents, std::string* updated = nullptr, Values
                 // Retired keys, accepted in old INIs: the title-bar counter, a
                 // dead zone nothing read (gamepad profiles have their own, #62),
                 // a 1.0.12 test build's Wii Remote speaker format (#60), No
-                // HUD's tweak key, now hotkeys.show_hud, and the switch for the
-                // update check, which always runs since updates are enforced.
+                // HUD's tweak key, now hotkeys.show_hud, the switch for the
+                // update check, which always runs since updates are enforced,
+                // and the challenge sound's, which always plays.
                 drop = updated && ((OwnedSection(section) && !kept.count(full_key))
                     || full_key == "display.show_fps" || full_key == "controls.deadzone"
                     || full_key == "controls.speaker_format" || full_key == "gameplay.no_hud"
-                    || full_key == "launcher.check_updates");
+                    || full_key == "launcher.check_updates" || full_key == "online.challenge_sound");
                 if (const auto it = replacements.find(full_key); it != replacements.end())
                 {
                     if (it->second != value)

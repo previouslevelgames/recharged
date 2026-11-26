@@ -295,11 +295,6 @@ struct Settings
     // server) the player's challenges go out with, from the launcher's Online
     // -> Match settings. Empty, or a name the server doesn't have: its first.
     std::string challenge_rules;
-    // [online] challenge_sound (on by default): a chime, and a flashing
-    // window when it is in the background, for a challenge to the player
-    // and for their challenge accepted (at the master volume; not when
-    // muted).
-    bool challenge_sound = true;
     // [online] mii: the Mii a player who plays online with a Mii (without
     // Discord) plays their sets with, by its create ID (16 hex digits,
     // written in lowercase); Player profile chooses it. Empty: none chosen,

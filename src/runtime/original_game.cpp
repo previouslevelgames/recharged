@@ -1905,10 +1905,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         std::function<void()> closeMenus;
         auto holdButtons = [&] { mscharged::platform::SetNativeWpadHold(walkHold); };
         std::optional<mscharged::platform::AlertSound> challengeSound;
-        // [online] challenge_sound: the chime at the master volume (not muted),
-        // and the window flashes while it is in the background.
+        // A challenge's chime at the master volume (not when muted), and the
+        // window flashes while it is in the background.
         auto alert = [&] {
-            if(!launch.settings.challenge_sound)return;
             if(!launch.settings.mute) {
                 if(!challengeSound) challengeSound.emplace();
                 challengeSound->Play(float(launch.settings.master_volume)/100.0f);
@@ -2602,7 +2601,6 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             settings.master_volume=launch.settings.master_volume;
             settings.mute=launch.settings.mute;
             settings.sound_volumes=launch.settings.sound_volumes;
-            settings.challenge_sound=launch.settings.challenge_sound;
             settings.reopen_launcher=mscharged::platform::LauncherReopenOn();
             settings.reopen_known=mscharged::platform::LauncherReopenKnown();
             buildAdvanced(settings);
@@ -2690,10 +2688,6 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     if(configureSoundVolumes) configureSoundVolumes(volumes.data(),int(volumes.size()));
                     save=[volumes](mscharged::Settings& s) { s.sound_volumes=volumes; };
                 }
-                break;
-            case GameSetting::ChallengeSound:
-                launch.settings.challenge_sound=on;
-                save=[on](mscharged::Settings& s) { s.challenge_sound=on; };
                 break;
             case GameSetting::ReopenLauncher:
                 mscharged::platform::SetLauncherReopen(on);

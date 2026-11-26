@@ -571,8 +571,8 @@ writes `rollback_test` or `rollback_log`.
 Sets against other Recharged players are played by the rules of the project's
 online server, `https://rechargedwfc.net`. The launcher's **Online** pages set
 them up: **Player profile** (who you are signed in as, your Mii, your friend
-code, your Discord friends or Connect Discord, your flag, the challenge sound,
-the server, and Sign out, which also ends the Discord link on this computer),
+code, your Discord friends or Connect Discord, your flag, the server, and
+Sign out, which also ends the Discord link on this computer),
 **Match rules** (the presets a challenge starts from, see *Match settings*,
 and the server's rule sets) and **Sidekicks**. Your friends, the players
 available, your set, the RANKED leaderboards and the events are in the
@@ -633,9 +633,8 @@ level is only for the CPU).
    from 1.2.12 on). A player in a match, in an online draft or in a set can be
    challenged once it is over.
    A chime plays, and the window flashes when it is in the background, when
-   someone challenges you and when your challenge is accepted
-   (`[online] challenge_sound`, on by default; at the master volume, not when
-   muted).
+   someone challenges you and when your challenge is accepted (at the master
+   volume, not when muted).
 3. Once they accept, both games go on by themselves: the launcher starts the
    set's game, and a game that already runs (the challenge was accepted on its
    card) goes on from its main menu or online menu, without closing. The game

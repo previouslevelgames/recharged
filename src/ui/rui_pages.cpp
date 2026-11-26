@@ -309,9 +309,6 @@ void DrawSound(const PageModel& model, List& list, PageActions& actions)
         bar(T("menus.sound.game_effects"), model.game.effects, actions.effects);
         bar(T("menus.sound.game_voices"), model.game.voices, actions.voices);
     }
-    list.Caption(T("menus.sound.online"));
-    SettingSwitch(list, actions, T("menus.sound.challenge_sound"), settings.challenge_sound,
-                  GameSetting::ChallengeSound, T("menus.sound.challenge_sound_about"));
 }
 
 // The online pages ---------------------------------------------------------
