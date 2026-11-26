@@ -151,6 +151,21 @@ void JoinSchedule()
     CHECK(!model.can_join && model.can_leave);
 }
 
+// Before the games begin: no READY, no call, a note says when; then both.
+void ReadySchedule()
+{
+    using Kind = runtime::TournamentCall::Kind;
+    const std::int64_t now = 1'800'000'000;
+    auto feed = Running("ready", -1, -1);
+    feed.page->tournament.starts_at = feed.own->tournament.starts_at = now + 600;
+    auto model = runtime::ServerTournament(feed, 0, now);
+    CHECK(model.has_set && !model.opponent_known && model.note.rfind("Games begin ", 0) == 0);
+    CHECK(runtime::TournamentCallOf(feed, now).kind == Kind::None);
+    model = runtime::ServerTournament(feed, 0, now + 600);
+    CHECK(model.opponent_known && model.note.empty());
+    CHECK(runtime::TournamentCallOf(feed, now + 600).kind == Kind::SetReady);
+}
+
 // A game of the player's set to play, once each; the opponent READY first.
 void Calls()
 {
@@ -275,6 +290,7 @@ int main()
     List();
     ListSchedule();
     JoinSchedule();
+    ReadySchedule();
     Calls();
     Resume();
     Games();

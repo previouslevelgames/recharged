@@ -3227,7 +3227,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     if(const auto version=tournamentFeed->Version(); version!=tournamentCalled
                        || (!tournamentCallHeld.empty() && !busy)) {
                         tournamentCalled=version;
-                        const auto call=mscharged::runtime::TournamentCallOf(tournamentFeed->Latest());
+                        const auto call=mscharged::runtime::TournamentCallOf(tournamentFeed->Latest(),std::int64_t(std::time(nullptr)));
                         using Kind=mscharged::runtime::TournamentCall::Kind;
                         const bool held=busy && call.kind==Kind::OpponentReady;
                         tournamentCallHeld=held ? call.key : std::string();

@@ -20,7 +20,8 @@ std::string TournamentInitials(const std::string& name);
 // when they need Discord, before the start and after their last set.
 // `shown`: the tournament the page asked for (0: the feed's choice), a
 // note while the feed's answer is another's. `now`: this computer's clock (Unix
-// seconds), for the schedule: no JOIN once entries closed.
+// seconds), for the schedule: no JOIN once entries closed, no READY before
+// the games begin.
 ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& feed, std::int64_t shown = 0,
                                      std::int64_t now = 0);
 // The TOURNAMENTS page's: the player's own tournament (else the newest) in
@@ -44,12 +45,14 @@ TournamentEnding TournamentEndingOf(const platform::TournamentPage& page, std::i
 // (their own tournament's page): a game of it to play (ready, the opponent
 // known), or the opponent READY while they are not. `key` names that moment
 // (the set and its games played, or the match): the host tells it once.
+// Nothing before the tournament's games begin by `now` (this computer's
+// clock, Unix seconds).
 struct TournamentCall
 {
     enum class Kind { None, SetReady, OpponentReady } kind = Kind::None;
     std::string key, opponent, tournament;
 };
-TournamentCall TournamentCallOf(const platform::TournamentFeed::Snapshot& feed);
+TournamentCall TournamentCallOf(const platform::TournamentFeed::Snapshot& feed, std::int64_t now = 0);
 
 // The ceremony's panel for that game (UTF-16 of the basic plane, at most 127
 // units each): its title, and who won, this player or the opponent.

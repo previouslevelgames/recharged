@@ -275,6 +275,9 @@ ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& f
         if (closing && !closed)
             note(T("menus.tournament.server.entries_close",
                    {{"when", platform::DescribeChatTime(now, tournament.registration_ends_at)}}));
+        if (tournament.starts_at > now)
+            note(T("menus.tournament.server.games_begin",
+                   {{"when", platform::DescribeChatTime(now, tournament.starts_at)}}));
         return model;
     }
     if (tournament.state == "cancelled")
@@ -314,6 +317,14 @@ ui::TournamentModel ServerTournament(const platform::TournamentFeed::Snapshot& f
     if (set->home_wins >= 0 && set->away_wins >= 0)
         model.score = set->home == you ? std::to_string(set->home_wins) + " - " + std::to_string(set->away_wins)
                                        : std::to_string(set->away_wins) + " - " + std::to_string(set->home_wins);
+    // Before its games begin (by this computer's clock; the server refuses
+    // an early READY either way), READY waits for them.
+    if (tournament.starts_at > now)
+    {
+        if (set->state == "ready") model.opponent_known = false;
+        note(T("menus.tournament.server.games_begin",
+               {{"when", platform::DescribeChatTime(now, tournament.starts_at)}}));
+    }
     if (set->state == "pending") note(T("menus.tournament.server.waiting_set"));
     else if (set->state == "disputed")
     {
@@ -368,13 +379,15 @@ std::u16string PanelText(std::string_view text)
 }
 } // namespace
 
-TournamentCall TournamentCallOf(const platform::TournamentFeed::Snapshot& feed)
+TournamentCall TournamentCallOf(const platform::TournamentFeed::Snapshot& feed, std::int64_t now)
 {
     TournamentCall call;
     if (!feed.signed_in || !feed.own || !feed.own->me) return call;
     const auto& page = *feed.own;
     const auto& me = *page.me;
     if (page.tournament.state != "running" || !me.entrant || me.dropped || !me.eligible || !me.set) return call;
+    // Nothing to play before its games begin: the call comes then.
+    if (page.tournament.starts_at > now) return call;
     const auto* set = page.Set(me.set);
     if (!set || !set->home || !set->away) return call;
     const std::int64_t opponent = set->home == me.player ? set->away : set->home;
