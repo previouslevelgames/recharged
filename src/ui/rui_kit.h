@@ -300,7 +300,8 @@ private:
         bool lit, hovered;
         int index;
     };
-    Slot Place(float height, bool litable);
+    // `spaced`: as the page's first item, a gap under the title strip above it.
+    Slot Place(float height, bool litable, bool spaced = true);
     // A caption's text and rule on the line at `y` (Caption, the bracket's sections).
     void CaptionAt(float y, const char* text);
     // The hand over the slot lights it (`slot.lit` follows).

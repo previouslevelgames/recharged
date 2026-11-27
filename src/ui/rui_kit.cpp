@@ -350,6 +350,8 @@ constexpr int kBarR = 0xA9, kBarG = 0xD0, kBarB = 0x46;
 // The lists' items: a plate's and a row's height, a caption's, the gap; an
 // arrow button's and a choice's size.
 constexpr float kPlateHeight = 90.0f, kRowHeight = 78.0f, kCaptionHeight = 48.0f, kGap = 8.0f;
+// Above a page's first item, under the screen's title strip (a caption has its own).
+constexpr float kTopGap = 16.0f;
 constexpr float kArrowSize = 54.0f, kPillHeight = 50.0f;
 // A list's plates a little smaller than the pause menu's (which keep the game's).
 constexpr float kListPlate = 0.94f;
@@ -576,8 +578,9 @@ List::~List()
     state_.entered = true;
 }
 
-List::Slot List::Place(float height, bool litable)
+List::Slot List::Place(float height, bool litable, bool spaced)
 {
+    if (y_ == 0.0f && spaced) y_ = kTopGap;
     Slot slot{};
     slot.top = rows_.top + y_ - state_.scroll;
     slot.bottom = slot.top + height;
@@ -644,7 +647,7 @@ void List::Help(const char* about, bool lit)
 
 void List::Caption(const char* text)
 {
-    const Slot slot = Place(kCaptionHeight, false);
+    const Slot slot = Place(kCaptionHeight, false, false);
     CaptionAt(slot.bottom - 16.0f, text);
 }
 
@@ -1123,7 +1126,7 @@ std::optional<std::size_t> List::Bracket(const std::vector<BracketSet>& sets, co
     const float contentTop = y_;
     // Room under the last cards for the edge around the player's set.
     constexpr float kEdge = 8.0f;
-    Slot slot = Place(layout.height + band + kEdge, false);
+    Slot slot = Place(layout.height + band + kEdge, false, false);
     const float step = kBracketCardWidth + kBracketColumnGap;
     // The player's set into view, once.
     if (!state_.entered)

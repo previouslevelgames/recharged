@@ -293,8 +293,9 @@ void HostMenus::MenuKey(MenuInput::MenuKey key, int channel)
     }
     // Development captures: RECHARGED_CAPTURE_PAGE=settings:N or gameplay:N
     // opens that category of the page under the menu the first time it opens
-    // (with RECHARGED_CAPTURE_PANEL, without any key); friends or random that
-    // page of ONLINE → PLAY (with RECHARGED_CAPTURE_ONLINE's sample).
+    // (with RECHARGED_CAPTURE_PANEL, without any key); play ONLINE → PLAY,
+    // friends or random that page of it (with RECHARGED_CAPTURE_ONLINE's
+    // sample).
     else if (const char* page = std::getenv("RECHARGED_CAPTURE_PAGE"); page && *page && !capturePageShown_) {
         capturePageShown_ = true;
         const std::string_view text(page);
@@ -305,10 +306,10 @@ void HostMenus::MenuKey(MenuInput::MenuKey key, int channel)
             Push(ui::PageId::Options);
             Push(name == "settings" ? ui::PageId::Settings : ui::PageId::Gameplay, category);
         }
-        else if (name == "friends" || name == "random") {
+        else if (name == "play" || name == "friends" || name == "random") {
             Push(ui::PageId::Online);
             Push(ui::PageId::Play);
-            Push(name == "friends" ? ui::PageId::Friends : ui::PageId::Random);
+            if (name != "play") Push(name == "friends" ? ui::PageId::Friends : ui::PageId::Random);
         }
     }
     // Over a match in play the game pauses (not a network match: it can't).
