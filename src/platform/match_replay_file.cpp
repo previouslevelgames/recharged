@@ -102,6 +102,19 @@ bool Parse(const std::uint8_t* data, std::size_t size, Parsed& parsed, std::stri
         info.score[1] = int(Get(summary + 12, 2));
         info.training = (summary[14] & 1) != 0;
         info.network = (summary[14] & 2) != 0;
+        info.stats = (summary[14] & 4) != 0;
+        // The names (later replays), each as far as the header has it.
+        std::size_t left = header - (kHeaderBase + build + kSummarySize);
+        const std::uint8_t* name = summary + kSummarySize;
+        for (int side = 0; side < 2 && left >= 2; ++side)
+        {
+            const std::size_t length = name[1];
+            if (length > left - 2) break;
+            info.name_kinds[side] = name[0];
+            info.names[side].assign(reinterpret_cast<const char*>(name + 2), length);
+            name += 2 + length;
+            left -= 2 + length;
+        }
     }
     if (parsed.stream_size > kMaxStreamSize || (!header_only && parsed.packed_size > size - parsed.packed_at))
     {
@@ -123,9 +136,19 @@ std::vector<std::uint8_t> EncodeFile(const FileInfo& info, const std::uint8_t* s
     const std::string build = info.build.substr(0, 255);
     std::string game_id = info.game_id.substr(0, 6);
     game_id.resize(6, ' ');
+    // The names only in a replay with stats or names: others keep the header
+    // older builds wrote.
+    std::string names[2];
+    const bool named = info.stats || !info.names[0].empty() || !info.names[1].empty();
+    std::size_t names_size = 0;
+    for (int side = 0; side < 2 && named; ++side)
+    {
+        names[side] = info.names[side].substr(0, kMaxNameBytes - 1);
+        names_size += 2 + names[side].size();
+    }
     std::vector<std::uint8_t> out(kMagic, kMagic + sizeof kMagic);
     Put16(out, kFileVersion);
-    Put16(out, std::uint16_t(kHeaderBase + build.size() + kSummarySize));
+    Put16(out, std::uint16_t(kHeaderBase + build.size() + kSummarySize + names_size));
     out.push_back(std::uint8_t(build.size()));
     out.insert(out.end(), build.begin(), build.end());
     out.insert(out.end(), game_id.begin(), game_id.end());
@@ -140,7 +163,13 @@ std::vector<std::uint8_t> EncodeFile(const FileInfo& info, const std::uint8_t* s
     Put16(out, i16(info.stadium));
     Put16(out, std::uint16_t(std::clamp(info.score[0], 0, 65535)));
     Put16(out, std::uint16_t(std::clamp(info.score[1], 0, 65535)));
-    out.push_back(std::uint8_t((info.training ? 1 : 0) | (info.network ? 2 : 0)));
+    out.push_back(std::uint8_t((info.training ? 1 : 0) | (info.network ? 2 : 0) | (info.stats ? 4 : 0)));
+    for (int side = 0; side < 2 && named; ++side)
+    {
+        out.push_back(std::uint8_t(std::clamp(info.name_kinds[side], 0, 255)));
+        out.push_back(std::uint8_t(names[side].size()));
+        out.insert(out.end(), names[side].begin(), names[side].end());
+    }
     out.insert(out.end(), packed.begin(), packed.end());
     return out;
 }
@@ -155,6 +184,12 @@ void Summarize(const Setup& setup, FileInfo& info)
     info.score[1] = setup.score[1];
     info.training = setup.training != 0;
     info.network = setup.machine_count > 1 || setup.online != 0;
+    info.stats = setup.stats.kept != 0;
+    for (int side = 0; side < 2; ++side)
+    {
+        info.names[side] = setup.stats.kept ? setup.stats.names[side] : "";
+        info.name_kinds[side] = setup.stats.kept ? setup.stats.name_kinds[side] : 0;
+    }
 }
 
 std::string MatchLength(std::uint32_t steps)

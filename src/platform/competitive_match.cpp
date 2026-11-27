@@ -496,6 +496,23 @@ extern "C" __attribute__((visibility("default"))) void charged_configure_display
     for (NameRoom& room : sRooms) room = NameRoom{};
 }
 
+// Match stats (match_stats.cpp): the set's players' profile names on the sides
+// they play, home first; false outside a set's online match or before its
+// sides are set.
+extern "C" bool mscharged_competitive_side_names(unsigned short (*names)[kNameUnits + 1])
+{
+    const short side = LocalSide();
+    if (side < 0 || (!sNames[0][0] && !sNames[1][0])) return false;
+    for (int who = 0; who < 2; ++who)
+    {
+        unsigned short* to = names[who == 0 ? side : 1 - side];
+        int n = 0;
+        for (; n < kNameUnits && sNames[who][n]; ++n) to[n] = sNames[who][n];
+        to[n] = 0;
+    }
+    return true;
+}
+
 // The tournament trophy of a set that may end the tournament
 // (charged_configure_tournament_trophy): its cup persona, -1 for none, and
 // whose win of this game ends the tournament: this player's, the opponent's.

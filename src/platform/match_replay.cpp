@@ -23,6 +23,7 @@
 #include "platform/match_replay_network.h"
 #include "platform/match_replay_status.h"
 #include "platform/match_replay_stream.h"
+#include "platform/match_stats.h"
 #include "platform/online_match_snapshot.h"
 
 #include "Game/DB/SaveLoad.h"
@@ -310,6 +311,8 @@ void FinishPlaying()
 // The match recorded ends: its stream waits for the host.
 void FinishRecording()
 {
+    // The match's stats (none when nothing was recorded): the file keeps them.
+    MatchStats stats = StatsFinish();
     if (sNetwork && sLiveBegun)
     {
         sWriter.Settle();
@@ -336,6 +339,7 @@ void FinishRecording()
         return;
     }
     const bool broken = sWriter.Broken();
+    if (stats.kept) sWriter.EditSetup().stats = stats;
     Bytes stream = sWriter.Finish();
     Setup setup;
     std::string error;
@@ -462,6 +466,7 @@ void RecordNetworkStep(std::uint32_t before_frame, std::uint32_t checksum, std::
         sWriter.EditSetup().score[0] = g_pTeams[0]->GetScore();
         sWriter.EditSetup().score[1] = g_pTeams[1]->GetScore();
     }
+    StatsStep();
     sWriter.Settle();
     LiveStep();
 }
@@ -508,6 +513,7 @@ bool mscharged_tweak_replay_begin(int localMachine, int machineCount, unsigned i
         return false;
     }
     sWriter.Reserve(kReservedStreamBytes);
+    StatsBegin();
     std::snprintf(line, sizeof line, "recording the match (stadium %d, captains %d and %d%s)", setup.stadium,
                   setup.home_team, setup.away_team,
                   setup.training ? ", Training" : network ? ", every machine's inputs as they arrive" : "");
@@ -539,6 +545,7 @@ void mscharged_tweak_replay_packet(int machine, unsigned short remap, unsigned i
         sWriter.EditSetup().score[0] = g_pTeams[0]->GetScore();
         sWriter.EditSetup().score[1] = g_pTeams[1]->GetScore();
     }
+    if (machine == 0) StatsStep();
 }
 
 void mscharged_tweak_replay_event(const void* data, int size)

@@ -343,6 +343,116 @@ void ResumedGames()
             "a replay from before resumed games starts from 0-0: " + error);
 }
 
+// A match's stats (tweak patch 0085): the totals, names, field and moments
+// come back; a live stream's start and a replay from before them have none;
+// a damaged or later stats block is left out while the match still plays.
+MatchStats MakeStats()
+{
+    MatchStats stats;
+    stats.kept = 1;
+    std::strcpy(stats.names[0], "Anosch");
+    std::strcpy(stats.names[1], "Zo\xC3\xAB");
+    stats.name_kinds[0] = kNameProfile;
+    stats.name_kinds[1] = kNameMii;
+    for (int n = 0; n < 5; ++n) stats.field[n] = 10.0f + float(n);
+    stats.first_frame = 120;
+    stats.counts[0][0][5] = 2;      // regular goals
+    stats.counts[0][3][18] = 7;     // hits
+    stats.counts[1][4][22] = 12345; // possession, hundredths
+    stats.counts[1][0][38] = 1;
+    stats.event_count = 3;
+    stats.events[0] = {130, 2.5f, 11, 0, 0, 2, 0, 1, 0, 0.0f, 0.0f};
+    stats.events[1] = {200, -1.0f, 25, 1, 3, 4, 0, 3, 0, -4.5f, 7.25f};
+    stats.events[2] = {250, 61.0f, 11, 1, -1, -1, 6, 2, kOwnGoal, 0.0f, 0.0f};
+    return stats;
+}
+
+void Stats()
+{
+    Setup setup = MakeSetup(1, 2);
+    setup.stats = MakeStats();
+    const auto match = MakeMatch(setup, 60, 120, 31);
+    const Bytes stream = Record(setup, match);
+    Setup read;
+    std::string error;
+    Require(ReadSetup(stream.data(), stream.size(), read, error) && read.stats.kept, "the stats read: " + error);
+    const MatchStats& stats = read.stats;
+    Require(std::string(stats.names[0]) == "Anosch" && std::string(stats.names[1]) == "Zo\xC3\xAB"
+                && stats.name_kinds[0] == kNameProfile && stats.name_kinds[1] == kNameMii,
+            "the names come back");
+    Require(stats.field[0] == 10.0f && stats.field[4] == 14.0f && stats.first_frame == 120, "the field comes back");
+    Require(std::memcmp(stats.counts, setup.stats.counts, sizeof stats.counts) == 0, "the totals come back");
+    Require(stats.event_count == 3, "the moments come back");
+    for (int n = 0; n < 3; ++n)
+    {
+        const StatEvent& a = stats.events[n];
+        const StatEvent& b = setup.stats.events[n];
+        Require(a.frame == b.frame && a.clock == b.clock && a.stat == b.stat && a.side == b.side
+                    && a.player == b.player && a.other == b.other && a.kind == b.kind && a.count == b.count
+                    && a.flags == b.flags && a.x == b.x && a.y == b.y,
+                "moment " + std::to_string(n) + " comes back");
+    }
+    Replay(stream, setup, match);
+
+    // A live stream's start: no stats, the same bytes as a setup without them.
+    StreamWriter writer;
+    Require(writer.Begin(setup), "the writer takes a setup with stats");
+    Bytes start, plain_start;
+    writer.StartBytes(start, true);
+    Setup plain = setup;
+    plain.stats = MatchStats{};
+    StreamWriter plain_writer;
+    Require(plain_writer.Begin(plain), "the writer takes a setup without stats");
+    plain_writer.StartBytes(plain_start, true);
+    Require(start == plain_start, "a live stream's start has no stats");
+
+    // Before stats: the setup ends at the resumed game's start.
+    const Bytes none = Record(plain, match);
+    Require(ReadSetup(none.data(), none.size(), read, error) && !read.stats.kept,
+            "a replay without stats reads none: " + error);
+    Replay(none, plain, match);
+    const std::size_t block_at = 8 + (std::size_t(none[4]) | std::size_t(none[5]) << 8);
+
+    // A stats block of a later version, and one that claims too many
+    // moments: left out, the rest reads.
+    Bytes later(stream);
+    later[block_at + 4] = 2;
+    Require(ReadSetup(later.data(), later.size(), read, error) && !read.stats.kept && read.resumes == setup.resumes,
+            "stats of a later version are left out: " + error);
+    Replay(later, setup, match);
+    Bytes many(stream);
+    const std::size_t block_size = std::size_t(many[block_at]) | std::size_t(many[block_at + 1]) << 8;
+    const std::size_t count_at = block_at + 4 + block_size - 2 - 3 * 24;
+    Require(many[count_at] == 3 && many[count_at + 1] == 0, "the moment count sits before the moments");
+    many[count_at] = 0xFF;
+    many[count_at + 1] = 0xFF;
+    Require(ReadSetup(many.data(), many.size(), read, error) && !read.stats.kept,
+            "too many moments are refused: " + error);
+    // A block longer than the setup: the stats are left out.
+    Bytes cut(stream);
+    cut[block_at] = 0xFF;
+    cut[block_at + 1] = 0xFF;
+    Require(ReadSetup(cut.data(), cut.size(), read, error) && !read.stats.kept, "a cut stats block reads none");
+
+    // The file's header: the names and that the stream has stats.
+    FileInfo info;
+    info.build = "1.2.0";
+    info.game_id = "R4QE01";
+    Summarize(setup, info);
+    Require(info.stats && info.names[0] == "Anosch" && info.name_kinds[1] == kNameMii, "the summary has the names");
+    const auto file = EncodeFile(info, stream.data(), stream.size());
+    FileInfo back;
+    Require(DecodeFileInfo(file.data(), file.size(), back, error), "the named file reads: " + error);
+    Require(back.stats && back.names[0] == "Anosch" && back.names[1] == "Zo\xC3\xAB"
+                && back.name_kinds[0] == kNameProfile && back.name_kinds[1] == kNameMii && back.score[0] == 3,
+            "the file's header has the names");
+    FileInfo unnamed;
+    Summarize(plain, unnamed);
+    const auto plain_file = EncodeFile(unnamed, none.data(), none.size());
+    Require(DecodeFileInfo(plain_file.data(), plain_file.size(), back, error) && !back.stats && back.names[0].empty(),
+            "a file without stats has no names: " + error);
+}
+
 // A network match's live stream: written as it is played (its start as the
 // match begins, then each whole step), read while it still arrives.
 void LiveStreams()
@@ -627,6 +737,7 @@ int main()
         NetworkFields();
         CutsceneSkips();
         ResumedGames();
+        Stats();
         LiveStreams();
         Refusals();
         Files();

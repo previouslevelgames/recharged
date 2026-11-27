@@ -78,6 +78,55 @@ inline constexpr int kMaxEvents = 255;     // per packet
 inline constexpr int kMaxDataSize = 300;   // the router's serialized network message
 inline constexpr std::uint32_t kCheckpointSteps = 25;
 inline constexpr int kMaxSkips = 128;      // parts of cutscenes skipped, per game
+inline constexpr int kStatKinds = 39;      // the game's ePlayerStats
+inline constexpr int kMaxStatEvents = 1024;
+inline constexpr int kMaxNameBytes = 64;   // a player's name, UTF-8 with its end
+
+// A moment of the match the stats keep (tweak patch 0085): what the game
+// counted (StatsTracker::TrackStat) for a goal, a shot, an item, a hit, a
+// steal or a foul, when and where.
+struct StatEvent
+{
+    std::uint32_t frame = 0;  // the fixed step it happened in (the game's frame count)
+    float clock = -1.0f;      // the match clock then (seconds played, overtime on); -1 without one
+    std::uint8_t stat = 0;    // ePlayerStats
+    std::uint8_t side = 0;    // 0 home, 1 away
+    std::int8_t player = -1;  // 0 the captain, 1 to 3 the sidekicks, 4 the goalie; -1 none
+    std::int8_t other = -1;   // a goal: the player who assisted; an item: its type (ePowerUpType)
+    std::int16_t kind = 0;    // a goal: the game's goal type (6 a Mega Strike)
+    std::uint8_t count = 1;   // a goal: the goals it made; an item: how many; a Mega Strike: its balls
+    std::uint8_t flags = 0;   // kOwnGoal
+    float x = 0.0f, y = 0.0f; // where the player stood (the field's x along it, y across), 0 for a goal
+};
+inline constexpr std::uint8_t kOwnGoal = 0x01;
+
+// Names of the sides' players: a set's profile names, or the online Mii names.
+enum : std::uint8_t
+{
+    kNameNone = 0,
+    kNameProfile = 1,
+    kNameMii = 2,
+};
+
+// What the game counted in the match (replays from 1.2 on): each player's
+// totals as its StatsTracker kept them, the moments that matter, who played
+// and the field's size. A replay before them has none (`kept` 0).
+struct MatchStats
+{
+    std::uint8_t kept = 0;
+    // StatsTracker::mCurrentPlayerStats by side, player and ePlayerStats.
+    std::uint32_t counts[2][5][kStatKinds] = {};
+    // Who played home and away (UTF-8): none offline, where the launcher
+    // names the sides by their controllers.
+    char names[2][kMaxNameBytes] = {};
+    std::uint8_t name_kinds[2] = {};
+    // cField: the goal line's x, the sideline's y, the penalty box's x and y,
+    // the corners' radius.
+    float field[5] = {};
+    std::uint32_t first_frame = 0; // the frame of the first step recorded
+    std::uint16_t event_count = 0;
+    StatEvent events[kMaxStatEvents] = {};
+};
 
 // What the match starts from: the game's own recorded configuration
 // (RecordedGameConfig) and what the port adds so that the match is the same
@@ -162,6 +211,9 @@ struct Setup
     std::uint8_t resumes = 0;
     std::int32_t start_score[2] = {};
     float start_seconds = 0.0f;
+    // The match's stats once the game counted them (the file's; a live
+    // stream's start has none). Replays before them have none.
+    MatchStats stats;
 };
 
 // One machine's packet of a step, as the recorder reads it back.
@@ -201,8 +253,9 @@ public:
     // the steps written so far, which only grow until Finish or Clear: what a
     // live stream sends while the match is played.
     // `live`: no steps counted (a live stream's start comes after its first
-    // step; its count and score come only with the replay's file) and no
-    // skips (they go beside the stream, as they happen).
+    // step; its count and score come only with the replay's file), no skips
+    // (they go beside the stream, as they happen) and no stats (both players
+    // send the same bytes).
     void StartBytes(Bytes& out, bool live = false) const;
     const Bytes& StepBytes() const { return steps_; }
     // The stream (setup, then the steps); the writer is empty again.

@@ -9,7 +9,9 @@
 // u8 revision, i64 creation time in seconds since 1970, u32 stream size,
 // u32 compressed size, then the match's summary: u32 steps, i16 home and away
 // captain, i16 stadium, u16 home and away score, u8 flags, bit 0 Training, bit 1
-// a network match),
+// a network match, bit 2 the match's stats are in the stream; then, in later
+// replays, home's and away's player names: each its kind (match_replay_stream.h
+// kName*), u8 length and UTF-8 bytes),
 // then the zlib stream. A reader skips header bytes it does not know.
 
 #include "platform/match_replay_stream.h"
@@ -41,6 +43,10 @@ struct FileInfo
     int score[2] = {};
     bool training = false;
     bool network = false; // online or LAN: every machine's inputs
+    bool stats = false;   // the stream has the match's stats (MatchStats)
+    // Who played home and away, by name (online), and the names' kinds.
+    std::string names[2];
+    int name_kinds[2] = {};
 };
 
 // The game's fixed steps a second.

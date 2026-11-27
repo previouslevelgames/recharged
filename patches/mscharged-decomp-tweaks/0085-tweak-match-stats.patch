@@ -1,0 +1,83 @@
+From: mscharged-port
+Subject: Tweak: recorded matches keep the game's stats
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+The game counts every player's shots, goals, assists, passes, hits, steals,
+items and more for the match (StatsTracker, which the Cup and the stats
+screens read); every count goes through StatsTracker::TrackStat. A recorded
+match (tweak patch 0071) now keeps those totals in its replay, with the
+moments the launcher's match stats show: each goal (scorer, assist, kind),
+shot, Skillshot, Mega Strike, item, hit, steal and foul, when and where the
+player stood. ThrowPowerup tells the item's type and how many first, which
+TrackStat's STATS_POWERUPS_USED does not.
+
+The hooks only read: src/platform/match_stats.cpp keeps the moments (online,
+those of the steps the rollback undoes go again) and reads the totals.
+
+diff --git a/include/mscharged_replay.h b/include/mscharged_replay.h
+index 86c87d4..3774686 100644
+--- a/include/mscharged_replay.h
++++ b/include/mscharged_replay.h
+@@ -66,6 +66,12 @@ bool mscharged_tweak_presentation_test_press(void);
+ // network match (the game skips the part once nothing holds it: a score that
+ // still counts); at each update until the part ends.
+ void mscharged_tweak_presentation_pressed(int part);
++// Match stats (tweak patch 0085): a recorded match keeps what the game
++// counted for each player (its StatsTracker) and the moments that matter.
++// StatsTracker::TrackStat, as it counts a stat (before it does).
++void mscharged_tweak_stats_tracked(int stat, int side, int player, int param0, int param1, int param2, int param3);
++// ThrowPowerup, as a player throws or uses an item: its type and how many.
++void mscharged_tweak_stats_item(int side, int player, int type, int count);
+ 
+ #ifdef __cplusplus
+ }
+diff --git a/src/Game/AI/DesireUsePowerup.cpp b/src/Game/AI/DesireUsePowerup.cpp
+index 11da995..bcbefdb 100644
+--- a/src/Game/AI/DesireUsePowerup.cpp
++++ b/src/Game/AI/DesireUsePowerup.cpp
+@@ -14,6 +14,9 @@
+ #include "Game/Game.h"
+ #include "Game/EventDataTypes.h"
+ #include "Game/DB/StatsTracker.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_replay.h"
++#endif
+ #include "Game/Render/NPCManager.h"
+ #include "Game/Render/ChainChomp.h"
+ #include "Game/Team.h"
+@@ -344,6 +347,11 @@ void ThrowPowerup(DesireUsePowerup* pDesire)
+     }
+ 
+     ePowerUpType ePowerup = pDesire->m_pFielder->GetPowerupType();
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match stats": the item a recorded match counts next.
++    mscharged_tweak_stats_item(pDesire->m_pFielder->m_pTeam->m_nSide, pDesire->m_pFielder->m_DetPlayer.m_ID,
++                               ePowerup, pDesire->mnNumPowerups);
++#endif
+     switch (ePowerup)
+     {
+     case POWER_UP_MARIO:
+diff --git a/src/Game/DB/StatsTracker.cpp b/src/Game/DB/StatsTracker.cpp
+index 3539d93..d76196d 100644
+--- a/src/Game/DB/StatsTracker.cpp
++++ b/src/Game/DB/StatsTracker.cpp
+@@ -1,5 +1,8 @@
+ #include "NL/nlDLListContainer.inl"
+ #include "Game/DB/StatsTracker.h"
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_replay.h"
++#endif
+ #if defined(MSCHARGED_NATIVE)
+ #include "platform/variant_numeric_abi.h"
+ #endif
+@@ -533,6 +536,10 @@ static unsigned char GetGlobalPadID(int homeaway, int playerindex, int& padid)
+ void StatsTracker::TrackStat(ePlayerStats stat, int homeaway,
+     int playerindex, int param0, int param1, int param2, int param3)
+ {
++#if defined(MSCHARGED_TWEAKS)
++    // Port tweak "Match stats": a recorded match keeps what is counted.
++    mscharged_tweak_stats_tracked(stat, homeaway, playerindex, param0, param1, param2, param3);
++#endif
+     switch (stat)
+     {
+     case STATS_SHOTS_ON_GOAL:

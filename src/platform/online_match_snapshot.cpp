@@ -211,6 +211,22 @@ bool ChargedOnlineDossierGame(DesyncDossierHeader& header)
     return true;
 }
 
+bool ChargedOnlineSideMiiNames(char (&names)[2][48])
+{
+    if (!Online()) return false;
+    bool any = false;
+    for (int side = 0; side < 2; ++side)
+    {
+        names[side][0] = 0;
+        if (const NetworkDraftTeam* team = DraftTeam(side))
+        {
+            Utf8(team->mPlayers[0].mName, names[side], sizeof names[side]);
+            any |= names[side][0] != 0;
+        }
+    }
+    return any;
+}
+
 void ChargedOnlineSeriesForfeit()
 {
     if (!UnderWay()) return;

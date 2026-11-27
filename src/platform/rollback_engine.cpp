@@ -44,6 +44,7 @@
 #include "Game/Team.h"
 #include "Game/AI/Fielder.h"
 #include "Game/Goalie.h"
+#include "platform/match_stats.h"
 #include "platform/rollback_state.h"
 
 #if !defined(_WIN32) && !defined(__SWITCH__)
@@ -520,6 +521,9 @@ bool RollBack(unsigned target, unsigned replayEnd, int (*replay)(const Mscharged
     }
     s.stats.lossyFrees += mscharged::platform::RollbackGameAllocationCheckpointTo(from.mark, Excluded);
     s.replayMark = from.mark;
+    // The replay's match stats: the moments of the undone steps go; the steps
+    // add theirs again as they run.
+    mscharged::replay::StatsRolledBack(target);
     const std::uint64_t restoreNs = NowNs() - start;
     Record(restoreNs, s.stats.restoreNs, s.stats.maxRestoreNs);
 

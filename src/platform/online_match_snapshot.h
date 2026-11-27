@@ -74,6 +74,10 @@ void ChargedOnlineSeriesForfeit();
 // result would. False offline, before the kickoff, or without a profile.
 bool ChargedOnlineRecordingGame(unsigned& series, int& game, unsigned& profile_id);
 
+// In the game module, during an online match: the drafted Mii names of home
+// and away (UTF-8), empty where a side has none. False offline.
+bool ChargedOnlineSideMiiNames(char (&names)[2][48]);
+
 // One result the game settles (NetworkStatsManager::
 // CalculateAndReportGameResult) applied to a series under way: the game
 // module's rule, which its test runs on the host. A result for a game already

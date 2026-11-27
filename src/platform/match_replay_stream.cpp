@@ -29,6 +29,67 @@ void Put32(Bytes& out, std::uint32_t value)
     for (int shift = 0; shift < 32; shift += 8) out.push_back(std::uint8_t(value >> shift));
 }
 
+void PutFloat(Bytes& out, float value)
+{
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof bits);
+    Put32(out, bits);
+}
+
+// A name: its length (at most kMaxNameBytes - 1) and its bytes.
+void PutName(Bytes& out, const char (&name)[kMaxNameBytes])
+{
+    std::size_t length = 0;
+    while (length < kMaxNameBytes - 1 && name[length]) ++length;
+    Put8(out, std::uint8_t(length));
+    out.insert(out.end(), name, name + length);
+}
+
+// The stats block (version 1): the names, the field, the first frame, each
+// player's counts that are not 0 (how many, then stat and count each), the
+// events.
+void PutStats(Bytes& out, const MatchStats& s)
+{
+    Put8(out, 1);
+    for (int side = 0; side < 2; ++side)
+    {
+        Put8(out, s.name_kinds[side]);
+        PutName(out, s.names[side]);
+    }
+    for (const float value : s.field) PutFloat(out, value);
+    Put32(out, s.first_frame);
+    for (const auto& side : s.counts)
+        for (const auto& player : side)
+        {
+            std::uint8_t kept = 0;
+            for (const auto count : player) kept += count ? 1 : 0;
+            Put8(out, kept);
+            for (int stat = 0; stat < kStatKinds; ++stat)
+                if (player[stat])
+                {
+                    Put8(out, std::uint8_t(stat));
+                    Put32(out, player[stat]);
+                }
+        }
+    const unsigned events = s.event_count < kMaxStatEvents ? s.event_count : kMaxStatEvents;
+    Put16(out, std::uint16_t(events));
+    for (unsigned n = 0; n < events; ++n)
+    {
+        const StatEvent& e = s.events[n];
+        Put32(out, e.frame);
+        PutFloat(out, e.clock);
+        Put8(out, e.stat);
+        Put8(out, e.side);
+        Put8(out, std::uint8_t(e.player));
+        Put8(out, std::uint8_t(e.other));
+        Put16(out, std::uint16_t(e.kind));
+        Put8(out, e.count);
+        Put8(out, e.flags);
+        PutFloat(out, e.x);
+        PutFloat(out, e.y);
+    }
+}
+
 void PutSetup(Bytes& out, const Setup& s)
 {
     const auto i32 = [&](std::int32_t value) { Put32(out, std::uint32_t(value)); };
@@ -80,9 +141,16 @@ void PutSetup(Bytes& out, const Setup& s)
     }
     Put8(out, s.resumes);
     for (const auto value : s.start_score) i32(value);
-    std::uint32_t seconds = 0;
-    std::memcpy(&seconds, &s.start_seconds, sizeof seconds);
-    Put32(out, seconds);
+    PutFloat(out, s.start_seconds);
+    // The stats, in a block of their own (its size first): only once the game
+    // counted them, so a live stream's start is the same as before them.
+    if (s.stats.kept)
+    {
+        Bytes stats;
+        PutStats(stats, s.stats);
+        Put32(out, std::uint32_t(stats.size()));
+        out.insert(out.end(), stats.begin(), stats.end());
+    }
 }
 
 // Reads from a bounded buffer; a read past its end fails and stays failed.
@@ -115,6 +183,76 @@ struct Cursor
         return value;
     }
 };
+
+float GetFloat(Cursor& in)
+{
+    const std::uint32_t bits = in.Get32();
+    float value = 0.0f;
+    std::memcpy(&value, &bits, sizeof value);
+    return value;
+}
+
+void GetName(Cursor& in, char (&name)[kMaxNameBytes])
+{
+    const unsigned length = in.Get8();
+    if (length >= unsigned(kMaxNameBytes) || !in.Need(length))
+    {
+        in.failed = true;
+        return;
+    }
+    std::memcpy(name, in.data + in.at, length);
+    name[length] = 0;
+    in.at += length;
+}
+
+// The stats block; false (and no stats) when it is damaged or of a later
+// version.
+bool GetStats(Cursor& in, MatchStats& s)
+{
+    s = MatchStats{};
+    if (in.Get8() != 1) return false;
+    for (int side = 0; side < 2; ++side)
+    {
+        s.name_kinds[side] = in.Get8();
+        GetName(in, s.names[side]);
+    }
+    for (float& value : s.field) value = GetFloat(in);
+    s.first_frame = in.Get32();
+    for (auto& side : s.counts)
+        for (auto& player : side)
+        {
+            const unsigned kept = in.Get8();
+            for (unsigned n = 0; n < kept && !in.failed; ++n)
+            {
+                const unsigned stat = in.Get8();
+                const std::uint32_t count = in.Get32();
+                if (stat >= unsigned(kStatKinds)) return false;
+                player[stat] = count;
+            }
+        }
+    const unsigned events = in.Get16();
+    if (events > unsigned(kMaxStatEvents)) return false;
+    for (unsigned n = 0; n < events && !in.failed; ++n)
+    {
+        StatEvent& e = s.events[n];
+        e.frame = in.Get32();
+        e.clock = GetFloat(in);
+        e.stat = in.Get8();
+        e.side = in.Get8();
+        e.player = std::int8_t(in.Get8());
+        e.other = std::int8_t(in.Get8());
+        e.kind = std::int16_t(in.Get16());
+        e.count = in.Get8();
+        e.flags = in.Get8();
+        e.x = GetFloat(in);
+        e.y = GetFloat(in);
+        if (e.side > 1 || e.player < -1 || e.player > 4) return false;
+    }
+    if (in.failed) return false;
+    s.event_count = std::uint16_t(events);
+    s.kept = 1;
+    return true;
+}
 
 void GetSetup(Cursor& in, Setup& s)
 {
@@ -175,8 +313,15 @@ void GetSetup(Cursor& in, Setup& s)
     if (in.failed || in.at == in.size) return;
     s.resumes = in.Get8();
     for (auto& value : s.start_score) value = i32();
-    const std::uint32_t seconds = in.Get32();
-    std::memcpy(&s.start_seconds, &seconds, sizeof seconds);
+    s.start_seconds = GetFloat(in);
+    // A replay without stats (before them, or a live stream's start) stops
+    // here. Damaged stats are left out: the match still plays.
+    if (in.failed || in.at == in.size) return;
+    const std::uint32_t size = in.Get32();
+    if (in.failed || size > in.size - in.at) return;
+    Cursor block{in.data + in.at, size};
+    if (!GetStats(block, s.stats)) s.stats = MatchStats{};
+    in.at += size;
 }
 
 bool ValidCounts(const Setup& s)
@@ -393,6 +538,7 @@ void StreamWriter::StartBytes(Bytes& out, bool live) const
     {
         start.steps = 0;
         start.skip_count = 0;
+        start.stats.kept = 0;
     }
     PutSetup(setup, start);
     Put32(out, kStreamVersion);
