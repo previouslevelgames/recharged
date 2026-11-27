@@ -43,4 +43,25 @@ enum class AwayKitTexture
 // format). False when the format is another or the references do not match.
 bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uint8_t> texture,
     std::span<const std::uint8_t> reference0 = {}, std::span<const std::uint8_t> reference1 = {});
+
+// Team textures the disc leaves unfinished (issue #176). Shy Guy's blue Peach
+// kit (shyguy_peach_alt) is red and yellow with Petey's emblem, a leftover the
+// game never shows: no captain shares Peach's colour. Blue Peach and Mirror
+// match show it. It is made from his pink Peach kit the way the game's own
+// blue kits of her other sidekicks are: her pink turns blue, her light blue
+// yellow.
+struct UnfinishedKit;
+
+// The unfinished kit a loaded bundle holds with the disc's bytes, or null.
+const UnfinishedKit* FindUnfinishedKit(std::span<const std::uint8_t> bundle);
+// The unfinished kit of texture `texture` (its name hash), whatever its bytes, or null.
+const UnfinishedKit* UnfinishedKitNamed(std::uint32_t texture);
+// The bundles it is made from: 0 the one holding the texture it is made from,
+// 1 and 2 the reference teams' bundles of that texture.
+const char* UnfinishedKitFile(const UnfinishedKit& kit, int index);
+// Makes it in `bundle` from those bundles. False, and `bundle` unchanged, when
+// it cannot be made: a bundle lacks its texture, or they differ in size or
+// format.
+bool FinishUnfinishedKit(const UnfinishedKit& kit, std::span<std::uint8_t> bundle, std::span<const std::uint8_t> source,
+    std::span<const std::uint8_t> reference0, std::span<const std::uint8_t> reference1);
 }

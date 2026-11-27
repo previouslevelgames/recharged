@@ -6,10 +6,13 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <new>
+#include <unordered_map>
 #include <vector>
 
 namespace mscharged::platform
@@ -74,7 +77,66 @@ bool InBand(const Band& band, float h, float s, float v)
 enum : std::uint8_t
 {
     kNone = 0,
-    kKit = 1, // recoloured as the away kit
+    kKit = 1,  // recoloured as the away kit
+    kTrim = 2, // a team texture's second colour, recoloured as the trim (unfinished kits)
+};
+
+// The team colours of an unfinished kit's team texture: the band of the team
+// colour, and of its second colour (the trim) with the colour the trim becomes.
+struct TeamColours
+{
+    Band team;
+    Band trim;
+    std::uint32_t trimColour; // 0xRRGGBB
+};
+
+// What the masks need of a texel's colour.
+struct ColourInfo
+{
+    float h, s, v; // HSV, hue in degrees
+    Lab lab;       // OKLab
+};
+
+ColourInfo InfoOf(RGB c)
+{
+    ColourInfo info;
+    ToHsv(c, info.h, info.s, info.v);
+    info.lab = ToLab(c);
+    return info;
+}
+
+// CMPR textures repeat few colours (Shy Guy's 256x256 kit and its mip levels:
+// some 3,500 in 87,000 texels), so each colour's conversions are worked out
+// once. Keyed by the colour's exact bits: the results are the same.
+template<class Value> class ColourMemo
+{
+public:
+    template<class Compute> Value Get(RGB c, Compute compute)
+    {
+        const Key key{std::bit_cast<std::uint32_t>(c.r), std::bit_cast<std::uint32_t>(c.g),
+            std::bit_cast<std::uint32_t>(c.b)};
+        auto [entry, added] = values_.try_emplace(key);
+        if (added) entry->second = compute(c);
+        return entry->second;
+    }
+
+private:
+    struct Key
+    {
+        std::uint32_t r, g, b;
+        bool operator==(const Key&) const = default;
+    };
+    struct KeyHash
+    {
+        std::size_t operator()(const Key& key) const noexcept
+        {
+            std::uint64_t h = key.r * 0x9E3779B97F4A7C15ull;
+            h = (h ^ key.g) * 0xC2B2AE3D27D4EB4Full;
+            h = (h ^ key.b) * 0x165667B19E3779F9ull;
+            return std::size_t(h ^ (h >> 32));
+        }
+    };
+    std::unordered_map<Key, Value, KeyHash, std::equal_to<Key>, HostAllocator<std::pair<const Key, Value>>> values_;
 };
 
 // Kit texels of a kit texture or picture: strong texels and the weak ones
@@ -179,38 +241,53 @@ void OpenMask(const Level& level, HostVector<std::uint8_t>& mask)
         }
 }
 
+// The colours a team texture's team texels have: the kit's weak band and a
+// little more.
+Band TeamBand(const AwayKit& kit)
+{
+    return {kit.weak.hueLo - 10.0f < 0.0f ? kit.weak.hueLo + 350.0f : kit.weak.hueLo - 10.0f,
+        kit.weak.hueHi + 10.0f >= 360.0f ? kit.weak.hueHi - 350.0f : kit.weak.hueHi + 10.0f, 0.12f, 0.12f, 0.04f};
+}
+
 // Team texels of a team texture: those that differ from both references, as
-// only the team colour does, and have the kit's hue (where the other teams'
-// emblems differ in shape, this texture is white or grey).
-void TeamMask(const AwayKit& kit, const HostVector<Texel>& texels, const HostVector<Texel>& reference0,
-    const HostVector<Texel>& reference1, HostVector<std::uint8_t>& mask)
+// only the team colours do (where the other teams' emblems differ in shape,
+// this texture is white or grey), and have the team colour (`team`: kKit) or
+// the trim's (`trim`, if any: kTrim).
+void TeamMask(const Band& team, const Band* trim, const HostVector<Texel>& texels, const HostVector<Texel>& reference0,
+    const HostVector<Texel>& reference1, ColourMemo<ColourInfo>& colours, HostVector<std::uint8_t>& mask)
 {
     constexpr float kThreshold = 0.07f * 0.07f;
-    const Band hue = {kit.weak.hueLo - 10.0f < 0.0f ? kit.weak.hueLo + 350.0f : kit.weak.hueLo - 10.0f,
-        kit.weak.hueHi + 10.0f >= 360.0f ? kit.weak.hueHi - 350.0f : kit.weak.hueHi + 10.0f, 0.12f, 0.12f, 0.04f};
+    auto d2 = [](Lab a, Lab b) {
+        float dl = a.L - b.L, da = a.a - b.a, db = a.b - b.b;
+        return dl * dl + da * da + db * db;
+    };
     mask.assign(texels.size(), kNone);
     for (std::size_t i = 0; i < texels.size(); ++i)
     {
         if (texels[i].alpha <= 0.0f) continue;
-        float h, s, v;
-        ToHsv(texels[i].colour, h, s, v);
-        if (!InBand(hue, h, s, v)) continue;
-        Lab c = ToLab(texels[i].colour), r0 = ToLab(reference0[i].colour), r1 = ToLab(reference1[i].colour);
-        auto d2 = [](Lab a, Lab b) {
-            float dl = a.L - b.L, da = a.a - b.a, db = a.b - b.b;
-            return dl * dl + da * da + db * db;
-        };
-        if (d2(c, r0) > kThreshold && d2(c, r1) > kThreshold) mask[i] = kKit;
+        const ColourInfo c = colours.Get(texels[i].colour, InfoOf);
+        std::uint8_t value;
+        if (InBand(team, c.h, c.s, c.v))
+            value = kKit;
+        else if (trim && InBand(*trim, c.h, c.s, c.v))
+            value = kTrim;
+        else
+            continue;
+        const Lab r0 = colours.Get(reference0[i].colour, InfoOf).lab;
+        const Lab r1 = colours.Get(reference1[i].colour, InfoOf).lab;
+        if (d2(c.lab, r0) > kThreshold && d2(c.lab, r1) > kThreshold) mask[i] = value;
     }
 }
 
-LchStats Median(const HostVector<Texel>& texels, const HostVector<std::uint8_t>& mask)
+// The median colour of the texels of one mask value.
+LchStats Median(const HostVector<Texel>& texels, const HostVector<std::uint8_t>& mask, std::uint8_t value,
+    ColourMemo<ColourInfo>& colours)
 {
     HostVector<float> L, C, a, b;
     for (std::size_t i = 0; i < texels.size(); ++i)
     {
-        if (mask[i] != kKit) continue;
-        Lab c = ToLab(texels[i].colour);
+        if (mask[i] != value) continue;
+        const Lab c = colours.Get(texels[i].colour, InfoOf).lab;
         L.push_back(c.L);
         C.push_back(std::sqrt(c.a * c.a + c.b * c.b));
         a.push_back(c.a);
@@ -254,10 +331,24 @@ bool DecodeReference(std::span<const std::uint8_t> reference, std::uint32_t form
     return true;
 }
 
-// Writes the recoloured texels of a level back in its format. CMPR blocks
-// with a kit texel are encoded anew; other blocks and texels keep their bytes.
+// How the texels of one mask value recolour: their median colour `from`
+// becomes `to`. Set both before the first colour.
+struct Mapping
+{
+    LchStats from{}, to{};
+    ColourMemo<RGB> recoloured;
+
+    RGB operator()(RGB c)
+    {
+        return recoloured.Get(c, [this](RGB colour) { return Recolour(colour, from, to); });
+    }
+};
+
+// Writes the recoloured texels of a level back in its format, each by the
+// mapping of its mask value (kKit, kTrim). CMPR blocks with a recoloured texel
+// are encoded anew; other blocks and texels keep their bytes.
 void WriteLevel(std::span<std::uint8_t> texture, std::uint32_t format, const Level& level,
-    const HostVector<std::uint8_t>& mask, const LchStats& from, const LchStats& to)
+    const HostVector<std::uint8_t>& mask, Mapping (&maps)[3])
 {
     if (format == kCMPR)
     {
@@ -276,10 +367,12 @@ void WriteLevel(std::span<std::uint8_t> texture, std::uint32_t format, const Lev
                         int i = y * 4 + x;
                         RGB c = decoded[i].colour;
                         opaque[i] = decoded[i].alpha > 0.0f;
-                        if (bx + x < level.width && by + y < level.height
-                            && mask[std::size_t(by + y) * level.width + bx + x] == kKit)
+                        const std::uint8_t m = bx + x < level.width && by + y < level.height
+                            ? mask[std::size_t(by + y) * level.width + bx + x]
+                            : std::uint8_t(kNone);
+                        if (m != kNone)
                         {
-                            c = Recolour(c, from, to);
+                            c = maps[m](c);
                             touched = true;
                         }
                         colours[i][0] = c.r * 255.0f;
@@ -293,20 +386,21 @@ void WriteLevel(std::span<std::uint8_t> texture, std::uint32_t format, const Lev
     for (int y = 0; y < level.height; ++y)
         for (int x = 0; x < level.width; ++x)
         {
-            if (mask[std::size_t(y) * level.width + x] != kKit) continue;
+            const std::uint8_t m = mask[std::size_t(y) * level.width + x];
+            if (m == kNone) continue;
             int index;
             if (format == kRGB5A3)
             {
                 std::uint8_t* p = &texture[TexelTile(level, x, y, 32, index) + std::size_t(index) * 2];
                 std::uint16_t v = BE16(p);
-                PutBE16(p, EncodeRGB5A3(v, Recolour(DecodeRGB5A3(v).colour, from, to)));
+                PutBE16(p, EncodeRGB5A3(v, maps[m](DecodeRGB5A3(v).colour)));
             }
             else
             {
                 std::size_t tile = TexelTile(level, x, y, 64, index);
                 std::uint8_t* ar = &texture[tile + std::size_t(index) * 2];
                 std::uint8_t* gb = &texture[tile + 32 + std::size_t(index) * 2];
-                RGB c = Recolour({ar[1] / 255.0f, gb[0] / 255.0f, gb[1] / 255.0f}, from, to);
+                RGB c = maps[m]({ar[1] / 255.0f, gb[0] / 255.0f, gb[1] / 255.0f});
                 ar[1] = std::uint8_t(std::lround(std::clamp(c.r, 0.0f, 1.0f) * 255.0f));
                 gb[0] = std::uint8_t(std::lround(std::clamp(c.g, 0.0f, 1.0f) * 255.0f));
                 gb[1] = std::uint8_t(std::lround(std::clamp(c.b, 0.0f, 1.0f) * 255.0f));
@@ -328,16 +422,25 @@ std::uint32_t AwayKitSourceTexture(const AwayKit& kit) { return kit.source; }
 const char* AwayKitReference(const AwayKit& kit, int index) { return kit.references[index & 1]; }
 bool AwayKitPhotos(const AwayKit& kit) { return kit.photos; }
 
-bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uint8_t> texture,
-    std::span<const std::uint8_t> reference0, std::span<const std::uint8_t> reference1)
+namespace
 {
+// RecolourAwayKit; on a team texture `colours`, if given, replace the kit's
+// team colour band and add a trim (an unfinished kit).
+bool RecolourTexture(const AwayKit& kit, AwayKitTexture kind, std::span<std::uint8_t> texture,
+    std::span<const std::uint8_t> reference0, std::span<const std::uint8_t> reference1, const TeamColours* colours)
+{
+    if (colours && kind != AwayKitTexture::Team) return false;
     HostVector<Level> levels;
     std::uint32_t format;
     if (!Levels(texture, format, levels)) return false;
     HostVector<Texel> texels, ref0, ref1;
     HostVector<std::uint8_t> mask;
+    ColourMemo<ColourInfo> infos;
     const LchStats target = kit_colour::Target<RGB>(kit.colour);
-    LchStats from{};
+    Mapping maps[3];
+    maps[kKit].to = target;
+    if (colours) maps[kTrim].to = kit_colour::Target<RGB>(colours->trimColour);
+    const Band team = colours ? colours->team : TeamBand(kit);
     for (std::size_t l = 0; l < levels.size(); ++l)
     {
         const Level& level = levels[l];
@@ -354,16 +457,21 @@ bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uin
             if (!DecodeReference(reference0, format, level, l, ref0)
                 || !DecodeReference(reference1, format, level, l, ref1))
                 return false;
-            TeamMask(kit, texels, ref0, ref1, mask);
+            TeamMask(team, colours ? &colours->trim : nullptr, texels, ref0, ref1, infos, mask);
         }
         // The reference colours come from the full-size level, so every mip
         // level gets the same mapping.
-        if (l == 0) from = Median(texels, mask);
+        if (l == 0)
+        {
+            maps[kKit].from = Median(texels, mask, kKit, infos);
+            if (colours) maps[kTrim].from = Median(texels, mask, kTrim, infos);
+        }
         // Texture packs: the host recolours the pack's HD image of the largest
-        // level alike, from its texels before and the texels recoloured.
+        // level alike, from its texels before and the texels recoloured. It
+        // knows one colour: a texture with a trim keeps the game's resolution.
         HostVector<std::uint8_t> original, rgba;
         const std::size_t bytes = LevelBytes(format, level);
-        const bool tell = l == 0 && sRecolouredHook && level.offset + bytes <= texture.size()
+        const bool tell = l == 0 && sRecolouredHook && !colours && level.offset + bytes <= texture.size()
             && std::find(mask.begin(), mask.end(), std::uint8_t(kKit)) != mask.end();
         if (tell)
         {
@@ -378,7 +486,7 @@ bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uin
                 rgba[i * 4 + 3] = Byte(texels[i].alpha);
             }
         }
-        WriteLevel(texture, format, level, mask, from, target);
+        WriteLevel(texture, format, level, mask, maps);
         if (tell)
         {
             const ChargedRecolouredTexture info{format == kCMPR ? 14u : format == kRGB5A3 ? 5u : 6u,
@@ -388,6 +496,85 @@ bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uin
             sRecolouredHook(&info);
         }
     }
+    return true;
+}
+} // namespace
+
+bool RecolourAwayKit(const AwayKit& kit, AwayKitTexture kind, std::span<std::uint8_t> texture,
+    std::span<const std::uint8_t> reference0, std::span<const std::uint8_t> reference1)
+{
+    return RecolourTexture(kit, kind, texture, reference0, reference1, nullptr);
+}
+
+struct UnfinishedKit
+{
+    std::uint32_t texture;     // its name (the game's string hash)
+    std::uint64_t disc;        // FNV-1a of its bytes on the disc (header and levels)
+    const char* captain;       // whose away kit gives the team colour (FindGeneratedAwayKit)
+    TeamColours colours;       // its team colours
+    const char* files[3];      // UnfinishedKitFile
+    std::uint32_t textures[3]; // the textures in them
+};
+
+namespace
+{
+// Identical on the US, European (both revisions), Japanese and Korean discs.
+// Peach's other sidekicks' blue kits turn her pink (#E2578B, the median) into
+// #5CB8FE, her away colour 0x5DB9FF, and her light blue (#67B6F9) into
+// #FFF422. Shy Guy's pink reaches into red where it shades into black lines.
+const UnfinishedKit kUnfinished[] = {
+    {0xD88042C0u /* shyguy_peach_alt/shyguy_peach_alt */, 0x35E3DB13379D0F65ull, "peach",
+        {{285.0f, 20.0f, 0.12f, 0.12f, 0.04f}, {185.0f, 235.0f, 0.15f, 0.15f, 0.04f}, 0xFFF422u},
+        {"art/characters/shyguy/shyguy_peach.rlt", "art/characters/shyguy/shyguy_luigi.rlt",
+            "art/characters/shyguy/shyguy_wario.rlt"},
+        {0xD4E5D8C0u /* shyguy_peach/shyguy_peach */, 0x73F31692u /* shyguy_luigi/shyguy_luigi */,
+            0x4E8BACA2u /* shyguy_wario/shyguy_wario */}},
+};
+
+std::uint64_t Fnv1a(std::span<const std::uint8_t> bytes)
+{
+    std::uint64_t hash = 0xCBF29CE484222325ull;
+    for (std::uint8_t b : bytes) hash = (hash ^ b) * 0x100000001B3ull;
+    return hash;
+}
+} // namespace
+
+const UnfinishedKit* FindUnfinishedKit(std::span<const std::uint8_t> bundle)
+{
+    for (const UnfinishedKit& kit : kUnfinished)
+    {
+        std::span<const std::uint8_t> texture = FindBundleTexture(bundle, kit.texture);
+        if (!texture.empty() && Fnv1a(texture) == kit.disc) return &kit;
+    }
+    return nullptr;
+}
+
+const UnfinishedKit* UnfinishedKitNamed(std::uint32_t texture)
+{
+    for (const UnfinishedKit& kit : kUnfinished)
+        if (kit.texture == texture) return &kit;
+    return nullptr;
+}
+
+const char* UnfinishedKitFile(const UnfinishedKit& kit, int index)
+{
+    return index >= 0 && index < 3 ? kit.files[index] : nullptr;
+}
+
+bool FinishUnfinishedKit(const UnfinishedKit& kit, std::span<std::uint8_t> bundle, std::span<const std::uint8_t> source,
+    std::span<const std::uint8_t> reference0, std::span<const std::uint8_t> reference1)
+{
+    const AwayKit* away = FindGeneratedAwayKit(kit.captain);
+    std::span<const std::uint8_t> target = FindBundleTexture(bundle, kit.texture);
+    std::span<const std::uint8_t> from = FindBundleTexture(source, kit.textures[0]);
+    if (!away || target.empty() || from.size() != target.size() || from.size() < 32
+        || std::memcmp(from.data(), target.data(), 32) != 0)
+        return false;
+    HostVector<std::uint8_t> made(from.begin(), from.end());
+    if (!RecolourTexture(*away, AwayKitTexture::Team, made, FindBundleTexture(reference0, kit.textures[1]),
+            FindBundleTexture(reference1, kit.textures[2]), &kit.colours))
+        return false;
+    std::memcpy(const_cast<std::uint8_t*>(target.data()), made.data(), made.size());
     return true;
 }
 
@@ -474,5 +661,27 @@ bool mscharged_tweak_make_away_kit(const char* captain, bool team, void* bundle,
         return recoloured;
     }
     return false;
+}
+
+// Unfinished kits (issue #176): whether a loaded sidekick bundle holds one as
+// the disc has it, with the files it is made from (UnfinishedKitFile); and
+// making it in the bundle from those files' bundles.
+bool mscharged_tweak_unfinished_kit(const void* bundle, unsigned long size, const char* files[3])
+{
+    const UnfinishedKit* kit = bundle ? FindUnfinishedKit({static_cast<const std::uint8_t*>(bundle), size}) : nullptr;
+    for (int i = 0; i < 3; ++i) files[i] = kit ? UnfinishedKitFile(*kit, i) : nullptr;
+    return kit != nullptr;
+}
+
+bool mscharged_tweak_finish_unfinished_kit(void* bundle, unsigned long size, const void* source,
+    unsigned long source_size, const void* reference0, unsigned long size0, const void* reference1, unsigned long size1)
+{
+    if (!bundle || !source || !reference0 || !reference1) return false;
+    std::span<std::uint8_t> bytes(static_cast<std::uint8_t*>(bundle), size);
+    const UnfinishedKit* kit = FindUnfinishedKit(bytes);
+    auto in = [](const void* data, unsigned long length) {
+        return std::span<const std::uint8_t>(static_cast<const std::uint8_t*>(data), length);
+    };
+    return kit && FinishUnfinishedKit(*kit, bytes, in(source, source_size), in(reference0, size0), in(reference1, size1));
 }
 }

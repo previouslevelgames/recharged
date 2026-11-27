@@ -1,0 +1,107 @@
+Subject: Fix: Shy Guy's blue Peach kit is made, the disc's is unfinished (issue #176)
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+A fix of the original game's data, always on and without a switch, like the
+other fixes in this series.
+
+Peach has a blue kit on the disc (peach_alt.rlt, her goalie's and one for each
+of the eight sidekicks), which CharacterLoader loads for a captain against a
+captain of his colours. No captain shares Peach's colour, so the retail game
+never shows it; Blue Peach (tweak patch 0017) and Mirror match (0015, and a
+set's mirror match, 0062) do. Seven of the sidekick kits are finished: her
+pink turns blue (#E2578B to #5CB8FE, her away colour) and her light blue turns
+yellow (#67B6F9 to #FFF422). Shy Guy's (shyguy_peach_alt.rlt) never was: it is
+red and yellow with Petey's green emblem, closest to shyguy_petey_alt.rlt.
+The file is the same on the US, European (both revisions), Japanese and Korean
+discs.
+
+When a sidekick bundle holds that texture with the disc's bytes,
+FinalizeLoadingSidekickSwapTexture now makes it before the bundle registers:
+src/platform/away_kits.cpp copies Shy Guy's pink Peach kit (shyguy_peach.rlt)
+into it and recolours it as the seven finished kits are. Team texels are those
+that differ from Luigi's and Wario's versions of the texture; pink ones take
+the blue, light blue ones the yellow, everything else keeps its bytes. The
+three files are read from the disc as the kit loads. A texture with other
+bytes (a changed file) is left alone. A texture pack's HD image of the pink
+kit is not used for it: the made kit keeps the game's resolution.
+
+diff --git a/include/mscharged_tweaks.h b/include/mscharged_tweaks.h
+index 7414b7d..23ba2ab 100644
+--- a/include/mscharged_tweaks.h
++++ b/include/mscharged_tweaks.h
+@@ -69,6 +69,15 @@ bool mscharged_tweak_recolour_away_texture(const char* captain, int kind, void*
+     const void* reference0, unsigned long size0, const void* reference1, unsigned long size1);
+ bool mscharged_tweak_away_kit_photos(const char* captain);
+ 
++// Unfinished kits (issue #176): a team texture the disc never finished, in a
++// loaded sidekick bundle, is made anew. Whether the bundle holds one as the
++// disc has it, and the files it is made from (0 the bundle with the texture it
++// is made from, 1 and 2 the reference teams'); making it in place from those
++// files' bundles.
++bool mscharged_tweak_unfinished_kit(const void* bundle, unsigned long size, const char* files[3]);
++bool mscharged_tweak_finish_unfinished_kit(void* bundle, unsigned long size, const void* source,
++    unsigned long source_size, const void* reference0, unsigned long size0, const void* reference1, unsigned long size1);
++
+ // Skip intro: whether the title screen still has to be passed this launch,
+ // and taking that single press of A.
+ bool mscharged_tweak_title_pending(void);
+diff --git a/src/Game/CharacterLoader.cpp b/src/Game/CharacterLoader.cpp
+index 9c5e7cb..764fffb 100644
+--- a/src/Game/CharacterLoader.cpp
++++ b/src/Game/CharacterLoader.cpp
+@@ -204,6 +204,43 @@ static bool BluePeachTeam(eCharacterClass captain0, eCharacterClass captain1, in
+ }
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++// Port fix (issue #176): the disc's blue Peach kit of Shy Guy
++// (shyguy_peach_alt) was never finished: red and yellow, with Petey's emblem.
++// The retail game never shows Peach's blue kit, Blue Peach and Mirror match do.
++// When a sidekick bundle holds it as the disc has it, it is made from his pink
++// Peach kit in the colours of her other sidekicks' blue kits, compared with
++// two other teams' versions of it (src/platform/away_kits.cpp).
++static void FinishUnfinishedKit(void* data, unsigned long size)
++{
++    const char* szFiles[3];
++    if (!mscharged_tweak_unfinished_kit(data, size, szFiles))
++    {
++        return;
++    }
++    void* files[3] = { 0, 0, 0 };
++    unsigned long sizes[3] = { 0, 0, 0 };
++    for (int i = 0; i < 3; i++)
++    {
++        if (nlFileExists(szFiles[i]))
++        {
++            files[i] = nlLoadEntireFile(szFiles[i], &sizes[i], 32, AllocateStart, 0, 0, 0);
++        }
++    }
++    if (!mscharged_tweak_finish_unfinished_kit(data, size, files[0], sizes[0], files[1], sizes[1], files[2], sizes[2]))
++    {
++        nlPrintf("Unfinished kit: the disc's version stays (not made from %s)\n", szFiles[0]);
++    }
++    for (int i = 0; i < 3; i++)
++    {
++        if (files[i] != 0)
++        {
++            nlFree(files[i]);
++        }
++    }
++}
++#endif
++
+ #if defined(MSCHARGED_TWEAKS)
+ // Port tweak "Robot goalies": both goalies wear the robot goalie skin of the
+ // Super Team from Super Mario Strikers. The disc still has its texture, unused
+@@ -1213,6 +1250,11 @@ bool CharacterLoader::FinalizeLoadingSidekickSwapTexture()
+     }
+ #endif
+ 
++#if defined(MSCHARGED_TWEAKS)
++    // Port fix (issue #176): an unfinished team kit is made anew.
++    FinishUnfinishedKit(mSidekickTextureData, mSidekickTextureSize);
++#endif
++
+     glEndLoadTextureBundle(mSidekickTextureData, mSidekickTextureSize, glGetCurrentResourcePool(), false);
+     nlFree(mSidekickTextureData);
+     mSidekickTextureData = 0;

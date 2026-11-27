@@ -231,7 +231,10 @@ still unfinished, only `super_team = true` in `recharged.ini`:
   (Peach, her sidekicks and her goalie). The game has it on the disc but only
   uses it against a captain of her colours, and nobody else is pink. Her menu
   pictures, Mega Strike hand, stadium banners and crowd have no blue version
-  and stay pink.
+  and stay pink. Shy Guy's blue kit was never finished on the disc (red and
+  yellow): Recharged makes it from his pink one in the colours of her other
+  sidekicks, also for Mirror match
+  ([#176](https://github.com/previouslevelgames/recharged/issues/176)).
 - **Robot goalies**: both goalies wear the robot Kritter skin of the Super
   Team, the hidden robot team of Super Mario Strikers on the GameCube. The
   game's disc still holds its texture, unused and made for the older game's
