@@ -438,11 +438,11 @@ bool ValidProfileName(const std::string& name)
 // Events tabs); the settings that change while the game runs (the display
 // and sound, the gameplay options, the rumble...) are its OPTIONS.
 enum Page { PagePlay, PageOnlineSettings, PageRules, PageSidekicks, PageGame, PageGraphics,
-            PageControls, PageAdvanced, PageExtras, PageReplays, PageAbout, PageCount };
-constexpr const char* page_ids[] = {"play",     "online-settings", "rules",  "sidekicks", "game", "graphics",
-                                    "controls", "advanced",        "extras", "replays",   "about"};
-constexpr Icon page_icons[] = {Icon::Play,     Icon::Person,  Icon::Clipboard, Icon::Pitch,   Icon::Disc, Icon::Display,
-                               Icon::Keyboard, Icon::Sliders, Icon::Target,    Icon::Archive, Icon::Info};
+            PageControls, PageExtras, PageAdvanced, PageReplays, PageAbout, PageCount };
+constexpr const char* page_ids[] = {"play",     "online-settings", "rules",    "sidekicks", "game", "graphics",
+                                    "controls", "extras",          "advanced", "replays",   "about"};
+constexpr Icon page_icons[] = {Icon::Play,     Icon::Person, Icon::Clipboard, Icon::Pitch,   Icon::Disc, Icon::Display,
+                               Icon::Keyboard, Icon::Target, Icon::Sliders,   Icon::Archive, Icon::Info};
 static_assert(std::size(page_ids) == PageCount && std::size(page_icons) == PageCount);
 // --page's names of the pages that were merged into others.
 constexpr std::pair<const char*, int> kOldPageIds[] = {{"display", PageGraphics}, {"audio", PageGame},
@@ -476,7 +476,7 @@ struct NavGroupInfo
     int first;
     int count;
 };
-constexpr NavGroupInfo kNavGroups[] = {{Icon::Chat, PageOnlineSettings, 3}, {Icon::Gear, PageGraphics, 3}};
+constexpr NavGroupInfo kNavGroups[] = {{Icon::Chat, PageOnlineSettings, 3}, {Icon::Gear, PageGraphics, 4}};
 // A group's name in the sidebar (kNavGroups order).
 const char* NavGroupName(int group)
 {
@@ -502,8 +502,8 @@ constexpr int NavGroupMostPages()
     return most;
 }
 static_assert(NavGroupOf(PageOnlineSettings) == 0 && NavGroupOf(PageRules) == 0 && NavGroupOf(PageSidekicks) == 0
-              && NavGroupOf(PageReplays) == -1 && NavGroupOf(PageGame) == -1 && NavGroupOf(PageExtras) == -1
-              && NavGroupOf(PageGraphics) == 1 && NavGroupOf(PageControls) == 1 && NavGroupOf(PageAdvanced) == 1);
+              && NavGroupOf(PageReplays) == -1 && NavGroupOf(PageGame) == -1 && NavGroupOf(PageGraphics) == 1
+              && NavGroupOf(PageControls) == 1 && NavGroupOf(PageExtras) == 1 && NavGroupOf(PageAdvanced) == 1);
 constexpr bool OnlinePage(int page) { return NavGroupOf(page) == 0; }
 
 // The captains (eTeamID order) and the sidekicks (eSidekickID order), as the
@@ -14201,7 +14201,7 @@ int main(int argc, char** argv)
                          "or fails after 90 s.\n"
                          "Use --launcher to open settings; launcher checks and explicit runtime modes keep their selected mode.\n"
                          "Development checks: --smoke-test | --screenshot FILE [--page play|online-settings|rules|sidekicks|game|"
-                         "graphics|controls|advanced|extras|replays|about]\n";
+                         "graphics|controls|extras|advanced|replays|about]\n";
 #ifdef MSCHARGED_HAS_GAME_STARTUP
             std::cout << "Original startup prototype: --experimental-startup [--config FILE] (not playable)\n";
 #endif
