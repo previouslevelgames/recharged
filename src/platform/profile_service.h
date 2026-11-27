@@ -103,7 +103,7 @@ struct ProfilePlayer
     // GET /api/v1/me only: available for random games (servers from 1.2.1).
     bool available = false;
     // In the lists: they take no challenge from the player now (Do not
-    // disturb, and they keep the player as no friend; servers from 1.3.3).
+    // disturb, and they keep the player as no friend; servers from 1.3.4).
     // A Discord friend's goes through anyway (ChallengePlayer).
     bool do_not_disturb = false;
     int unread = 0;
@@ -216,7 +216,7 @@ struct PlayerLists
     std::vector<ProfilePlayer> friends;
     // The Mii profiles the player keeps as friends (servers from 1.2.1).
     std::vector<MiiProfile> mii_friends;
-    // How many others are open to challenges or search (servers from 1.3.3;
+    // How many others are open to challenges or search (servers from 1.3.4;
     // from older ones, the size of the list of them they sent).
     std::optional<int> available_count;
 };
@@ -649,7 +649,7 @@ public:
     // A challenge by rules of the player's own (servers 1.2.3 on): `name` is
     // the preset they come from, empty for none (the server calls it Custom).
     // `discord_friend`: the two are Discord friends, which takes the challenge
-    // past their Do not disturb (servers from 1.3.3; older ones ignore it).
+    // past their Do not disturb (servers from 1.3.4; older ones ignore it).
     ProfileMatch ChallengePlayer(std::int64_t opponent_id, const MatchRules& rules, const std::string& name,
                                  bool discord_friend = false);
     // The same by the player's id, from the lobby's lists.
