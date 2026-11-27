@@ -4116,6 +4116,9 @@ private:
         if (bar_shown) DrawBottomBar({origin.x, origin.y + content.y}, {size.x, bar}, quit);
     }
 
+    // How much of the room above the Play page's logo goes under its tagline.
+    static constexpr float kTitleLift = 0.4f;
+
     void DrawPlayPage(ImVec2 origin, ImVec2 size, bool& quit)
     {
         const auto& fonts = CurrentFonts();
@@ -4138,15 +4141,16 @@ private:
             before_width + game_width + TextSize(fonts.heading, rest.substr(0, break_at).c_str()).x,
             break_at == std::string::npos ? 0.0f : TextSize(fonts.heading, rest.c_str() + break_at + 1).x);
 
-        // From the page's corners: on the top line the players online and the
-        // update controls; in the bottom right corner the Play button with the
-        // status at its left, both ending on the bottom line; at the bottom
-        // left the title: the tagline on that line when it fits beside the
-        // status, otherwise just above that row, the logo above the tagline,
-        // as large as the room allows under the server's message, which runs
-        // across the page under the top line.
+        // From the page's corners: on the top line the players online (when
+        // shown) and the update controls; in the bottom right corner the Play
+        // button with the status at its left, both ending on the bottom line;
+        // at the bottom left the title: the tagline on that line when it fits
+        // beside the status, otherwise above that row, lifted into the
+        // artwork (kTitleLift), the logo above the tagline, as large as the
+        // room allows under the server's message, which runs across the page
+        // under the top line.
         const float margin = Dp(42), button = Dp(62), button_width = Dp(230);
-        const float title_gap = Dp(10), row_gap = Dp(28), message_gap = Dp(22);
+        const float title_gap = Dp(14), row_gap = Dp(28), message_gap = Dp(22);
         const float smallest = Dp(201) / logo_aspect_, largest = Dp(385) / logo_aspect_;
         const float left = origin.x + pad, right = origin.x + size.x - pad;
         const float bottom = origin.y + size.y - margin;
@@ -4184,6 +4188,10 @@ private:
         // On the bottom line a logo reaching down beside the status keeps left of it.
         if (low && status.y < logo_bottom) logo = std::max(smallest, std::min(logo, (beside + Dp(8)) / logo_aspect_));
         float y = logo_bottom - logo;
+        // Above the Play row the title stands higher, in the artwork rather
+        // than on its fading foot: part of the room above the logo goes under
+        // the tagline.
+        if (!low) y -= std::floor(std::max(0.0f, y - top - above) * kTitleLift);
         // The artwork covers the top of the page and fades out at about two
         // thirds of it (the logo and the Play row stand on the page below).
         const float art = std::floor(size.y * 0.7f);
