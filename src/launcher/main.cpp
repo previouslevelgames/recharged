@@ -1547,9 +1547,12 @@ private:
     // How many players are online on the WFC server (online.server), for the
     // Play page's top bar, asked every minute. Development captures stay
     // offline; RECHARGED_CAPTURE_ONLINE=<online>[/<in a match>] shows a
-    // made-up count.
+    // made-up count. Hidden for now (kShowPlayersOnline): neither asked nor
+    // shown.
+    static constexpr bool kShowPlayersOnline = false;
     void StartPlayersOnline()
     {
+        if (!kShowPlayersOnline) return;
         if (capture_)
         {
             const char* preview = std::getenv("RECHARGED_CAPTURE_ONLINE");
