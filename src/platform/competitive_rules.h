@@ -88,6 +88,12 @@ typedef bool (*ChargedConfigureCompetitiveStartFunction)(const unsigned char* mi
 // Game module entry, between frames: the set is done and the host has
 // finished with it; the game's popups and menus are the player's again.
 typedef void (*ChargedCompetitiveEndSetFunction)(void);
+// Game module entry, between frames: the player asked for a rematch after a
+// set. Back in the online menu (or there now), the game leaves it for the main
+// menu, where it waits for the answer; an accepted rematch goes on into
+// RANKED from there, as any set that goes while the game is in its menus.
+// Nothing while a set's game is on its way, or outside the online menus.
+typedef void (*ChargedCompetitiveLeaveOnlineFunction)(void);
 // Game module entry, between frames: the Recharged Game Menu's Play RANKED.
 // The game goes by itself into a retail RANKED search against anybody, as
 // a set's game does into its set's: from the title, the main menu or the

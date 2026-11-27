@@ -32,6 +32,7 @@ constexpr ImU32 kNumber = IM_COL32(255, 255, 255, 255);
 constexpr ImU32 kLabel = IM_COL32(211, 215, 221, 255);
 constexpr ImU32 kDivider = IM_COL32(211, 215, 221, 190);
 constexpr ImU32 kShadow = IM_COL32(0, 0, 0, 200);
+constexpr ImU32 kGold = IM_COL32(255, 200, 60, 255); // the plates' edge, a status's title
 // A message stays this long, then fades out over the last part.
 constexpr auto kMessageTime = std::chrono::milliseconds(2500);
 constexpr auto kMessageFade = std::chrono::milliseconds(500);
@@ -53,7 +54,7 @@ void Plate(ImDrawList* draw, ImVec2 min, ImVec2 max, float size, int opacity)
     draw->AddRectFilled({min.x, min.y + drop}, {max.x, max.y + drop}, WithAlpha(IM_COL32(0, 0, 0, 110), opacity), round);
     draw->AddRectFilled(min, max, WithAlpha(IM_COL32(18, 20, 26, 215), opacity), round);
     draw->AddRect(min, max, WithAlpha(IM_COL32(255, 255, 255, 34), opacity), round, 0, 1.0f);
-    draw->AddRectFilled(min, {min.x + edge, max.y}, WithAlpha(IM_COL32(255, 200, 60, 255), opacity), round,
+    draw->AddRectFilled(min, {min.x + edge, max.y}, WithAlpha(kGold, opacity), round,
                         ImDrawFlags_RoundCornersLeft);
 }
 
@@ -137,6 +138,8 @@ void HostOverlay::SetPerformance(std::optional<OverlayCorner> corner)
 
 void HostOverlay::SetHint(std::optional<Hint> hint) { hint_ = std::move(hint); }
 
+void HostOverlay::SetStatus(std::optional<Status> status) { status_ = std::move(status); }
+
 void HostOverlay::BuildFonts(float size, float menuScale)
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -217,7 +220,8 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     const bool menus = false;
 #endif
     const std::optional<Hint> hint = menus ? std::nullopt : hint_;
-    const bool showing = performance_ || opacity > 0 || menus || hint;
+    const std::optional<Status> status = menus ? std::nullopt : status_;
+    const bool showing = performance_ || opacity > 0 || menus || hint || status;
     if (!showing) {
         if (drawn_) aurora_imgui_clear_overlay();
         drawn_ = false;
@@ -225,7 +229,7 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
     }
     // The menus are live: every frame while they show.
     if (drawn_ && !menus && !shownMenus_ && values == shownValues_ && count == shownCount_ && message_ == shownMessage_
-        && opacity == shownOpacity_ && hint == shownHint_ && surface_width == shownWidth_
+        && opacity == shownOpacity_ && hint == shownHint_ && status == shownStatus_ && surface_width == shownWidth_
         && surface_height == shownHeight_)
         return;
     const auto size = FpsOverlayFontSize(surface_width, surface_height);
@@ -312,12 +316,26 @@ void HostOverlay::Update(std::uint32_t surface_width, std::uint32_t surface_heig
         draw->AddText(messageFont_, messageSize, {layout.text_x + edge, layout.text_y}, WithAlpha(kNumber, opacity),
                       message_.c_str());
     }
+    // The status: its gold title above its text, bottom right.
+    if (status) {
+        const float titleSize = std::round(messageSize * 0.78f);
+        const float width = std::max(messageFont_->CalcTextSizeA(titleSize, FLT_MAX, 0, status->title.c_str()).x,
+                                     messageFont_->CalcTextSizeA(messageSize, FLT_MAX, 0, status->text.c_str()).x)
+                          + edge;
+        const bool bottomRight = performance_ && *performance_ == OverlayCorner::BottomRight;
+        const auto layout = LayoutOverlayStatus(surface_width, surface_height, messageSize, titleSize, width,
+                                                bottomRight ? &*performanceLayout : nullptr);
+        Plate(draw, {layout.left, layout.top}, {layout.right, layout.bottom}, messageSize, kOpacitySteps);
+        draw->AddText(messageFont_, titleSize, {layout.text_x + edge, layout.title_y}, kGold, status->title.c_str());
+        draw->AddText(messageFont_, messageSize, {layout.text_x + edge, layout.text_y}, kNumber, status->text.c_str());
+    }
     aurora_imgui_end_overlay();
     drawn_ = true;
     shownValues_ = values;
     shownCount_ = count;
     shownMessage_ = message_;
     shownHint_ = hint;
+    shownStatus_ = status;
     shownMenus_ = menus;
     shownOpacity_ = opacity;
     shownWidth_ = surface_width;

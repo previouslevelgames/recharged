@@ -39,6 +39,7 @@
 #if defined(__SWITCH__)
 #include <switch.h>
 #else
+#include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/utsname.h>
 #endif
@@ -87,7 +88,11 @@ struct Log
     Stream out, err;
 #ifdef _WIN32
     HANDLE answered = nullptr; // set by a reader that answered a ticket
+    HANDLE lock = INVALID_HANDLE_VALUE;
+#else
+    int lock = -1;
 #endif
+    bool locked = false; // this process writes the log its lock file names
     bool started = false;
 } g_log;
 
@@ -767,6 +772,60 @@ void SDLCALL SdlLog(void*, int category, SDL_LogPriority priority, const char* m
                  message);
 }
 
+// Each log of a folder has a lock file that its process holds while it
+// writes it (released at EndSessionLog, before a restart or the reopened
+// launcher takes it). Held: another Recharged writes that log now (a game
+// runs, a Watch link opened a second program).
+enum class LogLock { Taken, Held, None };
+
+LogLock TakeLogLock(const fs::path& file)
+{
+#ifdef _WIN32
+    // Not inheritable: a program this one starts holds none.
+    const HANDLE lock = CreateFileW(file.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                    nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (lock == INVALID_HANDLE_VALUE) return LogLock::None;
+    OVERLAPPED region{};
+    if (LockFileEx(lock, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &region))
+    {
+        g_log.lock = lock;
+        g_log.locked = true;
+        return LogLock::Taken;
+    }
+    const auto error = GetLastError();
+    CloseHandle(lock);
+    return error == ERROR_LOCK_VIOLATION || error == ERROR_SHARING_VIOLATION ? LogLock::Held : LogLock::None;
+#elif defined(__SWITCH__)
+    (void)file; // the console runs one program at a time
+    return LogLock::None;
+#else
+    const int lock = ::open(file.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (lock < 0) return LogLock::None;
+    if (flock(lock, LOCK_EX | LOCK_NB) == 0)
+    {
+        g_log.lock = lock;
+        g_log.locked = true;
+        return LogLock::Taken;
+    }
+    const int error = errno;
+    ::close(lock);
+    return error == EWOULDBLOCK || error == EAGAIN ? LogLock::Held : LogLock::None;
+#endif
+}
+
+void ReleaseLogLock()
+{
+    if (!g_log.locked) return;
+    g_log.locked = false;
+#ifdef _WIN32
+    CloseHandle(g_log.lock);
+    g_log.lock = INVALID_HANDLE_VALUE;
+#elif !defined(__SWITCH__)
+    ::close(g_log.lock);
+    g_log.lock = -1;
+#endif
+}
+
 fs::path ChooseDirectory()
 {
     const char* chosen = std::getenv("RECHARGED_LOG_DIR");
@@ -803,9 +862,20 @@ void StartSessionLog(const char* version, int argc, char** argv)
     if (directory.empty()) return;
     std::error_code error;
     fs::create_directories(directory, error);
-    g_log.path = directory / "recharged.log";
-    g_log.dump = directory / "recharged-crash.dmp";
-    if (fs::exists(g_log.path, error)) fs::rename(g_log.path, directory / "recharged.previous.log", error);
+    // recharged.log, unless another Recharged writes it now: then this one
+    // writes recharged.2.log (or .3, .4) and leaves that log as it is.
+    int number = 1;
+    for (; number <= 4; ++number)
+    {
+        const std::string suffix = number == 1 ? "" : "." + std::to_string(number);
+        if (TakeLogLock(directory / (".recharged" + suffix + ".lock")) != LogLock::Held) break;
+    }
+    number = std::min(number, 4);
+    const std::string suffix = number == 1 ? "" : "." + std::to_string(number);
+    g_log.path = directory / ("recharged" + suffix + ".log");
+    g_log.dump = directory / ("recharged-crash" + suffix + ".dmp");
+    if (number == 1 && fs::exists(g_log.path, error))
+        fs::rename(g_log.path, directory / "recharged.previous.log", error);
     fs::remove(g_log.dump, error);
 #ifdef _WIN32
     g_log.file = _wopen(g_log.path.c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY, 0644);
@@ -816,9 +886,16 @@ void StartSessionLog(const char* version, int argc, char** argv)
     {
         std::fprintf(stderr, "Cannot write the log %s\n", Utf8(g_log.path).c_str());
         g_log.path.clear();
+        ReleaseLogLock();
         return;
     }
     Header(version, argc, argv);
+    if (number > 1)
+    {
+        const std::string line = "Another Recharged writes recharged.log now: this one writes "
+            + Utf8(g_log.path.filename()) + ".\n";
+        WriteLog(line.data(), line.size());
+    }
     std::fflush(nullptr);
     Redirect(1, g_log.out);
     Redirect(2, g_log.err);
@@ -952,6 +1029,7 @@ void EndSessionLog(const char* reason)
     ::close(g_log.file);
 #endif
     g_log.file = -1;
+    ReleaseLogLock();
 }
 
 void ReportFatalError(const std::string& message)

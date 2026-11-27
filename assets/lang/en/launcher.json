@@ -219,7 +219,8 @@
       "choose_image": "Choose your Mario Strikers Charged image (ISO, RVZ or WBFS) on the Game page.",
       "image_missing": "Your game image is missing. {{reason}}",
       "check_image": "Check your image on the Game page.",
-      "aspect": "Set [display] aspect in recharged.ini to 16:9, 4:3 or stretch."
+      "aspect": "Set [display] aspect in recharged.ini to 16:9, 4:3 or stretch.",
+      "game_running": "Recharged already runs a game from this folder. Close it first, or switch to its window."
     },
     "tagline": "{{game}}, rebuilt to run natively on your PC.",
     "online": {
@@ -402,7 +403,7 @@
     "mii_failed": "Your Mii for the set could not be made: {{error}}",
     "overline": {
       "rematch": "REMATCH",
-      "random": "QUICK MATCH",
+      "random": "QUICK UNRANKED MATCH",
       "challenge": "CHALLENGE",
       "set": "SET"
     },
@@ -574,6 +575,7 @@
   "replay": {
     "starting": "Starting the replay {{name}}...",
     "unreadable": "This replay cannot be played: {{error}}",
-    "no_image": "This replay needs the game image {{release}} ({{id}}). Add it to your game folder on the Game page."
+    "no_image": "This replay needs the game image {{release}} ({{id}}). Add it to your game folder on the Game page.",
+    "waits_for_game": "Recharged already runs a game from this folder. Close it, and {{name}} starts."
   }
 }

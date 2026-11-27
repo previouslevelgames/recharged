@@ -252,6 +252,10 @@ public:
     void Caption(const char* text);
     // A line of text (wrapped), not lit.
     void Note(const char* text);
+    // The next item sits at the bottom of the list's part of the screen while
+    // the items above it leave room (else it follows them): a page's
+    // secondary setting under its buttons.
+    void ToBottom() { bottom_ = true; }
     // A plate: true when pressed. `about`: its help line; `value`: a short
     // fact at its right end ("3 online", the rules it plays by).
     bool Plate(const char* label, const char* about = nullptr, bool enabled = true, const char* value = nullptr);
@@ -341,6 +345,7 @@ private:
     float y_ = 0.0f; // content pixels
     int index_ = 0;
     std::string help_; // the lit item's (a copy: the page's texts may be its own)
+    bool bottom_ = false; // ToBottom: the next item placed goes to the bottom
     bool rail_ = false;
     float railX0_ = 0.0f;
     bool anyHelp_ = false;

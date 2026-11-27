@@ -124,6 +124,9 @@ constexpr int kTurboMostSteps = 4000;   // in one tick (80 s of a match)
 // wipes before and after them (the match stands still) run this many times
 // faster.
 constexpr float kTurboWipeSpeed = 8.0f;
+// The effects (particles) age with the match's time in a replay faster than
+// it, at most this much in a frame (in updates of 0.1 s).
+constexpr float kMostEffectsTime = 10.0f; // seconds
 // The whole steps of a live stream are counted as they arrive, at most this
 // many at a look (a spectator who came late has them counted in a few).
 constexpr int kMostCounted = 8192;
@@ -206,6 +209,11 @@ double sTurboStepSeconds = 0.0;
 double sTurboStillSeconds = 0.0; // between its ticks for longer than a frame: cutscenes, loading
 std::uint32_t sTurboSteps = 0;
 std::uint32_t sTurboHeldTicks = 0;
+// The effects (tweak patch 0089): how far the replay had read at their last
+// update, and how many times faster than its match it plays now (0 while it
+// catches up: their time is then its steps').
+std::uint32_t sEffectsStep = 0;
+float sEffectsSpeed = 1.0f;
 
 // Cutscenes (tweak patch 0072): the part of one a player may skip now (-1
 // none), how long it has played, whether the test or the replay pressed in it,
@@ -777,6 +785,7 @@ bool mscharged_tweak_replay_read_packet(int machine, unsigned int checksum, unsi
 int mscharged_tweak_replay_extra_updates(void)
 {
     sTurboTick = false;
+    sEffectsSpeed = 1.0f;
     // The speed the host asked for, from this step on.
     const int speed = sSpeed.load(std::memory_order_relaxed);
     const int extra = kExtraSteps[(speed < -1 ? -1 : speed > 2 ? 2 : speed) + 1];
@@ -798,7 +807,12 @@ int mscharged_tweak_replay_extra_updates(void)
     }
     else
         loadOverdue = true;
-    if (!sLiveReplay) return loadOverdue ? std::min(extra, 0) : extra;
+    if (!sLiveReplay)
+    {
+        const int steps = (loadOverdue ? std::min(extra, 0) : extra) + 1;
+        sEffectsSpeed = float(std::max(steps, 1));
+        return steps - 1;
+    }
     // Live: the steps that have arrived whole set the pace.
     const bool complete = sLiveComplete.load(std::memory_order_acquire);
     const int ahead = LiveAhead();
@@ -813,11 +827,17 @@ int mscharged_tweak_replay_extra_updates(void)
     if (loadOverdue) SetTurbo(false, TurboEnd::Loading);
     else if (speed < 0 || ahead < kTurboUntil) SetTurbo(false, speed < 0 ? TurboEnd::Paused : TurboEnd::CaughtUp);
     else if (ahead > kTurboFrom) SetTurbo(true);
-    if (sTurbo) return TurboTick(ahead) - 1;
+    if (sTurbo)
+    {
+        sEffectsSpeed = 0.0f;
+        return TurboTick(ahead) - 1;
+    }
     int steps = extra + 1;
     if (speed >= 0) steps = std::max(steps, ahead > kLiveFastFrom ? 2 : 1);
     if (loadOverdue) steps = std::min(steps, 1);
-    return std::min(steps, ahead) - 1;
+    steps = std::min(steps, ahead);
+    sEffectsSpeed = float(std::max(steps, 1));
+    return steps - 1;
 }
 
 bool mscharged_tweak_replay_tick_over(void)
@@ -852,6 +872,19 @@ bool mscharged_tweak_replay_turbo(void)
 float mscharged_tweak_replay_wipe_speed(void)
 {
     return mscharged_tweak_replay_turbo() ? kTurboWipeSpeed : 1.0f;
+}
+
+float mscharged_tweak_replay_effects_time(float dt)
+{
+    const std::uint32_t step = sReader.Step();
+    const std::uint32_t steps = step >= sEffectsStep ? step - sEffectsStep : 0;
+    sEffectsStep = step;
+    if (!mscharged_tweak_replay_playing()) return dt;
+    // Catching up: the time of the steps taken since the last update (a
+    // frame's tick takes at most kTurboMostBurst of steps), at most
+    // kMostEffectsTime.
+    if (sEffectsSpeed <= 0.0f) return std::min(float(steps) / 50.0f, kMostEffectsTime);
+    return dt * sEffectsSpeed;
 }
 
 bool mscharged_tweak_replay_read_event(unsigned char* size, void* data)

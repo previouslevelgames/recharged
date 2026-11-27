@@ -188,18 +188,18 @@
     "launcher_note": "Players, pairing and the keys and buttons are set up in the launcher."
   },
   "online": {
-    "title": "ONLINE",
+    "title": "PLAY ONLINE",
     "play": "QUICK PLAY",
-    "profile": "PROFILE",
+    "profile": "MY PLAYER PROFILE",
     "leaderboard": "LEADERBOARD",
     "tournament": "TOURNAMENT",
-    "wii_online": "WII ONLINE"
+    "wii_online": "WII ONLINE (LEGACY)"
   },
   "play": {
     "title": "QUICK PLAY",
-    "friends": "FRIENDS",
-    "random": "QUICK MATCH",
-    "ranked": "RANKED",
+    "friends": "PLAY AGAINST FRIENDS",
+    "random": "QUICK UNRANKED MATCH",
+    "ranked": "RANKED MATCH",
     "online_count_one": "{{count}} online",
     "online_count_other": "{{count}} online",
     "searching": "Searching…",
@@ -211,12 +211,12 @@
     "no_recent": "Nobody yet: the players you play a set against show here."
   },
   "random": {
-    "title": "QUICK MATCH",
+    "title": "QUICK UNRANKED MATCH",
     "find": "FIND AN OPPONENT",
     "search_time": "{{seconds}} s  ·  {{asked}} asked"
   },
   "profile": {
-    "title": "PROFILE",
+    "title": "MY PLAYER PROFILE",
     "stats": "STATS",
     "no_stats": "This server keeps no records yet.",
     "record": "{{won}} – {{lost}}",
@@ -241,7 +241,7 @@
   "you": {
     "no_profile_title": "No player profile",
     "no_profile": "Make one on the launcher's Player profile page: then friends, challenges, sets and the leaderboards are here.",
-    "open": "Open to quick matches",
+    "open": "Open to quick unranked matches",
     "do_not_disturb": "Do not disturb",
     "your_set": "YOUR SET",
     "accept": "ACCEPT",
@@ -264,7 +264,7 @@
   },
   "setup": {
     "title_challenge": "CHALLENGE",
-    "title_random": "QUICK MATCH",
+    "title_random": "QUICK UNRANKED MATCH",
     "send_challenge": "SEND CHALLENGE",
     "stop_searching": "STOP SEARCHING",
     "find_now": "FIND AN OPPONENT NOW!",
@@ -414,7 +414,7 @@
   "prompt": {
     "title": "CHALLENGE",
     "challenge": "CHALLENGE",
-    "random_challenge": "QUICK MATCH",
+    "random_challenge": "QUICK UNRANKED MATCH",
     "rematch": "REMATCH",
     "challenges_you": "{{name}} challenges you",
     "wants_rematch": "{{name}} wants a rematch",
@@ -565,11 +565,17 @@
     "set_stopped": "The set against {{name}} stopped",
     "challenge_accepted": "Challenge accepted: off to RANKED",
     "challenge_declined": "Challenge declined",
-    "rematch_asked": "Rematch asked: waiting for {{name}}",
     "ready_again": "Ready again: waiting for {{name}}",
     "server_no_answer": "The server didn't answer. Try again on the launcher's Online pages.",
     "challenge_gone": "The challenge is no longer open.",
     "rematch_gone": "No rematch: the set is no longer there.",
+    "rematch_declined": "{{name}} declined the rematch",
+    "rematch_no_answer": "No answer from {{name}}: the rematch is called off",
+    "rematch_opponent_gone": "{{name}} closed Recharged: no rematch",
+    "rematch_called_off": "The rematch with {{name}} is called off",
+    "rematch_match_started": "The rematch with {{name}} is called off: you started another match",
+    "rematch_withdrawn": "{{name}} called off the rematch",
+    "challenge_withdrawn": "{{name}}'s challenge is no longer open",
     "set_gone": "The set is no longer open.",
     "off_to_ranked": "Off to RANKED",
     "ranked_waits": "RANKED waits: go back to the main menu or the online menu, and the game takes you there",
@@ -604,5 +610,9 @@
   },
   "hint": {
     "game_menu": "Recharged Game Menu"
+  },
+  "status": {
+    "rematch_title": "REMATCH ASKED",
+    "rematch_waiting": "Waiting for {{name}}'s answer · {{seconds}} s"
   }
 }

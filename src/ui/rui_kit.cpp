@@ -581,6 +581,13 @@ List::~List()
 List::Slot List::Place(float height, bool litable, bool spaced)
 {
     if (y_ == 0.0f && spaced) y_ = kTopGap;
+    // At the bottom, as far from it as the first item is from the top (the
+    // gap after it then stays inside the view: no rail for it).
+    if (bottom_)
+    {
+        bottom_ = false;
+        y_ = std::max(y_, listBottom_ - rows_.top - kTopGap - height);
+    }
     Slot slot{};
     slot.top = rows_.top + y_ - state_.scroll;
     slot.bottom = slot.top + height;

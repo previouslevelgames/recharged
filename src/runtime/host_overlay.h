@@ -63,6 +63,16 @@ public:
         bool operator==(const Hint&) const = default;
     };
     void SetHint(std::optional<Hint> hint);
+    // A lasting status in the bottom-right corner (a rematch that waits for
+    // its answer): a small gold title above its text, on a plate in the
+    // menus' look; above the performance numbers when they share the corner.
+    // Hidden while the menus show. None hides it.
+    struct Status {
+        std::string title;
+        std::string text;
+        bool operator==(const Status&) const = default;
+    };
+    void SetStatus(std::optional<Status> status);
     // Recharged's menus, drawn while shown under the performance numbers and
     // messages; null for none.
     void SetMenus(HostMenus* menus);
@@ -81,6 +91,7 @@ private:
     Network network_;
     std::string message_;
     std::optional<Hint> hint_, shownHint_;
+    std::optional<Status> status_, shownStatus_;
     HostMenus* menus_ = nullptr;
     bool shownMenus_ = false;
     Clock::time_point messageShown_{};

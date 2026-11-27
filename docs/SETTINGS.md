@@ -356,14 +356,17 @@ resolution (`resolution_up`, `resolution_down`), and **Alt+Enter**
 does the same, and **F2** opens it on the gameplay options (`game_options`). It
 has **ONLINE**, **OPTIONS** and **QUIT RECHARGED**:
 
-- **ONLINE**: **PLAYERS** (you, your set, the friends who have Recharged open
-  and your last opponents of a set who aren't friends; a player's
-  page challenges them or keeps them as a friend), **RANKED** (the game's online
-  RANKED from anywhere in its menus: **Play RANKED** takes the game by itself
+- **ONLINE** (the **PLAY ONLINE** page): your set, then **QUICK PLAY** with
+  **PLAY AGAINST FRIENDS** (the friends who have Recharged open and your last
+  opponents of a set who aren't friends; a player's page challenges them or
+  keeps them as a friend), **QUICK UNRANKED MATCH** (a search for an opponent),
+  **RANKED MATCH** (the game's online RANKED from anywhere in its menus:
+  **Play RANKED** takes the game by itself
   into a RANKED search, with your own Mii or one you choose there; from another
   menu it goes on once you are back on the main menu or the online menu),
   **LEADERBOARD** (this season's and today's leaders and your place, with a
-  player profile) and **WII ONLINE** (the game's own online menu). A player on
+  player profile) and **WII ONLINE (LEGACY)** (the game's own online menu).
+  **Do not disturb** sits at the bottom of **QUICK PLAY**. A player on
   another version of the game carries its tag (US, EU, JP, KR); a set between two
   versions plays by the European one.
 - **OPTIONS**: **GAMEPLAY**, the gameplay options (saved at once, counting

@@ -436,10 +436,11 @@ void DrawOnline(const PageModel& model, PageState& state, List& list, PageAction
     if (locked) list.Note(overlay::UpdateLockNote(online.update_lock).c_str());
     if (online.signed_out) DrawNoProfile(list);
     else DrawSet(model, state, list, actions);
-    if (list.Plate(T("menus.online.play"))) actions.open = PageId::Play;
+    // QUICK PLAY has the Do not disturb switch: its plate says when it is on.
     const char* busy = !online.signed_out && !online.me.available && online.me.can_set_available
         ? T("menus.you.do_not_disturb") : nullptr;
-    if (list.Plate(T("menus.online.profile"), nullptr, true, busy)) actions.open = PageId::Profile;
+    if (list.Plate(T("menus.online.play"), nullptr, true, busy)) actions.open = PageId::Play;
+    if (list.Plate(T("menus.online.profile"))) actions.open = PageId::Profile;
     if (list.Plate(T("menus.online.leaderboard"))) actions.open = PageId::Leaderboard;
     if ((model.from_wheel || model.online_menu)
         && list.Plate(T("menus.online.tournament"), nullptr, !locked,
@@ -451,9 +452,12 @@ void DrawOnline(const PageModel& model, PageState& state, List& list, PageAction
         actions.wii_online = true;
 }
 
-// PLAY: against a friend, a quick match against whoever the server finds, or
-// RANKED; each with how it stands. How many others are available is not
-// shown.
+// PLAY: against a friend, a quick unranked match against whoever the server
+// finds, or a RANKED match; each with how it stands. How many others are
+// available is not shown. At the bottom Do not disturb, for every way of
+// being asked: only friends' challenges reach the player, and no search.
+// Give and take: Do not disturb stops the player's own search, and a search
+// makes them available.
 void DrawPlay(const PageModel& model, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
@@ -463,12 +467,20 @@ void DrawPlay(const PageModel& model, List& list, PageActions& actions)
         if (const int count = SectionRows(online, overlay::OnlinePanelSection::Id::Online); count > 0)
             friends = texts::Count("menus.play.online_count", count);
         if (online.search.active) random = T("menus.play.searching");
-        else if (!online.me.available && online.me.can_set_available) random = T("menus.you.do_not_disturb");
     }
     const char* ranked = model.overlay.ranked.going ? T("menus.play.on_the_way") : nullptr;
     if (list.Plate(T("menus.play.friends"), nullptr, true, friends.c_str())) actions.open = PageId::Friends;
     if (list.Plate(T("menus.play.random"), nullptr, true, random.c_str())) actions.open = PageId::Random;
     if (list.Plate(T("menus.play.ranked"), nullptr, true, ranked)) actions.open = PageId::Ranked;
+    if (!online.signed_out && online.me.can_set_available)
+    {
+        list.ToBottom();
+        if (const auto on = list.Switch(T("menus.you.do_not_disturb"), !online.me.available))
+        {
+            actions.online.set_available = !*on;
+            if (*on && online.search.active) actions.online.stop_search = true;
+        }
+    }
 }
 
 // A section of the online lists: a player who can be challenged now opens
@@ -525,10 +537,9 @@ void DrawFriends(const PageModel& model, PageState& state, List& list, PageActio
     DrawSection(model, state, list, actions, overlay::OnlinePanelSection::Id::Recent);
 }
 
-// RANDOM OPPONENT: the search (its setup: the rules, FIND NOW) and Do not
-// disturb; the server finds the opponent, nobody else is listed. Give and
-// take: searching makes the player available, Do not disturb stops a
-// search.
+// QUICK UNRANKED MATCH: the search (its setup: the rules, FIND NOW); the
+// server finds the opponent, nobody else is listed. Do not disturb is on
+// QUICK PLAY.
 void DrawRandom(const PageModel& model, PageState& state, List& list, PageActions& actions)
 {
     const auto& online = model.overlay.online;
@@ -537,7 +548,6 @@ void DrawRandom(const PageModel& model, PageState& state, List& list, PageAction
         DrawNoProfile(list);
         return;
     }
-    const auto& me = online.me;
     const double now = ImGui::GetTime();
     if (overlay::OnlinePanelSearchRunning(online, state.online, now))
     {
@@ -559,12 +569,6 @@ void DrawRandom(const PageModel& model, PageState& state, List& list, PageAction
             OpenSetup(model, state, actions, kSearchKey);
     }
     if (!online.note.empty()) list.Note(online.note.c_str());
-    if (me.can_set_available)
-        if (const auto on = list.Switch(T("menus.you.do_not_disturb"), !me.available))
-        {
-            actions.online.set_available = !*on;
-            if (*on && online.search.active) actions.online.stop_search = true;
-        }
 }
 
 // A record as "won – lost", with the share won when games were played.

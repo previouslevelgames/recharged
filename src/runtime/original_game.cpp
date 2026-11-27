@@ -1921,6 +1921,9 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             mscharged::platform::FindNativeModuleSymbol(module,"charged_configure_competitive_start"));
         auto endSet=reinterpret_cast<ChargedCompetitiveEndSetFunction>(
             mscharged::platform::FindNativeModuleSymbol(module,"charged_competitive_end_set"));
+        // A rematch asked: the game waits for its answer in the main menu.
+        auto leaveOnline=reinterpret_cast<ChargedCompetitiveLeaveOnlineFunction>(
+            mscharged::platform::FindNativeModuleSymbol(module,"charged_competitive_leave_online"));
         // The Recharged Game Menu's Play RANKED: the game goes by itself into a
         // retail RANKED search against anybody, as a set's game into its set's.
         auto startRanked=reinterpret_cast<ChargedStartRankedFunction>(
@@ -2172,6 +2175,15 @@ int mscharged::RunOriginalGame(int argc, char** argv,
         } cardPrompt;
         // Counts the prompts asked: the menus get a new one only when it changes.
         int cardPromptVersion=0;
+        // A rematch the player asks for (the card after a set, or the online
+        // page's set): the game leaves the online menus for the main menu and
+        // waits there; the box in the corner says for whom and how long
+        // (CompetitiveHost::PendingRematch), the end comes as a message.
+        auto askRematch=[&](std::int64_t match,const std::string& stadium,const std::string& opponent) {
+            competitive->PlayAgain(match,true,stadium,opponent);
+            if(leaveOnline) leaveOnline();
+        };
+        std::chrono::steady_clock::time_point rematchShown{};
         // Online play waits for an update (the gate above): a prompt's answer
         // that would start a set (accept, rematch, play again) is not offered.
         auto onlineLocked=[&] {
@@ -2281,10 +2293,10 @@ int mscharged::RunOriginalGame(int argc, char** argv,
             const bool rematch=how==How::Over || how==How::Forfeited || how==How::OpponentForfeited;
             const std::string opponent=afterSet->opponent.empty()
                 ? std::string(texts::T("menus.messages.unnamed_opponent")) : afterSet->opponent;
-            if(accept) {
-                competitive->PlayAgain(cardMatch,rematch,cardPrompt.pick ? cardPrompt.stadium : std::string());
-                hostOverlay->ShowMessage(rematch ? texts::T("menus.messages.rematch_asked",{{"name",opponent}})
-                    : texts::T("menus.messages.ready_again",{{"name",opponent}}),now);
+            if(accept && rematch) askRematch(cardMatch,cardPrompt.pick ? cardPrompt.stadium : std::string(),opponent);
+            else if(accept) {
+                competitive->PlayAgain(cardMatch,false);
+                hostOverlay->ShowMessage(texts::T("menus.messages.ready_again",{{"name",opponent}}),now);
             } else if(how==How::CalledOff || how==How::Failed) {
                 // Not now: the stopped set is called off, so neither player
                 // keeps it and both can take another challenge at once.
@@ -3007,6 +3019,8 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                     rankedStage=CHARGED_SET_BOOT;
                     rankedSince=std::chrono::steady_clock::now();
                     started=true;
+                    // Off to another match: the rematch asked for is called off.
+                    if(competitive) competitive->CallOffRematch();
                     hostOverlay->ShowMessage(texts::T("menus.messages.off_to_ranked"),std::chrono::steady_clock::now());
                 } else overlayNotice=texts::T("menus.notices.ranked_cannot_start");
             }
@@ -3049,7 +3063,7 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 // An accept starts the set in this game; a rematch asks the opponent.
                 if((online.accept && !locked) || online.decline)
                     competitive->Answer(set,online.accept && !locked,online.accept ? online.stadium : std::string());
-                if(online.rematch && !locked) competitive->PlayAgain(set,true,online.stadium);
+                if(online.rematch && !locked) askRematch(set,online.stadium,model.online.set.opponent.name);
             }
             if(online.set_challenge_rules) {
                 challengeRules=*online.set_challenge_rules;
@@ -3757,6 +3771,21 @@ int mscharged::RunOriginalGame(int argc, char** argv,
                 mscharged::platform::SessionLogLine("Game options: changed in the overlay");
             }
 #endif
+            // The rematch the player asked for, while it waits: for whom, and
+            // the seconds until the game calls it off.
+            if(hostOverlay && competitive && now-rematchShown>=std::chrono::milliseconds(250)) {
+                rematchShown=now;
+                std::optional<mscharged::runtime::HostOverlay::Status> status;
+                if(const auto asked=competitive->PendingRematch()) {
+                    const auto left=std::chrono::ceil<std::chrono::seconds>(asked->deadline-now).count();
+                    const std::string name=asked->opponent.empty()
+                        ? std::string(mscharged::texts::T("menus.messages.unnamed_opponent")) : asked->opponent;
+                    status=mscharged::runtime::HostOverlay::Status{mscharged::texts::T("menus.status.rematch_title"),
+                        mscharged::texts::T("menus.status.rematch_waiting",
+                            {{"name",name},{"seconds",std::to_string(std::max<long long>(0,left))}})};
+                }
+                hostOverlay->SetStatus(std::move(status));
+            }
             if(hostOverlay) {
                 if(const auto rate=frameRate.Sample(frames,now)) hostOverlay->SetRate(*rate);
                 const auto size=aurora_get_window_size();

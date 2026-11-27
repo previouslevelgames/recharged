@@ -104,9 +104,27 @@ public:
     std::optional<SetEnd> TakeSetEnd();
     // After a SetEnd: the same set again. `rematch`: a new set by its rules
     // (the opponent's game asks its player), on `stadium` when the rematch is
-    // the player's turn (empty: the set's); otherwise the player's Ready to
-    // play! again for a set that stopped.
-    void PlayAgain(std::int64_t match, bool rematch, const std::string& stadium = {});
+    // the player's turn (empty: the set's), against `opponent` (their name,
+    // for PendingRematch until the server answers); otherwise the player's
+    // Ready to play! again for a set that stopped.
+    void PlayAgain(std::int64_t match, bool rematch, const std::string& stadium = {},
+                   const std::string& opponent = {});
+    // The rematch the player asked for in this game, while it waits for the
+    // opponent's answer (the host shows it in a lasting box), and when the
+    // game calls it off unanswered (a minute after the ask). It ends with
+    // the opponent's accept (the set goes: TakeSetStart), their decline, the
+    // wait, a match this game starts (Observe sees it load, CallOffRematch
+    // for one on its way) or the game's close; each end but the accept and
+    // the close leaves a notice (TakeNotice).
+    struct PendingAsk
+    {
+        std::string opponent;
+        std::chrono::steady_clock::time_point deadline;
+    };
+    std::optional<PendingAsk> PendingRematch();
+    // The player goes on to another match (the Game Menu's Play RANKED): the
+    // rematch they asked for is called off.
+    void CallOffRematch();
     // After a SetEnd: the player doesn't play a stopped set again now; the
     // server calls it off, so neither player keeps it.
     void CallOff(std::int64_t match);
@@ -217,6 +235,19 @@ private:
     bool again_rematch_ = false;
     std::string again_stadium_;
     std::int64_t call_off_match_ = 0; // CallOff still to send
+    // The rematch asked in this game, waiting for the opponent's answer: its
+    // set (0 until the server took the ask), the opponent, when the game
+    // calls it off unanswered, and whether a match this game started does.
+    struct Ask
+    {
+        std::int64_t match = 0;
+        std::string opponent;
+        std::chrono::steady_clock::time_point deadline{};
+        bool match_started = false;
+    };
+    std::optional<Ask> ask_;
+    // The game closes while it waits: the worker's last call calls it off.
+    std::int64_t withdraw_ask_ = 0;
     std::optional<std::string> notice_;
     struct Report
     {

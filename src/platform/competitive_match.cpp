@@ -85,10 +85,12 @@ bool sStartedInGame = false;
 // The set ended while its game still searched RANKED: the search screen leaves
 // the search (tweak patch 0058), and nobody is met until it has.
 bool sLeaveSearch = false;
-// The set's popup ended it (its connection to the opponent's game was lost):
-// back in the online menu, the game leaves for the main menu (tweak patch
-// 0064). Gone with the game's WFC login.
+// The set's popup ended it (its connection to the opponent's game was lost),
+// or the player asked for a rematch (charged_competitive_leave_online): back
+// in the online menu, the game leaves for the main menu (tweak patch 0064).
+// Gone with the game's WFC login. Why, in the log's words.
 bool sLeaveOnline = false;
+const char* sLeaveWhy = "";
 // The walk is the Recharged Game Menu's Play RANKED (charged_start_ranked),
 // not a set's: it ends where the retail RANKED search begins, against
 // anybody, and a popup it doesn't know is the player's to answer.
@@ -679,6 +681,7 @@ extern "C" __attribute__((visibility("default"))) void charged_competitive_end_s
         if (sLeaveSearch) std::fputs("Competitive: the set ended during its search; the game leaves it\n", stderr);
     }
     sLeaveOnline = sSetStage == CHARGED_SET_FAILED && !sRankedWalk;
+    sLeaveWhy = "the set lost its connection";
     sSetStage = CHARGED_SET_NONE;
     sSetSide = -1;
     sResumeOn = false;
@@ -791,11 +794,21 @@ extern "C" int mscharged_competitive_announce_now(void)
     return sSetStage == CHARGED_SET_SEARCH ? 1 : 0;
 }
 
+// Host entry, between frames: the player asked for a rematch; the game waits
+// for its answer in the main menu, not in the online menus (where a set's
+// screens were). An accepted one goes on into RANKED from there.
+extern "C" __attribute__((visibility("default"))) void charged_competitive_leave_online(void)
+{
+    if (OnSet()) return;
+    sLeaveOnline = true;
+    sLeaveWhy = "a rematch was asked";
+}
+
 extern "C" bool mscharged_competitive_leave_online(void)
 {
     if (!sLeaveOnline || OnSet() || PopupOnTop()) return false;
     sLeaveOnline = false;
-    std::fputs("Competitive: the set lost its connection; the game leaves the online menus\n", stderr);
+    std::fprintf(stderr, "Competitive: %s; the game leaves the online menus\n", sLeaveWhy);
     return true;
 }
 

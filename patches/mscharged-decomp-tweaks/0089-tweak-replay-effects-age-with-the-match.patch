@@ -1,0 +1,68 @@
+From: mscharged-port
+Subject: Tweak: a fast replay's effects age with the match
+Upstream-base: 8b9d92dd88b4c727cc6359ee4cd5ba128cced7b8
+
+The particle effects age once a drawn frame (ParticleUpdateTask::Run), by
+the frame's time; a match takes about one step in that time. A replay that
+plays faster takes several steps a frame (twice or four times as fast, or a
+live replay catching up, tweak patches 0071 and 0086), and its steps start
+effects faster than the frames end them. Catching up they piled up by the
+hundreds, and the game's instant-replay recorder, which keeps every effect
+in each frame it records (EmissionManager::Replay), outgrew the 32 KB its
+frames have (Replay::Record does not check): it wrote over the frames after
+it and beyond its memory, and the replay crashed (live spectators, most
+often with a texture pack, whose slower frames take more steps).
+
+While a replay plays faster than its match, the effects now age by the
+match's time (mscharged_tweak_replay_effects_time): the time of the steps
+taken since the last update while it catches up, the frame's time times its
+speed otherwise; in updates of at most 0.1 s. A match, and a replay at its
+own pace, age them as before.
+
+diff --git a/include/mscharged_replay.h b/include/mscharged_replay.h
+--- a/include/mscharged_replay.h
++++ b/include/mscharged_replay.h
+@@ -55,6 +55,9 @@
+ // How many times faster the wipes around cutscenes run: more than 1 while a
+ // live replay catches up.
+ float mscharged_tweak_replay_wipe_speed(void);
++// The time the effects age in a frame whose update took `dt` (tweak patch
++// 0089): `dt` for a match, the match's time for a replay faster than it.
++float mscharged_tweak_replay_effects_time(float dt);
+ // The title (passed as by Skip intro): whether it starts the replay's match
+ // instead of going to the main menu, once; then, from its update, the start.
+ bool mscharged_tweak_take_replay_start(void);
+diff --git a/src/Game/Task/ParticleUpdateTask.cpp b/src/Game/Task/ParticleUpdateTask.cpp
+--- a/src/Game/Task/ParticleUpdateTask.cpp
++++ b/src/Game/Task/ParticleUpdateTask.cpp
+@@ -6,6 +6,9 @@
+ #if defined(MSCHARGED_TWEAKS)
+ #include "mscharged_rollback.h"
+ #endif
++#if defined(MSCHARGED_TWEAKS)
++#include "mscharged_replay.h"
++#endif
+ 
+ ParticleUpdateTask* ParticleUpdateTask::sInstance;
+ 
+@@ -47,7 +50,20 @@
+     if (mUpdateEnabled && update)
+     {
+         EmissionManager* manager = EmissionManager::Instance();
++#if defined(MSCHARGED_TWEAKS)
++        // A replay faster than its match takes several steps a frame, and
++        // they start effects faster than a frame's time ends them: they age
++        // by the match's time then, in updates of at most 0.1 s.
++        float age = mscharged_tweak_replay_effects_time(dt * mTimeScale);
++        while (age > 0.1f)
++        {
++            manager->Update(0.1f);
++            age -= 0.1f;
++        }
++        manager->Update(age);
++#else
+         manager->Update(dt * mTimeScale);
++#endif
+     }
+ 
+     bool render = true;

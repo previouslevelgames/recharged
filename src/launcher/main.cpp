@@ -49,6 +49,7 @@
 #include "platform/profile_service.h"
 #include "platform/window_fit.h"
 #include "platform/disc.h"
+#include "platform/game_folder_lock.h"
 #include "platform/game_release.h"
 #include "platform/match_replay_file.h"
 #include "platform/pc_languages.h"
@@ -3616,6 +3617,7 @@ private:
         if (EnforcedUpdates() && update_.state == UpdateService::State::Checking)
             return texts::T("launcher.play.blocker.checking_updates");
         if (enforced_install_) return texts::T("launcher.play.blocker.installing_update");
+        if (folder_in_use_) return texts::T("launcher.play.blocker.game_running");
         if (!config_ok_) return texts::T("launcher.play.blocker.settings_problem");
         if (search_.Busy()) return texts::T("launcher.play.blocker.searching");
         if (disc_check_.Busy()) return texts::T("launcher.play.blocker.checking");
@@ -3733,8 +3735,23 @@ private:
         DiscInfo needs;
         fs::path image; // once found
         bool any_revision = false; // a watch ticket: any image of the release
+        bool waits_noticed = false; // it waits for this folder's game to close (said once)
     };
     std::optional<PendingReplay> pending_replay_;
+    // Another game of this folder runs (a Watch link opened while one plays):
+    // none starts until it closed (the game would stop at once). Looked at
+    // once a second.
+    bool folder_in_use_ = false;
+    std::chrono::steady_clock::time_point folder_checked_{};
+
+    void PollFolderInUse()
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (folder_checked_ != std::chrono::steady_clock::time_point{} && now - folder_checked_ < std::chrono::seconds(1))
+            return;
+        folder_checked_ = now;
+        folder_in_use_ = platform::GameFolderInUse(DataFolder(base_));
+    }
     // A game the WFC server kept (a ticket naming it, from the dashboard's
     // Replay button): its file comes from the server first, then it plays as
     // any replay; next_link is the match's next kept game, for the game to
@@ -3883,6 +3900,15 @@ private:
                 return;
             }
         }
+        // The game of this folder that runs first closes; the replay then starts.
+        if (folder_in_use_)
+        {
+            if (!pending_replay_->waits_noticed)
+                Notice(texts::T("launcher.replay.waits_for_game", {{"name", PathUtf8(pending_replay_->path.filename())}}),
+                       NoticeKind::Info);
+            pending_replay_->waits_noticed = true;
+            return;
+        }
         pending_replay_->image = image;
         if (dirty_) play_prompt_ = true;
         else Start(quit);
@@ -3895,6 +3921,7 @@ private:
     void Draw(bool& quit)
     {
         PollKept();
+        PollFolderInUse();
         PollReplay(quit);
         auto& io = ImGui::GetIO();
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false) && config_ok_ && dirty_) Save();

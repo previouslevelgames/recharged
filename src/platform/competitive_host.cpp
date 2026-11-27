@@ -36,6 +36,9 @@ constexpr int kModeDemo = 2;
 // A set's game waits this long for its last report before it ends the set
 // anyway.
 constexpr auto kEndWait = 20s;
+// A rematch the player asked for waits this long for the opponent's answer;
+// then the game calls it off (the server would keep it for 10 minutes).
+constexpr auto kRematchWait = 60s;
 
 // The launcher's GoKey: each go of a set (it can go again after a Ready to
 // play! taken back) has its own.
@@ -112,6 +115,9 @@ void CompetitiveHost::Stop()
         // A set still waiting for this game: the opponent's game hears at once
         // that this one is gone, not only once the server gives up on it.
         withdraw_on_stop_ = set_ && !set_unready_ && set_stage_ != CHARGED_SET_PLAYING && set_stage_ != CHARGED_SET_OVER;
+        // A rematch still waiting for the opponent's answer: called off, so
+        // their game drops its question at once.
+        withdraw_ask_ = ask_ ? ask_->match : 0;
         // During its match: the series with the game in play broken off, so
         // the server settles the set now and both players are free.
         if (!series_done_ && series_match_ != 0 && playing_)
@@ -121,7 +127,7 @@ void CompetitiveHost::Stop()
             reports_.push_back({series_match_, games});
             series_done_ = true;
         }
-        if (withdraw_on_stop_ || !reports_.empty())
+        if (withdraw_on_stop_ || withdraw_ask_ || !reports_.empty())
         {
             wake_.notify_all();
             wake_.wait_for(lock, kWithdrawWait, [this] { return withdrawn_; });
@@ -257,6 +263,9 @@ bool CompetitiveHost::Observe(const ChargedWfcSnapshot& wfc, const ChargedPresen
             activity_ = activity;
             next_match_ = {};
             wake = true;
+            // A match of this game's (not the set the rematch asked for, which
+            // goes only once the server shows it accepted) calls the rematch off.
+            if (activity_ == "match" && ask_) ask_->match_started = true;
         }
         // A new kind, screen or game of a set says so with the next heartbeat.
         match_kind_ = kind ? kind : "";
@@ -504,13 +513,34 @@ void CompetitiveHost::CallOff(std::int64_t match)
     Kick();
 }
 
-void CompetitiveHost::PlayAgain(std::int64_t match, bool rematch, const std::string& stadium)
+void CompetitiveHost::PlayAgain(std::int64_t match, bool rematch, const std::string& stadium,
+                                const std::string& opponent)
 {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         again_match_ = match;
         again_rematch_ = rematch;
         again_stadium_ = rematch ? stadium : std::string();
+        // The ask waits from now; the worker learns its set from the answer.
+        if (rematch) ask_ = Ask{0, opponent, Clock::now() + kRematchWait, false};
+    }
+    Kick();
+}
+
+std::optional<CompetitiveHost::PendingAsk> CompetitiveHost::PendingRematch()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!ask_) return std::nullopt;
+    return PendingAsk{ask_->opponent, ask_->deadline};
+}
+
+void CompetitiveHost::CallOffRematch()
+{
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!ask_) return;
+        ask_->match_started = true;
+        next_match_ = {};
     }
     Kick();
 }
@@ -588,11 +618,13 @@ void CompetitiveHost::Run()
     // The game closes during its set's way to the opponent's: the set is
     // called off, so the opponent's game leaves it now and both are free.
     // During the match or after it: the series goes out now, with the game
-    // the close broke off, so the server settles the set at once.
+    // the close broke off, so the server settles the set at once. A rematch
+    // still waiting for the opponent's answer is called off too.
     std::vector<Report> reports;
     reports.swap(reports_);
     const bool withdraw = withdraw_on_stop_;
-    if (!withdraw && reports.empty()) return;
+    const std::int64_t ask = withdraw_ask_;
+    if (!withdraw && !ask && reports.empty()) return;
     const std::int64_t set = set_;
     auto cancel = std::make_shared<HttpCancel>();
     cancel_ = cancel;
@@ -601,6 +633,17 @@ void CompetitiveHost::Run()
     {
         ProfileService api(server_, token_);
         api.SetCancel(cancel);
+        if (ask)
+            try
+            {
+                api.Cancel(ask);
+                Said("the game closes; the rematch it asked for (match " + std::to_string(ask) + ") is called off");
+            }
+            catch (const ProfileError& e)
+            {
+                // Answered meanwhile, or no answer: the server ends it by itself.
+                if (e.Cancelled()) throw;
+            }
         if (withdraw)
         {
             api.Cancel(set);
@@ -733,12 +776,13 @@ void CompetitiveHost::Work(ProfileService& api)
     if (again)
     {
         std::optional<std::string> notice;
+        std::optional<ProfileMatch> asked;
         try
         {
-            const auto asked = rematch ? api.Rematch(again, again_stadium) : api.ReadyToPlay(again, true);
+            asked = rematch ? api.Rematch(again, again_stadium) : api.ReadyToPlay(again, true);
             Said((rematch ? "asked for a rematch of match " : "ready again for match ") + std::to_string(again)
-                 + " in the game (match " + std::to_string(asked.id) + ", " + asked.stage
-                 + (again_stadium.empty() ? std::string() : ", stadium " + asked.rules.stadium) + ")");
+                 + " in the game (match " + std::to_string(asked->id) + ", " + asked->stage
+                 + (again_stadium.empty() ? std::string() : ", stadium " + asked->rules.stadium) + ")");
         }
         catch (const ProfileError& e)
         {
@@ -750,6 +794,18 @@ void CompetitiveHost::Work(ProfileService& api)
                                      : texts::T("menus.messages.set_gone");
         }
         std::lock_guard<std::mutex> lock(mutex_);
+        // The rematch waits for the opponent's answer as the challenge it
+        // made; one that accepted the opponent's own rematch goes at once,
+        // and one the server did not take is over.
+        if (rematch && ask_ && !ask_->match)
+        {
+            if (asked && asked->state == "challenged")
+            {
+                ask_->match = asked->id;
+                if (!asked->opponent.name.empty()) ask_->opponent = asked->opponent.name;
+            }
+            else ask_.reset();
+        }
         if (notice) notice_ = notice;
         next_match_ = {};
     }
@@ -768,6 +824,70 @@ void CompetitiveHost::Work(ProfileService& api)
     if (fetch || report)
     {
         auto current = api.CurrentMatch();
+        // The rematch asked in this game: an answer ends it (an accept goes on
+        // below, as any set that goes); unanswered in time, or overtaken by a
+        // match this game started, the game calls it off now.
+        std::int64_t withdraw = 0;
+        bool timed_out = false;
+        std::string asked_opponent, ask_line;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (ask_ && ask_->match)
+            {
+                const std::string state = current && current->id == ask_->match ? current->state : std::string();
+                asked_opponent = ask_->opponent;
+                if (state == "challenged")
+                {
+                    if (ask_->match_started || Clock::now() >= ask_->deadline)
+                    {
+                        withdraw = ask_->match;
+                        timed_out = !ask_->match_started;
+                    }
+                }
+                else
+                {
+                    const std::string name = current && !current->opponent.name.empty() ? current->opponent.name
+                                                                                       : ask_->opponent;
+                    if (state != "accepted")
+                        notice_ = state == "declined"  ? texts::T("menus.messages.rematch_declined", {{"name", name}})
+                                : state == "expired"   ? texts::T("menus.messages.rematch_no_answer", {{"name", name}})
+                                : state == "dissolved" ? texts::T("menus.messages.rematch_opponent_gone", {{"name", name}})
+                                                       : texts::T("menus.messages.rematch_called_off", {{"name", name}});
+                    ask_line = "the rematch (match " + std::to_string(ask_->match) + ") "
+                             + (state == "accepted" ? "was accepted" : "ended: " + (state.empty() ? "gone" : state));
+                    ask_.reset();
+                }
+            }
+        }
+        if (!ask_line.empty()) Said(ask_line);
+        if (withdraw)
+        {
+            std::optional<ProfileMatch> withdrawn;
+            try
+            {
+                withdrawn = api.Cancel(withdraw);
+                Said("called off the rematch (match " + std::to_string(withdraw) + "): "
+                     + (timed_out ? "no answer in time" : "the player started another match"));
+            }
+            catch (const ProfileError& e)
+            {
+                // Without an answer it is called off at the next check; one
+                // the server refused was answered meanwhile (the next check
+                // shows how).
+                if (e.Cancelled() || e.Status() == 0) throw;
+                Said("the rematch (match " + std::to_string(withdraw) + ") was not called off: " + e.what());
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (ask_ && ask_->match == withdraw)
+            {
+                if (withdrawn)
+                    notice_ = timed_out
+                        ? texts::T("menus.messages.rematch_no_answer", {{"name", asked_opponent}})
+                        : texts::T("menus.messages.rematch_match_started", {{"name", asked_opponent}});
+                ask_.reset();
+            }
+            if (withdrawn && current && current->id == withdraw) current = withdrawn;
+        }
         // A challenge to this player: the card's, while the game is not a set's.
         std::optional<Invitation> invitation;
         if (current && current->state == "challenged" && current->side == "challenged")
@@ -788,6 +908,14 @@ void CompetitiveHost::Work(ProfileService& api)
             std::lock_guard<std::mutex> lock(mutex_);
             if (current && set_ && current->id == set_ && current->state != "accepted") set_ended = current->state;
         }
+        // A challenge that ended without an answer (its challenger called it
+        // off, or it ran out), for the card that showed it.
+        const std::int64_t ended = current
+                                    && (current->state == "cancelled" || current->state == "expired"
+                                        || current->state == "dissolved")
+                                     ? current->id
+                                     : 0;
+        const bool ended_gone = current && current->state == "dissolved";
         if (current && current->state != "accepted") current.reset();
         std::optional<ChargedCompetitiveRules> rules;
         if (current)
@@ -798,6 +926,16 @@ void CompetitiveHost::Work(ProfileService& api)
             else Said(error);
         }
         std::unique_lock<std::mutex> lock(mutex_);
+        // The card asked the player, who had not answered yet: it goes, and
+        // a notice says why.
+        if (invitation_ && ended && invitation_->match == ended && ended != answered_match_ && !set_
+            && activity_ == "game")
+        {
+            const std::string& from = invitation_->from;
+            notice_ = !invitation_->rematch ? texts::T("menus.messages.challenge_withdrawn", {{"name", from}})
+                    : ended_gone            ? texts::T("menus.messages.rematch_opponent_gone", {{"name", from}})
+                                            : texts::T("menus.messages.rematch_withdrawn", {{"name", from}});
+        }
         invitation_ = set_ ? std::nullopt : invitation;
         const bool news = (current ? current->id : 0) != (match_ ? match_->id : 0);
         match_ = current;
@@ -810,8 +948,10 @@ void CompetitiveHost::Work(ProfileService& api)
             rules_ = rules;
             ++rules_version_;
         }
+        // A set on its way, or a rematch waiting for its answer (it goes at
+        // once when accepted), is checked often.
         next_match_ = Clock::now()
-                    + (set_ && set_stage_ <= CHARGED_SET_SEARCH ? kSetWaitEvery
+                    + ((set_ && set_stage_ <= CHARGED_SET_SEARCH) || ask_ ? kSetWaitEvery
                        : activity_ == "game" && !set_          ? kMenuMatchEvery
                                                                : kMatchEvery);
         if (news)

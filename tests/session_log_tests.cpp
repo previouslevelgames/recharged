@@ -10,6 +10,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <csignal>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -64,6 +65,23 @@ int Child(const std::string& directory, const char* mode, char* program)
     waitpid(pid, &status, 0);
     return status;
 }
+
+// A child that keeps its log open (a game that runs) until it is ended.
+pid_t Holder(const std::string& directory, char* program)
+{
+    const pid_t pid = fork();
+    Require(pid >= 0, "fork failed");
+    if (pid == 0)
+    {
+        setenv("RECHARGED_LOG_DIR", directory.c_str(), 1);
+        char* argv[] = {program, const_cast<char*>("hold"), nullptr};
+        mscharged::platform::StartSessionLog("test", 2, argv);
+        mscharged::platform::SessionLogLine("holder ready");
+        pause();
+        std::_Exit(0);
+    }
+    return pid;
+}
 } // namespace
 
 int main(int, char** argv)
@@ -109,8 +127,33 @@ int main(int, char** argv)
         Require(over != std::string::npos && over > freeze, "End of the freeze not logged");
         Require(text.find("*** Freeze", freeze + 1) == std::string::npos, "Freeze logged after the watch stopped");
 
+        // A second program while one writes the log (a Watch link opened
+        // while the game runs): its own log, the running one's stays as it is.
+        const pid_t holder = Holder(directory, argv[0]);
+        for (int wait = 0; wait < 500 && Read(log).find("holder ready") == std::string::npos; ++wait)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        Require(Read(log).find("holder ready") != std::string::npos, "The holder did not start its log");
+        status = Child(directory, "normal", argv[0]);
+        Require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "Second program did not exit 0");
+        text = Read(log);
+        Require(text.find("holder ready") != std::string::npos && text.find("stdout before normal") == std::string::npos,
+                "The second program changed the running program's log");
+        text = Read(directory + "/recharged.2.log");
+        Require(text.find("stdout before normal") != std::string::npos
+                    && text.find("Another Recharged writes recharged.log now: this one writes recharged.2.log.")
+                        != std::string::npos,
+                "The second program did not write recharged.2.log");
+        kill(holder, SIGTERM);
+        waitpid(holder, &status, 0);
+        // The holder ended: the next program takes recharged.log again.
+        status = Child(directory, "normal", argv[0]);
+        Require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "Run after the holder did not exit 0");
+        Require(Read(log).find("stdout before normal") != std::string::npos
+                    && Read(directory + "/recharged.previous.log").find("holder ready") != std::string::npos,
+                "The log after the holder did not take recharged.log");
+
         std::printf("Session log: console copy, log-only lines, normal/fatal exits, previous log, crash and freeze "
-                    "reports pass.\n");
+                    "reports, a second program's own log pass.\n");
         return 0;
     }
     catch (const std::exception& error)
